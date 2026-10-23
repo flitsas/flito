@@ -8,7 +8,7 @@
 // Imports con extensión `.ts` para que `node --experimental-strip-types --test` lo cargue tal cual.
 
 import {
-  crearMapaMascara, enmascarar, restaurar, restaurarTexto, tipoDeTokenMascara, type MapaMascara,
+  crearMapaMascara, enmascarar, restaurar, restaurarTexto, tipoDeTokenMascara, tokensDe, type MapaMascara,
 } from '../../../../packages/shared-types/src/flito-dr-flit-mascara.ts';
 import { sinValoresDeGestion, type TipoValorGestion, type ValorDetectado } from './drFlitGestion.ts';
 
@@ -111,4 +111,27 @@ export function valorGestionDeRef(ref: string | null, mapa: MapaMascara): ValorD
   const tipo = tipoToken ? TIPO_GESTION_DE_TOKEN[tipoToken] : undefined;
   const valor = restaurar(ref, mapa);
   return tipo && valor ? { tipo, valor } : null;
+}
+
+/** `gestionTarget` del contrato → tipo de token de la máscara (`cliente` no se consulta: D-9). */
+const TOKEN_DE_TARGET: Partial<Record<string, string>> = { placa: 'PLACA', vin: 'VIN', tramite: 'TRAMITE' };
+
+/**
+ * HU #13858 (IA-6 AC2, AC4, AC5): valores de gestión que la oferta de F6 puede usar, SOLO del mensaje
+ * de ESTE envío (`mensajeEnmascarado` = `envio.mensaje`) y restaurados de SU mapa, nunca del modelo.
+ * Un token del historial (o de un `reply` viejo guardado con su propia numeración) no cuenta: el valor
+ * tiene que estar escrito en el mensaje. `gestionRef` presente en el mensaje → solo ese valor; si no,
+ * todos los del tipo pedido, en orden de lectura y sin repetir. Lista vacía = «necesito la placa…».
+ */
+export function valoresGestionDelEnvio(
+  ref: string | null, target: string | null, mensajeEnmascarado: string, mapa: MapaMascara,
+): ValorDetectado[] {
+  const tipoToken = target ? TOKEN_DE_TARGET[target] : undefined;
+  if (!tipoToken) return [];
+  const delTipo = [...new Set(tokensDe(mensajeEnmascarado))].filter((t) => tipoDeTokenMascara(t) === tipoToken);
+  const elegidos = ref && delTipo.includes(ref) ? [ref] : delTipo;
+  return elegidos.flatMap((t) => {
+    const v = valorGestionDeRef(t, mapa);
+    return v ? [v] : [];
+  });
 }

@@ -54,7 +54,9 @@ import { vistaAutorizacion } from './DrFlitAutorizacion';
 // almacén solo guarda un marcador sin valor (`serializar`).
 // HU #13857 (Feature #13696, IA-5): con la IA disponible, autorización `ia` vigente y cupo, la pregunta
 // va primero al chat (`useIaDrFlit`); `duda`/`no_claro` se pintan como `respuestaIa` y todo lo demás
-// (degradado, red, 429, 428, `soporte`/`gestion` hasta IA-6) cae en silencio al camino de F3/F6.
+// (degradado, red, 429, 428) cae en silencio al camino de F3/F6.
+// HU #13858 (IA-6): `soporte` ofrece F5 y `gestion` la oferta de F6 con el valor del mapa local
+// (`rutearIa`); la consulta sigue exigiendo el clic y sus resultados nunca vuelven al chat.
 
 export interface DrFlitPanelProps {
   /** Se llama al seguir un enlace del panel: en <lg el montaje cierra el panel para ver la página. */
@@ -338,9 +340,42 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
       respaldo(id, texto, intento);
     };
     ia.preguntar(texto, previos).then((r) => {
-      if (r.tipo === 'respaldo') caer();
-      else if (vivo.current && t === turno.current) publicarIa(id, r, t);
+      if (r.tipo === 'respaldo') {
+        caer();
+        return;
+      }
+      if (!vivo.current || t !== turno.current) return;
+      if (r.tipo === 'ia') publicarIa(id, r, t);
+      else rutearIa(id, texto, intento, r);
     }, caer);
+  };
+
+  /**
+   * HU #13858 (IA-6): `soporte` → oferta de F5 (AC1); `gestion` → oferta de F6 con el valor del mapa
+   * local (AC2), varios valores sin `gestionRef` (AC4), sin valor (AC5) o por documento (AC6). Nada
+   * se consulta aquí: la consulta de F6 solo corre al pulsar la oferta.
+   */
+  const rutearIa = (id: string, texto: string, intento: number, r: Exclude<ResultadoIa, { tipo: 'ia' | 'respaldo' }>) => {
+    setPendiente(null);
+    // Sin soporte disponible, la oferta no se muestra y la pregunta se responde con F3 (spec IA).
+    if (r.tipo === 'soporte' && !soporteVisible) {
+      buscarPregunta(id, texto, intento);
+      return;
+    }
+    const msgId = nuevoIdMensaje();
+    const base = { id: msgId, ts: Date.now(), de: 'drflit', respondeA: id } as const;
+    if (r.tipo === 'gestion' && r.valores.length > 0) {
+      const [{ tipo, valor }] = r.valores;
+      const valores = r.valores.slice(0, 3).map((v) => v.valor);
+      const varios = r.valores.length > 1 ? { valores, consultados: [], mas: r.valores.length > 3 } : undefined;
+      setMensajes((prev) => agregar(prev, { ...base, tipo: 'ofertaGestion', valor, tipoValor: tipo, estado: 'viva', varios }));
+      return;
+    }
+    if (r.tipo === 'soporte') recordarMapa(msgId, r.mapa);
+    const intent = r.tipo === 'soporte' ? 'soporte' : r.tipo === 'documento' ? 'gestion-documento' : 'gestion-sin-valor';
+    setMensajes((prev) => agregar(prev, {
+      ...base, tipo: 'respuestaIa', intent, texto: r.tipo === 'soporte' ? r.reply : null, enManuales: false, refs: [],
+    }));
   };
 
   const preguntar = (texto: string) => {
