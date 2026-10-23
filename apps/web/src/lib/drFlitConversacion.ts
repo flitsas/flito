@@ -18,6 +18,10 @@ export const MAX_MENSAJES = 50;
 /** Tope de la pregunta del usuario (HU #13766 AC6). */
 export const MAX_PREGUNTA = 300;
 
+/** `intent` de una `respuestaIa` guardable (HU #13857 IA-5 + HU #13858 IA-6). */
+export type IntentRespuestaIa = 'duda' | 'no_claro' | 'soporte' | 'gestion-sin-valor' | 'gestion-documento';
+const INTENTS_RESPUESTA_IA: readonly string[] = ['duda', 'no_claro', 'soporte', 'gestion-sin-valor', 'gestion-documento'];
+
 /** Referencia a una ficha; sin `ancla` = la ficha completa. */
 export interface RefFicha {
   clave: string;
@@ -47,9 +51,12 @@ export type MensajeDrFlit =
    * COMO LLEGÓ (con tokens de máscara, nunca valores): la pantalla los restaura solo mientras el mapa
    * del envío vive en memoria (AC9). Las citas se guardan como en F3 (`{clave, ancla}`); los títulos
    * se derivan al pintar. Tipo nuevo sin subir `VERSION_CONVERSACION`.
+   * HU #13858 (IA-6): también `soporte` (oferta de F5, `texto` = reply o `null`) y los dos copys fijos
+   * de gestión sin consulta: `gestion-sin-valor` y `gestion-documento` (`texto` siempre `null`: ningún
+   * valor ni documento se guarda). La oferta de F6 con valor NO es `respuestaIa`: es `ofertaGestion`.
    */
   | (Base & {
-    de: 'drflit'; tipo: 'respuestaIa'; respondeA: string; intent: 'duda' | 'no_claro'; texto: string | null;
+    de: 'drflit'; tipo: 'respuestaIa'; respondeA: string; intent: IntentRespuestaIa; texto: string | null;
     enManuales: boolean; refs: RefFicha[];
   })
   /**
@@ -149,13 +156,14 @@ function mensajeValido(x: unknown): MensajeDrFlit | null {
         ? { ...base, de: 'drflit', tipo: 'casoRadicado', numero: x.numero } : null;
     case 'respuestaIa': {
       if (x.de !== 'drflit' || !esTexto(x.respondeA) || !Array.isArray(x.refs)) return null;
-      if (x.intent !== 'duda' && x.intent !== 'no_claro') return null;
+      if (typeof x.intent !== 'string' || !INTENTS_RESPUESTA_IA.includes(x.intent)) return null;
       if (x.texto !== null && !esTexto(x.texto)) return null;
+      if (x.intent.startsWith('gestion') && x.texto !== null) return null;
       if (typeof x.enManuales !== 'boolean' || x.refs.length > MAX_CITAS) return null;
       const refs = x.refs.map(refValida);
       return refs.every((r): r is RefFicha => r !== null)
         ? {
-          ...base, de: 'drflit', tipo: 'respuestaIa', respondeA: x.respondeA, intent: x.intent, texto: x.texto,
+          ...base, de: 'drflit', tipo: 'respuestaIa', respondeA: x.respondeA, intent: x.intent as IntentRespuestaIa, texto: x.texto,
           enManuales: x.enManuales, refs,
         }
         : null;

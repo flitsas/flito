@@ -58,21 +58,33 @@ export function useGestionDrFlit({ userId, user, hasFuncion, mensajes, setMensaj
   };
 
   /** «Consultar {valor} en sus módulos»: retira los botones, inserta el bloque y lleva el foco al título. */
-  const consultar = (ofertaId: string) => {
+  // HU #13858 (IA-6 AC4): en la oferta de varios valores, `elegido` es el del botón pulsado; los demás
+  // siguen vivos y la oferta pasa a `consultada` cuando ya no queda ninguno.
+  const consultar = (ofertaId: string, elegido?: string) => {
     const oferta = mensajes.find((m) => m.id === ofertaId);
     if (!oferta || oferta.tipo !== 'ofertaGestion' || oferta.estado !== 'viva') return;
-    if (pulsadas.current.has(ofertaId)) return;
-    pulsadas.current.add(ofertaId);
+    const { varios } = oferta;
+    const valor = varios ? elegido : oferta.valor;
+    if (!valor || (varios && (!varios.valores.includes(valor) || varios.consultados.includes(valor)))) return;
+    const clave = varios ? `${ofertaId}:${valor}` : ofertaId;
+    if (pulsadas.current.has(clave)) return;
+    pulsadas.current.add(clave);
     const modulos = modulosPara(oferta.tipoValor);
     const rid = nuevoIdMensaje();
+    const marcar = (m: typeof oferta): typeof oferta => {
+      if (!m.varios) return { ...m, estado: 'consultada' };
+      const consultados = [...m.varios.consultados, valor];
+      const quedan = m.varios.valores.some((v) => !consultados.includes(v));
+      return { ...m, estado: quedan ? 'viva' : 'consultada', varios: { ...m.varios, consultados } };
+    };
     setMensajes((prev) =>
       agregar(
-        prev.map((m) => (m.id === ofertaId && m.tipo === 'ofertaGestion' ? { ...m, estado: 'consultada' as const } : m)),
-        { id: rid, ts: Date.now(), de: 'drflit', tipo: 'resultadoGestion', valor: oferta.valor, tipoValor: oferta.tipoValor, modulos },
+        prev.map((m) => (m.id === ofertaId && m.tipo === 'ofertaGestion' ? marcar(m) : m)),
+        { id: rid, ts: Date.now(), de: 'drflit', tipo: 'resultadoGestion', valor, tipoValor: oferta.tipoValor, modulos },
       ),
     );
     anunciar(modulos.length ? 'Consultando sus módulos…' : 'No encontré resultados en sus módulos.');
-    if (modulos.length) lanzar(rid, oferta.valor, modulos, false);
+    if (modulos.length) lanzar(rid, valor, modulos, false);
     enfocar(idTituloGestion(rid));
   };
 

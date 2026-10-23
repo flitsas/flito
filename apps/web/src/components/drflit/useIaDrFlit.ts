@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CitaDrFlit, CupoIaDrFlit, EstadoAutorizacionDrFlit } from '@operaciones/shared-types';
 import { alLimpiarDrFlit } from '../../lib/drFlitAlmacen';
-import { prepararEnvioIa } from '../../lib/drFlitIa';
+import { prepararEnvioIa, valoresGestionDelEnvio } from '../../lib/drFlitIa';
+import type { ValorDetectado } from '../../lib/drFlitGestion';
 import {
   aceptarAutorizacionIa, consultarAutorizacionIa, enviarChatIa, esVersionNoVigente,
 } from '../../lib/drFlitIaChat';
@@ -12,7 +13,8 @@ type MapaMascara = ReturnType<typeof prepararEnvioIa>['mapa'];
 // Dr. Flit IA — estado de la IA en el panel (HU #13857 IA-5; spec `docs/ux/flito-dr-flit-f4-ia.md`).
 // Decide si una pregunta va al chat (`enUso`: IA disponible + autorización `ia` vigente + cupo), lleva
 // la vista «Antes de usar la IA» y los avisos A/B/C del pie (IA.3). Toda falla de la IA devuelve
-// `respaldo`: el panel responde con F3/F6 sin aviso (AC7). Nada de esto escribe en consola.
+// `respaldo`: el panel responde con F3/F6 sin aviso (AC7). HU #13858 (IA-6): `soporte` y `gestion`
+// vuelven como resultado propio (oferta de F5 / F6) en vez de caer al respaldo. Nada de esto escribe en consola.
 //
 // Memoria de la pestaña (no `sessionStorage`): si ya se ofreció la autorización, si la IA se apagó o
 // el cupo se agotó en esta sesión, y el mapa de máscara POR ENVÍO (id del mensaje → mapa), que solo
@@ -55,6 +57,12 @@ export type ResultadoIa =
     tipo: 'ia'; intent: 'duda' | 'no_claro'; reply: string | null; enManuales: boolean; citas: CitaDrFlit[];
     mapa: MapaMascara;
   }
+  /** HU #13858 (IA-6 AC1): oferta de soporte de F5; `reply` con tokens (se restaura con `mapa`). */
+  | { tipo: 'soporte'; reply: string | null; mapa: MapaMascara }
+  /** IA-6 AC2/AC4/AC5: valores del mensaje de ESTE envío, del mapa local (vacío = «necesito la placa…»). */
+  | { tipo: 'gestion'; valores: ValorDetectado[] }
+  /** IA-6 AC6: gestión por documento → solo enlaces a los módulos, sin consulta. */
+  | { tipo: 'documento' }
   | { tipo: 'respaldo' };
 
 /** A: cupo agotado · B: sin aceptar · C: la versión cambió (428). Precedencia C > A > B (IA.3). */
@@ -222,10 +230,15 @@ export function useIaDrFlit(userId: number | undefined, alVolverAlChat: (anuncio
       return { tipo: 'respaldo' } as const;
     }
     marcarCupo(resp.cupo);
-    if (resp.degradado || (resp.intent !== 'duda' && resp.intent !== 'no_claro')) {
-      // ia-timeout / ia-error / respuesta-invalida, y `soporte`/`gestion` hasta IA-6: modo de F3/F6.
-      return { tipo: 'respaldo' } as const;
+    // ia-timeout / ia-error / respuesta-invalida (o intent desconocido): modo de F3/F6 (IA-6 AC7).
+    if (resp.degradado || !resp.intent) return { tipo: 'respaldo' } as const;
+    if (resp.intent === 'soporte') return { tipo: 'soporte', reply: resp.reply, mapa } as const;
+    if (resp.intent === 'gestion') {
+      if (resp.gestionTarget === 'cliente') return { tipo: 'documento' } as const;
+      // El valor sale del mapa local y SOLO del mensaje de este envío, nunca del modelo (AC2).
+      return { tipo: 'gestion', valores: valoresGestionDelEnvio(resp.gestionRef, resp.gestionTarget, envio.mensaje, mapa) } as const;
     }
+    if (resp.intent !== 'duda' && resp.intent !== 'no_claro') return { tipo: 'respaldo' } as const;
     return {
       tipo: 'ia', intent: resp.intent, reply: resp.reply, enManuales: resp.enManuales === true,
       citas: resp.citas.slice(0, 3), mapa,

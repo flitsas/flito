@@ -16,12 +16,14 @@ const NOMBRE_TIPO: Record<TipoValorGestion, string> = {
 
 export interface OfertaGestionProps {
   mensaje: MensajeOfertaGestion;
-  onConsultar: (id: string) => void;
+  /** `valor` solo en la oferta de varios valores (HU #13858 IA-6 AC4). */
+  onConsultar: (id: string, valor?: string) => void;
   onManuales: (id: string) => void;
 }
 
 export function OfertaGestion({ mensaje, onConsultar, onManuales }: OfertaGestionProps) {
   const { valor, estado } = mensaje;
+  if (mensaje.varios) return <OfertaGestionVarios mensaje={mensaje} onConsultar={onConsultar} onManuales={onManuales} />;
   if (estado === 'ignorada') {
     return (
       <BurbujaDrFlit>
@@ -50,6 +52,56 @@ export function OfertaGestion({ mensaje, onConsultar, onManuales }: OfertaGestio
           </button>
         </div>
       )}
+    </BurbujaDrFlit>
+  );
+}
+
+const VARIOS_TIPO: Record<TipoValorGestion, { varios: string; resto: string }> = {
+  placa: { varios: 'varias placas', resto: 'Escriba las demás en otro mensaje.' },
+  vin: { varios: 'varios VIN', resto: 'Escriba los demás en otro mensaje.' },
+  idFlit: { varios: 'varios id FLIT', resto: 'Escriba los demás en otro mensaje.' },
+};
+
+/** «Y» en español: «ABC123», «ABC123 ni XYZ789», «A, B ni C». */
+function lista(valores: string[]): string {
+  return valores.length < 2 ? valores.join('') : `${valores.slice(0, -1).join(', ')} ni ${valores[valores.length - 1]}`;
+}
+
+/**
+ * HU #13858 (IA-6 AC4, spec IA): varios valores del mismo tipo y la IA no eligió uno. Un botón
+ * secundario por valor (ninguno pesa más), nada se consulta sin clic; el pulsado desaparece y los
+ * demás siguen vivos hasta el siguiente mensaje («No consulté …», regla de F6).
+ */
+function OfertaGestionVarios({ mensaje, onConsultar, onManuales }: OfertaGestionProps) {
+  const varios = mensaje.varios!;
+  const pendientes = varios.valores.filter((v) => !varios.consultados.includes(v));
+  const textos = VARIOS_TIPO[mensaje.tipoValor];
+  if (mensaje.estado === 'ignorada' && pendientes.length > 0) {
+    return (
+      <BurbujaDrFlit>
+        <p className="break-words text-flit-secondary">No consulté {lista(pendientes)}.</p>
+      </BurbujaDrFlit>
+    );
+  }
+  return (
+    <BurbujaDrFlit>
+      <p className="break-words">Encontré {textos.varios} en su mensaje. ¿Cuál quiere consultar?</p>
+      {mensaje.estado === 'viva' && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {pendientes.map((v) => (
+            <button key={v} type="button" onClick={() => onConsultar(mensaje.id, v)} className={flitBtnSecondarySm}>
+              Consultar {v}
+            </button>
+          ))}
+          {/* Como en F6: tras la primera consulta la Ayuda ya no se ofrece en esta burbuja. */}
+          {varios.consultados.length === 0 && (
+            <button type="button" onClick={() => onManuales(mensaje.id)} className={flitBtnSecondarySm}>
+              Buscar en los manuales
+            </button>
+          )}
+        </div>
+      )}
+      {mensaje.estado === 'viva' && varios.mas && <p className="mt-2 text-xs text-flit-secondary">{textos.resto}</p>}
     </BurbujaDrFlit>
   );
 }
