@@ -4,7 +4,8 @@
 // (contrato, D3) y ADR-0026.
 //
 //   GET  /autorizacion?finalidad=soporte|ia  — estado de la autorización VIGENTE del propio usuario,
-//                                              texto vigente y disponibilidad del soporte.
+//                                              texto vigente y disponibilidad del soporte. Con
+//                                              `finalidad=ia` añade `ia: { disponible, cupo }` (HU #13854).
 //   POST /autorizacion                       — registra la aceptación (201 nueva · 200 ya existía).
 //   POST /casos-soporte                      — radica el caso (201 nuevo · 200 repetido). Dos formas:
 //                                              · `application/json` = `CasoSoporteDrFlit` sin adjuntos
@@ -60,7 +61,10 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { funcionesConcedidas } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { drflitCasosLimiter } from '../../shared/middleware/rateLimiter.js';
-import { ADJUNTOS_DRFLIT, ambienteDespliegue, etiquetaAmbiente, soporteDisponible } from './dr-flit.config.js';
+import {
+  ADJUNTOS_DRFLIT, ambienteDespliegue, etiquetaAmbiente, iaDisponible, soporteDisponible,
+} from './dr-flit.config.js';
+import { consultarCupoIa } from './dr-flit-ia.cupo.js';
 import {
   AutorizacionDrFlitError, aceptarAutorizacion, estadoAutorizacion, repoAutorizaciones, textoVigente, versionVigente,
 } from './dr-flit.service.js';
@@ -152,6 +156,11 @@ router.get('/autorizacion', async (req: Request, res: Response) => {
       adjuntos: ADJUNTOS_DRFLIT,
     },
   };
+  // HU #13854 (AC6/AC7): solo con `finalidad=ia`; `soporte` no cambia. Cupo del propio usuario (`sub`).
+  if (finalidad === 'ia') {
+    const disponible = iaDisponible();
+    cuerpo.ia = { disponible, cupo: disponible ? await consultarCupoIa(req.user!.sub) : null };
+  }
   res.json(cuerpo);
 });
 

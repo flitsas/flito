@@ -1,5 +1,6 @@
 // HU #13803 (Feature #13695) — Dr. Flit: autorizaciones de tratamiento de datos (Ley 1581). Migración 0245.
 // HU #13804 — intentos de radicación en FLIT - SOPORTE. Migración 0246.
+// HU #13854 — cupo diario de mensajes a la IA. Migración 0247 (sin triggers de solo inserción).
 // Vive aparte de `schema.ts` por el techo de max-lines (3400), como `schema/flito-comprobantes.ts`. A
 // diferencia de esa, `schema.ts` NO la re-exporta (está justo en el techo): se importa de aquí directo. Diseño: docs/diseno/feature-13695-dr-flit-soporte.md (modelo de datos).
 //
@@ -7,7 +8,7 @@
 // mecanismo que `pii_access_log`, 0059). CHECKs declarados aquí y en la migración (lección 0157).
 // `ON DELETE RESTRICT` hacia `users`: las cuentas se desactivan, nunca se borran.
 import {
-  pgTable, serial, integer, varchar, char, timestamp, uniqueIndex, index, check, uuid, smallint,
+  pgTable, serial, integer, varchar, char, timestamp, uniqueIndex, index, check, uuid, smallint, date, primaryKey,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { users } from '../schema.js';
@@ -59,4 +60,18 @@ export const flitoDrflitCasosSoporte = pgTable('flito_drflit_casos_soporte', {
   ckNumero: check('ck_flito_drflit_casos_numero', sql`${t.estado} <> 'creado' OR ${t.numeroAdo} IS NOT NULL`),
   ckAmbiente: check('ck_flito_drflit_casos_ambiente', sql`${t.ambiente} IN ('DEV','QA','PDN')`),
   ckAdjuntos: check('ck_flito_drflit_casos_adjuntos', sql`${t.adjuntosCantidad} BETWEEN 0 AND 10`),
+}));
+
+// HU #13854 (Feature #13696, IA-2) — 0247. Cupo diario de mensajes a la IA: usuario × día America/Bogota.
+// Solo el contador (sin texto, IP ni intent). Purga a 90 días. `ON DELETE CASCADE`: sin valor probatorio.
+export const flitoDrflitCupoIa = pgTable('flito_drflit_cupo_ia', {
+  usuarioId: integer('usuario_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  /** Día calendario de America/Bogota (`YYYY-MM-DD`). */
+  dia: date('dia', { mode: 'string' }).notNull(),
+  usados: smallint('usados').notNull().default(0),
+  actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ name: 'pk_flito_drflit_cupo_ia', columns: [t.usuarioId, t.dia] }),
+  ixDia: index('ix_flito_drflit_cupo_ia_dia').on(t.dia),
+  ckUsados: check('ck_flito_drflit_cupo_ia_usados', sql`${t.usados} >= 0`),
 }));
