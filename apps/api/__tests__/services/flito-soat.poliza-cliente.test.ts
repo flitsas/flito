@@ -291,6 +291,8 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
       'POST /api/flito/dr-flit/autorizacion',
       // HU #13804: radicar el caso de soporte; solo datos del propio usuario (`sub`), nada del montaje SOAT.
       'POST /api/flito/dr-flit/casos-soporte',
+      // HU #13856 (IA-4): chat con IA; solo el mensaje del propio usuario (`sub`), nada del montaje SOAT.
+      'POST /api/flito/dr-flit/chat',
     ]);
   });
 });
