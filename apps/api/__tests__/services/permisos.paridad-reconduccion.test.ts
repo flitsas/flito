@@ -144,6 +144,8 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts GET /companias/:companiaId/tipos/:tipo/historial',
       'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts POST /companias/:companiaId/tipos/:tipo',
       'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts GET /documentos/:documentoId/archivo',
+      // HU #13890 (ADR-0028 §5 E4): la fecha manual reutiliza `bolsas.documentos.cargar`, sin reparto de partida.
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts PUT /documentos/:documentoId/fecha-expedicion',
       'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago',
     ]);
   });
