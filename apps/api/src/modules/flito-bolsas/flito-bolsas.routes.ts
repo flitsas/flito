@@ -73,7 +73,8 @@ function recibirSoporte(req: Request, res: Response, next: (e?: unknown) => void
 /** BolsaError es de negocio; lo demás sube al error handler. */
 function fallo(res: Response, e: unknown): void {
   if (e instanceof BolsaError) {
-    res.status(e.estado).json({ error: e.message });
+    // HU #13899: `codigo` (bolsa_inexistente, bolsa_inactiva…) solo cuando el error lo trae.
+    res.status(e.estado).json(e.codigo ? { error: e.message, codigo: e.codigo } : { error: e.message });
     return;
   }
   throw e;

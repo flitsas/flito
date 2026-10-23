@@ -907,7 +907,8 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
 
     // Las salidas de la bolsa se asientan DENTRO de esta transacción (HU #11122): si el sellado no
     // cuaja, el descuento no puede quedar hecho. La compañía puede faltar en trámites que aún no
-    // cruzaron con un cliente; ahí no hay bolsa a la que cobrar.
+    // cruzaron con un cliente; ahí no hay bolsa a la que cobrar. HU #13899 (AC6): sin bolsa, o con la
+    // bolsa inactiva, el sellado sigue y no se crea ni bolsa ni movimiento (libro único, ADR-0029).
     if (ids?.companiaId != null) {
       await registrarSalidasLiquidacion(
         tx,

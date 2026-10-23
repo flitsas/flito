@@ -93,7 +93,10 @@ export interface BolsaDto {
 /** Una línea del libro de la bolsa. */
 export interface MovimientoBolsaDto {
   id: string;
-  companiaId: number;
+  /** HU #13899 (ADR-0029): bolsa del libro único a la que pertenece el movimiento. */
+  bolsaId: string;
+  /** Compañía de la bolsa. `null` solo en bolsas de alcance tránsito (modelo único, ADR-0029). */
+  companiaId: number | null;
   tipo: TipoMovimientoBolsa;
   origen: OrigenMovimientoBolsa;
   /** `null` en las recargas: el dinero entra sin pasar por un concepto. */
@@ -113,6 +116,10 @@ export interface MovimientoBolsaDto {
   fecha: string;
   observacion: string | null;
   soporteId: string | null;
+  /** Comprobante que originó el movimiento (HU-C de #13886); `null` en todo lo demás. */
+  comprobanteId: string | null;
+  /** Movimiento original que esta entrada revierte (D13); `null` si no es una reversión. */
+  revierteMovimientoId: string | null;
   registradoPorNombre: string;
   createdAt: string;
 }
@@ -305,3 +312,24 @@ export interface RespuestaMovimiento {
   movimiento: MovimientoBolsaDto;
   saldo: number;
 }
+
+// ── Modelo único de bolsa (HU #13899, Feature #13886, ADR-0029) ──────────────
+
+export const AlcanceBolsa = { COMPANIA: 'compania', TRANSITO: 'transito' } as const;
+export type AlcanceBolsa = (typeof AlcanceBolsa)[keyof typeof AlcanceBolsa];
+
+/** Forma fijada con #13407. `activa` es false cuando `existe` es false. */
+export interface EstadoBolsaCompaniaDto { existe: boolean; activa: boolean }
+
+/** Códigos de error de negocio de bolsas (cuerpo `{ error, codigo }`). */
+export const CodigoErrorBolsa = {
+  BOLSA_INEXISTENTE: 'bolsa_inexistente',
+  BOLSA_INACTIVA: 'bolsa_inactiva',
+  BOLSA_COMPANIA_EXISTE: 'bolsa_compania_existe',
+  COBERTURA_OCUPADA: 'cobertura_ocupada',
+  NOMBRE_EN_USO: 'nombre_en_uso',
+  YA_ACTIVA: 'ya_activa',
+  YA_INACTIVA: 'ya_inactiva',
+  PERIODO_CERRADO: 'periodo_cerrado',
+} as const;
+export type CodigoErrorBolsa = (typeof CodigoErrorBolsa)[keyof typeof CodigoErrorBolsa];

@@ -40,7 +40,7 @@ describe('bolsaConRiesgoDe — la bolsa llega ya clasificada', () => {
   it('añade nivel y porcentaje sin perder los datos de la bolsa', async () => {
     // La pantalla no recalcula nada: pinta lo que la API dice. Si el nivel se calculara en el
     // frontend, dos vistas podrían mostrar prioridades distintas del mismo saldo.
-    kdb.when.select('flito_bolsas', [bolsa(7, 'ACME S.A.S.', '80000', '800000')]);
+    kdb.when.select('flito_bolsas_unicas', [bolsa(7, 'ACME S.A.S.', '80000', '800000')]);
 
     const b = await bolsaConRiesgoDe(7);
     expect(b).toMatchObject({
@@ -50,12 +50,12 @@ describe('bolsaConRiesgoDe — la bolsa llega ya clasificada', () => {
   });
 
   it('cliente sin bolsa → null (lo traduce la ruta a 404)', async () => {
-    kdb.when.select('flito_bolsas', []);
+    kdb.when.select('flito_bolsas_unicas', []);
     expect(await bolsaConRiesgoDe(7)).toBeNull();
   });
 
   it('sin recargas, el porcentaje es null y el nivel no alarma', async () => {
-    kdb.when.select('flito_bolsas', [bolsa(7, 'Cliente nuevo', '0', null)]);
+    kdb.when.select('flito_bolsas_unicas', [bolsa(7, 'Cliente nuevo', '0', null)]);
 
     const b = await bolsaConRiesgoDe(7);
     expect(b?.nivel).toBe('sin_recargas');
@@ -78,7 +78,7 @@ describe('bolsasConRiesgo — AC1: primero las que peor están', () => {
   it('el orden es agotada, crítico, bajo, normal y sin_recargas al final', async () => {
     // Es la lista con la que Financiera decide a quién recargar hoy; el orden lo pone el servidor
     // para que no dependa de cómo ordene cada pantalla.
-    kdb.when.select('flito_bolsas', desordenadas);
+    kdb.when.select('flito_bolsas_unicas', desordenadas);
 
     const lista = await bolsasConRiesgo();
     expect(lista.map((b) => b.nivel)).toEqual(['agotada', 'critico', 'bajo', 'normal', 'sin_recargas']);
@@ -88,7 +88,7 @@ describe('bolsasConRiesgo — AC1: primero las que peor están', () => {
   it('a igual nivel, primero la que está más lejos de su base', async () => {
     // Dos clientes en «bajo» no son igual de urgentes: el que está al 12 % se queda sin saldo antes
     // que el que está al 28 %.
-    kdb.when.select('flito_bolsas', [
+    kdb.when.select('flito_bolsas_unicas', [
       bolsa(1, 'Bajo 28 %', '280000', '1000000'),
       bolsa(2, 'Bajo 12 %', '120000', '1000000'),
       bolsa(3, 'Bajo 20 %', '200000', '1000000'),
@@ -101,7 +101,7 @@ describe('bolsasConRiesgo — AC1: primero las que peor están', () => {
   it('las que no tienen porcentaje van al final de su grupo, no al principio', async () => {
     // `sin_recargas` no tiene porcentaje; ordenarlas como si fuera 0 las pondría por delante de
     // clientes que sí necesitan atención.
-    kdb.when.select('flito_bolsas', [
+    kdb.when.select('flito_bolsas_unicas', [
       bolsa(1, 'Sin recargas A', '0', null),
       bolsa(2, 'Agotada', '0', '500000'),
       bolsa(3, 'Sin recargas B', '900000', null),
@@ -113,7 +113,7 @@ describe('bolsasConRiesgo — AC1: primero las que peor están', () => {
   });
 
   it('sin bolsas → lista vacía, no error', async () => {
-    kdb.when.select('flito_bolsas', []);
+    kdb.when.select('flito_bolsas_unicas', []);
     expect(await bolsasConRiesgo()).toEqual([]);
   });
 });
@@ -125,11 +125,11 @@ describe('bolsasConRiesgo(periodo) — lo que se movió ese mes, por tarjeta', (
     // Los totales salen de UNA consulta agrupada por compañía y se cruzan en memoria; si el cruce
     // fallara, el tablero enseñaría el movimiento de un cliente en la tarjeta de otro.
     kdb.when
-      .select('flito_bolsas', [
+      .select('flito_bolsas_unicas', [
         bolsa(1, 'Uno', '500000', '800000'),
         bolsa(2, 'Dos', '400000', '800000'),
       ])
-      .select('flito_bolsa_movimientos', [
+      .select('flito_bolsas_unicas_movimientos', [
         { companiaId: 2, entradas: '200000', salidas: '50000' },
         { companiaId: 1, entradas: '800000', salidas: '300000' },
       ]);
@@ -145,8 +145,8 @@ describe('bolsasConRiesgo(periodo) — lo que se movió ese mes, por tarjeta', (
     // Cero es información: significa «ese mes no se movió». Omitir la tarjeta escondería al cliente
     // justo cuando lleva un mes sin operar.
     kdb.when
-      .select('flito_bolsas', [bolsa(1, 'Con movimientos', '500000', '800000'), bolsa(2, 'Quieto', '400000', '800000')])
-      .select('flito_bolsa_movimientos', [{ companiaId: 1, entradas: '800000', salidas: '300000' }]);
+      .select('flito_bolsas_unicas', [bolsa(1, 'Con movimientos', '500000', '800000'), bolsa(2, 'Quieto', '400000', '800000')])
+      .select('flito_bolsas_unicas_movimientos', [{ companiaId: 1, entradas: '800000', salidas: '300000' }]);
 
     const quieto = (await bolsasConRiesgo('2026-06')).find((b) => b.companiaId === 2);
     expect(quieto).toMatchObject({ entradasPeriodo: 0, salidasPeriodo: 0 });
@@ -155,7 +155,7 @@ describe('bolsasConRiesgo(periodo) — lo que se movió ese mes, por tarjeta', (
   it('SIN periodo, ambos totales son null y no cero', async () => {
     // La distinción es la que evita que el tablero pinte «0 movimientos este mes» cuando nadie
     // preguntó por ningún mes. Si alguien aplana esto a cero, salta aquí.
-    kdb.when.select('flito_bolsas', [bolsa(1, 'ACME', '500000', '800000')]);
+    kdb.when.select('flito_bolsas_unicas', [bolsa(1, 'ACME', '500000', '800000')]);
 
     const [b] = await bolsasConRiesgo();
     expect(b.entradasPeriodo).toBeNull();
@@ -163,7 +163,7 @@ describe('bolsasConRiesgo(periodo) — lo que se movió ese mes, por tarjeta', (
   });
 
   it('sin periodo no se consulta el libro: la agregación solo se paga si se pide', async () => {
-    kdb.when.select('flito_bolsas', [bolsa(1, 'ACME', '500000', '800000')]);
+    kdb.when.select('flito_bolsas_unicas', [bolsa(1, 'ACME', '500000', '800000')]);
     await bolsasConRiesgo();
 
     // Una sola consulta, la de las bolsas: sin mes que agrupar no hay nada que sumar.
@@ -172,8 +172,8 @@ describe('bolsasConRiesgo(periodo) — lo que se movió ese mes, por tarjeta', (
 
   it('el periodo pedido llega a la consulta de totales', async () => {
     kdb.when
-      .select('flito_bolsas', [bolsa(1, 'ACME', '500000', '800000')])
-      .select('flito_bolsa_movimientos', []);
+      .select('flito_bolsas_unicas', [bolsa(1, 'ACME', '500000', '800000')])
+      .select('flito_bolsas_unicas_movimientos', []);
     await bolsasConRiesgo('2026-06');
 
     expect(espia.filtrosUsados()).toContain('2026-06');
@@ -181,8 +181,8 @@ describe('bolsasConRiesgo(periodo) — lo que se movió ese mes, por tarjeta', (
 
   it('los totales no alteran el orden por urgencia', async () => {
     kdb.when
-      .select('flito_bolsas', [bolsa(1, 'Normal', '500000', '800000'), bolsa(2, 'Agotada', '0', '800000')])
-      .select('flito_bolsa_movimientos', [{ companiaId: 1, entradas: '900000', salidas: '0' }]);
+      .select('flito_bolsas_unicas', [bolsa(1, 'Normal', '500000', '800000'), bolsa(2, 'Agotada', '0', '800000')])
+      .select('flito_bolsas_unicas_movimientos', [{ companiaId: 1, entradas: '900000', salidas: '0' }]);
 
     expect((await bolsasConRiesgo('2026-06')).map((b) => b.companiaId)).toEqual([2, 1]);
   });
@@ -192,7 +192,7 @@ describe('bolsasConRiesgo(periodo) — lo que se movió ese mes, por tarjeta', (
 
 describe('alertasDeSaldo — AC2: solo lo que hay que mirar hoy', () => {
   it('deja fuera las bolsas en nivel normal', async () => {
-    kdb.when.select('flito_bolsas', [
+    kdb.when.select('flito_bolsas_unicas', [
       bolsa(1, 'Normal', '500000', '800000'),
       bolsa(2, 'Crítico', '40000', '800000'),
     ]);
@@ -204,7 +204,7 @@ describe('alertasDeSaldo — AC2: solo lo que hay que mirar hoy', () => {
   it('sin_recargas NO alerta: no es un problema de saldo', async () => {
     // El día que se den de alta veinte clientes, el panel se llenaría de ruido y las alertas reales
     // se perderían entre ellas.
-    kdb.when.select('flito_bolsas', [
+    kdb.when.select('flito_bolsas_unicas', [
       bolsa(1, 'Cliente nuevo', '0', null),
       bolsa(2, 'Cliente nuevo con saldo', '900000', null),
     ]);
@@ -213,7 +213,7 @@ describe('alertasDeSaldo — AC2: solo lo que hay que mirar hoy', () => {
   });
 
   it('la alerta trae lo necesario para actuar sin abrir el detalle', async () => {
-    kdb.when.select('flito_bolsas', [bolsa(4, 'ACME S.A.S.', '200000', '800000')]);
+    kdb.when.select('flito_bolsas_unicas', [bolsa(4, 'ACME S.A.S.', '200000', '800000')]);
 
     const [a] = await alertasDeSaldo();
     expect(a).toMatchObject({
@@ -224,7 +224,7 @@ describe('alertasDeSaldo — AC2: solo lo que hay que mirar hoy', () => {
   });
 
   it('la bolsa agotada tiene su propio mensaje: el porcentaje ahí no dice nada', async () => {
-    kdb.when.select('flito_bolsas', [bolsa(5, 'ACME S.A.S.', '-15000', '800000')]);
+    kdb.when.select('flito_bolsas_unicas', [bolsa(5, 'ACME S.A.S.', '-15000', '800000')]);
 
     const [a] = await alertasDeSaldo();
     expect(a.nivel).toBe('agotada');
@@ -232,7 +232,7 @@ describe('alertasDeSaldo — AC2: solo lo que hay que mirar hoy', () => {
   });
 
   it('las alertas conservan el orden de urgencia de la lista', async () => {
-    kdb.when.select('flito_bolsas', [
+    kdb.when.select('flito_bolsas_unicas', [
       bolsa(1, 'Bajo', '200000', '800000'),
       bolsa(2, 'Agotada', '0', '800000'),
       bolsa(3, 'Crítico', '40000', '800000'),
@@ -279,7 +279,7 @@ describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () =>
   it('cuenta los soportes sin trámite y las salidas automáticas sin soporte', async () => {
     kdb.when
       .select('flito_derechos_pendientes', [{ n: 3 }])
-      .select('flito_bolsa_movimientos', [{ n: 5 }])
+      .select('flito_bolsas_unicas_movimientos', [{ n: 5 }])
       .select('flito_conciliacion_boletas', [{ n: 2 }]);
 
     expect(await alertasDeConciliacion()).toEqual({
@@ -291,7 +291,7 @@ describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () =>
     // El tablero pinta estos números tal cual; un undefined saldría como «NaN» en pantalla.
     kdb.when
       .select('flito_derechos_pendientes', [])
-      .select('flito_bolsa_movimientos', [])
+      .select('flito_bolsas_unicas_movimientos', [])
       .select('flito_conciliacion_boletas', []);
 
     expect(await alertasDeConciliacion()).toEqual({
@@ -306,7 +306,7 @@ describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () =>
     // organismo.
     kdb.when
       .select('flito_derechos_pendientes', [{ n: 0 }])
-      .select('flito_bolsa_movimientos', [{ n: 0 }]);
+      .select('flito_bolsas_unicas_movimientos', [{ n: 0 }]);
     await alertasDeConciliacion();
 
     expect(espia.filtrosUsados()).toContain('automatico');
@@ -327,7 +327,7 @@ describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () =>
   it('el movimiento ADOPTADO por una conciliación sigue contando como sin soporte', async () => {
     kdb.when
       .select('flito_derechos_pendientes', [{ n: 0 }])
-      .select('flito_bolsa_movimientos', [{ n: 0 }])
+      .select('flito_bolsas_unicas_movimientos', [{ n: 0 }])
       .select('flito_conciliacion_boletas', [{ n: 0 }]);
 
     const texto = await sqlDelWhere('"origen"');
@@ -345,7 +345,7 @@ describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () =>
     // cerrar por más comprobantes que se suban. Es la otra mitad de la decisión.
     kdb.when
       .select('flito_derechos_pendientes', [{ n: 0 }])
-      .select('flito_bolsa_movimientos', [{ n: 0 }])
+      .select('flito_bolsas_unicas_movimientos', [{ n: 0 }])
       .select('flito_conciliacion_boletas', [{ n: 0 }]);
 
     const texto = await sqlDelWhere('"origen"');
@@ -364,7 +364,7 @@ describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () =>
   it('la boleta conciliada sin comprobante APARECE como pendiente', async () => {
     kdb.when
       .select('flito_derechos_pendientes', [{ n: 0 }])
-      .select('flito_bolsa_movimientos', [{ n: 0 }])
+      .select('flito_bolsas_unicas_movimientos', [{ n: 0 }])
       .select('flito_conciliacion_boletas', [{ n: 1 }]);
 
     const alertas = await alertasDeConciliacion();
@@ -380,7 +380,7 @@ describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () =>
     // La forma del predicado que hace eso posible la fija el test siguiente.
     kdb.when
       .select('flito_derechos_pendientes', [{ n: 0 }])
-      .select('flito_bolsa_movimientos', [{ n: 0 }])
+      .select('flito_bolsas_unicas_movimientos', [{ n: 0 }])
       .select('flito_conciliacion_boletas', [{ n: 0 }]);
 
     expect((await alertasDeConciliacion()).boletasSinComprobante).toBe(0);
@@ -389,7 +389,7 @@ describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () =>
   it('cuenta boletas CONCILIADAS sin comprobante VIVO — las cuatro condiciones, en el SQL real', async () => {
     kdb.when
       .select('flito_derechos_pendientes', [{ n: 0 }])
-      .select('flito_bolsa_movimientos', [{ n: 0 }])
+      .select('flito_bolsas_unicas_movimientos', [{ n: 0 }])
       .select('flito_conciliacion_boletas', [{ n: 0 }]);
 
     // El `where` de FUERA: la boleta conciliada a la que le falta algo.
