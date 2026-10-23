@@ -1,4 +1,5 @@
-// Dr. Flit — PROGRAMACIÓN de la purga de intentos de radicación (HU #13804, D6). El borrado vive en
+// Dr. Flit — PROGRAMACIÓN de la purga de intentos de radicación (HU #13804, D6) y, desde la HU #13854, del
+// contador del cupo diario de la IA (90 días, RN-DRF1b). El borrado vive en
 // `dr-flit-purga.service.ts` (RN-DRF1); la política, en `docs/privacy/retencion-flito-dr-flit.md`.
 // Molde: `flito-soat/flito-soat-retencion.cron.ts`.
 //
@@ -14,7 +15,9 @@ import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
 import { withLock } from '../../shared/utils/lock.js';
 import { relojBogota } from '../flito-soat/flito-soat-retencion.cron.js';
-import { LOTE_PURGA_DRFLIT, MESES_RETENCION_DRFLIT, ejecutarPurgaDrFlit } from './dr-flit-purga.service.js';
+import {
+  LOTE_PURGA_DRFLIT, MESES_RETENCION_DRFLIT, ejecutarPurgaCupoIaDrFlit, ejecutarPurgaDrFlit,
+} from './dr-flit-purga.service.js';
 
 const log = loggerFor('flito-dr-flit-purga-cron');
 const HOST_ID = `${os.hostname()}-${process.pid}`;
@@ -43,7 +46,11 @@ export async function latidoPurgaDrFlit(ahora: Date = new Date()): Promise<Resul
   if (enVuelo) return 'en_vuelo';
   enVuelo = true;
   try {
-    const r = await withLock(NOMBRE_LOCK_PURGA_DRFLIT, LOCK_TTL_PURGA_DRFLIT_MS, () => ejecutarPurgaDrFlit({ ahora }));
+    // HU #13854: el contador del cupo de IA (90 días) se purga en la misma corrida y con el mismo candado.
+    const r = await withLock(NOMBRE_LOCK_PURGA_DRFLIT, LOCK_TTL_PURGA_DRFLIT_MS, async () => ({
+      ...(await ejecutarPurgaDrFlit({ ahora })),
+      cupoIa: await ejecutarPurgaCupoIaDrFlit({ ahora }),
+    }));
     ultimoDia = dia;
     if (r === null) {
       log.info({ host: HOST_ID, dia, lock: NOMBRE_LOCK_PURGA_DRFLIT }, 'otra instancia tiene la purga de Dr. Flit');

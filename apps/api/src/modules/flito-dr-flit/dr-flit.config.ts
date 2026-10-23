@@ -19,6 +19,23 @@ export interface ConfigDrFlit {
   DRFLIT_ADO_ORG_URL?: string;
 }
 
+/** HU #13854 (Feature #13696, IA-2) — configuración de la IA de Dr. Flit. */
+export interface ConfigIaDrFlit {
+  DRFLIT_IA_HABILITADA: boolean;
+  ANTHROPIC_API_KEY?: string;
+  DRFLIT_IA_TOPE_DIARIO: number;
+}
+
+/** IA disponible = interruptor encendido (`=1`) Y clave de Anthropic configurada. Fallo cerrado. */
+export function iaDisponible(c: Pick<ConfigIaDrFlit, 'DRFLIT_IA_HABILITADA' | 'ANTHROPIC_API_KEY'> = env): boolean {
+  return c.DRFLIT_IA_HABILITADA && Boolean(c.ANTHROPIC_API_KEY);
+}
+
+/** Tope diario de mensajes a la IA por usuario (`DRFLIT_IA_TOPE_DIARIO`, 0..500; 0 = sin cupo). */
+export function topeDiarioIa(c: Pick<ConfigIaDrFlit, 'DRFLIT_IA_TOPE_DIARIO'> = env): number {
+  return c.DRFLIT_IA_TOPE_DIARIO;
+}
+
 export function ambienteDespliegue(c: ConfigDrFlit = env): AmbienteDespliegue | null {
   return c.DEPLOY_ENVIRONMENT ?? (c.NODE_ENV === 'development' ? 'DEV' : null);
 }

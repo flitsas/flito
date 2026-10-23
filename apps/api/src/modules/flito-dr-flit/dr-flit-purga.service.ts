@@ -5,9 +5,13 @@
 //          art. 11). Se BORRAN las filas de `flito_drflit_casos_soporte` con `creado_en < ahora − 12
 //          meses`, en lotes acotados. NUNCA toca `flito_drflit_autorizaciones` (P9-10: su purga es
 //          otra HU y exige una migración que abra una vía controlada en el trigger de solo inserción).
+// RN-DRF1b HU #13854 (IA-2): el contador `flito_drflit_cupo_ia` se retiene 90 días por `dia` (día
+//          calendario America/Bogota). Se BORRAN las filas con `dia < hoy − 90 días`. Sin contenido: solo
+//          sirve para control de costo y reclamos de cupo. Corre en el MISMO cron (`dr-flit.cron.ts`).
 import { inArray, lt } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { flitoDrflitCasosSoporte as t } from '../../db/schema/flito-drflit.js';
+import { flitoDrflitCasosSoporte as t, flitoDrflitCupoIa as cupoIa } from '../../db/schema/flito-drflit.js';
+import { diaCupoIa } from './dr-flit-ia.cupo.js';
 
 export const MESES_RETENCION_DRFLIT = 12;
 export const LOTE_PURGA_DRFLIT = 1000;
@@ -42,4 +46,25 @@ export async function ejecutarPurgaDrFlit(opts: {
     if (filas.length < lote) break;
   }
   return { borrados, lotes, corte: corte.toISOString() };
+}
+
+// ── HU #13854 — purga del cupo diario de la IA (RN-DRF1b) ──────────────────────────────────────────
+export const DIAS_RETENCION_CUPO_IA_DRFLIT = 90;
+
+/** Corte (`YYYY-MM-DD`): hoy en America/Bogota − 90 días. Se borran las filas con `dia` ANTERIOR. */
+export function corteCupoIaDrFlit(ahora: Date): string {
+  const [a, m, d] = diaCupoIa(ahora).split('-').map(Number);
+  return new Date(Date.UTC(a!, m! - 1, d! - DIAS_RETENCION_CUPO_IA_DRFLIT)).toISOString().slice(0, 10);
+}
+
+export interface ResultadoPurgaCupoIaDrFlit { borrados: number; corte: string }
+
+/** Una sola sentencia: como mucho una fila por usuario y día, el volumen está acotado por diseño. */
+export async function ejecutarPurgaCupoIaDrFlit(opts: {
+  ahora?: Date; conexion?: Pick<typeof db, 'delete'>;
+} = {}): Promise<ResultadoPurgaCupoIaDrFlit> {
+  const corte = corteCupoIaDrFlit(opts.ahora ?? new Date());
+  const conexion = opts.conexion ?? db;
+  const filas = await conexion.delete(cupoIa).where(lt(cupoIa.dia, corte)).returning({ dia: cupoIa.dia });
+  return { borrados: filas.length, corte };
 }

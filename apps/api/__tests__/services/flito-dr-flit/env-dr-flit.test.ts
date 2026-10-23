@@ -98,3 +98,24 @@ describe('HU #13805 — límites de adjuntos configurables (AC3)', () => {
       await expect(cargarEnv({ [k]: v })).rejects.toThrow(new RegExp(k));
     });
 });
+
+describe('HU #13854 — DRFLIT_IA_HABILITADA y DRFLIT_IA_TOPE_DIARIO (AC7, AC9)', () => {
+  it('defaults: IA apagada y tope 30; en blanco = default', async () => {
+    const { env } = await cargarEnv({ DRFLIT_IA_HABILITADA: undefined, DRFLIT_IA_TOPE_DIARIO: '' });
+    expect(env.DRFLIT_IA_HABILITADA).toBe(false);
+    expect(env.DRFLIT_IA_TOPE_DIARIO).toBe(30);
+  });
+
+  it('solo =1 enciende; true/yes no (puerta positiva)', async () => {
+    expect((await cargarEnv({ DRFLIT_IA_HABILITADA: '1' })).env.DRFLIT_IA_HABILITADA).toBe(true);
+    expect((await cargarEnv({ DRFLIT_IA_HABILITADA: 'true' })).env.DRFLIT_IA_HABILITADA).toBe(false);
+  });
+
+  it.each(['0', '1', '500'])('DRFLIT_IA_TOPE_DIARIO=%s → arranca', async (v) => {
+    expect((await cargarEnv({ DRFLIT_IA_TOPE_DIARIO: v })).env.DRFLIT_IA_TOPE_DIARIO).toBe(Number(v));
+  });
+
+  it.each(['-1', '501', '2.5', 'treinta'])('DRFLIT_IA_TOPE_DIARIO=%s → no arranca, con mensaje claro', async (v) => {
+    await expect(cargarEnv({ DRFLIT_IA_TOPE_DIARIO: v })).rejects.toThrow(/DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500/);
+  });
+});
