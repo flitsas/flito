@@ -153,6 +153,19 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "POST", ruta: "/companias/:companiaId/tipos/:tipo", roles: [], heredada: false },
   { modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "GET", ruta: "/documentos/:documentoId/archivo", roles: [], heredada: false },
   { modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "PUT", ruta: "/documentos/:documentoId/fecha-expedicion", roles: [], heredada: false }, // HU #13890 (E4)
+  // HU #13900 (ADR-0029): catálogo del modelo único. Sin `requireRole` histórico: cada ruta lleva el reparto de su
+  // código de PARTIDA (`PARTIDA_DE_OPERACION_NUEVA`), que es el de su par (admin y financiera).
+  { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "POST", ruta: "/buscar", roles: ["admin","financiera"], heredada: false },
+  { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "POST", ruta: "/", roles: ["admin","financiera"], heredada: false },
+  { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "GET", ruta: "/compania/:companiaId/estado", roles: ["admin","financiera"], heredada: false },
+  { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "GET", ruta: "/bolsa/:bolsaId", roles: ["admin","financiera"], heredada: false },
+  { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "PATCH", ruta: "/bolsa/:bolsaId", roles: ["admin","financiera"], heredada: false },
+  { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "POST", ruta: "/bolsa/:bolsaId/inactivar", roles: ["admin","financiera"], heredada: false },
+  { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "POST", ruta: "/bolsa/:bolsaId/reactivar", roles: ["admin","financiera"], heredada: false },
+  { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "GET", ruta: "/bolsa/:bolsaId/movimientos", roles: ["admin","financiera"], heredada: false },
+  { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "POST", ruta: "/bolsa/:bolsaId/recargas", roles: ["admin","financiera"], heredada: false },
+  { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "GET", ruta: "/bolsa/:bolsaId/cierres", roles: ["admin","financiera"], heredada: false },
+  { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "POST", ruta: "/bolsa/:bolsaId/cierres", roles: ["admin","financiera"], heredada: false },
   { modulo: "conciliacion", fichero: "flito-conciliacion/flito-conciliacion.routes.ts", metodo: "POST", ruta: "/boletas", roles: ["admin","financiera"], heredada: false },
   { modulo: "conciliacion", fichero: "flito-conciliacion/flito-conciliacion.routes.ts", metodo: "GET", ruta: "/boletas", roles: ["admin","financiera"], heredada: false },
   { modulo: "conciliacion", fichero: "flito-conciliacion/flito-conciliacion.routes.ts", metodo: "GET", ruta: "/boletas/:id", roles: ["admin","financiera"], heredada: false },

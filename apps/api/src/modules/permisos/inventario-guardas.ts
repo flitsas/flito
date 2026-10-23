@@ -113,6 +113,8 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-documentos.routes.ts' }, // HU #13362
   // HU #13889 (ADR-0028): expediente documental de la compañía; submódulo propio de bolsas.
   { modulo: 'bolsas', fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts' },
+  // HU #13900 (ADR-0029): catálogo del modelo único de bolsa; sub-router de flito-bolsas.routes.ts.
+  { modulo: 'bolsas', fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts' },
 ];
 
 /**

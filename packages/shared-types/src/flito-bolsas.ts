@@ -331,5 +331,77 @@ export const CodigoErrorBolsa = {
   YA_ACTIVA: 'ya_activa',
   YA_INACTIVA: 'ya_inactiva',
   PERIODO_CERRADO: 'periodo_cerrado',
+  /** HU #13900: cuerpo de alta/edición inválido (sin conceptos, GMF, motivo corto…). */
+  DATOS_INVALIDOS: 'datos_invalidos',
 } as const;
 export type CodigoErrorBolsa = (typeof CodigoErrorBolsa)[keyof typeof CodigoErrorBolsa];
+
+// ─── HU #13900 (Feature #13886, ADR-0029) — catálogo de bolsas: crear, editar, inactivar, reactivar ───
+
+/**
+ * Conceptos que puede marcar una bolsa de COMPAÑÍA: los seis de `ConceptoBolsa`. El GMF no es
+ * seleccionable (es un costo financiero, no un concepto que se descuente de la bolsa).
+ * Tránsito sigue usando `CONCEPTOS_BOLSA_TRANSITO` (derecho | soat | impuesto).
+ */
+export const CONCEPTOS_BOLSA_COMPANIA: readonly ConceptoCosto[] = Object.values(ConceptoCosto);
+
+/** Alta de una bolsa. La rama `transito` llega en la HU-G (#13907): hoy el API la rechaza con 400. */
+export type CrearBolsaDto =
+  | { alcance: 'compania'; companiaId: number; conceptos: ConceptoCosto[] }
+  | { alcance: 'transito'; nombre: string; organismos: string[]; conceptos: string[] };
+
+/** Edición: NO cambia el alcance ni la compañía. */
+export type EditarBolsaDto =
+  | { alcance: 'compania'; conceptos: ConceptoCosto[] }
+  | { alcance: 'transito'; nombre: string; organismos: string[]; conceptos: string[] };
+
+/** Filtros del listado. Van SIEMPRE en el body de `POST /buscar` (Ley 1581: NIT y nombre nunca en la URL). */
+export interface BuscarBolsasDto {
+  alcance?: AlcanceBolsa;
+  activa?: boolean;
+  /** Nombre de la compañía o de la bolsa, o NIT. */
+  texto?: string;
+}
+
+/** Inactivar / reactivar: el motivo es obligatorio (≥ 5 caracteres). */
+export interface MotivoBolsaDto { motivo: string }
+
+/** Par (secretaría, concepto) de una bolsa de tránsito. `[]` en las de compañía. */
+export interface CoberturaBolsaDto { organismoCodigo: string; concepto: string }
+
+export interface BolsaResumenDto {
+  id: string;
+  alcance: AlcanceBolsa;
+  /** Nombre a mostrar: el de la compañía (alcance compañía) o el de la bolsa (tránsito). */
+  nombre: string;
+  /** No nulo ⇔ alcance === 'compania'. Contrato (c) con #13407. */
+  companiaId: number | null;
+  companiaNombre: string | null;
+  activa: boolean;
+  conceptos: string[];
+  cobertura: CoberturaBolsaDto[];
+  saldo: number;
+  ultimaEntradaValor: number | null;
+  ultimaEntradaEn: string | null;
+  nivel: NivelRiesgoBolsa;
+  porcentaje: number | null;
+}
+
+export interface BolsaDetalleDto extends BolsaResumenDto {
+  inactivadaEn: string | null;
+  inactivadaPorNombre: string | null;
+  motivoInactivacion: string | null;
+  /**
+   * AC11 (HU #13900): conceptos que la compañía AUTOGESTIONA hoy (`clients.*_autogestionable`), calculados en
+   * lectura, no guardados en la bolsa. Marcarlos no se bloquea: la UI avisa. Tránsito: `[]` (HU-G).
+   */
+  conceptosAutogestionados: ConceptoBolsa[];
+}
+
+/**
+ * Respuesta de `GET /api/flito/bolsas/compania/:companiaId/estado` (AC8 + AC11). Extiende el contrato (d)
+ * con #13407 SOLO en la ruta: `estadoBolsaDeCompania()` sigue devolviendo `{ existe, activa }`.
+ */
+export interface EstadoBolsaCompaniaConAutogestionDto extends EstadoBolsaCompaniaDto {
+  conceptosAutogestionados: ConceptoBolsa[];
+}
