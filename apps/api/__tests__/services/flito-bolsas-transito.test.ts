@@ -222,21 +222,21 @@ function escenarioSellado(calculo: Fila = {}, ids: Fila = {}): void {
     // DENTRO de la transacción antes de releer los servicios adicionales. Sin esta entrada la cola
     // se agota, `bloquearTramite` no encuentra el trámite y ningún sellado llega a la bolsa.
     .selectOnce('flito_tramites', [{ id: TRAMITE, idFlit: 'FLIT-1' }])
-    .select('flito_bolsas', [{ id: 'bolsa-cliente', saldo: '99000000' }])
-    .select('flito_bolsa_movimientos', [])
+    .select('flito_bolsas_unicas', [{ id: 'bolsa-cliente', saldo: '99000000' }])
+    .select('flito_bolsas_unicas_movimientos', [])
     .select('flito_bolsa_transito_cobertura', consultaCobertura)
     .select('flito_bolsas_transito', bolsaVigente)
     .select('flito_bolsa_transito_movimientos', consultaLibroBolsa)
     .insert('flito_liquidaciones', [filaLiquidacion])
     .insert('flito_liquidacion_eventos', [])
-    .insert('flito_bolsa_movimientos', [{ id: 'mov-cliente' }]);
+    .insert('flito_bolsas_unicas_movimientos', [{ id: 'mov-cliente' }]);
 }
 
 function escenarioReverso(): void {
   kdb.when
     .select('flito_liquidaciones', [filaLiquidacion])
-    .select('flito_bolsa_movimientos', [])
-    .select('flito_bolsas', [{ id: 'bolsa-cliente', saldo: '99000000' }])
+    .select('flito_bolsas_unicas_movimientos', [])
+    .select('flito_bolsas_unicas', [{ id: 'bolsa-cliente', saldo: '99000000' }])
     .select('flito_bolsa_transito_cobertura', consultaCobertura)
     .select('flito_bolsas_transito', bolsaVigente)
     .select('flito_bolsa_transito_movimientos', consultaLibroBolsa);

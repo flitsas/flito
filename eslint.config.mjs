@@ -11,7 +11,6 @@ const FROZEN_CEILINGS = {
   'apps/web/src/pages/TramiteTraspaso.tsx': 1250,
   'apps/web/src/pages/FlitoTramites.tsx': 1190,
   'apps/api/src/modules/tramites/identidad.routes.ts': 1130,
-  'apps/api/src/modules/flito-bolsas/flito-bolsas.service.ts': 1120,
   'apps/api/src/modules/flito-soat/flito-soat.service.ts': 1090,
   'apps/api/src/modules/tramites/tramites.service.ts': 880,
   'apps/web/src/pages/FlitoImpuestos.tsx': 870,

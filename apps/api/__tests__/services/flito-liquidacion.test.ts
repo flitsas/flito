@@ -713,7 +713,7 @@ describe('reversar — el evento conserva el snapshot CON items y la puente no s
     expect(txSelects).not.toContain('flito_tramite_servicios_adicionales');
     // Ni la de viajes (HU #12626): reversar borra la fila y su snapshot; los viajes siguen vivos.
     expect(txSelects).not.toContain('flito_tramite_viajes_logistica');
-    expect(txSelects).toContain('flito_bolsa_movimientos');
+    expect(txSelects).toContain('flito_bolsas_unicas_movimientos');
   });
 });
 

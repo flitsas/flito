@@ -459,7 +459,7 @@ describe('AC2 — el comprobante en el detalle de la boleta y su descarga', () =
       .select('flito_conciliacion_lineas', [])
       .select('flito_soportes', [filaSoporte()])
       .select('flito_soat', [])
-      .select('flito_bolsa_movimientos', []);
+      .select('flito_bolsas_unicas_movimientos', []);
 
     const r = await request(await buildApp())
       .get(`/api/flito/conciliacion/boletas/${BOLETA_ID}`)

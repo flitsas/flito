@@ -112,10 +112,10 @@ const filaCliente = { id: COMPANIA, document: '900123456', flitoCarpetaStorage: 
 function escenarioRecargaOk(): void {
   kdb.when
     .select('clients', [filaCliente])
-    .select('flito_bolsas', [{ id: BOLSA_ID, saldo: '0' }])
+    .select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '0', activa: true }])
     .insert('flito_soportes', [{ id: SOPORTE_ID }])
-    .insert('flito_bolsa_movimientos', [filaMovimiento])
-    .update('flito_bolsas', []);
+    .insert('flito_bolsas_unicas_movimientos', [filaMovimiento])
+    .update('flito_bolsas_unicas', []);
 }
 
 beforeEach(() => {
@@ -164,19 +164,19 @@ describe('bolsas — AC3: la bolsa solo la ven y la mueven Administración y Fin
   it('el consolidado tampoco es público entre roles: transito → 403', async () => {
     // Es el saldo prepago de TODOS los clientes: filtrarlo por un endpoint agregado sería la
     // misma fuga por otra puerta.
-    kdb.when.select('flito_bolsas', [{ clientes: 4, saldoTotal: '1200000.00' }]);
+    kdb.when.select('flito_bolsas_unicas', [{ clientes: 4, saldoTotal: '1200000.00' }]);
     const r = await request(await buildApp()).get('/api/flito/bolsas/consolidado').set('Authorization', await auth('transito'));
     expect(r.status).toBe(403);
   });
 
   it('auditor, que sí lee otros módulos, tampoco entra a la bolsa', async () => {
-    kdb.when.select('flito_bolsas', [filaBolsa]);
+    kdb.when.select('flito_bolsas_unicas', [filaBolsa]);
     const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}`).set('Authorization', await auth('auditor'));
     expect(r.status).toBe(403);
   });
 
   it('rol financiera SÍ ve la bolsa de su cliente', async () => {
-    kdb.when.select('flito_bolsas', [filaBolsa]);
+    kdb.when.select('flito_bolsas_unicas', [filaBolsa]);
     const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}`).set('Authorization', await auth('financiera'));
 
     expect(r.status).toBe(200);
@@ -184,7 +184,7 @@ describe('bolsas — AC3: la bolsa solo la ven y la mueven Administración y Fin
   });
 
   it('rol financiera SÍ lee el libro de movimientos', async () => {
-    kdb.when.select('flito_bolsa_movimientos', [filaLibro(filaMovimiento, 'FLIT-1')]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [filaLibro(filaMovimiento, 'FLIT-1')]);
     const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}/movimientos`).set('Authorization', await auth('financiera'));
 
     expect(r.status).toBe(200);
@@ -201,7 +201,7 @@ describe('GET /:companiaId — leer la bolsa', () => {
   it('cliente sin bolsa → 404 con mensaje, no un 500', async () => {
     // Que un cliente no tenga bolsa es lo normal antes de su primera recarga: la UI necesita
     // distinguir «aún no tiene» de «se cayó el servicio».
-    kdb.when.select('flito_bolsas', []);
+    kdb.when.select('flito_bolsas_unicas', []);
     const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}`).set('Authorization', await auth('admin'));
 
     expect(r.status).toBe(404);
@@ -236,7 +236,7 @@ describe('GET /:companiaId/movimientos — filtros', () => {
   });
 
   it('periodo bien formado → 200', async () => {
-    kdb.when.select('flito_bolsa_movimientos', [filaLibro()]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [filaLibro()]);
     const r = await request(await buildApp())
       .get(`/api/flito/bolsas/${COMPANIA}/movimientos?periodo=2026-03`)
       .set('Authorization', await auth('admin'));
@@ -287,7 +287,7 @@ describe('POST /:companiaId/recargas — validación del borde', () => {
   });
 
   it('valor por encima del techo de la columna → 400, no un 500 de Postgres', async () => {
-    kdb.when.select('clients', [filaCliente]).select('flito_bolsas', [{ id: BOLSA_ID, saldo: '0' }]);
+    kdb.when.select('clients', [filaCliente]).select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '0', activa: true }]);
     const r = await postRecarga(await buildApp(), await auth('admin'), { valor: '1000000000000' });
 
     expect(r.status).toBe(400);
@@ -295,7 +295,7 @@ describe('POST /:companiaId/recargas — validación del borde', () => {
   });
 
   it('fecha imposible de calendario → 400 (el regex sola no basta)', async () => {
-    kdb.when.select('clients', [filaCliente]).select('flito_bolsas', [{ id: BOLSA_ID, saldo: '0' }]);
+    kdb.when.select('clients', [filaCliente]).select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '0', activa: true }]);
     const r = await postRecarga(await buildApp(), await auth('admin'), { fecha: '2026-02-31' });
 
     expect(r.status).toBe(400);
@@ -303,7 +303,7 @@ describe('POST /:companiaId/recargas — validación del borde', () => {
   });
 
   it('fecha futura → 400', async () => {
-    kdb.when.select('clients', [filaCliente]).select('flito_bolsas', [{ id: BOLSA_ID, saldo: '0' }]);
+    kdb.when.select('clients', [filaCliente]).select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '0', activa: true }]);
     const r = await postRecarga(await buildApp(), await auth('admin'), { fecha: '2099-01-01' });
 
     expect(r.status).toBe(400);
@@ -430,7 +430,7 @@ describe('POST /:companiaId/recargas — reenvío con la misma clave', () => {
   function yaAsentada(): void {
     kdb.when
       .select('clients', [filaCliente])
-      .select('flito_bolsa_movimientos', [filaMovimiento]);
+      .select('flito_bolsas_unicas_movimientos', [filaMovimiento]);
   }
 
   it('replay → 200 (no 201) con duplicado: true y el movimiento original', async () => {
@@ -502,20 +502,28 @@ describe('POST /:companiaId/recargas — recarga válida', () => {
     });
   });
 
-  it('sin bolsa previa la ruta responde igual: la crea el servicio (AC2)', async () => {
-    kdb.when
-      .select('clients', [filaCliente])
-      // Primera lectura vacía; tras el INSERT de la bolsa, la relectura ya la encuentra.
-      .selectOnce('flito_bolsas', [])
-      .select('flito_bolsas', [{ id: BOLSA_ID, saldo: '0' }])
-      .insert('flito_soportes', [{ id: SOPORTE_ID }])
-      .insert('flito_bolsa_movimientos', [filaMovimiento])
-      .update('flito_bolsas', []);
+  // HU #13899 (AC7) — REESCRITO: el antiguo «sin bolsa previa la crea el servicio (AC2 de #11121)»
+  // contradice el AC7. Sin bolsa la recarga se rechaza y no se crea nada.
+  it('TC-19 · sin bolsa → 409 bolsa_inexistente «Crea la bolsa de la compañía primero», sin crear nada', async () => {
+    kdb.when.select('clients', [filaCliente]).select('flito_bolsas_unicas', []);
 
     const r = await postRecarga(await buildApp(), await auth('admin'));
 
-    expect(r.status).toBe(201);
-    expect(r.body.saldo).toBe(500000);
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'Crea la bolsa de la compañía primero', codigo: 'bolsa_inexistente' });
+    expect(kdb.insert).not.toHaveBeenCalled();
+    expect(deleteMock).toHaveBeenCalledWith(STORAGE_KEY);
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('TC-21 · bolsa inactiva → 409 bolsa_inactiva «Reactiva la bolsa primero»', async () => {
+    kdb.when.select('clients', [filaCliente]).select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '0', activa: false }]);
+
+    const r = await postRecarga(await buildApp(), await auth('admin'));
+
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'Reactiva la bolsa primero', codigo: 'bolsa_inactiva' });
+    expect(kdb.insert).not.toHaveBeenCalled();
   });
 });
 
@@ -526,7 +534,7 @@ describe('POST /:companiaId/recargas — si la recarga no cuaja, el archivo no s
     // La fecha se valida dentro del servicio, o sea DESPUÉS de que el comprobante ya está en el
     // almacenamiento. Sin la compensación quedaría un archivo de hasta 15 MB por cada intento
     // fallido, sin ninguna fila que lo referencie.
-    kdb.when.select('clients', [filaCliente]).select('flito_bolsas', [{ id: BOLSA_ID, saldo: '0' }]);
+    kdb.when.select('clients', [filaCliente]).select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '0', activa: true }]);
     const r = await postRecarga(await buildApp(), await auth('admin'), { fecha: '2026-02-31' });
 
     expect(r.status).toBe(400);
@@ -536,7 +544,7 @@ describe('POST /:companiaId/recargas — si la recarga no cuaja, el archivo no s
   });
 
   it('si la bolsa no se puede abrir (carrera) → 409 y también se borra', async () => {
-    kdb.when.select('clients', [filaCliente]).select('flito_bolsas', []);
+    kdb.when.select('clients', [filaCliente]).select('flito_bolsas_unicas', []);
     const r = await postRecarga(await buildApp(), await auth('admin'));
 
     expect(r.status).toBe(409);
@@ -568,10 +576,10 @@ const filaCierre = {
 /** Lo que necesita un cierre feliz: bolsa, ningún cierre previo y los totales del periodo. */
 function escenarioCierreOk(): void {
   kdb.when
-    .select('flito_bolsas', [{ id: BOLSA_ID, saldo: '180000' }])
-    .select('flito_bolsa_cierres', [])
-    .select('flito_bolsa_movimientos', [{ entradas: '500000', salidas: '320000', movimientos: 12 }])
-    .insert('flito_bolsa_cierres', [filaCierre]);
+    .select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '180000', activa: true }])
+    .select('flito_bolsas_unicas_cierres', [])
+    .select('flito_bolsas_unicas_movimientos', [{ entradas: '500000', salidas: '320000', movimientos: 12 }])
+    .insert('flito_bolsas_unicas_cierres', [filaCierre]);
 }
 
 describe('cierres — AC3 de acceso: siguen siendo cosa de Administración y Financiera', () => {
@@ -588,7 +596,7 @@ describe('cierres — AC3 de acceso: siguen siendo cosa de Administración y Fin
   });
 
   it('rol financiera SÍ lista los cierres del cliente', async () => {
-    kdb.when.select('flito_bolsa_cierres', [filaCierre]);
+    kdb.when.select('flito_bolsas_unicas_cierres', [filaCierre]);
     const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}/cierres`)
       .set('Authorization', await auth('financiera'));
 
@@ -643,8 +651,8 @@ describe('POST /:companiaId/cierres — validación y cierre', () => {
 
   it('periodo ya cerrado → 409 y sin auditoría', async () => {
     kdb.when
-      .select('flito_bolsas', [{ id: BOLSA_ID, saldo: '180000' }])
-      .select('flito_bolsa_cierres', [{ id: filaCierre.id }]);
+      .select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '180000', activa: true }])
+      .select('flito_bolsas_unicas_cierres', [{ id: filaCierre.id }]);
 
     const r = await request(await buildApp()).post(`/api/flito/bolsas/${COMPANIA}/cierres`)
       .set('Authorization', await auth('admin')).send({ periodo: MES_PASADO });
@@ -667,7 +675,7 @@ describe('POST /:companiaId/cierres — validación y cierre', () => {
 
 describe('GET /consolidado — no se confunde con un id de compañía', () => {
   it('devuelve el agregado, no un 400 por "consolidado" inválido', async () => {
-    kdb.when.select('flito_bolsas', [{ clientes: 4, saldoTotal: '1200000.00' }]);
+    kdb.when.select('flito_bolsas_unicas', [{ clientes: 4, saldoTotal: '1200000.00' }]);
     const r = await request(await buildApp()).get('/api/flito/bolsas/consolidado').set('Authorization', await auth('admin'));
 
     expect(r.status).toBe(200);
@@ -701,11 +709,11 @@ function postManual(app: express.Express, token: string, campos: Record<string, 
 function escenarioManualOk(): void {
   kdb.when
     .select('clients', [filaCliente])
-    .select('flito_bolsa_cierres', [])
-    .select('flito_bolsas', [{ id: BOLSA_ID, saldo: '1000000' }])
+    .select('flito_bolsas_unicas_cierres', [])
+    .select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '1000000', activa: true }])
     .insert('flito_soportes', [{ id: SOPORTE_ID }])
-    .insert('flito_bolsa_movimientos', [{ ...filaMovimientoManual, tipo: 'entrada', valor: '250000', saldoResultante: '1250000' }])
-    .update('flito_bolsas', []);
+    .insert('flito_bolsas_unicas_movimientos', [{ ...filaMovimientoManual, tipo: 'entrada', valor: '250000', saldoResultante: '1250000' }])
+    .update('flito_bolsas_unicas', []);
 }
 
 describe('POST /:companiaId/movimientos-manuales — contingencia de Financiera', () => {
@@ -758,7 +766,8 @@ describe('POST /:companiaId/movimientos-manuales — contingencia de Financiera'
     // El rechazo ocurre después de archivar el adjunto; sin la compensación quedaría un huérfano.
     kdb.when
       .select('clients', [filaCliente])
-      .select('flito_bolsa_cierres', [{ id: 'cierre-1', periodo: '2026-06' }]);
+      .select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '0', activa: true }])
+      .select('flito_bolsas_unicas_cierres', [{ id: 'cierre-1', periodo: '2026-06' }]);
 
     const r = await postManual(await buildApp(), await auth('admin'), { fecha: '2026-06-15' });
 
@@ -793,7 +802,7 @@ describe('POST /:companiaId/movimientos/:movimientoId/correccion', () => {
   });
 
   it('corregir un movimiento automático → 409', async () => {
-    kdb.when.select('flito_bolsa_movimientos', [{ ...filaMovimientoManual, origen: 'automatico' }]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [{ ...filaMovimientoManual, origen: 'automatico' }]);
     const r = await request(await buildApp()).post(url)
       .set('Authorization', await auth('admin')).send({ valor: 150000, motivo: 'Error de digitación' });
 
@@ -802,7 +811,7 @@ describe('POST /:companiaId/movimientos/:movimientoId/correccion', () => {
   });
 
   it('movimiento inexistente → 404', async () => {
-    kdb.when.select('flito_bolsa_movimientos', []);
+    kdb.when.select('flito_bolsas_unicas_movimientos', []);
     const r = await request(await buildApp()).post(url)
       .set('Authorization', await auth('admin')).send({ valor: 150000, motivo: 'Error de digitación' });
     expect(r.status).toBe(404);
@@ -810,14 +819,14 @@ describe('POST /:companiaId/movimientos/:movimientoId/correccion', () => {
 
   it('válido → 201 con la corrección y auditoría de actualización', async () => {
     kdb.when
-      .selectOnce('flito_bolsa_movimientos', [filaMovimientoManual])
-      .select('flito_bolsa_cierres', [])
-      .select('flito_bolsas', [{ id: BOLSA_ID, saldo: '1000000' }])
-      .insert('flito_bolsa_movimientos', [{
+      .selectOnce('flito_bolsas_unicas_movimientos', [{ ...filaMovimientoManual, activa: true }])
+      .select('flito_bolsas_unicas_cierres', [])
+      .select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '1000000', activa: true }])
+      .insert('flito_bolsas_unicas_movimientos', [{
         ...filaMovimientoManual, id: 'mov-correccion', valor: '50000', saldoResultante: '950000',
         corrigeMovimientoId: MOV_MANUAL_ID,
       }])
-      .update('flito_bolsas', []);
+      .update('flito_bolsas_unicas', []);
 
     const r = await request(await buildApp()).post(url)
       .set('Authorization', await auth('financiera')).send({ valor: 150000, motivo: 'Error de digitación' });
@@ -848,10 +857,10 @@ describe('GET /:companiaId/extracto', () => {
 
   it('válido → 200 con los desgloses', async () => {
     kdb.when
-      .selectOnce('flito_bolsa_movimientos', [{ entradas: '800000', salidas: '300000' }])
-      .selectOnce('flito_bolsa_movimientos', [{ clave: '05001', entradas: '0', salidas: '300000', movimientos: 3 }])
-      .selectOnce('flito_bolsa_movimientos', [{ clave: null, entradas: '800000', salidas: '0', movimientos: 1 }])
-      .select('flito_bolsas', [filaBolsa]);
+      .selectOnce('flito_bolsas_unicas_movimientos', [{ entradas: '800000', salidas: '300000' }])
+      .selectOnce('flito_bolsas_unicas_movimientos', [{ clave: '05001', entradas: '0', salidas: '300000', movimientos: 3 }])
+      .selectOnce('flito_bolsas_unicas_movimientos', [{ clave: null, entradas: '800000', salidas: '0', movimientos: 1 }])
+      .select('flito_bolsas_unicas', [filaBolsa]);
 
     const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}/extracto`)
       .set('Authorization', await auth('financiera'));
@@ -946,7 +955,7 @@ describe('GET /soportes/:soporteId — abrir el comprobante de un movimiento', (
 describe('bolsa con nivel de riesgo', () => {
   it('GET /:companiaId ahora trae nivel y porcentaje', async () => {
     // La pantalla no recalcula el nivel: lo pinta tal cual viene.
-    kdb.when.select('flito_bolsas', [{ ...filaBolsa, saldo: '80000', ultimaRecargaValor: '800000' }]);
+    kdb.when.select('flito_bolsas_unicas', [{ ...filaBolsa, saldo: '80000', ultimaRecargaValor: '800000' }]);
     const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}`)
       .set('Authorization', await auth('financiera'));
 
@@ -964,7 +973,7 @@ describe('bolsa con nivel de riesgo', () => {
   });
 
   it('GET /riesgo → 200 con las bolsas ordenadas por urgencia', async () => {
-    kdb.when.select('flito_bolsas', [
+    kdb.when.select('flito_bolsas_unicas', [
       { id: 'b1', companiaId: 1, companiaNombre: 'Normal', saldo: '500000', ultimaRecargaValor: '800000', ultimaRecargaEn: AHORA },
       { id: 'b2', companiaId: 2, companiaNombre: 'Agotada', saldo: '0', ultimaRecargaValor: '800000', ultimaRecargaEn: AHORA },
     ]);
@@ -984,10 +993,10 @@ describe('bolsa con nivel de riesgo', () => {
 
   it('GET /riesgo?periodo=YYYY-MM → 200 con los totales del mes en cada tarjeta', async () => {
     kdb.when
-      .select('flito_bolsas', [
+      .select('flito_bolsas_unicas', [
         { id: 'b1', companiaId: 1, companiaNombre: 'ACME', saldo: '500000', ultimaRecargaValor: '800000', ultimaRecargaEn: AHORA },
       ])
-      .select('flito_bolsa_movimientos', [{ companiaId: 1, entradas: '800000', salidas: '300000' }]);
+      .select('flito_bolsas_unicas_movimientos', [{ companiaId: 1, entradas: '800000', salidas: '300000' }]);
 
     const r = await request(await buildApp()).get('/api/flito/bolsas/riesgo?periodo=2026-06')
       .set('Authorization', await auth('financiera'));
@@ -998,9 +1007,9 @@ describe('bolsa con nivel de riesgo', () => {
 
   it('GET /alertas → 200 con saldo y conciliación', async () => {
     kdb.when
-      .select('flito_bolsas', [{ id: 'b1', companiaId: 1, companiaNombre: 'ACME', saldo: '0', ultimaRecargaValor: '800000', ultimaRecargaEn: AHORA }])
+      .select('flito_bolsas_unicas', [{ id: 'b1', companiaId: 1, companiaNombre: 'ACME', saldo: '0', ultimaRecargaValor: '800000', ultimaRecargaEn: AHORA }])
       .select('flito_derechos_pendientes', [{ n: 2 }])
-      .select('flito_bolsa_movimientos', [{ n: 1 }])
+      .select('flito_bolsas_unicas_movimientos', [{ n: 1 }])
       .select('flito_conciliacion_boletas', [{ n: 3 }]);
     const r = await request(await buildApp()).get('/api/flito/bolsas/alertas').set('Authorization', await auth('admin'));
 
