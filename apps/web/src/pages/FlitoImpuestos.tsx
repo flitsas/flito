@@ -4,7 +4,7 @@
 // (→ Pagado) y rechazo/reactivación/reversa. Operaciones ve todo; el gestor solo su organismo y
 // nunca los Pendiente; Auditoría es solo lectura.
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
   TOPE_LOTE_CERTIFICACION,
@@ -35,6 +35,7 @@ import {
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
 import DetalleImpuesto from '../components/flito/DetalleImpuesto';
+import useSondeoAnalisis from '../components/flito/useSondeoAnalisis';
 import CargaRecibosImpuestos from '../components/flito/CargaRecibosImpuestos';
 import {
   AccionesTramite, AvisoAnalisis, ModalValidacion, PRESET_CON_ALERTAS, ReintentarValidacion, SEMAFOROS_ALERTA, VACIO_CON_ALERTAS,
@@ -91,6 +92,7 @@ export default function FlitoImpuestos() {
   // pulsación. Se espera a que el usuario deje de escribir.
   const buscar = useDebounce(texto, 300);
   const [data, setData] = useState<ColaImpuestos | null>(null);
+  const urlCola = useRef('');
   const [error, setError] = useState<string | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [detalleId, setDetalleId] = useState<string | null>(null);
@@ -191,9 +193,13 @@ export default function FlitoImpuestos() {
     if (gestionSel) q.set('gestion', gestionSel);
     if (soloAlertas) q.set('semaforo', SEMAFOROS_ALERTA.join(','));
     q.set('page', String(page));
-    api.get<ColaImpuestos>(`/flito/impuestos?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
+    urlCola.current = `/flito/impuestos?${q}`;
+    api.get<ColaImpuestos>(urlCola.current).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, liquidadoPendiente, gestionSel, soloAlertas, page, recarga]);
+
+  // HU #12827: las filas «Analizando» se actualizan solas al terminar el análisis (sin recargar la cola).
+  useSondeoAnalisis(data, setData, () => api.get<ColaImpuestos>(urlCola.current));
 
   useEffect(() => {
     api.get<FacetasImpuestos>('/flito/impuestos/facetas').then(setFacetas).catch(() => setFacetas(null));

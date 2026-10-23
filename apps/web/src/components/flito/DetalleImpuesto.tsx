@@ -78,7 +78,7 @@ export default function DetalleImpuesto({
   // HU #12834: el detalle se pide UNA vez y lo comparten la sección de validación y la dirección.
   // Tras guardar la dirección se parchea aquí, sin volver a pedirlo: el aviso se va y la fila de la
   // tabla comparativa muestra lo guardado en el mismo render.
-  const { carga: cargaApi, recargar } = useDetalleValidacion(imp.id, true);
+  const { carga: cargaApi, recargar } = useDetalleValidacion(imp.id, true, imp.analisisEstado);
   const [direccionGuardada, setDireccionGuardada] = useState<DireccionCompradorImpuesto | null>(null);
   const carga: Carga = cargaApi.fase === 'listo' && direccionGuardada
     ? { fase: 'listo', datos: { ...cargaApi.datos, direccionComprador: direccionGuardada } }

@@ -31,6 +31,7 @@ import { loggerFor } from '../../shared/logger.js';
 import { errorSinPii, type PasoAnalisis } from './flito-impuestos.analisis.service.js';
 import { certificarConRespuestaRunt, datosDelVehiculo, type ActorCertificacion } from './certificacion.service.js';
 import { registrarAccesoSistema } from './flito-impuestos.extraccion.js';
+import { argumentosConsultaRunt } from './certificacion-runt.js';
 
 const log = loggerFor('flito-impuestos.autocertificacion');
 
@@ -70,9 +71,12 @@ export const pasoAutocertificacion: PasoAnalisis = async ({ impuestoId, job }) =
 
   const datos = await datosDelVehiculo(impuestoId);
   // La certificación guarda con QUÉ se consultó; si el vehículo cambió entre la consulta y ahora
-  // (documento que aparece o desaparece), la respuesta ya no corresponde a ese identificador.
-  const via = datos?.ownerDocument?.trim() ? 'documento' : 'vin';
-  if (!datos?.placa?.trim() || via !== consulta.via) {
+  // (documento que aparece o desaparece), la respuesta ya no corresponde a ese identificador. La vía
+  // sale de la MISMA regla que usó la consulta (RN-12827-M: matrícula → solo VIN aunque haya documento).
+  const args = datos ? argumentosConsultaRunt({
+    tipoTramite: datos.tipoTramite, placa: datos.placa, documento: datos.ownerDocument, vin: datos.vin,
+  }) : null;
+  if (!datos?.placa?.trim() || !args || args.via !== consulta.via) {
     log.info({ impuestoId }, 'autocertificacion: datos del vehículo cambiaron desde la consulta, no aplica');
     return;
   }

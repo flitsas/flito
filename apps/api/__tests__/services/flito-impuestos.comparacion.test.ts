@@ -114,6 +114,28 @@ describe('AC1 — con extracción y RUNT válido', () => {
     expect(c.job.consultaRunt).toMatchObject({ estado: 'ok', via: 'vin' });
   });
 
+  it.each(['Matricula', 'Matrícula', 'MATRICULA'])('matrícula (%s) con documento y VIN → consulta SOLO por VIN (RN-12827-M)', async (tipo) => {
+    conExtraccion(); vehiculo({ tipoTramite: tipo });
+    consultarVehiculoRunt.mockResolvedValue({ ok: true, data: DATA_RUNT });
+    const g = updates();
+    const c = ctx();
+    await pasoComparacion(c);
+    expect(consultarVehiculoRunt).toHaveBeenCalledTimes(1);
+    expect(consultarVehiculoRunt).toHaveBeenCalledWith(undefined, VIN, undefined);
+    expect(c.job.consultaRunt).toMatchObject({ estado: 'ok', via: 'vin' });
+    expect(g[0].set!.semaforo).toBe('verde');
+  });
+
+  it('traspaso con documento → sigue por placa + documento (regresión RN-12827-M)', async () => {
+    conExtraccion(); vehiculo({ tipoTramite: 'Traspaso' });
+    consultarVehiculoRunt.mockResolvedValue({ ok: true, data: DATA_RUNT });
+    updates();
+    const c = ctx();
+    await pasoComparacion(c);
+    expect(consultarVehiculoRunt).toHaveBeenCalledWith(PLACA, undefined, DOC);
+    expect(c.job.consultaRunt).toMatchObject({ estado: 'ok', via: 'documento' });
+  });
+
   it('el UPDATE solo aplica si el análisis sigue en_curso (condición renderizada)', async () => {
     conExtraccion(); vehiculo();
     consultarVehiculoRunt.mockResolvedValue({ ok: true, data: DATA_RUNT });
@@ -169,6 +191,7 @@ describe('AC2 — rojo runt_sin_respuesta, análisis completado', () => {
   it.each([
     ['sin placa', { placa: null }],
     ['sin documento ni VIN', { ownerDocument: null, vin: null }],
+    ['matrícula sin VIN (aunque haya documento: no cae a placa + documento)', { tipoTramite: 'Matricula', vin: null }],
   ])('%s → rojo runt_sin_respuesta SIN consultar', async (_n, over) => {
     conExtraccion(); vehiculo(over);
     const g = updates();
