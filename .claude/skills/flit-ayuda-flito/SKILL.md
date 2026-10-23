@@ -53,6 +53,10 @@ Declarar «ayuda: N/A — …» en el cuerpo del PR. No inventar una ficha para 
 
 Un archivo por clave del catálogo. Prefijo `_` no es ficha. Ausencia = pendiente, no error.
 
+**Tras editar una ficha (o `catalogo.ts`): regenerar el artefacto del API** con
+`npm run ayuda:drflit -w apps/api` y commitear `apps/api/src/modules/flito-dr-flit/ayuda/fichas-ayuda.generated.ts`
+en el mismo PR (HU #13853, ADR-0027: es el contexto de Dr. Flit IA). Si no, falla el test de deriva del API en CI.
+
 **Publicadas (18):** Gestión (HU #11894) y Finanzas/Administración (HU #11895): `flito_bolsas`, `flito_conciliacion`, `finanzas_reporte_costos`, `siigo_parametrizacion`, `siigo_operacion`, `siigo_credenciales`.
 
 `siigo_credenciales` se lista solo si `user.role === 'admin'`. **No** aliasar a `siigo_parametrizacion`.
