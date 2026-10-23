@@ -237,9 +237,9 @@ function responderCasoInvalido(res: Response, error: z.ZodError): void {
   res.status(400).json({ error: mensaje, codigo: 'campo-invalido', ...(campo ? { campo } : {}) });
 }
 
-/** 503 `soporte-no-disponible` si el ambiente o el cliente de ADO no están configurados. */
+/** 503 `soporte-no-disponible` si el cliente de ADO no está configurado. */
 export function exigirSoporteDisponible(_req: Request, res: Response, next: NextFunction): void {
-  if (!soporteDisponible() || ambienteDespliegue() === null) {
+  if (!soporteDisponible()) {
     res.status(503).json({
       error: 'El soporte desde Dr. Flit no está disponible en este momento.', codigo: 'soporte-no-disponible',
     });
@@ -401,7 +401,7 @@ router.post('/casos-soporte', drflitCasosLimiter, exigirSoporteDisponible, exigi
       const r = await radicarCaso(req, {
         usuarioId: req.user!.sub,
         autorizacionId: res.locals.autorizacionId as number,
-        ambiente: ambienteDespliegue()!,
+        ambiente: ambienteDespliegue(),
         caso: b.data,
         adjuntos: entrada.adjuntos,
       });

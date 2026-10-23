@@ -156,10 +156,22 @@ describe('AC1 — GET de un financiera que nunca aceptó', () => {
     expect(r.body.soporte.disponible).toBe(false);
   });
 
-  it('producción sin DEPLOY_ENVIRONMENT → no disponible, ambiente y etiqueta null (fallo cerrado)', async () => {
-    Object.assign(CFG, { DEPLOY_ENVIRONMENT: undefined });
+  it('HU #13913 AC1: producción sin DEPLOY_ENVIRONMENT, real con PAT y organización → disponible en PDN', async () => {
+    Object.assign(CFG, {
+      NODE_ENV: 'production', DEPLOY_ENVIRONMENT: undefined, DRFLIT_ADO_MODO: 'real',
+      DRFLIT_ADO_PAT: 'x', DRFLIT_ADO_ORG_URL: 'https://dev.azure.com/org',
+    });
     const r = await get(10);
-    expect(r.body.soporte).toMatchObject({ disponible: false, ambiente: null, ambienteEtiqueta: null });
+    expect(r.body.soporte).toMatchObject({ disponible: true, ambiente: 'PDN', ambienteEtiqueta: 'Producción' });
+  });
+
+  it.each([
+    ['sin PAT', { DRFLIT_ADO_PAT: undefined, DRFLIT_ADO_ORG_URL: 'https://dev.azure.com/org' }],
+    ['sin ORG_URL', { DRFLIT_ADO_PAT: 'x', DRFLIT_ADO_ORG_URL: undefined }],
+  ])('HU #13913 AC4: producción sin DEPLOY_ENVIRONMENT, real %s → disponible=false (ambiente PDN)', async (_n, cfg) => {
+    Object.assign(CFG, { NODE_ENV: 'production', DEPLOY_ENVIRONMENT: undefined, DRFLIT_ADO_MODO: 'real', ...cfg });
+    const r = await get(10);
+    expect(r.body.soporte).toMatchObject({ disponible: false, ambiente: 'PDN', ambienteEtiqueta: 'Producción' });
   });
 
   it('finalidad fuera del enum → 400 finalidad-invalida sin eco del valor', async () => {
