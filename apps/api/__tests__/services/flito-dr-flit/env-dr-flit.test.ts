@@ -25,9 +25,9 @@ describe('env.ts — DEPLOY_ENVIRONMENT y DRFLIT_ADO_*', () => {
     await expect(cargarEnv({ DRFLIT_ADO_MODO: 'simulado', DEPLOY_ENVIRONMENT: 'PDN' })).rejects.toThrow(/DRFLIT_ADO_MODO/);
   });
 
-  it('simulado en NODE_ENV=production sin DEPLOY_ENVIRONMENT → no arranca (fallo cerrado)', async () => {
+  it('HU #13913 AC5: simulado en NODE_ENV=production sin DEPLOY_ENVIRONMENT → no arranca (ausente = PDN)', async () => {
     await expect(cargarEnv({ NODE_ENV: 'production', DRFLIT_ADO_MODO: 'simulado', DEPLOY_ENVIRONMENT: '' }))
-      .rejects.toThrow(/DRFLIT_ADO_MODO/);
+      .rejects.toThrow(/DRFLIT_ADO_MODO=simulado no está permitido en producción sin DEPLOY_ENVIRONMENT: ausente se asume PDN/);
   });
 
   it('simulado en QA → arranca', async () => {
@@ -57,29 +57,32 @@ describe('dr-flit.config — disponibilidad', () => {
   const base: ConfigDrFlit = { NODE_ENV: 'production', DRFLIT_ADO_MODO: 'real' };
   const conPat = { DRFLIT_ADO_PAT: 'x', DRFLIT_ADO_ORG_URL: 'https://dev.azure.com/o' };
 
-  it('ambiente: DEPLOY_ENVIRONMENT manda; development cae a DEV; producción sin él → null', () => {
+  it('ambiente: DEPLOY_ENVIRONMENT manda; development cae a DEV; producción sin él → PDN (HU #13913)', () => {
     expect(ambienteDespliegue({ ...base, DEPLOY_ENVIRONMENT: 'QA' })).toBe('QA');
+    expect(ambienteDespliegue({ ...base, DEPLOY_ENVIRONMENT: 'DEV' })).toBe('DEV');
     expect(ambienteDespliegue({ ...base, NODE_ENV: 'development' })).toBe('DEV');
-    expect(ambienteDespliegue(base)).toBeNull();
+    expect(ambienteDespliegue(base)).toBe('PDN');
   });
 
   it('etiquetas', () => {
     expect(etiquetaAmbiente('PDN')).toBe('Producción');
     expect(etiquetaAmbiente('QA')).toBe('QA');
     expect(etiquetaAmbiente('DEV')).toBe('Otro (DEV)');
-    expect(etiquetaAmbiente(null)).toBeNull();
   });
 
-  it('real: disponible solo con PAT y organización y ambiente declarado', () => {
+  it('real: disponible solo con PAT y organización, declare o no el ambiente (HU #13913 AC1/AC4)', () => {
     expect(soporteDisponible({ ...base, DEPLOY_ENVIRONMENT: 'PDN', ...conPat })).toBe(true);
     expect(soporteDisponible({ ...base, DEPLOY_ENVIRONMENT: 'PDN', DRFLIT_ADO_ORG_URL: conPat.DRFLIT_ADO_ORG_URL })).toBe(false);
-    expect(soporteDisponible({ ...base, ...conPat })).toBe(false); // producción sin ambiente
+    expect(soporteDisponible({ ...base, ...conPat })).toBe(true); // producción sin ambiente = PDN
+    expect(soporteDisponible({ ...base, DRFLIT_ADO_ORG_URL: conPat.DRFLIT_ADO_ORG_URL })).toBe(false); // sin PAT
+    expect(soporteDisponible({ ...base, DRFLIT_ADO_PAT: conPat.DRFLIT_ADO_PAT })).toBe(false); // sin ORG_URL
   });
 
   it('simulado: disponible en DEV/QA, nunca en PDN', () => {
     expect(soporteDisponible({ ...base, DRFLIT_ADO_MODO: 'simulado', DEPLOY_ENVIRONMENT: 'QA' })).toBe(true);
     expect(soporteDisponible({ ...base, DRFLIT_ADO_MODO: 'simulado', NODE_ENV: 'development' })).toBe(true);
     expect(soporteDisponible({ ...base, DRFLIT_ADO_MODO: 'simulado', DEPLOY_ENVIRONMENT: 'PDN' })).toBe(false);
+    expect(soporteDisponible({ ...base, DRFLIT_ADO_MODO: 'simulado' })).toBe(false); // producción sin ambiente = PDN
   });
 });
 
