@@ -13,6 +13,7 @@ import { ARBOL_ITEMS_Y_ACCIONES, ELEMENTOS_PERMISOS } from '@operaciones/shared-
 import { catalogoCompleto, type FuncionCatalogo } from '../catalogo.js';
 import { ACCIONES_POR_AREA, PADRE, paginaDeAccion } from './expansion.js';
 import { ITEMS_LEGADO_OPS } from './acciones-legado.js';
+import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA } from './acciones-finanzas.js';
 import { lit, sqlRepartoArbol } from './sql-arbol.js';
 
 export const TMP_LEGADO = 'tmp_legado_13429';
@@ -23,7 +24,11 @@ export const TMP_PRIMERA = 'tmp_primera_13429';
  * HU #13588 — Los nodos del árbol nacidos DESPUÉS de la 0239 (los siembra la 0240). La 0238 y la 0239 ya están
  * aplicadas: su texto no cambia, así que el generador que lo reproduce byte a byte (TC-24) los deja fuera.
  */
-export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set(['pagina.admin_rendimiento']);
+export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set([
+  'pagina.admin_rendimiento',
+  // HU #13889 (ADR-0028): las acciones del expediente documental, sembradas por la 0248.
+  ...ACCIONES_NACIDAS_TRAS_LA_SIEMBRA,
+]);
 
 /** Operación de ítem antiguo → ítem, ordenado (lo que lee la 0239 y el pliegue del test). */
 export function paresLegado(): [string, string][] {

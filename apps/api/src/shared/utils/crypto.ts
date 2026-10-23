@@ -184,6 +184,30 @@ export function decryptPii(bundle: CipherBundle, aadParts: AadParts): string {
   return Buffer.concat([decipher.update(bundle.cipher), decipher.final()]).toString('utf8');
 }
 
+/**
+ * HU #13889 (ADR-0028 D5) — Variante BINARIA de `encryptPii` para archivos (documentos de vinculación
+ * de la compañía). Misma clave (`PII_ENC_KEY`), misma AAD ligada a la fila y mismo AES-256-GCM; solo
+ * cambia que el texto en claro es un `Buffer` y no una cadena utf8.
+ */
+export function encryptPiiBuffer(plain: Buffer, aadParts: AadParts): CipherBundle {
+  const keyVersion = PII_KEY_VERSION_CURRENT;
+  const key = loadPiiKey(keyVersion);
+  const iv = crypto.randomBytes(12);
+  const cipherObj = crypto.createCipheriv('aes-256-gcm', key, iv);
+  cipherObj.setAAD(buildAad(aadParts, keyVersion));
+  const cipher = Buffer.concat([cipherObj.update(plain), cipherObj.final()]);
+  return { cipher, iv, authTag: cipherObj.getAuthTag(), keyVersion };
+}
+
+/** Inversa de `encryptPiiBuffer`. Lanza si la AAD no es la de la fila o el tag no cuadra. */
+export function decryptPiiBuffer(bundle: CipherBundle, aadParts: AadParts): Buffer {
+  const key = loadPiiKey(bundle.keyVersion);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, bundle.iv);
+  decipher.setAAD(buildAad(aadParts, bundle.keyVersion));
+  decipher.setAuthTag(bundle.authTag);
+  return Buffer.concat([decipher.update(bundle.cipher), decipher.final()]);
+}
+
 // ============================================================================
 // Siigo — keyspace separado de RNDC y de PII (HU #11247)
 // ============================================================================

@@ -51,6 +51,15 @@ export const ACCIONES_FINANZAS: Readonly<Record<string, AccionArbol>> = {
   'accion.bolsas.movimientos_manuales': { operaciones: ['bolsas.movimiento.registrar', 'bolsas.movimiento.corregir'] },
   'accion.bolsas.cerrar_periodo': { operaciones: ['bolsas.cierre.crear', 'bolsas.extracto.descargar'] },
   'accion.bolsas.ver_alertas': { lectura: true, operaciones: ['bolsas.alertas.ver', 'bolsas.riesgo.ver'] },
+  // HU #13889 (ADR-0028) — expediente documental de la compañía. Sin `apoyo` de lectura en la de cargar: con
+  // él, `bolsas.documentos.ver` no sería exclusiva de «Ver el expediente» y la acción de lectura no tendría
+  // operación propia (lo exige el muestreo del árbol). Quien carga recibe también la de ver.
+  // Sin `lectura: true`: `bolsas.documentos.ver` incluye la DESCARGA (AC6 de #13889: una sola función para ver y
+  // descargar), y la regla del PO (2026-10-13) no deja que una acción de lectura expanda a descargar. Va con la
+  // regla «todos», como «Cerrar periodo y descargar extracto».
+  // `predecesores: []`: nacen después de la siembra del árbol y nadie las tenía antes (ver ACCIONES_NACIDAS_TRAS_LA_SIEMBRA).
+  'accion.bolsas.ver_documentos': { operaciones: ['bolsas.documentos.ver'], predecesores: [] },
+  'accion.bolsas.cargar_documentos': { operaciones: ['bolsas.documentos.cargar'], predecesores: [] },
   // ── Tarifas ──
   'accion.tarifas.ver': { lectura: true, operaciones: ['parametrizacion.tarifas.listar', 'parametrizacion.tarifas.ver_por_cliente', 'parametrizacion.tarifas.historial'] },
   'accion.tarifas.crear_modificar': { operaciones: ['parametrizacion.tarifas.crear', 'parametrizacion.tarifas.editar'] },
@@ -120,6 +129,16 @@ export const PARTIDA_DE_OPERACION_NUEVA: Readonly<Record<string, string>> = {
   'siigo.credenciales.registrar_produccion': TRANSITORIO_SIIGO,
   'siigo.credenciales.probar': TRANSITORIO_SIIGO,
 };
+
+/**
+ * HU #13889 (ADR-0028) — Lo que el árbol estrena DESPUÉS de su siembra (0234/0235/0238/0239, aplicadas): dos
+ * acciones y dos operaciones que no parten ninguna guarda vieja. Las operaciones no existieron en el mundo plano
+ * (`catalogoPlano()` no las lee: así sigue siendo lo que sembraron las migraciones ≤ 0231), nacen absorbidas por su
+ * acción (no se siembran), y el 403 y la expansión las conocen por `catalogoOperacionesNuevas()`. Las acciones
+ * quedan fuera de los generadores de la 0234/0235/0239 (su texto no cambia) y las siembra la 0248.
+ */
+export const OPERACIONES_NACIDAS_EN_EL_ARBOL: ReadonlySet<string> = new Set(['bolsas.documentos.cargar', 'bolsas.documentos.ver']);
+export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA: ReadonlySet<string> = new Set(['accion.bolsas.cargar_documentos', 'accion.bolsas.ver_documentos']);
 
 /** El área de esta HU sobre `OPERACIONES_DECLARADAS` (AC6 de cobertura), por prefijo del código. */
 export const AREA_FINANZAS = /^(liquidacion|bolsas|conciliacion|comprobantes|finanzas|siigo)\.|^parametrizacion\.(tarifas|servicios_adicionales)\./;

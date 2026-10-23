@@ -111,6 +111,8 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   // HU #12997: lectura de las solicitudes SOAT incompletas (RUNT caído); fichero hermano de soat.
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-incompletas.routes.ts' },
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-documentos.routes.ts' }, // HU #13362
+  // HU #13889 (ADR-0028): expediente documental de la compañía; submódulo propio de bolsas.
+  { modulo: 'bolsas', fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts' },
 ];
 
 /**
