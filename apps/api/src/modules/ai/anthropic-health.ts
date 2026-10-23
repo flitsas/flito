@@ -63,10 +63,14 @@ async function probeModel(model: string): Promise<ModelProbe> {
 }
 
 export async function runAnthropicHealthCheckOnce(): Promise<AnthropicHealthReport> {
-  const models = [
+  // HU #13856 (IA-4): también el modelo de Dr. Flit IA. Deduplicado: si coincide con uno ya listado no
+  // se prueba dos veces (cada probe es una llamada real, aunque de 1 token).
+  const candidatos = [
     { key: 'haiku', id: env.ANTHROPIC_MODEL_HAIKU },
     { key: 'sonnet', id: env.ANTHROPIC_MODEL_SONNET },
+    { key: 'drflit', id: env.ANTHROPIC_MODEL_DRFLIT },
   ];
+  const models = candidatos.filter((m, i) => Boolean(m.id) && candidatos.findIndex((o) => o.id === m.id) === i);
 
   const probes: ModelProbe[] = [];
   for (const m of models) {

@@ -277,6 +277,26 @@ describe('AC5 — finalidades independientes', () => {
   });
 });
 
+describe('HU #13856 (IA-4, AC2/AC10) — texto «ia» 2026-11-v1', () => {
+  it('el GET de «ia» publica la versión y el texto nuevos; aceptarla guarda el hash de ese texto', async () => {
+    const ia = await get(10, 'ia');
+    expect(ia.body).toMatchObject({
+      versionVigente: '2026-11-v1', textoVigente: AUTORIZACIONES_DRFLIT.ia.texto, autorizado: false,
+    });
+    expect(ia.body.textoVigente).toMatch(/NO se pueden ocultar/);
+    expect((await post(10, { finalidad: 'ia', version: '2026-11-v1' })).status).toBe(201);
+    expect(filas[0]).toMatchObject({ finalidad: 'ia', version: '2026-11-v1', textoSha256: sha256Texto(AUTORIZACIONES_DRFLIT.ia.texto) });
+    expect((await get(10, 'ia')).body.autorizado).toBe(true);
+  });
+
+  it('la versión provisional anterior de «ia» ya no se acepta (todos vuelven a consentir)', async () => {
+    const r = await post(10, { finalidad: 'ia', version: '2026-10-provisional-1' });
+    expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('version-no-vigente');
+    expect(filas).toHaveLength(0);
+  });
+});
+
 describe('AC7 — quién no pasa (y quién sí)', () => {
   it('sin token → 401 y no se guarda nada', async () => {
     expect((await get(null)).status).toBe(401);
