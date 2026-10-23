@@ -1,10 +1,11 @@
 // Dr. Flit soporte — disponibilidad y ambiente (HU #13803, Feature #13695). Diseño F5, «Disponibilidad».
 //
-//   ambiente   = DEPLOY_ENVIRONMENT ?? (NODE_ENV === 'development' ? 'DEV' : null)
-//   disponible = ambiente !== null && (
-//                  (MODO = simulado && ambiente !== PDN) || (MODO = real && PAT && ORG_URL))
+//   ambiente   = DEPLOY_ENVIRONMENT ?? (NODE_ENV === 'development' ? 'DEV' : 'PDN')
+//   disponible = (MODO = simulado && ambiente !== PDN) || (MODO = real && PAT && ORG_URL)
 //
-// Fallo cerrado: en producción sin DEPLOY_ENVIRONMENT el soporte no está disponible (no se adivina).
+// HU #13913 (decisión humana 2026-10-23): el soporte funciona en cualquier ambiente; en producción
+// sin DEPLOY_ENVIRONMENT se asume PDN (caso sin tag FLITO-PRUEBAS). Local sin la variable = DEV.
+// El simulado en producción sin la variable no arranca (validación de `env`): sería simulado en PDN.
 // Funciones puras sobre un objeto de configuración para poder probarlas sin recargar `env`.
 import {
   ETIQUETAS_AMBIENTE_DESPLIEGUE, type AmbienteDespliegue, type TipoAdjuntoSoporte,
@@ -36,18 +37,16 @@ export function topeDiarioIa(c: Pick<ConfigIaDrFlit, 'DRFLIT_IA_TOPE_DIARIO'> = 
   return c.DRFLIT_IA_TOPE_DIARIO;
 }
 
-export function ambienteDespliegue(c: ConfigDrFlit = env): AmbienteDespliegue | null {
-  return c.DEPLOY_ENVIRONMENT ?? (c.NODE_ENV === 'development' ? 'DEV' : null);
+export function ambienteDespliegue(c: ConfigDrFlit = env): AmbienteDespliegue {
+  return c.DEPLOY_ENVIRONMENT ?? (c.NODE_ENV === 'development' ? 'DEV' : 'PDN');
 }
 
-export function etiquetaAmbiente(a: AmbienteDespliegue | null): string | null {
-  return a ? ETIQUETAS_AMBIENTE_DESPLIEGUE[a] : null;
+export function etiquetaAmbiente(a: AmbienteDespliegue): string {
+  return ETIQUETAS_AMBIENTE_DESPLIEGUE[a];
 }
 
 export function soporteDisponible(c: ConfigDrFlit = env): boolean {
-  const ambiente = ambienteDespliegue(c);
-  if (ambiente === null) return false;
-  if (c.DRFLIT_ADO_MODO === 'simulado') return ambiente !== 'PDN';
+  if (c.DRFLIT_ADO_MODO === 'simulado') return ambienteDespliegue(c) !== 'PDN';
   return Boolean(c.DRFLIT_ADO_PAT && c.DRFLIT_ADO_ORG_URL);
 }
 

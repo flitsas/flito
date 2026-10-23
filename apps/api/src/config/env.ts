@@ -451,8 +451,8 @@ const envSchema = z.object({
   // Puerta POSITIVA de la purga de intentos a 12 meses (RN-DRF3): solo con =1.
   DRFLIT_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
 }).superRefine((data, ctx) => {
-  // HU #13803 (P9-1): el cliente simulado de FLIT - SOPORTE no puede arrancar en PDN, ni en una
-  // producción que no declaró su ambiente (fallo cerrado).
+  // HU #13803 (P9-1): el cliente simulado de FLIT - SOPORTE no puede arrancar en PDN. Desde HU #13913
+  // una producción sin DEPLOY_ENVIRONMENT se asume PDN, así que tampoco admite el simulado.
   if (data.DRFLIT_ADO_MODO === 'simulado' && data.DEPLOY_ENVIRONMENT === 'PDN') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -464,7 +464,7 @@ const envSchema = z.object({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['DRFLIT_ADO_MODO'],
-      message: 'DRFLIT_ADO_MODO=simulado en producción exige DEPLOY_ENVIRONMENT (DEV o QA)',
+      message: 'DRFLIT_ADO_MODO=simulado no está permitido en producción sin DEPLOY_ENVIRONMENT: ausente se asume PDN; declare DEV o QA',
     });
   }
   // Bloquea CORS_ORIGIN='*' en producción (XSS cross-origin).
