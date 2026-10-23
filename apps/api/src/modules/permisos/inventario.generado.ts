@@ -144,6 +144,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "GET", ruta: "/companias/:companiaId/tipos/:tipo/historial", roles: [], heredada: false },
   { modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "POST", ruta: "/companias/:companiaId/tipos/:tipo", roles: [], heredada: false },
   { modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "GET", ruta: "/documentos/:documentoId/archivo", roles: [], heredada: false },
+  { modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "PUT", ruta: "/documentos/:documentoId/fecha-expedicion", roles: [], heredada: false }, // HU #13890 (E4)
   { modulo: "conciliacion", fichero: "flito-conciliacion/flito-conciliacion.routes.ts", metodo: "POST", ruta: "/boletas", roles: ["admin","financiera"], heredada: false },
   { modulo: "conciliacion", fichero: "flito-conciliacion/flito-conciliacion.routes.ts", metodo: "GET", ruta: "/boletas", roles: ["admin","financiera"], heredada: false },
   { modulo: "conciliacion", fichero: "flito-conciliacion/flito-conciliacion.routes.ts", metodo: "GET", ruta: "/boletas/:id", roles: ["admin","financiera"], heredada: false },

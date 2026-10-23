@@ -222,6 +222,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${BDOC} GET /companias/:companiaId/tipos/:tipo/historial`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
   op(`${BDOC} GET /documentos/:documentoId/archivo`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
   op(`${BDOC} POST /companias/:companiaId/tipos/:tipo`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'),
+  op(`${BDOC} PUT /documentos/:documentoId/fecha-expedicion`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'), // HU #13890 (E4)
 
   // ── Conciliación de recaudo SOAT ──────────────────────────────────────────────────────────────
   op(`${CON} POST /boletas`, 'conciliacion.boleta.cargar', 'Cargar una boleta de recaudo', 'Subir el archivo del portal con lo recaudado en el periodo.'),

@@ -33,6 +33,9 @@ const estadoBolsaMock = vi.fn();
 vi.mock('../../src/modules/flito-bolsas-documentos/flito-bolsas-documentos.bolsa-compania.js', () => ({
   estadoBolsaDeCompania: estadoBolsaMock,
 }));
+// HU #13890: el worker del OCR se mockea aquí (tiene su propio test); solo importa CUÁNDO se lanza.
+const lanzarOcrMock = vi.fn();
+vi.mock('../../src/modules/flito-bolsas-documentos/flito-bolsas-documentos.ocr.js', () => ({ lanzarOcr: lanzarOcrMock }));
 
 const { encryptPiiBuffer } = await import('../../src/shared/utils/crypto.js');
 const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
@@ -78,7 +81,7 @@ function postCarga(app: express.Express, auth: string, archivo: Buffer, filename
 
 beforeEach(() => {
   kdb.reset();
-  auditMock.mockClear(); piiMock.mockClear(); deleteMock.mockClear();
+  auditMock.mockClear(); piiMock.mockClear(); deleteMock.mockClear(); lanzarOcrMock.mockClear();
   uploadMock.mockReset().mockResolvedValue(KEY);
   streamMock.mockReset();
   estadoBolsaMock.mockReset().mockResolvedValue({ existe: true, activa: true });
@@ -266,6 +269,181 @@ describe('frontera — solo personal FLIT', () => {
     const auth = `Bearer ${await testToken({ sub: 31, role: 'cliente', funciones: [VER] })}`;
     const app = await buildApp();
     const res = await request(app).get(`/api/flito/bolsas-documentos/companias/${COMPANIA}`).set('Authorization', auth);
+    expect(res.status).toBe(403);
+  });
+});
+
+// ── HU #13890 — OCR después de responder, fecha manual (E4) y estado por compañía ──────────────────
+
+const { hoyColombia } = await import('../../src/shared/utils/fecha-rango.js');
+const HOY = hoyColombia();
+function dias(fecha: string, n: number): string {
+  const d = new Date(`${fecha}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+describe('#13890 — el OCR se lanza después de responder, solo para Cámara/RUT/certificado', () => {
+  it('RUT cargado → 201 en validando y se lanza el OCR con el buffer en claro', async () => {
+    kdb.when.selectOnce(DOCS, [{ n: null }]).selectOnce(DOCS, [filaDto()]);
+    const app = await buildApp();
+    const res = await postCarga(app, await token([CARGAR]), PDF_REAL, 'rut.pdf', 'application/pdf');
+    expect(res.status).toBe(201);
+    expect(res.body.estado).toBe('validando');
+    expect(lanzarOcrMock).toHaveBeenCalledTimes(1);
+    expect(lanzarOcrMock.mock.calls[0]![0]).toBe(DOC_ID);
+    expect((lanzarOcrMock.mock.calls[0]![1] as Buffer).equals(PDF_REAL)).toBe(true);
+  });
+
+  it('AC7 — la cédula cargada sale Válido y NUNCA se envía al OCR', async () => {
+    kdb.when.selectOnce(DOCS, [{ n: null }]).selectOnce(DOCS, [filaDto({ tipo: 'cedula_representante', ocrEstado: 'no_aplica' })]);
+    const app = await buildApp();
+    const res = await postCarga(app, await token([CARGAR]), PDF_REAL, 'cc.pdf', 'application/pdf', 'cedula_representante');
+    expect(res.status).toBe(201);
+    expect(res.body.estado).toBe('valido');
+    expect(lanzarOcrMock).not.toHaveBeenCalled();
+  });
+
+  it('AC9 — el archivo se guarda aunque el OCR quede pendiente, y la respuesta NO es «Válido»', async () => {
+    kdb.when.selectOnce(DOCS, [{ n: null }]).selectOnce(DOCS, [filaDto({ tipo: 'camara_comercio' })]);
+    const app = await buildApp();
+    const res = await postCarga(app, await token([CARGAR]), PDF_REAL, 'cc.pdf', 'application/pdf', 'camara_comercio');
+    expect(res.status).toBe(201);
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+    expect(res.body.estado).not.toBe('valido');
+  });
+});
+
+const FECHA = `/api/flito/bolsas-documentos/documentos/${DOC_ID}/fecha-expedicion`;
+
+/** Captura el `set` de cada UPDATE; el reclamo devuelve la fila (`returning`). */
+function capturarUpdates(filas: unknown[] = [{ id: DOC_ID }]) {
+  const sets: Array<Record<string, unknown>> = [];
+  kdb.update.mockImplementation(() => ({
+    set: (v: Record<string, unknown>) => {
+      sets.push(v);
+      const c: Record<string, unknown> = {};
+      c.where = () => c; c.returning = () => c;
+      c.then = (res: (x: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(filas).then(res, rej);
+      return c;
+    },
+  }));
+  return sets;
+}
+
+describe('AC5 — con cargar, la fecha digitada a mano aplica la regla de 30 días y deja quién y cuándo', () => {
+  it('documento en «No se pudo validar» + fecha de hace 30 días → 200 Válido, origen manual, auditado', async () => {
+    const fecha = dias(HOY, -30);
+    const sets = capturarUpdates();
+    kdb.when.selectOnce(DOCS, [{ companiaId: COMPANIA, tipo: 'certificado_bancario', vigente: true }])
+      .selectOnce(DOCS, [filaDto({
+        tipo: 'certificado_bancario', ocrEstado: 'sin_fecha', fechaExpedicion: fecha, fechaOrigen: 'manual',
+        fechaManualEn: new Date('2026-10-23T16:00:00Z'), fechaManualPorNombre: 'Ana Operaciones',
+      })]);
+    const app = await buildApp();
+    const res = await request(app).put(FECHA).set('Authorization', await token([CARGAR], 9)).send({ fecha });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      estado: 'valido', fechaExpedicion: fecha, fechaOrigen: 'manual', venceEl: HOY,
+      fechaManual: { por: 'Ana Operaciones', en: '2026-10-23T16:00:00.000Z' },
+    });
+    expect(sets).toHaveLength(1);
+    expect(sets[0]).toMatchObject({ fechaExpedicion: fecha, fechaOrigen: 'manual', fechaManualPor: 9 });
+    expect(sets[0]!.fechaManualEn).toBeInstanceOf(Date);
+    expect(auditMock).toHaveBeenCalledTimes(1);
+    expect(auditMock.mock.calls[0]![1]).toMatchObject({ action: 'update', resource: 'flito_bolsa_documento', resourceId: DOC_ID });
+    expect(JSON.stringify(auditMock.mock.calls[0]![1])).not.toContain(fecha);
+  });
+
+  it('la regla se aplica igual: una fecha manual de hace 31 días sale vencida', async () => {
+    const fecha = dias(HOY, -31);
+    capturarUpdates();
+    kdb.when.selectOnce(DOCS, [{ companiaId: COMPANIA, tipo: 'rut', vigente: true }])
+      .selectOnce(DOCS, [filaDto({ ocrEstado: 'fallido', fechaExpedicion: fecha, fechaOrigen: 'manual', fechaManualEn: new Date() })]);
+    const app = await buildApp();
+    const res = await request(app).put(FECHA).set('Authorization', await token([CARGAR])).send({ fecha });
+    expect(res.status).toBe(200);
+    expect(res.body.estado).toBe('vencido');
+  });
+
+  it.each([
+    ['futura', dias(HOY, 1)],
+    ['inexistente en el calendario', '2026-02-31'],
+    ['con otro formato', '23/10/2026'],
+  ])('fecha %s → 400 sin escribir', async (_n, fecha) => {
+    const app = await buildApp();
+    const res = await request(app).put(FECHA).set('Authorization', await token([CARGAR])).send({ fecha });
+    expect(res.status).toBe(400);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+
+  it('cédula o adicional → 422 (no llevan vigencia)', async () => {
+    kdb.when.selectOnce(DOCS, [{ companiaId: COMPANIA, tipo: 'cedula_representante', vigente: true }]);
+    const app = await buildApp();
+    const res = await request(app).put(FECHA).set('Authorization', await token([CARGAR])).send({ fecha: HOY });
+    expect(res.status).toBe(422);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+
+  it('versión reemplazada → 409; documento inexistente → 404', async () => {
+    kdb.when.selectOnce(DOCS, [{ companiaId: COMPANIA, tipo: 'rut', vigente: false }]).selectOnce(DOCS, []);
+    const app = await buildApp();
+    const auth = await token([CARGAR]);
+    expect((await request(app).put(FECHA).set('Authorization', auth).send({ fecha: HOY })).status).toBe(409);
+    expect((await request(app).put(FECHA).set('Authorization', auth).send({ fecha: HOY })).status).toBe(404);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+
+  it('bolsa inactiva → 409 sin escribir', async () => {
+    estadoBolsaMock.mockResolvedValue({ existe: true, activa: false });
+    kdb.when.selectOnce(DOCS, [{ companiaId: COMPANIA, tipo: 'rut', vigente: true }]);
+    const app = await buildApp();
+    const res = await request(app).put(FECHA).set('Authorization', await token([CARGAR])).send({ fecha: HOY });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/inactiva/);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('AC6 — sin bolsas.documentos.cargar no se digita la fecha', () => {
+  it('solo con ver → 403 y no se toca la base', async () => {
+    const app = await buildApp();
+    const res = await request(app).put(FECHA).set('Authorization', await token([VER])).send({ fecha: HOY });
+    expect(res.status).toBe(403);
+    expect(res.body.funcion).toBe(CARGAR);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('AC8 — estado por compañía con bolsas.documentos.ver', () => {
+  it('trae los 5 documentos con estado, fecha de expedición y origen, sin datos de la cédula', async () => {
+    kdb.when.select(DOCS, [
+      filaDto({ id: DOC_ID, tipo: 'camara_comercio', fechaExpedicion: dias(HOY, -3), fechaOrigen: 'ocr', ocrEstado: 'leido' }),
+      filaDto({ id: NONCE, tipo: 'rut', fechaExpedicion: dias(HOY, -40), fechaOrigen: 'manual', ocrEstado: 'sin_fecha', fechaManualEn: new Date() }),
+      filaDto({ id: '33333333-3333-4333-8333-333333333333', tipo: 'cedula_representante', ocrEstado: 'no_aplica' }),
+    ]);
+    const app = await buildApp();
+    const res = await request(app).get(`/api/flito/bolsas-documentos/companias/${COMPANIA}`).set('Authorization', await token([VER]));
+    expect(res.status).toBe(200);
+    const docs = res.body.documentos as Array<{ tipo: string; estado: string; vigente: Record<string, unknown> | null }>;
+    expect(docs.map((d) => d.tipo)).toEqual(['camara_comercio', 'rut', 'cedula_representante', 'certificado_bancario', 'adicional']);
+    const por = (t: string) => docs.find((d) => d.tipo === t)!;
+    expect(por('camara_comercio')).toMatchObject({ estado: 'valido', vigente: { fechaExpedicion: dias(HOY, -3), fechaOrigen: 'ocr' } });
+    expect(por('rut')).toMatchObject({ estado: 'vencido', vigente: { fechaOrigen: 'manual' } });
+    expect(por('certificado_bancario')).toMatchObject({ estado: 'pendiente', vigente: null });
+    expect(res.body.completo).toBe(false);
+    // Cédula: solo metadatos (estado, versión, quién cargó); nada del archivo ni del almacenamiento.
+    const cc = por('cedula_representante');
+    expect(cc.estado).toBe('valido');
+    expect(cc.vigente).not.toHaveProperty('storageKey');
+    expect(cc.vigente).not.toHaveProperty('contenido');
+    expect(cc.vigente!.fechaExpedicion).toBeNull();
+    expect(JSON.stringify(res.body)).not.toContain(KEY);
+  });
+
+  it('sin ver → 403', async () => {
+    const app = await buildApp();
+    const res = await request(app).get(`/api/flito/bolsas-documentos/companias/${COMPANIA}`).set('Authorization', await token([CARGAR]));
     expect(res.status).toBe(403);
   });
 });

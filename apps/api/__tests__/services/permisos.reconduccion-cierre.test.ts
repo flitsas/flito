@@ -184,8 +184,9 @@ describe('el lector de montajes cubre la foto entera', () => {
     // −1 por la HU #13631 (se retira `POST /sincronizar` y su función `sync.sync.lanzar`).
     // +1 por la HU #13684 (`POST /novedades/buscar` de flito-tramites, reutiliza `tramites.cola.ver`).
     // +4 por la HU #13889 (expediente documental de la compañía: expediente, historial, carga y descarga).
-    expect(GUARDAS_MEDIDAS).toHaveLength(594);
-    expect(montajes).toHaveLength(594);
+    // +1 por la HU #13890 (`PUT /documentos/:documentoId/fecha-expedicion`, reutiliza `bolsas.documentos.cargar`).
+    expect(GUARDAS_MEDIDAS).toHaveLength(595);
+    expect(montajes).toHaveLength(595);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)

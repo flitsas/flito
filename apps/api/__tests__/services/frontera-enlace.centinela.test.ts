@@ -349,6 +349,8 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/bolsas-documentos/companias/:companiaId',                   'soloSinEnlace'],
   ['GET /api/flito/bolsas-documentos/companias/:companiaId/tipos/:tipo/historial', 'soloSinEnlace'],
   ['POST /api/flito/bolsas-documentos/companias/:companiaId/tipos/:tipo',      'soloSinEnlace'],
+  // HU #13890 (ADR-0028 §5 E4): fecha de expedición manual, también solo personal FLIT (orden del fuente).
+  ['PUT /api/flito/bolsas-documentos/documentos/:documentoId/fecha-expedicion', 'soloSinEnlace'],
   ['GET /api/flito/bolsas-documentos/documentos/:documentoId/archivo',         'soloSinEnlace'],
   ['POST /api/flito/comprobantes',                                             'soloSinEnlace'],
   ['GET /api/flito/comprobantes',                                              'filtra'],

@@ -21,7 +21,11 @@ import { audit } from '../../shared/middleware/audit.js';
 import { bolsasDocumentosCargaLimiter } from '../../shared/middleware/rateLimiter.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { detectMime } from '../pesv/magic-number.js';
-import { archivoDe, BolsaDocumentoError, cargarDocumento, expedienteDe, historialDe } from './flito-bolsas-documentos.service.js';
+import { hoyColombia } from '../../shared/utils/fecha-rango.js';
+import {
+  archivoDe, BolsaDocumentoError, cargarDocumento, expedienteDe, fijarFechaManual, historialDe,
+} from './flito-bolsas-documentos.service.js';
+import { lanzarOcr } from './flito-bolsas-documentos.ocr.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -108,9 +112,42 @@ router.post(
         detail: `Documento ${doc.tipo} v${doc.version} de la compañía ${p.data.companiaId}`,
       });
       res.status(201).json(doc);
+      // D3: el OCR va DESPUÉS de responder, con el buffer en claro aún en memoria. Solo los tipos que nacen
+      // en `validando` (Cámara, RUT, certificado); la cédula y el adicional nunca van al motor (D8).
+      if (doc.estado === 'validando') lanzarOcr(doc.id, req.file.buffer);
     } catch (e) { fallo(res, e); }
   },
 );
+
+/** `yyyy-mm-dd` que existe en el calendario. */
+function esFechaDeCalendario(v: string): boolean {
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
+const MSG_FECHA = 'Escribe una fecha de expedición válida (aaaa-mm-dd) que no sea futura.';
+const fechaManualBody = z.object({
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine(esFechaDeCalendario)
+    .refine((v) => v <= hoyColombia()),
+}).strict();
+
+/** E4 — Fecha de expedición digitada a mano (cuando el OCR no la pudo leer o la leyó mal). HU #13890. */
+router.put('/documentos/:documentoId/fecha-expedicion', soloSinEnlace(), exigirFuncion('bolsas.documentos.cargar'), async (req: Request, res: Response) => {
+  const p = documentoParams.safeParse(req.params);
+  if (!p.success) { res.status(400).json({ error: 'El documento no es válido.' }); return; }
+  const b = fechaManualBody.safeParse(req.body);
+  if (!b.success) { res.status(400).json({ error: MSG_FECHA }); return; }
+  try {
+    const doc = await fijarFechaManual(p.data.documentoId, b.data.fecha, req.user?.sub ?? null);
+    // Sin la fecha en el detalle: basta con quién (la fila de auditoría) y cuándo.
+    await audit(req, {
+      action: 'update', resource: 'flito_bolsa_documento', resourceId: doc.id,
+      detail: `Fecha de expedición manual del documento ${doc.tipo} v${doc.version}`,
+    });
+    res.json(doc);
+  } catch (e) { fallo(res, e); }
+});
 
 const EXTENSION: Record<MimeDocumentoBolsa, string> = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
 
