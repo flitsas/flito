@@ -91,3 +91,13 @@ Las comunicó el hilo principal el 2026-10-23, atribuidas a David Chica:
 - **Q5.** Si hay descuadre entre saldo y suma del libro, la migración falla. Se corrige **antes** con un movimiento de ajuste manual auditado y se vuelve a correr.
 - **Q6.** El GMF (4x1000) **deja** de descontarse de la bolsa.
 - **Q7.** Una bolsa inactiva **no** admite recargas, movimientos manuales (incluidas las correcciones) ni descuentos; primero hay que reactivarla.
+
+## D15 — Autogestión por compañía (2026-10-23, David Chica)
+
+Una compañía puede autogestionar SOAT, impuestos o logística (`clients.soat_autogestionable`, `impuestos_autogestionable`, `logistica_autogestionable`); en tránsito, los impuestos de un organismo con modalidad `autogestionado` tampoco los gestiona FLIT. Derechos, trámite digital y servicios adicionales no tienen autogestión.
+
+- **Crear o editar la bolsa:** un concepto autogestionado **se puede marcar**. La UI lo muestra con el aviso «no llegarán movimientos salvo excepciones» y un enlace a Parametrización para habilitar la gestión. La API entrega `conceptosAutogestionados`, calculado al consultar y nunca guardado en la bolsa (HU #13900, AC11; HU #13901, AC10).
+- **Cambio posterior:** si la autogestión cambia después de crear la bolsa, el detalle muestra el mismo aviso.
+- **Descuento (HU #13902, AC11):** un comprobante aplicado a un concepto que la compañía autogestiona **no descuenta**, aunque se aplique como soporte (Épica #12245, cierre e). Sí descuenta si el trámite tiene una excepción de autogestión vigente (`flito_excepciones_autogestion`) o si es un SOAT del canal cliente (`origen = 'cliente'`). Es la misma regla que usa el reporte de costos.
+- **Tránsito (HU #13907/#13908, AC9):** mismo aviso para el concepto impuesto en las secretarías cuyo organismo tiene modalidad `autogestionado`.
+- **Habeas Data (HU #13900):** en la proyección cliente (usuario con enlace de compañía) se ocultan quién inactivó la bolsa y el motivo; la fecha sí se muestra.

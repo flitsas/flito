@@ -110,7 +110,7 @@ describe('AC1/AC2 — en los 21 directorios ya no decide ningún requireRole', (
 
   it('los directorios son 42 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes + pesv, drivers, jornadas y rum de la HU #13421 + los ocho de operación de la HU #13422 + los ocho de la HU #13423) y los 32 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619; flito-impuestos otros tres: el de la cola, el de la dirección, HU #12833, y el del reemplazo del comprobante, HU #13269; flito-soat cuatro: módulo, canal Cliente, incompletas, HU #12997, y documentos adicionales, HU #13362; flito-sync tres: el de sync, el del acceso a FLIT 2, HU #13061, y el del interruptor por fuente, HU #13237)', () => {
     expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(43); // + flito-bolsas-documentos (HU #13889)
-    expect(FICHEROS_DE_RUTAS).toHaveLength(33);
+    expect(FICHEROS_DE_RUTAS).toHaveLength(34); // + flito-bolsas.catalogo.routes.ts (HU #13900, mismo directorio)
     for (const f of FICHEROS_DE_RUTAS) {
       expect((DIRECTORIOS_RECONDUCIDOS as readonly string[]).includes(f.split('/')[0]!), f).toBe(true);
     }
@@ -188,8 +188,10 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +2 por la HU #13838 (`POST /buscar` de flito-impuestos y de flito-derechos para Dr. Flit).
     // +4 por la HU #13889 (expediente documental de la compañía: expediente, historial, carga y descarga).
     // +1 por la HU #13890 (`PUT /documentos/:documentoId/fecha-expedicion`, reutiliza `bolsas.documentos.cargar`).
-    expect(GUARDAS_MEDIDAS).toHaveLength(599);
-    expect(montajes).toHaveLength(599);
+    // +11 por la HU #13900 (catálogo de bolsa: buscar, crear, estado, detalle, editar, inactivar, reactivar y las
+    // cuatro rutas por bolsa que reutilizan los códigos del canal Cliente: movimientos, recargas, cierres ×2).
+    expect(GUARDAS_MEDIDAS).toHaveLength(610);
+    expect(montajes).toHaveLength(610);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)

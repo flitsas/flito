@@ -49,6 +49,7 @@ const TAB = 'flito-tablero/flito-tablero.routes.ts';
 const BIT = 'flito-bitacora/flito-bitacora.routes.ts';
 const LOG = 'flito-logistica/flito-logistica.routes.ts';
 const BOL = 'flito-bolsas/flito-bolsas.routes.ts';
+const BCAT = 'flito-bolsas/flito-bolsas.catalogo.routes.ts'; // HU #13900
 const CON = 'flito-conciliacion/flito-conciliacion.routes.ts';
 const CMP = 'flito-comparendos/flito-comparendos.routes.ts';
 const LIQ = 'flito-liquidacion/flito-liquidacion.routes.ts';
@@ -231,6 +232,20 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${BDOC} GET /documentos/:documentoId/archivo`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
   op(`${BDOC} POST /companias/:companiaId/tipos/:tipo`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'),
   op(`${BDOC} PUT /documentos/:documentoId/fecha-expedicion`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'), // HU #13890 (E4)
+  // HU #13900 (Feature #13886, ADR-0029) — catálogo del modelo único de bolsa. Cuatro operaciones nuevas con la
+  // partida de su par, dentro de acciones de bolsas ya repartidas (arbol/acciones-finanzas.ts);
+  // las rutas por bolsa (`/bolsa/:bolsaId/*`) reutilizan los códigos de sus pares del canal Cliente.
+  op(`${BCAT} POST /buscar`, 'bolsas.bolsa.listar', 'Listar las bolsas', 'Buscar las bolsas por alcance, estado, nombre o NIT.'),
+  op(`${BCAT} POST /`, 'bolsas.bolsa.crear', 'Crear la bolsa de una compañía', 'Abrir la bolsa prepago de un cliente con los conceptos que descuenta.'),
+  op(`${BCAT} GET /compania/:companiaId/estado`, 'bolsas.bolsa.ver', 'Ver la bolsa de una compañía', 'Consultar el saldo y el estado de la bolsa de un cliente.'),
+  op(`${BCAT} GET /bolsa/:bolsaId`, 'bolsas.bolsa.ver', 'Ver la bolsa de una compañía', 'Consultar el saldo y el estado de la bolsa de un cliente.'),
+  op(`${BCAT} PATCH /bolsa/:bolsaId`, 'bolsas.bolsa.editar', 'Editar la bolsa de una compañía', 'Cambiar los conceptos que descuenta la bolsa de un cliente.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/inactivar`, 'bolsas.bolsa.inactivar', 'Inactivar o reactivar la bolsa de una compañía', 'Suspender la bolsa de un cliente con un motivo, o volver a activarla.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/reactivar`, 'bolsas.bolsa.inactivar', 'Inactivar o reactivar la bolsa de una compañía', 'Suspender la bolsa de un cliente con un motivo, o volver a activarla.'),
+  op(`${BCAT} GET /bolsa/:bolsaId/movimientos`, 'bolsas.movimientos.ver', 'Ver los movimientos de una bolsa', 'Recorrer las entradas y salidas de dinero de la bolsa.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/recargas`, 'bolsas.recarga.registrar', 'Registrar una recarga de bolsa', 'Abonar dinero a la bolsa del cliente con su soporte.'),
+  op(`${BCAT} GET /bolsa/:bolsaId/cierres`, 'bolsas.cierres.ver', 'Ver los cierres de una bolsa', 'Consultar los cortes de periodo ya cerrados.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/cierres`, 'bolsas.cierre.crear', 'Cerrar un periodo de bolsa', 'Cuadrar y cerrar el periodo de la bolsa del cliente.'),
 
   // ── Conciliación de recaudo SOAT ──────────────────────────────────────────────────────────────
   op(`${CON} POST /boletas`, 'conciliacion.boleta.cargar', 'Cargar una boleta de recaudo', 'Subir el archivo del portal con lo recaudado en el periodo.'),
