@@ -152,3 +152,6 @@ export * from './flito-dr-flit.js';
 // Dr. Flit — consultas de gestión sin IA (HU #13836, Feature #13834): body `{ valor }`, `{ total, items }`
 // y las tarjetas por módulo.
 export * from './flito-dr-flit-gestion.js';
+// Dr. Flit — enmascaramiento de PII antes de la IA (HU #13855, Feature #13696 IA-3). Fuente única de
+// los patrones de valor de gestión de F6.
+export * from './flito-dr-flit-mascara.js';

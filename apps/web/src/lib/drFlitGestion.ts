@@ -1,13 +1,18 @@
 // Dr. Flit — consultas de gestión sin IA (Feature #13834, HU #13836 G1).
 // Diseño: docs/diseno/feature-13834-dr-flit-consultas-gestion.md §Web · UX: docs/ux/flito-dr-flit-f6.md.
 //
-// PURO: sin React, sin `lib/api.ts` y sin imports de valor (solo `import type`), para que
-// `node --experimental-strip-types --test` lo cargue tal cual. Las llamadas al API viven en
+// PURO: sin React ni `lib/api.ts`, para que `node --experimental-strip-types --test` lo cargue tal
+// cual. Su único import de valor son los patrones de shared-types (HU #13855: fuente única con la
+// máscara de la IA), por ruta relativa al `.ts` —no por `@operaciones/shared-types`— porque Node y el
+// runner de Playwright resolverían el paquete a `dist/`, que el job E2E de CI no construye. Las llamadas al API viven en
 // `drFlitGestionConsulta.ts` (punto de entrada para F4: `consultarGestion` + `modulosAConsultar`).
 // Nada de esto sale a IA (AC10): el detector corre en el navegador y el valor solo viaja en el body
 // de `POST /api/flito/<modulo>/buscar`.
 
 import type { ModuloGestion } from '@operaciones/shared-types';
+import {
+  esVin, ID_FLIT, PLACA_CARRO, PLACA_CON_GUION, PLACA_MOTO,
+} from '../../../../packages/shared-types/src/flito-dr-flit-mascara.ts';
 
 export type TipoValorGestion = 'placa' | 'vin' | 'idFlit';
 
@@ -17,16 +22,14 @@ export interface ValorDetectado {
   valor: string;
 }
 
-const PLACA_CARRO = /^[A-Z]{3}\d{3}$/;
-const PLACA_MOTO = /^[A-Z]{3}\d{2}[A-Z]$/;
-const VIN = /^[A-HJ-NPR-Z0-9]{17}$/;
-/** FLIT 1 `FLIT-0132456`, FLIT 2 `FT2-0000180` (decisión humana de cierre, 2026-10-22). */
-const ID_FLIT = /^(FLIT|FT2)-\d+$/;
+// Patrones (placa de carro/moto, VIN, id FLIT `FLIT-…`/`FT2-…`): `flito-dr-flit-mascara.ts`.
+// HU #13855: F6 también ofrece la placa con guion (`ABC-123` → `ABC123`, igual que la máscara). NO
+// aplica NFKC ni une `ABC 123` con espacio: lo demás de lo que ofrece F6 no cambia (AC8).
 
 function tipoDeToken(token: string): TipoValorGestion | null {
   if (ID_FLIT.test(token)) return 'idFlit';
   if (PLACA_CARRO.test(token) || PLACA_MOTO.test(token)) return 'placa';
-  if (VIN.test(token) && /[A-Z]/.test(token) && /\d/.test(token)) return 'vin';
+  if (esVin(token)) return 'vin';
   return null;
 }
 
@@ -37,7 +40,8 @@ function tipoDeToken(token: string): TipoValorGestion | null {
 export function detectarValorGestion(texto: string): ValorDetectado | null {
   for (const crudo of texto.split(/[^A-Za-z0-9-]+/)) {
     // Un guion al borde («ABC123-») no forma parte del valor; dentro sí (id FLIT).
-    const token = crudo.replace(/^-+|-+$/g, '').toUpperCase();
+    const conGuion = crudo.replace(/^-+|-+$/g, '').toUpperCase();
+    const token = PLACA_CON_GUION.test(conGuion) ? conGuion.replace('-', '') : conGuion;
     if (!token) continue;
     const tipo = tipoDeToken(token);
     if (tipo) return { tipo, valor: token };
