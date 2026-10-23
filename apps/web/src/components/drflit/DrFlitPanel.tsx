@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
 import { flitBtnSecondarySm } from '../flit/flitPageKit';
 import { useAuth } from '../../lib/auth';
@@ -30,6 +30,10 @@ import { cargarFichaDrFlit, cargarFichasDrFlit } from './cargarFichaDrFlit';
 import { MarcadorGestion, OfertaGestion } from './gestion/OfertaGestion';
 import ResultadoGestion from './gestion/ResultadoGestion';
 import { useGestionDrFlit } from './gestion/useGestionDrFlit';
+import { mapaDeRespuesta, recordarMapa, useIaDrFlit, type ResultadoIa } from './useIaDrFlit';
+import DrFlitRespuestaIa from './DrFlitRespuestaIa';
+import DrFlitAvisoIa from './DrFlitAvisoIa';
+import { vistaAutorizacion } from './DrFlitAutorizacion';
 
 // Dr. Flit — contenido del panel (HU #13764, Feature #13694). Se carga con `lazy()` solo tras el
 // primer clic en «Abrir Dr. Flit» (AC8); el marco (cabecera, «Cerrar», carga y error) vive en el
@@ -48,6 +52,9 @@ import { useGestionDrFlit } from './gestion/useGestionDrFlit';
 // HU #13836 (Feature #13834, F6): un mensaje con placa, VIN o id FLIT recibe la oferta «Consultar … en
 // sus módulos» en vez de la Ayuda; el resultado vive en memoria (`lib/drFlitGestionConsulta.ts`) y el
 // almacén solo guarda un marcador sin valor (`serializar`).
+// HU #13857 (Feature #13696, IA-5): con la IA disponible, autorización `ia` vigente y cupo, la pregunta
+// va primero al chat (`useIaDrFlit`); `duda`/`no_claro` se pintan como `respuestaIa` y todo lo demás
+// (degradado, red, 429, 428, `soporte`/`gestion` hasta IA-6) cae en silencio al camino de F3/F6.
 
 export interface DrFlitPanelProps {
   /** Se llama al seguir un enlace del panel: en <lg el montaje cierra el panel para ver la página. */
@@ -60,7 +67,9 @@ export interface DrFlitPanelProps {
  */
 type Pendiente =
   | { tipo: 'modulo'; clave: string; estado: 'cargando' | 'error'; intento: number }
-  | { tipo: 'pregunta'; id: string; texto: string; estado: 'cargando' | 'error'; intento: number };
+  | { tipo: 'pregunta'; id: string; texto: string; estado: 'cargando' | 'error'; intento: number }
+  /** HU #13857: la pregunta está en el chat de la IA («Dr. Flit está pensando…»). */
+  | { tipo: 'ia'; id: string; texto: string; estado: 'cargando'; intento: number };
 
 /** Verificación de una conversación restaurada: carga las fichas visibles que cita (HU #13767 AC5). */
 type Verificacion = { claves: string[]; estado: 'cargando' | 'error'; intento: number };
@@ -165,6 +174,21 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
 
   const gestion = useGestionDrFlit({ userId, user, hasFuncion, mensajes, setMensajes, anunciar: setAnuncio });
 
+  // HU #13857: al volver de la vista «Antes de usar la IA» el foco va a la caja (IA.4).
+  const [focoCaja, setFocoCaja] = useState(0);
+  const ia = useIaDrFlit(userId, (texto) => {
+    if (texto) setAnuncio(texto);
+    setFocoCaja((n) => n + 1);
+  });
+  useEffect(() => {
+    if (focoCaja > 0) cajaRef.current?.focus();
+  }, [focoCaja]);
+  const tituloIaRef = useRef<HTMLHeadingElement>(null);
+  const vistaIa = soporte.vista === 'chat' ? ia.vista : 'chat';
+  useEffect(() => {
+    if (vistaIa === 'autorizacion') tituloIaRef.current?.focus();
+  }, [vistaIa]);
+
   // Verificación de las referencias restauradas: solo fichas visibles citadas (AC5).
   useEffect(() => {
     if (verificacion?.estado !== 'cargando') return;
@@ -253,27 +277,85 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
     );
   };
 
+  /** Modo determinista (F3/F6): oferta de gestión si hay placa, VIN o id FLIT; si no, los manuales. */
+  const respaldo = (id: string, texto: string, intento: number) => {
+    // HU #13836 AC1/AC7: placa, VIN o id FLIT con algún módulo de consulta → oferta, nada se ejecuta.
+    const detectado = detectarValorGestion(texto);
+    if (detectado && gestion.modulosPara(detectado.tipo).length > 0) {
+      setMensajes((prev) => agregar(prev, {
+        id: nuevoIdMensaje(), ts: Date.now(), de: 'drflit', tipo: 'ofertaGestion',
+        respondeA: id, valor: detectado.valor, tipoValor: detectado.tipo, estado: 'viva',
+      }));
+      return;
+    }
+    buscarPregunta(id, texto, intento);
+  };
+
+  /** Publica la respuesta de la IA; antes carga las fichas VISIBLES citadas para comprobar el ancla. */
+  const publicarIa = (id: string, r: Extract<ResultadoIa, { tipo: 'ia' }>, t: number) => {
+    const refs = r.citas
+      .filter((c) => entradaAyudaPorClave(c.clave))
+      .map((c) => (c.ancla ? { clave: c.clave, ancla: c.ancla } : { clave: c.clave }));
+    const publicar = () => {
+      if (!vivo.current || t !== turno.current) return;
+      const msgId = nuevoIdMensaje();
+      recordarMapa(msgId, r.mapa);
+      setMensajes((prev) => agregar(prev, {
+        id: msgId, ts: Date.now(), de: 'drflit', tipo: 'respuestaIa', respondeA: id, intent: r.intent,
+        texto: r.reply, enManuales: r.enManuales, refs: r.intent === 'duda' ? refs : [],
+      }));
+      setPendiente(null);
+    };
+    const porCargar = [...new Set(refs.map((x) => x.clave))].filter((clave) => {
+      const entrada = entradaAyudaPorClave(clave);
+      return entrada && puedeVerEntradaAyuda(user, entrada) && !fichas.has(clave);
+    });
+    if (porCargar.length === 0) {
+      publicar();
+      return;
+    }
+    // Si la carga falla, la cita enlaza a la ficha completa (sin ancla comprobada).
+    cargarFichasDrFlit(porCargar, 0).then(
+      (cargadas) => {
+        if (vivo.current && t === turno.current) setFichas((prev) => new Map([...prev, ...cargadas]));
+        publicar();
+      },
+      publicar,
+    );
+  };
+
+  /** Camino completo: IA si está en uso (AC2/AC5); si no, o si falla en cualquier forma, F3/F6 (AC7). */
+  const responderPregunta = (id: string, texto: string, intento: number, previos: readonly MensajeDrFlit[]) => {
+    if (!ia.enUso) {
+      respaldo(id, texto, intento);
+      return;
+    }
+    setPendiente({ tipo: 'ia', id, texto, estado: 'cargando', intento });
+    const t = turno.current;
+    const caer = () => {
+      if (!vivo.current || t !== turno.current) return;
+      setPendiente(null);
+      respaldo(id, texto, intento);
+    };
+    ia.preguntar(texto, previos).then((r) => {
+      if (r.tipo === 'respaldo') caer();
+      else if (vivo.current && t === turno.current) publicarIa(id, r, t);
+    }, caer);
+  };
+
   const preguntar = (texto: string) => {
     if (buscando) return;
     setListaAbierta(false);
     setPista(false);
     const id = nuevoIdMensaje();
-    // HU #13836 AC1/AC7: placa, VIN o id FLIT con algún módulo de consulta → oferta, nada se ejecuta.
-    const detectado = detectarValorGestion(texto);
-    const oferta: MensajeDrFlit | null = detectado && gestion.modulosPara(detectado.tipo).length > 0
-      ? {
-        id: nuevoIdMensaje(), ts: Date.now(), de: 'drflit', tipo: 'ofertaGestion',
-        respondeA: id, valor: detectado.valor, tipoValor: detectado.tipo, estado: 'viva',
-      }
-      : null;
+    const previos = mensajes;
     setMensajes((prev) => {
       // Una sola oferta viva (F6.3): la anterior pierde sus botones y queda «No consulté …».
-      const previos = prev.map((m) =>
+      const anteriores = prev.map((m) =>
         (m.tipo === 'ofertaGestion' && m.estado === 'viva' ? { ...m, estado: 'ignorada' as const } : m));
-      const conPregunta = agregar(previos, { id, ts: Date.now(), de: 'usuario', tipo: 'pregunta', texto });
-      return oferta ? agregar(conPregunta, oferta) : conPregunta;
+      return agregar(anteriores, { id, ts: Date.now(), de: 'usuario', tipo: 'pregunta', texto });
     });
-    if (!oferta) buscarPregunta(id, texto, 0);
+    responderPregunta(id, texto, 0, previos);
   };
 
   /** «Buscar en los manuales»: la oferta pierde sus botones y corre la Ayuda con el mismo texto. */
@@ -315,8 +397,11 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   const reintentar = () => {
     if (!pendiente) return;
     if (pendiente.tipo === 'modulo') cargar(pendiente.clave, pendiente.intento + 1);
-    // Reenvía la misma pregunta sin duplicar el mensaje del usuario (AC8).
-    else buscarPregunta(pendiente.id, pendiente.texto, pendiente.intento + 1);
+    // Reenvía la misma pregunta sin duplicar el mensaje del usuario (AC8), por el camino completo (IA.6).
+    else {
+      const hasta = mensajes.findIndex((m) => m.id === pendiente.id);
+      responderPregunta(pendiente.id, pendiente.texto, pendiente.intento + 1, hasta < 0 ? mensajes : mensajes.slice(0, hasta));
+    }
   };
 
   const reintentarRestaurar = () => {
@@ -350,10 +435,16 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   };
 
   // Esc cierra primero la confirmación (lo transitorio) y solo después el marco cierra el panel.
+  // HU #13857: en la vista «Antes de usar la IA», Esc = «Ahora no» (AC1).
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== 'Escape' || e.defaultPrevented || !confirmando) return;
-    e.preventDefault();
-    cancelarTerminar();
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (confirmando) {
+      e.preventDefault();
+      cancelarTerminar();
+    } else if (vistaIa === 'autorizacion') {
+      e.preventDefault();
+      if (!ia.aut.enviando) ia.ahoraNo();
+    }
   };
 
   const cancelarLista = () => {
@@ -398,7 +489,9 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
         />
       )}
       <p role="status" className="sr-only">{anuncio}</p>
-      {soporte.vista === 'soporte' ? <DrFlitSoporte /> : (
+      {soporte.vista === 'soporte' ? <DrFlitSoporte /> : vistaIa === 'autorizacion' ? (
+        <DrFlitAutorizacionIa ia={ia} tituloRef={tituloIaRef} />
+      ) : (
         <>
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
             {/* Conversación: los mensajes nuevos se anuncian por esta región, sin mover el foco. */}
@@ -440,6 +533,16 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
                 />
               ) : m.tipo === 'marcadorGestion' ? (
                 <MarcadorGestion key={m.id} mensaje={m} onVolver={volverAConsultar} />
+              ) : m.tipo === 'respuestaIa' ? (
+                <DrFlitRespuestaIa
+                  key={m.id}
+                  mensaje={m}
+                  mapa={mapaDeRespuesta(m.id)}
+                  user={user}
+                  fichas={fichas}
+                  onNavegar={onNavegar}
+                  onSoporte={soporteVisible ? abrirAsistente : undefined}
+                />
               ) : (
                 <DrFlitMensaje
                   key={m.id}
@@ -453,7 +556,7 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
                 />
               )))}
               {verificacion?.estado === 'error' && <DrFlitErrorRestaurar onReintentar={reintentarRestaurar} />}
-              {pendiente?.estado === 'cargando' && <DrFlitBuscando />}
+              {pendiente?.estado === 'cargando' && (pendiente.tipo === 'ia' ? <DrFlitPensando /> : <DrFlitBuscando />)}
               {pendiente?.estado === 'error' && pendiente.tipo === 'modulo' && (
                 <DrFlitErrorModulo etiqueta={etiquetaPendiente} onReintentar={reintentar} />
               )}
@@ -473,7 +576,9 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
             style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
           >
             <div className="flex flex-wrap items-center gap-2">{botonExplicame(botonPieRef)}</div>
+            {ia.aviso && <DrFlitAvisoIa aviso={ia.aviso} onAbrirAutorizacion={ia.abrirAutorizacion} />}
             <DrFlitPregunta
+              notas={notasIa(ia.enUso, ia.cupoBajo)}
               onEnviar={preguntar}
               ocupado={buscando}
               inputRef={cajaRef}
@@ -483,5 +588,58 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
         </>
       )}
     </div>
+  );
+}
+
+const PRIVACIDAD_IA = 'No envío a la IA placas, VIN, documentos ni correos; nombres y direcciones, sí.';
+
+/** Líneas bajo la caja (IA.3): privacidad con la IA en uso y el cupo solo con 1–5 restantes. */
+function notasIa(enUso: boolean, cupoBajo: number | null): string[] {
+  if (!enUso) return [];
+  if (cupoBajo === null) return [PRIVACIDAD_IA];
+  return [
+    PRIVACIDAD_IA,
+    cupoBajo === 1 ? 'Le queda 1 pregunta con IA hoy.' : `Le quedan ${cupoBajo} preguntas con IA hoy.`,
+  ];
+}
+
+/** «Dr. Flit está pensando…» (IA.6): una línea, sin animación; el `log` lo anuncia una vez. */
+function DrFlitPensando() {
+  return (
+    <BurbujaDrFlit>
+      <p>Dr. Flit está pensando…</p>
+    </BurbujaDrFlit>
+  );
+}
+
+const TITULO_IA_ID = 'drflit-ia-autorizacion';
+
+/** Vista «Antes de usar la IA»: la de F5 con `finalidad="ia"`; sustituye la conversación y el pie. */
+function DrFlitAutorizacionIa({ ia, tituloRef }: {
+  ia: ReturnType<typeof useIaDrFlit>; tituloRef: RefObject<HTMLHeadingElement>;
+}) {
+  const vista = vistaAutorizacion({
+    finalidad: 'ia',
+    textoVigente: ia.textoVigente,
+    recargando: ia.aut.recargando,
+    enviando: ia.aut.enviando,
+    avisoCambio: false,
+    error: ia.aut.error,
+    onAceptar: ia.aceptar,
+    onAhoraNo: ia.ahoraNo,
+    onReintentar: ia.reintentarAutorizacion,
+    tituloRef,
+    tituloId: TITULO_IA_ID,
+  });
+  return (
+    <section aria-labelledby={TITULO_IA_ID} className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-1">{vista.contenido}</div>
+      <div
+        className="flex flex-wrap items-center justify-between gap-2 border-t border-flit-soft px-4 pt-3"
+        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+      >
+        {vista.pie}
+      </div>
+    </section>
   );
 }

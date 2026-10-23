@@ -16,6 +16,7 @@ import {
 import { PasoCaso, PasoContacto, idCampoSoporte } from './DrFlitSoporteCampos';
 import { PasoArchivos, enfocarArchivos } from './DrFlitSoporteArchivos';
 import { DRFLIT_PANEL_ID } from './DrFlitMarco';
+import { vistaAutorizacion } from './DrFlitAutorizacion';
 
 // Dr. Flit — asistente «Necesito soporte» (HU #13806, Feature #13695; anexo UX F5). Toma el cuerpo del
 // panel mientras dura (sustituye la conversación y el pie); el marco no cambia. Todo su estado vive en
@@ -349,48 +350,18 @@ function cuerpoAutorizacion(
   tituloRef: RefObject<HTMLHeadingElement>,
   primariaRef: RefBoton,
 ): { contenido: ReactNode; pie: ReactNode } {
-  const datos = s.consulta.datos;
-  const enviando = s.autorizacion.fase === 'enviando';
-  const recargando = s.consulta.fase === 'cargando';
-  const inactivo = enviando || recargando || !datos;
-  return {
-    contenido: (
-      <>
-        <Titulo refH={tituloRef}>Antes de radicar su caso</Titulo>
-        {s.autorizacion.aviso && (
-          <p role="status" className="mt-3 rounded-flit-lg border border-flit-soft bg-flit-app p-3 text-sm text-flit-ink">
-            El texto de la autorización cambió. Léalo y acéptelo para radicar su caso.
-          </p>
-        )}
-        {recargando
-          ? <p role="status" className="mt-3 text-sm text-flit-secondary">Preparando su caso…</p>
-          : <p className="mt-3 whitespace-pre-line break-words text-sm text-flit-ink">{datos?.textoVigente}</p>}
-        {s.autorizacion.fase === 'error' && (
-          <AvisoError titulo="No pude registrar su autorización." detalle="Intente de nuevo." />
-        )}
-      </>
-    ),
-    pie: (
-      <>
-        <button
-          type="button"
-          onClick={() => { if (!enviando) ahoraNo(); }}
-          aria-disabled={enviando || undefined}
-          className={SECUNDARIA}
-        >
-          Ahora no
-        </button>
-        <button
-          ref={primariaRef}
-          type="button"
-          onClick={() => { if (!inactivo) aceptarAutorizacion(); }}
-          aria-disabled={inactivo || undefined}
-          className={PRIMARIA}
-          style={flitBtnPrimaryStyle}
-        >
-          {enviando ? 'Registrando…' : 'Acepto'}
-        </button>
-      </>
-    ),
-  };
+  // HU #13857: la misma vista que usa el panel para la IA, con `finalidad="soporte"`.
+  return vistaAutorizacion({
+    finalidad: 'soporte',
+    textoVigente: s.consulta.datos?.textoVigente ?? null,
+    recargando: s.consulta.fase === 'cargando',
+    enviando: s.autorizacion.fase === 'enviando',
+    avisoCambio: s.autorizacion.aviso,
+    error: s.autorizacion.fase === 'error' ? 'red' : null,
+    onAceptar: aceptarAutorizacion,
+    onAhoraNo: ahoraNo,
+    tituloRef,
+    tituloId: TITULO_ID,
+    primariaRef,
+  });
 }

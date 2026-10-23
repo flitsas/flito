@@ -80,6 +80,8 @@ export default function DrFlitMensaje({
 }: DrFlitMensajeProps) {
   // HU #13836: oferta, resultado y marcador de gestión los pinta el panel (`gestion/`).
   if (esMensajeGestion(mensaje)) return null;
+  // HU #13857: la respuesta de la IA la pinta el panel (`DrFlitRespuestaIa`, necesita el mapa del envío).
+  if (mensaje.tipo === 'respuestaIa') return null;
   if (mensaje.tipo === 'casoRadicado') return <DrFlitCasoRadicado numero={mensaje.numero} />;
   if (mensaje.tipo === 'modulo') {
     const entrada = entradaAyudaPorClave(mensaje.clave);
@@ -163,9 +165,9 @@ export function DrFlitErrorModulo({ etiqueta, onReintentar }: { etiqueta: string
   );
 }
 
-const NO_DISPONIBLE = 'Esta referencia ya no está disponible';
+export const NO_DISPONIBLE = 'Esta referencia ya no está disponible';
 
-const CITA_DRFLIT =
+export const CITA_DRFLIT =
   'flit-focus flex min-h-11 w-full items-center gap-3 rounded-flit-lg border border-flit-soft px-3 py-2 transition-colors hover:bg-[var(--flit-bg-hover)] group';
 
 /** Una cita: título de ficha y de sección derivados de la ficha ya cargada; fail-closed sin permiso o ancla. */

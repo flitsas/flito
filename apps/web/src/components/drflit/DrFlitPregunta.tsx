@@ -17,9 +17,14 @@ export interface DrFlitPreguntaProps {
   inputRef?: Ref<HTMLInputElement>;
   /** HU #13836 («Volver a consultar»): pista sobre la caja hasta el próximo envío. */
   pista?: string;
+  /**
+   * HU #13857 (IA.3): líneas bajo la caja (privacidad y cupo de la IA), ligadas a la caja por
+   * `aria-describedby` junto al contador. Sin IA en uso no se pasa nada (AC10).
+   */
+  notas?: readonly string[];
 }
 
-export default function DrFlitPregunta({ onEnviar, ocupado, inputRef, pista }: DrFlitPreguntaProps) {
+export default function DrFlitPregunta({ onEnviar, ocupado, inputRef, pista, notas = [] }: DrFlitPreguntaProps) {
   const [texto, setTexto] = useState('');
   const id = useId();
   const idCampo = `${id}-pregunta`;
@@ -28,7 +33,9 @@ export default function DrFlitPregunta({ onEnviar, ocupado, inputRef, pista }: D
   const limpio = texto.trim();
   const inactivo = ocupado || !limpio;
   const largo = texto.length;
-  const describe = [pista ? idPista : '', largo >= CONTADOR_DESDE ? idContador : ''].filter(Boolean).join(' ');
+  const idsNotas = notas.map((_, i) => `${id}-nota-${i}`);
+  const describe = [pista ? idPista : '', ...idsNotas, largo >= CONTADOR_DESDE ? idContador : '']
+    .filter(Boolean).join(' ');
 
   const enviar = (e: FormEvent) => {
     e.preventDefault();
@@ -70,6 +77,11 @@ export default function DrFlitPregunta({ onEnviar, ocupado, inputRef, pista }: D
           Enviar
         </button>
       </div>
+      {notas.map((nota, i) => (
+        <p key={idsNotas[i]} id={idsNotas[i]} className="mt-1 break-words text-xs text-flit-secondary">
+          {nota}
+        </p>
+      ))}
       {largo >= CONTADOR_DESDE && (
         <p id={idContador} className="mt-1 text-xs text-flit-secondary">
           {largo}/{MAX_PREGUNTA}
