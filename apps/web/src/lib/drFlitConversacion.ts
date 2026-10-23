@@ -43,6 +43,16 @@ export type MensajeDrFlit =
    */
   | (Base & { de: 'drflit'; tipo: 'casoRadicado'; numero: number })
   /**
+   * HU #13857 (IA-5): respuesta de texto de la IA (`intent` duda o no_claro). `texto` es el `reply` TAL
+   * COMO LLEGÓ (con tokens de máscara, nunca valores): la pantalla los restaura solo mientras el mapa
+   * del envío vive en memoria (AC9). Las citas se guardan como en F3 (`{clave, ancla}`); los títulos
+   * se derivan al pintar. Tipo nuevo sin subir `VERSION_CONVERSACION`.
+   */
+  | (Base & {
+    de: 'drflit'; tipo: 'respuestaIa'; respondeA: string; intent: 'duda' | 'no_claro'; texto: string | null;
+    enManuales: boolean; refs: RefFicha[];
+  })
+  /**
    * HU #13836 (F6): oferta, resultado y marcador de una consulta de gestión. Oferta y resultado
    * solo viven en memoria; `serializar` los quita y cambia el mensaje con el valor por el marcador.
    */
@@ -137,6 +147,19 @@ function mensajeValido(x: unknown): MensajeDrFlit | null {
     case 'casoRadicado':
       return x.de === 'drflit' && typeof x.numero === 'number' && Number.isSafeInteger(x.numero) && x.numero > 0
         ? { ...base, de: 'drflit', tipo: 'casoRadicado', numero: x.numero } : null;
+    case 'respuestaIa': {
+      if (x.de !== 'drflit' || !esTexto(x.respondeA) || !Array.isArray(x.refs)) return null;
+      if (x.intent !== 'duda' && x.intent !== 'no_claro') return null;
+      if (x.texto !== null && !esTexto(x.texto)) return null;
+      if (typeof x.enManuales !== 'boolean' || x.refs.length > MAX_CITAS) return null;
+      const refs = x.refs.map(refValida);
+      return refs.every((r): r is RefFicha => r !== null)
+        ? {
+          ...base, de: 'drflit', tipo: 'respuestaIa', respondeA: x.respondeA, intent: x.intent, texto: x.texto,
+          enManuales: x.enManuales, refs,
+        }
+        : null;
+    }
     case 'marcadorGestion':
       return x.de === 'drflit' && typeof x.consulta === 'boolean'
         ? { ...base, de: 'drflit', tipo: 'marcadorGestion', consulta: x.consulta } : null;
@@ -194,5 +217,6 @@ export function estadoReferencia(
 
 /** Referencias de la conversación (para cargar solo las fichas visibles que hacen falta). */
 export function referenciasDe(mensajes: readonly MensajeDrFlit[]): RefFicha[] {
-  return mensajes.flatMap((m) => (m.tipo === 'explicacion' ? [m.ref] : m.tipo === 'citas' ? m.refs : []));
+  return mensajes.flatMap((m) => (
+    m.tipo === 'explicacion' ? [m.ref] : m.tipo === 'citas' || m.tipo === 'respuestaIa' ? m.refs : []));
 }
