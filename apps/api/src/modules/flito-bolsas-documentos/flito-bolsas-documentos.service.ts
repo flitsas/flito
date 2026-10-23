@@ -11,10 +11,12 @@
 // RN-BD4  Cargar exige bolsa de compañía (404 si no la hay — incluye compañías solo con bolsa de
 //         tránsito) y bolsa activa (409, decisión cerrada del 2026-10-23). Leer y descargar no lo exigen.
 // RN-BD5  OCR: los 3 tipos con vigencia nacen con `ocr_estado = 'validando'` (D3) y la cédula y el
-//         adicional con `no_aplica` (D8). En la HU #13889 NO se lanza el OCR: el worker y el cron de
-//         rescate llegan con la HU #13890, y ese rescate retoma toda fila en `validando` de más de 3 min,
-//         así que las cargadas antes de desplegar #13890 se validan solas al llegar. Mientras tanto el
-//         estado se muestra como `validando` (D4).
+//         adicional con `no_aplica` (D8: nunca van al OCR). Desde la HU #13890 la ruta lanza el OCR
+//         DESPUÉS de responder (`flito-bolsas-documentos.ocr.ts`) y un cron de rescate retoma toda fila
+//         en `validando` de más de 3 min. Mientras tanto el estado se muestra como `validando` (D4).
+// RN-BD6  Fecha manual (E4, HU #13890): solo sobre la versión VIGENTE de un tipo con vigencia, con bolsa
+//         activa (409 si no), y deja quién y cuándo (`fecha_manual_por/_en`). El OCR nunca la pisa
+//         (`WHERE fecha_origen IS DISTINCT FROM 'manual'`). La regla de 30 días se aplica igual sobre ella.
 import { and, asc, desc, eq, max } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
@@ -210,7 +212,7 @@ export async function cargarDocumento(c: CargaDocumento): Promise<DocumentoBolsa
         cifradoTag: cifrado.authTag,
         cifradoKeyVersion: cifrado.keyVersion,
         aadNonce,
-        // RN-BD5: estado inicial del OCR; el OCR en sí NO se lanza en esta HU (#13890).
+        // RN-BD5: estado inicial del OCR; la ruta lo lanza después de responder.
         ocrEstado: CON_VIGENCIA.has(c.tipo) ? 'validando' : 'no_aplica',
         cargadoPor: c.userId,
       });
@@ -226,6 +228,42 @@ export async function cargarDocumento(c: CargaDocumento): Promise<DocumentoBolsa
 
   const [fila] = await consultaDto().where(eq(t.id, id)).limit(1) as FilaDto[];
   if (!fila) throw new Error('La versión recién cargada no se pudo leer');
+  return aDto(fila, hoyColombia());
+}
+
+// ── Fecha de expedición manual (E4, RN-BD6) ─────────────────────────────────────────────────────
+
+/**
+ * Fija a mano la fecha de expedición de la versión vigente. La fecha ya llega validada por la ruta
+ * (`yyyy-mm-dd` de calendario, no futura). Devuelve el DTO con la vigencia recalculada sobre ella.
+ */
+export async function fijarFechaManual(
+  documentoId: string, fecha: string, userId: number | null,
+): Promise<DocumentoBolsaDto> {
+  const [f] = await db.select({ companiaId: t.companiaId, tipo: t.tipo, vigente: t.vigente })
+    .from(t).where(eq(t.id, documentoId)).limit(1);
+  if (!f) throw new BolsaDocumentoError(404, 'El documento no existe.');
+  if (!CON_VIGENCIA.has(f.tipo)) {
+    throw new BolsaDocumentoError(422, 'Este documento no tiene vigencia: no lleva fecha de expedición.');
+  }
+  if (!f.vigente) {
+    throw new BolsaDocumentoError(409, 'Esta versión ya fue reemplazada: la fecha se fija sobre el documento vigente.');
+  }
+  const bolsa = await estadoBolsaDeCompania(f.companiaId);
+  if (!bolsa.activa) {
+    throw new BolsaDocumentoError(409, 'La bolsa de la compañía está inactiva: reactívala para cambiar la fecha del documento.');
+  }
+
+  const actualizadas = await db.update(t).set({
+    fechaExpedicion: fecha, fechaOrigen: 'manual', fechaManualPor: userId, fechaManualEn: new Date(),
+  }).where(and(eq(t.id, documentoId), eq(t.vigente, true))).returning({ id: t.id });
+  // Entre la lectura y el UPDATE otra carga pudo reemplazarla.
+  if (actualizadas.length === 0) {
+    throw new BolsaDocumentoError(409, 'Esta versión ya fue reemplazada: la fecha se fija sobre el documento vigente.');
+  }
+
+  const [fila] = await consultaDto().where(eq(t.id, documentoId)).limit(1) as FilaDto[];
+  if (!fila) throw new Error('El documento recién actualizado no se pudo leer');
   return aDto(fila, hoyColombia());
 }
 

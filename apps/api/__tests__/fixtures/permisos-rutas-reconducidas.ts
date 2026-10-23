@@ -58,6 +58,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/companias/:companiaId/tipos/:tipo/historial', codigo: 'bolsas.documentos.ver' },
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'POST', ruta: '/companias/:companiaId/tipos/:tipo', codigo: 'bolsas.documentos.cargar' },
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/documentos/:documentoId/archivo', codigo: 'bolsas.documentos.ver' },
+  // HU #13890 (ADR-0028 §5 E4): fecha de expedición manual, reutiliza la función de la carga.
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'PUT', ruta: '/documentos/:documentoId/fecha-expedicion', codigo: 'bolsas.documentos.cargar' },
   // HU #12998
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/reintentar', codigo: 'soat.solicitud.reintentar_runt' },
   // HU #13061: acceso de FLITO a FLIT 2 (0214, solo admin).
