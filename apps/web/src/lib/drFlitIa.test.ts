@@ -8,8 +8,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MAX_HISTORIAL_IA, MAX_TEXTO_IA, TIPO_RESPUESTA_IA, prepararEnvioIa, restaurarRespuesta, restaurarToken,
-  valorGestionDeRef,
+  valorGestionDeRef, valoresGestionDelEnvio,
 } from './drFlitIa.ts';
+import { crearMapaMascara, enmascarar } from '../../../../packages/shared-types/src/flito-dr-flit-mascara.ts';
 
 let n = 0;
 const u = (texto: string) => ({ id: `u${++n}`, ts: n, de: 'usuario', tipo: 'pregunta', texto });
@@ -107,5 +108,46 @@ describe('restauración', () => {
     assert.equal(valorGestionDeRef('[DOC_1]', mapa), null);
     assert.equal(valorGestionDeRef('[PLACA_5]', mapa), null);
     assert.equal(valorGestionDeRef(null, mapa), null);
+  });
+});
+
+describe('valoresGestionDelEnvio (HU #13858 IA-6)', () => {
+  it('AC2: gestionRef del mensaje → ese valor, restaurado del mapa local', () => {
+    const { envio, mapa } = prepararEnvioIa('¿en qué va el SOAT de ABC123?', []);
+    assert.deepEqual(valoresGestionDelEnvio('[PLACA_1]', 'placa', envio.mensaje, mapa), [{ tipo: 'placa', valor: 'ABC123' }]);
+  });
+  it('AC4: [PLACA_2] → la segunda; ref null → todas en orden de lectura', () => {
+    const { envio, mapa } = prepararEnvioIa('ABC123 y XYZ789', []);
+    assert.deepEqual(valoresGestionDelEnvio('[PLACA_2]', 'placa', envio.mensaje, mapa), [{ tipo: 'placa', valor: 'XYZ789' }]);
+    assert.deepEqual(valoresGestionDelEnvio(null, 'placa', envio.mensaje, mapa).map((v) => v.valor), ['ABC123', 'XYZ789']);
+  });
+  it('AC5: sin valor del tipo pedido → lista vacía (un VIN no responde a «placa»)', () => {
+    const { envio, mapa } = prepararEnvioIa('¿en qué va el SOAT de 1HGCM82633A004352?', []);
+    assert.deepEqual(valoresGestionDelEnvio(null, 'placa', envio.mensaje, mapa), []);
+    assert.deepEqual(valoresGestionDelEnvio('[VIN_1]', 'vin', envio.mensaje, mapa), [{ tipo: 'vin', valor: '1HGCM82633A004352' }]);
+  });
+  it('un token PLACA del mapa que no está en el mensaje actual no se resuelve: cuenta el valor escrito', () => {
+    // Mapa compartido con un token ajeno al mensaje (lo que dejaría un turno previo enmascarado con el
+    // mismo mapa): [PLACA_1]=ABC123 fuera del mensaje, [PLACA_2]=XYZ789 dentro.
+    const mapa = crearMapaMascara();
+    enmascarar('ABC123', mapa);
+    const mensaje = enmascarar('¿en qué va XYZ789?', mapa);
+    assert.equal(mensaje, '¿en qué va [PLACA_2]?');
+    assert.equal(restaurarToken('[PLACA_1]', mapa), 'ABC123');
+    assert.deepEqual(valoresGestionDelEnvio('[PLACA_1]', 'placa', mensaje, mapa), [{ tipo: 'placa', valor: 'XYZ789' }]);
+  });
+  it('gestionRef ausente del mensaje → los valores del tipo que sí están escritos', () => {
+    const { envio, mapa } = prepararEnvioIa('¿en qué va ABC123?', []);
+    assert.deepEqual(valoresGestionDelEnvio('[PLACA_2]', 'placa', envio.mensaje, mapa), [{ tipo: 'placa', valor: 'ABC123' }]);
+  });
+  it('gestionRef de otro tipo que el gestionTarget → solo los valores del tipo pedido', () => {
+    const { envio, mapa } = prepararEnvioIa('ABC123 con VIN 1HGCM82633A004352', []);
+    assert.deepEqual(valoresGestionDelEnvio('[VIN_1]', 'placa', envio.mensaje, mapa), [{ tipo: 'placa', valor: 'ABC123' }]);
+  });
+  it('tramite → id FLIT; cliente y target nulo no se consultan', () => {
+    const { envio, mapa } = prepararEnvioIa('¿en qué va FLIT-123 de 1020304050?', []);
+    assert.deepEqual(valoresGestionDelEnvio(null, 'tramite', envio.mensaje, mapa), [{ tipo: 'idFlit', valor: 'FLIT-123' }]);
+    assert.deepEqual(valoresGestionDelEnvio('[DOC_1]', 'cliente', envio.mensaje, mapa), []);
+    assert.deepEqual(valoresGestionDelEnvio(null, null, envio.mensaje, mapa), []);
   });
 });

@@ -137,6 +137,12 @@ export type MensajeOfertaGestion = BaseGestion & {
   valor: string;
   tipoValor: TipoValorGestion;
   estado: EstadoOfertaGestion;
+  /**
+   * HU #13858 (IA-6 AC4): la IA pidió gestión sin `gestionRef` y el mensaje trae varios valores del
+   * tipo. Hasta 3 (`valor` = el primero), un botón por valor; `consultados` son los ya pulsados (la
+   * oferta sigue `viva` mientras quede alguno) y `mas` = el mensaje traía más de 3.
+   */
+  varios?: { valores: string[]; consultados: string[]; mas: boolean };
 };
 
 export type MensajeResultadoGestion = BaseGestion & {
@@ -168,7 +174,8 @@ export function sinValoresDeGestion<M extends { id: string; ts: number; tipo: st
 ): (M | MensajeMarcadorGestion)[] {
   const consultadas = new Set<string>();
   for (const m of mensajes) {
-    if (m.tipo === 'ofertaGestion' && (m as MensajeOfertaGestion).estado === 'consultada') {
+    const o = m as MensajeOfertaGestion;
+    if (m.tipo === 'ofertaGestion' && (o.estado === 'consultada' || (o.varios?.consultados.length ?? 0) > 0)) {
       consultadas.add((m as MensajeOfertaGestion).respondeA);
     }
   }
