@@ -41,12 +41,18 @@ export const ACCIONES_FINANZAS: Readonly<Record<string, AccionArbol>> = {
   'accion.gastos_diarios.ver': { lectura: true, operaciones: ['finanzas.gastos_diarios.ver'], predecesores: ['pagina.finanzas_gastos_diarios'] },
   // ── Bolsas ──
   'accion.bolsas.ver_clientes': { lectura: true,
-    operaciones: ['bolsas.consolidado.ver', 'bolsas.bolsa.ver', 'bolsas.movimientos.ver', 'bolsas.cierres.ver'],
+    // HU #13900: + `bolsas.bolsa.listar` (nacida en el árbol). `predecesores` fija el grupo de la siembra 0234/0235,
+    // que no puede cambiar (el generador reproduce byte a byte lo ya aplicado).
+    operaciones: ['bolsas.consolidado.ver', 'bolsas.bolsa.ver', 'bolsas.movimientos.ver', 'bolsas.cierres.ver', 'bolsas.bolsa.listar'],
+    predecesores: ['bolsas.consolidado.ver', 'bolsas.bolsa.ver', 'bolsas.movimientos.ver', 'bolsas.cierres.ver'],
     opcionales: ['bolsas.soporte.descargar'],
   },
   'accion.bolsas.ver_transito': { lectura: true, operaciones: ['bolsas.transito.listar', 'bolsas.transito.ver', 'bolsas.transito.ver_movimientos'] },
-  'accion.bolsas.crear': { operaciones: ['bolsas.transito.crear'] },
-  'accion.bolsas.editar': { operaciones: ['bolsas.transito.editar'] },
+  // HU #13900: crear/editar/inactivar la bolsa de COMPAÑÍA viajan con su par de tránsito (mismos roles).
+  'accion.bolsas.crear': { operaciones: ['bolsas.transito.crear', 'bolsas.bolsa.crear'], predecesores: ['bolsas.transito.crear'] },
+  'accion.bolsas.editar': {
+    operaciones: ['bolsas.transito.editar', 'bolsas.bolsa.editar', 'bolsas.bolsa.inactivar'], predecesores: ['bolsas.transito.editar'],
+  },
   'accion.bolsas.registrar_recargas': { operaciones: ['bolsas.recarga.registrar', 'bolsas.transito.cargar'] },
   'accion.bolsas.movimientos_manuales': { operaciones: ['bolsas.movimiento.registrar', 'bolsas.movimiento.corregir'] },
   'accion.bolsas.cerrar_periodo': { operaciones: ['bolsas.cierre.crear', 'bolsas.extracto.descargar'] },
@@ -128,6 +134,12 @@ export const PARTIDA_DE_OPERACION_NUEVA: Readonly<Record<string, string>> = {
   'siigo.credenciales.registrar_pruebas': TRANSITORIO_SIIGO,
   'siigo.credenciales.registrar_produccion': TRANSITORIO_SIIGO,
   'siigo.credenciales.probar': TRANSITORIO_SIIGO,
+  // HU #13900 (ADR-0029): el catálogo de la bolsa de COMPAÑÍA, con el reparto de su par. Las conceden acciones YA
+  // sembradas y repartidas («Ver bolsas de clientes», «Crear», «Editar»): sin migración de permisos.
+  'bolsas.bolsa.listar': 'bolsas.bolsa.ver',
+  'bolsas.bolsa.crear': 'bolsas.transito.crear',
+  'bolsas.bolsa.editar': 'bolsas.transito.editar',
+  'bolsas.bolsa.inactivar': 'bolsas.transito.editar',
 };
 
 /**

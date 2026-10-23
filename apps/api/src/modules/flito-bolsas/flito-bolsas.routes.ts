@@ -32,6 +32,7 @@ import {
   actualizarBolsaTransito, bolsasTransito, bolsaTransitoDe, crearBolsaTransito,
   movimientosTransitoDe, registrarCargaTransito,
 } from './flito-bolsas-transito.service.js';
+import { routerCatalogo } from './flito-bolsas.catalogo.routes.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -170,6 +171,13 @@ router.post('/transito', soloSinEnlace(), exigirFuncion('bolsas.transito.crear')
   } catch (e) { fallo(res, e); }
 });
 
+// HU #13900 — catálogo del modelo único (`/buscar`, `POST /`, `/bolsa/:bolsaId*`, `/compania/:companiaId/estado`).
+// ANTES de `/:companiaId` por la misma razón que `/transito`. Las rutas por bolsa reutilizan estos handlers
+// (function declarations: existen ya al montar).
+router.use(routerCatalogo({
+  companiaPropia, recibirSoporte, verMovimientos, registrarRecarga: registrarRecargaHttp, verCierres, crearCierre,
+}));
+
 // GET /:companiaId — bolsa y saldo del cliente.
 router.get('/:companiaId', exigirFuncion('bolsas.bolsa.ver'), companiaPropia('leer'), async (req: Request, res: Response) => {
   try {
@@ -185,7 +193,8 @@ const filtroSchema = z.object({
   periodo: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
   limite: z.coerce.number().int().positive().max(500).optional(),
 });
-router.get('/:companiaId/movimientos', exigirFuncion('bolsas.movimientos.ver'), companiaPropia('leer'), async (req: Request, res: Response) => {
+router.get('/:companiaId/movimientos', exigirFuncion('bolsas.movimientos.ver'), companiaPropia('leer'), verMovimientos);
+async function verMovimientos(req: Request, res: Response): Promise<void> {
   const parsed = filtroSchema.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos' }); return; }
   try {
@@ -194,7 +203,7 @@ router.get('/:companiaId/movimientos', exigirFuncion('bolsas.movimientos.ver'), 
     // (`''`: el contrato lo declara `string`, y su vacío no cambia la forma).
     res.json(esProyeccionCliente(await alcanceDe(req)) ? movs.map((m) => ({ ...m, registradoPorNombre: '' })) : movs);
   } catch (e) { fallo(res, e); }
-});
+}
 
 // POST /:companiaId/recargas — registra una recarga con su soporte (multipart).
 //
@@ -217,7 +226,8 @@ const recargaSchema = z.object({
   observacion: z.string().trim().max(1000).optional(),
 });
 
-router.post('/:companiaId/recargas', exigirFuncion('bolsas.recarga.registrar'), companiaPropia('escribir'), recibirSoporte, async (req: Request, res: Response) => {
+router.post('/:companiaId/recargas', exigirFuncion('bolsas.recarga.registrar'), companiaPropia('escribir'), recibirSoporte, registrarRecargaHttp);
+async function registrarRecargaHttp(req: Request, res: Response): Promise<void> {
   const parsed = recargaSchema.safeParse(req.body);
   if (!parsed.success) {
     const msg = parsed.error.issues[0]?.message ?? 'Datos inválidos';
@@ -277,7 +287,7 @@ router.post('/:companiaId/recargas', exigirFuncion('bolsas.recarga.registrar'), 
     if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
     fallo(res, e);
   }
-});
+}
 
 /**
  * Clave del encabezado `Idempotency-Key`, o `null` si falta o viene vacía. Se acota a 120 caracteres
@@ -511,12 +521,13 @@ router.post('/:companiaId/movimientos/:movimientoId/correccion', exigirFuncion('
 });
 
 // GET /:companiaId/cierres — reportes de cierre del cliente, del más reciente al más antiguo.
-router.get('/:companiaId/cierres', exigirFuncion('bolsas.cierres.ver'), companiaPropia('leer'), async (req: Request, res: Response) => {
+router.get('/:companiaId/cierres', exigirFuncion('bolsas.cierres.ver'), companiaPropia('leer'), verCierres);
+async function verCierres(req: Request, res: Response): Promise<void> {
   try {
     const cierres = await cierresDe(companiaIdDe(req));
     res.json(esProyeccionCliente(await alcanceDe(req)) ? cierres.map((c) => ({ ...c, cerradoPorNombre: '' })) : cierres); // ídem
   } catch (e) { fallo(res, e); }
-});
+}
 
 // POST /:companiaId/cierres — cierra un periodo. Congela sus movimientos y sella el reporte.
 //
@@ -527,7 +538,8 @@ const cierreSchema = z.object({
   periodo: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'El periodo debe tener la forma AAAA-MM' }),
   observaciones: z.string().trim().max(2000).optional(),
 });
-router.post('/:companiaId/cierres', exigirFuncion('bolsas.cierre.crear'), companiaPropia('escribir'), async (req: Request, res: Response) => {
+router.post('/:companiaId/cierres', exigirFuncion('bolsas.cierre.crear'), companiaPropia('escribir'), crearCierre);
+async function crearCierre(req: Request, res: Response): Promise<void> {
   const parsed = cierreSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
@@ -543,7 +555,7 @@ router.post('/:companiaId/cierres', exigirFuncion('bolsas.cierre.crear'), compan
     });
     res.status(201).json(cierre);
   } catch (e) { fallo(res, e); }
-});
+}
 
 /** Sube el comprobante al almacenamiento. El registro en `flito_soportes` lo hace el servicio. */
 async function subirComprobante(companiaId: number, archivo: Express.Multer.File): Promise<string> {

@@ -665,3 +665,7 @@ Toda HU que agregue rutas o montajes en `app.ts` (B-back #13900 con `GET /compan
 - `apps/api/__tests__/services/permisos.reconduccion-cierre.test.ts`
 
 Hay que actualizar también el fixture `apps/api/__tests__/fixtures/permisos-rutas-reconducidas.ts`. La Épica #13407 toca los mismos fixtures: quien mergee segundo los reconcilia en el rebase.
+
+## D15 — Autogestión por compañía (2026-10-23)
+
+Ver ADR-0029 §D15. Impacto por HU: #13900 (AC11, `conceptosAutogestionados` en estado y detalle; proyección cliente sin nombre ni motivo de inactivación), #13901 (AC10, aviso por concepto y en el detalle), #13902 (AC11, no descontar lo autogestionado salvo excepción vigente o SOAT del canal cliente), #13907/#13908 (AC9, aviso de impuesto por organismo autogestionado).
