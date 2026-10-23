@@ -171,3 +171,55 @@ test.describe('FLITO — Ayuda · AC6 búsqueda (HU #11901)', () => {
     await sinViolacionesGraves(page, 'índice lleno · filtro SOAT');
   });
 });
+
+// HU #13896 — árbol lateral de fichas: nombres de nav, teclado, foco y contraste en claro/oscuro.
+test.describe('FLITO — Ayuda · árbol lateral de fichas, a11y (HU #13896)', () => {
+  test.use({ viewport: { width: 1366, height: 768 } });
+
+  for (const tema of ['light', 'dark'] as const) {
+    test(`AC4 — tema ${tema}: navs con nombre distinto, Tab no entra en grupos plegados, foco visible y contraste ≥ 4.5:1`, async ({ page }) => {
+      if (tema === 'dark') await page.addInitScript(() => localStorage.setItem('aura-theme', 'dark'));
+      await loginAs(page, OPERACIONES_USER);
+      await page.goto('/flito/ayuda/flito_bolsas');
+      const arbol = page.getByTestId('ayuda-arbol-lateral');
+      await expect(arbol).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'Fichas de ayuda' })).toHaveCount(1);
+      await expect(page.getByRole('navigation', { name: 'Navegación entre fichas' })).toHaveCount(1);
+
+      const gestion = arbol.getByRole('button', { name: 'Gestión', exact: true });
+      await expect(gestion).toHaveAttribute('aria-expanded', 'false');
+      const idLista = await gestion.getAttribute('aria-controls');
+      expect(idLista).toBeTruthy();
+      await expect(page.locator(`[id="${idLista}"]`)).toHaveAttribute('hidden', '');
+
+      // Desde el botón de Gestión (plegado), Tab salta al siguiente botón de grupo: no entra en la lista.
+      await gestion.focus();
+      await page.keyboard.press('Tab');
+      await expect(page.locator(':focus')).toHaveAttribute('aria-expanded', /true|false/);
+      await expect(page.locator(':focus')).toHaveText('Tránsito');
+
+      for (const control of [gestion, arbol.getByRole('link', { name: 'Bolsas', exact: true })]) {
+        await control.focus();
+        const foco = await control.evaluate((el) => {
+          const s = getComputedStyle(el);
+          return s.outlineStyle !== 'none' || s.boxShadow !== 'none';
+        });
+        expect(foco, 'foco visible').toBe(true);
+      }
+      await page.mouse.move(0, 0);
+      await page.locator('h1').first().focus();
+
+      const actual = arbol.locator('[aria-current="page"]');
+      expect(await ratioDe(page, actual), `ficha actual (${tema})`).toBeGreaterThanOrEqual(MINIMO);
+      expect(await ratioDe(page, gestion, arbol), `grupo (${tema})`).toBeGreaterThanOrEqual(MINIMO);
+      const otraFicha = arbol.locator('ul:not([hidden]) > li > a:not([aria-current])').first();
+      expect(await ratioDe(page, otraFicha, arbol), `ficha (${tema})`).toBeGreaterThanOrEqual(MINIMO);
+      // axe acotado al árbol: el resto de la ficha arrastra contrastes preexistentes ajenos a esta HU.
+      if (process.env.QA_AXE_CDN === '1' || process.env.QA_AXE_PATH) {
+        const violaciones = await correrAxe(page, '[data-testid="ayuda-arbol-lateral"]');
+        esperarSinViolacionesGraves(violaciones, `árbol ${tema}`);
+        expect(violaciones.filter((v) => v.id === 'color-contrast'), `contraste en «árbol ${tema}»`).toEqual([]);
+      }
+    });
+  }
+});
