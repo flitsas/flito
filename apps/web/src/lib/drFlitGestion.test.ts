@@ -147,3 +147,30 @@ describe('sinValoresDeGestion (AC8)', () => {
     assert.ok(!json.includes('ABC123') && !json.includes('XYZ987'));
   });
 });
+
+describe('AC8 HU #13855 — regresión: los patrones vienen de shared-types y el detector no cambia', () => {
+  const casos: [string, ReturnType<typeof detectarValorGestion>][] = [
+    ['¿en qué va ABC123?', { tipo: 'placa', valor: 'ABC123' }],
+    ['moto abc12d', { tipo: 'placa', valor: 'ABC12D' }],
+    ['VIN 9BWZZZ377VT004251', { tipo: 'vin', valor: '9BWZZZ377VT004251' }],
+    ['flit-0132456', { tipo: 'idFlit', valor: 'FLIT-0132456' }],
+    ['FT2-0000180-', { tipo: 'idFlit', valor: 'FT2-0000180' }],
+    ['ABC123-', { tipo: 'placa', valor: 'ABC123' }],
+    // HU #13855 (decisión declarada): placa con guion se ofrece normalizada; con espacio, no.
+    ['¿en qué va ABC-123?', { tipo: 'placa', valor: 'ABC123' }],
+    ['moto abc-12d', { tipo: 'placa', valor: 'ABC12D' }],
+    ['la ABC 123', null],
+    ['tel 300-123-4567', null],
+    ['NIT 900123456 - 7', null],
+    ['cédula 1020304050', null],
+    ['NIT 900123456-7', null],
+    ['ana@correo.co', null],
+    ['12345678901234567', null],
+    ['9BWZZZ377VT00425I', null],
+    ['ABCDEFGHJKLMNPRST', null],
+    ['tengo 30 días del 2026', null],
+  ];
+  for (const [texto, esperado] of casos) {
+    it(texto, () => assert.deepEqual(detectarValorGestion(texto), esperado));
+  }
+});
