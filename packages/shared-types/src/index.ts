@@ -153,3 +153,5 @@ export * from './flito-dr-flit-gestion.js';
 // Dr. Flit — enmascaramiento de PII antes de la IA (HU #13855, Feature #13696 IA-3). Fuente única de
 // los patrones de valor de gestión de F6.
 export * from './flito-dr-flit-mascara.js';
+// Expediente documental de la compañía en bolsas (HU #13889, Feature #13888, ADR-0028).
+export * from './flito-bolsas-documentos.js';

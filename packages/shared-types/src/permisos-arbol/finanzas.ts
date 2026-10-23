@@ -34,6 +34,9 @@ export const ITEMS_FINANZAS: readonly ItemDef[] = [
     a('movimientos_manuales', 'Registrar y corregir movimientos manuales', 'Registrar y corregir movimientos manuales de una bolsa.'),
     a('cerrar_periodo', 'Cerrar periodo y descargar extracto', 'Cerrar el periodo de una bolsa y descargar su extracto.'),
     a('ver_alertas', 'Ver alertas y riesgo de saldo', 'Consultar las alertas y el riesgo de saldo de las bolsas.'),
+    // HU #13889 (ADR-0028): expediente documental de la compañía.
+    a('ver_documentos', 'Ver el expediente documental', 'Consultar y descargar los documentos de vinculación de la compañía.'),
+    a('cargar_documentos', 'Cargar documentos del expediente', 'Subir o reemplazar documentos de la compañía y fijar su fecha de expedición.'),
   ] },
   { slug: 'flito_tarifas', clave: 'tarifas', nombre: 'Tarifas', elemento: 'finanzas', orden: 40, acciones: [
     a('ver', 'Ver las tarifas (incluye historial)', 'Consultar las tarifas, las de cada cliente y su historial.'),

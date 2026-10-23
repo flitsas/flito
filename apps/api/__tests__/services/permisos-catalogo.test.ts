@@ -191,8 +191,9 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #13836: `POST /buscar` de flito-tramites (Dr. Flit) reutiliza `tramites.cola.ver` del listado (sin función nueva ni siembra).
     // HU #13837: `POST /buscar` de flito-soat (Dr. Flit) reutiliza `soat.cola.ver` de la cola (sin función nueva ni siembra).
     // HU #13838: `POST /buscar` de flito-impuestos y de flito-derechos (Dr. Flit) reutilizan `impuestos.cola.ver` y `derechos.cola.ver`.
+    // HU #13889 (ADR-0028 §5): el expediente, el historial y la descarga piden la misma `bolsas.documentos.ver`.
     expect(compartidosFlito.sort()).toEqual([
-      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2],
+      ['bolsas.documentos.ver', 3], ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2],
       ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.cola.ver', 2], ['soat.solicitud.crear', 2],
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);

@@ -429,6 +429,21 @@ export const comprobantesCargaLimiter = rateLimit({
 });
 
 /**
+ * Carga o reemplazo de un documento del expediente de la compañía (HU #13889, ADR-0028 §8):
+ * 30 / 10 min por usuario. Cada carga son hasta 15 MB cifrados en memoria y subidos a MinIO.
+ */
+export const bolsasDocumentosCargaLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('bolsas-docs:'),
+  handler: frenoConRastro('bolsas-docs'),
+  message: { error: 'Demasiadas cargas de documentos seguidas. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:bolsas-docs:'),
+});
+
+/**
  * `PATCH /api/users/:id/password`: 10 / 15 min / usuario autenticado (HU #13255, Feature #13254).
  *
  * La HU abre la ruta al canal externo (pantalla Perfil), y la regla 18 de AGENTS.md pide freno para

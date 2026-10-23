@@ -11,8 +11,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { sqlRepartoArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
-import { ACCIONES_LECTURA, ACCIONES_POR_AREA, predecesoresDe } from '../../src/modules/permisos/arbol/expansion.js';
+import { accionesSembradasDe, sqlRepartoArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
+import { ACCIONES_LECTURA, predecesoresDe } from '../../src/modules/permisos/arbol/expansion.js';
 import { absorbidosVivos } from '../../src/modules/permisos/arbol/reparto-arbol.js';
 import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 import {
@@ -24,7 +24,8 @@ const ARCHIVO = '0235_permisos_arbol_finanzas_reparto.sql';
 const DIR = path.resolve(__dirname, '../../src/db/migrations');
 const SQL = readFileSync(path.join(DIR, ARCHIVO), 'utf8');
 const SIN_COMENTARIOS = SQL.replace(/--[^\n]*/g, '');
-const FINANZAS = ACCIONES_POR_AREA.finanzas;
+// HU #13889: las del área que sembró y repartió la 0235 (las del expediente documental nacen en la 0248).
+const FINANZAS = accionesSembradasDe('finanzas');
 
 describe('0235 — análisis estático', () => {
   it('sin BEGIN/COMMIT propio; número único; la anterior es la 0234; cabecera', () => {

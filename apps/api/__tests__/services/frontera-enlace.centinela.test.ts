@@ -147,6 +147,7 @@ describe('AC3 — snapshot de lo declarado: montajes con `conAlcance` y rutas de
       { prefijo: '/api/flito/logistica', modulo: 'logistica' },
       { prefijo: '/api/flito/logistica', modulo: 'logistica' },
       { prefijo: '/api/flito/bolsas', modulo: 'bolsas' },
+      { prefijo: '/api/flito/bolsas-documentos', modulo: 'bolsas' }, // HU #13889 (ADR-0028)
       { prefijo: '/api/flito/comprobantes', modulo: 'comprobantes' },
       { prefijo: '/api/transito', modulo: 'transito' },
     ]);
@@ -347,6 +348,11 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/bolsas/:companiaId/movimientos/:movimientoId/correccion',  'filtra'],
   ['GET /api/flito/bolsas/:companiaId/cierres',                                'filtra'],
   ['POST /api/flito/bolsas/:companiaId/cierres',                               'filtra'],
+  // HU #13889 (ADR-0028 D9): expediente documental de la compañía, solo personal FLIT.
+  ['GET /api/flito/bolsas-documentos/companias/:companiaId',                   'soloSinEnlace'],
+  ['GET /api/flito/bolsas-documentos/companias/:companiaId/tipos/:tipo/historial', 'soloSinEnlace'],
+  ['POST /api/flito/bolsas-documentos/companias/:companiaId/tipos/:tipo',      'soloSinEnlace'],
+  ['GET /api/flito/bolsas-documentos/documentos/:documentoId/archivo',         'soloSinEnlace'],
   ['POST /api/flito/comprobantes',                                             'soloSinEnlace'],
   ['GET /api/flito/comprobantes',                                              'filtra'],
   ['POST /api/flito/comprobantes/tramites/buscar',                             'soloSinEnlace'],
