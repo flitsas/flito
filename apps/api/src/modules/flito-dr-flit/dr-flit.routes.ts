@@ -19,6 +19,9 @@
 //                                                400 `adjunto-invalido` { adjunto: { indice, motivo } }
 //                                                413 `adjunto-muy-grande` { adjunto, limite.maxBytesArchivo }
 //                                                413 `adjuntos-limite` { limite.maxArchivos }
+//   POST /chat                               — HU #13856 (IA-4): chat con IA. Sub-router en
+//                                              `dr-flit-chat.routes.ts` (RN-DRF-CH1..CH3), montado tras
+//                                              las guardas de RN-DRF-R1.
 //
 // ── Frontera por enlace (ADR-0024, D3) ──────────────────────────────────────────────────────────
 // Dr. Flit es un panel de sesión: sus rutas solo leen o escriben datos DEL PROPIO usuario (`sub` del
@@ -39,7 +42,8 @@
 // RN-DRF-R3  Los 400 no repiten el valor recibido: mensajes propios, `campo` es la ruta, nunca el valor.
 // RN-DRF-R4  Nada de esta ruta se loguea con datos del usuario (IP y user agent van solo a la tabla).
 // RN-DRF-R5  POST /casos-soporte: … → drflitCasosLimiter → exigirSoporteDisponible (503) →
-//            exigirAutorizacionVigente (403 `autorizacion-requerida`, sin llamar a ADO) → Zod → servicio.
+//            exigirAutorizacionVigente('soporte') (403 `autorizacion-requerida`, sin llamar a ADO) → Zod →
+//            servicio. El chat usa la misma guarda con `'ia'`, que responde 428 (HU #13856).
 // RN-DRF-R7  multer (HU #13805) va DESPUÉS de las guardas y del limiter: no se parsea el cuerpo de
 //            quien no puede radicar. `memoryStorage` (nada a disco ni a MinIO), `limits` (files,
 //            fileSize, fields=1, fieldSize) y un `fileFilter` que solo descarta lo obvio (ni tipo
@@ -55,7 +59,7 @@ import { z } from 'zod';
 import {
   AREAS_SOPORTE, FINALIDADES_DRFLIT, FRECUENCIAS_SOPORTE, LIMITES_CASO_SOPORTE, PAGINAS_AYUDA_DRFLIT,
   PARTE_ADJUNTOS_MULTIPART, PARTE_CASO_MULTIPART, PRIORIDADES_SOPORTE,
-  type CasoSoporteDrFlit, type ErrorAdjuntoDrFlit, type EstadoAutorizacionDrFlit,
+  type CasoSoporteDrFlit, type ErrorAdjuntoDrFlit, type EstadoAutorizacionDrFlit, type FinalidadDrFlit,
 } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { funcionesConcedidas } from '../../shared/middleware/exigir-funcion.js';
@@ -71,6 +75,7 @@ import {
 import {
   AdjuntoInvalidoError, CasoSoporteError, mensajeAdjuntoRechazado, radicarCaso, type AdjuntoCaso,
 } from './dr-flit-casos.service.js';
+import { crearRouterChat } from './dr-flit-chat.routes.js';
 
 const router = Router();
 
@@ -243,22 +248,31 @@ export function exigirSoporteDisponible(_req: Request, res: Response, next: Next
   next();
 }
 
-/** 403 `autorizacion-requerida` sin la autorización VIGENTE de soporte (AC2). Deja su id en `res.locals`. */
-export async function exigirAutorizacionVigente(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const fila = await repoAutorizaciones.buscar(req.user!.sub, 'soporte', versionVigente('soporte'));
-    if (!fila) {
-      res.status(403).json({
-        error: 'Para radicar un caso primero debe aceptar la autorización de tratamiento de datos.',
-        codigo: 'autorizacion-requerida',
-      });
-      return;
+/**
+ * Rechazo sin la autorización VIGENTE de la finalidad. `soporte` → 403 (HU #13804, AC2, sin cambios);
+ * `ia` → 428 (HU #13856, AC2: el panel muestra el consentimiento y reintenta). Mismo `codigo`.
+ */
+const RECHAZO_SIN_AUTORIZACION: Readonly<Record<FinalidadDrFlit, { status: 403 | 428; error: string }>> = Object.freeze({
+  soporte: { status: 403, error: 'Para radicar un caso primero debe aceptar la autorización de tratamiento de datos.' },
+  ia: { status: 428, error: 'Para usar la IA de Dr. Flit primero debe aceptar la autorización de tratamiento de datos.' },
+});
+
+/** Guarda de autorización VIGENTE (versión actual) de `finalidad`. Deja su id en `res.locals.autorizacionId`. */
+export function exigirAutorizacionVigente(finalidad: FinalidadDrFlit) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const fila = await repoAutorizaciones.buscar(req.user!.sub, finalidad, versionVigente(finalidad));
+      if (!fila) {
+        const { status, error } = RECHAZO_SIN_AUTORIZACION[finalidad];
+        res.status(status).json({ error, codigo: 'autorizacion-requerida' });
+        return;
+      }
+      res.locals.autorizacionId = fila.id;
+      next();
+    } catch (e) {
+      next(e);
     }
-    res.locals.autorizacionId = fila.id;
-    next();
-  } catch (e) {
-    next(e);
-  }
+  };
 }
 
 // ── HU #13805: adjuntos en el mismo POST multipart ──────────────────────────────────────────────
@@ -372,7 +386,7 @@ const ESTADO_CASO: Readonly<Record<CasoSoporteError['codigo'], number>> = Object
   'ado-no-disponible': 503,
 });
 
-router.post('/casos-soporte', drflitCasosLimiter, exigirSoporteDisponible, exigirAutorizacionVigente, recibirAdjuntos,
+router.post('/casos-soporte', drflitCasosLimiter, exigirSoporteDisponible, exigirAutorizacionVigente('soporte'), recibirAdjuntos,
   async (req: Request, res: Response) => {
     const entrada = leerEntrada(req);
     if (!entrada) {
@@ -409,5 +423,8 @@ router.post('/casos-soporte', drflitCasosLimiter, exigirSoporteDisponible, exigi
       throw e;
     }
   });
+
+// ── HU #13856 (IA-4): POST /chat — hereda las guardas del `router.use` de arriba (RN-DRF-R1) ────────
+router.use(crearRouterChat(exigirAutorizacionVigente('ia')));
 
 export default router;
