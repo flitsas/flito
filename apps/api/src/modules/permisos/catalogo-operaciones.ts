@@ -66,6 +66,7 @@ const PER = 'permisos/permisos.routes.ts';
 const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts';
 const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
 const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
+const BDOC = 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts'; // HU #13889 (ADR-0028)
 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
@@ -215,6 +216,12 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${BOL} PATCH /transito/:bolsaId`, 'bolsas.transito.editar', 'Editar una bolsa de organismo', 'Cambiar los datos de la bolsa de derechos.'),
   op(`${BOL} GET /transito/:bolsaId/movimientos`, 'bolsas.transito.ver_movimientos', 'Ver los movimientos de una bolsa de organismo', 'Recorrer las cargas y consumos de la bolsa de derechos.'),
   op(`${BOL} POST /transito/:bolsaId/cargas`, 'bolsas.transito.cargar', 'Cargar saldo a una bolsa de organismo', 'Abonar dinero a la bolsa de derechos con su soporte.'),
+  // HU #13889 (ADR-0028) — expediente documental de la compañía. Las 4 guardas piden dos operaciones;
+  // las conceden `accion.bolsas.ver_documentos` / `accion.bolsas.cargar_documentos` (arbol/acciones-finanzas.ts).
+  op(`${BDOC} GET /companias/:companiaId`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} GET /companias/:companiaId/tipos/:tipo/historial`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} GET /documentos/:documentoId/archivo`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} POST /companias/:companiaId/tipos/:tipo`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'),
 
   // ── Conciliación de recaudo SOAT ──────────────────────────────────────────────────────────────
   op(`${CON} POST /boletas`, 'conciliacion.boleta.cargar', 'Cargar una boleta de recaudo', 'Subir el archivo del portal con lo recaudado en el periodo.'),

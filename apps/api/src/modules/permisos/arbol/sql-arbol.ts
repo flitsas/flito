@@ -16,11 +16,20 @@ import {
   ACCIONES_ARBOL, ACCIONES_POR_ALGUNA, ACCIONES_POR_AREA, ACCIONES_UNIVERSALES, CONJUNCIONES_ARBOL, paginaDeAccion, predecesoresDe,
   predecesorNoAbsorbido, ROL_CON_TODAS_LAS_ACCIONES, type AreaArbol,
 } from './expansion.js';
+import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA } from './acciones-finanzas.js';
 
 export const lit = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 
 /** La HU dueña de cada área: sufijo de las tablas temporales, para que dos repartos no compartan nombre. */
 export const HU_DE_AREA: Readonly<Record<AreaArbol, string>> = { gestion: '12873', finanzas: '13427', administracion: '13428', legado: '13429' };
+
+/**
+ * Las acciones de un área que sembró su migración del árbol (0232-0239, aplicadas). Las nacidas después
+ * (HU #13889, 0248) quedan fuera: el generador tiene que seguir reproduciendo byte a byte lo ya aplicado.
+ */
+export function accionesSembradasDe(area: AreaArbol): string[] {
+  return ACCIONES_POR_AREA[area].filter((a) => !ACCIONES_NACIDAS_TRAS_LA_SIEMBRA.has(a));
+}
 
 /** Las tablas temporales del reparto de un área. */
 export function tablasTemporales(area: AreaArbol) {
@@ -39,7 +48,7 @@ export const TMP_UMBRAL = 'tmp_umbral_12873';
 
 /** Siembra de un área: sus acciones (padres antes que hijas) y el `nivel`/`orden` de sus páginas que son ítem. */
 export function sqlSiembraArbol(area: AreaArbol = 'gestion', catalogo: FuncionCatalogo[] = catalogoCompleto()): string {
-  const delArea = new Set(ACCIONES_POR_AREA[area]);
+  const delArea = new Set(accionesSembradasDe(area));
   const acciones = catalogo.filter((f) => f.tipo === 'accion' && delArea.has(f.codigo));
   const paginasDelArea = new Set(acciones.map((f) => itemDe(f, catalogo)));
   // Padres antes que hijas: la FK `padre_codigo` se comprueba fila a fila dentro del INSERT.
@@ -82,7 +91,7 @@ function itemDe(f: FuncionCatalogo, catalogo: FuncionCatalogo[]): string {
 export function sqlRepartoArbol(area: AreaArbol = 'gestion'): string {
   catalogoCompleto(); // valida árbol ↔ catálogo antes de escribir una migración sobre nada
   const { grupos: TMP_GRUPOS, absorbidas: TMP_ABSORBIDAS, lectura: TMP_LECTURA, umbral: TMP_UMBRAL, requisito: TMP_REQUISITO } = tablasTemporales(area);
-  const delArea = ACCIONES_POR_AREA[area];
+  const delArea = accionesSembradasDe(area);
   const pares = delArea
     .flatMap((a) => [...predecesoresDe(a)].sort().map((fn) => `  (${lit(a)}, ${lit(fn)})`));
   const conjuncionesDelArea = CONJUNCIONES_ARBOL.filter((c) => c.acciones.every((a) => delArea.includes(a)));

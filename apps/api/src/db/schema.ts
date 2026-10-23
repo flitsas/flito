@@ -33,6 +33,7 @@ export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', '
 // Import (y no solo `export … from`) porque `users.role` referencia `permisosRoles.codigo` aquí abajo.
 import { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria } from './schema/permisos.js';
 export { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria };
+export * from './schema/flito-bolsas-documentos.js'; // HU #13889 (ADR-0028): expediente documental de la compañía
 // Épica #12245: `flito_comprobantes` vive en `./schema/flito-comprobantes.ts` por el mismo techo (HU #12611).
 import { flitoComprobantes } from './schema/flito-comprobantes.js';
 export { flitoComprobantes };
@@ -42,8 +43,7 @@ export { flitoSoatIncompletas };
 // HU #13410: `flito_storage_borrados_pendientes` vive en `./schema/flito-storage-borrados-pendientes.ts`.
 export { flitoStorageBorradosPendientes } from './schema/flito-storage-borrados-pendientes.js';
 // HU #13268: `flito_impuesto_envios_flit2` (outbox del envío a FLIT 2) vive en `./schema/` por el mismo techo.
-import { flitoImpuestoEnviosFlit2 } from './schema/flito-impuesto-envios-flit2.js';
-export { flitoImpuestoEnviosFlit2 };
+export { flitoImpuestoEnviosFlit2 } from './schema/flito-impuesto-envios-flit2.js'; // en una línea: techo de max-lines (HU #13889)
 // HU #12619: `flito_tramite_viajes_logistica` vive en `./schema/flito-logistica-viajes.ts` por el mismo techo.
 import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js';
 export { flitoTramiteViajesLogistica };

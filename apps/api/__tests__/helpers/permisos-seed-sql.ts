@@ -71,6 +71,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0239_permisos_arbol_legado_reparto.sql', // HU #13429: «Administrar» PESV (A1), cadena de roles y retiro del legado
   '0240_permisos_sueltos_a_su_item.sql', // HU #13588: ítem «Rendimiento» (copia de `rum.resumen.ver`) y retiro de los 5 sueltos
   '0243_permisos_retirar_sync_lanzar.sql', // HU #13631: retiro de `sync.sync.lanzar` (sincronización manual de FLIT 1)
+  '0248_flito_bolsas_documentos.sql', // HU #13889 (ADR-0028): acciones del expediente documental, solo a `admin`
 ] as const;
 
 /**

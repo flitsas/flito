@@ -52,6 +52,11 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'GET', ruta: '/:id/documentos-adicionales', codigo: 'soat.documentos_adicionales.ver' },
   { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'POST', ruta: '/:id/documentos-adicionales', codigo: 'soat.documentos_adicionales.cargar' },
   { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'DELETE', ruta: '/:id/documentos-adicionales/:soporteId', codigo: 'soat.documentos_adicionales.eliminar' },
+  // HU #13889 (ADR-0028): expediente documental de la compañía.
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/companias/:companiaId', codigo: 'bolsas.documentos.ver' },
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/companias/:companiaId/tipos/:tipo/historial', codigo: 'bolsas.documentos.ver' },
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'POST', ruta: '/companias/:companiaId/tipos/:tipo', codigo: 'bolsas.documentos.cargar' },
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/documentos/:documentoId/archivo', codigo: 'bolsas.documentos.ver' },
   // HU #12998
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/reintentar', codigo: 'soat.solicitud.reintentar_runt' },
   // HU #13061: acceso de FLITO a FLIT 2 (0214, solo admin).
