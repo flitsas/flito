@@ -313,6 +313,10 @@ const envSchema = z.object({
   // DESCARTADAS (30 días tras el descarte, Ley 1581). Puerta POSITIVA como las de arriba: un job que
   // BORRA no se enciende por desplegarse; sin el '1' explícito no arranca y lo dice en el log.
   SOAT_RETENCION_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // HU #13891 (ADR-0028 §9): purga de versiones REEMPLAZADAS del expediente de la compañía. Puerta
+  // POSITIVA (un job que borra no se enciende por desplegarse) y N en años, 5 por defecto (§14).
+  BOLSAS_DOCUMENTOS_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  BOLSAS_DOCUMENTOS_RETENCION_ANIOS: z.coerce.number().int().min(1).max(20).default(5),
   // HU #13410 — reintento horario de los borrados pendientes del almacenamiento (documentos
   // adicionales del SOAT eliminados cuyo objeto no se pudo borrar). Puerta POSITIVA: borra objetos.
   SOAT_BORRADOS_PENDIENTES_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
