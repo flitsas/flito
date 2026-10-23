@@ -13,6 +13,7 @@
     "test:integration-keyed": "vitest run -t \"\\[keyed\\]\"",
     "db:generate": "drizzle-kit generate",
     "db:apply": "tsx src/scripts/db-apply.ts",
+    "ayuda:drflit": "tsx scripts/generar-ayuda-drflit.ts",
     "permisos:seed": "tsx src/scripts/generar-seed-permisos.ts",
     "permisos:en-seco": "tsx src/scripts/permisos-reparto-en-seco.ts",
     "flito:seed": "tsx src/scripts/flito-seed.ts",

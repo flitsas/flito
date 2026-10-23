@@ -429,6 +429,10 @@ const envSchema = z.object({
   DRFLIT_ADJUNTOS_MAX: z.preprocess(vacioComoAusente, z.coerce.number().int().min(0).max(10).default(3)),
   DRFLIT_ADJUNTO_MAX_MB: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(25).default(5)),
   DRFLIT_RADICACIONES_POR_HORA: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(60).default(5)),
+  // ── HU #13853 (Feature #13696, IA-1): presupuesto del contexto de fichas para la IA ──────────────
+  // Caracteres de secciones por mensaje (el índice va aparte, siempre) y tope por sección (recorte).
+  DRFLIT_IA_CONTEXTO_MAX_CHARS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(4000).max(120_000).default(32_000)),
+  DRFLIT_IA_SECCION_MAX_CHARS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(500).max(20_000).default(6000)),
   // Puerta POSITIVA de la purga de intentos a 12 meses (RN-DRF3): solo con =1.
   DRFLIT_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
 }).superRefine((data, ctx) => {
