@@ -6,7 +6,8 @@ import type {
   ArbolRolRespuesta, ArbolUsuarioRespuesta, CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RespuestaReemplazoComprobante, RolCatalogo, TipoEnlace,
 } from '@operaciones/shared-types';
 import type {
-  DocumentoBolsaDto, ExpedienteCompaniaDto, HistorialDocumentoBolsaDto, TipoDocumentoBolsa,
+  DocumentoBolsaDto, EstadoExpedienteLoteBody, EstadoExpedienteLoteRespuesta, ExpedienteCompaniaDto,
+  HistorialDocumentoBolsaDto, TipoDocumentoBolsa,
 } from '@operaciones/shared-types';
 
 const BASE = '/api';
@@ -625,6 +626,9 @@ const BOLSAS_DOCS = '/flito/bolsas-documentos';
 export const bolsasDocumentosApi = {
   expediente: (companiaId: number) =>
     api.get<ExpedienteCompaniaDto>(`${BOLSAS_DOCS}/companias/${companiaId}`),
+  /** E6 (HU #13893): estado del expediente de varias compañías; ids en el body, máx. `TOPE_ESTADO_LOTE_BOLSAS`. */
+  estadoLote: (body: EstadoExpedienteLoteBody) =>
+    api.post<EstadoExpedienteLoteRespuesta>(`${BOLSAS_DOCS}/estado-lote`, body),
   historial: (companiaId: number, tipo: TipoDocumentoBolsa) =>
     api.get<HistorialDocumentoBolsaDto>(`${BOLSAS_DOCS}/companias/${companiaId}/tipos/${encodeURIComponent(tipo)}/historial`),
   cargar: (companiaId: number, tipo: TipoDocumentoBolsa, archivo: File) =>

@@ -85,3 +85,12 @@ export const nombreRespaldo = (tipo: TipoDocumentoBolsa, version: number, mime: 
 /** «del RUT» / «de la Cámara de Comercio». */
 export const delDocumento = (tipo: TipoDocumentoBolsa): string =>
   `${ETIQUETAS[tipo].femenino ? 'de la' : 'del'} ${ETIQUETAS[tipo].nombre}`;
+
+/**
+ * Chip del listado de bolsas (HU #13893). `warning` cubre todo lo que no es completo (falta uno,
+ * vencido, no se pudo validar, validando): el porqué está en el detalle, no en el listado.
+ */
+export const CHIP_EXPEDIENTE: Record<'completo' | 'pendiente', { tono: ChipTone; texto: string; title?: string }> = {
+  completo: { tono: 'success', texto: 'Docs completos' },
+  pendiente: { tono: 'warning', texto: 'Docs pendientes', title: 'Revisa el expediente en el detalle de la bolsa.' },
+};
