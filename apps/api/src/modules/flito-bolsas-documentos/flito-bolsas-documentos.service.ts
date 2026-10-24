@@ -17,12 +17,13 @@
 // RN-BD6  Fecha manual (E4, HU #13890): solo sobre la versión VIGENTE de un tipo con vigencia, con bolsa
 //         activa (409 si no), y deja quién y cuándo (`fecha_manual_por/_en`). El OCR nunca la pisa
 //         (`WHERE fecha_origen IS DISTINCT FROM 'manual'`). La regla de 30 días se aplica igual sobre ella.
-import { and, asc, desc, eq, max } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, max } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   DIAS_VIGENCIA_DOCUMENTO_BOLSA, TIPOS_DOCUMENTO_BOLSA, TIPOS_DOCUMENTO_BOLSA_CON_VIGENCIA,
   TIPOS_DOCUMENTO_BOLSA_PRINCIPALES,
-  type DocumentoBolsaDto, type DocumentoBolsaVersionDto, type EstadoDocumentoBolsa, type ExpedienteCompaniaDto,
+  type DocumentoBolsaDto, type DocumentoBolsaVersionDto, type EstadoDocumentoBolsa, type EstadoExpedienteLoteDto,
+  type ExpedienteCompaniaDto, type TipoDocumentoBolsaPrincipal,
   type MimeDocumentoBolsa, type OrigenFechaExpedicion, type TipoDocumentoBolsa,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -148,6 +149,38 @@ export async function expedienteDe(companiaId: number, hoy: string = hoyColombia
   });
   const completo = documentos.filter((d) => !d.opcional).every((d) => d.estado === 'valido');
   return { companiaId, completo, documentos };
+}
+
+/**
+ * E6 — Estado agregado de un lote de compañías (chip del listado, HU #13893). UNA sola consulta para todo
+ * el lote (sin N+1) y la vigencia con el mismo `estadoDe` del expediente. Solo los 4 principales: el
+ * `adicional` no cuenta. Un id sin bolsa, sin documentos o inexistente sale con `completo: false` y los 4
+ * en `pendiente`; no se filtra, para no revelar qué compañías existen (ADR-0028 §5). Sin PII: ids y estados.
+ * El orden de la respuesta es el de los ids pedidos.
+ */
+export async function estadoLoteDe(companiaIds: readonly number[], hoy: string = hoyColombia()): Promise<EstadoExpedienteLoteDto[]> {
+  if (companiaIds.length === 0) return [];
+  const filas = await db.select({
+    companiaId: t.companiaId, tipo: t.tipo, fechaExpedicion: t.fechaExpedicion, ocrEstado: t.ocrEstado,
+  }).from(t).where(and(
+    inArray(t.companiaId, [...companiaIds]),
+    eq(t.vigente, true),
+    inArray(t.tipo, [...TIPOS_DOCUMENTO_BOLSA_PRINCIPALES]),
+  ));
+  const porCompania = new Map<number, Map<string, FilaVigencia>>();
+  for (const f of filas) {
+    const m = porCompania.get(f.companiaId) ?? new Map<string, FilaVigencia>();
+    m.set(f.tipo, f);
+    porCompania.set(f.companiaId, m);
+  }
+  return companiaIds.map((companiaId) => {
+    const m = porCompania.get(companiaId);
+    const estados = Object.fromEntries(TIPOS_DOCUMENTO_BOLSA_PRINCIPALES.map((tipo) => [
+      tipo, estadoDe(m?.get(tipo) ?? null, hoy),
+    ])) as Record<TipoDocumentoBolsaPrincipal, EstadoDocumentoBolsa>;
+    const completo = Object.values(estados).every((e) => e === 'valido');
+    return { companiaId, completo, estados };
+  });
 }
 
 /** E2 — Historial de un tipo, de la versión más nueva a la más vieja (purgadas sin archivo). */

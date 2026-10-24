@@ -12,13 +12,17 @@
 // El orden de las filas NO lo pone esta pantalla: llega del servidor, y reordenar aquí sería abrir
 // la puerta a que dos vistas del mismo dato prioricen distinto.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   NIVEL_RIESGO_BOLSA_LABEL, NivelRiesgoBolsa,
   type AlertasBolsas, type BolsaResumenDto, type BolsaTransitoConNivel, type SaldoConsolidado,
 } from '@operaciones/shared-types';
 import { api, bolsasApi } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { errorBolsa, pesos, TONO_NIVEL } from '../../lib/bolsas';
+import { FUNCION_VER_DOCUMENTOS_BOLSA } from '../../lib/bolsasDocumentos';
+import ChipExpediente from '../flito-bolsas-documentos/ChipExpediente';
+import { useEstadoExpedientes } from '../flito-bolsas-documentos/useEstadoExpedientes';
 import { TarjetaBolsaTransito } from './BolsaTransito';
 import FiltroSegmentado from '../flit/FiltroSegmentado';
 import FlitAcordeon from '../flit/FlitAcordeon';
@@ -54,6 +58,7 @@ interface Props {
 }
 
 export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito, onCrear, nonce }: Props) {
+  const { hasFuncion } = useAuth();
   const [consolidado, setConsolidado] = useState<SaldoConsolidado | null>(null);
   const [transitos, setTransitos] = useState<BolsaTransitoConNivel[]>([]);
   const [alertas, setAlertas] = useState<AlertasBolsas | null>(null);
@@ -248,6 +253,7 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
         <TablaCompanias filas={filas} error={errorFilas} onReintentar={reintentar}
           texto={textoBuscado} estado={estado} hayFiltro={hayFiltro}
           onLimpiar={limpiarFiltros} onVerInactivas={() => setEstado('todas')}
+          verExpediente={hasFuncion(FUNCION_VER_DOCUMENTOS_BOLSA)}
           onVer={(b) => onVerBolsa({ id: b.id, nombre: b.nombre })} />
       </FlitAcordeon>
 
@@ -278,7 +284,7 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
 }
 
 function TablaCompanias({
-  filas, error, onReintentar, texto, estado, hayFiltro, onLimpiar, onVerInactivas, onVer,
+  filas, error, onReintentar, texto, estado, hayFiltro, onLimpiar, onVerInactivas, onVer, verExpediente,
 }: {
   filas: BolsaResumenDto[] | null;
   error: 'permiso' | 'red' | null;
@@ -289,7 +295,14 @@ function TablaCompanias({
   onLimpiar: () => void;
   onVerInactivas: () => void;
   onVer: (b: BolsaResumenDto) => void;
+  /** #13893: `bolsas.documentos.ver`. Sin él (o con 403 del lote) la columna Expediente no existe. */
+  verExpediente: boolean;
 }) {
+  // #13893: un solo lote por carga del listado; la tabla no lo espera.
+  const companiaIds = useMemo(() => filas?.map((f) => f.companiaId) ?? null, [filas]);
+  const { estado: lote, reintentar: reintentarLote } = useEstadoExpedientes(companiaIds, verExpediente);
+  const conExpediente = verExpediente && lote.fase !== 'sin-permiso';
+
   if (error === 'permiso') {
     return (
       <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
@@ -343,6 +356,14 @@ function TablaCompanias({
   }
 
   return (
+    <>
+    {conExpediente && lote.fase === 'error' && (
+      <div role="status" data-testid="aviso-expediente-lote"
+        className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <span>No pudimos cargar el estado de los documentos.</span>
+        <button type="button" className={flitBtnSecondarySm} onClick={reintentarLote}>Reintentar</button>
+      </div>
+    )}
     <FlitTable label="Bolsas de compañías">
       <thead>
         <tr>
@@ -350,7 +371,7 @@ function TablaCompanias({
           <FlitTh>Estado</FlitTh>
           <FlitTh className="!text-right">Saldo</FlitTh>
           <FlitTh>Nivel</FlitTh>
-          <FlitTh><span className="sr-only">Expediente documental</span></FlitTh>
+          {conExpediente && <FlitTh>Expediente<span className="sr-only"> documental</span></FlitTh>}
           <FlitTh><span className="sr-only">Acciones</span></FlitTh>
         </tr>
       </thead>
@@ -371,9 +392,11 @@ function TablaCompanias({
             <td className="px-4 py-2">
               <StatusChip tone={TONO_NIVEL[fila.nivel]}>{NIVEL_RIESGO_BOLSA_LABEL[fila.nivel]}</StatusChip>
             </td>
-            <td className="px-4 py-2">
-              {/* #13407: <ChipExpediente companiaId={fila.companiaId} /> */}
-            </td>
+            {conExpediente && (
+              <td className="px-4 py-2">
+                {fila.companiaId !== null && <ChipExpediente companiaId={fila.companiaId} lote={lote} />}
+              </td>
+            )}
             <td className="px-4 py-2 text-right">
               <button type="button" className={flitBtnSecondarySm}
                 aria-label={`Ver el detalle de la bolsa de ${fila.nombre} (compañía)`}
@@ -385,5 +408,6 @@ function TablaCompanias({
         ))}
       </tbody>
     </FlitTable>
+    </>
   );
 }

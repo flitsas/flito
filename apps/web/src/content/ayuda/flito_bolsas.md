@@ -23,7 +23,7 @@ consultas:
   - cómo cargo los documentos de la compañía
   - por qué un documento dice vigencia vencida
   - qué hago si no se pudo validar un documento
-version: 1.3
+version: 1.4
 fecha: 2026-10-24
 ---
 ## Qué es
@@ -41,7 +41,7 @@ En el menú lateral, sección **Finanzas**, ítem **Bolsas**.
 ## Pasos
 
 1. Arriba están **Crear bolsa** y los KPI **Saldo total**, **Bolsas en riesgo** y **Conciliación pendiente**. Use **Buscar** (compañía, bolsa o NIT) y el filtro **Estado** (**Todas**, **Activas**, **Inactivas**) para encontrar una bolsa. ![Cabecera de Bolsas con el botón Crear bolsa, los tres KPI y la barra con Buscar y el filtro Estado](./flito_bolsas/01-cabecera-y-kpi.png)
-2. En **Compañías**, cada fila dice el **Estado** (Activa o Inactiva), el **Saldo** y el **Nivel**. Pulse **Ver detalle** en una fila o en una alerta de **Alertas de saldo**. En **Tránsitos**, **Ver detalle** en la tarjeta de la bolsa. ![Acordeón Compañías con una alerta de saldo crítico y la tabla de compañías con estado, saldo, nivel y Ver detalle; debajo, Tránsitos](./flito_bolsas/02-companias.png)
+2. En **Compañías**, cada fila dice el **Estado** (Activa o Inactiva), el **Saldo**, el **Nivel** y el **Expediente**: **Docs completos** si la compañía tiene válidos la Cámara de Comercio, el RUT, la cédula del representante legal y el certificado bancario, o **Docs pendientes** si falta alguno, está vencido o no se pudo validar. La columna **Expediente** solo aparece si usted puede ver documentos. Pulse **Ver detalle** en una fila o en una alerta de **Alertas de saldo**. En **Tránsitos**, **Ver detalle** en la tarjeta de la bolsa. ![Acordeón Compañías con una alerta de saldo crítico y la tabla de compañías con estado, saldo, nivel y Ver detalle; debajo, Tránsitos](./flito_bolsas/02-companias.png)
 3. Para dar de alta una bolsa, pulse **Crear bolsa** y responda **¿De quién es la bolsa?**. Con **Compañía**: elija la compañía y marque en **¿Qué conceptos descuenta?** al menos uno (ninguno viene marcado y el GMF no se elige); luego **Crear bolsa**. Se abre el detalle de la bolsa nueva. Con **Tránsito**: pulse **Continuar** y complete nombre, secretarías y cobros. ![Formulario Crear bolsa con la opción Compañía, una compañía elegida, los seis conceptos, SOAT marcado como Autogestionado y el aviso de autogestión](./flito_bolsas/03-crear-bolsa.png)
 4. En el detalle de la compañía: el estado, el saldo y los conceptos que descuenta. Elija el **Periodo contable** y, si necesita el histórico, marque **Ver el libro completo (todos los periodos)**. Las acciones son **Registrar una recarga** (valor y comprobante; **Registrar recarga**), **Movimiento manual** (**Registrar movimiento**), **Corregir un movimiento** (**Asentar corrección**) o **Cerrar** el periodo (el botón dice **Cerrar** y el nombre del mes; **Confirmar el cierre**; irreversible). Debajo, el consumo por organismo y por concepto, y los movimientos, que puede **Exportar CSV**. Un movimiento que revierte a otro lleva el enlace **Revierte el movimiento del…** y lo lleva hasta el original. ![Detalle de la bolsa de una compañía: Activa y Normal, Editar conceptos e Inactivar, el saldo, los conceptos que descuenta con SOAT autogestionado, el periodo contable y el extracto](./flito_bolsas/04-detalle-compania.png)
 5. Para cambiar los conceptos, pulse **Editar conceptos** y luego **Guardar cambios**.
@@ -69,7 +69,8 @@ El ciclo de la bolsa de una compañía en un periodo, de un vistazo:
 - Cargando: el encabezado **Bolsas** se ve; el tablero aún no (esqueleto).
 - Error: **No pudimos cargar las bolsas. Revisa tu conexión e intenta de nuevo.** y **Reintentar**.
 - Vacío: **Todavía no hay bolsas. Crea la primera y elige si es de una compañía o de tránsito.** con **Crear bolsa**. Si la búsqueda no encuentra nada: **Ninguna bolsa coincide con…** y **Limpiar filtros**.
-- Lleno: KPI, alertas de saldo y la tabla de compañías con estado, saldo y nivel.
+- Lleno: KPI, alertas de saldo y la tabla de compañías con estado, saldo, nivel y expediente.
+- Expediente en la tabla: mientras se consulta se ve una barra gris; si la consulta falla, la celda muestra **—** y arriba de la tabla aparece **No pudimos cargar el estado de los documentos.** con **Reintentar**. La tabla funciona igual.
 - Documentos: mientras carga, **Cargando el expediente**; si falla, **No pudimos cargar los documentos de la compañía. Intenta de nuevo.** con **Reintentar**; sin documentos, **Todavía no hay documentos. Carga los cuatro principales para dejar el expediente completo.** Si solo puede ver documentos, no aparecen **Cargar** ni **Digitar fecha**.
 - Compañía sin bolsa: el detalle dice **Crea la bolsa de la compañía primero** con **Crear bolsa** (la compañía ya viene elegida). Si al recargar aparece ese mismo aviso, la bolsa no existe todavía.
 

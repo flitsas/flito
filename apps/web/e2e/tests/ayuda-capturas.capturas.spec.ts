@@ -118,6 +118,7 @@ import {
   PANEL_SOAT_STATS_DEMO,
   PANEL_VENCIMIENTOS_DEMO,
   EXPEDIENTE_BOLSA_DEMO,
+  ESTADO_LOTE_BOLSAS_DEMO,
 } from '../helpers/datos-demo';
 import { accion, arbolRol, codigosDe, elemento, item, opcional, type NodoDef } from '../helpers/arbolPermisos';
 
@@ -802,6 +803,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       [/\/api\/flito\/bolsas\/901\/cierres$/, () => ({ body: [] })],
       // HU #13892: la sección «Documentos» del detalle lee el expediente al montarse (E1).
       [/\/api\/flito\/bolsas-documentos\/companias\/901$/, () => ({ body: EXPEDIENTE_BOLSA_DEMO })],
+      // HU #13893: el chip «Expediente» del listado pide el estado de todas las compañías en un lote (E6).
+      [/\/api\/flito\/bolsas-documentos\/estado-lote$/, () => ({ body: ESTADO_LOTE_BOLSAS_DEMO })],
     ]);
     // Ningún rol trae por seed las funciones del expediente: se suman para que la ficha muestre la sección.
     await entrarComoAdminDemo(page, { ...ADMIN_DEMO, funciones: [
@@ -814,7 +817,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     // Paso 1 — Crear bolsa, KPI y barra de búsqueda.
     await capturar(page, dir, '01-cabecera-y-kpi');
 
-    // Paso 2 — Compañías: alertas de saldo y tabla con estado, saldo, nivel y Ver detalle.
+    // Paso 2 — Compañías: alertas de saldo y tabla con estado, saldo, nivel, Expediente y Ver detalle.
+    await expect(page.getByText('Docs completos')).toBeVisible();
     await page.getByText('Alertas de saldo').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     await page.evaluate(() => window.scrollBy(0, -140));
     await capturar(page, dir, '02-companias');

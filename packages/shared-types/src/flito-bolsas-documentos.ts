@@ -76,3 +76,13 @@ export interface EstadoExpedienteLoteDto {
   completo: boolean;
   estados: Record<TipoDocumentoBolsaPrincipal, EstadoDocumentoBolsa>;
 }
+
+/** E6 `POST /estado-lote` (HU #13893): ids en el body, entre 1 y `TOPE_ESTADO_LOTE_BOLSAS`, sin repetir. */
+export interface EstadoExpedienteLoteBody {
+  companiaIds: number[];
+}
+
+/** Respuesta de E6, en el orden de los ids pedidos. Un id sin documentos sale `completo: false`. */
+export interface EstadoExpedienteLoteRespuesta {
+  estados: EstadoExpedienteLoteDto[];
+}
