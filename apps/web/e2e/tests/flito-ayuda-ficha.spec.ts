@@ -87,19 +87,21 @@ test.describe('FLITO — Ayuda · avisos y «Aplica para», unidad pura (HU #137
     for (const slug of slugs) {
       const roles = rolesPorDefectoDePagina(slug);
       expect(roles[0], slug).toBe('admin');
-      expect(roles, slug).not.toContain('cliente');
-      expect(roles, slug).not.toContain('proveedor');
       expect(roles as string[], slug).not.toContain('operaciones');
-      const esperado = USER_ROLES.filter(
-        (r) => r !== 'admin' && r !== 'cliente' && r !== 'proveedor' && paginasPorDefecto(r).includes(slug),
-      );
+      // HU #13914: los roles de enlace (cliente, proveedor) ya no se excluyen.
+      const esperado = USER_ROLES.filter((r) => r !== 'admin' && paginasPorDefecto(r).includes(slug));
       expect(roles.slice(1), slug).toEqual(esperado);
     }
-    // Ancla con datos reales: Financiera tiene el reporte de costos por defecto; el Proveedor tiene
-    // `flito_soat` por defecto y aun así no sale (rol de enlace, no ve la Ayuda).
+    // Ancla con datos reales: Financiera tiene el reporte de costos por defecto; Cliente y Proveedor
+    // tienen `flito_soat` por defecto y salen en «Aplica para» de SOAT (HU #13914 AC7), en el orden de
+    // `USER_ROLES` y con Admin primero.
     expect(rolesPorDefectoDePagina('finanzas_reporte_costos')).toContain('financiera');
     expect(paginasPorDefecto('proveedor')).toContain('flito_soat');
-    expect(rolesPorDefectoDePagina('flito_soat')).not.toContain('proveedor');
+    const soat = rolesPorDefectoDePagina('flito_soat');
+    expect(soat[0]).toBe('admin');
+    expect(soat).toContain('cliente');
+    expect(soat).toContain('proveedor');
+    expect(soat).toEqual(USER_ROLES.filter((r) => soat.includes(r)));
   });
 });
 

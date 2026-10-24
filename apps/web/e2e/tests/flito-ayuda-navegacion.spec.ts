@@ -548,13 +548,22 @@ test.describe('FLITO — Ayuda · árbol lateral de fichas (HU #13896)', () => {
     await expect(enlaces).toHaveAttribute('aria-current', 'page');
   });
 
-  test('AC7 — rol con enlace en una URL de ficha: NoAccess como hoy, sin árbol', async ({ page }) => {
+  test('AC7 — rol con enlace sin permiso de la ficha (Bolsas): NoAccess, sin árbol (HU #13914 AC4)', async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 768 });
     await loginAs(page, CLIENTE_USER);
     await page.goto('/flito/ayuda/flito_bolsas');
     await expect(page.getByRole('heading', { name: /no tienes acceso/i })).toBeVisible();
     await expect(arbol(page)).toHaveCount(0);
     await expect(arbolPlegable(page)).toHaveCount(0);
+  });
+
+  test('AC7 — cliente (con enlace) en la ficha de SOAT: la abre con árbol (HU #13914 AC2)', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await loginAs(page, CLIENTE_USER);
+    await page.goto('/flito/ayuda/soat');
+    await expect(arbol(page)).toBeVisible();
+    await expect(page.getByRole('heading', { name: /no tienes acceso/i })).toHaveCount(0);
+    await expect(arbol(page).locator('a[aria-current="page"]')).toHaveCount(1);
   });
 
   test('AC8 — slug inexistente: mensaje de hoy, sin árbol ni etiquetas ajenas', async ({ page }) => {

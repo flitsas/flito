@@ -38,16 +38,11 @@ const CONST_PERMITIDAS = new Set(['ROLE_TONE', 'ROLE_LABELS']);
  * - Traspaso (decisión del Líder Técnico en la HU #12872): la matriz rol × estado del traspaso vive en
  *   `packages/shared-types/src/traspaso-permisos.ts` y la consume el expediente STT. Pasarla a
  *   funciones exige rediseñar esa matriz (servidor + shared-types): pendiente de la Épica #13411.
- * - «Aplica para» de la Ayuda (decisión humana de la HU #13706): texto informativo, no decide acceso.
  */
 export const EXCEPCIONES = {
   'apps/web/src/pages/TransitoTraspasoExpediente.tsx': {
     veces: 1,
     motivo: 'Matriz rol×estado de traspaso (shared-types/traspaso-permisos.ts): pendiente de la Épica #13411.',
-  },
-  'apps/web/src/lib/ayudaFlito.ts': {
-    veces: 2,
-    motivo: '«Aplica para» de la Ayuda (Feature #13691 · HU #13706): texto informativo que excluye los roles de enlace (cliente, proveedor), que no ven la Ayuda (D2); no decide acceso. Decisión humana de la HU #13706. El tipo de enlace por rol vive en la base (permisos_roles.tipo_enlace), sin espejo en shared-types.',
   },
 };
 

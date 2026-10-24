@@ -1,5 +1,6 @@
 // Ayuda FLITO — menú y NoAccess (HU #11893, AC1 y AC2).
 import { test, expect } from '../helpers/fixtures';
+import { paginasPorDefecto } from '@operaciones/shared-types';
 import {
   loginAs, abrirAyuda, buscarFichas, OPERACIONES_USER, PROVEEDOR_USER, CONDUCTOR_USER, COMPLIANCE_USER, FINANCIERA_USER, SIN_CATALOGO,
 } from '../helpers/ayuda-fixtures';
@@ -82,6 +83,63 @@ test.describe('FLITO — Ayuda · acceso', () => {
     await page.goto('/flito/ayuda/flito_bolsas');
     await expect(page.getByRole('heading', { name: /no tienes acceso a flito — bolsas/i })).toBeVisible();
     await expect(page.getByText('Su usuario aún no tiene módulos con ayuda')).toHaveCount(0);
+  });
+});
+
+// HU #13914 — usuarios con enlace: ven la ficha de cada pantalla que pueden abrir (página en `allowedPages` Y
+// abierta a su enlace, la frontera de la HU #13452). `sobreDeMios` da `tipoEnlace: 'proveedor'` al proveedor.
+test.describe('FLITO — Ayuda · usuarios con enlace (HU #13914)', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  // Proveedor con los permisos por defecto de su rol: incluyen `dashboard`, que su enlace le cierra.
+  const PROVEEDOR_POR_DEFECTO = { ...PROVEEDOR_USER, allowedPages: [...paginasPorDefecto('proveedor')] };
+
+  test('AC1 — proveedor por defecto ve la ficha SOAT en Gestión y la abre con árbol', async ({ page }) => {
+    expect(PROVEEDOR_POR_DEFECTO.allowedPages).toContain('flito_soat');
+    await loginAs(page, PROVEEDOR_POR_DEFECTO);
+    await page.goto('/flito/ayuda');
+    await expect(page.getByRole('link', { name: 'Abrir ficha de SOAT', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Gestión', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toBeVisible();
+    await page.keyboard.press('Control+k');
+    await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
+    await expect(page.getByRole('option', { name: /^Ayuda/ })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.goto('/flito/ayuda/soat');
+    await expect(page.getByTestId('ayuda-arbol-lateral')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /no tienes acceso/i })).toHaveCount(0);
+  });
+
+  test('AC3 — proveedor con `dashboard` por defecto: sin «Tablero de control» en índice ni árbol; por URL, NoAccess', async ({ page }) => {
+    expect(PROVEEDOR_POR_DEFECTO.allowedPages).toContain('dashboard');
+    await loginAs(page, PROVEEDOR_POR_DEFECTO);
+    await page.goto('/flito/ayuda');
+    await expect(page.getByRole('link', { name: 'Abrir ficha de SOAT', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero de control' })).toHaveCount(0);
+
+    await page.goto('/flito/ayuda/soat');
+    const arbol = page.getByTestId('ayuda-arbol-lateral');
+    await expect(arbol).toBeVisible();
+    await expect(arbol.getByText('Tablero de control')).toHaveCount(0);
+
+    await page.goto('/flito/ayuda/dashboard');
+    await expect(page.getByRole('heading', { name: /no tienes acceso/i })).toBeVisible();
+    await expect(page.getByTestId('ayuda-arbol-lateral')).toHaveCount(0);
+  });
+
+  test('AC5 — con enlace y sin ninguna ficha visible: vacío sin módulos, sin «Ayuda» en menú ni ⌘K', async ({ page }) => {
+    // Rol propio (sin permisos por defecto que el fixture sume) con enlace de proveedor: `dashboard` lo tiene
+    // marcado, pero su enlace lo cierra, así que ninguna ficha es visible.
+    await loginAs(page, {
+      id: 26, username: 'e2e_ayuda_enlace_sin_fichas', name: 'Enlace sin fichas E2E', role: 'rol_propio_e2e',
+      allowedPages: ['dashboard'], tipoEnlace: 'proveedor',
+    });
+    await page.goto('/flito/ayuda');
+    await expect(page.getByRole('heading', { name: 'Su usuario aún no tiene módulos con ayuda' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Control+k');
+    await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
+    await expect(page.getByRole('option', { name: /^Ayuda/ })).toHaveCount(0);
   });
 });
 
