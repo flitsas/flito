@@ -29,10 +29,10 @@
 //   RN-C9 Orden de locks: comprobante → trámite (los toma `aplicar`) → bolsa compañía (aquí).
 //   RN-C10 Ley 1581: los logs llevan solo ids (comprobante, bolsa, movimiento); nunca placa, VIN ni NIT.
 //
-// Fuera de alcance: tránsito (HU-H), D14 (HU-D; el gancho `exigirDescuentoReversible` lo deja la HU-R #13903),
-// backfill (HU-E).
+// Reversión al desaplicar/reemplazar (HU #13905, D13/D14): `exigirDescuentoReversible` + `revertirDescuentoComprobante`.
+// Fuera de alcance: tránsito (HU-H), backfill (HU-E).
 
-import { and, eq, like } from 'drizzle-orm';
+import { and, asc, eq, like } from 'drizzle-orm';
 import {
   AlcanceBolsa, ConceptoCosto, EstadoComprobante, type ConceptoBolsa, type DescuentoBolsaDto, type MovimientoBolsaDto,
 } from '@operaciones/shared-types';
@@ -42,7 +42,7 @@ import { loggerFor } from '../../shared/logger.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import { excepcionLogisticaViva, gestionaLogistica } from '../flito-liquidacion/gestiona-logistica.js';
 import {
-  asentarEnBolsa, bolsaBloqueadaPorId, type CtxUsuario, hoyIso, movimientoPorLlave, num, PREFIJO_REVERSADO, PREFIJO_SALIDA, type Tx,
+  asentarEnBolsa, bolsaBloqueadaPorId, type CtxUsuario, hoyIso, movimientoPorLlave, num, periodosCerrados, PREFIJO_REVERSADO, PREFIJO_SALIDA, type Tx,
 } from './flito-bolsas.libro.js';
 import { bolsaCompaniaPara } from './flito-bolsas.resolver.js';
 
@@ -207,8 +207,8 @@ export async function descontarComprobante(tx: Tx, c: ComprobanteAplicado, ctx: 
 }
 
 /**
- * D14 (HU #13903 deja el gancho; la HU-D lo implementa): el periodo de la bolsa en el que cayó el descuento
- * está cerrado, así que no se puede devolver. Quien desaplica lo traduce a 409 `periodo_cerrado`.
+ * D14 (HU #13905): el periodo de la bolsa al que se IMPUTÓ el descuento está cerrado, así que no se puede
+ * devolver. Quien desaplica/reemplaza lo traduce a 409 `periodo_cerrado` con `{ bolsaId, periodo }`.
  */
 export class PeriodoCerradoError extends Error {
   constructor(public bolsaId: string, public periodo: string) {
@@ -217,30 +217,55 @@ export class PeriodoCerradoError extends Error {
 }
 
 /**
- * Guarda de desaplicar/reemplazar (HU #13903), ANTES de `revertirDescuentoComprobante` y dentro de la misma
- * tx. Hoy no-op: la regla del periodo cerrado (D14) la escribe la HU-D, que lanzará `PeriodoCerradoError`.
+ * Salidas VIVAS (`salida:%`, no reversadas) que este comprobante dejó en cualquier bolsa. Orden fijo
+ * (`bolsa_id`, `id`): las bolsas se bloquean siempre en el mismo orden (sin cruce de locks entre dos
+ * reversiones concurrentes) y el error de D14 nombra siempre la misma bolsa.
  */
-export async function exigirDescuentoReversible(_tx: Tx, _comprobanteId: string): Promise<void> {
-  // no-op hasta la HU-D
-}
-
-/**
- * Una entrada enlazada (`revierte_movimiento_id`) por cada salida VIVA del comprobante; libera la llave
- * del original con `rev:` (única columna que se reescribe; así reemplazar puede volver a descontar).
- * Se permite con la bolsa inactiva (RN-A2: devolver lo cobrado). Dos llamadas no acreditan dos veces:
- * la segunda ya no ve salidas vivas, y el índice único parcial de `revierte_movimiento_id` lo garantiza
- * en la base. `compensacion: true` (rechazo del dueño tras el commit) no pasa por D14; sin ella, la
- * guarda de periodo cerrado la añade la HU-D (`exigirDescuentoReversible`).
- */
-export async function revertirDescuentoComprobante(
-  tx: Tx, comprobanteId: string, ctx: CtxUsuario, o: { motivo: string; compensacion?: boolean },
-): Promise<MovimientoBolsaDto[]> {
-  const salidas = await tx.select().from(flitoBolsasUnicasMovimientos).where(and(
+async function salidasVivasDe(tx: Tx, comprobanteId: string) {
+  return tx.select().from(flitoBolsasUnicasMovimientos).where(and(
     eq(flitoBolsasUnicasMovimientos.comprobanteId, comprobanteId),
     eq(flitoBolsasUnicasMovimientos.origen, 'comprobante'),
     eq(flitoBolsasUnicasMovimientos.tipo, 'salida'),
     like(flitoBolsasUnicasMovimientos.llaveIdempotencia, `${PREFIJO_SALIDA}%`),
-  ));
+  )).orderBy(asc(flitoBolsasUnicasMovimientos.bolsaId), asc(flitoBolsasUnicasMovimientos.id));
+}
+type SalidaViva = Awaited<ReturnType<typeof salidasVivasDe>>[number];
+
+/**
+ * D14 sobre el periodo IMPUTADO (`periodo`, no el de `fecha`): si la salida se corrió a un periodo posterior
+ * porque el natural ya estaba cerrado, lo que cuenta es dónde quedó contada. Bloquea la bolsa antes de leer
+ * sus cierres para que un cierre concurrente no se cuele entre la guarda y la entrada. Q7: no mira `activa`.
+ */
+async function exigirPeriodoAbierto(tx: Tx, s: SalidaViva): Promise<void> {
+  await bolsaBloqueadaPorId(tx, s.bolsaId);
+  if ((await periodosCerrados(tx, s.bolsaId)).has(s.periodo)) throw new PeriodoCerradoError(s.bolsaId, s.periodo);
+}
+
+/**
+ * Guarda de desaplicar/reemplazar (D14), ANTES de `revertirDescuentoComprobante` y dentro de la misma tx:
+ * si CUALQUIER salida viva del comprobante cayó en un periodo cerrado de su bolsa, lanza
+ * `PeriodoCerradoError` y nada se escribe (todo o nada). Sin salidas vivas (no descontó: antes del corte,
+ * sin bolsa, ya revertido) no hay nada que proteger.
+ */
+export async function exigirDescuentoReversible(tx: Tx, comprobanteId: string): Promise<void> {
+  for (const s of await salidasVivasDe(tx, comprobanteId)) await exigirPeriodoAbierto(tx, s);
+}
+
+/**
+ * Una entrada enlazada (`revierte_movimiento_id`) por cada salida VIVA del comprobante; libera la llave
+ * del original con `rev:` (única columna que se reescribe; así reemplazar puede volver a descontar, y el
+ * SOAT recupera `salida:soat:<soatId>`). Se permite con la bolsa inactiva (RN-A2 / Q7: devolver lo cobrado).
+ * Dos llamadas no acreditan dos veces: la segunda ya no ve salidas vivas, y el índice único parcial de
+ * `revierte_movimiento_id` lo garantiza en la base. La entrada se imputa al primer periodo abierto
+ * (`asentarEnBolsa` → `periodoImputable`). D14: sin `compensacion` se re-exige el periodo abierto de cada
+ * salida (defensa si un llamador olvida `exigirDescuentoReversible`); `compensacion: true` (rechazo del
+ * dueño tras el commit: el dinero nunca debió salir) la omite.
+ */
+export async function revertirDescuentoComprobante(
+  tx: Tx, comprobanteId: string, ctx: CtxUsuario, o: { motivo: string; compensacion?: boolean },
+): Promise<MovimientoBolsaDto[]> {
+  const salidas = await salidasVivasDe(tx, comprobanteId);
+  if (o.compensacion !== true) for (const s of salidas) await exigirPeriodoAbierto(tx, s);
   const entradas: MovimientoBolsaDto[] = [];
   for (const s of salidas) {
     const bolsa = await bolsaBloqueadaPorId(tx, s.bolsaId);
