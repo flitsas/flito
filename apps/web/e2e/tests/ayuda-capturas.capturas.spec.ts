@@ -117,6 +117,7 @@ import {
   PANEL_RNDC_DEMO,
   PANEL_SOAT_STATS_DEMO,
   PANEL_VENCIMIENTOS_DEMO,
+  EXPEDIENTE_BOLSA_DEMO,
 } from '../helpers/datos-demo';
 import { accion, arbolRol, codigosDe, elemento, item, opcional, type NodoDef } from '../helpers/arbolPermisos';
 
@@ -799,8 +800,13 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       [/\/api\/flito\/bolsas\/901\/extracto$/, () => ({ body: BOLSAS_DEMO.extracto })],
       [/\/api\/flito\/bolsas\/901\/movimientos$/, () => ({ body: BOLSAS_DEMO.movimientos })],
       [/\/api\/flito\/bolsas\/901\/cierres$/, () => ({ body: [] })],
+      // HU #13892: la sección «Documentos» del detalle lee el expediente al montarse (E1).
+      [/\/api\/flito\/bolsas-documentos\/companias\/901$/, () => ({ body: EXPEDIENTE_BOLSA_DEMO })],
     ]);
-    await entrarComoAdminDemo(page, { ...ADMIN_DEMO, funciones: [...(FUNCIONES_POR_ROL.admin ?? []), ...FUNCIONES_BOLSAS] });
+    // Ningún rol trae por seed las funciones del expediente: se suman para que la ficha muestre la sección.
+    await entrarComoAdminDemo(page, { ...ADMIN_DEMO, funciones: [
+      ...(FUNCIONES_POR_ROL.admin ?? []), ...FUNCIONES_BOLSAS, 'bolsas.documentos.ver', 'bolsas.documentos.cargar',
+    ] });
 
     await page.goto('/flito/bolsas');
     await expect(page.getByText(EMPRESAS_DEMO[0]).first()).toBeVisible();
@@ -830,7 +836,16 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await expect(page.getByText('Ver el libro completo (todos los periodos)')).toBeVisible();
     await capturar(page, dir, '04-detalle-compania');
 
-    comprobarCierre(api, dir, ['01-cabecera-y-kpi.png', '02-companias.png', '03-crear-bolsa.png', '04-detalle-compania.png']);
+    // Paso 7 — Documentos: los 5 documentos de la compañía con su estado y sus acciones (HU #13892).
+    const documentos = page.getByTestId('expediente-documental');
+    await expect(documentos.getByText('Vigencia vencida')).toBeVisible();
+    await documentos.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await sinFoco(page);
+    await capturar(page, dir, '05-documentos', documentos);
+
+    comprobarCierre(api, dir, [
+      '01-cabecera-y-kpi.png', '02-companias.png', '03-crear-bolsa.png', '04-detalle-compania.png', '05-documentos.png',
+    ]);
   });
 
   test('flito_tarifas @capturas', async ({ page }) => {
