@@ -1,5 +1,6 @@
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, FINANCIERA_USER, PROVEEDOR_USER } from '../helpers/auth';
+import { FUNCIONES_BOLSAS } from '../helpers/bolsas';
 
 // HU #11162 y #11210 (ajuste 0124) — Bolsa de tránsito. Backend mockeado.
 //
@@ -70,6 +71,9 @@ async function mock(page: import('@playwright/test').Page, opts: {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ clientes: 1, saldoTotal: 1300000 }) }));
   await page.route(/\/api\/flito\/bolsas\/riesgo/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  // HU #13901: el acordeón de compañías sale de `POST /buscar`; sin compañías, para aislar tránsito.
+  await page.route(/\/api\/flito\/bolsas\/buscar/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.route(/\/api\/flito\/bolsas\/alertas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ saldo: [], conciliacion: { soportesSinTramite: 0, movimientosSinSoporte: 0 } }) }));
 
@@ -91,7 +95,7 @@ async function abrirDetalle(page: import('@playwright/test').Page) {
 
 test.describe('FLITO — Bolsas · bolsa de tránsito', () => {
   test('el acordeón de tránsitos lista cada bolsa con su cobertura, cargado, consumido y deuda', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     await page.goto('/flito/bolsas');
 
@@ -109,7 +113,7 @@ test.describe('FLITO — Bolsas · bolsa de tránsito', () => {
   });
 
   test('la bolsa en préstamo enseña el saldo en negativo y lo que se debe', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page, { bolsa: SECTOR_PRESTAMO });
     await page.goto('/flito/bolsas');
 
@@ -121,7 +125,7 @@ test.describe('FLITO — Bolsas · bolsa de tránsito', () => {
   });
 
   test('una bolsa creada sin cargas no se pinta como alarma', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page, { listado: [SIN_CARGAS] });
     await page.goto('/flito/bolsas');
 
@@ -132,17 +136,19 @@ test.describe('FLITO — Bolsas · bolsa de tránsito', () => {
   });
 
   test('sin ninguna bolsa se explica cómo crear la primera, sin ofrecer cargar', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page, { listado: [] });
     await page.goto('/flito/bolsas');
 
-    await expect(page.getByTestId('sin-bolsas-transito')).toContainText('Crear bolsa');
+    // HU #13901: sin compañías ni tránsitos la página entera es el vacío, con «Crear bolsa».
+    await expect(page.getByTestId('bolsas-vacio-total')).toContainText('elige si es de una compañía o de tránsito');
+    await expect(page.getByTestId('bolsas-vacio-total').getByRole('button', { name: 'Crear bolsa' })).toBeVisible();
     // Sin bolsa no hay dinero que mover: ofrecer la acción invitaría a preguntarse por qué no hace nada.
     await expect(page.getByRole('button', { name: 'Cargar saldo' })).toHaveCount(0);
   });
 
   test('crear una bolsa pide nombre, secretarías y cobros, y manda el estado final completo', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page, { listado: [] });
     await page.route(/\/api\/transito\/organismos-config/, (route) =>
       route.fulfill({
@@ -164,12 +170,16 @@ test.describe('FLITO — Bolsas · bolsa de tránsito', () => {
     });
 
     await page.goto('/flito/bolsas');
-    await page.getByRole('button', { name: 'Crear una bolsa de tránsito' }).click();
+    // HU #13901: una sola «Crear bolsa» en la cabecera; el formulario pregunta el alcance y la rama
+    // tránsito (provisional hasta la HU-G) abre el formulario de siempre con «Continuar».
+    await page.getByRole('button', { name: 'Crear bolsa', exact: true }).first().click();
+    await page.getByRole('dialog', { name: 'Crear bolsa', exact: true }).getByRole('radio', { name: /Tránsito/ }).check();
+    await page.getByRole('button', { name: 'Continuar' }).click();
     await page.getByLabel('Nombre de la bolsa *').fill('Bolsa de mi sector');
     await page.getByLabel('Impuestos').check();
     await page.getByLabel('Medellín').check();
     await page.getByLabel('Envigado').check();
-    await page.getByRole('button', { name: 'Crear bolsa' }).click();
+    await page.getByRole('dialog', { name: 'Crear bolsa de tránsito' }).getByRole('button', { name: 'Crear bolsa' }).click();
 
     // El servidor recibe el estado FINAL, no un diff: la cobertura es el producto de ambas listas.
     await expect.poll(() => enviado).toMatchObject({
@@ -182,7 +192,7 @@ test.describe('FLITO — Bolsas · bolsa de tránsito', () => {
   test('el 409 de solapamiento se lee dentro del formulario, sin cerrarlo', async ({ page }) => {
     // La regla la impone el servidor con un índice único; la pantalla solo tiene que enseñar QUÉ
     // se solapa, para que quien la ve pueda corregir la selección sin adivinar.
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page, { listado: [] });
     await page.route(/\/api\/transito\/organismos-config/, (route) =>
       route.fulfill({
@@ -202,11 +212,15 @@ test.describe('FLITO — Bolsas · bolsa de tránsito', () => {
     });
 
     await page.goto('/flito/bolsas');
-    await page.getByRole('button', { name: 'Crear una bolsa de tránsito' }).click();
+    // HU #13901: una sola «Crear bolsa» en la cabecera; el formulario pregunta el alcance y la rama
+    // tránsito (provisional hasta la HU-G) abre el formulario de siempre con «Continuar».
+    await page.getByRole('button', { name: 'Crear bolsa', exact: true }).first().click();
+    await page.getByRole('dialog', { name: 'Crear bolsa', exact: true }).getByRole('radio', { name: /Tránsito/ }).check();
+    await page.getByRole('button', { name: 'Continuar' }).click();
     await page.getByLabel('Nombre de la bolsa *').fill('Bolsa del sur');
     await page.getByLabel('Impuestos').check();
     await page.getByLabel('Envigado').check();
-    await page.getByRole('button', { name: 'Crear bolsa' }).click();
+    await page.getByRole('dialog', { name: 'Crear bolsa de tránsito' }).getByRole('button', { name: 'Crear bolsa' }).click();
 
     await expect(page.getByRole('alert')).toContainText('ya está en «Bolsa de mi sector»');
     // El formulario sigue abierto con lo escrito: cerrarlo obligaría a rehacer la selección entera.
@@ -214,7 +228,7 @@ test.describe('FLITO — Bolsas · bolsa de tránsito', () => {
   });
 
   test('el detalle abre en modal con la alerta de nivel escrita, no solo en color', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page, { bolsa: SECTOR_PRESTAMO });
     const modal = await abrirDetalle(page);
 
@@ -226,7 +240,7 @@ test.describe('FLITO — Bolsas · bolsa de tránsito', () => {
   });
 
   test('el libro distingue la carga del consumo y enlaza el trámite que lo originó', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     const modal = await abrirDetalle(page);
 
@@ -239,7 +253,7 @@ test.describe('FLITO — Bolsas · bolsa de tránsito', () => {
   });
 
   test('registrar una carga refresca el saldo sin recargar la página', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     let cargado = false;
     await page.route(/\/api\/flito\/bolsas\/transito\/ob-1\/cargas$/, (route) => {
@@ -264,7 +278,7 @@ test.describe('FLITO — Bolsas · bolsa de tránsito', () => {
   });
 
   test('una carga en cero se para antes de salir a la red', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     let llamadas = 0;
     await page.route(/\/api\/flito\/bolsas\/transito\/ob-1\/cargas$/, (route) => {

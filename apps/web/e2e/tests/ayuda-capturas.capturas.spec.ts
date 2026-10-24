@@ -22,6 +22,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { ADMIN_USER, CLIENTE_CON_CANAL, FUNCIONES_POR_ROL, loginAs, MENSAJERO_USER } from '../helpers/auth';
+import { FUNCIONES_BOLSAS, detalleDe, resumenDe } from '../helpers/bolsas';
 import {
   BOLSAS_DEMO,
   BOLSAS_RIESGO_DEMO,
@@ -116,6 +117,7 @@ import {
   PANEL_RNDC_DEMO,
   PANEL_SOAT_STATS_DEMO,
   PANEL_VENCIMIENTOS_DEMO,
+  EXPEDIENTE_BOLSA_DEMO,
 } from '../helpers/datos-demo';
 import { accion, arbolRol, codigosDe, elemento, item, opcional, type NodoDef } from '../helpers/arbolPermisos';
 
@@ -785,37 +787,65 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
 
   test('flito_bolsas @capturas', async ({ page }) => {
     const dir = prepararCarpeta('flito_bolsas');
+    // HU #13901: listado por `POST /buscar`, detalle por `GET /bolsa/:id` y autogestión por `/estado`.
+    const resumenes = BOLSAS_RIESGO_DEMO.map((b) => resumenDe(b));
     const api = await interceptarApiDemo(page, [
       [/\/api\/clients$/, () => ({ body: CLIENTES_DEMO })],
       [/\/api\/flito\/bolsas\/consolidado$/, () => ({ body: BOLSAS_DEMO.consolidado })],
-      [/\/api\/flito\/bolsas\/riesgo$/, () => ({ body: BOLSAS_RIESGO_DEMO })],
+      [/\/api\/flito\/bolsas\/buscar$/, () => ({ body: resumenes })],
       [/\/api\/flito\/bolsas\/alertas$/, () => ({ body: BOLSAS_DEMO.alertas })],
       [/\/api\/flito\/bolsas\/transito$/, () => ({ body: BOLSAS_DEMO.transito })],
-      [/\/api\/flito\/bolsas\/901$/, () => ({ body: BOLSAS_RIESGO_DEMO[0] })],
+      [/\/api\/flito\/bolsas\/bolsa\/bolsa-demo-1$/, () => ({ body: detalleDe(BOLSAS_RIESGO_DEMO[0], { conceptosAutogestionados: ['soat'] }) })],
+      [/\/api\/flito\/bolsas\/compania\/\d+\/estado$/, () => ({ body: { existe: false, activa: false, conceptosAutogestionados: ['soat'] } })],
       [/\/api\/flito\/bolsas\/901\/extracto$/, () => ({ body: BOLSAS_DEMO.extracto })],
       [/\/api\/flito\/bolsas\/901\/movimientos$/, () => ({ body: BOLSAS_DEMO.movimientos })],
       [/\/api\/flito\/bolsas\/901\/cierres$/, () => ({ body: [] })],
+      // HU #13892: la sección «Documentos» del detalle lee el expediente al montarse (E1).
+      [/\/api\/flito\/bolsas-documentos\/companias\/901$/, () => ({ body: EXPEDIENTE_BOLSA_DEMO })],
     ]);
-    await entrarComoAdminDemo(page);
+    // Ningún rol trae por seed las funciones del expediente: se suman para que la ficha muestre la sección.
+    await entrarComoAdminDemo(page, { ...ADMIN_DEMO, funciones: [
+      ...(FUNCIONES_POR_ROL.admin ?? []), ...FUNCIONES_BOLSAS, 'bolsas.documentos.ver', 'bolsas.documentos.cargar',
+    ] });
 
     await page.goto('/flito/bolsas');
     await expect(page.getByText(EMPRESAS_DEMO[0]).first()).toBeVisible();
 
-    // Paso 1 — Periodo contable y KPI.
-    await capturar(page, dir, '01-periodo-y-kpi');
+    // Paso 1 — Crear bolsa, KPI y barra de búsqueda.
+    await capturar(page, dir, '01-cabecera-y-kpi');
 
-    // Paso 2 — Clientes: alertas de saldo y tarjetas con Ver detalle.
+    // Paso 2 — Compañías: alertas de saldo y tabla con estado, saldo, nivel y Ver detalle.
     await page.getByText('Alertas de saldo').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     await page.evaluate(() => window.scrollBy(0, -140));
-    await capturar(page, dir, '02-clientes');
+    await capturar(page, dir, '02-companias');
 
-    // Paso 3 — Detalle del cliente: recargar, mover, corregir o cerrar el periodo.
-    await page.getByRole('button', { name: `Ver el detalle de la bolsa de ${EMPRESAS_DEMO[0]}` }).click();
+    // Paso 3 — Formulario único: alcance, compañía, conceptos y aviso de autogestión.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.getByRole('button', { name: 'Crear bolsa', exact: true }).first().click();
+    const form = page.getByRole('dialog', { name: 'Crear bolsa', exact: true });
+    // Una compañía SIN bolsa (las demo con bolsa son 901 y 902): el alta limpia, con su autogestión.
+    const sinBolsa = CLIENTES_DEMO.find((c: { id: number }) => !BOLSAS_RIESGO_DEMO.some((b) => b.companiaId === c.id));
+    await form.getByLabel('Compañía *').selectOption(String(sinBolsa?.id ?? ''));
+    await expect(form.getByText('Autogestionado')).toBeVisible();
+    await capturar(page, dir, '03-crear-bolsa');
+    await form.getByRole('button', { name: 'Cancelar' }).click();
+
+    // Paso 4 — Detalle: estado, conceptos, recargar, mover, corregir o cerrar el periodo.
+    await page.getByRole('button', { name: `Ver el detalle de la bolsa de ${EMPRESAS_DEMO[0]} (compañía)` }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await expect(page.getByText('Ver el libro completo (todos los periodos)')).toBeVisible();
-    await capturar(page, dir, '03-detalle-cliente');
+    await capturar(page, dir, '04-detalle-compania');
 
-    comprobarCierre(api, dir, ['01-periodo-y-kpi.png', '02-clientes.png', '03-detalle-cliente.png']);
+    // Paso 7 — Documentos: los 5 documentos de la compañía con su estado y sus acciones (HU #13892).
+    const documentos = page.getByTestId('expediente-documental');
+    await expect(documentos.getByText('Vigencia vencida')).toBeVisible();
+    await documentos.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await sinFoco(page);
+    await capturar(page, dir, '05-documentos', documentos);
+
+    comprobarCierre(api, dir, [
+      '01-cabecera-y-kpi.png', '02-companias.png', '03-crear-bolsa.png', '04-detalle-compania.png', '05-documentos.png',
+    ]);
   });
 
   test('flito_tarifas @capturas', async ({ page }) => {
