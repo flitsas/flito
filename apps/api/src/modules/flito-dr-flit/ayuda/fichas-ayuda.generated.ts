@@ -800,7 +800,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_bolsas",
     "etiqueta": "Bolsas",
     "resumen": "Saldos, alta de bolsas, recargas y cierres.",
-    "version": "1.4",
+    "version": "1.5",
     "fecha": "2026-10-24",
     "palabrasClave": [
       "bolsas",

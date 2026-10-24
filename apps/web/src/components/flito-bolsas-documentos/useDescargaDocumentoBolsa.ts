@@ -34,5 +34,3 @@ export function useDescargaDocumentoBolsa() {
   return { descargar, enCurso };
 }
 
-export const BOTON_ICONO =
-  'flit-focus grid h-10 w-10 shrink-0 place-items-center rounded-[999px] border bg-flit-card transition-colors hover:bg-[var(--flit-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50';

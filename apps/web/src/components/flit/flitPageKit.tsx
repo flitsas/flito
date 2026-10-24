@@ -205,6 +205,12 @@ export const flitBtnSecondarySm = `flit-focus inline-flex h-7 items-center gap-1
  * (HU #12997, retrabajo)—.
  */
 export const flitBtnSecondarySmToggle = `flit-focus inline-flex h-7 items-center gap-1.5 rounded-[999px] border bg-flit-card px-3 text-xs font-medium hover:transition-colors ${SECUNDARIO_SIN_TRANSICION}`;
+/**
+ * Botón de solo icono a la altura de `flitBtnSecondarySm` (cuadrado de 28 px), para que conviva en la
+ * misma barra que los secundarios pequeños sin descuadrarla (HU #13892). Mismo borde, tinta, hover y
+ * foco que el secundario; el icono va a 14 px. Exige `aria-label` (y `title` si ayuda al ratón).
+ */
+export const flitBtnIconoSm = `flit-focus inline-grid h-7 w-7 shrink-0 place-items-center rounded-[999px] border bg-flit-card ${HOVER_SECUNDARIO}`;
 
 export function FlitCard({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
