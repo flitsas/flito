@@ -11,6 +11,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { mensajesDeTipo } from '../../shared/utils/zod-mensajes.js';
 import { CODIGO_SERVICIO_ADICIONAL_TRAMITE as CODIGO } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
@@ -23,12 +24,12 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const uuidSchema = z.string().uuid();
+const uuidSchema = z.string().guid();
 /** Un id que no es uuid es «no existe» (404): el id es opaco para el cliente. */
 const idUuid = (raw: string): string | null => (uuidSchema.safeParse(raw).success ? raw : null);
 
 const asignarSchema = z.object({
-  tipoId: z.string({ required_error: 'es obligatorio', invalid_type_error: 'debe ser texto' }).uuid('debe ser un uuid'),
+  tipoId: z.string({ error: mensajesDeTipo({ requerido: 'es obligatorio', tipo: 'debe ser texto' }) }).guid('debe ser un uuid'),
 });
 
 /** «campo: regla» por cada problema, para que el 400 diga QUÉ campo y QUÉ regla. */

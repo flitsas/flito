@@ -55,7 +55,7 @@ router.get('/:id', requirePage('pesv_comite'), async (req, res) => {
 
 router.post('/', requirePage('pesv_comite'), exigirFuncion('pesv.comite.administrar'), async (req: Request, res: Response) => {
   const parsed = comiteCreateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const [row] = await db.insert(pesvComite).values({
     nombre: parsed.data.nombre,
     periodicidad: parsed.data.periodicidad,
@@ -69,7 +69,7 @@ router.post('/:id/miembros', requirePage('pesv_comite'), exigirFuncion('pesv.com
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = miembroSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   try {
     const [row] = await db.insert(pesvComiteMiembros).values({
       comiteId: id,
@@ -116,7 +116,7 @@ router.post('/:id/actas', requirePage('pesv_comite'), exigirFuncion('pesv.comite
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = actaCreateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const data = parsed.data;
 
   const inserted = await db.transaction(async (tx) => {
@@ -150,7 +150,7 @@ router.patch('/:id/actas/:actaId', requirePage('pesv_comite'), exigirFuncion('pe
   const actaId = parseInt(req.params.actaId, 10);
   if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(actaId) || actaId <= 0) return res.status(400).json({ error: 'parámetros inválidos' });
   const parsed = actaUpdateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
 
   const [current] = await db.select().from(pesvComiteActas).where(and(eq(pesvComiteActas.id, actaId), eq(pesvComiteActas.comiteId, id))).limit(1);
   if (!current) return res.status(404).json({ error: 'Acta no encontrada' });

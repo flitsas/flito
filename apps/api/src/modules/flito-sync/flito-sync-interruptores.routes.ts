@@ -18,6 +18,7 @@
 
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { mensajesDeTipo } from '../../shared/utils/zod-mensajes.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -42,7 +43,7 @@ const ENCENDIDO_INVALIDO = 'El campo encendido debe ser true o false.';
 
 /** `.strict()`: una clave de más es un error de dedo, no un campo que se ignora en silencio. */
 const interruptorSchema = z.object({
-  encendido: z.boolean({ required_error: ENCENDIDO_INVALIDO, invalid_type_error: ENCENDIDO_INVALIDO }),
+  encendido: z.boolean({ error: mensajesDeTipo({ requerido: ENCENDIDO_INVALIDO, tipo: ENCENDIDO_INVALIDO }) }),
 }).strict();
 
 /** 400 con los mensajes de las reglas, nunca con lo recibido (calco de `flit2.routes.ts`). */
@@ -83,7 +84,7 @@ const ARRANQUE_INVALIDO = 'arranque debe ser una fecha real con formato AAAA-MM-
 const entero = (campo: keyof typeof LIMITES_PARAMETROS_LECTURA_FLIT1) => {
   const msg = mensajeRango(campo);
   const { min, max } = LIMITES_PARAMETROS_LECTURA_FLIT1[campo];
-  return z.number({ required_error: msg, invalid_type_error: msg }).int(msg).min(min, msg).max(max, msg);
+  return z.number({ error: mensajesDeTipo({ requerido: msg, tipo: msg }) }).int(msg).min(min, msg).max(max, msg);
 };
 
 /** HU #13628: los cuatro obligatorios; `arranque` no admite null (decisión del hilo, AC1 es solo lectura). */
@@ -91,7 +92,7 @@ const parametrosSchema = z.object({
   frecuenciaMinutos: entero('frecuenciaMinutos'),
   ventanaDias: entero('ventanaDias'),
   ventanaNocturnaDias: entero('ventanaNocturnaDias'),
-  arranque: z.string({ required_error: ARRANQUE_INVALIDO, invalid_type_error: ARRANQUE_INVALIDO }),
+  arranque: z.string({ error: mensajesDeTipo({ requerido: ARRANQUE_INVALIDO, tipo: ARRANQUE_INVALIDO }) }),
 }).strict();
 
 const orden = (c: string) => { const i = (CAMPOS_PARAMETROS as readonly string[]).indexOf(c); return i < 0 ? CAMPOS_PARAMETROS.length : i; };

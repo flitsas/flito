@@ -55,7 +55,7 @@ const compradorSchema = z.object({
 }).passthrough();
 
 const itemSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   radicado: z.string().trim().min(1).max(60),
   syncVersion: z.number().int().nonnegative().safe(),
   eliminado: z.boolean().default(false),

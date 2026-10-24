@@ -274,8 +274,27 @@ describe('AC4 — mapeo configurado (Bug #13713)', () => {
     expect(op(b, '/fields/Microsoft.VSTS.Common.Priority')).toBe(3);
   });
 
-  it('soporte no disponible (producción sin DEPLOY_ENVIRONMENT) → 503 soporte-no-disponible, sin ADO', async () => {
-    Object.assign(CFG, { DEPLOY_ENVIRONMENT: undefined });
+  it('HU #13913 AC2: producción sin DEPLOY_ENVIRONMENT (real con PAT) → Custom.Environment PDN y sin FLITO-PRUEBAS', async () => {
+    Object.assign(CFG, {
+      NODE_ENV: 'production', DEPLOY_ENVIRONMENT: undefined, DRFLIT_ADO_MODO: 'real',
+      DRFLIT_ADO_PAT: PAT_FALSO, DRFLIT_ADO_ORG_URL: 'https://dev.azure.com/x',
+    });
+    expect((await post(11, caso())).status).toBe(201);
+    const b = llamadas[0]!;
+    expect(op(b, '/fields/Custom.Environment')).toBe('PDN');
+    expect(op(b, '/fields/System.Tags')).toBe('FLITO');
+  });
+
+  it('HU #13913 AC3: DEPLOY_ENVIRONMENT=QA se respeta → Custom.Environment QA y FLITO-PRUEBAS', async () => {
+    Object.assign(CFG, { NODE_ENV: 'production', DEPLOY_ENVIRONMENT: 'QA' });
+    expect((await post(11, caso())).status).toBe(201);
+    const b = llamadas[0]!;
+    expect(op(b, '/fields/Custom.Environment')).toBe('QA');
+    expect(op(b, '/fields/System.Tags')).toBe('FLITO; FLITO-PRUEBAS');
+  });
+
+  it('HU #13913 AC4: modo real sin PAT (producción sin DEPLOY_ENVIRONMENT) → 503 soporte-no-disponible, sin ADO', async () => {
+    Object.assign(CFG, { DEPLOY_ENVIRONMENT: undefined, DRFLIT_ADO_MODO: 'real', DRFLIT_ADO_PAT: undefined, DRFLIT_ADO_ORG_URL: 'https://dev.azure.com/x' });
     const r = await post(11, caso());
     expect(r.status).toBe(503);
     expect(r.body.codigo).toBe('soporte-no-disponible');

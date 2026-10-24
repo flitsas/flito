@@ -32,7 +32,7 @@ const LECTURA = exigirAccionSiigo('consultar');
 /** Registrar una corrección es una escritura sobre la historia fiscal: auditor queda fuera. */
 const ESCRITURA = exigirAccionSiigo('corregir');
 
-const idSchema = z.string().uuid();
+const idSchema = z.string().guid();
 
 const cuerpoSchema = z.object({
   tipo: z.enum(SIIGO_CORRECCION_TIPOS),

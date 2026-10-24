@@ -52,7 +52,7 @@ router.get('/:id', requirePage('pesv_rutas'), async (req, res) => {
 
 router.post('/', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const parsed = riskCreateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   try {
     const [row] = await db.insert(routeRiskAnalyses).values({
       routeId: parsed.data.routeId,
@@ -94,7 +94,7 @@ router.post('/:id/items', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.
   const analisisId = parseInt(req.params.id, 10);
   if (!Number.isFinite(analisisId) || analisisId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = itemSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
 
   // Verificar que el análisis no está aprobado (WORM lo bloquearía pero damos error claro).
   const [a] = await db.select().from(routeRiskAnalyses).where(eq(routeRiskAnalyses.id, analisisId)).limit(1);
@@ -127,7 +127,7 @@ router.patch('/items/:itemId', requirePage('pesv_rutas'), exigirFuncion('rutas.r
   const itemId = parseInt(req.params.itemId, 10);
   if (!Number.isFinite(itemId) || itemId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = itemSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
 
   // Bloquear edición si el análisis padre está aprobado.
