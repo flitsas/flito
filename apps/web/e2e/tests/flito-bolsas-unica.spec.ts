@@ -108,8 +108,8 @@ test.describe('FLITO — Bolsas · catálogo de la bolsa de una compañía (HU #
     await expect(tabla.getByText('Inactiva', { exact: true })).toBeVisible();
     await expect(tabla.getByText('Bolsa agotada')).toBeVisible();
     await expect(tabla.getByText(/−\s*\$\s*85\.000/)).toBeVisible();
-    // Celda reservada #13407 con su cabecera sr-only.
-    await expect(tabla.getByRole('columnheader', { name: 'Expediente documental' })).toBeAttached();
+    // Columna Expediente (#13893): sin `bolsas.documentos.ver` no existe (su spec: flito-bolsas-documentos-chip).
+    await expect(tabla.getByRole('columnheader', { name: /Expediente/ })).toHaveCount(0);
     // Una sola primaria en la cabecera; los acordeones ya no traen botón propio.
     await expect(page.getByRole('button', { name: 'Crear bolsa' })).toHaveCount(1);
     await expect(page.getByRole('button', { name: /Abrir bolsa/ })).toHaveCount(0);
