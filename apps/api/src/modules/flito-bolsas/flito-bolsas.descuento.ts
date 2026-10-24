@@ -29,7 +29,8 @@
 //   RN-C9 Orden de locks: comprobante → trámite (los toma `aplicar`) → bolsa compañía (aquí).
 //   RN-C10 Ley 1581: los logs llevan solo ids (comprobante, bolsa, movimiento); nunca placa, VIN ni NIT.
 //
-// Fuera de alcance: tránsito (HU-H), D14 / desaplicar / reemplazar (HU-R, HU-D), backfill (HU-E).
+// Fuera de alcance: tránsito (HU-H), D14 (HU-D; el gancho `exigirDescuentoReversible` lo deja la HU-R #13903),
+// backfill (HU-E).
 
 import { and, eq, like } from 'drizzle-orm';
 import {
@@ -203,6 +204,24 @@ export async function descontarComprobante(tx: Tx, c: ComprobanteAplicado, ctx: 
   log.info({ comprobanteId: c.comprobanteId, bolsaId: bolsa.id, movimientoId: movimiento.id, negativo: movimiento.saldoResultante < 0 },
     'Bolsa de la compañía descontada por comprobante');
   return conMovimiento(movimiento);
+}
+
+/**
+ * D14 (HU #13903 deja el gancho; la HU-D lo implementa): el periodo de la bolsa en el que cayó el descuento
+ * está cerrado, así que no se puede devolver. Quien desaplica lo traduce a 409 `periodo_cerrado`.
+ */
+export class PeriodoCerradoError extends Error {
+  constructor(public bolsaId: string, public periodo: string) {
+    super('El periodo de la bolsa ya está cerrado: el descuento no se puede devolver');
+  }
+}
+
+/**
+ * Guarda de desaplicar/reemplazar (HU #13903), ANTES de `revertirDescuentoComprobante` y dentro de la misma
+ * tx. Hoy no-op: la regla del periodo cerrado (D14) la escribe la HU-D, que lanzará `PeriodoCerradoError`.
+ */
+export async function exigirDescuentoReversible(_tx: Tx, _comprobanteId: string): Promise<void> {
+  // no-op hasta la HU-D
 }
 
 /**

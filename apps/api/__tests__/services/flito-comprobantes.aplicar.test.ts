@@ -967,6 +967,35 @@ describe('HU #12631 — POST /:id/aplicar con esPago=true: fila documental de tr
     expect(cierre()).toMatchObject({ concepto: 'servicios_adicionales', esPago: true, valor: '120', servicioTipoId: TIPO });
   });
 
+  it('HU #13903 (AC11) — captura del valor previo: la puente YA tenía la fila (80) → la fila guarda sa_asignacion_previa = true y sa_valor_previo = 80, leídos con FOR UPDATE dentro de la tx', async () => {
+    const app = await buildApp();
+    armarSa();
+    kdb.when.select(T_SA, [{ total: '999.00', valor: '80.00' }]);
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pagoSa());
+    expect(res.status).toBe(200);
+    expect(bloqueos.some((b) => b.tabla === T_SA && b.modo === 'update')).toBe(true);
+    expect(cierre()).toMatchObject({ servicioTipoId: TIPO, saAsignacionPrevia: true, saValorPrevio: '80.00' });
+    expect(espia.ultimoInsertEn(T_SA)).toMatchObject({ valor: '120' }); // y después el upsert, como siempre
+  });
+
+  it('HU #13903 (AC11) — captura del valor previo: la puente NO tenía la fila → sa_asignacion_previa = false y sa_valor_previo NULL', async () => {
+    const app = await buildApp();
+    armarSa();
+    kdb.when.select(T_SA, []);
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pagoSa());
+    expect(res.status).toBe(200);
+    expect(cierre()).toMatchObject({ servicioTipoId: TIPO, saAsignacionPrevia: false, saValorPrevio: null });
+  });
+
+  it('HU #13903 (AC11) — un honorario que NO es servicios adicionales no guarda estado de la puente', async () => {
+    const app = await buildApp();
+    armarHonorario({});
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago());
+    expect(res.status).toBe(200);
+    expect(cierre()).not.toHaveProperty('saAsignacionPrevia');
+    expect(cierre()).not.toHaveProperty('saValorPrevio');
+  });
+
   it('Bug #12913 — tarifa_referencia SA = valor del CATÁLOGO del tipo elegido (100; comprobante 120 → diferencia 20, marcado), leído por id del tipo; NUNCA Σ puente (mutante M2: la puente dice 999)', async () => {
     const app = await buildApp();
     armarSa();
@@ -974,7 +1003,11 @@ describe('HU #12631 — POST /:id/aplicar con esPago=true: fila documental de tr
     expect(res.status).toBe(200);
     expect(cierre()).toMatchObject({ tarifaReferencia: '100.00', diferenciaTarifa: '20.00', marcadoPorDiferencia: true });
     const sql = leido();
-    expect(sql).not.toContain('"flito_tramite_servicios_adicionales"."tramite_id"');
+    // HU #13903 (AC11): la ÚNICA lectura de la puente es la captura del valor previo, por (trámite, TIPO), una fila;
+    // un Σ por trámite (sin el tipo) sigue prohibido.
+    const dePuente = espia.condicionesLeidas().map((c) => renderizar(c as never)).filter((q) => q.sql.includes('"flito_tramite_servicios_adicionales"."tramite_id"'));
+    expect(dePuente).toHaveLength(1);
+    expect(ligadoA(dePuente[0]!, '"flito_tramite_servicios_adicionales"."tipo_id"')).toBe(TIPO);
     expect(sql).not.toContain('"flito_tarifas_vigencias"');
     const tipo = espia.condicionesLeidas().map((c) => renderizar(c as never)).filter((q) => q.sql.includes('"flito_servicios_adicionales_tipos"."id"'));
     expect(tipo.length).toBeGreaterThanOrEqual(3); // antes de S3, bajo el bloqueo, y la tarifa

@@ -188,8 +188,9 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +11 por la HU #13900 (catálogo de bolsa: buscar, crear, estado, detalle, editar, inactivar, reactivar y las
     // cuatro rutas por bolsa que reutilizan los códigos del canal Cliente: movimientos, recargas, cierres ×2).
     // +1 por la HU #13893 (`POST /estado-lote` del expediente, reutiliza `bolsas.documentos.ver`).
-    expect(GUARDAS_MEDIDAS).toHaveLength(607);
-    expect(montajes).toHaveLength(607);
+    // +2 por la HU #13903 (comprobantes: desaplicar y reemplazar).
+    expect(GUARDAS_MEDIDAS).toHaveLength(609);
+    expect(montajes).toHaveLength(609);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)
