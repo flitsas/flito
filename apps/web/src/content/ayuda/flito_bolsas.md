@@ -8,6 +8,11 @@ palabras_clave:
   - crear bolsa
   - inactivar bolsa
   - autogestión
+  - documentos
+  - expediente
+  - cámara de comercio
+  - rut
+  - certificado bancario
 consultas:
   - cómo recargo una bolsa
   - cuál es el saldo de una bolsa
@@ -15,8 +20,11 @@ consultas:
   - cómo creo la bolsa de una compañía
   - cómo inactivo o reactivo una bolsa
   - por qué no puedo recargar una bolsa
-version: 1.2
-fecha: 2026-10-23
+  - cómo cargo los documentos de la compañía
+  - por qué un documento dice vigencia vencida
+  - qué hago si no se pudo validar un documento
+version: 1.3
+fecha: 2026-10-24
 ---
 ## Qué es
 
@@ -38,15 +46,19 @@ En el menú lateral, sección **Finanzas**, ítem **Bolsas**.
 4. En el detalle de la compañía: el estado, el saldo y los conceptos que descuenta. Elija el **Periodo contable** y, si necesita el histórico, marque **Ver el libro completo (todos los periodos)**. Las acciones son **Registrar una recarga** (valor y comprobante; **Registrar recarga**), **Movimiento manual** (**Registrar movimiento**), **Corregir un movimiento** (**Asentar corrección**) o **Cerrar** el periodo (el botón dice **Cerrar** y el nombre del mes; **Confirmar el cierre**; irreversible). Debajo, el consumo por organismo y por concepto, y los movimientos, que puede **Exportar CSV**. Un movimiento que revierte a otro lleva el enlace **Revierte el movimiento del…** y lo lleva hasta el original. ![Detalle de la bolsa de una compañía: Activa y Normal, Editar conceptos e Inactivar, el saldo, los conceptos que descuenta con SOAT autogestionado, el periodo contable y el extracto](./flito_bolsas/04-detalle-compania.png)
 5. Para cambiar los conceptos, pulse **Editar conceptos** y luego **Guardar cambios**.
 6. Para dejar de usar una bolsa, pulse **Inactivar**, escriba el **Motivo** (mínimo 5 caracteres) y **Inactivar bolsa**. Para volver a usarla, **Reactivar bolsa** con su motivo. El saldo y los movimientos se conservan.
+7. Al final del detalle de una bolsa de compañía está la sección **Documentos**: **Cámara de Comercio**, **RUT**, **Cédula del representante legal**, **Certificado bancario** y **Documento adicional** (opcional). Pulse **Cargar** (o **Reemplazar** si ya hay uno) y elija un PDF, JPG o PNG de hasta 15 MB. La versión anterior queda en **Historial**, y con el icono de descarga baja la vigente. La Cámara de Comercio, el RUT y el certificado bancario quedan en **Validando…** mientras el sistema lee la fecha de expedición; si no la puede leer quedan en **No se pudo validar**: pulse **Digitar fecha**, escriba la fecha y **Guardar fecha**. Si la fecha leída está mal, use **Corregir**. Arriba de la sección, **Docs completos** indica que los cuatro principales están válidos y **Docs pendientes** que falta alguno. ![Sección Documentos del detalle de la bolsa: Docs pendientes, 2 de 4 principales válidos; Cámara de Comercio Válido, RUT Vigencia vencida, cédula Válido, certificado bancario No se pudo validar y documento adicional Pendiente, con Reemplazar, descargar, Historial, Corregir, Digitar fecha y Cargar](./flito_bolsas/05-documentos.png)
 
 > [!IMPORTANTE]
 > Una compañía tiene una sola bolsa. Si al crearla ve **Esta compañía ya tiene bolsa** (o **ya tiene bolsa (inactiva)**), pulse **Ver su bolsa**: si está inactiva, reactívela en lugar de crear otra.
 
 > [!NOTA]
+> Un documento con fecha de expedición vale 30 días: el día 31 pasa solo a **Vigencia vencida** y hay que cargar uno más reciente. La cédula y el documento adicional no vencen. Los documentos son de la compañía, no de la bolsa, y solo los ve el personal de FLIT.
+
+> [!NOTA]
 > Si un concepto lleva la marca **Autogestionado**, la compañía lo gestiona por su cuenta: no llegarán movimientos a la bolsa por ese concepto salvo excepciones. Puede marcarlo igual. La autogestión se cambia en **Clientes y proveedores** (enlace **Cambiarlo en Clientes y proveedores**).
 
 > [!PRECAUCION]
-> Con la bolsa inactiva no se registran recargas, movimientos manuales ni correcciones, y los trámites no descuentan de ella. El detalle lo avisa con **Reactiva la bolsa primero**. El cierre del periodo sigue disponible.
+> Con la bolsa inactiva no se registran recargas, movimientos manuales ni correcciones, y los trámites no descuentan de ella. El detalle lo avisa con **Reactiva la bolsa primero**. El cierre del periodo sigue disponible. Los documentos se pueden ver y descargar, pero no cargar ni corregir hasta reactivarla.
 
 El ciclo de la bolsa de una compañía en un periodo, de un vistazo:
 
@@ -58,6 +70,7 @@ El ciclo de la bolsa de una compañía en un periodo, de un vistazo:
 - Error: **No pudimos cargar las bolsas. Revisa tu conexión e intenta de nuevo.** y **Reintentar**.
 - Vacío: **Todavía no hay bolsas. Crea la primera y elige si es de una compañía o de tránsito.** con **Crear bolsa**. Si la búsqueda no encuentra nada: **Ninguna bolsa coincide con…** y **Limpiar filtros**.
 - Lleno: KPI, alertas de saldo y la tabla de compañías con estado, saldo y nivel.
+- Documentos: mientras carga, **Cargando el expediente**; si falla, **No pudimos cargar los documentos de la compañía. Intenta de nuevo.** con **Reintentar**; sin documentos, **Todavía no hay documentos. Carga los cuatro principales para dejar el expediente completo.** Si solo puede ver documentos, no aparecen **Cargar** ni **Digitar fecha**.
 - Compañía sin bolsa: el detalle dice **Crea la bolsa de la compañía primero** con **Crear bolsa** (la compañía ya viene elegida). Si al recargar aparece ese mismo aviso, la bolsa no existe todavía.
 
 ## Qué no hace
