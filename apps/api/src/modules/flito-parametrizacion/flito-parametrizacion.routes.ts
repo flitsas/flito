@@ -6,6 +6,7 @@
 
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { mensajesDeTipo } from '../../shared/utils/zod-mensajes.js';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
@@ -122,7 +123,7 @@ const actualizarCompaniaSchema = z.object({
   // HU #12078. Sin el prefijo `flito` en el cuerpo, como `carpetaStorage` ↔ `flitoCarpetaStorage`.
   // `null` explícito SÍ se acepta: es cómo se desconfigura el destino, y solo pasa la guarda del
   // estado resultante si el canal queda apagado.
-  proveedorSoatSinTramiteId: z.string().uuid().nullable().optional(),
+  proveedorSoatSinTramiteId: z.string().guid().nullable().optional(),
 });
 
 /**
@@ -542,7 +543,7 @@ router.patch('/organismos/:codigo', exigirFuncion('parametrizacion.organismos.ed
 // Una ruta ⇔ una función del catálogo. La ventana de Clientes (AC17) sigue usando GET/POST/PATCH sin
 // cambios: `PATCH { activo:false }` es «dejar de cobrar» y `POST` es «fijar».
 
-const valorSchema = z.number({ required_error: 'es obligatorio', invalid_type_error: 'debe ser un número' })
+const valorSchema = z.number({ error: mensajesDeTipo({ requerido: 'es obligatorio', tipo: 'debe ser un número' }) })
   .finite('debe ser un número finito')
   .nonnegative('debe ser mayor o igual a cero')
   .max(TARIFA_VALOR_MAX, 'supera el máximo admitido (12 enteros y 2 decimales)')
@@ -680,16 +681,16 @@ router.patch('/tarifas/:id', exigirFuncion('parametrizacion.tarifas.editar'), as
 // `numeric(14,2)` y las mismas reglas (AC5).
 
 const servicioAdicionalCrearSchema = z.object({
-  nombre: z.string({ required_error: 'es obligatorio', invalid_type_error: 'debe ser texto' }).trim()
+  nombre: z.string({ error: mensajesDeTipo({ requerido: 'es obligatorio', tipo: 'debe ser texto' }) }).trim()
     .min(1, 'es obligatorio').max(SERVICIO_ADICIONAL_NOMBRE_MAX, `admite a lo sumo ${SERVICIO_ADICIONAL_NOMBRE_MAX} caracteres`),
-  descripcion: z.string({ invalid_type_error: 'debe ser texto' }).trim()
+  descripcion: z.string({ error: mensajesDeTipo({ tipo: 'debe ser texto' }) }).trim()
     .max(SERVICIO_ADICIONAL_DESCRIPCION_MAX, `admite a lo sumo ${SERVICIO_ADICIONAL_DESCRIPCION_MAX} caracteres`).nullable().optional(),
   valor: valorSchema,
 });
 const servicioAdicionalEditarSchema = servicioAdicionalCrearSchema.partial()
   .refine((d) => d.nombre !== undefined || d.descripcion !== undefined || d.valor !== undefined, { message: 'Nada que actualizar' });
 
-const uuidSchema = z.string().uuid();
+const uuidSchema = z.string().guid();
 /** Un id que no es uuid es «no existe» (404), no 400 ni 500 (22P02): el id es opaco para el cliente. */
 const idUuid = (raw: string): string | null => (uuidSchema.safeParse(raw).success ? raw : null);
 

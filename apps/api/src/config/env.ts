@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mensajesDeTipo } from '../shared/utils/zod-mensajes.js';
 import dotenv from 'dotenv';
 import {
   COMPARENDOS_EXPORT_MAX_FILAS, CONCILIACION_MAX_FILAS, FLITO_COLA_EXPORT_MAX_FILAS,
@@ -179,7 +180,7 @@ const envSchema = z.object({
   // umbral de la alerta del estado se deriva de este valor (2·R + 5 min, RN-08 de flit2-estado.service.ts).
   FLIT2_RESPALDO_MIN: z.preprocess(
     vacioComoAusente,
-    z.coerce.number({ invalid_type_error: MSG_FLIT2_RESPALDO_MIN })
+    z.coerce.number({ error: mensajesDeTipo({ tipo: MSG_FLIT2_RESPALDO_MIN }) })
       .int(MSG_FLIT2_RESPALDO_MIN).min(1, MSG_FLIT2_RESPALDO_MIN).max(120, MSG_FLIT2_RESPALDO_MIN).default(5),
   ),
   // HU #13268 (ADR-0020): envío del comprobante de pago a FLIT 2. APAGADA por defecto en todos los
@@ -437,7 +438,7 @@ const envSchema = z.object({
   DRFLIT_IA_HABILITADA: z.string().optional().transform((v) => v === '1'),
   // Mensajes a la IA por usuario y día America/Bogota. 0 = IA sin cupo (ninguna reserva se concede).
   DRFLIT_IA_TOPE_DIARIO: z.preprocess(vacioComoAusente, z.coerce.number({
-    invalid_type_error: 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500',
+    error: mensajesDeTipo({ tipo: 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500' }),
   }).int('DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
     .min(0, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
     .max(500, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500').default(30)),

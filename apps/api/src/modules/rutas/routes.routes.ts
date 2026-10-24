@@ -65,7 +65,7 @@ router.get('/:id', requirePage('pesv_rutas'), async (req, res) => {
 
 router.post('/', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const parsed = routeCreateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const data = parsed.data;
   try {
     const [row] = await db.insert(routes).values({
@@ -93,7 +93,7 @@ router.patch('/:id', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.admin
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = routeUpdateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const data = parsed.data;
 
   const [current] = await db.select().from(routes).where(eq(routes.id, id)).limit(1);
@@ -124,7 +124,7 @@ router.post('/:id/waypoints', requirePage('pesv_rutas'), exigirFuncion('rutas.ru
   const routeId = parseInt(req.params.id, 10);
   if (!Number.isFinite(routeId) || routeId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = waypointSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   try {
     const [row] = await db.insert(routeWaypoints).values({
@@ -152,7 +152,7 @@ router.patch('/waypoints/:wpId', requirePage('pesv_rutas'), exigirFuncion('rutas
   const wpId = parseInt(req.params.wpId, 10);
   if (!Number.isFinite(wpId) || wpId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = waypointSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   try {
     const [row] = await db.update(routeWaypoints).set({

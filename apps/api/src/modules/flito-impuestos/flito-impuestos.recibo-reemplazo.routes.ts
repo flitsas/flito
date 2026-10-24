@@ -37,7 +37,7 @@ export const reciboReemplazoLimiter: RequestHandler = rateLimit({
   store: makeStore('rl:flito-impuestos-recibo-reemplazo:'),
 });
 
-const idSchema = z.string().uuid();
+const idSchema = z.string().guid();
 
 export default function reciboReemplazoRouter(contextoImpuesto: Contexto): Router {
   const router = Router();

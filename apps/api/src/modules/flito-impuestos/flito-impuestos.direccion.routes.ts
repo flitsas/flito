@@ -23,7 +23,7 @@ import { registrarAccesoImpuesto } from './flito-impuestos.pii.js';
 
 type Contexto = (user: NonNullable<Request['user']>) => Promise<ImpuestoCtx>;
 
-const idSchema = z.string().uuid();
+const idSchema = z.string().guid();
 
 /** Los tres campos, recortados y obligatorios. `.strict()`: nada más entra en el `UPDATE`. */
 export const corregirDireccionSchema = z.object({

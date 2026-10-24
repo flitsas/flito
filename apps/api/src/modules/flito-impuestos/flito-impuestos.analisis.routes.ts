@@ -34,7 +34,7 @@ export const reanalizarLimiter: RequestHandler = rateLimit({
   store: makeStore('rl:flito-impuestos-reanalizar:'),
 });
 
-const idSchema = z.string().uuid();
+const idSchema = z.string().guid();
 
 const MENSAJES_409 = {
   ANALISIS_EN_CURSO: 'La validación de la factura ya está en curso.',

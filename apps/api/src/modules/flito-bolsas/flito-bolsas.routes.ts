@@ -10,6 +10,7 @@ import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { mensajesDeTipo } from '../../shared/utils/zod-mensajes.js';
 import { db } from '../../db/client.js';
 import { clients } from '../../db/schema.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
@@ -215,10 +216,11 @@ async function verMovimientos(req: Request, res: Response): Promise<void> {
 // manda, y aquí lo que hay que proteger es el saldo del cliente. Reenviar la misma clave devuelve
 // 200 con el movimiento original; una recarga nueva devuelve 201.
 const recargaSchema = z.object({
-  // `invalid_type_error` para que un valor no numérico devuelva el mensaje de negocio y no el
-  // «Expected number, received nan» de zod, que es lo que acabaría viendo el operador.
+  // `mensajesDeTipo` (en zod 3, `invalid_type_error`) para que un valor no numérico devuelva el
+  // mensaje de negocio y no el «Invalid input: expected number, received NaN» de zod, que es lo
+  // que acabaría viendo el operador.
   valor: z.coerce
-    .number({ invalid_type_error: 'El valor de la recarga debe ser mayor que cero' })
+    .number({ error: mensajesDeTipo({ tipo: 'El valor de la recarga debe ser mayor que cero' }) })
     .positive({ message: 'El valor de la recarga debe ser mayor que cero' }),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   observacion: z.string().trim().max(1000).optional(),
@@ -361,7 +363,7 @@ router.get('/transito/:bolsaId/movimientos', soloSinEnlace(), exigirFuncion('bol
 // día en que se ordena la transferencia, antes de que llegue el comprobante del banco.
 const cargaTransitoSchema = z.object({
   valor: z.coerce
-    .number({ invalid_type_error: 'El valor de la carga debe ser mayor que cero' })
+    .number({ error: mensajesDeTipo({ tipo: 'El valor de la carga debe ser mayor que cero' }) })
     .positive({ message: 'El valor de la carga debe ser mayor que cero' }),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   observacion: z.string().trim().max(1000).optional(),
@@ -430,7 +432,7 @@ router.get('/:companiaId/extracto', exigirFuncion('bolsas.extracto.descargar'), 
 const manualSchema = z.object({
   tipo: z.enum(['entrada', 'salida']),
   valor: z.coerce
-    .number({ invalid_type_error: 'El valor del movimiento debe ser mayor que cero' })
+    .number({ error: mensajesDeTipo({ tipo: 'El valor del movimiento debe ser mayor que cero' }) })
     .positive({ message: 'El valor del movimiento debe ser mayor que cero' }),
   motivo: z.string().trim().min(5, { message: 'Indica el motivo del movimiento' }).max(1000),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -491,7 +493,7 @@ router.post('/:companiaId/movimientos-manuales', exigirFuncion('bolsas.movimient
 // rechaza aquí (409) y se corrige con un movimiento manual suelto.
 const correccionSchema = z.object({
   valor: z.coerce
-    .number({ invalid_type_error: 'El valor corregido debe ser mayor que cero' })
+    .number({ error: mensajesDeTipo({ tipo: 'El valor corregido debe ser mayor que cero' }) })
     .positive({ message: 'El valor corregido debe ser mayor que cero' }),
   motivo: z.string().trim().min(5, { message: 'Indica el motivo del movimiento' }).max(1000),
 });

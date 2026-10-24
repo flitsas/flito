@@ -66,7 +66,7 @@ router.get('/pernocta/cercanas', requirePage('pesv_pernocta'), async (req, res) 
 
 router.post('/pernocta', requirePage('pesv_pernocta'), exigirFuncion('rutas.pernocta.administrar'), async (req: Request, res: Response) => {
   const parsed = pernoctaSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   try {
     const [row] = await db.insert(routePernoctaZones).values({
@@ -93,7 +93,7 @@ router.patch('/pernocta/:id', requirePage('pesv_pernocta'), exigirFuncion('rutas
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = pernoctaSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   const [row] = await db.update(routePernoctaZones).set({
     ...(d.nombre !== undefined && { nombre: d.nombre }),
@@ -134,7 +134,7 @@ router.get('/assignments', requirePage('pesv_pernocta'), async (req, res) => {
 
 router.post('/assignments', requirePage('pesv_pernocta'), exigirFuncion('rutas.pernocta.administrar'), async (req: Request, res: Response) => {
   const parsed = assignmentSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   try {
     const [row] = await db.insert(routeAssignments).values({

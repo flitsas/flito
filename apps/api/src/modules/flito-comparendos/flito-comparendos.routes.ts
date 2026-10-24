@@ -327,7 +327,7 @@ const lecturasPiiLimiter = rateLimit({
   store: makeStore('rl:flito-comparendos-lecturas-pii:'),
 });
 
-const idSchema = z.string().uuid();
+const idSchema = z.string().guid();
 
 /**
  * Identificador de la ruta. Un id que ni siquiera es un UUID no llega a la base: `uuid` es un tipo
@@ -924,7 +924,7 @@ const registrosQueryCampos = z.object({
   fuente: vacioEsAusente(z.enum(['simit', 'municipal', 'ambos'])),
   // UUID y no cadena libre: `causal_id` es `uuid` en PostgreSQL y una comparación contra algo que
   // no lo es revienta con un 22P02 —un 500— en lugar de decir qué pasa.
-  causalId: vacioEsAusente(z.string().uuid('La causal debe ser un identificador válido')),
+  causalId: vacioEsAusente(z.string().guid('La causal debe ser un identificador válido')),
   sinCausal: vacioEsAusente(booleanoDeQuery),
   limit: z.preprocess(
     (v) => (v === null || (typeof v === 'string' && v.trim() === '') ? undefined : v),
@@ -1258,7 +1258,7 @@ const gestionSchema = z.object({
   // UUID y no cadena libre, por lo mismo que en el filtro del listado: `causal_id` es `uuid` en
   // PostgreSQL y una comparación contra algo que no lo es revienta con un `22P02` —un 500— en vez
   // de decir qué pasa. `null` es un valor legítimo: retira la causal.
-  causalId: z.string().uuid('La causal debe ser un identificador válido').nullable().optional(),
+  causalId: z.string().guid('La causal debe ser un identificador válido').nullable().optional(),
   observacion: z.string()
     // `trim()` antes de medir, como en el resto del módulo: el tope es de caracteres escritos, no de
     // espacios pegados al final por un copiar y pegar.
