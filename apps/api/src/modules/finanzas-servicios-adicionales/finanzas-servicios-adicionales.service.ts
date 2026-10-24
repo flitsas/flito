@@ -220,6 +220,30 @@ export async function tipoActivoDe(ejecutor: Ejecutor, tipoId: string): Promise<
  * con el del comprobante (`EXCLUDED.valor`); nombre/descripción y `asignado_por` quedan los de la
  * primera escritura (quien aplicó queda en `aplicado_por_id` del comprobante).
  */
+/** HU #13903 (AC11): el estado de la puente (trámite, tipo) ANTES de que un comprobante la escriba. */
+export interface AsignacionPrevia { existia: boolean; valor: string | null }
+
+/**
+ * Dentro de la tx de `aplicar`, ANTES de `fijarDesdeComprobante` y bajo el bloqueo del trámite: ¿había fila, y
+ * con qué valor? `FOR UPDATE` de la fila si existe (el upsert la va a reescribir en la misma tx).
+ */
+export async function asignacionPreviaDe(tx: Tx, tramiteId: string, tipoId: string): Promise<AsignacionPrevia> {
+  const [fila] = await tx.select({ valor: SA.valor }).from(SA)
+    .where(and(eq(SA.tramiteId, tramiteId), eq(SA.tipoId, tipoId))).for('update').limit(1);
+  return fila ? { existia: true, valor: fila.valor } : { existia: false, valor: null };
+}
+
+/**
+ * HU #13903 (AC11): deshace lo que `fijarDesdeComprobante` escribió, en la tx de la desaplicación. Sin fila
+ * previa → se borra la que puso el comprobante; con fila previa → vuelve a su valor. Si la fila ya no está
+ * (alguien la quitó), 0 filas: no se hace nada (decisión de David, 2026-10-24).
+ */
+export async function restaurarDesdeComprobante(tx: Tx, tramiteId: string, tipoId: string, previa: AsignacionPrevia): Promise<void> {
+  const llave = and(eq(SA.tramiteId, tramiteId), eq(SA.tipoId, tipoId));
+  if (!previa.existia) { await tx.delete(SA).where(llave); return; }
+  await tx.update(SA).set({ valor: previa.valor! }).where(llave);
+}
+
 export async function fijarDesdeComprobante(tx: Tx, tramiteId: string, tipo: TipoCatalogo, valor: string, usuarioId: number | null): Promise<void> {
   await tx.insert(SA).values({
     tramiteId, tipoId: tipo.id, nombre: tipo.nombre, descripcion: tipo.descripcion ?? null, valor, asignadoPorId: usuarioId,

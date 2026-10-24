@@ -379,6 +379,9 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/comprobantes/:id/aplicar',                                 'soloSinEnlace'],
   ['POST /api/flito/comprobantes/:id/descartar',                               'soloSinEnlace'],
   ['POST /api/flito/comprobantes/:id/diferencia/aceptar',                      'soloSinEnlace'],
+  // HU #13903: cerradas a todo enlace (marca), pero lo ajeno responde 404 antes del 403 (AC10, ADR-0024).
+  ['POST /api/flito/comprobantes/:id/desaplicar',                              'soloSinEnlace'],
+  ['POST /api/flito/comprobantes/:id/reemplazar',                              'soloSinEnlace'],
   ['GET /api/transito/organismos',                                             'filtra'],
   ['GET /api/transito/pendientes',                                             'filtra'],
   ['GET /api/transito/mis-tramites',                                           'filtra'],

@@ -109,10 +109,11 @@ describe('0201 — análisis estático', () => {
     }
   });
 
-  it('los cardinales del catálogo: 9 operaciones de comprobantes (5 de la 0198 + 3 + 1 de la 0202, HU #12654), y las 9 llaves del fichero de rutas', () => {
+  it('los cardinales del catálogo: 9 operaciones de comprobantes (5 de la 0198 + 3 + 1 de la 0202, HU #12654), y las 11 llaves del fichero de rutas (+2 de la HU #13903)', () => {
     // 8 → 9 desde la HU #12654 (F3 #12607: aceptar diferencia). Las tres de ESTA migración siguen siendo las de `OPS`.
     expect(catalogoPlano().filter((c) => c.tipo === 'operacion' && c.modulo === 'comprobantes')).toHaveLength(9);
-    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(9);
+    // HU #13903: +2 llaves de rutas (desaplicar y reemplazar, con partida `aplicar`: fuera del plano).
+    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(11);
     for (const codigo of OPS) expect(OPERACIONES_DECLARADAS.find((o) => o.codigo === codigo), codigo).toBeDefined();
   });
 

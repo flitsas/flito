@@ -70,6 +70,13 @@ export const flitoComprobantes = pgTable('flito_comprobantes', {
   diferenciaAceptadaPorId: integer('diferencia_aceptada_por_id').references(() => users.id, { onDelete: 'restrict' }),
   diferenciaAceptadaEn: timestamp('diferencia_aceptada_en', { withTimezone: true }),
   diferenciaAceptadaMotivo: text('diferencia_aceptada_motivo'),
+  /**
+   * HU #13903 (0251, AC11): el estado de la puente `flito_tramite_servicios_adicionales` ANTES de que este pago
+   * de SA la escribiera. false = no había fila (desaplicar la borra); true = había, con `saValorPrevio` (vuelve
+   * a ese valor). NULL = no es pago de SA, o se aplicó antes de la 0251 (desaplicarlo es 409).
+   */
+  saAsignacionPrevia: boolean('sa_asignacion_previa'),
+  saValorPrevio: numeric('sa_valor_previo', { precision: 14, scale: 2 }),
   aplicadoAutomaticamente: boolean('aplicado_automaticamente').notNull().default(false),
   aplicadoPorId: integer('aplicado_por_id').references(() => users.id, { onDelete: 'restrict' }),
   aplicadoEn: timestamp('aplicado_en', { withTimezone: true }),
@@ -126,6 +133,9 @@ export const flitoComprobantes = pgTable('flito_comprobantes', {
   diferenciaChk: check('flito_comprobantes_diferencia_chk',
     sql`(${t.diferenciaAceptadaPorId} IS NULL) = (${t.diferenciaAceptadaEn} IS NULL)
       AND (${t.diferenciaAceptadaPorId} IS NULL) = (${t.diferenciaAceptadaMotivo} IS NULL)`),
+  saPrevioChk: check('flito_comprobantes_sa_previo_chk',
+    sql`(${t.saAsignacionPrevia} IS NULL OR (${t.servicioTipoId} IS NOT NULL AND ${t.esPago} = true AND ${t.concepto} = 'servicios_adicionales'))
+      AND (${t.saValorPrevio} IS NOT NULL) = COALESCE(${t.saAsignacionPrevia}, false)`),
   paginasChk: check('flito_comprobantes_paginas_chk',
     sql`${t.paginas} IS NULL OR jsonb_typeof(${t.paginas}) = 'array'`),
 }));

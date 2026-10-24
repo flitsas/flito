@@ -103,7 +103,8 @@ describe('0198 — análisis estático', () => {
       'idx_flito_comprobantes_valor_documental_td_lg', 'idx_flito_comprobantes_valor_documental_sa'];
     expect(cfg.indexes.map((i) => i.config.name).sort()).toEqual(INDICES_HOY.sort());
     expect(cfg.indexes.find((i) => i.config.name === 'idx_flito_comprobantes_valor_documental_td_lg')!.config.unique).toBe(true);
-    expect(cfg.checks.map((c) => c.name).sort()).toEqual([...CHECKS, 'flito_comprobantes_servicio_tipo_chk'].sort());
+    // HU #13903: + `flito_comprobantes_sa_previo_chk` de la 0251 (estado previo de la puente de SA, AC11).
+    expect(cfg.checks.map((c) => c.name).sort()).toEqual([...CHECKS, 'flito_comprobantes_servicio_tipo_chk', 'flito_comprobantes_sa_previo_chk'].sort());
     const fks = cfg.foreignKeys.map((fk) => {
       const r = fk.reference();
       return { col: r.columns[0]!.name, tabla: r.foreignTable[Symbol.for('drizzle:Name') as unknown as keyof typeof r.foreignTable] as unknown as string, onDelete: fk.onDelete };
@@ -162,10 +163,11 @@ describe('0198 — análisis estático', () => {
     }
   });
 
-  it('los cardinales del catálogo: 9 operaciones de comprobantes (5 de la 0198 + 3 de la 0201 + 1 de la 0202, HU #12654), y las 9 llaves del fichero de rutas', () => {
+  it('los cardinales del catálogo: 9 operaciones de comprobantes en el plano (5 de la 0198 + 3 de la 0201 + 1 de la 0202, HU #12654), y las 11 llaves del fichero de rutas (+2 de la HU #13903)', () => {
     // 5 → 8 desde la HU #12629 (F2 #12606: buscar trámites, aplicar, descartar); 8 → 9 desde la HU #12654 (F3: aceptar diferencia). Las cinco de ESTA migración siguen siendo las de `OPS`.
+    // HU #13903: el plano sigue en 9 (desaplicar y reemplazar nacen con partida `aplicar`, fuera del plano); las llaves de rutas, 9 → 11.
     expect(catalogoPlano().filter((c) => c.tipo === 'operacion' && c.modulo === 'comprobantes')).toHaveLength(9);
-    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(9);
+    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(11);
     for (const codigo of OPS) expect(OPERACIONES_DECLARADAS.find((o) => o.codigo === codigo), codigo).toBeDefined();
   });
 

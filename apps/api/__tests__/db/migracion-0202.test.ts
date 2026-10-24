@@ -96,9 +96,10 @@ describe('0202 — análisis estático', () => {
     expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === OP).map(([r]) => r).sort()).toEqual(['admin', 'financiera']);
   });
 
-  it('los cardinales del catálogo: 9 operaciones de comprobantes (5 de la 0198 + 3 de la 0201 + 1), y las 9 llaves del fichero de rutas', () => {
+  it('los cardinales del catálogo: 9 operaciones de comprobantes (5 de la 0198 + 3 de la 0201 + 1), y las 11 llaves del fichero de rutas (+2 de la HU #13903)', () => {
     expect(catalogoPlano().filter((c) => c.tipo === 'operacion' && c.modulo === 'comprobantes')).toHaveLength(9);
-    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(9);
+    // HU #13903: +2 llaves de rutas (desaplicar y reemplazar, con partida `aplicar`: fuera del plano).
+    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(11);
   });
 
   it('no retira nada y el helper de paridad la lee después de la 0201; plegado, admin y financiera sí y auditor no', () => {
