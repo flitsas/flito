@@ -9,8 +9,8 @@
 //        · derecho pagado → 409 `dueno_no_reversible` «Corrige el pago en su módulo» (AC3): el derecho no
 //          tiene reversa propia que reutilizar, así que nada cambia;
 //        · honorario pagado con el trámite liquidado → 409 `tramite_liquidado` (AC5).
-//   4. Bolsa: `exigirDescuentoReversible` (409 `periodo_cerrado` con `bolsaId` y `periodo`, AC9; no-op hasta
-//      la HU-D) → `revertirDescuentoComprobante` (entrada enlazada; libera la llave para el reemplazo).
+//   4. Bolsa: `exigirDescuentoReversible` (409 `periodo_cerrado` con `bolsaId` y `periodo`, AC9; D14 sobre el
+//      periodo imputado, HU #13905) → `revertirDescuentoComprobante` (entrada enlazada; libera la llave para el reemplazo).
 //   5. El DUEÑO en la misma tx (nota de QA A: si algo posterior falla, la reversa se deshace con todo):
 //      SOAT e impuesto reutilizan la escritura de su `reversar` (`reversarEnTx`, RN-06: historial con el
 //      motivo literal; el impuesto además su audit). Destino del dueño: `pendiente` al desaplicar (AC1, AC2);
