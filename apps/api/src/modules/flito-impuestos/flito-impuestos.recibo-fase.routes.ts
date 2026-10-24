@@ -100,7 +100,7 @@ export function archivoConMimeReal(req: Request, res: Response): ArchivoSubido |
   return { originalname: file.originalname, mimetype: MIME_POR_CLASE[clase], buffer: file.buffer, size: file.size };
 }
 
-const idSchema = z.string().uuid();
+const idSchema = z.string().guid();
 const cuerpoSchema = z.object({ fase: z.enum(FASES_RECIBO as [FaseRecibo, ...FaseRecibo[]]) });
 
 export default function reciboFaseRouter(contextoImpuesto: Contexto): Router {

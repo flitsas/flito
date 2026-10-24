@@ -227,7 +227,7 @@ async function facturaFlit2(
 const zipSoportesSchema = z.object({
   // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
   // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
-  ids: z.array(z.string().uuid()).min(1),
+  ids: z.array(z.string().guid()).min(1),
   tipos: z.array(z.enum([TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.RECIBO_IMPUESTO]))
     .min(1).max(2),
 }).strict();
@@ -634,7 +634,7 @@ router.post('/:id/certificar', exigirFuncion('impuestos.tramite.certificar'), as
  * Ojo con el orden de las rutas: `/certificar` se registra DESPUÉS de `/:id/certificar`, pero no
  * colisionan porque tienen distinto número de segmentos.
  */
-const certificarLoteSchema = z.object({ ids: z.array(z.string().uuid()).min(1) });
+const certificarLoteSchema = z.object({ ids: z.array(z.string().guid()).min(1) });
 router.post('/certificar', exigirFuncion('impuestos.tramite.certificar_lote'), async (req: Request, res: Response) => {
   const parsed = certificarLoteSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'No se seleccionó ningún impuesto.' }); return; }
@@ -710,7 +710,7 @@ router.get('/:id/certificado', exigirFuncion('impuestos.certificado.descargar'),
 
 // POST /enviar — Pendiente → En gestión, atómico (CA-04). Solo Operaciones.
 const enviarSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1),
+  ids: z.array(z.string().guid()).min(1),
   // Sin XOR, a diferencia de SOAT: aquí no hay proveedor con el que competir, el destinatario
   // sale del organismo. La contingencia es solo una marca más sobre el mismo envío.
   gestionOperaciones: z.boolean().optional(),

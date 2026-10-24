@@ -72,7 +72,7 @@ function recibirArchivos(req: Request, res: Response, next: (e?: unknown) => voi
 
 const aArchivo = (f: Express.Multer.File): ArchivoCargado => ({ originalname: f.originalname, mimetype: f.mimetype, buffer: f.buffer, size: f.size });
 
-export const cargaSchema = z.object({ loteId: z.string().uuid() });
+export const cargaSchema = z.object({ loteId: z.string().guid() });
 
 // El limitador va DELANTE de multer (AC9): un exceso se frena antes de leer 75 MB de cuerpo.
 // HU #13426 (P-2): toda escritura de Comprobantes (conciliación interna de FLIT) → cerrada a enlaces.
@@ -94,8 +94,8 @@ export const listarSchema = z.object({
   estado: z.enum(ESTADOS_COMPROBANTE as [EstadoComprobante, ...EstadoComprobante[]]).optional(),
   concepto: z.enum(CONCEPTOS_COSTO as [ConceptoCosto, ...ConceptoCosto[]]).optional(),
   motivo: z.enum(MOTIVOS_PENDIENTE_COMPROBANTE as [MotivoPendienteComprobante, ...MotivoPendienteComprobante[]]).optional(),
-  loteId: z.string().uuid().optional(),
-  tramiteId: z.string().uuid().optional(),
+  loteId: z.string().guid().optional(),
+  tramiteId: z.string().guid().optional(),
   asociacion: z.enum(ASOCIACIONES_COMPROBANTE as unknown as [AsociacionComprobante, ...AsociacionComprobante[]]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
