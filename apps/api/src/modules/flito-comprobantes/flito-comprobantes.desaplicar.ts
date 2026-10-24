@@ -65,7 +65,7 @@ export const desaplicarSchema = z.object({
 });
 
 export const reemplazarSchema = z.object({
-  reemplazoId: z.string().uuid(),
+  reemplazoId: z.string().guid(),
   motivo,
   campos: z.record(z.string(), z.string().max(200)).optional(),
 });
