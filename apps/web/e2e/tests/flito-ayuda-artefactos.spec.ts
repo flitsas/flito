@@ -237,8 +237,9 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     flito_conciliacion: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-boleta.svg', capturas: [
       '01-cargar-boleta.png', '02-bandeja.png', '03-detalle-sin-cuadrar.png', '04-conciliar.png', '05-comprobante-pse.png'] },
     // HU #13901: alta manual de la bolsa, conceptos y autogestión, inactivar y reactivar.
-    flito_bolsas: { version: '1.2', fecha: '2026-10-23', diagrama: 'ciclo-periodo.svg', capturas: [
-      '01-cabecera-y-kpi.png', '02-companias.png', '03-crear-bolsa.png', '04-detalle-compania.png'] },
+    // HU #13892: paso 7 «Documentos» (v1.3).
+    flito_bolsas: { version: '1.3', fecha: '2026-10-24', diagrama: 'ciclo-periodo.svg', capturas: [
+      '01-cabecera-y-kpi.png', '02-companias.png', '03-crear-bolsa.png', '04-detalle-compania.png', '05-documentos.png'] },
     flito_tarifas: { version: '1.1', fecha: '2026-10-21', diagrama: 'vigencias.svg', capturas: [
       '01-elegir-compania.png', '02-fijar-valor.png', '03-historial.png'] },
     // Citadas en el orden de los pasos de la ficha (la 01 ilustra el paso 5, «Por tarifar»).

@@ -30,6 +30,7 @@ import BolsaAcciones from './BolsaAcciones';
 import BolsaExtracto from './BolsaExtracto';
 import BolsaForm, { AvisoAutogestion } from './BolsaForm';
 import BolsaMovimientos from './BolsaMovimientos';
+import ExpedienteDocumental from '../flito-bolsas-documentos/ExpedienteDocumental';
 import FlitModal from '../flit/FlitModal';
 import StatusChip from '../flit/StatusChip';
 import {
@@ -394,7 +395,7 @@ function ContenidoBolsa({ bolsa, onRefrescar, onCrearBolsa }: {
         </>
       )}
 
-      {/* #13407: <ExpedienteDocumental companiaId={bolsa.companiaId} /> */}
+      <ExpedienteDocumental companiaId={companiaId} activa={bolsa.activa} onBolsaCambio={onRefrescar} />
 
       {editando && (
         <BolsaForm bolsa={bolsa} onClose={() => setEditando(false)}
