@@ -68,10 +68,9 @@ test('excepción no es cheque en blanco: un hallazgo de más en el fichero exent
   assert.ok(errores.some((e) => e.includes('declara 1')));
 });
 
-test('las excepciones son exactamente las declaradas: traspaso (HU #12872) y Aplica para de la Ayuda (HU #13706)', () => {
+test('las excepciones son exactamente las declaradas: traspaso (HU #12872); la de Aplica para se retiró en la HU #13914', () => {
   assert.deepEqual(Object.keys(EXCEPCIONES), [
     'apps/web/src/pages/TransitoTraspasoExpediente.tsx',
-    'apps/web/src/lib/ayudaFlito.ts',
   ]);
 });
 

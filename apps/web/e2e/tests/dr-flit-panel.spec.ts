@@ -2,7 +2,7 @@
 // Spec UX: docs/ux/flito-dr-flit.md · slim: docs/diseno/feature-13694-dr-flit-panel-slim.md
 // TCs: docs/qa/tc-hu-13764-dr-flit-panel.md
 import { test, expect, type Page } from '@playwright/test';
-import { loginAs, FINANCIERA_USER, ADMIN_USER, CLIENTE_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, FINANCIERA_USER, ADMIN_USER, CLIENTE_USER, PROVEEDOR_USER } from '../helpers/ayuda-fixtures';
 import { sobreDeMe, sobreDeMios, TOKEN_E2E } from '../helpers/auth';
 
 const CHUNK_PANEL = /DrFlitPanel/;
@@ -42,6 +42,19 @@ test.describe('HU #13764 · Dr. Flit — botón y panel', () => {
     await page.waitForLoadState('networkidle');
     await expect(boton(page)).toHaveCount(0);
   });
+
+  // HU #13914 AC6: los usuarios con enlace ya ven fichas de Ayuda, pero Dr. Flit sigue oculto para ellos.
+  for (const [quien, user] of [
+    ['cliente con SOAT', { ...CLIENTE_USER, allowedPages: ['flito_soat'] }],
+    ['proveedor con SOAT', { ...PROVEEDOR_USER, allowedPages: ['flito_soat'] }],
+  ] as const) {
+    test(`AC6 (HU #13914) · ${quien}: ve Ayuda pero nunca el botón de Dr. Flit`, async ({ page }) => {
+      await entrar(page, user, '/flito/ayuda');
+      await expect(page.getByRole('link', { name: 'Abrir ficha de SOAT', exact: true })).toBeVisible();
+      await page.waitForLoadState('networkidle');
+      await expect(boton(page)).toHaveCount(0);
+    });
+  }
 
   // Login por formulario: `login()` hace `setUser` ANTES de `await cargarMios()`, así que el shell se
   // monta con `funciones === null`. Es el único camino donde la guarda fail-closed se ve (con token

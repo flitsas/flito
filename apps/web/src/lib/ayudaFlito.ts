@@ -3,7 +3,7 @@ import { CATALOGO_AYUDA, GRUPOS_ORDEN, type ClaveAyuda, type EntradaAyuda } from
 // `lib/permissions`: desde la HU #11913 ese módulo consume `NAV_ITEMS` para `rutaInicio`, y
 // `navItems.ts` consume este — importar `hasPage` cerraría el ciclo en tiempo de ejecución.
 import {
-  isValidPage, paginasPorDefecto, ROLE_DEFAULT_PAGES, USER_ROLES, type PageSlug, type TipoEnlace, type UserRole,
+  isValidPage, paginaAbiertaAlEnlace, paginasPorDefecto, ROLE_DEFAULT_PAGES, USER_ROLES, type PageSlug, type TipoEnlace, type UserRole,
 } from '@operaciones/shared-types';
 
 /**
@@ -18,20 +18,13 @@ export type UsuarioAyuda = { allowedPages?: string[] | null; tipoEnlace?: TipoEn
  */
 export function puedeVerEntradaAyuda(user: UsuarioAyuda | null, entrada: EntradaAyuda): boolean {
   if (!user) return false;
-  // FLITO — usuario CON ENLACE (Feature #11912; HU #12875 lo decide por `tipoEnlace`, no por el
-  // nombre del rol): ninguna ficha. Va aquí y no en el catálogo porque la
-  // visibilidad de «Ayuda FLITO» es DERIVADA (`puedeVerAyudaFlito` = ≥1 ficha visible): apagarla
-  // aquí retira de una vez el ítem del menú, la entrada de la ⌘K y el gate de `/flito/ayuda`, que
-  // es lo que hace literalmente verdadera la frase del AC1 «su menú muestra únicamente SOAT».
-  //
-  // Sin esta línea el Cliente vería DOS ítems: la ficha `soat` cuelga de `permiso: 'flito_soat'`
-  // (ADR-0008 §4) y él tiene ese slug. Mismo caso especial por rol que `siigo_credenciales`, justo
-  // debajo (hoy ya por slug). El ADR daba por buena esa segunda entrada («consecuencia buscada»); el AC1 y el doc de
-  // UX §3.2 no, y manda el AC. Revertirlo el día que el Cliente merezca ficha propia —la #11914—
-  // es borrar esta línea.
-  if (user.tipoEnlace != null && user.tipoEnlace !== 'ninguno') return false;
   if (!entrada.permiso) return false;
-  return (user.allowedPages ?? []).filter(isValidPage).includes(entrada.permiso);
+  // HU #13914: el usuario con enlace ve la ficha de cada pantalla que puede abrir, con la misma regla
+  // que `effectivePages` (lib/permissions): página en `allowedPages` Y abierta a su enlace (frontera
+  // de la HU #13452). Sin la frontera, el Proveedor vería «Tablero de control» (tiene `dashboard` por
+  // defecto y su enlace se lo cierra). No se usa `hasPage`: cerraría el ciclo de la cabecera.
+  return (user.allowedPages ?? []).filter(isValidPage).includes(entrada.permiso)
+    && paginaAbiertaAlEnlace(entrada.permiso, user.tipoEnlace);
 }
 
 /** Menú, paleta, índice y gate de `/flito/ayuda`: ≥1 ficha del catálogo visible. */
@@ -77,16 +70,6 @@ export function vecinasVisibles(
 }
 
 /**
- * Roles de ENLACE: no ven la Ayuda (D2 del Feature #13691 — `puedeVerEntradaAyuda` devuelve `false` con
- * `tipoEnlace` distinto de `ninguno`). Listarlos en «Aplica para» prometería una ficha que no abren.
- * Decisión del humano (HU #13706 AC3). No es la lista de roles que se muestran: esa sale de la matriz.
- * El tipo de enlace por rol vive en la base (`permisos_roles.tipo_enlace`) sin espejo en shared-types,
- * por eso se nombran aquí. Texto informativo: NO decide acceso. Es la «Excepción declarada» de
- * `scripts/check-roles-web.mjs` (2 hallazgos: esta constante y su `.has(rol)` de abajo).
- */
-const ROLES_ENLACE_SIN_AYUDA: ReadonlySet<UserRole> = new Set<UserRole>(['cliente', 'proveedor']);
-
-/**
  * ¿El rol tiene TODAS las páginas? Es el que no tiene fila en `ROLE_DEFAULT_PAGES` (`admin`: su tabla
  * es total sobre los demás roles y sus páginas las siembra la migración 0179 en
  * `permisos_rol_funcion`; ver el comentario de `ROLE_DEFAULT_PAGES` en `permissions.ts`). Se deriva de
@@ -96,14 +79,16 @@ const sinFilaPorDefecto = (rol: UserRole): boolean => !(rol in ROLE_DEFAULT_PAGE
 
 /**
  * «Aplica para» (HU #13706 AC3, diseño slim §5, P9-2c): roles de `USER_ROLES`, EN SU ORDEN, que tienen
- * `slug` por defecto o que no tienen fila en `ROLE_DEFAULT_PAGES` (todas las páginas), menos los de
- * enlace. «Administrador primero» sale de ahí sin literal: `admin` es `USER_ROLES[0]` y es el único rol
+ * `slug` por defecto o que no tienen fila en `ROLE_DEFAULT_PAGES` (todas las páginas). Desde la HU #13914
+ * incluye los roles de enlace (cliente, proveedor), que ya ven las fichas de lo que abren. Sale de los
+ * permisos por defecto SIN aplicar la frontera del enlace (no hay espejo rol→enlace en shared-types), así
+ * que puede listar un rol de enlace en una ficha que su enlace cierra (p. ej. Proveedor en «Tablero de
+ * control»): texto informativo, aceptado en la HU #13914; NO decide acceso. «Administrador primero» sale de ahí sin literal: `admin` es `USER_ROLES[0]` y es el único rol
  * sin fila. `operaciones` no puede salir: no está en `USER_ROLES`. Puro: sin red ni estado.
  */
 export function rolesPorDefectoDePagina(slug: PageSlug): UserRole[] {
   return USER_ROLES.filter(
-    (rol) => !ROLES_ENLACE_SIN_AYUDA.has(rol)
-      && (sinFilaPorDefecto(rol) || paginasPorDefecto(rol).includes(slug)),
+    (rol) => sinFilaPorDefecto(rol) || paginasPorDefecto(rol).includes(slug),
   );
 }
 
