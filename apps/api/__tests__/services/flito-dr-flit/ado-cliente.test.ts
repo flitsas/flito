@@ -130,6 +130,38 @@ describe('ClienteSoporteAdoReal', () => {
     expect(segunda.map((o) => o.path)).toEqual(['/fields/System.Title', '/fields/Microsoft.VSTS.TCM.ReproSteps']);
   });
 
+  // HU #13804 — en DEV, ADO devuelve TF401289 con HTTP 403 (no 400): antes se clasificaba como
+  // ado-auth antes de mirar el cuerpo y el respaldo sin tags nunca corría (502 al radicar).
+  it('HU #13804: 403 con TF401289 → UN segundo create sin System.Tags; tagOmitido=true', async () => {
+    const f = stub(
+      json(403, { message: 'TF401289: The current user does not have permissions to create tags.' }),
+      json(200, { id: 13_952 }),
+    );
+    const r = await new ClienteSoporteAdoReal(CFG).crearBug({ operaciones: OPS });
+    expect(r).toEqual({ numero: 13_952, tagOmitido: true });
+    expect(f).toHaveBeenCalledTimes(2);
+    const segunda = JSON.parse(String(f.mock.calls[1]![1].body)) as Array<{ path: string }>;
+    expect(segunda.map((o) => o.path)).toEqual(['/fields/System.Title', '/fields/Microsoft.VSTS.TCM.ReproSteps']);
+    expect(segunda.some((o) => o.path === '/fields/System.Tags')).toBe(false);
+  });
+
+  it('HU #13804: 403 sin TF401289 → ado-auth, sin segundo create', async () => {
+    const f = stub(json(403, { message: 'TF400813: The user is not authorized to access this resource.' }));
+    const e = await fallo(new ClienteSoporteAdoReal(CFG).crearBug({ operaciones: OPS }));
+    expect(e).toBeInstanceOf(AdoRechazoError);
+    expect((e as InstanceType<typeof AdoRechazoError>).clase).toBe('ado-auth');
+    expect(f).toHaveBeenCalledTimes(1);
+    sinFuga(e);
+  });
+
+  it('HU #13804: 403 TF401289 en el primero y en el segundo → ado-4xx tras exactamente dos llamadas', async () => {
+    const f = stub(json(403, { message: 'TF401289' }), json(403, { message: 'TF401289' }));
+    const e = await fallo(new ClienteSoporteAdoReal(CFG).crearBug({ operaciones: OPS }));
+    expect((e as InstanceType<typeof AdoRechazoError>).clase).toBe('ado-4xx');
+    expect(f).toHaveBeenCalledTimes(2);
+    sinFuga(e);
+  });
+
   it('TF401289 dos veces → ado-4xx tras exactamente dos llamadas', async () => {
     const f = stub(json(400, { message: 'TF401289' }), json(400, { message: 'TF401289' }));
     const e = await fallo(new ClienteSoporteAdoReal(CFG).crearBug({ operaciones: OPS }));
