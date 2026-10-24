@@ -751,7 +751,7 @@ function propietarioDe(d: {
 const lecturaFacturaSchema = z.object({
   solicitudId: z.preprocess(
     vacioANull,
-    z.string().uuid('El identificador de la solicitud no es válido').nullable().optional(),
+    z.string().guid('El identificador de la solicitud no es válido').nullable().optional(),
   ),
   companiaId: companiaIdSchema,
 });

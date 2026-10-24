@@ -113,11 +113,11 @@ export async function exigirPaginaConAyuda(req: Request, res: Response, next: Ne
 router.use(authMiddleware, rechazarEnlaceCompania, exigirPaginaConAyuda);
 
 const MSG_FINALIDAD = 'La finalidad debe ser «soporte» o «ia».';
-const finalidadSchema = z.enum(FINALIDADES_DRFLIT, { errorMap: () => ({ message: MSG_FINALIDAD }) });
+const finalidadSchema = z.enum(FINALIDADES_DRFLIT, { error: MSG_FINALIDAD });
 const consultaSchema = z.object({ finalidad: finalidadSchema });
 const aceptarSchema = z.object({
   finalidad: finalidadSchema,
-  version: z.string({ errorMap: () => ({ message: 'La versión de la autorización es obligatoria.' }) })
+  version: z.string({ error: 'La versión de la autorización es obligatoria.' })
     .min(1).max(40),
 }).strict();
 
@@ -210,7 +210,7 @@ export const MENSAJES_CAMPO_CASO: Readonly<Record<string, string>> = Object.free
 const texto = (l: { min: number; max: number }) => z.string().trim().min(Math.max(l.min, 1)).max(l.max);
 const L = LIMITES_CASO_SOPORTE;
 const casoSchema: z.ZodType<CasoSoporteDrFlit> = z.object({
-  claveIdempotencia: z.string().uuid(),
+  claveIdempotencia: z.string().guid(),
   contacto: z.object({
     nombre: texto(L.nombre),
     correo: z.string().trim().min(L.correo.min).max(L.correo.max).email(),
@@ -237,9 +237,9 @@ function responderCasoInvalido(res: Response, error: z.ZodError): void {
   res.status(400).json({ error: mensaje, codigo: 'campo-invalido', ...(campo ? { campo } : {}) });
 }
 
-/** 503 `soporte-no-disponible` si el ambiente o el cliente de ADO no están configurados. */
+/** 503 `soporte-no-disponible` si el cliente de ADO no está configurado. */
 export function exigirSoporteDisponible(_req: Request, res: Response, next: NextFunction): void {
-  if (!soporteDisponible() || ambienteDespliegue() === null) {
+  if (!soporteDisponible()) {
     res.status(503).json({
       error: 'El soporte desde Dr. Flit no está disponible en este momento.', codigo: 'soporte-no-disponible',
     });
@@ -401,7 +401,7 @@ router.post('/casos-soporte', drflitCasosLimiter, exigirSoporteDisponible, exigi
       const r = await radicarCaso(req, {
         usuarioId: req.user!.sub,
         autorizacionId: res.locals.autorizacionId as number,
-        ambiente: ambienteDespliegue()!,
+        ambiente: ambienteDespliegue(),
         caso: b.data,
         adjuntos: entrada.adjuntos,
       });

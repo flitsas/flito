@@ -55,7 +55,7 @@ router.get('/:id', requirePage('pesv_politica'), async (req, res) => {
 
 router.post('/', requirePage('pesv_politica'), exigirFuncion('pesv.politica_edicion.administrar'), async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const data = parsed.data;
   const userId = req.user!.sub;
 
@@ -87,7 +87,7 @@ router.patch('/:id', requirePage('pesv_politica'), exigirFuncion('pesv.politica_
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = updateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const data = parsed.data;
 
   const updated = await db.transaction(async (tx) => {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mensajesDeTipo } from '../shared/utils/zod-mensajes.js';
 import dotenv from 'dotenv';
 import {
   COMPARENDOS_EXPORT_MAX_FILAS, CONCILIACION_MAX_FILAS, FLITO_COLA_EXPORT_MAX_FILAS,
@@ -179,7 +180,7 @@ const envSchema = z.object({
   // umbral de la alerta del estado se deriva de este valor (2·R + 5 min, RN-08 de flit2-estado.service.ts).
   FLIT2_RESPALDO_MIN: z.preprocess(
     vacioComoAusente,
-    z.coerce.number({ invalid_type_error: MSG_FLIT2_RESPALDO_MIN })
+    z.coerce.number({ error: mensajesDeTipo({ tipo: MSG_FLIT2_RESPALDO_MIN }) })
       .int(MSG_FLIT2_RESPALDO_MIN).min(1, MSG_FLIT2_RESPALDO_MIN).max(120, MSG_FLIT2_RESPALDO_MIN).default(5),
   ),
   // HU #13268 (ADR-0020): envío del comprobante de pago a FLIT 2. APAGADA por defecto en todos los
@@ -437,7 +438,7 @@ const envSchema = z.object({
   DRFLIT_IA_HABILITADA: z.string().optional().transform((v) => v === '1'),
   // Mensajes a la IA por usuario y día America/Bogota. 0 = IA sin cupo (ninguna reserva se concede).
   DRFLIT_IA_TOPE_DIARIO: z.preprocess(vacioComoAusente, z.coerce.number({
-    invalid_type_error: 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500',
+    error: mensajesDeTipo({ tipo: 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500' }),
   }).int('DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
     .min(0, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
     .max(500, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500').default(30)),
@@ -450,8 +451,8 @@ const envSchema = z.object({
   // Puerta POSITIVA de la purga de intentos a 12 meses (RN-DRF3): solo con =1.
   DRFLIT_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
 }).superRefine((data, ctx) => {
-  // HU #13803 (P9-1): el cliente simulado de FLIT - SOPORTE no puede arrancar en PDN, ni en una
-  // producción que no declaró su ambiente (fallo cerrado).
+  // HU #13803 (P9-1): el cliente simulado de FLIT - SOPORTE no puede arrancar en PDN. Desde HU #13913
+  // una producción sin DEPLOY_ENVIRONMENT se asume PDN, así que tampoco admite el simulado.
   if (data.DRFLIT_ADO_MODO === 'simulado' && data.DEPLOY_ENVIRONMENT === 'PDN') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -463,7 +464,7 @@ const envSchema = z.object({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['DRFLIT_ADO_MODO'],
-      message: 'DRFLIT_ADO_MODO=simulado en producción exige DEPLOY_ENVIRONMENT (DEV o QA)',
+      message: 'DRFLIT_ADO_MODO=simulado no está permitido en producción sin DEPLOY_ENVIRONMENT: ausente se asume PDN; declare DEV o QA',
     });
   }
   // Bloquea CORS_ORIGIN='*' en producción (XSS cross-origin).

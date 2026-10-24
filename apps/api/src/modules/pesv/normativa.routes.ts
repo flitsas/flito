@@ -61,7 +61,7 @@ router.get('/:id(\\d+)', requirePage('pesv_normativa'), async (req, res) => {
 
 router.post('/', requirePage('pesv_normativa'), exigirFuncion('pesv.normativa_edicion.administrar'), async (req: Request, res: Response) => {
   const parsed = normSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   try {
     const [row] = await db.insert(pesvNormativa).values({
@@ -89,7 +89,7 @@ router.post('/', requirePage('pesv_normativa'), exigirFuncion('pesv.normativa_ed
 router.patch('/:id(\\d+)', requirePage('pesv_normativa'), exigirFuncion('pesv.normativa_edicion.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const parsed = normSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   const expectedV = Number(req.body?.optimisticV);
   if (!Number.isFinite(expectedV)) return res.status(400).json({ error: 'optimisticV requerido' });
@@ -121,7 +121,7 @@ const revSchema = z.object({
 router.post('/:id(\\d+)/revisar', requirePage('pesv_normativa'), exigirFuncion('pesv.normativa_edicion.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const parsed = revSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   const proxima = new Date(d.proximaRevisionAt);
   const now = new Date();

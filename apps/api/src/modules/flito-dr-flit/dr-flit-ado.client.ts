@@ -12,7 +12,9 @@
 //            es `AdoRechazoError('ado-auth')`.
 // RN-DRF-C3  TF401289 (el tag no existe y no se puede crear con esos permisos): un SEGUNDO create, uno
 //            solo, sin la operación `System.Tags`; `tagOmitido=true` y el servicio lo registra como
-//            `tag-rechazado`. El caso queda radicado igual.
+//            `tag-rechazado`. El caso queda radicado igual. ADO lo responde como 400 o 403 (en FLIT -
+//            SOPORTE llega 403, HU #13804): se detecta por el cuerpo ANTES de clasificar el status; un
+//            403 sin TF401289 sigue siendo `ado-auth`. Si el segundo create vuelve a fallar, es error.
 // RN-DRF-C4  NUNCA se loguean ni viajan en un error: cabeceras (el PAT), URL, cuerpo enviado ni cuerpo
 //            recibido. Los mensajes de los errores son fijos y sin `cause`. La URL de ADO no sale de
 //            este archivo (la respuesta de la API no lleva URLs ni `_links`).
@@ -114,8 +116,9 @@ export class ClienteSoporteAdoReal implements ClienteSoporteAdo {
 
   async #crear(ops: ReadonlyArray<OperacionAdo>): Promise<{ tipo: 'ok'; numero: number } | { tipo: 'tag' }> {
     const { status, cuerpo } = await this.#post(urlCrearBug(this.#c), 'application/json-patch+json', JSON.stringify(ops));
+    // RN-DRF-C3: TF401289 llega como 400 o 403; se mira ANTES de clasificar (un 403 sin él es ado-auth).
+    if ((status === 400 || status === 403) && cuerpo.includes('TF401289')) return { tipo: 'tag' };
     this.#clasificar(status);
-    if (status === 400 && cuerpo.includes('TF401289')) return { tipo: 'tag' };
     if (status < 200 || status >= 300) throw new AdoRechazoError('ado-4xx');
     const numero = leerId(cuerpo);
     if (numero === null) throw new AdoRechazoError('ado-auth');
