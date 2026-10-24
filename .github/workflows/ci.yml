@@ -282,7 +282,10 @@ jobs:
   # escuchando en el 3005 al que apunta el proxy de Vite).
   e2e-visor-pdf:
     name: e2e · visor PDF real
-    runs-on: ubuntu-latest
+    # Fijado a 24.04: ubuntu-latest pasó a 26.04 y Playwright 1.59.1 no publica Chromium para esa
+    # versión («Playwright does not support chromium on ubuntu26.04-x64»). Volver a ubuntu-latest
+    # cuando se suba Playwright a una versión que lo soporte.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:
