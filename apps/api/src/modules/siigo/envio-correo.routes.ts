@@ -44,7 +44,7 @@ const envioLimiter = rateLimit({
   store: makeStore('rl:siigo-envio-correo:'),
 });
 
-const idSchema = z.string().uuid();
+const idSchema = z.string().guid();
 
 /**
  * Destinatarios explícitos, opcionales.

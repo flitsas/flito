@@ -225,7 +225,7 @@ const colaFiltrosCampos = z.object({
   buscar: z.string().trim().min(1).optional(),
   companias: z.array(z.number().int().positive()).optional(),
   organismos: z.array(z.string().trim().min(1)).optional(),
-  proveedores: z.array(z.string().uuid()).optional(),
+  proveedores: z.array(z.string().guid()).optional(),
   gestion: z.enum(['operaciones', 'proveedor']).optional(),
   // El mismo `yyyy-mm-dd` que exige el helper `fecha()` del listado: el valor entra en un cast a
   // `date` y no puede ser texto libre.
@@ -410,7 +410,7 @@ router.post('/export', exigirFuncion('soat.excel.exportar'), exportColaLimiter, 
 const zipSoportesSchema = z.object({
   // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
   // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
-  ids: z.array(z.string().uuid()).min(1),
+  ids: z.array(z.string().guid()).min(1),
 }).strict();
 
 router.post('/soportes/zip', exigirFuncion('soat.soportes.descargar'), zipSoportesLimiter, async (req: Request, res: Response) => {
@@ -579,8 +579,8 @@ router.get('/:id/soportes', exigirFuncion('soat.solicitud.ver_soportes'), async 
 // añade el otro destino, también explícito. Marcar los dos —o ninguno— es un 400, porque un envío
 // sin dueño claro es justo lo que ninguna de las dos HU quiere.
 const enviarSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1),
-  proveedorSoatId: z.string().uuid().optional(),
+  ids: z.array(z.string().guid()).min(1),
+  proveedorSoatId: z.string().guid().optional(),
   gestionOperaciones: z.boolean().optional(),
 }).refine(
   (d) => Boolean(d.proveedorSoatId) !== Boolean(d.gestionOperaciones),
@@ -651,7 +651,7 @@ router.post('/:id/reversar', exigirFuncion('soat.solicitud.reversar'), async (re
 });
 
 // POST /:id/proveedor — cambio de proveedor (RN-05). Solo Operaciones.
-const cambiarProveedorSchema = z.object({ proveedorSoatId: z.string().uuid(), motivo: z.string().min(1) });
+const cambiarProveedorSchema = z.object({ proveedorSoatId: z.string().guid(), motivo: z.string().min(1) });
 router.post('/:id/proveedor', exigirFuncion('soat.proveedor.cambiar'), async (req: Request, res: Response) => {
   const parsed = cambiarProveedorSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
@@ -684,7 +684,7 @@ router.post('/:id/asumir-operaciones', exigirFuncion('soat.solicitud.asumir'), a
   } catch (e) { handleError(res, e); }
 });
 
-const devolverSchema = traspasoSchema.extend({ proveedorSoatId: z.string().uuid() });
+const devolverSchema = traspasoSchema.extend({ proveedorSoatId: z.string().guid() });
 router.post('/:id/devolver-gestor', exigirFuncion('soat.solicitud.devolver'), async (req: Request, res: Response) => {
   const parsed = devolverSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }

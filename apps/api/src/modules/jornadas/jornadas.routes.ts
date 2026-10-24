@@ -56,7 +56,7 @@ router.post('/abrir', requirePage('pesv_mi_jornada'), async (req: Request, res: 
     return res.status(400).json({ error: 'Idempotency-Key requerido (8-80 chars)' });
   }
   const parsed = abrirSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
 
   const userId = req.user!.sub;
   const conductorId = parsed.data.conductorId ?? userId;
@@ -120,7 +120,7 @@ router.post('/:id/cerrar', requirePage('pesv_mi_jornada'), async (req: Request, 
   const idempKey = req.header('Idempotency-Key');
   if (!idempKey || idempKey.length < 8 || idempKey.length > 80) return res.status(400).json({ error: 'Idempotency-Key requerido' });
   const parsed = cerrarSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
 
   const userId = req.user!.sub;
   // Fuera de la transacción: la foto de permisos no debe alargar el FOR UPDATE (HU #13425).
@@ -211,7 +211,7 @@ router.post('/:id/pausa/abrir', requirePage('pesv_mi_jornada'), async (req: Requ
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = pausaAbrirSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const userId = req.user!.sub;
   const operaAjenas = await operaJornadaAjena(req);
 
@@ -241,7 +241,7 @@ router.post('/:id/pausa/cerrar', requirePage('pesv_mi_jornada'), async (req: Req
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = pausaCerrarSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const finAt = parsed.data.finAt ? new Date(parsed.data.finAt) : new Date();
   const [pausa] = await db.update(jornadasPausas).set({ finAt })
     .where(and(eq(jornadasPausas.jornadaId, id), isNull(jornadasPausas.finAt))).returning();

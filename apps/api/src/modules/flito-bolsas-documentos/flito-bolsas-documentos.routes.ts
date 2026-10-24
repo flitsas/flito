@@ -67,7 +67,7 @@ function fallo(res: Response, e: unknown): void {
 
 const companiaParams = z.object({ companiaId: z.coerce.number().int().positive() });
 const tipoParams = companiaParams.extend({ tipo: z.enum(TIPOS_DOCUMENTO_BOLSA) });
-const documentoParams = z.object({ documentoId: z.string().uuid() });
+const documentoParams = z.object({ documentoId: z.string().guid() });
 
 const MSG_PARAMS = 'La compañía o el tipo de documento no son válidos.';
 

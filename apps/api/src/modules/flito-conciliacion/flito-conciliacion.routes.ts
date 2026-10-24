@@ -187,7 +187,7 @@ function ctxDe(req: Request): { userId: number | null; nombre: string } {
   return { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'desconocido' };
 }
 
-const uuidSchema = z.string().uuid();
+const uuidSchema = z.string().guid();
 
 function idDe(req: Request): string {
   const parsed = uuidSchema.safeParse(req.params.id);

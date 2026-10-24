@@ -113,11 +113,11 @@ export async function exigirPaginaConAyuda(req: Request, res: Response, next: Ne
 router.use(authMiddleware, rechazarEnlaceCompania, exigirPaginaConAyuda);
 
 const MSG_FINALIDAD = 'La finalidad debe ser «soporte» o «ia».';
-const finalidadSchema = z.enum(FINALIDADES_DRFLIT, { errorMap: () => ({ message: MSG_FINALIDAD }) });
+const finalidadSchema = z.enum(FINALIDADES_DRFLIT, { error: MSG_FINALIDAD });
 const consultaSchema = z.object({ finalidad: finalidadSchema });
 const aceptarSchema = z.object({
   finalidad: finalidadSchema,
-  version: z.string({ errorMap: () => ({ message: 'La versión de la autorización es obligatoria.' }) })
+  version: z.string({ error: 'La versión de la autorización es obligatoria.' })
     .min(1).max(40),
 }).strict();
 
@@ -210,7 +210,7 @@ export const MENSAJES_CAMPO_CASO: Readonly<Record<string, string>> = Object.free
 const texto = (l: { min: number; max: number }) => z.string().trim().min(Math.max(l.min, 1)).max(l.max);
 const L = LIMITES_CASO_SOPORTE;
 const casoSchema: z.ZodType<CasoSoporteDrFlit> = z.object({
-  claveIdempotencia: z.string().uuid(),
+  claveIdempotencia: z.string().guid(),
   contacto: z.object({
     nombre: texto(L.nombre),
     correo: z.string().trim().min(L.correo.min).max(L.correo.max).email(),

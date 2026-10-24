@@ -38,10 +38,10 @@ export interface ProblemaFlit2 {
 
 /** `AdjuntoRecibido` del contrato (201 y 200 tienen el mismo cuerpo). */
 export const adjuntoRecibidoSchema = z.object({
-  adjuntoId: z.string().uuid(),
+  adjuntoId: z.string().guid(),
   tipo: z.string().min(1).max(60),
   sha256: z.string().regex(/^[a-fA-F0-9]{64}$/),
-  reemplazoDe: z.string().uuid().nullable().optional().transform((v) => v ?? null),
+  reemplazoDe: z.string().guid().nullable().optional().transform((v) => v ?? null),
   enMatriz: z.boolean(),
   pagadoMarcado: z.boolean(),
 }).passthrough();
