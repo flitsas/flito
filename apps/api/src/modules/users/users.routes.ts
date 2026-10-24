@@ -350,7 +350,7 @@ function avisarTransitoCodigoObsoleto(req: Request, verbo: string): void {
 // de escribir, para que una compañía inventada no salga como un 23503 servido en un 500.
 const companiaIdSchema = z.number().int().positive('Compañía inválida').nullable().optional();
 // FLITO (HU #12053) — el proveedor SOAT del tipo_enlace=proveedor_soat. Mismo patrón que `companiaId`.
-const proveedorSoatIdSchema = z.string().uuid('Proveedor SOAT inválido').nullable().optional();
+const proveedorSoatIdSchema = z.string().guid('Proveedor SOAT inválido').nullable().optional();
 /**
  * Los organismos del tipo_enlace=organismos_transito. Es una LISTA y no un código porque el AC2 pide varios.
  *

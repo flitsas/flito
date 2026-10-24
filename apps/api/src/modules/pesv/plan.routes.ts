@@ -65,7 +65,7 @@ router.get('/anio/:anio', requirePage('pesv_plan'), async (req, res) => {
 
 router.post('/', requirePage('pesv_plan'), exigirFuncion('pesv.plan.administrar'), async (req: Request, res: Response) => {
   const parsed = planCreateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   try {
     const [row] = await db.insert(pesvPlanAnual).values({
       anio: parsed.data.anio,
@@ -85,7 +85,7 @@ router.patch('/:id', requirePage('pesv_plan'), exigirFuncion('pesv.plan.administ
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = planUpdateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
 
   const [current] = await db.select().from(pesvPlanAnual).where(eq(pesvPlanAnual.id, id)).limit(1);
   if (!current) return res.status(404).json({ error: 'no encontrado' });
@@ -127,7 +127,7 @@ router.post('/:id/objetivos', requirePage('pesv_plan'), exigirFuncion('pesv.plan
   const planId = parseInt(req.params.id, 10);
   if (!Number.isFinite(planId) || planId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = objetivoSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   try {
     const [row] = await db.insert(pesvPlanObjetivos).values({
       planId,
@@ -151,7 +151,7 @@ router.post('/objetivos/:objId/acciones', requirePage('pesv_plan'), exigirFuncio
   const objId = parseInt(req.params.objId, 10);
   if (!Number.isFinite(objId) || objId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = accionSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   try {
     const [row] = await db.insert(pesvPlanAcciones).values({
       objetivoId: objId,
@@ -176,7 +176,7 @@ router.patch('/acciones/:accId', requirePage('pesv_plan'), exigirFuncion('pesv.p
   const accId = parseInt(req.params.accId, 10);
   if (!Number.isFinite(accId) || accId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = accionSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const data = parsed.data;
   const [row] = await db.update(pesvPlanAcciones).set({
     ...(data.descripcion !== undefined && { descripcion: data.descripcion }),

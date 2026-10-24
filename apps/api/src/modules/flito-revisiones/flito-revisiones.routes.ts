@@ -57,8 +57,8 @@ router.get('/soporte/:soporteId/archivo', exigirFuncion('revisiones.soporte.desc
 
 // POST /:id/resolver — la persona confirma registro + campos. Solo Operaciones.
 const resolverSchema = z.object({
-  registroId: z.string().uuid(),
-  campos: z.record(z.string()),
+  registroId: z.string().guid(),
+  campos: z.record(z.string(), z.string()),
   motivo: z.string().min(1, 'Deja constancia de qué validaste'),
 });
 router.post('/:id/resolver', exigirFuncion('revisiones.revision.resolver'), async (req: Request, res: Response) => {

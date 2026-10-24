@@ -150,7 +150,7 @@ router.post(
   async (req: Request, res: Response) => {
     const parsed = designarSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+      res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
       return;
     }
     const data = parsed.data;

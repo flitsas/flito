@@ -43,8 +43,8 @@ async function ctxDe(req: Request): Promise<TramitesCtx> {
   return { userId: user.sub, username: user.username, role: user.role, alcance: await alcanceDe(req) };
 }
 
-const loteSchema = z.object({ tramiteIds: z.array(z.string().uuid()).min(1) });
-const soatSchema = loteSchema.extend({ proveedorSoatId: z.string().uuid() });
+const loteSchema = z.object({ tramiteIds: z.array(z.string().guid()).min(1) });
+const soatSchema = loteSchema.extend({ proveedorSoatId: z.string().guid() });
 
 function bad(res: Response): void { res.status(400).json({ error: 'Datos inválidos' }); }
 
@@ -86,9 +86,9 @@ router.get('/', exigirFuncion('tramites.cola.ver'), async (req: Request, res: Re
 // Mismo permiso y alcance que el listado. `filtros` va en el BODY (puede traer placa/NIT en `buscar`,
 // regla 14). Responde solo dos contadores, sin ids ni PII; no se loguea el body.
 const novedadesSchema = z.object({
-  filtros: z.record(z.string().max(200)).default({}),
+  filtros: z.record(z.string(), z.string().max(200)).default({}),
   marca: z.string().datetime({ offset: true }),
-  visibles: z.array(z.string().uuid()).max(MAX_VISIBLES_NOVEDADES).default([]),
+  visibles: z.array(z.string().guid()).max(MAX_VISIBLES_NOVEDADES).default([]),
 }).strict();
 
 router.post('/novedades/buscar', exigirFuncion('tramites.cola.ver'), novedadesTramitesLimiter, async (req: Request, res: Response) => {
@@ -182,7 +182,7 @@ router.get('/:id/soportes', exigirFuncion('tramites.tramite.ver_soportes'), asyn
 const zipSoportesSchema = z.object({
   // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
   // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
-  ids: z.array(z.string().uuid()).min(1),
+  ids: z.array(z.string().guid()).min(1),
   tipos: z.array(z.enum([
     TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.RECIBO_IMPUESTO, TipoSoporteZip.FACTURA_SOAT,
   ])).min(1).max(3),

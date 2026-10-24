@@ -111,7 +111,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 // ============================================================================
 router.post('/', exigirFuncion('laft.plan_auditoria.administrar'), writeLimiter, async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' }); return; }
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' }); return; }
   const data = parsed.data;
 
   // Validar responsable interno si vino userId.
@@ -153,7 +153,7 @@ router.patch('/:id', exigirFuncion('laft.plan_auditoria.administrar'), writeLimi
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = updateSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' }); return; }
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' }); return; }
   const data = parsed.data;
 
   const setData: Record<string, unknown> = { updatedAt: new Date() };

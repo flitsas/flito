@@ -83,13 +83,13 @@ export const CARPETA_APLICADOS = `${CARPETA_COMPROBANTES}/tramites`;
  * «trámite ≠ candidato sugerido ⇒ motivo» necesita la fila y vive en `aplicar`, no aquí.
  */
 export const aplicarSchema = z.object({
-  tramiteId: z.string().uuid(),
+  tramiteId: z.string().guid(),
   concepto: z.enum(CONCEPTOS_COSTO as [ConceptoCosto, ...ConceptoCosto[]]),
   esPago: z.boolean(),
-  campos: z.record(z.string().max(200)).default({}),
+  campos: z.record(z.string(), z.string().max(200)).default({}),
   motivo: z.string().trim().min(5).max(500).optional(),
   /** Bug #12913: el tipo de servicio adicional que paga. Obligatorio en el pago SA; prohibido en el resto. */
-  servicioTipoId: z.string().uuid().optional(),
+  servicioTipoId: z.string().guid().optional(),
 }).refine((b) => Object.keys(b.campos).length === 0 || !!b.motivo, { message: 'Confirmar campos exige motivo', path: ['motivo'] })
   .refine((b) => !esPagoSa(b) || !!b.servicioTipoId, { message: 'Aplicar un pago de servicios adicionales exige elegir el servicio', path: ['servicioTipoId'] })
   .refine((b) => esPagoSa(b) || b.servicioTipoId === undefined, { message: 'El servicio solo se elige al aplicar un pago de servicios adicionales', path: ['servicioTipoId'] });
