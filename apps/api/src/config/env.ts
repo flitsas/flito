@@ -382,6 +382,14 @@ const envSchema = z.object({
   // trae tipo, concepto, es-pago y valor confiables. Encendida por defecto; '0' deja todo en pendiente
   // con la sugerencia escrita. Interruptor de emergencia, no parámetro de negocio.
   COMPROBANTES_AUTO_APLICAR: z.enum(['0', '1']).default('1'),
+  // HU #13902 (ADR-0029 D12) — corte de las bolsas de compañía: desde este día (AAAA-MM-DD, hora de
+  // Colombia) el comprobante de pago aplicado descuenta la bolsa y la liquidación deja de moverla.
+  // Sin valor (despliegue por defecto) todo sigue como antes. Una vez superada la fecha NO se edita.
+  // Vacía (`VAR=` en un compose) cuenta como sin valor; '2026-02-31' pasa el regex pero no es un día.
+  FLITO_BOLSAS_CORTE_COMPROBANTES: z.preprocess((v) => (v === '' ? undefined : v), z.string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Debe ser AAAA-MM-DD')
+    .refine((v) => { const d = new Date(`${v}T00:00:00Z`); return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(v); }, 'No es una fecha real')
+    .optional()),
   // Cron de sincronización desde FLIT (formato de 6 campos, con segundos). Default: cada 5 min.
   SYNC_CRON: z.string().default('0 */5 * * * *'),
   // Habilita el job de sincronización FLITO. Default true; 'false'/'0' lo apaga.

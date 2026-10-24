@@ -72,6 +72,10 @@ export interface DatosMovimiento {
   llaveIdempotencia?: string | null;
   /** Movimiento que este ajuste corrige (HU #11123). */
   corrigeMovimientoId?: string | null;
+  /** HU #13902: comprobante que originó el descuento (o cuya salida se revierte). */
+  comprobanteId?: string | null;
+  /** HU #13902 (D13): salida que esta entrada revierte; el índice único parcial impide revertir dos veces. */
+  revierteMovimientoId?: string | null;
   /** Sustantivo para los mensajes de error: 'recarga', 'salida', 'ajuste'… */
   etiqueta?: string;
 }
@@ -148,7 +152,7 @@ export async function bolsaCompaniaBloqueada(tx: Tx, companiaId: number): Promis
 }
 
 /** Bolsa por id, bloqueada. */
-async function bolsaBloqueadaPorId(tx: Tx, bolsaId: string): Promise<BolsaEnLibro | undefined> {
+export async function bolsaBloqueadaPorId(tx: Tx, bolsaId: string): Promise<BolsaEnLibro | undefined> {
   const [fila] = await tx.select(COLUMNAS_BOLSA).from(flitoBolsasUnicas)
     .where(eq(flitoBolsasUnicas.id, bolsaId)).for('update').limit(1);
   return fila ? aBolsa(fila) : undefined;
@@ -322,6 +326,8 @@ export async function asentarEnBolsa(
       registradoPorNombre: ctx.nombre,
       llaveIdempotencia: datos.llaveIdempotencia ?? null,
       corrigeMovimientoId: datos.corrigeMovimientoId ?? null,
+      comprobanteId: datos.comprobanteId ?? null,
+      revierteMovimientoId: datos.revierteMovimientoId ?? null,
     }).returning();
   } catch (e) {
     const previo = await reintentoPorLlave(tx, e, datos.llaveIdempotencia);

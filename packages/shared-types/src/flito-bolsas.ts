@@ -35,6 +35,8 @@ export const OrigenMovimientoBolsa = {
   AUTOMATICO: 'automatico',
   MANUAL: 'manual',
   CONCILIACION: 'conciliacion',
+  /** HU #13902 (ADR-0029 D7): descuento al aplicar un comprobante de pago, y su reversión enlazada. */
+  COMPROBANTE: 'comprobante',
 } as const;
 
 export type OrigenMovimientoBolsa = (typeof OrigenMovimientoBolsa)[keyof typeof OrigenMovimientoBolsa];
@@ -317,6 +319,22 @@ export interface RespuestaMovimiento {
 
 export const AlcanceBolsa = { COMPANIA: 'compania', TRANSITO: 'transito' } as const;
 export type AlcanceBolsa = (typeof AlcanceBolsa)[keyof typeof AlcanceBolsa];
+
+/**
+ * HU #13902: por qué el descuento de un comprobante no movió una bolsa. Ninguno genera alerta (D10).
+ * `autogestionado` (D15): la compañía autogestiona el concepto y el trámite no tiene excepción vigente
+ * (ni es un SOAT del canal cliente).
+ */
+export type MotivoOmisionDescuento =
+  | 'antes_del_corte' | 'sin_compania' | 'sin_organismo' | 'sin_bolsa' | 'inactiva' | 'concepto_no_cubierto'
+  | 'cubierto_por_liquidacion' | 'cubierto_por_conciliacion' | 'no_es_pago' | 'autogestionado';
+
+/** Lo que el descuento devuelve a quien aplica el comprobante (y el detalle muestra). Alertas: saldo < 0 (D11). */
+export interface DescuentoBolsaDto {
+  movimientos: Array<{ bolsaId: string; alcance: AlcanceBolsa; movimientoId: string; valor: number; saldoResultante: number }>;
+  omitidos: Array<{ alcance: AlcanceBolsa; motivo: MotivoOmisionDescuento }>;
+  alertas: Array<{ bolsaId: string; alcance: AlcanceBolsa; saldoResultante: number }>;
+}
 
 /** Forma fijada con #13407. `activa` es false cuando `existe` es false. */
 export interface EstadoBolsaCompaniaDto { existe: boolean; activa: boolean }

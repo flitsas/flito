@@ -33,6 +33,9 @@ const ORIGEN: Record<OrigenMovimientoBolsa, { label: string; tono: ChipTone }> =
   // el reverso de la liquidación no lo devuelve. Este mismo mapa alimenta el filtro de origen y la
   // exportación, así que con esta entrada quedan los tres.
   conciliacion: { label: 'Conciliación', tono: 'active' },
+  // HU #13902: descuento al aplicar un comprobante de pago (y su reversión enlazada). Entrada mínima
+  // exigida por el `Record`; el tratamiento visual lo decide la HU de UI (R-front).
+  comprobante: { label: 'Comprobante', tono: 'neutral' },
 };
 
 interface Filtros {
