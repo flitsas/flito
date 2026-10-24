@@ -964,8 +964,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_comprobantes",
     "etiqueta": "Comprobantes",
     "resumen": "Cargue cualquier comprobante y revise lo que FLITO leyó.",
-    "version": "1.2",
-    "fecha": "2026-10-22",
+    "version": "1.3",
+    "fecha": "2026-10-24",
     "palabrasClave": [
       "comprobantes",
       "cargar comprobante",
@@ -1003,6 +1003,11 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
         "texto": "Diga qué es el documento: Comprobante de pago o Documentación del trámite. Si FLITO lo leyó con confianza, ya viene marcado; si no, márquelo usted. Elija el Trámite. FLITO sugiere los trámites que coinciden con lo leído (Sugerido · por placa, por VIN o por ID FLIT); con un solo sugerido ya viene puesto. Si el suyo no está, escriba al menos 3 caracteres del ID FLIT, la placa o el VIN y elija uno de los resultados. La ✕ Quitar trámite vacía el campo. Elija el Concepto. Junto a cada opción verá si ese trámite lo admite o por qué no (ya pagado, liquidado, no gestionado, ya documentado, estado no permitido). En un pago de Servicios adicionales, elija además el Tipo de servicio del catálogo activo: al aplicar, ese servicio queda asignado al trámite con el valor del comprobante. Si el tipo ya estaba asignado a mano, la lista lo marca Ya asignado · se actualizará el valor y el comprobante corrige ese valor. Si ya lo pagó otro comprobante, lo marca Ya tiene un comprobante aplicado y no se puede elegir: un tipo lleva un solo comprobante por trámite. Sin tipo, Aplicar no se habilita. Revise los datos leídos y corrija lo que haga falta. En un pago, el Valor es obligatorio (pesos, sin puntos ni signo); en documentación no se pide. Si cambió algo de lo leído (un dato, el trámite sugerido, el concepto o la marca de pago), escriba Por qué cambias lo leído (mínimo 5 caracteres): queda en la auditoría del comprobante. No escriba datos personales. Pulse Aplicar (pago) o Adjuntar (documentación). Si falta algo, FLITO se lo marca y no envía nada. Al terminar, la cola se actualiza y verá el mensaje Comprobante aplicado a … o Documentación adjuntada a …. Si el trámite no admite ese pago (por ejemplo, ya está pagado), FLITO se lo dice y le ofrece Adjuntar como documentación: el documento queda en el trámite sin contar como pago. Si ya había otro comprobante con ese valor, Reemplazar le pide un motivo, descarta el anterior y aplica este. Para sacar un documento de la cola, pulse Descartar, escriba el motivo (mínimo 5 caracteres) y confirme. El archivo deja de contar como duplicado: se podrá volver a cargar."
       },
       {
+        "ancla": "corregir-un-comprobante-aplicado",
+        "titulo": "Corregir un comprobante aplicado",
+        "texto": "Si un comprobante quedó aplicado al trámite o con el concepto equivocado, ábralo con Ver: Desaplicar: elija si vuelve a la cola (para asociarlo otra vez) o se descarta, escriba el    motivo (mínimo 5 caracteres) y confirme. Se deshace lo que el comprobante registró en el trámite. Reemplazar: elija el comprobante pendiente que va en su lugar y escriba el motivo. El    original queda descartado y el nuevo se aplica al mismo trámite y concepto. Si no hay    pendientes, cargue primero el comprobante correcto. No siempre se puede corregir aquí: si el descuento cae en un periodo cerrado de la bolsa, si el pago se corrige en su propio módulo, si el trámite ya está liquidado o si es un pago de servicios adicionales que se corrige en Servicios adicionales, FLITO se lo explica y no cambia nada."
+      },
+      {
         "ancla": "estados",
         "titulo": "Estados",
         "texto": "Cargando: la tabla muestra su esqueleto; en el modal, Procesando… y enviando X de N archivos. Error: No se pudo cargar la cola de comprobantes con Reintentar. En la carga, si el servidor   no admite el peso o no termina a tiempo, FLITO se lo dice con el siguiente paso y conserva lo que sí   se procesó. Vacío: No hay comprobantes por asociar. Con filtros, **Ningún comprobante coincide con los   filtros y Limpiar filtros**. Lleno: una fila por documento, agrupadas por carga, con lo leído, la llave, el valor, el estado   (Pendiente de asociar, Rechazado como pago, Aplicado automático, Aplicado manual,   Adjuntado o Descartado) y su motivo, y Asociar (pendientes) o Ver (aplicados y   descartados). En el panel: Buscando… mientras busca trámites; Ningún trámite coincide con «…» si no hay   resultados; No se pudo buscar. Vuelve a intentarlo. si falla la búsqueda; Aplicando… o   Adjuntando… mientras envía."
@@ -1010,7 +1015,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "que-no-hace",
         "titulo": "Qué no hace",
-        "texto": "No reparte un pago entre varios trámites: cada comprobante va a un solo trámite. No deshace una aplicación: un comprobante aplicado se ve en solo lectura. No acepta diferencias de valor frente a la tarifa: eso se hace desde el reporte de costos. No abre archivos ZIP: suba los PDF o las imágenes sueltos. No carga SOAT del canal Cliente: esas solicitudes no tienen trámite y siguen su propio camino. No reemplaza la carga masiva de SOAT ni la de Impuestos: siguen en sus pantallas. Un   archivo que ya entró por ahí sale aquí como Duplicado. No muestra ni guarda datos de personas del documento: FLITO no los lee."
+        "texto": "No reparte un pago entre varios trámites: cada comprobante va a un solo trámite. No acepta diferencias de valor frente a la tarifa: eso se hace desde el reporte de costos. No abre archivos ZIP: suba los PDF o las imágenes sueltos. No carga SOAT del canal Cliente: esas solicitudes no tienen trámite y siguen su propio camino. No reemplaza la carga masiva de SOAT ni la de Impuestos: siguen en sus pantallas. Un   archivo que ya entró por ahí sale aquí como Duplicado. No muestra ni guarda datos de personas del documento: FLITO no los lee."
       }
     ]
   },
