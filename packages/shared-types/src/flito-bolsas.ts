@@ -333,7 +333,8 @@ export type MotivoOmisionDescuento =
 export interface DescuentoBolsaDto {
   movimientos: Array<{ bolsaId: string; alcance: AlcanceBolsa; movimientoId: string; valor: number; saldoResultante: number }>;
   omitidos: Array<{ alcance: AlcanceBolsa; motivo: MotivoOmisionDescuento }>;
-  alertas: Array<{ bolsaId: string; alcance: AlcanceBolsa; saldoResultante: number }>;
+  /** `bolsaNombre` (HU #13904): nombre visible de la bolsa (el suyo, o el del cliente en una de compañía). */
+  alertas: Array<{ bolsaId: string; bolsaNombre: string; alcance: AlcanceBolsa; saldoResultante: number }>;
 }
 
 /** Forma fijada con #13407. `activa` es false cuando `existe` es false. */

@@ -37,7 +37,7 @@ import {
   AlcanceBolsa, ConceptoCosto, EstadoComprobante, type ConceptoBolsa, type DescuentoBolsaDto, type MovimientoBolsaDto,
 } from '@operaciones/shared-types';
 import { env } from '../../config/env.js';
-import { clients, flitoBolsasUnicasMovimientos, flitoComprobantes, flitoExcepcionesAutogestion, flitoImpuestos, flitoSoat, flitoTramites } from '../../db/schema.js';
+import { clients, flitoBolsasUnicas, flitoBolsasUnicasMovimientos, flitoComprobantes, flitoExcepcionesAutogestion, flitoImpuestos, flitoSoat, flitoTramites } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import { excepcionLogisticaViva, gestionaLogistica } from '../flito-liquidacion/gestiona-logistica.js';
@@ -89,10 +89,23 @@ function omitido(motivo: Motivo): DescuentoBolsaDto {
   return { movimientos: [], omitidos: [{ alcance: COMPANIA, motivo }], alertas: [] };
 }
 
-function conMovimiento(m: MovimientoBolsaDto): DescuentoBolsaDto {
+/**
+ * HU #13904: nombre visible de la bolsa — el suyo (tránsito) o, si es NULL (compañía), el del cliente.
+ * Viaja en la alerta de saldo y en el 409 `periodo_cerrado`; NUNCA a logs (RN-C10: los logs llevan solo ids).
+ */
+export async function nombreVisibleBolsa(tx: Tx, bolsaId: string): Promise<string> {
+  const [f] = await tx.select({ nombre: flitoBolsasUnicas.nombre, cliente: clients.name }).from(flitoBolsasUnicas)
+    .leftJoin(clients, eq(flitoBolsasUnicas.companiaId, clients.id))
+    .where(eq(flitoBolsasUnicas.id, bolsaId)).limit(1);
+  return f?.nombre ?? f?.cliente ?? '';
+}
+
+async function conMovimiento(tx: Tx, m: MovimientoBolsaDto): Promise<DescuentoBolsaDto> {
   const r = vacio();
   r.movimientos.push({ bolsaId: m.bolsaId, alcance: COMPANIA, movimientoId: m.id, valor: m.valor, saldoResultante: m.saldoResultante });
-  if (m.saldoResultante < 0) r.alertas.push({ bolsaId: m.bolsaId, alcance: COMPANIA, saldoResultante: m.saldoResultante });
+  if (m.saldoResultante < 0) {
+    r.alertas.push({ bolsaId: m.bolsaId, bolsaNombre: await nombreVisibleBolsa(tx, m.bolsaId), alcance: COMPANIA, saldoResultante: m.saldoResultante });
+  }
   return r;
 }
 
@@ -176,7 +189,7 @@ export async function descontarComprobante(tx: Tx, c: ComprobanteAplicado, ctx: 
   const ocupada = await movimientoPorLlave(tx, llave);
   if (ocupada) {
     const motivo = motivoLlaveOcupada(ocupada, c.comprobanteId);
-    return motivo ? omitido(motivo) : conMovimiento(ocupada);
+    return motivo ? omitido(motivo) : await conMovimiento(tx, ocupada);
   }
 
   const resuelta = await bolsaCompaniaPara(tx, f.companiaId, c.concepto);
@@ -199,19 +212,20 @@ export async function descontarComprobante(tx: Tx, c: ComprobanteAplicado, ctx: 
   // Carrera: otro escritor ocupó la llave mientras esperábamos el lock (RN-A5 del libro).
   if (duplicado) {
     const motivo = motivoLlaveOcupada(movimiento, c.comprobanteId);
-    return motivo ? omitido(motivo) : conMovimiento(movimiento);
+    return motivo ? omitido(motivo) : await conMovimiento(tx, movimiento);
   }
   log.info({ comprobanteId: c.comprobanteId, bolsaId: bolsa.id, movimientoId: movimiento.id, negativo: movimiento.saldoResultante < 0 },
     'Bolsa de la compañía descontada por comprobante');
-  return conMovimiento(movimiento);
+  return await conMovimiento(tx, movimiento);
 }
 
 /**
  * D14 (HU #13905): el periodo de la bolsa al que se IMPUTÓ el descuento está cerrado, así que no se puede
- * devolver. Quien desaplica/reemplaza lo traduce a 409 `periodo_cerrado` con `{ bolsaId, periodo }`.
+ * devolver. Quien desaplica/reemplaza lo traduce a 409 `periodo_cerrado` con `{ bolsaId, bolsaNombre, periodo }`
+ * (`bolsaNombre`, HU #13904: el nombre visible, para que el aviso nombre la bolsa).
  */
 export class PeriodoCerradoError extends Error {
-  constructor(public bolsaId: string, public periodo: string) {
+  constructor(public bolsaId: string, public periodo: string, public bolsaNombre: string) {
     super('El periodo de la bolsa ya está cerrado: el descuento no se puede devolver');
   }
 }
@@ -238,7 +252,9 @@ type SalidaViva = Awaited<ReturnType<typeof salidasVivasDe>>[number];
  */
 async function exigirPeriodoAbierto(tx: Tx, s: SalidaViva): Promise<void> {
   await bolsaBloqueadaPorId(tx, s.bolsaId);
-  if ((await periodosCerrados(tx, s.bolsaId)).has(s.periodo)) throw new PeriodoCerradoError(s.bolsaId, s.periodo);
+  if ((await periodosCerrados(tx, s.bolsaId)).has(s.periodo)) {
+    throw new PeriodoCerradoError(s.bolsaId, s.periodo, await nombreVisibleBolsa(tx, s.bolsaId));
+  }
 }
 
 /**

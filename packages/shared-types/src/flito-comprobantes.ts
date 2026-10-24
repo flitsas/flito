@@ -202,6 +202,8 @@ export interface ErrorComprobanteDto {
   comprobanteAnteriorId?: string;
   /** `periodo_cerrado` (HU #13903): la bolsa cuyo periodo está cerrado. */
   bolsaId?: string;
+  /** `periodo_cerrado` (HU #13904): el nombre visible de esa bolsa (el suyo, o el del cliente en una de compañía). */
+  bolsaNombre?: string;
   /** `periodo_cerrado` (HU #13903): el periodo cerrado (AAAA-MM). */
   periodo?: string;
 }
@@ -317,7 +319,10 @@ export interface ComprobanteDetalleDto extends ComprobanteListaDto {
   diferenciaAceptadaMotivo: string | null;
   /** F3 (HU #12654): `username` del usuario interno que aceptó (LEFT JOIN a `users`); null si no se ha aceptado. */
   diferenciaAceptadaPorNombre: string | null;
-  /** HU #13902 (D11): solo en la respuesta de aplicar con el corte vigente; trae la alerta si la bolsa quedó en negativo. */
+  /**
+   * HU #13902 (D11): solo en la respuesta de aplicar con el corte vigente; trae la alerta si la bolsa quedó en negativo.
+   * HU #13904: también en `comprobante` de la respuesta de reemplazar (el reemplazo descuenta por el mismo camino).
+   */
   bolsa?: DescuentoBolsaDto;
 }
 
