@@ -83,6 +83,15 @@ vi.mock('../../src/modules/flito-derechos/flito-derechos.service.js', async (ori
   const real = await orig() as Record<string, unknown>;
   return { ...real, registrarDesdeRevision: registrarDerechoMock };
 });
+// HU #13902: el gancho de la bolsa se espía con la implementación REAL por defecto (sin corte devuelve null
+// sin tocar la base, así que los casos anteriores no cambian); los casos de la HU fijan su respuesta.
+const bolsaDescuento = vi.hoisted(() => ({ descontar: vi.fn(), revertir: vi.fn() }));
+vi.mock('../../src/modules/flito-bolsas/flito-bolsas.descuento.js', async (orig) => {
+  const real = await orig() as typeof import('../../src/modules/flito-bolsas/flito-bolsas.descuento.js');
+  bolsaDescuento.descontar.mockImplementation(real.descontarComprobante);
+  bolsaDescuento.revertir.mockImplementation(real.revertirDescuentoComprobante);
+  return { ...real, descontarComprobante: bolsaDescuento.descontar, revertirDescuentoComprobante: bolsaDescuento.revertir };
+});
 const logLineas: unknown[] = [];
 const logMock = { info: (...a: unknown[]) => logLineas.push(a), warn: (...a: unknown[]) => logLineas.push(a), error: (...a: unknown[]) => logLineas.push(a), debug: vi.fn(), child: () => logMock };
 vi.mock('../../src/shared/logger.js', () => ({ loggerFor: () => logMock, logger: logMock }));
@@ -1388,5 +1397,92 @@ describe('HU #12654 — POST /:id/diferencia/aceptar', () => {
     const res = await request(app).post(`${BASE}/abc/diferencia/aceptar`).set('Authorization', await auth()).send({ motivo: MOTIVO });
     expect(res.status).toBe(404);
     expect(kdb.select).not.toHaveBeenCalled();
+  });
+});
+
+// ═════════════════ HU #13902 · gancho de la bolsa de la compañía ══════════════════════════════════
+
+describe('HU #13902 — aplicar llama al descuento de la bolsa dentro de la tx y lo compensa si el dueño rechaza', () => {
+  const APROBADO = new Date('2026-08-01T15:00:00Z');
+  const conValor = () => { const e = extraccion(); e[CampoComprobante.VALOR_TOTAL] = campo('300000', 0.95); e[CampoComprobante.CONCEPTO] = campo('tramite_digital', 0.95); return e; };
+  const ctx = { userId: 7, username: 'u@flitsas.io', role: 'financiera' };
+  const DTO = {
+    movimientos: [{ bolsaId: 'bolsa-1', alcance: 'compania', movimientoId: 'mov-1', valor: 300000, saldoResultante: -200000 }],
+    omitidos: [], alertas: [{ bolsaId: 'bolsa-1', alcance: 'compania', saldoResultante: -200000 }],
+  };
+  function armarHonorario() {
+    kdb.when
+      .selectOnce(T_COMP, [cabecera({ extraccion: conValor(), extraccionDestino: null })])
+      .selectOnce(T_SOP, [soporte])
+      .selectOnce(T_COMP, [{ estado: 'pendiente' }])
+      .select(T_TRAM, [tramite({ companiaId: 1, tipoTramite: 'MATRICULA', fechaAprobacion: APROBADO })])
+      .select(T_LIQ, [])
+      .select(T_TAR, [{ valor: '300000.00' }])
+      .select(T_SA, [{ total: null }])
+      .selectOnce(T_COMP, [filaAplicada({ esPago: true, valor: '300000', concepto: 'tramite_digital' })])
+      .selectOnce(T_COMP, [{ extraccion: conValor(), extraccionDestino: null }])
+      .update(T_SOP, [{ id: 'sop-1' }])
+      .update(T_COMP, [{ id: ID }]);
+  }
+  const body = { tramiteId: T1, concepto: 'tramite_digital', esPago: true, campos: {} };
+  beforeEach(() => { bolsaDescuento.descontar.mockClear(); bolsaDescuento.revertir.mockClear(); });
+
+  it('AC5 · honorario: descuenta DESPUÉS de cerrar la fila, con el valor y el mismo aplicado_en; la respuesta trae `bolsa` con la alerta', async () => {
+    bolsaDescuento.descontar.mockResolvedValueOnce(DTO);
+    armarHonorario();
+    const dto = await aplicar(ID, body, ctx);
+    expect(bolsaDescuento.descontar).toHaveBeenCalledTimes(1);
+    const [tx, c, quien] = bolsaDescuento.descontar.mock.calls[0]!;
+    expect(tx).toBeDefined();
+    const cierre = espia.updatesEn(T_COMP)[0]!.datos;
+    expect(c).toEqual({ comprobanteId: ID, tramiteId: T1, concepto: 'tramite_digital', esPago: true, valor: '300000', aplicadoEn: cierre.aplicadoEn });
+    expect(quien).toEqual({ userId: 7, nombre: 'u@flitsas.io' });
+    expect(dto.bolsa).toEqual(DTO);
+    expect(dto).toMatchObject({ id: ID, estado: 'aplicado' });
+  });
+
+  it('AC1 · sin corte (gancho real → null) la respuesta NO trae `bolsa`', async () => {
+    armarHonorario();
+    const dto = await aplicar(ID, body, ctx);
+    expect(bolsaDescuento.descontar).toHaveBeenCalledTimes(1);
+    expect(await bolsaDescuento.descontar.mock.results[0]!.value).toBeNull();
+    expect('bolsa' in dto).toBe(false);
+  });
+
+  it('AC9 · auto-aplicación: el mismo descuento, a nombre de quien cargó el comprobante', async () => {
+    armarHonorario();
+    await aplicar(ID, body, ctx, { automatico: true });
+    expect(bolsaDescuento.descontar).toHaveBeenCalledTimes(1);
+    expect(bolsaDescuento.descontar.mock.calls[0]![2]).toEqual({ userId: 7, nombre: 'u@flitsas.io' });
+  });
+
+  it('AC4 · documentación (esPago=false) pasa por el gancho con esPago=false y valor null (→ no_es_pago)', async () => {
+    armarAplicar();
+    await aplicar(ID, { tramiteId: T1, concepto: 'soat', esPago: false, campos: {} }, ctx);
+    expect(bolsaDescuento.descontar.mock.calls[0]![1]).toMatchObject({ comprobanteId: ID, concepto: 'soat', esPago: false, valor: null });
+  });
+
+  it('AC8 · SOAT rechazado tras el commit: descontó en la tx y, al volver a pendiente, revierte con compensacion:true', async () => {
+    const app = await buildApp();
+    kdb.when
+      .selectOnce(T_COMP, [cabecera({ extraccionDestino: { numeroPoliza: campo('POL-1', 0.6), valorTotal: campo('350000', 0.9) } })])
+      .selectOnce(T_SOP, [soporte])
+      .selectOnce(T_COMP, [{ estado: 'pendiente' }])
+      .select(T_TRAM, [tramite({ soatId: 'soat-1', soatEstado: 'solicitado' })])
+      .select(T_IMP, [])
+      .select(T_DER, [])
+      .select(T_SOAT, [{ id: 'soat-1', estado: 'pagado' }])
+      .update(T_SOP, [{ id: 'sop-1' }])
+      .update(T_COMP, [{ id: ID }]);
+    bolsaDescuento.descontar.mockResolvedValueOnce(DTO);
+    bolsaDescuento.revertir.mockResolvedValueOnce([]);
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send({ tramiteId: T1, concepto: 'soat', esPago: true });
+    expect(res.status).toBe(409);
+    expect(bolsaDescuento.descontar.mock.calls[0]![1]).toMatchObject({ comprobanteId: ID, concepto: 'soat', esPago: true });
+    expect(bolsaDescuento.revertir).toHaveBeenCalledTimes(1);
+    const [, id, quien, o] = bolsaDescuento.revertir.mock.calls[0]!;
+    expect([id, quien, o.compensacion]).toEqual([ID, { userId: 7, nombre: 'u@flitsas.io' }, true]);
+    // La vuelta a pendiente sigue ocurriendo (la tx compartida la garantiza el código: el mock ejecuta `cb(db)`).
+    expect(espia.updatesEn(T_COMP)[1]!.datos).toMatchObject({ estado: 'pendiente' });
   });
 });
