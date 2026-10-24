@@ -1,37 +1,30 @@
-// FLITO — Bolsas (Feature #11120, HU #11127–#11130; reestructurado en la #11210).
+// FLITO — Bolsas (Feature #11120, HU #11127–#11130; reestructurado en la #11210; catálogo en la #13901).
 //
-// UNA sola vista. Antes eran tres pestañas —tablero, cliente y organismo— y ninguna contestaba sola
-// la pregunta de Financiera: dónde hay que poner plata hoy. Ahora los KPI encabezan la pantalla y
-// debajo van dos acordeones, clientes y tránsitos, con la misma anatomía de tarjeta; el detalle se
-// abre en un modal por encima, para no perder el sitio al revisar uno tras otro.
+// UNA sola vista: los KPI encabezan la pantalla y debajo van dos acordeones, compañías y tránsitos.
+// El detalle se abre en un modal por encima, para no perder el sitio al revisar uno tras otro.
 //
-// La página no pinta datos por su cuenta: coordina qué se está mirando y reparte. El extracto, la
-// tendencia, el resumen del cierre y la tabla de movimientos salen TODOS del mismo libro, y pedirlos
-// por separado sería arriesgarse a enseñar dos cifras distintas del mismo dinero.
+// HU #13901 (spec `docs/ux/flito-bolsas.md`): «Crear bolsa» es la ÚNICA primaria y vive en la
+// cabecera; abre el formulario único (`BolsaForm`), que pregunta primero el alcance. El selector de
+// periodo se muda al detalle, que es el único sitio donde importa. El buscador manda el texto en el
+// body de `POST /buscar` y nunca en la URL (Ley 1581).
 //
-// El acceso está cerrado a Administración y Financiera, igual que el router de la API: aquí se ve el
-// dinero del cliente y ni siquiera auditoría entra, a diferencia del resto de FLITO.
+// La página coordina qué se está mirando y reparte: el tablero, el formulario y los detalles traen
+// sus propios datos.
+//
+// El acceso está cerrado por función (`bolsas.bolsa.ver`), igual que el router de la API: aquí se ve
+// el dinero del cliente.
 
-import { useCallback, useEffect, useState } from 'react';
-import {
-  type BolsaConRiesgo, type CierreDto, type ExtractoCliente, type MovimientoBolsaDto,
-} from '@operaciones/shared-types';
-import { ApiError, api, errorMessage } from '../lib/api';
+import { useCallback, useState } from 'react';
 import { useAuth } from '../lib/auth';
-import { etiquetaPeriodo, periodoActual, ultimosPeriodos } from '../lib/bolsas';
 import NoAccess from '../components/NoAccess';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
-import { FlitCard, flitInp, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
-import { type ClienteOpcion } from '../components/flito/BolsaAbrirCliente';
-import BolsaAcciones from '../components/flito/BolsaAcciones';
-import BolsaExtracto from '../components/flito/BolsaExtracto';
-import BolsaMovimientos from '../components/flito/BolsaMovimientos';
+import { flitBtnPrimary, flitBtnPrimaryStyle } from '../components/flit/flitPageKit';
+import BolsaDetalleCompania, { RegionDesplazable, type EntradaDetalle } from '../components/flito/BolsaDetalleCompania';
+import BolsaForm from '../components/flito/BolsaForm';
 import BolsaTransitoDetalle from '../components/flito/BolsaTransito';
+import BolsaTransitoForm from '../components/flito/BolsaTransitoForm';
 import BolsasTablero from '../components/flito/BolsasTablero';
-
-/** Cuántos meses ofrece el selector de periodo. Un año cubre cualquier cierre que siga en disputa. */
-const PERIODOS_OFRECIDOS = 12;
 
 export default function FlitoBolsas() {
   const { hasFuncion } = useAuth();
@@ -42,24 +35,25 @@ export default function FlitoBolsas() {
   return <Bolsas />;
 }
 
+/** Qué formulario de alta está abierto. `companiaInicial` viene de «Crea la bolsa primero» (AC6). */
+type Alta = { companiaInicial: number | null } | null;
+
 function Bolsas() {
-  const [periodo, setPeriodo] = useState(periodoActual);
+  const { hasFuncion } = useAuth();
   const [nonce, setNonce] = useState(0);
-  const [clientes, setClientes] = useState<ClienteOpcion[]>([]);
-
-  /** Cliente cuyo detalle está abierto en el modal. `null` = tablero a secas. */
-  const [detalleCliente, setDetalleCliente] = useState<number | null>(null);
-  /** Organismo cuyo detalle está abierto en el modal. */
-  const [detalleTransito, setDetalleTransito] = useState<{ id: string; nombre: string } | null>(null);
-
   const recargar = useCallback(() => setNonce((n) => n + 1), []);
 
-  useEffect(() => {
-    api.get<ClienteOpcion[]>('/clients')
-      .then((c) => setClientes(Array.isArray(c) ? c.map((x) => ({ id: x.id, name: x.name })) : []))
-      // Sin la lista de clientes se pierde el botón de abrir bolsa, no la pantalla: las bolsas ya
-      // abiertas siguen listándose y su detalle sigue accesible.
-      .catch(() => setClientes([]));
+  const [detalle, setDetalle] = useState<{ entrada: EntradaDetalle; nombre: string } | null>(null);
+  const [detalleTransito, setDetalleTransito] = useState<{ id: string; nombre: string } | null>(null);
+  const [alta, setAlta] = useState<Alta>(null);
+  const [altaTransito, setAltaTransito] = useState(false);
+
+  // AC7: sin la función, el botón NO se pinta (no se deshabilita).
+  const puedeCrear = hasFuncion('bolsas.bolsa.crear') || hasFuncion('bolsas.transito.crear');
+  const puedeCrearCompania = hasFuncion('bolsas.bolsa.crear');
+  const abrirAlta = useCallback((companiaInicial: number | null = null) => {
+    setDetalle(null);
+    setAlta({ companiaInicial });
   }, []);
 
   return (
@@ -67,172 +61,63 @@ function Bolsas() {
       <PageHeaderCard
         title="Bolsas"
         subtitle="El saldo que cada cliente tiene precargado y el que FLIT mantiene en las secretarías."
+        actions={puedeCrear ? (
+          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => abrirAlta()}>
+            <span aria-hidden="true" className="text-base leading-none">+</span>
+            Crear bolsa
+          </button>
+        ) : undefined}
       />
 
-      <FlitCard>
-        <div className="flex flex-wrap items-end gap-4">
-          <label className="block w-[200px]">
-            <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-              Periodo contable
-            </span>
-            <select className={flitInp} value={periodo} onChange={(e) => setPeriodo(e.target.value)}>
-              {ultimosPeriodos(PERIODOS_OFRECIDOS).map((p) => (
-                <option key={p} value={p}>{etiquetaPeriodo(p)}</option>
-              ))}
-            </select>
-          </label>
-          <p className="pb-2 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
-            Las entradas y salidas de las tarjetas de cliente, el desglose y el cierre son del periodo
-            elegido. El saldo y las cifras de los organismos son siempre el acumulado.
-          </p>
-        </div>
-      </FlitCard>
-
       <BolsasTablero
-        periodo={periodo}
-        clientes={clientes}
         nonce={nonce}
-        onCambio={recargar}
-        onVerCliente={setDetalleCliente}
+        onCrear={puedeCrear ? () => abrirAlta() : null}
+        onVerBolsa={(b) => setDetalle({ entrada: { bolsaId: b.id }, nombre: b.nombre })}
+        onVerCompania={(c) => setDetalle({ entrada: { companiaId: c.companiaId }, nombre: c.nombre })}
         onVerTransito={setDetalleTransito}
       />
 
-      {detalleCliente !== null && (
-        <ModalDetalleCliente
-          companiaId={detalleCliente}
-          nombrePorDefecto={clientes.find((c) => c.id === detalleCliente)?.name ?? `Cliente ${detalleCliente}`}
-          periodo={periodo}
-          onClose={() => setDetalleCliente(null)}
+      {detalle !== null && (
+        <BolsaDetalleCompania
+          entrada={detalle.entrada}
+          nombre={detalle.nombre}
+          onClose={() => setDetalle(null)}
           onCambio={recargar}
+          onCrearBolsa={puedeCrearCompania ? (companiaId) => abrirAlta(companiaId) : null}
         />
       )}
 
       {detalleTransito !== null && (
         <FlitModal title={detalleTransito.nombre} onClose={() => setDetalleTransito(null)} full>
-          <BolsaTransitoDetalle bolsaId={detalleTransito.id} onCambio={recargar} />
+          {/* AC9: el mismo envoltorio desplazable que el detalle de compañía. Sin bloque #13407. */}
+          <RegionDesplazable etiqueta={`Detalle de la bolsa de ${detalleTransito.nombre}`}>
+            <BolsaTransitoDetalle bolsaId={detalleTransito.id} onCambio={recargar} />
+          </RegionDesplazable>
         </FlitModal>
       )}
-    </div>
-  );
-}
 
-/**
- * Detalle de la bolsa de un cliente: extracto, acciones y libro.
- *
- * Trae sus propios datos y no los hereda del tablero a propósito: el tablero enseña el saldo y el
- * movimiento del mes, mientras que aquí hacen falta el extracto, los cierres y el libro completo, y
- * arrastrar todo eso por el tablero significaría pedirlo para clientes que nadie va a abrir.
- */
-function ModalDetalleCliente({ companiaId, nombrePorDefecto, periodo, onClose, onCambio }: {
-  companiaId: number;
-  nombrePorDefecto: string;
-  periodo: string;
-  onClose: () => void;
-  onCambio: () => void;
-}) {
-  /** Traer el libro entero en vez de solo el periodo. Solo afecta a la tabla de movimientos. */
-  const [verTodo, setVerTodo] = useState(false);
-  const [nonce, setNonce] = useState(0);
-  const [bolsa, setBolsa] = useState<BolsaConRiesgo | null>(null);
-  /** El cliente existe pero no tiene bolsa (404). No es un error: es una bolsa por abrir. */
-  const [sinBolsa, setSinBolsa] = useState(false);
-  const [extracto, setExtracto] = useState<ExtractoCliente | null>(null);
-  const [movimientos, setMovimientos] = useState<MovimientoBolsaDto[] | null>(null);
-  const [cierres, setCierres] = useState<CierreDto[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  /** Refresca el modal Y el tablero: la recarga que se registre aquí cambia la tarjeta de allá. */
-  const refrescar = useCallback(() => { setNonce((n) => n + 1); onCambio(); }, [onCambio]);
-
-  useEffect(() => {
-    let vigente = true;
-    setError(null);
-    setMovimientos(null);
-    const q = verTodo ? '' : `?periodo=${periodo}`;
-
-    Promise.all([
-      // El 404 es la respuesta legítima de un cliente sin bolsa, no un fallo que deba tumbar la
-      // vista: se traduce a `sinBolsa` y el resto del modal sigue funcionando.
-      api.get<BolsaConRiesgo>(`/flito/bolsas/${companiaId}`)
-        .catch((e) => { if (e instanceof ApiError && e.status === 404) return null; throw e; }),
-      api.get<ExtractoCliente>(`/flito/bolsas/${companiaId}/extracto?periodo=${periodo}`),
-      api.get<MovimientoBolsaDto[]>(`/flito/bolsas/${companiaId}/movimientos${q}`),
-      api.get<CierreDto[]>(`/flito/bolsas/${companiaId}/cierres`),
-    ])
-      .then(([b, e, m, c]) => {
-        if (!vigente) return;
-        setBolsa(b);
-        setSinBolsa(b === null);
-        setExtracto(e);
-        setMovimientos(Array.isArray(m) ? m : []);
-        setCierres(Array.isArray(c) ? c : []);
-      })
-      .catch((e) => { if (vigente) setError(errorMessage(e)); });
-
-    return () => { vigente = false; };
-  }, [companiaId, periodo, verTodo, nonce]);
-
-  const nombre = bolsa?.companiaNombre ?? nombrePorDefecto;
-
-  // El cierre y la corrección se razonan SOBRE EL PERIODO, aunque la tabla esté enseñando el libro
-  // entero: confirmar un cierre con las cifras de todos los meses sería sellar un reporte falso.
-  const delPeriodo = (movimientos ?? []).filter((m) => m.periodo === periodo);
-  const periodoCerrado = cierres.some((c) => c.periodo === periodo);
-
-  return (
-    <FlitModal title={nombre} onClose={onClose} full>
-      {error ? (
-        <div>
-          <p className="text-sm" style={{ color: 'var(--flit-danger)' }}>{error}</p>
-          <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}
-            onClick={() => setNonce((n) => n + 1)}>
-            Reintentar
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={verTodo} onChange={(e) => setVerTodo(e.target.checked)} />
-            <span>Ver el libro completo (todos los periodos)</span>
-          </label>
-
-          {bolsa && (
-            <BolsaExtracto bolsa={bolsa} extracto={extracto} movimientos={delPeriodo} periodo={periodo} />
-          )}
-
-          {sinBolsa && (
-            <FlitCard>
-              <h2 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
-                {nombre} todavía no tiene bolsa
-              </h2>
-              <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-                La bolsa se abre sola con la primera recarga: registra el valor con su comprobante
-                y desde ese momento cada trámite del cliente descuenta de este saldo.
-              </p>
-            </FlitCard>
-          )}
-
-          <BolsaAcciones
-            companiaId={companiaId}
-            companiaNombre={nombre}
-            periodo={periodo}
-            periodoCerrado={periodoCerrado}
-            cierres={cierres}
-            movimientos={delPeriodo}
-            saldoActual={bolsa?.saldo ?? 0}
-            onHecho={refrescar}
-          />
-
-          <BolsaMovimientos
-            companiaNombre={nombre}
-            periodo={periodo}
-            todosLosPeriodos={verTodo}
-            movimientos={movimientos}
-            error={null}
-            onReintentar={refrescar}
-          />
-        </div>
+      {alta !== null && (
+        <BolsaForm
+          companiaInicial={alta.companiaInicial}
+          onClose={() => setAlta(null)}
+          onGuardada={(b) => {
+            setAlta(null);
+            recargar();
+            setDetalle({ entrada: { bolsaId: b.id }, nombre: b.nombre });
+          }}
+          onVerBolsa={(bolsaId) => {
+            setAlta(null);
+            setDetalle({ entrada: { bolsaId }, nombre: 'Bolsa' });
+          }}
+          onContinuarTransito={() => { setAlta(null); setAltaTransito(true); }}
+        />
       )}
-    </FlitModal>
+
+      {altaTransito && (
+        <BolsaTransitoForm
+          onClose={() => setAltaTransito(false)}
+          onHecho={() => { setAltaTransito(false); recargar(); }} />
+      )}
+    </div>
   );
 }

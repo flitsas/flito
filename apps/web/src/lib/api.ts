@@ -1,4 +1,8 @@
 import type {
+  BolsaDetalleDto, BolsaResumenDto, BuscarBolsasDto, CrearBolsaDto, EditarBolsaDto,
+  EstadoBolsaCompaniaConAutogestionDto,
+} from '@operaciones/shared-types';
+import type {
   ArbolRolRespuesta, ArbolUsuarioRespuesta, CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RespuestaReemplazoComprobante, RolCatalogo, TipoEnlace,
 } from '@operaciones/shared-types';
 
@@ -588,4 +592,23 @@ export const impuestosApi = {
    */
   reemplazarComprobantePago: (impuestoId: string, archivo: File) =>
     api.upload<RespuestaReemplazoComprobante>(`/flito/impuestos/${encodeURIComponent(impuestoId)}/recibos/reemplazar-pago`, archivo, 'archivo'),
+};
+
+// ── Bolsas: catálogo (HU #13901, contrato de la HU #13900) ─────────────────────
+//
+// Los filtros del listado van SIEMPRE en el body de `POST /buscar` (Ley 1581): el nombre y el NIT
+// de una compañía nunca viajan en la URL. Solo los ids opacos (uuid de la bolsa, id de compañía) van
+// en el path.
+export const bolsasApi = {
+  buscar: (filtros: BuscarBolsasDto) => api.post<BolsaResumenDto[]>('/flito/bolsas/buscar', filtros),
+  detalle: (bolsaId: string) => api.get<BolsaDetalleDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}`),
+  crear: (dto: CrearBolsaDto) => api.post<BolsaDetalleDto>('/flito/bolsas', dto),
+  editar: (bolsaId: string, dto: EditarBolsaDto) =>
+    api.patch<BolsaDetalleDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}`, dto),
+  inactivar: (bolsaId: string, motivo: string) =>
+    api.post<BolsaDetalleDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/inactivar`, { motivo }),
+  reactivar: (bolsaId: string, motivo: string) =>
+    api.post<BolsaDetalleDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/reactivar`, { motivo }),
+  estadoCompania: (companiaId: number) =>
+    api.get<EstadoBolsaCompaniaConAutogestionDto>(`/flito/bolsas/compania/${companiaId}/estado`),
 };
