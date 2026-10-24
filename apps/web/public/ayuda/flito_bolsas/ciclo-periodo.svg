@@ -8,8 +8,8 @@
   </defs>
   <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1a202c">
     <rect x="30" y="40" width="230" height="80" rx="12" fill="#fef3c7" stroke="#b7791f" stroke-width="2"/>
-    <text x="145" y="74" font-size="18">Abrir bolsa</text>
-    <text x="145" y="98" font-size="15">con la primera recarga</text>
+    <text x="145" y="74" font-size="18">Crear bolsa</text>
+    <text x="145" y="98" font-size="15">y elegir sus conceptos</text>
     <rect x="300" y="40" width="220" height="80" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
     <text x="410" y="74" font-size="18">Recargas y consumos</text>
     <text x="410" y="98" font-size="15">del periodo</text>
