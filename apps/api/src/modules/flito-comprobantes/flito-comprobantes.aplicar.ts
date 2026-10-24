@@ -48,7 +48,7 @@ import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   CAMPOS_COMPROBANTE, CodigoErrorComprobante, CONCEPTOS_COSTO, ConceptoCosto, CruceComprobante, EstadoComprobante,
-  TipoSoporte, type CampoExtraido, type ComprobanteDetalleDto, type ExtraccionComprobante,
+  TipoSoporte, type CampoExtraido, type ComprobanteDetalleDto, type DescuentoBolsaDto, type ExtraccionComprobante,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoComprobantes, flitoDerechosTramite, flitoImpuestos, flitoSoportes, flitoTramites } from '../../db/schema.js';
@@ -63,6 +63,8 @@ import { columnasDeLectura, ComprobanteError, detalle, type ComprobanteCtx } fro
 import { comprobarDestinoPago, pagarEnTx, pagarTrasCommit, tieneDueno, type DestinoPago, type PagoArgs } from './flito-comprobantes.duenos.js';
 import { CARPETA_COMPROBANTES, esHonorario } from './flito-comprobantes.expr.js';
 import { exigirNoLiquidado, traducirDuplicado, valorDocumentalDe, valorRequerido, type ValorDocumental } from './flito-comprobantes.honorarios.js';
+// HU #13902 (Q2): el gancho de la bolsa de la compañía. La lógica vive en `flito-bolsas`; aquí solo las llamadas.
+import { descontarComprobante, revertirDescuentoComprobante } from '../flito-bolsas/flito-bolsas.descuento.js';
 
 const log = loggerFor('flito-comprobantes-aplicar');
 
@@ -282,6 +284,7 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, 
   const cruce = esSugerido ? (c.cruce ?? CruceComprobante.MANUAL) : CruceComprobante.MANUAL;
   const argsBase = { tramiteId: body.tramiteId, extraccionDestino: extraccionDestino ?? {}, motivo: body.motivo ?? null, fechaPago: fechaPagoDe(lectura.fechaDocumento), ctx };
   let args: PagoArgs | null = null;
+  let bolsa: DescuentoBolsaDto | null = null;
   try {
     await db.transaction(async (tx) => { await aplicarEnTx(tx); });
   } catch (e) {
@@ -291,7 +294,14 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, 
   if (destinoPago && args) await pagarDespuesDelCommit(id, destinoPago, args);
   log.info({ comprobanteId: id, tramiteId: body.tramiteId, concepto: body.concepto, esPago: body.esPago, cruce, hijo: hijo !== null, por: ctx.userId, automatico },
     body.esPago ? 'Comprobante aplicado como pago' : 'Comprobante adjuntado como documentación');
-  return detalle(id);
+  // D11: el aviso de saldo negativo viaja en la respuesta (null con el corte apagado: el campo no aparece).
+  return bolsa ? { ...await detalle(id), bolsa } : detalle(id);
+
+  /** HU #13902: después de cerrar la fila, en la MISMA tx (locks: comprobante → trámite → bolsa compañía). */
+  async function descontar(tx: Tx, tramiteId: string, esPago: boolean, valor: string | null, aplicadoEn: Date): Promise<void> {
+    bolsa = await descontarComprobante(tx, { comprobanteId: id, tramiteId, concepto: body.concepto, esPago, valor, aplicadoEn },
+      { userId: ctx.userId, nombre: ctx.username });
+  }
 
   async function aplicarEnTx(tx: Tx): Promise<void> {
     await bloquearComprobantePendiente(tx, id);
@@ -320,13 +330,15 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, 
       const documental = await valorDocumentalDe(tx, tramite.id, honorario, lectura.valor!, servicioTipoId);
       // Bug #12913: el valor del COMPROBANTE entra a la puente por (trámite, tipo), bajo los mismos bloqueos.
       if (tipoServicio) await fijarDesdeComprobante(tx, tramite.id, tipoServicio, lectura.valor!, ctx.userId);
-      await cerrarComoPago(tx, id, cierre, lectura.valor, ctx, { ...documental, servicioTipoId: tipoServicio?.id ?? null });
+      const aplicadoEn = await cerrarComoPago(tx, id, cierre, lectura.valor, ctx, { ...documental, servicioTipoId: tipoServicio?.id ?? null });
+      await descontar(tx, tramite.id, true, lectura.valor, aplicadoEn);
       return;
     }
-    if (!enTx) { await adjuntarDocumentacion(tx, id, cierre, ctx); return; }
+    if (!enTx) { await descontar(tx, tramite.id, false, null, await adjuntarDocumentacion(tx, id, cierre, ctx)); return; }
     args = { ...argsBase, tramiteId: tramite.id, soporteAplicadoId };
     const pago = await pagarEnTx(tx, enTx, args);
-    await cerrarComoPago(tx, id, cierre, pago?.valorPagado ?? lectura.valor, ctx);
+    const valorPagado = pago?.valorPagado ?? lectura.valor;
+    await descontar(tx, tramite.id, true, valorPagado, await cerrarComoPago(tx, id, cierre, valorPagado, ctx));
   }
 }
 
@@ -342,10 +354,17 @@ async function pagarDespuesDelCommit(id: string, destinoPago: DestinoPago, args:
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error desconocido';
     log.error({ comprobanteId: id, tramiteId: args.tramiteId, concepto: destinoPago.concepto, err: msg }, 'El dueño rechazó el pago tras el commit; el comprobante vuelve a pendiente');
-    await db.update(flitoComprobantes).set({
-      estado: EstadoComprobante.PENDIENTE, esPago: null, valor: null, soporteAplicadoId: null,
-      aplicadoAutomaticamente: false, aplicadoPorId: null, aplicadoEn: null, aplicadoMotivo: null, updatedAt: new Date(),
-    }).where(and(eq(flitoComprobantes.id, id), eq(flitoComprobantes.estado, EstadoComprobante.APLICADO)));
+    // HU #13902 (AC8): en la misma tx que lo devuelve a pendiente, la entrada enlazada que revierte su descuento.
+    await db.transaction(async (tx) => {
+      const vuelto = await tx.update(flitoComprobantes).set({
+        estado: EstadoComprobante.PENDIENTE, esPago: null, valor: null, soporteAplicadoId: null,
+        aplicadoAutomaticamente: false, aplicadoPorId: null, aplicadoEn: null, aplicadoMotivo: null, updatedAt: new Date(),
+      }).where(and(eq(flitoComprobantes.id, id), eq(flitoComprobantes.estado, EstadoComprobante.APLICADO))).returning({ id: flitoComprobantes.id });
+      if (vuelto.length > 0) {
+        await revertirDescuentoComprobante(tx, id, { userId: args.ctx.userId, nombre: args.ctx.username },
+          { motivo: 'El dueño rechazó el pago tras aplicar el comprobante', compensacion: true });
+      }
+    });
     if (e instanceof ComprobanteError) throw e;
     throw new ComprobanteError(409, CodigoErrorComprobante.DESTINO_NO_ADMITE, `El pago no se registró en ${destinoPago.concepto}: ${msg}`, { detalle: msg, puedeAdjuntar: false });
   }
@@ -378,16 +397,18 @@ interface CierreComprobante {
 /** La fila documental del honorario más, en el pago SA (Bug #12913), el tipo de servicio que paga. */
 type DocumentalDeCierre = ValorDocumental & { servicioTipoId?: string | null };
 
-async function cerrar(tx: Tx, id: string, d: CierreComprobante, pago: { esPago: boolean; valor: string | null }, ctx: ComprobanteCtx, documental?: DocumentalDeCierre): Promise<void> {
+async function cerrar(tx: Tx, id: string, d: CierreComprobante, pago: { esPago: boolean; valor: string | null }, ctx: ComprobanteCtx, documental?: DocumentalDeCierre): Promise<Date> {
+  const aplicadoEn = new Date();
   await tx.update(flitoComprobantes).set({
     estado: EstadoComprobante.APLICADO, motivoPendiente: null, detallePendiente: null,
     tramiteId: d.tramiteId, concepto: d.concepto, cruce: d.cruce, esPago: pago.esPago, valor: pago.valor, ...documental,
     soporteAplicadoId: d.soporteAplicadoId, extraccion: d.extraccion, extraccionDestino: d.extraccionDestino,
     tipoDocumento: d.tipoDocumento, placaLeida: d.placaLeida, vinLeido: d.vinLeido, idFlitLeido: d.idFlitLeido,
     fechaDocumento: d.fechaDocumento, numeroDocumento: d.numeroDocumento, emisor: d.emisor,
-    aplicadoAutomaticamente: d.automatico, aplicadoPorId: d.automatico ? null : ctx.userId, aplicadoEn: new Date(), aplicadoMotivo: d.motivo,
+    aplicadoAutomaticamente: d.automatico, aplicadoPorId: d.automatico ? null : ctx.userId, aplicadoEn, aplicadoMotivo: d.motivo,
     updatedAt: new Date(),
   }).where(and(eq(flitoComprobantes.id, id), eq(flitoComprobantes.estado, EstadoComprobante.PENDIENTE)));
+  return aplicadoEn;
 }
 
 /**
@@ -395,8 +416,8 @@ async function cerrar(tx: Tx, id: string, d: CierreComprobante, pago: { esPago: 
  * `valor` NULL (mutante (6): documentar no es pagar), `cruce` el sugerido o `manual`, pareja
  * quién+cuándo y motivo, la extracción confirmada y el soporte que ve el destino.
  */
-async function adjuntarDocumentacion(tx: Tx, id: string, d: CierreComprobante, ctx: ComprobanteCtx): Promise<void> {
-  await cerrar(tx, id, d, { esPago: false, valor: null }, ctx);
+async function adjuntarDocumentacion(tx: Tx, id: string, d: CierreComprobante, ctx: ComprobanteCtx): Promise<Date> {
+  return cerrar(tx, id, d, { esPago: false, valor: null }, ctx);
 }
 
 /**
@@ -404,8 +425,8 @@ async function adjuntarDocumentacion(tx: Tx, id: string, d: CierreComprobante, c
  * concilió, o lo leído/confirmado). Los honorarios añaden su fila documental (tarifa de referencia,
  * diferencia y marca; HU #12631). El reporte de costos y la liquidación NO lo leen todavía (F3).
  */
-async function cerrarComoPago(tx: Tx, id: string, d: CierreComprobante, valor: string | null, ctx: ComprobanteCtx, documental?: DocumentalDeCierre): Promise<void> {
-  await cerrar(tx, id, d, { esPago: true, valor }, ctx, documental);
+async function cerrarComoPago(tx: Tx, id: string, d: CierreComprobante, valor: string | null, ctx: ComprobanteCtx, documental?: DocumentalDeCierre): Promise<Date> {
+  return cerrar(tx, id, d, { esPago: true, valor }, ctx, documental);
 }
 
 // ─────────────────────────── descartar ───────────────────────────────────────
