@@ -215,148 +215,21 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
-  # DEV y QA ya no corren en docker compose: desde el 2026-10-18 viven en el k3s de la 177
-  # (namespaces flito-dev / flito-qa) y se despliegan con deploy-gitops (abajo). Si este job
-  # corriera en develop/staging, volveria a levantar el stack viejo de docker (crons de SIIGO y
-  # sync duplicados contra la misma base).
-  deploy-to-vps:
-    name: Deploy to VPS (${{ needs.setup.outputs.env_name }})
-    if: github.ref_name == 'release'
-    needs: [setup, build-api, build-web]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # GitHub Environment por ambiente: cada uno (develop/staging/production) tiene
-    # SUS PROPIOS secrets (HOSTINGER_SSH_*, HOSTINGER_DEPLOY_PATH, GHCR_PAT,
-    # GHCR_USERNAME). Así un mismo workflow despliega al destino correcto según la rama.
-    environment:
-      name: ${{ needs.setup.outputs.gh_env }}
-      url: https://${{ needs.setup.outputs.front_domain }}
+  # Desde el 2026-10-23 los TRES ambientes se despliegan por GitOps (no hay mas deploy por SSH):
+  # DEV/QA en el k3s de la 177 (desde el 2026-10-18) y PDN en el k3s de la 145. Si volviera un
+  # deploy por SSH a docker compose, levantaria el stack viejo con los crons de SIIGO, RNDC y la
+  # sync duplicados contra la misma base.
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # Copia robusta vía appleboy/scp-action (mismo manejo de clave/host-key que
-      # el paso de deploy). Crea el directorio destino automáticamente.
-      - name: Copy compose file to VPS
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.HOSTINGER_SSH_HOST }}
-          username: ${{ secrets.HOSTINGER_SSH_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          port: 22
-          source: docker-compose.prod.yml
-          # target debe ser directorio (trailing slash) para no anidar rutas.
-          target: ${{ secrets.HOSTINGER_DEPLOY_PATH }}/
-          overwrite: true
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.HOSTINGER_SSH_HOST }}
-          username: ${{ secrets.HOSTINGER_SSH_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          port: 22
-          script: |
-            set -eo pipefail
-            DEPLOY_PATH="${{ secrets.HOSTINGER_DEPLOY_PATH }}"
-            cd "$DEPLOY_PATH"
-
-            if [ ! -f docker-compose.prod.yml ]; then
-              echo "::error::docker-compose.prod.yml no encontrado en $DEPLOY_PATH"
-              ls -la "$DEPLOY_PATH" || true
-              exit 1
-            fi
-            if [ ! -f .env ]; then
-              echo "::error::.env no encontrado en $DEPLOY_PATH (secrets de la API: DATABASE_URL, JWT_SECRET, PII_*, etc. — plantilla: apps/api/.env.example)"
-              exit 1
-            fi
-
-            # Tag + puertos + proyecto según ambiente (override del .env del VPS).
-            # deploy_tag: sha-<commit> inmutable en PDN; tag móvil (dev/qa) en DEV/QA.
-            # COMPOSE_PROJECT_NAME único por ambiente: aísla contenedores/volúmenes
-            # de flito-dev/qa/pdn entre sí (y del resto de proyectos del VPS).
-            export API_TAG=${{ needs.setup.outputs.deploy_tag }}
-            export WEB_TAG=${{ needs.setup.outputs.deploy_tag }}
-            export FRONTEND_PORT=${{ needs.setup.outputs.front_port }}
-            export API_PORT=${{ needs.setup.outputs.api_port }}
-            export COMPOSE_PROJECT_NAME=flito-${{ needs.setup.outputs.env_name }}
-            export CORS_ORIGIN=https://${{ needs.setup.outputs.front_domain }}
-            export PUBLIC_URL=https://${{ needs.setup.outputs.front_domain }}
-
-            # GHCR login: el usuario DEBE ser el dueño del PAT — NO github.actor
-            # (si el merge lo hace otro usuario, ese login falla). Se deriva del
-            # propio GHCR_PAT consultando la API de GitHub: sin secret extra ni
-            # usuario quemado en el codigo.
-            GHCR_USER=$(curl -fsS -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" https://api.github.com/user | tr -d '\n' | sed -n 's/.*"login" *: *"\([^"]*\)".*/\1/p')
-            if [ -z "$GHCR_USER" ]; then
-              echo "::error::No se pudo resolver el dueño de GHCR_PAT (¿PAT inválido o expirado?)"
-              exit 1
-            fi
-            echo "GHCR login como: $GHCR_USER"
-            if ! echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "$GHCR_USER" --password-stdin; then
-              echo "::error::docker login ghcr.io falló para usuario $GHCR_USER"
-              exit 1
-            fi
-
-            # Pull de imágenes del ambiente. MinIO NO se baja: quay.io exige auth para
-            # minio/minio desde el 2026-09-24 (401) y la imagen fijada ya está en el VPS
-            # (pull_policy: missing en el compose).
-            docker compose -f docker-compose.prod.yml pull api web redis
-
-            # Migraciones ANTES de levantar la nueva versión (idempotente; el
-            # runner db-apply lleva tracking propio). --no-deps: no necesita redis.
-            echo "Aplicando migraciones de BD..."
-            docker compose -f docker-compose.prod.yml run --rm --no-deps api node dist/scripts/db-apply.js
-
-            # Levantar/actualizar servicios
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
-
-            # Limpieza de imágenes colgantes
-            docker image prune -f
-
-            # Health check: directo a los contenedores (bypass del nginx del host)
-            echo "Waiting for application to start..."
-            sleep 15
-            ok=0
-            for i in 1 2 3 4 5 6; do
-              if curl -fsS http://127.0.0.1:${{ needs.setup.outputs.front_port }}/ > /dev/null \
-                 && curl -fsS http://127.0.0.1:${{ needs.setup.outputs.api_port }}/api/health > /dev/null; then
-                echo "Health check OK (attempt $i)"
-                ok=1
-                break
-              fi
-              echo "Attempt $i failed, retrying in 5s..."
-              sleep 5
-            done
-            if [ "$ok" -ne 1 ]; then
-              echo "Health check FAILED"
-              docker compose -f docker-compose.prod.yml ps
-              docker compose -f docker-compose.prod.yml logs --tail=100
-              exit 1
-            fi
-            echo "Deploy OK."
-
-      - name: Notify success
-        if: success()
-        run: echo "Deploy a ${{ needs.setup.outputs.env_name }} (https://${{ needs.setup.outputs.front_domain }}) exitoso."
-
-      - name: Notify failure
-        if: failure()
-        run: |
-          echo "Deploy a ${{ needs.setup.outputs.env_name }} FALLIDO. Revisa los logs arriba."
-          echo "Rollback manual: ssh al VPS y ejecuta:"
-          echo "  cd <deploy-path> && export API_TAG=<tag-anterior> WEB_TAG=<tag-anterior> && docker compose -f docker-compose.prod.yml up -d"
-
-  # ── DEV / QA por GitOps (k3s de la 177) ─────────────────────────────────────
+  # ── DEV / QA / PDN por GitOps ─────────────────────────────────────────────
   # Escribe los digests recien construidos en flit-gitops/services/flito-<env>/kustomization.yaml;
-  # Argo CD de la 177 los aplica (las migraciones corren en el initContainer db-apply de la api).
+  # el Argo CD del clúster de cada ambiente los aplica (dev/qa: 177; pdn: 145, Application en
+  # clusters/vps-145). Las migraciones corren en el initContainer db-apply de la api.
   # Rollback = revertir ese commit.
   # OJO: la CONFIGURACION ya no sale del .env del servidor ni de docker-compose.prod.yml; vive en
   # flit-gitops/services/flito-<env>/ (configmaps.yaml + sealed-secrets.yaml).
   deploy-gitops:
-    name: Deploy ${{ needs.setup.outputs.env_name }} (GitOps → k3s 177)
-    if: github.ref_name == 'develop' || github.ref_name == 'staging'
+    name: Deploy ${{ needs.setup.outputs.env_name }} (GitOps)
+    if: github.ref_name == 'develop' || github.ref_name == 'staging' || github.ref_name == 'release'
     needs: [setup, build-api, build-web]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -410,5 +283,5 @@ jobs:
             fi
             echo "Intento $i: aun no responde; reintento en 15 s"; sleep 15
           done
-          echo "::error::No responde 10 min despues del despliegue. Revisar Argo CD ($NS) en la 177; rollback = revertir el commit de flit-gitops."
+          echo "::error::No responde 10 min despues del despliegue. Revisar Argo CD ($NS) (dev/qa: 177, pdn: 145); rollback = revertir el commit de flit-gitops."
           exit 1
