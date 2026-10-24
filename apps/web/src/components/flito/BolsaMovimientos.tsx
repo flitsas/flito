@@ -5,7 +5,7 @@
 // contener EXACTAMENTE las filas que se están viendo (AC3), y eso solo se puede garantizar si el
 // filtro y el archivo se calculan sobre la misma lista, no sobre dos consultas distintas.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CONCEPTO_BOLSA_LABEL, OrigenMovimientoBolsa, TipoMovimientoBolsa,
   type ConceptoBolsa, type MovimientoBolsaDto,
@@ -72,24 +72,78 @@ interface Props {
   movimientos: MovimientoBolsaDto[] | null;
   error: string | null;
   onReintentar: () => void;
+  /**
+   * HU #13901 (AC4): el enlace de reversión pide el libro completo cuando el original no está en
+   * lo cargado (otro periodo). Sin él, el enlace solo navega dentro de lo que ya hay.
+   */
+  onPedirLibroCompleto?: () => void;
 }
 
 export default function BolsaMovimientos({
-  companiaNombre, periodo, todosLosPeriodos, movimientos, error, onReintentar,
+  companiaNombre, periodo, todosLosPeriodos, movimientos, error, onReintentar, onPedirLibroCompleto,
 }: Props) {
   const [filtros, setFiltros] = useState<Filtros>(SIN_FILTROS);
   const [preset, setPreset] = useState<string | null>(null);
   const [soloManuales, setSoloManuales] = useState(false);
   const [soloSinSoporte, setSoloSinSoporte] = useState(false);
+  /** Fila resaltada por el enlace de reversión. Dura hasta otro enlace o un cambio de filtro. */
+  const [marcada, setMarcada] = useState<string | null>(null);
+  /** Original que se espera encontrar cuando llegue el libro completo. */
+  const [pendiente, setPendiente] = useState<string | null>(null);
+  const [noEncontrado, setNoEncontrado] = useState<string | null>(null);
 
-  const limpiar = () => {
+  const quitarFiltros = () => {
     setFiltros(SIN_FILTROS);
     setSoloManuales(false);
     setSoloSinSoporte(false);
     setPreset(null);
   };
+  const limpiar = () => { quitarFiltros(); setMarcada(null); };
+  const cambiarFiltros = (fn: (f: Filtros) => Filtros) => { setMarcada(null); setFiltros(fn); };
 
   const lista = useMemo(() => movimientos ?? [], [movimientos]);
+
+  /** Original → la reversión que lo apunta. Solo sobre lo cargado: no se afirma lo que no se ve. */
+  const revertidoPor = useMemo(() => {
+    const m = new Map<string, MovimientoBolsaDto>();
+    for (const x of lista) if (x.revierteMovimientoId) m.set(x.revierteMovimientoId, x);
+    return m;
+  }, [lista]);
+  const porId = useMemo(() => new Map(lista.map((x) => [x.id, x])), [lista]);
+
+  /** AC4: lleva al movimiento original (o a la reversión) y lo marca. */
+  const irA = (id: string, desde: string) => {
+    setNoEncontrado(null);
+    if (porId.has(id)) {
+      quitarFiltros();
+      setMarcada(id);
+      return;
+    }
+    if (!todosLosPeriodos && onPedirLibroCompleto) {
+      quitarFiltros();
+      setPendiente(id);
+      onPedirLibroCompleto();
+      return;
+    }
+    setNoEncontrado(desde);
+  };
+
+  // Llegó el libro completo que pidió un enlace: se marca el original o se dice que no está.
+  useEffect(() => {
+    if (!pendiente || movimientos === null) return;
+    if (movimientos.some((m) => m.id === pendiente)) setMarcada(pendiente);
+    else setNoEncontrado(pendiente);
+    setPendiente(null);
+  }, [movimientos, pendiente]);
+
+  // Desplazar y enfocar la fila marcada, sin animación (spec: navegación instantánea).
+  useEffect(() => {
+    if (!marcada) return;
+    const celda = document.getElementById(`mov-${marcada}`);
+    if (!celda) return;
+    celda.scrollIntoView({ block: 'center' });
+    celda.focus({ preventScroll: true });
+  }, [marcada]);
 
   // Las opciones salen de lo que hay en el libro, no del catálogo entero: ofrecer un organismo que
   // este cliente no ha usado nunca solo sirve para llegar a una tabla vacía.
@@ -186,6 +240,7 @@ export default function BolsaMovimientos({
         <FiltrosInteligentes presets={PRESETS} activo={preset}
           onAplicar={(p) => {
             // Sobre el estado limpio y no sobre el actual: un preset debe dar siempre lo mismo.
+            setMarcada(null);
             setFiltros(SIN_FILTROS);
             setSoloManuales(p.filtros.soloManuales);
             setSoloSinSoporte(p.filtros.soloSinSoporte);
@@ -193,18 +248,18 @@ export default function BolsaMovimientos({
           }}
           onQuitar={limpiar} />
         <RangoFechas etiqueta="Fecha" valor={{ desde: filtros.desde, hasta: filtros.hasta }}
-          onCambio={(r) => setFiltros((f) => ({ ...f, desde: r.desde, hasta: r.hasta }))} />
+          onCambio={(r) => cambiarFiltros((f) => ({ ...f, desde: r.desde, hasta: r.hasta }))} />
         <ThFiltroMulti seleccion={filtros.organismos} placeholder="Organismo"
           vacio="Ningún movimiento tiene organismo"
           opciones={organismosDisponibles.map((c) => ({ value: c, label: etiquetaOrganismo(c) }))}
-          onCambio={(v) => setFiltros((f) => ({ ...f, organismos: v }))} />
+          onCambio={(v) => cambiarFiltros((f) => ({ ...f, organismos: v }))} />
         <ThFiltroMulti seleccion={filtros.conceptos} placeholder="Concepto"
           vacio="Ningún movimiento tiene concepto"
           opciones={conceptosDisponibles.map((c) => ({ value: c, label: CONCEPTO_BOLSA_LABEL[c] }))}
-          onCambio={(v) => setFiltros((f) => ({ ...f, conceptos: v }))} />
+          onCambio={(v) => cambiarFiltros((f) => ({ ...f, conceptos: v }))} />
         <ThFiltroMulti seleccion={filtros.origenes} placeholder="Origen" vacio="Sin orígenes"
           opciones={Object.entries(ORIGEN).map(([v, o]) => ({ value: v, label: o.label }))}
-          onCambio={(v) => setFiltros((f) => ({ ...f, origenes: v }))} />
+          onCambio={(v) => cambiarFiltros((f) => ({ ...f, origenes: v }))} />
         {hayFiltro && (
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={limpiar}>
             Limpiar filtros
@@ -214,7 +269,9 @@ export default function BolsaMovimientos({
 
       {lista.length === 0 ? (
         <FlitEmpty>
-          Esta bolsa no tiene movimientos en {todosLosPeriodos ? 'ningún periodo' : etiquetaPeriodo(periodo)}.
+          {todosLosPeriodos
+            ? 'Esta bolsa no tiene movimientos en ningún periodo.'
+            : `Esta bolsa no tiene movimientos en ${etiquetaPeriodo(periodo)}. Marca «Ver el libro completo» para ver los demás periodos.`}
         </FlitEmpty>
       ) : filtrados.length === 0 ? (
         <FlitEmpty>
@@ -247,8 +304,8 @@ export default function BolsaMovimientos({
             {filtrados.map((m) => {
               const entrada = m.tipo === TipoMovimientoBolsa.ENTRADA;
               return (
-                <FlitTr key={m.id}>
-                  <td className="px-4 py-2 align-top text-sm">{companiaNombre}</td>
+                <FlitTr key={m.id} marcada={marcada === m.id}>
+                  <td id={`mov-${m.id}`} tabIndex={-1} className="flit-focus px-4 py-2 align-top text-sm">{companiaNombre}</td>
                   <td className="px-4 py-2 align-top text-sm whitespace-nowrap">
                     <div>{fechaDia(m.fecha)}</div>
                     <div className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
@@ -272,12 +329,18 @@ export default function BolsaMovimientos({
                   </td>
                   <td className="px-4 py-2 align-top text-sm">
                     {m.concepto ? CONCEPTO_BOLSA_LABEL[m.concepto] : '—'}
+                    <EnlacesReversion m={m} original={m.revierteMovimientoId ? porId.get(m.revierteMovimientoId) : undefined}
+                      reversion={revertidoPor.get(m.id)} noEncontrado={noEncontrado === m.id}
+                      onIr={(id) => irA(id, m.id)} />
                     {m.observacion && (
                       <div className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{m.observacion}</div>
                     )}
                   </td>
                   <td className="px-4 py-2 align-top">
                     <StatusChip tone={ORIGEN[m.origen].tono}>{ORIGEN[m.origen].label}</StatusChip>
+                    {m.revierteMovimientoId && (
+                      <div className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Reversión</div>
+                    )}
                   </td>
                   <td className="px-4 py-2 align-top text-right text-sm font-semibold tabular-nums whitespace-nowrap"
                     style={{ color: entrada ? 'var(--flit-success)' : 'var(--flit-warning)' }}>
@@ -322,5 +385,49 @@ export default function BolsaMovimientos({
         </section>
       )}
     </FlitCard>
+  );
+}
+
+const ENLACE = 'flit-focus rounded-sm text-[11px] underline transition-colors hover:text-[color:var(--flit-blue-ink)]';
+
+/**
+ * Enlaces de reversión de una fila (AC4).
+ *
+ * - La reversión enlaza a su original («Revierte el movimiento del …»). La fecha del original solo se
+ *   conoce si está cargado; si no, el enlace lo busca en el libro completo.
+ * - El original que ya fue revertido dice «Revertido el …» con el enlace a la inversa. Solo si la
+ *   reversión está en lo cargado: lo que no se ve no se afirma.
+ */
+function EnlacesReversion({ m, original, reversion, noEncontrado, onIr }: {
+  m: MovimientoBolsaDto;
+  original: MovimientoBolsaDto | undefined;
+  reversion: MovimientoBolsaDto | undefined;
+  noEncontrado: boolean;
+  onIr: (id: string) => void;
+}) {
+  if (!m.revierteMovimientoId && !reversion) return null;
+  return (
+    <div className="mt-0.5 flex flex-col items-start gap-0.5">
+      {m.revierteMovimientoId && (
+        <button type="button" className={ENLACE} style={{ color: 'var(--flit-blue-text)' }}
+          onClick={() => onIr(m.revierteMovimientoId!)}>
+          {original ? `Revierte el movimiento del ${fechaDia(original.fecha)}` : 'Revierte otro movimiento: ver el original'}
+        </button>
+      )}
+      {reversion && (
+        <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+          Revertido el {fechaDia(reversion.fecha)} ·{' '}
+          <button type="button" className={ENLACE} style={{ color: 'var(--flit-blue-text)' }}
+            onClick={() => onIr(reversion.id)}>
+            ver la reversión
+          </button>
+        </span>
+      )}
+      {noEncontrado && (
+        <span role="status" className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+          No encontramos el movimiento original.
+        </span>
+      )}
+    </div>
   );
 }
