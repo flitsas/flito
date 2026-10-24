@@ -500,6 +500,19 @@ export const EXPEDIENTE_BOLSA_DEMO = {
   ],
 };
 
+/**
+ * E6 `POST /bolsas-documentos/estado-lote` (HU #13893): chip «Expediente» del listado. La 901 cuadra
+ * con su expediente (RUT vencido, certificado sin validar → «Docs pendientes»); la 902 está completa.
+ */
+export const ESTADO_LOTE_BOLSAS_DEMO = {
+  estados: [
+    { companiaId: 901, completo: false,
+      estados: { camara_comercio: 'valido', rut: 'vencido', cedula_representante: 'valido', certificado_bancario: 'no_validado' } },
+    { companiaId: 902, completo: true,
+      estados: { camara_comercio: 'valido', rut: 'valido', cedula_representante: 'valido', certificado_bancario: 'valido' } },
+  ],
+};
+
 // ── Tarifas ──────────────────────────────────────────────────────────────────
 
 const USUARIO_TARIFAS_DEMO = { id: 1, nombre: NOMBRES_DEMO[2] };

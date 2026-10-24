@@ -12,7 +12,8 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import multer from 'multer';
 import { z } from 'zod';
 import {
-  MIMES_DOCUMENTO_BOLSA, TAMANO_MAX_DOCUMENTO_BOLSA, TIPOS_DOCUMENTO_BOLSA, type MimeDocumentoBolsa,
+  MIMES_DOCUMENTO_BOLSA, TAMANO_MAX_DOCUMENTO_BOLSA, TIPOS_DOCUMENTO_BOLSA, TOPE_ESTADO_LOTE_BOLSAS,
+  type MimeDocumentoBolsa,
 } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
@@ -23,7 +24,7 @@ import { logPiiAccess } from '../../shared/pii-audit.js';
 import { detectMime } from '../pesv/magic-number.js';
 import { hoyColombia } from '../../shared/utils/fecha-rango.js';
 import {
-  archivoDe, BolsaDocumentoError, cargarDocumento, expedienteDe, fijarFechaManual, historialDe,
+  archivoDe, BolsaDocumentoError, cargarDocumento, estadoLoteDe, expedienteDe, fijarFechaManual, historialDe,
 } from './flito-bolsas-documentos.service.js';
 import { lanzarOcr } from './flito-bolsas-documentos.ocr.js';
 
@@ -170,6 +171,22 @@ router.get('/documentos/:documentoId/archivo', soloSinEnlace(), exigirFuncion('b
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.status(200).send(a.contenido);
+  } catch (e) { fallo(res, e); }
+});
+
+// E6 — ids en el BODY (lote; ADR-0028 §5). Tope de 200 = una página del listado; ids repetidos → 400.
+const estadoLoteBody = z.object({
+  companiaIds: z.array(z.number().int().positive()).min(1).max(TOPE_ESTADO_LOTE_BOLSAS)
+    .refine((ids) => new Set(ids).size === ids.length),
+}).strict();
+const MSG_LOTE = `Envía entre 1 y ${TOPE_ESTADO_LOTE_BOLSAS} compañías, sin repetir.`;
+
+/** E6 — Estado agregado del expediente de un lote de compañías (chip del listado, HU #13893). */
+router.post('/estado-lote', soloSinEnlace(), exigirFuncion('bolsas.documentos.ver'), async (req: Request, res: Response) => {
+  const b = estadoLoteBody.safeParse(req.body);
+  if (!b.success) { res.status(400).json({ error: MSG_LOTE }); return; }
+  try {
+    res.json({ estados: await estadoLoteDe(b.data.companiaIds) });
   } catch (e) { fallo(res, e); }
 });
 

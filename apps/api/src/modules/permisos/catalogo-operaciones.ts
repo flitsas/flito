@@ -231,6 +231,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${BDOC} GET /companias/:companiaId/tipos/:tipo/historial`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
   op(`${BDOC} GET /documentos/:documentoId/archivo`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
   op(`${BDOC} POST /companias/:companiaId/tipos/:tipo`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'),
+  op(`${BDOC} POST /estado-lote`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'), // HU #13893 (E6)
   op(`${BDOC} PUT /documentos/:documentoId/fecha-expedicion`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'), // HU #13890 (E4)
   // HU #13900 (Feature #13886, ADR-0029) — catálogo del modelo único de bolsa. Cuatro operaciones nuevas con la
   // partida de su par, dentro de acciones de bolsas ya repartidas (arbol/acciones-finanzas.ts);
