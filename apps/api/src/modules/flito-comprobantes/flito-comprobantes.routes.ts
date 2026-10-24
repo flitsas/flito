@@ -7,7 +7,8 @@
 // F2 (0201): `POST /tramites/buscar` por BODY (la llave no va en la URL ni en los logs de acceso),
 // `POST /:id/aplicar` (adjuntar documentación; pagos de SOAT/impuesto/derecho vía sus dueños, HU #12630; fila documental de los honorarios, HU #12631) y
 // `POST /:id/descartar`. F3 (0202, HU #12654): `POST /:id/diferencia/aceptar` (constancia con motivo;
-// no toca dinero ni el sello; permitido con el trámite liquidado).
+// no toca dinero ni el sello; permitido con el trámite liquidado). HU #13903: `POST /:id/desaplicar` y
+// `POST /:id/reemplazar` (flito-comprobantes.desaplicar.ts).
 
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
@@ -27,6 +28,7 @@ import { cargarLote, type ArchivoCargado } from './flito-comprobantes.carga.js';
 import { ComprobanteError, detalle, listar, releer, urlArchivo, type ComprobanteCtx } from './flito-comprobantes.service.js';
 import { candidatosPorTexto } from './flito-comprobantes.cruce.js';
 import { aceptarDiferencia, aplicar, descartar, motivoSchema } from './flito-comprobantes.aplicar.js';
+import { desaplicar, reemplazar, visibleEnAlcance } from './flito-comprobantes.desaplicar.js';
 
 export { aplicarSchema } from './flito-comprobantes.aplicar.js';
 
@@ -183,6 +185,47 @@ router.post('/:id/diferencia/aceptar', soloSinEnlace(), exigirFuncion('comproban
     await aceptarDiferencia(req.params.id, parsed.data.motivo, ctxDe(req.user!));
     await audit(req, { action: 'update', resource: 'flito_comprobante', resourceId: req.params.id, detail: `Diferencia aceptada: ${parsed.data.motivo}` });
     res.json({ ok: true });
+  } catch (e) { handleError(res, e); }
+});
+
+// ── Desaplicar / reemplazar (HU #13903): tx única con la reversa del dueño y de la bolsa ─────────────
+/**
+ * AC10 (ADR-0024): cerrada a todo enlace como el resto de escrituras (P-2 de #13426), pero un comprobante
+ * FUERA del alcance del enlace responde 404 (igual que el detalle: lo ajeno no se distingue de lo inexistente).
+ */
+function sinEnlaceONoExiste(): (req: Request, res: Response, next: (e?: unknown) => void) => void {
+  const guarda = (req: Request, res: Response, next: (e?: unknown) => void): void => {
+    if (req.frontera?.enlace === 'ninguno') { next(); return; }
+    alcanceDe(req)
+      .then((alcance) => (esUuid(req.params.id) ? visibleEnAlcance(req.params.id, alcance) : false))
+      .then((visible) => {
+        if (visible) res.status(403).json({ error: 'Sin permisos' });
+        else res.status(404).json({ error: 'El comprobante no existe', codigo: CodigoErrorComprobante.NO_ENCONTRADO });
+      })
+      .catch(next);
+  };
+  // Misma marca que `soloSinEnlace`: el centinela de #13426 la cuenta como ruta cerrada a enlaces.
+  Object.defineProperty(guarda, 'fronteraSoloSinEnlace', { value: true, enumerable: true });
+  return guarda;
+}
+
+router.post('/:id/desaplicar', exigirFuncion('comprobantes.comprobante.desaplicar'), sinEnlaceONoExiste(), exigirIdUuid, async (req: Request, res: Response) => {
+  try {
+    const { comprobante, destino, motivo } = await desaplicar(req.params.id, req.body, ctxDe(req.user!));
+    // El rastro de la desaplicación (quién/cuándo/motivo, AC1-AC2).
+    await audit(req, { action: 'update', resource: 'flito_comprobante', resourceId: req.params.id, detail: `Comprobante desaplicado a ${destino}: ${motivo}` });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ resultado: 'desaplicado', comprobante });
+  } catch (e) { handleError(res, e); }
+});
+
+router.post('/:id/reemplazar', exigirFuncion('comprobantes.comprobante.reemplazar'), sinEnlaceONoExiste(), exigirIdUuid, async (req: Request, res: Response) => {
+  try {
+    const { original, comprobante, reemplazoId, motivo } = await reemplazar(req.params.id, req.body, ctxDe(req.user!));
+    await audit(req, { action: 'update', resource: 'flito_comprobante', resourceId: req.params.id, detail: `Comprobante reemplazado por ${reemplazoId}: ${motivo}` });
+    await audit(req, { action: 'update', resource: 'flito_comprobante', resourceId: reemplazoId, detail: `Comprobante aplicado en reemplazo de ${req.params.id}: ${motivo}` });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ resultado: 'reemplazado', original, comprobante });
   } catch (e) { handleError(res, e); }
 });
 

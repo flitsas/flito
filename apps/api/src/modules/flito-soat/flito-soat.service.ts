@@ -1645,22 +1645,32 @@ export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: st
   // Dejar las dos guardas sería pedirle a `ESTADOS_SOAT_CANAL_CLIENTE` que siguiera existiendo solo
   // para defenderse de valores inalcanzables.
 
+  return db.transaction(async (tx) => reversarEnTx(tx, soat, estadoDestino, motivo, ctx));
+}
+
+/**
+ * La escritura de la reversa (RN-06) dentro de una tx ajena: la usan `reversar` y la desaplicación de un
+ * comprobante (HU #13903), que necesita deshacer el pago en la MISMA tx que cambia el comprobante. Las
+ * guardas (alcance, motivo ≥5, mismo estado) son de quien llama; aquí solo se reescribe y se deja rastro.
+ */
+export async function reversarEnTx(
+  tx: Tx, soat: Pick<typeof flitoSoat.$inferSelect, 'id' | 'estado'>,
+  estadoDestino: EstadoSoat, motivo: string, ctx: Pick<SoatCtx, 'userId' | 'username'>,
+): Promise<typeof flitoSoat.$inferSelect> {
   const limpiar = estadoDestino === EstadoSoat.PENDIENTE
     ? { enviadoPorId: null, enviadoEn: null, pagadoEn: null, valorPagado: null, motivoRechazo: null }
     : {};
-  return db.transaction(async (tx) => {
-    const [updated] = await tx.update(flitoSoat)
-      .set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() })
-      .where(eq(flitoSoat.id, id)).returning();
-    // La reversa es la operación que más falta hace explicar después: es la única que saca a un VIN
-    // de `pagado`, así que el motivo va literal al historial.
-    await registrarCambio(tx, {
-      concepto: 'soat', registroId: id,
-      estadoAnterior: soat.estado, estadoNuevo: estadoDestino,
-      motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
-    });
-    return updated;
+  const [updated] = await tx.update(flitoSoat)
+    .set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() })
+    .where(eq(flitoSoat.id, soat.id)).returning();
+  // La reversa es la operación que más falta hace explicar después: es la única que saca a un VIN
+  // de `pagado`, así que el motivo va literal al historial.
+  await registrarCambio(tx, {
+    concepto: 'soat', registroId: soat.id,
+    estadoAnterior: soat.estado, estadoNuevo: estadoDestino,
+    motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
   });
+  return updated!;
 }
 
 /**

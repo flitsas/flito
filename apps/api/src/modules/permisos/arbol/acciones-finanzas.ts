@@ -76,7 +76,12 @@ export const ACCIONES_FINANZAS: Readonly<Record<string, AccionArbol>> = {
   'accion.servicios_adicionales.dar_de_baja': { operaciones: ['parametrizacion.servicios_adicionales.dar_de_baja'] },
   // ── Comprobantes ──
   'accion.comprobantes.cargar': { operaciones: ['comprobantes.lote.cargar'] },
-  'accion.comprobantes.asociar': { operaciones: ['comprobantes.tramites.buscar', 'comprobantes.comprobante.aplicar'] },
+  // HU #13903: + desaplicar y reemplazar (nacidas en el árbol, absorbidas: no se siembran). Las recibe quien
+  // tiene «Asociar», o sea quien aplica. `predecesores` fija el grupo de la siembra 0234/0235 (no cambia).
+  'accion.comprobantes.asociar': {
+    operaciones: ['comprobantes.tramites.buscar', 'comprobantes.comprobante.aplicar', 'comprobantes.comprobante.desaplicar', 'comprobantes.comprobante.reemplazar'],
+    predecesores: ['comprobantes.tramites.buscar', 'comprobantes.comprobante.aplicar'],
+  },
   'accion.comprobantes.ver_cola': { lectura: true, operaciones: ['comprobantes.cola.ver', 'comprobantes.comprobante.ver'], opcionales: ['comprobantes.archivo.descargar'] },
   // `releer` es OCR con coste: va en una acción que modifica (regla «todos»).
   'accion.comprobantes.resolver': { operaciones: ['comprobantes.comprobante.descartar', 'comprobantes.comprobante.releer', 'comprobantes.diferencia.aceptar'] },
@@ -140,6 +145,9 @@ export const PARTIDA_DE_OPERACION_NUEVA: Readonly<Record<string, string>> = {
   'bolsas.bolsa.crear': 'bolsas.transito.crear',
   'bolsas.bolsa.editar': 'bolsas.transito.editar',
   'bolsas.bolsa.inactivar': 'bolsas.transito.editar',
+  // HU #13903: desaplicar y reemplazar con el reparto de `aplicar` (las concede «Asociar», ya sembrada): sin migración.
+  'comprobantes.comprobante.desaplicar': 'comprobantes.comprobante.aplicar',
+  'comprobantes.comprobante.reemplazar': 'comprobantes.comprobante.aplicar',
 };
 
 /**

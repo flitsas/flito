@@ -57,7 +57,7 @@ import { getEntityDocumentStream, uploadEntityDocument } from '../../services/st
 import { nombrePagina, recortarPaginas } from '../../shared/pdf/separar-paginas.js';
 import { confirmar } from '../flito-revisiones/flito-revisiones.service.js';
 import {
-  bloquearTramite, fijarDesdeComprobante, tipoActivoDe, TramiteNoEncontradoError, type Ejecutor, type TipoCatalogo, type Tx,
+  asignacionPreviaDe, bloquearTramite, fijarDesdeComprobante, tipoActivoDe, TramiteNoEncontradoError, type Ejecutor, type TipoCatalogo, type Tx,
 } from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
 import { columnasDeLectura, ComprobanteError, detalle, type ComprobanteCtx } from './flito-comprobantes.service.js';
 import { comprobarDestinoPago, pagarEnTx, pagarTrasCommit, tieneDueno, type DestinoPago, type PagoArgs } from './flito-comprobantes.duenos.js';
@@ -105,8 +105,24 @@ export type AplicarBody = z.infer<typeof aplicarSchema>;
 
 export const motivoSchema = z.object({ motivo: z.string().trim().min(5).max(500) });
 
-/** HU #12632: `automatico` lo pone SOLO `autoAplicar`; la ruta nunca lo recibe del cliente. */
-export interface OpcionesAplicar { automatico?: boolean }
+/**
+ * HU #12632: `automatico` lo pone SOLO `autoAplicar`; la ruta nunca lo recibe del cliente.
+ * HU #13903: `sinGuardaPrevia` lo pone SOLO `reemplazar`: la guarda del dueño con `db` (fuera de la tx)
+ * vería el destino todavía pagado por el original; la de dentro de la tx, tras la reversa, sí corre.
+ */
+export interface OpcionesAplicar { automatico?: boolean; sinGuardaPrevia?: boolean }
+
+/**
+ * HU #13903: `aplicar` partido en lo de antes de la tx (guardas, S3), lo de dentro (`enTx`) y lo de después
+ * (`trasCommit`, SOAT/derecho), para que `reemplazar` corra `enTx` en SU tx, detrás de la desaplicación.
+ */
+export interface AplicacionPreparada {
+  enTx(tx: Tx): Promise<void>;
+  /** El 23505 del índice documental como 409; cualquier otro error, tal cual. */
+  traducirError(e: unknown): Promise<unknown>;
+  trasCommit(): Promise<void>;
+  respuesta(): Promise<ComprobanteDetalleDto>;
+}
 
 // ─────────────────────────── Errores ─────────────────────────────────────────
 
@@ -241,6 +257,18 @@ function fechaPagoDe(fechaDocumento: string | null): Date | null {
  * carrera se pierde tras subir el hijo, el objeto de S3 queda huérfano (aceptado: la fila no lo referencia).
  */
 export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, opciones: OpcionesAplicar = {}): Promise<ComprobanteDetalleDto> {
+  const plan = await prepararAplicacion(id, cuerpo, ctx, opciones);
+  try {
+    await db.transaction(async (tx) => { await plan.enTx(tx); });
+  } catch (e) {
+    throw await plan.traducirError(e);
+  }
+  await plan.trasCommit();
+  return plan.respuesta();
+}
+
+/** Las guardas y la subida a S3 de `aplicar`; devuelve lo que falta por hacer dentro y después de la tx. */
+export async function prepararAplicacion(id: string, cuerpo: unknown, ctx: ComprobanteCtx, opciones: OpcionesAplicar = {}): Promise<AplicacionPreparada> {
   const automatico = opciones.automatico === true;
   const [c] = await db.select({
     id: flitoComprobantes.id, estado: flitoComprobantes.estado, soporteId: flitoComprobantes.soporteId, paginas: flitoComprobantes.paginas,
@@ -272,8 +300,9 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, 
   // El refine garantiza `servicioTipoId` en el pago SA; el tipo se comprueba ANTES de S3 (y otra vez en la tx).
   const servicioTipoId = esPagoSa(body) ? body.servicioTipoId! : undefined;
   if (servicioTipoId) await exigirTipoServicio(db, servicioTipoId);
-  const destinoPago: DestinoPago | null = body.esPago && tieneDueno(body.concepto)
-    ? await comprobarDestinoPago(db, body.tramiteId, body.concepto, tipoDocumento) : null;
+  const conceptoDueno = body.esPago && tieneDueno(body.concepto) ? body.concepto : null;
+  if (conceptoDueno && !opciones.sinGuardaPrevia) await comprobarDestinoPago(db, body.tramiteId, conceptoDueno, tipoDocumento);
+  let destinoPago: DestinoPago | null = null;
 
   const [soporte] = await db.select({ id: flitoSoportes.id, storageKey: flitoSoportes.storageKey, nombreArchivo: flitoSoportes.nombreArchivo, contentType: flitoSoportes.contentType })
     .from(flitoSoportes).where(eq(flitoSoportes.id, c.soporteId)).limit(1);
@@ -285,17 +314,18 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, 
   const argsBase = { tramiteId: body.tramiteId, extraccionDestino: extraccionDestino ?? {}, motivo: body.motivo ?? null, fechaPago: fechaPagoDe(lectura.fechaDocumento), ctx };
   let args: PagoArgs | null = null;
   let bolsa: DescuentoBolsaDto | null = null;
-  try {
-    await db.transaction(async (tx) => { await aplicarEnTx(tx); });
-  } catch (e) {
+  return {
+    enTx: aplicarEnTx,
     // El 23505 del índice único parcial (otro comprobante ya documenta ese trámite × concepto): 409, no 500.
-    throw honorario ? await traducirDuplicado(e, body.tramiteId, honorario, servicioTipoId) : e;
-  }
-  if (destinoPago && args) await pagarDespuesDelCommit(id, destinoPago, args);
-  log.info({ comprobanteId: id, tramiteId: body.tramiteId, concepto: body.concepto, esPago: body.esPago, cruce, hijo: hijo !== null, por: ctx.userId, automatico },
-    body.esPago ? 'Comprobante aplicado como pago' : 'Comprobante adjuntado como documentación');
-  // D11: el aviso de saldo negativo viaja en la respuesta (null con el corte apagado: el campo no aparece).
-  return bolsa ? { ...await detalle(id), bolsa } : detalle(id);
+    traducirError: async (e) => (honorario ? traducirDuplicado(e, body.tramiteId, honorario, servicioTipoId) : e),
+    async trasCommit() {
+      if (destinoPago && args) await pagarDespuesDelCommit(id, destinoPago, args);
+      log.info({ comprobanteId: id, tramiteId: body.tramiteId, concepto: body.concepto, esPago: body.esPago, cruce, hijo: hijo !== null, por: ctx.userId, automatico },
+        body.esPago ? 'Comprobante aplicado como pago' : 'Comprobante adjuntado como documentación');
+    },
+    // D11: el aviso de saldo negativo viaja en la respuesta (null con el corte apagado: el campo no aparece).
+    respuesta: async () => (bolsa ? { ...await detalle(id), bolsa } : detalle(id)),
+  };
 
   /** HU #13902: después de cerrar la fila, en la MISMA tx (locks: comprobante → trámite → bolsa compañía). */
   async function descontar(tx: Tx, tramiteId: string, esPago: boolean, valor: string | null, aplicadoEn: Date): Promise<void> {
@@ -315,7 +345,8 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, 
     // Bajo el bloqueo del trámite, el estado REAL del destino: la carrera con otro pago se pierde aquí.
     if (honorario) await exigirNoLiquidado(tx, tramite.id);
     const tipoServicio = servicioTipoId ? await exigirTipoServicio(tx, servicioTipoId) : null;
-    const enTx = destinoPago ? await comprobarDestinoPago(tx, tramite.id, destinoPago.concepto, tipoDocumento) : null;
+    const enTx = conceptoDueno ? await comprobarDestinoPago(tx, tramite.id, conceptoDueno, tipoDocumento) : null;
+    destinoPago = enTx;
     const fk = enTx ? enTx.fk : await fkDestino(tx, tramite.id, body.concepto);
     const tipoSoporte = enTx?.tipoSoporte ?? (honorario ? TipoSoporte.COMPROBANTE_PAGO : TipoSoporte.DOCUMENTO_TRAMITE);
     const soporteAplicadoId = await soporteDelDestino(tx, soporte, hijo, fk, tipoSoporte, ctx);
@@ -329,8 +360,13 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, 
       // La fila documental (AC1): valor copiado + tarifa de referencia + diferencia; el 23505 del índice se traduce abajo.
       const documental = await valorDocumentalDe(tx, tramite.id, honorario, lectura.valor!, servicioTipoId);
       // Bug #12913: el valor del COMPROBANTE entra a la puente por (trámite, tipo), bajo los mismos bloqueos.
+      // HU #13903 (AC11): el estado previo de la puente queda en la fila, para que desaplicar lo devuelva.
+      const previa = tipoServicio ? await asignacionPreviaDe(tx, tramite.id, tipoServicio.id) : null;
       if (tipoServicio) await fijarDesdeComprobante(tx, tramite.id, tipoServicio, lectura.valor!, ctx.userId);
-      const aplicadoEn = await cerrarComoPago(tx, id, cierre, lectura.valor, ctx, { ...documental, servicioTipoId: tipoServicio?.id ?? null });
+      const aplicadoEn = await cerrarComoPago(tx, id, cierre, lectura.valor, ctx, {
+        ...documental, servicioTipoId: tipoServicio?.id ?? null,
+        ...(previa ? { saAsignacionPrevia: previa.existia, saValorPrevio: previa.valor } : {}),
+      });
       await descontar(tx, tramite.id, true, lectura.valor, aplicadoEn);
       return;
     }
@@ -395,7 +431,7 @@ interface CierreComprobante {
  * (nadie decidió: la pareja quién+cuándo se sustituye por automático+cuándo); manual: la persona.
  */
 /** La fila documental del honorario más, en el pago SA (Bug #12913), el tipo de servicio que paga. */
-type DocumentalDeCierre = ValorDocumental & { servicioTipoId?: string | null };
+type DocumentalDeCierre = ValorDocumental & { servicioTipoId?: string | null; saAsignacionPrevia?: boolean; saValorPrevio?: string | null };
 
 async function cerrar(tx: Tx, id: string, d: CierreComprobante, pago: { esPago: boolean; valor: string | null }, ctx: ComprobanteCtx, documental?: DocumentalDeCierre): Promise<Date> {
   const aplicadoEn = new Date();
@@ -449,13 +485,18 @@ export async function descartar(id: string, motivo: string, ctx: ComprobanteCtx)
       estado: EstadoComprobante.DESCARTADO, motivoPendiente: null, detallePendiente: null,
       descartadoPorId: ctx.userId, descartadoEn: new Date(), descartadoMotivo: motivo.trim(), updatedAt: new Date(),
     }).where(and(eq(flitoComprobantes.id, id), eq(flitoComprobantes.estado, EstadoComprobante.PENDIENTE)));
-    const [vivos] = await tx.select({ n: sql<number>`count(*)::int` }).from(flitoComprobantes)
-      .where(and(eq(flitoComprobantes.soporteId, c.soporteId), ne(flitoComprobantes.id, id), ne(flitoComprobantes.estado, EstadoComprobante.DESCARTADO)));
-    if ((vivos?.n ?? 0) === 0) {
-      await tx.update(flitoSoportes).set({ descartado: true }).where(eq(flitoSoportes.id, c.soporteId));
-    }
+    await liberarSoporteSiNadieLoUsa(tx, c.soporteId, id);
   });
   log.info({ comprobanteId: id, por: ctx.userId }, 'Comprobante descartado');
+}
+
+/** El soporte se marca `descartado` solo si ningún OTRO comprobante no descartado lo comparte (consolidado). */
+export async function liberarSoporteSiNadieLoUsa(tx: Tx, soporteId: string, id: string): Promise<void> {
+  const [vivos] = await tx.select({ n: sql<number>`count(*)::int` }).from(flitoComprobantes)
+    .where(and(eq(flitoComprobantes.soporteId, soporteId), ne(flitoComprobantes.id, id), ne(flitoComprobantes.estado, EstadoComprobante.DESCARTADO)));
+  if ((vivos?.n ?? 0) === 0) {
+    await tx.update(flitoSoportes).set({ descartado: true }).where(eq(flitoSoportes.id, soporteId));
+  }
 }
 
 // ─────────────────────────── aceptar diferencia (HU #12654) ─────────────────

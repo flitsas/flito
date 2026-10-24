@@ -837,21 +837,31 @@ export async function reversar(id: string, estadoDestino: EstadoImpuesto, motivo
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
   if (!motivo?.trim() || motivo.trim().length < 5) throw new ImpuestoError(400, 'La reversa exige un motivo que explique el porqué');
   if (imp.estado === estadoDestino) throw new ImpuestoError(400, 'El impuesto ya está en ese estado');
+  return db.transaction(async (tx) => reversarEnTx(tx, imp, estadoDestino, motivo, ctx));
+}
+
+/**
+ * La escritura de la reversa dentro de una tx ajena (la usan `reversar` y la desaplicación de un
+ * comprobante, HU #13903). Las guardas (alcance, motivo ≥5, mismo estado) son de quien llama.
+ */
+export async function reversarEnTx(
+  tx: Tx, imp: Pick<typeof flitoImpuestos.$inferSelect, 'id' | 'estado'>,
+  estadoDestino: EstadoImpuesto, motivo: string, ctx: ImpuestoCtx,
+): Promise<typeof flitoImpuestos.$inferSelect> {
+  const id = imp.id;
   const limpiar = estadoDestino === EstadoImpuesto.PENDIENTE
     ? { enviadoPorId: null, enviadoEn: null, pagadoEn: null, motivoRechazo: null, marcadoPorDiferencia: false }
     : {};
-  return db.transaction(async (tx) => {
-    const [u] = await tx.update(flitoImpuestos).set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() }).where(eq(flitoImpuestos.id, id)).returning();
-    await auditEnTx(tx, ctx, id, `Reversa ${imp.estado}→${estadoDestino}: ${motivo.trim()}`);
-    await registrarCambio(tx, {
-      concepto: 'impuesto', registroId: id,
-      estadoAnterior: imp.estado, estadoNuevo: estadoDestino,
-      motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
-    });
-    // HU #13268 (AC1): la reversa manual a pagado también programa el envío a FLIT 2.
-    if (estadoDestino === EstadoImpuesto.PAGADO) await programarEnvioComprobante(tx, id);
-    return u;
+  const [u] = await tx.update(flitoImpuestos).set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() }).where(eq(flitoImpuestos.id, id)).returning();
+  await auditEnTx(tx, ctx, id, `Reversa ${imp.estado}→${estadoDestino}: ${motivo.trim()}`);
+  await registrarCambio(tx, {
+    concepto: 'impuesto', registroId: id,
+    estadoAnterior: imp.estado, estadoNuevo: estadoDestino,
+    motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
   });
+  // HU #13268 (AC1): la reversa manual a pagado también programa el envío a FLIT 2.
+  if (estadoDestino === EstadoImpuesto.PAGADO) await programarEnvioComprobante(tx, id);
+  return u!;
 }
 
 // Reexport para las rutas.
