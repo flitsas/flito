@@ -15,7 +15,7 @@
 // llamada — con conceptos que a veces no aplican, cualquier orden fijo se desalinea y el test acaba
 // afirmando lo contrario de lo que cree.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getTableName } from 'drizzle-orm';
 import { createKeyedDb, type Resolver } from '../helpers/keyed-db.js';
 
@@ -1009,5 +1009,55 @@ describe('liquidar — HU #13899 AC6/AC8: sin bolsa activa sella pero no asienta
       expect(s.origen).toBe('automatico');
       expect(String(s.llaveIdempotencia)).toMatch(/^salida:/);
     }
+  });
+});
+
+// ─────────────────────────── HU #13902 — corte por fecha ─────────────────────
+
+describe('HU #13902 — AC7/AC10: con el corte vigente la liquidación deja de mover la bolsa', () => {
+  let env: typeof import('../../src/config/env.js').env;
+  beforeEach(async () => { ({ env } = await import('../../src/config/env.js')); });
+  afterEach(() => { env.FLITO_BOLSAS_CORTE_COMPROBANTES = undefined; });
+
+  /** Movimientos escritos en CUALQUIER libro (cliente o tránsito). */
+  const movimientosEscritos = () => inserts.filter((m) => m.tabla.includes('movimiento'));
+
+  it('TC-13 · liquidar() con fecha contable ≥ corte → se sella pero ningún movimiento, tampoco GMF (Q6)', async () => {
+    env.FLITO_BOLSAS_CORTE_COMPROBANTES = '2026-01-01';
+    escenarioSellado();
+    const dto = await liquidar(TRAMITE, 9);
+    expect(dto).toBeDefined();
+    expect(insertsEn('flito_liquidaciones')).toHaveLength(1);
+    expect(movimientosEscritos()).toEqual([]);
+    expect(saldoBolsa).toBe(1_000_000);
+  });
+
+  it('TC-13 · borde: corte en el futuro → la liquidación sigue descontando como hoy (AC1)', async () => {
+    env.FLITO_BOLSAS_CORTE_COMPROBANTES = '2099-01-01';
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+    expect(salidasEscritas()).toHaveLength(6);
+  });
+
+  it('TC-17 · reversar con el corte vigente una liquidación que movió la bolsa → busca los comprobantes aplicados para re-descontarlos', async () => {
+    escenarioSellado();
+    await liquidar(TRAMITE, 9); // sin corte: es la liquidación «anterior al corte»
+    env.FLITO_BOLSAS_CORTE_COMPROBANTES = '2026-01-01';
+    const consultados = vi.fn(() => []);
+    escenarioReverso();
+    kdb.when.select('flito_comprobantes', consultados);
+    await reversar(TRAMITE, 'Error en el valor del derecho', 9);
+    expect(entradasEscritas()).toHaveLength(6);
+    expect(consultados).toHaveBeenCalledTimes(1);
+  });
+
+  it('TC-17 · borde: sin corte el reverso NO busca comprobantes', async () => {
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+    const consultados = vi.fn(() => []);
+    escenarioReverso();
+    kdb.when.select('flito_comprobantes', consultados);
+    await reversar(TRAMITE, 'Error en el valor del derecho', 9);
+    expect(consultados).not.toHaveBeenCalled();
   });
 });

@@ -7,6 +7,7 @@
 
 import { MotivoRevision, MOTIVO_REVISION_LABEL, type CampoExtraido } from './flito-ocr.js';
 import type { ConceptoCosto } from './flito-conceptos.js';
+import type { DescuentoBolsaDto } from './flito-bolsas.js';
 
 /**
  * Qué documento es. Catálogo CERRADO: el normalizador del OCR devuelve `null` ante cualquier literal
@@ -304,6 +305,8 @@ export interface ComprobanteDetalleDto extends ComprobanteListaDto {
   diferenciaAceptadaMotivo: string | null;
   /** F3 (HU #12654): `username` del usuario interno que aceptó (LEFT JOIN a `users`); null si no se ha aceptado. */
   diferenciaAceptadaPorNombre: string | null;
+  /** HU #13902 (D11): solo en la respuesta de aplicar con el corte vigente; trae la alerta si la bolsa quedó en negativo. */
+  bolsa?: DescuentoBolsaDto;
 }
 
 /** Cuerpo de `POST /:id/diferencia/aceptar` (F3, HU #12654): el motivo es obligatorio (5..500). */
