@@ -5,6 +5,9 @@ import type {
 import type {
   ArbolRolRespuesta, ArbolUsuarioRespuesta, CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RespuestaReemplazoComprobante, RolCatalogo, TipoEnlace,
 } from '@operaciones/shared-types';
+import type {
+  DocumentoBolsaDto, ExpedienteCompaniaDto, HistorialDocumentoBolsaDto, TipoDocumentoBolsa,
+} from '@operaciones/shared-types';
 
 const BASE = '/api';
 
@@ -611,4 +614,28 @@ export const bolsasApi = {
     api.post<BolsaDetalleDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/reactivar`, { motivo }),
   estadoCompania: (companiaId: number) =>
     api.get<EstadoBolsaCompaniaConAutogestionDto>(`/flito/bolsas/compania/${companiaId}/estado`),
+};
+
+// ── Bolsas: expediente documental de la compañía (HU #13892, ADR-0028 §5) ─────────────────────────
+//
+// Solo ids opacos en el path (`companiaId`, uuid del documento). El archivo baja como blob con el
+// nombre que declara el servidor (`<tipo>-v<n>.<ext>`): nada de `/api/files` ni URL firmada (D6).
+const BOLSAS_DOCS = '/flito/bolsas-documentos';
+
+export const bolsasDocumentosApi = {
+  expediente: (companiaId: number) =>
+    api.get<ExpedienteCompaniaDto>(`${BOLSAS_DOCS}/companias/${companiaId}`),
+  historial: (companiaId: number, tipo: TipoDocumentoBolsa) =>
+    api.get<HistorialDocumentoBolsaDto>(`${BOLSAS_DOCS}/companias/${companiaId}/tipos/${encodeURIComponent(tipo)}/historial`),
+  cargar: (companiaId: number, tipo: TipoDocumentoBolsa, archivo: File) =>
+    api.upload<DocumentoBolsaDto>(`${BOLSAS_DOCS}/companias/${companiaId}/tipos/${encodeURIComponent(tipo)}`, archivo, 'archivo'),
+  fijarFecha: (documentoId: string, fecha: string) =>
+    api.put<DocumentoBolsaDto>(`${BOLSAS_DOCS}/documentos/${encodeURIComponent(documentoId)}/fecha-expedicion`, { fecha }),
+  /** Descarga el archivo de una versión; `respaldo` solo se usa si el servidor no declara nombre. */
+  descargar: async (documentoId: string, respaldo: string) => {
+    const { blob, nombre } = await api.getBlobNamed(
+      `${BOLSAS_DOCS}/documentos/${encodeURIComponent(documentoId)}/archivo`, respaldo,
+    );
+    entregarArchivo(blob, nombre);
+  },
 };
