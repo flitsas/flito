@@ -7,11 +7,11 @@
 import { type ReactNode, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  ConceptoBolsa, CONCEPTO_BOLSA_LABEL, TipoMovimientoBolsa, OrigenMovimientoBolsa,
+  CodigoErrorBolsa, ConceptoBolsa, CONCEPTO_BOLSA_LABEL, TipoMovimientoBolsa, OrigenMovimientoBolsa,
   type CierreDto, type MovimientoBolsaDto, type RespuestaMovimiento, type RespuestaRecarga,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
-import { descargarCsv, etiquetaPeriodo, fechaHora, hoyColombia, pesos } from '../../lib/bolsas';
+import { descargarCsv, errorBolsa, etiquetaPeriodo, fechaHora, hoyColombia, pesos } from '../../lib/bolsas';
 import Campo from './BolsaCampo';
 import FlitModal from '../flit/FlitModal';
 import FlitOrganismoCombobox from '../flit/FlitOrganismoCombobox';
@@ -34,11 +34,52 @@ interface Props {
   /** Libro del periodo elegido. Alimenta el resumen del cierre y la lista de corregibles. */
   movimientos: MovimientoBolsaDto[];
   saldoActual: number;
+  /**
+   * HU #13901 (AC6): con la bolsa inactiva no se pintan recarga, movimiento manual ni corrección;
+   * el cierre del periodo sigue disponible. El aviso de por qué lo pinta el detalle.
+   */
+  activa?: boolean;
+  /** Abre el formulario de alta con la compañía ya elegida (409 `bolsa_inexistente` en una acción). */
+  onCrearBolsa?: () => void;
   onHecho: () => void;
 }
 
+/** Error de una acción de dinero ya traducido a copy de pantalla. `crearBolsa` ofrece el botón. */
+type ErrorAccion = { texto: string; crearBolsa?: boolean } | null;
+
+/**
+ * Los dos 409 de estado de la bolsa (AC6) tienen copy propio; el resto sigue como hasta ahora.
+ * Con `bolsa_inactiva` se refresca el detalle por debajo para que la tarjeta pase a «Inactiva».
+ */
+function errorDeAccion(e: unknown, onRefrescar: () => void): ErrorAccion {
+  const { codigo } = errorBolsa(e);
+  if (codigo === CodigoErrorBolsa.BOLSA_INEXISTENTE) {
+    return { texto: 'Crea la bolsa de la compañía primero.', crearBolsa: true };
+  }
+  if (codigo === CodigoErrorBolsa.BOLSA_INACTIVA) {
+    onRefrescar();
+    return { texto: 'Reactiva la bolsa primero.' };
+  }
+  return { texto: errorMessage(e) };
+}
+
+function AvisoErrorAccion({ error, onCrearBolsa }: { error: ErrorAccion; onCrearBolsa?: () => void }) {
+  if (!error) return null;
+  return (
+    <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+      <span>{error.texto}</span>
+      {error.crearBolsa && onCrearBolsa && (
+        <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCrearBolsa}>
+          Crear bolsa
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function BolsaAcciones({
-  companiaId, companiaNombre, periodo, periodoCerrado, cierres, movimientos, saldoActual, onHecho,
+  companiaId, companiaNombre, periodo, periodoCerrado, cierres, movimientos, saldoActual,
+  activa = true, onCrearBolsa, onHecho,
 }: Props) {
   const [accion, setAccion] = useState<Accion>(null);
   const cierre = cierres.find((c) => c.periodo === periodo) ?? null;
@@ -51,18 +92,22 @@ export default function BolsaAcciones({
     <>
       <FlitCard>
         <div className="flex flex-wrap items-center gap-3">
-          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-            disabled={periodoCerrado} onClick={() => setAccion('recarga')}>
-            Registrar una recarga
-          </button>
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-            disabled={periodoCerrado} onClick={() => setAccion('manual')}>
-            Movimiento manual
-          </button>
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-            disabled={periodoCerrado} onClick={() => setAccion('correccion')}>
-            Corregir un movimiento
-          </button>
+          {activa && (
+            <>
+              <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+                disabled={periodoCerrado} onClick={() => setAccion('recarga')}>
+                Registrar una recarga
+              </button>
+              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                disabled={periodoCerrado} onClick={() => setAccion('manual')}>
+                Movimiento manual
+              </button>
+              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                disabled={periodoCerrado} onClick={() => setAccion('correccion')}>
+                Corregir un movimiento
+              </button>
+            </>
+          )}
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
             disabled={periodoCerrado} onClick={() => setAccion('cierre')}>
             Cerrar {etiquetaPeriodo(periodo)}
@@ -91,13 +136,16 @@ export default function BolsaAcciones({
           resultado —el duplicado y el reporte sellado— y cerrarlos al terminar la petición la haría
           desaparecer antes de que nadie la lea. Cierran cuando lo diga el usuario. */}
       {accion === 'recarga' && (
-        <ModalRecarga companiaId={companiaId} onClose={cerrar} onRefrescar={onHecho} />
+        <ModalRecarga companiaId={companiaId} onClose={cerrar} onRefrescar={onHecho}
+          onCrearBolsa={onCrearBolsa ? () => { cerrar(); onCrearBolsa(); } : undefined} />
       )}
       {accion === 'manual' && (
-        <ModalManual companiaId={companiaId} onClose={cerrar} onHecho={hecho} />
+        <ModalManual companiaId={companiaId} onClose={cerrar} onHecho={hecho} onRefrescar={onHecho}
+          onCrearBolsa={onCrearBolsa ? () => { cerrar(); onCrearBolsa(); } : undefined} />
       )}
       {accion === 'correccion' && (
-        <ModalCorreccion companiaId={companiaId} movimientos={movimientos} onClose={cerrar} onHecho={hecho} />
+        <ModalCorreccion companiaId={companiaId} movimientos={movimientos} onClose={cerrar} onHecho={hecho}
+          onRefrescar={onHecho} />
       )}
       {accion === 'cierre' && (
         <ModalCierre companiaId={companiaId} companiaNombre={companiaNombre} periodo={periodo}
@@ -130,8 +178,9 @@ function nuevaClave(): string {
  * manejo del duplicado, que es justo lo que impide acreditar el dinero dos veces.
  */
 export function ModalRecarga({
-  companiaId, titulo = 'Registrar una recarga', intro, selector, onClose, onRefrescar,
+  companiaId, titulo = 'Registrar una recarga', intro, selector, onClose, onRefrescar, onCrearBolsa,
 }: {
+  onCrearBolsa?: () => void;
   companiaId: number | null;
   titulo?: string;
   intro?: ReactNode;
@@ -153,7 +202,7 @@ export function ModalRecarga({
   const [observacion, setObservacion] = useState('');
   const [archivo, setArchivo] = useState<File | null>(null);
   const [enviando, setEnviando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorAccion>(null);
   const [duplicado, setDuplicado] = useState<RespuestaRecarga | null>(null);
 
   const valorNum = Number(valor);
@@ -186,8 +235,9 @@ export function ModalRecarga({
       onRefrescar();
       onClose();
     } catch (e) {
-      // El mensaje del servidor tal cual (AC5): 403 y 409 dicen algo que la pantalla no sabe.
-      setError(errorMessage(e));
+      // HU #13901 (AC6): los 409 de estado de la bolsa llevan copy propio. El resto, el mensaje del
+      // servidor tal cual (AC5 de la #11129): 403 y otros 409 dicen algo que la pantalla no sabe.
+      setError(errorDeAccion(e, onRefrescar));
     } finally {
       setEnviando(false);
     }
@@ -247,7 +297,7 @@ export function ModalRecarga({
           )}
         </div>
 
-        {error && <p className="text-sm" style={{ color: 'var(--flit-danger)' }}>{error}</p>}
+        <AvisoErrorAccion error={error} onCrearBolsa={onCrearBolsa} />
 
         <div className="flex justify-end gap-2">
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>
@@ -264,8 +314,8 @@ export function ModalRecarga({
 
 // ──────────────────────── Movimiento manual ──────────────────────────────────
 
-function ModalManual({ companiaId, onClose, onHecho }: {
-  companiaId: number; onClose: () => void; onHecho: () => void;
+function ModalManual({ companiaId, onClose, onHecho, onRefrescar, onCrearBolsa }: {
+  companiaId: number; onClose: () => void; onHecho: () => void; onRefrescar: () => void; onCrearBolsa?: () => void;
 }) {
   const [tipo, setTipo] = useState<TipoMovimientoBolsa>(TipoMovimientoBolsa.SALIDA);
   const [valor, setValor] = useState('');
@@ -275,7 +325,7 @@ function ModalManual({ companiaId, onClose, onHecho }: {
   const [organismo, setOrganismo] = useState('');
   const [archivo, setArchivo] = useState<File | null>(null);
   const [enviando, setEnviando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorAccion>(null);
 
   const valorNum = Number(valor);
   const valorInvalido = valor.trim() === '' || !Number.isFinite(valorNum) || valorNum <= 0;
@@ -300,7 +350,7 @@ function ModalManual({ companiaId, onClose, onHecho }: {
       toast.success(`Movimiento manual registrado. Saldo: ${pesos(r.saldo)}.`);
       onHecho();
     } catch (e) {
-      setError(errorMessage(e));
+      setError(errorDeAccion(e, onRefrescar));
     } finally {
       setEnviando(false);
     }
@@ -374,7 +424,7 @@ function ModalManual({ companiaId, onClose, onHecho }: {
           )}
         </div>
 
-        {error && <p className="text-sm" style={{ color: 'var(--flit-danger)' }}>{error}</p>}
+        <AvisoErrorAccion error={error} onCrearBolsa={onCrearBolsa} />
 
         <div className="flex justify-end gap-2">
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>
@@ -391,8 +441,8 @@ function ModalManual({ companiaId, onClose, onHecho }: {
 
 // ─────────────────────────── Corrección ──────────────────────────────────────
 
-function ModalCorreccion({ companiaId, movimientos, onClose, onHecho }: {
-  companiaId: number; movimientos: MovimientoBolsaDto[]; onClose: () => void; onHecho: () => void;
+function ModalCorreccion({ companiaId, movimientos, onClose, onHecho, onRefrescar }: {
+  companiaId: number; movimientos: MovimientoBolsaDto[]; onClose: () => void; onHecho: () => void; onRefrescar: () => void;
 }) {
   // Solo los manuales: un movimiento automático nace del sellado de una liquidación y el backend
   // rechaza corregirlo (409). Ofrecerlo aquí sería invitar a un error que solo se ve al enviar.
@@ -401,7 +451,7 @@ function ModalCorreccion({ companiaId, movimientos, onClose, onHecho }: {
   const [valor, setValor] = useState('');
   const [motivo, setMotivo] = useState('');
   const [enviando, setEnviando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorAccion>(null);
 
   const valorNum = Number(valor);
   const valorInvalido = valor.trim() === '' || !Number.isFinite(valorNum) || valorNum <= 0;
@@ -420,7 +470,7 @@ function ModalCorreccion({ companiaId, movimientos, onClose, onHecho }: {
       toast.success(`Corrección asentada. Saldo: ${pesos(r.saldo)}.`);
       onHecho();
     } catch (e) {
-      setError(errorMessage(e));
+      setError(errorDeAccion(e, onRefrescar));
     } finally {
       setEnviando(false);
     }
@@ -464,7 +514,7 @@ function ModalCorreccion({ companiaId, movimientos, onClose, onHecho }: {
               onChange={(e) => setMotivo(e.target.value)} />
           </Campo>
 
-          {error && <p className="text-sm" style={{ color: 'var(--flit-danger)' }}>{error}</p>}
+          <AvisoErrorAccion error={error} />
 
           <div className="flex justify-end gap-2">
             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>

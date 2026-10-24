@@ -153,6 +153,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "POST", ruta: "/companias/:companiaId/tipos/:tipo", roles: [], heredada: false },
   { modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "GET", ruta: "/documentos/:documentoId/archivo", roles: [], heredada: false },
   { modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "PUT", ruta: "/documentos/:documentoId/fecha-expedicion", roles: [], heredada: false }, // HU #13890 (E4)
+  { modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "POST", ruta: "/estado-lote", roles: [], heredada: false }, // HU #13893 (E6)
   // HU #13900 (ADR-0029): catálogo del modelo único. Sin `requireRole` histórico: cada ruta lleva el reparto de su
   // código de PARTIDA (`PARTIDA_DE_OPERACION_NUEVA`), que es el de su par (admin y financiera).
   { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.catalogo.routes.ts", metodo: "POST", ruta: "/buscar", roles: ["admin","financiera"], heredada: false },

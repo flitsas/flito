@@ -473,6 +473,46 @@ export const BOLSAS_DEMO = {
   ],
 };
 
+// ── Bolsas: expediente documental de la compañía (HU #13892) ─────────────────
+// Compañía 901 (la bolsa demo del detalle). Fechas respecto del reloj demo (21-oct-2026): la Cámara
+// vigente, el RUT vencido, el certificado sin fecha leída, la cédula cargada y el adicional pendiente.
+
+function versionDocDemo(tipo: string, n: number, extra: Record<string, unknown>) {
+  return {
+    id: `00000000-0000-4000-8000-0000000009${String(n).padStart(2, '0')}`, tipo, version: 1, estado: 'valido',
+    fechaExpedicion: null, fechaOrigen: null, venceEl: null, fechaManual: null,
+    mime: 'application/pdf', tamanoBytes: 245000, cargadoPor: NOMBRES_DEMO[2], cargadoEn: '2026-10-06T15:20:00.000Z', ...extra,
+  };
+}
+
+export const EXPEDIENTE_BOLSA_DEMO = {
+  companiaId: 901,
+  completo: false,
+  documentos: [
+    { tipo: 'camara_comercio', opcional: false, estado: 'valido',
+      vigente: versionDocDemo('camara_comercio', 1, { fechaExpedicion: '2026-10-05', venceEl: '2026-11-04', fechaOrigen: 'ocr' }) },
+    { tipo: 'rut', opcional: false, estado: 'vencido',
+      vigente: versionDocDemo('rut', 2, { estado: 'vencido', version: 2, fechaExpedicion: '2026-09-10', venceEl: '2026-10-10', fechaOrigen: 'ocr' }) },
+    { tipo: 'cedula_representante', opcional: false, estado: 'valido', vigente: versionDocDemo('cedula_representante', 3, {}) },
+    { tipo: 'certificado_bancario', opcional: false, estado: 'no_validado',
+      vigente: versionDocDemo('certificado_bancario', 4, { estado: 'no_validado', cargadoEn: '2026-10-20T14:05:00.000Z' }) },
+    { tipo: 'adicional', opcional: true, estado: 'pendiente', vigente: null },
+  ],
+};
+
+/**
+ * E6 `POST /bolsas-documentos/estado-lote` (HU #13893): chip «Expediente» del listado. La 901 cuadra
+ * con su expediente (RUT vencido, certificado sin validar → «Docs pendientes»); la 902 está completa.
+ */
+export const ESTADO_LOTE_BOLSAS_DEMO = {
+  estados: [
+    { companiaId: 901, completo: false,
+      estados: { camara_comercio: 'valido', rut: 'vencido', cedula_representante: 'valido', certificado_bancario: 'no_validado' } },
+    { companiaId: 902, completo: true,
+      estados: { camara_comercio: 'valido', rut: 'valido', cedula_representante: 'valido', certificado_bancario: 'valido' } },
+  ],
+};
+
 // ── Tarifas ──────────────────────────────────────────────────────────────────
 
 const USUARIO_TARIFAS_DEMO = { id: 1, nombre: NOMBRES_DEMO[2] };

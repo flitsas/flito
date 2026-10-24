@@ -447,3 +447,103 @@ describe('AC8 — estado por compañía con bolsas.documentos.ver', () => {
     expect(res.status).toBe(403);
   });
 });
+
+// HU #13893 (ADR-0028 §5 E6) — estado agregado del expediente por lote, para el chip del listado.
+describe('#13893 — E6 POST /estado-lote', () => {
+  const OTRA = 8;
+  const SIN_DOCS = 9;
+  const vig = (companiaId: number, tipo: string, over: Record<string, unknown> = {}) => ({
+    companiaId, tipo, fechaExpedicion: null, ocrEstado: 'no_aplica', ...over,
+  });
+  const principalesValidos = (companiaId: number) => [
+    vig(companiaId, 'camara_comercio', { fechaExpedicion: dias(HOY, -2), ocrEstado: 'leido' }),
+    vig(companiaId, 'rut', { fechaExpedicion: dias(HOY, -30), ocrEstado: 'leido' }),
+    vig(companiaId, 'cedula_representante'),
+    vig(companiaId, 'certificado_bancario', { fechaExpedicion: dias(HOY, 0), ocrEstado: 'leido' }),
+  ];
+  const postLote = async (body: unknown, funciones = [VER]) => {
+    const app = await buildApp();
+    return request(app).post('/api/flito/bolsas-documentos/estado-lote')
+      .set('Authorization', await token(funciones)).send(body as object);
+  };
+
+  it('AC5 — N compañías en el body → estado agregado por compañía, en el orden pedido, con UNA sola consulta', async () => {
+    kdb.when.select(DOCS, [...principalesValidos(COMPANIA), vig(OTRA, 'rut', { fechaExpedicion: dias(HOY, -2), ocrEstado: 'leido' })]);
+    kdb.select.mockClear();
+    const res = await postLote({ companiaIds: [OTRA, COMPANIA, SIN_DOCS] });
+    expect(res.status).toBe(200);
+    expect(kdb.select).toHaveBeenCalledTimes(1);
+    expect(res.body.estados.map((e: { companiaId: number }) => e.companiaId)).toEqual([OTRA, COMPANIA, SIN_DOCS]);
+    expect(res.body.estados[1]).toEqual({
+      companiaId: COMPANIA, completo: true,
+      estados: { camara_comercio: 'valido', rut: 'valido', cedula_representante: 'valido', certificado_bancario: 'valido' },
+    });
+    expect(res.body.estados[0]).toMatchObject({ companiaId: OTRA, completo: false, estados: { rut: 'valido', camara_comercio: 'pendiente' } });
+  });
+
+  it('AC1/AC3 — los 4 principales válidos → completo aunque falte el adicional (el adicional no cuenta)', async () => {
+    kdb.when.select(DOCS, principalesValidos(COMPANIA));
+    const res = await postLote({ companiaIds: [COMPANIA] });
+    expect(res.status).toBe(200);
+    expect(res.body.estados[0].completo).toBe(true);
+    expect(res.body.estados[0].estados).not.toHaveProperty('adicional');
+  });
+
+  it.each([
+    ['falta uno', (f: ReturnType<typeof vig>[]) => f.filter((x) => x.tipo !== 'cedula_representante'), 'cedula_representante', 'pendiente'],
+    ['vencido', (f: ReturnType<typeof vig>[]) => f.map((x) => x.tipo === 'rut' ? { ...x, fechaExpedicion: dias(HOY, -31) } : x), 'rut', 'vencido'],
+    ['no se pudo validar', (f: ReturnType<typeof vig>[]) => f.map((x) => x.tipo === 'camara_comercio' ? { ...x, fechaExpedicion: null, ocrEstado: 'sin_fecha' } : x), 'camara_comercio', 'no_validado'],
+    ['validando', (f: ReturnType<typeof vig>[]) => f.map((x) => x.tipo === 'certificado_bancario' ? { ...x, fechaExpedicion: null, ocrEstado: 'validando' } : x), 'certificado_bancario', 'validando'],
+  ])('AC2 — %s → completo:false', async (_caso, mutar, tipo, estado) => {
+    kdb.when.select(DOCS, mutar(principalesValidos(COMPANIA)));
+    const res = await postLote({ companiaIds: [COMPANIA] });
+    expect(res.status).toBe(200);
+    expect(res.body.estados[0].completo).toBe(false);
+    expect(res.body.estados[0].estados[tipo]).toBe(estado);
+  });
+
+  it('compañía sin documentos (o inexistente) → completo:false y los 4 en pendiente, sin 404', async () => {
+    kdb.when.select(DOCS, []);
+    const res = await postLote({ companiaIds: [SIN_DOCS] });
+    expect(res.status).toBe(200);
+    expect(res.body.estados).toEqual([{
+      companiaId: SIN_DOCS, completo: false,
+      estados: { camara_comercio: 'pendiente', rut: 'pendiente', cedula_representante: 'pendiente', certificado_bancario: 'pendiente' },
+    }]);
+  });
+
+  it('AC7 — sin bolsas.documentos.ver → 403 sin consultar', async () => {
+    kdb.select.mockClear();
+    const res = await postLote({ companiaIds: [COMPANIA] }, [CARGAR]);
+    expect(res.status).toBe(403);
+    expect(kdb.select).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['más de 200', { companiaIds: Array.from({ length: 201 }, (_, i) => i + 1) }],
+    ['vacío', { companiaIds: [] }],
+    ['repetidos', { companiaIds: [COMPANIA, COMPANIA] }],
+    ['no enteros o no positivos', { companiaIds: [0, 1.5] }],
+    ['como texto', { companiaIds: ['7'] }],
+    ['campo extra', { companiaIds: [COMPANIA], nit: '900123456' }],
+  ])('body inválido (%s) → 400 sin consultar', async (_caso, body) => {
+    kdb.select.mockClear();
+    const res = await postLote(body);
+    expect(res.status).toBe(400);
+    expect(kdb.select).not.toHaveBeenCalled();
+  });
+
+  it('justo 200 compañías → 200', async () => {
+    kdb.when.select(DOCS, []);
+    const res = await postLote({ companiaIds: Array.from({ length: 200 }, (_, i) => i + 1) });
+    expect(res.status).toBe(200);
+    expect(res.body.estados).toHaveLength(200);
+  });
+
+  it('un usuario con enlace de compañía recibe 403 aunque tenga la función', async () => {
+    const app = await buildApp();
+    const auth = `Bearer ${await testToken({ sub: 31, role: 'cliente', funciones: [VER] })}`;
+    const res = await request(app).post('/api/flito/bolsas-documentos/estado-lote').set('Authorization', auth).send({ companiaIds: [COMPANIA] });
+    expect(res.status).toBe(403);
+  });
+});
