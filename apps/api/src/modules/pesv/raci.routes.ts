@@ -58,7 +58,7 @@ router.get('/matriz', requirePage('pesv_raci'), async (_req, res) => {
 
 router.post('/', requirePage('pesv_raci'), exigirFuncion('pesv.raci.administrar'), async (req: Request, res: Response) => {
   const parsed = raciSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   try {
     const [row] = await db.insert(pesvRaci).values({
@@ -80,7 +80,7 @@ router.post('/', requirePage('pesv_raci'), exigirFuncion('pesv.raci.administrar'
 router.patch('/:id(\\d+)', requirePage('pesv_raci'), exigirFuncion('pesv.raci.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const parsed = raciSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   const expectedV = Number(req.body?.optimisticV);
   if (!Number.isFinite(expectedV)) return res.status(400).json({ error: 'optimisticV requerido' });
@@ -116,7 +116,7 @@ const bulkSchema = z.object({
 
 router.put('/proceso', requirePage('pesv_raci'), exigirFuncion('pesv.raci.administrar'), async (req: Request, res: Response) => {
   const parsed = bulkSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   await db.transaction(async (tx) => {
     await tx.delete(pesvRaci).where(eq(pesvRaci.procesoCodigo, d.procesoCodigo));
