@@ -461,6 +461,20 @@ function fkReapuntadaEn0250(tabla: string, columna: string): Columna['fk'] {
   return { tabla: m[1].toLowerCase(), columna: m[2].toLowerCase(), onDelete: m[3].toLowerCase() as AccionFk };
 }
 
+// El libro único nace en la 0249; su CHECK de `origen` es el dominio vivo de `OrigenMovimientoBolsa`.
+const ARCHIVO_0249 = '0249_flito_bolsas_unicas.sql';
+const SQL_0249 = podarComentarios(readFileSync(ruta(`../../src/db/migrations/${ARCHIVO_0249}`), 'utf8'))
+  .replace(/\s+/g, ' ');
+
+function valoresDelCheckDe0249(nombre: string): string[] {
+  const m = SQL_0249.match(new RegExp(`ADD CONSTRAINT ${nombre} CHECK \\(origen IN \\(([^)]*)\\)\\)`, 'i'));
+  // Guardarraíl contra la vacuidad: si el regex dejara de casar, la comparación no probaría nada.
+  expect(m, `no se leyó el CHECK ${nombre} de ${ARCHIVO_0249}`).not.toBeNull();
+  const valores = [...m![1].matchAll(/'([a-z0-9_]+)'/gi)].map((x) => x[1]);
+  expect(valores.length).toBeGreaterThan(0);
+  return valores;
+}
+
 const FKS_REAPUNTADAS = [
   { tabla: 'flito_conciliacion_lineas', columna: 'movimiento_bolsa_id', fk: fkReapuntadaEn0250('flito_conciliacion_lineas', 'movimiento_bolsa_id') },
 ];
@@ -608,8 +622,19 @@ describe('los CHECK de valor y sus tipos en shared-types', () => {
     // Esto es lo que `schema.ts` NO sabe: las dos columnas son varchar(20) y el esquema de drizzle
     // nunca conoció sus CHECK. Sin este par de aserciones, el único aviso de que falta uno sería un
     // 23514 dentro de la transacción que mueve dinero.
-    expect(new Set(valoresDelCheck('flito_bolsa_mov_origen_valido')))
-      .toEqual(new Set(Object.values(OrigenMovimientoBolsa)));
+    //
+    // Excepción acotada (HU #13902): `comprobante` llegó DESPUÉS de la 0157 y solo al libro ÚNICO
+    // (`flito_bolsas_unicas_movimientos`, CHECK de la 0249), que es la tabla viva desde la 0250.
+    // La tabla vieja de la 0157 admite el subconjunto anterior: el tipo de shared-types menos
+    // `comprobante`, y nada más. El tipo completo se compara contra el CHECK de la 0249.
+    const POSTERIORES_A_0157 = ['comprobante'];
+    const tipoBolsa = new Set(Object.values(OrigenMovimientoBolsa) as string[]);
+    // Guardarraíl: si `comprobante` saliera del tipo, la excepción pasaría en vacío.
+    for (const v of POSTERIORES_A_0157) expect(tipoBolsa.has(v), `${v} ya no está en OrigenMovimientoBolsa`).toBe(true);
+    const del0157Bolsa = new Set(valoresDelCheck('flito_bolsa_mov_origen_valido'));
+    for (const v of POSTERIORES_A_0157) expect(del0157Bolsa.has(v)).toBe(false);
+    expect(del0157Bolsa).toEqual(new Set([...tipoBolsa].filter((v) => !POSTERIORES_A_0157.includes(v))));
+    expect(new Set(valoresDelCheckDe0249('flito_bolsas_unicas_mov_origen_chk'))).toEqual(tipoBolsa);
     expect(new Set(valoresDelCheck('flito_org_mov_origen_valido')))
       .toEqual(new Set(Object.values(OrigenMovimientoTransito)));
     expect(Object.values(OrigenMovimientoBolsa)).toContain('conciliacion');
