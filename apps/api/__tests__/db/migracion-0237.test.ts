@@ -27,7 +27,7 @@ const ARCHIVO = '0237_permisos_arbol_administracion_reparto.sql';
 const DIR = path.resolve(__dirname, '../../src/db/migrations');
 const SQL = readFileSync(path.join(DIR, ARCHIVO), 'utf8');
 const SIN_COMENTARIOS = SQL.replace(/--[^\n]*/g, '');
-// HU #13945: las del área que sembró y repartió la 0237 (`accion.clientes.activar_desactivar` nace en la 0254).
+// HU #13945: las del área que sembró y repartió la 0237 (`accion.clientes.activar_desactivar` nace en la 0255).
 const AREA = accionesSembradasDe('administracion');
 
 describe('0237 — análisis estático', () => {

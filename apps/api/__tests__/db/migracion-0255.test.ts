@@ -1,4 +1,4 @@
-// HU #13945 (Feature #13939) — La 0254: «Activar o desactivar clientes», primera exclusiva del Administrador.
+// HU #13945 (Feature #13939) — La 0255: «Activar o desactivar clientes», primera exclusiva del Administrador.
 //
 //   · Estática (siempre corre): sin control de transacción propio; siembra EXACTAMENTE la acción del catálogo
 //     (`catalogoCompleto()`: padre, nivel, orden, nombre) con `exclusiva_admin = true`; el código la declara exclusiva;
@@ -17,14 +17,14 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn(),
 }));
 
-const ARCHIVO = '0254_permisos_clientes_activar_desactivar.sql';
-const SQL_0254 = leerMigracion(ARCHIVO);
-const SIN_COMENTARIOS = SQL_0254.replace(/--[^\n]*/g, '');
+const ARCHIVO = '0255_permisos_clientes_activar_desactivar.sql';
+const SQL_0255 = leerMigracion(ARCHIVO);
+const SIN_COMENTARIOS = SQL_0255.replace(/--[^\n]*/g, '');
 const ACCION = 'accion.clientes.activar_desactivar';
 
-describe('0254 — reglas del archivo (análisis estático)', () => {
+describe('0255 — reglas del archivo (análisis estático)', () => {
   it('sin control de transacción propio; INSERT con ON CONFLICT', () => {
-    expect(scanForTxControl(ARCHIVO, SQL_0254)).toEqual([]);
+    expect(scanForTxControl(ARCHIVO, SQL_0255)).toEqual([]);
     expect(SIN_COMENTARIOS).toMatch(/INSERT INTO permisos_funciones[\s\S]*ON CONFLICT \(codigo\) DO UPDATE/);
     expect(SIN_COMENTARIOS).toMatch(/INSERT INTO permisos_rol_funcion[\s\S]*ON CONFLICT DO NOTHING/);
   });
@@ -56,13 +56,13 @@ describe('0254 — reglas del archivo (análisis estático)', () => {
   });
 });
 
-describe.skipIf(!URL_BASE)('0254 — contra PostgreSQL (tx con ROLLBACK)', () => {
+describe.skipIf(!URL_BASE)('0255 — contra PostgreSQL (tx con ROLLBACK)', () => {
   it('dos veces sin error; la acción queda marcada y en el cuadro de admin; base y código coinciden en las exclusivas', async () => {
     const sql = abrirBase();
     try {
       await enTx(sql, async (tx) => {
-        await tx.unsafe(SQL_0254);
-        await tx.unsafe(SQL_0254);
+        await tx.unsafe(SQL_0255);
+        await tx.unsafe(SQL_0255);
         const [f] = await tx`SELECT exclusiva_admin, padre_codigo, tipo FROM permisos_funciones WHERE codigo = ${ACCION}`;
         expect(f).toEqual({ exclusiva_admin: true, padre_codigo: 'pagina.clients', tipo: 'accion' });
         const roles = await tx`SELECT rol_codigo FROM permisos_rol_funcion WHERE funcion_codigo = ${ACCION}`;
@@ -79,7 +79,7 @@ describe.skipIf(!URL_BASE)('0254 — contra PostgreSQL (tx con ROLLBACK)', () =>
     const sql = abrirBase();
     try {
       await enTx(sql, async (tx) => {
-        await tx.unsafe(SQL_0254);
+        await tx.unsafe(SQL_0255);
         const [rol] = await tx`SELECT codigo FROM permisos_roles WHERE codigo <> 'admin' ORDER BY codigo LIMIT 1`;
         const [u] = await tx`SELECT id FROM users ORDER BY id LIMIT 1`;
         if (!rol || !u) return;
@@ -94,9 +94,9 @@ describe.skipIf(!URL_BASE)('0254 — contra PostgreSQL (tx con ROLLBACK)', () =>
             (SELECT count(*)::int FROM permisos_usuario_funcion WHERE funcion_codigo = ${ACCION}) AS usuarios`;
           return r;
         };
-        await tx.unsafe(SQL_0254);
+        await tx.unsafe(SQL_0255);
         expect(await estado()).toEqual({ otros: 0, admin: 1, usuarios: 0 });
-        await tx.unsafe(SQL_0254);
+        await tx.unsafe(SQL_0255);
         expect(await estado()).toEqual({ otros: 0, admin: 1, usuarios: 0 });
       });
     } finally {

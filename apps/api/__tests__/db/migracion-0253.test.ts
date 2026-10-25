@@ -45,7 +45,7 @@ describe('0253 — reglas del archivo (análisis estático)', () => {
 });
 
 describe.skipIf(!URL_BASE)('0253 — contra PostgreSQL (tx con ROLLBACK)', () => {
-  // HU #13945: la 0254 (posterior) sí marca una función, así que sobre una base que ya la aplicó la 0253 no deja «cero
+  // HU #13945: la 0255 (posterior) sí marca una función, así que sobre una base que ya la aplicó la 0253 no deja «cero
   // marcadas»: lo que se mide es que la 0253 no marca NINGUNA más de las que ya había (sin columna previa: cero).
   it('dos veces sin error; la columna existe con su tipo y default; la 0253 no marca ninguna función', async () => {
     const sql = abrirBase();

@@ -33,7 +33,7 @@ const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.j
 const CATALOGO = catalogoCompleto();
 const CODIGOS = CATALOGO.map((f) => f.codigo);
 const MODULO_DE = new Map(CATALOGO.map((f) => [f.codigo, f.modulo]));
-/** HU #13945: con la primera exclusiva declarada, una base AL DÍA también la marca (la 0254). */
+/** HU #13945: con la primera exclusiva declarada, una base AL DÍA también la marca (la 0255). */
 const EXCLUSIVAS = new Set(CATALOGO.filter((f) => f.exclusivaAdmin).map((f) => f.codigo));
 
 /**
@@ -191,14 +191,14 @@ describe('HU #12873 AC9 — una operación absorbida por el árbol que sigue en 
 });
 
 describe('HU #13944 — el arranque compara también las funciones exclusivas del Administrador (0253)', () => {
-  // HU #13945: la lista del código ya no está vacía («Activar o desactivar clientes», 0254).
+  // HU #13945: la lista del código ya no está vacía («Activar o desactivar clientes», 0255).
   it('con código y base coherentes (la acción de clientes marcada en los dos), arranca', async () => {
     expect([...EXCLUSIVAS]).toEqual(['accion.clientes.activar_desactivar']);
     selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: EXCLUSIVAS.has(codigo) }))));
     await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
   });
 
-  it('HU #13945: el código la declara exclusiva y la base no la marca (0254 sin aplicar) → falla nombrándola', async () => {
+  it('HU #13945: el código la declara exclusiva y la base no la marca (0255 sin aplicar) → falla nombrándola', async () => {
     selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: false }))));
     const e = await verificarCatalogoAlArrancar().catch((x: unknown) => x);
     expect(e).toBeInstanceOf(ArranquePermisosError);

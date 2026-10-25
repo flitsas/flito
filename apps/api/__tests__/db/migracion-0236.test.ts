@@ -42,7 +42,7 @@ describe('0236 — análisis estático', () => {
 
   it('siembra las 24 acciones del área (ni una de otra área), con upsert idempotente, y marca nivel 2 a sus 6 páginas', () => {
     const sembradas = leerFuncionesSembradas([ARCHIVO]);
-    // HU #13945: `accion.clientes.activar_desactivar` nace después (0254); la 0236 aplicada no cambia.
+    // HU #13945: `accion.clientes.activar_desactivar` nace después (0255); la 0236 aplicada no cambia.
     expect([...sembradas.keys()].sort()).toEqual(accionesSembradasDe('administracion'));
     expect(ACCIONES_POR_AREA.administracion.length - accionesSembradasDe('administracion').length).toBe(1);
     expect(sembradas.size).toBe(24);

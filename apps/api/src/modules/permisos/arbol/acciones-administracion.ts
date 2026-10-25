@@ -70,7 +70,7 @@ export const ACCIONES_ADMINISTRACION: Readonly<Record<string, AccionArbol>> = {
     operaciones: ['clients.clientes.datos_fiscales'], predecesores: [TRANSITORIO_CLIENTES], apoyo: ['clients.clientes.ver'],
   },
   // HU #13945 — exclusiva del Administrador (HU #13944, `FUNCIONES_EXCLUSIVAS_ADMIN`). Nace tras la siembra del árbol
-  // (`predecesores: []`, nadie la tenía): solo `admin` la recibe (0254). Apoyo: la lectura del padrón.
+  // (`predecesores: []`, nadie la tenía): solo `admin` la recibe (0255). Apoyo: la lectura del padrón.
   'accion.clientes.activar_desactivar': {
     operaciones: ['clients.clientes.estado'], predecesores: [], apoyo: ['clients.clientes.ver'],
   },
@@ -107,7 +107,7 @@ export const PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION: Readonly<Record<string, 
 /**
  * HU #13945 — Lo que Clientes estrena DESPUÉS de la siembra del árbol (mismo contrato que
  * `OPERACIONES_NACIDAS_EN_EL_ARBOL` de `acciones-finanzas.ts`, que las une): la operación nace absorbida (no se siembra,
- * no existió en el mundo plano) y la acción la siembra la 0254, solo para `admin`, con `exclusiva_admin = true`.
+ * no existió en el mundo plano) y la acción la siembra la 0255, solo para `admin`, con `exclusiva_admin = true`.
  */
 export const OPERACIONES_NACIDAS_EN_EL_ARBOL_ADMINISTRACION: readonly string[] = ['clients.clientes.estado'];
 export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA_ADMINISTRACION: readonly string[] = ['accion.clientes.activar_desactivar'];

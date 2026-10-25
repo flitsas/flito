@@ -107,7 +107,7 @@ export const ITEMS_CLIENTES_Y_BITACORA: readonly ItemDef[] = [
     a('autogestion', 'Habilitar o revocar la autogestión del cliente', 'Habilitar o revocar la autogestión de SOAT, impuestos y logística de un cliente.'),
     a('soat_sin_tramite', 'Configurar «SOAT sin trámite»', 'Permitir a un cliente solicitar SOAT sin trámite y elegir su proveedor.'),
     a('datos_fiscales', 'Datos fiscales', 'Registrar y editar los datos fiscales de un cliente.'),
-    // HU #13945: exclusiva del Administrador (FUNCIONES_EXCLUSIVAS_ADMIN, HU #13944). Nace tras la siembra (0254).
+    // HU #13945: exclusiva del Administrador (FUNCIONES_EXCLUSIVAS_ADMIN, HU #13944). Nace tras la siembra (0255).
     a('activar_desactivar', 'Activar o desactivar clientes', 'Desactivar un cliente (sus usuarios pierden el acceso) o volver a activarlo, viendo antes el impacto.'),
   ] },
   { slug: 'flito_bitacora', clave: 'bitacora', nombre: 'Bitácora', elemento: 'gestion', orden: 100, acciones: [

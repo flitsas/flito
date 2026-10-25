@@ -53,7 +53,7 @@ const DE_TODOS = new Set(ACCIONES_UNIVERSALES.flatMap((u) => operacionesDe(u.acc
 
 /**
  * HU #13945: las operaciones absorbidas por una acción EXCLUSIVA del Administrador (`FUNCIONES_EXCLUSIVAS_ADMIN`)
- * nacen en el árbol, sin partida en el mundo plano: la siembra de su acción es posterior (0254) y el plano no puede
+ * nacen en el árbol, sin partida en el mundo plano: la siembra de su acción es posterior (0255) y el plano no puede
  * decidirlas (solo el grupo `operaciones`: el `apoyo` de lectura sí es del plano). Se excluyen SOLO de la matriz plana; la de la base real sí las mide (admin SÍ, el resto NO).
  */
 const DE_EXCLUSIVAS = new Set(FUNCIONES_EXCLUSIVAS_ADMIN.flatMap((a) => ACCIONES_ARBOL[a]?.operaciones ?? []));
@@ -165,7 +165,7 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts POST /estado-lote',
       'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago',
       // HU #13945: `clients.clientes.estado` nace absorbida por la acción exclusiva del Administrador
-      // `accion.clientes.activar_desactivar`; la siembra la 0254 (solo `admin`), no el seed plano.
+      // `accion.clientes.activar_desactivar`; la siembra la 0255 (solo `admin`), no el seed plano.
       'clients/clients.routes.ts GET /:id/impacto',
       'clients/clients.routes.ts PATCH /:id/estado',
     ]);

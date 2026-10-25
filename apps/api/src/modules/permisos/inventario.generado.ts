@@ -544,7 +544,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   // HU #13428: el PATCH decide EN LÍNEA (editar / datos fiscales); `[fiscal]` también en el POST.
   { modulo: "clients", fichero: "clients/clients.routes.ts", metodo: "PATCH", ruta: "/:id", condicion: "editar", roles: ["admin"], heredada: false },
   { modulo: "clients", fichero: "clients/clients.routes.ts", metodo: "POST", ruta: "*", condicion: "fiscal", roles: ["admin"], heredada: false },
-  // HU #13945: «Activar o desactivar clientes», exclusiva del Administrador (nace en el árbol; su acción la siembra la 0254).
+  // HU #13945: «Activar o desactivar clientes», exclusiva del Administrador (nace en el árbol; su acción la siembra la 0255).
   { modulo: "clients", fichero: "clients/clients.routes.ts", metodo: "GET", ruta: "/:id/impacto", roles: ["admin"], heredada: false },
   { modulo: "clients", fichero: "clients/clients.routes.ts", metodo: "PATCH", ruta: "/:id/estado", roles: ["admin"], heredada: false },
   // HU #13423 (ADR-0023): laft/, privacy/, firma/, drive/, soat/ (antiguo) y siigo/ el día que dejaron de

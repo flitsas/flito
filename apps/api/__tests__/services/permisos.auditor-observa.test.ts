@@ -212,7 +212,7 @@ describe('AC6 — rol por rol: lo sembrado es lo que la foto concedía', () => {
     it(`${rol}: sus operaciones en el seed son exactamente las de las rutas que la foto le daba`, () => {
       // Sin repetidos: desde la HU #13421 varias guardas legacy comparten código («Administrar <ítem>»).
       // HU #13945: las operaciones absorbidas por una acción EXCLUSIVA del Administrador nacen en el árbol (su acción
-      // la siembra la 0254, no el seed plano ≤ 0231) y no tienen partida: no son del mundo que mide este archivo.
+      // la siembra la 0255, no el seed plano ≤ 0231) y no tienen partida: no son del mundo que mide este archivo.
       const desdeFoto = [...new Set(GUARDAS_MEDIDAS.filter((g) => g.roles.includes(rol)).map(codigoDe)
         .filter((c) => !c.startsWith('pagina.') && !DE_EXCLUSIVAS.has(c)))].sort();
       expect(operacionesDe(rol)).toEqual(desdeFoto);
