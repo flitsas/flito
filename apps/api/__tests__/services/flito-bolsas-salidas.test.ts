@@ -1051,6 +1051,30 @@ describe('HU #13902 — AC7/AC10: con el corte vigente la liquidación deja de m
     expect(consultados).toHaveBeenCalledTimes(1);
   });
 
+  // HU #13909 (AC10): una bolsa de tránsito CUBRE las secretarías del trámite; con el corte vigente el
+  // sellado no le consume nada (el consumo lo hace el comprobante aplicado). El control sin corte prueba
+  // que el mismo escenario sí llegaría a consumir: si no, el «cero consumos» no distinguiría nada.
+  const consumosTransito = () => insertsEn('flito_bolsas_unicas_movimientos')
+    .filter((m) => String(m.datos.llaveIdempotencia ?? '').startsWith('consumo:'));
+
+  it('AC10 · control: corte en el futuro y una bolsa de tránsito que cubre → el sellado SÍ consume tránsito', async () => {
+    env.FLITO_BOLSAS_CORTE_COMPROBANTES = '2099-01-01';
+    escenarioSellado();
+    kdb.when.select('flito_bolsas_unicas_cobertura', [{ bolsaId: 'bolsa-transito', nombre: 'Tránsito' }]);
+    await liquidar(TRAMITE, 9);
+    expect(consumosTransito().length).toBeGreaterThan(0);
+  });
+
+  it('AC10 · corte vigente → liquidar un trámite con fecha contable posterior al corte no registra consumo en ninguna bolsa de tránsito', async () => {
+    env.FLITO_BOLSAS_CORTE_COMPROBANTES = '2026-01-01';
+    escenarioSellado();
+    kdb.when.select('flito_bolsas_unicas_cobertura', [{ bolsaId: 'bolsa-transito', nombre: 'Tránsito' }]);
+    await liquidar(TRAMITE, 9);
+    expect(insertsEn('flito_liquidaciones')).toHaveLength(1);
+    expect(consumosTransito()).toEqual([]);
+    expect(movimientosEscritos()).toEqual([]);
+  });
+
   it('TC-17 · borde: sin corte el reverso NO busca comprobantes', async () => {
     escenarioSellado();
     await liquidar(TRAMITE, 9);
