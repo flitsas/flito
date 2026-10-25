@@ -3,7 +3,11 @@
 // El API se intercepta con `page.route` (autorización y chat): nunca se llama a Anthropic. Un test por
 // AC (o por grupo de AC que comparten el mismo arreglo).
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAs, FINANCIERA_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, FINANCIERA_USER as FINANCIERA_REPARTO } from '../helpers/ayuda-fixtures';
+import { conDrFlit } from '../helpers/auth';
+
+// HU #13942: el reparto inicial solo da «Ver los manuales»; estos casos prueban el panel completo.
+const FINANCIERA_USER = conDrFlit(FINANCIERA_REPARTO);
 
 const FINANCIERA_CON_TRAMITES = { ...FINANCIERA_USER, allowedPages: ['flito_tramites', 'flito_conciliacion'] };
 

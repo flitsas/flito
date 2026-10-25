@@ -17,6 +17,7 @@ import { PasoCaso, PasoContacto, idCampoSoporte } from './DrFlitSoporteCampos';
 import { PasoArchivos, enfocarArchivos } from './DrFlitSoporteArchivos';
 import { DRFLIT_PANEL_ID } from './DrFlitMarco';
 import { vistaAutorizacion } from './DrFlitAutorizacion';
+import { COPY_DRFLIT_FUNCIONES } from './drFlitFunciones';
 
 // Dr. Flit — asistente «Necesito soporte» (HU #13806, Feature #13695; anexo UX F5). Toma el cuerpo del
 // panel mientras dura (sustituye la conversación y el pie); el marco no cambia. Todo su estado vive en
@@ -267,6 +268,17 @@ function cuerpoDe(
             Reintentar
           </button>
         </>
+      ),
+    };
+  }
+  if (s.pantalla === 'retirada') {
+    // HU #13942 (copy 6): el borrador ya no se puede enviar; «Volver al chat» (arriba) lo descarta.
+    return {
+      contenido: (
+        <div role="status" className="mt-4 text-sm text-flit-ink">
+          <h3 id={TITULO_ID} className="sr-only">Necesito soporte</h3>
+          <p className="break-words">{COPY_DRFLIT_FUNCIONES.retirada}</p>
+        </div>
       ),
     };
   }

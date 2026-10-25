@@ -33,8 +33,11 @@ export type ResultadoChatIa =
   | { tipo: 'respuesta'; respuesta: RespuestaChatDrFlit }
   /** 428 `autorizacion-requerida`: la versión de la autorización cambió. */
   | { tipo: 'autorizacion-requerida' }
-  /** Cualquier otra falla (red, 429 `demasiados-mensajes`, 4xx/5xx): cae en silencio al modo de F3. */
-  | { tipo: 'falla' };
+  /**
+   * Cualquier otra falla (red, 429 `demasiados-mensajes`, 4xx/5xx): cae en silencio al modo de F3.
+   * HU #13942: `causa` deja al panel distinguir el 403 `drflit-funcion-no-habilitada` (nunca se pinta).
+   */
+  | { tipo: 'falla'; causa?: unknown };
 
 export async function enviarChatIa(envio: EnvioIa): Promise<ResultadoChatIa> {
   const cuerpo: ChatDrFlitRequest = { mensaje: envio.mensaje, historial: envio.historial };
@@ -42,6 +45,6 @@ export async function enviarChatIa(envio: EnvioIa): Promise<ResultadoChatIa> {
     return { tipo: 'respuesta', respuesta: await api.post<RespuestaChatDrFlit>(`${BASE}/chat`, cuerpo) };
   } catch (e) {
     if (e instanceof ApiError && e.status === 428) return { tipo: 'autorizacion-requerida' };
-    return { tipo: 'falla' };
+    return { tipo: 'falla', causa: e };
   }
 }

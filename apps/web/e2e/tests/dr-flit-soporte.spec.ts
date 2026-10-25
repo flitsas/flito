@@ -2,8 +2,13 @@
 // (Feature #13695). Anexo UX: docs/ux/flito-dr-flit.md §F5 · diseño: docs/diseno/feature-13695-dr-flit-soporte.md §HU-4.
 // La API de soporte se mockea con `page.route` (GET/POST de autorización y POST de casos); el panel es el real.
 import { test, expect, type Page, type Request } from '@playwright/test';
-import { loginAs, ADMIN_USER, FINANCIERA_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, ADMIN_USER, FINANCIERA_USER as FINANCIERA_REPARTO } from '../helpers/ayuda-fixtures';
+import { conDrFlit } from '../helpers/auth';
+
 import { claveConversacion } from '../../src/lib/drFlitAlmacen';
+
+// HU #13942: el reparto inicial solo da «Ver los manuales»; estos casos prueban el panel completo.
+const FINANCIERA_USER = conDrFlit(FINANCIERA_REPARTO);
 
 const FINANCIERA = { ...FINANCIERA_USER, allowedPages: ['flito_tramites', 'flito_conciliacion'] };
 const CORREO_SESION = 'financiera.e2e@empresa.co';

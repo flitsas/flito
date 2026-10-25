@@ -8,7 +8,11 @@
 // El proyecto `chromium` (escritorio, sin `isMobile`) no ensancha el layout viewport y por eso no lo veía.
 // Corre en el proyecto `mobile-chrome` (`*.mobile.spec.ts`) con emulación móvil real.
 import { test, expect, devices, type Page } from '@playwright/test';
-import { loginAs, FINANCIERA_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, FINANCIERA_USER as FINANCIERA_REPARTO } from '../helpers/ayuda-fixtures';
+import { conDrFlit } from '../helpers/auth';
+
+// HU #13942: el reparto inicial solo da «Ver los manuales»; estos casos prueban el panel completo.
+const FINANCIERA_USER = conDrFlit(FINANCIERA_REPARTO);
 
 // iPhone 12 sobre Chromium: `defaultBrowserType` (webkit) no se puede fijar dentro de un archivo.
 const { defaultBrowserType: _webkit, ...IPHONE_12 } = devices['iPhone 12'];

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CitaDrFlit, CupoIaDrFlit, EstadoAutorizacionDrFlit } from '@operaciones/shared-types';
+import {
+  FUNCIONES_DRFLIT, type CitaDrFlit, type CupoIaDrFlit, type EstadoAutorizacionDrFlit, type FuncionDrFlit,
+} from '@operaciones/shared-types';
 import { alLimpiarDrFlit } from '../../lib/drFlitAlmacen';
 import { prepararEnvioIa, valoresGestionDelEnvio } from '../../lib/drFlitIa';
 import type { ValorDetectado } from '../../lib/drFlitGestion';
@@ -7,6 +9,7 @@ import {
   aceptarAutorizacionIa, consultarAutorizacionIa, enviarChatIa, esVersionNoVigente,
 } from '../../lib/drFlitIaChat';
 import type { ErrorAutorizacion } from './DrFlitAutorizacion';
+import { funcionNoHabilitada } from './drFlitFunciones';
 
 type MapaMascara = ReturnType<typeof prepararEnvioIa>['mapa'];
 
@@ -63,6 +66,10 @@ export type ResultadoIa =
   | { tipo: 'gestion'; valores: ValorDetectado[] }
   /** IA-6 AC6: gestión por documento → solo enlaces a los módulos, sin consulta. */
   | { tipo: 'documento' }
+  /** HU #13942: la IA no tiene manuales con qué responder (degradado `sin-manuales`, copy 4). */
+  | { tipo: 'sin-manuales' }
+  /** HU #13942: 403 `drflit-funcion-no-habilitada` con el panel abierto (copy 6; la IA se apaga). */
+  | { tipo: 'retirada'; funcion: FuncionDrFlit }
   | { tipo: 'respaldo' };
 
 /** A: cupo agotado · B: sin aceptar · C: la versión cambió (428). Precedencia C > A > B (IA.3). */
@@ -94,7 +101,14 @@ export interface IaDrFlit {
   preguntar: (texto: string, previos: Parameters<typeof prepararEnvioIa>[1]) => Promise<ResultadoIa>;
 }
 
-export function useIaDrFlit(userId: number | undefined, alVolverAlChat: (anuncio: string) => void): IaDrFlit {
+/**
+ * `habilitada` = el usuario tiene `drflit.ia.usar` (HU #13942). Sin ella el hook queda en `sin-ia` sin
+ * pedir nada (cero `GET/POST /autorizacion?finalidad=ia`). `alRetirar`: un 403 de función al aceptar la
+ * autorización; la IA se apaga y el panel pone el copy 6 en la conversación.
+ */
+export function useIaDrFlit(
+  userId: number | undefined, alVolverAlChat: (anuncio: string) => void, habilitada = true, alRetirar?: () => void,
+): IaDrFlit {
   const [fase, setFase] = useState<Fase>('cargando');
   const [datos, setDatos] = useState<EstadoAutorizacionDrFlit | null>(null);
   const [autorizado, setAutorizado] = useState(false);
@@ -105,8 +119,10 @@ export function useIaDrFlit(userId: number | undefined, alVolverAlChat: (anuncio
   const [aut, setAut] = useState<EstadoAut>(AUT_INICIAL);
   const vivo = useRef(true);
   const volver = useRef(alVolverAlChat);
+  const retirar = useRef(alRetirar);
   useEffect(() => {
     volver.current = alVolverAlChat;
+    retirar.current = alRetirar;
   });
 
   const apagar = useCallback(() => {
@@ -127,7 +143,7 @@ export function useIaDrFlit(userId: number | undefined, alVolverAlChat: (anuncio
   useEffect(() => {
     vivo.current = true;
     const mem = memoriaDe(userId);
-    if (userId === undefined || mem.apagada) {
+    if (userId === undefined || mem.apagada || !habilitada) {
       setFase('sin-ia');
       return () => { vivo.current = false; };
     }
@@ -152,7 +168,7 @@ export function useIaDrFlit(userId: number | undefined, alVolverAlChat: (anuncio
       },
     );
     return () => { vivo.current = false; };
-  }, [userId, marcarCupo]);
+  }, [userId, marcarCupo, habilitada]);
 
   const recargarTexto = useCallback(() => {
     setAut({ recargando: true, enviando: false, error: null });
@@ -198,7 +214,15 @@ export function useIaDrFlit(userId: number | undefined, alVolverAlChat: (anuncio
         volver.current('Respuestas con IA activadas.');
       },
       (e) => {
-        if (vivo.current) setAut({ recargando: false, enviando: false, error: esVersionNoVigente(e) ? 'version' : 'red' });
+        if (!vivo.current) return;
+        if (funcionNoHabilitada(e)) {
+          setAut(AUT_INICIAL);
+          setFase('sin-ia');
+          setVista('chat');
+          retirar.current?.();
+          return;
+        }
+        setAut({ recargando: false, enviando: false, error: esVersionNoVigente(e) ? 'version' : 'red' });
       },
     );
   }, [datos, aut.enviando, aut.recargando]);
@@ -208,7 +232,7 @@ export function useIaDrFlit(userId: number | undefined, alVolverAlChat: (anuncio
     else aceptar();
   }, [aut.error, recargarTexto, aceptar]);
 
-  const enUso = fase === 'lista' && autorizado && !agotada;
+  const enUso = habilitada && fase === 'lista' && autorizado && !agotada;
 
   const preguntar = useCallback(async (texto: string, previos: Parameters<typeof prepararEnvioIa>[1]) => {
     const { envio, mapa } = prepararEnvioIa(texto, previos);
@@ -218,7 +242,12 @@ export function useIaDrFlit(userId: number | undefined, alVolverAlChat: (anuncio
       setCondiciones(true);
       return { tipo: 'respaldo' } as const;
     }
-    if (r.tipo === 'falla') return { tipo: 'respaldo' } as const;
+    if (r.tipo === 'falla') {
+      const funcion = funcionNoHabilitada(r.causa);
+      if (!funcion) return { tipo: 'respaldo' } as const;
+      if (funcion === FUNCIONES_DRFLIT.usarIa) setFase('sin-ia');
+      return { tipo: 'retirada', funcion } as const;
+    }
     const resp = r.respuesta;
     if (resp.degradado === 'ia-apagada') {
       apagar();
@@ -229,6 +258,7 @@ export function useIaDrFlit(userId: number | undefined, alVolverAlChat: (anuncio
       setAgotada(true);
       return { tipo: 'respaldo' } as const;
     }
+    if (resp.degradado === 'sin-manuales') return { tipo: 'sin-manuales' } as const;
     marcarCupo(resp.cupo);
     // ia-timeout / ia-error / respuesta-invalida (o intent desconocido): modo de F3/F6 (IA-6 AC7).
     if (resp.degradado || !resp.intent) return { tipo: 'respaldo' } as const;
@@ -245,7 +275,7 @@ export function useIaDrFlit(userId: number | undefined, alVolverAlChat: (anuncio
     } as const;
   }, [userId, apagar, marcarCupo]);
 
-  const aviso: AvisoIa = fase !== 'lista' ? null
+  const aviso: AvisoIa = fase !== 'lista' || !habilitada ? null
     : condiciones ? 'C'
       : autorizado && agotada ? 'A'
         : !autorizado ? 'B' : null;
@@ -253,7 +283,7 @@ export function useIaDrFlit(userId: number | undefined, alVolverAlChat: (anuncio
   const cupoBajo = enUso && restantes !== null && restantes >= 1 && restantes <= 5 ? restantes : null;
 
   return {
-    enUso, aviso, cupoBajo, vista: fase === 'lista' ? vista : 'chat', textoVigente: datos?.textoVigente ?? null, aut,
+    enUso, aviso, cupoBajo, vista: fase === 'lista' && habilitada ? vista : 'chat', textoVigente: datos?.textoVigente ?? null, aut,
     abrirAutorizacion, ahoraNo, aceptar, reintentarAutorizacion, preguntar,
   };
 }

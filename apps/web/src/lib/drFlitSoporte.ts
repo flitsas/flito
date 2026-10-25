@@ -22,7 +22,9 @@ import {
   type AdjuntoSoporte, type CampoSoporte, type CamposSoporte, type LimitesAdjuntos, type PasoSoporte,
 } from './drFlitSoporteModelo';
 
-export type PantallaSoporte = 'preparando' | 'errorPreparar' | 'noDisponible' | 'autorizacion' | 'paso';
+export type PantallaSoporte = 'preparando' | 'errorPreparar' | 'noDisponible' | 'autorizacion' | 'paso'
+  /** HU #13942: 403 `drflit-funcion-no-habilitada` (copy 6 + «Volver al chat»; el borrador se descarta). */
+  | 'retirada';
 /** `archivos` = el selector de archivos; `quitar` = el «Quitar» de la fila `foco.i` (F5.14). */
 export type FocoSoporte = 'h3' | 'primerError' | 'primerCampo' | 'primaria' | 'volver' | 'caja' | 'abridor'
   | 'archivos' | 'quitar';
@@ -69,6 +71,8 @@ export interface EstadoSoporteDrFlit {
   /** Qué abrió el asistente («saludo» o el id del mensaje «sin resultados»), para «Ahora no». */
   abridor: string | null;
   foco: { a: FocoSoporte; n: number; i?: number };
+  /** HU #13942: el servidor dijo que «Radicar soporte» ya no está habilitada (se apaga en el panel). */
+  retirada: boolean;
 }
 
 const INICIAL: EstadoSoporteDrFlit = Object.freeze({
@@ -82,6 +86,7 @@ const INICIAL: EstadoSoporteDrFlit = Object.freeze({
   radicado: null,
   abridor: null,
   foco: { a: 'h3', n: 0 },
+  retirada: false,
 }) as EstadoSoporteDrFlit;
 
 let estado: EstadoSoporteDrFlit = INICIAL;
@@ -146,6 +151,18 @@ const codigoDe = (e: unknown): string | undefined => {
   return typeof raw?.codigo === 'string' ? raw.codigo : undefined;
 };
 
+/** HU #13942: 403 `drflit-funcion-no-habilitada` (la función se retiró con el panel abierto). */
+const esFuncionRetirada = (e: unknown): boolean =>
+  e instanceof ApiError && e.status === 403 && codigoDe(e) === 'drflit-funcion-no-habilitada';
+
+/** Copy 6 en el asistente: sustituye la pantalla del paso; solo queda «Volver al chat». */
+function retirar(): void {
+  fijar({
+    retirada: true, pantalla: 'retirada', envio: { fase: 'inactivo', tope: false },
+    autorizacion: { fase: 'inactivo', aviso: false, destino: 'paso' }, ...enfocar('volver'),
+  });
+}
+
 /** `GET` del estado de soporte. Al terminar, si el asistente esperaba, decide la pantalla. */
 export function consultarEstadoSoporte(): void {
   const gen = generacion;
@@ -159,9 +176,14 @@ export function consultarEstadoSoporte(): void {
       if (estado.vista === 'soporte' && estado.pantalla === 'preparando') decidir();
       else if (estado.vista === 'soporte' && estado.pantalla === 'autorizacion') fijar(enfocar('h3'));
     },
-    () => {
+    (e) => {
       if (gen !== generacion || turno !== consultaEnVuelo) return;
       fijar({ consulta: { fase: 'error', datos: null } });
+      if (esFuncionRetirada(e)) {
+        if (estado.vista === 'soporte') retirar();
+        else fijar({ retirada: true });
+        return;
+      }
       if (estado.vista === 'soporte' && estado.pantalla === 'preparando') {
         fijar({ pantalla: 'errorPreparar', ...enfocar('primaria') });
       }
@@ -245,8 +267,13 @@ export function reintentarPreparar(): void {
   consultarEstadoSoporte();
 }
 
-/** «Volver al chat» (y Esc): el borrador se queda en memoria. */
+/** «Volver al chat» (y Esc): el borrador se queda en memoria, salvo si la función se retiró (#13942). */
 export function volverAlChat(): void {
+  if (estado.pantalla === 'retirada') {
+    prellenado = null;
+    fijar({ vista: 'chat', pantalla: 'preparando', borrador: null, ...enfocar('caja') });
+    return;
+  }
   fijar({ vista: 'chat', ...enfocar('caja') });
 }
 
@@ -281,6 +308,10 @@ export function aceptarAutorizacion(): void {
     },
     (e) => {
       if (gen !== generacion) return;
+      if (esFuncionRetirada(e)) {
+        retirar();
+        return;
+      }
       if (e instanceof ApiError && e.status === 409) {
         fijar({ autorizacion: { ...estado.autorizacion, fase: 'inactivo', aviso: true } });
         consultarEstadoSoporte();
@@ -462,6 +493,10 @@ export function quitarArchivo(id: number): void {
 function tratarErrorDeEnvio(e: unknown): void {
   const codigo = codigoDe(e);
   const status = e instanceof ApiError ? e.status : 0;
+  if (esFuncionRetirada(e)) {
+    retirar();
+    return;
+  }
   if (status === 403 && codigo === 'autorizacion-requerida') {
     const datos = estado.consulta.datos;
     fijar({
