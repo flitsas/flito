@@ -3,7 +3,10 @@
 // Solo Operaciones/admin lo ven; backend mockeado.
 //
 // HU #13935: los checks se leen «FLITO gestiona este servicio». El dato `*Autogestionable` conserva
-// su sentido, así que marcado = `false` en el dato. «Parcial» no se invierte (lo retira la #13936).
+// su sentido, así que marcado = `false` en el dato.
+// HU #13936: sin check «Parcial» — Logística permite siempre entregas parciales.
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
@@ -12,7 +15,6 @@ const CLIENTES = [
     id: 1, name: 'Concesionario Norte', document: '900111', documentType: 'NIT',
     phone: '3001112233', email: 'norte@x.co', address: null, city: 'Manizales', notes: null, active: true,
     soatAutogestionable: true, soatSinTramite: false, impuestosAutogestionable: false, logisticaAutogestionable: true,
-    logisticaPermiteParcial: true,
   },
 ];
 
@@ -39,8 +41,6 @@ test.describe('Clientes · servicios que gestiona FLITO (HU #13935)', () => {
     await expect(check(page, 'SOAT')).not.toBeChecked();
     await expect(check(page, 'Impuestos')).toBeChecked();
     await expect(check(page, 'Logística')).not.toBeChecked();
-    // «Parcial» conserva su lectura directa.
-    await expect(page.getByRole('checkbox', { name: 'Entregas parciales de Concesionario Norte' })).toBeChecked();
     // AC5: ningún nombre accesible ni nota habla de «Autogestión» del check.
     await expect(page.getByRole('checkbox', { name: /Autogestión/ })).toHaveCount(0);
     await expect(page.getByText(/Marca «Autogestiona»/)).toHaveCount(0);
@@ -49,6 +49,29 @@ test.describe('Clientes · servicios que gestiona FLITO (HU #13935)', () => {
     expect(patches).toBe(0);
     await expect(page.getByRole('button', { name: 'Editar' })).toHaveCount(0);
     await expect(page.getByRole('columnheader', { name: /Tolerancia/i })).toHaveCount(0);
+  });
+
+  test('AC4 (#13936): no existe la columna «Parcial» ni las notas hablan de entregas parciales', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    // Aunque el API siguiera mandando el campo, la pantalla no lo pinta.
+    await mock(page, CLIENTES.map((c) => ({ ...c, logisticaPermiteParcial: false })));
+
+    await page.goto('/clients');
+    await expect(page.getByText('Concesionario Norte')).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Logística' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Parcial' })).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: /Entregas parciales/ })).toHaveCount(0);
+    // Solo quedan los tres checks de servicio por fila.
+    await expect(page.getByRole('checkbox', { name: /^FLITO gestiona .* de Concesionario Norte$/ })).toHaveCount(3);
+    await expect(page.getByText(/cuando FLITO gestiona ese servicio/)).toBeVisible();
+    await expect(page.getByText(/Parcial/)).toHaveCount(0);
+    await expect(page.getByText(/Solo completo/i)).toHaveCount(0);
+  });
+
+  test('AC4 (#13936): la ficha de ayuda de Clientes no menciona «Parcial» ni «Solo completo»', () => {
+    const ficha = readFileSync(fileURLToPath(new URL('../../src/content/ayuda/clients.md', import.meta.url)), 'utf8');
+    expect(ficha).not.toMatch(/Parcial/);
+    expect(ficha).not.toMatch(/Solo completo/i);
   });
 
   test('AC2: marcar Logística envía logisticaAutogestionable=false y sigue marcado al recargar', async ({ page }) => {
