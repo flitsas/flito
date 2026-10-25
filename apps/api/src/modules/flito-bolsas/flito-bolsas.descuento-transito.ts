@@ -43,8 +43,10 @@ export interface ComprobanteTransito {
   tramiteId: string;
   concepto: ConceptoCosto;
   valor: number;
-  /** Día contable en Colombia (AAAA-MM-DD) de `aplicadoEn`. */
+  /** Día contable en Colombia (AAAA-MM-DD) de `aplicadoEn` (en el backfill, HU #13910: el día de ejecución). */
   fecha: string;
+  /** HU #13910: observación del backfill; por defecto la del gancho. */
+  observacion?: string;
 }
 
 /** Dependencias del lado compañía que el lado tránsito reutiliza (evita el import circular). */
@@ -125,7 +127,7 @@ export async function descontarTransito(
     tramiteId: c.tramiteId,
     comprobanteId: c.comprobanteId,
     llaveIdempotencia: llave,
-    observacion: 'Consumo al aplicar el comprobante de pago',
+    observacion: c.observacion ?? 'Consumo al aplicar el comprobante de pago',
     etiqueta: 'salida',
     savepoint: true,
   }, ctx);
