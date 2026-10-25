@@ -790,12 +790,20 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     const dir = prepararCarpeta('flito_bolsas');
     // HU #13901: listado por `POST /buscar`, detalle por `GET /bolsa/:id` y autogestión por `/estado`.
     const resumenes = BOLSAS_RIESGO_DEMO.map((b) => resumenDe(b));
+    // HU #13908: las bolsas de tránsito llegan por el mismo `/buscar` (alcance 'transito'), en tabla.
+    const transitos = BOLSAS_DEMO.transito.map((t) => ({
+      id: t.id, alcance: 'transito', nombre: t.nombre, companiaId: null, companiaNombre: null, activa: true,
+      conceptos: [...new Set(t.cobertura.map((c) => c.concepto))],
+      cobertura: t.cobertura.map(({ organismoCodigo, concepto }) => ({ organismoCodigo, concepto })),
+      saldo: t.saldo, ultimaEntradaValor: t.ultimaCargaValor, ultimaEntradaEn: t.ultimaCargaEn, nivel: 'normal',
+      porcentaje: t.porcentaje,
+      transito: { nivel: t.nivel, deuda: t.deuda, totalCargado: t.totalCargado, totalConsumido: t.totalConsumido },
+    }));
     const api = await interceptarApiDemo(page, [
       [/\/api\/clients$/, () => ({ body: CLIENTES_DEMO })],
       [/\/api\/flito\/bolsas\/consolidado$/, () => ({ body: BOLSAS_DEMO.consolidado })],
-      [/\/api\/flito\/bolsas\/buscar$/, () => ({ body: resumenes })],
+      [/\/api\/flito\/bolsas\/buscar$/, () => ({ body: [...resumenes, ...transitos] })],
       [/\/api\/flito\/bolsas\/alertas$/, () => ({ body: BOLSAS_DEMO.alertas })],
-      [/\/api\/flito\/bolsas\/transito$/, () => ({ body: BOLSAS_DEMO.transito })],
       [/\/api\/flito\/bolsas\/bolsa\/bolsa-demo-1$/, () => ({ body: detalleDe(BOLSAS_RIESGO_DEMO[0], { conceptosAutogestionados: ['soat'] }) })],
       [/\/api\/flito\/bolsas\/compania\/\d+\/estado$/, () => ({ body: { existe: false, activa: false, conceptosAutogestionados: ['soat'] } })],
       [/\/api\/flito\/bolsas\/901\/extracto$/, () => ({ body: BOLSAS_DEMO.extracto })],
@@ -809,6 +817,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     // Ningún rol trae por seed las funciones del expediente: se suman para que la ficha muestre la sección.
     await entrarComoAdminDemo(page, { ...ADMIN_DEMO, funciones: [
       ...(FUNCIONES_POR_ROL.admin ?? []), ...FUNCIONES_BOLSAS, 'bolsas.documentos.ver', 'bolsas.documentos.cargar',
+      // HU #13908: el admin real lista y ve las de tránsito (seed 0179); sin ellas no sale el filtro Alcance.
+      'bolsas.transito.listar', 'bolsas.transito.ver',
     ] });
 
     await page.goto('/flito/bolsas');

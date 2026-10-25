@@ -1,5 +1,5 @@
 import type {
-  BolsaDetalleDto, BolsaResumenDto, BuscarBolsasDto, CrearBolsaDto, EditarBolsaDto,
+  BolsaDetalleDto, BolsaResumenDto, CierreBolsaTransitoDto, MovimientoTransitoDto, BuscarBolsasDto, CrearBolsaDto, EditarBolsaDto,
   EstadoBolsaCompaniaConAutogestionDto,
 } from '@operaciones/shared-types';
 import type {
@@ -615,6 +615,16 @@ export const bolsasApi = {
     api.post<BolsaDetalleDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/reactivar`, { motivo }),
   estadoCompania: (companiaId: number) =>
     api.get<EstadoBolsaCompaniaConAutogestionDto>(`/flito/bolsas/compania/${companiaId}/estado`),
+  // HU #13908: libro, cargas y cierres de una bolsa de TRÁNSITO por id (catálogo único, HU #13907).
+  movimientosTransito: (bolsaId: string) =>
+    api.get<MovimientoTransitoDto[]>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/movimientos`),
+  /** Multipart: `valor`, `fecha`, `observacion?` y `soporte?` (opcional). */
+  cargarTransito: (bolsaId: string, form: FormData) =>
+    api.post<{ saldo?: number }>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/recargas`, form),
+  cierresTransito: (bolsaId: string) =>
+    api.get<CierreBolsaTransitoDto[]>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/cierres`),
+  cerrarMesTransito: (bolsaId: string, periodo: string) =>
+    api.post<CierreBolsaTransitoDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/cierres`, { periodo }),
 };
 
 // ── Bolsas: expediente documental de la compañía (HU #13892, ADR-0028 §5) ─────────────────────────
