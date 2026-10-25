@@ -8,6 +8,10 @@
 // Reloj fijo (`vi.useFakeTimers({ toFake: ['Date'] })`): el libro rechaza fechas futuras y el corte
 // 2026-12-01 aún no ha llegado.
 //
+// HU #13969: la llave del reversado es única por movimiento (`rev:<id>:<llave>`): desaplicar dos veces el
+// mismo comprobante, o reaplicarlo y reemplazarlo, ya no choca con `uq_flito_bolsas_unicas_mov_llave`; y un
+// 23505 de esa llave en desaplicar/reemplazar es 409 `descuento_en_conflicto`, no 500 (bloque «HU #13969»).
+//
 // Mutantes que estos tests matan (matriz QA A):
 //   · M1 D14 por `fecha` en vez de por `periodo` imputado → TC-07 cae.
 //   · M2 sin la exención de `compensacion` → TC-17 cae.
@@ -165,11 +169,20 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
       (bolsa_id, periodo, saldo_inicial, total_entradas, total_salidas, saldo_final, movimientos, cerrado_por_nombre)
     VALUES (${bolsaId}, ${periodo}, 0, 0, 0, 0, 0, 'hu13905')`;
   const estadoComprobante = async (id: string) => (await sql`SELECT estado, tramite_id FROM flito_comprobantes WHERE id = ${id}`)[0]!;
+  /** El comprobante desaplicado a la cola vuelve a aplicarse al mismo trámite y descuenta otra vez (`salida:comprobante:<id>`). */
+  const volverAAplicar = async (id: string, tramiteId: string, concepto: string, valor: number) => {
+    await sql`UPDATE flito_comprobantes SET estado = 'aplicado', motivo_pendiente = NULL, detalle_pendiente = NULL,
+        tramite_id = ${tramiteId}, concepto = ${concepto}, es_pago = true, valor = ${String(valor)}, aplicado_en = now(), aplicado_por_id = ${USER}
+      WHERE id = ${id}`;
+    await descontar(pago(id, tramiteId, concepto, valor));
+  };
+  /** Las salidas VIVAS (llave sin `rev:`) de la bolsa. */
+  const salidasVivas = async (bolsaId: string) => (await movimientos(bolsaId)).filter((f) => f.tipo === 'salida' && !String(f.llave_idempotencia).startsWith('rev:'));
 
   // ─────────────────────────── AC1 ───────────────────────────
 
   describe('AC1 — desaplicar devuelve el descuento', () => {
-    it('TC-01 · impuesto 250.000 en mes abierto → entrada 250.000 enlazada, saldo de vuelta, llave original rev:…', async () => {
+    it('TC-01 · impuesto 250.000 en mes abierto → entrada 250.000 enlazada, saldo de vuelta, llave original rev:<id>:…', async () => {
       const e = await escenario({ impuestoPagado: true });
       const id = await comprobante(e.tramiteId, 'impuesto', 250_000);
       await descontar(pago(id, e.tramiteId, 'impuesto', 250_000));
@@ -183,7 +196,7 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
       const entrada = filas.find((f) => f.tipo === 'entrada')!;
       expect(entrada).toMatchObject({ origen: 'comprobante', revierte_movimiento_id: salida!.id, comprobante_id: id, periodo: '2026-12' });
       expect(Number(entrada.valor)).toBe(250_000);
-      expect(filas.find((f) => f.id === salida!.id)!.llave_idempotencia).toBe(`rev:salida:comprobante:${id}`);
+      expect(filas.find((f) => f.id === salida!.id)!.llave_idempotencia).toBe(`rev:${salida!.id}:salida:comprobante:${id}`);
       expect(await saldo(e.bolsaId)).toBe(1_000_000);
       expect((await estadoComprobante(id)).estado).toBe('pendiente');
     });
@@ -323,7 +336,7 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
   });
 
   describe('AC4 — reemplazar SOAT reutiliza la llave de ADR-0006', () => {
-    it('TC-09 · original salida:soat:<soatId> → rev:salida:soat:<soatId>; la nueva toma salida:soat:<soatId>', async () => {
+    it('TC-09 · original salida:soat:<soatId> → rev:<id>:salida:soat:<soatId>; la nueva toma salida:soat:<soatId>', async () => {
       const e = await escenario({ soat: true });
       const id = await comprobante(e.tramiteId, 'soat', 900_000);
       await descontar(pago(id, e.tramiteId, 'soat', 900_000));
@@ -337,7 +350,7 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
       });
       expect(r!.omitidos.filter((o) => o.alcance === 'compania')).toEqual([]);
       const filas = await movimientos(e.bolsaId);
-      expect(filas.find((f) => f.id === salida!.id)!.llave_idempotencia).toBe(`rev:salida:soat:${e.soatId}`);
+      expect(filas.find((f) => f.id === salida!.id)!.llave_idempotencia).toBe(`rev:${salida!.id}:salida:soat:${e.soatId}`);
       const nueva = filas.find((f) => f.tipo === 'salida' && f.comprobante_id === rid)!;
       expect(nueva.llave_idempotencia).toBe(`salida:soat:${e.soatId}`);
       expect(await saldo(e.bolsaId)).toBe(50_000);
@@ -440,6 +453,139 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
       vi.setSystemTime(ENE_5);
       await cerrar(e2.bolsaId, '2026-12');
       await expect(revertir(id2)).rejects.toBeInstanceOf(d.PeriodoCerradoError);
+    });
+  });
+
+  // ─────────────────────────── HU #13969 ───────────────────────────
+
+  describe('HU #13969 — reversión repetida de la misma llave', () => {
+    it('AC1 · desaplicar dos veces el mismo comprobante (trámite digital) → dos entradas enlazadas, saldo restituido, llaves rev:<id>:… distintas', async () => {
+      const e = await escenario();
+      const id = await comprobante(e.tramiteId, 'tramite_digital', 80_000);
+      await descontar(pago(id, e.tramiteId, 'tramite_digital', 80_000));
+      await comp.desaplicar(id, { destino: 'pendiente', motivo: MOTIVO }, cctx);
+      await volverAAplicar(id, e.tramiteId, 'tramite_digital', 80_000);
+      expect(await saldo(e.bolsaId)).toBe(920_000);
+
+      const r = await comp.desaplicar(id, { destino: 'pendiente', motivo: MOTIVO }, cctx);
+
+      expect(r.destino).toBe('pendiente');
+      const filas = await movimientos(e.bolsaId);
+      expect(filas).toHaveLength(4);
+      const salidas = filas.filter((f) => f.tipo === 'salida');
+      const entradas = filas.filter((f) => f.tipo === 'entrada');
+      expect(salidas).toHaveLength(2);
+      expect(entradas.map((f) => f.revierte_movimiento_id).sort()).toEqual(salidas.map((f) => f.id).sort());
+      for (const sal of salidas) expect(sal.llave_idempotencia).toBe(`rev:${sal.id}:salida:comprobante:${id}`);
+      expect(await salidasVivas(e.bolsaId)).toHaveLength(0);
+      expect(await saldo(e.bolsaId)).toBe(1_000_000);
+      expect((await estadoComprobante(id)).estado).toBe('pendiente');
+    });
+
+    it('AC2 · reaplicar y reemplazar 80.000 → 85.000 → original descartado, reemplazo aplicado, entrada 80.000 + salida viva 85.000', async () => {
+      const e = await escenario();
+      const id = await comprobante(e.tramiteId, 'tramite_digital', 80_000);
+      await descontar(pago(id, e.tramiteId, 'tramite_digital', 80_000));
+      await comp.desaplicar(id, { destino: 'pendiente', motivo: MOTIVO }, cctx);
+      await volverAAplicar(id, e.tramiteId, 'tramite_digital', 80_000);
+      const [, , segunda] = await movimientos(e.bolsaId);
+      expect(segunda).toMatchObject({ tipo: 'salida', llave_idempotencia: `salida:comprobante:${id}` });
+      const rid = await comprobante(null, null, null, 'pendiente');
+
+      const r = await comp.reemplazar(id, { reemplazoId: rid, motivo: MOTIVO, campos: { valorTotal: '85000' } }, cctx);
+
+      expect(r.reemplazoId).toBe(rid);
+      expect((await estadoComprobante(id)).estado).toBe('descartado');
+      expect(await estadoComprobante(rid)).toMatchObject({ estado: 'aplicado', tramite_id: e.tramiteId });
+      const filas = await movimientos(e.bolsaId);
+      const devolucion = filas.find((f) => f.tipo === 'entrada' && f.revierte_movimiento_id === segunda!.id)!;
+      expect(Number(devolucion.valor)).toBe(80_000);
+      const vivas = await salidasVivas(e.bolsaId);
+      expect(vivas).toHaveLength(1);
+      expect(vivas[0]).toMatchObject({ comprobante_id: rid, llave_idempotencia: `salida:comprobante:${rid}` });
+      expect(Number(vivas[0]!.valor)).toBe(85_000);
+      expect(await saldo(e.bolsaId)).toBe(915_000);
+    });
+
+    it('AC4 · SOAT pagado → revertido → repagado → revertido: la llave salida:soat:<soatId> se libera las dos veces sin choque', async () => {
+      const e = await escenario({ soat: true });
+      const id1 = await comprobante(e.tramiteId, 'soat', 900_000);
+      await descontar(pago(id1, e.tramiteId, 'soat', 900_000));
+      await revertir(id1);
+      const id2 = await comprobante(e.tramiteId, 'soat', 950_000);
+      await descontar(pago(id2, e.tramiteId, 'soat', 950_000));
+      expect((await salidasVivas(e.bolsaId))[0]!.llave_idempotencia).toBe(`salida:soat:${e.soatId}`);
+
+      const r = await revertir(id2);
+
+      expect(r).toHaveLength(1);
+      const salidas = (await movimientos(e.bolsaId)).filter((f) => f.tipo === 'salida');
+      expect(salidas).toHaveLength(2);
+      for (const sal of salidas) expect(sal.llave_idempotencia).toBe(`rev:${sal.id}:salida:soat:${e.soatId}`);
+      expect(await saldo(e.bolsaId)).toBe(1_000_000);
+    });
+
+    it('AC5 · aplicar una sola vez y desaplicar: igual que hoy (una entrada enlazada, salida rev:<id>:…, nada vivo)', async () => {
+      const e = await escenario();
+      const id = await comprobante(e.tramiteId, 'tramite_digital', 70_000);
+      await descontar(pago(id, e.tramiteId, 'tramite_digital', 70_000));
+      const [salida] = await movimientos(e.bolsaId);
+      await comp.desaplicar(id, { destino: 'pendiente', motivo: MOTIVO }, cctx);
+      const filas = await movimientos(e.bolsaId);
+      expect(filas).toHaveLength(2);
+      expect(filas.find((f) => f.tipo === 'entrada')).toMatchObject({ revierte_movimiento_id: salida!.id });
+      expect(await salidasVivas(e.bolsaId)).toHaveLength(0);
+      // Lo vivo se busca por la llave sin prefijo: tras la reversión no hay nada que ocupe `salida:comprobante:<id>`.
+      expect(await sql`SELECT 1 FROM flito_bolsas_unicas_movimientos WHERE llave_idempotencia = ${`salida:comprobante:${id}`}`).toHaveLength(0);
+      expect(await saldo(e.bolsaId)).toBe(1_000_000);
+    });
+
+    describe('AC6 — 23505 de la llave de la bolsa → 409, nada cambia', () => {
+      /** Aplicado y descontado, con la llave de su reversión ya ocupada por otra fila del libro. */
+      async function llaveOcupada() {
+        const e = await escenario();
+        const id = await comprobante(e.tramiteId, 'tramite_digital', 80_000);
+        await descontar(pago(id, e.tramiteId, 'tramite_digital', 80_000));
+        const [salida] = await movimientos(e.bolsaId);
+        await sql`INSERT INTO flito_bolsas_unicas_movimientos (bolsa_id, tipo, origen, valor, saldo_resultante, periodo, fecha,
+            registrado_por_nombre, llave_idempotencia)
+          VALUES (${e.bolsaId}, 'entrada', 'manual', 1, 920001, '2026-12', '2026-12-03', 't', ${`rev:${salida!.id}:salida:comprobante:${id}`})`;
+        return { e, id };
+      }
+      async function sinCambios(x: Awaited<ReturnType<typeof llaveOcupada>>) {
+        expect(await estadoComprobante(x.id)).toMatchObject({ estado: 'aplicado', tramite_id: x.e.tramiteId });
+        expect(await movimientos(x.e.bolsaId)).toHaveLength(2);
+        expect(await salidasVivas(x.e.bolsaId)).toHaveLength(1);
+        expect(await saldo(x.e.bolsaId)).toBe(920_000);
+      }
+
+      it('AC6 · desaplicar → 409 descuento_en_conflicto; comprobante aplicado y la bolsa intacta', async () => {
+        const x = await llaveOcupada();
+        const err = await comp.desaplicar(x.id, { destino: 'pendiente', motivo: MOTIVO }, cctx).catch((y: unknown) => y) as { status: number; cuerpo: () => unknown };
+        expect(err.status).toBe(409);
+        expect(err.cuerpo()).toMatchObject({ codigo: 'descuento_en_conflicto' });
+        await sinCambios(x);
+      });
+
+      it('AC6 · reemplazar → 409 descuento_en_conflicto; original aplicado, reemplazo pendiente, bolsa intacta', async () => {
+        const x = await llaveOcupada();
+        const rid = await comprobante(null, null, null, 'pendiente');
+        const err = await comp.reemplazar(x.id, { reemplazoId: rid, motivo: MOTIVO, campos: { valorTotal: '85000' } }, cctx)
+          .catch((y: unknown) => y) as { status: number; cuerpo: () => unknown };
+        expect(err.status).toBe(409);
+        expect(err.cuerpo()).toMatchObject({ codigo: 'descuento_en_conflicto' });
+        expect((await estadoComprobante(rid)).estado).toBe('pendiente');
+        await sinCambios(x);
+      });
+
+      it('AC6 · traducirChoqueLlaveBolsa solo traduce la llave de la bolsa: otro 23505 u otro error pasan tal cual', () => {
+        const otro = Object.assign(new Error('dup'), { code: '23505', constraint_name: 'flito_comprobantes_pkey' });
+        const noDup = Object.assign(new Error('fk'), { code: '23503', constraint_name: 'uq_flito_bolsas_unicas_mov_llave' });
+        expect(comp.traducirChoqueLlaveBolsa(otro)).toBe(otro);
+        expect(comp.traducirChoqueLlaveBolsa(noDup)).toBe(noDup);
+        const envuelto = Object.assign(new Error('Failed query'), { cause: { code: '23505', constraint_name: 'uq_flito_bolsas_unicas_mov_llave' } });
+        expect(comp.traducirChoqueLlaveBolsa(envuelto)).toMatchObject({ status: 409, codigo: 'descuento_en_conflicto' });
+      });
     });
   });
 });

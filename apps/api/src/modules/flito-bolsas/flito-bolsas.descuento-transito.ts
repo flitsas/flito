@@ -8,7 +8,11 @@
 //   RN-T2 Secretaría: `organismo_codigo` del REGISTRO DUEÑO del pago —`flito_soat` (vía `soat_id` del
 //         trámite), `flito_impuestos`, `flito_derechos_tramite`—, mismo criterio que `identificadoresDe` de
 //         la liquidación (se congela al crearse; el del trámite se reescribe en cada sincronización).
-//         Sin registro o sin secretaría → `sin_organismo`.
+//         Derecho SIN fila en `flito_derechos_tramite` (HU #13969): la crea `pagarTrasCommit` DESPUÉS del
+//         commit de aplicar (`registrarDesdeRevision`, y `guardaDerecho` exige que no exista), así que dentro
+//         de la tx se usa `flito_tramites.organismo_codigo` —el mismo valor que ese registro congela al
+//         crearse—; el trámite ya está `FOR UPDATE` (RN-T8: esta lectura no toma lock nuevo).
+//         Sin registro (SOAT/impuesto) o sin secretaría → `sin_organismo`.
 //   RN-T3 No mira compañía ni autogestión: el pago ante la secretaría ocurre igual (mismo criterio que el
 //         sellado, `flito-liquidacion.service.ts`).
 //   RN-T4 Llave (ADR-0006): SOAT → `consumo:soat:<soatId>` (la MISMA de la conciliación: si ya existe,
@@ -69,6 +73,12 @@ async function registroDueno(tx: Tx, tramiteId: string, concepto: string): Promi
   }
   const tabla = concepto === ConceptoCosto.IMPUESTO ? flitoImpuestos : flitoDerechosTramite;
   const [f] = await tx.select({ organismo: tabla.organismoCodigo }).from(tabla).where(eq(tabla.tramiteId, tramiteId)).limit(1);
+  if (!f && concepto === ConceptoCosto.DERECHO) {
+    // HU #13969: el derecho del pago aún no existe (se registra tras el commit); su secretaría será la del trámite.
+    const [t] = await tx.select({ organismo: flitoTramites.organismoCodigo }).from(flitoTramites)
+      .where(eq(flitoTramites.id, tramiteId)).limit(1);
+    return { organismo: t?.organismo ?? null, soatId: null };
+  }
   return { organismo: f?.organismo ?? null, soatId: null };
 }
 
