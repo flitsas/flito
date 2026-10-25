@@ -218,7 +218,8 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     expect(new Set(deHoy.map((f) => f.codigo)).size).toBe(deHoy.length);
     // 25 de la HU #13421 + 13 de la HU #13422 + 42 de la HU #13423 + 11 de la HU #13427 (12 nuevas − el transitorio de Siigo)
     // + 3 de la HU #13428 (3 nuevas de clientes − el transitorio `clients.clientes.administrar` + `perfil.datos.ver`)
-    expect(codigosLegado.size).toBe(94);
+    // + 1 de la HU #13945 (`clients.clientes.estado`: impacto y estado del cliente comparten código)
+    expect(codigosLegado.size).toBe(95);
   });
 
   it('HU #13421 — varias guardas con el mismo código exigen IGUALDAD de reparto: una lista distinta revienta (no se une)', () => {

@@ -33,6 +33,8 @@ const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.j
 const CATALOGO = catalogoCompleto();
 const CODIGOS = CATALOGO.map((f) => f.codigo);
 const MODULO_DE = new Map(CATALOGO.map((f) => [f.codigo, f.modulo]));
+/** HU #13945: con la primera exclusiva declarada, una base AL DÍA también la marca (la 0255). */
+const EXCLUSIVAS = new Set(CATALOGO.filter((f) => f.exclusivaAdmin).map((f) => f.codigo));
 
 /**
  * Encola la única consulta de la comprobación: el catálogo de la base (código y módulo).
@@ -44,7 +46,7 @@ function conBase(
   /** HU #12716: el módulo que la BASE declara por código; por defecto el del catálogo (base al día). */
   moduloEnBase: (codigo: string) => string = (codigo) => MODULO_DE.get(codigo) ?? 'inventado',
 ) {
-  const filasCatalogo = codigosEnBase.map((codigo) => ({ codigo, modulo: moduloEnBase(codigo) }));
+  const filasCatalogo = codigosEnBase.map((codigo) => ({ codigo, modulo: moduloEnBase(codigo), exclusivaAdmin: EXCLUSIVAS.has(codigo) }));
   selectMock.mockReturnValueOnce(chain(filasCatalogo));
 }
 
@@ -189,14 +191,23 @@ describe('HU #12873 AC9 — una operación absorbida por el árbol que sigue en 
 });
 
 describe('HU #13944 — el arranque compara también las funciones exclusivas del Administrador (0253)', () => {
-  it('con la lista del código vacía (producción hoy) y ninguna fila marcada, arranca', async () => {
-    selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: false }))));
+  // HU #13945: la lista del código ya no está vacía («Activar o desactivar clientes», 0255).
+  it('con código y base coherentes (la acción de clientes marcada en los dos), arranca', async () => {
+    expect([...EXCLUSIVAS]).toEqual(['accion.clientes.activar_desactivar']);
+    selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: EXCLUSIVAS.has(codigo) }))));
     await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
+  });
+
+  it('HU #13945: el código la declara exclusiva y la base no la marca (0255 sin aplicar) → falla nombrándola', async () => {
+    selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: false }))));
+    const e = await verificarCatalogoAlArrancar().catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(ArranquePermisosError);
+    expect((e as Error).message).toContain('El código las declara exclusivas y la base no: accion.clientes.activar_desactivar');
   });
 
   it('una fila marcada `exclusiva_admin` que el código no declara → falla nombrando la función y la 0253', async () => {
     const marcada = CODIGOS[0]!;
-    selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: codigo === marcada }))));
+    selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: codigo === marcada || EXCLUSIVAS.has(codigo) }))));
     const e = await verificarCatalogoAlArrancar().catch((x: unknown) => x);
     expect(e).toBeInstanceOf(ArranquePermisosError);
     expect((e as Error).message).toContain(`La base las marca exclusivas y el código no: ${marcada}`);
