@@ -173,7 +173,7 @@ function espiar(): void {
 
 /** La consulta del resolutor: la única que proyecta exactamente esas dos columnas. */
 const consultaDelResolutor = () =>
-  consultas.filter((c) => c.columnas.join(',') === 'proveedorId,activo');
+  consultas.filter((c) => c.columnas.join(',') === 'proveedorId,activo,deletedAt'); // HU #13959: + deletedAt (AC5)
 
 // ───────────────────────────── Escenario ─────────────────────────────────────
 
@@ -343,7 +343,7 @@ describe('AC2 — el destino sale del gestor por defecto de la compañía', () =
     escenario();
     await alta(await appAlta(), await auth('cliente', siguienteUsuario()));
 
-    const indiceResolutor = consultas.findIndex((c) => c.columnas.join(',') === 'proveedorId,activo');
+    const indiceResolutor = consultas.findIndex((c) => c.columnas.join(',') === 'proveedorId,activo,deletedAt');
     const indiceVehiculo = consultas.findIndex((c) => c.tabla === 'vehicles' && c.columnas.includes('clientId'));
     expect(indiceResolutor).toBeGreaterThan(-1);
     // La relectura `FOR UPDATE` del vehículo es la primera consulta DE LA TRANSACCIÓN; el resolutor
@@ -471,6 +471,8 @@ describe('AC2e — el destino del SOAT POR TRÁMITE no depende de la configuraci
     kdb.when.scenario({
       clients: [{ id: COMPANIA, sinTramite: true, proveedorId: GESTOR, activo: true }],
       flito_soat: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
+      // HU #13959 (RN-PROV-5): el envío relee el proveedor elegido `FOR SHARE`; activo y vigente.
+      flito_proveedores_soat: [{ id: OTRO_GESTOR, nombre: 'Otro', activo: true, deletedAt: null }],
     });
 
     const r = await enviarAlGestor(
