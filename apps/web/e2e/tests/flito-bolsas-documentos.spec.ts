@@ -109,6 +109,18 @@ async function abrir(page: Page, nombre = 'TRANSPORTES ANDINOS') {
 
 const seccion = (modal: ReturnType<Page['getByRole']>) => modal.getByRole('region', { name: 'Documentos', exact: true });
 
+/** `scrollTop` del primer ancestro desplazable de la fila (el cuerpo del detalle o el overlay). */
+const scrollDelModal = (fila: ReturnType<Page['getByTestId']>) => fila.evaluate((el) => {
+  for (let n = el.parentElement; n; n = n.parentElement) {
+    const oy = getComputedStyle(n).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight) return n.scrollTop;
+  }
+  return -1;
+});
+
+/** Lleva la fila al centro de su contenedor desplazable, para que un salto al inicio se note. */
+const centrar = (fila: ReturnType<Page['getByTestId']>) => fila.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+
 test.describe('FLITO — Bolsas · expediente documental de la compañía (HU #13892)', () => {
   test('AC1 + AC3 vacío: la sección lista los 5 documentos en Pendiente con su siguiente paso', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
@@ -403,5 +415,121 @@ test.describe('FLITO — Bolsas · expediente documental de la compañía (HU #1
     const input = s.getByLabel('Reemplazar RUT');
     await input.focus();
     await expect(input).toBeFocused();
+  });
+
+  test('retrabajo DEV: el botón de descargar tiene la altura de «Reemplazar» e «Historial»', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    await mock(page, { e1: LLENO });
+    const fila = seccion(await abrir(page)).getByTestId('doc-rut');
+    const descargar = await fila.getByRole('button', { name: 'Descargar RUT (versión 3)' }).boundingBox();
+    const reemplazar = await fila.locator('label', { hasText: 'Reemplazar' }).boundingBox();
+    const historial = await fila.getByRole('button', { name: 'Ver el historial de RUT' }).boundingBox();
+    expect(descargar && reemplazar && historial).toBeTruthy();
+    expect(descargar!.height).toBe(reemplazar!.height);
+    expect(descargar!.height).toBe(historial!.height);
+    expect(descargar!.width).toBe(descargar!.height);
+    // Y en la misma línea: el borde superior coincide con el de sus vecinos.
+    expect(Math.abs(descargar!.y - reemplazar!.y)).toBeLessThan(1);
+  });
+
+  test('retrabajo DEV: en el historial, los botones de descargar son cuadrados y a la altura de «Historial»', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    await mock(page, { e1: LLENO });
+    await page.route(/\/historial$/, (r) => json(r, {
+      versiones: [
+        { ...version('rut', { version: 3 }), vigente: true, reemplazadoEn: null, archivoDisponible: true },
+        { ...version('rut', { version: 2, id: '00000000-0000-4000-8000-000000000009' }), vigente: false, reemplazadoEn: '2026-10-01T10:00:00.000Z', archivoDisponible: true },
+      ],
+    }));
+    const fila = seccion(await abrir(page)).getByTestId('doc-rut');
+    const toggle = fila.getByRole('button', { name: 'Ver el historial de RUT' });
+    await toggle.click();
+    const historial = fila.getByRole('region', { name: 'Historial del RUT' });
+    await expect(historial.getByRole('button', { name: /^Descargar RUT \(versión \d\)$/ })).toHaveCount(2);
+    const alto = (await toggle.boundingBox())!.height;
+    const reemplazar = (await fila.locator('label', { hasText: 'Reemplazar' }).boundingBox())!.height;
+    expect(alto).toBe(reemplazar);
+    for (const n of [3, 2]) {
+      const caja = (await historial.getByRole('button', { name: `Descargar RUT (versión ${n})` }).boundingBox())!;
+      expect(caja.height, `versión ${n} · alto`).toBe(alto);
+      expect(caja.width, `versión ${n} · cuadrado`).toBe(caja.height);
+    }
+  });
+
+  test('retrabajo DEV: tras cargar un archivo el foco sigue en la fila y el modal no salta al inicio', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 600 });
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    await mock(page, { e1: LLENO });
+    let respuesta = 201;
+    await page.route(/\/api\/flito\/bolsas-documentos\/companias\/1\/tipos\/adicional$/, async (r) => {
+      await new Promise((res) => setTimeout(res, 300));
+      return respuesta === 201 ? json(r, version('adicional'), 201) : json(r, { error: 'falla' }, respuesta);
+    });
+    const fila = seccion(await abrir(page)).getByTestId('doc-adicional');
+    await centrar(fila);
+    const antes = await scrollDelModal(fila);
+    expect(antes).toBeGreaterThan(0);
+
+    const input = fila.getByLabel('Cargar Documento adicional');
+    await input.focus();
+    await input.setInputFiles({ name: 'ok.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') });
+    await expect(fila.getByText('Cargando…')).toBeVisible();
+    await expect(page.getByText('Documento adicional cargado.')).toBeVisible();
+    // «Cargar» pasa a «Reemplazar» sin desmontar el control: el foco no cae al diálogo.
+    const reemplazar = fila.getByLabel('Reemplazar Documento adicional');
+    await expect(reemplazar).toBeFocused();
+    expect(await fila.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+    expect(await scrollDelModal(fila)).toBeGreaterThan(0);
+
+    // Error de red con «Reintentar»: el botón se desmonta al reintentar y el foco vuelve a la carga.
+    respuesta = 500;
+    await reemplazar.setInputFiles({ name: 'otra.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') });
+    const reintentar = fila.getByRole('button', { name: 'Reintentar la carga de Documento adicional' });
+    await reintentar.focus();
+    await reintentar.press('Enter');
+    await expect(fila.getByRole('alert')).toHaveText('No pudimos cargar el archivo. Intenta de nuevo.');
+    await expect.poll(() => fila.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+    expect(await scrollDelModal(fila)).toBeGreaterThan(0);
+  });
+
+  test('retrabajo DEV: «Digitar fecha» deja el foco en el campo, se escribe con el teclado y el sondeo no lo quita', async ({ page }) => {
+    await page.clock.install();
+    await page.setViewportSize({ width: 1366, height: 800 });
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    // Otra fila en «Validando…» mantiene vivo el sondeo de 5 s mientras se escribe.
+    const conSondeo = expediente(1, {
+      camara_comercio: { estado: 'validando' },
+      certificado_bancario: { estado: 'no_validado' },
+    });
+    const peticiones = await mock(page, { e1: conSondeo });
+    const fila = seccion(await abrir(page)).getByTestId('doc-certificado_bancario');
+    const boton = fila.getByRole('button', { name: 'Digitar la fecha de expedición de Certificado bancario' });
+    // El botón queda pegado al borde inferior: el editor nace en parte fuera de la vista.
+    await boton.evaluate((el) => el.scrollIntoView({ block: 'end' }));
+    const antes = await scrollDelModal(fila);
+    expect(antes).toBeGreaterThan(0);
+
+    await boton.click();
+    const campo = fila.getByLabel('Fecha de expedición', { exact: true });
+    await expect(campo).toBeFocused();
+    await expect(campo).toBeInViewport({ ratio: 1 });
+    // El modal no vuelve al inicio: como mucho se desplaza lo que asoma el editor.
+    const despues = await scrollDelModal(fila);
+    expect(despues).toBeGreaterThanOrEqual(antes);
+
+    // El orden de los segmentos del <input type="date"> sigue el locale del navegador.
+    const orden = await page.evaluate(() => new Intl.DateTimeFormat(navigator.language)
+      .formatToParts(new Date(2026, 9, 20)).filter((x) => x.type !== 'literal').map((x) => x.type));
+    const partes: Record<string, string> = { day: '20', month: '10', year: '2026' };
+    for (const t of orden) {
+      await page.keyboard.type(partes[t]);
+      const e1 = peticiones.e1;
+      await page.clock.runFor(5_500);
+      await expect.poll(() => peticiones.e1).toBeGreaterThan(e1);
+    }
+    await expect(campo).toBeFocused();
+    await expect(campo).toHaveValue('2026-10-20');
+    // Ni el sondeo ni el tecleo mueven el scroll.
+    expect(await scrollDelModal(fila)).toBe(despues);
   });
 });

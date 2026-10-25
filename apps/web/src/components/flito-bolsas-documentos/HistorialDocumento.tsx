@@ -6,8 +6,8 @@ import type { DocumentoBolsaVersionDto, TipoDocumentoBolsa } from '@operaciones/
 import { bolsasDocumentosApi } from '../../lib/api';
 import { fechaDia, fechaHora } from '../../lib/bolsas';
 import { delDocumento, diaBogota, nombreDocumento, participio } from '../../lib/bolsasDocumentos';
-import { flitBtnSecondarySm } from '../flit/flitPageKit';
-import { BOTON_ICONO, useDescargaDocumentoBolsa } from './useDescargaDocumentoBolsa';
+import { flitBtnIconoSm, flitBtnSecondarySm } from '../flit/flitPageKit';
+import { useDescargaDocumentoBolsa } from './useDescargaDocumentoBolsa';
 
 type Estado = { fase: 'cargando' } | { fase: 'error' } | { fase: 'lista'; versiones: DocumentoBolsaVersionDto[] };
 
@@ -92,11 +92,10 @@ export default function HistorialDocumento({ id, companiaId, tipo, onCerrar }: {
                   )}
                 </div>
                 {v.archivoDisponible && (
-                  <button type="button" className={BOTON_ICONO}
-                    style={{ color: 'var(--flit-text-secondary)', borderColor: 'var(--flit-border-input)' }}
+                  <button type="button" className={flitBtnIconoSm}
                     aria-label={`Descargar ${nombre} (versión ${v.version})`} title={`Descargar ${nombre} (versión ${v.version})`}
                     disabled={ocupado} aria-busy={ocupado || undefined} onClick={() => { void descargar(v); }}>
-                    <Download size={16} aria-hidden="true" />
+                    <Download size={14} aria-hidden="true" />
                   </button>
                 )}
               </li>

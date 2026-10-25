@@ -26,7 +26,15 @@ export default function EditorFechaExpedicion({ documento, onCancelar, onGuardad
   const input = useRef<HTMLInputElement>(null);
   const hoy = hoyColombia();
 
-  useEffect(() => { input.current?.focus(); }, []);
+  const form = useRef<HTMLFormElement>(null);
+
+  // El botón que abrió el editor se desmonta: el foco va al campo SIN el scroll de `focus()` (Chromium
+  // centra el elemento y el modal «salta», HU #13892 retrabajo DEV); solo se desplaza lo justo para
+  // que el editor se vea entero.
+  useEffect(() => {
+    input.current?.focus({ preventScroll: true });
+    form.current?.scrollIntoView?.({ block: 'nearest' });
+  }, []);
 
   async function guardar() {
     if (candado.current) return;
@@ -60,7 +68,7 @@ export default function EditorFechaExpedicion({ documento, onCancelar, onGuardad
   }
 
   return (
-    <form noValidate className="rounded-lg border p-3 sm:col-span-2" style={{ borderColor: 'var(--flit-border-input)' }}
+    <form ref={form} noValidate className="rounded-lg border p-3 sm:col-span-2" style={{ borderColor: 'var(--flit-border-input)' }}
       onSubmit={(e) => { e.preventDefault(); void guardar(); }}
       onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); if (!guardando) onCancelar(); } }}>
       <label htmlFor={id} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
