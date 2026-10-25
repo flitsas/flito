@@ -32,7 +32,7 @@ import { rutaServiciosDeTramite, tipoIdsDe } from '../../lib/serviciosAdicionale
 import BuscadorTipoServicio from '../finanzas/BuscadorTipoServicio';
 import {
   ADMISION_LABEL, AYUDA_MOTIVO, CAMPOS_OCULTOS, MOTIVO_MAX, MOTIVO_MIN, aplicarComprobante, chipConfianza, deltaCampos,
-  descartarComprobante, errorComprobante, esCampoEditable, labelCampo, llaveSugerido, pesosComprobante,
+  alertasSaldo, descartarComprobante, errorComprobante, esCampoEditable, labelCampo, llaveSugerido, pesosComprobante, type AlertaSaldoBolsa,
 } from '../../lib/comprobantes';
 import StatusChip from '../flit/StatusChip';
 import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../flit/flitPageKit';
@@ -109,8 +109,8 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
   detalle: ComprobanteDetalleDto;
   /** La cabecera del detalle (estado, carga, «Leído») y, si toca, el bloque de Releer: van dentro del área que desplaza. */
   children: ReactNode;
-  /** 200 de aplicar o descartar: el texto del toast; el detalle cierra y la página refresca. */
-  onResuelto: (toast: string) => void;
+  /** 200 de aplicar o descartar: el texto del toast; el detalle cierra y la página refresca. HU #13904 (AC6): con aplicar, las alertas de saldo negativo de la respuesta. */
+  onResuelto: (toast: string, alertas?: AlertaSaldoBolsa[]) => void;
   /** `ya_resuelto` / 404: cierra y refresca la cola. */
   onActualizarCola: () => void;
 }) {
@@ -270,7 +270,7 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
     try {
       const r = await aplicarComprobante(detalle.id, body);
       const servicio = tipo ? { nombre: tipo.nombre, valor: valorEscrito(valores.valorTotal), yaAsignado: asignadosTramite.includes(tipo.id) } : undefined;
-      onResuelto(toastAplicado(r.comprobante, ep, tramite.idFlit, concepto, servicio));
+      onResuelto(toastAplicado(r.comprobante, ep, tramite.idFlit, concepto, servicio), alertasSaldo(r.comprobante));
     } catch (e) {
       manejarError(e);
     } finally {

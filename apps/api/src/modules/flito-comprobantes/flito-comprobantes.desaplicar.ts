@@ -149,7 +149,9 @@ async function desaplicarEnTx(tx: Tx, id: string, d: Desaplicacion, ctx: Comprob
       await exigirDescuentoReversible(tx, id);
     } catch (e) {
       if (e instanceof PeriodoCerradoError) {
-        throw new ComprobanteError(409, CodigoErrorComprobante.PERIODO_CERRADO, e.message, { bolsaId: e.bolsaId, periodo: e.periodo });
+        throw new ComprobanteError(409, CodigoErrorComprobante.PERIODO_CERRADO, e.message, {
+          bolsaId: e.bolsaId, bolsaNombre: e.bolsaNombre, periodo: e.periodo,
+        });
       }
       throw e;
     }

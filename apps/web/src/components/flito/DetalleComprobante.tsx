@@ -10,8 +10,11 @@
 //
 // HU #12635: la cabecera lleva el mismo chip de seis estados que la fila (`asociacionDe`) y la
 // línea «Ver trámite {idFlit} ↗ · Ver soportes»; el visor de soportes se abre ENCIMA del detalle.
+//
+// HU #13904: la ficha de un APLICADO gana un pie con «Desaplicar» / «Reemplazar» (`CorregirAplicado`,
+// cada uno guardado por su función). Tras un 200 el detalle se repinta con lo devuelto, sin cerrar.
 
-import { useCallback, useEffect, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   CONCEPTO_COSTO_LABEL, CodigoErrorComprobante, MotivoPendienteComprobante,
   TIPO_DOCUMENTO_COMPROBANTE_LABEL, type ComprobanteDetalleDto, type CruceComprobante,
@@ -20,7 +23,7 @@ import { ApiError, api, errorMessage } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import {
   ASOCIACION_COMPROBANTE_LABEL, RUTA_COMPROBANTES, TONO_ASOCIACION, abrirArchivoComprobante, asociacionDe, chipConfianza, esPdfArchivo,
-  hrefVerTramite, labelCampo, pesosComprobante, textoAsociacion, textoCarga, textoPaginas,
+  hrefVerTramite, labelCampo, pesosComprobante, textoAsociacion, textoCarga, textoPaginas, type AlertaSaldoBolsa,
 } from '../../lib/comprobantes';
 import { hasPage } from '../../lib/permissions';
 import FlitModal from '../flit/FlitModal';
@@ -28,6 +31,7 @@ import StatusChip, { type ChipTone } from '../flit/StatusChip';
 import VisorPdf from '../flit/VisorPdf';
 import VisorSoportes from '../flit/VisorSoportes';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import CorregirAplicado, { type Correccion } from './CorregirAplicado';
 import PanelAsociacion from './PanelAsociacion';
 
 const COPY_SIN_LECTURA = 'FLITO no pudo leer este documento.';
@@ -58,13 +62,15 @@ function useArchivoComprobante(id: string, habilitado: boolean) {
   return { archivo, error, reintentar: () => setNonce((n) => n + 1) };
 }
 
-export default function DetalleComprobante({ id, onClose, onColaActualizada, onResuelto, restoreFocusRef }: {
+export default function DetalleComprobante({ id, onClose, onColaActualizada, onResuelto, onCorregido, restoreFocusRef }: {
   id: string;
   onClose: () => void;
   /** Tras releer con éxito, o al pulsar «Actualizar la cola» en un 404 / `ya_resuelto`: la página refresca y anuncia. */
   onColaActualizada: () => void;
   /** Aplicado, adjuntado o descartado con éxito: la página muestra el toast, refresca y cierra. */
-  onResuelto: (toast: string) => void;
+  onResuelto: (toast: string, alertas?: AlertaSaldoBolsa[]) => void;
+  /** HU #13904: desaplicado o reemplazado con éxito: la página muestra el toast (y las alertas de saldo) y refresca, SIN cerrar. */
+  onCorregido: (toast: string, alertas: AlertaSaldoBolsa[]) => void;
   restoreFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const { user, hasFuncion } = useAuth();
@@ -77,6 +83,7 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
   const [errorReleer, setErrorReleer] = useState<string | null>(null);
   const [esPdf, setEsPdf] = useState<boolean | null>(null);
   const [errorSoporte, setErrorSoporte] = useState<string | null>(null);
+  const lecturaRef = useRef<HTMLElement>(null);
   const puedeAbrirArchivo = hasFuncion('comprobantes.archivo.descargar');
   const { archivo, error: errorArchivo, reintentar: reintentarArchivo } = useArchivoComprobante(id, puedeAbrirArchivo);
   const contentType = detalle?.archivo.contentType;
@@ -123,6 +130,14 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
   const sinLectura = detalle?.motivoPendiente === MotivoPendienteComprobante.OCR_NO_DISPONIBLE;
   const puedeReleer = sinLectura && detalle?.estado === 'pendiente' && hasFuncion('comprobantes.comprobante.releer');
   const actualizarCola = () => { onColaActualizada(); onClose(); };
+  // HU #13904: repinta con lo devuelto (pendiente → panel; descartado → solo lectura) y lleva el foco
+  // al diálogo, cuyo nombre accesible es el título de la ficha repintada.
+  const alCorregido = (c: Correccion) => {
+    setDetalle(c.detalle); setVersion((v) => v + 1);
+    onCorregido(c.toast, c.alertas);
+    requestAnimationFrame(() => lecturaRef.current?.closest<HTMLElement>('[role="dialog"]')?.focus());
+  };
+  const recargar = () => { setNonce((n) => n + 1); onColaActualizada(); };
   const verSoporteAplicado = () => {
     setErrorSoporte(null);
     abrirArchivoComprobante(id, true).catch((e) => setErrorSoporte(`No se pudo abrir el soporte aplicado. ${errorMessage(e)}`));
@@ -215,7 +230,7 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
           )}
         </section>
 
-        <section aria-label="Lectura" className="flex min-h-0 flex-col text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <section ref={lecturaRef} aria-label="Lectura" className="flex min-h-0 flex-col text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
           {error ? (
             <div className="space-y-3">
               <p role="alert" className="text-red-600">{error.noExiste ? error.texto : `No se pudo abrir el comprobante. ${error.texto}`}</p>
@@ -232,7 +247,7 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
               {cabecera}
             </PanelAsociacion>
           ) : (
-            <div className="min-h-0 flex-1 space-y-4 overflow-auto">
+            <FichaSoloLectura detalle={detalle} version={version} onCorregido={alCorregido} onActualizar={recargar} onActualizarCola={actualizarCola}>
               {cabecera}
               {detalle.estado === 'aplicado' && detalle.esPago && (
                 <p className="flex items-center justify-between gap-2 border-b pb-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
@@ -263,7 +278,7 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
                   );
                 })}
               </dl>
-            </div>
+            </FichaSoloLectura>
           )}
         </section>
       </div>
@@ -274,3 +289,19 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
   );
 }
 
+
+/**
+ * Ficha de solo lectura. En un APLICADO la envuelve `CorregirAplicado` (pie con Desaplicar /
+ * Reemplazar si hay función); en un descartado sigue sin botones (UX §7.8).
+ */
+function FichaSoloLectura({ detalle, version, children, onCorregido, onActualizar, onActualizarCola }: {
+  detalle: ComprobanteDetalleDto; version: number; children: ReactNode;
+  onCorregido: (c: Correccion) => void; onActualizar: () => void; onActualizarCola: () => void;
+}) {
+  if (detalle.estado !== 'aplicado') return <div className="min-h-0 flex-1 space-y-4 overflow-auto">{children}</div>;
+  return (
+    <CorregirAplicado key={`${detalle.id}-${version}`} detalle={detalle} onCorregido={onCorregido} onActualizar={onActualizar} onActualizarCola={onActualizarCola}>
+      {children}
+    </CorregirAplicado>
+  );
+}

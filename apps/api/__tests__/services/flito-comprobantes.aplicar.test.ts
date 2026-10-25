@@ -1461,7 +1461,7 @@ describe('HU #13902 — aplicar llama al descuento de la bolsa dentro de la tx y
   const ctx = { userId: 7, username: 'u@flitsas.io', role: 'financiera' };
   const DTO = {
     movimientos: [{ bolsaId: 'bolsa-1', alcance: 'compania', movimientoId: 'mov-1', valor: 300000, saldoResultante: -200000 }],
-    omitidos: [], alertas: [{ bolsaId: 'bolsa-1', alcance: 'compania', saldoResultante: -200000 }],
+    omitidos: [], alertas: [{ bolsaId: 'bolsa-1', bolsaNombre: 'Cliente Uno', alcance: 'compania', saldoResultante: -200000 }],
   };
   function armarHonorario() {
     kdb.when

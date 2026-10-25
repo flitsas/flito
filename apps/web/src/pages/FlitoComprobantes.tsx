@@ -9,6 +9,10 @@
 // HU #12635: el chip de Estado dice los SEIS estados de asociación (`asociacionDe`, espejo del
 // servidor), el selector «Estado de asociación» afina la pill y vive en `?asociacion=` (derivado de
 // la URL, calco de `?alerta=` en Trámites), y la celda Trámite salta a Gestión Trámites por placa.
+//
+// HU #13904: el toast gana el ✕ y se cuelga de <body> por encima del modal (el detalle ya no se
+// cierra al desaplicar o reemplazar), y entra el aviso de saldo negativo (AC6): solo con la
+// respuesta de aplicar o de reemplazar, cerrable, y se va en la siguiente acción.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -22,8 +26,9 @@ import { useAuth } from '../lib/auth';
 import {
   ASOCIACION_COMPROBANTE_LABEL, OPCIONES_ASOCIACION, PILL_DE_ASOCIACION, RUTA_COMPROBANTES, TONO_ASOCIACION,
   agruparPorCarga, asociacionDe, esAsociacionComprobante, etiquetaChipCarga, hrefVerTramite, llaveLeida, pesosComprobante,
-  textoAsociacion, textoCarga, textoEsPago, textoPaginas, type GrupoCarga,
+  textoAlertaSaldo, textoAsociacion, textoCarga, textoEsPago, textoPaginas, type AlertaSaldoBolsa, type GrupoCarga,
 } from '../lib/comprobantes';
+import ModalPortal from '../components/flit/ModalPortal';
 import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
@@ -82,6 +87,7 @@ export default function FlitoComprobantes() {
   const anunciarAlRefrescar = useRef(false);
   // Toast de éxito (AC4/AC5): comparte la ÚNICA región `status` de la página con el anuncio sr-only.
   const [toast, setToast] = useState('');
+  const [alertasSaldo, setAlertasSaldo] = useState<AlertaSaldoBolsa[]>([]);
 
   const [modalCarga, setModalCarga] = useState(false);
   const [detalleId, setDetalleId] = useState<string | null>(null);
@@ -152,9 +158,16 @@ export default function FlitoComprobantes() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funciones, puedeVerCola, pill, asociacion, concepto, motivo, chipCarga, page, nonce]);
 
-  const alResuelto = (texto: string) => {
+  const alResuelto = (texto: string, alertas: AlertaSaldoBolsa[] = []) => {
     setDetalleId(null);
     setToast(texto);
+    setAlertasSaldo(alertas);
+    setNonce((n) => n + 1);
+  };
+  /** HU #13904: desaplicado o reemplazado. El detalle sigue abierto (se repinta solo); la cola se refresca. */
+  const alCorregido = (texto: string, alertas: AlertaSaldoBolsa[]) => {
+    setToast(texto);
+    setAlertasSaldo(alertas);
     setNonce((n) => n + 1);
   };
   useEffect(() => {
@@ -183,10 +196,33 @@ export default function FlitoComprobantes() {
           <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setModalCarga(true)}>Cargar comprobantes</button>
         )}
       />
-      <p role="status" aria-live="polite" className={toast ? 'rounded-lg border px-4 py-2 text-sm' : 'sr-only'}
-        style={toast ? { borderColor: 'var(--flit-border-input)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' } : undefined}>
-        {toast || anuncio}
-      </p>
+      {/* UNA región `status` (toast + anuncio sr-only), colgada de <body> para quedar ENCIMA del modal
+          (z-[70] > z-[60] de FlitModal): dentro de <main> ningún z-index pasa por encima (ModalPortal).
+          En móvil deja libre el ✕ del modal (`right-16`); desde `sm` va centrado. */}
+      <ModalPortal>
+        <div className={toast ? 'fixed left-4 right-16 top-4 z-[70] flex items-start gap-2 rounded-lg border px-4 py-2 text-sm sm:left-1/2 sm:right-auto sm:w-full sm:max-w-md sm:-translate-x-1/2' : undefined}
+          style={toast ? { borderColor: 'var(--flit-border-input)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' } : undefined}>
+          <p role="status" aria-live="polite" className={toast ? 'min-w-0 flex-1 py-1' : 'sr-only'}>{toast || anuncio}</p>
+          {toast && (
+            <button type="button" aria-label="Cerrar aviso" onClick={() => setToast('')}
+              className="flit-focus grid h-7 w-7 shrink-0 place-items-center rounded transition-colors hover:bg-[var(--flit-bg-hover)]" style={{ color: 'var(--flit-text-muted)' }}>
+              ✕
+            </button>
+          )}
+        </div>
+      </ModalPortal>
+      {alertasSaldo.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border px-4 py-2 text-sm"
+          style={{ borderColor: 'var(--flit-border-input)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' }}>
+          <div role="status" className="min-w-0 flex-1 space-y-1 py-1">
+            {alertasSaldo.map((a) => <p key={a.bolsaId}>{textoAlertaSaldo(a)}</p>)}
+          </div>
+          <button type="button" aria-label="Cerrar el aviso de saldo" onClick={() => setAlertasSaldo([])}
+            className="flit-focus grid h-7 w-7 shrink-0 place-items-center rounded transition-colors hover:bg-[var(--flit-bg-hover)]" style={{ color: 'var(--flit-text-muted)' }}>
+            ✕
+          </button>
+        </div>
+      )}
 
       <FlitCard className="flex flex-wrap items-center gap-3">
         <FlitPillGroup>
@@ -277,7 +313,7 @@ export default function FlitoComprobantes() {
         <CargaComprobantes onClose={() => setModalCarga(false)} onListo={alListo} onVerOriginal={setDetalleId} />
       )}
       {detalleId && (
-        <DetalleComprobante id={detalleId} onClose={() => setDetalleId(null)} onColaActualizada={refrescarYAnunciar} onResuelto={alResuelto} restoreFocusRef={tituloRef} />
+        <DetalleComprobante id={detalleId} onClose={() => setDetalleId(null)} onColaActualizada={refrescarYAnunciar} onResuelto={alResuelto} onCorregido={alCorregido} restoreFocusRef={tituloRef} />
       )}
     </div>
   );
