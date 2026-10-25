@@ -5,7 +5,7 @@
 //
 // Un archivo por área (cada uno ≤800 líneas): `gestion.ts` (#12873), `finanzas.ts` y `administracion.ts`
 // (#13427), `general.ts` y `perfil.ts` (#13428, que amplía `administracion.ts` y `gestion.ts`) y `legado.ts`
-// (#13429: los ítems antiguos). Desde la #13429 los `menu.*` se siembran en `permisos_funciones` (menos
+// (#13429: los ítems antiguos) y `dr-flit.ts` (#13941). Desde la #13429 los `menu.*` se siembran en `permisos_funciones` (menos
 // «Ayuda», derivada) y el resolutor exige la cadena entera (elemento → ítem → acción).
 import type { PageSlug } from '../permissions.js';
 import { ELEMENTOS_PERMISOS } from './elementos.js';
@@ -15,6 +15,7 @@ import { ARBOL_CLIENTES_Y_BITACORA, ARBOL_GESTION } from './gestion.js';
 import { ARBOL_GENERAL } from './general.js';
 import { ARBOL_LEGADO } from './legado.js';
 import { ARBOL_PERFIL } from './perfil.js';
+import { ARBOL_DR_FLIT } from './dr-flit.js';
 
 /**
  * HU #13429: `operacion` = una operación suelta marcable que no es nodo del menú — opcional de una acción o
@@ -80,11 +81,12 @@ export { ARBOL_FINANZAS, ITEMS_FINANZAS } from './finanzas.js';
 export { ARBOL_ADMINISTRACION, ITEMS_ADMINISTRACION } from './administracion.js';
 export { ARBOL_GENERAL, ITEMS_GENERAL } from './general.js';
 export { ARBOL_PERFIL, ITEMS_PERFIL } from './perfil.js';
+export { ARBOL_DR_FLIT, ITEMS_DR_FLIT } from './dr-flit.js';
 export { ARBOL_LEGADO, ITEMS_LEGADO } from './legado.js';
 
 /** Ítems y acciones de todas las áreas (sin los `menu.*`), padres antes que hijos: lo que el API mapea. */
 export const ARBOL_ITEMS_Y_ACCIONES: readonly NodoArbolDef[] = [
-  ...ARBOL_GESTION, ...ARBOL_CLIENTES_Y_BITACORA, ...ARBOL_FINANZAS, ...ARBOL_ADMINISTRACION, ...ARBOL_GENERAL, ...ARBOL_PERFIL, ...ARBOL_LEGADO,
+  ...ARBOL_GESTION, ...ARBOL_CLIENTES_Y_BITACORA, ...ARBOL_FINANZAS, ...ARBOL_ADMINISTRACION, ...ARBOL_GENERAL, ...ARBOL_DR_FLIT, ...ARBOL_PERFIL, ...ARBOL_LEGADO,
 ];
 
 /** El árbol entero, padres antes que hijos. */

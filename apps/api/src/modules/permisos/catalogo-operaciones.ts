@@ -68,6 +68,7 @@ const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.route
 const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
 const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
 const BDOC = 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts'; // HU #13889 (ADR-0028)
+const DRF = 'flito-dr-flit/dr-flit.funciones.ts'; // HU #13941
 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
@@ -457,6 +458,11 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${CPR} POST /:id/desaplicar`, 'comprobantes.comprobante.desaplicar', 'Desaplicar un comprobante', 'Deshacer la aplicación de un comprobante (y el pago que registró) devolviéndolo a la cola o descartándolo, con motivo.'),
   op(`${CPR} POST /:id/reemplazar`, 'comprobantes.comprobante.reemplazar', 'Reemplazar un comprobante aplicado', 'Descartar un comprobante aplicado y aplicar otro pendiente al mismo trámite y concepto, con motivo.'),
   op(`${CPR} POST /:id/diferencia/aceptar`, 'comprobantes.diferencia.aceptar', 'Aceptar la diferencia de un comprobante', 'Aceptar con motivo la diferencia entre el valor del comprobante y la tarifa de referencia.'),
+  // HU #13941: las funciones de Dr. Flit, en línea en su fichero de guardas. Nacen en el árbol (General · Dr. Flit,
+  // `arbol/acciones-dr-flit.ts`); `drflit.manuales.ver` no tiene guarda (es sonda del servicio de la IA).
+  op(`${DRF} POST * [usar_ia]`, 'drflit.ia.usar', 'Usar la IA de Dr. Flit', 'Preguntarle a la IA de Dr. Flit y aceptar su autorización de tratamiento de datos.'),
+  op(`${DRF} POST * [radicar_soporte]`, 'drflit.soporte.radicar', 'Radicar casos de soporte en Dr. Flit', 'Enviar un caso a la mesa de soporte y aceptar su autorización de tratamiento de datos.'),
+  op(`${DRF} POST * [consultar_gestion]`, 'drflit.gestion.consultar', 'Consultar la gestión desde Dr. Flit', 'Buscar desde Dr. Flit trámites, SOAT, impuestos y derechos (con la cola de cada módulo).'),
 ];
 
 // HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).

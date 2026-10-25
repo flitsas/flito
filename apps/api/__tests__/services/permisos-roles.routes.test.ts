@@ -176,6 +176,19 @@ describe('AC1 — POST /roles', () => {
       .toEqual(['accion.perfil.cambiar_contrasena', 'accion.perfil.ver_datos', 'pagina.perfil']);
   });
 
+  it('HU #13941 (AC2) — un rol nuevo nace también con «Dr. Flit» + «Ver los manuales» y su elemento (si la base los tiene); nunca con IA, gestión ni soporte', async () => {
+    kdb.when.select('permisos_funciones', [
+      { codigo: 'accion.perfil.cambiar_contrasena' }, { codigo: 'accion.perfil.ver_datos' }, { codigo: 'pagina.perfil' }, { codigo: 'menu.perfil' },
+      { codigo: 'accion.dr_flit.ver_manuales' }, { codigo: 'pagina.flito_dr_flit' }, { codigo: 'menu.general' },
+    ]);
+    kdb.when.insert('permisos_roles', [ROL()]);
+    const { funciones: _f, ...sinFunciones } = cuerpo;
+    expect((await request(app()).post('/api/permisos/roles').set('Authorization', await admin()).send(sinFunciones)).status).toBe(201);
+    const marcadas = espia.ultimoInsertEn('permisos_rol_funcion')!.map((x: { funcionCodigo: string }) => x.funcionCodigo);
+    for (const c of ['accion.dr_flit.ver_manuales', 'pagina.flito_dr_flit', 'menu.general']) expect(marcadas, c).toContain(c);
+    for (const c of ['accion.dr_flit.usar_ia', 'accion.dr_flit.consultar_gestion', 'accion.dr_flit.radicar_soporte']) expect(marcadas, c).not.toContain(c);
+  });
+
   it('HU #13428 — desmarcables (las dos acciones y la página): si se quitan y se guarda el cuadro, no reaparecen (el PUT escribe solo lo pedido)', async () => {
     kdb.when.select('permisos_funciones', [{ codigo: 'soat.cola.ver' }])
       .select('permisos_roles', [{ tipoEnlace: 'ninguno' }]).select('users', [USERS_OK])

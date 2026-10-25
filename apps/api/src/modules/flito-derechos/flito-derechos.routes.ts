@@ -24,6 +24,7 @@ import type { ArchivoPlano } from '../../shared/archivos/expandir-zip.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { drFlitGestionLimiter } from '../../shared/middleware/rateLimiter.js';
 import { busquedaGestionSchema, motivoGestion, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
+import { exigirConsultaGestionDrFlit } from '../flito-dr-flit/dr-flit.funciones.js';
 import type { ResultadoGestion, TarjetaDerechoGestion } from '@operaciones/shared-types';
 
 const router = Router();
@@ -123,7 +124,8 @@ const aTarjetaDerecho = (f: FilaDerecho): TarjetaDerechoGestion => ({
   concepto: f.tipoTramiteRecibo, valor: f.valor === null ? null : Number(f.valor), fechaPago: f.fechaPago,
 });
 
-router.post('/buscar', exigirFuncion('derechos.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
+// HU #13941 (AC4/AC6): la función «Consultar la gestión» de Dr. Flit PRIMERO; la frontera sigue siendo `conAlcance`.
+router.post('/buscar', exigirConsultaGestionDrFlit, exigirFuncion('derechos.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
   const parsed = busquedaGestionSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   const { items, total } = await listarDerechos({ buscar: parsed.data.valor, ...PAGINA_GESTION }, await alcanceDe(req));

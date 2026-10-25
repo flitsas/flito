@@ -86,7 +86,7 @@ describe('HU #13837 · POST /buscar — autenticación y permiso', () => {
   });
 
   it('403 sin la función soat.cola.ver, sin consultar la cola ni escribir rastro', async () => {
-    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: ['tramites.cola.ver'] }); // otra cola: no arrastra soat.cola.ver por la cadena
+    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: ['tramites.cola.ver', 'drflit.gestion.consultar'] }); // otra cola: no arrastra soat.cola.ver por la cadena
     const r = await request(await app()).post(URL).set('Authorization', `Bearer ${t}`).send({ valor: PLACA });
     expect(r.status).toBe(403);
     expect(svc.cola).not.toHaveBeenCalled();
@@ -151,7 +151,7 @@ describe('HU #13837 · POST /buscar — resultado', () => {
   it('alcance compañía: `cola` recibe el contexto de `contextoSoat(req.user)`; sin compañía en la tarjeta y VIN como título sin placa', async () => {
     svc.contextoSoat.mockResolvedValue(ctxCompania);
     svc.cola.mockResolvedValue(pagina([filaClienteSinPlaca]));
-    const t = `Bearer ${await testToken({ sub: ++sub, role: 'xyz_cliente' as never, tipoEnlace: 'compania', funciones: ['soat.cola.ver'] })}`;
+    const t = `Bearer ${await testToken({ sub: ++sub, role: 'xyz_cliente' as never, tipoEnlace: 'compania', funciones: ['soat.cola.ver', 'drflit.gestion.consultar'] })}`;
     const r = await request(await app()).post(URL).set('Authorization', t).send({ valor: VIN });
     expect(r.status).toBe(200);
     expect(svc.contextoSoat.mock.calls[0]![0]).toMatchObject({ sub });
@@ -166,7 +166,7 @@ describe('HU #13837 · POST /buscar — resultado', () => {
   it('alcance proveedor: `cola` recibe el contexto del gestor (su proveedor), con compañía visible', async () => {
     svc.contextoSoat.mockResolvedValue(ctxProveedor);
     svc.cola.mockResolvedValue(pagina([filaInterna]));
-    const t = `Bearer ${await testToken({ sub: ++sub, role: 'xyz_gestor' as never, tipoEnlace: 'proveedor', funciones: ['soat.cola.ver'] })}`;
+    const t = `Bearer ${await testToken({ sub: ++sub, role: 'xyz_gestor' as never, tipoEnlace: 'proveedor', funciones: ['soat.cola.ver', 'drflit.gestion.consultar'] })}`;
     const r = await request(await app()).post(URL).set('Authorization', t).send({ valor: PLACA });
     expect(r.status).toBe(200);
     expect(svc.cola.mock.calls[0]![0]).toMatchObject({ alcance: 'proveedor', proveedorSoatId: 'prov-1' });
@@ -204,5 +204,17 @@ describe('HU #13837 · POST /buscar — limitador por usuario', () => {
     expect(estados.slice(0, 40).every((s) => s === 200)).toBe(true);
     expect(estados[40]).toBe(429);
     expect((await request(a).post(URL).set('Authorization', await admin()).send({ valor: PLACA })).status).toBe(200);
+  });
+});
+
+// HU #13941 (AC4/AC6): «Consultar la gestión» de Dr. Flit se exige PRIMERO; la frontera sigue siendo `conAlcance`.
+describe('HU #13941 · POST /buscar — función «Consultar la gestión» de Dr. Flit', () => {
+  it('AC4: con `soat.cola.ver` pero sin `drflit.gestion.consultar` → 403 drflit-funcion-no-habilitada, sin consultar ni rastro', async () => {
+    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: ['soat.cola.ver'] });
+    const r = await request(await app()).post(URL).set('Authorization', `Bearer ${t}`).send({ valor: PLACA });
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({ error: expect.any(String), codigo: 'drflit-funcion-no-habilitada', funcion: 'drflit.gestion.consultar' });
+    expect(svc.cola).not.toHaveBeenCalled();
+    expect(pii.logPiiAccess).not.toHaveBeenCalled();
   });
 });

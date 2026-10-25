@@ -4,7 +4,7 @@
 //   efectivo del usuario (motor de permisos), nunca por nombre de rol. `soat` → `flito_soat`,
 //   `privacy_log_pii` → `privacy` (el `permiso` ya viene así en el artefacto). `funcionesConcedidas` se
 //   consulta UNA vez por petición con los códigos de todas las fichas. Ficha sin `.md` = no está en el
-//   artefacto = nunca visible.
+//   artefacto = nunca visible. HU #13941 (AC5): la IA además exige «Ver los manuales» (`manualesDisponibles`).
 // RN-DRF-IA2 (presupuesto): el índice (clave, etiqueta, resumen) de las visibles va siempre. Si el texto
 //   de todas las secciones visibles cabe en `DRFLIT_IA_CONTEXTO_MAX_CHARS`, van todas. Si no, se rankean
 //   con la réplica de `buscarSecciones` del web (F3) y se toman en orden hasta llenar el presupuesto,
@@ -35,6 +35,19 @@ export function filtrarFichasVisibles(
 /** Fichas visibles para quien hace la petición. Una sola consulta al motor de permisos. */
 export async function fichasVisibles(req: Request): Promise<FichaAyudaApi[]> {
   return filtrarFichasVisibles(await funcionesConcedidas(req, CODIGOS_PAGINA_FICHAS));
+}
+
+/** HU #13941: la operación de «Ver los manuales» de Dr. Flit (literal: es la de `FUNCIONES_DRFLIT.verManuales`). */
+export const OPERACION_VER_MANUALES = 'drflit.manuales.ver';
+
+/**
+ * HU #13941 (AC5) — Los manuales con los que puede responder la IA: los de las fichas visibles, y solo si el
+ * usuario tiene «Ver los manuales». UNA consulta al motor (`funcionesConcedidas`, sonda: no escribe denegado).
+ * Sin la función, o sin ninguna ficha visible, `[]`.
+ */
+export async function manualesDisponibles(req: Request): Promise<FichaAyudaApi[]> {
+  const concedidas = await funcionesConcedidas(req, [OPERACION_VER_MANUALES, ...CODIGOS_PAGINA_FICHAS]);
+  return concedidas.has(OPERACION_VER_MANUALES) ? filtrarFichasVisibles(concedidas) : [];
 }
 
 // ── Réplica del ranking del web ─────────────────────────────────────────────────────────────────

@@ -281,8 +281,8 @@ export function createApp() {
   app.use('/api/flito/tramites', conAlcance('tramites', flitoTramitesRoutes));
   app.use('/api/flito/tablero', conAlcance('tablero', flitoTableroRoutes));
   // HU #13803 (Feature #13695) — Dr. Flit. SIN `conAlcance` a propósito (diseño F5 §D3): sus rutas son
-  // de sesión (datos del propio usuario) y se declaran en `RUTAS_TRANSVERSALES`; el router cierra el
-  // enlace `compania` con `rechazarEnlaceCompania` además de `requireRole`.
+  // de sesión (datos del propio usuario) y se declaran en `RUTAS_TRANSVERSALES`. HU #13941: sin exclusión por
+  // enlace; cada ruta exige su función de Dr. Flit (`dr-flit.funciones.ts`).
   app.use('/api/flito/dr-flit', flitoDrFlitRoutes);
   app.use('/api/flito/bitacora', flitoBitacoraRoutes);
   app.use('/api/flito/logistica', conAlcance('logistica', flitoLogisticaRoutes));

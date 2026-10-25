@@ -90,7 +90,7 @@ describe('HU #13838 · POST /derechos/buscar — autenticación y permiso', () =
   });
 
   it('403 sin la función derechos.cola.ver, sin consultar el listado ni escribir rastro', async () => {
-    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: ['impuestos.cola.ver'] });
+    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: ['impuestos.cola.ver', 'drflit.gestion.consultar'] });
     const r = await request(await app()).post(URL).set('Authorization', `Bearer ${t}`).send({ valor: PLACA });
     expect(r.status).toBe(403);
     expect(svc.listarDerechos).not.toHaveBeenCalled();
@@ -151,7 +151,7 @@ describe('HU #13838 · POST /derechos/buscar — resultado', () => {
 
   it('alcance: `listarDerechos` recibe EXACTAMENTE el alcance que `alcanceDe(req)` resolvió (organismos)', async () => {
     svc.alcance = { enlace: 'organismos_transito', organismos: ['05001', '11001'] };
-    const t = `Bearer ${await testToken({ sub: ++sub, role: 'xyz_gestor' as never, tipoEnlace: 'organismos_transito', funciones: ['derechos.cola.ver'] })}`;
+    const t = `Bearer ${await testToken({ sub: ++sub, role: 'xyz_gestor' as never, tipoEnlace: 'organismos_transito', funciones: ['derechos.cola.ver', 'drflit.gestion.consultar'] })}`;
     const r = await request(await app()).post(URL).set('Authorization', t).send({ valor: PLACA });
     expect(r.status).toBe(200);
     expect(svc.listarDerechos.mock.calls[0]![1]).toBe(svc.alcance);
@@ -193,5 +193,26 @@ describe('HU #13838 · POST /derechos/buscar — limitador por usuario', () => {
     for (let i = 0; i < 40; i++) expect((await request(a).post('/api/flito/impuestos/buscar').set('Authorization', tok).send({ valor: PLACA })).status).toBe(200);
     expect((await request(a).post(URL).set('Authorization', tok).send({ valor: PLACA })).status).toBe(429);
     expect(svc.listarDerechos).not.toHaveBeenCalled();
+  });
+});
+
+// HU #13941 (AC4/AC6): «Consultar la gestión» de Dr. Flit se exige PRIMERO; la frontera sigue siendo `conAlcance`.
+describe('HU #13941 · POST /buscar — función «Consultar la gestión» de Dr. Flit', () => {
+  it('AC4: con `derechos.cola.ver` pero sin `drflit.gestion.consultar` → 403 drflit-funcion-no-habilitada, sin consultar ni rastro', async () => {
+    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: ['derechos.cola.ver'] });
+    const r = await request(await app()).post(URL).set('Authorization', `Bearer ${t}`).send({ valor: PLACA });
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({ error: expect.any(String), codigo: 'drflit-funcion-no-habilitada', funcion: 'drflit.gestion.consultar' });
+    expect(svc.listarDerechos).not.toHaveBeenCalled();
+    expect(pii.logPiiAccess).not.toHaveBeenCalled();
+  });
+
+  it('AC6: enlace compañía con las dos funciones → la frontera del módulo sigue cerrándolo (403 de la frontera, no de Dr. Flit), sin consultar', async () => {
+    const t = `Bearer ${await testToken({ sub: ++sub, role: 'xyz_cliente' as never, tipoEnlace: 'compania', funciones: ['derechos.cola.ver', 'drflit.gestion.consultar'] })}`;
+    const r = await request(await app()).post(URL).set('Authorization', t).send({ valor: PLACA });
+    expect(r.status).toBe(403);
+    expect(r.body.codigo).not.toBe('drflit-funcion-no-habilitada');
+    expect(svc.listarDerechos).not.toHaveBeenCalled();
+    expect(pii.logPiiAccess).not.toHaveBeenCalled();
   });
 });

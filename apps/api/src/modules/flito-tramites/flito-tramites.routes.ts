@@ -31,6 +31,7 @@ import {
 import { MAX_VISIBLES_NOVEDADES, novedades } from './flito-tramites-novedades.service.js';
 import { drFlitGestionLimiter, novedadesTramitesLimiter } from '../../shared/middleware/rateLimiter.js';
 import { busquedaGestionSchema, motivoGestion, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
+import { exigirConsultaGestionDrFlit } from '../flito-dr-flit/dr-flit.funciones.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 
 const router = Router();
@@ -112,7 +113,8 @@ function aTarjetaTramite(f: TramiteFila): TarjetaTramiteGestion {
   };
 }
 
-router.post('/buscar', exigirFuncion('tramites.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
+// HU #13941 (AC4/AC6): la función «Consultar la gestión» de Dr. Flit PRIMERO; la frontera sigue siendo `conAlcance`.
+router.post('/buscar', exigirConsultaGestionDrFlit, exigirFuncion('tramites.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
   const parsed = busquedaGestionSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
   const { items, total } = await listar({ buscar: parsed.data.valor, ...PAGINA_GESTION }, await alcanceDe(req));
