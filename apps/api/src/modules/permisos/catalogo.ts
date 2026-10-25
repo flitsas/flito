@@ -22,7 +22,7 @@ import { llaveDe, type GuardaLeida } from './inventario-guardas.js';
 // contenedor. Que el snapshot siga siendo fiel a las guardas lo comprueba `permisos-catalogo.test.ts`,
 // que sí relee los ficheros — en CI el árbol está y en el contenedor no hace falta.
 import { GUARDAS_MEDIDAS } from './inventario.generado.js';
-import { OPERACIONES_DECLARADAS } from './catalogo-operaciones.js';
+import { FUNCIONES_EXCLUSIVAS_ADMIN, OPERACIONES_DECLARADAS } from './catalogo-operaciones.js';
 import { AGRUPACION_DE_OPERACION, AGRUPACION_DE_OPERACION_LEGADO, AGRUPACION_DE_PAGINA, moduloAgrupado } from './catalogo-agrupacion.js';
 import {
   ACCIONES_ARBOL, ACCIONES_POR_ALGUNA, ACCIONES_UNIVERSALES, CODIGOS_ABSORBIDOS, claseDe, esUniversal, operacionesDe,
@@ -46,6 +46,8 @@ export interface FuncionCatalogo {
   padre?: string;
   nivel?: number;
   orden?: number;
+  /** HU #13944: solo `admin` la tiene y nadie se la asigna ni se la quita (`FUNCIONES_EXCLUSIVAS_ADMIN`). Ausente = no. */
+  exclusivaAdmin?: true;
 }
 
 /**
@@ -389,7 +391,26 @@ export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
     });
   }
   if (errores.length) throw new CatalogoIncoherenteError(`El árbol de permisos y el catálogo no coinciden:\n  ${errores.join('\n  ')}`);
-  return salida.sort((a, b) => a.codigo.localeCompare(b.codigo));
+  return marcarExclusivasAdmin(salida).sort((a, b) => a.codigo.localeCompare(b.codigo));
+}
+
+/**
+ * HU #13944 — marca `exclusivaAdmin` en las funciones de `FUNCIONES_EXCLUSIVAS_ADMIN`. Una exclusiva que no está en el
+ * catálogo, o cuyo reparto de partida no es exactamente `['admin']`, es `CatalogoIncoherenteError`: sembrarla en otro
+ * rol contradiría la marca desde el primer día.
+ */
+function marcarExclusivasAdmin(salida: FuncionCatalogo[]): FuncionCatalogo[] {
+  const exclusivas = new Set(FUNCIONES_EXCLUSIVAS_ADMIN);
+  if (exclusivas.size === 0) return salida;
+  const porCodigo = new Map(salida.map((f) => [f.codigo, f]));
+  const errores: string[] = [];
+  for (const c of exclusivas) {
+    const f = porCodigo.get(c);
+    if (!f) errores.push(`exclusiva del Administrador que no está en el catálogo: ${c}`);
+    else if (f.roles.length !== 1 || f.roles[0] !== 'admin') errores.push(`exclusiva del Administrador con reparto [${f.roles.join(',')}] (debe ser [admin]): ${c}`);
+  }
+  if (errores.length) throw new CatalogoIncoherenteError(`Funciones exclusivas del Administrador incoherentes:\n  ${errores.join('\n  ')}`);
+  return salida.map((f) => (exclusivas.has(f.codigo) ? { ...f, exclusivaAdmin: true as const } : f));
 }
 
 /** El reparto rol × función que se siembra: `[rol, codigo]` ordenado y sin repetir. */

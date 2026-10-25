@@ -476,3 +476,15 @@ export const OPERACIONES_RETIRADAS_CANAL_CLIENTE = [
   'soat.causales.ver',
   'soat.solicitud.subsanar',
 ] as const;
+
+/**
+ * HU #13944 (Feature #13939) — Funciones EXCLUSIVAS del Administrador: solo el rol `admin` las tiene, nadie
+ * puede asignarlas a otro rol ni a un usuario (excepción `conceder`), ni quitárselas a `admin` (cuadro del rol o
+ * excepción `revocar`). Fuente de verdad = esta lista; `permisos_funciones.exclusiva_admin` (0253) es su copia,
+ * que `verificarCatalogoAlArrancar` compara al arrancar (patrón de `modulo`, HU #12716 AC7). Cada código tiene que
+ * existir en el catálogo con reparto de partida `['admin']` (`catalogoCompleto` lo valida).
+ *
+ * Vacía a propósito: esta HU entrega el MECANISMO. Las primeras exclusivas (estado y eliminación de clientes)
+ * nacen con sus rutas en las HUs #13945/#13954, junto con la migración que les pone `exclusiva_admin = true`.
+ */
+export const FUNCIONES_EXCLUSIVAS_ADMIN: readonly string[] = [];

@@ -38,6 +38,8 @@ export interface NodoArbolDef {
   legado?: boolean;
   /** «Ayuda»: no se marca, se calcula (≥1 capítulo visible). */
   derivado?: boolean;
+  /** HU #13944: función exclusiva del Administrador — solo el rol `admin` la tiene; no se asigna ni se quita (409). */
+  exclusivaAdmin?: boolean;
   /** HU #13429 (contrato del API): profundidad visual 1..4 (la acción anidada y el opcional de acción, 4). */
   nivel?: number;
   /** HU #13429: operación OPCIONAL de su padre (acción o ítem antiguo): ni la expande ni se gana con él. */
