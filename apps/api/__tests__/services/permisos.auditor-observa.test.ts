@@ -32,10 +32,12 @@ import { USER_ROLES } from '@operaciones/shared-types';
 // pérdidas por la regla «todos» los vigilan `migracion-0233.test.ts` y el reporte en seco de la HU.
 import { leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
-import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
+import { FUNCIONES_EXCLUSIVAS_ADMIN, OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 // HU #13428: la unión de las operaciones nuevas de todas las áreas (Finanzas y Administración/Clientes/Perfil).
-import { PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA } from '../../src/modules/permisos/arbol/expansion.js';
+import {
+  ACCIONES_ARBOL, PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA,
+} from '../../src/modules/permisos/arbol/expansion.js';
 
 /** Los 43 códigos de lectura del auditor, fijados a mano desde la foto y agrupados por módulo. */
 export const LECTURAS_DEL_AUDITOR = {
@@ -119,6 +121,8 @@ const codigoDe = (g: (typeof GUARDAS_MEDIDAS)[number]) => {
   return PARTIDA_DE_OPERACION_NUEVA[c] ?? c;
 };
 const sembrado = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
+// Solo el grupo `operaciones` de la acción exclusiva (su `apoyo`, `clients.clientes.ver`, sí es del mundo plano).
+const DE_EXCLUSIVAS = new Set(FUNCIONES_EXCLUSIVAS_ADMIN.flatMap((a) => ACCIONES_ARBOL[a]?.operaciones ?? []));
 const operacionesDe = (rol: string) => [...(sembrado.get(rol) ?? [])].filter((c) => !c.startsWith('pagina.')).sort();
 
 describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', () => {
@@ -207,7 +211,10 @@ describe('AC6 — rol por rol: lo sembrado es lo que la foto concedía', () => {
   for (const rol of USER_ROLES) {
     it(`${rol}: sus operaciones en el seed son exactamente las de las rutas que la foto le daba`, () => {
       // Sin repetidos: desde la HU #13421 varias guardas legacy comparten código («Administrar <ítem>»).
-      const desdeFoto = [...new Set(GUARDAS_MEDIDAS.filter((g) => g.roles.includes(rol)).map(codigoDe).filter((c) => !c.startsWith('pagina.')))].sort();
+      // HU #13945: las operaciones absorbidas por una acción EXCLUSIVA del Administrador nacen en el árbol (su acción
+      // la siembra la 0254, no el seed plano ≤ 0231) y no tienen partida: no son del mundo que mide este archivo.
+      const desdeFoto = [...new Set(GUARDAS_MEDIDAS.filter((g) => g.roles.includes(rol)).map(codigoDe)
+        .filter((c) => !c.startsWith('pagina.') && !DE_EXCLUSIVAS.has(c)))].sort();
       expect(operacionesDe(rol)).toEqual(desdeFoto);
     });
   }

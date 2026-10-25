@@ -82,12 +82,16 @@ async function buildApp() {
   return app;
 }
 
-/** Login + /me del mismo usuario. Consultas: usuario → puente → clients (cliente con compañía). */
+/**
+ * Login + /me del mismo usuario. Consultas del login: usuario → compañía activa (HU #13945, `companiaInactiva`:
+ * el usuario tiene `companiaId`) → puente → clients (cliente con compañía). /me: usuario → puente → clients.
+ */
 async function ambosSobres(fila: Record<string, unknown>) {
   await registrarUsuarioDePrueba(42, { rol: 'cliente', tipoEnlace: 'compania', funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.crear'], excepciones: [] });
   argonVerifyMock.mockResolvedValueOnce(true);
   selectMock
     .mockImplementationOnce(espia([fila]))
+    .mockImplementationOnce(espia([{ active: true }]))
     .mockImplementationOnce(espia([]))
     .mockImplementationOnce(espia([{ sinTramite: false }]));
   const app = await buildApp();
@@ -132,8 +136,9 @@ describe('AC8 + D1 — `rolNombre` en los dos sobres de sesión; `email` en ning
     expect(Object.keys(pMe)).not.toContain('email');
     expect(joins[0]).toEqual(['permisos_roles']);
     expect(joins[consultasLogin]).toEqual(['permisos_roles']);
-    // usuario + puente + clients, en los dos: el JOIN no añadió una lectura.
-    expect(consultasLogin).toBe(3);
+    // usuario + puente + clients, en los dos: el JOIN no añadió una lectura. El login suma la de compañía activa
+    // (HU #13945, AC3): un usuario con `companiaId` no entra si su compañía está inactiva.
+    expect(consultasLogin).toBe(4);
     expect(consultasMe).toBe(3);
   });
 
