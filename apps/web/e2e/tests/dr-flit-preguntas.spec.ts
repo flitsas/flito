@@ -6,11 +6,16 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAs, FINANCIERA_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, FINANCIERA_USER as FINANCIERA_REPARTO } from '../helpers/ayuda-fixtures';
+import { conDrFlit } from '../helpers/auth';
+
 import { CATALOGO_AYUDA, type EntradaAyuda } from '../../src/content/ayuda/catalogo';
 import { parsearFicha } from '../../src/lib/ayudaFicha';
 import { capitulosEnOrdenDeIndice } from '../../src/lib/ayudaFlito';
 import { anclaExiste, buscarSecciones, seccionesDeFicha } from '../../src/lib/drFlitBusqueda';
+
+// HU #13942: el reparto inicial solo da «Ver los manuales»; estos casos prueban el panel completo.
+const FINANCIERA_USER = conDrFlit(FINANCIERA_REPARTO);
 
 const raiz = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../src/content/ayuda');
 const leer = (clave: string) => {

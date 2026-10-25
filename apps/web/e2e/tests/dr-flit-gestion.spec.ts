@@ -2,14 +2,18 @@
 // UX: docs/ux/flito-dr-flit-f6.md · diseño: docs/diseno/feature-13834-dr-flit-consultas-gestion.md
 // El API se mockea (`page.route`) como en los specs dr-flit vecinos. Un test por comportamiento.
 import { test, expect, type Page, type Request } from '@playwright/test';
-import { loginAs, FINANCIERA_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, FINANCIERA_USER as FINANCIERA_REPARTO } from '../helpers/ayuda-fixtures';
+import { conDrFlit, FUNCIONES_DRFLIT_TODAS } from '../helpers/auth';
+
+// HU #13942: el reparto inicial solo da «Ver los manuales»; estos casos prueban el panel completo.
+const FINANCIERA_USER = conDrFlit(FINANCIERA_REPARTO);
 
 const BUSCAR = '**/api/flito/tramites/buscar';
 const COPY_429 = 'Hizo muchas consultas seguidas; intente en un momento.';
 
 // Financiera con Gestión Trámites (página) y la función de la cola.
 const CON_TRAMITES = {
-  ...FINANCIERA_USER, allowedPages: ['flito_tramites'], funciones: ['tramites.cola.ver'],
+  ...FINANCIERA_USER, allowedPages: ['flito_tramites'], funciones: [...FUNCIONES_DRFLIT_TODAS, 'tramites.cola.ver'],
 };
 
 const panel = (page: Page) => page.getByRole('complementary', { name: 'Dr. Flit' });
@@ -148,8 +152,8 @@ test.describe('HU #13836 · Dr. Flit — consultas de gestión (Trámites)', () 
   });
 
   for (const [caso, usuario] of [
-    ['sin la función tramites.cola.ver', { ...FINANCIERA_USER, allowedPages: ['flito_tramites'], funciones: [] }],
-    ['sin la página flito_tramites', { ...FINANCIERA_USER, allowedPages: [], funciones: ['tramites.cola.ver'] }],
+    ['sin la función tramites.cola.ver', { ...FINANCIERA_USER, allowedPages: ['flito_tramites'], funciones: [...FUNCIONES_DRFLIT_TODAS] }],
+    ['sin la página flito_tramites', { ...FINANCIERA_USER, allowedPages: [], funciones: [...FUNCIONES_DRFLIT_TODAS, 'tramites.cola.ver'] }],
   ] as const) {
     test(`AC7 · ${caso} → no se ofrece la consulta ni sale petición`, async ({ page }) => {
       const pedidas = await mockBuscar(page, [ok(1)]);
@@ -279,7 +283,7 @@ const BUSCAR_SOAT = '**/api/flito/soat/buscar';
 const CON_TRAMITES_Y_SOAT = {
   ...FINANCIERA_USER,
   allowedPages: ['flito_tramites', 'flito_soat'],
-  funciones: ['tramites.cola.ver', 'soat.cola.ver'],
+  funciones: [...FUNCIONES_DRFLIT_TODAS, 'tramites.cola.ver', 'soat.cola.ver'],
 };
 const VIN_G2 = '9BWZZZ377VT004251';
 
@@ -396,7 +400,7 @@ test.describe('HU #13837 · Dr. Flit — consultas de gestión (SOAT)', () => {
 
   for (const [caso, usuario] of [
     ['sin la página flito_soat', { ...CON_TRAMITES_Y_SOAT, allowedPages: ['flito_tramites'] }],
-    ['sin la función soat.cola.ver', { ...CON_TRAMITES_Y_SOAT, funciones: ['tramites.cola.ver'] }],
+    ['sin la función soat.cola.ver', { ...CON_TRAMITES_Y_SOAT, funciones: [...FUNCIONES_DRFLIT_TODAS, 'tramites.cola.ver'] }],
   ] as const) {
     test(`AC6 · ${caso} → SOAT no se llama ni aparece`, async ({ page }) => {
       await mockBuscar(page, [ok(1)]);
@@ -429,9 +433,9 @@ const BUSCAR_DERECHOS = '**/api/flito/derechos/buscar';
 const CON_LOS_CUATRO = {
   ...FINANCIERA_USER,
   allowedPages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos'],
-  funciones: ['tramites.cola.ver', 'soat.cola.ver', 'impuestos.cola.ver', 'derechos.cola.ver'],
+  funciones: [...FUNCIONES_DRFLIT_TODAS, 'tramites.cola.ver', 'soat.cola.ver', 'impuestos.cola.ver', 'derechos.cola.ver'],
 };
-const SOLO_DERECHOS = { ...FINANCIERA_USER, allowedPages: ['flito_derechos'], funciones: ['derechos.cola.ver'] };
+const SOLO_DERECHOS = { ...FINANCIERA_USER, allowedPages: ['flito_derechos'], funciones: [...FUNCIONES_DRFLIT_TODAS, 'derechos.cola.ver'] };
 
 function tarjetasImpuesto(n: number) {
   return Array.from({ length: n }, (_, i) => ({

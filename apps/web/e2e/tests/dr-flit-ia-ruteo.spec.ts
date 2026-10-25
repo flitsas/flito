@@ -3,12 +3,16 @@
 // El API se intercepta con `page.route` (autorización, chat y `POST …/buscar`): nunca se llama a
 // Anthropic ni a los módulos reales. La IA ya está autorizada en todos los casos.
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAs, FINANCIERA_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, FINANCIERA_USER as FINANCIERA_REPARTO } from '../helpers/ayuda-fixtures';
+import { conDrFlit, FUNCIONES_DRFLIT_TODAS } from '../helpers/auth';
+
+// HU #13942: el reparto inicial solo da «Ver los manuales»; estos casos prueban el panel completo.
+const FINANCIERA_USER = conDrFlit(FINANCIERA_REPARTO);
 
 const USUARIO = {
   ...FINANCIERA_USER,
   allowedPages: ['flito_tramites', 'flito_soat'],
-  funciones: ['tramites.cola.ver', 'soat.cola.ver'],
+  funciones: [...FUNCIONES_DRFLIT_TODAS, 'tramites.cola.ver', 'soat.cola.ver'],
 };
 const BUSCAR_TRAMITES = '**/api/flito/tramites/buscar';
 const BUSCAR_SOAT = '**/api/flito/soat/buscar';
@@ -171,7 +175,7 @@ test.describe('HU #13858 · Dr. Flit IA lleva a soporte o a la consulta de gesti
 
   test('AC6 · sin ninguno de los tres módulos → pide acceso, sin enlaces', async ({ page }) => {
     await montar(page, {
-      usuario: { ...USUARIO, allowedPages: ['flito_conciliacion'], funciones: [] },
+      usuario: { ...USUARIO, allowedPages: ['flito_conciliacion'], funciones: [...FUNCIONES_DRFLIT_TODAS] },
       chat: [chatIa({ gestionTarget: 'cliente', gestionRef: null })],
     });
     await preguntar(page, 'cliente 1020304050');

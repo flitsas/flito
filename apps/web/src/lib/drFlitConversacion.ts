@@ -30,6 +30,10 @@ export interface RefFicha {
 
 type Base = { id: string; ts: number };
 
+/** HU #13942: por qué Dr. Flit no atendió (sin la función o retirada con el panel abierto). */
+export const MOTIVOS_AVISO_FUNCION = ['sin-soporte', 'sin-manuales', 'sin-gestion', 'retirada'] as const;
+export type MotivoAvisoFuncion = (typeof MOTIVOS_AVISO_FUNCION)[number];
+
 export type MensajeDrFlit =
   /** «Tengo una pregunta»: el texto tal cual (≤ `MAX_PREGUNTA`). Nunca sale del navegador. */
   | (Base & { de: 'usuario'; tipo: 'pregunta'; texto: string })
@@ -46,6 +50,12 @@ export type MensajeDrFlit =
    * subir `VERSION_CONVERSACION`: un código anterior lo descarta al restaurar.
    */
   | (Base & { de: 'drflit'; tipo: 'casoRadicado'; numero: number })
+  /**
+   * HU #13942: Dr. Flit no puede atender lo pedido porque al usuario le falta la función (copys 3, 4,
+   * 5 y 6 de `docs/ux/flito-dr-flit-funciones.md`). Solo el motivo: el texto se deriva al pintar y nada
+   * de la pregunta (placa, VIN, documento) se copia. Tipo nuevo sin subir `VERSION_CONVERSACION`.
+   */
+  | (Base & { de: 'drflit'; tipo: 'avisoFuncion'; respondeA?: string; motivo: MotivoAvisoFuncion })
   /**
    * HU #13857 (IA-5): respuesta de texto de la IA (`intent` duda o no_claro). `texto` es el `reply` TAL
    * COMO LLEGÓ (con tokens de máscara, nunca valores): la pantalla los restaura solo mientras el mapa
@@ -168,6 +178,14 @@ function mensajeValido(x: unknown): MensajeDrFlit | null {
         }
         : null;
     }
+    case 'avisoFuncion':
+      if (x.de !== 'drflit' || typeof x.motivo !== 'string') return null;
+      if (!(MOTIVOS_AVISO_FUNCION as readonly string[]).includes(x.motivo)) return null;
+      if (x.respondeA !== undefined && !esTexto(x.respondeA)) return null;
+      return {
+        ...base, de: 'drflit', tipo: 'avisoFuncion', motivo: x.motivo as MotivoAvisoFuncion,
+        ...(x.respondeA !== undefined ? { respondeA: x.respondeA } : {}),
+      };
     case 'marcadorGestion':
       return x.de === 'drflit' && typeof x.consulta === 'boolean'
         ? { ...base, de: 'drflit', tipo: 'marcadorGestion', consulta: x.consulta } : null;
