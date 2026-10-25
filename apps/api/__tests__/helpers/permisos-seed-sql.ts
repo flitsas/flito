@@ -191,7 +191,9 @@ const literales = (texto: string): string[] =>
 function tuplas(bloque: string): string[][] {
   if (!bloque.includes('(')) return literales(bloque).map((l) => [l]);
   const salida: string[][] = [];
-  for (const m of bloque.matchAll(/\(((?:'(?:[^']|'')*'\s*,?\s*)+)\)/g)) salida.push(literales(m[1]!));
+  // HU #13945: la 0254 cierra la tupla con un booleano sin comillas (`exclusiva_admin = true`, mecanismo de la 0253).
+  // Se admite SOLO como último elemento y no entra en la tupla (las columnas que se pliegan van antes).
+  for (const m of bloque.matchAll(/\(((?:'(?:[^']|'')*'\s*,?\s*)+)(?:,?\s*(?:true|false)\s*)?\)/g)) salida.push(literales(m[1]!));
   return salida;
 }
 

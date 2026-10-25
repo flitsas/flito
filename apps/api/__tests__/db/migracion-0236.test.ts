@@ -11,7 +11,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { sqlSiembraArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
+import { accionesSembradasDe, sqlSiembraArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
 import { ACCIONES_POR_AREA } from '../../src/modules/permisos/arbol/expansion.js';
 import { bloqueGenerado, leerFuncionesSembradas, literalesDeRol } from '../helpers/permisos-seed-sql.js';
 
@@ -42,7 +42,9 @@ describe('0236 — análisis estático', () => {
 
   it('siembra las 24 acciones del área (ni una de otra área), con upsert idempotente, y marca nivel 2 a sus 6 páginas', () => {
     const sembradas = leerFuncionesSembradas([ARCHIVO]);
-    expect([...sembradas.keys()].sort()).toEqual([...ACCIONES_POR_AREA.administracion]);
+    // HU #13945: `accion.clientes.activar_desactivar` nace después (0254); la 0236 aplicada no cambia.
+    expect([...sembradas.keys()].sort()).toEqual(accionesSembradasDe('administracion'));
+    expect(ACCIONES_POR_AREA.administracion.length - accionesSembradasDe('administracion').length).toBe(1);
     expect(sembradas.size).toBe(24);
     for (const f of sembradas.values()) expect(f.tipo, f.codigo).toBe('accion');
     expect(SIN_COMENTARIOS).toMatch(/ON CONFLICT \(codigo\) DO UPDATE SET/);
