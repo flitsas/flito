@@ -11,14 +11,17 @@ import {
   participio, tituloDocumento,
 } from '../../lib/bolsasDocumentos';
 import StatusChip from '../flit/StatusChip';
-import { flitBtnSecondarySm, flitBtnSecondarySmToggle } from '../flit/flitPageKit';
+import { flitBtnIconoSm, flitBtnSecondarySm, flitBtnSecondarySmToggle } from '../flit/flitPageKit';
 import { toastOk } from '../flit/ToastFlito';
 import EditorFechaExpedicion from './EditorFechaExpedicion';
 import HistorialDocumento from './HistorialDocumento';
-import { BOTON_ICONO, useDescargaDocumentoBolsa } from './useDescargaDocumentoBolsa';
+import { useDescargaDocumentoBolsa } from './useDescargaDocumentoBolsa';
 
+// El input de carga NO se deshabilita mientras sube: si tenía el foco, `disabled` lo tiraría a <body> y
+// la trampa del modal lo llevaría al diálogo con scroll al inicio (HU #13892, retrabajo DEV). Se marca
+// `aria-disabled` y el candado de `subir` impide la segunda carga.
 const ANILLO_LABEL =
-  'cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-[color:var(--flit-border-focus)] has-[input:disabled]:cursor-not-allowed has-[input:disabled]:opacity-50';
+  'cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-[color:var(--flit-border-focus)] has-[input[aria-disabled=true]]:cursor-not-allowed has-[input[aria-disabled=true]]:opacity-50';
 
 /** `archivo` = el que falló por red/429, para «Reintentar» con el mismo; `null` = sin reintento. */
 type ErrorCarga = { texto: string; archivo: File | null };
@@ -52,11 +55,13 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
   const toggleRef = useRef<HTMLButtonElement>(null);
   const [focoFecha, setFocoFecha] = useState(false);
   const fechaRef = useRef<HTMLButtonElement>(null);
+  const filaRef = useRef<HTMLLIElement>(null);
+  const cargaRef = useRef<HTMLInputElement>(null);
   const { descargar, enCurso } = useDescargaDocumentoBolsa();
 
   // Al cerrar el editor (guardar o cancelar), el foco vuelve a «Corregir» / «Digitar fecha».
   useEffect(() => {
-    if (focoFecha && !p.editando) { fechaRef.current?.focus(); setFocoFecha(false); }
+    if (focoFecha && !p.editando) { fechaRef.current?.focus({ preventScroll: true }); setFocoFecha(false); }
   }, [focoFecha, p.editando]);
 
   const cerrarEditor = () => { p.onEditar(false); setFocoFecha(true); };
@@ -66,6 +71,8 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
     const local = errorArchivoLocal(archivo);
     if (local) { setErrorCarga({ texto: local, archivo: null }); return; }
     candado.current = true;
+    // Si la carga arrancó desde esta fila (input o «Reintentar»), el foco se queda en ella al terminar.
+    const focoEnFila = filaRef.current?.contains(document.activeElement) ?? false;
     setSubiendo(true);
     setErrorCarga(null);
     const reemplazo = vigente !== null;
@@ -96,6 +103,13 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
     } finally {
       candado.current = false;
       setSubiendo(false);
+      // «Reintentar» se desmonta al reintentar y la fila puede re-renderizar con el DTO nuevo: si el foco
+      // salió de la fila, vuelve al control de carga (estable: solo cambia su texto), sin mover el scroll.
+      if (focoEnFila) {
+        requestAnimationFrame(() => {
+          if (!filaRef.current?.contains(document.activeElement)) cargaRef.current?.focus({ preventScroll: true });
+        });
+      }
     }
   }
 
@@ -111,7 +125,7 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
   const ocupadoDescarga = vigente ? enCurso.has(vigente.id) : false;
 
   return (
-    <li className="grid grid-cols-1 gap-x-4 gap-y-2 py-3 sm:grid-cols-[1fr_auto]" style={{ borderColor: 'var(--flit-border-soft)' }}
+    <li ref={filaRef} className="grid grid-cols-1 gap-x-4 gap-y-2 py-3 sm:grid-cols-[1fr_auto]" style={{ borderColor: 'var(--flit-border-soft)' }}
       data-testid={`doc-${tipo}`}>
       <div className="min-w-0 break-words">
         <div className="flex flex-col items-start gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
@@ -141,8 +155,10 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
           <label className={`${flitBtnSecondarySm} ${ANILLO_LABEL}`} aria-busy={subiendo || undefined}>
             <Upload size={14} aria-hidden="true" className="shrink-0" />
             {subiendo ? 'Cargando…' : (vigente ? 'Reemplazar' : 'Cargar')}
-            <input type="file" className="sr-only" accept={ACCEPT_DOCUMENTO_BOLSA} disabled={subiendo}
+            <input ref={cargaRef} type="file" className="sr-only" accept={ACCEPT_DOCUMENTO_BOLSA}
+              aria-disabled={subiendo || undefined}
               aria-label={`${vigente ? 'Reemplazar' : 'Cargar'} ${nombre}`}
+              onClick={(e) => { if (subiendo) e.preventDefault(); }}
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 e.target.value = '';
@@ -151,12 +167,11 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
           </label>
         )}
         {vigente && (
-          <button type="button" className={BOTON_ICONO}
-            style={{ color: 'var(--flit-text-secondary)', borderColor: 'var(--flit-border-input)' }}
+          <button type="button" className={flitBtnIconoSm}
             aria-label={`Descargar ${nombre} (versión ${vigente.version})`} title={`Descargar ${nombre} (versión ${vigente.version})`}
             disabled={ocupadoDescarga} aria-busy={ocupadoDescarga || undefined}
             onClick={() => { void descargar(vigente); }}>
-            <Download size={16} aria-hidden="true" />
+            <Download size={14} aria-hidden="true" />
           </button>
         )}
         {vigente && (

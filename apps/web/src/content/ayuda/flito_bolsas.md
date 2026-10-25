@@ -23,7 +23,7 @@ consultas:
   - cómo cargo los documentos de la compañía
   - por qué un documento dice vigencia vencida
   - qué hago si no se pudo validar un documento
-version: 1.4
+version: 1.5
 fecha: 2026-10-24
 ---
 ## Qué es
