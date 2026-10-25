@@ -29,6 +29,7 @@ import {
   nivelRiesgoDe, porcentajeSaldo,
 } from '@operaciones/shared-types';
 import { estadoBolsaDeCompania } from './flito-bolsas.estado-compania.js';
+import { clienteVigente } from '../clients/cliente-operable.js';
 import { BolsaError, type CtxUsuario, esLlaveDuplicada, MSG_BOLSA_INACTIVA, num, type Tx } from './flito-bolsas.libro.js';
 import {
   CoberturaOcupadaError, crearBolsaTransitoUnica, datosTransitoDe, type DatosBolsaTransitoUnica, editarBolsaTransitoUnica,
@@ -138,7 +139,9 @@ async function existeDe(companiaId: number): Promise<BolsaCompaniaExisteError | 
 /** AC1-AC3: alta de la bolsa de una compañía, activa y con saldo 0. */
 export async function crearBolsaCompania(datos: DatosBolsaCompania, ctx: CtxUsuario): Promise<BolsaDetalleDto> {
   const conceptos = validarConceptos(datos.conceptos);
-  const [compania] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, datos.companiaId)).limit(1);
+  // RN-CLI-9 (HU #13953): un cliente eliminado no recibe bolsa nueva; cuenta como inexistente.
+  const [compania] = await db.select({ id: clients.id }).from(clients)
+    .where(and(eq(clients.id, datos.companiaId), clienteVigente())).limit(1);
   if (!compania) throw new BolsaError('La compañía no existe', 404);
   const existe = await existeDe(datos.companiaId);
   if (existe) throw existe;

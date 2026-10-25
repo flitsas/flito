@@ -13,7 +13,11 @@
 //   · RN-CLI-8 (HU #13952, cierra el AC6 de la HU #13947) — Un cliente ELIMINADO (`deleted_at` no nulo, baja lógica de
 //       la 0257) tampoco admite procesos nuevos: «El cliente fue eliminado: no admite nuevos procesos.». Se mira ANTES
 //       que `active` (un eliminado puede además estar inactivo; manda el motivo más fuerte).
-import { eq } from 'drizzle-orm';
+//   · RN-CLI-9 (HU #13953, Feature #13943) — Un cliente eliminado sale de todo lo que DECIDE con `clients`: listado,
+//       lectura/edición por id, selectores (usuarios, tarifas, gestor por defecto), movimientos de bolsa y el cruce por
+//       NIT de la sync FLIT 1 / FLIT 2. El filtro es `clienteVigente()`. Las lecturas HISTÓRICAS (joins de SOAT,
+//       impuestos, trámites, liquidaciones ya existentes) NO filtran: siguen mostrando el nombre del cliente (AC8).
+import { eq, isNull, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { clients } from '../../db/schema.js';
 
@@ -32,6 +36,12 @@ export class ClienteNoOperableError extends Error {
     this.name = 'ClienteNoOperableError';
   }
 }
+
+/**
+ * RN-CLI-9 (HU #13953): condición «cliente vigente» (`deleted_at IS NULL`). Función y no constante: cada consulta
+ * recibe su propio nodo SQL. Vive aquí porque este archivo no importa de otros módulos (sin ciclos).
+ */
+export const clienteVigente = (): SQL => isNull(clients.deletedAt);
 
 /** RN-CLI-8: texto del AC para un cliente con baja lógica. */
 export const MENSAJE_CLIENTE_ELIMINADO = 'El cliente fue eliminado: no admite nuevos procesos.';
