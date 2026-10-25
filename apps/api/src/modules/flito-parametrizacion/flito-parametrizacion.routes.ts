@@ -7,7 +7,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { mensajesDeTipo } from '../../shared/utils/zod-mensajes.js';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   clients,
@@ -32,7 +32,9 @@ import {
   TARIFA_VALOR_MAX,
   tipoTramiteTarifaDe,
 } from '@operaciones/shared-types';
-import { modalidadVigente } from './flito-parametrizacion.service.js';
+import {
+  esDuplicadoNombreProveedorSoat, mensajeNombreProveedorDuplicado, modalidadVigente,
+} from './flito-parametrizacion.service.js';
 import { clienteVigente } from '../clients/cliente-operable.js';
 import { parseFechaQuery } from '../../shared/utils/fecha-rango.js';
 import {
@@ -330,9 +332,19 @@ function proveedorDto(p: typeof flitoProveedoresSoat.$inferSelect) {
 }
 
 router.get('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.listar'), async (_req: Request, res: Response) => {
-  const filas = await db.select().from(flitoProveedoresSoat).orderBy(asc(flitoProveedoresSoat.nombre));
+  // HU #13957: los proveedores eliminados (baja lógica, `deleted_at`) no se listan.
+  const filas = await db.select().from(flitoProveedoresSoat)
+    .where(isNull(flitoProveedoresSoat.deletedAt)).orderBy(asc(flitoProveedoresSoat.nombre));
   res.json(filas.map(proveedorDto));
 });
+
+/** ¿Otro proveedor VIGENTE (distinto de `excluirId`) ya usa este nombre exacto? (HU #13957) */
+async function nombreProveedorEnUso(nombre: string, excluirId?: string): Promise<boolean> {
+  const filtros = [eq(flitoProveedoresSoat.nombre, nombre), isNull(flitoProveedoresSoat.deletedAt)];
+  if (excluirId !== undefined) filtros.push(ne(flitoProveedoresSoat.id, excluirId));
+  const [fila] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat).where(and(...filtros)).limit(1);
+  return fila !== undefined;
+}
 
 const crearProveedorSchema = z.object({
   nombre: z.string().min(1).max(150),
@@ -346,16 +358,22 @@ router.post('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.crea
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const { nombre, estrategia, umbralOcr, slaHoras } = parsed.data;
 
-  const [existente] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat)
-    .where(eq(flitoProveedoresSoat.nombre, nombre)).limit(1);
-  if (existente) { res.status(409).json({ error: 'Ya existe un proveedor con ese nombre' }); return; }
+  // HU #13957: el nombre solo lo ocupa un proveedor VIGENTE (un eliminado lo libera). El índice parcial de la 0259
+  // es la red de seguridad de la carrera entre dos altas: su 23505 se traduce al mismo 409.
+  if (await nombreProveedorEnUso(nombre)) { res.status(409).json({ error: mensajeNombreProveedorDuplicado(nombre) }); return; }
 
-  const [creado] = await db.insert(flitoProveedoresSoat).values({
-    nombre,
-    ...(estrategia !== undefined ? { estrategia } : {}),
-    umbralOcr: umbralOcr === undefined || umbralOcr === null ? null : String(umbralOcr),
-    slaHoras: slaHoras ?? null,
-  }).returning();
+  let creado: typeof flitoProveedoresSoat.$inferSelect;
+  try {
+    [creado] = await db.insert(flitoProveedoresSoat).values({
+      nombre,
+      ...(estrategia !== undefined ? { estrategia } : {}),
+      umbralOcr: umbralOcr === undefined || umbralOcr === null ? null : String(umbralOcr),
+      slaHoras: slaHoras ?? null,
+    }).returning();
+  } catch (e) {
+    if (esDuplicadoNombreProveedorSoat(e)) { res.status(409).json({ error: mensajeNombreProveedorDuplicado(nombre) }); return; }
+    throw e;
+  }
 
   await audit(req, { action: 'create', resource: 'flito_proveedor_soat', resourceId: creado.id, detail: `Proveedor SOAT: ${nombre}` });
   res.status(201).json(proveedorDto(creado));
@@ -384,7 +402,19 @@ router.patch('/proveedores-soat/:id', exigirFuncion('parametrizacion.proveedores
 
   if (Object.keys(set).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
 
-  const [updated] = await db.update(flitoProveedoresSoat).set(set).where(eq(flitoProveedoresSoat.id, id)).returning();
+  if (set.nombre !== undefined && await nombreProveedorEnUso(set.nombre, id)) {
+    res.status(409).json({ error: mensajeNombreProveedorDuplicado(set.nombre) }); return;
+  }
+
+  let updated: typeof flitoProveedoresSoat.$inferSelect | undefined;
+  try {
+    [updated] = await db.update(flitoProveedoresSoat).set(set).where(eq(flitoProveedoresSoat.id, id)).returning();
+  } catch (e) {
+    if (set.nombre !== undefined && esDuplicadoNombreProveedorSoat(e)) {
+      res.status(409).json({ error: mensajeNombreProveedorDuplicado(set.nombre) }); return;
+    }
+    throw e;
+  }
   if (!updated) { res.status(404).json({ error: 'El proveedor no existe' }); return; }
 
   await audit(req, { action: 'update', resource: 'flito_proveedor_soat', resourceId: id, detail: `Parametrización proveedor ${updated.nombre}` });

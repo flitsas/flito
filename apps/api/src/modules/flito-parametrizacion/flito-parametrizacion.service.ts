@@ -22,6 +22,25 @@ import {
 } from '@operaciones/shared-types';
 
 export type ProveedorSoatRow = typeof flitoProveedoresSoat.$inferSelect;
+
+/**
+ * HU #13957 (0259) — el nombre de un proveedor SOAT es único solo entre VIGENTES (`deleted_at IS NULL`), con
+ * comparación exacta. La validación previa de las rutas responde 409; si dos altas se cruzan, el índice parcial
+ * lanza 23505 y `esDuplicadoNombreProveedorSoat` lo reconoce para responder el MISMO 409, nunca 500.
+ */
+export const INDICE_PROVEEDOR_SOAT_NOMBRE_VIVO = 'uq_flito_proveedores_soat_nombre_vivo';
+
+export const mensajeNombreProveedorDuplicado = (nombre: string): string =>
+  `Ya existe un proveedor SOAT con el nombre ${nombre}.`;
+
+export function esDuplicadoNombreProveedorSoat(e: unknown): boolean {
+  // Drizzle puede envolver el error de postgres-js en `cause`.
+  for (let x: unknown = e, i = 0; x && typeof x === 'object' && i < 3; x = (x as { cause?: unknown }).cause, i++) {
+    const pg = x as { code?: unknown; constraint_name?: unknown; constraint?: unknown };
+    if (pg.code === '23505' && (pg.constraint_name ?? pg.constraint) === INDICE_PROVEEDOR_SOAT_NOMBRE_VIVO) return true;
+  }
+  return false;
+}
 export type CompaniaRow = typeof clients.$inferSelect;
 export type OrganismoRow = typeof organismosTransitoConfig.$inferSelect;
 
