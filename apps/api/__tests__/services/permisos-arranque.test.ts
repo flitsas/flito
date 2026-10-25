@@ -187,3 +187,19 @@ describe('HU #12873 AC9 — una operación absorbida por el árbol que sigue en 
     },
   );
 });
+
+describe('HU #13944 — el arranque compara también las funciones exclusivas del Administrador (0253)', () => {
+  it('con la lista del código vacía (producción hoy) y ninguna fila marcada, arranca', async () => {
+    selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: false }))));
+    await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
+  });
+
+  it('una fila marcada `exclusiva_admin` que el código no declara → falla nombrando la función y la 0253', async () => {
+    const marcada = CODIGOS[0]!;
+    selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: codigo === marcada }))));
+    const e = await verificarCatalogoAlArrancar().catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(ArranquePermisosError);
+    expect((e as Error).message).toContain(`La base las marca exclusivas y el código no: ${marcada}`);
+    expect((e as Error).message).toContain('0253_permisos_funciones_exclusiva_admin.sql');
+  });
+});

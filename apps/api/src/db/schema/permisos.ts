@@ -69,6 +69,9 @@ export const permisosFunciones = pgTable('permisos_funciones', {
     .references((): AnyPgColumn => permisosFunciones.codigo, { onDelete: 'restrict', onUpdate: 'cascade' }),
   nivel: smallint('nivel'),
   orden: integer('orden').notNull().default(0),
+  // HU #13944 (migración 0253) — función exclusiva del Administrador: copia de `FUNCIONES_EXCLUSIVAS_ADMIN`
+  // (catalogo-operaciones.ts), comparada en `verificarCatalogoAlArrancar`. La regla vive en el servicio.
+  exclusivaAdmin: boolean('exclusiva_admin').notNull().default(false),
 }, (t) => ({
   tipoChk: check('permisos_funciones_tipo_chk', sql`${t.tipo} IN ('pagina','operacion','elemento','accion')`),
   moduloIdx: index('idx_permisos_funciones_modulo').on(t.modulo),
