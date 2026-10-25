@@ -451,12 +451,17 @@ const ARCHIVO_0250 = '0250_flito_bolsas_unicas_datos_cliente.sql';
 const SQL_0250 = podarComentarios(readFileSync(ruta(`../../src/db/migrations/${ARCHIVO_0250}`), 'utf8'))
   .replace(/\s+/g, ' ');
 
-function fkReapuntadaEn0250(tabla: string, columna: string): Columna['fk'] {
+// HU #13906: la 0257 hace lo mismo con `movimiento_transito_id` (libro de tránsito → libro único).
+const ARCHIVO_0257 = '0257_flito_bolsas_unicas_datos_transito.sql';
+const SQL_0257 = podarComentarios(readFileSync(ruta(`../../src/db/migrations/${ARCHIVO_0257}`), 'utf8'))
+  .replace(/\s+/g, ' ');
+
+function fkReapuntadaEn0250(tabla: string, columna: string, sqlMigracion: string = SQL_0250): Columna['fk'] {
   const re = new RegExp(
     `ALTER TABLE ${tabla} ADD CONSTRAINT [a-z0-9_]+ FOREIGN KEY \\(${columna}\\) REFERENCES ([a-z0-9_]+)\\(([a-z0-9_]+)\\) ON DELETE (RESTRICT|CASCADE|SET NULL|SET DEFAULT|NO ACTION)`,
     'i',
   );
-  const m = SQL_0250.match(re);
+  const m = sqlMigracion.match(re);
   if (!m) return null;
   return { tabla: m[1].toLowerCase(), columna: m[2].toLowerCase(), onDelete: m[3].toLowerCase() as AccionFk };
 }
@@ -477,6 +482,7 @@ function valoresDelCheckDe0249(nombre: string): string[] {
 
 const FKS_REAPUNTADAS = [
   { tabla: 'flito_conciliacion_lineas', columna: 'movimiento_bolsa_id', fk: fkReapuntadaEn0250('flito_conciliacion_lineas', 'movimiento_bolsa_id') },
+  { tabla: 'flito_conciliacion_lineas', columna: 'movimiento_transito_id', fk: fkReapuntadaEn0250('flito_conciliacion_lineas', 'movimiento_transito_id', SQL_0257) },
 ];
 
 describe('FKs que una migración posterior re-apunta (la 0157 no se edita)', () => {
@@ -488,6 +494,15 @@ describe('FKs que una migración posterior re-apunta (la 0157 no se edita)', () 
     expect(reapunte).toEqual({ tabla: 'flito_bolsas_unicas_movimientos', columna: 'id', onDelete: 'restrict' });
     const original = porNombre(columnasDelSql('flito_conciliacion_lineas'), 'movimiento_bolsa_id')!.fk;
     expect(original).toEqual({ tabla: 'flito_bolsa_movimientos', columna: 'id', onDelete: 'restrict' });
+    expect(reapunte!.onDelete).toBe(original!.onDelete);
+  });
+
+  it('movimiento_transito_id: la 0157 la crea hacia flito_bolsa_transito_movimientos y la 0257 (HU #13906) la lleva al libro único con el mismo ON DELETE', () => {
+    const reapunte = FKS_REAPUNTADAS[1].fk;
+    expect(reapunte, `no se leyó el ADD CONSTRAINT de ${ARCHIVO_0257}`).not.toBeNull();
+    expect(reapunte).toEqual({ tabla: 'flito_bolsas_unicas_movimientos', columna: 'id', onDelete: 'restrict' });
+    const original = porNombre(columnasDelSql('flito_conciliacion_lineas'), 'movimiento_transito_id')!.fk;
+    expect(original).toEqual({ tabla: 'flito_bolsa_transito_movimientos', columna: 'id', onDelete: 'restrict' });
     expect(reapunte!.onDelete).toBe(original!.onDelete);
   });
 });

@@ -59,7 +59,7 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  flitoBolsasUnicas, flitoBolsasUnicasMovimientos, flitoBolsasTransito, flitoBolsaTransitoMovimientos,
+  flitoBolsasUnicas, flitoBolsasUnicasMovimientos,
   flitoConciliacionBoletas, flitoConciliacionLineas,
 } from '../../db/schema.js';
 import {
@@ -367,9 +367,9 @@ async function asentarTransito(
   // La llave ya estaba: el sellado consumió esta bolsa antes. No se vuelve a mover un peso y el
   // movimiento se adopta, igual que en el libro del cliente.
   if (previo.origen === 'automatico') {
-    await tx.update(flitoBolsaTransitoMovimientos)
+    await tx.update(flitoBolsasUnicasMovimientos)
       .set({ origen: 'conciliacion' })
-      .where(eq(flitoBolsaTransitoMovimientos.id, previo.id));
+      .where(eq(flitoBolsasUnicasMovimientos.id, previo.id));
   }
   // Cero: no salió un peso hoy, pero la bolsa SÍ participa y su saldo tiene que salir en el aviso.
   acumular(transito, previo.bolsaId, 0);
@@ -382,12 +382,12 @@ async function consumoPorLlave(
   llave: string,
 ): Promise<{ id: string; bolsaId: string; origen: string } | undefined> {
   const [fila] = await tx.select({
-    id: flitoBolsaTransitoMovimientos.id,
-    bolsaId: flitoBolsaTransitoMovimientos.bolsaId,
-    origen: flitoBolsaTransitoMovimientos.origen,
+    id: flitoBolsasUnicasMovimientos.id,
+    bolsaId: flitoBolsasUnicasMovimientos.bolsaId,
+    origen: flitoBolsasUnicasMovimientos.origen,
   })
-    .from(flitoBolsaTransitoMovimientos)
-    .where(eq(flitoBolsaTransitoMovimientos.llaveIdempotencia, llave))
+    .from(flitoBolsasUnicasMovimientos)
+    .where(eq(flitoBolsasUnicasMovimientos.llaveIdempotencia, llave))
     .limit(1);
   return fila;
 }
@@ -425,16 +425,16 @@ async function resumirTransito(
   if (ids.length === 0) return [];
 
   const bolsas = await tx.select({
-    id: flitoBolsasTransito.id,
-    nombre: flitoBolsasTransito.nombre,
-    saldo: flitoBolsasTransito.saldo,
+    id: flitoBolsasUnicas.id,
+    nombre: flitoBolsasUnicas.nombre,
+    saldo: flitoBolsasUnicas.saldo,
   })
-    .from(flitoBolsasTransito)
-    .where(inArray(flitoBolsasTransito.id, ids));
+    .from(flitoBolsasUnicas)
+    .where(inArray(flitoBolsasUnicas.id, ids));
 
   return bolsas.map((b) => ({
     bolsaId: b.id,
-    nombre: b.nombre,
+    nombre: b.nombre ?? '',
     descontado: transito.get(b.id)?.descontado ?? 0,
     saldoResultante: num(b.saldo),
   }));

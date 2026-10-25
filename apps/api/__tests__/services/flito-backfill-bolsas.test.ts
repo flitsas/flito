@@ -61,7 +61,7 @@ function escenario(liquidaciones: Fila[]): void {
   kdb.when
     .select('flito_liquidaciones', liquidaciones)
     .select('flito_bolsas_unicas_movimientos', consultaLlaves)
-    .select('flito_bolsa_transito_cobertura', consultaOrganismos)
+    .select('flito_bolsas_unicas_cobertura', consultaOrganismos) // HU #13906: cobertura del modelo único
     .select('flito_bolsas_unicas_cierres', consultaCierres);
 }
 
