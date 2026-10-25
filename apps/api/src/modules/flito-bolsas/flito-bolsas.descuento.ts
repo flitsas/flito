@@ -5,9 +5,10 @@
 // Reglas (en este orden; cada omisión lleva su motivo y NINGUNA genera alerta, D10):
 //   RN-C1 Solo `esPago`: la documentación no mueve dinero (`no_es_pago`). El GMF no es concepto de
 //         comprobante y no se descuenta (Q6).
-//   RN-C2 Corte (D12): `FLITO_BOLSAS_CORTE_COMPROBANTES`. Sin valor el gancho no hace nada (devuelve null).
-//         Con valor descuenta si el DÍA EN COLOMBIA de `aplicadoEn` es ≥ corte (`antes_del_corte` si no).
-//         El contenedor corre en UTC: el 30-nov 23:30 COT es 01-dic 04:30Z y NO alcanza un corte 01-dic.
+//   RN-C2 Corte (HU #13965, reemplaza D12): la fila de `flito_bolsas_corte` = el INSTANTE en que se aplicó
+//         la migración 0260. Sin fila (o sin tabla) el gancho no hace nada (devuelve null). Con fila descuenta
+//         si `aplicadoEn >= corte` comparando INSTANTES, no días de Colombia (`antes_del_corte` si no): con
+//         corte hoy 15:00 COT, lo aplicado hoy 09:00 es `antes_del_corte` y es candidato del backfill.
 //   RN-C3 Compañía del trámite (`sin_compania`).
 //   RN-C4 Autogestión (D15, `autogestionado`): MISMA regla que la liquidación (`calcularConceptos` de
 //         `flito-liquidacion.service.ts`) y el reporte de costos (`GESTIONA_*` de `finanzas.service.ts`):
@@ -38,12 +39,12 @@
 // obligatorio) y fecha el movimiento el día de ejecución (`hoyIso`); el periodo lo corre `periodoImputable`
 // si cae en mes cerrado. Lo usa `src/scripts/flito-bolsas-backfill-comprobantes.ts`; el gancho normal no cambia.
 
-import { and, asc, eq, getTableColumns, like, or } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, like, or, sql } from 'drizzle-orm';
 import {
   AlcanceBolsa, ConceptoCosto, EstadoComprobante, type ConceptoBolsa, type DescuentoBolsaDto, type MovimientoBolsaDto,
 } from '@operaciones/shared-types';
-import { env } from '../../config/env.js';
-import { clients, flitoBolsasUnicas, flitoBolsasUnicasMovimientos, flitoComprobantes, flitoExcepcionesAutogestion, flitoImpuestos, flitoSoat, flitoTramites } from '../../db/schema.js';
+import { db } from '../../db/client.js';
+import { clients, flitoBolsasCorte, flitoBolsasUnicas, flitoBolsasUnicasMovimientos, flitoComprobantes, flitoExcepcionesAutogestion, flitoImpuestos, flitoSoat, flitoTramites } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import { excepcionLogisticaViva, gestionaLogistica } from '../flito-liquidacion/gestiona-logistica.js';
@@ -75,15 +76,33 @@ export function diaColombia(instante: Date): string {
   }).format(instante);
 }
 
-/** El corte configurado (AAAA-MM-DD) o null. Se lee en cada llamada: el env ya viene validado por Zod. */
-export function corteVigente(): string | null {
-  return env.FLITO_BOLSAS_CORTE_COMPROBANTES ?? null;
+/** Quien lee el corte: la tx del llamador o, fuera de una, el pool. */
+type Lector = Tx | typeof db;
+
+/** La tabla nunca desaparece: una vez vista no se vuelve a preguntar por ella. */
+let tablaCorteExiste = false;
+
+/**
+ * RN-C2: el corte registrado por la 0260 (instante) o null. Una lectura por PK en cada llamada, dentro de la
+ * tx del llamador cuando la hay. Antes de que la 0260 se aplique (la migración es manual fuera de local) la
+ * tabla no existe: se comprueba con `to_regclass` en vez de dejar que el SELECT falle, porque un error
+ * aborta la tx del llamador (aplicar el comprobante, liquidar). Sin tabla o sin fila → null (fallo cerrado).
+ */
+export async function corteVigente(q: Lector = db): Promise<Date | null> {
+  if (!tablaCorteExiste) {
+    const [r] = await q.execute<{ existe: boolean }>(sql`SELECT to_regclass('flito_bolsas_corte') IS NOT NULL AS existe`);
+    if (r?.existe !== true) return null;
+    tablaCorteExiste = true;
+  }
+  const [fila] = await q.select({ corteEn: flitoBolsasCorte.corteEn }).from(flitoBolsasCorte)
+    .where(eq(flitoBolsasCorte.id, 1)).limit(1);
+  return fila?.corteEn ?? null;
 }
 
-/** ¿El día contable `dia` (AAAA-MM-DD, ya en Colombia) cae desde el corte? false sin corte. */
-export function cubiertoPorCorte(dia: string): boolean {
-  const corte = corteVigente();
-  return corte !== null && dia >= corte;
+/** ¿El instante cae desde el corte (`instante >= corte`)? false sin corte. */
+export async function cubiertoPorCorte(q: Lector, instante: Date): Promise<boolean> {
+  const corte = await corteVigente(q);
+  return corte !== null && instante.getTime() >= corte.getTime();
 }
 
 const COMPANIA = AlcanceBolsa.COMPANIA;
@@ -206,10 +225,10 @@ export interface OpcionesDescuento {
 export async function descontarComprobante(
   tx: Tx, c: ComprobanteAplicado, ctx: CtxUsuario, o: OpcionesDescuento = {},
 ): Promise<DescuentoBolsaDto | null> {
-  const corte = corteVigente();
+  const corte = await corteVigente(tx);
   if (corte === null) return null;
   if (!c.esPago) return omitidoAmbos('no_es_pago');
-  if (o.backfill !== true && diaColombia(c.aplicadoEn) < corte) return omitidoAmbos('antes_del_corte');
+  if (o.backfill !== true && c.aplicadoEn.getTime() < corte.getTime()) return omitidoAmbos('antes_del_corte');
   const fecha = o.backfill === true ? hoyIso() : diaColombia(c.aplicadoEn);
   const valor = num(c.valor);
   if (!(valor > 0)) return vacio(); // pago sin valor documental: no hay importe que descontar
@@ -368,7 +387,7 @@ export async function revertirDescuentoComprobante(
  */
 export async function redescontarTrasReverso(tx: Tx, tramiteId: string, huboDevolucion: boolean, ctx: CtxUsuario): Promise<DescuentoBolsaDto[]> {
   const ahora = new Date();
-  if (!huboDevolucion || !cubiertoPorCorte(diaColombia(ahora))) return [];
+  if (!huboDevolucion || !(await cubiertoPorCorte(tx, ahora))) return [];
   const aplicados = await tx.select({
     id: flitoComprobantes.id, concepto: flitoComprobantes.concepto, valor: flitoComprobantes.valor,
   }).from(flitoComprobantes).where(and(

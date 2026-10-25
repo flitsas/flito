@@ -7,7 +7,7 @@
 // Aislamiento: los comprobantes de prueba se aplican en 2001 con corte 2001-02-01 y cada caso acota el
 // recorrido a sus ids (`comprobanteIds`): el backfill nunca toca datos ajenos de la BD local.
 
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 
 const URL = process.env.TEST_DATABASE_URL;
 vi.hoisted(() => {
@@ -24,7 +24,7 @@ const NOTA = 'Backfill corte comprobantes (ADR-0029)';
 describe.skipIf(!URL)('HU #13910 — backfill de comprobantes aplicados antes del corte (PostgreSQL real)', () => {
   let sql: import('postgres').Sql;
   let db: typeof import('../../src/db/client.js').db;
-  let env: typeof import('../../src/config/env.js').env;
+  let corte: import('../helpers/corte-bolsas.js').CorteDePrueba;
   let bf: typeof import('../../src/scripts/flito-bolsas-backfill-comprobantes.js');
   let d: typeof import('../../src/modules/flito-bolsas/flito-bolsas.descuento.js');
   let libro: typeof import('../../src/modules/flito-bolsas/flito-bolsas.libro.js');
@@ -44,7 +44,7 @@ describe.skipIf(!URL)('HU #13910 — backfill de comprobantes aplicados antes de
     const { default: postgres } = await import('postgres');
     sql = postgres(URL!, { max: 2 });
     ({ db } = await import('../../src/db/client.js'));
-    ({ env } = await import('../../src/config/env.js'));
+    corte = (await import('../helpers/corte-bolsas.js')).corteDePrueba(sql);
     bf = await import('../../src/scripts/flito-bolsas-backfill-comprobantes.js');
     d = await import('../../src/modules/flito-bolsas/flito-bolsas.descuento.js');
     libro = await import('../../src/modules/flito-bolsas/flito-bolsas.libro.js');
@@ -60,6 +60,7 @@ describe.skipIf(!URL)('HU #13910 — backfill de comprobantes aplicados antes de
 
   afterAll(async () => {
     if (!sql) return;
+    await corte.restaurar();
     const ids = creados.clients.length ? creados.clients : [-1];
     const tb = creados.transito.length ? creados.transito : [NADA];
     const bolsas = sql`SELECT id FROM flito_bolsas_unicas WHERE (alcance = 'compania' AND compania_id IN ${sql(ids)}) OR id IN ${sql(tb)}`;
@@ -80,9 +81,8 @@ describe.skipIf(!URL)('HU #13910 — backfill de comprobantes aplicados antes de
     await sql.end();
   });
 
-  beforeEach(() => { env.FLITO_BOLSAS_CORTE_COMPROBANTES = CORTE; });
-  afterEach(() => { env.FLITO_BOLSAS_CORTE_COMPROBANTES = undefined; });
-
+  beforeEach(async () => { await corte.fijar(CORTE); });
+  
   // ─────────────────────────── Fixtures ───────────────────────────
 
   async function compania(o: { bolsa?: 'activa' | 'inactiva' | 'ninguna' } = {}): Promise<{ companiaId: number; bolsaId: string | null }> {
@@ -280,14 +280,18 @@ describe.skipIf(!URL)('HU #13910 — backfill de comprobantes aplicados antes de
     expect(r.lineas.filter((l) => l.resultado === 'descontado')).toHaveLength(0);
   });
 
-  it('AC5 · sin FLITO_BOLSAS_CORTE_COMPROBANTES → error que dice que falta la fecha de corte; no lee ni escribe', async () => {
+  it('AC5 · HU #13965 · sin fila en flito_bolsas_corte → SinCorteError que pide aplicar la 0260 (sin mencionar variable); no lee ni escribe', async () => {
     const a = await impuestoCubierto(70_000);
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = undefined;
+    await corte.quitar();
     const descontar = vi.fn(d.descontarComprobante);
     const select = vi.spyOn(db, 'select');
     try {
-      await expect(correr([a.id], true, descontar)).rejects.toThrow(/falta la fecha de corte/i);
-      expect(select).not.toHaveBeenCalled();
+      const err = await correr([a.id], true, descontar).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(bf.SinCorteError);
+      expect((err as Error).message).toMatch(/falta el corte.*0260/i);
+      expect((err as Error).message).not.toMatch(/FLITO_BOLSAS|configure/);
+      // La única lectura es la del propio corte: ni el usuario ni los candidatos.
+      expect(select).toHaveBeenCalledTimes(1);
     } finally {
       select.mockRestore();
     }
@@ -348,6 +352,21 @@ describe.skipIf(!URL)('HU #13910 — backfill de comprobantes aplicados antes de
     }, ctx));
     expect(r).toEqual({ movimientos: [], omitidos: [{ alcance: 'compania', motivo: 'antes_del_corte' }, { alcance: 'transito', motivo: 'antes_del_corte' }], alertas: [] });
     expect(await movimientosDe([a.id])).toHaveLength(0);
+  });
+
+  it('HU #13965 AC3/AC6 · corte 01-feb 15:00 COT: lo aplicado el mismo día a las 09:00 COT SÍ es candidato y se descuenta', async () => {
+    await corte.fijar(new Date('2001-02-01T20:00:00Z'));
+    const c = await compania();
+    const org = secretaria();
+    await bolsaTransito(org, ['impuesto']);
+    const t = await tramite(c.companiaId, { impuesto: org });
+    const k = await comprobante(t.tramiteId, 'impuesto', 12_000, '2001-02-01T14:00:00Z');
+    const despues = await comprobante(t.tramiteId, 'impuesto', 13_000, '2001-02-01T20:00:00Z');
+    const r = await correr([k, despues], true);
+    expect(r.corte).toBe('2001-02-01T20:00:00.000Z');
+    expect(r.comprobantes).toBe(1);
+    expect(motivos(r, k)).toEqual(['compania:descontado:-', 'transito:descontado:-']);
+    expect(await movimientosDe([despues])).toHaveLength(0);
   });
 
   it('un comprobante aplicado desde el corte no es candidato del backfill', async () => {

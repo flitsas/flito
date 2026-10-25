@@ -1,20 +1,28 @@
-# Runbook — backfill de comprobantes al activar el corte (HU #13910, ADR-0029 Q4)
+# Runbook — backfill de comprobantes al activar el corte (HU #13910, ADR-0029 Q4; corte de HU #13965)
 
 Script: `apps/api/src/scripts/flito-bolsas-backfill-comprobantes.ts`. Descuenta de las bolsas (compañía y
-tránsito) los comprobantes de pago **aplicados antes** de `FLITO_BOLSAS_CORTE_COMPROBANTES`, con el mismo
+tránsito) los comprobantes de pago **aplicados antes** del corte, con el mismo
 gancho, las mismas llaves y las mismas omisiones que el descuento normal. Es idempotente: re-ejecutarlo no
 duplica movimientos.
 
+**El corte (HU #13965, reemplaza ADR-0029 D12)** es el **instante** en que se aplica la migración
+`0260_flito_bolsas_corte_automatico.sql` en el ambiente: queda en la fila única de `flito_bolsas_corte`
+(`corte_en`, timestamptz) y re-aplicarla no lo cambia. Ya no hay variable de entorno. La comparación es por
+instante, no por día de Colombia: con corte hoy 15:00 COT, un comprobante aplicado hoy a las 09:00 COT es
+anterior al corte y es candidato de este backfill.
+
 ## Cuándo
 
-En el **mismo acto** en que se fija `FLITO_BOLSAS_CORTE_COMPROBANTES` en PDN (diseño §«Activación del
-corte»: con las HUs A, C, R, D, F y H ya desplegadas). Sin el corte configurado el script termina con
-error y no lee ni escribe nada.
+Justo después de aplicar la 0260 en PDN (diseño §«Activación del corte»: con las HUs A, C, R, D, F y H ya
+desplegadas). Sin la fila del corte (0260 sin aplicar) el script termina con error (`SinCorteError`) y no
+lee ni escribe nada.
 
 ## Pasos
 
-1. **Fijar el corte** (`FLITO_BOLSAS_CORTE_COMPROBANTES=AAAA-MM-DD`) en el `.env` de PDN y reiniciar la api
-   para que el gancho normal empiece a descontar desde esa fecha.
+1. **Registrar el corte**: aplicar la 0260 con el procedimiento de migraciones de PDN (`pg_dump` previo y
+   `docker compose -f docker-compose.prod.yml run --rm api node dist/scripts/db-apply.js`). Desde ese
+   instante el gancho normal descuenta y la liquidación deja de mover la bolsa. Comprobar el corte:
+   `SELECT corte_en FROM flito_bolsas_corte;` (una fila).
 2. **Simulación** (no escribe; corre el mismo camino dentro de una transacción que se deshace):
 
    ```bash

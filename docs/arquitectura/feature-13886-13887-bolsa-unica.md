@@ -247,6 +247,7 @@ Reglas del gancho:
 1. Solo `esPago = true`. La documentación no mueve dinero. **El GMF (4x1000) no se descuenta** (Q6): no es un concepto de comprobante, y la liquidación, que era quien lo asentaba, deja de mover la bolsa con el corte. `gmf` sigue en `ConceptoBolsa` solo para mostrar el histórico.
 1b. **Bolsa inactiva (Q7):** no recibe descuentos, recargas, movimientos manuales ni correcciones; primero hay que reactivarla. Sí admite las **reversiones** de sus propios movimientos (devolver lo que se le cobró) y los cierres. Esta lectura es del arquitecto: Q7 no menciona las reversiones, y negarlas dejaría un comprobante sin poder desaplicarse.
 2. **Corte (D12):** `env.FLITO_BOLSAS_CORTE_COMPROBANTES` (`YYYY-MM-DD`, opcional, se valida con Zod en `config/env.ts`, patrón `COMPROBANTES_AUTO_APLICAR`). Sin valor: el gancho no hace nada y la liquidación sigue moviendo la bolsa como hoy, lo que deja desplegar todo el código antes de que haya fecha. Con valor: `liquidar()` deja de mover la bolsa si `fechaContable() ≥ corte`, y el gancho descuenta si `aplicadoEn` (en hora de Colombia) es `≥ corte`. Una vez superada la fecha **no se edita**: queda en el runbook.
+   > **Reemplazado por HU #13965:** el corte ya no es una variable de entorno. Lo registra la migración `0260_flito_bolsas_corte_automatico.sql` (instante `now()` en `flito_bolsas_corte`, una fila, idempotente) y se compara por instante. Ver ADR-0029, nota bajo D12.
 3. **Compañía:** `flito_tramites.compania_id`, luego la bolsa con `alcance='compania'` y `activa`, cuyo `_conceptos` contiene el concepto.
 4. **Tránsito:** solo `soat | impuesto | derecho`. El organismo sale del registro del dueño (`flito_soat` / `flito_impuestos` / `flito_derechos_tramite` `.organismo_codigo`), con el mismo criterio que `identificadoresDe` en liquidación, y no del trámite. Después se busca la `_cobertura` con `activa`.
 5. **Anti doble cobro con lo anterior al corte:** si la bolsa ya tiene una salida viva de origen `automatico` (liquidación) para el mismo trámite y concepto, se omite con `cubierto_por_liquidacion`. Lo liquidado antes del corte «queda como está».
@@ -597,7 +598,7 @@ El corte sigue los ítems del pedido y no las capas. Las HUs de esquema y migrac
 | **H** | Doble movimiento: descontar también la bolsa de tránsito de la secretaría al aplicar el comprobante, revertirlo y bloquear si su periodo está cerrado | BACKEND (resolver y descuento del lado tránsito + reversión + D14 en tránsito, Q3) | C, D, F |
 | **I** | Retirar los libros antiguos de bolsas | BACKEND (0253 DROP + bloque de `schema.ts` + techo ESLint; el fallback de #13407 ya debe importar `estadoBolsaDeCompania`) | F, G, E y **verificación en PDN** |
 
-**Activación del corte:** `FLITO_BOLSAS_CORTE_COMPROBANTES` se fija en PDN cuando A, C, R, D, F y H están desplegadas. En el mismo acto se ejecuta E con `--apply`, después de una simulación revisada.
+**Activación del corte:** `FLITO_BOLSAS_CORTE_COMPROBANTES` se fija en PDN cuando A, C, R, D, F y H están desplegadas. En el mismo acto se ejecuta E con `--apply`, después de una simulación revisada. **HU #13965:** ya no se fija una variable; el corte lo registra la migración 0260 al aplicarse (ver nota en D12 y `runbook-hu-13910-backfill-corte.md`).
 
 ## Operación nueva en `flito-comprobantes` (HU-R, Feature #13886)
 
@@ -622,7 +623,7 @@ Q2 decide que la operación es de #13886. Hoy `descartar()` solo admite comproba
 - **frontend-agent:** antes de nada, `ux-agent` slim sobre `FlitoBolsas.tsx`. Los 4 estados en el listado y en el detalle. El aviso de recarga sin bolsa va como aviso de página, no como toast, porque es estado persistente. Inactivar pide confirmación con motivo.
 - **db-review-agent:** revisar índices parciales (1:1 por alcance y cobertura activa), FKs auto-referenciales, repunte de `flito_concil_lineas` y la verificación de 0250/0251.
 - **security-agent:** dispara en B y G (rutas nuevas y permisos) y en C/D (dinero). Comprobar que `POST /buscar` no acepta query y que en los logs del gancho no aparece placa, VIN ni NIT.
-- **devops-agent:** runbook del deploy de 0250/0251 (pre-flight, `pg_dump`, api parada, `db:apply`, arranque). `FLITO_BOLSAS_CORTE_COMPROBANTES` se fija **una vez** por ambiente y no se cambia después.
+- **devops-agent:** runbook del deploy de 0250/0251 (pre-flight, `pg_dump`, api parada, `db:apply`, arranque). `FLITO_BOLSAS_CORTE_COMPROBANTES` se fija **una vez** por ambiente y no se cambia después. (HU #13965: reemplazado por la 0260, que registra el corte al aplicarse y no lo sobrescribe.)
 - **qa-agent:** TCs mínimos: crear la bolsa de una compañía que ya tiene una inactiva (409 `bolsa_compania_existe`); reactivar con un par tomado (409); aplicar un comprobante de impuesto con bolsa de compañía y de tránsito (2 movimientos); concepto sin bolsa (0 movimientos, sin alerta); saldo negativo (alerta, no bloquea); auto-aplicación (mismo efecto); dueño que rechaza tras el commit (salida + reversión enlazada); desaplicar con el periodo cerrado (409 sin efectos).
 
 ---
