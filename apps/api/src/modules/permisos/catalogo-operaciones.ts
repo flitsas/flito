@@ -493,4 +493,8 @@ export const OPERACIONES_RETIRADAS_CANAL_CLIENTE = [
  * Vacía a propósito: esta HU entrega el MECANISMO. Las primeras exclusivas (estado y eliminación de clientes)
  * nacen con sus rutas en las HUs #13945/#13954, junto con la migración que les pone `exclusiva_admin = true`.
  */
-export const FUNCIONES_EXCLUSIVAS_ADMIN: readonly string[] = [];
+export const FUNCIONES_EXCLUSIVAS_ADMIN: readonly string[] = [
+  // HU #13945: «Activar o desactivar clientes». La marca va en la ACCIÓN del árbol (lo que se reparte y aparece en el
+  // cuadro); la operación `clients.clientes.estado` que exige la guarda nace absorbida por ella (no se siembra).
+  'accion.clientes.activar_desactivar',
+];

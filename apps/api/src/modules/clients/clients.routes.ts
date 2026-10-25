@@ -15,13 +15,16 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { clients, flitoProveedoresSoat } from '../../db/schema.js';
-import { authMiddleware } from '../../shared/middleware/auth.js';
+import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { maskName } from '../../shared/utils/pii.js';
 import {
   COLUMNAS_LISTADO, COLUMNAS_LISTADO_CON_GESTOR, clienteListadoDto, registrarAccesoListado,
 } from './clients.pii.js';
+import {
+  ClienteNoEncontradoError, EstadoClienteCambiadoError, cambiarEstadoCliente, impactoCliente, nombreEnmascarado,
+} from './clients.service.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -303,6 +306,15 @@ router.patch('/:id', async (req: Request, res: Response) => {
   const [previo] = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
   if (!previo) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
+  // HU #13945 (AC8): el estado no se cambia por la edición general sino con «Activar o desactivar» (exclusiva del
+  // Administrador, `PATCH /:id/estado`). `createSchema` no acepta `active` —se descartaría en silencio—, así que se
+  // mira el cuerpo crudo: igual al estado actual se ignora (un formulario que reenvía la fila entera no se rompe);
+  // distinto → 400.
+  if (req.body && typeof req.body === 'object' && 'active' in req.body && req.body.active !== previo.active) {
+    res.status(400).json({ error: 'El estado del cliente se cambia con Activar o Desactivar.' });
+    return;
+  }
+
   const cambios = parsed.data;
 
   // Sobre el estado RESULTANTE: cambiar solo `documentType` es exactamente cómo se llega a un
@@ -351,6 +363,54 @@ router.patch('/:id', async (req: Request, res: Response) => {
     detail: `Cliente actualizado: ${maskName(updated.name)}${fiscal ? ` · Datos fiscales — ${fiscal}` : ''}`,
   });
   res.json(updated);
+});
+
+// ── HU #13945: desactivar y activar un cliente, con vista previa de su impacto ─────────────────────────────────
+// Las dos rutas exigen `clients.clientes.estado`, que concede «Activar o desactivar clientes», exclusiva del
+// Administrador (HU #13944). El impacto usa la misma función y no la de ver clientes: lo consume el modal de
+// desactivar, y sus conteos (saldo de la bolsa, procesos abiertos) no son parte de la lectura del padrón.
+
+const idCliente = (req: Request): number | null => {
+  const id = Number(req.params.id);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
+
+router.get('/:id/impacto', exigirFuncion('clients.clientes.estado'), async (req: Request, res: Response) => {
+  const id = idCliente(req);
+  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
+  const impacto = await impactoCliente(db, id);
+  if (!impacto) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
+  res.json(impacto);
+});
+
+const estadoSchema = z.object({ activo: z.boolean(), activoEsperado: z.boolean() }).strict();
+
+router.patch('/:id/estado', exigirFuncion('clients.clientes.estado'), async (req: Request, res: Response) => {
+  const id = idCliente(req);
+  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
+  const parsed = estadoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+
+  let cambio;
+  try {
+    cambio = await cambiarEstadoCliente(id, parsed.data);
+  } catch (e) {
+    if (e instanceof ClienteNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
+    if (e instanceof EstadoClienteCambiadoError) { res.status(409).json({ error: e.message }); return; }
+    throw e;
+  }
+  // DESPUÉS del commit (patrón de `users.routes.ts`): la siguiente petición de cada usuario relee la marca.
+  for (const userId of cambio.usuariosInvalidados) invalidateSessionCacheFor(userId);
+
+  const verbo = cambio.active ? 'activado' : 'desactivado';
+  await audit(req, {
+    action: 'update',
+    resource: 'client',
+    resourceId: String(id),
+    detail: `Cliente ${verbo}: ${nombreEnmascarado(cambio.name)}`
+      + (cambio.active ? '' : ` · sesiones invalidadas: ${cambio.usuariosInvalidados.length} usuario(s)`),
+  });
+  res.json({ id: cambio.id, active: cambio.active });
 });
 
 export default router;

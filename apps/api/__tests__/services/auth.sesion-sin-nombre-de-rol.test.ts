@@ -121,6 +121,8 @@ describe('HU #13425 AC7 — rol renombrado u otro código con las mismas funcion
     argonVerifyMock.mockResolvedValueOnce(true);
     selectMock
       .mockReturnValueOnce(chain([{ ...fila('cliente_corporativo', 'Cliente corporativo'), passwordHash: 'h', active: true, deletedAt: null }]))
+      // HU #13945 (AC3): el login lee si la compañía del usuario (`companiaId: 7`) está activa.
+      .mockReturnValueOnce(chain([{ active: true }]))
       .mockReturnValueOnce(chain([]))
       .mockReturnValueOnce(chain([{ sinTramite: true }]));
     const login = await request(await buildApp()).post('/api/auth/login').send({ username: 'u@empresa.co', password: 'OK' });

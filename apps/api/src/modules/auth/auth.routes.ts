@@ -13,6 +13,7 @@ import { paginasEfectivasDeUsuario, resolverPermisos, type PermisosResueltos } f
 import { checkLockout, registerFailed, clearLockout } from './loginLockout.js';
 import { isUserLaftBlocked } from '../laft/employees/auth-block.service.js';
 import { laftAudit } from '../laft/audit.service.js';
+import { companiaInactiva } from '../clients/clients.service.js';
 
 /**
  * HU #12088: `transitoCodigo` del JWT/me = 1.er código ordenado de la puente
@@ -73,6 +74,14 @@ router.post('/login', async (req: Request, res: Response) => {
     await audit(req, { action: 'login_failed', resource: 'auth', detail: `Username: ${username.slice(0, 3)}*** - contraseña incorrecta` });
     await registerFailed(username);
     res.status(401).json({ error: 'Credenciales inválidas' });
+    return;
+  }
+
+  // HU #13945 (AC3): compañía inactiva. DESPUÉS de la contraseña (con una mala sigue el 401 genérico: no se revela
+  // nada a quien no la sabe) y sin `registerFailed` (no es un intento de adivinar). Sin PII en el detalle.
+  if (await companiaInactiva(user.companiaId)) {
+    await audit(req, { action: 'login_failed', resource: 'auth', resourceId: String(user.id), detail: 'compañía inactiva' });
+    res.status(403).json({ error: 'Tu compañía está inactiva en FLITO. Comunícate con el administrador.' });
     return;
   }
 
