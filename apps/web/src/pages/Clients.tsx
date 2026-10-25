@@ -7,6 +7,8 @@
 // Los checks de servicio se leen «FLITO gestiona este servicio» (HU #13935): marcado = FLITO lo
 // gestiona; desmarcado = la compañía lo hace por su cuenta. Es una inversión SOLO de presentación:
 // el dato sigue siendo `*Autogestionable` con su sentido de siempre, así que `checked = !dato`.
+// Ya no hay check «Parcial» (HU #13936): Logística permite siempre entregas parciales, así que los
+// tres checks que quedan son servicios y todos se leen invertidos.
 //
 // Las tarifas ya NO viven aquí (HU #12375): el botón «Tarifas» de la fila lleva al configurador de
 // valores (`/flito/tarifas/:companiaId`), que modela cada valor como una vigencia con historial. La
@@ -55,7 +57,6 @@ interface Client {
   phone: string | null; email: string | null; address: string | null;
   city: string | null;
   soatAutogestionable: boolean; impuestosAutogestionable: boolean; logisticaAutogestionable: boolean;
-  logisticaPermiteParcial: boolean;
   /**
    * «SOAT sin trámite» (Feature #11912): si los usuarios `cliente` de esta compañía pueden pedirle
    * un SOAT a FLITO sin que haya trámite abierto. Independiente de `soatAutogestionable`.
@@ -89,12 +90,8 @@ interface Proveedor {
 // «SOAT sin trámite» YA NO está aquí (HU #12079): dejó de ser un booleano suelto con `PATCH`
 // optimista para ser una decisión con un parámetro obligatorio —el gestor—, y un PATCH por control
 // no sabe expresar «abre el canal y manda a SURA» de una sola vez. Vive en `ModalCanalSoat`.
-type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable' | 'logisticaPermiteParcial';
 // Los tres `*Autogestionable` se pintan invertidos (HU #13935): el check dice «FLITO gestiona».
-// «Parcial» no es un servicio y conserva su lectura directa.
-const FLAG_INVERTIDO: Record<FlagCampo, boolean> = {
-  soatAutogestionable: true, impuestosAutogestionable: true, logisticaAutogestionable: true, logisticaPermiteParcial: false,
-};
+type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable';
 type Tab = 'clientes' | 'proveedores';
 
 export default function Clients() {
@@ -200,14 +197,14 @@ function TabClientes({ editaAutogestion, veTarifas }: { editaAutogestion: boolea
     }
   };
 
-  const CeldaFlag = ({ c, campo, label, aria }: { c: Client; campo: FlagCampo; label: string; aria?: string }) => (
+  const CeldaFlag = ({ c, campo, label }: { c: Client; campo: FlagCampo; label: string }) => (
     <td className="px-3 py-2 text-center">
       <input
         type="checkbox"
         className="h-4 w-4 cursor-pointer align-middle disabled:cursor-not-allowed"
-        checked={FLAG_INVERTIDO[campo] ? !c[campo] : c[campo]}
+        checked={!c[campo]}
         disabled={!editaAutogestion}
-        aria-label={aria ?? `FLITO gestiona ${label} de ${c.name}`}
+        aria-label={`FLITO gestiona ${label} de ${c.name}`}
         onChange={() => toggleFlag(c, campo, label)}
       />
     </td>
@@ -259,7 +256,6 @@ function TabClientes({ editaAutogestion, veTarifas }: { editaAutogestion: boolea
                 <FlitTh center>SOAT</FlitTh>
                 <FlitTh center>Impuestos</FlitTh>
                 <FlitTh center>Logística</FlitTh>
-                <FlitTh center>Parcial</FlitTh>
                 {/* Al FINAL del bloque de banderas y no pegada a «SOAT»: contiguas se leerían como
                     dos variantes del mismo interruptor, que es justo el malentendido que el AC3
                     quiere evitar. Separada, se lee como lo que es: otra cosa. */}
@@ -279,7 +275,6 @@ function TabClientes({ editaAutogestion, veTarifas }: { editaAutogestion: boolea
                   <CeldaFlag c={c} campo="soatAutogestionable" label="SOAT" />
                   <CeldaFlag c={c} campo="impuestosAutogestionable" label="Impuestos" />
                   <CeldaFlag c={c} campo="logisticaAutogestionable" label="Logística" />
-                  <CeldaFlag c={c} campo="logisticaPermiteParcial" label="Parcial" aria={`Entregas parciales de ${c.name}`} />
                   <CeldaCanalSoat c={c} editable={editaAutogestion} onAbrir={() => setCanalDe(c)} />
                   <td className="px-3 py-2"><ChipFacturable veredicto={veredictos.get(c.id)} /></td>
                   <td className="px-3 py-2">
@@ -301,7 +296,6 @@ function TabClientes({ editaAutogestion, veTarifas }: { editaAutogestion: boolea
         {editaAutogestion && (
           <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
             Marca «SOAT», «Impuestos» o «Logística» cuando FLITO gestiona ese servicio para la compañía; desmarcado, la compañía lo hace por su cuenta.
-            «Parcial» permite generar el acta de logística con los documentos disponibles; sin marcar, el acta se retiene hasta tenerlos todos (CA-08/09).
           </p>
         )}
         {editaAutogestion && (
