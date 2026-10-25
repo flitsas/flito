@@ -47,7 +47,7 @@ import {
 } from './flito-servicios-adicionales.service.js';
 import {
   EstadoProveedorCambiadoError, MENSAJE_ESTADO_POR_ACCION, ProveedorSoatNoEncontradoError,
-  cambiarEstadoProveedorSoat, impactoProveedorSoat,
+  ProveedorSoatNoUsableError, cambiarEstadoProveedorSoat, exigirProveedorSoatUsable, impactoProveedorSoat,
 } from './flito-proveedores-estado.service.js';
 
 const router = Router();
@@ -222,20 +222,11 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
   // El proveedor tiene que existir y estar ACTIVO (AC2b). «Válida incluye vigente»: aceptar un
   // proveedor apagado —que la pantalla ya no ofrece— convertiría el catálogo en una lista de
   // sugerencias, y el alta del canal Cliente lo mandaría todo a contingencia sin que nadie lo
-  // hubiera decidido.
-  if (cambios.proveedorSoatSinTramiteId) {
-    const [proveedor] = await db
-      .select({ id: flitoProveedoresSoat.id, activo: flitoProveedoresSoat.activo })
-      .from(flitoProveedoresSoat)
-      .where(eq(flitoProveedoresSoat.id, cambios.proveedorSoatSinTramiteId)).limit(1);
-    if (!proveedor || proveedor.activo !== true) {
-      res.status(400).json({
-        error: 'El gestor por defecto no existe o está inactivo',
-        campo: 'proveedorSoatSinTramiteId',
-      });
-      return;
-    }
-  }
+  // hubiera decidido. HU #13959 (RN-PROV-5): se comprueba SOLO si el valor CAMBIA —un formulario que
+  // reenvía el gestor que ya tenía no se rompe porque luego lo desactivaran (AC4)— y DENTRO de la
+  // transacción del UPDATE, con `FOR SHARE` sobre el proveedor (AC6). Ver `exigirProveedorSoatUsable`.
+  const cambiaGestor = cambios.proveedorSoatSinTramiteId != null
+    && cambios.proveedorSoatSinTramiteId !== previo.proveedorSinTramiteId;
 
   // Sobre el estado RESULTANTE y no sobre lo que llega: `cambios.x ?? previo.x` en las DOS claves.
   // Encender el flag sin tocar el gestor y quitar el gestor sin tocar el flag llegan aquí igual.
@@ -271,9 +262,16 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
   let updated: FilaCompania | undefined;
   try {
     // `returning()` PROYECTADO a lo que el DTO publica: ver `COLUMNAS_COMPANIA_DTO`.
-    [updated] = await db.update(clients).set(set).where(and(eq(clients.id, id), clienteVigente()))
-      .returning(COLUMNAS_COMPANIA_DTO);
+    [updated] = await db.transaction(async (tx) => {
+      if (cambiaGestor) await exigirProveedorSoatUsable(tx, cambios.proveedorSoatSinTramiteId!);
+      return tx.update(clients).set(set).where(and(eq(clients.id, id), clienteVigente()))
+        .returning(COLUMNAS_COMPANIA_DTO);
+    });
   } catch (e) {
+    if (e instanceof ProveedorSoatNoUsableError) {
+      res.status(400).json({ error: e.message, campo: 'proveedorSoatSinTramiteId' });
+      return;
+    }
     // `clients_sin_tramite_gestor_chk` (migración 0175), Y NO CUALQUIER `23514`. Con las dos guardas
     // de arriba no debería llegar aquí desde una sola petición; SÍ puede llegar desde dos PATCH
     // concurrentes —uno que enciende el flag y otro que quita el gestor, cada uno legal contra el

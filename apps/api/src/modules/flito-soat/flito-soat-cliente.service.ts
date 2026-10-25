@@ -1130,7 +1130,7 @@ export async function resolverDestinoCanalCliente(
   tx: Tx, companiaId: number,
 ): Promise<DestinoCanalCliente> {
   const [fila] = await tx
-    .select({ proveedorId: flitoProveedoresSoat.id, activo: flitoProveedoresSoat.activo })
+    .select({ proveedorId: flitoProveedoresSoat.id, activo: flitoProveedoresSoat.activo, deletedAt: flitoProveedoresSoat.deletedAt })
     .from(clients)
     .leftJoin(
       flitoProveedoresSoat,
@@ -1139,7 +1139,8 @@ export async function resolverDestinoCanalCliente(
     .where(eq(clients.id, companiaId))
     .limit(1);
 
-  const disponible = fila?.proveedorId != null && fila.activo === true;
+  // HU #13959 (AC5): un proveedor ELIMINADO (`deleted_at`) cuenta como no disponible aunque siga `activo`.
+  const disponible = fila?.proveedorId != null && fila.activo === true && fila.deletedAt == null;
   if (!disponible) {
     return {
       proveedorSoatId: null,

@@ -167,6 +167,8 @@ function capturarUpdate(devuelve: Record<string, unknown>, previo: Record<string
       return { where: () => ({ returning: () => Promise.resolve([devuelve]) }) };
     },
   });
+  // HU #13959: el UPDATE de la compañía corre dentro de `db.transaction` (RN-PROV-5); el tx delega en los mocks.
+  transactionMock.mockImplementationOnce(async (fn: (tx: unknown) => unknown) => fn({ select: selectMock, update: updateMock }));
   return capturado;
 }
 
