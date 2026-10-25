@@ -20,8 +20,11 @@ import { useDescargaDocumentoBolsa } from './useDescargaDocumentoBolsa';
 // El input de carga NO se deshabilita mientras sube: si tenía el foco, `disabled` lo tiraría a <body> y
 // la trampa del modal lo llevaría al diálogo con scroll al inicio (HU #13892, retrabajo DEV). Se marca
 // `aria-disabled` y el candado de `subir` impide la segunda carga.
+// `relative`: el input `sr-only` es `position:absolute`; con el label estático su offsetParent era el
+// overlay `.flit-modal` (scroll propio), el input quedaba fuera del contenedor interior y, al pulsar
+// «Cargar», el navegador desplazaba el overlay para mostrarlo y el modal subía (HU #13892, DEV).
 const ANILLO_LABEL =
-  'cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-[color:var(--flit-border-focus)] has-[input[aria-disabled=true]]:cursor-not-allowed has-[input[aria-disabled=true]]:opacity-50';
+  'relative cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-[color:var(--flit-border-focus)] has-[input[aria-disabled=true]]:cursor-not-allowed has-[input[aria-disabled=true]]:opacity-50';
 
 /** `archivo` = el que falló por red/429, para «Reintentar» con el mismo; `null` = sin reintento. */
 type ErrorCarga = { texto: string; archivo: File | null };

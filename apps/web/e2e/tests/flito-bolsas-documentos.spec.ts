@@ -492,6 +492,48 @@ test.describe('FLITO — Bolsas · expediente documental de la compañía (HU #1
     expect(await scrollDelModal(fila)).toBeGreaterThan(0);
   });
 
+  test('retrabajo DEV: el clic real en «Cargar» no desplaza el overlay del modal (input sr-only dentro del label)', async ({ page }) => {
+    // Causa medida en DEV: con el label estático, el input `sr-only` (absolute) tomaba como offsetParent
+    // al overlay `.flit-modal`, quedaba fuera del cuerpo desplazado y el clic hacía scroll del overlay.
+    await page.setViewportSize({ width: 1366, height: 600 });
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    await mock(page, { e1: expediente(1) });
+    await page.route(/\/api\/flito\/bolsas-documentos\/companias\/1\/tipos\/certificado_bancario$/, (r) =>
+      json(r, version('certificado_bancario'), 201));
+    const fila = seccion(await abrir(page)).getByTestId('doc-certificado_bancario');
+    // El cuerpo del detalle se desplaza hasta dejar la fila abajo.
+    await fila.evaluate((el) => el.scrollIntoView({ block: 'end' }));
+    expect(await scrollDelModal(fila)).toBeGreaterThan(0);
+
+    const input = fila.getByLabel('Cargar Certificado bancario');
+    const boton = fila.locator('label:has(input[type="file"])');
+    await expect(boton).toHaveText('Cargar');
+    const geo = await input.evaluate((el) => {
+      const label = el.closest('label')!;
+      const r = el.getBoundingClientRect();
+      const l = label.getBoundingClientRect();
+      const dentro = r.left >= l.left - 1 && r.right <= l.right + 1 && r.top >= l.top - 1 && r.bottom <= l.bottom + 1;
+      return { offsetParentEsLabel: (el as HTMLElement).offsetParent === label, dentro };
+    });
+    expect(geo.offsetParentEsLabel, 'offsetParent del input = su label').toBe(true);
+    expect(geo.dentro, 'el input sr-only queda dentro del rect del botón').toBe(true);
+    // Ningún sr-only de la sección escapa del cuerpo hacia el overlay (agrandaría su área de scroll).
+    const sueltos = await seccion(page.getByRole('dialog', { name: 'TRANSPORTES ANDINOS' })).evaluate((sec) =>
+      [...sec.querySelectorAll('.sr-only')].filter((e) => {
+        const op = (e as HTMLElement).offsetParent;
+        return !op || !sec.contains(op);
+      }).length);
+    expect(sueltos, 'sr-only anclados dentro de la sección Documentos').toBe(0);
+
+    const overlay = page.locator('.flit-modal');
+    const antes = await overlay.evaluate((el) => el.scrollTop);
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), boton.click()]);
+    expect(await overlay.evaluate((el) => el.scrollTop), 'el overlay no se desplaza al pulsar «Cargar»').toBe(antes);
+    await chooser.setFiles({ name: 'banco.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') });
+    await expect(page.getByText('Certificado bancario cargado.')).toBeVisible();
+    expect(await overlay.evaluate((el) => el.scrollTop)).toBe(antes);
+  });
+
   test('retrabajo DEV: «Digitar fecha» deja el foco en el campo, se escribe con el teclado y el sondeo no lo quita', async ({ page }) => {
     await page.clock.install();
     await page.setViewportSize({ width: 1366, height: 800 });
