@@ -33,6 +33,7 @@ import {
   tipoTramiteTarifaDe,
 } from '@operaciones/shared-types';
 import { modalidadVigente } from './flito-parametrizacion.service.js';
+import { clienteVigente } from '../clients/cliente-operable.js';
 import { parseFechaQuery } from '../../shared/utils/fecha-rango.js';
 import {
   cambiarOCerrar, fijarTarifa, historial, listarTarifas, vistaPorCompania,
@@ -66,6 +67,8 @@ const COLUMNAS_COMPANIA_DTO = {
   id: clients.id,
   name: clients.name,
   document: clients.document,
+  // HU #13953: el selector de compañías distingue activas de inactivas (los eliminados ni salen).
+  active: clients.active,
   soatAutogestionable: clients.soatAutogestionable,
   soatSinTramite: clients.soatSinTramite,
   flitoProveedorSoatSinTramiteId: clients.flitoProveedorSoatSinTramiteId,
@@ -87,6 +90,7 @@ function companiaDto(c: FilaCompania) {
     id: c.id,
     nombre: c.name,
     nit: c.document,
+    activo: c.active,
     soatAutogestionable: c.soatAutogestionable,
     // Feature #11912 — «SOAT sin trámite»: el canal por el que un usuario `cliente` de esta compañía
     // le pide a FLITO un SOAT sin que haya trámite digital abierto. Campo APARTE y no derivado de
@@ -108,7 +112,8 @@ function companiaDto(c: FilaCompania) {
 }
 
 router.get('/companias', exigirFuncion('parametrizacion.companias.listar'), async (_req: Request, res: Response) => {
-  const filas = await db.select().from(clients).orderBy(asc(clients.name));
+  // RN-CLI-9 (HU #13953): el selector solo ofrece clientes vigentes.
+  const filas = await db.select().from(clients).where(clienteVigente()).orderBy(asc(clients.name));
   res.json(filas.map(companiaDto));
 });
 
@@ -204,7 +209,8 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
       soatSinTramite: clients.soatSinTramite,
       proveedorSinTramiteId: clients.flitoProveedorSoatSinTramiteId,
     })
-    .from(clients).where(eq(clients.id, id)).limit(1);
+    // RN-CLI-9 (HU #13953): un eliminado no admite gestor por defecto ni otra parametrización (= inexistente).
+    .from(clients).where(and(eq(clients.id, id), clienteVigente())).limit(1);
   if (!previo) { res.status(404).json({ error: 'La compañía no existe' }); return; }
 
   // El proveedor tiene que existir y estar ACTIVO (AC2b). «Válida incluye vigente»: aceptar un
@@ -259,7 +265,7 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
   let updated: FilaCompania | undefined;
   try {
     // `returning()` PROYECTADO a lo que el DTO publica: ver `COLUMNAS_COMPANIA_DTO`.
-    [updated] = await db.update(clients).set(set).where(eq(clients.id, id))
+    [updated] = await db.update(clients).set(set).where(and(eq(clients.id, id), clienteVigente()))
       .returning(COLUMNAS_COMPANIA_DTO);
   } catch (e) {
     // `clients_sin_tramite_gestor_chk` (migración 0175), Y NO CUALQUIER `23514`. Con las dos guardas

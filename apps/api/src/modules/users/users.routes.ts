@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import argon2 from 'argon2';
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import { clienteVigente } from '../clients/cliente-operable.js';
 import { db } from '../../db/client.js';
 import { clients, permisosRoles, users } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
@@ -389,7 +390,8 @@ const organismosCodigosSchema = z.array(z.string().regex(/^\d{5}$/, 'Código DIV
 // HU #12088: mensajes genéricos por tipo de enlace (el admin puede haber creado un rol con otro nombre).
 const MSG_COMPANIA_REQUERIDA = 'Compañía requerida para este rol';
 const MSG_COMPANIA_SOBRA = 'Solo los roles con ámbito de compañía pueden tener compañía asignada';
-const MSG_COMPANIA_NO_EXISTE = 'La compañía no existe';
+// HU #13953 (AC3): un cliente eliminado no se puede enlazar a un usuario; el mensaje cubre ambos casos.
+const MSG_COMPANIA_NO_EXISTE = 'La compañía seleccionada no existe o fue eliminada.';
 const MSG_PROVEEDOR_REQUERIDO = 'Proveedor SOAT requerido para este rol';
 const MSG_PROVEEDOR_SOBRA = 'Solo los roles con ámbito de proveedor SOAT pueden tener proveedor asignado';
 const MSG_PROVEEDOR_NO_EXISTE = 'El proveedor SOAT no existe';
@@ -450,9 +452,13 @@ function assertAmbitoSegunEnlace(tipoEnlace: string, body: AmbitoBody): string |
  */
 const codigoRolSchema = z.string().min(1).max(40)
     .regex(/^[a-z][a-z0-9_]*$/, 'El código de rol solo admite minúsculas, números y guion bajo');
-/** ¿Existe esa compañía? Sin esto, un id inventado sería un 23503 sin mensaje útil. */
+/**
+ * ¿Existe esa compañía y está VIGENTE? Sin esto, un id inventado sería un 23503 sin mensaje útil. RN-CLI-9
+ * (HU #13953): un cliente eliminado cuenta como inexistente.
+ */
 async function companiaExiste(id: number): Promise<boolean> {
-    const [c] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, id)).limit(1);
+    const [c] = await db.select({ id: clients.id }).from(clients)
+        .where(and(eq(clients.id, id), clienteVigente())).limit(1);
     return !!c;
 }
 const createSchema = z.object({
