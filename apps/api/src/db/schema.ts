@@ -184,7 +184,9 @@ export const clients = pgTable('clients', {
   active: boolean('active').notNull().default(true),
   // FLITO (migración): parametrización por compañía. Si un módulo es autogestionable,
   // los trámites de esta compañía no entran a ese módulo FLITO (RN-02 SOAT / RN-03 Imp).
-  soatAutogestionable: boolean('soat_autogestionable').notNull().default(false),
+  // HU #13937 (migración 0252): las tres banderas nacen en TRUE — una compañía nueva no tiene
+  // servicios gestionados por FLITO hasta que alguien los active. Las existentes no se tocaron.
+  soatAutogestionable: boolean('soat_autogestionable').notNull().default(true),
   /**
    * FLITO — Cliente (Feature #11912): la compañía puede pedirle a FLITO el SOAT de un vehículo que
    * NO tiene trámite digital abierto. Es lo que habilita el canal del rol `cliente`.
@@ -226,8 +228,8 @@ export const clients = pgTable('clients', {
    */
   flitoProveedorSoatSinTramiteId: uuid('flito_proveedor_soat_sin_tramite_id')
     .references((): any => flitoProveedoresSoat.id, { onDelete: 'restrict' }),
-  impuestosAutogestionable: boolean('impuestos_autogestionable').notNull().default(false),
-  logisticaAutogestionable: boolean('logistica_autogestionable').notNull().default(false),
+  impuestosAutogestionable: boolean('impuestos_autogestionable').notNull().default(true),
+  logisticaAutogestionable: boolean('logistica_autogestionable').notNull().default(true),
   // FLITO Logística: si acepta entregas parciales (CA-08/09). Si es false, el acta se retiene
   // hasta tener todos los documentos de la empresa (Solo completo).
   logisticaPermiteParcial: boolean('logistica_permite_parcial').notNull().default(false),

@@ -5,6 +5,7 @@
 // HU #13935: los checks se leen «FLITO gestiona este servicio». El dato `*Autogestionable` conserva
 // su sentido, así que marcado = `false` en el dato.
 // HU #13936: sin check «Parcial» — Logística permite siempre entregas parciales.
+// HU #13937: la empresa nueva nace sin servicios gestionados por FLITO (casillas desmarcadas).
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '../helpers/fixtures';
@@ -142,36 +143,71 @@ const FILA_SIN_EMPRESA = {
   impuestosAutogestionado: false, excepcionesAutogestion: [], listoParaEntregar: false,
 };
 
-test('AC4: «Crear empresa» titula «Servicios que gestiona FLITO» y lo marcado viaja como *Autogestionable=false', async ({ page }) => {
+async function abrirCrearEmpresa(page: import('@playwright/test').Page) {
   await page.route(/\/api\/flito\/tramites\/facetas/, (route) => route.fulfill({ status: 200, contentType: 'application/json',
     body: JSON.stringify({ estados: ['Asignado'], tramites: ['Matricula'], ciudades: ['Manizales'], transitos: ['STT Manizales'] }) }));
   await page.route(/\/api\/flito\/tramites\?/, (route) => route.fulfill({ status: 200, contentType: 'application/json',
     body: JSON.stringify({ items: [FILA_SIN_EMPRESA], total: 1, page: 1, pageSize: 50 }) }));
-  let body: Record<string, unknown> | null = null;
+  const enviado: { body: Record<string, unknown> | null } = { body: null };
   await page.route(/\/api\/flito\/tramites\/crear-empresa$/, (route) => {
-    body = route.request().postDataJSON() as Record<string, unknown>;
+    enviado.body = route.request().postDataJSON() as Record<string, unknown>;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 9 }) });
   });
   await loginAs(page, OPERACIONES_USER);
   await page.goto('/flito/tramites');
   await page.getByRole('button', { name: 'Crear empresa' }).click();
+  return { modal: page.getByRole('dialog'), enviado };
+}
 
-  const modal = page.getByRole('dialog');
+test('AC4: «Crear empresa» titula «Servicios que gestiona FLITO» y lo marcado viaja como *Autogestionable=false', async ({ page }) => {
+  const { modal, enviado } = await abrirCrearEmpresa(page);
+
   await expect(modal.getByText('Servicios que gestiona FLITO')).toBeVisible();
   await expect(modal.getByText(/Autogestión/)).toHaveCount(0);
-  // El estado inicial del dato (`false` = FLITO gestiona) no cambia en esta HU (lo hace la #13937):
-  // por eso las tres casillas nacen marcadas. Desmarcar Impuestos ⇒ la empresa lo hace por su cuenta.
-  await expect(modal.getByRole('checkbox', { name: 'SOAT' })).toBeChecked();
-  await modal.getByRole('checkbox', { name: 'Impuestos' }).uncheck();
-  // «Marcar SOAT» se ejercita de verdad: desmarcar y volver a marcar recorre los dos sentidos del onChange.
-  await modal.getByRole('checkbox', { name: 'SOAT' }).uncheck();
-  await expect(modal.getByRole('checkbox', { name: 'SOAT' })).not.toBeChecked();
+  // Desde la HU #13937 las casillas nacen desmarcadas: `check()` cambia el estado de verdad.
   await modal.getByRole('checkbox', { name: 'SOAT' }).check();
+  await expect(modal.getByRole('checkbox', { name: 'SOAT' })).toBeChecked();
+  // Ida y vuelta en Logística: recorre los dos sentidos del onChange y termina desmarcada.
+  await modal.getByRole('checkbox', { name: 'Logística' }).check();
+  await modal.getByRole('checkbox', { name: 'Logística' }).uncheck();
+  await expect(modal.getByRole('checkbox', { name: 'Logística' })).not.toBeChecked();
   await modal.getByRole('button', { name: 'Crear empresa' }).click();
 
-  await expect.poll(() => body).not.toBeNull();
-  expect(body).toMatchObject({
-    nit: '900999', soatAutogestionable: false, impuestosAutogestionable: true, logisticaAutogestionable: false,
+  await expect.poll(() => enviado.body).not.toBeNull();
+  expect(enviado.body).toMatchObject({
+    nit: '900999', soatAutogestionable: false, impuestosAutogestionable: true, logisticaAutogestionable: true,
+  });
+});
+
+test.describe('Empresa nueva sin servicios gestionados por FLITO (HU #13937)', () => {
+  test('AC2: al abrir «Crear empresa», SOAT, Impuestos y Logística aparecen desmarcados', async ({ page }) => {
+    const { modal } = await abrirCrearEmpresa(page);
+    for (const servicio of ['SOAT', 'Impuestos', 'Logística']) {
+      await expect(modal.getByRole('checkbox', { name: servicio })).not.toBeChecked();
+    }
+  });
+
+  test('AC3: guardar sin marcar nada envía los tres *Autogestionable=true', async ({ page }) => {
+    const { modal, enviado } = await abrirCrearEmpresa(page);
+    await modal.getByRole('button', { name: 'Crear empresa' }).click();
+
+    await expect.poll(() => enviado.body).not.toBeNull();
+    expect(enviado.body).toMatchObject({
+      nit: '900999', soatAutogestionable: true, impuestosAutogestionable: true, logisticaAutogestionable: true,
+    });
+  });
+
+  test('AC1: la compañía recién creada (tres *Autogestionable=true) se ve en Clientes con las tres casillas desmarcadas', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page, CLIENTES.map((c) => ({
+      ...c, soatAutogestionable: true, impuestosAutogestionable: true, logisticaAutogestionable: true,
+    })));
+
+    await page.goto('/clients');
+    await expect(page.getByText('Concesionario Norte')).toBeVisible();
+    for (const servicio of ['SOAT', 'Impuestos', 'Logística']) {
+      await expect(check(page, servicio)).not.toBeChecked();
+    }
   });
 });
 
