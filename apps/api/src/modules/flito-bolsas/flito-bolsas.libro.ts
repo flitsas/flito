@@ -119,9 +119,13 @@ export function periodoSiguiente(periodo: string): string {
   return mes === 12 ? `${anio + 1}-01` : `${anio}-${String(mes + 1).padStart(2, '0')}`;
 }
 
-/** Violación de unicidad de Postgres. */
+/**
+ * Violación de unicidad de Postgres. HU #13907: drizzle envuelve el error del driver en un `DrizzleQueryError`
+ * («Failed query: …») con el `PostgresError` en `cause`; se mira el error y su causa.
+ */
 export function esLlaveDuplicada(e: unknown): boolean {
-  return typeof e === 'object' && e !== null && (e as { code?: string }).code === '23505';
+  const codigo = (x: unknown) => (typeof x === 'object' && x !== null ? (x as { code?: string }).code : undefined);
+  return codigo(e) === '23505' || (typeof e === 'object' && e !== null && codigo((e as { cause?: unknown }).cause) === '23505');
 }
 
 // ─────────────────────────── Bolsa ───────────────────────────────────────────

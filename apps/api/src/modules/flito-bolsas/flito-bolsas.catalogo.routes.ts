@@ -7,8 +7,9 @@
 // opacos (uuid de la bolsa) o el id interno de la compañía. Ningún log ni auditoría lleva NIT ni nombre.
 //
 // Guardas: `exigirFuncion('<literal>')` por ruta, porque el lector de montajes (`inventario-guardas.ts`)
-// lee el código del fuente y FALLA ante una guarda resuelta en tiempo de petición. Por eso no existe aún
-// `exigirFuncionSegunAlcance`: la rama tránsito de estas rutas llega en la HU-G (#13907) y hoy responde 400.
+// lee el código del fuente y FALLA ante una guarda resuelta en tiempo de petición. Por eso no existe
+// `exigirFuncionSegunAlcance`: la rama tránsito de estas rutas vive en `flito-bolsas.catalogo-transito.routes.ts`
+// (HU #13907), montado antes; aquí solo llega lo que aquel cede (compañía, o cualquier petición con enlace).
 // `bolsaPropia` es la frontera por enlace (ADR-0024) resuelta bolsa → compañía.
 
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
@@ -158,7 +159,7 @@ export function routerCatalogo(d: DelegadosCompania): Router {
     res.json(esProyeccionCliente(alcance) ? bolsas.map(proyectarParaCliente) : bolsas);
   });
 
-  // POST / — alta (AC1-AC3). Rama tránsito: HU-G (#13907) → 400 explícito.
+  // POST / — alta (AC1-AC3). La rama tránsito la atiende el router de tránsito; si llega aquí, 400.
   router.post('/', exigirFuncion('bolsas.bolsa.crear'), async (req: Request, res: Response) => {
     if (req.body?.alcance === 'transito') { datosInvalidos(res, MSG_TRANSITO_PENDIENTE); return; }
     const parsed = crearCompaniaSchema.safeParse(req.body ?? {});

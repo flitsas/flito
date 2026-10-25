@@ -50,6 +50,7 @@ const BIT = 'flito-bitacora/flito-bitacora.routes.ts';
 const LOG = 'flito-logistica/flito-logistica.routes.ts';
 const BOL = 'flito-bolsas/flito-bolsas.routes.ts';
 const BCAT = 'flito-bolsas/flito-bolsas.catalogo.routes.ts'; // HU #13900
+const BCTR = 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts'; // HU #13907
 const CON = 'flito-conciliacion/flito-conciliacion.routes.ts';
 const CMP = 'flito-comparendos/flito-comparendos.routes.ts';
 const LIQ = 'flito-liquidacion/flito-liquidacion.routes.ts';
@@ -248,6 +249,19 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${BCAT} POST /bolsa/:bolsaId/recargas`, 'bolsas.recarga.registrar', 'Registrar una recarga de bolsa', 'Abonar dinero a la bolsa del cliente con su soporte.'),
   op(`${BCAT} GET /bolsa/:bolsaId/cierres`, 'bolsas.cierres.ver', 'Ver los cierres de una bolsa', 'Consultar los cortes de periodo ya cerrados.'),
   op(`${BCAT} POST /bolsa/:bolsaId/cierres`, 'bolsas.cierre.crear', 'Cerrar un periodo de bolsa', 'Cuadrar y cerrar el periodo de la bolsa del cliente.'),
+  // HU #13907 (Feature #13887, ADR-0029, Q3) — rama tránsito del catálogo único. Tres operaciones nuevas con la
+  // partida de su par, dentro de acciones de bolsas ya repartidas (arbol/acciones-finanzas.ts); el resto reutiliza
+  // los códigos `bolsas.transito.*` de las rutas antiguas `/transito/*` (que retira la HU #13911).
+  op(`${BCTR} POST /buscar`, 'bolsas.transito.listar', 'Ver las bolsas de organismos', 'Listar las bolsas de derechos abiertas ante los organismos de tránsito.'),
+  op(`${BCTR} POST /`, 'bolsas.transito.crear', 'Crear una bolsa de organismo', 'Abrir una bolsa de derechos ante un organismo de tránsito.'),
+  op(`${BCTR} GET /bolsa/:bolsaId`, 'bolsas.transito.ver', 'Ver una bolsa de organismo', 'Consultar el saldo y el detalle de una bolsa de derechos.'),
+  op(`${BCTR} PATCH /bolsa/:bolsaId`, 'bolsas.transito.editar', 'Editar una bolsa de organismo', 'Cambiar los datos de la bolsa de derechos.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/inactivar`, 'bolsas.transito.inactivar', 'Inactivar o reactivar una bolsa de tránsito', 'Suspender una bolsa de tránsito con un motivo, liberando su cobertura, o volver a activarla.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/reactivar`, 'bolsas.transito.inactivar', 'Inactivar o reactivar una bolsa de tránsito', 'Suspender una bolsa de tránsito con un motivo, liberando su cobertura, o volver a activarla.'),
+  op(`${BCTR} GET /bolsa/:bolsaId/movimientos`, 'bolsas.transito.ver_movimientos', 'Ver los movimientos de una bolsa de organismo', 'Recorrer las cargas y consumos de la bolsa de derechos.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/recargas`, 'bolsas.transito.cargar', 'Cargar saldo a una bolsa de organismo', 'Abonar dinero a la bolsa de derechos con su soporte.'),
+  op(`${BCTR} GET /bolsa/:bolsaId/cierres`, 'bolsas.transito.cierres.ver', 'Ver los cierres de una bolsa de tránsito', 'Consultar los cortes de periodo ya cerrados de una bolsa de tránsito.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/cierres`, 'bolsas.transito.cierre.crear', 'Cerrar un periodo de una bolsa de tránsito', 'Cuadrar y cerrar el periodo de una bolsa de tránsito.'),
 
   // ── Conciliación de recaudo SOAT ──────────────────────────────────────────────────────────────
   op(`${CON} POST /boletas`, 'conciliacion.boleta.cargar', 'Cargar una boleta de recaudo', 'Subir el archivo del portal con lo recaudado en el periodo.'),
