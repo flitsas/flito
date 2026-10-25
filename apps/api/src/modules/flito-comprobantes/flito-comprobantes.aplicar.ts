@@ -47,7 +47,7 @@ import { createHash } from 'node:crypto';
 import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
-  CAMPOS_COMPROBANTE, CodigoErrorComprobante, CONCEPTOS_COSTO, ConceptoCosto, CruceComprobante, EstadoComprobante,
+  CAMPOS_COMPROBANTE, CodigoErrorComprobante, CONCEPTOS_COSTO, ConceptoCosto, CruceComprobante, EstadoComprobante, MotivoPendienteComprobante,
   TipoSoporte, type CampoExtraido, type ComprobanteDetalleDto, type DescuentoBolsaDto, type ExtraccionComprobante,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -384,16 +384,20 @@ export async function prepararAplicacion(id: string, cuerpo: unknown, ctx: Compr
  * persona recibe 409 `destino_no_admite` con lo que dijo el dueño; el soporte queda atado (retipado o
  * el hijo insertado) y un reintento lo reutiliza sin tocar S3 de nuevo.
  */
-async function pagarDespuesDelCommit(id: string, destinoPago: DestinoPago, args: PagoArgs): Promise<void> {
+export async function pagarDespuesDelCommit(id: string, destinoPago: DestinoPago, args: PagoArgs): Promise<void> {
   try {
     await pagarTrasCommit(destinoPago, args);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error desconocido';
     log.error({ comprobanteId: id, tramiteId: args.tramiteId, concepto: destinoPago.concepto, err: msg }, 'El dueño rechazó el pago tras el commit; el comprobante vuelve a pendiente');
     // HU #13902 (AC8): en la misma tx que lo devuelve a pendiente, la entrada enlazada que revierte su descuento.
+    // HU #13938: `pendiente` exige motivo (CHECK flito_comprobantes_pendiente_chk, 0198); sin él la tx
+    // entera fallaba y el comprobante quedaba aplicado sin pago en el dueño. Motivo `destino_no_admite`
+    // (lo que dijo el dueño va en el detalle), el mismo que ve la bandeja en el 409.
     await db.transaction(async (tx) => {
       const vuelto = await tx.update(flitoComprobantes).set({
-        estado: EstadoComprobante.PENDIENTE, esPago: null, valor: null, soporteAplicadoId: null,
+        estado: EstadoComprobante.PENDIENTE, motivoPendiente: MotivoPendienteComprobante.DESTINO_NO_ADMITE,
+        detallePendiente: detalleRechazoDueno(destinoPago.concepto, e, msg), esPago: null, valor: null, soporteAplicadoId: null,
         aplicadoAutomaticamente: false, aplicadoPorId: null, aplicadoEn: null, aplicadoMotivo: null, updatedAt: new Date(),
       }).where(and(eq(flitoComprobantes.id, id), eq(flitoComprobantes.estado, EstadoComprobante.APLICADO))).returning({ id: flitoComprobantes.id });
       if (vuelto.length > 0) {
@@ -404,6 +408,13 @@ async function pagarDespuesDelCommit(id: string, destinoPago: DestinoPago, args:
     if (e instanceof ComprobanteError) throw e;
     throw new ComprobanteError(409, CodigoErrorComprobante.DESTINO_NO_ADMITE, `El pago no se registró en ${destinoPago.concepto}: ${msg}`, { detalle: msg, puedeAdjuntar: false });
   }
+}
+
+/** HU #13938: el detalle del pendiente: qué dueño rechazó, su código (si lo trae) y su mensaje. */
+function detalleRechazoDueno(concepto: ConceptoCosto, e: unknown, msg: string): string {
+  const codigo = e instanceof ComprobanteError ? e.codigo : (e as { code?: unknown } | null)?.code;
+  const conCodigo = typeof codigo === 'string' && codigo ? ` [${codigo}]` : '';
+  return `El dueño (${concepto}) rechazó el pago tras aplicar${conCodigo}: ${msg}`;
 }
 
 interface CierreComprobante {
