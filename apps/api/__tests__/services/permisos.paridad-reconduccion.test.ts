@@ -140,6 +140,10 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
     // tampoco tienen reparto de partida: nacen en el árbol y las concede su acción (la 0248 solo marca a `admin`).
     // Cualquier otra es un olvido.
     expect(desconocidos).toEqual([
+      // HU #13941: las tres funciones de Dr. Flit nacen en el árbol (la 0254 las da con su acción a `admin`).
+      'flito-dr-flit/dr-flit.funciones.ts POST * [usar_ia]',
+      'flito-dr-flit/dr-flit.funciones.ts POST * [radicar_soporte]',
+      'flito-dr-flit/dr-flit.funciones.ts POST * [consultar_gestion]',
       'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts GET /companias/:companiaId',
       'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts GET /companias/:companiaId/tipos/:tipo/historial',
       'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts POST /companias/:companiaId/tipos/:tipo',

@@ -73,6 +73,7 @@ Decisiones derivadas:
 - **D1 · Orden de las llamadas a ADO:** subir adjuntos → crear el Bug con `System.Title`, campos, tags y relaciones `AttachedFile` en **un solo** json-patch. Si falla una subida, no se crea el Bug (AC5 de HU-3). No hay segundo PATCH para el tag ni para los adjuntos: el create es la única operación que deja un caso visible.
 - **D2 · TF401289 (tag inexistente o sin permiso):** si el create responde 400 y el cuerpo trae `TF401289`, se repite **una vez** el create **sin** `System.Tags`. No hay riesgo de duplicado: el primer create fue rechazado entero. El intento queda `creado` con `error_codigo='tag-rechazado'` y un `warn` sin datos del caso.
 - **D3 · Frontera por enlace:** el montaje va **sin `conAlcance`** y las rutas del módulo se declaran en `RUTAS_TRANSVERSALES` (`shared/middleware/frontera-enlace.ts`), como Perfil: Dr. Flit es un panel de sesión y sus rutas solo leen o escriben datos **del propio usuario** (su autorización, sus intentos). El enlace `compania` se cierra **dentro del router** con una guarda explícita (`rechazarEnlaceCompania`), además de `requireRole`, para no depender de que hoy solo `cliente` tenga ese enlace. Alternativa descartada: añadir `'drflit'` a `MODULOS_FRONTERA` con `['proveedor','organismos_transito']` — más declarativa, pero cambia un `Record<ModuloFrontera, …>` exhaustivo que consumen `apps/web/src/lib/permissions.ts`, `pages/roles-permisos/modulos.ts` y `arbol.ts`, y el snapshot del centinela; mucho más radio de cambio para tres rutas que no son un módulo de negocio.
+  > **Enmendado por HU #13941 (2026-10-24, decisión de David Chica):** se retira `rechazarEnlaceCompania`; Dr. Flit no excluye por tipo de usuario ni enlace; el control es el permiso `pagina.flito_dr_flit` con 4 acciones exigidas por ruta; la frontera de datos de negocio no cambia (los POST /buscar siguen bajo `conAlcance`). Las rutas siguen en `RUTAS_TRANSVERSALES`.
 - **D4 · Dos migraciones, no una:** `0245` (autorizaciones) en HU-1 y `0246` (intentos) en HU-2. Una migración ya aplicada en cualquier ambiente no se edita; HU-1 se mergea y se aplica en DEV antes de que HU-2 termine de verificar el mapeo real, así que meter la tabla de intentos en `0245` obligaría a acertar su forma antes de tiempo o a una `0247` correctiva. Cada HU deja su esquema junto al código que lo usa y su db-review es pequeño. **Verificar al abrir HU-2** que `0246` siga libre en `origin/develop`; si no, tomar la siguiente.
 - **D5 · Versión y texto de la autorización viven en `shared-types`:** `AUTORIZACIONES_DRFLIT.soporte = { version, texto }`. La API valida la versión y guarda el **SHA-256 del texto** junto a la versión (prueba de qué texto exacto se aceptó); la web pinta ese mismo texto. Cambiar el texto sin cambiar la versión lo detecta un test de `shared-types` (hash fijado por versión). HU-1 deja `version` y un texto **provisional marcado como tal**; HU-4 no se cierra sin el texto aprobado por PO/jurídico (P9-5).
 
@@ -102,7 +103,7 @@ sequenceDiagram
     R-->>W: 201 (o 200 si ya existía)
     U->>W: Contacto → Caso → Adjuntos → Resumen → Confirmar
     W->>R: POST /casos-soporte (multipart: caso JSON + adjuntos, claveIdempotencia)
-    Note over R: auth → requireRole → sin enlace compania → limiter 5/h → disponible → autorización vigente → multer (limits)
+    Note over R: auth → función drflit.soporte.radicar (HU #13941) → limiter 5/h → disponible → autorización vigente → multer (limits)
     R->>S: radicar(caso, archivos, usuario, autorizacionId)
     S->>S: Zod + MIME real (detectMime)
     S->>DB: INSERT intento pendiente ON CONFLICT (usuario, clave)
@@ -131,7 +132,7 @@ sequenceDiagram
 
 ## Contrato de endpoints
 
-Base: `/api/flito/dr-flit`. Todas con `authMiddleware` + `requireRole(...ROLES_SOPORTE_DRFLIT)` + `rechazarEnlaceCompania`. **Ninguna respuesta lleva URLs, `_links`, ids de adjunto ni mensajes de ADO.** Errores con la forma del repo: `{ error: string, codigo?: string, ...claves hermanas }`.
+Base: `/api/flito/dr-flit`. Todas con `authMiddleware` + la función de Dr. Flit de la ruta (HU #13941: 403 `drflit-funcion-no-habilitada`; ver la enmienda de D3). **Ninguna respuesta lleva URLs, `_links`, ids de adjunto ni mensajes de ADO.** Errores con la forma del repo: `{ error: string, codigo?: string, ...claves hermanas }`.
 
 | Método y ruta | HU | Entrada | 2xx | Errores |
 |---|---|---|---|---|
@@ -367,7 +368,7 @@ Fallo cerrado: en `NODE_ENV=production` sin `DEPLOY_ENVIRONMENT`, el soporte no 
 
 ### Límites, limitador y orden de middlewares
 
-`POST /casos-soporte`: `authMiddleware` → `requireRole(...ROLES_SOPORTE_DRFLIT)` → `rechazarEnlaceCompania` → **`drflitCasosLimiter`** → `exigirSoporteDisponible` (503) → `exigirAutorizacionVigente('soporte')` (403 `autorizacion-requerida`, deja `autorizacionId` en `res.locals`) → **multer** → handler. Así nadie sin rol, sin cupo o sin autorización hace que el servidor cargue archivos en memoria.
+`POST /casos-soporte`: `authMiddleware` → `exigirSoporteDrFlit` (`drflit.soporte.radicar`, HU #13941; antes `requireRole` + `rechazarEnlaceCompania`) → **`drflitCasosLimiter`** → `exigirSoporteDisponible` (503) → `exigirAutorizacionVigente('soporte')` (403 `autorizacion-requerida`, deja `autorizacionId` en `res.locals`) → **multer** → handler. Así nadie sin rol, sin cupo o sin autorización hace que el servidor cargue archivos en memoria.
 
 - `drflitCasosLimiter` (en `shared/middleware/rateLimiter.ts`, mismo molde que `soatClienteLimiter`): `windowMs` 1 h, `max: env.DRFLIT_RADICACIONES_POR_HORA` (5), `keyGenerator: userOrIpKey('drflit-casos:')`, `handler: frenoConRastro('drflit-casos')`, `store: makeStore('rl:drflit-casos:')`, `skipFailedRequests: true` con `requestWasSuccessful: (_, res) => res.statusCode < 400 || res.statusCode >= 500`. Cuenta las radicaciones y los fallos de ADO (que sí llamaron a un tercero); no cuenta los 4xx de validación. Con ADO caído el usuario tiene ~4 reintentos por hora (declarado).
 - `POST /autorizacion`: `apiLimiter` global basta (la unicidad impide crecer la tabla).

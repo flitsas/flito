@@ -1,12 +1,13 @@
 // FLITO — Dr. Flit IA: chat (HU #13856, Feature #13696, IA-4). Sub-router de `dr-flit.routes.ts`, que lo
-// monta DESPUÉS de sus guardas (`authMiddleware → rechazarEnlaceCompania → exigirPaginaConAyuda`,
-// RN-DRF-R1). Diseño: docs/diseno/feature-13696-dr-flit-ia.md («Contrato de endpoints») · ADR-0027.
+// monta DESPUÉS de su `authMiddleware` (RN-DRF-R1: auth → función de Dr. Flit de la ruta, 403
+// drflit-funcion-no-habilitada; HU #13941). Diseño: docs/diseno/feature-13696-dr-flit-ia.md («Contrato de endpoints») · ADR-0027.
 //
 //   POST /chat  { mensaje, historial }  →  200 RespuestaChatDrFlit (con `degradado` si no hubo respuesta)
 //
-// RN-DRF-CH1  Orden: drflitChatLimiter (429) → Zod `.strict()` (400 `campo-invalido`, sin eco del valor)
+// RN-DRF-CH1  Orden: exigirIaDrFlit (403 `drflit-funcion-no-habilitada`, HU #13941) → drflitChatLimiter (429) → Zod `.strict()` (400 `campo-invalido`, sin eco del valor)
 //             → IA apagada (200 `ia-apagada`, aun sin autorización) → autorización `ia` vigente (428
-//             `autorizacion-requerida`) → servicio (cupo → re-enmascarado → contexto → llamada).
+//             `autorizacion-requerida`) → servicio (re-enmascarado → manuales [200 `sin-manuales`] → cupo →
+//             contexto → llamada).
 // RN-DRF-CH2  Nunca 5xx por la IA: los fallos del proveedor salen como 200 `degradado` (servicio).
 // RN-DRF-CH3  Log por petición (también 400/428/429): SOLO metadatos — usuarioId, status, intent,
 //             degradado, latenciaMs, tokens, modelo, fichasEnContexto, citas. Nunca mensaje, historial,
@@ -20,6 +21,7 @@ import { drflitChatLimiter } from '../../shared/middleware/rateLimiter.js';
 import { loggerFor } from '../../shared/logger.js';
 import { iaDisponible } from './dr-flit.config.js';
 import { respuestaDegradada, responderChatIa, type MetricasChatIa } from './dr-flit-ia.service.js';
+import { exigirIaDrFlit } from './dr-flit.funciones.js';
 
 const log = loggerFor('drflit-ia');
 const L = LIMITES_CHAT_DRFLIT;
@@ -94,7 +96,7 @@ function medirChat(req: Request, res: Response, next: NextFunction): void {
  */
 export function crearRouterChat(exigirAutorizacionIa: RequestHandler): Router {
   const router = Router();
-  router.post('/chat', medirChat, drflitChatLimiter, validarChat, responderSiIaApagada, exigirAutorizacionIa,
+  router.post('/chat', medirChat, exigirIaDrFlit, drflitChatLimiter, validarChat, responderSiIaApagada, exigirAutorizacionIa,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const r = await responderChatIa(req, req.user!.sub, res.locals.chat as ChatDrFlitRequest);

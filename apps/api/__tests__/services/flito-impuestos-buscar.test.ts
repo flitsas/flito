@@ -86,7 +86,7 @@ describe('HU #13838 · POST /impuestos/buscar — autenticación y permiso', () 
   });
 
   it('403 sin la función impuestos.cola.ver, sin consultar la cola ni escribir rastro', async () => {
-    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: ['soat.cola.ver'] });
+    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: ['soat.cola.ver', 'drflit.gestion.consultar'] });
     const r = await request(await app()).post(URL).set('Authorization', `Bearer ${t}`).send({ valor: PLACA });
     expect(r.status).toBe(403);
     expect(svc.colaImpuestos).not.toHaveBeenCalled();
@@ -153,7 +153,7 @@ describe('HU #13838 · POST /impuestos/buscar — resultado', () => {
 
   it('alcance: la cola recibe el contexto del enlace de ESE usuario (organismos de tránsito)', async () => {
     svc.alcance = { enlace: 'organismos_transito', organismos: ['05001'] };
-    const t = `Bearer ${await testToken({ sub: ++sub, role: 'xyz_gestor' as never, tipoEnlace: 'organismos_transito', funciones: ['impuestos.cola.ver'] })}`;
+    const t = `Bearer ${await testToken({ sub: ++sub, role: 'xyz_gestor' as never, tipoEnlace: 'organismos_transito', funciones: ['impuestos.cola.ver', 'drflit.gestion.consultar'] })}`;
     const r = await request(await app()).post(URL).set('Authorization', t).send({ valor: PLACA });
     expect(r.status).toBe(200);
     expect(svc.colaImpuestos.mock.calls[0]![0]).toMatchObject({ userId: sub, organismos: ['05001'], alcance: svc.alcance });
@@ -190,5 +190,25 @@ describe('HU #13838 · POST /impuestos/buscar — limitador por usuario', () => 
     expect(estados.slice(0, 40).every((s) => s === 200)).toBe(true);
     expect(estados[40]).toBe(429);
     expect((await request(a).post(URL).set('Authorization', await admin()).send({ valor: PLACA })).status).toBe(200);
+  });
+});
+
+// HU #13941 (AC4/AC6): «Consultar la gestión» de Dr. Flit se exige PRIMERO; la frontera sigue siendo `conAlcance`.
+describe('HU #13941 · POST /buscar — función «Consultar la gestión» de Dr. Flit', () => {
+  it('AC4: con `impuestos.cola.ver` pero sin `drflit.gestion.consultar` → 403 drflit-funcion-no-habilitada, sin consultar ni rastro', async () => {
+    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: ['impuestos.cola.ver'] });
+    const r = await request(await app()).post(URL).set('Authorization', `Bearer ${t}`).send({ valor: PLACA });
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({ error: expect.any(String), codigo: 'drflit-funcion-no-habilitada', funcion: 'drflit.gestion.consultar' });
+    expect(svc.colaImpuestos).not.toHaveBeenCalled();
+    expect(pii.logPiiAccess).not.toHaveBeenCalled();
+  });
+
+  it('AC6: enlace compañía con las dos funciones → la cola recibe el alcance de SU compañía (la frontera no cambia)', async () => {
+    svc.alcance = { enlace: 'compania', companiaId: 42 };
+    const t = `Bearer ${await testToken({ sub: ++sub, role: 'xyz_cliente' as never, tipoEnlace: 'compania', funciones: ['impuestos.cola.ver', 'drflit.gestion.consultar'] })}`;
+    const r = await request(await app()).post(URL).set('Authorization', t).send({ valor: PLACA });
+    expect(r.status).toBe(200);
+    expect(svc.colaImpuestos.mock.calls[0]![0]).toMatchObject({ userId: sub, alcance: svc.alcance });
   });
 });

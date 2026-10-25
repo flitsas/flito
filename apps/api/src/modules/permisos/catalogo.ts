@@ -83,7 +83,7 @@ export function moduloDeGrupo(label: string): string {
  * `catalogoPlano()` (que sigue siendo exactamente lo sembrado por las migraciones ≤ 0231) y entran en
  * `catalogoCompleto()` como ítem del árbol.
  */
-export const PAGINAS_NACIDAS_EN_EL_ARBOL: readonly PageSlug[] = ['admin_rendimiento'];
+export const PAGINAS_NACIDAS_EN_EL_ARBOL: readonly PageSlug[] = ['admin_rendimiento', 'flito_dr_flit']; // HU #13941: la 0254
 
 /**
  * Las funciones de tipo `pagina`: una por slug CONCEDIBLE, con el label de `PAGES` como nombre.

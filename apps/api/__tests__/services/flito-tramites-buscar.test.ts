@@ -61,7 +61,7 @@ async function app() {
 let sub = 13836_000;
 const admin = async () => `Bearer ${await testToken({ sub: ++sub, role: 'admin' })}`;
 const deCompania = async () => `Bearer ${await testToken({
-  sub: ++sub, role: 'xyz_renombrado' as never, tipoEnlace: 'compania', funciones: ['tramites.cola.ver'],
+  sub: ++sub, role: 'xyz_renombrado' as never, tipoEnlace: 'compania', funciones: ['tramites.cola.ver', 'drflit.gestion.consultar'],
 })}`;
 
 const wheres = () => h.cap.sqlDeWheres().filter((w) => !w.sql.includes('"users"'));
@@ -95,8 +95,8 @@ describe('HU #13836 · POST /buscar — autenticación y permiso', () => {
     expect(pii.logPiiAccess).not.toHaveBeenCalled();
   });
 
-  it('403 sin la función tramites.cola.ver, sin consultar trámites ni escribir rastro', async () => {
-    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: [] });
+  it('403 sin la función tramites.cola.ver (con la de Dr. Flit), sin consultar trámites ni escribir rastro', async () => {
+    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: ['drflit.gestion.consultar'] });
     const r = await request(await app()).post(URL).set('Authorization', `Bearer ${t}`).send({ valor: PLACA });
     expect(r.status).toBe(403);
     expect(wheres()).toHaveLength(0);
@@ -211,5 +211,17 @@ describe('HU #13836 · POST /buscar — limitador por usuario', () => {
     h.cap.reset(); // el 429 no consumió sus respuestas encoladas
     h.cap.responder(SUBCONSULTA, [{ total: 0, marca: 'x' }], []);
     expect((await request(a).post(URL).set('Authorization', await admin()).send({ valor: PLACA })).status).toBe(200);
+  });
+});
+
+// HU #13941 (AC4/AC6): «Consultar la gestión» de Dr. Flit se exige PRIMERO; la frontera sigue siendo `conAlcance`.
+describe('HU #13941 · POST /buscar — función «Consultar la gestión» de Dr. Flit', () => {
+  it('AC4: con `tramites.cola.ver` pero sin `drflit.gestion.consultar` → 403 drflit-funcion-no-habilitada, sin consultar ni rastro', async () => {
+    const t = await testToken({ sub: ++sub, role: 'xyz_sin_nada' as never, funciones: ['tramites.cola.ver'] });
+    const r = await request(await app()).post(URL).set('Authorization', `Bearer ${t}`).send({ valor: PLACA });
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({ error: expect.any(String), codigo: 'drflit-funcion-no-habilitada', funcion: 'drflit.gestion.consultar' });
+    expect(wheres()).toHaveLength(0);
+    expect(pii.logPiiAccess).not.toHaveBeenCalled();
   });
 });

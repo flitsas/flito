@@ -21,7 +21,9 @@ import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA } from './acciones-finanzas.js';
 export const lit = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 
 /** La HU dueña de cada área: sufijo de las tablas temporales, para que dos repartos no compartan nombre. */
-export const HU_DE_AREA: Readonly<Record<AreaArbol, string>> = { gestion: '12873', finanzas: '13427', administracion: '13428', legado: '13429' };
+export const HU_DE_AREA: Readonly<Record<AreaArbol, string>> = {
+  gestion: '12873', finanzas: '13427', administracion: '13428', legado: '13429', 'dr-flit': '13941',
+};
 
 /**
  * Las acciones de un área que sembró su migración del árbol (0232-0239, aplicadas). Las nacidas después
