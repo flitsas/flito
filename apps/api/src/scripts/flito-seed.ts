@@ -36,14 +36,16 @@ async function main(): Promise<void> {
   }
 
   // ── Compañías (sobre clients) ──────────────────────────────────────────────
+  // Las tres banderas de autogestión van SIEMPRE explícitas: desde la 0252 (HU #13937) el DEFAULT
+  // es `true` (empresa nueva sin servicios FLITO), y cada compañía demo conserva su caso.
   const companias = await db.insert(clients).values([
-    { name: 'TESLA COLOMBIA S.A.S.', document: '901789698', documentType: 'NIT', flitoCarpetaStorage: 'FLIT/Clientes/Tesla', flitoToleranciaValorImpuesto: '0' },
-    { name: 'BANCOLOMBIA S.A.', document: '890903938', documentType: 'NIT', flitoCarpetaStorage: 'FLIT/Clientes/Bancolombia', flitoToleranciaValorImpuesto: '20000' },
+    { name: 'TESLA COLOMBIA S.A.S.', document: '901789698', documentType: 'NIT', soatAutogestionable: false, impuestosAutogestionable: false, logisticaAutogestionable: false, flitoCarpetaStorage: 'FLIT/Clientes/Tesla', flitoToleranciaValorImpuesto: '0' },
+    { name: 'BANCOLOMBIA S.A.', document: '890903938', documentType: 'NIT', soatAutogestionable: false, impuestosAutogestionable: false, logisticaAutogestionable: false, flitoCarpetaStorage: 'FLIT/Clientes/Bancolombia', flitoToleranciaValorImpuesto: '20000' },
     // CA-01 SOAT: autogestiona SOAT → sus trámites no aparecen en cola de SOAT. NIT = gestora real
     // frecuente en el reporte de FLIT (empareja sus trámites por CompaniaGestora).
-    { name: 'RENTING S.A.S', document: '811011779', documentType: 'NIT', soatAutogestionable: true, flitoCarpetaStorage: 'FLIT/Clientes/Renting', flitoToleranciaValorImpuesto: '0' },
+    { name: 'RENTING S.A.S', document: '811011779', documentType: 'NIT', soatAutogestionable: true, impuestosAutogestionable: false, logisticaAutogestionable: false, flitoCarpetaStorage: 'FLIT/Clientes/Renting', flitoToleranciaValorImpuesto: '0' },
     // CA-05 Impuestos: autogestiona impuestos → no entra al módulo, sin importar la modalidad.
-    { name: 'LOGÍSTICA DEL CARIBE S.A.S.', document: '900789123', documentType: 'NIT', impuestosAutogestionable: true, logisticaAutogestionable: true, flitoCarpetaStorage: 'FLIT/Clientes/LogisticaCaribe', flitoToleranciaValorImpuesto: '0' },
+    { name: 'LOGÍSTICA DEL CARIBE S.A.S.', document: '900789123', documentType: 'NIT', soatAutogestionable: false, impuestosAutogestionable: true, logisticaAutogestionable: true, flitoCarpetaStorage: 'FLIT/Clientes/LogisticaCaribe', flitoToleranciaValorImpuesto: '0' },
   ]).returning();
   const porNombre = (prefijo: string) => companias.find((c) => c.name.startsWith(prefijo))!;
 
