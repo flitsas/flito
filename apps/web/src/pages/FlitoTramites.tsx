@@ -948,6 +948,7 @@ function ModalDesbloqueo({ fila, onCerrar, onHecho }: {
 
 function ModalCrearEmpresa({ fila, onCerrar, onCreado }: { fila: TramiteFila; onCerrar: () => void; onCreado: () => void }) {
   const [nombre, setNombre] = useState(fila.companiaNombre ?? '');
+  // El estado guarda el DATO (`*Autogestionable`); el check lo pinta invertido: «FLITO gestiona» (HU #13935).
   const [soatAuto, setSoatAuto] = useState(false);
   const [impuestosAuto, setImpuestosAuto] = useState(false);
   const [logisticaAuto, setLogisticaAuto] = useState(false);
@@ -978,11 +979,11 @@ function ModalCrearEmpresa({ fila, onCerrar, onCreado }: { fila: TramiteFila; on
           <input className={flitInp} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Razón social de la empresa" autoFocus />
         </FlitField>
         <div>
-          <p className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--flit-text-muted)' }}>Autogestión (qué gestiona la empresa por su cuenta)</p>
+          <p className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--flit-text-muted)' }}>Servicios que gestiona FLITO</p>
           <div className="flex flex-wrap gap-4 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={soatAuto} onChange={(e) => setSoatAuto(e.target.checked)} /> SOAT</label>
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={impuestosAuto} onChange={(e) => setImpuestosAuto(e.target.checked)} /> Impuestos</label>
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={logisticaAuto} onChange={(e) => setLogisticaAuto(e.target.checked)} /> Logística</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={!soatAuto} onChange={(e) => setSoatAuto(!e.target.checked)} /> SOAT</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={!impuestosAuto} onChange={(e) => setImpuestosAuto(!e.target.checked)} /> Impuestos</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={!logisticaAuto} onChange={(e) => setLogisticaAuto(!e.target.checked)} /> Logística</label>
           </div>
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
