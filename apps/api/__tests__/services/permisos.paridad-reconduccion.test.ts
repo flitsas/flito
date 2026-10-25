@@ -172,6 +172,10 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'clients/clients.routes.ts PATCH /:id/estado',
       // HU #13954: `clients.clientes.eliminar`, absorbida por `accion.clientes.eliminar` (0258, solo `admin`).
       'clients/clients.routes.ts DELETE /:id',
+      // HU #13958: `parametrizacion.proveedores.estado`, absorbida por `accion.clientes.activar_desactivar_proveedores`
+      // (0261, solo `admin`).
+      'flito-parametrizacion/flito-parametrizacion.routes.ts GET /proveedores-soat/:id/impacto',
+      'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /proveedores-soat/:id/estado',
     ]);
   });
 });

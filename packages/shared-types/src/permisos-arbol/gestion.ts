@@ -111,6 +111,8 @@ export const ITEMS_CLIENTES_Y_BITACORA: readonly ItemDef[] = [
     a('activar_desactivar', 'Activar o desactivar clientes', 'Desactivar un cliente (sus usuarios pierden el acceso) o volver a activarlo, viendo antes el impacto.'),
     // HU #13954: exclusiva del Administrador. Nace tras la siembra (0258).
     a('eliminar', 'Eliminar clientes', 'Eliminar un cliente inactivo, sin procesos abiertos ni saldo en su bolsa. Sus usuarios quedan dados de baja.'),
+    // HU #13958: exclusiva del Administrador. Nace tras la siembra (0261).
+    a('activar_desactivar_proveedores', 'Activar o desactivar proveedores', 'Desactivar un proveedor SOAT (sus usuarios pierden el acceso) o volver a activarlo, viendo antes el impacto.'),
   ] },
   { slug: 'flito_bitacora', clave: 'bitacora', nombre: 'Bitácora', elemento: 'gestion', orden: 100, acciones: [
     a('ver', 'Ver la bitácora', 'Consultar la bitácora de cambios y la de cada registro.'),

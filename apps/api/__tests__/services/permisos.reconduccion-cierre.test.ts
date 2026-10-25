@@ -207,8 +207,9 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +2 por la HU #13945 (clientes: `GET /:id/impacto` y `PATCH /:id/estado`, ambas con `clients.clientes.estado`,
     // la operación absorbida por la acción exclusiva del Administrador `accion.clientes.activar_desactivar`).
     // +1 por la HU #13954 (clientes: `DELETE /:id` con `clients.clientes.eliminar`, absorbida por `accion.clientes.eliminar`).
-    expect(GUARDAS_MEDIDAS).toHaveLength(630);
-    expect(montajes).toHaveLength(630);
+    // +2 por la HU #13958 (proveedores SOAT: `GET /:id/impacto` y `PATCH /:id/estado` con `parametrizacion.proveedores.estado`).
+    expect(GUARDAS_MEDIDAS).toHaveLength(632);
+    expect(montajes).toHaveLength(632);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)

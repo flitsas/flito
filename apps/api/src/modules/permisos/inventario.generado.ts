@@ -223,6 +223,9 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/proveedores-soat", roles: ["admin","auditor"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "POST", ruta: "/proveedores-soat", roles: ["admin"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "PATCH", ruta: "/proveedores-soat/:id", roles: ["admin"], heredada: false },
+  // HU #13958: «Activar o desactivar proveedores», exclusiva del Administrador (nace en el árbol; su acción la siembra la 0261).
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/proveedores-soat/:id/impacto", roles: ["admin"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "PATCH", ruta: "/proveedores-soat/:id/estado", roles: ["admin"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/organismos", roles: ["admin","auditor"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/organismos/:codigo/vigencias", roles: ["admin","auditor"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "POST", ruta: "/organismos/:codigo/modalidad", roles: ["admin"], heredada: false },

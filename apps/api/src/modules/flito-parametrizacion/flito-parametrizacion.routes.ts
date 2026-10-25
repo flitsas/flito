@@ -17,7 +17,7 @@ import {
   flitoReglasProveedorSoat,
   organismosTransitoConfig,
 } from '../../db/schema.js';
-import { authMiddleware } from '../../shared/middleware/auth.js';
+import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, funcionesConcedidas, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
@@ -45,6 +45,10 @@ import {
   crearTipo, darDeBajaTipo, editarTipo, listarTipos,
   ServicioAdicionalConflictoError, ServicioAdicionalError, ServicioAdicionalNoEncontradoError,
 } from './flito-servicios-adicionales.service.js';
+import {
+  EstadoProveedorCambiadoError, MENSAJE_ESTADO_POR_ACCION, ProveedorSoatNoEncontradoError,
+  cambiarEstadoProveedorSoat, impactoProveedorSoat,
+} from './flito-proveedores-estado.service.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -393,12 +397,19 @@ router.patch('/proveedores-soat/:id', exigirFuncion('parametrizacion.proveedores
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
 
   const cambios = parsed.data;
+  // HU #13958 (AC5): el estado tiene su propia acción (exclusiva del Administrador, `PATCH /:id/estado`). Intentar
+  // CAMBIARLO aquí → 400; el mismo valor que ya tiene se ignora (patrón de `PATCH /api/clients/:id`, HU #13945: el
+  // formulario de edición reenvía la fila completa y no debe romperse). `activo` nunca entra en el `set`.
+  if (cambios.activo !== undefined) {
+    const [actual] = await db.select({ activo: flitoProveedoresSoat.activo }).from(flitoProveedoresSoat)
+      .where(eq(flitoProveedoresSoat.id, id)).limit(1);
+    if (actual && actual.activo !== cambios.activo) { res.status(400).json({ error: MENSAJE_ESTADO_POR_ACCION }); return; }
+  }
   const set: Partial<typeof flitoProveedoresSoat.$inferInsert> = {};
   if (cambios.nombre !== undefined) set.nombre = cambios.nombre;
   if (cambios.estrategia !== undefined) set.estrategia = cambios.estrategia;
   if (cambios.umbralOcr !== undefined) set.umbralOcr = cambios.umbralOcr === null ? null : String(cambios.umbralOcr);
   if (cambios.slaHoras !== undefined) set.slaHoras = cambios.slaHoras;
-  if (cambios.activo !== undefined) set.activo = cambios.activo;
 
   if (Object.keys(set).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
 
@@ -419,6 +430,51 @@ router.patch('/proveedores-soat/:id', exigirFuncion('parametrizacion.proveedores
 
   await audit(req, { action: 'update', resource: 'flito_proveedor_soat', resourceId: id, detail: `Parametrización proveedor ${updated.nombre}` });
   res.json(proveedorDto(updated));
+});
+
+// ── HU #13958: desactivar y activar un proveedor SOAT, con vista previa de su impacto ────────────────────────────
+// Las dos rutas exigen `parametrizacion.proveedores.estado`, que concede «Activar o desactivar proveedores», exclusiva
+// del Administrador (0261). Gemelas de `GET /api/clients/:id/impacto` y `PATCH /api/clients/:id/estado` (HU #13945).
+
+const UUID = z.string().uuid();
+const idProveedor = (req: Request): string | null => (UUID.safeParse(req.params.id).success ? req.params.id : null);
+
+router.get('/proveedores-soat/:id/impacto', exigirFuncion('parametrizacion.proveedores.estado'), async (req: Request, res: Response) => {
+  const id = idProveedor(req);
+  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
+  const impacto = await impactoProveedorSoat(db, id);
+  if (!impacto) { res.status(404).json({ error: new ProveedorSoatNoEncontradoError().message }); return; }
+  res.json(impacto);
+});
+
+const estadoProveedorSchema = z.object({ activo: z.boolean(), activoEsperado: z.boolean() }).strict();
+
+router.patch('/proveedores-soat/:id/estado', exigirFuncion('parametrizacion.proveedores.estado'), async (req: Request, res: Response, next: NextFunction) => {
+  const id = idProveedor(req);
+  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
+  const parsed = estadoProveedorSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+
+  let cambio;
+  try {
+    cambio = await cambiarEstadoProveedorSoat(id, parsed.data);
+  } catch (e) {
+    if (e instanceof ProveedorSoatNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
+    if (e instanceof EstadoProveedorCambiadoError) { res.status(409).json({ error: e.message }); return; }
+    next(e); return;
+  }
+  // DESPUÉS del commit (patrón de `clients.routes.ts`): la siguiente petición de cada usuario relee la marca.
+  for (const userId of cambio.usuariosInvalidados) invalidateSessionCacheFor(userId);
+
+  // El nombre de un proveedor no es PII (mismo detalle que el resto de auditorías de proveedores).
+  await audit(req, {
+    action: 'update',
+    resource: 'flito_proveedor_soat',
+    resourceId: id,
+    detail: `Proveedor SOAT ${cambio.activo ? 'activado' : 'desactivado'}: ${cambio.nombre}`
+      + (cambio.activo ? '' : ` · sesiones invalidadas: ${cambio.usuariosInvalidados.length} usuario(s)`),
+  });
+  res.json({ id: cambio.id, activo: cambio.activo });
 });
 
 // ───────────────────────────────── Organismos + modalidad ───────────────────

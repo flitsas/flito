@@ -354,3 +354,55 @@ describe('POST /api/auth/login — compañía inactiva (HU #13945)', () => {
     expect(argonVerifyMock).not.toHaveBeenCalled();
   });
 });
+
+// HU #13958 (AC3/AC4) — Proveedor SOAT inactivo o eliminado: 403 con el motivo SOLO con la contraseña correcta.
+describe('POST /api/auth/login — proveedor SOAT inactivo (HU #13958)', () => {
+  const PROV = '11111111-1111-4111-8111-111111111111';
+  const gestor = { id: 61, username: 'gestorsoat', passwordHash: 'h', active: true, role: 'gestor_soat', name: 'G', allowedPages: null, companiaId: null, flitoProveedorSoatId: PROV };
+
+  it('AC3: contraseña correcta y proveedor inactivo → 403 con el motivo, auditado sin PII y sin contar como intento fallido', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([gestor]))
+      .mockReturnValueOnce(chain([{ activo: false, deletedAt: null }])); // flito_proveedores_soat de su proveedor
+    argonVerifyMock.mockResolvedValueOnce(true);
+    const app = await buildApp();
+    const r = await request(app).post('/api/auth/login').send({ username: 'gestorsoat', password: 'OK' });
+    expect(r.status).toBe(403);
+    expect(r.body.error).toBe('Tu proveedor está inactivo en FLITO. Comunícate con el administrador.');
+    expect(r.body.token).toBeUndefined();
+    expect(registerFailedMock).not.toHaveBeenCalled();
+    expect(clearLockoutMock).not.toHaveBeenCalled();
+    const entrada = auditMock.mock.calls[0]![1];
+    expect(entrada).toMatchObject({ action: 'login_failed', resource: 'auth', resourceId: '61', detail: 'proveedor SOAT inactivo' });
+    expect(JSON.stringify(entrada)).not.toContain('gestorsoat');
+  });
+
+  it('AC3: proveedor eliminado (activo pero con deleted_at) → el mismo 403', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([gestor]))
+      .mockReturnValueOnce(chain([{ activo: true, deletedAt: new Date() }]));
+    argonVerifyMock.mockResolvedValueOnce(true);
+    const app = await buildApp();
+    const r = await request(app).post('/api/auth/login').send({ username: 'gestorsoat', password: 'OK' });
+    expect(r.status).toBe(403);
+    expect(r.body.error).toBe('Tu proveedor está inactivo en FLITO. Comunícate con el administrador.');
+  });
+
+  it('contraseña incorrecta con el proveedor inactivo → 401 genérico y no consulta el proveedor', async () => {
+    selectMock.mockReturnValueOnce(chain([gestor]));
+    argonVerifyMock.mockResolvedValueOnce(false);
+    const app = await buildApp();
+    const r = await request(app).post('/api/auth/login').send({ username: 'gestorsoat', password: 'mala' });
+    expect(r.status).toBe(401);
+    expect(r.body.error).toBe('Credenciales inválidas');
+    expect(selectMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('AC4: usuario inactivo por su cuenta → sigue el 401 de siempre, aunque el proveedor esté activo', async () => {
+    selectMock.mockReturnValueOnce(chain([{ ...gestor, active: false }]));
+    const app = await buildApp();
+    const r = await request(app).post('/api/auth/login').send({ username: 'gestorsoat', password: 'OK' });
+    expect(r.status).toBe(401);
+    expect(argonVerifyMock).not.toHaveBeenCalled();
+  });
+});
