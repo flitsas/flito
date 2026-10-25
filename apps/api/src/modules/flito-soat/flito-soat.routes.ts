@@ -40,6 +40,7 @@ import {
   construirFilasExportSoat, nombreArchivoExportSoat,
 } from './flito-soat.export.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
+import { ProveedorSoatNoUsableError } from '../flito-parametrizacion/flito-proveedores-estado.service.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -84,6 +85,8 @@ const ESTADOS = [
 function handleError(res: Response, e: unknown): void {
   if (e instanceof SoatError) { res.status(e.status).json({ error: e.message }); return; }
   if (e instanceof OcrNoDisponibleError) { res.status(e.status).json({ error: e.message }); return; }
+  // RN-PROV-5 (HU #13959): el gestor elegido está inactivo o eliminado → 409 (AC1/AC2).
+  if (e instanceof ProveedorSoatNoUsableError) { res.status(409).json({ error: e.message }); return; }
   throw e;
 }
 
@@ -593,7 +596,8 @@ router.post('/enviar', exigirFuncion('soat.solicitud.enviar'), async (req: Reque
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const { ids, proveedorSoatId, gestionOperaciones } = parsed.data;
   const ctx = await contextoSoat(req.user!);
-  const resultado = await enviarAlGestor(ids, ctx, { proveedorSoatId, gestionOperaciones });
+  let resultado;
+  try { resultado = await enviarAlGestor(ids, ctx, { proveedorSoatId, gestionOperaciones }); } catch (e) { handleError(res, e); return; }
   if (resultado.enviados.length > 0) {
     const destino = gestionOperaciones ? 'gestión de Operaciones' : `proveedor ${proveedorSoatId}`;
     await audit(req, { action: 'update', resource: 'flito_soat', resourceId: resultado.enviados.join(','), detail: `Enviados a ${destino}: ${resultado.enviados.length} (pendiente→en_adquisicion)` });

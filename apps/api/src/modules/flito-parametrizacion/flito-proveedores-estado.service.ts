@@ -112,3 +112,29 @@ export async function proveedorSoatInactivo(proveedorId: string | null | undefin
     .from(flitoProveedoresSoat).where(eq(flitoProveedoresSoat.id, proveedorId)).limit(1);
   return fila !== undefined && (!fila.activo || fila.deletedAt !== null);
 }
+
+// ── HU #13959 — Un proveedor inactivo o eliminado no se puede elegir como destino ─────────────────────────────────
+//   · RN-PROV-5 — Envío de SOAT (`POST /flito/soat/enviar`, 409) y gestor por defecto de la compañía
+//       (`PATCH /flito/parametrizacion/companias/:id`, 400) comprueban el proveedor DENTRO de su transacción con
+//       `SELECT … FOR SHARE`: el cambio de estado (RN-PROV-2) toma `FOR UPDATE` sobre la misma fila, así que una
+//       desactivación en curso hace esperar a la asignación, y esta relee el estado ya confirmado (AC6). Leerlo sin
+//       bloqueo (READ COMMITTED) vería aún `activo = true` y dejaría aplicados los dos cambios.
+
+export const MENSAJE_PROVEEDOR_NO_EXISTE = 'El gestor seleccionado no existe o fue eliminado.';
+export const mensajeProveedorInactivo = (nombre: string): string => `El gestor ${nombre} está inactivo: elige otro gestor.`;
+
+/** El proveedor elegido como destino no se puede usar. La ruta decide el status (409 envío, 400 compañía). */
+export class ProveedorSoatNoUsableError extends Error {
+  constructor(message: string, readonly motivo: 'inactivo' | 'no_existe') {
+    super(message); this.name = 'ProveedorSoatNoUsableError';
+  }
+}
+
+/** RN-PROV-5. Debe llamarse con la transacción que escribe: el `FOR SHARE` dura hasta su commit. */
+export async function exigirProveedorSoatUsable(tx: Tx, id: string): Promise<void> {
+  const [p] = await tx.select({
+    nombre: flitoProveedoresSoat.nombre, activo: flitoProveedoresSoat.activo, deletedAt: flitoProveedoresSoat.deletedAt,
+  }).from(flitoProveedoresSoat).where(eq(flitoProveedoresSoat.id, id)).for('share').limit(1);
+  if (!p || p.deletedAt != null) throw new ProveedorSoatNoUsableError(MENSAJE_PROVEEDOR_NO_EXISTE, 'no_existe');
+  if (!p.activo) throw new ProveedorSoatNoUsableError(mensajeProveedorInactivo(p.nombre), 'inactivo');
+}

@@ -47,6 +47,7 @@ import { ANS_OPERATIVO,
 import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
 import { extraerFacturaSoat, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
+import { exigirProveedorSoatUsable } from '../flito-parametrizacion/flito-proveedores-estado.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { EXISTS_COMPROBANTE_SOAT, TIPO_FACTURA_SOAT } from './flito-soat-censo.js';
@@ -1519,6 +1520,8 @@ export async function enviarAlGestor(
   if (alcance === null) return { enviados: [], yaEnviados: [...ids] };
 
   const enviados = await db.transaction(async (tx) => {
+    // RN-PROV-5 (HU #13959): inactivo o eliminado → 409, con FOR SHARE en ESTA tx (AC6).
+    if (destino.proveedorSoatId) await exigirProveedorSoatUsable(tx, destino.proveedorSoatId);
     // FOR UPDATE OF flito_soat SKIP LOCKED: el segundo usuario que envíe el mismo registro no
     // ve la fila que el primero bloqueó (CA-04). Solo bloquea flito_soat (no clients).
     const locked = await tx
