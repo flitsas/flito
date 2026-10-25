@@ -453,6 +453,19 @@ describe('AC7 — reemplazar un impuesto aplicado por un pendiente', () => {
     ]);
   });
 
+  it('HU #13904: la alerta de saldo negativo del reemplazo (con bolsaNombre) llega en `comprobante.bolsa` de la respuesta', async () => {
+    armarReemplazo();
+    const plan = planFalso();
+    const bolsa = {
+      movimientos: [{ bolsaId: 'bolsa-1', alcance: 'compania', movimientoId: 'mov-1', valor: 300000, saldoResultante: -200000 }],
+      omitidos: [], alertas: [{ bolsaId: 'bolsa-1', bolsaNombre: 'Cliente Uno', alcance: 'compania', saldoResultante: -200000 }],
+    };
+    plan.respuesta.mockResolvedValue({ id: R_ID, estado: 'aplicado', bolsa });
+    const res = await request(await buildApp()).post(`${BASE}/${ID}/reemplazar`).set('Authorization', await auth()).send({ reemplazoId: R_ID, motivo: MOTIVO });
+    expect(res.status).toBe(200);
+    expect(res.body.comprobante.bolsa).toEqual(bolsa);
+  });
+
   it('si aplicar el reemplazo falla: sale el error de aplicar, el original sigue aplicado y la reversa del dueño también se deshace', async () => {
     armarReemplazo();
     const falla = new ComprobanteError(409, 'destino_no_admite', 'El destino no admite este pago', { detalle: 'x', puedeAdjuntar: false });
@@ -491,14 +504,14 @@ describe('AC8 — dos desaplicaciones a la vez: una gana, la otra 409 no_aplicad
 
 // ═════════════════ AC9 ══════════════════════════════════════════════════════════════════════════
 
-describe('AC9 — la guarda de la bolsa responde periodo_cerrado: se propaga con { bolsaId, periodo } y nada cambia', () => {
-  beforeEach(() => { h.exigir.mockImplementation(async () => { throw new PeriodoCerradoError('bolsa-9', '2026-09'); }); });
+describe('AC9 — la guarda de la bolsa responde periodo_cerrado: se propaga con { bolsaId, bolsaNombre, periodo } y nada cambia', () => {
+  beforeEach(() => { h.exigir.mockImplementation(async () => { throw new PeriodoCerradoError('bolsa-9', '2026-09', 'Cliente Nueve'); }); });
 
   it('desaplicar → 409 periodo_cerrado con bolsaId y periodo; ni reversa de bolsa ni del dueño', async () => {
     armarSoat();
     const res = await request(await buildApp()).post(`${BASE}/${ID}/desaplicar`).set('Authorization', await auth()).send({ destino: 'pendiente', motivo: MOTIVO });
     expect(res.status).toBe(409);
-    expect(res.body).toMatchObject({ codigo: 'periodo_cerrado', bolsaId: 'bolsa-9', periodo: '2026-09' });
+    expect(res.body).toMatchObject({ codigo: 'periodo_cerrado', bolsaId: 'bolsa-9', bolsaNombre: 'Cliente Nueve', periodo: '2026-09' });
     expect(h.revertir).not.toHaveBeenCalled(); expect(h.reversaSoat).not.toHaveBeenCalled();
     nadaCambio();
   });
@@ -508,7 +521,7 @@ describe('AC9 — la guarda de la bolsa responde periodo_cerrado: se propaga con
     const plan = planFalso();
     const res = await request(await buildApp()).post(`${BASE}/${ID}/reemplazar`).set('Authorization', await auth()).send({ reemplazoId: R_ID, motivo: MOTIVO });
     expect(res.status).toBe(409);
-    expect(res.body).toMatchObject({ codigo: 'periodo_cerrado', bolsaId: 'bolsa-9', periodo: '2026-09' });
+    expect(res.body).toMatchObject({ codigo: 'periodo_cerrado', bolsaId: 'bolsa-9', bolsaNombre: 'Cliente Nueve', periodo: '2026-09' });
     expect(plan.enTx).not.toHaveBeenCalled();
     nadaCambio();
   });

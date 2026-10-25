@@ -244,12 +244,14 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
   // ─────────────────────────── AC5 ───────────────────────────
 
   describe('AC5 — saldo insuficiente no bloquea', () => {
-    it('TC-09 · saldo 100.000 y comprobante 300.000 → saldo −200.000 y alerta con la bolsa', async () => {
+    it('TC-09 · saldo 100.000 y comprobante 300.000 → saldo −200.000 y alerta con la bolsa (y su nombre visible, HU #13904)', async () => {
       const e = await escenario({ saldo: 100_000 });
       const id = await comprobante(e.tramiteId, 'derecho', 300_000);
       const r = await descontar(pago(id, e.tramiteId, 'derecho', 300_000));
       expect(await saldo(e.bolsaId!)).toBe(-200_000);
-      expect(r!.alertas).toEqual([{ bolsaId: e.bolsaId, alcance: 'compania', saldoResultante: -200_000 }]);
+      // Bolsa de compañía: `nombre` es NULL, así que el nombre visible es el del cliente.
+      const [cli] = await sql`SELECT name FROM clients WHERE id = ${e.companiaId}`;
+      expect(r!.alertas).toEqual([{ bolsaId: e.bolsaId, bolsaNombre: cli!.name, alcance: 'compania', saldoResultante: -200_000 }]);
     });
   });
 

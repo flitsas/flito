@@ -196,21 +196,23 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
       await descontar(pago(id, e.tramiteId, 'impuesto', 250_000));
       vi.setSystemTime(ENE_5);
       await cerrar(e.bolsaId, '2026-12');
-      return { e, id };
+      // HU #13904: bolsa de compañía (`nombre` NULL) → el nombre visible es el del cliente.
+      const [cli] = await sql`SELECT name FROM clients WHERE id = ${e.companiaId}`;
+      return { e, id, bolsaNombre: cli!.name as string };
     }
 
     it('TC-03 · exigirDescuentoReversible lanza PeriodoCerradoError {bolsaId, periodo:"2026-12"}', async () => {
-      const { e, id } = await descontadoEnDiciembreCerrado();
+      const { e, id, bolsaNombre } = await descontadoEnDiciembreCerrado();
       const err = await exigir(id).catch((x: unknown) => x);
       expect(err).toBeInstanceOf(d.PeriodoCerradoError);
-      expect(err).toMatchObject({ bolsaId: e.bolsaId, periodo: '2026-12' });
+      expect(err).toMatchObject({ bolsaId: e.bolsaId, bolsaNombre, periodo: '2026-12' });
     });
 
     it('TC-04 · desaplicar → 409 periodo_cerrado; comprobante sigue aplicado, impuesto sigue pagado, bolsa sin movimientos', async () => {
-      const { e, id } = await descontadoEnDiciembreCerrado();
+      const { e, id, bolsaNombre } = await descontadoEnDiciembreCerrado();
       const err = await comp.desaplicar(id, { destino: 'pendiente', motivo: MOTIVO }, cctx).catch((x: unknown) => x) as { status: number; cuerpo: () => unknown };
       expect(err.status).toBe(409);
-      expect(err.cuerpo()).toMatchObject({ codigo: 'periodo_cerrado', bolsaId: e.bolsaId, periodo: '2026-12' });
+      expect(err.cuerpo()).toMatchObject({ codigo: 'periodo_cerrado', bolsaId: e.bolsaId, bolsaNombre, periodo: '2026-12' });
       expect(await estadoComprobante(id)).toMatchObject({ estado: 'aplicado', tramite_id: e.tramiteId });
       expect((await sql`SELECT estado FROM flito_impuestos WHERE tramite_id = ${e.tramiteId}`)[0]!.estado).toBe('pagado');
       expect(await movimientos(e.bolsaId)).toHaveLength(1);
@@ -218,11 +220,11 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
     });
 
     it('TC-05 · reemplazar → 409 periodo_cerrado; original aplicado, reemplazo pendiente, bolsa sin movimientos', async () => {
-      const { e, id } = await descontadoEnDiciembreCerrado();
+      const { e, id, bolsaNombre } = await descontadoEnDiciembreCerrado();
       const reemplazoId = await comprobante(null, null, null, 'pendiente');
       const err = await comp.reemplazar(id, { reemplazoId, motivo: MOTIVO }, cctx).catch((x: unknown) => x) as { status: number; cuerpo: () => unknown };
       expect(err.status).toBe(409);
-      expect(err.cuerpo()).toMatchObject({ codigo: 'periodo_cerrado', bolsaId: e.bolsaId, periodo: '2026-12' });
+      expect(err.cuerpo()).toMatchObject({ codigo: 'periodo_cerrado', bolsaId: e.bolsaId, bolsaNombre, periodo: '2026-12' });
       expect((await estadoComprobante(id)).estado).toBe('aplicado');
       expect((await estadoComprobante(reemplazoId)).estado).toBe('pendiente');
       expect((await sql`SELECT estado FROM flito_impuestos WHERE tramite_id = ${e.tramiteId}`)[0]!.estado).toBe('pagado');
