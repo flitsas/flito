@@ -179,6 +179,9 @@ export const CLIENTS_COLUMNAS_SIN_PII = [
   'personType', 'idType', 'checkDigit', 'fiscalResponsibilities',
   'countryCode', 'stateCode', 'cityCode', 'branchOffice',
   'personTypeOrigen', 'facturacionBloqueos',
+  // HU #13952 (0257): baja lógica del cliente —cuándo y qué usuario—, como `cityConfirmadaPor/En`. No identifica
+  // a nadie, y borrarla en un derecho al olvido devolvería a la vida un cliente dado de baja.
+  'deletedAt', 'deletedBy',
 ] as const;
 
 /**

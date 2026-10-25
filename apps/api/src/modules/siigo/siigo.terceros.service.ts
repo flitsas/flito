@@ -75,6 +75,8 @@ interface FichaCliente {
   name: string;
   /** HU #13947: un cliente inactivo no se sincroniza con Siigo. Opcional para no exigirlo a quien arma la ficha. */
   active?: boolean;
+  /** HU #13952: baja lógica. Un cliente eliminado no se sincroniza con Siigo. Opcional por lo mismo que `active`. */
+  deletedAt?: Date | null;
   document: string | null;
   idType: string | null;
   personType: string | null;
@@ -537,6 +539,7 @@ async function cargarCliente(clienteId: number): Promise<FichaCliente | null> {
     id: clients.id,
     name: clients.name,
     active: clients.active,
+    deletedAt: clients.deletedAt,
     document: clients.document,
     idType: clients.idType,
     personType: clients.personType,
@@ -614,8 +617,10 @@ export async function asegurarTercero(
     throw new SiigoTerceroError('cliente_no_existe', `No existe el cliente ${clienteId}.`);
   }
   // HU #13947: con el cliente inactivo no se llama a Siigo (ni a leer ni a escribir). 409 por `estadoDe` de la ruta.
-  // HU #13952: deleted_at → mismo código y mismo mensaje («… inactivo o eliminado»).
-  if (cliente.active === false && opciones.emisionDeLoteEnCurso !== true) {
+  // HU #13952: eliminado (`deleted_at`) → mismo código y mismo mensaje («… inactivo o eliminado»), pero SIN la
+  // excepción del lote en curso: esa es la regla 6 de la Épica para un cliente desactivado; uno eliminado no emite.
+  const eliminado = cliente.deletedAt != null;
+  if (eliminado || (cliente.active === false && opciones.emisionDeLoteEnCurso !== true)) {
     throw new SiigoTerceroError('cliente_inactivo', `El cliente ${cliente.name} está inactivo o eliminado.`);
   }
 
