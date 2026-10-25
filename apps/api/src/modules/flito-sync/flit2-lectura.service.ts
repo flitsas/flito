@@ -63,6 +63,10 @@
 //        mismas condiciones (flit_estado Asignado, compañía y organismo emparejados) más una: el
 //        trámite tiene comprador principal. Sin él, espera sin fallar; la entrega que lo traiga arranca.
 //
+// HU #13946  Compañía inactiva (`companiaRetiene`, el mismo predicado de FLIT 1): el trámite NUEVO nace
+//        `retenido = true`; `retenido` no se toca en updates; con la compañía inactiva o el trámite retenido
+//        no arranca. La activación del cliente lo libera (`liberar-retenidos.ts`, con RN-17 y RN-19).
+//
 // ── HU #13094 (PII enmascarada). Diseño: `docs/diseno/hu-13094-pii-enmascarada-flit2.md` ──────────
 //
 // RN-18  Detección: por el SCOPE del pase con que salió la página (`PaginaFlit2.conPii`, o el de
@@ -138,7 +142,7 @@ import { flitoSyncFlit2Lectura, flitoTramites, vehicles } from '../../db/schema.
 import { loggerFor } from '../../shared/logger.js';
 import { companiaPorNit } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import {
-  arrancarSoatEImpuesto, escribirTramite, esAsignado, fechaValida, leerCompradores, reemplazarCompradores, registrarDiferencias,
+  arrancarSoatEImpuesto, companiaRetiene, escribirTramite, esAsignado, fechaValida, leerCompradores, reemplazarCompradores, registrarDiferencias,
   resolverOrganismoDeFlit, upsertVehiculo, type ContadoresArranque, type ValorTramite, type VehiculoFlit,
 } from './flito-sync.service.js';
 import {
@@ -371,6 +375,8 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
     fuente: 'flit2',
     idFlit2: it.idFlit2,
     syncVersion: it.syncVersion,
+    // HU #13946 (RN-RET-1/2, igual que FLIT 1): solo en el alta; un update no toca `retenido`.
+    ...(porId ? {} : { retenido: companiaRetiene(compania) }),
   };
 
   const { row, esNuevo, huboCambios, diferencias } = await escribirTramite(tx, porId ?? null, it.radicado, valores);
@@ -390,7 +396,9 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
 
   // RN-17: las mismas condiciones y la misma función que FLIT 1, más el comprador principal.
   // RN-19: enmascarado, no arranca (espera la relectura, RN-20).
-  if (modo.conPii && esAsignado(row.flitEstado ?? '') && compania && organismo && tienePrincipal) {
+  // HU #13946 (RN-RET-1/3): un retenido, o cualquiera con la compañía inactiva, no arranca.
+  if (modo.conPii && esAsignado(row.flitEstado ?? '') && compania && organismo && tienePrincipal
+    && !row.retenido && !companiaRetiene(compania)) {
     vin ??= (await tx.select({ vin: vehicles.vin }).from(vehicles).where(eq(vehicles.id, vehiculoId)).limit(1))[0]?.vin ?? null;
     if (!vin) return; // un vehículo sin VIN no puede llevar SOAT (el SOAT va por VIN, RN-01 de FLIT 1)
     const liquidado = row.valorImpuestoLiquidado === null ? null : Number(row.valorImpuestoLiquidado);

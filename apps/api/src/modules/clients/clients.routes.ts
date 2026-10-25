@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import {
@@ -385,7 +385,7 @@ router.get('/:id/impacto', exigirFuncion('clients.clientes.estado'), async (req:
 
 const estadoSchema = z.object({ activo: z.boolean(), activoEsperado: z.boolean() }).strict();
 
-router.patch('/:id/estado', exigirFuncion('clients.clientes.estado'), async (req: Request, res: Response) => {
+router.patch('/:id/estado', exigirFuncion('clients.clientes.estado'), async (req: Request, res: Response, next: NextFunction) => {
   const id = idCliente(req);
   if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = estadoSchema.safeParse(req.body);
@@ -397,7 +397,9 @@ router.patch('/:id/estado', exigirFuncion('clients.clientes.estado'), async (req
   } catch (e) {
     if (e instanceof ClienteNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
     if (e instanceof EstadoClienteCambiadoError) { res.status(409).json({ error: e.message }); return; }
-    throw e;
+    // HU #13946 (AC6): p. ej. falló el arranque de un retenido al activar; la tx ya se revirtió. Al errorHandler (500):
+    // un `throw` en un handler async de Express 4 dejaría la petición colgada.
+    next(e); return;
   }
   // DESPUÉS del commit (patrón de `users.routes.ts`): la siguiente petición de cada usuario relee la marca.
   for (const userId of cambio.usuariosInvalidados) invalidateSessionCacheFor(userId);

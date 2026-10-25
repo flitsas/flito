@@ -27,6 +27,12 @@
 //   - FLIT 1 escribe con `soloSiCambia`: vehículo, trámite y compradores idénticos no se reescriben (no
 //     mueven `updated_at` ni dejan historial). El vehículo se decide DESPUÉS de `soloAlta` (Bug #13585).
 //     Consecuencia: `flito_tramites.sincronizado_en` pasa a ser «última vez que cambió». FLIT 2 no cambia.
+//
+// HU #13946 (FLIT 1 y FLIT 2, predicado `companiaRetiene`) — RN-RET-1: un trámite NUEVO cuya compañía cruzada existe y está inactiva (`clients.active = false`) se
+// guarda con `retenido = true` y NO arranca SOAT/impuesto. RN-RET-2: `retenido` solo se escribe en el alta; un
+// update de FLIT no lo toca (un retenido sigue retenido aunque llegue con la compañía ya activa: solo la activación
+// libera, en `liberar-retenidos.ts`). RN-RET-3: con la compañía inactiva tampoco arranca SOAT/impuesto un trámite
+// que ya existía sin retener (no nacen procesos para un cliente inactivo); el siguiente sync tras activarlo lo arranca.
 
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
@@ -74,6 +80,13 @@ export function fechaValida(v: string | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 export const esAsignado = (estadoFlit: string): boolean => estadoFlit.trim().toLowerCase() === 'asignado';
+
+/**
+ * HU #13946 (RN-RET-1/3): ¿la compañía cruzada retiene? Sí si existe y está inactiva. Predicado ÚNICO de FLIT 1 y
+ * FLIT 2: un trámite nuevo nace `retenido` y, mientras siga inactiva, ningún trámite suyo arranca SOAT/impuesto.
+ */
+export const companiaRetiene = (compania: Pick<CompaniaRow, 'active'> | null): boolean =>
+  compania !== null && compania.active === false;
 /** Logística arranca cuando el trámite está aprobado y el organismo emitió los documentos (§8). */
 export const esAprobado = (estadoFlit: string): boolean => estadoFlit.trim().toLowerCase() === 'aprobado';
 
@@ -201,15 +214,19 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
   const anulado = estadoEnumDesdeFlit(tf.estadoFlit) === EstadoTramiteFlito.ANULADO;
   // HU #13629: FLIT 1 solo escribe lo que cambió (`soloSiCambia`), siempre después de `soloAlta`.
   const vehiculoId = await upsertVehiculo(tx, tf, compania?.id ?? null, { soloAlta: anulado, soloSiCambia: true });
-  const { tramiteId, esNuevo, huboCambios, soatId } = await upsertTramite(tx, tf, vehiculoId, compania?.id ?? null, organismo?.codigo ?? null);
+  const companiaInactiva = companiaRetiene(compania);
+  const { tramiteId, esNuevo, huboCambios, soatId, retenido } = await upsertTramite(
+    tx, tf, vehiculoId, compania?.id ?? null, organismo?.codigo ?? null, companiaInactiva,
+  );
 
   // Nuevo / actualizado (llegó con diferencias, deja rastro) / sin cambios (idéntico, sin rastro).
   if (esNuevo) r.tramitesNuevos += 1;
   else if (huboCambios) r.tramitesActualizados += 1;
   else r.tramitesSinCambios += 1;
 
-  // SOAT/impuestos requieren compañía y organismo emparejados y estado Asignado.
-  if (esAsignado(tf.estadoFlit) && compania && organismo) {
+  // SOAT/impuestos requieren compañía y organismo emparejados y estado Asignado; nunca para un retenido ni
+  // para una compañía inactiva (HU #13946, RN-RET-1/3).
+  if (esAsignado(tf.estadoFlit) && compania && organismo && !retenido && !companiaInactiva) {
     await arrancarSoatEImpuesto(tx, tf, { tramiteId, soatId, vehiculoId, compania, organismoCodigo: organismo.codigo }, r);
   }
 
@@ -430,7 +447,8 @@ export async function escribirTramite(
 
 async function upsertTramite(
   tx: Tx, tf: TramiteFlit, vehiculoId: number, companiaId: number | null, organismoCodigo: string | null,
-): Promise<{ tramiteId: string; esNuevo: boolean; huboCambios: boolean; soatId: string | null }> {
+  retenerSiEsNuevo: boolean,
+): Promise<{ tramiteId: string; esNuevo: boolean; huboCambios: boolean; soatId: string | null; retenido: boolean }> {
   const [existente] = await tx.select().from(flitoTramites).where(eq(flitoTramites.idFlit, tf.idFlit)).limit(1);
 
   const valores: ValorTramite = {
@@ -452,6 +470,8 @@ async function upsertTramite(
     processStatus: tf.processStatus ?? null,
     plateComplete: tf.placa,
     sincronizadoEn: new Date(),
+    // HU #13946 (RN-RET-2): solo en el alta. En un update la clave no va, así que ni se pisa ni cuenta como cambio.
+    ...(existente ? {} : { retenido: retenerSiEsNuevo }),
   };
 
   const { row, esNuevo, huboCambios, diferencias } = await escribirTramite(tx, existente ?? null, tf.idFlit, valores, { soloSiCambia: true });
@@ -467,7 +487,7 @@ async function upsertTramite(
     diferencias: [...diferencias, ...diferenciasCompradores(guardados, nuevos)],
   });
 
-  return { tramiteId: row.id, esNuevo, huboCambios, soatId: row.soatId };
+  return { tramiteId: row.id, esNuevo, huboCambios, soatId: row.soatId, retenido: row.retenido };
 }
 
 /** Lo que el arranque de SOAT e impuesto lee del trámite de origen (FLIT 1 o FLIT 2). */

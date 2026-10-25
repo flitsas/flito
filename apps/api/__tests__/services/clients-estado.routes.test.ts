@@ -36,6 +36,11 @@ vi.mock('../../src/shared/redis.js', () => ({
 
 vi.mock('../../src/shared/pii-audit.js', () => ({ logPiiAccess: vi.fn().mockResolvedValue(undefined) }));
 
+// HU #13946: la liberación de retenidos se mide contra PostgreSQL (`db/retencion-tramites-cliente-inactivo.test.ts`);
+// aquí solo el contrato: se llama dentro de la transacción y su fallo no deja la activación auditada.
+const liberarMock = vi.fn();
+vi.mock('../../src/modules/flito-sync/liberar-retenidos.js', () => ({ liberarTramitesRetenidos: liberarMock }));
+
 const invalidateMock = vi.fn();
 vi.mock('../../src/shared/middleware/auth.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/shared/middleware/auth.js')>();
@@ -48,6 +53,7 @@ beforeEach(() => {
   transactionMock.mockReset();
   auditMock.mockClear();
   invalidateMock.mockClear();
+  liberarMock.mockReset();
 });
 
 async function buildApp() {
@@ -99,6 +105,28 @@ describe('PATCH /api/clients/:id/estado', () => {
     expect(txUpdate).toHaveBeenCalledTimes(1);
     expect(invalidateMock).not.toHaveBeenCalled();
     expect(auditMock.mock.calls[0]![1].detail).toBe('Cliente activado: Tra***');
+    // HU #13946 (AC3): libera los retenidos de ESE cliente con el `tx` de la activación.
+    expect(liberarMock).toHaveBeenCalledTimes(1);
+    expect(liberarMock.mock.calls[0]![0]).toHaveProperty('update', txUpdate);
+    expect(liberarMock.mock.calls[0]![1]).toBe(5);
+  });
+
+  it('HU #13946 AC6: si liberar los retenidos falla → la activación falla (500) y no se audita', async () => {
+    prepararTx([[{ id: 5, name: 'Transportes Andinos SAS', active: true }]]);
+    liberarMock.mockRejectedValueOnce(new Error('fallo del arranque'));
+    const app = await buildApp();
+    const r = await request(app).patch('/api/clients/5/estado').set('Authorization', `Bearer ${await adminToken()}`)
+      .send({ activo: true, activoEsperado: false });
+    expect(r.status).toBe(500);
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('desactivar no libera retenidos', async () => {
+    prepararTx([[{ id: 5, name: 'Transportes Andinos SAS', active: false }], []]);
+    const app = await buildApp();
+    await request(app).patch('/api/clients/5/estado').set('Authorization', `Bearer ${await adminToken()}`)
+      .send({ activo: false, activoEsperado: true });
+    expect(liberarMock).not.toHaveBeenCalled();
   });
 
   it('AC6: el estado ya no es el esperado → 409 «Otro administrador ya cambió su estado», sin auditar', async () => {
