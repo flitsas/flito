@@ -111,7 +111,7 @@ export const RUTAS_TRANSVERSALES: readonly RutaTransversal[] = congelar([
     metodo: 'GET', patron: '/api/flito/dr-flit/autorizacion',
     porque: 'Dr. Flit (HU #13803, diseño F5 §D3): el panel de sesión consulta si EL PROPIO usuario aceptó '
       + 'la autorización de datos (Ley 1581) para mostrar «Necesito soporte» a Corredor SOAT/Impuestos. '
-      + 'El router cierra el enlace `compania` (el del `cliente`) y exige ≥1 página con ficha de Ayuda FLITO.',
+      + 'Desde la HU #13941 no excluye ningún enlace: la ruta exige la función de Dr. Flit de su finalidad.',
   },
   {
     metodo: 'POST', patron: '/api/flito/dr-flit/autorizacion',

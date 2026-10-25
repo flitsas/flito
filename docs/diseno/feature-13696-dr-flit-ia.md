@@ -1,5 +1,8 @@
 # Diseño — Feature #13696 (F4): Conversación con IA en Dr. Flit
 
+> **Enmendado por la HU #13941 (2026-10-24, decisión de David Chica):** se retiraron `rechazarEnlaceCompania` y `exigirPaginaConAyuda`. Cada ruta exige su función del permiso «Dr. Flit» (`drflit.ia.usar` en el chat) y la IA exige además `drflit.manuales.ver` con ≥1 ficha visible (degradado `sin-manuales`). Las menciones de abajo describen el diseño original.
+
+
 > **Modo:** full · **Estado:** Propuesto (architecture-agent, 2026-10-22) · **Base:** `develop` 54e56491
 > **Módulo:** `flito-dr-flit` (FLITO, montado en `/api/flito/dr-flit`). No toca módulos legacy (`ai/` solo recibe el probe).
 > **ADR:** [`ADR-0027`](../adr/ADR-0027-dr-flit-fichas-de-ayuda-en-el-api-y-cupo-diario-de-ia.md) (Propuesto).

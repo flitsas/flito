@@ -1,7 +1,7 @@
 // Dr. Flit IA — orquesta una respuesta del chat (HU #13856, Feature #13696, IA-4).
 // Diseño: docs/diseno/feature-13696-dr-flit-ia.md · ADR-0027. La ruta (`dr-flit-chat.routes.ts`) ya
-// pasó limiter → Zod → IA apagada → autorización `ia`; aquí sigue: cupo → re-enmascarado → contexto →
-// llamada → parser. Las fichas se resuelven antes del cupo (RN-DRF-S5).
+// pasó función `drflit.ia.usar` → limiter → Zod → IA apagada → autorización `ia`; aquí sigue: re-enmascarado →
+// manuales (RN-DRF-S6) → cupo → contexto → llamada → parser. Las fichas se resuelven antes del cupo (RN-DRF-S5).
 //
 // RN-DRF-S1  Cupo: se reserva ANTES de llamar. Sin cupo → `cupo-agotado` sin llamar al modelo. Si la
 //            llamada falla (timeout, red, 429/529/5xx, 4xx) se DEVUELVE sobre el mismo `dia` de la
@@ -20,7 +20,7 @@ import {
 } from '@operaciones/shared-types';
 import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
-import { armarContexto, fichasVisibles, type FichaAyudaApi } from './dr-flit-ia.contexto.js';
+import { armarContexto, manualesDisponibles, type FichaAyudaApi } from './dr-flit-ia.contexto.js';
 import { devolverCupoIa, reservarCupoIa } from './dr-flit-ia.cupo.js';
 import { armarCuerpoMensajes } from './dr-flit-ia.prompt.js';
 import { llamarMensajesIa } from './dr-flit-ia.client.js';
@@ -87,10 +87,15 @@ export async function responderChatIa(
   const { mensaje, historial, tokens } = reenmascararPeticion(entrada);
   let fichas: readonly FichaAyudaApi[];
   try {
-    fichas = await (deps.fichas ?? fichasVisibles)(req);
+    fichas = await (deps.fichas ?? manualesDisponibles)(req);
   } catch {
     log.error({ usuarioId }, 'drflit ia: no se pudieron resolver las fichas visibles');
     return { respuesta: respuestaDegradada('ia-error', null), metricas: metricasVacias('ia-error', null) };
+  }
+  // RN-DRF-S6 (HU #13941, AC5)  Sin «Ver los manuales» o sin ninguna ficha visible: 200 `sin-manuales`, sin
+  //            reservar cupo (`cupo: null`) y sin llamar al modelo.
+  if (fichas.length === 0) {
+    return { respuesta: respuestaDegradada('sin-manuales', null), metricas: metricasVacias('sin-manuales', null) };
   }
 
   const reserva = await reservarCupoIa(usuarioId);

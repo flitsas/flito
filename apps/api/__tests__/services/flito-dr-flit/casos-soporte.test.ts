@@ -3,8 +3,8 @@
 // y `purga.test.ts`; el cliente ADO real (fetch) en `ado-cliente.test.ts`; el mapeo en `ado-mapeo.test.ts`.
 //
 // App mínima con el router REAL, `authMiddleware` REAL (con las `RUTAS_TRANSVERSALES` reales),
-// `rechazarEnlaceCompania` + `exigirPaginaConAyuda` reales (permiso por página con ficha de Ayuda, no
-// por rol) y `drflitCasosLimiter` REAL (store en memoria: Redis mockeado a null). Dobles:
+// la guarda REAL de la función «Radicar casos de soporte» (`exigirSoporteDrFlit`, HU #13941: sin exclusión por
+// enlace; permiso por función, no por rol) y `drflitCasosLimiter` REAL (store en memoria: Redis mockeado a null). Dobles:
 // `resolverPermisos` (enlace y funciones por `sub`), los repositorios (almacén en memoria con las mismas claves únicas que 0245/0246),
 // `logPiiAccess`, el logger (captura) y el cliente ADO (inyectado con `fijarClienteSoporteAdoParaTests`).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -69,13 +69,14 @@ const ok = (userId: number, rol: string, tipoEnlace: Enlace, funciones: string[]
   ok: true, userId, rol, tipoEnlace, funciones: new Set(funciones), version: `v${userId}`, resueltoEn: new Date(),
 });
 /** Por `sub`: [rol del token, enlace resuelto en base, funciones efectivas]. */
+const SOPORTE = 'drflit.soporte.radicar';
 const USUARIOS: Record<number, [string, Enlace, string[]]> = {
-  10: ['financiera', 'ninguno', ['pagina.finanzas_gastos_diarios']],
-  11: ['proveedor', 'proveedor', ['pagina.flito_soat']],                       // Corredor SOAT
-  12: ['gestor_impuestos', 'organismos_transito', ['pagina.flito_impuestos']], // Corredor Impuestos
-  13: ['cliente', 'compania', ['pagina.flito_soat']],                          // tiene página con ficha: lo saca el enlace
-  16: ['admin', 'ninguno', ['pagina.flito_tablero']],                          // sin autorización aceptada
-  17: ['admin', 'ninguno', ['pagina.flito_ayuda', 'pagina.users']],            // ninguna página con ficha
+  10: ['financiera', 'ninguno', ['pagina.finanzas_gastos_diarios', SOPORTE]],
+  11: ['proveedor', 'proveedor', ['pagina.flito_soat', SOPORTE]],                       // Corredor SOAT
+  12: ['gestor_impuestos', 'organismos_transito', ['pagina.flito_impuestos', SOPORTE]], // Corredor Impuestos
+  13: ['cliente', 'compania', ['pagina.flito_soat', SOPORTE]],                          // HU #13941: la compañía también radica
+  16: ['admin', 'ninguno', ['pagina.flito_tablero', SOPORTE]],                          // sin autorización aceptada
+  17: ['admin', 'ninguno', ['pagina.flito_dr_flit', 'drflit.manuales.ver']],            // sin la función de soporte
 };
 const secret = () => new TextEncoder().encode(process.env.JWT_SECRET);
 const token = (sub: number) => new SignJWT({ username: 'u', role: USUARIOS[sub]![0] })
@@ -402,19 +403,25 @@ describe('AC8 — nada sensible en logs ni en auditoría', () => {
 });
 
 describe('AC9 — seguridad del endpoint', () => {
-  it('cliente (enlace compania, aunque tenga página con ficha) → 403; sin token → 401; sin llamar a ADO', async () => {
-    expect((await post(13, caso())).status).toBe(403);
+  it('HU #13941 (AC3): cliente (enlace compania) con la función de soporte y autorizado → 201; sin token → 401', async () => {
+    AUTORIZADOS.add(13);
+    try {
+      expect((await post(13, caso())).status).toBe(201);
+      expect(llamadas).toHaveLength(1);
+    } finally {
+      AUTORIZADOS.delete(13);
+    }
     expect((await post(null, caso())).status).toBe(401);
-    expect(llamadas).toHaveLength(0);
-    expect(intentos).toHaveLength(0);
   });
 
-  it('usuario sin ninguna página con ficha de Ayuda → 403, sin registrar intento ni llamar a ADO', async () => {
+  it('HU #13941 (AC4): sin «Radicar casos de soporte» → 403 drflit-funcion-no-habilitada, sin intento ni llamar a ADO', async () => {
     AUTORIZADOS.add(17);
     try {
       const r = await post(17, caso());
       expect(r.status).toBe(403);
-      expect(r.body).toEqual({ error: 'Sin permisos' });
+      expect(r.body).toEqual({
+        error: expect.any(String), codigo: 'drflit-funcion-no-habilitada', funcion: 'drflit.soporte.radicar',
+      });
       expect(llamadas).toHaveLength(0);
       expect(intentos).toHaveLength(0);
     } finally {
@@ -600,6 +607,17 @@ describe('HU #13805 AC3 — límites (3 archivos, 5 MB por defecto)', () => {
     const r = await postMultipart(16, caso(), [{ buf: NO_PNG, nombre: 'x.png', tipo: 'image/png' }]);
     expect(r.status).toBe(403);
     expect(r.body.codigo).toBe('autorizacion-requerida');
+  });
+
+  it('HU #13941 (RN-DRF-R7): sin la función de soporte → 403 drflit antes de parsear el multipart', async () => {
+    AUTORIZADOS.add(17);
+    try {
+      const r = await postMultipart(17, caso(), [{ buf: NO_PNG, nombre: 'x.png', tipo: 'image/png' }]);
+      expect(r.status).toBe(403);
+      expect(r.body.codigo).toBe('drflit-funcion-no-habilitada');
+    } finally {
+      AUTORIZADOS.delete(17);
+    }
   });
 });
 

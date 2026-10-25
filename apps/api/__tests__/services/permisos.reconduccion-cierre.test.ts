@@ -93,7 +93,13 @@ function ficherosTs(dir: string): string[] {
 }
 
 const leer = (rel: string) => readFileSync(join(RAIZ_MODULOS, rel), 'utf8');
-const FICHEROS_DE_RUTAS = FICHEROS_EN_ALCANCE.map((f) => f.fichero);
+/**
+ * HU #13941: los ficheros del alcance que NO declaran rutas, solo guardas en línea (`tieneFuncion`) que montan otros
+ * routers (como `siigo/siigo.permisos.ts` en el legado). Sus montajes los cubren la foto y el lector; aquí no aplica
+ * «importa exigirFuncion / conserva router.use(authMiddleware) / declara rutas».
+ */
+const FICHEROS_DE_GUARDAS_EN_LINEA: ReadonlySet<string> = new Set(['flito-dr-flit/dr-flit.funciones.ts']);
+const FICHEROS_DE_RUTAS = FICHEROS_EN_ALCANCE.map((f) => f.fichero).filter((f) => !FICHEROS_DE_GUARDAS_EN_LINEA.has(f));
 
 describe('AC1/AC2 — en los 21 directorios ya no decide ningún requireRole', () => {
   for (const dir of DIRECTORIOS_RECONDUCIDOS) {
@@ -204,7 +210,8 @@ describe('el lector de montajes cubre la foto entera', () => {
     // + las 8 acciones de Siigo, en línea en `siigo.permisos.ts` (HU #13423)
     // + registrar credenciales de Siigo de pruebas y de producción (HU #13427)
     // + compañía por grupo (general, autogestión, sin trámite), clientes editar y fiscal, contraseña propia (HU #13428).
-    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(25);
+    // + las tres funciones de Dr. Flit, en línea en `dr-flit.funciones.ts` (HU #13941).
+    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(28);
   });
 
   it('un exigirFuncion sin literal hace que el lector LANCE en vez de adivinar', () => {

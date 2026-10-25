@@ -54,6 +54,10 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'POST', ruta: '/:id/documentos-adicionales', codigo: 'soat.documentos_adicionales.cargar' },
   { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'DELETE', ruta: '/:id/documentos-adicionales/:soporteId', codigo: 'soat.documentos_adicionales.eliminar' },
   // HU #13889 (ADR-0028): expediente documental de la compañía.
+  // HU #13941: las funciones de Dr. Flit, en línea en su fichero de guardas (sin reparto de partida: nacen en el árbol).
+  { fichero: 'flito-dr-flit/dr-flit.funciones.ts', metodo: 'POST', ruta: '*', condicion: 'usar_ia', codigo: 'drflit.ia.usar' },
+  { fichero: 'flito-dr-flit/dr-flit.funciones.ts', metodo: 'POST', ruta: '*', condicion: 'radicar_soporte', codigo: 'drflit.soporte.radicar' },
+  { fichero: 'flito-dr-flit/dr-flit.funciones.ts', metodo: 'POST', ruta: '*', condicion: 'consultar_gestion', codigo: 'drflit.gestion.consultar' },
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/companias/:companiaId', codigo: 'bolsas.documentos.ver' },
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/companias/:companiaId/tipos/:tipo/historial', codigo: 'bolsas.documentos.ver' },
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'POST', ruta: '/companias/:companiaId/tipos/:tipo', codigo: 'bolsas.documentos.cargar' },

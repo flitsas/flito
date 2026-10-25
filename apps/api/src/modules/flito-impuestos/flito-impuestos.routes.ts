@@ -42,6 +42,7 @@ import {
 } from './flito-impuestos.service.js';
 import { drFlitGestionLimiter } from '../../shared/middleware/rateLimiter.js';
 import { busquedaGestionSchema, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
+import { exigirConsultaGestionDrFlit } from '../flito-dr-flit/dr-flit.funciones.js';
 import type { ResultadoGestion, TarjetaImpuestoGestion } from '@operaciones/shared-types';
 import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
 import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } from './flito-recibos.service.js';
@@ -375,7 +376,8 @@ const aTarjetaImpuesto = (f: ImpuestoColaItem): TarjetaImpuestoGestion => ({
   organismo: f.organismoNombre ?? f.organismoCodigo, liquidado: f.valorLiquidado, pagado: f.pagadoEn,
 });
 
-router.post('/buscar', exigirFuncion('impuestos.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
+// HU #13941 (AC4/AC6): la función «Consultar la gestión» de Dr. Flit PRIMERO; la frontera sigue siendo `conAlcance`.
+router.post('/buscar', exigirConsultaGestionDrFlit, exigirFuncion('impuestos.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
   const parsed = busquedaGestionSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   const ctx = await contextoImpuesto(req.user!);

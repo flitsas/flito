@@ -3,8 +3,9 @@
 // `__tests__/db/migracion-0245.test.ts` (contra PostgreSQL) y en la verificación P6 del HANDOFF.
 //
 // App mínima con el router REAL montado como en `app.ts` (sin `conAlcance`), el `authMiddleware` REAL
-// (que llama a la `guardiaFrontera` real con las `RUTAS_TRANSVERSALES` reales) y la guarda real de páginas
-// con ficha de Ayuda (`exigirPaginaConAyuda`, motor de permisos). Dobles: `resolverPermisos` (enlace y
+// (que llama a la `guardiaFrontera` real con las `RUTAS_TRANSVERSALES` reales) y la guarda real de la función de
+// Dr. Flit de la finalidad (HU #13941: `ia` → `drflit.ia.usar`, `soporte` → `drflit.soporte.radicar`; sin exclusión
+// por enlace). Dobles: `resolverPermisos` (enlace y
 // funciones, por `sub`), el repositorio (almacén en memoria con la misma
 // clave única usuario × finalidad × versión que la 0245), `audit` y la configuración del ambiente.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -61,15 +62,17 @@ const ok = (userId: number, rol: string, tipoEnlace: Enlace, funciones: string[]
 });
 
 /** Por `sub`: [rol del token, enlace resuelto en base, funciones efectivas]. */
+const DRF = ['drflit.ia.usar', 'drflit.soporte.radicar'];
 const USUARIOS: Record<number, [string, Enlace, string[]]> = {
-  10: ['financiera', 'ninguno', ['pagina.finanzas_gastos_diarios']],
-  11: ['proveedor', 'proveedor', ['pagina.flito_soat']],                 // Corredor SOAT
-  12: ['gestor_impuestos', 'organismos_transito', ['pagina.flito_impuestos']], // Corredor Impuestos
-  13: ['cliente', 'compania', ['pagina.flito_soat']],                    // tiene página con ficha: lo saca el enlace
-  14: ['admin', 'compania', ['pagina.flito_tablero']],                   // rol de sistema con enlace de compañía
-  15: ['admin', null, ['pagina.flito_tablero']],                         // enlace que el resolutor no decide
-  16: ['admin', 'ninguno', ['pagina.flito_ayuda', 'pagina.users', 'users.crear']], // ninguna página con ficha
-  17: ['financiera', 'ninguno', []],                                     // sin funciones
+  10: ['financiera', 'ninguno', ['pagina.finanzas_gastos_diarios', ...DRF]],
+  11: ['proveedor', 'proveedor', ['pagina.flito_soat', ...DRF]],                 // Corredor SOAT
+  12: ['gestor_impuestos', 'organismos_transito', ['pagina.flito_impuestos', ...DRF]], // Corredor Impuestos
+  13: ['cliente', 'compania', ['pagina.flito_soat', ...DRF]],                    // HU #13941: la compañía también pasa
+  14: ['admin', 'compania', ['pagina.flito_tablero', ...DRF]],                   // rol de sistema con enlace de compañía
+  15: ['admin', null, ['pagina.flito_tablero']],                                 // sin funciones de Dr. Flit
+  16: ['admin', 'ninguno', ['pagina.flito_dr_flit', 'drflit.manuales.ver']],     // solo «Ver los manuales»
+  17: ['financiera', 'ninguno', []],                                             // sin funciones
+  18: ['financiera', 'ninguno', ['drflit.soporte.radicar']],                     // soporte sí, IA no
 };
 
 const secret = () => new TextEncoder().encode(process.env.JWT_SECRET);
@@ -317,22 +320,43 @@ describe('AC7 — quién no pasa (y quién sí)', () => {
   });
 
   it.each([
-    [13, 'cliente (enlace compañía)'],
-    [14, 'admin con enlace de compañía'],
-    [15, 'enlace que el resolutor no decide'],
-    [16, 'sin enlace pero sin ninguna página con ficha de Ayuda (aunque tenga `flito_ayuda`)'],
-    [17, 'sin enlace y sin funciones'],
-  ])('sub %i — %s → 403 en GET y POST y no se guarda nada', async (sub) => {
-    expect((await get(sub)).status).toBe(403);
-    const r = await post(sub, { finalidad: 'soporte', version: VIGENTE });
-    expect(r.status).toBe(403);
-    expect(r.body).toEqual({ error: 'Sin permisos' });
+    [15, 'sin funciones de Dr. Flit'],
+    [16, 'solo «Ver los manuales»'],
+    [17, 'sin funciones'],
+  ])('HU #13941 (AC4): sub %i — %s → 403 drflit-funcion-no-habilitada en GET y POST y no se guarda nada', async (sub) => {
+    for (const finalidad of ['soporte', 'ia'] as const) {
+      const funcion = finalidad === 'ia' ? 'drflit.ia.usar' : 'drflit.soporte.radicar';
+      const g = await get(sub, finalidad);
+      expect(g.status).toBe(403);
+      expect(g.body).toEqual({ error: expect.any(String), codigo: 'drflit-funcion-no-habilitada', funcion });
+      const r = await post(sub, { finalidad, version: AUTORIZACIONES_DRFLIT[finalidad].version });
+      expect(r.status).toBe(403);
+      expect(r.body).toEqual({ error: expect.any(String), codigo: 'drflit-funcion-no-habilitada', funcion });
+    }
     expect(filas).toHaveLength(0);
+  });
+
+  it('HU #13941 (AC4): la función se decide por finalidad — con soporte y sin IA, `soporte` pasa e `ia` no', async () => {
+    expect((await get(18, 'soporte')).status).toBe(200);
+    const g = await get(18, 'ia');
+    expect(g.status).toBe(403);
+    expect(g.body.funcion).toBe('drflit.ia.usar');
+    const r = await post(18, { finalidad: 'ia', version: AUTORIZACIONES_DRFLIT.ia.version });
+    expect(r.status).toBe(403);
+    expect(filas).toHaveLength(0);
+  });
+
+  it('HU #13941: la finalidad inválida es 400 antes de la función (no se adivina qué función pedir)', async () => {
+    const r = await get(17, 'otra');
+    expect(r.status).toBe(400);
+    expect(r.body.codigo).toBe('finalidad-invalida');
   });
 
   it.each([
     [11, 'Corredor SOAT (proveedor)'],
     [12, 'Corredor Impuestos (organismos_transito)'],
+    [13, 'cliente (enlace compañía) — HU #13941 AC3: sin exclusión por enlace'],
+    [14, 'admin con enlace de compañía — HU #13941 AC3'],
   ])('sub %i — %s → pasa: GET 200 y POST 201', async (sub) => {
     expect((await get(sub)).status).toBe(200);
     expect((await post(sub, { finalidad: 'soporte', version: VIGENTE })).status).toBe(201);

@@ -60,8 +60,10 @@ export type IntentDrFlit = (typeof INTENTS_DRFLIT)[number];
 export const GESTION_TARGETS_DRFLIT = ['placa', 'vin', 'tramite', 'cliente'] as const;
 export type GestionTargetDrFlit = (typeof GESTION_TARGETS_DRFLIT)[number];
 
+// HU #13941 (AC5): `sin-manuales` = el usuario no tiene «Ver los manuales» o ninguna ficha visible: no se
+// llama a la IA ni se reserva cupo.
 export const MOTIVOS_DEGRADADO_DRFLIT = [
-  'ia-apagada', 'cupo-agotado', 'ia-timeout', 'ia-error', 'respuesta-invalida',
+  'ia-apagada', 'cupo-agotado', 'ia-timeout', 'ia-error', 'respuesta-invalida', 'sin-manuales',
 ] as const;
 export type MotivoDegradadoDrFlit = (typeof MOTIVOS_DEGRADADO_DRFLIT)[number];
 
@@ -209,7 +211,8 @@ export type CodigoErrorDrFlit =
   | 'finalidad-invalida' | 'version-no-vigente' | 'campo-invalido'
   | 'autorizacion-requerida' | 'radicacion-en-curso' | 'soporte-no-disponible'
   | 'ado-error' | 'ado-no-disponible'
-  | 'adjunto-invalido' | 'adjunto-muy-grande' | 'adjuntos-limite';
+  | 'adjunto-invalido' | 'adjunto-muy-grande' | 'adjuntos-limite'
+  | 'drflit-funcion-no-habilitada';
 
 // ── HU #13804: el caso de soporte ────────────────────────────────────────────────────────────────
 
@@ -294,4 +297,24 @@ export interface ErrorAdjuntoDrFlit {
 export interface CasoRadicadoDrFlit {
   numero: number;
   repetido: boolean;
+}
+
+// ── HU #13941 (decisión de David, 2026-10-24): el permiso «Dr. Flit» y sus cuatro funciones ─────────
+// Dr. Flit no excluye por tipo de usuario ni por enlace: el control es el ítem `pagina.flito_dr_flit`
+// (General) con cuatro acciones, cada una con la operación que exige su ruta en el API.
+
+/** Las operaciones que exigen las rutas de Dr. Flit (y los POST /buscar que consulta), por función. */
+export const FUNCIONES_DRFLIT = Object.freeze({
+  verManuales: 'drflit.manuales.ver',
+  usarIa: 'drflit.ia.usar',
+  consultarGestion: 'drflit.gestion.consultar',
+  radicarSoporte: 'drflit.soporte.radicar',
+} as const);
+export type FuncionDrFlit = (typeof FUNCIONES_DRFLIT)[keyof typeof FUNCIONES_DRFLIT];
+
+/** 403 de una ruta de Dr. Flit sin su función (AC4). `funcion` = la operación que faltó. */
+export interface ErrorFuncionNoHabilitadaDrFlit {
+  error: string;
+  codigo: 'drflit-funcion-no-habilitada';
+  funcion: FuncionDrFlit;
 }

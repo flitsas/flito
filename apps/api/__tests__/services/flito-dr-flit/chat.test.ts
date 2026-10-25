@@ -1,8 +1,8 @@
 // HU #13856 (Feature #13696, IA-4) — POST /api/flito/dr-flit/chat. AC1–AC9 (AC10 vive en el test de
 // shared-types `flito-dr-flit.test.ts`).
 //
-// App mínima con el router REAL de Dr. Flit (guardas reales: `authMiddleware` + frontera, enlace,
-// página con ficha), el sub-router real del chat, el limiter real (memoria: Redis apagado), el contexto
+// App mínima con el router REAL de Dr. Flit (guardas reales: `authMiddleware` + frontera y, desde la HU
+// #13941, la función «Usar la IA» y la sonda de «Ver los manuales»), el sub-router real del chat, el limiter real (memoria: Redis apagado), el contexto
 // real (artefacto de fichas + motor de permisos), el prompt, el parser y el cliente reales. Dobles:
 // `resolverPermisos`, el repositorio de autorizaciones, el cupo (el UPSERT real se prueba en
 // `db/migracion-0247.test.ts`), `iaDisponible` y `requestWithRetry` — Anthropic SIEMPRE mockeado, sin red.
@@ -82,9 +82,15 @@ const autorizadosIa = new Set<number>();
 const autorizadosSoporte = new Set<number>();
 
 /** Usuario nuevo (sub único) con la página de SOAT; autorizado para `ia` salvo que se diga lo contrario. */
-function usuario(o: { ia?: boolean } = {}): number {
+/** HU #13941: funciones efectivas por defecto (las tres de Dr. Flit que usa este archivo + una página con ficha). */
+const FUNCIONES_BASE = ['pagina.flito_soat', 'drflit.ia.usar', 'drflit.manuales.ver', 'drflit.soporte.radicar'];
+/** Por `sub`: funciones y enlace propios (si no, `FUNCIONES_BASE` y `ninguno`). */
+const perfilDe = new Map<number, { funciones: string[]; enlace?: 'compania' }>();
+
+function usuario(o: { ia?: boolean; funciones?: string[]; enlace?: 'compania' } = {}): number {
   const sub = ++siguienteSub;
   if (o.ia !== false) autorizadosIa.add(sub);
+  if (o.funciones || o.enlace) perfilDe.set(sub, { funciones: o.funciones ?? FUNCIONES_BASE, enlace: o.enlace });
   return sub;
 }
 
@@ -133,8 +139,8 @@ beforeEach(() => {
   reservarMock.mockReset().mockResolvedValue({ concedida: true, dia: DIA, usados: 5, tope: 30, restantes: 25 });
   devolverMock.mockReset().mockResolvedValue(true);
   resolverMock.mockReset().mockImplementation(async (id) => ({
-    ok: true, userId: id, rol: 'financiera', tipoEnlace: 'ninguno', funciones: new Set(['pagina.flito_soat']),
-    version: `v${id}`, resueltoEn: new Date(),
+    ok: true, userId: id, rol: 'financiera', tipoEnlace: perfilDe.get(id)?.enlace ?? 'ninguno',
+    funciones: new Set(perfilDe.get(id)?.funciones ?? FUNCIONES_BASE), version: `v${id}`, resueltoEn: new Date(),
   }));
   vi.spyOn(repoAutorizaciones, 'buscar').mockImplementation(async (usuarioId, finalidad, version) => {
     const set = finalidad === 'ia' ? autorizadosIa : autorizadosSoporte;
@@ -226,6 +232,41 @@ describe('AC2 — sin autorización «ia» vigente', () => {
   });
 });
 
+describe('HU #13941 — la función «Usar la IA» y «Ver los manuales» (AC3, AC4, AC5)', () => {
+  it('AC4: sin «Usar la IA» → 403 drflit-funcion-no-habilitada, antes del limiter, sin autorización, modelo ni cupo', async () => {
+    const sub = usuario({ funciones: ['pagina.flito_soat', 'drflit.manuales.ver'] });
+    const r = await chat(sub, { mensaje: 'x'.repeat(5000) }); // cuerpo inválido: la función va antes que Zod
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({ error: expect.any(String), codigo: 'drflit-funcion-no-habilitada', funcion: 'drflit.ia.usar' });
+    expect(repoAutorizaciones.buscar).not.toHaveBeenCalled();
+    expect(upstreamMock).not.toHaveBeenCalled();
+    expect(reservarMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['sin «Ver los manuales» (aunque tenga páginas con ficha)', ['pagina.flito_soat', 'drflit.ia.usar']],
+    ['con «Ver los manuales» pero ninguna ficha visible', ['pagina.flito_dr_flit', 'drflit.ia.usar', 'drflit.manuales.ver']],
+  ])('AC5: %s → 200 sin-manuales, sin reservar cupo ni llamar a la IA', async (_n, funciones) => {
+    const r = await chat(usuario({ funciones }), BASE);
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({
+      intent: null, reply: null, enManuales: null, citedSlugs: [], citas: [],
+      gestionTarget: null, gestionRef: null, degradado: 'sin-manuales', cupo: null,
+    });
+    expect(upstreamMock).not.toHaveBeenCalled();
+    expect(reservarMock).not.toHaveBeenCalled();
+    expect(logs.find((l) => l.msg === 'drflit chat')!.obj).toMatchObject({ status: 200, degradado: 'sin-manuales' });
+  });
+
+  it('AC3: un usuario de enlace compañía con las funciones usa la IA (sin exclusión por enlace); mismo cupo (AC7)', async () => {
+    const r = await chat(usuario({ enlace: 'compania' }), BASE);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ intent: 'duda', cupo: { usados: 5, tope: 30, restantes: 25 } });
+    expect(r.body.degradado ?? null).toBeNull();
+    expect(upstreamMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('AC3 — degradación previa a la llamada', () => {
   it.each([
     ['DRFLIT_IA_HABILITADA apagada', { DRFLIT_IA_HABILITADA: false, ANTHROPIC_API_KEY: 'k' }],
@@ -282,7 +323,7 @@ describe('AC4 — falla del proveedor', () => {
 
   it('si cargar las fichas falla → 200 degradado ia-error, sin llamar al modelo ni reservar cupo', async () => {
     const sub = usuario();
-    // 1.ª resolución: guardas (auth + página con ayuda); la siguiente es la de `fichasVisibles`.
+    // 1.ª resolución: guardas (auth + función «Usar la IA»); la siguiente es la de `manualesDisponibles`.
     const base = resolverMock.getMockImplementation()!;
     let llamadas = 0;
     resolverMock.mockImplementation(async (id) => {

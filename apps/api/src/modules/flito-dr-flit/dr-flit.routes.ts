@@ -21,27 +21,28 @@
 //                                                413 `adjuntos-limite` { limite.maxArchivos }
 //   POST /chat                               — HU #13856 (IA-4): chat con IA. Sub-router en
 //                                              `dr-flit-chat.routes.ts` (RN-DRF-CH1..CH3), montado tras
-//                                              las guardas de RN-DRF-R1.
+//                                              el `authMiddleware` de RN-DRF-R1.
 //
 // ── Frontera por enlace (ADR-0024, D3) ──────────────────────────────────────────────────────────
 // Dr. Flit es un panel de sesión: sus rutas solo leen o escriben datos DEL PROPIO usuario (`sub` del
 // token; nunca un id en la ruta ni en el cuerpo). Por eso no se declara un módulo de frontera: las
 // rutas están en `RUTAS_TRANSVERSALES` (`shared/middleware/frontera-enlace.ts`) y así las alcanzan
-// Corredor SOAT (`proveedor`) y Corredor Impuestos (`organismos_transito`). El enlace `compania` (el
-// del `cliente`, P9-7) se cierra AQUÍ con `rechazarEnlaceCompania`: la exclusión es por ENLACE, no por
-// el nombre del rol (HU #13425 AC6; ningún módulo usa `requireRole`, valla de la HU #13423 AC9).
+// todos los enlaces: Corredor SOAT (`proveedor`), Corredor Impuestos (`organismos_transito`) y, desde la
+// HU #13941 (decisión de David del 2026-10-24), también la compañía (`cliente`): Dr. Flit no excluye por
+// tipo de usuario ni por enlace (se retiró `rechazarEnlaceCompania`). La frontera de los datos de negocio
+// no cambia: la consulta de gestión usa los POST /buscar de cada módulo, que siguen bajo `conAlcance`.
 //
-// ── Quién lo usa: «quien ve a Dr. Flit» ─────────────────────────────────────────────────────────
-// La web pinta Dr. Flit con `puedeVerAyudaFlito` (≥1 ficha de la Ayuda FLITO visible = tener la página
-// del `permiso` de alguna ficha). El servidor exige lo mismo con el motor de permisos: al menos una
-// `pagina.<slug>` de `PAGINAS_AYUDA_DRFLIT` en el conjunto efectivo (`funcionesConcedidas`). No hay
-// página ni función propia de Dr. Flit: `flito_ayuda` no sirve (solo la tiene `admin`).
+// ── Quién lo usa: el permiso «Dr. Flit» (HU #13941) ─────────────────────────────────────────────
+// Ítem `pagina.flito_dr_flit` (General) con cuatro acciones; cada ruta exige la suya en
+// `dr-flit.funciones.ts` (RN-DRF-F1..F3): IA (`drflit.ia.usar`), soporte (`drflit.soporte.radicar`), y la
+// IA además «Ver los manuales» (`drflit.manuales.ver`, sonda en el servicio, AC5).
 //
-// RN-DRF-R1  Toda ruta: authMiddleware → rechazarEnlaceCompania → exigirPaginaConAyuda.
+// RN-DRF-R1  Toda ruta: authMiddleware → función de Dr. Flit de la ruta (403 drflit-funcion-no-habilitada).
+//            /autorizacion la decide por `finalidad`, DESPUÉS de Zod (`ia` → IA, `soporte` → soporte).
 // RN-DRF-R2  El único query param (`finalidad`) es un enum sin PII (AGENTS.md §14).
 // RN-DRF-R3  Los 400 no repiten el valor recibido: mensajes propios, `campo` es la ruta, nunca el valor.
 // RN-DRF-R4  Nada de esta ruta se loguea con datos del usuario (IP y user agent van solo a la tabla).
-// RN-DRF-R5  POST /casos-soporte: … → drflitCasosLimiter → exigirSoporteDisponible (503) →
+// RN-DRF-R5  POST /casos-soporte: exigirSoporteDrFlit (403) → drflitCasosLimiter → exigirSoporteDisponible (503) →
 //            exigirAutorizacionVigente('soporte') (403 `autorizacion-requerida`, sin llamar a ADO) → Zod →
 //            servicio. El chat usa la misma guarda con `'ia'`, que responde 428 (HU #13856).
 // RN-DRF-R7  multer (HU #13805) va DESPUÉS de las guardas y del limiter: no se parsea el cuerpo de
@@ -57,12 +58,11 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import multer from 'multer';
 import { z } from 'zod';
 import {
-  AREAS_SOPORTE, FINALIDADES_DRFLIT, FRECUENCIAS_SOPORTE, LIMITES_CASO_SOPORTE, PAGINAS_AYUDA_DRFLIT,
+  AREAS_SOPORTE, FINALIDADES_DRFLIT, FRECUENCIAS_SOPORTE, LIMITES_CASO_SOPORTE,
   PARTE_ADJUNTOS_MULTIPART, PARTE_CASO_MULTIPART, PRIORIDADES_SOPORTE,
   type CasoSoporteDrFlit, type ErrorAdjuntoDrFlit, type EstadoAutorizacionDrFlit, type FinalidadDrFlit,
 } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
-import { funcionesConcedidas } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { drflitCasosLimiter } from '../../shared/middleware/rateLimiter.js';
 import {
@@ -76,41 +76,13 @@ import {
   AdjuntoInvalidoError, CasoSoporteError, mensajeAdjuntoRechazado, radicarCaso, type AdjuntoCaso,
 } from './dr-flit-casos.service.js';
 import { crearRouterChat } from './dr-flit-chat.routes.js';
+import {
+  exigirSoporteDrFlit, FUNCION_DE_FINALIDAD, responderFuncionNoHabilitada, tieneFuncionDrFlitPorFinalidad,
+} from './dr-flit.funciones.js';
 
 const router = Router();
 
-/**
- * Cierra el enlace `compania` (y un enlace que el resolutor no pudo decidir: sin `req.frontera` en una
- * transversal). `ninguno`, `proveedor` y `organismos_transito` pasan. Mismo cuerpo que la frontera.
- */
-export function rechazarEnlaceCompania(req: Request, res: Response, next: NextFunction): void {
-  const enlace = req.frontera?.enlace;
-  if (enlace === undefined || enlace === 'compania') {
-    res.status(403).json({ error: 'Sin permisos' });
-    return;
-  }
-  next();
-}
-
-const CODIGOS_PAGINA_AYUDA: readonly string[] = PAGINAS_AYUDA_DRFLIT.map((slug) => `pagina.${slug}`);
-
-/**
- * «Lo usa quien lo ve»: al menos una página con ficha de Ayuda FLITO (la misma regla que
- * `puedeVerAyudaFlito` en la web). Falla cerrado: sin resolver los permisos el conjunto es vacío.
- */
-export async function exigirPaginaConAyuda(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    if ((await funcionesConcedidas(req, CODIGOS_PAGINA_AYUDA)).size === 0) {
-      res.status(403).json({ error: 'Sin permisos' });
-      return;
-    }
-    next();
-  } catch (e) {
-    next(e);
-  }
-}
-
-router.use(authMiddleware, rechazarEnlaceCompania, exigirPaginaConAyuda);
+router.use(authMiddleware);
 
 const MSG_FINALIDAD = 'La finalidad debe ser «soporte» o «ia».';
 const finalidadSchema = z.enum(FINALIDADES_DRFLIT, { errorMap: () => ({ message: MSG_FINALIDAD }) });
@@ -146,6 +118,7 @@ router.get('/autorizacion', async (req: Request, res: Response) => {
   const q = consultaSchema.safeParse(req.query);
   if (!q.success) { responderInvalido(res, q.error); return; }
   const { finalidad } = q.data;
+  if (!(await tieneFuncionDrFlitPorFinalidad(req, finalidad))) { responderFuncionNoHabilitada(res, FUNCION_DE_FINALIDAD[finalidad]); return; }
   const estado = await estadoAutorizacion(req.user!.sub, finalidad);
   const ambiente = ambienteDespliegue();
   const cuerpo: EstadoAutorizacionDrFlit = {
@@ -172,6 +145,10 @@ router.get('/autorizacion', async (req: Request, res: Response) => {
 router.post('/autorizacion', async (req: Request, res: Response) => {
   const b = aceptarSchema.safeParse(req.body ?? {});
   if (!b.success) { responderInvalido(res, b.error); return; }
+  if (!(await tieneFuncionDrFlitPorFinalidad(req, b.data.finalidad))) {
+    responderFuncionNoHabilitada(res, FUNCION_DE_FINALIDAD[b.data.finalidad]);
+    return;
+  }
   try {
     const { nueva, id, aceptada } = await aceptarAutorizacion(req.user!.sub, b.data.finalidad, b.data.version, origenDe(req));
     if (nueva) {
@@ -386,7 +363,7 @@ const ESTADO_CASO: Readonly<Record<CasoSoporteError['codigo'], number>> = Object
   'ado-no-disponible': 503,
 });
 
-router.post('/casos-soporte', drflitCasosLimiter, exigirSoporteDisponible, exigirAutorizacionVigente('soporte'), recibirAdjuntos,
+router.post('/casos-soporte', exigirSoporteDrFlit, drflitCasosLimiter, exigirSoporteDisponible, exigirAutorizacionVigente('soporte'), recibirAdjuntos,
   async (req: Request, res: Response) => {
     const entrada = leerEntrada(req);
     if (!entrada) {
@@ -424,7 +401,7 @@ router.post('/casos-soporte', drflitCasosLimiter, exigirSoporteDisponible, exigi
     }
   });
 
-// ── HU #13856 (IA-4): POST /chat — hereda las guardas del `router.use` de arriba (RN-DRF-R1) ────────
+// ── HU #13856 (IA-4): POST /chat — hereda el `authMiddleware` de arriba; su función la exige el sub-router ──
 router.use(crearRouterChat(exigirAutorizacionVigente('ia')));
 
 export default router;
