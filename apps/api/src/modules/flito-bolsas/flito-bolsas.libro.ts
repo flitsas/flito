@@ -78,6 +78,10 @@ export interface DatosMovimiento {
   revierteMovimientoId?: string | null;
   /** Sustantivo para los mensajes de error: 'recarga', 'salida', 'ajuste'… */
   etiqueta?: string;
+  /** Tipo en `flito_soportes` (HU #13906: tránsito usa 'carga_organismo'). Por defecto 'recarga_bolsa'. */
+  tipoSoporte?: string;
+  /** HU #13906: acota el INSERT con un SAVEPOINT (tránsito, Bug #11685 punto 3) para que la relectura tras un 23505 pueda correr. */
+  savepoint?: boolean;
 }
 
 /** Bolsa bloqueada lista para asentar. */
@@ -305,11 +309,11 @@ export async function asentarEnBolsa(
   const periodo = await periodoImputable(tx, bolsa.id, periodoDeFecha(fecha));
   const saldoResultante = redondear(bolsa.saldo + (datos.tipo === 'entrada' ? valor : -valor));
   // El comprobante se registra DENTRO de la tx del dinero: sin movimiento no queda soporte huérfano.
-  const soporteId = datos.soporte ? await insertarSoporte(tx, datos.soporte, ctx) : null;
+  const soporteId = datos.soporte ? await insertarSoporte(tx, datos.soporte, ctx, datos.tipoSoporte) : null;
 
   let fila: typeof flitoBolsasUnicasMovimientos.$inferSelect;
   try {
-    [fila] = await tx.insert(flitoBolsasUnicasMovimientos).values({
+    const insertar = (q: Tx) => q.insert(flitoBolsasUnicasMovimientos).values({
       bolsaId: bolsa.id,
       tipo: datos.tipo,
       origen: datos.origen,
@@ -329,6 +333,7 @@ export async function asentarEnBolsa(
       comprobanteId: datos.comprobanteId ?? null,
       revierteMovimientoId: datos.revierteMovimientoId ?? null,
     }).returning();
+    [fila] = datos.savepoint ? await tx.transaction((sp) => insertar(sp)) : await insertar(tx);
   } catch (e) {
     const previo = await reintentoPorLlave(tx, e, datos.llaveIdempotencia);
     if (!previo) throw e;

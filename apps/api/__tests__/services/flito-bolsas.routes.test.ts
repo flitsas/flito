@@ -917,7 +917,7 @@ describe('GET /soportes/:soporteId — abrir el comprobante de un movimiento', (
     expect(r.body.error).toBe('El soporte no existe');
   });
 
-  it('la consulta exige que el soporte PERTENEZCA a uno de los dos libros', async () => {
+  it('la consulta exige que el soporte PERTENEZCA al libro único (cliente o tránsito, HU #13906)', async () => {
     // Antes bastaba el rol de bolsas y un uuid para resolver CUALQUIER fila de `flito_soportes`
     // —la factura de un SOAT, el PDF de una factura electrónica—. El mock no evalúa el `where`, así
     // que lo que se afirma es que la condición de pertenencia está en la consulta: si alguien la
@@ -940,13 +940,14 @@ describe('GET /soportes/:soporteId — abrir el comprobante de un movimiento', (
 
     const dialecto = new PgDialect();
     const textos = condiciones.map((c) => dialecto.sqlToQuery(c as never).sql);
-    // Dos ramas de `exists`, una por libro, unidas por `or`: la recarga del cliente y la carga de
-    // tránsito. Un soporte que no está en ninguno de los dos no es un soporte de bolsas.
+    // HU #13906: desde la 0257 la recarga del cliente y la carga de tránsito viven en el MISMO libro
+    // único, así que basta un `exists` sobre él. Un soporte que no está ahí no es un soporte de bolsas.
     const fuera = textos.find((t) => t.includes('exists')) ?? '';
     expect(fuera).toContain('exists');
-    expect(fuera).toContain(' or ');
-    // Y las subconsultas preguntan por `soporte_id` en cada uno de los dos libros.
-    expect(textos.filter((t) => t.includes('"soporte_id"'))).toHaveLength(2);
+    expect(fuera).not.toContain(' or ');
+    // Y la única subconsulta pregunta por `soporte_id` en el libro único (ya no en el de tránsito viejo).
+    const sub = textos.filter((t) => t.includes('"soporte_id"'));
+    expect(sub).toEqual(['"flito_bolsas_unicas_movimientos"."soporte_id" = "flito_soportes"."id"']);
   });
 });
 

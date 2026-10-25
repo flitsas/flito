@@ -14,7 +14,7 @@
 import { and, desc, eq, exists, getTableColumns, isNotNull, isNull, lt, notExists, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoBolsasUnicas, flitoBolsasUnicasCierres, flitoBolsasUnicasMovimientos, flitoBolsaTransitoMovimientos,
+  clients, flitoBolsasUnicas, flitoBolsasUnicasCierres, flitoBolsasUnicasMovimientos,
   flitoConciliacionBoletas, flitoDerechosPendientes, flitoSoportes, flitoTramites,
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
@@ -803,12 +803,9 @@ export async function storageKeySoporteDeBolsa(
       companiaId !== undefined
         ? exists(db.select({ uno: sql`1` }).from(flitoBolsasUnicasMovimientos).innerJoin(flitoBolsasUnicas, MOV_DE_BOLSA)
           .where(and(eq(flitoBolsasUnicasMovimientos.soporteId, flitoSoportes.id), soloCompania(flitoBolsasUnicas.companiaId, companiaId))))
-        : or(
-          exists(db.select({ uno: sql`1` }).from(flitoBolsasUnicasMovimientos)
-            .where(eq(flitoBolsasUnicasMovimientos.soporteId, flitoSoportes.id))),
-          exists(db.select({ uno: sql`1` }).from(flitoBolsaTransitoMovimientos)
-            .where(eq(flitoBolsaTransitoMovimientos.soporteId, flitoSoportes.id))),
-        ),
+        // HU #13906: desde la 0257 el libro único guarda también los de tránsito (mismos soportes).
+        : exists(db.select({ uno: sql`1` }).from(flitoBolsasUnicasMovimientos)
+          .where(eq(flitoBolsasUnicasMovimientos.soporteId, flitoSoportes.id))),
     ))
     .limit(1);
   return s ?? null;
