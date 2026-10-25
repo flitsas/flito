@@ -12,6 +12,7 @@ import {
   calcular, eventosDe, facturar, liquidacionDe, liquidar, liquidarLote, LiquidacionBloqueadaError,
   LiquidacionError, reversar,
 } from './flito-liquidacion.service.js';
+import { ClienteNoOperableError } from '../clients/cliente-operable.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -31,6 +32,7 @@ router.use(authMiddleware);
  * `{ error, faltantes }` que el 400 (precedente de 422 por estado: LAFT `aros.routes.ts`).
  */
 function fallo(res: Response, e: unknown): void {
+  if (e instanceof ClienteNoOperableError) { res.status(e.status).json({ error: e.message }); return; } // HU #13947
   if (e instanceof LiquidacionBloqueadaError) {
     res.status(422).json({ error: e.message, faltantes: e.faltantes });
     return;

@@ -206,7 +206,44 @@ describe('desbloquear impuesto — no crea el impuesto que el vehículo ya tiene
 
     await desbloquear(TRAMITE, CONCEPTO_EXCEPCION.IMPUESTO, 'lo pide el cliente', ctx);
 
-    expect(tx.select).toHaveBeenCalledTimes(1); // solo el impuesto del trámite; la regla ni se intenta
+    // El impuesto del trámite y (HU #13947) el cliente con FOR SHARE; la regla por vehículo ni se intenta.
+    expect(tx.select).toHaveBeenCalledTimes(2);
     expect(inserts.map((i) => i.tabla)).toContain(getTableName(flitoImpuestos));
+  });
+});
+
+// HU #13947 — un cliente inactivo no admite SOAT ni impuestos NUEVOS, tampoco por excepción.
+const { ClienteNoOperableError } = await import('../../src/modules/clients/cliente-operable.js');
+const { flitoSoat } = await import('../../src/db/schema.js');
+
+describe('HU #13947 — desbloquear con el cliente inactivo', () => {
+  it('SOAT: 409 con el mensaje del AC y sin INSERT en flito_soat', async () => {
+    selectMock.mockReturnValueOnce(chain([fila()])).mockReturnValueOnce(chain([]));
+    // Dentro de la tx: el VIN no tiene SOAT; el cliente (FOR SHARE) está inactivo.
+    const { inserts } = txConSelects([], [{ name: 'Transportes Andes', active: false }]);
+
+    const e = await desbloquear(TRAMITE, CONCEPTO_EXCEPCION.SOAT, 'lo pide el cliente', ctx).catch((x) => x);
+    expect(e).toBeInstanceOf(ClienteNoOperableError);
+    expect(e.status).toBe(409);
+    expect(e.message).toBe('El cliente Transportes Andes está inactivo: no se pueden crear SOAT para él.');
+    expect(inserts.map((i) => i.tabla)).not.toContain(getTableName(flitoSoat));
+  });
+
+  it('impuesto: 409 con el mensaje del AC y sin INSERT en flito_impuestos', async () => {
+    selectMock.mockReturnValueOnce(chain([fila({ vehiculoId: null })])).mockReturnValueOnce(chain([]));
+    const { inserts } = txConSelects([], [{ name: 'Transportes Andes', active: false }]);
+
+    const e = await desbloquear(TRAMITE, CONCEPTO_EXCEPCION.IMPUESTO, 'lo pide el cliente', ctx).catch((x) => x);
+    expect(e).toBeInstanceOf(ClienteNoOperableError);
+    expect(e.message).toBe('El cliente Transportes Andes está inactivo: no se pueden crear impuestos para él.');
+    expect(inserts.map((i) => i.tabla)).not.toContain(getTableName(flitoImpuestos));
+  });
+
+  it('AC7: marcar como excepción el SOAT que el VIN YA tiene no consulta el cliente ni se bloquea', async () => {
+    selectMock.mockReturnValueOnce(chain([fila()])).mockReturnValueOnce(chain([]));
+    const { tx } = txConSelects([{ id: 'soat-1', estado: 'solicitado', vin: 'VIN00000000000001' }]);
+
+    await expect(desbloquear(TRAMITE, CONCEPTO_EXCEPCION.SOAT, 'lo pide el cliente', ctx)).resolves.toBeDefined();
+    expect(tx.select).toHaveBeenCalledTimes(1);
   });
 });
