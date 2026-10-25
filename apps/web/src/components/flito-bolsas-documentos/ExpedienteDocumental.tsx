@@ -146,7 +146,9 @@ function Seccion({ companiaId, activa, onBolsaCambio, tieneCargar, puedeReactiva
 
   return (
     <FlitCard>
-      <section aria-labelledby={idTitulo} data-testid="expediente-documental">
+      {/* `relative`: ancla el anuncio `sr-only` (absolute) a la sección; si no, su offsetParent es el overlay
+          `.flit-modal` y agranda el scroll del overlay por debajo del diálogo (HU #13892, DEV). */}
+      <section aria-labelledby={idTitulo} data-testid="expediente-documental" className="relative">
         {carga.fase === 'cargando' && (
           <>
             {titulo}
