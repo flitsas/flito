@@ -332,6 +332,18 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/bolsas/alertas',                                            'filtra'],
   ['GET /api/flito/bolsas/transito',                                           'soloSinEnlace'],
   ['POST /api/flito/bolsas/transito',                                          'soloSinEnlace'],
+  // HU #13907 (ADR-0029): rama TRÁNSITO del catálogo, sub-router montado ANTES del de compañía y con sus mismas rutas;
+  // gestión de FLIT, cerrada a todo enlace (lo que no es de tránsito lo cede con `next('route')`).
+  ['POST /api/flito/bolsas/buscar',                                            'soloSinEnlace'],
+  ['POST /api/flito/bolsas',                                                   'soloSinEnlace'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId',                                     'soloSinEnlace'],
+  ['PATCH /api/flito/bolsas/bolsa/:bolsaId',                                   'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/inactivar',                          'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/reactivar',                          'soloSinEnlace'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId/movimientos',                         'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/recargas',                           'soloSinEnlace'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId/cierres',                             'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/cierres',                            'soloSinEnlace'],
   // HU #13900 (ADR-0029): catálogo del modelo único (sub-router montado ANTES de `/:companiaId`). `/buscar` acota por `companiaDeAlcance`; las rutas por bolsa,
   // por `bolsaPropia` (bolsa → compañía); el estado, por `companiaPropia`; el alta, por la compañía del body.
   ['POST /api/flito/bolsas/buscar',                                            'filtra'],

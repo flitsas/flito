@@ -129,6 +129,17 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/recargas', codigo: 'bolsas.recarga.registrar' },
   { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'GET', ruta: '/bolsa/:bolsaId/cierres', codigo: 'bolsas.cierres.ver' },
   { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/cierres', codigo: 'bolsas.cierre.crear' },
+  // flito-bolsas/flito-bolsas.catalogo-transito.routes.ts — HU #13907 (ADR-0029, Q3)
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'bolsas.transito.listar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/', codigo: 'bolsas.transito.crear' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'GET', ruta: '/bolsa/:bolsaId', codigo: 'bolsas.transito.ver' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'PATCH', ruta: '/bolsa/:bolsaId', codigo: 'bolsas.transito.editar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/inactivar', codigo: 'bolsas.transito.inactivar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/reactivar', codigo: 'bolsas.transito.inactivar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'GET', ruta: '/bolsa/:bolsaId/movimientos', codigo: 'bolsas.transito.ver_movimientos' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/recargas', codigo: 'bolsas.transito.cargar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'GET', ruta: '/bolsa/:bolsaId/cierres', codigo: 'bolsas.transito.cierres.ver' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/cierres', codigo: 'bolsas.transito.cierre.crear' },
   // flito-revisiones/flito-revisiones.routes.ts
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'GET', ruta: '/', codigo: 'revisiones.cola.ver' },
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'GET', ruta: '/campos/:modulo', codigo: 'revisiones.campos.ver' },
