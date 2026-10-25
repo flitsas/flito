@@ -34,7 +34,9 @@
 // tras el lado compañía (RN-C9: comprobante → trámite → bolsa compañía → bolsa tránsito). La reversión
 // recorre las salidas vivas de AMBOS alcances (`salida:%` y `consumo:%`) en ese mismo orden: un periodo
 // cerrado en cualquiera de las dos bloquea la operación entera (todo o nada).
-// Fuera de alcance: backfill (HU-E).
+// HU #13910 (HU-E, Q4): `{ backfill: true }` salta SOLO RN-C2 `antes_del_corte` (el corte sigue siendo
+// obligatorio) y fecha el movimiento el día de ejecución (`hoyIso`); el periodo lo corre `periodoImputable`
+// si cae en mes cerrado. Lo usa `src/scripts/flito-bolsas-backfill-comprobantes.ts`; el gancho normal no cambia.
 
 import { and, asc, eq, getTableColumns, like, or } from 'drizzle-orm';
 import {
@@ -189,29 +191,41 @@ function motivoLlaveOcupada(previo: MovimientoBolsaDto, comprobanteId: string): 
 
 const REGLAS: ReglasCompartidas = { motivoLlaveOcupada, cubiertoPorLiquidacion };
 
+/** HU #13910: opciones del backfill del corte. Sin ellas, el gancho normal (RN-C2 intacta). */
+export interface OpcionesDescuento {
+  /** Salta solo `antes_del_corte`; el movimiento se fecha HOY (día de ejecución, Colombia). */
+  backfill?: boolean;
+  /** Observación de los movimientos (ambos alcances); por defecto la del gancho. */
+  observacion?: string;
+}
+
 /**
  * Dentro de la tx de aplicar. Nunca lanza por saldo ni por negocio; sí por error de BD. Idempotente por
  * llave. `null` = corte apagado (RN-C2): no hay nada que contar en la respuesta.
  */
-export async function descontarComprobante(tx: Tx, c: ComprobanteAplicado, ctx: CtxUsuario): Promise<DescuentoBolsaDto | null> {
+export async function descontarComprobante(
+  tx: Tx, c: ComprobanteAplicado, ctx: CtxUsuario, o: OpcionesDescuento = {},
+): Promise<DescuentoBolsaDto | null> {
   const corte = corteVigente();
   if (corte === null) return null;
   if (!c.esPago) return omitidoAmbos('no_es_pago');
-  const fecha = diaColombia(c.aplicadoEn);
-  if (fecha < corte) return omitidoAmbos('antes_del_corte');
+  if (o.backfill !== true && diaColombia(c.aplicadoEn) < corte) return omitidoAmbos('antes_del_corte');
+  const fecha = o.backfill === true ? hoyIso() : diaColombia(c.aplicadoEn);
   const valor = num(c.valor);
   if (!(valor > 0)) return vacio(); // pago sin valor documental: no hay importe que descontar
 
   // RN-C9: el lado compañía primero (bloquea su bolsa), después el de tránsito. Cada uno decide por su cuenta.
-  const compania = await descontarCompania(tx, c, valor, ctx);
+  const compania = await descontarCompania(tx, c, valor, fecha, ctx, o.observacion);
   const transito = await descontarTransito(tx, {
-    comprobanteId: c.comprobanteId, tramiteId: c.tramiteId, concepto: c.concepto, valor, fecha,
+    comprobanteId: c.comprobanteId, tramiteId: c.tramiteId, concepto: c.concepto, valor, fecha, observacion: o.observacion,
   }, ctx, REGLAS);
   return unir(compania, transito);
 }
 
 /** El lado compañía (RN-C3..RN-C8). */
-async function descontarCompania(tx: Tx, c: ComprobanteAplicado, valor: number, ctx: CtxUsuario): Promise<DescuentoBolsaDto> {
+async function descontarCompania(
+  tx: Tx, c: ComprobanteAplicado, valor: number, fecha: string, ctx: CtxUsuario, observacion?: string,
+): Promise<DescuentoBolsaDto> {
   const f = await contextoTramite(tx, c.tramiteId);
   if (!f || f.companiaId === null) return omitido('sin_compania');
   if (!gestionaConcepto(c.concepto, f)) return omitido('autogestionado');
@@ -232,12 +246,12 @@ async function descontarCompania(tx: Tx, c: ComprobanteAplicado, valor: number, 
     tipo: 'salida',
     origen: 'comprobante',
     valor,
-    fecha: diaColombia(c.aplicadoEn),
+    fecha,
     concepto: c.concepto as ConceptoBolsa,
     tramiteId: c.tramiteId,
     comprobanteId: c.comprobanteId,
     llaveIdempotencia: llave,
-    observacion: 'Descuento al aplicar el comprobante de pago',
+    observacion: observacion ?? 'Descuento al aplicar el comprobante de pago',
     etiqueta: 'salida',
   }, ctx);
   // Carrera: otro escritor ocupó la llave mientras esperábamos el lock (RN-A5 del libro).
