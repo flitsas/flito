@@ -13,7 +13,8 @@
 //   RN-B4 Editar no cambia el alcance ni la compañía, y una bolsa inactiva no se edita (409 `bolsa_inactiva`).
 //   RN-B5 Toda configuración deja un evento en `flito_bolsas_unicas_eventos` con el usuario; el snapshot
 //         lleva conceptos, nunca PII de personas.
-//   RN-B6 La rama TRÁNSITO del alta y de la edición llega en la HU-G (#13907): hoy responde 400.
+//   RN-B6 La rama TRÁNSITO del alta, la edición y los cierres vive en `flito-bolsas.catalogo-transito.ts`
+//         (HU #13907); inactivar y reactivar son comunes a ambos alcances y viven aquí.
 //   RN-B7 (AC11) Los conceptos que la compañía AUTOGESTIONA (`clients.*_autogestionable`) se calculan EN
 //         LECTURA (cambian después de crear la bolsa) y NO bloquean crear ni editar: la UI avisa. La regla
 //         de no descontarlos es de la HU-C (#13902), no de aquí.
@@ -29,6 +30,10 @@ import {
 } from '@operaciones/shared-types';
 import { estadoBolsaDeCompania } from './flito-bolsas.estado-compania.js';
 import { BolsaError, type CtxUsuario, esLlaveDuplicada, MSG_BOLSA_INACTIVA, num, type Tx } from './flito-bolsas.libro.js';
+import {
+  CoberturaOcupadaError, crearBolsaTransitoUnica, datosTransitoDe, type DatosBolsaTransitoUnica, editarBolsaTransitoUnica,
+  paresAutogestionados, paresOcupadosDeBolsa,
+} from './flito-bolsas.catalogo-transito.js';
 
 export { estadoBolsaDeCompania };
 
@@ -156,6 +161,17 @@ export async function crearBolsaCompania(datos: DatosBolsaCompania, ctx: CtxUsua
   return (await bolsaDetalle(bolsaId))!;
 }
 
+/** HU #13907 AC1-AC2: alta de una bolsa de tránsito (lógica en el archivo de tránsito). */
+export async function crearBolsaTransito(datos: DatosBolsaTransitoUnica, ctx: CtxUsuario): Promise<BolsaDetalleDto> {
+  return (await bolsaDetalle(await crearBolsaTransitoUnica(datos, ctx)))!;
+}
+
+/** HU #13907 AC2-AC3: nombre, secretarías y conceptos de una bolsa de tránsito activa. */
+export async function editarBolsaTransito(bolsaId: string, datos: DatosBolsaTransitoUnica, ctx: CtxUsuario): Promise<BolsaDetalleDto> {
+  await editarBolsaTransitoUnica(bolsaId, datos, ctx);
+  return (await bolsaDetalle(bolsaId))!;
+}
+
 /** AC4: cambia los conceptos de la bolsa de una compañía. No toca alcance ni compañía (RN-B4). */
 export async function editarBolsa(bolsaId: string, datos: { conceptos: string[] }, ctx: CtxUsuario): Promise<BolsaDetalleDto> {
   const conceptos = validarConceptos(datos.conceptos);
@@ -194,6 +210,10 @@ export async function reactivarBolsa(bolsaId: string, motivo: string, ctx: CtxUs
     await db.transaction(async (tx) => {
       const bolsa = await bloquear(tx, bolsaId);
       if (bolsa.activa) throw new BolsaError('La bolsa ya está activa', 409, CodigoErrorBolsa.YA_ACTIVA);
+      // Tránsito (HU #13907 AC5): una pareja tomada por otra activa mientras esta estuvo inactiva → 409
+      // con las parejas; la bolsa sigue inactiva (la transacción se deshace).
+      const ocupados = bolsa.alcance === 'transito' ? await paresOcupadosDeBolsa(tx, bolsaId) : [];
+      if (ocupados.length > 0) throw new CoberturaOcupadaError(ocupados);
       await tx.update(flitoBolsasUnicas).set({
         activa: true, inactivadaEn: null, inactivadaPorId: null, inactivadaPorNombre: null,
         motivoInactivacion: null, updatedAt: new Date(),
@@ -202,8 +222,9 @@ export async function reactivarBolsa(bolsaId: string, motivo: string, ctx: CtxUs
       await registrarEvento(tx, bolsaId, 'reactivar', { conceptos: await conceptosDe(tx, bolsaId) }, ctx, motivo);
     });
   } catch (e) {
-    // Tránsito: otra bolsa activa tomó un par mientras esta estuvo inactiva (D3).
-    if (esLlaveDuplicada(e)) throw new BolsaError('Otra bolsa activa ya cubre alguno de sus pares', 409, CodigoErrorBolsa.COBERTURA_OCUPADA);
+    // Tránsito, carrera: otra bolsa activa tomó un par entre la lectura y el UPDATE (23505 del índice
+    // parcial `uq_flito_bolsas_unicas_cobertura_activa`, D3). Se relee fuera de la tx abortada.
+    if (esLlaveDuplicada(e)) throw new CoberturaOcupadaError(await paresOcupadosDeBolsa(db, bolsaId));
     throw e;
   }
   return (await bolsaDetalle(bolsaId))!;
@@ -242,6 +263,13 @@ function patron(texto: string): string {
 
 async function hidratar(filas: FilaDetalle[]): Promise<BolsaDetalleDto[]> {
   if (filas.length === 0) return [];
+  const transito = filas.filter((f) => f.alcance === 'transito');
+  const [autoTransito, datosTransito] = await Promise.all([
+    coberturaTransitoDe(filas).then(paresAutogestionados),
+    datosTransitoDe(transito.map((f) => ({
+      id: f.id, saldo: num(f.saldo), ultimaEntradaValor: f.ultimaEntradaValor === null ? null : num(f.ultimaEntradaValor),
+    }))),
+  ]);
   const ids = filas.map((f) => f.id);
   const [conceptos, cobertura] = await Promise.all([
     db.select().from(flitoBolsasUnicasConceptos).where(inArray(flitoBolsasUnicasConceptos.bolsaId, ids))
@@ -272,12 +300,24 @@ async function hidratar(filas: FilaDetalle[]): Promise<BolsaDetalleDto[]> {
       ultimaEntradaEn: f.ultimaEntradaEn ? f.ultimaEntradaEn.toISOString() : null,
       nivel: nivelRiesgoDe(saldo, ultima),
       porcentaje: porcentajeSaldo(saldo, ultima),
+      transito: datosTransito.get(f.id) ?? null,
       inactivadaEn: f.inactivadaEn ? f.inactivadaEn.toISOString() : null,
       inactivadaPorNombre: f.inactivadaPorNombre,
       motivoInactivacion: f.motivoInactivacion,
       conceptosAutogestionados: f.alcance === 'compania' ? autogestionados(f) : [],
+      paresAutogestionados: f.alcance === 'transito'
+        ? autoTransito.filter((p) => cob.some((c) => c.organismoCodigo === p.organismoCodigo && c.concepto === p.concepto))
+        : [],
     };
   });
+}
+
+/** Pares de la cobertura de las bolsas de tránsito de `filas` (para la autogestión de AC9, HU #13907). */
+async function coberturaTransitoDe(filas: FilaDetalle[]): Promise<Array<{ organismoCodigo: string; concepto: string }>> {
+  const ids = filas.filter((f) => f.alcance === 'transito').map((f) => f.id);
+  if (ids.length === 0) return [];
+  return db.select({ organismoCodigo: flitoBolsasUnicasCobertura.organismoCodigo, concepto: flitoBolsasUnicasCobertura.concepto })
+    .from(flitoBolsasUnicasCobertura).where(inArray(flitoBolsasUnicasCobertura.bolsaId, ids));
 }
 
 /**
@@ -302,7 +342,8 @@ export async function buscarBolsas(filtro: FiltroBolsas, companiaAlcance: number
     .orderBy(asc(flitoBolsasUnicas.alcance), asc(clients.name), asc(flitoBolsasUnicas.nombre))
     .limit(1000);
   return (await hidratar(filas)).map(({
-    inactivadaEn: _a, inactivadaPorNombre: _b, motivoInactivacion: _c, conceptosAutogestionados: _d, ...resumen
+    inactivadaEn: _a, inactivadaPorNombre: _b, motivoInactivacion: _c, conceptosAutogestionados: _d,
+    paresAutogestionados: _e, ...resumen
   }) => resumen);
 }
 

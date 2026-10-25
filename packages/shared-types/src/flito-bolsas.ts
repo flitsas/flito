@@ -4,6 +4,7 @@
 // consumo se reparte entre organismos por movimiento, no abriendo una bolsa por OT.
 
 import { ConceptoCosto } from './flito-conceptos.js';
+import type { NivelBolsaTransito } from './flito-bolsas-transito.js';
 
 /** Dirección del movimiento. El valor siempre se guarda positivo; el signo lo da esto. */
 export const TipoMovimientoBolsa = {
@@ -364,7 +365,7 @@ export type CodigoErrorBolsa = (typeof CodigoErrorBolsa)[keyof typeof CodigoErro
  */
 export const CONCEPTOS_BOLSA_COMPANIA: readonly ConceptoCosto[] = Object.values(ConceptoCosto);
 
-/** Alta de una bolsa. La rama `transito` llega en la HU-G (#13907): hoy el API la rechaza con 400. */
+/** Alta de una bolsa. Rama `transito` (HU #13907): nombre, secretarías (`organismo_codigo`) y conceptos de tránsito. */
 export type CrearBolsaDto =
   | { alcance: 'compania'; companiaId: number; conceptos: ConceptoCosto[] }
   | { alcance: 'transito'; nombre: string; organismos: string[]; conceptos: string[] };
@@ -404,6 +405,20 @@ export interface BolsaResumenDto {
   ultimaEntradaEn: string | null;
   nivel: NivelRiesgoBolsa;
   porcentaje: number | null;
+  /**
+   * HU #13907: lo propio de una bolsa de TRÁNSITO, que hoy da `GET /transito/:bolsaId` (`BolsaTransitoConNivel`):
+   * nivel en SU escala (con préstamo), deuda y totales del libro. `null` en las de compañía. `nivel` sigue en la
+   * escala de compañía para no cambiar el tipo que lee la web.
+   */
+  transito: DatosBolsaTransitoDto | null;
+}
+
+/** HU #13907: datos de tránsito del catálogo único (ver `BolsaResumenDto.transito`). */
+export interface DatosBolsaTransitoDto {
+  nivel: NivelBolsaTransito;
+  deuda: number;
+  totalCargado: number;
+  totalConsumido: number;
 }
 
 export interface BolsaDetalleDto extends BolsaResumenDto {
@@ -412,10 +427,24 @@ export interface BolsaDetalleDto extends BolsaResumenDto {
   motivoInactivacion: string | null;
   /**
    * AC11 (HU #13900): conceptos que la compañía AUTOGESTIONA hoy (`clients.*_autogestionable`), calculados en
-   * lectura, no guardados en la bolsa. Marcarlos no se bloquea: la UI avisa. Tránsito: `[]` (HU-G).
+   * lectura, no guardados en la bolsa. Marcarlos no se bloquea: la UI avisa. Tránsito: `[]`.
    */
   conceptosAutogestionados: ConceptoBolsa[];
+  /**
+   * AC9 (HU #13907, D15): parejas (secretaría, impuesto) de la cobertura cuyo organismo tiene HOY modalidad
+   * vigente `autogestionado`. Calculadas en lectura; no bloquean crear ni editar. Compañía: `[]`.
+   */
+  paresAutogestionados: CoberturaBolsaDto[];
 }
+
+/** HU #13907: pareja de cobertura que ya cubre OTRA bolsa activa (cuerpo del 409 `cobertura_ocupada`). */
+export interface ParCoberturaOcupada extends CoberturaBolsaDto { bolsaId: string; bolsaNombre: string }
+
+/** Cuerpo del 409 `cobertura_ocupada` del catálogo único (alta, edición o reactivación de tránsito). */
+export interface CoberturaOcupadaErrorDto { error: string; codigo: 'cobertura_ocupada'; pares: ParCoberturaOcupada[] }
+
+/** HU #13907 (Q3): cierre mensual de una bolsa POR ID (tránsito). Mismas cifras que `CierreDto`, sin compañía. */
+export interface CierreBolsaTransitoDto extends Omit<CierreDto, 'companiaId'> { bolsaId: string }
 
 /**
  * Respuesta de `GET /api/flito/bolsas/compania/:companiaId/estado` (AC8 + AC11). Extiende el contrato (d)

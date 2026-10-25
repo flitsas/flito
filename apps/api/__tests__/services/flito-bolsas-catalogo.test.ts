@@ -49,8 +49,9 @@ describe.skipIf(!URL)('HU #13900 — catálogo de la bolsa de compañía (Postgr
   let A: number; let B: number; let SIN: number; let AUTO: number;
 
   async function nuevaCompania(nombre: string, autogestion: { soat?: boolean } = {}): Promise<number> {
-    const [c] = await sql`INSERT INTO clients (name, document, soat_autogestionable)
-      VALUES (${`HU13900 ${nombre} ${Date.now()}`}, ${`9${String(Date.now()).slice(-8)}${companias.length}`}, ${autogestion.soat ?? false})
+    // Impuestos y logística explícitos en false: desde la 0252 su DEFAULT es true y el caso mide solo SOAT.
+    const [c] = await sql`INSERT INTO clients (name, document, soat_autogestionable, impuestos_autogestionable, logistica_autogestionable)
+      VALUES (${`HU13900 ${nombre} ${Date.now()}`}, ${`9${String(Date.now()).slice(-8)}${companias.length}`}, ${autogestion.soat ?? false}, false, false)
       RETURNING id`;
     companias.push(c!.id as number);
     return c!.id as number;
@@ -135,11 +136,11 @@ describe.skipIf(!URL)('HU #13900 — catálogo de la bolsa de compañía (Postgr
     expect(n!.n).toBe(0);
   });
 
-  it('AC3 · compañía inexistente → 404; alcance tránsito (HU-G) → 400 con mensaje claro', async () => {
+  it('AC3 · compañía inexistente → 404; alcance tránsito lo valida su rama (HU #13907): nombre corto → 400', async () => {
     expect((await crear({ alcance: 'compania', companiaId: 2_147_000_000, conceptos: ['soat'] })).status).toBe(404);
     const t = await crear({ alcance: 'transito', nombre: 'X', organismos: ['05001'], conceptos: ['derecho'] });
     expect([t.status, t.body.codigo]).toEqual([400, 'datos_invalidos']);
-    expect(t.body.error).toMatch(/tránsito/);
+    expect(t.body.error).toMatch(/nombre/);
   });
 
   it('AC4 · PATCH de conceptos no cambia compañía ni alcance y deja «editar» con el antes y el después', async () => {

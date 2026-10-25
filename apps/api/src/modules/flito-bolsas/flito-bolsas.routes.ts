@@ -33,6 +33,7 @@ import {
   movimientosTransitoDe, registrarCargaTransito,
 } from './flito-bolsas-transito.service.js';
 import { routerCatalogo } from './flito-bolsas.catalogo.routes.js';
+import { routerCatalogoTransito } from './flito-bolsas.catalogo-transito.routes.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -174,6 +175,8 @@ router.post('/transito', soloSinEnlace(), exigirFuncion('bolsas.transito.crear')
 // HU #13900 — catálogo del modelo único (`/buscar`, `POST /`, `/bolsa/:bolsaId*`, `/compania/:companiaId/estado`).
 // ANTES de `/:companiaId` por la misma razón que `/transito`. Las rutas por bolsa reutilizan estos handlers
 // (function declarations: existen ya al montar).
+// HU #13907: la rama TRÁNSITO de las mismas rutas va ANTES; lo que no es de tránsito lo cede con `next('route')`.
+router.use(routerCatalogoTransito({ recibirSoporte, registrarCarga: registrarCargaTransitoHttp }));
 router.use(routerCatalogo({
   companiaPropia, recibirSoporte, verMovimientos, registrarRecarga: registrarRecargaHttp, verCierres, crearCierre,
 }));
@@ -369,7 +372,9 @@ const cargaTransitoSchema = z.object({
   observacion: z.string().trim().max(1000).optional(),
 });
 
-router.post('/transito/:bolsaId/cargas', soloSinEnlace(), exigirFuncion('bolsas.transito.cargar'), recibirSoporte, async (req: Request, res: Response) => {
+router.post('/transito/:bolsaId/cargas', soloSinEnlace(), exigirFuncion('bolsas.transito.cargar'), recibirSoporte, registrarCargaTransitoHttp);
+// HU #13907: function declaration con nombre para que `POST /bolsa/:bolsaId/recargas` (rama tránsito) la reutilice.
+async function registrarCargaTransitoHttp(req: Request, res: Response): Promise<void> {
   const parsed = cargaTransitoSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
@@ -413,7 +418,7 @@ router.post('/transito/:bolsaId/cargas', soloSinEnlace(), exigirFuncion('bolsas.
     if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
     fallo(res, e);
   }
-});
+}
 
 // GET /:companiaId/extracto — saldo con el consumo desglosado por organismo y por concepto.
 router.get('/:companiaId/extracto', exigirFuncion('bolsas.extracto.descargar'), companiaPropia('leer'), async (req: Request, res: Response) => {
