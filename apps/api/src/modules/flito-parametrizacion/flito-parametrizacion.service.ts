@@ -7,6 +7,7 @@
 
 import { and, asc, eq, isNull, or } from 'drizzle-orm';
 import { db } from '../../db/client.js';
+import { clienteVigente } from '../clients/cliente-operable.js';
 import {
   clients,
   flitoOrganismoVigencias,
@@ -126,7 +127,11 @@ export function carpetaDe(
 
 /** Compañía por NIT (documento). La usa la sincronización para enlazar trámites. */
 export async function companiaPorNit(nit: string): Promise<CompaniaRow | null> {
-  const [compania] = await db.select().from(clients).where(eq(clients.document, nit)).limit(1);
+  // RN-CLI-9 (HU #13953, AC6/AC7): solo cruza con clientes VIGENTES. Si el único match está eliminado, el trámite
+  // queda sin compañía (y con `compania_nit` guardado); con un eliminado y un vigente, gana el vigente. El criterio
+  // de igualdad (NIT exacto, sin sucursal) no cambia.
+  const [compania] = await db.select().from(clients)
+    .where(and(eq(clients.document, nit), clienteVigente())).limit(1);
   return compania ?? null;
 }
 

@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   PERSONA_TIPOS,
   SIIGO_ID_TIPOS_CODIGOS,
@@ -26,6 +26,7 @@ import {
   ClienteDuplicadoError, ClienteNoEncontradoError, EstadoClienteCambiadoError, cambiarEstadoCliente,
   esDuplicadoNitSucursal, exigirNitSucursalLibre, impactoCliente, nombreEnmascarado,
 } from './clients.service.js';
+import { clienteVigente } from './cliente-operable.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -226,6 +227,8 @@ router.get('/', exigirFuncion('clients.clientes.ver'), async (req: Request, res:
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const result = await db.select(COLUMNAS_LISTADO_CON_GESTOR).from(clients)
     .leftJoin(flitoProveedoresSoat, eq(flitoProveedoresSoat.id, clients.flitoProveedorSoatSinTramiteId))
+    // RN-CLI-9 (HU #13953, AC1): el padrón solo lista clientes vigentes; el eliminado no vuelve a aparecer.
+    .where(clienteVigente())
     .orderBy(clients.name).limit(limit).offset(offset);
   await registrarAccesoListado(req, { filas: result.length, limit, offset });
   res.json(result.map(clienteListadoDto));
@@ -299,7 +302,8 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
   // Se lee ANTES de escribir: sin el estado previo no hay «valor anterior» que auditar (AC7), y
   // tampoco se puede saber contra qué sucursal validar cuando el PATCH solo trae uno de los dos.
-  const [previo] = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+  // RN-CLI-9 (HU #13953, AC2): un eliminado responde igual que uno inexistente.
+  const [previo] = await db.select().from(clients).where(and(eq(clients.id, id), clienteVigente())).limit(1);
   if (!previo) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
   // HU #13945 (AC8): el estado no se cambia por la edición general sino con «Activar o desactivar» (exclusiva del
@@ -347,7 +351,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   try {
     [updated] = await db.update(clients)
       .set({ ...cambios, ...(cambios.personType ? { personTypeOrigen: 'manual' as const } : {}) })
-      .where(eq(clients.id, id)).returning(COLUMNAS_LISTADO);
+      .where(and(eq(clients.id, id), clienteVigente())).returning(COLUMNAS_LISTADO);
   } catch (e) {
     // AC6: carrera con otra escritura sobre la misma pareja → el mismo 409, nunca 500.
     if (esDuplicadoNitSucursal(e)) {
