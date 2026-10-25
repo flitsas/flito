@@ -2,11 +2,16 @@
 // (Feature #13694). Spec UX: docs/ux/flito-dr-flit.md · slim: docs/diseno/feature-13694-dr-flit-panel-slim.md §4–§5
 // Un test por AC. La parte pura importa `serializar` / `restaurar` desde `src`; la UI recorre el panel real.
 import { test, expect, type Page } from '@playwright/test';
-import { loginAs, ADMIN_USER, FINANCIERA_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, ADMIN_USER, FINANCIERA_USER as FINANCIERA_REPARTO } from '../helpers/ayuda-fixtures';
+import { conDrFlit } from '../helpers/auth';
+
 import {
   MAX_MENSAJES, restaurar, serializar, VERSION_CONVERSACION, type MensajeDrFlit,
 } from '../../src/lib/drFlitConversacion';
 import { claveConversacion, PREFIJO_DRFLIT } from '../../src/lib/drFlitAlmacen';
+
+// HU #13942: el reparto inicial solo da «Ver los manuales»; estos casos prueban el panel completo.
+const FINANCIERA_USER = conDrFlit(FINANCIERA_REPARTO);
 
 // Financiera con Gestión Trámites habilitado por usuario y sin «Integración con Siigo».
 const FINANCIERA_CON_TRAMITES = { ...FINANCIERA_USER, allowedPages: ['flito_tramites', 'flito_conciliacion'] };

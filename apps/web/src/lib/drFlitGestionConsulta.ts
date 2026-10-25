@@ -15,7 +15,8 @@ import type { MensajeDrFlit } from './drFlitConversacion';
 
 export type RespuestaModulo =
   | { ok: true; datos: ResultadoGestion<unknown> }
-  | { ok: false; status: number };
+  /** HU #13942: `causa` deja al panel reconocer el 403 `drflit-funcion-no-habilitada` (nunca se pinta). */
+  | { ok: false; status: number; causa?: unknown };
 
 /** Un módulo; no lanza: red/timeout = `status 0` (mismo copy que un 5xx). */
 export async function consultarModulo(modulo: ModuloGestion, valor: string): Promise<RespuestaModulo> {
@@ -23,7 +24,7 @@ export async function consultarModulo(modulo: ModuloGestion, valor: string): Pro
     const datos = await api.post<ResultadoGestion<unknown>>(`/flito/${modulo}/buscar`, { valor });
     return { ok: true, datos };
   } catch (e) {
-    return { ok: false, status: e instanceof ApiError ? e.status : 0 };
+    return { ok: false, status: e instanceof ApiError ? e.status : 0, causa: e };
   }
 }
 

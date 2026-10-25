@@ -30,7 +30,11 @@ export const ADMIN_ALLOWED_PAGES = Object.keys(PAGES).filter((slug) => slug !== 
 export function sobreDeMe<T extends { role: string; allowedPages?: string[] | null }>(user: T): T & { allowedPages: string[] } {
   const fromRole = paginasPorDefecto(user.role as UserRole);
   const fromUser = (user.allowedPages ?? []).filter(isValidPage);
-  return { ...user, allowedPages: Array.from(new Set([...fromRole, ...fromUser])) };
+  // HU #13941 (0254): el ítem «Dr. Flit» se reparte a TODOS los roles, con o sin enlace. `drFlit: false`
+  // en el fixture = el administrador se lo quitó (control negativo de la HU #13942 AC1).
+  const drFlit = (user as { drFlit?: unknown }).drFlit === false ? [] : ['flito_dr_flit'];
+  const paginas = Array.from(new Set([...fromRole, ...drFlit, ...fromUser]));
+  return { ...user, allowedPages: drFlit.length ? paginas : paginas.filter((p) => p !== 'flito_dr_flit') };
 }
 
 export const ADMIN_USER = {
@@ -395,9 +399,32 @@ const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
  */
 export const FUNCIONES_PERFIL = ['perfil.datos.ver', 'perfil.contrasena.cambiar'] as const;
 
+/** HU #13941: las cuatro funciones de Dr. Flit (`FUNCIONES_DRFLIT`). */
+export const FUNCIONES_DRFLIT_TODAS = [
+  'drflit.manuales.ver', 'drflit.ia.usar', 'drflit.gestion.consultar', 'drflit.soporte.radicar',
+] as const;
+
+/** HU #13941 (0254): todos los roles reciben «Ver los manuales»; `admin`, las cuatro. */
+const funcionesDrFlitDe = (rol: string): readonly string[] =>
+  rol === 'admin' ? FUNCIONES_DRFLIT_TODAS : ['drflit.manuales.ver'];
+
 export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
-  Object.entries(FUNCIONES_POR_ROL_BASE).map(([rol, funciones]) => [rol, [...funciones, ...FUNCIONES_PERFIL]]),
+  Object.entries(FUNCIONES_POR_ROL_BASE).map(([rol, funciones]) => [
+    rol, [...funciones, ...FUNCIONES_PERFIL, ...funcionesDrFlitDe(rol)],
+  ]),
 );
+
+/**
+ * HU #13942: el usuario con las funciones de Dr. Flit indicadas (por defecto las cuatro) sobre las que ya
+ * tenía (las de su fixture o las de su rol), sin las demás de Dr. Flit. Para los specs que prueban IA,
+ * gestión o soporte con un rol que en el reparto inicial solo tiene «Ver los manuales».
+ */
+export function conDrFlit<T extends UsuarioFixture>(
+  user: T, drflit: readonly string[] = FUNCIONES_DRFLIT_TODAS,
+): T & { funciones: string[] } {
+  const base = funcionesDe(user).filter((f) => !f.startsWith('drflit.'));
+  return { ...user, funciones: [...base, ...drflit] };
+}
 
 /** Forma de un fixture de usuario: lo que `sobreDeMe` necesita más `funciones` opcional. */
 export interface UsuarioFixture {

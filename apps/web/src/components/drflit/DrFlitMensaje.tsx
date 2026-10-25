@@ -11,6 +11,7 @@ import {
 import { seccionesDeFicha } from '../../lib/drFlitBusqueda';
 import { esMensajeGestion } from '../../lib/drFlitGestion';
 import { DR_FLIT_ASSETS } from './drFlitAssets';
+import { COPY_DRFLIT_FUNCIONES } from './drFlitFunciones';
 
 // Dr. Flit — pinta cada mensaje de la conversación (HU #13765; slim §4, spec UX «Explícame un
 // módulo»). Viven dentro del `role="log"` del panel: la respuesta se anuncia sin mover el foco (AC5).
@@ -83,6 +84,8 @@ export default function DrFlitMensaje({
   // HU #13857: la respuesta de la IA la pinta el panel (`DrFlitRespuestaIa`, necesita el mapa del envío).
   if (mensaje.tipo === 'respuestaIa') return null;
   if (mensaje.tipo === 'casoRadicado') return <DrFlitCasoRadicado numero={mensaje.numero} />;
+  // HU #13942: solo el texto (sin enlaces, sin «Reintentar», sin «Necesito soporte»); no es una falla.
+  if (mensaje.tipo === 'avisoFuncion') return <DrFlitAvisoFuncion texto={COPY_DRFLIT_FUNCIONES[mensaje.motivo]} />;
   if (mensaje.tipo === 'modulo') {
     const entrada = entradaAyudaPorClave(mensaje.clave);
     return <BurbujaUsuario>Explíqueme {entrada?.etiqueta ?? 'un módulo'}</BurbujaUsuario>;
@@ -134,6 +137,15 @@ export default function DrFlitMensaje({
           <p>Su ficha está pendiente.</p>
         </div>
       )}
+    </BurbujaDrFlit>
+  );
+}
+
+/** HU #13942: Dr. Flit no puede atender lo pedido sin la función; o el saludo vacío (copys 1 y 2). */
+export function DrFlitAvisoFuncion({ texto }: { texto: string }) {
+  return (
+    <BurbujaDrFlit>
+      <p className="break-words">{texto}</p>
     </BurbujaDrFlit>
   );
 }

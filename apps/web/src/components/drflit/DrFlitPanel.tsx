@@ -15,7 +15,7 @@ import type { UsuarioAyuda } from '../../lib/ayudaFlito';
 import { buscarSecciones, MAX_CITAS } from '../../lib/drFlitBusqueda';
 import DrFlitMensaje, {
   ATRIBUTO_ABRIDOR_SOPORTE, BotonNecesitoSoporte, BurbujaDrFlit, DrFlitBuscando, DrFlitErrorModulo,
-  DrFlitErrorPregunta, DrFlitErrorRestaurar, ENLACE_DRFLIT,
+  DrFlitAvisoFuncion, DrFlitErrorPregunta, DrFlitErrorRestaurar, ENLACE_DRFLIT,
 } from './DrFlitMensaje';
 import DrFlitSoporte from './DrFlitSoporte';
 import {
@@ -34,6 +34,9 @@ import { mapaDeRespuesta, recordarMapa, useIaDrFlit, type ResultadoIa } from './
 import DrFlitRespuestaIa from './DrFlitRespuestaIa';
 import DrFlitAvisoIa from './DrFlitAvisoIa';
 import { vistaAutorizacion } from './DrFlitAutorizacion';
+import { FUNCIONES_DRFLIT, type FuncionDrFlit } from '@operaciones/shared-types';
+import { COPY_DRFLIT_FUNCIONES, useFuncionesDrFlit } from './drFlitFunciones';
+import type { MotivoAvisoFuncion } from '../../lib/drFlitConversacion';
 
 // Dr. Flit — contenido del panel (HU #13764, Feature #13694). Se carga con `lazy()` solo tras el
 // primer clic en «Abrir Dr. Flit» (AC8); el marco (cabecera, «Cerrar», carga y error) vive en el
@@ -57,6 +60,9 @@ import { vistaAutorizacion } from './DrFlitAutorizacion';
 // (degradado, red, 429, 428) cae en silencio al camino de F3/F6.
 // HU #13858 (IA-6): `soporte` ofrece F5 y `gestion` la oferta de F6 con el valor del mapa local
 // (`rutearIa`); la consulta sigue exigiendo el clic y sus resultados nunca vuelven al chat.
+// HU #13942 (spec `docs/ux/flito-dr-flit-funciones.md`): cada control y cada llamada al API va detrás
+// de su función (`useFuncionesDrFlit`). Sin la función, lo que la IA o el texto pidan se contesta con
+// un `avisoFuncion` («pídale a su administrador»); un 403 de función la apaga en esta sesión del panel.
 
 export interface DrFlitPanelProps {
   /** Se llama al seguir un enlace del panel: en <lg el montaje cierra el panel para ver la página. */
@@ -88,6 +94,7 @@ function clavesPorVerificar(
 
 export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   const { user, hasFuncion } = useAuth();
+  const fn = useFuncionesDrFlit();
   const modulos = useMemo(() => capitulosEnOrdenDeIndice(user), [user]);
   const userId = user?.id;
   // AC1/AC6: lo guardado en la pestaña (o nada, si está ilegible o el almacenamiento está bloqueado).
@@ -124,12 +131,34 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   // HU #13806: estado de soporte al montar el panel (el botón no se pinta mientras carga).
   const soporte = useSoporteDrFlit();
   const raizRef = useRef<HTMLDivElement>(null);
+  // HU #13942: sin «Radicar soporte» no se consulta nunca `finalidad=soporte`.
   useEffect(() => {
     asegurarUsuarioSoporte(userId);
-    consultarEstadoSoporte();
-  }, [userId]);
+    if (fn.soporte) consultarEstadoSoporte();
+  }, [userId, fn.soporte]);
   // F5.8: si la consulta falla el botón SÍ se pinta (al pulsarlo se reconsulta con estados visibles).
-  const soporteVisible = soporte.consulta.fase === 'error' || soporte.consulta.datos?.soporte.disponible === true;
+  // HU #13942 (AC4): la función va primero.
+  const soporteVisible = fn.soporte && !soporte.retirada
+    && (soporte.consulta.fase === 'error' || soporte.consulta.datos?.soporte.disponible === true);
+  const { retirar: retirarFuncion } = fn;
+  useEffect(() => {
+    if (soporte.retirada) retirarFuncion(FUNCIONES_DRFLIT.radicarSoporte);
+  }, [soporte.retirada, retirarFuncion]);
+
+  /** HU #13942: copys 3–6 como respuesta de Dr. Flit (se guardan; solo el motivo). */
+  const avisar = (motivo: MotivoAvisoFuncion, respondeA?: string) => {
+    setMensajes((prev) => agregar(prev, {
+      id: nuevoIdMensaje(), ts: Date.now(), de: 'drflit', tipo: 'avisoFuncion', motivo, ...(respondeA ? { respondeA } : {}),
+    }));
+  };
+  /** 403 `drflit-funcion-no-habilitada` inesperado: copy 6 una vez por función y la función se apaga. */
+  const avisadas = useRef(new Set<FuncionDrFlit>());
+  const retirarCon = (funcion: FuncionDrFlit, respondeA?: string) => {
+    retirarFuncion(funcion);
+    if (avisadas.current.has(funcion)) return;
+    avisadas.current.add(funcion);
+    avisar('retirada', respondeA);
+  };
   const abrirAsistente = (abridor: string) => {
     setListaAbierta(false);
     setConfirmando(false);
@@ -174,14 +203,16 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
     recordarMensajes(userId, mensajes, guardado);
   }, [userId, mensajes]);
 
-  const gestion = useGestionDrFlit({ userId, user, hasFuncion, mensajes, setMensajes, anunciar: setAnuncio });
+  const gestion = useGestionDrFlit({
+    userId, user, hasFuncion, mensajes, setMensajes, anunciar: setAnuncio, alRetirar: (f) => retirarCon(f),
+  });
 
   // HU #13857: al volver de la vista «Antes de usar la IA» el foco va a la caja (IA.4).
   const [focoCaja, setFocoCaja] = useState(0);
   const ia = useIaDrFlit(userId, (texto) => {
     if (texto) setAnuncio(texto);
     setFocoCaja((n) => n + 1);
-  });
+  }, fn.ia, () => retirarCon(FUNCIONES_DRFLIT.usarIa));
   useEffect(() => {
     if (focoCaja > 0) cajaRef.current?.focus();
   }, [focoCaja]);
@@ -256,6 +287,11 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   };
 
   const buscarPregunta = (id: string, texto: string, intento: number) => {
+    // HU #13942 (copy 4b): sin «Ver manuales» no hay en qué buscar; ninguna ficha se descarga.
+    if (!fn.manuales) {
+      avisar('sin-manuales', id);
+      return;
+    }
     // Las fichas visibles se cargan una vez por sesión de panel (las de «Explícame» ya cuentan).
     if (modulos.every((e) => fichas.has(e.clave))) {
       responder(id, texto, fichas);
@@ -283,7 +319,7 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   const respaldo = (id: string, texto: string, intento: number) => {
     // HU #13836 AC1/AC7: placa, VIN o id FLIT con algún módulo de consulta → oferta, nada se ejecuta.
     const detectado = detectarValorGestion(texto);
-    if (detectado && gestion.modulosPara(detectado.tipo).length > 0) {
+    if (fn.gestion && detectado && gestion.modulosPara(detectado.tipo).length > 0) {
       setMensajes((prev) => agregar(prev, {
         id: nuevoIdMensaje(), ts: Date.now(), de: 'drflit', tipo: 'ofertaGestion',
         respondeA: id, valor: detectado.valor, tipoValor: detectado.tipo, estado: 'viva',
@@ -346,7 +382,11 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
       }
       if (!vivo.current || t !== turno.current) return;
       if (r.tipo === 'ia') publicarIa(id, r, t);
-      else rutearIa(id, texto, intento, r);
+      else if (r.tipo === 'sin-manuales' || r.tipo === 'retirada') {
+        setPendiente(null);
+        if (r.tipo === 'retirada') retirarCon(r.funcion, id);
+        else avisar('sin-manuales', id);
+      } else rutearIa(id, texto, intento, r);
     }, caer);
   };
 
@@ -355,8 +395,20 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
    * local (AC2), varios valores sin `gestionRef` (AC4), sin valor (AC5) o por documento (AC6). Nada
    * se consulta aquí: la consulta de F6 solo corre al pulsar la oferta.
    */
-  const rutearIa = (id: string, texto: string, intento: number, r: Exclude<ResultadoIa, { tipo: 'ia' | 'respaldo' }>) => {
+  const rutearIa = (
+    id: string, texto: string, intento: number, r: Exclude<ResultadoIa, { tipo: 'ia' | 'respaldo' | 'sin-manuales' | 'retirada' }>,
+  ) => {
     setPendiente(null);
+    // HU #13942 (AC4/AC5): sin la función, copy 3 o 5 (nunca el valor detectado). Sin función ≠ sin
+    // ambiente: con «Radicar soporte» y el soporte no disponible, sigue el camino de hoy (F3).
+    if (r.tipo === 'soporte' && !fn.soporte) {
+      avisar('sin-soporte', id);
+      return;
+    }
+    if (r.tipo !== 'soporte' && !fn.gestion) {
+      avisar('sin-gestion', id);
+      return;
+    }
     // Sin soporte disponible, la oferta no se muestra y la pregunta se responde con F3 (spec IA).
     if (r.tipo === 'soporte' && !soporteVisible) {
       buscarPregunta(id, texto, intento);
@@ -506,6 +558,12 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
     </button>
   );
 
+  // HU #13942: qué ofrece el panel según las funciones (tabla «Regla por elemento» de la spec).
+  const conManuales = fn.manuales && modulos.length > 0;
+  const conPregunta = fn.ia || fn.gestion;
+  const conCaja = conPregunta || conManuales;
+  const vacio = !conCaja && !soporteVisible;
+
   const etiquetaPendiente =
     pendiente?.tipo === 'modulo' ? entradaAyudaPorClave(pendiente.clave)?.etiqueta ?? 'este módulo' : '';
   const textos = new Map(mensajes.flatMap((m) => (m.tipo === 'pregunta' ? [[m.id, m.texto] as const] : [])));
@@ -537,25 +595,35 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
               aria-label="Conversación con Dr. Flit"
               className="flex flex-col gap-3"
             >
-              <BurbujaDrFlit>
-                <p className="break-words">
-                  Hola, soy Dr. Flit. Le ayudo a encontrar respuestas en los manuales de los módulos que usted usa.
-                </p>
-                <p className="mt-2">¿Por dónde empezamos?</p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {botonExplicame()}
-                  <button type="button" onClick={() => cajaRef.current?.focus()} className={flitBtnSecondarySm}>
-                    Tengo una pregunta
-                  </button>
-                  <Link to="/flito/ayuda" onClick={onNavegar} className={ENLACE_DRFLIT}>
-                    Abrir la Ayuda FLITO
-                    <span aria-hidden="true">→</span>
-                  </Link>
-                  {soporteVisible && (
-                    <BotonNecesitoSoporte abridor="saludo" onClick={() => abrirAsistente('saludo')} />
-                  )}
-                </div>
-              </BurbujaDrFlit>
+              {vacio ? (
+                <DrFlitAvisoFuncion
+                  texto={fn.manuales ? COPY_DRFLIT_FUNCIONES.vacioSinFichas : COPY_DRFLIT_FUNCIONES.vacioSinFunciones}
+                />
+              ) : (
+                <BurbujaDrFlit>
+                  <p className="break-words">
+                    Hola, soy Dr. Flit. Le ayudo a encontrar respuestas en los manuales de los módulos que usted usa.
+                  </p>
+                  <p className="mt-2">¿Por dónde empezamos?</p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {conManuales && botonExplicame()}
+                    {conPregunta && (
+                      <button type="button" onClick={() => cajaRef.current?.focus()} className={flitBtnSecondarySm}>
+                        Tengo una pregunta
+                      </button>
+                    )}
+                    {conManuales && (
+                      <Link to="/flito/ayuda" onClick={onNavegar} className={ENLACE_DRFLIT}>
+                        Abrir la Ayuda FLITO
+                        <span aria-hidden="true">→</span>
+                      </Link>
+                    )}
+                    {soporteVisible && (
+                      <BotonNecesitoSoporte abridor="saludo" onClick={() => abrirAsistente('saludo')} />
+                    )}
+                  </div>
+                </BurbujaDrFlit>
+              )}
               {mensajes.map((m) => (m.tipo === 'ofertaGestion' ? (
                 <OfertaGestion key={m.id} mensaje={m} onConsultar={gestion.consultar} onManuales={aManuales} />
               ) : m.tipo === 'resultadoGestion' ? (
@@ -606,20 +674,26 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
               </div>
             )}
           </div>
-          <div
-            className="flex flex-col gap-3 border-t border-flit-soft px-4 pt-3"
-            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
-          >
-            <div className="flex flex-wrap items-center gap-2">{botonExplicame(botonPieRef)}</div>
-            {ia.aviso && <DrFlitAvisoIa aviso={ia.aviso} onAbrirAutorizacion={ia.abrirAutorizacion} />}
-            <DrFlitPregunta
-              notas={notasIa(ia.enUso, ia.cupoBajo)}
-              onEnviar={preguntar}
-              ocupado={buscando}
-              inputRef={cajaRef}
-              pista={pista ? 'Escriba la placa, el VIN o el id FLIT que quiere consultar.' : undefined}
-            />
-          </div>
+          {(conManuales || conCaja) && (
+            <div
+              className="flex flex-col gap-3 border-t border-flit-soft px-4 pt-3"
+              style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+            >
+              {conManuales && <div className="flex flex-wrap items-center gap-2">{botonExplicame(botonPieRef)}</div>}
+              {ia.aviso && <DrFlitAvisoIa aviso={ia.aviso} onAbrirAutorizacion={ia.abrirAutorizacion} />}
+              {conCaja && (
+                <DrFlitPregunta
+                  // HU #13942 (decisión del PO): con solo «Ver manuales» la caja busca en las fichas, sin IA.
+                  etiqueta={conPregunta ? undefined : 'Buscar en los manuales'}
+                  notas={notasIa(ia.enUso, ia.cupoBajo)}
+                  onEnviar={preguntar}
+                  ocupado={buscando}
+                  inputRef={cajaRef}
+                  pista={pista ? 'Escriba la placa, el VIN o el id FLIT que quiere consultar.' : undefined}
+                />
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

@@ -22,9 +22,13 @@ export interface DrFlitPreguntaProps {
    * `aria-describedby` junto al contador. Sin IA en uso no se pasa nada (AC10).
    */
   notas?: readonly string[];
+  /** HU #13942: rótulo de la caja; sin IA ni gestión es «Buscar en los manuales». */
+  etiqueta?: string;
 }
 
-export default function DrFlitPregunta({ onEnviar, ocupado, inputRef, pista, notas = [] }: DrFlitPreguntaProps) {
+export default function DrFlitPregunta({
+  onEnviar, ocupado, inputRef, pista, notas = [], etiqueta = 'Escriba su pregunta',
+}: DrFlitPreguntaProps) {
   const [texto, setTexto] = useState('');
   const id = useId();
   const idCampo = `${id}-pregunta`;
@@ -47,7 +51,7 @@ export default function DrFlitPregunta({ onEnviar, ocupado, inputRef, pista, not
   return (
     <form onSubmit={enviar} className="w-full" noValidate>
       <label htmlFor={idCampo} className="mb-1 block text-xs font-medium text-flit-secondary">
-        Escriba su pregunta
+        {etiqueta}
       </label>
       {pista && (
         <p id={idPista} className="mb-2 text-xs text-flit-secondary">

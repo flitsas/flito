@@ -9,6 +9,8 @@ import {
   consultarModulo, fijarGrupos, generacionGestion, grupoDeRespuesta, resultadosGestion, suscribirResultados,
 } from '../../../lib/drFlitGestionConsulta';
 import { idGrupoGestion, idTituloGestion } from './ResultadoGestion';
+import { funcionNoHabilitada } from '../drFlitFunciones';
+import type { FuncionDrFlit } from '@operaciones/shared-types';
 
 // Dr. Flit — orquestación de las consultas de gestión en el panel (HU #13836 G1). Despachador
 // (página + función, AC7), lanzamiento por módulo (cada grupo se pinta al responder, UX F6.3),
@@ -23,13 +25,17 @@ export interface GestionDrFlitOpciones {
   mensajes: readonly MensajeDrFlit[];
   setMensajes: Dispatch<SetStateAction<MensajeDrFlit[]>>;
   anunciar: (texto: string) => void;
+  /** HU #13942: un módulo respondió 403 `drflit-funcion-no-habilitada` (copy 6; la función se apaga). */
+  alRetirar?: (funcion: FuncionDrFlit) => void;
 }
 
 const enfocar = (id: string) => {
   requestAnimationFrame(() => document.getElementById(id)?.focus());
 };
 
-export function useGestionDrFlit({ userId, user, hasFuncion, mensajes, setMensajes, anunciar }: GestionDrFlitOpciones) {
+export function useGestionDrFlit({
+  userId, user, hasFuncion, mensajes, setMensajes, anunciar, alRetirar,
+}: GestionDrFlitOpciones) {
   const resultados = useSyncExternalStore(suscribirResultados, resultadosGestion);
   /** Ofertas ya pulsadas: un doble clic no lanza una segunda tanda (F6.10). */
   const pulsadas = useRef(new Set<string>());
@@ -50,6 +56,8 @@ export function useGestionDrFlit({ userId, user, hasFuncion, mensajes, setMensaj
     });
     for (const m of modulos) {
       void consultarModulo(m, valor).then((r) => {
+        const retirada = r.ok ? null : funcionNoHabilitada(r.causa);
+        if (retirada) alRetirar?.(retirada);
         const grupo = grupoDeRespuesta(r);
         if (!fijarGrupos(userId, gen, rid, (prev) => ({ ...prev, [m]: grupo }))) return;
         if (focoAlResponder) enfocar(grupo.estado === 'oculto' ? idTituloGestion(rid) : idGrupoGestion(rid, m));
