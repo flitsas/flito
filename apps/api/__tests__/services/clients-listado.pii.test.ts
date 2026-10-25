@@ -60,6 +60,9 @@ const { clients } = await import('../../src/db/schema.js');
 
 beforeEach(() => {
   selectMock.mockReset();
+  // HU #13967 (AC7): las compañías del padrón sin proveedor disparan UNA lectura más (quién tiene
+  // `soat.solicitud.crear`); por defecto no hay nadie. La proyección del listado sigue siendo la 1.ª.
+  selectMock.mockImplementation(() => chain([]));
   logPiiAccessMock.mockClear();
 });
 

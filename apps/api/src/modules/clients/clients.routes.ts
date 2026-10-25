@@ -17,6 +17,7 @@ import { db } from '../../db/client.js';
 import { clients, flitoProveedoresSoat } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { companiasConUsuarioConFuncion } from '../../shared/permisos-efectivos.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -234,7 +235,13 @@ router.get('/', exigirFuncion('clients.clientes.ver'), async (req: Request, res:
     .where(clienteVigente())
     .orderBy(clients.name).limit(limit).offset(offset);
   await registrarAccesoListado(req, { filas: result.length, limit, offset });
-  res.json(result.map(clienteListadoDto));
+  // HU #13967 (AC7): `permisoSinTramiteSinEfecto` solo se calcula para las compañías de ESTA página
+  // sin proveedor de SOAT sin trámite; si no hay ninguna, todas van en false y no se consulta.
+  const sinProveedor = result.filter((f) => !f.soatSinTramite).map((f) => f.id);
+  const conPermisoSinEfecto = sinProveedor.length > 0
+    ? await companiasConUsuarioConFuncion('soat.solicitud.crear', sinProveedor)
+    : new Set<number>();
+  res.json(result.map((f) => clienteListadoDto(f, !f.soatSinTramite && conPermisoSinEfecto.has(f.id))));
 });
 
 router.post('/', exigirFuncion('clients.clientes.crear'), async (req: Request, res: Response) => {

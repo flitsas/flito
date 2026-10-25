@@ -31,7 +31,7 @@ const AREA = ACCIONES_POR_AREA.administracion;
 const ANEXO = `
 Administración → Usuarios: Ver usuarios · Crear usuario · Editar usuario · Cambiar la contraseña de otro usuario · Desactivar o reactivar · Dar de baja (eliminar) · Ver el historial · Exportar a Excel · Cerrar sesiones
 Administración → Roles y permisos: Ver roles · Crear rol · Editar rol · Asignar permisos · Eliminar rol
-Gestión → Clientes y proveedores: Ver clientes y proveedores · Crear y editar clientes · Crear y editar proveedores · Habilitar o revocar la autogestión del cliente · Configurar «SOAT sin trámite» · Datos fiscales · Activar o desactivar clientes · Eliminar clientes · Activar o desactivar proveedores
+Gestión → Clientes y proveedores: Ver clientes y proveedores · Crear y editar clientes · Crear y editar proveedores · Habilitar o revocar la autogestión del cliente · Elegir proveedor de SOAT sin trámite · Datos fiscales · Activar o desactivar clientes · Eliminar clientes · Activar o desactivar proveedores
 Gestión → Bitácora: Ver la bitácora
 General → Tablero: Ver (solo ver)
 Perfil → Perfil: Ver mis datos · Cambiar mi contraseña

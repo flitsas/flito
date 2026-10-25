@@ -46,6 +46,9 @@ vi.mock('../../src/shared/pii-audit.js', () => ({
 
 beforeEach(() => {
   selectMock.mockReset();
+  // HU #13967 (AC7): `GET /clients` hace UNA lectura más (permisos de usuarios) para las compañías sin
+  // proveedor de SOAT sin trámite; por defecto no hay nadie. Los `mockReturnValueOnce` siguen mandando.
+  selectMock.mockImplementation(() => chain([]));
   insertMock.mockReset();
   updateMock.mockReset();
   auditMock.mockClear();

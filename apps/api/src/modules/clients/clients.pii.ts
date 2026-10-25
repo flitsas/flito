@@ -50,6 +50,7 @@
 // front; no se tocan desde aquí porque esta tanda no toca `apps/web`.
 
 import type { Request } from 'express';
+import { sql } from 'drizzle-orm';
 import { clients, flitoProveedoresSoat } from '../../db/schema.js';
 import { registrarAccesoCliente } from '../siigo/siigo.pii.js';
 
@@ -73,7 +74,12 @@ export const COLUMNAS_LISTADO = {
   // pinta su columna en la misma tabla: cruzar dos rutas para una casilla dejaba a `financiera` —que
   // ve esta pantalla pero NO entra a parametrización (hoy una función que de partida solo tienen `admin` y `auditor`)— con un «—»
   // permanente que no distingue «apagado» de «no lo puedo leer».
-  soatSinTramite: clients.soatSinTramite,
+  /**
+   * @deprecated #13968 — HU #13967: la columna `clients.soat_sin_tramite` salió del esquema. El DTO
+   * sigue enviando la clave para no romper la web vieja, CALCULADA: canal abierto = la compañía tiene
+   * proveedor de SOAT sin trámite elegido. Sigue siendo una columna sin PII.
+   */
+  soatSinTramite: sql<boolean>`${clients.flitoProveedorSoatSinTramiteId} IS NOT NULL`,
   impuestosAutogestionable: clients.impuestosAutogestionable,
   logisticaAutogestionable: clients.logisticaAutogestionable,
   logisticaPermiteParcial: clients.logisticaPermiteParcial,
@@ -147,7 +153,9 @@ const COLUMNAS_IMPERSONALES = new Set<ClaveListado>([
  */
 export const CAMPOS_PII_LISTADO: readonly string[] = Object.entries(COLUMNAS_LISTADO)
   .filter(([clave]) => !COLUMNAS_IMPERSONALES.has(clave as ClaveListado))
-  .map(([, columna]) => columna.name);
+  // Lo calculado (`soatSinTramite`, HU #13967) es impersonal y no llega aquí: todo lo que pasa el
+  // filtro es una columna real de `clients`, con su nombre.
+  .map(([, columna]) => (columna as { name: string }).name);
 
 // ── El gestor por defecto del canal «SOAT sin trámite», RESUELTO (HU #12079) ────────────────────
 //
@@ -240,7 +248,7 @@ function gestorResuelto(fila: FilaGestorSinTramite): GestorSinTramiteDto | null 
  * Las tres columnas planas de la unión NO se publican —se consumen aquí— para que la respuesta tenga
  * una sola forma de decir el gestor y la pantalla no tenga que elegir entre dos.
  */
-export function clienteListadoDto<T extends FilaGestorSinTramite>(fila: T) {
+export function clienteListadoDto<T extends FilaGestorSinTramite>(fila: T, permisoSinTramiteSinEfecto = false) {
   const {
     gestorSinTramiteId, gestorSinTramiteNombre, gestorSinTramiteActivo, ...cliente
   } = fila;
@@ -249,6 +257,10 @@ export function clienteListadoDto<T extends FilaGestorSinTramite>(fila: T) {
     gestorSoatSinTramite: gestorResuelto({
       gestorSinTramiteId, gestorSinTramiteNombre, gestorSinTramiteActivo,
     }),
+    // HU #13967 (AC7): la compañía NO tiene proveedor de SOAT sin trámite y algún usuario suyo ya
+    // tiene `soat.solicitud.crear` — un permiso que no surte efecto. Solo el booleano: ningún dato
+    // de usuario viaja en el listado. Lo calcula la ruta (`companiasConUsuarioConFuncion`).
+    permisoSinTramiteSinEfecto,
   };
 }
 

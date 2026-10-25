@@ -161,9 +161,10 @@ describe('AC2 — Compañía: `PATCH /companias/:id` partido por grupo de campos
     fijar({ 1: ['accion.clientes.autogestion'], 2: ['accion.clientes.soat_sin_tramite'], 3: ['accion.clientes.crear_editar_clientes'] });
     const id = '/par/companias/abc';
     expect((await request(app).patch(id).set('x-sub', '1').send({ soatAutogestionable: true })).status).toBe(400); // pasa; ID inválido
-    const r1 = await request(app).patch(id).set('x-sub', '1').send({ soatSinTramite: true });
+    // HU #13967: `soatSinTramite` se ignora; el grupo «sin trámite» es el proveedor.
+    const r1 = await request(app).patch(id).set('x-sub', '1').send({ proveedorSoatSinTramiteId: null });
     expect([r1.status, r1.body]).toEqual([403, { error: 'Sin permisos', grupo: 'sinTramite' }]);
-    expect((await request(app).patch(id).set('x-sub', '2').send({ soatSinTramite: true, proveedorSoatSinTramiteId: null })).status).toBe(400);
+    expect((await request(app).patch(id).set('x-sub', '2').send({ proveedorSoatSinTramiteId: null })).status).toBe(400);
     const r2 = await request(app).patch(id).set('x-sub', '2').send({ carpetaStorage: 'x' });
     expect([r2.status, r2.body]).toEqual([403, { error: 'Sin permisos', grupo: 'general' }]);
     expect((await request(app).patch(id).set('x-sub', '3').send({ carpetaStorage: 'x' })).status).toBe(400);

@@ -669,7 +669,11 @@ export type TipoDocumentoRunt = (typeof TIPOS_DOCUMENTO_RUNT)[number];
 export const CodigoErrorSolicitudSoat = {
   /** El usuario `cliente` no tiene compañía (el CHECK de la 0168 lo impide; esto es la red). */
   SIN_COMPANIA: 'sin_compania',
-  /** La compañía tiene el flag «SOAT sin trámite» APAGADO (AC5). */
+  /**
+   * La compañía no tiene el canal «SOAT sin trámite» abierto. HU #13967: el canal lo abre el PROVEEDOR
+   * elegido (`clients.flito_proveedor_soat_sin_tramite_id IS NOT NULL`), no un interruptor; `null` =
+   * «Sin proveedor» = cerrado. El mensaje que lo acompaña es neutro y no menciona al proveedor.
+   */
   CANAL_DESACTIVADO: 'canal_desactivado',
   /**
    * HU #12874: un usuario SIN enlace radica a nombre de una compañía que escoge en el formulario y

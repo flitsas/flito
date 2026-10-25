@@ -187,28 +187,18 @@ export const clients = pgTable('clients', {
   // HU #13937 (migración 0252): las tres banderas nacen en TRUE — una compañía nueva no tiene
   // servicios gestionados por FLITO hasta que alguien los active. Las existentes no se tocaron.
   soatAutogestionable: boolean('soat_autogestionable').notNull().default(true),
-  /**
-   * FLITO — Cliente (Feature #11912): la compañía puede pedirle a FLITO el SOAT de un vehículo que
-   * NO tiene trámite digital abierto. Es lo que habilita el canal del rol `cliente`.
-   *
-   * INDEPENDIENTE de `soatAutogestionable` y lo contrario de una sub-opción suya: aquella dice que
-   * la compañía se compra el SOAT por su cuenta y que FLITO no lo gestiona; esta dice que sus
-   * usuarios pueden pedírselo a FLITO sin trámite de por medio. Las dos a la vez son una
-   * combinación válida y esperada, y es justo la que obliga a que la frontera de autogestión de
-   * `flito-soat.service.ts` deje pasar lo que nace con `origen = 'cliente'` (ADR-0008 §5).
-   *
-   * Nace APAGADO (AC3): una compañía nueva no estrena canal sin que alguien lo decida.
-   */
-  soatSinTramite: boolean('soat_sin_tramite').notNull().default(false),
+  // HU #13967: `clients.soat_sin_tramite` (Feature #11912) SALIÓ del esquema. La columna física se
+  // queda en la BD con su DEFAULT y sin uso (se retira en #13968): el canal lo abre el PROVEEDOR
+  // elegido (`flitoProveedorSoatSinTramiteId IS NOT NULL`) junto con la función `soat.solicitud.crear`.
   /**
    * FLITO — Cliente (Feature #12074, HU #12078): el gestor por defecto AL QUE VAN las solicitudes
    * que esta compañía radica por el canal SIN TRÁMITE. Desde esa HU el alta no espera a que
    * Operaciones elija destino: nace en `solicitado` con el destino ya escrito, y sale de aquí.
    *
-   * Vive pegada a `soatSinTramite` a propósito: son el mismo hecho partido en dos columnas —«el
-   * canal está abierto» y «hacia dónde»— y el CHECK `clients_sin_tramite_gestor_chk` (migración
-   * 0175, `soat_sin_tramite = false OR flito_proveedor_soat_sin_tramite_id IS NOT NULL`) las ata.
-   * Separarlas invitaría a leer una sin la otra.
+   * HU #13967: desde esta HU es ADEMÁS el interruptor del canal. `NULL` = «Sin proveedor» = canal
+   * CERRADO; no nulo = canal abierto hacia ese proveedor (si está inactivo, la solicitud cae en la
+   * contingencia de Operaciones). Puede radicar quien tenga `soat.solicitud.crear` y una compañía
+   * con proveedor. El CHECK `clients_sin_tramite_gestor_chk` (0175) se retira en la 0262.
    *
    * **SOLO del canal sin trámite, y el nombre lo dice a propósito.** El SOAT POR TRÁMITE no la lee
    * nunca: allí Operaciones elige gestor en cada `POST /flito/soat/enviar`, que es cuando alguien
@@ -217,13 +207,11 @@ export const clients = pgTable('clients', {
    * `GET /clients` también la lee, pero solo para MOSTRARLA —unida a `flito_proveedores_soat`, para
    * que la ficha de la compañía diga el nombre del gestor y si está activo—, nunca para enrutar.
    *
-   * NULLABLE, como `users.companiaId`: casi ninguna compañía tiene el canal abierto y un `NOT NULL`
-   * obligaría a inventarle un gestor a cada una. La obligatoriedad es CONDICIONAL al flag y la
-   * sostiene el CHECK, que Drizzle no declara aquí porque no lo declara ninguno de `clients`.
+   * NULLABLE, como `users.companiaId`: casi ninguna compañía tiene el canal abierto, y el nulo es
+   * justamente «canal cerrado» (HU #13967).
    *
-   * `ON DELETE RESTRICT` explícito (ADR-0005 regla 1, ADR-0008 §3): `SET NULL` crearía por la
-   * puerta de atrás el estado que el AC2c declara imposible —canal encendido, destino vacío— y en
-   * silencio. Sin índice: `clients` tiene cientos de filas y no existe `DELETE /proveedores-soat`
+   * `ON DELETE RESTRICT` explícito (ADR-0005 regla 1, ADR-0008 §3): `SET NULL` cerraría el canal de
+   * la compañía por la puerta de atrás y en silencio. Sin índice: `clients` tiene cientos de filas y no existe `DELETE /proveedores-soat`
    * (un proveedor se retira con `activo = false`, que NO dispara la FK).
    */
   flitoProveedorSoatSinTramiteId: uuid('flito_proveedor_soat_sin_tramite_id')
