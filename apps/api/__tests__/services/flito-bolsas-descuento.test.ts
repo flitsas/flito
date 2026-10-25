@@ -404,7 +404,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
       expect(entrada).toMatchObject({ origen: 'comprobante', revierte_movimiento_id: salida!.id, comprobante_id: id });
       expect(Number(entrada.valor)).toBe(250_000);
       const original = filas.find((f) => f.id === salida!.id)!;
-      expect(original.llave_idempotencia).toBe(`rev:salida:comprobante:${id}`);
+      expect(original.llave_idempotencia).toBe(`rev:${salida!.id}:salida:comprobante:${id}`);
       expect(Number(original.valor)).toBe(250_000);
       expect(await saldo(e.bolsaId!)).toBe(1_000_000);
     });

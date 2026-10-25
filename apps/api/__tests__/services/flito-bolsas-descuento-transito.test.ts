@@ -83,7 +83,13 @@ describe.skipIf(!URL)('HU #13909 — doble movimiento compañía + tránsito (Po
     await sql`DELETE FROM flito_estado_historial WHERE registro_id::text IN (${imps})`;
     await sql`DELETE FROM audit_logs WHERE resource = 'flito_impuesto' AND resource_id::text IN (${imps})`;
     await sql`DELETE FROM flito_comprobantes WHERE tramite_id IN ${sql(tr)} OR soporte_id IN ${sql(creados.soportes.length ? creados.soportes : [NADA])}`;
-    if (creados.soportes.length) await sql`DELETE FROM flito_soportes WHERE id IN ${sql(creados.soportes)}`;
+    // HU #13969: el derecho que registra `aplicar` (tras el commit) y el soporte que ata.
+    const delDerecho = (await sql`SELECT soporte_id FROM flito_derechos_tramite WHERE tramite_id IN ${sql(tr)} AND soporte_id IS NOT NULL`)
+      .map((f) => f.soporte_id as string);
+    const sop = [...creados.soportes, ...delDerecho, NADA];
+    await sql`UPDATE flito_soportes SET derecho_id = NULL WHERE id IN ${sql(sop)}`;
+    await sql`DELETE FROM flito_derechos_tramite WHERE tramite_id IN ${sql(tr)}`;
+    await sql`DELETE FROM flito_soportes WHERE id IN ${sql(sop)}`;
     await sql`DELETE FROM flito_impuestos WHERE tramite_id IN ${sql(tr)}`;
     await sql`UPDATE flito_tramites SET soat_id = NULL WHERE id IN ${sql(tr)}`;
     await sql`DELETE FROM flito_tramites WHERE id IN ${sql(tr)}`;
@@ -393,7 +399,7 @@ describe.skipIf(!URL)('HU #13909 — doble movimiento compañía + tránsito (Po
         const entrada = filas.find((f) => f.tipo === 'entrada')!;
         expect(entrada).toMatchObject({ origen: 'comprobante', revierte_movimiento_id: salida.id, comprobante_id: k.id });
         expect(Number(entrada.valor)).toBe(300_000);
-        expect(filas.find((f) => f.id === salida.id)!.llave_idempotencia).toBe(`rev:${salida.llave_idempotencia}`);
+        expect(filas.find((f) => f.id === salida.id)!.llave_idempotencia).toBe(`rev:${salida.id}:${salida.llave_idempotencia}`);
         expect(await saldo(bolsaId)).toBe(saldoInicial);
       }
       const entradaT = (await movimientos(bt.id)).find((f) => f.tipo === 'entrada')!;
@@ -499,8 +505,175 @@ describe.skipIf(!URL)('HU #13909 — doble movimiento compañía + tránsito (Po
       }
       // La llave del SOAT queda libre para la conciliación o un pago posterior.
       const [st] = (await movimientos(bt.id)).filter((f) => f.tipo === 'salida');
-      expect(st!.llave_idempotencia).toBe(`rev:consumo:soat:${t.soatId}`);
+      expect(st!.llave_idempotencia).toBe(`rev:${st!.id}:consumo:soat:${t.soatId}`);
       expect((await estado(k.id)).estado).toBe('pendiente');
+    });
+  });
+
+  // ─────────────────────────── HU #13969 ───────────────────────────
+
+  describe('HU #13969 — la segunda reversión de la misma llave no choca (libro y tránsito)', () => {
+    const vivas = async (bolsaId: string) => (await movimientos(bolsaId))
+      .filter((f) => f.tipo === 'salida' && !String(f.llave_idempotencia).startsWith('rev:'));
+
+    it('AC3 · desaplicar dos veces el mismo impuesto → cada bolsa con dos entradas enlazadas y saldos restituidos', async () => {
+      const { c, bt, t, k } = await impuestoDescontado(300_000);
+      await comp.desaplicar(k.id, { destino: 'pendiente', motivo: MOTIVO }, cctx);
+      await sql`UPDATE flito_comprobantes SET estado = 'aplicado', motivo_pendiente = NULL, detalle_pendiente = NULL,
+          tramite_id = ${t.tramiteId}, concepto = 'impuesto', es_pago = true, valor = '300000', aplicado_en = now(), aplicado_por_id = ${USER}
+        WHERE id = ${k.id}`;
+      // El impuesto volvió a `pendiente` con la desaplicación: se paga otra vez con el mismo comprobante.
+      await sql`UPDATE flito_impuestos SET estado = 'pagado' WHERE tramite_id = ${t.tramiteId}`;
+      await descontar(pago(k.id, t.tramiteId, 'impuesto', 300_000));
+
+      await comp.desaplicar(k.id, { destino: 'pendiente', motivo: MOTIVO }, cctx);
+
+      for (const [bolsaId, saldoInicial] of [[c.bolsaId!, 1_000_000], [bt.id, 5_000_000]] as const) {
+        const filas = await movimientos(bolsaId);
+        const salidas = filas.filter((f) => f.tipo === 'salida');
+        expect(salidas).toHaveLength(2);
+        for (const sal of salidas) expect(String(sal.llave_idempotencia)).toMatch(new RegExp(`^rev:${sal.id}:(salida|consumo):comprobante:${k.id}$`));
+        expect(filas.filter((f) => f.tipo === 'entrada').map((f) => f.revierte_movimiento_id).sort()).toEqual(salidas.map((f) => f.id).sort());
+        expect(await vivas(bolsaId)).toHaveLength(0);
+        expect(await saldo(bolsaId)).toBe(saldoInicial);
+      }
+    });
+
+    it('AC3 · libro: sellar → reversar → sellar → reversar la liquidación no choca y devuelve las dos veces', async () => {
+      const c = await compania();
+      const t = await tramite(c.companiaId);
+      const datos = { companiaId: c.companiaId, tramiteId: t.tramiteId, fecha: '2026-12-03',
+        conceptos: [{ concepto: 'derecho' as never, valor: 40_000, organismoCodigo: null, llave: `tramite:${t.tramiteId}:derecho` }] };
+      for (let i = 0; i < 2; i += 1) {
+        expect(await db.transaction((tx) => libro.registrarSalidasLiquidacion(tx, datos as never, ctx))).toHaveLength(1);
+        expect(await db.transaction((tx) => libro.reversarSalidasLiquidacion(tx, t.tramiteId, ctx))).toHaveLength(1);
+      }
+      const salidas = (await movimientos(c.bolsaId!)).filter((f) => f.tipo === 'salida');
+      expect(salidas).toHaveLength(2);
+      for (const sal of salidas) expect(sal.llave_idempotencia).toBe(`rev:${sal.id}:salida:tramite:${t.tramiteId}:derecho`);
+      expect(await saldo(c.bolsaId!)).toBe(1_000_000);
+    });
+
+    it('AC3 · tránsito: consumir → reversar → consumir → reversar el mismo concepto no choca y devuelve las dos veces', async () => {
+      const c = await compania({ sinBolsa: true });
+      const org = secretaria();
+      const bt = await bolsaTransito(org, ['derecho']);
+      const t = await tramite(c.companiaId);
+      const datos = { organismoCodigo: org, concepto: 'derecho' as never, tramiteId: t.tramiteId, valor: 30_000, fecha: '2026-12-03',
+        llave: `tramite:${t.tramiteId}:derecho` };
+      for (let i = 0; i < 2; i += 1) {
+        expect(await db.transaction((tx) => transito.registrarConsumoTransito(tx, datos as never, ctx))).not.toBeNull();
+        expect(await db.transaction((tx) => transito.reversarConsumoTransito(tx, t.tramiteId, ctx))).toHaveLength(1);
+      }
+      const salidas = (await movimientos(bt.id)).filter((f) => f.tipo === 'salida');
+      expect(salidas).toHaveLength(2);
+      for (const sal of salidas) expect(sal.llave_idempotencia).toBe(`rev:${sal.id}:consumo:tramite:${t.tramiteId}:derecho`);
+      expect(await saldo(bt.id)).toBe(5_000_000);
+    });
+
+    it('AC4 · SOAT con tránsito: pagado → revertido → repagado → revertido sin choque de consumo:soat:<soatId>', async () => {
+      const c = await compania();
+      const org = secretaria();
+      const bt = await bolsaTransito(org, ['soat']);
+      const t = await tramite(c.companiaId, { soat: { organismo: org } });
+      for (const valor of [500_000, 520_000]) {
+        const k = await comprobante(t.tramiteId, 'soat', valor);
+        await descontar(pago(k.id, t.tramiteId, 'soat', valor));
+        expect(await db.transaction((tx) => d.revertirDescuentoComprobante(tx, k.id, ctx, { motivo: MOTIVO }))).toHaveLength(2);
+      }
+      for (const [bolsaId, llave, saldoInicial] of [
+        [c.bolsaId!, `salida:soat:${t.soatId}`, 1_000_000], [bt.id, `consumo:soat:${t.soatId}`, 5_000_000],
+      ] as const) {
+        const salidas = (await movimientos(bolsaId)).filter((f) => f.tipo === 'salida');
+        expect(salidas).toHaveLength(2);
+        for (const sal of salidas) expect(sal.llave_idempotencia).toBe(`rev:${sal.id}:${llave}`);
+        expect(await saldo(bolsaId)).toBe(saldoInicial);
+      }
+    });
+  });
+
+  describe('HU #13969 — el pago de DERECHO descuenta en tránsito (secretaría del trámite)', () => {
+    /** Trámite aprobado en FLIT con su secretaría y SIN derecho registrado (el de un recibo nuevo). */
+    async function tramiteAprobado(companiaId: number, organismo: string | null) {
+      n += 1;
+      const sello = `${Math.floor(Math.random() * 1e9)}${n}`;
+      const [v] = await sql`INSERT INTO vehicles (plate) VALUES (${`R${sello}`.slice(0, 6)}) RETURNING id`;
+      creados.vehicles.push(v!.id as number);
+      const [t] = await sql`INSERT INTO flito_tramites (id_flit, vehiculo_id, sincronizado_en, compania_id, organismo_codigo, flit_estado)
+        VALUES (${`HU13969-${sello}`}, ${v!.id}, now(), ${companiaId}, ${organismo}, 'Aprobado') RETURNING id`;
+      creados.tramites.push(t!.id as string);
+      return t!.id as string;
+    }
+    /** Recibo de derecho en la cola, leído con su valor. */
+    async function reciboPendiente(tramiteId: string, valor: string): Promise<string> {
+      n += 1;
+      const [s] = await sql`INSERT INTO flito_soportes (tipo, nombre_archivo, content_type, storage_key, hash, tamano_bytes, subido_por_nombre)
+        VALUES ('comprobante_pago', 'c.pdf', 'application/pdf', ${`hu13969/${n}.pdf`}, ${`r13969${Math.random()}${n}`.slice(0, 64)}, 10, 'test') RETURNING id`;
+      creados.soportes.push(s!.id as string);
+      const extraccion = { valorTotal: { valor, confianza: 1 }, fechaPago: { valor: '2026-12-03', confianza: 1 } };
+      const [c] = await sql`INSERT INTO flito_comprobantes (lote_id, soporte_id, extraccion, subido_por_id, subido_por_nombre,
+          estado, motivo_pendiente, tramite_id, tipo_documento)
+        VALUES (gen_random_uuid(), ${s!.id}, ${sql.json(extraccion)}, ${USER}, 'test', 'pendiente', 'leido', ${tramiteId}, 'recibo_derecho') RETURNING id`;
+      return c!.id as string;
+    }
+
+    it('AC7 · aplicar real de un recibo de derecho 340.000 → consumo en tránsito con la secretaría del trámite; el derecho queda con esa secretaría', async () => {
+      const c = await compania();
+      const org = secretaria();
+      const bt = await bolsaTransito(org, ['derecho']);
+      const tramiteId = await tramiteAprobado(c.companiaId, org);
+      const id = await reciboPendiente(tramiteId, '340000');
+
+      const r = await ap.aplicar(id, { tramiteId, concepto: 'derecho', esPago: true }, cctx as never) as { bolsa?: { omitidos: { alcance: string; motivo: string }[] } };
+
+      expect(r.bolsa!.omitidos.filter((o) => o.alcance === 'transito')).toEqual([]);
+      const [mt, ...resto] = await movimientos(bt.id);
+      expect(resto).toHaveLength(0);
+      expect(mt).toMatchObject({ tipo: 'salida', origen: 'comprobante', comprobante_id: id, organismo_codigo: org, concepto: 'derecho',
+        llave_idempotencia: `consumo:comprobante:${id}` });
+      expect(Number(mt!.valor)).toBe(340_000);
+      expect(await saldo(bt.id)).toBe(4_660_000);
+      expect(await saldo(c.bolsaId!)).toBe(660_000);
+      expect((await sql`SELECT organismo_codigo FROM flito_derechos_tramite WHERE tramite_id = ${tramiteId}`)[0]!.organismo_codigo).toBe(org);
+      expect((await estado(id)).estado).toBe('aplicado');
+    });
+
+    it('AC8 · el registro del derecho falla tras el commit → compensación revierte compañía y tránsito; comprobante a pendiente', async () => {
+      const c = await compania();
+      const org = secretaria();
+      const bt = await bolsaTransito(org, ['derecho']);
+      const tramiteId = await tramiteAprobado(c.companiaId, org);
+      const k = await comprobante(tramiteId, 'derecho', 340_000);
+      const r = await descontar(pago(k.id, tramiteId, 'derecho', 340_000));
+      expect(transitoDe(r).movimientos).toHaveLength(1);
+      expect(await saldo(bt.id)).toBe(4_660_000);
+      const destino = { concepto: 'derecho' as never, fk: {}, tipoSoporte: 'recibo_derecho', candidato: null };
+      // `registrarDesdeRevision` no encuentra el trámite (404 de DerechoError): el dueño rechaza tras el commit.
+      const args = {
+        tramiteId: NADA, soporteAplicadoId: k.soporteId, extraccionDestino: {}, motivo: null, fechaPago: null,
+        ctx: { userId: USER, username: 'hu13969@flit.io', role: 'financiera' },
+      };
+
+      await expect(ap.pagarDespuesDelCommit(k.id, destino as never, args as never)).rejects.toMatchObject({ status: 409, codigo: 'destino_no_admite' });
+
+      for (const [bolsaId, saldoInicial] of [[c.bolsaId!, 1_000_000], [bt.id, 5_000_000]] as const) {
+        const filas = await movimientos(bolsaId);
+        expect(filas).toHaveLength(2);
+        const salida = filas.find((f) => f.tipo === 'salida')!;
+        expect(filas.find((f) => f.tipo === 'entrada')).toMatchObject({ comprobante_id: k.id, revierte_movimiento_id: salida.id });
+        expect(await saldo(bolsaId)).toBe(saldoInicial);
+      }
+      expect((await estado(k.id)).estado).toBe('pendiente');
+    });
+
+    it('AC9 · trámite sin secretaría → tránsito omite sin_organismo y la compañía descuenta igual', async () => {
+      const c = await compania();
+      const tramiteId = await tramiteAprobado(c.companiaId, null);
+      const k = await comprobante(tramiteId, 'derecho', 340_000);
+      const r = await descontar(pago(k.id, tramiteId, 'derecho', 340_000));
+      expect(transitoDe(r)).toMatchObject({ movimientos: [], omitidos: [{ alcance: 'transito', motivo: 'sin_organismo' }] });
+      expect(r!.movimientos.filter((m) => m.alcance === 'compania')).toHaveLength(1);
+      expect(await saldo(c.bolsaId!)).toBe(660_000);
     });
   });
 

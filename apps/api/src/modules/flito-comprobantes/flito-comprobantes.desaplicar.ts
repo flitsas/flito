@@ -45,6 +45,7 @@ import {
   bloquearTramite, restaurarDesdeComprobante, TramiteNoEncontradoError, type Tx,
 } from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
 import { exigirDescuentoReversible, PeriodoCerradoError, revertirDescuentoComprobante } from '../flito-bolsas/flito-bolsas.descuento.js';
+import { esLlaveDuplicada } from '../flito-bolsas/flito-bolsas.libro.js';
 import { reversarEnTx as reversarSoatEnTx, SoatError } from '../flito-soat/flito-soat.service.js';
 import { ImpuestoError, reversarEnTx as reversarImpuestoEnTx } from '../flito-impuestos/flito-impuestos.service.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
@@ -79,6 +80,25 @@ const duenoNoReversible = (detalle: string) =>
   new ComprobanteError(409, CodigoErrorComprobante.DUENO_NO_REVERSIBLE, 'El pago no se puede deshacer desde Comprobantes', { detalle });
 const servicioNoReversible = () => new ComprobanteError(409, CodigoErrorComprobante.SERVICIO_NO_REVERSIBLE,
   'El valor del servicio no se puede deshacer desde Comprobantes', { detalle: 'Corrige el valor en Servicios adicionales' });
+/** Índice único parcial de la llave del libro de bolsas únicas (0249). */
+const UQ_LLAVE_BOLSA = 'uq_flito_bolsas_unicas_mov_llave';
+/**
+ * AC6 (HU #13969): un 23505 de la llave de la bolsa dentro de la tx de desaplicar/reemplazar es un conflicto
+ * (409 legible), no un 500. La tx ya hizo rollback: nada cambió. Otro error se devuelve tal cual.
+ */
+export function traducirChoqueLlaveBolsa(e: unknown): unknown {
+  if (!esLlaveDuplicada(e)) return e;
+  // postgres-js la expone como `constraint_name` (node-postgres: `constraint`); drizzle la envuelve en `cause`.
+  const restriccion = (x: unknown) => {
+    if (typeof x !== 'object' || x === null) return undefined;
+    const pg = x as { constraint_name?: string; constraint?: string };
+    return pg.constraint_name ?? pg.constraint;
+  };
+  const r = restriccion(e) ?? restriccion((e as { cause?: unknown }).cause);
+  if (r !== UQ_LLAVE_BOLSA) return e;
+  return new ComprobanteError(409, CodigoErrorComprobante.DESCUENTO_EN_CONFLICTO,
+    'La bolsa no pudo registrar la devolución de este comprobante; nada cambió. Vuelve a intentarlo');
+}
 const yaResuelto = () => new ComprobanteError(409, CodigoErrorComprobante.YA_RESUELTO, 'El comprobante de reemplazo ya no está pendiente');
 
 // ─────────────────────────── Núcleo en tx ────────────────────────────────────
@@ -229,9 +249,14 @@ export async function desaplicar(id: string, cuerpo: unknown, ctx: ComprobanteCt
   const parsed = desaplicarSchema.safeParse(cuerpo ?? {});
   if (!parsed.success) throw datosInvalidos('Elige el destino (pendiente o descartado) y escribe un motivo de 5 a 500 caracteres');
   const { destino, motivo: texto } = parsed.data;
-  const original = await db.transaction(async (tx) => desaplicarEnTx(tx, id, {
-    destino, motivo: texto, duenoA: 'pendiente',
-  }, ctx));
+  let original: Awaited<ReturnType<typeof desaplicarEnTx>>;
+  try {
+    original = await db.transaction(async (tx) => desaplicarEnTx(tx, id, {
+      destino, motivo: texto, duenoA: 'pendiente',
+    }, ctx));
+  } catch (e) {
+    throw traducirChoqueLlaveBolsa(e);
+  }
   log.info({ comprobanteId: id, tramiteId: original.tramiteId, concepto: original.concepto, esPago: original.esPago, destino, por: ctx.userId },
     'Comprobante desaplicado');
   return { comprobante: await detalle(id), destino, motivo: texto };
@@ -273,7 +298,8 @@ export async function reemplazar(id: string, cuerpo: unknown, ctx: ComprobanteCt
       await plan.enTx(tx);
     });
   } catch (e) {
-    throw await plan.traducirError(e);
+    const choque = traducirChoqueLlaveBolsa(e);
+    throw choque !== e ? choque : await plan.traducirError(e);
   }
   await plan.trasCommit();
   log.info({ comprobanteId: id, reemplazoId, tramiteId: orig.tramiteId, concepto: orig.concepto, por: ctx.userId }, 'Comprobante reemplazado');

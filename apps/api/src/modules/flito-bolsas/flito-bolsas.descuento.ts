@@ -49,7 +49,7 @@ import { loggerFor } from '../../shared/logger.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import { excepcionLogisticaViva, gestionaLogistica } from '../flito-liquidacion/gestiona-logistica.js';
 import {
-  asentarEnBolsa, bolsaBloqueadaPorId, type CtxUsuario, hoyIso, movimientoPorLlave, num, periodosCerrados, PREFIJO_REVERSADO, PREFIJO_SALIDA, type Tx,
+  asentarEnBolsa, bolsaBloqueadaPorId, type CtxUsuario, hoyIso, llaveReversada, movimientoPorLlave, num, periodosCerrados, PREFIJO_SALIDA, type Tx,
 } from './flito-bolsas.libro.js';
 import { descontarTransito, type ReglasCompartidas } from './flito-bolsas.descuento-transito.js';
 import { bolsaCompaniaPara } from './flito-bolsas.resolver.js';
@@ -337,7 +337,8 @@ export async function exigirDescuentoReversible(tx: Tx, comprobanteId: string): 
 
 /**
  * Una entrada enlazada (`revierte_movimiento_id`) por cada salida VIVA del comprobante; libera la llave
- * del original con `rev:` (única columna que se reescribe; así reemplazar puede volver a descontar, y el
+ * del original con `llaveReversada` (`rev:<id>:<llave>`, única por movimiento — HU #13969; única columna
+ * que se reescribe; así reemplazar puede volver a descontar, y el
  * SOAT recupera `salida:soat:<soatId>`). Se permite con la bolsa inactiva (RN-A2 / Q7: devolver lo cobrado).
  * Dos llamadas no acreditan dos veces: la segunda ya no ve salidas vivas, y el índice único parcial de
  * `revierte_movimiento_id` lo garantiza en la base. La entrada se imputa al primer periodo abierto
@@ -370,7 +371,7 @@ export async function revertirDescuentoComprobante(
     }, ctx);
     entradas.push(movimiento);
     await tx.update(flitoBolsasUnicasMovimientos)
-      .set({ llaveIdempotencia: `${PREFIJO_REVERSADO}${s.llaveIdempotencia}`.slice(0, 200) })
+      .set({ llaveIdempotencia: llaveReversada(s.id, s.llaveIdempotencia) })
       .where(eq(flitoBolsasUnicasMovimientos.id, s.id));
     log.info({ comprobanteId, bolsaId: s.bolsaId, movimientoId: movimiento.id, revierte: s.id, compensacion: o.compensacion === true },
       'Descuento del comprobante revertido');

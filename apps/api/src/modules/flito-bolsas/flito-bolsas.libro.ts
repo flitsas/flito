@@ -438,6 +438,19 @@ export const PREFIJO_SALIDA = 'salida:';
 export const PREFIJO_REVERSADO = 'rev:';
 
 /**
+ * Llave con que queda un movimiento reversado. HU #13969: lleva el id del movimiento para ser única por
+ * movimiento — la llave viva (`salida:comprobante:<id>`, `salida:soat:<id>`, `consumo:…`) se reutiliza al
+ * volver a aplicar/liquidar, y con solo `rev:<llave>` la segunda reversión chocaba con el índice único
+ * parcial de la llave (23505). Sigue empezando por `rev:`, así que ninguna búsqueda de lo vivo
+ * (`salida:%` / `consumo:%`) la ve. Los `rev:<llave>` ya existentes no se migran.
+ */
+export function llaveReversada(movimientoId: string | number, llave: string | null): string {
+  // Las salidas que se reversan siempre tienen llave (se filtran por `salida:%` / `consumo:%`); `null` es tipado.
+  if (llave === null) return `${PREFIJO_REVERSADO}${movimientoId}`.slice(0, 200);
+  return `${PREFIJO_REVERSADO}${movimientoId}:${llave}`.slice(0, 200);
+}
+
+/**
  * Una salida por concepto liquidado, dentro de la tx del sellado. NO valida saldo (AC3 de #11122).
  * HU #13899 (AC6): sin bolsa o con la bolsa inactiva el sellado sigue y NO se crea bolsa ni movimiento.
  */
@@ -498,7 +511,7 @@ export async function reversarSalidasLiquidacion(
     }, ctx);
     contras.push(movimiento);
     await tx.update(flitoBolsasUnicasMovimientos)
-      .set({ llaveIdempotencia: `${PREFIJO_REVERSADO}${s.llaveIdempotencia}`.slice(0, 200) })
+      .set({ llaveIdempotencia: llaveReversada(s.id, s.llaveIdempotencia) })
       .where(eq(flitoBolsasUnicasMovimientos.id, s.id));
   }
   return contras;

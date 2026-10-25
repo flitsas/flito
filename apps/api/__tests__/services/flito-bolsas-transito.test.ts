@@ -126,10 +126,10 @@ function aplicarEnSimulacion(tabla: string, datos: Record<string, unknown>): voi
     saldoBolsa = Number(datos.saldo);
     return;
   }
-  // Reverso: la llave original se reescribe con el prefijo `rev:`.
+  // Reverso: la llave original se reescribe como `rev:<id>:<llave>` (HU #13969).
   if (tabla === 'flito_bolsas_unicas_movimientos' && typeof datos.llaveIdempotencia === 'string') {
     const nueva = datos.llaveIdempotencia;
-    const anterior = nueva.replace(/^rev:/, '');
+    const anterior = nueva.replace(/^rev:[^:]+:/, '');
     const fila = libroBolsa.find((f) => f.llaveIdempotencia === anterior);
     if (fila) fila.llaveIdempotencia = nueva;
   }
@@ -487,7 +487,7 @@ describe('reversar — AC9: la bolsa recupera lo consumido', () => {
     const reescrituras = updatesEn('flito_bolsas_unicas_movimientos');
     expect(reescrituras).toHaveLength(1);
     expect(reescrituras[0].datos.llaveIdempotencia)
-      .toBe(`rev:consumo:tramite:${TRAMITE}:derecho`);
+      .toMatch(new RegExp(`^rev:[^:]+:consumo:tramite:${TRAMITE}:derecho$`));
     expect(Object.keys(reescrituras[0].datos)).toHaveLength(1);
   });
 
