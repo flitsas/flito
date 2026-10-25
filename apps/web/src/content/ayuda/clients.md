@@ -1,37 +1,55 @@
+---
+resumen: Empresas, servicios que gestiona FLITO y datos comerciales.
+palabras_clave:
+  - clientes
+  - proveedores
+  - empresas
+  - servicios
+  - autogestión
+consultas:
+  - cómo creo un cliente
+  - dónde cambio los datos comerciales de una empresa
+  - qué es la autogestión
+  - qué significa marcar SOAT, Impuestos o Logística
+version: 1.3
+fecha: 2026-10-24
+---
 ## Qué es
 
-Ficha de las compañías (clientes FLITO) con su autogestión y sus datos comerciales, y de los proveedores de SOAT a los que se enrutan los trámites. La columna **Facturación** indica si la compañía está lista para una **emisión electrónica** posterior; no es **Facturar** en sentido FLITO (congelar la liquidación). Usted parametriza; no despacha.
+Ficha de las compañías (clientes FLITO) con los servicios que FLITO les gestiona y sus datos comerciales, y de los proveedores de SOAT a los que se enrutan los trámites. La columna **Facturación** indica si la compañía está lista para una **emisión electrónica** posterior; no es **Facturar** en sentido FLITO (congelar la liquidación). Usted parametriza; no despacha.
 
 ## Para quién
 
-Administrador (crea compañías, marca autogestión y edita proveedores). Financiera (en gestión solo ve esta pantalla, además de finanzas). Auditor (consulta). El Proveedor y el Gestor de Impuestos no entran aquí.
+Administrador (crea compañías, marca los servicios que gestiona FLITO y edita proveedores). Financiera (en gestión solo ve esta pantalla, además de finanzas). Auditor (consulta). El Proveedor y el Gestor de Impuestos no entran aquí.
 
 ## Cómo se entra
 
-En el menú lateral, sección **Gestión**, ítem **Clientes y proveedores**. Ruta `/clients`.
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Maestros**, el ítem **Clientes y proveedores**. Si la ventana es estrecha, la barra deja solo los iconos y el nombre de cada sección aparece al pasar el cursor por encima; en pantallas pequeñas, use el botón de menú de la barra superior. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «clientes».
 
 ## Pasos
 
-1. Elija **Clientes** o **Proveedores**.
-2. En **Clientes**, pulse **Nuevo cliente**, complete **Nombre o razón social** y **Guardar** (o **Cancelar**).
-3. En cada fila, marque autogestión **SOAT**, **Impuestos**, **Logística** y **Parcial** (entregas parciales). Eso decide qué gestiona FLITO y qué queda en autogestión de la compañía.
-4. Al final de las banderas, la columna **SOAT sin trámite** dice si el canal de esa compañía está **Cerrado** o **Abierto** y, si lo está, a qué gestor salen sus solicitudes (**Abierto · SURA**). Púlselo para abrir el cuadro **SOAT sin trámite · {compañía}**: marque **Canal abierto** para que los usuarios **Cliente** de esa compañía puedan pedirle un SOAT a FLITO sin que haya un trámite abierto, elija el **Gestor por defecto** de la lista y pulse **Guardar**. Las dos cosas se guardan juntas y en el orden que usted quiera; si abre el canal sin elegir gestor, el cuadro se lo pide y no guarda nada. Es independiente de **SOAT**: marcar o desmarcar una no cambia la otra, y una compañía nueva nace con el canal **Cerrado**. **Financiera** y **Auditor** leen la columna pero no la cambian.
-5. Pulse **Tarifas** para ir al configurador de valores de esa compañía (**Finanzas → Tarifas**), con la compañía ya elegida; el botón solo lo ven quienes entran a esa pantalla. Pulse **Datos fiscales** para los datos de **emisión electrónica**. El chip **Lista**, **Por clasificar** o **Faltan N** resume si la compañía puede emitirse después.
-6. En **Proveedores**, **Nuevo proveedor** (o **Editar**): nombre, estrategia, umbral OCR, ANS pactado y **Activo**. **Guardar**.
+1. Elija la pestaña **Clientes** o **Proveedores**.
+2. En **Clientes**, pulse **Nuevo cliente**, complete **Nombre o razón social** (obligatorio) y, si los tiene, **NIT / Cédula**, **Teléfono** y **Email**, y pulse **Guardar** (o **Cancelar**).
+3. En cada fila, marque **SOAT**, **Impuestos** y **Logística** para indicar que FLITO gestiona ese servicio para la compañía; si la casilla queda desmarcada, la compañía lo hace por su cuenta (autogestión). La casilla **Parcial** (entregas parciales) permite generar el acta de logística con los documentos disponibles. Debajo de la tabla, dos notas recuerdan qué significa cada casilla. ![Pestaña Clientes con tres compañías demo, sus casillas de servicios, la columna SOAT sin trámite y el chip de Facturación](./clients/01-clientes.png)
+4. Al final de las casillas, la columna **SOAT sin trámite** dice si el canal de esa compañía está **Cerrado** o **Abierto** y, si lo está, a qué gestor salen sus solicitudes (por ejemplo, **Abierto · Aseguradora Demo Uno**). Púlselo para abrir el cuadro **SOAT sin trámite · (compañía)**: marque **Canal abierto** para que los usuarios **Cliente** de esa compañía puedan pedirle un SOAT a FLITO sin que haya un trámite abierto, elija el **Gestor por defecto** de la lista y pulse **Guardar**. Las dos cosas se guardan juntas; si abre el canal sin elegir gestor, el cuadro se lo pide y no guarda nada. Es independiente de **SOAT**: marcar o desmarcar una no cambia la otra, y una compañía nueva nace con el canal **Cerrado**. **Financiera** y **Auditor** leen la columna pero no la cambian. ![Cuadro SOAT sin trámite de una compañía con la casilla Canal abierto marcada y el gestor por defecto elegido](./clients/02-soat-sin-tramite.png)
+5. Desplace la tabla a la derecha para ver las acciones de la fila. Pulse **Tarifas** para ir al configurador de valores de esa compañía (en Finanzas, **Tarifas**), con la compañía ya elegida; el botón solo lo ven quienes entran a esa pantalla. Pulse **Datos fiscales** para los datos de **emisión electrónica**. El chip de la columna **Facturación** (**Lista**, **Por clasificar** o **Faltan** con el número de datos que faltan) resume si la compañía puede emitirse después.
+6. En **Proveedores**, **Nuevo proveedor** (o **Editar** en la fila): **Nombre**, **Estrategia**, **Umbral OCR (0–1)**, **ANS pactado con el proveedor (horas)** y **Activo**. **Guardar**. El ANS de gestión es único para toda la operación: estas horas quedan como referencia de lo pactado. ![Pestaña Proveedores con dos gestores demo, su estrategia, umbral OCR, ANS pactado, estado y el botón Editar](./clients/03-proveedores.png)
+
+![Diagrama: el canal nace Cerrado; al abrirlo hay que elegir gestor por defecto o no se guarda; con gestor, las solicitudes nuevas salen a él; si el gestor está inactivo o falta, quedan Gestionado por Operaciones](./clients/canal-soat-sin-tramite.svg)
 
 ## Estados
 
 - Cargando: **Cargando compañías…** mientras llega el listado de clientes; **Cargando…** en el listado de proveedores.
 - Error: si el listado de compañías no llega, mensaje en rojo con **Reintentar** sobre la tarjeta; además, aviso al fallar el guardado (el listado no se cae si falla el informe de facturación).
 - Vacío: **No hay clientes.** / **No hay proveedores. Crea el primero con «Nuevo proveedor».**
-- Lleno: tabla **Empresa**, documento, ciudad, autogestión, **SOAT sin trámite**, **Facturación** y acciones. Si el gestor por defecto de una compañía está desactivado, la columna lo dice: **Abierto · SURA (inactivo)**, y sus solicitudes nuevas quedan **Gestionado por Operaciones**.
-- La columna también puede decir **Abierto · sin gestor**: el canal está abierto pero esa compañía no tiene **Gestor por defecto** configurado. Son compañías a las que se les abrió el canal antes de que elegir gestor fuera obligatorio. Mientras siga así, sus solicitudes nuevas quedan **Gestionado por Operaciones**, igual que si el gestor estuviera desactivado. Púlselo, elija el **Gestor por defecto** y **Guardar**.
+- Lleno: tabla **Empresa**, **Documento**, **Ciudad**, **Teléfono**, **Email**, las casillas de servicios (**SOAT**, **Impuestos**, **Logística**: marcada = FLITO lo gestiona) y **Parcial**, **SOAT sin trámite**, **Facturación** y acciones. Si el gestor por defecto de una compañía está desactivado, la columna lo dice —**Abierto · (gestor) (inactivo)**— y sus solicitudes nuevas quedan **Gestionado por Operaciones**.
+- La columna también puede decir **Abierto · sin gestor**: el canal está abierto pero esa compañía no tiene **Gestor por defecto** configurado. Mientras siga así, sus solicitudes nuevas quedan **Gestionado por Operaciones**, igual que si el gestor estuviera desactivado. Púlselo, elija el **Gestor por defecto** y **Guardar**.
 - En el cuadro de **SOAT sin trámite**, la lista de gestores tiene sus propios estados: **Cargando gestores…**, **No se pudieron cargar los gestores.** con **Volver a cargar gestores**, y **No hay gestores de SOAT activos. Cree uno en la pestaña Proveedores antes de abrir el canal de esta compañía.**
 
 ## Qué no hace
 
 - No despacha trámites, SOAT ni impuestos: solo parametriza la compañía y el proveedor.
-- No fija ni cambia tarifas: eso vive en **Finanzas → Tarifas**, a donde lleva el botón **Tarifas** de la fila.
+- No fija ni cambia tarifas: eso vive en Finanzas, **Tarifas**, a donde lleva el botón **Tarifas** de la fila.
 - No **Factura** la liquidación de un trámite. **Lista** habla de **emisión electrónica**, no de Facturar.
 - No es el catálogo de NIT vigilados de **Comparendos** (puede coincidir el NIT, pero es otro listado).
 - Un Gestor de Impuestos o un Proveedor no administran compañías desde aquí.

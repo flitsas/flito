@@ -4,18 +4,23 @@
 // compañía: en una se marcaba si autogestiona, en la otra se le ponían las tarifas — y el toggle de
 // autogestión ya llamaba al endpoint de parametrización. Todo lo que es del cliente vive aquí.
 //
+// Los checks de servicio se leen «FLITO gestiona este servicio» (HU #13935): marcado = FLITO lo
+// gestiona; desmarcado = la compañía lo hace por su cuenta. Es una inversión SOLO de presentación:
+// el dato sigue siendo `*Autogestionable` con su sentido de siempre, así que `checked = !dato`.
+//
 // Las tarifas ya NO viven aquí (HU #12375): el botón «Tarifas» de la fila lleva al configurador de
 // valores (`/flito/tarifas/:companiaId`), que modela cada valor como una vigencia con historial. La
 // ventana emergente que dejaba escribir el tipo a mano y marcar «Inactiva» se retiró con esa HU.
 //
 // Quién puede qué:
 //   admin       — todo.
-//   financiera  — tarifas sí (en su pantalla), autogestión no: qué gestiona FLITO es decisión de Operaciones.
+//   financiera  — tarifas sí (en su pantalla), servicios no: qué gestiona FLITO es decisión de Operaciones.
 //   auditor     — solo lectura.
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { toastError } from '../components/flit/ToastFlito';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { hasPage } from '../lib/permissions';
@@ -85,6 +90,11 @@ interface Proveedor {
 // optimista para ser una decisión con un parámetro obligatorio —el gestor—, y un PATCH por control
 // no sabe expresar «abre el canal y manda a SURA» de una sola vez. Vive en `ModalCanalSoat`.
 type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable' | 'logisticaPermiteParcial';
+// Los tres `*Autogestionable` se pintan invertidos (HU #13935): el check dice «FLITO gestiona».
+// «Parcial» no es un servicio y conserva su lectura directa.
+const FLAG_INVERTIDO: Record<FlagCampo, boolean> = {
+  soatAutogestionable: true, impuestosAutogestionable: true, logisticaAutogestionable: true, logisticaPermiteParcial: false,
+};
 type Tab = 'clientes' | 'proveedores';
 
 export default function Clients() {
@@ -101,7 +111,7 @@ export default function Clients() {
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Clientes y proveedores"
-        subtitle="Compañías con su autogestión y sus tarifas negociadas, y los proveedores de SOAT a los que se enrutan los trámites."
+        subtitle="Compañías con los servicios que gestiona FLITO y sus tarifas negociadas, y los proveedores de SOAT a los que se enrutan los trámites."
       />
 
       <FlitPillGroup>
@@ -171,17 +181,22 @@ function TabClientes({ editaAutogestion, veTarifas }: { editaAutogestion: boolea
     }
   };
 
-  // Toggle de autogestión: PATCH del flag suelto. Optimista con reversión si falla.
-  const toggleFlag = async (c: Client, campo: FlagCampo) => {
+  // Toggle de un flag: PATCH del flag suelto. Optimista con reversión si falla. Invertir la lectura
+  // (HU #13935) no cambia esto: marcar o desmarcar siempre voltea el dato, y lo que viaja es el
+  // valor REAL de `*Autogestionable` (marcar «FLITO gestiona» ⇒ `false`).
+  const toggleFlag = async (c: Client, campo: FlagCampo, label: string) => {
     const valor = !c[campo];
     setClients((prev) => (prev ?? []).map((x) => (x.id === c.id ? { ...x, [campo]: valor } : x)));
     try {
       // El PATCH manda UNA sola clave y el servidor copia al `set` solo las claves definidas: por
       // eso la independencia del AC3 es por construcción y no por una regla que haya que recordar.
       await api.patch(`/flito/parametrizacion/companias/${c.id}`, { [campo]: valor });
-    } catch (err) {
+    } catch {
       setClients((prev) => (prev ?? []).map((x) => (x.id === c.id ? { ...x, [campo]: !valor } : x)));
-      toast.error(errorMessage(err));
+      // Copy propio y no el error crudo del API: qué pasó y qué sigue, en una frase.
+      // El toast del kit es cerrable; un id por casilla para que el reintento sustituya y no apile.
+      toastError(`No se pudo guardar «${label}» de ${c.name}: la casilla volvió a como estaba. Inténtelo de nuevo.`,
+        undefined, { id: `flag-${c.id}-${campo}` });
     }
   };
 
@@ -190,10 +205,10 @@ function TabClientes({ editaAutogestion, veTarifas }: { editaAutogestion: boolea
       <input
         type="checkbox"
         className="h-4 w-4 cursor-pointer align-middle disabled:cursor-not-allowed"
-        checked={c[campo]}
+        checked={FLAG_INVERTIDO[campo] ? !c[campo] : c[campo]}
         disabled={!editaAutogestion}
-        aria-label={aria ?? `Autogestión ${label} de ${c.name}`}
-        onChange={() => toggleFlag(c, campo)}
+        aria-label={aria ?? `FLITO gestiona ${label} de ${c.name}`}
+        onChange={() => toggleFlag(c, campo, label)}
       />
     </td>
   );
@@ -285,13 +300,13 @@ function TabClientes({ editaAutogestion, veTarifas }: { editaAutogestion: boolea
         )}
         {editaAutogestion && (
           <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-            Marca «Autogestiona» cuando la compañía tramita SOAT, impuestos o logística por su cuenta (FLITO no la gestiona).
+            Marca «SOAT», «Impuestos» o «Logística» cuando FLITO gestiona ese servicio para la compañía; desmarcado, la compañía lo hace por su cuenta.
             «Parcial» permite generar el acta de logística con los documentos disponibles; sin marcar, el acta se retiene hasta tenerlos todos (CA-08/09).
           </p>
         )}
         {editaAutogestion && (
           <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-            «SOAT» marca que la compañía compra su SOAT por su cuenta y FLITO no lo gestiona. «SOAT sin trámite» dice otra cosa:
+            «SOAT» marcado dice que FLITO gestiona el SOAT de la compañía. «SOAT sin trámite» dice otra cosa:
             que sus usuarios Cliente pueden pedirle un SOAT a FLITO sin que haya un trámite abierto. Son independientes — marcar una no cambia la otra.
             Para abrir «SOAT sin trámite» hay que decir a qué gestor salen las solicitudes de esa compañía.
           </p>
