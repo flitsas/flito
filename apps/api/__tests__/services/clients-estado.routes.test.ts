@@ -176,7 +176,7 @@ describe('PATCH /api/clients/:id/estado', () => {
 });
 
 describe('GET /api/clients/:id/impacto', () => {
-  it('AC1: devuelve el impacto con los conteos y los campos neutros de eliminar', async () => {
+  it('AC1: devuelve el impacto con los conteos y si se puede eliminar (HU #13954: activo → primer motivo)', async () => {
     selectMock
       .mockReturnValueOnce(chain([{ active: true }]))
       .mockReturnValueOnce(chain([{ total: 3 }])) // soat
@@ -194,7 +194,7 @@ describe('GET /api/clients/:id/impacto', () => {
       saldoBolsa: 150000.5,
       usuariosAfectados: 4,
       puedeEliminar: false,
-      motivoNoEliminable: null,
+      motivoNoEliminable: 'Primero debe desactivarlo.',
     });
     expect(updateMock).not.toHaveBeenCalled();
     expect(transactionMock).not.toHaveBeenCalled();

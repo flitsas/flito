@@ -74,6 +74,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0248_flito_bolsas_documentos.sql', // HU #13889 (ADR-0028): acciones del expediente documental, solo a `admin`
   '0254_flito_dr_flit_permiso_funciones.sql', // HU #13941: ítem Dr. Flit + 4 acciones; universal «ver manuales», `admin` las 4
   '0255_permisos_clientes_activar_desactivar.sql', // HU #13945: «Activar o desactivar clientes», exclusiva de `admin`
+  '0258_permisos_clientes_eliminar.sql', // HU #13954: «Eliminar clientes», exclusiva de `admin`
 ] as const;
 
 /**

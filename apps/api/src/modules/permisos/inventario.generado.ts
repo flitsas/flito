@@ -559,6 +559,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   // HU #13945: «Activar o desactivar clientes», exclusiva del Administrador (nace en el árbol; su acción la siembra la 0255).
   { modulo: "clients", fichero: "clients/clients.routes.ts", metodo: "GET", ruta: "/:id/impacto", roles: ["admin"], heredada: false },
   { modulo: "clients", fichero: "clients/clients.routes.ts", metodo: "PATCH", ruta: "/:id/estado", roles: ["admin"], heredada: false },
+  // HU #13954: «Eliminar clientes», exclusiva del Administrador (nace en el árbol; su acción la siembra la 0258).
+  { modulo: "clients", fichero: "clients/clients.routes.ts", metodo: "DELETE", ruta: "/:id", roles: ["admin"], heredada: false },
   // HU #13423 (ADR-0023): laft/, privacy/, firma/, drive/, soat/ (antiguo) y siigo/ el día que dejaron de
   // decidir por rol (base a2b2cd47, HU #13422). `roles` = la lista literal de su guarda de rol (o de la
   // guarda de rol de su `router.use` que las cubría: `heredada: true`); en siigo/, la fila de cada acción en la

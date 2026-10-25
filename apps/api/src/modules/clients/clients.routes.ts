@@ -17,14 +17,17 @@ import { db } from '../../db/client.js';
 import { clients, flitoProveedoresSoat } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
+import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { maskName } from '../../shared/utils/pii.js';
 import {
   COLUMNAS_LISTADO, COLUMNAS_LISTADO_CON_GESTOR, clienteListadoDto, registrarAccesoListado,
 } from './clients.pii.js';
 import {
-  ClienteDuplicadoError, ClienteNoEncontradoError, EstadoClienteCambiadoError, cambiarEstadoCliente,
-  esDuplicadoNitSucursal, exigirNitSucursalLibre, impactoCliente, nombreEnmascarado,
+  ClienteDuplicadoError, ClienteNoEliminableError, ClienteNoEncontradoError, EstadoClienteCambiadoError,
+  cambiarEstadoCliente, eliminarCliente, esDuplicadoNitSucursal, exigirNitSucursalLibre, impactoCliente,
+  nombreEnmascarado,
 } from './clients.service.js';
 import { clienteVigente } from './cliente-operable.js';
 
@@ -421,6 +424,37 @@ router.patch('/:id/estado', exigirFuncion('clients.clientes.estado'), async (req
       + (cambio.active ? '' : ` · sesiones invalidadas: ${cambio.usuariosInvalidados.length} usuario(s)`),
   });
   res.json({ id: cambio.id, active: cambio.active });
+});
+
+// ── HU #13954: eliminar un cliente inactivo sin procesos abiertos ni saldo de bolsa (RN-CLI-10) ──────────────────
+// Exige `clients.clientes.eliminar`, que concede «Eliminar clientes», exclusiva del Administrador (0258). Baja lógica.
+router.delete('/:id', exigirFuncion('clients.clientes.eliminar'), async (req: Request, res: Response, next: NextFunction) => {
+  const id = idCliente(req);
+  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
+
+  let eliminado;
+  try {
+    eliminado = await eliminarCliente(id, actorDeRequest(req));
+  } catch (e) {
+    if (e instanceof ClienteNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
+    if (e instanceof EstadoClienteCambiadoError || e instanceof ClienteNoEliminableError) {
+      res.status(409).json({ error: e.message }); return;
+    }
+    // Seguro anti-bloqueo (HU #12089): dar de baja a los usuarios del cliente dejaría sin administrador. La tx revirtió.
+    if (e instanceof BloqueoAdministracionError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return; }
+    next(e); return;
+  }
+  // DESPUÉS del commit (patrón de `/estado`): la siguiente petición de cada usuario relee la baja.
+  for (const userId of eliminado.usuariosDadosDeBaja) invalidateSessionCacheFor(userId);
+
+  await audit(req, {
+    action: 'delete',
+    resource: 'client',
+    resourceId: String(id),
+    detail: `Cliente eliminado: ${nombreEnmascarado(eliminado.name)}`
+      + ` · usuarios dados de baja: ${eliminado.usuariosDadosDeBaja.length}`,
+  });
+  res.json({ id: eliminado.id, eliminado: true });
 });
 
 export default router;

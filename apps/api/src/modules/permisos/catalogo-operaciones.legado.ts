@@ -124,6 +124,8 @@ export const NOMBRES_LEGADO: Readonly<Record<string, { nombre: string; descripci
   'clients.clientes.datos_fiscales': { nombre: 'Registrar los datos fiscales de un cliente', descripcion: 'Registrar y editar los datos fiscales de un cliente para Siigo.' },
   // HU #13945: nace absorbida por «Activar o desactivar clientes» (exclusiva del Administrador); no se siembra.
   'clients.clientes.estado': { nombre: 'Activar o desactivar clientes', descripcion: 'Ver el impacto de desactivar un cliente y cambiar su estado (activo o inactivo).' },
+  // HU #13954: nace absorbida por «Eliminar clientes» (exclusiva del Administrador); no se siembra.
+  'clients.clientes.eliminar': { nombre: 'Eliminar clientes', descripcion: 'Eliminar (baja lógica) un cliente inactivo sin procesos abiertos ni saldo en su bolsa.' },
   // HU #13423 (ADR-0023): laft/, privacy/, firma/, drive/, soat/ antiguo, siigo/ y las cuatro de solo sesión.
   // Transitorio («Administrar <ítem>») lo que exigía un rol de escritura; permanente lo que es leer u operar
   // el día a día del ítem con la lista de roles que ya lo hacía.
@@ -373,6 +375,7 @@ export const OPERACIONES_DECLARADAS_LEGADO: OperacionDeclarada[] = [
   op(`${CLIE_CLIENTS} POST * [fiscal]`, 'clients.clientes.datos_fiscales'), // HU #13428, en línea (POST y PATCH)
   op(`${CLIE_CLIENTS} GET /:id/impacto`, 'clients.clientes.estado'), // HU #13945
   op(`${CLIE_CLIENTS} PATCH /:id/estado`, 'clients.clientes.estado'), // HU #13945
+  op(`${CLIE_CLIENTS} DELETE /:id`, 'clients.clientes.eliminar'), // HU #13954
   // HU #13423 (ADR-0023). En siigo/, las 8 acciones se deciden EN LÍNEA en `siigo.permisos.ts` (una por acción).
   op('laft/lists.routes.ts GET /', 'laft.listas.operar'),
   op('laft/lists.routes.ts POST /:code/sync', 'laft.listas.administrar'),

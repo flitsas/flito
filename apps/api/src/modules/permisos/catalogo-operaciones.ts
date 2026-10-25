@@ -512,4 +512,6 @@ export const FUNCIONES_EXCLUSIVAS_ADMIN: readonly string[] = [
   // HU #13945: «Activar o desactivar clientes». La marca va en la ACCIÓN del árbol (lo que se reparte y aparece en el
   // cuadro); la operación `clients.clientes.estado` que exige la guarda nace absorbida por ella (no se siembra).
   'accion.clientes.activar_desactivar',
+  // HU #13954: «Eliminar clientes» (baja lógica); la operación `clients.clientes.eliminar` nace absorbida (0258).
+  'accion.clientes.eliminar',
 ];
