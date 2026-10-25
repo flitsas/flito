@@ -119,6 +119,9 @@ const IMPUESTO_ID = 'cccccccc-0000-0000-0000-000000000003';
 const DERECHO_ID = 'dddddddd-0000-0000-0000-000000000004';
 const AHORA = new Date('2026-07-30T15:00:00Z');
 const CTX = { userId: 9, nombre: 'sistema' };
+/** HU #13969: la llave reversada es `rev:<id del movimiento>:<llave original>`. */
+const REVERSADA = /^rev:[^:]+:/;
+const sinRev = (ll: string) => ll.replace(REVERSADA, '');
 
 /** Refleja en la simulación lo que el UPDATE acaba de escribir. */
 function aplicarEnSimulacion(tabla: string, datos: Record<string, unknown>): void {
@@ -126,11 +129,11 @@ function aplicarEnSimulacion(tabla: string, datos: Record<string, unknown>): voi
     saldoBolsa = Number(datos.saldo);
     return;
   }
-  // Reverso: la llave original se reescribe con el prefijo `rev:`. El mock no ve el `where`, pero la
-  // llave nueva contiene la vieja, así que la fila se identifica sin ambigüedad.
+  // Reverso: la llave original se reescribe como `rev:<id>:<llave>` (HU #13969). El mock no ve el `where`,
+  // pero la llave nueva contiene la vieja, así que la fila se identifica sin ambigüedad.
   if (tabla === 'flito_bolsas_unicas_movimientos' && typeof datos.llaveIdempotencia === 'string') {
     const nueva = datos.llaveIdempotencia;
-    const anterior = nueva.replace(/^rev:/, '');
+    const anterior = sinRev(nueva);
     const fila = libro.find((f) => f.llaveIdempotencia === anterior);
     if (fila) fila.llaveIdempotencia = nueva;
   }
@@ -804,8 +807,8 @@ describe('reversar — AC5: el reverso devuelve el dinero con contramovimientos'
 
     const reescrituras = updatesEn('flito_bolsas_unicas_movimientos');
     expect(reescrituras).toHaveLength(6);
-    expect(reescrituras.map((u) => u.datos.llaveIdempotencia))
-      .toEqual(llavesDelSellado().map((ll) => `rev:${ll}`));
+    expect(reescrituras.every((u) => REVERSADA.test(u.datos.llaveIdempotencia as string))).toBe(true);
+    expect(reescrituras.map((u) => sinRev(u.datos.llaveIdempotencia as string))).toEqual(llavesDelSellado());
     // Lo único que se toca de la fila es la llave: el dinero asentado no se edita jamás.
     expect(reescrituras.every((u) => Object.keys(u.datos).length === 1)).toBe(true);
   });
@@ -967,8 +970,8 @@ describe('liquidar → reversar → liquidar: el reverso libera las llaves', () 
     // 6 salidas + 6 contramovimientos + 6 salidas nuevas. El extracto explica el saldo entero.
     expect(libro).toHaveLength(18);
     // Las seis primeras siguen ahí, con su llave reversada: el reverso no borró ninguna línea.
-    expect(libro.slice(0, 6).map((f) => f.llaveIdempotencia))
-      .toEqual(llavesDelSellado().map((ll) => `rev:${ll}`));
+    expect(libro.slice(0, 6).every((f) => REVERSADA.test(f.llaveIdempotencia as string))).toBe(true);
+    expect(libro.slice(0, 6).map((f) => sinRev(f.llaveIdempotencia as string))).toEqual(llavesDelSellado());
   });
 });
 

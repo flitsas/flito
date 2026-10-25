@@ -47,7 +47,7 @@ import {
 import {
   aMovimientoDto as aMovimientoLibro, asentarEnBolsa, BolsaError, bolsaBloqueadaPorId, type BolsaEnLibro,
   type CtxUsuario, type DatosMovimiento, esLlaveDuplicada, hoyIso, MSG_BOLSA_INACTIVA, movimientoPorLlave, num,
-  PREFIJO_REVERSADO, redondear, type SoporteRecarga, type Tx, validarMovimiento,
+  llaveReversada, redondear, type SoporteRecarga, type Tx, validarMovimiento,
 } from './flito-bolsas.libro.js';
 import { bolsaTransitoPara } from './flito-bolsas.resolver.js';
 
@@ -599,7 +599,7 @@ export async function reversarConsumoTransito(
     // Libera la llave del consumo original para que volver a liquidar vuelva a consumir.
     await tx
       .update(M)
-      .set({ llaveIdempotencia: `${PREFIJO_REVERSADO}${c.llaveIdempotencia}`.slice(0, 200) })
+      .set({ llaveIdempotencia: llaveReversada(c.id, c.llaveIdempotencia) })
       .where(eq(M.id, c.id));
   }
   return contras;

@@ -186,6 +186,11 @@ export const CodigoErrorComprobante = {
   PERIODO_CERRADO: 'periodo_cerrado',
   /** 409 (HU #13903, AC11): pago de servicios adicionales aplicado antes de guardar el valor previo de la puente. */
   SERVICIO_NO_REVERSIBLE: 'servicio_no_reversible',
+  /**
+   * 409 (HU #13969, AC6): desaplicar/reemplazar chocó con la llave de un movimiento de la bolsa
+   * (`uq_flito_bolsas_unicas_mov_llave`); rollback total, nada cambió. Reintentable.
+   */
+  DESCUENTO_EN_CONFLICTO: 'descuento_en_conflicto',
 } as const;
 
 export type CodigoErrorComprobante = (typeof CodigoErrorComprobante)[keyof typeof CodigoErrorComprobante];
