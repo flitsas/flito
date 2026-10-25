@@ -27,10 +27,10 @@
 // columna sin sentido cronológico —el extracto se audita línea a línea con ella— aunque el saldo
 // final sea correcto. Por eso: ventana de mantenimiento, y cuanto antes mejor.
 
-import { eq, inArray, lte } from 'drizzle-orm';
+import { and, eq, inArray, lte } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import {
-  flitoBolsasUnicasMovimientos, flitoBolsaTransitoCobertura, flitoDerechosTramite, flitoImpuestos,
+  flitoBolsasUnicasMovimientos, flitoBolsasUnicasCobertura, flitoDerechosTramite, flitoImpuestos,
   flitoLiquidaciones, flitoSoat, flitoTramites,
 } from '../db/schema.js';
 import { ConceptoBolsaTransito } from '@operaciones/shared-types';
@@ -168,9 +168,10 @@ async function llavesExistentes(llaves: string[]): Promise<Set<string>> {
  */
 async function organismosCubiertosPorDerecho(): Promise<Set<string>> {
   const filas = await db
-    .select({ codigo: flitoBolsaTransitoCobertura.organismoCodigo })
-    .from(flitoBolsaTransitoCobertura)
-    .where(eq(flitoBolsaTransitoCobertura.concepto, ConceptoBolsaTransito.DERECHO));
+    .select({ codigo: flitoBolsasUnicasCobertura.organismoCodigo })
+    .from(flitoBolsasUnicasCobertura)
+    // HU #13906: modelo único; solo la cobertura activa consume (D3/Q7).
+    .where(and(eq(flitoBolsasUnicasCobertura.concepto, ConceptoBolsaTransito.DERECHO), eq(flitoBolsasUnicasCobertura.activa, true)));
   return new Set(filas.map((f) => f.codigo));
 }
 

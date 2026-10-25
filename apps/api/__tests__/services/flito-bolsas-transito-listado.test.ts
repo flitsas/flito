@@ -18,14 +18,20 @@ vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: 
 
 const { bolsasTransito } = await import('../../src/modules/flito-bolsas/flito-bolsas-transito.service.js');
 
-/** Fila de `flito_bolsas_transito` tal y como la devuelve drizzle: numéricos en texto. */
+/**
+ * Fila de `flito_bolsas_unicas` (alcance 'transito', HU #13906) tal y como la devuelve drizzle:
+ * numéricos en texto. La «última carga» del DTO sale de `ultima_entrada_*` del modelo único.
+ */
 function bolsa(id: string, nombre: string, saldo: string, ultimaCarga: string | null) {
   return {
     id,
+    alcance: 'transito',
     nombre,
+    companiaId: null,
+    activa: true,
     saldo,
-    ultimaCargaValor: ultimaCarga,
-    ultimaCargaEn: ultimaCarga === null ? null : new Date('2026-07-01T10:00:00Z'),
+    ultimaEntradaValor: ultimaCarga,
+    ultimaEntradaEn: ultimaCarga === null ? null : new Date('2026-07-01T10:00:00Z'),
     createdAt: new Date('2026-07-01T10:00:00Z'),
     updatedAt: new Date('2026-07-01T10:00:00Z'),
   };
@@ -46,9 +52,9 @@ beforeEach(() => {
 describe('bolsasTransito — AC9: el listado del acordeón Tránsitos', () => {
   it('cada bolsa trae su cobertura y sus totales', async () => {
     kdb.when.scenario({
-      flito_bolsas_transito: [bolsa('b-1', 'Bolsa de mi sector', '2500000', '10000000')],
-      flito_bolsa_transito_movimientos: [totales('b-1', '10000000', '7500000')],
-      flito_bolsa_transito_cobertura: [
+      flito_bolsas_unicas: [bolsa('b-1', 'Bolsa de mi sector', '2500000', '10000000')],
+      flito_bolsas_unicas_movimientos: [totales('b-1', '10000000', '7500000')],
+      flito_bolsas_unicas_cobertura: [
         cobertura('b-1', '05001', 'impuesto', 'Medellín'),
         cobertura('b-1', '05266', 'impuesto', 'Envigado'),
       ],
@@ -69,7 +75,7 @@ describe('bolsasTransito — AC9: el listado del acordeón Tránsitos', () => {
   });
 
   it('sin ninguna bolsa devuelve vacío sin tocar el libro', async () => {
-    kdb.when.scenario({ flito_bolsas_transito: [] });
+    kdb.when.scenario({ flito_bolsas_unicas: [] });
 
     expect(await bolsasTransito()).toEqual([]);
     // Una sola consulta: preguntar por el libro de una lista vacía sería un `IN ()` sin sentido.
@@ -78,9 +84,9 @@ describe('bolsasTransito — AC9: el listado del acordeón Tránsitos', () => {
 
   it('una bolsa sin movimientos aparece en cero, no desaparece', async () => {
     kdb.when.scenario({
-      flito_bolsas_transito: [bolsa('b-2', 'Bolsa nueva', '0', null)],
-      flito_bolsa_transito_movimientos: [],
-      flito_bolsa_transito_cobertura: [cobertura('b-2', '11001', 'derecho')],
+      flito_bolsas_unicas: [bolsa('b-2', 'Bolsa nueva', '0', null)],
+      flito_bolsas_unicas_movimientos: [],
+      flito_bolsas_unicas_cobertura: [cobertura('b-2', '11001', 'derecho')],
     });
 
     const [b] = await bolsasTransito();
@@ -94,9 +100,9 @@ describe('bolsasTransito — AC9: el listado del acordeón Tránsitos', () => {
 
   it('AC6: el saldo negativo se reporta como préstamo con su deuda', async () => {
     kdb.when.scenario({
-      flito_bolsas_transito: [bolsa('b-3', 'Bolsa norte', '-4000000', '8000000')],
-      flito_bolsa_transito_movimientos: [totales('b-3', '8000000', '12000000')],
-      flito_bolsa_transito_cobertura: [cobertura('b-3', '05001', 'derecho')],
+      flito_bolsas_unicas: [bolsa('b-3', 'Bolsa norte', '-4000000', '8000000')],
+      flito_bolsas_unicas_movimientos: [totales('b-3', '8000000', '12000000')],
+      flito_bolsas_unicas_cobertura: [cobertura('b-3', '05001', 'derecho')],
     });
 
     const [b] = await bolsasTransito();
@@ -109,14 +115,14 @@ describe('bolsasTransito — AC9: el listado del acordeón Tránsitos', () => {
 
   it('el orden lo pone el servidor: primero la que más urge', async () => {
     kdb.when.scenario({
-      flito_bolsas_transito: [
+      flito_bolsas_unicas: [
         bolsa('b-normal', 'Normal', '9000000', '10000000'),
         bolsa('b-prestamo', 'En préstamo', '-4000000', '8000000'),
         bolsa('b-agotada', 'Agotada', '0', '5000000'),
         bolsa('b-sin-cargas', 'Sin cargas', '0', null),
       ],
-      flito_bolsa_transito_movimientos: [],
-      flito_bolsa_transito_cobertura: [],
+      flito_bolsas_unicas_movimientos: [],
+      flito_bolsas_unicas_cobertura: [],
     });
 
     const orden = (await bolsasTransito()).map((b) => b.id);

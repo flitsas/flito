@@ -4212,8 +4212,7 @@ export const flitoConciliacionLineas = pgTable('flito_conciliacion_lineas', {
   /** Motivo legible. SIN placa ni póliza en claro: el dato ya está en sus propias columnas. */
   detalle: text('detalle'),
   movimientoBolsaId: uuid('movimiento_bolsa_id').references(() => flitoBolsasUnicasMovimientos.id, { onDelete: 'restrict' }), // HU #13899
-  movimientoTransitoId: uuid('movimiento_transito_id')
-    .references(() => flitoBolsaTransitoMovimientos.id, { onDelete: 'restrict' }),
+  movimientoTransitoId: uuid('movimiento_transito_id').references(() => flitoBolsasUnicasMovimientos.id, { onDelete: 'restrict' }), // HU #13906
   /** Se sella al conciliar. Es lo que hace única la conciliación de un SOAT (índice de abajo). */
   conciliadaEn: timestamp('conciliada_en', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

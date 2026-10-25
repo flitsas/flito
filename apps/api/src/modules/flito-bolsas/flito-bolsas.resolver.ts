@@ -6,10 +6,10 @@
 // comprobante → trámite → bolsa compañía (→ bolsa tránsito, HU-H). Ver RN-A4 de `flito-bolsas.libro.ts`.
 //
 // No lanza por negocio: sin bolsa, inactiva o concepto sin marcar devuelve el motivo de omisión (D10, sin alerta).
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { MotivoOmisionDescuento } from '@operaciones/shared-types';
-import { flitoBolsasUnicasConceptos } from '../../db/schema.js';
-import { bolsaCompaniaBloqueada, type BolsaEnLibro, type Tx } from './flito-bolsas.libro.js';
+import { flitoBolsasUnicas, flitoBolsasUnicasCobertura, flitoBolsasUnicasConceptos } from '../../db/schema.js';
+import { bolsaBloqueadaPorId, bolsaCompaniaBloqueada, type BolsaEnLibro, type Tx } from './flito-bolsas.libro.js';
 
 export type ResolucionBolsa =
   | { bolsa: BolsaEnLibro; motivo?: undefined }
@@ -25,4 +25,33 @@ export async function bolsaCompaniaPara(tx: Tx, companiaId: number, concepto: st
     .where(and(eq(flitoBolsasUnicasConceptos.bolsaId, bolsa.id), eq(flitoBolsasUnicasConceptos.concepto, concepto)))
     .limit(1);
   return marcado ? { bolsa } : { motivo: 'concepto_no_cubierto' };
+}
+
+export type ResolucionBolsaTransito =
+  | { bolsa: BolsaEnLibro & { nombre: string }; motivo?: undefined }
+  | { bolsa?: undefined; motivo: Extract<MotivoOmisionDescuento, 'sin_bolsa' | 'inactiva'> };
+
+/**
+ * HU #13906 (Feature #13887, D3): la bolsa de TRÁNSITO cuya cobertura ACTIVA contiene el par
+ * (secretaría, concepto), bloqueada; o por qué no hay ninguna. `uq_flito_bolsas_unicas_cobertura_activa`
+ * garantiza como mucho una activa por par; las inactivas pueden repetirlo y solo dan el motivo.
+ * La cobertura se lee sin lock y la bolsa se bloquea después y se re-comprueba activa: inactivar toma
+ * el mismo `FOR UPDATE` antes de tocar la cobertura, así que tras el lock el estado es el definitivo.
+ */
+export async function bolsaTransitoPara(tx: Tx, organismoCodigo: string, concepto: string): Promise<ResolucionBolsaTransito> {
+  const [par] = await tx.select({ bolsaId: flitoBolsasUnicasCobertura.bolsaId, nombre: flitoBolsasUnicas.nombre })
+    .from(flitoBolsasUnicasCobertura)
+    .innerJoin(flitoBolsasUnicas, eq(flitoBolsasUnicas.id, flitoBolsasUnicasCobertura.bolsaId))
+    .where(and(
+      eq(flitoBolsasUnicas.alcance, 'transito'),
+      eq(flitoBolsasUnicasCobertura.organismoCodigo, organismoCodigo),
+      eq(flitoBolsasUnicasCobertura.concepto, concepto),
+    ))
+    .orderBy(desc(flitoBolsasUnicasCobertura.activa))
+    .limit(1);
+  if (!par) return { motivo: 'sin_bolsa' };
+  const bolsa = await bolsaBloqueadaPorId(tx, par.bolsaId);
+  if (!bolsa) return { motivo: 'sin_bolsa' };
+  if (!bolsa.activa) return { motivo: 'inactiva' };
+  return { bolsa: { ...bolsa, nombre: par.nombre ?? '' } };
 }
