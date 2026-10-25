@@ -33,7 +33,7 @@ const MOTIVO = 'Se aplicó al trámite equivocado';
 describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado (PostgreSQL real)', () => {
   let sql: import('postgres').Sql;
   let db: typeof import('../../src/db/client.js').db;
-  let env: typeof import('../../src/config/env.js').env;
+  let corte: import('../helpers/corte-bolsas.js').CorteDePrueba;
   let d: typeof import('../../src/modules/flito-bolsas/flito-bolsas.descuento.js');
   let comp: typeof import('../../src/modules/flito-comprobantes/flito-comprobantes.desaplicar.js');
   let USER: number;
@@ -46,7 +46,7 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
     const { default: postgres } = await import('postgres');
     sql = postgres(URL!, { max: 2 });
     ({ db } = await import('../../src/db/client.js'));
-    ({ env } = await import('../../src/config/env.js'));
+    corte = (await import('../helpers/corte-bolsas.js')).corteDePrueba(sql);
     d = await import('../../src/modules/flito-bolsas/flito-bolsas.descuento.js');
     comp = await import('../../src/modules/flito-comprobantes/flito-comprobantes.desaplicar.js');
     const [u] = await sql`SELECT id FROM users ORDER BY id LIMIT 1`;
@@ -57,6 +57,7 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
 
   afterAll(async () => {
     if (!sql) return;
+    await corte.restaurar();
     const ids = creados.clients.length ? creados.clients : [-1];
     const bolsas = sql`SELECT id FROM flito_bolsas_unicas WHERE alcance = 'compania' AND compania_id IN ${sql(ids)}`;
     await sql`DELETE FROM flito_bolsas_unicas_movimientos WHERE revierte_movimiento_id IS NOT NULL AND bolsa_id IN (${bolsas})`;
@@ -79,13 +80,12 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
     await sql.end();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['Date'], now: DIC_3 });
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = CORTE;
+    await corte.fijar(CORTE);
   });
   afterEach(() => {
     vi.useRealTimers();
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = undefined;
   });
 
   // ─────────────────────────── Fixtures ───────────────────────────
@@ -267,7 +267,7 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
     });
 
     it('TC-07 · salida con fecha 29-nov imputada a 2026-12 (nov cerrado) → D14 mira el periodo imputado: no bloquea', async () => {
-      env.FLITO_BOLSAS_CORTE_COMPROBANTES = '2026-11-01';
+      await corte.fijar('2026-11-01');
       const e = await escenario();
       await cerrar(e.bolsaId, '2026-11');
       const id = await comprobante(e.tramiteId, 'derecho', 80_000);

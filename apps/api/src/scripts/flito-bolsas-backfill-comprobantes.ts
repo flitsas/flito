@@ -1,16 +1,17 @@
 // FLITO — backfill de los comprobantes de pago aplicados ANTES del corte (HU #13910, HU-E, Feature #13887,
-// ADR-0029 D12 / Q4).
+// ADR-0029 Q4; corte de HU #13965, que reemplaza D12).
 //
-// El gancho `descontarComprobante` (HU #13902 / #13909) solo descuenta lo aplicado desde
-// `FLITO_BOLSAS_CORTE_COMPROBANTES`. Lo aplicado antes y liquidado después no lo descontaría nadie: este
+// El gancho `descontarComprobante` (HU #13902 / #13909) solo descuenta lo aplicado desde el corte: el
+// instante registrado en `flito_bolsas_corte` al aplicar la migración 0260. Lo aplicado antes y liquidado después no lo descontaría nadie: este
 // script cierra ese hueco con el MISMO gancho (`{ backfill: true }`), así que usa las mismas llaves
 // (`salida:…` en compañía, `consumo:…` en tránsito), las mismas omisiones (`cubierto_por_liquidacion`,
 // `cubierto_por_conciliacion`, `sin_bolsa`, `inactiva`, …) y es idempotente por llave.
 //
 // Reglas:
-//   RN-B1 Sin corte configurado termina con error ANTES de leer o escribir nada (AC5).
-//   RN-B2 Candidatos: `flito_comprobantes` en `aplicado`, `es_pago`, con trámite y concepto, cuyo día en
-//         Colombia de `aplicado_en` es < corte. Los dos alcances (compañía y tránsito) los decide el gancho.
+//   RN-B1 Sin corte registrado (0260 sin aplicar) termina con error ANTES de leer o escribir nada (AC5).
+//   RN-B2 Candidatos: `flito_comprobantes` en `aplicado`, `es_pago`, con trámite y concepto, con
+//         `aplicado_en < corte` comparando INSTANTES (HU #13965), no días de Colombia. Los dos alcances
+//         (compañía y tránsito) los decide el gancho.
 //   RN-B3 Una transacción POR comprobante, con el orden de locks del gancho (RN-C9): comprobante → trámite
 //         → bolsa compañía → bolsa tránsito. Un fallo deshace solo ese comprobante (ninguno queda a medias)
 //         y detiene el proceso; al volver a ejecutar sigue con los pendientes sin duplicar (AC7).
@@ -27,12 +28,11 @@
 //
 // Runbook: docs/arquitectura/runbook-hu-13910-backfill-corte.md.
 
-import { and, asc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, lt } from 'drizzle-orm';
 import { EstadoComprobante, type ConceptoCosto, type DescuentoBolsaDto } from '@operaciones/shared-types';
 import { db } from '../db/client.js';
 import { flitoBolsasUnicasMovimientos, flitoComprobantes, flitoTramites, users } from '../db/schema.js';
 import { loggerFor } from '../shared/logger.js';
-import { TZ_COLOMBIA } from '../shared/utils/fecha-rango.js';
 import { corteVigente, descontarComprobante } from '../modules/flito-bolsas/flito-bolsas.descuento.js';
 import type { CtxUsuario, Tx } from '../modules/flito-bolsas/flito-bolsas.libro.js';
 
@@ -43,7 +43,7 @@ export const NOTA_BACKFILL = 'Backfill corte comprobantes (ADR-0029)';
 /** RN-B1: el mensaje que ve quien lo ejecuta sin corte. */
 export class SinCorteError extends Error {
   constructor() {
-    super('Falta la fecha de corte: configure FLITO_BOLSAS_CORTE_COMPROBANTES (AAAA-MM-DD) antes de ejecutar el backfill');
+    super('Falta el corte: aplique la migración 0260_flito_bolsas_corte_automatico (npm run db:apply) antes de ejecutar el backfill');
   }
 }
 
@@ -69,6 +69,7 @@ export interface LineaReporte {
 }
 
 export interface ReporteBackfill {
+  /** El instante del corte (ISO 8601, UTC). */
   corte: string;
   apply: boolean;
   comprobantes: number;
@@ -92,7 +93,7 @@ class Simulacion extends Error {
 }
 
 /** RN-B2: candidatos, en orden de aplicación (determinista para poder retomar). */
-async function candidatos(corte: string, ids?: string[]): Promise<string[]> {
+async function candidatos(corte: Date, ids?: string[]): Promise<string[]> {
   const C = flitoComprobantes;
   const filas = await db.select({ id: C.id }).from(C).where(and(
     eq(C.estado, EstadoComprobante.APLICADO),
@@ -100,7 +101,7 @@ async function candidatos(corte: string, ids?: string[]): Promise<string[]> {
     isNotNull(C.tramiteId),
     isNotNull(C.concepto),
     isNotNull(C.aplicadoEn),
-    sql`(${C.aplicadoEn} AT TIME ZONE ${TZ_COLOMBIA})::date < ${corte}::date`,
+    lt(C.aplicadoEn, corte),
     ids ? inArray(C.id, ids.length > 0 ? ids : ['00000000-0000-0000-0000-000000000000']) : undefined,
   )).orderBy(asc(C.aplicadoEn), asc(C.id));
   return filas.map((f) => f.id);
@@ -123,7 +124,7 @@ interface Procesado {
 }
 
 /** RN-B3: un comprobante, en su tx, con locks comprobante → trámite antes del gancho. */
-async function procesar(id: string, corte: string, ctx: CtxUsuario, o: OpcionesBackfill): Promise<Procesado> {
+async function procesar(id: string, corte: Date, ctx: CtxUsuario, o: OpcionesBackfill): Promise<Procesado> {
   const descontar = o.descontar ?? descontarComprobante;
   let concepto = '';
   let valor = 0;
@@ -132,11 +133,10 @@ async function procesar(id: string, corte: string, ctx: CtxUsuario, o: OpcionesB
     const [c] = await tx.select({
       id: C.id, tramiteId: C.tramiteId, concepto: C.concepto, esPago: C.esPago, valor: C.valor, estado: C.estado,
       aplicadoEn: C.aplicadoEn,
-      dia: sql<string>`(${C.aplicadoEn} AT TIME ZONE ${TZ_COLOMBIA})::date::text`,
     }).from(C).where(eq(C.id, id)).for('update').limit(1);
     concepto = c?.concepto ?? '';
     valor = Number(c?.valor ?? 0);
-    if (!c || c.estado !== EstadoComprobante.APLICADO || !c.esPago || !c.tramiteId || !c.concepto || !c.aplicadoEn || c.dia >= corte) {
+    if (!c || c.estado !== EstadoComprobante.APLICADO || !c.esPago || !c.tramiteId || !c.concepto || !c.aplicadoEn || c.aplicadoEn.getTime() >= corte.getTime()) {
       return { resultado: null, previos: new Set(), descartado: true };
     }
     await tx.select({ id: flitoTramites.id }).from(flitoTramites).where(eq(flitoTramites.id, c.tramiteId)).for('update').limit(1);
@@ -164,7 +164,7 @@ function lineasDe(id: string, p: Procesado): LineaReporte[] {
   const base = { comprobanteId: id, concepto: p.concepto, valor: p.valor };
   if (p.descartado) return [{ ...base, alcance: '-', bolsaId: null, resultado: 'omitido', motivo: 'ya_no_es_candidato', movimientoId: null, negativo: false }];
   const r = p.resultado;
-  if (!r) throw new SinCorteError(); // el corte se apagó a mitad de ejecución
+  if (!r) throw new SinCorteError(); // la fila del corte desapareció a mitad de ejecución
   if (r.movimientos.length === 0 && r.omitidos.length === 0) {
     return [{ ...base, alcance: '-', bolsaId: null, resultado: 'omitido', motivo: 'sin_valor', movimientoId: null, negativo: false }];
   }
@@ -185,12 +185,12 @@ function lineasDe(id: string, p: Procesado): LineaReporte[] {
  * se propaga tras deshacer SOLO ese comprobante; los anteriores ya quedaron con su commit (RN-B3).
  */
 export async function ejecutarBackfillComprobantes(o: OpcionesBackfill): Promise<ReporteBackfill> {
-  const corte = corteVigente();
-  if (corte === null) throw new SinCorteError(); // RN-B1: antes de cualquier lectura
+  const corte = await corteVigente();
+  if (corte === null) throw new SinCorteError(); // RN-B1: antes de cualquier lectura de negocio
   const ctx = await ctxDe(o.usuarioId);
   const ids = await candidatos(corte, o.comprobanteIds);
-  log.info({ corte, apply: o.apply, candidatos: ids.length }, 'Backfill de comprobantes antes del corte: inicio');
-  const reporte: ReporteBackfill = { corte, apply: o.apply, comprobantes: ids.length, lineas: [] };
+  log.info({ corte: corte.toISOString(), apply: o.apply, candidatos: ids.length }, 'Backfill de comprobantes antes del corte: inicio');
+  const reporte: ReporteBackfill = { corte: corte.toISOString(), apply: o.apply, comprobantes: ids.length, lineas: [] };
   for (const id of ids) {
     let p: Procesado;
     try {
@@ -205,7 +205,7 @@ export async function ejecutarBackfillComprobantes(o: OpcionesBackfill): Promise
       if (l.resultado === 'descontado') log.info({ comprobanteId: id, bolsaId: l.bolsaId, movimientoId: o.apply ? l.movimientoId : null, apply: o.apply }, 'Backfill: descuento');
     }
   }
-  log.info({ corte, apply: o.apply, lineas: reporte.lineas.length }, 'Backfill de comprobantes antes del corte: fin');
+  log.info({ corte: reporte.corte, apply: o.apply, lineas: reporte.lineas.length }, 'Backfill de comprobantes antes del corte: fin');
   return reporte;
 }
 

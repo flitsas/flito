@@ -24,7 +24,7 @@ const DIC_3 = new Date('2026-12-03T15:00:00Z');
 describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', () => {
   let sql: import('postgres').Sql;
   let db: typeof import('../../src/db/client.js').db;
-  let env: typeof import('../../src/config/env.js').env;
+  let corte: import('../helpers/corte-bolsas.js').CorteDePrueba;
   let d: typeof import('../../src/modules/flito-bolsas/flito-bolsas.descuento.js');
   let libro: typeof import('../../src/modules/flito-bolsas/flito-bolsas.libro.js');
   let USER: number;
@@ -36,7 +36,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
     const { default: postgres } = await import('postgres');
     sql = postgres(URL!, { max: 2 });
     ({ db } = await import('../../src/db/client.js'));
-    ({ env } = await import('../../src/config/env.js'));
+    corte = (await import('../helpers/corte-bolsas.js')).corteDePrueba(sql);
     d = await import('../../src/modules/flito-bolsas/flito-bolsas.descuento.js');
     libro = await import('../../src/modules/flito-bolsas/flito-bolsas.libro.js');
     const [u] = await sql`SELECT id FROM users ORDER BY id LIMIT 1`;
@@ -46,6 +46,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
 
   afterAll(async () => {
     if (!sql) return;
+    await corte.restaurar();
     const ids = creados.clients.length ? creados.clients : [-1];
     const bolsas = sql`SELECT id FROM flito_bolsas_unicas WHERE alcance = 'compania' AND compania_id IN ${sql(ids)}`;
     await sql`DELETE FROM flito_bolsas_unicas_movimientos WHERE bolsa_id IN (${bolsas})`;
@@ -64,13 +65,12 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
     await sql.end();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['Date'], now: DIC_3 });
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = CORTE;
+    await corte.fijar(CORTE);
   });
   afterEach(() => {
     vi.useRealTimers();
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = undefined;
   });
 
   // ─────────────────────────── Fixtures ───────────────────────────
@@ -156,14 +156,14 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
   // ─────────────────────────── AC1 ───────────────────────────
 
   describe('AC1 — sin corte el gancho no hace nada', () => {
-    it('TC-01 · sin FLITO_BOLSAS_CORTE_COMPROBANTES → null y ningún movimiento', async () => {
-      env.FLITO_BOLSAS_CORTE_COMPROBANTES = undefined;
+    it('TC-01 · HU #13965 AC5 · sin fila en flito_bolsas_corte → null y ningún movimiento', async () => {
+      await corte.quitar();
       const e = await escenario();
       const id = await comprobante(e.tramiteId, 'impuesto', 250_000);
       expect(await descontar(pago(id, e.tramiteId, 'impuesto', 250_000))).toBeNull();
       expect(await movimientos(e.bolsaId!)).toHaveLength(0);
-      expect(d.corteVigente()).toBeNull();
-      expect(d.cubiertoPorCorte('2030-01-01')).toBe(false);
+      expect(await d.corteVigente()).toBeNull();
+      expect(await d.cubiertoPorCorte(db, new Date('2030-01-01T00:00:00Z'))).toBe(false);
     });
   });
 
@@ -217,6 +217,36 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
       const r = await descontar(pago(id, e.tramiteId, 'impuesto', 250_000, new Date('2026-12-01T05:00:00Z')));
       expect(r!.movimientos).toHaveLength(1);
       expect((await movimientos(e.bolsaId!))[0]).toMatchObject({ origen: 'comprobante', fecha: '2026-12-01' });
+    });
+  });
+
+  describe('HU #13965 — el corte registrado por la 0260 se compara por INSTANTE', () => {
+    // Corte hoy 15:00 COT (20:00Z). Lo aplicado el mismo día a las 09:00 COT es anterior al corte.
+    const CORTE_15H = new Date('2026-12-03T20:00:00Z');
+
+    it('AC1/AC2 · corteVigente devuelve el instante de la fila y cubiertoPorCorte usa ≥', async () => {
+      await corte.fijar(CORTE_15H);
+      expect((await d.corteVigente())?.toISOString()).toBe(CORTE_15H.toISOString());
+      expect(await db.transaction((tx) => d.cubiertoPorCorte(tx, CORTE_15H))).toBe(true);
+      expect(await d.cubiertoPorCorte(db, new Date(CORTE_15H.getTime() - 1))).toBe(false);
+    });
+
+    it('AC3 · corte hoy 15:00 COT, comprobante aplicado hoy 09:00 COT → antes_del_corte (mismo día, instante anterior)', async () => {
+      await corte.fijar(CORTE_15H);
+      const e = await escenario();
+      const id = await comprobante(e.tramiteId, 'impuesto', 250_000);
+      const r = await descontar(pago(id, e.tramiteId, 'impuesto', 250_000, new Date('2026-12-03T14:00:00Z')));
+      expect(soloCompania(r)).toEqual({ movimientos: [], omitidos: [{ alcance: 'compania', motivo: 'antes_del_corte' }], alertas: [] });
+      expect(await movimientos(e.bolsaId!)).toHaveLength(0);
+    });
+
+    it('AC2 · corte hoy 15:00 COT, comprobante aplicado hoy 15:00 COT exacto → descuenta', async () => {
+      await corte.fijar(CORTE_15H);
+      const e = await escenario();
+      const id = await comprobante(e.tramiteId, 'impuesto', 250_000);
+      const r = await descontar(pago(id, e.tramiteId, 'impuesto', 250_000, CORTE_15H));
+      expect(soloCompania(r)!.movimientos).toHaveLength(1);
+      expect((await movimientos(e.bolsaId!))[0]).toMatchObject({ origen: 'comprobante', fecha: '2026-12-03' });
     });
   });
 
