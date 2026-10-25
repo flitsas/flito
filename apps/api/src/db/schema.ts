@@ -266,10 +266,15 @@ export const clients = pgTable('clients', {
   // Lo que la migración encontró y bloquea facturar. Vacío NO significa facturable: el veredicto
   // completo lo calcula el informe de la HU #11296, que mira además dirección, contacto y ciudad.
   facturacionBloqueos: text('facturacion_bloqueos').array().notNull().default(sql`'{}'::text[]`),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  // HU #13952 (0257) — baja lógica (la escribe la HU #13954). NULL = vigente: un cliente dado de baja no ocupa su NIT +
+  // sucursal (ni la validación de altas/ediciones ni el índice único lo cuentan). Misma línea: techo de max-lines.
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }),
 }, (t) => ({
   documentIdx: index('idx_clients_document').on(t.document),
-  documentBranchIdx: index('idx_clients_document_branch').on(t.document, t.branchOffice),
+  // HU #13952 (0257) — red de seguridad de «un NIT por sucursal entre vigentes»: misma normalización que la validación
+  // previa (`upper(btrim())`); sin NIT (NULL o vacío) no participa. Se conserva el no único (búsqueda exacta, con bajas).
+  // Misma línea: techo de max-lines del archivo.
+  documentBranchIdx: index('idx_clients_document_branch').on(t.document, t.branchOffice), documentBranchVivoUq: uniqueIndex('uq_clients_document_branch_vivo').on(sql`upper(btrim(${t.document}))`, t.branchOffice).where(sql`deleted_at IS NULL AND document IS NOT NULL AND btrim(document) <> ''`),
 }));
 
 export const vehicles = pgTable('vehicles', {

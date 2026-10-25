@@ -10,6 +10,9 @@
 //       (que toma FOR UPDATE implícito sobre la fila). Si el alta llega primero, la desactivación espera a su commit y el
 //       proceso cuenta como abierto; si la desactivación llega primero, el alta espera a su commit y lee `active = false`.
 //       No hay una ventana en la que se cree un proceso de un cliente ya desactivado.
+//   · RN-CLI-8 (HU #13952, cierra el AC6 de la HU #13947) — Un cliente ELIMINADO (`deleted_at` no nulo, baja lógica de
+//       la 0257) tampoco admite procesos nuevos: «El cliente fue eliminado: no admite nuevos procesos.». Se mira ANTES
+//       que `active` (un eliminado puede además estar inactivo; manda el motivo más fuerte).
 import { eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { clients } from '../../db/schema.js';
@@ -30,6 +33,9 @@ export class ClienteNoOperableError extends Error {
   }
 }
 
+/** RN-CLI-8: texto del AC para un cliente con baja lógica. */
+export const MENSAJE_CLIENTE_ELIMINADO = 'El cliente fue eliminado: no admite nuevos procesos.';
+
 export const mensajeClienteInactivo = (nombre: string, proceso: ProcesoCliente): string =>
   `El cliente ${nombre} está inactivo: no se pueden crear ${proceso} para él.`;
 
@@ -43,12 +49,13 @@ export async function motivoClienteNoOperable(
   tx: EjecutorCliente, companiaId: number | null | undefined, proceso: ProcesoCliente, bloquear = true,
 ): Promise<string | null> {
   if (companiaId == null) return null;
-  const consulta = tx.select({ name: clients.name, active: clients.active }).from(clients)
+  const consulta = tx.select({ name: clients.name, active: clients.active, deletedAt: clients.deletedAt }).from(clients)
     .where(eq(clients.id, companiaId)).limit(1);
   const [cliente] = bloquear ? await consulta.for('share') : await consulta;
   if (!cliente) return null;
-  // HU #13952: deleted_at → «El cliente fue eliminado: no admite nuevos procesos.» (único punto de extensión: leer
-  // `deletedAt` en el select de arriba y devolver ese mensaje ANTES de mirar `active`).
+  // RN-CLI-8 (HU #13952): eliminado ANTES que inactivo. `!= null` y no truthy-check: los dobles de prueba que devuelven
+  // una fila sin la clave (`undefined`) no deben leerse como «eliminado».
+  if (cliente.deletedAt != null) return MENSAJE_CLIENTE_ELIMINADO;
   // `=== false` y no `!active`: la columna es NOT NULL, así que solo cambia algo frente a dobles de prueba que
   // devuelven una fila sin esa clave (no deben leerse como «inactivo»).
   if (cliente.active === false) return mensajeClienteInactivo(cliente.name, proceso);

@@ -846,3 +846,34 @@ describe('HU #13947 — opción b: emisión de un lote en curso', () => {
     expect(siigoRequestOrThrowMock).not.toHaveBeenCalled();
   });
 });
+
+// HU #13952 (cierra el AC6 de la HU #13947) — cliente eliminado (`deleted_at`): no se llama a Siigo, ni siquiera desde
+// la emisión de un lote en curso (la opción b es para un cliente desactivado; uno eliminado no emite).
+describe('HU #13952 — tercero de un cliente eliminado', () => {
+  it('activo pero eliminado → `cliente_inactivo` «… está inactivo o eliminado.» y ninguna petición', async () => {
+    kdb.when.select('clients', [ficha({ active: true, deletedAt: new Date() })]);
+    kdb.when.select('siigo_terceros', []);
+
+    const e = await asegurarTercero(7).catch((x) => x);
+    expect(e).toBeInstanceOf(SiigoTerceroError);
+    expect(e.codigo).toBe('cliente_inactivo');
+    expect(e.message).toBe('El cliente Transportes del Sur S.A.S. está inactivo o eliminado.');
+    expect(siigoRequestOrThrowMock).not.toHaveBeenCalled();
+  });
+
+  it('con `emisionDeLoteEnCurso` un cliente eliminado (activo o no) TAMBIÉN se rechaza', async () => {
+    for (const active of [true, false]) {
+      kdb.when.select('clients', [ficha({ active, deletedAt: new Date() })]);
+      kdb.when.select('siigo_terceros', []);
+      await expect(asegurarTercero(7, { emisionDeLoteEnCurso: true })).rejects.toMatchObject({ codigo: 'cliente_inactivo' });
+    }
+    expect(siigoRequestOrThrowMock).not.toHaveBeenCalled();
+  });
+
+  it('deleted_at null → no cuenta como eliminado (sigue el camino normal)', async () => {
+    kdb.when.select('clients', [ficha({ active: true, deletedAt: null })]);
+    kdb.when.select('siigo_terceros', []);
+    const r = await asegurarTercero(7);
+    expect(r.clienteId).toBe(7);
+  });
+});

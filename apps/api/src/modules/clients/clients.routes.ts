@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import {
   PERSONA_TIPOS,
   SIIGO_ID_TIPOS_CODIGOS,
@@ -23,7 +23,8 @@ import {
   COLUMNAS_LISTADO, COLUMNAS_LISTADO_CON_GESTOR, clienteListadoDto, registrarAccesoListado,
 } from './clients.pii.js';
 import {
-  ClienteNoEncontradoError, EstadoClienteCambiadoError, cambiarEstadoCliente, impactoCliente, nombreEnmascarado,
+  ClienteDuplicadoError, ClienteNoEncontradoError, EstadoClienteCambiadoError, cambiarEstadoCliente,
+  esDuplicadoNitSucursal, exigirNitSucursalLibre, impactoCliente, nombreEnmascarado,
 } from './clients.service.js';
 
 const router = Router();
@@ -188,21 +189,11 @@ function diffFiscal(antes: Record<string, unknown>, despues: Record<string, unkn
 
 /**
  * En Siigo la identidad de un tercero es la pareja (identificación, sucursal): el mismo número solo
- * puede repetirse si la sucursal es distinta (AC5).
- *
- * Se comprueba aquí y no con un índice único porque los datos actuales ya traen duplicados —la
- * migración 0132 los deja señalados en vez de fallar— y un índice único no se puede crear sobre
- * ellos. La restricción de base entra cuando esos conflictos estén resueltos; hasta entonces esto
- * evita que la cartera siga creciendo con parejas repetidas.
+ * puede repetirse si la sucursal es distinta. La regla (RN-CLI-7, HU #13952) vive en el servicio
+ * (`exigirNitSucursalLibre` + índice único parcial de la 0257); aquí solo se traduce a HTTP.
  */
-async function parejaOcupada(document: string, branchOffice: number, excluirId?: number) {
-  const mismos = and(
-    sql`trim(upper(${clients.document})) = ${document.trim().toUpperCase()}`,
-    eq(clients.branchOffice, branchOffice),
-    excluirId === undefined ? undefined : ne(clients.id, excluirId),
-  );
-  const [fila] = await db.select({ id: clients.id }).from(clients).where(mismos).limit(1);
-  return fila !== undefined;
+function responderDuplicado(res: Response, e: ClienteDuplicadoError): void {
+  res.status(409).json({ error: e.message, campo: 'document' });
 }
 
 /**
@@ -255,14 +246,12 @@ router.post('/', exigirFuncion('clients.clientes.crear'), async (req: Request, r
     return;
   }
 
-  if (datos.document && datos.document.trim() !== '') {
-    if (await parejaOcupada(datos.document, datos.branchOffice ?? 0)) {
-      res.status(409).json({
-        error: 'Ya existe un cliente con esa identificación en esa sucursal. En Siigo serían el mismo tercero.',
-        campo: 'document',
-      });
-      return;
-    }
+  const sucursalAlta = datos.branchOffice ?? 0;
+  try {
+    await exigirNitSucursalLibre(datos.document, sucursalAlta);
+  } catch (e) {
+    if (e instanceof ClienteDuplicadoError) { responderDuplicado(res, e); return; }
+    throw e;
   }
 
   // `personTypeOrigen` no está en el schema —no es escribible desde fuera— pero sí se deriva de la
@@ -274,9 +263,16 @@ router.post('/', exigirFuncion('clients.clientes.crear'), async (req: Request, r
   // siquiera es escribible por esta ruta: `createSchema` no la acepta. Se proyecta la MISMA lista que
   // entrega `GET /clients`, que es la unión medida de lo que leen los cinco consumidores, para que
   // las tres respuestas del módulo digan lo mismo y la próxima columna tampoco salga sola.
-  const [client] = await db.insert(clients)
-    .values({ ...datos, ...(datos.personType ? { personTypeOrigen: 'manual' as const } : {}) })
-    .returning(COLUMNAS_LISTADO);
+  let client;
+  try {
+    [client] = await db.insert(clients)
+      .values({ ...datos, ...(datos.personType ? { personTypeOrigen: 'manual' as const } : {}) })
+      .returning(COLUMNAS_LISTADO);
+  } catch (e) {
+    // AC6: otra alta ganó la carrera entre la validación y el INSERT → el mismo 409, nunca 500.
+    if (esDuplicadoNitSucursal(e)) { responderDuplicado(res, new ClienteDuplicadoError(datos.document!.trim(), sucursalAlta)); return; }
+    throw e;
+  }
   await audit(req, {
     action: 'create',
     resource: 'client',
@@ -332,13 +328,12 @@ router.patch('/:id', async (req: Request, res: Response) => {
   const documento = cambios.document ?? previo.document;
   const sucursal = cambios.branchOffice ?? previo.branchOffice;
   const tocaIdentidad = cambios.document !== undefined || cambios.branchOffice !== undefined;
-  if (tocaIdentidad && documento && documento.trim() !== '') {
-    if (await parejaOcupada(documento, sucursal, id)) {
-      res.status(409).json({
-        error: 'Ya existe otro cliente con esa identificación en esa sucursal. En Siigo serían el mismo tercero.',
-        campo: 'document',
-      });
-      return;
+  if (tocaIdentidad) {
+    try {
+      await exigirNitSucursalLibre(documento, sucursal, id);
+    } catch (e) {
+      if (e instanceof ClienteDuplicadoError) { responderDuplicado(res, e); return; }
+      throw e;
     }
   }
 
@@ -348,9 +343,18 @@ router.patch('/:id', async (req: Request, res: Response) => {
   // campos de `CAMPOS_FISCALES_TRAZABLES` y `CAMPOS_FISCALES_PII` están todos en `COLUMNAS_LISTADO`.
   // El `previo` de arriba sí se lee entero, y eso NO es un descuido: no sale por HTTP y `diffFiscal`
   // recorre listas cerradas, así que una columna nueva no puede colarse en el `audit` por ahí.
-  const [updated] = await db.update(clients)
-    .set({ ...cambios, ...(cambios.personType ? { personTypeOrigen: 'manual' as const } : {}) })
-    .where(eq(clients.id, id)).returning(COLUMNAS_LISTADO);
+  let updated;
+  try {
+    [updated] = await db.update(clients)
+      .set({ ...cambios, ...(cambios.personType ? { personTypeOrigen: 'manual' as const } : {}) })
+      .where(eq(clients.id, id)).returning(COLUMNAS_LISTADO);
+  } catch (e) {
+    // AC6: carrera con otra escritura sobre la misma pareja → el mismo 409, nunca 500.
+    if (esDuplicadoNitSucursal(e)) {
+      responderDuplicado(res, new ClienteDuplicadoError((documento ?? '').trim(), sucursal)); return;
+    }
+    throw e;
+  }
   if (!updated) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
   // Su gemelo de parametrización sí auditaba; este no. Cambiar los datos de un cliente sin dejar

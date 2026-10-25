@@ -14,6 +14,11 @@
 //       estando al reactivar el cliente). La caché de sesión se limpia DESPUÉS del commit (la ruta).
 //   · RN-CLI-4 — Activar pone `active = true` y, en la MISMA transacción, libera los trámites retenidos de la compañía
 //       (HU #13946, `liberarTramitesRetenidos` de `flito-sync`): si el arranque de uno falla, la activación se revierte.
+//   · RN-CLI-7 (HU #13952, Feature #13943) — NIT único por sucursal entre clientes VIGENTES (`deleted_at IS NULL`):
+//       el alta y la edición comprueban antes de escribir (`buscarClienteDuplicado`, normalizado `upper(btrim())`, el
+//       propio cliente excluido en la edición) y responden 409 `ClienteDuplicadoError`. Sin NIT (NULL o vacío) no
+//       participa; otra sucursal sí se permite. Red de seguridad: índice único parcial `uq_clients_document_branch_vivo`
+//       (0257); su 23505 en una carrera se traduce al MISMO 409 (`esDuplicadoNitSucursal`), nunca 500.
 import { and, count, eq, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
@@ -32,6 +37,48 @@ export class ClienteNoEncontradoError extends Error {
 /** 409: el cliente existe pero su estado ya no es el que el administrador vio (RN-CLI-2). */
 export class EstadoClienteCambiadoError extends Error {
   constructor() { super('Otro administrador ya cambió su estado'); this.name = 'EstadoClienteCambiadoError'; }
+}
+
+/** RN-CLI-7: 409 — ya hay un cliente vigente con ese NIT en esa sucursal. */
+export class ClienteDuplicadoError extends Error {
+  constructor(readonly document: string, readonly branchOffice: number) {
+    super(`Ya existe un cliente con el NIT ${document} y sucursal ${branchOffice}.`);
+    this.name = 'ClienteDuplicadoError';
+  }
+}
+
+/** Nombre del índice único parcial de la 0257 (RN-CLI-7). */
+export const INDICE_NIT_SUCURSAL_VIVO = 'uq_clients_document_branch_vivo';
+
+/** ¿El NIT cuenta para la unicidad? Sin NIT (NULL, vacío o solo espacios) no participa (AC7). */
+export const tieneNit = (document: string | null | undefined): document is string =>
+  typeof document === 'string' && document.trim() !== '';
+
+/**
+ * RN-CLI-7. Lanza `ClienteDuplicadoError` si otro cliente VIGENTE tiene el mismo NIT (normalizado) y sucursal.
+ * `excluirId`: el propio cliente en una edición (AC4). Sin NIT no consulta nada.
+ */
+export async function exigirNitSucursalLibre(
+  document: string | null | undefined, branchOffice: number, excluirId?: number,
+): Promise<void> {
+  if (!tieneNit(document)) return;
+  const [fila] = await db.select({ id: clients.id }).from(clients).where(and(
+    sql`upper(btrim(${clients.document})) = ${document.trim().toUpperCase()}`,
+    eq(clients.branchOffice, branchOffice),
+    isNull(clients.deletedAt),
+    excluirId === undefined ? undefined : ne(clients.id, excluirId),
+  )).limit(1);
+  if (fila) throw new ClienteDuplicadoError(document.trim(), branchOffice);
+}
+
+/** RN-CLI-7 (AC6): ¿el error de escritura es la violación del índice único NIT + sucursal (carrera)? */
+export function esDuplicadoNitSucursal(e: unknown): boolean {
+  // Drizzle puede envolver el error de postgres-js en `cause`.
+  for (let x: unknown = e, i = 0; x && typeof x === 'object' && i < 3; x = (x as { cause?: unknown }).cause, i++) {
+    const pg = x as { code?: unknown; constraint_name?: unknown; constraint?: unknown };
+    if (pg.code === '23505' && (pg.constraint_name ?? pg.constraint) === INDICE_NIT_SUCURSAL_VIVO) return true;
+  }
+  return false;
 }
 
 export interface ImpactoCliente {

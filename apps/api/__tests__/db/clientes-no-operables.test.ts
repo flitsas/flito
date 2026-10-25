@@ -22,7 +22,7 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn(),
 }));
 
-const { exigirClienteOperable, motivoClienteNoOperable, ClienteNoOperableError } =
+const { exigirClienteOperable, motivoClienteNoOperable, ClienteNoOperableError, MENSAJE_CLIENTE_ELIMINADO } =
   await import('../../src/modules/clients/cliente-operable.js');
 const { cambiarEstadoCliente } = await import('../../src/modules/clients/clients.service.js');
 const { evaluarElegibilidad } = await import('../../src/modules/siigo/facturacion.elegibilidad.service.js');
@@ -40,6 +40,35 @@ async function conBase(fn: (tx: postgres.TransactionSql, id: number) => Promise<
     await sql.end();
   }
 }
+
+// HU #13952 (cierra el AC6 de la HU #13947) — RN-CLI-8 con un doble del ejecutor: corre también sin PostgreSQL (CI).
+describe('cliente-operable — cliente eliminado (RN-CLI-8, sin BD)', () => {
+  /** Ejecutor falso: `select…limit()` resuelve `filas`, con y sin `.for('share')`. */
+  const ejecutor = (filas: unknown[]) => ({
+    select: () => ({ from: () => ({ where: () => ({
+      limit: () => Object.assign(Promise.resolve(filas), { for: () => Promise.resolve(filas) }),
+    }) }) }),
+  }) as unknown as Parameters<typeof motivoClienteNoOperable>[0];
+
+  it('deleted_at no nulo → ClienteNoOperableError 409 «El cliente fue eliminado: no admite nuevos procesos.»', async () => {
+    const e = await exigirClienteOperable(ejecutor([{ name: 'X', active: true, deletedAt: new Date() }]), 5, 'SOAT')
+      .catch((x) => x);
+    expect(e).toBeInstanceOf(ClienteNoOperableError);
+    expect(e.status).toBe(409);
+    expect(e.message).toBe('El cliente fue eliminado: no admite nuevos procesos.');
+    expect(MENSAJE_CLIENTE_ELIMINADO).toBe(e.message);
+  });
+
+  it('eliminado E inactivo → manda el de eliminado (se mira antes que `active`)', async () => {
+    expect(await motivoClienteNoOperable(ejecutor([{ name: 'X', active: false, deletedAt: new Date() }]), 5, 'facturas', false))
+      .toBe('El cliente fue eliminado: no admite nuevos procesos.');
+  });
+
+  it('deleted_at null o ausente (doble sin la clave) → no cuenta como eliminado', async () => {
+    await expect(exigirClienteOperable(ejecutor([{ name: 'X', active: true, deletedAt: null }]), 5, 'SOAT')).resolves.toBeUndefined();
+    await expect(exigirClienteOperable(ejecutor([{ name: 'X', active: true }]), 5, 'SOAT')).resolves.toBeUndefined();
+  });
+});
 
 describe.skipIf(!URL_BASE)('cliente-operable — contra PostgreSQL (tx con ROLLBACK)', () => {
   it('activo → admite (el FOR SHARE corre sin error); sin compañía o inexistente → no decide', async () => {
@@ -59,6 +88,19 @@ describe.skipIf(!URL_BASE)('cliente-operable — contra PostgreSQL (tx con ROLLB
       expect(e.message).toBe('El cliente Transportes HU13947 está inactivo: no se pueden crear liquidaciones para él.');
       expect(await motivoClienteNoOperable(actual.db!, id, 'impuestos', false))
         .toBe('El cliente Transportes HU13947 está inactivo: no se pueden crear impuestos para él.');
+    });
+  });
+
+  it('HU #13952 — eliminado (deleted_at) → 409 «El cliente fue eliminado…», también si además está inactivo', async () => {
+    await conBase(async (tx, id) => {
+      await tx`UPDATE clients SET deleted_at = now() WHERE id = ${id}`;
+      const e = await exigirClienteOperable(actual.db!, id, 'impuestos').catch((x) => x);
+      expect(e).toBeInstanceOf(ClienteNoOperableError);
+      expect(e.status).toBe(409);
+      expect(e.message).toBe('El cliente fue eliminado: no admite nuevos procesos.');
+      await tx`UPDATE clients SET active = false WHERE id = ${id}`;
+      expect(await motivoClienteNoOperable(actual.db!, id, 'SOAT', false))
+        .toBe('El cliente fue eliminado: no admite nuevos procesos.');
     });
   });
 
