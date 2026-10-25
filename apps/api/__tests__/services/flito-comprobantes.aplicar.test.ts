@@ -646,7 +646,9 @@ describe('HU #12630 — POST /:id/aplicar con esPago=true: SOAT / impuesto / der
     expect(marcarPagadoMock).not.toHaveBeenCalled();
     const comps = espia.updatesEn(T_COMP);
     expect(comps).toHaveLength(2);
-    expect(comps[1]!.datos).toMatchObject({ estado: 'pendiente', esPago: null, valor: null, soporteAplicadoId: null, aplicadoPorId: null, aplicadoEn: null });
+    expect(comps[1]!.datos).toMatchObject({ estado: 'pendiente', motivoPendiente: 'destino_no_admite', esPago: null, valor: null, soporteAplicadoId: null, aplicadoPorId: null, aplicadoEn: null });
+    // HU #13938: el detalle del pendiente lleva lo que dijo el dueño (el CHECK 0198 exige motivo en pendiente).
+    expect(comps[1]!.datos.detallePendiente).toMatch(/El dueño \(soat\).*Solo se puede conciliar un documento contra un SOAT en adquisición/);
     expect(ligadoA(renderizar(comps[1]!.condiciones[0] as never), '"flito_comprobantes"."estado"')).toBe('aplicado');
     expect(auditMock).not.toHaveBeenCalled();
   });
