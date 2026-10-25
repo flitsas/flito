@@ -15,7 +15,7 @@
 // llamada — con conceptos que a veces no aplican, cualquier orden fijo se desalinea y el test acaba
 // afirmando lo contrario de lo que cree.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getTableName } from 'drizzle-orm';
 import { createKeyedDb, type Resolver } from '../helpers/keyed-db.js';
 
@@ -1015,15 +1015,20 @@ describe('liquidar — HU #13899 AC6/AC8: sin bolsa activa sella pero no asienta
 // ─────────────────────────── HU #13902 — corte por fecha ─────────────────────
 
 describe('HU #13902 — AC7/AC10: con el corte vigente la liquidación deja de mover la bolsa', () => {
-  let env: typeof import('../../src/config/env.js').env;
-  beforeEach(async () => { ({ env } = await import('../../src/config/env.js')); });
-  afterEach(() => { env.FLITO_BOLSAS_CORTE_COMPROBANTES = undefined; });
+  /**
+   * HU #13965: el corte es la fila de `flito_bolsas_corte` (0260). Aquí se simula la tabla presente
+   * (`to_regclass` → existe) y la fila con ese instante; `kdb.reset()` del `beforeEach` lo deshace.
+   */
+  const fijarCorte = (instante: string) => {
+    kdb.execute.mockResolvedValue([{ existe: true }]);
+    kdb.when.select('flito_bolsas_corte', [{ corteEn: new Date(instante) }]);
+  };
 
   /** Movimientos escritos en CUALQUIER libro (cliente o tránsito). */
   const movimientosEscritos = () => inserts.filter((m) => m.tabla.includes('movimiento'));
 
-  it('TC-13 · liquidar() con fecha contable ≥ corte → se sella pero ningún movimiento, tampoco GMF (Q6)', async () => {
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = '2026-01-01';
+  it('TC-13 · liquidar() con ahora ≥ corte → se sella pero ningún movimiento, tampoco GMF (Q6)', async () => {
+    fijarCorte('2026-01-01T00:00:00-05:00');
     escenarioSellado();
     const dto = await liquidar(TRAMITE, 9);
     expect(dto).toBeDefined();
@@ -1032,8 +1037,30 @@ describe('HU #13902 — AC7/AC10: con el corte vigente la liquidación deja de m
     expect(saldoBolsa).toBe(1_000_000);
   });
 
+  it('HU #13965 AC4 · corte una hora antes de ahora (mismo día) → la liquidación ya no mueve la bolsa', async () => {
+    fijarCorte(new Date(Date.now() - 3_600_000).toISOString());
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+    expect(insertsEn('flito_liquidaciones')).toHaveLength(1);
+    expect(movimientosEscritos()).toEqual([]);
+  });
+
+  it('HU #13965 AC4 · corte una hora después de ahora (mismo día) → la liquidación sigue moviendo la bolsa', async () => {
+    fijarCorte(new Date(Date.now() + 3_600_000).toISOString());
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+    expect(salidasEscritas()).toHaveLength(6);
+  });
+
+  it('HU #13965 AC5 · tabla presente sin fila de corte → la liquidación mueve la bolsa como antes', async () => {
+    kdb.execute.mockResolvedValue([{ existe: true }]);
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+    expect(salidasEscritas()).toHaveLength(6);
+  });
+
   it('TC-13 · borde: corte en el futuro → la liquidación sigue descontando como hoy (AC1)', async () => {
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = '2099-01-01';
+    fijarCorte('2099-01-01T00:00:00-05:00');
     escenarioSellado();
     await liquidar(TRAMITE, 9);
     expect(salidasEscritas()).toHaveLength(6);
@@ -1042,7 +1069,7 @@ describe('HU #13902 — AC7/AC10: con el corte vigente la liquidación deja de m
   it('TC-17 · reversar con el corte vigente una liquidación que movió la bolsa → busca los comprobantes aplicados para re-descontarlos', async () => {
     escenarioSellado();
     await liquidar(TRAMITE, 9); // sin corte: es la liquidación «anterior al corte»
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = '2026-01-01';
+    fijarCorte('2026-01-01T00:00:00-05:00');
     const consultados = vi.fn(() => []);
     escenarioReverso();
     kdb.when.select('flito_comprobantes', consultados);
@@ -1058,7 +1085,7 @@ describe('HU #13902 — AC7/AC10: con el corte vigente la liquidación deja de m
     .filter((m) => String(m.datos.llaveIdempotencia ?? '').startsWith('consumo:'));
 
   it('AC10 · control: corte en el futuro y una bolsa de tránsito que cubre → el sellado SÍ consume tránsito', async () => {
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = '2099-01-01';
+    fijarCorte('2099-01-01T00:00:00-05:00');
     escenarioSellado();
     kdb.when.select('flito_bolsas_unicas_cobertura', [{ bolsaId: 'bolsa-transito', nombre: 'Tránsito' }]);
     await liquidar(TRAMITE, 9);
@@ -1066,7 +1093,7 @@ describe('HU #13902 — AC7/AC10: con el corte vigente la liquidación deja de m
   });
 
   it('AC10 · corte vigente → liquidar un trámite con fecha contable posterior al corte no registra consumo en ninguna bolsa de tránsito', async () => {
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = '2026-01-01';
+    fijarCorte('2026-01-01T00:00:00-05:00');
     escenarioSellado();
     kdb.when.select('flito_bolsas_unicas_cobertura', [{ bolsaId: 'bolsa-transito', nombre: 'Tránsito' }]);
     await liquidar(TRAMITE, 9);

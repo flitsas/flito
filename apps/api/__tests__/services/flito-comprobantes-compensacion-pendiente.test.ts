@@ -28,7 +28,7 @@ const VALOR = 450_000;
 describe.skipIf(!URL)('HU #13938 — compensación tras el rechazo del dueño deja el comprobante pendiente con motivo (PostgreSQL real)', () => {
   let sql: import('postgres').Sql;
   let db: typeof import('../../src/db/client.js').db;
-  let env: typeof import('../../src/config/env.js').env;
+  let corte: import('../helpers/corte-bolsas.js').CorteDePrueba;
   let d: typeof import('../../src/modules/flito-bolsas/flito-bolsas.descuento.js');
   let ap: typeof import('../../src/modules/flito-comprobantes/flito-comprobantes.aplicar.js');
   let ComprobanteError: typeof import('../../src/modules/flito-comprobantes/flito-comprobantes.service.js').ComprobanteError;
@@ -40,7 +40,7 @@ describe.skipIf(!URL)('HU #13938 — compensación tras el rechazo del dueño de
     const { default: postgres } = await import('postgres');
     sql = postgres(URL!, { max: 2 });
     ({ db } = await import('../../src/db/client.js'));
-    ({ env } = await import('../../src/config/env.js'));
+    corte = (await import('../helpers/corte-bolsas.js')).corteDePrueba(sql);
     d = await import('../../src/modules/flito-bolsas/flito-bolsas.descuento.js');
     ap = await import('../../src/modules/flito-comprobantes/flito-comprobantes.aplicar.js');
     ({ ComprobanteError } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.service.js'));
@@ -50,6 +50,7 @@ describe.skipIf(!URL)('HU #13938 — compensación tras el rechazo del dueño de
 
   afterAll(async () => {
     if (!sql) return;
+    await corte.restaurar();
     const ids = creados.clients.length ? creados.clients : [-1];
     const nada = ['00000000-0000-0000-0000-000000000000'];
     const bolsas = sql`SELECT id FROM flito_bolsas_unicas WHERE alcance = 'compania' AND compania_id IN ${sql(ids)}`;
@@ -70,13 +71,12 @@ describe.skipIf(!URL)('HU #13938 — compensación tras el rechazo del dueño de
     await sql.end();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['Date'], now: DIC_3 });
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = CORTE;
+    await corte.fijar(CORTE);
   });
   afterEach(() => {
     vi.useRealTimers();
-    env.FLITO_BOLSAS_CORTE_COMPROBANTES = undefined;
   });
 
   // ─────────────────────────── Fixtures ───────────────────────────

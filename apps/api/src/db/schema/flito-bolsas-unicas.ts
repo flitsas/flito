@@ -12,7 +12,7 @@
 // Import circular a propósito (mismo patrón que `schema/flito-comprobantes.ts`): las FK de Drizzle son
 // callbacks perezosos, así que el ciclo ESM resuelve sin problema.
 import {
-  pgTable, uuid, varchar, text, boolean, numeric, date, jsonb, integer, timestamp, index, uniqueIndex, check, primaryKey,
+  pgTable, uuid, varchar, text, boolean, numeric, date, jsonb, integer, timestamp, index, uniqueIndex, check, primaryKey, smallint,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { clients, flitoSoportes, flitoTramites, organismosTransitoConfig, users } from '../schema.js';
@@ -176,3 +176,15 @@ export const flitoBolsasUnicasEventos = pgTable('flito_bolsas_unicas_eventos', {
   usuarioNombre: varchar('usuario_nombre', { length: 150 }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ bolsaIdx: index('idx_flito_bolsas_unicas_eventos_bolsa').on(t.bolsaId, t.createdAt) }));
+
+/**
+ * HU #13965 (reemplaza ADR-0029 D12): el corte del descuento por comprobante, migración 0260. Una sola fila
+ * (`id = 1`) con el INSTANTE en que se aplicó la migración. No se edita; sin fila, nada descuenta.
+ */
+export const flitoBolsasCorte = pgTable('flito_bolsas_corte', {
+  id: smallint('id').primaryKey().default(1),
+  corteEn: timestamp('corte_en', { withTimezone: true }).notNull(),
+  registradoEn: timestamp('registrado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  filaUnica: check('ck_flito_bolsas_corte_fila_unica', sql`${t.id} = 1`),
+}));

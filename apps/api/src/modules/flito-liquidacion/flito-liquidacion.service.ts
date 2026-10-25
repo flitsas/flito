@@ -900,8 +900,9 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     // transacción, sobre el cálculo ya recompuesto: si se hicieran fuera, la bolsa descontaría el
     // importe viejo y el sellado guardaría el nuevo.
     // HU #13902 (D7, Q6): desde el corte la bolsa la mueve el comprobante aplicado, no el sellado: ninguna
-    // bolsa (cliente ni tránsito, GMF incluido) recibe salidas de la liquidación.
-    const salidas = ids && !cubiertoPorCorte(fechaContable()) ? salidasDe(calculo, ids) : [];
+    // bolsa (cliente ni tránsito, GMF incluido) recibe salidas de la liquidación. HU #13965: el corte es el
+    // instante registrado por la 0260 y se compara con AHORA (no con el día contable); sin fila, como antes.
+    const salidas = ids && !(await cubiertoPorCorte(tx, new Date())) ? salidasDe(calculo, ids) : [];
 
     const [fila] = await tx.insert(flitoLiquidaciones).values(valores).returning();
     await tx.insert(flitoLiquidacionEventos).values({
