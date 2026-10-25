@@ -22,6 +22,14 @@ const TRANSITO = {
   cobertura: [{ organismoCodigo: '11001', organismoNombre: 'Bogotá', concepto: 'impuesto' }],
 };
 
+/** HU #13908: la misma bolsa de tránsito como fila del catálogo único (`POST /buscar`, alcance 'transito'). */
+const TRANSITO_FILA = {
+  id: 'ob-1', alcance: 'transito', nombre: 'Bolsa Bogotá', companiaId: null, companiaNombre: null, activa: true,
+  conceptos: ['impuesto'], cobertura: [{ organismoCodigo: '11001', concepto: 'impuesto' }], saldo: 0,
+  ultimaEntradaValor: null, ultimaEntradaEn: null, nivel: 'sin_recargas', porcentaje: null,
+  transito: { nivel: 'sin_cargas', deuda: 0, totalCargado: 0, totalConsumido: 0 },
+};
+
 type Estado = 'pendiente' | 'valido' | 'vencido' | 'no_validado' | 'validando';
 const estados = (e: Partial<Record<'camara_comercio' | 'rut' | 'cedula_representante' | 'certificado_bancario', Estado>>) => ({
   camara_comercio: 'valido', rut: 'valido', cedula_representante: 'valido', certificado_bancario: 'valido', ...e,
@@ -88,10 +96,11 @@ test.describe('FLITO — Bolsas · chip de expediente en el listado (HU #13893)'
   });
 
   test('AC4: las bolsas de tránsito no llevan chip', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER, { funciones: [...BOLSA, VER] });
-    await mock(page);
+    // HU #13908: la bolsa de tránsito llega por el mismo `/buscar` y se pinta como fila de su tabla.
+    await loginAs(page, FINANCIERA_USER, { funciones: [...BOLSA, VER, 'bolsas.transito.listar', 'bolsas.transito.ver'] });
+    await mock(page, { filas: [ANDINOS, RENTACAR, VALLE, TRANSITO_FILA] });
     await abrir(page);
-    const tarjeta = page.getByTestId('tarjeta-bolsa-transito-ob-1');
+    const tarjeta = page.getByRole('region', { name: 'Bolsas de tránsito' }).getByTestId('fila-bolsa-transito-ob-1');
     await expect(tarjeta).toBeVisible();
     await expect(page.getByRole('region', { name: 'Bolsas de tránsito' }).getByText(/Docs (completos|pendientes)|Expediente/)).toHaveCount(0);
     await expect(page.getByTestId('chip-expediente-1')).toBeVisible();
