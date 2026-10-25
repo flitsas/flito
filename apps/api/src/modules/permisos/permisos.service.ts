@@ -9,6 +9,8 @@ export interface FuncionDeGrupo {
   nombreNegocio: string;
   descripcion: string;
   tipo: string;
+  /** HU #13944: solo `admin` la tiene; el panel la pinta bloqueada. */
+  exclusivaAdmin: boolean;
 }
 
 export interface GrupoDeFunciones {
@@ -31,13 +33,14 @@ export async function catalogoAgrupado(): Promise<GrupoDeFunciones[]> {
     nombreNegocio: permisosFunciones.nombreNegocio,
     descripcion: permisosFunciones.descripcion,
     tipo: permisosFunciones.tipo,
+    exclusivaAdmin: permisosFunciones.exclusivaAdmin,
   }).from(permisosFunciones)
     .orderBy(asc(permisosFunciones.modulo), desc(permisosFunciones.tipo), asc(permisosFunciones.codigo));
 
   const grupos = new Map<string, FuncionDeGrupo[]>();
   for (const f of filas) {
     const lista = grupos.get(f.modulo) ?? [];
-    lista.push({ codigo: f.codigo, nombreNegocio: f.nombreNegocio, descripcion: f.descripcion, tipo: f.tipo });
+    lista.push({ codigo: f.codigo, nombreNegocio: f.nombreNegocio, descripcion: f.descripcion, tipo: f.tipo, exclusivaAdmin: f.exclusivaAdmin === true });
     grupos.set(f.modulo, lista);
   }
   return [...grupos.entries()].map(([modulo, funciones]) => ({ modulo, funciones }));
@@ -60,6 +63,7 @@ export async function verificarCatalogoAlArrancar(): Promise<void> {
   const filas = await db.select({
     codigo: permisosFunciones.codigo,
     modulo: permisosFunciones.modulo,
+    exclusivaAdmin: permisosFunciones.exclusivaAdmin,
   }).from(permisosFunciones);
 
   if (filas.length === 0) {
@@ -95,6 +99,23 @@ export async function verificarCatalogoAlArrancar(): Promise<void> {
       `El módulo de agrupación difiere entre la base y el código en ${difieren.length} funciones:\n    ${lista}\n` +
       '  Falta aplicar 0205_permisos_reagrupar_modulos.sql (o la que la sustituya); se regenera con ' +
       '`npm run permisos:seed -w apps/api -- --reagrupar`.',
+    );
+  }
+
+  // HU #13944: las funciones exclusivas del Administrador también coinciden. El código manda
+  // (`FUNCIONES_EXCLUSIVAS_ADMIN`); la columna es su copia y la leen las escrituras: si difieren, la regla
+  // protegería otra lista que la que el panel pinta.
+  const exclusivasEnCodigo = new Set(enCodigo.filter((f) => f.exclusivaAdmin).map((f) => f.codigo));
+  const exclusivasEnBase = new Set(filas.filter((f) => f.exclusivaAdmin === true).map((f) => f.codigo));
+  const sinMarcaEnBase = [...exclusivasEnCodigo].filter((c) => !exclusivasEnBase.has(c)).sort();
+  const marcadaDeMas = [...exclusivasEnBase].filter((c) => !exclusivasEnCodigo.has(c)).sort();
+  if (sinMarcaEnBase.length || marcadaDeMas.length) {
+    throw new ArranquePermisosError(
+      'Las funciones exclusivas del Administrador difieren entre la base y el código.\n' +
+      (sinMarcaEnBase.length ? `  El código las declara exclusivas y la base no: ${sinMarcaEnBase.join(', ')}\n` : '') +
+      (marcadaDeMas.length ? `  La base las marca exclusivas y el código no: ${marcadaDeMas.join(', ')}\n` : '') +
+      '  Falta aplicar 0253_permisos_funciones_exclusiva_admin.sql o la migración que marca `exclusiva_admin` ' +
+      '(fuente: FUNCIONES_EXCLUSIVAS_ADMIN en catalogo-operaciones.ts).',
     );
   }
 }

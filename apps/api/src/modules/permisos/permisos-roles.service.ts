@@ -20,12 +20,12 @@
 //     (`tipo_enlace = 'ninguno'`, ADR-0022 modificado por ADR-0024) y `editarRol` no toma el invariante.
 //   · `operaciones` está RESERVADO: sigue siendo etiqueta del tipo obsoleto `user_role` y ADR-0015 §2 lo
 //     deja fuera de todo lo asignable. Sin esta guarda el panel lo resucitaría.
-import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { asc, desc, eq, sql } from 'drizzle-orm';
 import type {
   CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RolCatalogo, TipoEnlace,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { permisosFunciones, permisosRoles, permisosRolFuncion, users } from '../../db/schema.js';
+import { permisosRoles, permisosRolFuncion, users } from '../../db/schema.js';
 import {
   diffConjunto, mismoConjunto, registrarCambiosPermisos, type ActorAuditoria, type CambioAuditable,
 } from '../../shared/historial/permisos-auditoria.js';
@@ -34,6 +34,7 @@ import { enlaceConocido } from '../../shared/permisos-efectivos.js';
 import { BloqueoAdministracionError, conSeguroAntiBloqueo } from '../../shared/permisos-anti-bloqueo.js';
 import { esCodigoPg } from '../../shared/utils/pg-error.js';
 import { ACCIONES_UNIVERSALES, ancestrosDe, nodoDesmarcado } from './arbol/expansion.js';
+import { comprobarCuadroExclusivas, comprobarSinExclusivas, leerFunciones, ROL_ADMIN } from './permisos-exclusivas.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -113,10 +114,7 @@ async function funcionesDelRol(ex: Pick<Tx, 'select'>, codigo: string): Promise<
 /** Los códigos de `funciones` que NO existen en `permisos_funciones`. Lectura, fuera de toda tx. */
 export async function funcionesInexistentes(codigos: string[]): Promise<string[]> {
   if (codigos.length === 0) return [];
-  const filas = await db.select({ codigo: permisosFunciones.codigo }).from(permisosFunciones)
-    .where(inArray(permisosFunciones.codigo, codigos));
-  const existen = new Set(filas.map((f) => f.codigo));
-  return codigos.filter((c) => !existen.has(c));
+  return (await leerFunciones(codigos)).inexistentes;
 }
 
 /** Duplicados plegados y orden estable: el orden de llegada no es un cambio. */
@@ -164,10 +162,13 @@ export async function crearRol(input: CrearRolInput, actor: ActorAuditoria): Pro
   if (RESERVADOS.includes(input.codigo)) throw new CodigoReservadoError(input.codigo);
   const pedidas = conjunto(input.funciones ?? []);
   // Una sola consulta para lo pedido y lo de por defecto: solo lo PEDIDO inexistente es error.
-  const faltan = new Set(await funcionesInexistentes(conjunto([...pedidas, ...ACCIONES_POR_DEFECTO_DE_ROL_NUEVO])));
+  const lectura = await leerFunciones(conjunto([...pedidas, ...ACCIONES_POR_DEFECTO_DE_ROL_NUEVO]));
+  const faltan = new Set(lectura.inexistentes);
   const inexistentes = pedidas.filter((c) => faltan.has(c));
   if (inexistentes.length) throw new FuncionesInexistentesError(inexistentes);
   const funciones = conjunto([...pedidas, ...ACCIONES_POR_DEFECTO_DE_ROL_NUEVO.filter((c) => !faltan.has(c))]);
+  // HU #13944: un rol nuevo nunca es `admin` (ya existe: sería 23505), así que no puede nacer con una exclusiva.
+  comprobarSinExclusivas(funciones, lectura.exclusivas);
 
   try {
     return await db.transaction(async (tx) => {
@@ -296,8 +297,13 @@ export async function borrarRol(codigo: string, actor: ActorAuditoria): Promise<
  */
 export async function guardarCuadro(codigo: string, pedidas: string[], actor: ActorAuditoria): Promise<RespuestaGuardarCuadro> {
   const despues = conjunto(pedidas);
-  const inexistentes = await funcionesInexistentes(despues);
-  if (inexistentes.length) throw new FuncionesInexistentesError(inexistentes);
+  // HU #13944: misma lectura para la existencia y las exclusivas. `admin` con cuadro vacío también lee: ahí la
+  // regla es «no se le quita ninguna». La comprobación va ANTES que el seguro antibloqueo (que corre en la tx).
+  if (despues.length || codigo === ROL_ADMIN) {
+    const { inexistentes, exclusivas } = await leerFunciones(despues);
+    if (inexistentes.length) throw new FuncionesInexistentesError(inexistentes);
+    comprobarCuadroExclusivas(codigo, despues, exclusivas);
+  }
 
   try {
     return await guardarCuadroEnTx(codigo, despues, actor);
