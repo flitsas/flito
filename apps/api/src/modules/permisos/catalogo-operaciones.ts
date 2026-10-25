@@ -314,6 +314,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${PAR} GET /proveedores-soat`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
   op(`${PAR} POST /proveedores-soat`, 'parametrizacion.proveedores.crear', 'Añadir un proveedor SOAT', 'Registrar un gestor SOAT nuevo.'),
   op(`${PAR} PATCH /proveedores-soat/:id`, 'parametrizacion.proveedores.editar', 'Editar un proveedor SOAT', 'Cambiar los datos o el estado de un gestor SOAT.'),
+  // HU #13958: nacen absorbidas por «Activar o desactivar proveedores» (exclusiva del Administrador, 0261).
+  op(`${PAR} GET /proveedores-soat/:id/impacto`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
+  op(`${PAR} PATCH /proveedores-soat/:id/estado`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
   op(`${PAR} GET /organismos`, 'parametrizacion.organismos.listar', 'Ver los organismos de tránsito', 'Consultar los organismos y su parametrización FLITO.'),
   op(`${PAR} GET /organismos/:codigo/vigencias`, 'parametrizacion.organismos.ver_vigencias', 'Ver las vigencias de un organismo', 'Consultar los periodos de tarifas y modalidades del organismo.'),
   op(`${PAR} POST /organismos/:codigo/modalidad`, 'parametrizacion.organismos.fijar_modalidad', 'Fijar la modalidad de un organismo', 'Definir cómo se paga a ese organismo a partir de una fecha.'),
@@ -513,4 +516,6 @@ export const FUNCIONES_EXCLUSIVAS_ADMIN: readonly string[] = [
   'accion.clientes.activar_desactivar',
   // HU #13954: «Eliminar clientes» (baja lógica); la operación `clients.clientes.eliminar` nace absorbida (0258).
   'accion.clientes.eliminar',
+  // HU #13958: «Activar o desactivar proveedores»; la operación `parametrizacion.proveedores.estado` nace absorbida (0261).
+  'accion.clientes.activar_desactivar_proveedores',
 ];
