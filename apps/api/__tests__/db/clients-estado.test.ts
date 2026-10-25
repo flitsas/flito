@@ -100,8 +100,9 @@ describe.skipIf(!URL_BASE)('clients.service — contra PostgreSQL (tx con ROLLBA
         procesosAbiertos: { soat: 3, impuestos: f.conImpuestos ? 1 : 0, tramites: 2, liquidaciones: 1 },
         saldoBolsa: 250000.75,
         usuariosAfectados: 2, // a y b (la inactiva cuenta: sigue siendo de la compañía); c tiene baja
+        // HU #13954 (RN-CLI-10): activo → no se puede eliminar, y es el primer motivo.
         puedeEliminar: false,
-        motivoNoEliminable: null,
+        motivoNoEliminable: 'Primero debe desactivarlo.',
       });
       expect(await tx`SELECT active FROM clients WHERE id = ${f.id}`).toEqual(antes);
     });
@@ -112,7 +113,7 @@ describe.skipIf(!URL_BASE)('clients.service — contra PostgreSQL (tx con ROLLBA
       const [c] = await tx`INSERT INTO clients (name) VALUES ('Vacío HU13945') RETURNING id`;
       expect(await impactoCliente(actual.db!, c!.id)).toEqual({
         activo: true, procesosAbiertos: { soat: 0, impuestos: 0, tramites: 0, liquidaciones: 0 },
-        saldoBolsa: 0, usuariosAfectados: 0, puedeEliminar: false, motivoNoEliminable: null,
+        saldoBolsa: 0, usuariosAfectados: 0, puedeEliminar: false, motivoNoEliminable: 'Primero debe desactivarlo.',
       });
       expect(await impactoCliente(actual.db!, 2_000_000_000)).toBeNull();
     });

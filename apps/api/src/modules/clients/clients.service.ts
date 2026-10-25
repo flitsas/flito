@@ -19,12 +19,25 @@
 //       propio cliente excluido en la edición) y responden 409 `ClienteDuplicadoError`. Sin NIT (NULL o vacío) no
 //       participa; otra sucursal sí se permite. Red de seguridad: índice único parcial `uq_clients_document_branch_vivo`
 //       (0257); su 23505 en una carrera se traduce al MISMO 409 (`esDuplicadoNitSucursal`), nunca 500.
+//   · RN-CLI-10 (HU #13954, Feature #13943) — Eliminar = baja LÓGICA (`deleted_at`/`deleted_by` de la 0257), nunca
+//       DELETE. Condiciones EN ORDEN (el primer motivo que falla es el que se informa, también en el impacto):
+//       1) inactivo; 2) sin procesos abiertos (predicado de RN-CLI-1); 3) saldo de la bolsa = 0 (negativo también
+//       impide). Una sola transacción: `FOR UPDATE` sobre la fila de `clients` y luego sobre la de `flito_bolsas`
+//       (mismo orden que los movimientos de bolsa, que leen el cliente antes que la bolsa), y las condiciones se
+//       evalúan DESPUÉS de los bloqueos (un movimiento confirmado antes del bloqueo cuenta). Los usuarios de la
+//       compañía quedan de baja permanente con el mecanismo de la HU #12089 (`deleted_at`, `deleted_by`,
+//       `session_invalidated_at`, dentro de `conSeguroAntiBloqueo` y con su rastro en la bitácora de permisos) y
+//       además `active = false`. Un eliminado (o inexistente) responde 404; si otro administrador lo eliminó mientras
+//       esta petición esperaba el bloqueo → 409 `EstadoClienteCambiadoError`.
 import { and, count, eq, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   clients, flitoBolsas, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTramites, users,
 } from '../../db/schema.js';
 import { liberarTramitesRetenidos } from '../flito-sync/liberar-retenidos.js';
+import { conSeguroAntiBloqueo } from '../../shared/permisos-anti-bloqueo.js';
+import { registrarCambiosPermisos, type ActorAuditoria } from '../../shared/historial/permisos-auditoria.js';
+import { clienteVigente } from './cliente-operable.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /** La conexión o una transacción abierta: el impacto se puede leer en cualquiera de las dos. */
@@ -37,6 +50,11 @@ export class ClienteNoEncontradoError extends Error {
 /** 409: el cliente existe pero su estado ya no es el que el administrador vio (RN-CLI-2). */
 export class EstadoClienteCambiadoError extends Error {
   constructor() { super('Otro administrador ya cambió su estado'); this.name = 'EstadoClienteCambiadoError'; }
+}
+
+/** RN-CLI-10: 409 — el cliente no cumple una condición para eliminarlo. `message` es el texto del AC. */
+export class ClienteNoEliminableError extends Error {
+  constructor(message: string) { super(message); this.name = 'ClienteNoEliminableError'; }
 }
 
 /** RN-CLI-7: 409 — ya hay un cliente vigente con ese NIT en esa sucursal. */
@@ -87,19 +105,39 @@ export interface ImpactoCliente {
   /** Saldo de la bolsa única de la compañía, en pesos; 0 si no tiene bolsa. */
   saldoBolsa: number;
   usuariosAfectados: number;
-  /**
-   * Valor NEUTRO hasta la HU #13954 (eliminar cliente), que decide cuándo se puede eliminar y por qué no:
-   * hoy siempre `false` / `null` (esta HU no ofrece eliminar).
-   */
-  puedeEliminar: false;
-  motivoNoEliminable: null;
+  /** RN-CLI-10 (HU #13954): `true` solo si cumple las tres condiciones; si no, el PRIMER motivo que falla. */
+  puedeEliminar: boolean;
+  motivoNoEliminable: string | null;
+}
+
+/** Pesos sin decimales y con punto de miles: `-$20.000`, `$1.500.000` (texto de los AC de la HU #13954). */
+export const formatoPesos = (valor: number): string => {
+  const entero = Math.round(Math.abs(valor)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${valor < 0 ? '-' : ''}$${entero}`;
+};
+
+export const MENSAJE_CLIENTE_ACTIVO = 'Primero debe desactivarlo.';
+
+/** RN-CLI-10: el primer motivo por el que el cliente no se puede eliminar, o `null` si sí se puede. */
+export function motivoNoEliminable(
+  { activo, procesosAbiertos: p, saldoBolsa }: Pick<ImpactoCliente, 'activo' | 'procesosAbiertos' | 'saldoBolsa'>,
+): string | null {
+  if (activo) return MENSAJE_CLIENTE_ACTIVO;
+  const total = p.soat + p.impuestos + p.tramites + p.liquidaciones;
+  if (total > 0) {
+    const detalle = `SOAT: ${p.soat}, impuestos: ${p.impuestos}, trámites: ${p.tramites}, liquidaciones: ${p.liquidaciones}`;
+    return `Tiene ${total} ${total === 1 ? 'proceso abierto' : 'procesos abiertos'} (${detalle}).`;
+  }
+  if (saldoBolsa !== 0) return `Su bolsa tiene saldo de ${formatoPesos(saldoBolsa)}; debe quedar en cero.`;
+  return null;
 }
 
 const n = (filas: { total: number }[]): number => Number(filas[0]?.total ?? 0);
 
-/** RN-CLI-1. `null` si el cliente no existe. No modifica nada. */
+/** RN-CLI-1. `null` si el cliente no existe o está eliminado (RN-CLI-9). No modifica nada. */
 export async function impactoCliente(tx: Ejecutor, id: number): Promise<ImpactoCliente | null> {
-  const [cliente] = await tx.select({ active: clients.active }).from(clients).where(eq(clients.id, id)).limit(1);
+  const [cliente] = await tx.select({ active: clients.active }).from(clients)
+    .where(and(eq(clients.id, id), clienteVigente())).limit(1);
   if (!cliente) return null;
 
   const [soat, impuestos, tramites, liquidaciones, bolsa, usuarios] = await Promise.all([
@@ -116,14 +154,14 @@ export async function impactoCliente(tx: Ejecutor, id: number): Promise<ImpactoC
     tx.select({ total: count() }).from(users).where(and(eq(users.companiaId, id), isNull(users.deletedAt))),
   ]);
 
-  return {
+  const base = {
     activo: cliente.active,
     procesosAbiertos: { soat: n(soat), impuestos: n(impuestos), tramites: n(tramites), liquidaciones: n(liquidaciones) },
     saldoBolsa: bolsa[0] ? Number(bolsa[0].saldo) : 0,
     usuariosAfectados: n(usuarios),
-    puedeEliminar: false,
-    motivoNoEliminable: null,
   };
+  const motivo = motivoNoEliminable(base);
+  return { ...base, puedeEliminar: motivo === null, motivoNoEliminable: motivo };
 }
 
 export interface CambioDeEstado {
@@ -173,3 +211,52 @@ export async function companiaInactiva(companiaId: number | null | undefined): P
 
 /** Para la auditoría: los 3 primeros caracteres y `***` (mismo criterio que el `login_failed`). */
 export const nombreEnmascarado = (name: string): string => `${name.trim().slice(0, 3)}***`;
+
+export interface ClienteEliminado {
+  id: number;
+  name: string;
+  /** Usuarios dados de baja: la ruta limpia su caché de sesión tras el commit. */
+  usuariosDadosDeBaja: number[];
+}
+
+/**
+ * RN-CLI-10. Lanza `ClienteNoEncontradoError` (404), `EstadoClienteCambiadoError` (409, otro administrador lo
+ * eliminó mientras se esperaba el bloqueo), `ClienteNoEliminableError` (409) o `BloqueoAdministracionError` (409).
+ * NUNCA hace `DELETE FROM clients` ni `DELETE FROM users`.
+ */
+export async function eliminarCliente(id: number, actor: ActorAuditoria): Promise<ClienteEliminado> {
+  return db.transaction(async (tx) => {
+    // Lectura SIN bloqueo: lo ya eliminado (confirmado) antes de esta petición es 404, como lo inexistente.
+    const [vigente] = await tx.select({ id: clients.id }).from(clients)
+      .where(and(eq(clients.id, id), clienteVigente())).limit(1);
+    if (!vigente) throw new ClienteNoEncontradoError();
+
+    // Bloqueo de la fila SIN filtrar por `deleted_at`: si otro administrador la eliminó mientras esperábamos, la fila
+    // vuelve con su `deleted_at` y eso es la carrera (409), no un 404.
+    const [cliente] = await tx.select({ name: clients.name, deletedAt: clients.deletedAt }).from(clients)
+      .where(eq(clients.id, id)).limit(1).for('update');
+    if (!cliente) throw new ClienteNoEncontradoError();
+    if (cliente.deletedAt != null) throw new EstadoClienteCambiadoError();
+    await tx.select({ id: flitoBolsas.id }).from(flitoBolsas).where(eq(flitoBolsas.companiaId, id)).for('update');
+
+    // Las condiciones, DESPUÉS de los bloqueos: ven lo confirmado hasta aquí (AC9).
+    const impacto = await impactoCliente(tx, id);
+    if (!impacto) throw new ClienteNoEncontradoError();
+    if (impacto.motivoNoEliminable !== null) throw new ClienteNoEliminableError(impacto.motivoNoEliminable);
+
+    const ahora = new Date();
+    const bajas = await conSeguroAntiBloqueo(tx, async () => {
+      await tx.update(clients).set({ deletedAt: ahora, deletedBy: actor.userId }).where(eq(clients.id, id));
+      return tx.update(users)
+        .set({ deletedAt: ahora, deletedBy: actor.userId, active: false, sessionInvalidatedAt: ahora })
+        .where(and(eq(users.companiaId, id), isNull(users.deletedAt)))
+        .returning({ id: users.id, role: users.role });
+    });
+    // Mismo rastro que la baja individual de la HU #12089, uno por usuario.
+    await registrarCambiosPermisos(tx, actor, bajas.map((u) => ({
+      entidad: 'usuario' as const, accion: 'baja' as const, campo: 'deleted_at' as const,
+      valorAntes: null, valorDespues: ahora.toISOString(), usuarioAfectado: { id: u.id, rol: u.role },
+    })));
+    return { id, name: cliente.name, usuariosDadosDeBaja: bajas.map((u) => u.id) };
+  });
+}

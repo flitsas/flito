@@ -74,6 +74,10 @@ export const ACCIONES_ADMINISTRACION: Readonly<Record<string, AccionArbol>> = {
   'accion.clientes.activar_desactivar': {
     operaciones: ['clients.clientes.estado'], predecesores: [], apoyo: ['clients.clientes.ver'],
   },
+  // HU #13954 — exclusiva del Administrador, mismo patrón que la anterior: solo `admin` la recibe (0258).
+  'accion.clientes.eliminar': {
+    operaciones: ['clients.clientes.eliminar'], predecesores: [], apoyo: ['clients.clientes.ver'],
+  },
   // ── General · Tablero (P-11: absorbe la página del Tablero FLITO, patrón compuerta) ──
   'accion.dashboard.ver': { lectura: true, operaciones: ['tablero.tablero.ver', 'pagina.flito_tablero'] },
   // ── Perfil (P-22: a todos los roles) ──
@@ -109,8 +113,14 @@ export const PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION: Readonly<Record<string, 
  * `OPERACIONES_NACIDAS_EN_EL_ARBOL` de `acciones-finanzas.ts`, que las une): la operación nace absorbida (no se siembra,
  * no existió en el mundo plano) y la acción la siembra la 0255, solo para `admin`, con `exclusiva_admin = true`.
  */
-export const OPERACIONES_NACIDAS_EN_EL_ARBOL_ADMINISTRACION: readonly string[] = ['clients.clientes.estado'];
-export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA_ADMINISTRACION: readonly string[] = ['accion.clientes.activar_desactivar'];
+export const OPERACIONES_NACIDAS_EN_EL_ARBOL_ADMINISTRACION: readonly string[] = [
+  'clients.clientes.estado',
+  'clients.clientes.eliminar', // HU #13954 (0258)
+];
+export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA_ADMINISTRACION: readonly string[] = [
+  'accion.clientes.activar_desactivar',
+  'accion.clientes.eliminar', // HU #13954 (0258)
+];
 
 /** El área de esta HU sobre `OPERACIONES_DECLARADAS` (AC6 de cobertura), por prefijo del código. */
 export const AREA_ADMINISTRACION = /^(usuarios|permisos|bitacora|clients|tablero|perfil)\.|^parametrizacion\.(companias|proveedores)\.|^tramites\.(autogestion|empresa)\./;
