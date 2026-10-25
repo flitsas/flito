@@ -168,6 +168,8 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       // `accion.clientes.activar_desactivar`; la siembra la 0255 (solo `admin`), no el seed plano.
       'clients/clients.routes.ts GET /:id/impacto',
       'clients/clients.routes.ts PATCH /:id/estado',
+      // HU #13954: `clients.clientes.eliminar`, absorbida por `accion.clientes.eliminar` (0258, solo `admin`).
+      'clients/clients.routes.ts DELETE /:id',
     ]);
   });
 });

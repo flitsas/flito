@@ -592,6 +592,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // Administrador `accion.clientes.activar_desactivar` (0255); el mundo plano no la tiene (ver la matriz de paridad).
   { fichero: 'clients/clients.routes.ts', metodo: 'GET', ruta: '/:id/impacto', codigo: 'clients.clientes.estado' },
   { fichero: 'clients/clients.routes.ts', metodo: 'PATCH', ruta: '/:id/estado', codigo: 'clients.clientes.estado' },
+  // HU #13954: «Eliminar clientes» — `clients.clientes.eliminar` nace absorbida por `accion.clientes.eliminar` (0258).
+  { fichero: 'clients/clients.routes.ts', metodo: 'DELETE', ruta: '/:id', codigo: 'clients.clientes.eliminar' },
   // ── HU #13423 (ADR-0023): laft/, privacy/, firma/, drive/, soat/ antiguo, siigo/ y las 4 de solo sesión ──
   { fichero: 'laft/lists.routes.ts', metodo: 'GET', ruta: '/', codigo: 'laft.listas.operar' },
   { fichero: 'laft/lists.routes.ts', metodo: 'POST', ruta: '/:code/sync', codigo: 'laft.listas.administrar' },

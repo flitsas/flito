@@ -193,7 +193,8 @@ describe('HU #12873 AC9 — una operación absorbida por el árbol que sigue en 
 describe('HU #13944 — el arranque compara también las funciones exclusivas del Administrador (0253)', () => {
   // HU #13945: la lista del código ya no está vacía («Activar o desactivar clientes», 0255).
   it('con código y base coherentes (la acción de clientes marcada en los dos), arranca', async () => {
-    expect([...EXCLUSIVAS]).toEqual(['accion.clientes.activar_desactivar']);
+    // HU #13954: + «Eliminar clientes» (0258).
+    expect([...EXCLUSIVAS].sort()).toEqual(['accion.clientes.activar_desactivar', 'accion.clientes.eliminar']);
     selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: EXCLUSIVAS.has(codigo) }))));
     await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
   });
