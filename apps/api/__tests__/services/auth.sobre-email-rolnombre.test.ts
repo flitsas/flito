@@ -93,14 +93,14 @@ async function ambosSobres(fila: Record<string, unknown>) {
     .mockImplementationOnce(espia([fila]))
     .mockImplementationOnce(espia([{ active: true }]))
     .mockImplementationOnce(espia([]))
-    .mockImplementationOnce(espia([{ sinTramite: false }]));
+    .mockImplementationOnce(espia([]));
   const app = await buildApp();
   const login = await request(app).post('/api/auth/login').send({ username: 'ana', password: 'OK' });
   const consultasLogin = selectMock.mock.calls.length;
   selectMock
     .mockImplementationOnce(espia([fila]))
     .mockImplementationOnce(espia([]))
-    .mockImplementationOnce(espia([{ sinTramite: false }]));
+    .mockImplementationOnce(espia([]));
   const token = await testToken({ sub: 42, username: 'ana', role: 'cliente' });
   const me = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
   return { login, me, consultasLogin, consultasMe: selectMock.mock.calls.length - consultasLogin };

@@ -130,18 +130,17 @@ describe('parametrización — validaciones', () => {
   });
 });
 
-// ───────── HU #11913 (Feature #11912): «SOAT sin trámite» es un flag INDEPENDIENTE ─────────
+// ───────── HU #13967: «SOAT sin trámite» ya no es un flag — lo gobierna el PROVEEDOR elegido ─────────
 //
-// El AC3 no pide que el flag exista: pide que **no se contagie**. Un `set` mal encadenado —el
-// clásico `if (soatAutogestionable !== undefined) { …; set.soatSinTramite = false; }`— dejaría los
-// dos flags atados sin que ningún test que solo compruebe «persiste» lo notara. De ahí que estas
-// pruebas miren el objeto que llega al UPDATE y no la respuesta.
+// Historia: la HU #11913 (Feature #11912) lo nació como flag INDEPENDIENTE de la autogestión. Desde la
+// HU #13967 el interruptor desaparece: el canal está abierto si la compañía tiene proveedor elegido
+// (`null` = «Sin proveedor» = cerrado). El PATCH IGNORA `soatSinTramite` en silencio, y el DTO lo
+// sigue enviando CALCULADO para no romper la web vieja (@deprecated #13968). Estas pruebas miran el
+// objeto que llega al UPDATE, no la respuesta.
 
-/** El gestor por defecto del canal sin trámite (HU #12078): una compañía con el canal abierto lo
- *  tiene siempre, porque el CHECK `clients_sin_tramite_gestor_chk` no admite lo contrario. */
 const GESTOR = '55555555-5555-4555-8555-555555555555';
 
-/** Fila de `clients` tal como sale del `returning()` del PATCH. */
+/** Fila de `clients` tal como sale del `returning()` del PATCH (`soatSinTramite` ya calculado). */
 const compania = (over: Record<string, unknown> = {}) => ({
   id: 1, name: 'Acme', document: '900', soatAutogestionable: false, soatSinTramite: false,
   impuestosAutogestionable: false, logisticaAutogestionable: false, logisticaPermiteParcial: false,
@@ -149,18 +148,10 @@ const compania = (over: Record<string, unknown> = {}) => ({
   flitoProveedorSoatSinTramiteId: null, ...over,
 });
 
-/**
- * Captura el objeto del `.set(...)` del UPDATE y devuelve la fila que se le pida.
- *
- * **Desde la HU #12078 hay que registrar además la fila PREVIA**: el handler la lee antes de
- * construir el `set` —sin el estado previo no puede validar el estado RESULTANTE cuando el PATCH
- * trae solo una de las dos claves— y el 404 se adelantó a esa lectura.
- */
+/** Captura el objeto del `.set(...)` del UPDATE y devuelve la fila que se le pida (tras la fila PREVIA). */
 function capturarUpdate(devuelve: Record<string, unknown>, previo: Record<string, unknown> = {}) {
   const capturado: { set?: Record<string, unknown> } = {};
-  selectMock.mockReturnValueOnce(chain([{
-    id: 1, soatSinTramite: false, proveedorSinTramiteId: null, ...previo,
-  }]));
+  selectMock.mockReturnValueOnce(chain([{ id: 1, proveedorSinTramiteId: null, ...previo }]));
   updateMock.mockReturnValueOnce({
     set: (v: Record<string, unknown>) => {
       capturado.set = v;
@@ -172,80 +163,65 @@ function capturarUpdate(devuelve: Record<string, unknown>, previo: Record<string
   return capturado;
 }
 
-describe('compañías — flag «SOAT sin trámite» (AC3 de la HU #11913)', () => {
-  it('GET /companias lo devuelve, y separado de la autogestión', async () => {
+describe('compañías — «SOAT sin trámite» por proveedor (HU #13967 AC6)', () => {
+  it('GET /companias sigue enviando `soatSinTramite` (calculado), separado de la autogestión', async () => {
     selectMock.mockReturnValueOnce(chain([compania({ soatAutogestionable: true, soatSinTramite: false })]));
     const app = await buildApp();
     const r = await request(app).get('/api/flito/parametrizacion/companias').set('Authorization', await auth('admin'));
     expect(r.status).toBe(200);
-    // Una compañía puede autogestionar SU SOAT y NO tener abierto el canal sin trámite: son dos
-    // preguntas, y el DTO tiene que poder decir cosas distintas de cada una.
     expect(r.body[0].soatAutogestionable).toBe(true);
     expect(r.body[0].soatSinTramite).toBe(false);
+    expect(r.body[0].proveedorSoatSinTramiteId).toBeNull();
   });
 
-  it('PATCH del flag → persiste y NO toca la autogestión', async () => {
-    // La compañía YA tiene gestor configurado: desde la HU #12078 encenderlo sin destino es 400
-    // (AC2c), y ese caso tiene su propia suite. Aquí lo que se prueba sigue siendo el no-contagio.
-    const cap = capturarUpdate(
-      compania({ soatSinTramite: true, flitoProveedorSoatSinTramiteId: GESTOR }),
-      { proveedorSinTramiteId: GESTOR },
-    );
+  it('**un PATCH que trae SOLO `soatSinTramite` → 400 «Nada que actualizar» y ningún UPDATE**', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 1, proveedorSinTramiteId: GESTOR }]));
     const app = await buildApp();
     const r = await request(app).patch('/api/flito/parametrizacion/companias/1')
-      .set('Authorization', await auth('admin')).send({ soatSinTramite: true });
-    expect(r.status).toBe(200);
-    expect(cap.set).toEqual({ soatSinTramite: true });
-    expect(cap.set).not.toHaveProperty('soatAutogestionable');
-    // Y el gestor NO se toca al encender el flag: el PATCH escribe lo que le mandan y nada más.
-    expect(cap.set).not.toHaveProperty('flitoProveedorSoatSinTramiteId');
-    expect(r.body.soatSinTramite).toBe(true);
+      .set('Authorization', await auth('admin')).send({ soatSinTramite: false });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Nada que actualizar');
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
-  it('PATCH de la autogestión → NO arrastra el flag nuevo (el contagio que el AC3 prohíbe)', async () => {
+  it('PATCH de la autogestión → NO toca el proveedor', async () => {
     const cap = capturarUpdate(
       compania({ soatAutogestionable: true, soatSinTramite: true, flitoProveedorSoatSinTramiteId: GESTOR }),
-      { soatSinTramite: true, proveedorSinTramiteId: GESTOR },
+      { proveedorSinTramiteId: GESTOR },
     );
     const app = await buildApp();
     const r = await request(app).patch('/api/flito/parametrizacion/companias/1')
       .set('Authorization', await auth('admin')).send({ soatAutogestionable: true });
     expect(r.status).toBe(200);
     expect(cap.set).toEqual({ soatAutogestionable: true });
-    expect(cap.set).not.toHaveProperty('soatSinTramite');
-    // Y la compañía que ya tenía el canal abierto lo conserva tras encender la autogestión.
     expect(r.body.soatSinTramite).toBe(true);
   });
 
-  it('los dos a la vez → los dos se escriben, que es una combinación válida', async () => {
-    const cap = capturarUpdate(
-      compania({ soatAutogestionable: true, soatSinTramite: true, flitoProveedorSoatSinTramiteId: GESTOR }),
-      { proveedorSinTramiteId: GESTOR },
-    );
+  it('**`soatSinTramite` junto a otro campo se IGNORA en silencio**: no llega al UPDATE ni da 400', async () => {
+    const cap = capturarUpdate(compania({ soatAutogestionable: true }));
     const app = await buildApp();
     const r = await request(app).patch('/api/flito/parametrizacion/companias/1')
       .set('Authorization', await auth('admin'))
       .send({ soatAutogestionable: true, soatSinTramite: true });
     expect(r.status).toBe(200);
-    expect(cap.set).toEqual({ soatAutogestionable: true, soatSinTramite: true });
+    expect(cap.set).toEqual({ soatAutogestionable: true });
   });
 
-  it('apagar el flag → false llega al UPDATE (y no se pierde por ser «falsy»)', async () => {
-    const cap = capturarUpdate(
-      compania({ soatSinTramite: false, flitoProveedorSoatSinTramiteId: GESTOR }),
-      { soatSinTramite: true, proveedorSinTramiteId: GESTOR },
-    );
+  it('**proveedor `null` («Sin proveedor») se guarda, aunque venga `soatSinTramite: true`**', async () => {
+    const cap = capturarUpdate(compania(), { proveedorSinTramiteId: GESTOR });
     const app = await buildApp();
     const r = await request(app).patch('/api/flito/parametrizacion/companias/1')
-      .set('Authorization', await auth('admin')).send({ soatSinTramite: false });
+      .set('Authorization', await auth('admin'))
+      .send({ soatSinTramite: true, proveedorSoatSinTramiteId: null });
     expect(r.status).toBe(200);
-    expect(cap.set).toEqual({ soatSinTramite: false });
+    expect(cap.set).toEqual({ flitoProveedorSoatSinTramiteId: null });
+    expect(r.body.soatSinTramite).toBe(false);
   });
 
-  it('el flag es de ESCRITURA de Operaciones: auditor → 403', async () => {
+  it('el proveedor es de ESCRITURA de Operaciones: auditor → 403', async () => {
     const app = await buildApp();
     const r = await request(app).patch('/api/flito/parametrizacion/companias/1')
-      .set('Authorization', await auth('auditor')).send({ soatSinTramite: true });
+      .set('Authorization', await auth('auditor')).send({ proveedorSoatSinTramiteId: GESTOR });
     expect(r.status).toBe(403);
     expect(updateMock).not.toHaveBeenCalled();
   });

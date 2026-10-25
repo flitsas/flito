@@ -17,7 +17,7 @@
 //       lectura/edición por id, selectores (usuarios, tarifas, gestor por defecto), movimientos de bolsa y el cruce por
 //       NIT de la sync FLIT 1 / FLIT 2. El filtro es `clienteVigente()`. Las lecturas HISTÓRICAS (joins de SOAT,
 //       impuestos, trámites, liquidaciones ya existentes) NO filtran: siguen mostrando el nombre del cliente (AC8).
-import { eq, isNull, type SQL } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { clients } from '../../db/schema.js';
 
@@ -44,6 +44,36 @@ export class ClienteNoOperableError extends Error {
 export const clienteVigente = (): SQL => isNull(clients.deletedAt);
 
 /** RN-CLI-8: texto del AC para un cliente con baja lógica. */
+/**
+ * HU #13967 — EL predicado del canal «SOAT sin trámite»: la compañía tiene proveedor elegido.
+ * `NULL` = «Sin proveedor» = canal cerrado. Es el único que leen `/me` (`puedeSolicitarSoat`) y el
+ * canal (`canalDeLaCompania`, `companiasDelCanal`); el interruptor `clients.soat_sin_tramite` se
+ * retiró. Que el proveedor esté inactivo NO cierra el canal: la solicitud cae en contingencia.
+ */
+export const canalSinTramiteAbierto: SQL = isNotNull(clients.flitoProveedorSoatSinTramiteId);
+
+/**
+ * HU #13967 — La parte de `/me` (`puedeSolicitarSoat`) que mira la base, una vez comprobada la función
+ * `soat.solicitud.crear`: enlace `compania` → SU compañía tiene proveedor; sin enlace (`ninguno`, HU
+ * #12874) → existe AL MENOS UNA compañía con proveedor (la escoge en el formulario); cualquier otro
+ * enlace (proveedor, organismos, desconocido) → `false` sin consultar. Sin `companiaId` con enlace
+ * `compania` → `false` sin consultar.
+ */
+export async function canalSinTramiteAbiertoPara(tipoEnlace: string | null, companiaId: number | null): Promise<boolean> {
+  if (tipoEnlace === 'compania') {
+    if (!companiaId) return false;
+    const [compania] = await db.select({ id: clients.id })
+      .from(clients).where(and(eq(clients.id, companiaId), canalSinTramiteAbierto)).limit(1);
+    return compania !== undefined;
+  }
+  if (tipoEnlace === 'ninguno') {
+    const [alguna] = await db.select({ id: clients.id })
+      .from(clients).where(canalSinTramiteAbierto).limit(1);
+    return alguna !== undefined;
+  }
+  return false;
+}
+
 export const MENSAJE_CLIENTE_ELIMINADO = 'El cliente fue eliminado: no admite nuevos procesos.';
 
 export const mensajeClienteInactivo = (nombre: string, proceso: ProcesoCliente): string =>

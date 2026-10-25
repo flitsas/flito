@@ -103,7 +103,7 @@ const auth = async (role: string, id: number) =>
 function escenario(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
-    clients: [{ id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme' }],
+    clients: [{ id: COMPANIA, carpeta: 'clientes/acme' }],
     flito_soat: [{
       soat: { id: SOAT_PROPIO, companiaId: COMPANIA, estado: 'solicitado', origen: 'cliente' },
       dentroDeFrontera: true,
@@ -208,7 +208,7 @@ describe('AC6 — la lectura devuelve la extracción y NO persiste ni archiva na
     // El canal va APAGADO en este escenario a propósito: las que pasan el limitador mueren en 403 y
     // no llaman al OCR, así que lo que se mide es el contador y nada más. Las dos mitades hacen
     // falta: sin el «la 12.ª todavía pasa», el test seguiría verde con cualquier techo menor.
-    escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] });
+    escenario({ clients: [] });
     const app = await buildApp();
     const insistente = await auth('cliente', siguienteUsuario());
 
@@ -269,7 +269,7 @@ describe('AC6 — la lectura devuelve la extracción y NO persiste ni archiva na
   it('el flag «SOAT sin trámite» APAGADO → 403 `canal_desactivado`, sin quemar una llamada al modelo', async () => {
     // La guarda más barata va primera, igual que en el alta: una compañía sin el canal abierto no
     // puede gastar llamadas a un modelo de pago con PDFs de 15 MB.
-    escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] });
+    escenario({ clients: [] });
 
     const r = await lectura(await buildApp(), await auth('cliente', siguienteUsuario()));
 

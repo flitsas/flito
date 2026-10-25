@@ -76,7 +76,8 @@ const COLUMNAS_COMPANIA_DTO = {
   // HU #13953: el selector de compañías distingue activas de inactivas (los eliminados ni salen).
   active: clients.active,
   soatAutogestionable: clients.soatAutogestionable,
-  soatSinTramite: clients.soatSinTramite,
+  /** @deprecated #13968 — HU #13967: calculado (canal abierto = proveedor elegido); la columna salió del esquema. */
+  soatSinTramite: sql<boolean>`${clients.flitoProveedorSoatSinTramiteId} IS NOT NULL`,
   flitoProveedorSoatSinTramiteId: clients.flitoProveedorSoatSinTramiteId,
   impuestosAutogestionable: clients.impuestosAutogestionable,
   logisticaAutogestionable: clients.logisticaAutogestionable,
@@ -89,7 +90,8 @@ const COLUMNAS_COMPANIA_DTO = {
  * Lo mínimo que `companiaDto` necesita. Se deriva de la constante de arriba y no se escribe a mano:
  * añadir una clave al DTO obliga a añadirla a la proyección, o no compila.
  */
-type FilaCompania = Pick<typeof clients.$inferSelect, keyof typeof COLUMNAS_COMPANIA_DTO>;
+type FilaCompania = Pick<typeof clients.$inferSelect, Exclude<keyof typeof COLUMNAS_COMPANIA_DTO, 'soatSinTramite'>>
+  & { soatSinTramite: boolean };
 
 function companiaDto(c: FilaCompania) {
   return {
@@ -98,14 +100,13 @@ function companiaDto(c: FilaCompania) {
     nit: c.document,
     activo: c.active,
     soatAutogestionable: c.soatAutogestionable,
-    // Feature #11912 — «SOAT sin trámite»: el canal por el que un usuario `cliente` de esta compañía
-    // le pide a FLITO un SOAT sin que haya trámite digital abierto. Campo APARTE y no derivado de
-    // `soatAutogestionable`: son dos preguntas distintas y las dos encendidas a la vez es una
-    // combinación válida (AC3).
+    // Feature #11912 — «SOAT sin trámite». @deprecated #13968: desde la HU #13967 no hay interruptor;
+    // el canal está abierto si la compañía tiene proveedor elegido, y este booleano lo CALCULA
+    // (`COLUMNAS_COMPANIA_DTO`) para no romper la web vieja.
     soatSinTramite: c.soatSinTramite,
     // Feature #12074, HU #12078 — el gestor por defecto AL QUE VAN las solicitudes de ese canal.
-    // Va en el DTO para que la pantalla pueda pintarlo (el selector es la HU #12079) y para que
-    // quien encienda el flag sepa contra qué lo está encendiendo. Es el uuid de una aseguradora, no
+    // Va en el DTO para que la pantalla pueda pintarlo (el selector es la HU #12079). `null` = «Sin
+    // proveedor» = canal cerrado (HU #13967). Es el uuid de una aseguradora, no
     // un dato personal. **Solo del canal sin trámite**: el SOAT por trámite elige gestor en cada
     // `POST /flito/soat/enviar` y no lee esta columna (AC2e).
     proveedorSoatSinTramiteId: c.flitoProveedorSoatSinTramiteId,
@@ -119,72 +120,41 @@ function companiaDto(c: FilaCompania) {
 
 router.get('/companias', exigirFuncion('parametrizacion.companias.listar'), async (_req: Request, res: Response) => {
   // RN-CLI-9 (HU #13953): el selector solo ofrece clientes vigentes.
-  const filas = await db.select().from(clients).where(clienteVigente()).orderBy(asc(clients.name));
+  const filas = await db.select(COLUMNAS_COMPANIA_DTO).from(clients).where(clienteVigente()).orderBy(asc(clients.name));
   res.json(filas.map(companiaDto));
 });
 
 const actualizarCompaniaSchema = z.object({
   soatAutogestionable: z.boolean().optional(),
-  soatSinTramite: z.boolean().optional(),
+  // HU #13967: `soatSinTramite` ya no se acepta — `z.object` (no `.strict()`) lo DESCARTA en silencio.
   impuestosAutogestionable: z.boolean().optional(),
   logisticaAutogestionable: z.boolean().optional(),
   logisticaPermiteParcial: z.boolean().optional(),
   carpetaStorage: z.string().max(300).nullable().optional(),
   toleranciaValorImpuesto: z.number().min(0, 'La tolerancia no puede ser negativa').optional(),
   // HU #12078. Sin el prefijo `flito` en el cuerpo, como `carpetaStorage` ↔ `flitoCarpetaStorage`.
-  // `null` explícito SÍ se acepta: es cómo se desconfigura el destino, y solo pasa la guarda del
-  // estado resultante si el canal queda apagado.
+  // `null` explícito SÍ se acepta: es «Sin proveedor», y cierra el canal (HU #13967).
   proveedorSoatSinTramiteId: z.string().guid().nullable().optional(),
 });
 
-/**
- * Lo que hay que configurar antes de abrir el canal, dicho entero (AC2c).
- *
- * El mensaje importa más de lo normal y conviene dejar escrito por qué: entre el merge de la HU
- * #12078 y el de la #12079 —que trae el selector— la casilla «SOAT sin trámite» de `Clients.tsx`
- * llama a este PATCH con un solo campo, así que encenderla responde 400 y este texto es LO ÚNICO
- * que el usuario va a ver. Tiene que decir qué falta y dónde se arregla, no «datos inválidos».
- */
-const FALTA_GESTOR =
-  'Para abrir el canal «SOAT sin trámite» hay que decir a qué gestor van sus solicitudes: '
-  + 'configure el gestor por defecto de la compañía (proveedorSoatSinTramiteId) en la misma '
-  + 'operación o antes de encender el canal.';
-
-/** Violación de CHECK en PostgreSQL. */
-const CHECK_VIOLATION = '23514';
-
-/**
- * El CHECK de la migración 0175, POR NOMBRE.
- *
- * `clients` tiene otros seis CHECK y el `catch` de abajo atribuía a este cualquier `23514` del
- * UPDATE. Hoy la atribución sería correcta —ninguno de los otros cubre lo que este PATCH escribe—,
- * pero el día que la tabla gane una restricción sobre un campo fiscal, quien la violara recibiría
- * «configure el gestor por defecto» y se iría a buscar un problema de configuración del canal SOAT
- * donde hay uno de otra cosa. Mismo criterio que el `catch` estrecho por `code`, un nivel más abajo.
- *
- * `constraint_name` es el nombre del campo tal como lo expone `postgres` (porsager): el driver copia
- * los campos del error de PostgreSQL con sus nombres largos, y drizzle-orm 0.45 no envuelve el error
- * —lo deja subir tal cual—, que es lo mismo que ya hace posible leer `code`.
- */
-const CHK_SIN_TRAMITE_GESTOR = 'clients_sin_tramite_gestor_chk';
-
-// `next` solo para el `catch` del CHECK: lo que NO sea `23514` tiene que seguir su camino hasta
-// `errorHandler` (que ya lo registra y responde 500), no convertirse en un 400 que mande a buscar un
-// problema de configuración donde hay uno de red.
-//
 // HU #13428 (diseño §5-ter.1 punto 2): la guarda se parte por GRUPO DE CAMPOS del cuerpo, cada uno con
 // su operación en línea — autogestión (`[autogestion]`), «SOAT sin trámite» (`[sinTramite]`) y el resto
 // (`[general]`, `parametrizacion.companias.editar`). Cada grupo presente exige la suya; un cuerpo sin
 // ningún campo conocido → 400. Se decide antes de validar el cuerpo (403 antes que 400).
 const CAMPOS_AUTOGESTION = ['soatAutogestionable', 'impuestosAutogestionable', 'logisticaAutogestionable'];
-const CAMPOS_SIN_TRAMITE = ['soatSinTramite', 'proveedorSoatSinTramiteId'];
+const CAMPOS_SIN_TRAMITE = ['proveedorSoatSinTramiteId'];
+// HU #13967: `soatSinTramite` se IGNORA. No exige operación ni cuenta como campo; un cuerpo que solo
+// la trae pasa la guarda y cae en el 400 «Nada que actualizar» (la web siempre manda las dos claves).
+const CAMPOS_IGNORADOS = ['soatSinTramite'];
 const CAMPOS_GENERALES = ['logisticaPermiteParcial', 'carpetaStorage', 'toleranciaValorImpuesto'];
 
 /** `null` = puede; `'vacio'` = el cuerpo no trae ningún grupo; si no, el grupo al que le faltó su operación. */
 async function grupoDenegadoCompania(req: Request): Promise<null | 'vacio' | 'general' | 'autogestion' | 'sinTramite'> {
   const claves = req.body && typeof req.body === 'object' ? Object.keys(req.body) : [];
   const trae = (grupo: string[]) => claves.some((k) => grupo.includes(k));
-  if (!trae(CAMPOS_AUTOGESTION) && !trae(CAMPOS_SIN_TRAMITE) && !trae(CAMPOS_GENERALES)) return 'vacio';
+  if (!trae(CAMPOS_AUTOGESTION) && !trae(CAMPOS_SIN_TRAMITE) && !trae(CAMPOS_GENERALES) && !trae(CAMPOS_IGNORADOS)) {
+    return 'vacio';
+  }
   if (trae(CAMPOS_GENERALES) && !(await tieneFuncion(req, 'parametrizacion.companias.editar'))) return 'general';
   if (trae(CAMPOS_AUTOGESTION) && !(await tieneFuncion(req, 'parametrizacion.companias.autogestion'))) return 'autogestion';
   if (trae(CAMPOS_SIN_TRAMITE) && !(await tieneFuncion(req, 'parametrizacion.companias.soat_sin_tramite'))) return 'sinTramite';
@@ -204,15 +174,11 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
 
   // ── Se lee la fila previa ANTES de construir el `set` (HU #12078) ──────────────────────────────
   //
-  // Hasta ahora no se leía y el 404 salía del `returning()`. Sin el estado previo no se puede
-  // validar el estado RESULTANTE cuando el PATCH trae solo una de las dos cosas —y «encender el
-  // flag a secas» es el caso normal—. Es el gesto que `clients.routes.ts` ya hace para
-  // `incoherenciasFiscales`. Proyección explícita: de esta fila solo hacen falta las dos columnas
-  // que deciden, y ninguna sale por HTTP.
+  // Da el 404 de un eliminado y el gestor ACTUAL, para validar el nuevo solo si cambia (HU #13959).
+  // Proyección explícita: nada de esta fila sale por HTTP.
   const [previo] = await db
     .select({
       id: clients.id,
-      soatSinTramite: clients.soatSinTramite,
       proveedorSinTramiteId: clients.flitoProveedorSoatSinTramiteId,
     })
     // RN-CLI-9 (HU #13953): un eliminado no admite gestor por defecto ni otra parametrización (= inexistente).
@@ -228,31 +194,14 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
   const cambiaGestor = cambios.proveedorSoatSinTramiteId != null
     && cambios.proveedorSoatSinTramiteId !== previo.proveedorSinTramiteId;
 
-  // Sobre el estado RESULTANTE y no sobre lo que llega: `cambios.x ?? previo.x` en las DOS claves.
-  // Encender el flag sin tocar el gestor y quitar el gestor sin tocar el flag llegan aquí igual.
-  const flagResultante = cambios.soatSinTramite ?? previo.soatSinTramite;
-  const gestorResultante = cambios.proveedorSoatSinTramiteId !== undefined
-    ? cambios.proveedorSoatSinTramiteId
-    : previo.proveedorSinTramiteId;
-  if (flagResultante && gestorResultante == null) {
-    res.status(400).json({ error: FALTA_GESTOR, campo: 'proveedorSoatSinTramiteId' });
-    return;
-  }
-
   const set: Partial<typeof clients.$inferInsert> = {};
   if (cambios.soatAutogestionable !== undefined) set.soatAutogestionable = cambios.soatAutogestionable;
-  // Cada bandera se escribe SOLA. Un `set.soatSinTramite = false` colgado del `if` de la autogestión
-  // sería justo lo que el AC3 prohíbe: apagar una y que se apague la otra.
-  if (cambios.soatSinTramite !== undefined) set.soatSinTramite = cambios.soatSinTramite;
   if (cambios.impuestosAutogestionable !== undefined) set.impuestosAutogestionable = cambios.impuestosAutogestionable;
   if (cambios.logisticaAutogestionable !== undefined) set.logisticaAutogestionable = cambios.logisticaAutogestionable;
   if (cambios.logisticaPermiteParcial !== undefined) set.logisticaPermiteParcial = cambios.logisticaPermiteParcial;
   if (cambios.carpetaStorage !== undefined) set.flitoCarpetaStorage = cambios.carpetaStorage;
   if (cambios.toleranciaValorImpuesto !== undefined) set.flitoToleranciaValorImpuesto = String(cambios.toleranciaValorImpuesto);
-  // Cada bandera se escribe SOLA, y el gestor también: **apagar el canal NO borra el gestor**
-  // (AC2c), se conserva por si se vuelve a encender. Colgar un `set.flitoProveedorSoatSinTramiteId
-  // = null` del `if` del flag sería exactamente lo que el comentario de arriba prohíbe entre
-  // banderas, y además obligaría a reconfigurar cada vez.
+  // HU #13967: el proveedor ES el canal — uuid lo abre hacia ese proveedor, `null` lo cierra.
   if (cambios.proveedorSoatSinTramiteId !== undefined) {
     set.flitoProveedorSoatSinTramiteId = cambios.proveedorSoatSinTramiteId;
   }
@@ -270,17 +219,6 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
   } catch (e) {
     if (e instanceof ProveedorSoatNoUsableError) {
       res.status(400).json({ error: e.message, campo: 'proveedorSoatSinTramiteId' });
-      return;
-    }
-    // `clients_sin_tramite_gestor_chk` (migración 0175), Y NO CUALQUIER `23514`. Con las dos guardas
-    // de arriba no debería llegar aquí desde una sola petición; SÍ puede llegar desde dos PATCH
-    // concurrentes —uno que enciende el flag y otro que quita el gestor, cada uno legal contra el
-    // estado que leyó—, que es justo el caso que motiva el CHECK. Sin esta traducción sale como 500;
-    // sin la comprobación del NOMBRE, cualquier otra restricción de `clients` saldría como un consejo
-    // equivocado.
-    const err = e as { code?: string; constraint_name?: string };
-    if (err?.code === CHECK_VIOLATION && err.constraint_name === CHK_SIN_TRAMITE_GESTOR) {
-      res.status(400).json({ error: FALTA_GESTOR, campo: 'proveedorSoatSinTramiteId' });
       return;
     }
     next(e);
@@ -301,13 +239,8 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
   // El uuid del proveedor identifica una EMPRESA, no a una persona — es el mismo dato que ya viaja en
   // el `detail` del alta del canal.
   const cambiosDelCanal: string[] = [];
-  if (cambios.soatSinTramite !== undefined) {
-    cambiosDelCanal.push(`SOAT sin trámite ${cambios.soatSinTramite ? 'activado' : 'desactivado'}`);
-  }
   if (cambios.proveedorSoatSinTramiteId !== undefined) {
-    cambiosDelCanal.push(
-      `gestor por defecto: ${cambios.proveedorSoatSinTramiteId ?? 'sin configurar'}`,
-    );
+    cambiosDelCanal.push(`Proveedor SOAT sin trámite: ${cambios.proveedorSoatSinTramiteId ?? 'Sin proveedor'}`);
   }
 
   await audit(req, {

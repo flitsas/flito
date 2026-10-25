@@ -60,7 +60,8 @@ const auth = async () => `Bearer ${await testToken({ sub: 1, username: 'admin@fl
 
 const filaListado = {
   id: 1, name: 'Vigente SAS', document: '900', documentType: 'NIT', phone: null, email: null, address: null, city: null,
-  soatAutogestionable: false, soatSinTramite: false, impuestosAutogestionable: false,
+  // HU #13967: con proveedor (`soatSinTramite` calculado en true) el listado no lee permisos de usuarios.
+  soatAutogestionable: false, soatSinTramite: true, impuestosAutogestionable: false,
   logisticaAutogestionable: false, logisticaPermiteParcial: false, personType: null, idType: null, checkDigit: null,
   fiscalResponsibilities: [], countryCode: null, stateCode: null, cityCode: null, commercialName: null, branchOffice: 0,
   contactFirstName: null, contactLastName: null, contactEmail: null, phoneIndicative: null, phoneNumber: null,

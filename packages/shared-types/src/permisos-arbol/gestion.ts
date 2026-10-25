@@ -105,7 +105,7 @@ export const ITEMS_CLIENTES_Y_BITACORA: readonly ItemDef[] = [
     a('crear_editar_clientes', 'Crear y editar clientes', 'Crear clientes y empresas, y editar sus datos generales.'),
     a('crear_editar_proveedores', 'Crear y editar proveedores', 'Crear y editar los proveedores de SOAT.'),
     a('autogestion', 'Habilitar o revocar la autogestión del cliente', 'Habilitar o revocar la autogestión de SOAT, impuestos y logística de un cliente.'),
-    a('soat_sin_tramite', 'Configurar «SOAT sin trámite»', 'Permitir a un cliente solicitar SOAT sin trámite y elegir su proveedor.'),
+    a('soat_sin_tramite', 'Elegir proveedor de SOAT sin trámite', 'Elegir el proveedor al que van los SOAT sin trámite de un cliente.'),
     a('datos_fiscales', 'Datos fiscales', 'Registrar y editar los datos fiscales de un cliente.'),
     // HU #13945: exclusiva del Administrador (FUNCIONES_EXCLUSIVAS_ADMIN, HU #13944). Nace tras la siembra (0255).
     a('activar_desactivar', 'Activar o desactivar clientes', 'Desactivar un cliente (sus usuarios pierden el acceso) o volver a activarlo, viendo antes el impacto.'),

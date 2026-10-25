@@ -37,7 +37,13 @@ describe('0236 — análisis estático', () => {
   });
 
   it('el bloque entre marcas es EXACTAMENTE la salida del generador (`--arbol administracion`)', () => {
-    expect(bloqueGenerado(SQL)).toBe(sqlSiembraArbol('administracion'));
+    // HU #13967: la 0262 renombró `accion.clientes.soat_sin_tramite` (mismo código y operaciones); la 0236
+    // aplicada no cambia y conserva el texto con que sembró. La paridad del renombre la mide `migracion-0262`.
+    const comoSeSembro = sqlSiembraArbol('administracion').replace(
+      "'Elegir proveedor de SOAT sin trámite', 'Elegir el proveedor al que van los SOAT sin trámite de un cliente.'",
+      "'Configurar «SOAT sin trámite»', 'Permitir a un cliente solicitar SOAT sin trámite y elegir su proveedor.'",
+    );
+    expect(bloqueGenerado(SQL)).toBe(comoSeSembro);
   });
 
   it('siembra las 24 acciones del área (ni una de otra área), con upsert idempotente, y marca nivel 2 a sus 6 páginas', () => {

@@ -42,7 +42,7 @@ const fila = (role: string, rolNombre: string) => ({
 /** `/me` de un usuario con ese código de rol y esas funciones. Consultas: usuario → puente → clients. */
 async function me(
   rol: string, rolNombre: string, funciones: string[], tipoEnlace = 'compania', sinTramite = true,
-  filasClients: unknown[] = [{ sinTramite }],
+  filasClients: unknown[] = sinTramite ? [{ id: 7 }] : [],
 ) {
   const token = await testToken({ sub: 5, role: 'cliente' });
   await registrarUsuarioDePrueba(5, { rol, tipoEnlace, funcionesDelRol: funciones, excepciones: [] });
@@ -124,7 +124,7 @@ describe('HU #13425 AC7 — rol renombrado u otro código con las mismas funcion
       // HU #13945 (AC3): el login lee si la compañía del usuario (`companiaId: 7`) está activa.
       .mockReturnValueOnce(chain([{ active: true }]))
       .mockReturnValueOnce(chain([]))
-      .mockReturnValueOnce(chain([{ sinTramite: true }]));
+      .mockReturnValueOnce(chain([{ id: 7 }]));
     const login = await request(await buildApp()).post('/api/auth/login').send({ username: 'u@empresa.co', password: 'OK' });
     expect(login.status).toBe(200);
     const m = await me('cliente_corporativo', 'Cliente corporativo', FUNCIONES_CANAL);

@@ -4,7 +4,7 @@ import argon2 from 'argon2';
 import { SignJWT } from 'jose';
 import { asc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { clients, flitoGestorOrganismos, permisosRoles, users } from '../../db/schema.js';
+import { flitoGestorOrganismos, permisosRoles, users } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { authMiddleware, blacklistToken } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
@@ -14,6 +14,7 @@ import { checkLockout, registerFailed, clearLockout } from './loginLockout.js';
 import { isUserLaftBlocked } from '../laft/employees/auth-block.service.js';
 import { laftAudit } from '../laft/audit.service.js';
 import { companiaInactiva } from '../clients/clients.service.js';
+import { canalSinTramiteAbiertoPara } from '../clients/cliente-operable.js';
 import { proveedorSoatInactivo } from '../flito-parametrizacion/flito-proveedores-estado.service.js';
 
 /**
@@ -168,26 +169,17 @@ router.post('/login', async (req: Request, res: Response) => {
  *
  * HU #13425: se decide por la FUNCIÓN `soat.solicitud.crear` del conjunto efectivo (la misma foto
  * que guarda los endpoints del canal), por el ENLACE `compania` del rol (HU #12875: el tipo
- * interno/externo se retiró; una regla por enlace) y por la compañía enlazada y su flag — nunca por el nombre del rol. Si falta algo, `false` sin consultar `clients`:
+ * interno/externo se retiró; una regla por enlace) y por la compañía enlazada y su canal — nunca por el nombre del rol.
+ * HU #13967: el canal está abierto si la compañía tiene proveedor de SOAT sin trámite elegido
+ * (`canalSinTramiteAbierto`); el interruptor `clients.soat_sin_tramite` se retiró. Si falta algo, `false` sin consultar `clients`:
  * el JOIN solo lo paga quien puede radicar. HU #12874: sin enlace (`ninguno`) basta con que exista una
  * compañía con el canal, porque la escoge en el formulario.
  */
 async function puedeSolicitarSoat(p: PermisosResueltos, companiaId: number | null): Promise<boolean> {
   if (!p.ok || !p.funciones.has('soat.solicitud.crear')) return false;
-  if (p.tipoEnlace === 'compania') {
-    if (!companiaId) return false;
-    const [compania] = await db.select({ sinTramite: clients.soatSinTramite })
-      .from(clients).where(eq(clients.id, companiaId)).limit(1);
-    return compania?.sinTramite === true;
-  }
-  // HU #12874: sin enlace se radica a nombre de una compañía escogida en el formulario, así que la
-  // acción existe si hay AL MENOS UNA con el canal. Sin ninguna se oculta (decisión del PO).
-  if (p.tipoEnlace === 'ninguno') {
-    const [alguna] = await db.select({ id: clients.id })
-      .from(clients).where(eq(clients.soatSinTramite, true)).limit(1);
-    return alguna !== undefined;
-  }
-  return false; // proveedor, organismos: no radican
+  // HU #13967: la consulta del canal vive en `canalSinTramiteAbiertoPara` (misma lógica, testeable contra
+  // PostgreSQL en `db/soat-canal-por-proveedor.test.ts`).
+  return canalSinTramiteAbiertoPara(p.tipoEnlace, companiaId);
 }
 
 /**

@@ -184,7 +184,7 @@ const consultaDelResolutor = () =>
 function escenario(gestor: { proveedorId: string | null; activo: boolean | null } = { proveedorId: GESTOR, activo: true }) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
-    clients: [{ id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme', ...gestor }],
+    clients: [{ id: COMPANIA, carpeta: 'clientes/acme', ...gestor }],
     flito_soat: [],
     organismos_transito_config: [{ codigo: ORGANISMO_FUNZA, alias: 'FUNZA' }],
     vehicles: [],
@@ -469,7 +469,7 @@ describe('AC2e — el destino del SOAT POR TRÁMITE no depende de la configuraci
     // «unificara» los dos destinos, la fila saldría con GESTOR y este caso lo vería.
     const { enviarAlGestor } = await import('../../src/modules/flito-soat/flito-soat.service.js');
     kdb.when.scenario({
-      clients: [{ id: COMPANIA, sinTramite: true, proveedorId: GESTOR, activo: true }],
+      clients: [{ id: COMPANIA, proveedorId: GESTOR, activo: true }],
       flito_soat: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
       // HU #13959 (RN-PROV-5): el envío relee el proveedor elegido `FOR SHARE`; activo y vigente.
       flito_proveedores_soat: [{ id: OTRO_GESTOR, nombre: 'Otro', activo: true, deletedAt: null }],
@@ -648,7 +648,7 @@ describe('HU #13947 — alta del canal Cliente con la compañía inactiva', () =
   it('**409 con el mensaje del AC y sin INSERT en `flito_soat` ni historial**', async () => {
     escenario();
     kdb.when.select('clients', [{
-      id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme', proveedorId: GESTOR, activo: true,
+      id: COMPANIA, carpeta: 'clientes/acme', proveedorId: GESTOR, activo: true,
       name: 'Acme Transportes', active: false,
     }]);
 
