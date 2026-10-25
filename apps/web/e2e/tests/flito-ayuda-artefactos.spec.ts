@@ -302,7 +302,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     flito_comparendos: { version: '1.2', diagrama: 'ciclo-monitoreo.svg', capturas: [
       '01-registros.png', '02-detalle.png', '03-sincronizacion.png', '04-configuracion.png'] },
     // HU #13935: la ficha de Clientes cambió después (checks «FLITO gestiona»).
-    clients: { version: '1.3', fecha: '2026-10-24', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
+    clients: { version: '1.4', fecha: '2026-10-24', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
       '01-clientes.png', '02-soat-sin-tramite.png', '03-proveedores.png'] },
     flito_tablero: { version: '1.2', diagrama: null, capturas: ['01-indicadores-y-alertas.png', '02-por-estado.png'] },
   };
