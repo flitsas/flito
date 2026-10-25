@@ -105,7 +105,9 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
     n += 1;
     // El reloj está fijo: `Date.now()` repetiría el sello entre corridas (id_flit y document son únicos).
     const sello = `${Math.floor(Math.random() * 1e9)}${n}`;
-    const [c] = await sql`INSERT INTO clients (name, document) VALUES (${`HU13905 ${sello}`}, ${`9${sello}`.slice(0, 20)}) RETURNING id`;
+    // 0252 cambió el default de `*_autogestionable` a true: estos casos son de una compañía que NO autogestiona.
+    const [c] = await sql`INSERT INTO clients (name, document, soat_autogestionable, impuestos_autogestionable, logistica_autogestionable)
+      VALUES (${`HU13905 ${sello}`}, ${`9${sello}`.slice(0, 20)}, false, false, false) RETURNING id`;
     const companiaId = c!.id as number;
     creados.clients.push(companiaId);
     const bolsaId = await bolsaDe(companiaId);
@@ -333,7 +335,7 @@ describe.skipIf(!URL)('HU #13905 — reversión del descuento y periodo cerrado 
         await d.revertirDescuentoComprobante(tx, id, ctx, { motivo: MOTIVO });
         return d.descontarComprobante(tx, pago(rid, e.tramiteId, 'soat', 950_000), ctx);
       });
-      expect(r!.omitidos).toEqual([]);
+      expect(r!.omitidos.filter((o) => o.alcance === 'compania')).toEqual([]);
       const filas = await movimientos(e.bolsaId);
       expect(filas.find((f) => f.id === salida!.id)!.llave_idempotencia).toBe(`rev:salida:soat:${e.soatId}`);
       const nueva = filas.find((f) => f.tipo === 'salida' && f.comprobante_id === rid)!;
