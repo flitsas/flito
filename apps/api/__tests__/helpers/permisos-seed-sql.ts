@@ -73,6 +73,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0243_permisos_retirar_sync_lanzar.sql', // HU #13631: retiro de `sync.sync.lanzar` (sincronización manual de FLIT 1)
   '0248_flito_bolsas_documentos.sql', // HU #13889 (ADR-0028): acciones del expediente documental, solo a `admin`
   '0254_flito_dr_flit_permiso_funciones.sql', // HU #13941: ítem Dr. Flit + 4 acciones; universal «ver manuales», `admin` las 4
+  '0254_permisos_clientes_activar_desactivar.sql', // HU #13945: «Activar o desactivar clientes», exclusiva de `admin`
 ] as const;
 
 /**

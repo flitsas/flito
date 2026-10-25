@@ -45,17 +45,23 @@ describe('0253 — reglas del archivo (análisis estático)', () => {
 });
 
 describe.skipIf(!URL_BASE)('0253 — contra PostgreSQL (tx con ROLLBACK)', () => {
-  it('dos veces sin error; la columna existe con su tipo y default; ninguna función queda marcada', async () => {
+  // HU #13945: la 0254 (posterior) sí marca una función, así que sobre una base que ya la aplicó la 0253 no deja «cero
+  // marcadas»: lo que se mide es que la 0253 no marca NINGUNA más de las que ya había (sin columna previa: cero).
+  it('dos veces sin error; la columna existe con su tipo y default; la 0253 no marca ninguna función', async () => {
     const sql = abrirBase();
     try {
       await enTx(sql, async (tx) => {
+        const [conColumna] = await tx`SELECT count(*)::int AS n FROM information_schema.columns
+          WHERE table_name = 'permisos_funciones' AND column_name = 'exclusiva_admin' AND table_schema = current_schema()`;
+        const previas = conColumna!.n === 0 ? 0
+          : (await tx`SELECT count(*)::int AS n FROM permisos_funciones WHERE exclusiva_admin`)[0]!.n;
         await tx.unsafe(SQL_0253);
         await tx.unsafe(SQL_0253);
         const [col] = await tx`SELECT data_type, is_nullable, column_default FROM information_schema.columns
           WHERE table_name = 'permisos_funciones' AND column_name = 'exclusiva_admin' AND table_schema = current_schema()`;
         expect(col).toMatchObject({ data_type: 'boolean', is_nullable: 'NO', column_default: 'false' });
         const [n] = await tx`SELECT count(*)::int AS n FROM permisos_funciones WHERE exclusiva_admin`;
-        expect(n!.n).toBe(0);
+        expect(n!.n).toBe(previas);
       });
     } finally {
       await sql.end();

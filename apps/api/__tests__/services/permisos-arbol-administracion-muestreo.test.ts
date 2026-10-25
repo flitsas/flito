@@ -83,7 +83,7 @@ beforeEach(() => {
 describe('AC2 — muestreo 200/403 por par ítem/acción (guarda real, resolutor real)', () => {
   beforeAll(() => {
     expect(MUESTRA.filter((m) => !m.op).map((m) => m.accion)).toEqual([]);
-    expect(MUESTRA).toHaveLength(24);
+    expect(MUESTRA).toHaveLength(25); // HU #13945: + «Activar o desactivar clientes»
   });
 
   it.each(MUESTRA.map((m, i) => [m.accion, m.op, i] as const))('%s → %s', async (accion, op, i) => {
