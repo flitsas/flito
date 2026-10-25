@@ -3104,7 +3104,9 @@ export const flitoTramites = pgTable('flito_tramites', {
   // HU #13091 (0215): identidad y versión del trámite en FLIT 2. Null en los de FLIT 1.
   idFlit2: uuid('id_flit2'), syncVersion: bigint('sync_version', { mode: 'number' }),
   // HU #13094 (0216): leído de FLIT 2 sin el scope de datos personales; espera la relectura.
-  flit2PiiEnmascarada: boolean('flit2_pii_enmascarada').notNull().default(false),
+  // HU #13946 (0256) `retenido`: llegó de FLIT con su compañía inactiva. No sale en la bandeja ni arranca SOAT/impuesto
+  // hasta que el cliente se active (`liberarTramitesRetenidos`, en la misma transacción). Misma línea: techo de max-lines.
+  flit2PiiEnmascarada: boolean('flit2_pii_enmascarada').notNull().default(false), retenido: boolean('retenido').notNull().default(false),
   sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -3118,7 +3120,8 @@ export const flitoTramites = pgTable('flito_tramites', {
   idFlit2Uq: uniqueIndex('uq_flito_tramites_id_flit2').on(t.idFlit2).where(sql`${t.idFlit2} IS NOT NULL`),
   fuenteIdFlit2Ck: check('ck_flito_tramites_fuente_id_flit2', sql`(${t.fuente} = 'flit2') = (${t.idFlit2} IS NOT NULL)`),
   syncVersionCk: check('ck_flito_tramites_flit2_sync_version', sql`${t.idFlit2} IS NULL OR ${t.syncVersion} IS NOT NULL`),
-  flit2PiiIdx: index('idx_flito_tramites_flit2_pii_enmascarada').on(t.id).where(sql`${t.flit2PiiEnmascarada}`),
+  // HU #13946 (0256): índice parcial de los retenidos por compañía (misma línea: techo de max-lines del archivo).
+  flit2PiiIdx: index('idx_flito_tramites_flit2_pii_enmascarada').on(t.id).where(sql`${t.flit2PiiEnmascarada}`), retenidoIdx: index('idx_flito_tramites_retenido_compania').on(t.companiaId).where(sql`${t.retenido}`),
 }));
 
 // Historial de cambios del trámite (auditoría campo por campo, Fase 8 / integración FLIT). Cada

@@ -12,12 +12,14 @@
 //   · RN-CLI-3 — Desactivar invalida, en la MISMA transacción, las sesiones de los usuarios de la compañía
 //       (`session_invalidated_at = now()`); `users.active` NO se toca (un usuario inactivo por su cuenta lo sigue
 //       estando al reactivar el cliente). La caché de sesión se limpia DESPUÉS del commit (la ruta).
-//   · RN-CLI-4 — Activar solo pone `active = true`. Liberar los trámites retenidos es la HU #13946 (`alActivarCliente`).
+//   · RN-CLI-4 — Activar pone `active = true` y, en la MISMA transacción, libera los trámites retenidos de la compañía
+//       (HU #13946, `liberarTramitesRetenidos` de `flito-sync`): si el arranque de uno falla, la activación se revierte.
 import { and, count, eq, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   clients, flitoBolsas, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTramites, users,
 } from '../../db/schema.js';
+import { liberarTramitesRetenidos } from '../flito-sync/liberar-retenidos.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /** La conexión o una transacción abierta: el impacto se puede leer en cualquiera de las dos. */
@@ -85,12 +87,9 @@ export interface CambioDeEstado {
   usuariosInvalidados: number[];
 }
 
-/**
- * Punto de enganche de la HU #13946: al activar un cliente se liberarán aquí, en la misma transacción, los trámites
- * que quedaron retenidos mientras estuvo inactivo. Hoy no hace nada.
- */
-async function alActivarCliente(_tx: Tx, _id: number): Promise<void> {
-  // HU #13946 — liberar trámites retenidos. Intencionalmente vacío en la HU #13945.
+/** HU #13946 (RN-CLI-4): libera, en la transacción de la activación, los trámites retenidos mientras estuvo inactivo. */
+async function alActivarCliente(tx: Tx, id: number): Promise<void> {
+  await liberarTramitesRetenidos(tx, id);
 }
 
 /** RN-CLI-2/3/4. Lanza `ClienteNoEncontradoError` (404) o `EstadoClienteCambiadoError` (409). */

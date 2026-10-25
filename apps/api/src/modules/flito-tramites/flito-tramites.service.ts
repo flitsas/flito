@@ -551,7 +551,8 @@ export function condicionAlerta(alerta: AlertaOperativa): SQL {
 // `NULL NOT IN (...)` evalúa a NULL, no a true, así que Borrador y Enviado a OT desaparecían del
 // listado, del contador y de las facetas sin que nada lo delatara.
 export function construirCondiciones(f: FiltrosListado): SQL[] {
-  const conds: SQL[] = [];
+  // HU #13946 (AC2): un trámite retenido (cliente inactivo) no sale en la bandeja, ni en su conteo ni en novedades.
+  const conds: SQL[] = [sql`NOT ${flitoTramites.retenido}`];
 
   const termino = f.buscar?.trim();
   if (termino) {
@@ -715,7 +716,8 @@ export async function listar(filtros: FiltrosListado = {}, alcance: AlcanceResue
  */
 export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<FacetasTramites> {
   // HU #13426 (AC7): las listas de apoyo salen del universo del alcance, no de la tabla entera.
-  const a = condicionAlcanceTramites(alcance);
+  // HU #13946: tampoco cuentan los retenidos (la bandeja no los muestra, `construirCondiciones`).
+  const a = and(sql`NOT ${flitoTramites.retenido}`, condicionAlcanceTramites(alcance));
   const [estados, tramites, ciudades, transitos] = await Promise.all([
     db.selectDistinct({ v: flitoTramites.flitEstado }).from(flitoTramites).where(and(sql`${flitoTramites.flitEstado} is not null`, a)),
     db.selectDistinct({ v: flitoTramites.tipoTramite }).from(flitoTramites).where(and(sql`${flitoTramites.tipoTramite} is not null`, a)),
