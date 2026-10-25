@@ -60,6 +60,7 @@ import {
   type CompaniasCanalSoat, type ProcedenciaCompradorPersistida, type RespuestaAltaSolicitudSoat, type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
+import { ClienteNoOperableError } from '../clients/cliente-operable.js';
 import { contextoSoat } from './flito-soat.service.js';
 import { registrarAccesoRuntCliente, registrarLecturaFacturaCliente } from './flito-soat.pii.js';
 import {
@@ -117,6 +118,7 @@ function manejarError(res: Response, e: unknown): void {
   // del servidor» en vez de «el lector no está disponible ahora mismo, siga a mano», que es lo único
   // que el AC pide poder distinguir. Es la misma línea que ya tiene `flito-derechos.routes.ts`.
   if (e instanceof OcrNoDisponibleError) { res.status(e.status).json({ error: e.message }); return; }
+  if (e instanceof ClienteNoOperableError) { res.status(e.status).json({ error: e.message }); return; } // HU #13947
   if (e instanceof SolicitudSoatError) {
     // El `codigo` viaja JUNTO al mensaje, no en su lugar: el mensaje es para la persona y el código
     // para la pantalla (AC2, AC3, AC4). `error` sigue siendo una CADENA, como en todo el repo —el

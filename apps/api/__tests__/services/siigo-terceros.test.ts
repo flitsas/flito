@@ -814,3 +814,35 @@ describe('Un cliente SIN CLASIFICAR se puede buscar y vincular (regresión 2026-
     expect(siigoRequestOrThrowMock.mock.calls[0]![0]!.metodo).toBe('GET');
   });
 });
+
+// HU #13947 — con el cliente inactivo no se llama a Siigo: ni a buscar, ni a crear, ni a actualizar.
+describe('HU #13947 — tercero de un cliente inactivo', () => {
+  it('lanza `cliente_inactivo` con «El cliente {C} está inactivo o eliminado.» y no hace ninguna petición', async () => {
+    kdb.when.select('clients', [ficha({ active: false })]);
+    kdb.when.select('siigo_terceros', []);
+
+    const e = await asegurarTercero(7).catch((x) => x);
+    expect(e).toBeInstanceOf(SiigoTerceroError);
+    expect(e.codigo).toBe('cliente_inactivo');
+    expect(e.message).toBe('El cliente Transportes del Sur S.A.S. está inactivo o eliminado.');
+    expect(siigoRequestOrThrowMock).not.toHaveBeenCalled();
+  });
+});
+
+// HU #13947, opción b — la emisión de un lote ya encolado no se corta por el cliente inactivo.
+describe('HU #13947 — opción b: emisión de un lote en curso', () => {
+  it('con `emisionDeLoteEnCurso` el cliente inactivo SÍ llega a Siigo y el tercero se resuelve', async () => {
+    kdb.when.select('clients', [ficha({ active: false })]);
+    kdb.when.select('siigo_terceros', []);
+
+    const r = await asegurarTercero(7, { emisionDeLoteEnCurso: true });
+    expect(r.clienteId).toBe(7);
+    expect(siigoRequestOrThrowMock).toHaveBeenCalled();
+  });
+
+  it('sin la opción (sincronización pedida fuera de la emisión) sigue rechazando', async () => {
+    kdb.when.select('clients', [ficha({ active: false })]);
+    await expect(asegurarTercero(7)).rejects.toMatchObject({ codigo: 'cliente_inactivo' });
+    expect(siigoRequestOrThrowMock).not.toHaveBeenCalled();
+  });
+});

@@ -372,3 +372,19 @@ describe('HU #12547 — la elegibilidad lee la suma sellada, y solo la suma', ()
     expect(fila().valores).toHaveProperty('valorServiciosAdicionales', null);
   });
 });
+
+// HU #13947 — un cliente inactivo no admite facturas nuevas: queda fuera con `cliente_no_facturable` y el texto del AC.
+describe('HU #13947 — cliente inactivo', () => {
+  it('con el nombre del cliente inactivo → no elegible por `cliente_no_facturable` con el mensaje del AC', () => {
+    const motivos = motivosLocales(fila({ clienteInactivoNombre: 'Transportes Andes' }));
+    expect(motivos).toContainEqual({
+      motivo: 'cliente_no_facturable',
+      detalle: 'El cliente Transportes Andes está inactivo: no se pueden crear facturas para él.',
+    });
+  });
+
+  it('activo (null o ausente) → no añade motivo', () => {
+    expect(motivosLocales(fila({ clienteInactivoNombre: null }))).toEqual([]);
+    expect(motivosLocales(fila())).toEqual([]);
+  });
+});

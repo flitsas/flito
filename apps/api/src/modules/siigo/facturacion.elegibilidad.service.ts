@@ -45,6 +45,7 @@ import { evaluarCompuerta } from './siigo.compuerta.service.js';
 import { conceptosFacturados } from './facturacion.armado.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
+import { mensajeClienteInactivo } from '../clients/cliente-operable.js';
 
 /** Tope de trámites por evaluación. El reporte pinta 200; el doble acota el abuso sin estorbar. */
 export const TOPE_TRAMITES_ELEGIBILIDAD = 400;
@@ -60,6 +61,11 @@ export interface FilaElegibilidad {
   terceroVinculado: boolean;
   facturaViva: boolean;
   historicoDesde: string | null;
+  /**
+   * HU #13947 — nombre del cliente si está INACTIVO; `null`/ausente si está activo o no hay cliente. Un cliente
+   * inactivo no admite facturas nuevas: sale como `cliente_no_facturable` con el mensaje del AC.
+   */
+  clienteInactivoNombre?: string | null;
   /**
    * Valores de la liquidación. `numeric` llega como CADENA, y `null` significa «el concepto no
    * aplica» mientras que `'0.00'` significa «aplica y vale cero». No comparar por veracidad: esa
@@ -96,6 +102,9 @@ export function motivosLocales(f: FilaElegibilidad): MotivoElegibilidad[] {
 
   if (f.companiaId === null) motivos.push(motivo('sin_compania'));
   else if (!f.terceroVinculado) motivos.push(motivo('tercero_sin_vincular'));
+  if (f.companiaId !== null && f.clienteInactivoNombre != null) {
+    motivos.push(motivo('cliente_no_facturable', mensajeClienteInactivo(f.clienteInactivoNombre, 'facturas')));
+  }
 
   if (!f.documentacionCompleta) motivos.push(motivo('documentacion_incompleta'));
 
@@ -199,6 +208,9 @@ async function cargarFilas(tramiteIds: string[], ambiente: SiigoAmbiente): Promi
       // AC5 y AC7 — el vínculo se consulta EN LOCAL. Preguntarle a Siigo si el cliente existe, en
       // cada carga de pantalla, gastaría la cuota que comparte con la emisión.
       terceroVinculado: sql<boolean>`EXISTS (SELECT 1 FROM siigo_terceros st WHERE st.client_id = ${flitoTramites.companiaId})`,
+      // HU #13947 — el nombre SOLO si el cliente está inactivo (subconsulta local, sin tocar los joins del reporte).
+      clienteInactivoNombre: sql<string | null>`(
+        SELECT c.name FROM clients c WHERE c.id = ${flitoTramites.companiaId} AND NOT c.active)`,
       facturaViva: sql<boolean>`EXISTS (
         SELECT 1 FROM siigo_factura_tramites sft WHERE sft.tramite_id = ${flitoTramites.id} AND sft.activo)`,
     }).from(flitoTramites).$dynamic(),
@@ -213,6 +225,7 @@ async function cargarFilas(tramiteIds: string[], ambiente: SiigoAmbiente): Promi
     terceroVinculado: f.terceroVinculado === true,
     facturaViva: f.facturaViva === true,
     historicoDesde: (f.historicoDesde as string | null) ?? null,
+    clienteInactivoNombre: (f.clienteInactivoNombre as string | null | undefined) ?? null,
     valores: {
       valorSoat: (f.valorSoat as string | null) ?? null,
       valorImpuesto: (f.valorImpuesto as string | null) ?? null,

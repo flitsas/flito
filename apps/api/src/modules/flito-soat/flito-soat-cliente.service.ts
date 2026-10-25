@@ -130,6 +130,7 @@ import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametriz
 import { detectMime } from '../pesv/magic-number.js';
 import { motorYSerieParaVehiculo } from '../runt/vehiculo-motor-serie.js';
 import { uploadEntityDocument } from '../../services/storage.js';
+import { exigirClienteOperable } from '../clients/cliente-operable.js';
 import { loggerFor } from '../../shared/logger.js';
 import { buscarConAcceso, ORIGEN_CLIENTE, type SoatCtx } from './flito-soat.service.js';
 import {
@@ -1188,6 +1189,7 @@ export async function insertarSolicitudDespachada(
   // que el estado (AC1). Es el argumento ya escrito para `procedencia` de `flitoCompradores`:
   // escribirlo aparte —un UPDATE después— dejaría una ventana en la que la fila está
   // `solicitado` y no dice a dónde va, más una segunda escritura que puede fallar sola.
+  await exigirClienteOperable(tx, companiaId, 'SOAT'); // HU #13947: cliente inactivo → 409, antes de crear nada
   const destino = await resolverDestinoCanalCliente(tx, companiaId);
 
   await tx.insert(flitoSoat).values({

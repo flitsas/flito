@@ -639,3 +639,22 @@ describe('el gestor por defecto no sale por ninguna respuesta que no lo haya ped
     expect(JSON.stringify(r.body)).not.toContain(GESTOR);
   });
 });
+
+// ═══════════ HU #13947 — un cliente inactivo no admite SOAT nuevos ═══════
+
+describe('HU #13947 — alta del canal Cliente con la compañía inactiva', () => {
+  it('**409 con el mensaje del AC y sin INSERT en `flito_soat` ni historial**', async () => {
+    escenario();
+    kdb.when.select('clients', [{
+      id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme', proveedorId: GESTOR, activo: true,
+      name: 'Acme Transportes', active: false,
+    }]);
+
+    const r = await alta(await appAlta(), await auth('cliente', siguienteUsuario()));
+
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'El cliente Acme Transportes está inactivo: no se pueden crear SOAT para él.' });
+    expect(espia.insertsEn('flito_soat')).toEqual([]);
+    expect(espia.insertsEn('flito_estado_historial')).toEqual([]);
+  });
+});
