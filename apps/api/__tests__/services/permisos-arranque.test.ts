@@ -194,7 +194,10 @@ describe('HU #13944 — el arranque compara también las funciones exclusivas de
   // HU #13945: la lista del código ya no está vacía («Activar o desactivar clientes», 0255).
   it('con código y base coherentes (la acción de clientes marcada en los dos), arranca', async () => {
     // HU #13954: + «Eliminar clientes» (0258).
-    expect([...EXCLUSIVAS].sort()).toEqual(['accion.clientes.activar_desactivar', 'accion.clientes.eliminar']);
+    // HU #13958: + «Activar o desactivar proveedores» (0261).
+    expect([...EXCLUSIVAS].sort()).toEqual([
+      'accion.clientes.activar_desactivar', 'accion.clientes.activar_desactivar_proveedores', 'accion.clientes.eliminar',
+    ]);
     selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: EXCLUSIVAS.has(codigo) }))));
     await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
   });

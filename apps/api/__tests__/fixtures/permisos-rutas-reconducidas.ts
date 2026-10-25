@@ -594,6 +594,10 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'clients/clients.routes.ts', metodo: 'PATCH', ruta: '/:id/estado', codigo: 'clients.clientes.estado' },
   // HU #13954: «Eliminar clientes» — `clients.clientes.eliminar` nace absorbida por `accion.clientes.eliminar` (0258).
   { fichero: 'clients/clients.routes.ts', metodo: 'DELETE', ruta: '/:id', codigo: 'clients.clientes.eliminar' },
+  // HU #13958: «Activar o desactivar proveedores» — `parametrizacion.proveedores.estado` nace absorbida por
+  // `accion.clientes.activar_desactivar_proveedores` (0261).
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/proveedores-soat/:id/impacto', codigo: 'parametrizacion.proveedores.estado' },
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/proveedores-soat/:id/estado', codigo: 'parametrizacion.proveedores.estado' },
   // ── HU #13423 (ADR-0023): laft/, privacy/, firma/, drive/, soat/ antiguo, siigo/ y las 4 de solo sesión ──
   { fichero: 'laft/lists.routes.ts', metodo: 'GET', ruta: '/', codigo: 'laft.listas.operar' },
   { fichero: 'laft/lists.routes.ts', metodo: 'POST', ruta: '/:code/sync', codigo: 'laft.listas.administrar' },
