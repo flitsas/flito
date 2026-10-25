@@ -76,6 +76,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0255_permisos_clientes_activar_desactivar.sql', // HU #13945: «Activar o desactivar clientes», exclusiva de `admin`
   '0258_permisos_clientes_eliminar.sql', // HU #13954: «Eliminar clientes», exclusiva de `admin`
   '0261_permisos_proveedores_soat_estado.sql', // HU #13958: «Activar o desactivar proveedores», exclusiva de `admin`
+  '0262_flito_soat_canal_por_proveedor.sql', // HU #13967: renombre de `accion.clientes.soat_sin_tramite`
 ] as const;
 
 /**

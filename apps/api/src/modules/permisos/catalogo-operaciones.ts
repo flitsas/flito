@@ -311,7 +311,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // HU #13428 (§5-ter.1 punto 2): el PATCH se parte por grupo de campos, en línea.
   op(`${PAR} PATCH /companias/:id [general]`, 'parametrizacion.companias.editar', 'Editar una compañía cliente', 'Cambiar la configuración comercial y operativa de la compañía.'),
   op(`${PAR} PATCH /companias/:id [autogestion]`, 'parametrizacion.companias.autogestion', 'Habilitar o revocar la autogestión de una compañía', 'Encender o apagar la autogestión de SOAT, impuestos y logística de la compañía.'),
-  op(`${PAR} PATCH /companias/:id [sinTramite]`, 'parametrizacion.companias.soat_sin_tramite', 'Configurar «SOAT sin trámite» de una compañía', 'Abrir o cerrar el canal «SOAT sin trámite» de la compañía y elegir su gestor por defecto.'),
+  op(`${PAR} PATCH /companias/:id [sinTramite]`, 'parametrizacion.companias.soat_sin_tramite', 'Elegir proveedor de SOAT sin trámite de una compañía', 'Elegir el proveedor al que van los SOAT sin trámite de la compañía (Sin proveedor cierra el canal).'),
   op(`${PAR} GET /proveedores-soat`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
   op(`${PAR} POST /proveedores-soat`, 'parametrizacion.proveedores.crear', 'Añadir un proveedor SOAT', 'Registrar un gestor SOAT nuevo.'),
   op(`${PAR} PATCH /proveedores-soat/:id`, 'parametrizacion.proveedores.editar', 'Editar un proveedor SOAT', 'Cambiar los datos o el estado de un gestor SOAT.'),

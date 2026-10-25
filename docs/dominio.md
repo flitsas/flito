@@ -18,6 +18,7 @@ Para Siigo (detalle técnico): [`docs/integraciones/siigo-api.md`](integraciones
 | **Autogestión** | “ellos lo pagan”, “no lo gestiona Flito” | Parametrización por compañía: qué conceptos gestiona FLITO vs la compañía. Afecta “listo para liquidar”. |
 | **Gestor** (de SOAT) | proveedor SOAT, aseguradora, comercializadora | Fila de `flito_proveedores_soat`: a quién despacha FLITO la adquisición de una póliza. Internamente se dice **proveedor**; **«gestor» es la palabra que sale a pantalla**, incluida la que lee el rol Cliente en el botón «Enviar al gestor» (HU #12079). Un mismo texto no debe usar las dos. |
 | **Gestor por defecto** (de una compañía) | «a quién le salen sus SOAT» | El gestor al que van las solicitudes NUEVAS del canal **SOAT sin trámite** de esa compañía. Se configura en **Clientes y proveedores**, columna **SOAT sin trámite**; obligatorio para abrir el canal, y cambiarlo **no** reasigna lo ya radicado. |
+| **SOAT sin trámite** (quién puede solicitarlo) | «canal abierto», «flag SOAT sin trámite» | Puede solicitarlo quien cumpla **las dos** condiciones (HU #13967): tener la función `soat.solicitud.crear` (la concede la acción «Solicitar SOAT sin trámite») **y** pertenecer a una compañía con **gestor por defecto** elegido. «Sin proveedor» cierra el canal; ya no hay interruptor aparte. Un gestor por defecto **inactivo** no cierra el canal: la solicitud cae en la contingencia de Operaciones. Elegir el gestor lo da la acción «Elegir proveedor de SOAT sin trámite». |
 
 ## Siigo ↔ FLITO (traducción fija)
 

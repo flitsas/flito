@@ -222,7 +222,7 @@ describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
       .mockReturnValueOnce(chain([{ active: true }])) // HU #13945: su compañía está activa
       .mockReturnValueOnce(chain([])) // puente #12088
-      .mockReturnValueOnce(chain([{ sinTramite: true }]));
+      .mockReturnValueOnce(chain([{ id: 7 }]));
     argonVerifyMock.mockResolvedValueOnce(true);
     const r = await request(await buildApp()).post('/api/auth/login')
       .send({ username: 'u@empresa.co', password: 'OK' });
@@ -234,13 +234,13 @@ describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
     expect(selectMock).toHaveBeenCalledTimes(4); // usuario + compañía activa (HU #13945) + puente + clients
   });
 
-  it('flag APAGADO → false, y no es «no vino el campo»', async () => {
+  it('compañía SIN proveedor (HU #13967) → false, y no es «no vino el campo»', async () => {
     await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoEnlace: 'compania', allowedPages: [], funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.crear'], excepciones: [] });
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
       .mockReturnValueOnce(chain([{ active: true }])) // HU #13945: su compañía está activa
       .mockReturnValueOnce(chain([])) // puente #12088
-      .mockReturnValueOnce(chain([{ sinTramite: false }]));
+      .mockReturnValueOnce(chain([]));
     argonVerifyMock.mockResolvedValueOnce(true);
     const r = await request(await buildApp()).post('/api/auth/login')
       .send({ username: 'u@empresa.co', password: 'OK' });

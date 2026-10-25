@@ -324,3 +324,74 @@ export function filtrarPorFuncion(filas: ReadonlyMap<number, FilasPermisos>, cod
   }
   return ids.sort((a, b) => a - b);
 }
+
+/**
+ * HU #13967 — De estas compañías, cuáles tienen HOY al menos un usuario con la función `codigo`.
+ *
+ * La usa `GET /clients` para el aviso `permisoSinTramiteSinEfecto` (AC7): una compañía SIN proveedor
+ * de SOAT sin trámite cuyos usuarios ya tienen `soat.solicitud.crear` tiene un permiso que no surte
+ * efecto. Solo responde ids de compañía: ningún dato de usuario sale de aquí.
+ *
+ * Misma semántica que `usuariosConFuncion` / `resolverPermisos` por construcción: las mismas filas
+ * (rol ∪ conceder ∖ revocar, códigos por `alternativasDe` para la regla de cadena) plegadas con el
+ * MISMO `conjuntoEfectivo`. Solo usuarios sin baja lógica, con `users.compania_id` en `companiaIds` y
+ * con el enlace `compania` en su rol (otro enlace no radica a nombre de su compañía). Sin ids → no
+ * consulta. `permisos.companias-con-funcion.test.ts` lo compara contra el resolutor.
+ */
+export async function companiasConUsuarioConFuncion(codigo: string, companiaIds: number[]): Promise<Set<number>> {
+  const ids = [...new Set(companiaIds)];
+  if (ids.length === 0) return new Set();
+  const codigos = [...new Set([codigo, ...alternativasDe(codigo).flat()])];
+  const principales = await db.select({
+    id: users.id,
+    companiaId: users.companiaId,
+    rol: users.role,
+    tipoEnlace: permisosRoles.tipoEnlace,
+  })
+    .from(users)
+    .innerJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
+    .where(and(isNull(users.deletedAt), inArray(users.companiaId, ids)));
+  const candidatos = principales.filter((p) => p.companiaId != null && enlaceConocido(p.tipoEnlace) === 'compania');
+  if (candidatos.length === 0) return new Set();
+
+  const delRol = await db.select({ rol: permisosRolFuncion.rolCodigo, codigo: permisosRolFuncion.funcionCodigo })
+    .from(permisosRolFuncion)
+    .where(inArray(permisosRolFuncion.funcionCodigo, codigos));
+  const propias = await db.select({
+    userId: permisosUsuarioFuncion.userId,
+    codigo: permisosUsuarioFuncion.funcionCodigo,
+    efecto: permisosUsuarioFuncion.efecto,
+  })
+    .from(permisosUsuarioFuncion)
+    .where(and(
+      inArray(permisosUsuarioFuncion.funcionCodigo, codigos),
+      inArray(permisosUsuarioFuncion.userId, candidatos.map((c) => c.id)),
+    ));
+
+  const usuarios = candidatos.map((p) => ({
+    companiaId: p.companiaId as number,
+    filas: {
+      rol: p.rol,
+      tipoEnlace: p.tipoEnlace,
+      funcionesDelRol: delRol.filter((r) => r.rol === p.rol).map((r) => r.codigo),
+      excepciones: propias.filter((e) => e.userId === p.id)
+        .map((e) => ({ codigo: e.codigo, efecto: e.efecto === 'revocar' ? 'revocar' as const : 'conceder' as const })),
+    } satisfies FilasPermisos,
+  }));
+  return companiasConFuncion(usuarios, codigo);
+}
+
+/**
+ * El pliegue puro de `companiasConUsuarioConFuncion`, exportado para la prueba de equivalencia con el
+ * resolutor. Un usuario cuenta si su conjunto efectivo tiene `codigo` y su enlace es `compania`.
+ */
+export function companiasConFuncion(
+  usuarios: ReadonlyArray<{ companiaId: number; filas: FilasPermisos }>, codigo: string,
+): Set<number> {
+  const companias = new Set<number>();
+  for (const u of usuarios) {
+    if (enlaceConocido(u.filas.tipoEnlace) !== 'compania') continue;
+    if (conjuntoEfectivo(u.filas).has(codigo)) companias.add(u.companiaId);
+  }
+  return companias;
+}

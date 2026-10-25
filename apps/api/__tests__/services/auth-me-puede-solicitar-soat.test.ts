@@ -66,16 +66,16 @@ const CLIENTE = { id: 5, username: 'u@empresa.co', name: 'Cliente', role: 'clien
 const ADMIN = { id: 5, username: 'a@flit.io', name: 'Admin', role: 'admin', allowedPages: null, transitoCodigo: null, companiaId: null };
 
 describe('GET /api/auth/me — `puedeSolicitarSoat`', () => {
-  it('**cliente cuya compañía tiene el flag ENCENDIDO → true**', async () => {
-    conUsuario(CLIENTE, [{ sinTramite: true }]);
+  it('**cliente cuya compañía tiene proveedor de SOAT sin trámite → true** (HU #13967 AC1)', async () => {
+    conUsuario(CLIENTE, [{ id: 7 }]);
     const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('cliente'));
 
     expect(r.status).toBe(200);
     expect(r.body.puedeSolicitarSoat).toBe(true);
   });
 
-  it('**flag APAGADO → false, y no es «no vino el campo»**', async () => {
-    conUsuario(CLIENTE, [{ sinTramite: false }]);
+  it('**compañía SIN proveedor → false, y no es «no vino el campo»** (HU #13967 AC2)', async () => {
+    conUsuario(CLIENTE, []);
     const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('cliente'));
 
     // La clave TIENE que venir: la pantalla distingue «no puede» de «no sé», y un `undefined`
@@ -103,7 +103,7 @@ describe('GET /api/auth/me — `puedeSolicitarSoat`', () => {
   });
 
   it('`companiaId` NO sale en la respuesta: viaja el booleano derivado, no el identificador interno', async () => {
-    conUsuario(CLIENTE, [{ sinTramite: true }]);
+    conUsuario(CLIENTE, [{ id: 7 }]);
     const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('cliente'));
 
     expect(r.body.companiaId).toBeUndefined();
