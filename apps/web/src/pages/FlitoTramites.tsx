@@ -949,9 +949,10 @@ function ModalDesbloqueo({ fila, onCerrar, onHecho }: {
 function ModalCrearEmpresa({ fila, onCerrar, onCreado }: { fila: TramiteFila; onCerrar: () => void; onCreado: () => void }) {
   const [nombre, setNombre] = useState(fila.companiaNombre ?? '');
   // El estado guarda el DATO (`*Autogestionable`); el check lo pinta invertido: «FLITO gestiona» (HU #13935).
-  const [soatAuto, setSoatAuto] = useState(false);
-  const [impuestosAuto, setImpuestosAuto] = useState(false);
-  const [logisticaAuto, setLogisticaAuto] = useState(false);
+  // Arranca en `true`: la empresa nueva nace sin servicios gestionados por FLITO y las casillas, desmarcadas (HU #13937).
+  const [soatAuto, setSoatAuto] = useState(true);
+  const [impuestosAuto, setImpuestosAuto] = useState(true);
+  const [logisticaAuto, setLogisticaAuto] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 

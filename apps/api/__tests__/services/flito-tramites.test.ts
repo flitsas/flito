@@ -284,6 +284,33 @@ describe('rutas — lectura Operaciones/Auditoría; acciones solo Operaciones; g
     expect(dbMock.update).toHaveBeenCalledTimes(1);
   });
 
+  // HU #13937 AC4: lo no enviado nace autogestionable (sin servicios FLITO); lo marcado sigue viajando.
+  async function crearEmpresaCapturando(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    let valores: Record<string, unknown> = {};
+    selectMock
+      .mockReturnValueOnce(chain([]))   // no existe cliente con ese NIT
+      .mockReturnValueOnce(chain([]));  // sin trámites pendientes
+    dbMock.insert.mockReturnValueOnce({
+      values: (v: Record<string, unknown>) => { valores = v; return chain([{ id: 77 }]); },
+    });
+    dbMock.update.mockReturnValue(chain([]));
+    const token = await testToken({ role: 'admin' });
+    const res = await request(app).post('/api/flito/tramites/crear-empresa')
+      .set('Authorization', `Bearer ${token}`).send(body);
+    expect(res.status).toBe(200);
+    return valores;
+  }
+
+  it('POST /crear-empresa sin campos de autogestión → la compañía nace con las tres en true (HU #13937 AC4)', async () => {
+    const v = await crearEmpresaCapturando({ nombre: 'NUEVA SAS', nit: '900555' });
+    expect(v).toMatchObject({ soatAutogestionable: true, impuestosAutogestionable: true, logisticaAutogestionable: true });
+  });
+
+  it('POST /crear-empresa con soatAutogestionable:false explícito → soat false, el resto true (HU #13937 AC4)', async () => {
+    const v = await crearEmpresaCapturando({ nombre: 'NUEVA SAS', nit: '900556', soatAutogestionable: false });
+    expect(v).toMatchObject({ soatAutogestionable: false, impuestosAutogestionable: true, logisticaAutogestionable: true });
+  });
+
   it('GET /:id/historial → mapea los cambios (auditor puede leer)', async () => {
     selectMock.mockReturnValueOnce(chain([
       { id: 'h1', campo: 'flit_estado', valorAnterior: 'Borrador', valorNuevo: 'Asignado', origen: 'api', usuarioNombre: null, creadoEn: new Date('2026-07-10T00:00:00Z') },

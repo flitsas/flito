@@ -242,7 +242,8 @@ router.post('/crear-empresa', soloSinEnlace(), exigirFuncion('tramites.empresa.c
   if (!parsed.success) { bad(res); return; }
   const d = parsed.data;
   const r = await crearEmpresaDesdeTramite(d.nombre, d.nit, {
-    soat: d.soatAutogestionable ?? false, impuestos: d.impuestosAutogestionable ?? false, logistica: d.logisticaAutogestionable ?? false,
+    // HU #13937: lo no enviado nace autogestionable (sin servicios FLITO), igual que el DEFAULT de la BD.
+    soat: d.soatAutogestionable ?? true, impuestos: d.impuestosAutogestionable ?? true, logistica: d.logisticaAutogestionable ?? true,
   }, await ctxDe(req));
   await audit(req, { action: 'create', resource: 'flito_tramite', detail: `Empresa ${parsed.data.nit} ${r.yaExistia ? 'reutilizada' : 'creada'}; ${r.revinculados} trámites re-vinculados` });
   res.json(r);
