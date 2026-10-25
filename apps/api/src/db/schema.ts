@@ -2669,16 +2669,17 @@ export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado'
 // Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
 export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['requiere_gestion', 'autogestionado']);
 
-// Proveedor que adquiere el SOAT (RN-05: determina la estrategia de flujo).
+// Proveedor que adquiere el SOAT (RN-05: determina la estrategia de flujo). HU #13957 (0259): baja lógica (`deleted_at`/
+// `deleted_by`) y nombre único solo entre vigentes (exacto, como la constraint que reemplaza): un eliminado lo libera.
 export const flitoProveedoresSoat = pgTable('flito_proveedores_soat', {
   id: uuid('id').primaryKey().defaultRandom(),
-  nombre: varchar('nombre', { length: 150 }).notNull().unique(),
+  nombre: varchar('nombre', { length: 150 }).notNull(),
   estrategia: varchar('estrategia', { length: 40 }).notNull().default('portal'),
   umbralOcr: numeric('umbral_ocr', { precision: 4, scale: 3 }),
   slaHoras: integer('sla_horas'),
   activo: boolean('activo').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }),
+}, (t) => ({ nombreVivoUq: uniqueIndex('uq_flito_proveedores_soat_nombre_vivo').on(t.nombre).where(sql`deleted_at IS NULL`) }));
 
 /**
  * CA-10 (HU #12053, Feature #12052) — los organismos de tránsito que ve un `gestor_impuestos`.
