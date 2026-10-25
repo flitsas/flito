@@ -30,9 +30,13 @@
 //   RN-C10 Ley 1581: los logs llevan solo ids (comprobante, bolsa, movimiento); nunca placa, VIN ni NIT.
 //
 // Reversión al desaplicar/reemplazar (HU #13905, D13/D14): `exigirDescuentoReversible` + `revertirDescuentoComprobante`.
-// Fuera de alcance: tránsito (HU-H), backfill (HU-E).
+// HU #13909 (HU-H): el lado TRÁNSITO vive en `flito-bolsas.descuento-transito.ts`; se decide por separado
+// tras el lado compañía (RN-C9: comprobante → trámite → bolsa compañía → bolsa tránsito). La reversión
+// recorre las salidas vivas de AMBOS alcances (`salida:%` y `consumo:%`) en ese mismo orden: un periodo
+// cerrado en cualquiera de las dos bloquea la operación entera (todo o nada).
+// Fuera de alcance: backfill (HU-E).
 
-import { and, asc, eq, like } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, like, or } from 'drizzle-orm';
 import {
   AlcanceBolsa, ConceptoCosto, EstadoComprobante, type ConceptoBolsa, type DescuentoBolsaDto, type MovimientoBolsaDto,
 } from '@operaciones/shared-types';
@@ -44,7 +48,9 @@ import { excepcionLogisticaViva, gestionaLogistica } from '../flito-liquidacion/
 import {
   asentarEnBolsa, bolsaBloqueadaPorId, type CtxUsuario, hoyIso, movimientoPorLlave, num, periodosCerrados, PREFIJO_REVERSADO, PREFIJO_SALIDA, type Tx,
 } from './flito-bolsas.libro.js';
+import { descontarTransito, type ReglasCompartidas } from './flito-bolsas.descuento-transito.js';
 import { bolsaCompaniaPara } from './flito-bolsas.resolver.js';
+import { PREFIJO_CONSUMO } from './flito-bolsas-transito.service.js';
 
 const log = loggerFor('flito-bolsas-descuento');
 
@@ -87,6 +93,15 @@ function vacio(): DescuentoBolsaDto {
 
 function omitido(motivo: Motivo): DescuentoBolsaDto {
   return { movimientos: [], omitidos: [{ alcance: COMPANIA, motivo }], alertas: [] };
+}
+
+/** Motivo que aplica a los dos lados (no es pago, antes del corte): una omisión por alcance. */
+function omitidoAmbos(motivo: Motivo): DescuentoBolsaDto {
+  return { movimientos: [], omitidos: [{ alcance: COMPANIA, motivo }, { alcance: AlcanceBolsa.TRANSITO, motivo }], alertas: [] };
+}
+
+function unir(a: DescuentoBolsaDto, b: DescuentoBolsaDto): DescuentoBolsaDto {
+  return { movimientos: [...a.movimientos, ...b.movimientos], omitidos: [...a.omitidos, ...b.omitidos], alertas: [...a.alertas, ...b.alertas] };
 }
 
 /**
@@ -149,15 +164,18 @@ export function llaveDescuento(concepto: string, comprobanteId: string, soatId: 
     : `${PREFIJO_SALIDA}comprobante:${comprobanteId}`;
 }
 
-/** RN-C7: ¿la liquidación (anterior al corte) ya cobró este trámite × concepto en esta bolsa? */
-async function cubiertoPorLiquidacion(tx: Tx, bolsaId: string, tramiteId: string, concepto: string): Promise<boolean> {
+/**
+ * RN-C7: ¿la liquidación (anterior al corte) ya cobró este trámite × concepto en esta bolsa? `prefijo`:
+ * `salida:` en la de compañía, `consumo:` en la de tránsito (HU #13909).
+ */
+async function cubiertoPorLiquidacion(tx: Tx, bolsaId: string, tramiteId: string, concepto: string, prefijo = PREFIJO_SALIDA): Promise<boolean> {
   const [fila] = await tx.select({ id: flitoBolsasUnicasMovimientos.id }).from(flitoBolsasUnicasMovimientos).where(and(
     eq(flitoBolsasUnicasMovimientos.bolsaId, bolsaId),
     eq(flitoBolsasUnicasMovimientos.tramiteId, tramiteId),
     eq(flitoBolsasUnicasMovimientos.concepto, concepto),
     eq(flitoBolsasUnicasMovimientos.origen, 'automatico'),
     eq(flitoBolsasUnicasMovimientos.tipo, 'salida'),
-    like(flitoBolsasUnicasMovimientos.llaveIdempotencia, `${PREFIJO_SALIDA}%`),
+    like(flitoBolsasUnicasMovimientos.llaveIdempotencia, `${prefijo}%`),
   )).limit(1);
   return fila !== undefined;
 }
@@ -169,6 +187,8 @@ function motivoLlaveOcupada(previo: MovimientoBolsaDto, comprobanteId: string): 
   return 'cubierto_por_conciliacion';
 }
 
+const REGLAS: ReglasCompartidas = { motivoLlaveOcupada, cubiertoPorLiquidacion };
+
 /**
  * Dentro de la tx de aplicar. Nunca lanza por saldo ni por negocio; sí por error de BD. Idempotente por
  * llave. `null` = corte apagado (RN-C2): no hay nada que contar en la respuesta.
@@ -176,11 +196,22 @@ function motivoLlaveOcupada(previo: MovimientoBolsaDto, comprobanteId: string): 
 export async function descontarComprobante(tx: Tx, c: ComprobanteAplicado, ctx: CtxUsuario): Promise<DescuentoBolsaDto | null> {
   const corte = corteVigente();
   if (corte === null) return null;
-  if (!c.esPago) return omitido('no_es_pago');
-  if (diaColombia(c.aplicadoEn) < corte) return omitido('antes_del_corte');
+  if (!c.esPago) return omitidoAmbos('no_es_pago');
+  const fecha = diaColombia(c.aplicadoEn);
+  if (fecha < corte) return omitidoAmbos('antes_del_corte');
   const valor = num(c.valor);
   if (!(valor > 0)) return vacio(); // pago sin valor documental: no hay importe que descontar
 
+  // RN-C9: el lado compañía primero (bloquea su bolsa), después el de tránsito. Cada uno decide por su cuenta.
+  const compania = await descontarCompania(tx, c, valor, ctx);
+  const transito = await descontarTransito(tx, {
+    comprobanteId: c.comprobanteId, tramiteId: c.tramiteId, concepto: c.concepto, valor, fecha,
+  }, ctx, REGLAS);
+  return unir(compania, transito);
+}
+
+/** El lado compañía (RN-C3..RN-C8). */
+async function descontarCompania(tx: Tx, c: ComprobanteAplicado, valor: number, ctx: CtxUsuario): Promise<DescuentoBolsaDto> {
   const f = await contextoTramite(tx, c.tramiteId);
   if (!f || f.companiaId === null) return omitido('sin_compania');
   if (!gestionaConcepto(c.concepto, f)) return omitido('autogestionado');
@@ -231,17 +262,21 @@ export class PeriodoCerradoError extends Error {
 }
 
 /**
- * Salidas VIVAS (`salida:%`, no reversadas) que este comprobante dejó en cualquier bolsa. Orden fijo
- * (`bolsa_id`, `id`): las bolsas se bloquean siempre en el mismo orden (sin cruce de locks entre dos
- * reversiones concurrentes) y el error de D14 nombra siempre la misma bolsa.
+ * Salidas VIVAS (`salida:%` en compañía, `consumo:%` en tránsito —HU #13909—; no reversadas) que este
+ * comprobante dejó en cualquier bolsa. Orden fijo (`alcance` —'compania' < 'transito'—, `bolsa_id`, `id`):
+ * mismo orden de locks que aplicar (RN-C9), sin cruce entre dos reversiones concurrentes, y el error de
+ * D14 nombra siempre la misma bolsa.
  */
 async function salidasVivasDe(tx: Tx, comprobanteId: string) {
-  return tx.select().from(flitoBolsasUnicasMovimientos).where(and(
-    eq(flitoBolsasUnicasMovimientos.comprobanteId, comprobanteId),
-    eq(flitoBolsasUnicasMovimientos.origen, 'comprobante'),
-    eq(flitoBolsasUnicasMovimientos.tipo, 'salida'),
-    like(flitoBolsasUnicasMovimientos.llaveIdempotencia, `${PREFIJO_SALIDA}%`),
-  )).orderBy(asc(flitoBolsasUnicasMovimientos.bolsaId), asc(flitoBolsasUnicasMovimientos.id));
+  const M = flitoBolsasUnicasMovimientos;
+  return tx.select(getTableColumns(M)).from(M)
+    .innerJoin(flitoBolsasUnicas, eq(M.bolsaId, flitoBolsasUnicas.id))
+    .where(and(
+      eq(M.comprobanteId, comprobanteId),
+      eq(M.origen, 'comprobante'),
+      eq(M.tipo, 'salida'),
+      or(like(M.llaveIdempotencia, `${PREFIJO_SALIDA}%`), like(M.llaveIdempotencia, `${PREFIJO_CONSUMO}%`)),
+    )).orderBy(asc(flitoBolsasUnicas.alcance), asc(M.bolsaId), asc(M.id));
 }
 type SalidaViva = Awaited<ReturnType<typeof salidasVivasDe>>[number];
 
@@ -292,6 +327,7 @@ export async function revertirDescuentoComprobante(
       valor: num(s.valor),
       fecha: hoyIso(),
       concepto: s.concepto === null ? null : (s.concepto as ConceptoBolsa),
+      organismoCodigo: s.organismoCodigo,
       tramiteId: s.tramiteId,
       comprobanteId,
       revierteMovimientoId: s.id,

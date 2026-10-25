@@ -144,6 +144,13 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
   const pago = (comprobanteId: string, tramiteId: string, concepto: string, valor: number, aplicadoEn = DIC_3) =>
     ({ comprobanteId, tramiteId, concepto: concepto as never, esPago: true, valor: String(valor), aplicadoEn });
   const movimientos = (bolsaId: string) => sql`SELECT *, fecha::text AS fecha FROM flito_bolsas_unicas_movimientos WHERE bolsa_id = ${bolsaId} ORDER BY created_at, origen, id`;
+  /** HU #13909: el resultado trae también el lado tránsito; estos casos son del lado compañía. */
+  type R = Awaited<ReturnType<typeof d.descontarComprobante>>;
+  const soloCompania = (r: R): R => r && ({
+    movimientos: r.movimientos.filter((m) => m.alcance === 'compania'),
+    omitidos: r.omitidos.filter((m) => m.alcance === 'compania'),
+    alertas: r.alertas.filter((m) => m.alcance === 'compania'),
+  });
   const saldo = async (bolsaId: string) => Number((await sql`SELECT saldo FROM flito_bolsas_unicas WHERE id = ${bolsaId}`)[0]!.saldo);
 
   // ─────────────────────────── AC1 ───────────────────────────
@@ -175,7 +182,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
       });
       expect(Number(m!.valor)).toBe(250_000);
       expect(await saldo(e.bolsaId!)).toBe(750_000);
-      expect(r).toEqual({
+      expect(soloCompania(r)).toEqual({
         movimientos: [{ bolsaId: e.bolsaId, alcance: 'compania', movimientoId: m!.id, valor: 250_000, saldoResultante: 750_000 }],
         omitidos: [], alertas: [],
       });
@@ -200,7 +207,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
       const e = await escenario();
       const id = await comprobante(e.tramiteId, 'impuesto', 250_000);
       const r = await descontar(pago(id, e.tramiteId, 'impuesto', 250_000, new Date('2026-12-01T04:30:00Z')));
-      expect(r).toEqual({ movimientos: [], omitidos: [{ alcance: 'compania', motivo: 'antes_del_corte' }], alertas: [] });
+      expect(soloCompania(r)).toEqual({ movimientos: [], omitidos: [{ alcance: 'compania', motivo: 'antes_del_corte' }], alertas: [] });
       expect(await movimientos(e.bolsaId!)).toHaveLength(0);
     });
 
@@ -225,7 +232,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
       const e = await escenario(o as OpcionesEscenario);
       const id = await comprobante(e.tramiteId, 'impuesto', 250_000);
       const r = await descontar(pago(id, e.tramiteId, 'impuesto', 250_000));
-      expect(r).toEqual({ movimientos: [], omitidos: [{ alcance: 'compania', motivo }], alertas: [] });
+      expect(soloCompania(r)).toEqual({ movimientos: [], omitidos: [{ alcance: 'compania', motivo }], alertas: [] });
       if (e.bolsaId) {
         expect(await movimientos(e.bolsaId)).toHaveLength(0);
         expect(await saldo(e.bolsaId)).toBe(1_000_000);
@@ -236,7 +243,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
       const e = await escenario();
       const id = await comprobante(e.tramiteId, 'impuesto', null, false);
       const r = await descontar({ ...pago(id, e.tramiteId, 'impuesto', 0), esPago: false, valor: null });
-      expect(r).toEqual({ movimientos: [], omitidos: [{ alcance: 'compania', motivo: 'no_es_pago' }], alertas: [] });
+      expect(soloCompania(r)).toEqual({ movimientos: [], omitidos: [{ alcance: 'compania', motivo: 'no_es_pago' }], alertas: [] });
       expect(await movimientos(e.bolsaId!)).toHaveLength(0);
     });
   });
@@ -276,7 +283,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
       }, ctx));
       const id = await comprobante(e.tramiteId, 'soat', 400_000);
       const r = await descontar(pago(id, e.tramiteId, 'soat', 400_000));
-      expect(r!.omitidos).toEqual([{ alcance: 'compania', motivo: 'cubierto_por_conciliacion' }]);
+      expect(soloCompania(r)!.omitidos).toEqual([{ alcance: 'compania', motivo: 'cubierto_por_conciliacion' }]);
       expect(await movimientos(e.bolsaId!)).toHaveLength(1);
       expect(await saldo(e.bolsaId!)).toBe(600_000);
     });
@@ -314,7 +321,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
       await salidaLiquidacion(e, 'derecho', 80_000, `tramite:${e.tramiteId}:derecho`);
       const id = await comprobante(e.tramiteId, 'derecho', 80_000);
       const r = await descontar(pago(id, e.tramiteId, 'derecho', 80_000));
-      expect(r!.omitidos).toEqual([{ alcance: 'compania', motivo: 'cubierto_por_liquidacion' }]);
+      expect(soloCompania(r)!.omitidos).toEqual([{ alcance: 'compania', motivo: 'cubierto_por_liquidacion' }]);
       expect(await movimientos(e.bolsaId!)).toHaveLength(1);
       expect(await saldo(e.bolsaId!)).toBe(920_000);
     });
@@ -343,7 +350,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
       await salidaLiquidacion(e, 'soat', 400_000, `soat:${e.soatId}`);
       const id = await comprobante(e.tramiteId, 'soat', 400_000);
       const r = await descontar(pago(id, e.tramiteId, 'soat', 400_000));
-      expect(r!.omitidos).toEqual([{ alcance: 'compania', motivo: 'cubierto_por_liquidacion' }]);
+      expect(soloCompania(r)!.omitidos).toEqual([{ alcance: 'compania', motivo: 'cubierto_por_liquidacion' }]);
       expect(await saldo(e.bolsaId!)).toBe(600_000);
     });
   });
@@ -446,7 +453,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
       const e = await escenario({ autogestion, ...extra });
       const id = await comprobante(e.tramiteId, concepto, 120_000);
       const r = await descontar(pago(id, e.tramiteId, concepto, 120_000));
-      expect(r).toEqual({ movimientos: [], omitidos: [{ alcance: 'compania', motivo: 'autogestionado' }], alertas: [] });
+      expect(soloCompania(r)).toEqual({ movimientos: [], omitidos: [{ alcance: 'compania', motivo: 'autogestionado' }], alertas: [] });
       expect(await saldo(e.bolsaId!)).toBe(1_000_000);
     });
 
@@ -464,7 +471,7 @@ describe.skipIf(!URL)('HU #13902 — descontarComprobante (PostgreSQL real)', ()
         VALUES (${e.tramiteId}, 'logistica', 'ya no', now(), 'revocada')`;
       await sql`INSERT INTO flito_excepciones_autogestion (tramite_id, concepto, motivo) VALUES (${e.tramiteId}, 'soat', 'otro concepto')`;
       const id = await comprobante(e.tramiteId, 'logistica', 120_000);
-      expect((await descontar(pago(id, e.tramiteId, 'logistica', 120_000)))!.omitidos).toEqual([{ alcance: 'compania', motivo: 'autogestionado' }]);
+      expect(soloCompania(await descontar(pago(id, e.tramiteId, 'logistica', 120_000)))!.omitidos).toEqual([{ alcance: 'compania', motivo: 'autogestionado' }]);
     });
 
     it('TC-19 · impuesto y SOAT con la excepción marcada en su registro → sí descuentan', async () => {
