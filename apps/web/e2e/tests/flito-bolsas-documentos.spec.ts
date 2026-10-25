@@ -142,18 +142,25 @@ test.describe('FLITO — Bolsas · expediente documental de la compañía (HU #1
   });
 
   test('AC1: el detalle de una bolsa de tránsito no tiene la sección ni pide E1', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    // HU #13908: la bolsa de tránsito vive en el catálogo único (`/buscar` y `/bolsa/:id/*`).
+    await loginAs(page, FINANCIERA_USER, { funciones: [
+      ...CON_CARGA, 'bolsas.transito.listar', 'bolsas.transito.ver', 'bolsas.transito.ver_movimientos', 'bolsas.transito.cierres.ver',
+    ] });
     const peticiones = await mock(page);
     const transito = {
-      id: 'ob-1', nombre: 'Bolsa de mi sector', saldo: 0, ultimaCargaValor: null, ultimaCargaEn: null,
-      nivel: 'sin_cargas', porcentaje: null, deuda: 0, totalCargado: 0, totalConsumido: 0,
-      cobertura: [{ organismoCodigo: '05001', organismoNombre: 'Medellín', concepto: 'impuesto' }],
+      id: 'ob-1', alcance: 'transito', nombre: 'Bolsa de mi sector', companiaId: null, companiaNombre: null, activa: true,
+      conceptos: ['impuesto'], cobertura: [{ organismoCodigo: '05001', concepto: 'impuesto' }], saldo: 0,
+      ultimaEntradaValor: null, ultimaEntradaEn: null, nivel: 'sin_recargas', porcentaje: null,
+      transito: { nivel: 'sin_cargas', deuda: 0, totalCargado: 0, totalConsumido: 0 },
     };
-    await page.route(/\/api\/flito\/bolsas\/transito$/, (r) => json(r, [transito]));
-    await page.route(/\/api\/flito\/bolsas\/transito\/ob-1$/, (r) => json(r, transito));
-    await page.route(/\/api\/flito\/bolsas\/transito\/ob-1\/movimientos$/, (r) => json(r, []));
+    await page.route(/\/api\/flito\/bolsas\/buscar/, (r) => json(r, [ANDINOS, RENTACAR, transito]));
+    await page.route(/\/api\/flito\/bolsas\/bolsa\/ob-1$/, (r) => json(r, {
+      ...transito, inactivadaEn: null, inactivadaPorNombre: null, motivoInactivacion: null,
+      conceptosAutogestionados: [], paresAutogestionados: [],
+    }));
+    await page.route(/\/api\/flito\/bolsas\/bolsa\/ob-1\/(movimientos|cierres)$/, (r) => json(r, []));
     await page.goto('/flito/bolsas');
-    await page.getByTestId('tarjeta-bolsa-transito-ob-1').getByRole('button', { name: /Ver el detalle/ }).click();
+    await page.getByRole('button', { name: 'Ver el detalle de la bolsa Bolsa de mi sector (tránsito)' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await expect(page.getByTestId('expediente-documental')).toHaveCount(0);
     expect(peticiones.e1).toBe(0);

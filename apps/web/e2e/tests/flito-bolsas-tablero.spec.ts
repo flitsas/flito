@@ -46,8 +46,6 @@ async function mock(page: import('@playwright/test').Page, opts: { bolsas?: type
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ clientes: bolsas.length, saldoTotal: 6000000 }) }));
   await page.route(/\/api\/flito\/bolsas\/alertas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.bolsas ? { saldo: [], conciliacion: { soportesSinTramite: 0, movimientosSinSoporte: 0 } } : ALERTAS) }));
-  await page.route(/\/api\/flito\/bolsas\/transito$/, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.route(/\/api\/flito\/bolsas\/(\d+)\/extracto/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
       companiaId: 1, saldoActual: 300000, totalEntradas: 5000000, totalSalidas: 4700000,
@@ -115,14 +113,16 @@ test.describe('FLITO — Bolsas · tablero', () => {
   });
 
   test('todo vive en una sola vista: ya no hay pestañas que saltar', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
+    // HU #13908: el acordeón Tránsitos sale con `bolsas.transito.listar`.
+    await loginAs(page, FINANCIERA_USER, { funciones: [...FUNCIONES_BOLSAS, 'bolsas.transito.listar'] });
     await mock(page);
     await page.goto('/flito/bolsas');
 
     // La HU #11210 retira «Cliente» y «Organismos»: compañías y tránsitos conviven en acordeones.
     await expect(page.getByRole('button', { name: 'Cliente', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Organismos', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /^Compañías/ })).toHaveAttribute('aria-expanded', 'true');
+    // `\(`: el acordeón lleva el contador; el segmentado Alcance también tiene un botón «Compañías».
+    await expect(page.getByRole('button', { name: /^Compañías\s*\(/ })).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('button', { name: /^Tránsitos/ })).toHaveAttribute('aria-expanded', 'true');
   });
 

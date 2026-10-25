@@ -7,23 +7,24 @@
 // HU #13901: el acordeón Compañías pasa de rejilla de tarjetas a `FlitTable` alimentada por
 // `POST /buscar` (filtros en el BODY: el nombre y el NIT nunca van en la URL, Ley 1581). Las dos
 // primarias de los acordeones se funden en «Crear bolsa», que vive en la cabecera de la página.
-// El acordeón Tránsito sigue leyendo `/transito` hasta la HU-G (#13908).
+// HU #13908: el acordeón Tránsitos deja las tarjetas y pasa a `FlitTable` alimentada por el MISMO
+// `POST /buscar` (una sola llamada; las filas se reparten por `alcance`). Filtro Alcance nuevo
+// (Todas · Compañías · Tránsito). Las filas de tránsito NO tienen la celda del expediente #13407.
 //
 // El orden de las filas NO lo pone esta pantalla: llega del servidor, y reordenar aquí sería abrir
 // la puerta a que dos vistas del mismo dato prioricen distinto.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  NIVEL_RIESGO_BOLSA_LABEL, NivelRiesgoBolsa,
-  type AlertasBolsas, type BolsaResumenDto, type BolsaTransitoConNivel, type SaldoConsolidado,
+  NIVEL_BOLSA_TRANSITO_LABEL, NIVEL_RIESGO_BOLSA_LABEL, NivelRiesgoBolsa,
+  type AlertasBolsas, type BolsaResumenDto, type BuscarBolsasDto, type SaldoConsolidado,
 } from '@operaciones/shared-types';
 import { api, bolsasApi } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { errorBolsa, pesos, TONO_NIVEL } from '../../lib/bolsas';
+import { errorBolsa, pesos, saldoConSigno, TONO_NIVEL, TONO_NIVEL_TRANSITO } from '../../lib/bolsas';
 import { FUNCION_VER_DOCUMENTOS_BOLSA } from '../../lib/bolsasDocumentos';
 import ChipExpediente from '../flito-bolsas-documentos/ChipExpediente';
 import { useEstadoExpedientes } from '../flito-bolsas-documentos/useEstadoExpedientes';
-import { TarjetaBolsaTransito } from './BolsaTransito';
 import FiltroSegmentado from '../flit/FiltroSegmentado';
 import FlitAcordeon from '../flit/FlitAcordeon';
 import {
@@ -40,6 +41,14 @@ const OPCIONES_ESTADO = [
   { valor: 'todas', etiqueta: 'Todas' },
   { valor: 'activas', etiqueta: 'Activas' },
   { valor: 'inactivas', etiqueta: 'Inactivas' },
+] as const;
+
+type FiltroAlcance = 'todas' | 'compania' | 'transito';
+
+const OPCIONES_ALCANCE = [
+  { valor: 'todas', etiqueta: 'Todas' },
+  { valor: 'compania', etiqueta: 'Compañías' },
+  { valor: 'transito', etiqueta: 'Tránsito' },
 ] as const;
 
 /** Espera tras la última tecla antes de buscar. */
@@ -59,8 +68,9 @@ interface Props {
 
 export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito, onCrear, nonce }: Props) {
   const { hasFuncion } = useAuth();
+  /** `bolsas.transito.listar`: sin ella no hay acordeón Tránsitos ni opción «Tránsito» en Alcance. */
+  const verTransito = hasFuncion('bolsas.transito.listar');
   const [consolidado, setConsolidado] = useState<SaldoConsolidado | null>(null);
-  const [transitos, setTransitos] = useState<BolsaTransitoConNivel[]>([]);
   const [alertas, setAlertas] = useState<AlertasBolsas | null>(null);
   /** KPI «Bolsas en riesgo» sobre TODAS las compañías: no puede moverse con el buscador. */
   const [enRiesgo, setEnRiesgo] = useState(0);
@@ -71,6 +81,8 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
   /** El texto que de verdad se busca: el del input tras el debounce y con ≥ 2 caracteres o vacío. */
   const [textoBuscado, setTextoBuscado] = useState('');
   const [estado, setEstado] = useState<FiltroEstado>('todas');
+  const [alcanceFiltro, setAlcanceFiltro] = useState<FiltroAlcance>('todas');
+  const alcance: FiltroAlcance = verTransito ? alcanceFiltro : 'compania';
   const [filas, setFilas] = useState<BolsaResumenDto[] | null>(null);
   /** La primera respuesta de `/buscar` ya llegó: a partir de ahí no se vuelve al esqueleto. */
   const [filasIniciales, setFilasIniciales] = useState(false);
@@ -86,17 +98,15 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
     Promise.all([
       api.get<SaldoConsolidado>('/flito/bolsas/consolidado'),
       api.get<AlertasBolsas>('/flito/bolsas/alertas'),
-      api.get<BolsaTransitoConNivel[]>('/flito/bolsas/transito'),
       bolsasApi.buscar({ alcance: 'compania' }),
     ])
-      .then(([c, a, o, todas]) => {
+      .then(([c, a, todas]) => {
         if (!vigente) return;
         setConsolidado(c);
         setEnRiesgo((Array.isArray(todas) ? todas : []).filter(
           (b) => b.nivel === NivelRiesgoBolsa.CRITICO || b.nivel === NivelRiesgoBolsa.AGOTADA,
         ).length);
         setAlertas(a);
-        setTransitos(Array.isArray(o) ? o : []);
         setCargadoResumen(true);
       })
       .catch(() => { if (vigente) setErrorResumen(true); });
@@ -117,11 +127,13 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
     let vigente = true;
     setErrorFilas(null);
     setFilas(null);
-    bolsasApi.buscar({
-      alcance: 'compania',
+    // Filtros en el BODY (Ley 1581). «Todas» no manda alcance: una sola llamada trae los dos.
+    const filtros: BuscarBolsasDto = {
+      ...(alcance === 'todas' ? {} : { alcance }),
       ...(estado === 'todas' ? {} : { activa: estado === 'activas' }),
       ...(textoBuscado ? { texto: textoBuscado } : {}),
-    })
+    };
+    bolsasApi.buscar(filtros)
       .then((r) => { if (vigente) { setFilas(Array.isArray(r) ? r : []); setFilasIniciales(true); } })
       .catch((e) => {
         if (!vigente) return;
@@ -129,11 +141,16 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
         setFilasIniciales(true);
       });
     return () => { vigente = false; };
-  }, [nonce, reintento, textoBuscado, estado]);
+  }, [nonce, reintento, textoBuscado, estado, alcance]);
 
   const reintentar = () => setReintento((n) => n + 1);
-  const hayFiltro = textoBuscado !== '' || estado !== 'todas';
-  const limpiarFiltros = () => { setTexto(''); setTextoBuscado(''); setEstado('todas'); };
+  const hayFiltro = textoBuscado !== '' || estado !== 'todas' || (verTransito && alcanceFiltro !== 'todas');
+  const limpiarFiltros = () => { setTexto(''); setTextoBuscado(''); setEstado('todas'); setAlcanceFiltro('todas'); };
+
+  const filasCompania = useMemo(() => (filas === null ? null : filas.filter((f) => f.alcance !== 'transito')), [filas]);
+  const filasTransito = useMemo(() => (filas === null ? null : filas.filter((f) => f.alcance === 'transito')), [filas]);
+  const mostrarCompanias = alcance !== 'transito';
+  const mostrarTransitos = verTransito && alcance !== 'compania';
 
   if (errorResumen) {
     return (
@@ -152,7 +169,7 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
 
   // Vacío total: ni compañías (sin filtros) ni tránsitos. Dos acordeones vacíos no dicen qué hacer;
   // esto sí.
-  if (filas !== null && filas.length === 0 && !hayFiltro && transitos.length === 0) {
+  if (filas !== null && filas.length === 0 && !hayFiltro) {
     return (
       <FlitEmpty>
         <div data-testid="bolsas-vacio-total">
@@ -199,6 +216,12 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
             <input type="search" className={flitInp} value={texto} placeholder="Compañía, bolsa o NIT…"
               maxLength={120} onChange={(e) => setTexto(e.target.value)} />
           </label>
+          {verTransito && (
+            <div className="w-full sm:w-auto">
+              <FiltroSegmentado opciones={OPCIONES_ALCANCE} valor={alcanceFiltro} onCambio={setAlcanceFiltro}
+                ariaLabel="Alcance de la bolsa" rotulo="Alcance" />
+            </div>
+          )}
           <div className="w-full sm:w-auto">
             <FiltroSegmentado opciones={OPCIONES_ESTADO} valor={estado} onCambio={setEstado}
               ariaLabel="Estado de la bolsa" rotulo="Estado" />
@@ -206,9 +229,10 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
         </div>
       </FlitCard>
 
+      {mostrarCompanias && (
       <FlitAcordeon
         titulo="Compañías"
-        cantidad={filas?.length}
+        cantidad={filasCompania?.length}
         descripcion="Saldo que cada compañía tiene precargado con FLIT."
         abierto={verClientes}
         onToggle={() => setVerClientes((v) => !v)}
@@ -250,35 +274,28 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
           </div>
         )}
 
-        <TablaCompanias filas={filas} error={errorFilas} onReintentar={reintentar}
+        <TablaCompanias filas={filasCompania} error={errorFilas} onReintentar={reintentar}
           texto={textoBuscado} estado={estado} hayFiltro={hayFiltro}
           onLimpiar={limpiarFiltros} onVerInactivas={() => setEstado('todas')}
           verExpediente={hasFuncion(FUNCION_VER_DOCUMENTOS_BOLSA)}
           onVer={(b) => onVerBolsa({ id: b.id, nombre: b.nombre })} />
       </FlitAcordeon>
+      )}
 
-      <FlitAcordeon
-        titulo="Tránsitos"
-        cantidad={transitos.length}
-        descripcion="Saldo que FLIT precarga para pagar ante las secretarías. Cada bolsa cubre las secretarías y los cobros que se le hayan definido."
-        abierto={verTransitos}
-        onToggle={() => setVerTransitos((v) => !v)}
-      >
-        {transitos.length === 0 ? (
-          <FlitEmpty>
-            <span data-testid="sin-bolsas-transito">
-              Todavía no hay bolsas de tránsito. Pulsa «Crear bolsa» y elige Tránsito.
-            </span>
-          </FlitEmpty>
-        ) : (
-          <section aria-label="Bolsas de tránsito" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {transitos.map((b) => (
-              <TarjetaBolsaTransito key={b.id} bolsa={b}
-                onVer={() => onVerTransito({ id: b.id, nombre: b.nombre })} />
-            ))}
-          </section>
-        )}
-      </FlitAcordeon>
+      {mostrarTransitos && (
+        <FlitAcordeon
+          titulo="Tránsitos"
+          cantidad={filasTransito?.length}
+          descripcion="Saldo que FLIT precarga para pagar ante las secretarías."
+          abierto={verTransitos}
+          onToggle={() => setVerTransitos((v) => !v)}
+        >
+          <TablaTransito filas={filasTransito} error={errorFilas} onReintentar={reintentar}
+            texto={textoBuscado} estado={estado} hayFiltro={hayFiltro} onLimpiar={limpiarFiltros}
+            puedeVer={hasFuncion('bolsas.transito.ver')}
+            onVer={(b) => onVerTransito({ id: b.id, nombre: b.nombre })} />
+        </FlitAcordeon>
+      )}
     </div>
   );
 }
@@ -409,5 +426,115 @@ function TablaCompanias({
       </tbody>
     </FlitTable>
     </>
+  );
+}
+
+/**
+ * Tabla de bolsas de tránsito (HU #13908). Cuatro columnas y la acción: Bolsa, Estado, Saldo y Nivel
+ * (en SU escala, con «En préstamo»). Sin columna de expediente: #13407 es solo de compañía.
+ */
+function TablaTransito({ filas, error, onReintentar, texto, estado, hayFiltro, onLimpiar, onVer, puedeVer }: {
+  filas: BolsaResumenDto[] | null;
+  error: 'permiso' | 'red' | null;
+  onReintentar: () => void;
+  texto: string;
+  estado: FiltroEstado;
+  hayFiltro: boolean;
+  onLimpiar: () => void;
+  onVer: (b: BolsaResumenDto) => void;
+  /** `bolsas.transito.ver`: sin ella no hay «Ver detalle». */
+  puedeVer: boolean;
+}) {
+  if (error === 'permiso') {
+    return (
+      <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+        No tienes permiso para ver el listado de bolsas. Pídeselo a un administrador.
+      </p>
+    );
+  }
+  if (error === 'red') {
+    return (
+      <div>
+        <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+          No pudimos cargar las bolsas. Revisa tu conexión e intenta de nuevo.
+        </p>
+        <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={onReintentar}>
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+  if (filas === null) {
+    return <p role="status" className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Buscando bolsas…</p>;
+  }
+  if (filas.length === 0) {
+    if (!hayFiltro) {
+      return (
+        <FlitEmpty>
+          <span data-testid="sin-bolsas-transito">
+            Todavía no hay bolsas de tránsito. Pulsa «Crear bolsa» y elige Tránsito.
+          </span>
+        </FlitEmpty>
+      );
+    }
+    const enQue = estado === 'activas' ? ' en las activas' : estado === 'inactivas' ? ' en las inactivas' : '';
+    return (
+      <FlitEmpty>
+        <div data-testid="sin-bolsas-transito-filtro">
+          <p>{texto ? `Ninguna bolsa de tránsito coincide con «${texto}»${enQue}.` : `No hay bolsas de tránsito${enQue}.`}</p>
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onLimpiar}>
+              Limpiar filtros
+            </button>
+          </div>
+        </div>
+      </FlitEmpty>
+    );
+  }
+
+  return (
+    <FlitTable label="Bolsas de tránsito">
+      <thead>
+        <tr>
+          <FlitTh>Bolsa</FlitTh>
+          <FlitTh>Estado</FlitTh>
+          <FlitTh className="!text-right">Saldo</FlitTh>
+          <FlitTh>Nivel</FlitTh>
+          <FlitTh><span className="sr-only">Acciones</span></FlitTh>
+        </tr>
+      </thead>
+      <tbody>
+        {filas.map((fila) => {
+          const nivel = fila.transito?.nivel ?? 'sin_cargas';
+          return (
+            <FlitTr key={fila.id}>
+              <td className="max-w-[16rem] truncate px-4 py-2 text-sm font-semibold" title={fila.nombre}
+                data-testid={`fila-bolsa-transito-${fila.id}`}>
+                {fila.nombre}
+              </td>
+              <td className="px-4 py-2">
+                <StatusChip tone={fila.activa ? 'success' : 'draft'}>{fila.activa ? 'Activa' : 'Inactiva'}</StatusChip>
+              </td>
+              <td className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold tabular-nums"
+                style={{ color: fila.saldo < 0 ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)' }}>
+                {saldoConSigno(fila.saldo)}
+              </td>
+              <td className="px-4 py-2">
+                <StatusChip tone={TONO_NIVEL_TRANSITO[nivel]}>{NIVEL_BOLSA_TRANSITO_LABEL[nivel]}</StatusChip>
+              </td>
+              <td className="px-4 py-2 text-right">
+                {puedeVer && (
+                  <button type="button" className={flitBtnSecondarySm}
+                    aria-label={`Ver el detalle de la bolsa ${fila.nombre} (tránsito)`}
+                    onClick={() => onVer(fila)}>
+                    Ver detalle
+                  </button>
+                )}
+              </td>
+            </FlitTr>
+          );
+        })}
+      </tbody>
+    </FlitTable>
   );
 }

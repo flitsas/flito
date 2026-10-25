@@ -8,6 +8,9 @@
 // periodo se muda al detalle, que es el único sitio donde importa. El buscador manda el texto en el
 // body de `POST /buscar` y nunca en la URL (Ley 1581).
 //
+// HU #13908: la bolsa de tránsito vive en el mismo catálogo. El formulario único la crea y la edita, y
+// su detalle (`BolsaDetalleTransito`) trae su propio modal y su región desplazable.
+//
 // La página coordina qué se está mirando y reparte: el tablero, el formulario y los detalles traen
 // sus propios datos.
 //
@@ -18,12 +21,10 @@ import { useCallback, useState } from 'react';
 import { useAuth } from '../lib/auth';
 import NoAccess from '../components/NoAccess';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import FlitModal from '../components/flit/FlitModal';
 import { flitBtnPrimary, flitBtnPrimaryStyle } from '../components/flit/flitPageKit';
-import BolsaDetalleCompania, { RegionDesplazable, type EntradaDetalle } from '../components/flito/BolsaDetalleCompania';
+import BolsaDetalleCompania, { type EntradaDetalle } from '../components/flito/BolsaDetalleCompania';
 import BolsaForm from '../components/flito/BolsaForm';
-import BolsaTransitoDetalle from '../components/flito/BolsaTransito';
-import BolsaTransitoForm from '../components/flito/BolsaTransitoForm';
+import BolsaDetalleTransito from '../components/flito/BolsaTransito';
 import BolsasTablero from '../components/flito/BolsasTablero';
 
 export default function FlitoBolsas() {
@@ -46,13 +47,13 @@ function Bolsas() {
   const [detalle, setDetalle] = useState<{ entrada: EntradaDetalle; nombre: string } | null>(null);
   const [detalleTransito, setDetalleTransito] = useState<{ id: string; nombre: string } | null>(null);
   const [alta, setAlta] = useState<Alta>(null);
-  const [altaTransito, setAltaTransito] = useState(false);
 
   // AC7: sin la función, el botón NO se pinta (no se deshabilita).
   const puedeCrear = hasFuncion('bolsas.bolsa.crear') || hasFuncion('bolsas.transito.crear');
   const puedeCrearCompania = hasFuncion('bolsas.bolsa.crear');
   const abrirAlta = useCallback((companiaInicial: number | null = null) => {
     setDetalle(null);
+    setDetalleTransito(null);
     setAlta({ companiaInicial });
   }, []);
 
@@ -88,12 +89,15 @@ function Bolsas() {
       )}
 
       {detalleTransito !== null && (
-        <FlitModal title={detalleTransito.nombre} onClose={() => setDetalleTransito(null)} full>
-          {/* AC9: el mismo envoltorio desplazable que el detalle de compañía. Sin bloque #13407. */}
-          <RegionDesplazable etiqueta={`Detalle de la bolsa de ${detalleTransito.nombre}`}>
-            <BolsaTransitoDetalle bolsaId={detalleTransito.id} onCambio={recargar} />
-          </RegionDesplazable>
-        </FlitModal>
+        // Sin bloque #13407: el expediente documental es solo de compañía.
+        <BolsaDetalleTransito
+          key={detalleTransito.id}
+          bolsaId={detalleTransito.id}
+          nombre={detalleTransito.nombre}
+          onClose={() => setDetalleTransito(null)}
+          onCambio={recargar}
+          onVerBolsa={setDetalleTransito}
+        />
       )}
 
       {alta !== null && (
@@ -103,20 +107,14 @@ function Bolsas() {
           onGuardada={(b) => {
             setAlta(null);
             recargar();
-            setDetalle({ entrada: { bolsaId: b.id }, nombre: b.nombre });
+            if (b.alcance === 'transito') setDetalleTransito({ id: b.id, nombre: b.nombre });
+            else setDetalle({ entrada: { bolsaId: b.id }, nombre: b.nombre });
           }}
           onVerBolsa={(bolsaId) => {
             setAlta(null);
             setDetalle({ entrada: { bolsaId }, nombre: 'Bolsa' });
           }}
-          onContinuarTransito={() => { setAlta(null); setAltaTransito(true); }}
         />
-      )}
-
-      {altaTransito && (
-        <BolsaTransitoForm
-          onClose={() => setAltaTransito(false)}
-          onHecho={() => { setAltaTransito(false); recargar(); }} />
       )}
     </div>
   );
