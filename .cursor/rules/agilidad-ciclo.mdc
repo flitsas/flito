@@ -11,7 +11,7 @@ de glob del módulo, mutar en dos capas o relanzar un gate por una Nota.
 | # | Regla | Hard-stop |
 |---|---|---|
 | **P1** | Tests = archivos `*.test.ts` / spec **de este WI** (lista explícita) | Prohibido `__tests__/services/flito-comparendos` y equivalentes (~786 seriales ≠ filtrado) |
-| **P2** | Mutantes: tope **3**, solo `qa-agent` B, mismos paths P1 | El impl **no** muta; prohibido >3 o mutar la suite del módulo |
+| **P2** | Mutantes: **0 por defecto**; hasta **3** solo si el AC/repro tiene lógica condicional de negocio, solo `qa-agent` B, mismos paths P1 | El impl **no** muta; prohibido >3, mutar la suite del módulo o mutar copy/UI «por costumbre» |
 | **P3** | QA re-ejecuta P1 (re-run propio) **antes del PR** | No copia stdout del impl; no corre el directorio del módulo; no se lanza en paralelo al `pr-monitor` |
 | **P4** | Hallazgo → BLOQUEANTE (re-gate) o NOTA (PR, veredicto limpio) | Prohibido segundo backend/qa/db-review para «anclar» una Nota |
 | **P5** | Gate que no dispara, no se ejecuta | Copy/CSS/tests-only → security N/A; M1 **una vez al tip**, no por HU |

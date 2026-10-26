@@ -27,7 +27,7 @@ Ejemplos:
 |-------|-------|
 | `Story Points` | `<Fibonacci: 1,2,3,5,8>` |
 | `Custom.Refinement` | `true` |
-| `Tags` | `DOR`, `adopcion-ia` |
+| `Tags` | **Ninguno al crear** (el catálogo real no tiene tag de refinamiento; ver `flit-azure-devops`) |
 | `AssignedTo` | `<Humano responsable>` |
 | `Parent` | `Feature #<ID>` |
 | `Dependencies` | `US #<ID>, US #<ID>` (o "Ninguna") |
@@ -82,5 +82,5 @@ Then <resultado>
 - [ ] Dependencies explícitas (o "Ninguna")
 - [ ] Sprint = siguiente al activo
 - [ ] AssignedTo = humano
-- [ ] Tag `DOR`
+- [ ] Sin `System.Tags` al crear (ningún tag por defecto)
 - [ ] Sin placeholders en AC
