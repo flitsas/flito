@@ -308,6 +308,9 @@ const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
     // gestor de impuestos NO la tienen, y ese hueco es lo que prueba el spec del export).
     'soat.excel.exportar_pago', 'impuestos.excel.exportar_pago',
     'tramites.solicitud.pedir_soat', 'tramites.autogestion.desbloquear',
+    // HU #13968: el proveedor de «SOAT sin trámite» de la compañía tiene su propia acción (sembrada a
+    // admin); `tramites.autogestion.desbloquear` ya no lo gobierna.
+    'parametrizacion.companias.soat_sin_tramite',
     // HU #12635: «Ver soportes» desde el detalle de un comprobante. La 0179 la siembra para admin y
     // auditor; financiera NO la tiene (la reparte el admin desde el panel): el spec la añade por usuario.
     'tramites.tramite.ver_soportes',
