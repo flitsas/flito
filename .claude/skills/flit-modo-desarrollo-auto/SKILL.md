@@ -2,6 +2,7 @@
 name: flit-modo-desarrollo-auto
 description: |
   Modo auto por Feature (FLIT - FLITO): cadena apilada. Cargar ESTA Skill al arrancar el Feature — no improvisar el ciclo.
+  Paso 0 (al arrancar el Feature/lote, antes de la primera rama): Skill flit-flujo-local — decidir con el humano flujo local (merge retenido) vs directo a DEV.
   Por CADA HU **o Bug** (mismo ciclo — paridad de AGENTS.md): Skill flit-gestion-hu (Active; Épica y Feature padres Active primero) → architecture/ux slim|full si aplica → Agent backend/frontend (prompt denso; NUNCA codear la HU/Bug en el hilo) → verificación P1 (archivos de este WI, no glob del módulo; impl no muta) → Agent qa-agent B + Skill flit-code-review + Skill flit-ayuda-flito (si aplica) ANTES del PR (+ security diff-scoped ∥ db-review si disparan) → PR → Skill flit-integration-ado Modo A → Agent pr-monitor-agent en background **y la siguiente HU arranca YA** → al MERGED: Modo B (DeployDEV; el WI sigue Active) → devops M1 una vez al tip.
   `Resolved` NO se pone al mergear a develop: llega con la promoción a staging (flit-release → flit-gestion-hu Paso 3 + cascada Feature/Épica). Tras DeployDEV + M1: Skill flit-evidencias-dev (sesión conjunta; capturas en el Feature). Sin Feature COMPLETO no hay flit-release. Si un check del PR anterior cae (CI-ROJO CODIGO): pausa momentánea de la HU en curso, corregir el eslabón anterior, relanzar monitor, rebasar y seguir.
   Ledger obligatorio por work item. PROHIBIDO imitar skills con comentarios ADO branded / wit_* sueltos, PROHIBIDO quedarse esperando el CI sin arrancar la siguiente HU, y PROHIBIDO dejar un Bug promovido a staging sin Resolved. Triggers — modo auto, feature completo, sin interrupción, sigue con la siguiente historia, corrige los bugs, flit-modo-desarrollo-auto.
@@ -160,7 +161,8 @@ Abrir el PR **no** es un gate humano de “espera a que te digan sigue”. Tras 
 8. Codear un WI de **otro** Feature porque ADO lo muestra como siguiente. Dueño = esta sesión + bloque orchestrator si hay paralelo.
 
 **Espera legítima (NO es estancamiento ni ineficiencia):** detenerse a esperar al humano ante una
-decisión de negocio, un gate humano (promoción, despliegue, opt-out «no mergees»), un
+decisión de negocio, un gate humano (promoción, despliegue, opt-out «no mergees», la sesión y el
+OK de validación del flujo local de `flit-flujo-local`), un
 AC ambiguo o un permiso faltante es **obligatorio** — las decisiones importantes las toma el
 humano, no los agentes. El anti-estancamiento aplica solo a trabajo **ya autorizado y ejecutable**
 (CI verde sin merge hecho, Modo B/M1 pendientes, siguiente HU lista).
@@ -233,6 +235,17 @@ mergea tras CI verde antes de arrancar la siguiente. **Aun así**, no pide
 «continúa» al humano mientras el CI está en curso: monitorea y mergea solo.
 
 ## El ciclo (por cada HU, en orden de dependencias)
+
+### 0. Decidir el ambiente de validación (Paso 0 — siempre)
+
+Al arrancar el Feature o lote (antes de la primera rama): **Skill `flit-flujo-local`** — preguntar
+con formulario si el desarrollo va **directo a DEV** (ciclo de abajo tal cual) o pasa por
+**flujo local** (PR abierto de inmediato con merge retenido + sesión de pruebas locales con el
+humano antes del merge). La respuesta aplica a todo el lote hasta que arranque otro desarrollo;
+fuera de modo auto se pregunta al activar cada WI suelto. En flujo local: gates pre-PR intactos,
+`pr-monitor-agent` lanzado con opt-out «no mergees», nada de la validación local en Azure, y
+merge solo tras el OK humano explícito. Detalle y hard-stops:
+`.claude/skills/flit-flujo-local/SKILL.md`.
 
 ### 1. Activar en Azure
 
@@ -388,7 +401,7 @@ en paralelo avanzar la siguiente HU si el ledger lo permite; al verde él mergea
 Con el diff (`git diff origin/develop...HEAD`), **antes** de abrir PR (**cada HU**).
 **El PR significa desarrollo completo y verificado.** Tras abrirlo solo corre el `pr-monitor-agent`.
 
-1. **`Agent qa-agent` modo B** (re-run P1; mutantes ≤3). `FAIL` → corregir; **no** abrir PR; **no** Bug.
+1. **`Agent qa-agent` modo B** (re-run P1; mutantes condicionales: 0 por defecto, ≤3 solo con lógica condicional — P2). `FAIL` → corregir; **no** abrir PR; **no** Bug.
 2. **`Skill flit-code-review`** (veredicto canónico). `BLOQUEADO` → corregir; no abrir PR.
 3. **`Skill flit-ayuda-flito`** si HU FRONTEND o Bug cambia el comportamiento visible de un módulo **con ficha**. Sin delta de ayuda → **no** abrir PR. N/A (declarar): BACKEND-only, copy/a11y, CHORE/DOCS, Bug que no cambia lo que se ve/hace, módulos sin ficha aún.
 4. **`security-agent` (diff-scoped)** si superficie sensible (P5: no en copy/CSS/tests-only). `FAIL` → corregir **en el mismo hilo**.
@@ -537,6 +550,7 @@ Estas preguntas **sí** (P9). Distinto de «qué sigue» / «puedo mergear» (pr
 
 ## Checklist de salida por HU o Bug
 
+- [ ] Paso 0: **Skill** `flit-flujo-local` — decisión flujo local vs directo a DEV registrada al arrancar el lote (o al activar el WI suelto); en flujo local, merge retenido hasta OK humano
 - [ ] Épica y Feature padres en `Active` si existen (regla de `AGENTS.md`); Bug sin padre → declarado
 - [ ] Esta skill cargada al inicio del Feature / lote (no ciclo improvisado)
 - [ ] Work item en `Active` al empezar — vía **Skill** `flit-gestion-hu` (no wit_* branded) — y **sigue `Active` tras el merge a `develop`** (`DeployDEV`). `Resolved` solo con la promoción a `staging`; vale igual para Bugs

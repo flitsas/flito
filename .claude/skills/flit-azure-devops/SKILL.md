@@ -1,6 +1,6 @@
 ---
 name: flit-azure-devops
-description: Integración con Azure DevOps Boards para el proyecto FLIT - FLITO. Conexión: MCP (servidor `ado`); ante fallo de MCP → detener, reintentar una vez a los pocos segundos y, si persiste, detener e informar el error (fallback REST/borrador SUSPENDIDOS desde 2026-08-21 salvo pedido explícito del humano; excepción: upload de capturas en flit-evidencias-dev). Invocar antes de crear, actualizar o consultar work items en ADO desde cualquier skill (flit-crear-hu, flit-gestion-hu, flit-integration-ado, flit-evidencias-dev).
+description: Integración con Azure DevOps Boards para el proyecto FLIT - FLITO. Conexión: MCP (servidor `ado`); ante fallo de MCP → detener, reintentar una vez a los pocos segundos y, si persiste, detener e informar el error (fallback REST/borrador SUSPENDIDOS desde 2026-08-21 salvo pedido explícito del humano). Subida de capturas/adjuntos también por MCP (`wit_work_item_attachment_upload` + `wit_work_item_attachment_link`). Invocar antes de crear, actualizar o consultar work items en ADO desde cualquier skill (flit-crear-hu, flit-gestion-hu, flit-integration-ado, flit-evidencias-dev).
 ---
 
 # Azure DevOps — MCP primero, REST después
@@ -79,7 +79,13 @@ Las tools son **action-based** (un tool + `action`), no un tool por verbo. Antes
 | Hijo bajo padre | `wit_work_item_write` | `action: "add_child"`, `parentId`, `items[]` | create + link |
 | Comentario | `wit_work_item_comment_write` | `action: "add"`, `workItemId`, `text`, `format` | Comments API |
 | Descargar adjunto | `wit_work_item_attachment` | `attachmentId` | GET attachment |
-| Subir captura (solo `flit-evidencias-dev`) | REST Attachments + relación `AttachedFile` | con `AZURE_PAT` de sesión, o el humano en la UI | `POST …/wit/attachments` |
+| Subir adjunto (capturas) | `wit_work_item_attachment_upload` | `fileName`, `content` (**base64**) | `POST …/wit/attachments` |
+| Vincular adjunto al WI | `wit_work_item_attachment_link` | `workItemId`, `attachmentUrl` (la que devuelve el upload), `comment` opcional | PATCH relación `AttachedFile` |
+
+**Adjuntos (verificado 2026-10-26):** el upload y el link **sí existen** en el MCP `ado` — no hace
+falta PAT ni REST para las capturas de `flit-evidencias-dev`. Flujo: archivo → base64 →
+`upload` (devuelve `url`) → `link` con esa URL al Feature. El humano subiéndolas en la UI sigue
+siendo vía alternativa válida.
 | Vincular WIs | `wit_work_item_link_write` | `action: "link"`, `updates[]` | relations PATCH |
 | Link a PR | `wit_work_item_link_write` | `action: "link_to_pull_request"` | artifact link |
 
@@ -245,8 +251,7 @@ Un tag **nuevo** en `System.Tags` va en **petición aparte** — mezclarlo con o
   { "op": "add", "path": "/fields/System.Title", "value": "[BACKEND] – Módulo – Verbo sustantivo" },
   { "op": "add", "path": "/fields/System.Description", "value": "<p>...</p>" },
   { "op": "add", "path": "/fields/System.AreaPath", "value": "FLIT - FLITO" },
-  { "op": "add", "path": "/fields/System.AssignedTo", "value": "usuario@flitsas.io" },
-  { "op": "add", "path": "/fields/System.Tags", "value": "DOR; adopcion-ia" }
+  { "op": "add", "path": "/fields/System.AssignedTo", "value": "usuario@flitsas.io" }
 ]
 ```
 
@@ -305,12 +310,26 @@ await fetch(`${org}/${projectEncoded}/_apis/wit/workitems/$User%20Story?api-vers
 
 Si MCP falla y no hay PAT: la política vigente es detener e informar (ver «Estrategia de ejecución»). Solo si el humano lo pide explícitamente: entregar un `.md` con el work item redactado (título, campos, HTML) para que un humano lo cargue. **No** intentar Azure CLI.
 
-## Tags FLIT por defecto
+## Tags del proyecto — catálogo real (verificado 2026-10-26 vía API `_apis/wit/tags`)
 
-- Features: `DOR; adopcion-ia; fase-1-diseño`
-- User Stories: `DOR; adopcion-ia`
-- **Tag `QA`:** lo pone `flit-gestion-hu` Paso 3 al promover a `staging`, en petición **aparte**,
-  en cada HU/Bug **y** en el Feature. No mezclar con otros campos (`TF401289`).
+**Ningún tag por defecto al crear** — Feature, HU y Bug se crean **sin** `System.Tags`.
+El catálogo del proyecto `FLIT - FLITO` tiene **exactamente** estos 7 tags:
+
+| Tag | Uso del flujo |
+|---|---|
+| `QA` | Lo pone `flit-gestion-hu` Paso 3 al promover a `staging` (petición **aparte**, en cada HU/Bug **y** en el Feature) |
+| `QA_PDN` | Ciclo de QA en producción |
+| `PDN` | Marca de producción |
+| `QA_NOVEDAD` | Reservado al **QA humano** (hallazgos) — los agentes no lo ponen |
+| `QA_MEJORA` | Mejora detectada en QA |
+| `NO_QA` | Ítem que no requiere validación de QA |
+| `APROBADO PDN PO` | Aprobación de producción por el PO |
+
+**La identidad del MCP no puede crear tags nuevos** (`TF401289` «sin permiso para crear tags»):
+se usan **únicamente** los de esta tabla, cuando el flujo lo defina. Los antiguos
+`DOR` / `adopcion-ia` / `fase-1-diseño` **no existen** en el proyecto — no se escriben nunca
+(era la causa del fallo repetido al crear Features/HUs). Tag en **petición aparte** — mezclarlo
+con otros campos también tumba el patch (`TF401289`).
 
 ## QA canónico
 

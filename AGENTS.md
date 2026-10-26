@@ -16,7 +16,8 @@ Monorepo **npm workspaces** (nunca pnpm, nunca yarn, nunca dotnet):
 | `apps/web` | Vite 5 + React 18.3 + **react-router-dom 6** + **Tailwind CSS 4** (`@tailwindcss/vite`). Páginas en `src/pages/`, cliente HTTP único en `src/lib/api.ts` (`BASE = '/api'`, token en `localStorage`, timeout 90 s). **No hay TanStack Query, ni Vitest, ni RTL**: los tests son **Playwright E2E** en `e2e/tests/` + `tsc --noEmit` |
 | `packages/shared-types` | Contrato de tipos entre ambos, importado como `@operaciones/shared-types`. **No hay OpenAPI**: el contrato vive aquí y en los documentos de diseño |
 
-Infra en el repo: `docker-compose.yml`, `docker-compose.prod.yml`, `ecosystem.config.cjs` (PM2), `scripts/`.
+Infra en el repo: `docker-compose.yml` (local), `docker-compose.prod.yml` (solo PDN), `scripts/`.
+**Ambientes (fuente de verdad: `.github/workflows/cd.yml`):** DEV y QA viven desde el 2026-10-18 en el **k3s de la 177** (namespaces `flito-dev` / `flito-qa`) y se despliegan por **GitOps**: el CD escribe los digests de imagen en el repo `flit-gitops` (`services/flito-<env>/kustomization.yaml`) y **Argo CD** los aplica (rollback = revertir ese commit). Solo **PDN** sigue en el VPS Hostinger con `docker-compose.prod.yml` por SSH. `ecosystem.config.cjs` (PM2) es **legacy**: no se usa en ningún ambiente.
 Dependencias externas ya integradas (la barra para añadir otra es alta): PostgreSQL, Redis, MinIO/S3, Google Drive API, OCR (Tesseract + motor Anthropic), firma digital (`@signpdf`), RUNT/RNDC.
 
 **No existen aquí:** Next.js / App Router, .NET / C# / EF Core, Prisma / TypeORM, Clean Architecture por capas (`Domain/`, `Application/`), `services/core-api/`, `contracts/openapi/`, `frontend/`, `.cursor/workflows/`. Si un prompt menciona algo de eso, es contexto de otro proyecto: dilo y pide aclaración.
@@ -35,11 +36,11 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
 2. Imports relativos **con extensión `.js`** (`'../../shared/middleware/auth.js'`) — sin ella el build ESM falla.
 3. SQL solo con el query builder de Drizzle o `sql` parametrizado — nunca concatenando strings.
 4. Toda ruta con `authMiddleware` (más `requireRole` si aplica), salvo endpoint público explícito en la HU y comentado en el código.
-5. Credenciales, hosts y rutas de bucket por `process.env` / `src/config` — nunca hardcodeadas.
+5. Credenciales, hosts y rutas de bucket por `process.env` / `src/config` — nunca hardcodeadas. **Dónde vive esa configuración por ambiente:** en **DEV/QA**, en el repo `flit-gitops` (`services/flito-<env>/configmaps.yaml` y `sealed-secrets.yaml`) — cambiarla es un commit allí que Argo CD aplica, **no** un SSH al servidor ni un `.env` de máquina; en **PDN**, en el `.env` del VPS (plantilla `apps/api/.env.example`); en local, `apps/api/.env`.
 6. Migraciones: **SQL plano escrito a mano** en `apps/api/src/db/migrations/`, numeración secuencial `NNNN_descripcion.sql`, idempotente cuando se pueda. Solo `0001-0004` salieron de `drizzle-kit generate`; de `0005` en adelante no se usa. Se aplican con `npm run db:apply` (runner propio con su tabla de aplicadas).
    - **Nunca** `drizzle-kit generate` ni `drizzle-kit migrate`: el journal se quedó en `0004`, así que el primero emitiría una migración recreando ~120 tablas y el segundo aplicaría 5 de 64, dejando la BD inconsistente.
    - Una migración **ya aplicada en cualquier ambiente no se modifica**: el runner calcula lo pendiente **por nombre de archivo**, así que la edición no se ejecutaría allá y quedaría deriva silenciosa entre el SQL en disco y el esquema real. Se corrige con una migración nueva. Editarla antes de aplicarla en ningún lado sí es seguro.
-   - **Aplicarlas es manual fuera de local.** El job one-shot `migrate` de `docker-compose.yml` las corre en cada `up` y la api depende de él; `docker-compose.prod.yml` **no** tiene ese servicio y `cd.yml` no ejecuta `db:apply`. Tras un deploy que trae migración hay que correrla a mano (`docker compose -f docker-compose.prod.yml run --rm api node dist/scripts/db-apply.js`), con `pg_dump` previo en producción. Si no, la app queda esperando un esquema que nadie creó.
+   - **Quién las aplica fuera de local (ver `cd.yml`):** en **DEV/QA** las corre el **initContainer `db-apply`** del despliegue k3s en cada rollout de Argo CD (automático; el pod nuevo no arranca sin el esquema al día). En **PDN** las corre el propio `cd.yml` por SSH (`docker compose -f docker-compose.prod.yml run --rm --no-deps api node dist/scripts/db-apply.js`) **antes** de levantar la nueva versión — con `pg_dump` previo en producción. La vía manual queda solo como contingencia (mismo comando). En local las corre el job one-shot `migrate` de `docker-compose.yml` en cada `up` y la api depende de él.
    - Detalle y modos del runner en `apps/api/src/db/migrations/README.md`.
 7. Cambiar un tipo en `packages/shared-types` exige `grep` obligatorio de sus usos en `apps/web`.
 
@@ -155,10 +156,12 @@ CI es el gate de suite completa. Local no la adelanta «para estar seguro».
 La matriz de mutación **no es gate de implementación**. `backend-agent` / `frontend-agent` entregan
 verde en P1. **No** corren mutantes.
 
-`qa-agent` modo B **puede** aplicar hasta **3 mutantes nombrados** (cada uno: qué aserto debe matar
-+ comando P1). Si un mutante sobrevive → `FAIL`. Cero mutantes no es `FAIL` si la matriz AC→TC está
-cubierta con tests que nombran el comportamiento. **Prohibido** repetir en el impl la matriz de QA,
-y prohibido >3 o mutar contra la suite del módulo.
+`qa-agent` modo B aplica mutantes **solo cuando el AC/repro tiene lógica condicional de negocio**
+(ramas, cálculos, validaciones): hasta **3 nombrados** (cada uno: qué aserto debe matar + comando
+P1); si uno sobrevive → `FAIL`. **Default 0 mutantes** en copy, UI/maquetación, tests-only, docs,
+config o wiring mecánico: se declara `mutantes: no aplica — <motivo>` en el HANDOFF y **no** es
+`FAIL` si la matriz AC→TC está cubierta con tests que nombran el comportamiento. **Prohibido**
+repetir en el impl la matriz de QA, y prohibido >3 o mutar contra la suite del módulo.
 
 ### P3. QA re-ejecuta P1, no la suite del impl
 
@@ -280,7 +283,7 @@ Reglas de la cascada (todas en `flit-gestion-hu`, con «sí» humano para cada e
 - Nunca escribir en ADO sin un "sí" explícito del humano. Nunca asignar work items al sprint activo — siempre al siguiente.
 - **`System.AssignedTo` obligatorio al crear** cualquier work item (Feature, User Story, Bug, Task): el humano de la sesión que pide desde Cursor — identidad del usuario autenticado en MCP `ado` (la que figura como `CreatedBy`; resolver con `core_get_identity_ids` si hace falta; si no está clara, preguntarla). **Prohibido** dejar el campo vacío o con placeholder. No confundir con `IterationPath` (sprint): “asignar al sprint” ≠ `AssignedTo`. Detalle operativo: skill `flit-azure-devops`.
 - **Activar una HU exige que su Feature padre esté `Active`, y el Feature exige su Épica `Active`**: la skill que activa la HU (`flit-gestion-hu` / `flit-modo-desarrollo-auto`) sube la cadena de padres de `New` a `Active` con comentario de inicio en cada Discussion (si ya está `Active`, no rehacer; si la HU no tiene padre, se declara en el comentario). Un **Bug** con padre sigue la misma regla; un Bug **sin** padre se activa igual y se declara la ausencia. Lo valida `tech-lead-agent` modo C en el DoR. El cierre (`Closed`) del Feature y de la Épica sigue siendo exclusivo del Product Owner; el `Resolved` de ambos lo pone la cascada de `flit-gestion-hu` Paso 4.
-- Tags por defecto: Features `DOR; adopcion-ia; fase-1-diseño`; User Stories `DOR; adopcion-ia`.
+- **Tags: ninguno por defecto al crear** — Feature, HU y Bug se crean **sin** `System.Tags`. El catálogo real del proyecto tiene solo estos tags: `QA`, `QA_PDN`, `PDN`, `QA_NOVEDAD`, `QA_MEJORA`, `NO_QA`, `APROBADO PDN PO` (verificado contra la API el 2026-10-26). La identidad del MCP **no puede crear tags nuevos** (falla con `TF401289`): usar únicamente los del catálogo y solo cuando el flujo lo defina (p. ej. `QA` en el Paso 3 de `flit-gestion-hu`). Los antiguos `DOR` / `adopcion-ia` / `fase-1-diseño` **no existen** en el proyecto: no se escriben nunca.
 - **`System.Tags` con un tag nuevo va en petición aparte** — mezclarlo con otros campos falla con `TF401289` y tumba el patch completo.
 
 ### Paridad HU ↔ Bug (regla de proceso)
@@ -327,6 +330,7 @@ contra el proyecto real el 2026-08-22 sobre los Bugs #11518, #11599, #11604, #11
 |---|---|
 | Requerimiento informal → borrador canónico | skill `flit-intake` (+ [`docs/dominio.md`](docs/dominio.md)) |
 | Planear un flujo multi-fase | `orchestrator-agent` |
+| Decidir flujo local vs directo a DEV (Paso 0 de todo desarrollo) | skill `flit-flujo-local` |
 | Features, HUs, DoR/DoD, deuda técnica | `tech-lead-agent` |
 | Diseño técnico (slim\|full) | `architecture-agent` |
 | Diseño UX/UI (slim\|full\|omit) | `ux-agent` |
@@ -364,7 +368,8 @@ el hilo principal es quien encadena.
 | Momento | Disparador (sí → invocar) | Ejecutor | Si se omite |
 |---|---|---|---|
 | Pedido informal sin Feature/HU | No hay WI en ADO; «hay unos bugs» / «termina Siigo» sin IDs | `flit-intake` | Trabajo sin trazabilidad |
-| Alcance multi-fase / «por dónde empiezo» | Varias fases o duda de orden | `orchestrator-agent` (plan con Skill/Agent reales + ledger) | Fases saltadas / orquestación improvisada |
+| Paso 0 de todo desarrollo | Al arrancar un Feature/lote (antes de la primera rama) o al activar un WI suelto: decidir flujo local (merge retenido + sesión local con el humano) vs directo a DEV | **Skill** `flit-flujo-local` | Desarrollo que arranca sin la decisión / merge sin el OK humano de la sesión local / evidencias locales en Azure |
+| Alcance multi-fase / «por dónde empiezo» | Varias fases o duda de orden. **No aplica** en HU suelta ni en Feature único con modo auto (ese ciclo ya está enlatado en `flit-modo-desarrollo-auto`): es normal que no se invoque ahí | `orchestrator-agent` (plan con Skill/Agent reales + ledger) | Fases saltadas / orquestación improvisada |
 | ≥2 Features Active / varias sesiones en paralelo | Siigo + conciliación + comparendos a la vez; «retoma X» con Y también en vuelo | `orchestrator-agent` (bloque `DUEÑOS`) **antes de codear** | Deriva de alcance (un hilo codea el Feature del otro) |
 | Épica en el board sin Features / descomponer HUs / DoR | Planear o refinar backlog **a partir de la Épica** (se lee, no se redacta): Features hijos de la Épica, HUs hijas del Feature. **P9:** ronda de cierre contra código/spec **antes** de crear HUs; corte = ítems del pedido, no capas | `tech-lead-agent` | HUs mal cortadas / alcance descubierto en desarrollo / Features huérfanos sin Épica |
 | Retomar / «continúa» / «sigue con» un Feature | El Feature ya existía; la sesión es nueva o se reanudó | **Skill** `flit-modo-desarrollo-auto` **otra vez** (carga de hace horas no cuenta) | Ciclo de memoria / saltar gates |
@@ -373,7 +378,7 @@ el hilo principal es quien encadena.
 | Implementar `apps/api` | HU **o Bug** BACKEND, o diff en API/esquema/migración (**también la 1.ª HU / «solo esquema»**); tests de este WI (P1), no el directorio del módulo | `backend-agent` | Lógica fuera de patrón / HU codeada en el hilo |
 | Implementar `apps/web` | HU **o Bug** FRONTEND, o diff en páginas/componentes; E2E del spec por defecto | `frontend-agent` | 4 estados / permisos rotos |
 | Pre-PR (siempre, **cada** PR) | Antes de `create_pull_request` (aunque el humano diga «crea el PR»); `security-agent` **no** lo sustituye | **Skill** `flit-code-review` | PR sin checklist / veredicto inventado |
-| Pre-PR (calidad del WI) | Tras impl P1 y **antes** del PR (Gherkin, UI, BACKEND-only **o** corrección de Bug). Alcance = P1. Re-run propio; mutantes ≤3 (P2). FAIL → corregir **antes** de abrir el PR; **sin** Bug nuevo. El PR **es** el desarrollo verificado | `qa-agent` **modo B** (A si aún faltan TCs) | PR abierto sin verificación de AC / QA lanzado *después* del PR en paralelo al monitor |
+| Pre-PR (calidad del WI) | Tras impl P1 y **antes** del PR (Gherkin, UI, BACKEND-only **o** corrección de Bug). Alcance = P1. Re-run propio; mutantes condicionales: 0 por defecto, ≤3 solo con lógica condicional (P2). FAIL → corregir **antes** de abrir el PR; **sin** Bug nuevo. El PR **es** el desarrollo verificado | `qa-agent` **modo B** (A si aún faltan TCs) | PR abierto sin verificación de AC / QA lanzado *después* del PR en paralelo al monitor |
 | Pre-PR (ayuda in-app) | HU FRONTEND o Bug que cambia el comportamiento visible de un módulo **con ficha** en `apps/web/src/content/ayuda/` | **Skill** `flit-ayuda-flito` | PR sin delta de ayuda (gate duro). N/A (declarar, no bloquea): BACKEND-only, copy/a11y, CHORE/DOCS, Bug que no cambia lo que se ve/hace, módulos sin ficha aún |
 | Pre-PR (sensible) | Auth, PII, multer, rutas nuevas, `package*.json`, laft/privacy — modo **diff-scoped**; ∥ `db-review` si ambos aplican | `security-agent` | Riesgo de seguridad |
 | Pre-PR (esquema) | Toca `schema.ts` o `src/db/migrations/` — en paralelo con security si ambos aplican | `db-review-agent` | Drift / FKs / índices |
