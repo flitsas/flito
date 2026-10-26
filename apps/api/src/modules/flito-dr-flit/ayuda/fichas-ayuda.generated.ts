@@ -1249,8 +1249,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "users",
     "etiqueta": "Usuarios",
     "resumen": "Alta, edición, bloqueo y baja de las personas que entran a FLITO, con el historial de cambios.",
-    "version": "1.1",
-    "fecha": "2026-10-25",
+    "version": "1.2",
+    "fecha": "2026-10-26",
     "palabrasClave": [
       "usuarios",
       "gestión de usuarios",
@@ -1263,7 +1263,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       "cómo creo un usuario",
       "cómo le cambio la contraseña a un usuario",
       "cómo desactivo o doy de baja a un usuario",
-      "quién le cambió el rol a un usuario"
+      "quién le cambió el rol a un usuario",
+      "por qué no puedo darle a un usuario la función de eliminar clientes"
     ],
     "secciones": [
       {
@@ -1284,12 +1285,12 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "pasos",
         "titulo": "Pasos",
-        "texto": "Entre a Usuarios. En la pestaña Usuarios filtre por Rol y por Vista (En alta, Dados de baja o Todos); debajo, Usuarios por rol cuenta cuántos hay de cada rol y cuántos están activos e inactivos. Descargar Excel baja todas las coincidencias del filtro. Lista de usuarios demo con filtros, conteo por rol y acciones por fila Para crear a alguien pulse Nuevo usuario y complete Username (login), Nombre completo, Email (opcional), Contraseña (mínimo 8 caracteres con minúscula, mayúscula, número y un carácter especial) y Rol base; según el enlace del rol se pide la compañía, el proveedor o los organismos. Una compañía inactiva aparece con (Inactivo) y no se puede elegir; si el usuario ya estaba atado a una que se desactivó, el campo la conserva con esa marca y el resto del formulario se guarda igual. Debajo, Permisos de este usuario muestra lo que trae el rol y permite añadir o quitar excepciones. Pulse Crear usuario. Formulario Nuevo usuario vacío con los campos y los permisos que trae el rol En la fila de una persona, Editar cambia sus datos, su rol, su ámbito y sus excepciones de permisos, y Contraseña le asigna una nueva. Desactivar le impide entrar sin sacarla de la lista; Activar la devuelve. Usted no puede desactivarse ni darse de baja a sí mismo (su fila dice «(tú)»). Dar de baja la saca de la lista En alta; queda en Dados de baja, donde Reactivar la recupera. En la pestaña Historial filtre por Usuario, Recurso (Todos, Usuarios, Roles, Cuadro rol × función o Funciones por usuario) y fechas. Cada fila dice Cuándo, Quién, Qué y el Cambio (antes → después). Historial con dos cambios demo: una desactivación y un cambio de rol Diagrama del ciclo de un usuario: nuevo usuario activo, desactivar y activar, dar de baja y reactivar, con cada cambio en el historial Los permisos de cada rol se deciden en Roles y permisos. Aquí solo se añaden o quitan excepciones para una persona."
+        "texto": "Entre a Usuarios. En la pestaña Usuarios filtre por Rol y por Vista (En alta, Dados de baja o Todos); debajo, Usuarios por rol cuenta cuántos hay de cada rol y cuántos están activos e inactivos. Descargar Excel baja todas las coincidencias del filtro. Lista de usuarios demo con filtros, conteo por rol y acciones por fila Para crear a alguien pulse Nuevo usuario y complete Username (login), Nombre completo, Email (opcional), Contraseña (mínimo 8 caracteres con minúscula, mayúscula, número y un carácter especial) y Rol base; según el enlace del rol se pide la compañía, el proveedor o los organismos. Una compañía inactiva aparece con (Inactivo) y no se puede elegir; si el usuario ya estaba atado a una que se desactivó, el campo la conserva con esa marca y el resto del formulario se guarda igual. Debajo, Permisos de este usuario muestra lo que trae el rol y permite añadir o quitar excepciones. Pulse Crear usuario. Formulario Nuevo usuario vacío con los campos y los permisos que trae el rol En la fila de una persona, Editar cambia sus datos, su rol, su ámbito y sus excepciones de permisos, y Contraseña le asigna una nueva. Cuatro funciones son exclusivas del Administrador y no admiten excepción: Activar o desactivar clientes, Eliminar clientes, Activar o desactivar proveedores y Eliminar proveedores. En una persona con otro rol aparecen apagadas con la nota Exclusiva del Administrador: solo la tiene quien tiene ese rol.; en un Administrador, marcadas por el rol con Exclusiva del Administrador: la da su rol y no se puede quitar. Para que alguien las tenga, cámbiele el Rol base a Administrador. Desactivar le impide entrar sin sacarla de la lista; Activar la devuelve. Usted no puede desactivarse ni darse de baja a sí mismo (su fila dice «(tú)»). Dar de baja la saca de la lista En alta; queda en Dados de baja, donde Reactivar la recupera. En la pestaña Historial filtre por Usuario, Recurso (Todos, Usuarios, Roles, Cuadro rol × función o Funciones por usuario) y fechas. Cada fila dice Cuándo, Quién, Qué y el Cambio (antes → después). Historial con dos cambios demo: una desactivación y un cambio de rol Diagrama del ciclo de un usuario: nuevo usuario activo, desactivar y activar, dar de baja y reactivar, con cada cambio en el historial Los permisos de cada rol se deciden en Roles y permisos. Aquí solo se añaden o quitan excepciones para una persona."
       },
       {
         "ancla": "estados",
         "titulo": "Estados",
-        "texto": "Cargando: la tabla dice «Cargando...»; el historial, «Cargando el historial…». Error: «No se pudo cargar la lista de usuarios» con Reintentar; en la pestaña Historial, «No se pudo cargar el historial.». Vacío: «Sin usuarios» o, en Dados de baja, «Nadie dado de baja». El historial sin cambios dice que aparecerán a partir del primero. Lleno: la tabla con Usuario, Nombre, Email, Rol, Ámbito, Estado y Acciones; el historial, paginado."
+        "texto": "Cargando: la tabla dice «Cargando...»; el historial, «Cargando el historial…». Error: «No se pudo cargar la lista de usuarios» con Reintentar; en la pestaña Historial, «No se pudo cargar el historial.». Vacío: «Sin usuarios» o, en Dados de baja, «Nadie dado de baja». El historial sin cambios dice que aparecerán a partir del primero. No se guardó: si al guardar FLITO rechaza una función exclusiva del Administrador (por ejemplo, porque otra persona cambió el rol mientras tanto), el cuadro lo dice con el nombre de la función, le pide cerrar y volver a abrir el usuario, y conserva lo que usted cambió. Lleno: la tabla con Usuario, Nombre, Email, Rol, Ámbito, Estado y Acciones; el historial, paginado."
       },
       {
         "ancla": "que-no-hace",

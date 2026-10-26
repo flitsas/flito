@@ -325,13 +325,31 @@ export interface Aviso409 { texto: string; nodo: string | null }
 /** Notas de la fila de una exclusiva (HU #13951): empiezan siempre por el literal del AC. */
 export const NOTA_EXCLUSIVA_OTRO_ROL = 'Exclusiva del Administrador: no se puede dar a otro rol.';
 export const NOTA_EXCLUSIVA_ADMIN = 'Exclusiva del Administrador: este rol siempre la tiene.';
-export const notaExclusiva = (trato: TratoExclusivas) => (trato === 'fija' ? NOTA_EXCLUSIVA_ADMIN : NOTA_EXCLUSIVA_OTRO_ROL);
+/** HU #13970: las mismas notas en los permisos individuales de un usuario (modo usuario). */
+export const NOTA_EXCLUSIVA_USUARIO = 'Exclusiva del Administrador: solo la tiene quien tiene ese rol.';
+export const NOTA_EXCLUSIVA_USUARIO_ADMIN = 'Exclusiva del Administrador: la da su rol y no se puede quitar.';
+export const notaExclusiva = (trato: TratoExclusivas, modo: 'rol' | 'usuario' = 'rol') => (modo === 'usuario'
+  ? (trato === 'fija' ? NOTA_EXCLUSIVA_USUARIO_ADMIN : NOTA_EXCLUSIVA_USUARIO)
+  : (trato === 'fija' ? NOTA_EXCLUSIVA_ADMIN : NOTA_EXCLUSIVA_OTRO_ROL));
 
-/** 409 `FuncionExclusivaAdmin` con el nombre resuelto (HU #13951). Nunca el texto del API. */
-export function aviso409Exclusiva(nombre: string, trato: TratoExclusivas): string {
-  const medio = trato === 'fija'
-    ? `«${nombre}» es exclusiva del Administrador y este rol no la puede perder. Vuelve a marcarla y guarda de nuevo.`
-    : `«${nombre}» es exclusiva del Administrador y no se puede dar a otro rol. Desmárcala y vuelve a guardar.`;
+/** Las excepciones de un usuario sin las que tocan exclusivas (HU #13970): no son asignables ni quitables. */
+export function sinExclusivas<T extends { codigo: string }>(lista: readonly T[], indice: Indice): T[] {
+  return lista.filter((f) => !indice.porCodigo.get(f.codigo)?.exclusivaAdmin);
+}
+
+/** 409 `FuncionExclusivaAdmin` con el nombre resuelto (HU #13951; modo usuario HU #13970). Nunca el texto del API. */
+export function aviso409Exclusiva(nombre: string, trato: TratoExclusivas, modo: 'rol' | 'usuario' = 'rol'): string {
+  const alDia = 'Cierra y vuelve a abrir el usuario para ver sus permisos al día.';
+  let medio: string;
+  if (modo === 'usuario') {
+    medio = trato === 'fija'
+      ? `«${nombre}» es exclusiva del Administrador y este usuario la tiene por su rol: no se puede quitar. ${alDia}`
+      : `«${nombre}» es exclusiva del Administrador y no se puede dar a este usuario. ${alDia}`;
+  } else {
+    medio = trato === 'fija'
+      ? `«${nombre}» es exclusiva del Administrador y este rol no la puede perder. Vuelve a marcarla y guarda de nuevo.`
+      : `«${nombre}» es exclusiva del Administrador y no se puede dar a otro rol. Desmárcala y vuelve a guardar.`;
+  }
   return `No se guardó: ${medio} ${FIN_409}`;
 }
 
@@ -346,7 +364,7 @@ export function aviso409(
   const codigo = [cuerpo.nodo, cuerpo.funcion].find((c) => c && indice.porCodigo.has(c)) ?? null;
   const nombre = codigo ? indice.porCodigo.get(codigo)?.nombre : null;
   if (codigo && nombre && trato && indice.porCodigo.get(codigo)?.exclusivaAdmin) {
-    return { texto: aviso409Exclusiva(nombre, trato), nodo: codigo };
+    return { texto: aviso409Exclusiva(nombre, trato, modo), nodo: codigo };
   }
   if (!codigo || !nombre) {
     const donde = modo === 'rol' ? 'en este rol' : 'a este usuario';

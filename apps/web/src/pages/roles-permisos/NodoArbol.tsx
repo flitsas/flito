@@ -115,8 +115,8 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
   const tieneHijos = nodo.hijos.length > 0;
   const abierto = tieneHijos && ctx.abiertos.has(nodo.codigo);
   const marcado = marcados.has(nodo.codigo);
-  // HU #13951: trato de las exclusivas del Administrador; solo en el panel de un rol.
-  const trato = modo.tipo === 'rol' ? ctx.exclusivas : undefined;
+  // HU #13951: trato de las exclusivas del Administrador (panel del rol; HU #13970 también el del usuario).
+  const trato = ctx.exclusivas;
   const exclusiva = trato !== undefined && nodo.exclusivaAdmin === true;
   const estado = estadoDe(nodo, marcados, trato);
   const hoja = esHoja(nodo, trato);
@@ -197,7 +197,7 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
           </div>
           {nodo.descripcion && <p id={id('desc')} className="ml-8 text-sm" style={SECUNDARIO}>{nodo.descripcion}</p>}
           {exclusiva && trato && (
-            <p id={id('excl')} className="ml-8 break-words text-sm" style={SECUNDARIO} data-aviso="exclusiva-admin">{notaExclusiva(trato)}</p>
+            <p id={id('excl')} className="ml-8 break-words text-sm" style={SECUNDARIO} data-aviso="exclusiva-admin">{notaExclusiva(trato, modo.tipo)}</p>
           )}
           {faltante && <p id={id('sinefecto')} className="ml-8 text-sm" style={SECUNDARIO}>{fraseSinEfecto(faltante.nombre)}</p>}
           {conSinAcciones && (
