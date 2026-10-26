@@ -81,11 +81,18 @@ GitHub mismo no deja mergear (permisos, branch protection, `action_required`).
 
 | Check | Gate de merge | Nota |
 |---|---|---|
-| `build + test` | **Sí** | shared-types + hooks + contraste + build/test API + build web + bundle budget |
+| `build + test` | **Sí** | **agregador** (desde #636): verde solo si `checks`, los 4 `test api (shard N/4)`, `build api` y `build web` lo están. Si está rojo, el job real que falló es uno de esos: leer **su** log, no el del agregador |
+| `checks` | vía agregador | shared-types + hooks + contraste + gates de UI (`check:ui`) |
+| `test api (shard 1/4 … 4/4)` | vía agregador | suite API repartida en 4 jobs paralelos |
+| `build api` / `build web` | vía agregador | `tsc` del API · typecheck + vite + bundle budget |
 | `dependency-audit` | **Sí** | `npm audit` de dependencias de producción |
 | `secret-scan` | **Sí** | gitleaks |
 | `naming` | **Sí** | rama, título y trazabilidad HU/Bug. **Solo corre en PRs** |
+| `pr-gates` | **Sí** | veredictos pre-PR declarados en el cuerpo (`## Gates pre-PR`). **Solo PRs HU/BUG.** Lee el cuerpo **del evento**: editar el cuerpo no relanza el check y un re-run usa el payload viejo → hace falta un evento nuevo (push o cerrar/reabrir) |
 | `lint` | Sí, si corre | ESLint (`max-lines` 800 + react-hooks) |
+| `e2e · visor PDF real` | No (informativo) | Playwright con el visor de PDF real |
+
+Duración medida 2026-10-26: el CI cierra en **5–15 min** según la carga de los shards.
 
 `concurrency: cancel-in-progress` está activo por ref: un run **`cancelled`** porque llegó un push
 posterior o por merges en ráfaga **no es un fallo** — el gate es el run del HEAD actual. Nunca
