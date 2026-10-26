@@ -810,6 +810,8 @@ export const CLIENTES_FICHA_DEMO = [
   id: 901 + i, name: EMPRESAS_DEMO[i], document: N[i], documentType: 'NIT',
   phone: DATOS_DEMO.telefonos[i], email: i < 2 ? DATOS_DEMO.correos[i + 1] : null, address: null,
   city: ['Manizales', 'Pereira', 'Bogotá'][i],
+  // HU #13948: una compañía inactiva para que la captura muestre los dos chips de Estado.
+  active: i !== 1,
   soatAutogestionable: i === 1, impuestosAutogestionable: false, logisticaAutogestionable: i === 2, logisticaPermiteParcial: i === 0,
   ...canal,
 }));

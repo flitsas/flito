@@ -38,6 +38,10 @@ import {
 // tiene dos pestañas, un modal y dos formularios, y no cabe más sin acercarse al techo de 800.
 import FichaFiscal, { ChipFacturable } from '../components/clientes/FichaFiscal';
 import type { VeredictoCliente } from '../components/clientes/tipos';
+// Estado activo/inactivo y su filtro (HU #13948): piezas compartidas con Proveedores (#13961).
+import {
+  FiltroEstadoPills, ChipEstado, PieConteo, VacioFiltro, filtrarPorEstado, type FiltroEstado,
+} from '../components/clientes/EstadoRegistro';
 // El catálogo de gestores de SOAT y su selector con los cuatro estados (HU #12053). Se REUTILIZA y
 // no se copia: `ProveedorSoatField` ya resuelve el caso que aquí también hace falta —reinyectar el
 // gestor asignado aunque esté desactivado, para que guardar otra cosa no se lo quite a la compañía
@@ -49,13 +53,14 @@ import { useProveedoresSoat, type CatalogoProveedores } from './users/AtaduraFie
 // contacto se administran en el mismo sitio.
 //
 // Esta interfaz describe lo que `GET /clients` ENTREGA, que ya no es la fila completa sino las 26
-// columnas de `COLUMNAS_LISTADO` (`clients.pii.ts`). `notes` y `active` estaban declarados aquí sin
-// que nadie los leyera; quedarse con ellos sería prometer en el tipo dos campos que la respuesta no
-// trae — y `notes` es texto libre que no debe viajar en un listado de 500 fichas.
+// columnas de `COLUMNAS_LISTADO` (`clients.pii.ts`). `notes` no está: es texto libre que no debe
+// viajar en un listado de 500 fichas. `active` sí (HU #13948): la tabla lo pinta y filtra por él.
 interface Client {
   id: number; name: string; document: string | null; documentType: string | null;
   phone: string | null; email: string | null; address: string | null;
   city: string | null;
+  /** HU #13948: el listado ya no trae eliminados; `false` = inactivo. */
+  active: boolean;
   soatAutogestionable: boolean; impuestosAutogestionable: boolean; logisticaAutogestionable: boolean;
   /**
    * A qué gestor salen las solicitudes de ese canal, ya RESUELTO por `GET /clients` (HU #12079).
@@ -133,7 +138,14 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
   // el flag persiste, y si la recarga falla el admin no puede distinguir «se perdió lo que marqué»
   // de «no cargó».
   const [clients, setClients] = useState<Client[] | null>(null);
-  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  // Bandera y no el mensaje: el error crudo del API no se pinta (AC5); el copy es fijo.
+  const [errorCarga, setErrorCarga] = useState(false);
+  // En estado del componente, no en la URL: al cambiar de pestaña y volver, vuelve a «Todos».
+  const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos');
+  const visibles = useMemo(
+    () => (clients ? filtrarPorEstado(clients, filtroEstado, (c) => c.active) : []),
+    [clients, filtroEstado],
+  );
   const [showForm, setShowForm] = useState(false);
   const [fiscalDe, setFiscalDe] = useState<Client | null>(null);
   const [canalDe, setCanalDe] = useState<Client | null>(null);
@@ -150,8 +162,8 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
   const proveedores = useProveedoresSoat(editaSinTramite);
 
   const load = () => {
-    setClients(null); setErrorCarga(null);
-    api.get<Client[]>('/clients').then(setClients).catch((err) => setErrorCarga(errorMessage(err)));
+    setClients(null); setErrorCarga(false);
+    api.get<Client[]>('/clients').then(setClients).catch(() => setErrorCarga(true));
   };
 
   // Quién puede facturarse y quién no (AC5). Se pide aparte del listado: un fallo del informe no
@@ -240,16 +252,23 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
       <FlitCard>
         {errorCarga ? (
           <div className="flex flex-wrap items-center gap-3">
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{errorCarga}</p>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={load}>Reintentar</button>
+            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>No pudimos cargar los clientes.</p>
+            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={load}>Reintentar</button>
           </div>
         ) : clients === null ? (
           <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando compañías…</p>
-        ) : clients.length === 0 ? <FlitEmpty>No hay clientes.</FlitEmpty> : (
+        ) : clients.length === 0 ? (
+          // Vacío total: filtro y pie ocultos (filtrar una lista vacía no ayuda).
+          <FlitEmpty>No hay clientes.{editaAutogestion && ' Cree el primero con «Nuevo cliente».'}</FlitEmpty>
+        ) : (<>
+          <div className="mb-3"><FiltroEstadoPills valor={filtroEstado} onCambio={setFiltroEstado} /></div>
+          {visibles.length === 0 ? <VacioFiltro onVerTodos={() => setFiltroEstado('todos')} /> : (
           <FlitTable>
             <thead>
               <FlitTr>
                 <FlitTh>Empresa</FlitTh>
+                {/* Identificador + estado siempre visibles: el estado va justo tras «Empresa». */}
+                <FlitTh>Estado</FlitTh>
                 <FlitTh>Documento</FlitTh>
                 <FlitTh>Ciudad</FlitTh>
                 <FlitTh>Teléfono</FlitTh>
@@ -266,9 +285,10 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
               </FlitTr>
             </thead>
             <tbody>
-              {clients.map((c) => (
+              {visibles.map((c) => (
                 <FlitTr key={c.id}>
                   <td className="px-3 py-2 font-medium" style={{ color: 'var(--flit-text-primary)' }}>{c.name}</td>
+                  <td className="px-3 py-2"><ChipEstado activo={c.active} /></td>
                   <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.documentType ?? 'NIT'} {c.document || '—'}</td>
                   <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.city || '—'}</td>
                   <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.phone || '—'}</td>
@@ -293,7 +313,9 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
               ))}
             </tbody>
           </FlitTable>
-        )}
+          )}
+          <PieConteo visibles={visibles.length} total={clients.length} />
+        </>)}
         {editaAutogestion && (
           <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
             Marca «SOAT», «Impuestos» o «Logística» cuando FLITO gestiona ese servicio para la compañía; desmarcado, la compañía lo hace por su cuenta.
