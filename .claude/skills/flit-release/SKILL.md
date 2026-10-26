@@ -57,7 +57,7 @@ Todo lo del Modo A, **más**:
 ## Rollback
 - [ ] Revert del merge commit: `git revert -m 1 <merge_sha>` sobre la rama de ambiente
 - [ ] BD: ¿este release aplica migraciones? Listarlas y confirmar que son aditivas (no destructivas). Una migración destructiva exige plan de rollback de datos aparte, aprobado por el Líder Técnico
-- [ ] PDN (Docker): redeploy del tag `sha-<anterior>` inmutable — lo ejecuta M3 del `devops-agent` con autorización (PDN despliega tags inmutables; `ecosystem.config.cjs`/PM2 es legacy)
+- [ ] Despliegue (GitOps, los tres ambientes): revert del commit de despliegue en `flit-gitops` (Argo CD vuelve al digest anterior; PDN usa tags `sha-<commit>` inmutables) — lo ejecuta M3 del `devops-agent` con autorización. Las migraciones las aplica el initContainer `db-apply`: revertir el código **no** revierte el esquema (`pg_dump` previo)
 - [ ] Verificación post-rollback: M1 del `devops-agent` sobre el ambiente afectado
 ```
 
