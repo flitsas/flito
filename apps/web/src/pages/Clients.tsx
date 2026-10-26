@@ -48,6 +48,8 @@ import {
 // Menú ⋮ de la fila y diálogo de desactivar / activar (HU #13949): genéricos, Proveedores los reusa.
 import { MenuFila } from '../components/flit/MenuFila';
 import { DialogoEstadoRegistro, type ImpactoEstado } from '../components/clientes/DialogoEstadoRegistro';
+// HU #13956: «Eliminar» en el mismo ⋮ (impacto al abrir el menú, diálogo y toasts).
+import { useEliminarCliente } from '../components/clientes/useEliminarCliente';
 // El catálogo de gestores de SOAT y su selector con los cuatro estados (HU #12053). Se REUTILIZA y
 // no se copia: `ProveedorSoatField` ya resuelve el caso que aquí también hace falta —reinyectar el
 // gestor asignado aunque esté desactivado, para que guardar otra cosa no se lo quite a la compañía
@@ -195,11 +197,21 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas, editaEstado
     api.get<Client[]>('/clients').then(setClients).catch(() => setErrorCarga(true));
   };
 
-  const opcionesFila = (c: Client) => (editaEstado
-    ? [c.active
-      ? { id: 'desactivar', texto: 'Desactivar', onElegir: () => setEstadoDe({ c, accion: 'desactivar' }) }
-      : { id: 'activar', texto: 'Activar', onElegir: () => setEstadoDe({ c, accion: 'activar' }) }]
-    : []);
+  const eliminar = useEliminarCliente<Client>({
+    // La fila sale con la respuesta 2xx (de todos los filtros) y la recarga confirma el resto.
+    onEliminado: (c) => { setClients((prev) => (prev ?? []).filter((x) => x.id !== c.id)); recargar(); },
+    onDesactualizado: recargar,
+    restoreFocusRef: refRespaldoFoco,
+  });
+
+  const opcionesFila = (c: Client) => [
+    ...(editaEstado
+      ? [c.active
+        ? { id: 'desactivar', texto: 'Desactivar', onElegir: () => setEstadoDe({ c, accion: 'desactivar' }) }
+        : { id: 'activar', texto: 'Activar', onElegir: () => setEstadoDe({ c, accion: 'activar' }) }]
+      : []),
+    ...eliminar.opciones(c),
+  ];
 
   // Quién puede facturarse y quién no (AC5). Se pide aparte del listado: un fallo del informe no
   // puede dejar sin pantalla de clientes a quien solo venía a mirar una tarifa.
@@ -356,7 +368,7 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas, editaEstado
                       <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                         aria-label={`Datos fiscales de ${c.name}`}
                         onClick={() => setFiscalDe(c)}>Datos fiscales</button>
-                      <MenuFila etiqueta={`Acciones de ${c.name}`} opciones={opcionesFila(c)} />
+                      <MenuFila etiqueta={`Acciones de ${c.name}`} opciones={opcionesFila(c)} onAbrir={() => eliminar.comprobar(c)} />
                     </div>
                   </td>
                 </FlitTr>
@@ -414,6 +426,8 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas, editaEstado
           restoreFocusRef={refRespaldoFoco}
         />
       )}
+
+      {eliminar.dialogo}
 
       {canalDe && (
         <ModalCanalSoat
