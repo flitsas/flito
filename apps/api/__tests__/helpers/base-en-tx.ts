@@ -33,6 +33,32 @@ export async function enTx<T>(sql: postgres.Sql, fn: (tx: postgres.TransactionSq
   return salida;
 }
 
+/**
+ * HU #13911 (migración 0266): los seis libros viejos de bolsas salieron de `public` a `archivo_bolsas`.
+ * Las pruebas de las migraciones que los LEEN (0250, 0257, 0266) los necesitan en `public`: esto los
+ * devuelve allí DENTRO de la transacción —es el mismo paso del rollback del runbook— y el ROLLBACK de
+ * `enTx` los deja otra vez en el archivo. En una base sin la 0266 aplicada no hace nada.
+ */
+export const LIBROS_VIEJOS_BOLSAS = [
+  'flito_bolsas', 'flito_bolsa_movimientos', 'flito_bolsa_cierres',
+  'flito_bolsas_transito', 'flito_bolsa_transito_cobertura', 'flito_bolsa_transito_movimientos',
+] as const;
+
+export async function librosViejosEnPublic(tx: postgres.TransactionSql): Promise<void> {
+  for (const t of LIBROS_VIEJOS_BOLSAS) {
+    const [f] = await tx`SELECT to_regclass(${`public.${t}`}) IS NULL AS falta,
+                                to_regclass(${`archivo_bolsas.${t}`}) IS NOT NULL AS archivada`;
+    if (f!.falta && f!.archivada) await tx.unsafe(`ALTER TABLE archivo_bolsas.${t} SET SCHEMA public`);
+  }
+}
+
+/** `enTx` con los libros viejos de bolsas en `public` (ver `librosViejosEnPublic`). */
+export async function enTxLibrosViejos<T>(
+  sql: postgres.Sql, fn: (tx: postgres.TransactionSql) => Promise<T>,
+): Promise<T> {
+  return enTx(sql, async (tx) => { await librosViejosEnPublic(tx); return fn(tx); });
+}
+
 /** El DDL de la 0110, para poder desdoblar en una base que ya aplicó la 0182 (la tabla vieja no existe). */
 export const DDL_0110 = `
 CREATE TABLE IF NOT EXISTS flito_tarifas_compania (

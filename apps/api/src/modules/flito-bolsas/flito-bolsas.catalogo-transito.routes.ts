@@ -10,8 +10,8 @@
 // el código LITERAL de `exigirFuncion` por fichero + método + ruta y falla ante una guarda resuelta en tiempo
 // de petición; en un fichero propio las rutas homónimas tienen llave distinta.
 //
-// Gestión de FLIT solamente: `soloSinEnlace()` en todas (AC8). Las rutas antiguas `/transito/…` siguen vivas
-// hasta la HU #13911.
+// Gestión de FLIT solamente: `soloSinEnlace()` en todas (AC8). Las rutas antiguas `/transito/…` las retiró
+// la HU #13911 (404 en `flito-bolsas.routes.ts`).
 
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
@@ -56,7 +56,7 @@ function bolsaDe(res: Response): BolsaGuarda {
   return res.locals.bolsa as BolsaGuarda;
 }
 
-/** Handlers de las rutas antiguas `/transito/*` que las rutas por bolsa reutilizan tal cual (HU #13907). */
+/** Handlers de `flito-bolsas.routes.ts` que las rutas por bolsa reutilizan (HU #13907; antes servían `/transito/…`). */
 export interface DelegadosTransito {
   recibirSoporte: RequestHandler;
   registrarCarga: RequestHandler;
