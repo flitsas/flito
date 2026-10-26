@@ -1,6 +1,6 @@
 // HU #13430 — Lo que comparten todas las filas del árbol de permisos (sin pasarlo nivel a nivel).
 import { createContext, useContext } from 'react';
-import type { Efecto, Indice } from './arbol';
+import type { Efecto, Indice, TratoExclusivas } from './arbol';
 
 export type ModoArbol =
   | { tipo: 'rol'; rolNombre: string }
@@ -35,6 +35,11 @@ export interface ContextoArbol {
   cerrados?: ReadonlyMap<string, string>;
   /** La nota de una línea del ítem cerrado; solo con `cerrados` no vacío. */
   notaCerrado?: string;
+  /**
+   * HU #13951: trato de las funciones exclusivas del Administrador. `fuera` = otro rol (bloqueadas
+   * desmarcadas, no cuentan), `fija` = el Administrador (bloqueadas marcadas). Ausente en modo usuario.
+   */
+  exclusivas?: TratoExclusivas;
 }
 
 export const ArbolCtx = createContext<ContextoArbol | null>(null);
