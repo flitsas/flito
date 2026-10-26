@@ -1160,8 +1160,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     // Pasos 1 a 3 — Clientes con su autogestión.
     await capturar(page, dir, '01-clientes');
 
-    // Paso 4 — SOAT sin trámite: canal y gestor por defecto.
-    await page.getByRole('button', { name: new RegExp(`^SOAT sin trámite de ${EMPRESAS_DEMO[0]}`) }).click();
+    // Paso 4 — SOAT sin trámite: el proveedor de la compañía, con el aviso del permiso sin efecto.
+    await page.getByRole('button', { name: new RegExp(`^SOAT sin trámite de ${EMPRESAS_DEMO[2]}`) }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await capturar(page, dir, '02-soat-sin-tramite', page.getByRole('dialog'));
     await page.keyboard.press('Escape');

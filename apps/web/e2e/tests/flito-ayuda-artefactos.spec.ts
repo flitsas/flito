@@ -295,7 +295,8 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // exactas, capturas citadas en orden con alt y ≤ 200 KB, diagrama SVG con alt o ninguno). Tablero y Bitácora
   // son de solo lectura y de tres pasos o menos: sin diagrama.
   const SOAT_13771: Record<string, { version: string; capturas: string[]; diagrama: string | null; fecha?: string }> = {
-    soat: { version: '1.2', diagrama: 'ciclo-soat.svg', capturas: [
+    // HU #13968: SOAT sin trámite por proveedor (soat y clients cambiaron de nuevo).
+    soat: { version: '1.3', fecha: '2026-10-25', diagrama: 'ciclo-soat.svg', capturas: [
       '01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png'] },
     flito_tramites: { version: '1.2', diagrama: 'camino-a-entregar.svg', capturas: [
       '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-seleccion.png', '04-documentos-del-zip.png'] },
@@ -305,7 +306,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     flito_comparendos: { version: '1.2', diagrama: 'ciclo-monitoreo.svg', capturas: [
       '01-registros.png', '02-detalle.png', '03-sincronizacion.png', '04-configuracion.png'] },
     // HU #13935: la ficha de Clientes cambió después (checks «FLITO gestiona»).
-    clients: { version: '1.4', fecha: '2026-10-24', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
+    clients: { version: '1.5', fecha: '2026-10-25', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
       '01-clientes.png', '02-soat-sin-tramite.png', '03-proveedores.png'] },
     flito_tablero: { version: '1.2', diagrama: null, capturas: ['01-indicadores-y-alertas.png', '02-por-estado.png'] },
   };
