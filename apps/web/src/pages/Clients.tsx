@@ -56,6 +56,7 @@ import TabProveedores from '../components/clientes/TabProveedores';
 // gestor asignado aunque esté desactivado, para que guardar otra cosa no se lo quite a la compañía
 // por la espalda— y su copy vive junto al de Usuarios.
 import FlitSelect from '../components/flit/FlitSelect';
+import { opcionesConEstado } from '../components/flit/opcionesConEstado';
 import { useProveedoresSoat, type CatalogoProveedores } from './users/AtaduraFields';
 
 // Un cliente ES una compañía FLITO: misma tabla. Por eso la autogestión, las tarifas y los datos de
@@ -554,18 +555,20 @@ function ModalCanalSoat({ cliente, proveedores, onClose, onGuardado }: {
   const sinEfecto = cliente.permisoSinTramiteSinEfecto === true;
 
   /**
-   * Los ACTIVOS más el asignado actual si ya no lo está. Filtrar por `activo` a secas dejaría el
-   * `<select>` en «Sin proveedor» y **guardar sin tocar le quitaría el proveedor por la espalda**.
+   * HU #13963: todo el catálogo (los eliminados el API ya no los devuelve), con los inactivos en
+   * gris, «Inactivo» y sin poder elegirse (`opcionesConEstado`, HU #13950). El asignado actual se
+   * conserva aunque esté inactivo —o aunque ya no venga en el catálogo—: vaciarlo haría que **guardar
+   * sin tocar le quitara el proveedor por la espalda** (AC4).
    */
   const ofrecidos = useMemo(() => {
-    const activos = (data ?? []).filter((p) => p.activo);
+    const catalogo = data ?? [];
     const asignado = cliente.gestorSoatSinTramite;
-    return asignado && !activos.some((p) => p.id === asignado.id)
-      ? [...activos, { id: asignado.id, nombre: asignado.nombre, activo: asignado.activo }]
-      : activos;
+    return asignado && !catalogo.some((p) => p.id === asignado.id)
+      ? [...catalogo, { id: asignado.id, nombre: asignado.nombre, activo: asignado.activo }]
+      : catalogo;
   }, [data, cliente.gestorSoatSinTramite]);
 
-  const vacio = data !== null && ofrecidos.length === 0;
+  const vacio = data !== null && !ofrecidos.some((p) => p.activo || p.id === actual);
   const mensaje = errorCarga ? PROVEEDOR_ERROR : cargando ? PROVEEDOR_CARGANDO : vacio ? PROVEEDOR_VACIO : null;
   const selectorInutil = cargando || vacio || !!errorCarga;
 
@@ -609,10 +612,7 @@ function ModalCanalSoat({ cliente, proveedores, onClose, onGuardado }: {
           label={PROVEEDOR_LABEL}
           value={proveedorId}
           onChange={(v) => { setProveedorId(v); setErrorServidor(null); }}
-          opciones={[
-            { valor: '', etiqueta: PROVEEDOR_NINGUNO },
-            ...ofrecidos.map((p) => ({ valor: p.id, etiqueta: p.nombre, ...(p.activo ? {} : { nota: 'inactivo' }) })),
-          ]}
+          opciones={opcionesConEstado(ofrecidos, data ? proveedorId : '', { placeholder: PROVEEDOR_NINGUNO })}
           ayuda={PROVEEDOR_AYUDA}
           mensaje={mensaje}
           fallo={!!errorCarga}
