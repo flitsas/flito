@@ -61,7 +61,7 @@ async function sembrar(tx: postgres.TransactionSql) {
   // Liquidaciones: 1 liquidada (cuenta) y 1 facturada (no).
   await tx`INSERT INTO flito_liquidaciones (tramite_id, estado, total, base_gmf, valor_gmf) VALUES (${t3}, 'liquidado', 0, 0, 0)`;
   await tx`INSERT INTO flito_liquidaciones (tramite_id, estado, total, base_gmf, valor_gmf, facturado_en) VALUES (${t4}, 'facturado', 0, 0, 0, now())`;
-  await tx`INSERT INTO flito_bolsas (compania_id, saldo) VALUES (${id}, 250000.75)`;
+  await tx`INSERT INTO flito_bolsas_unicas (alcance, compania_id, saldo) VALUES ('compania', ${id}, 250000.75)`;
   // Usuarios: 2 de la compañía (uno inactivo por su cuenta), 1 dado de baja (no cuenta), 1 de otra compañía.
   const [rol] = await tx`SELECT codigo FROM permisos_roles ORDER BY codigo LIMIT 1`;
   const usuario = async (n: string, compania: number, extra: { active?: boolean; baja?: boolean } = {}) =>

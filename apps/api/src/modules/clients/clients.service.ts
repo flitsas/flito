@@ -5,8 +5,9 @@
 //   · RN-CLI-1 — Impacto (solo lectura): procesos ABIERTOS de la compañía en los módulos FLITO, por `compania_id`:
 //       SOAT con `estado <> 'pagado'`; impuestos con `estado <> 'pagado'`; trámites con `estado = 'asignado'` (NULL no
 //       cuenta); liquidaciones con `estado = 'liquidado'` de trámites de la compañía. Las tablas legacy `tramites`/`soat`,
-//       comparendos, derechos y actas de logística NO cuentan. Saldo = el de la bolsa única (`flito_bolsas`,
-//       `compania_id UNIQUE`; sin bolsa → 0). `usuariosAfectados` = usuarios con esa compañía y sin baja lógica.
+//       comparendos, derechos y actas de logística NO cuentan. Saldo = el de la bolsa única de la compañía
+//       (`flito_bolsas_unicas` con `alcance = 'compania'`, 1:1 por `uq_flito_bolsas_unicas_compania`; sin bolsa → 0;
+//       HU #13911 retiró el libro viejo `flito_bolsas`). `usuariosAfectados` = usuarios con esa compañía y sin baja lógica.
 //   · RN-CLI-2 — Cambio de estado OPTIMISTA: `UPDATE … WHERE id = :id AND active = :activoEsperado`. 0 filas → el
 //       cliente no existe (404) o ya tiene otro estado (409, otro administrador se adelantó).
 //   · RN-CLI-3 — Desactivar invalida, en la MISMA transacción, las sesiones de los usuarios de la compañía
@@ -22,7 +23,7 @@
 //   · RN-CLI-10 (HU #13954, Feature #13943) — Eliminar = baja LÓGICA (`deleted_at`/`deleted_by` de la 0257), nunca
 //       DELETE. Condiciones EN ORDEN (el primer motivo que falla es el que se informa, también en el impacto):
 //       1) inactivo; 2) sin procesos abiertos (predicado de RN-CLI-1); 3) saldo de la bolsa = 0 (negativo también
-//       impide). Una sola transacción: `FOR UPDATE` sobre la fila de `clients` y luego sobre la de `flito_bolsas`
+//       impide). Una sola transacción: `FOR UPDATE` sobre la fila de `clients` y luego sobre la de `flito_bolsas_unicas`
 //       (mismo orden que los movimientos de bolsa, que leen el cliente antes que la bolsa), y las condiciones se
 //       evalúan DESPUÉS de los bloqueos (un movimiento confirmado antes del bloqueo cuenta). Los usuarios de la
 //       compañía quedan de baja permanente con el mecanismo de la HU #12089 (`deleted_at`, `deleted_by`,
@@ -32,12 +33,16 @@
 import { and, count, eq, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoBolsas, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTramites, users,
+  clients, flitoBolsasUnicas, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTramites, users,
 } from '../../db/schema.js';
 import { liberarTramitesRetenidos } from '../flito-sync/liberar-retenidos.js';
 import { conSeguroAntiBloqueo } from '../../shared/permisos-anti-bloqueo.js';
 import { registrarCambiosPermisos, type ActorAuditoria } from '../../shared/historial/permisos-auditoria.js';
 import { clienteVigente } from './cliente-operable.js';
+
+/** La bolsa de la compañía en el modelo único (1:1 con `alcance = 'compania'`, ADR-0029 D1). */
+const bolsaDeCompania = (companiaId: number) =>
+  and(eq(flitoBolsasUnicas.alcance, 'compania'), eq(flitoBolsasUnicas.companiaId, companiaId));
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /** La conexión o una transacción abierta: el impacto se puede leer en cualquiera de las dos. */
@@ -150,7 +155,7 @@ export async function impactoCliente(tx: Ejecutor, id: number): Promise<ImpactoC
     tx.select({ total: count() }).from(flitoLiquidaciones)
       .innerJoin(flitoTramites, eq(flitoTramites.id, flitoLiquidaciones.tramiteId))
       .where(and(eq(flitoTramites.companiaId, id), eq(flitoLiquidaciones.estado, 'liquidado'))),
-    tx.select({ saldo: flitoBolsas.saldo }).from(flitoBolsas).where(eq(flitoBolsas.companiaId, id)).limit(1),
+    tx.select({ saldo: flitoBolsasUnicas.saldo }).from(flitoBolsasUnicas).where(bolsaDeCompania(id)).limit(1),
     tx.select({ total: count() }).from(users).where(and(eq(users.companiaId, id), isNull(users.deletedAt))),
   ]);
 
@@ -237,7 +242,7 @@ export async function eliminarCliente(id: number, actor: ActorAuditoria): Promis
       .where(eq(clients.id, id)).limit(1).for('update');
     if (!cliente) throw new ClienteNoEncontradoError();
     if (cliente.deletedAt != null) throw new EstadoClienteCambiadoError();
-    await tx.select({ id: flitoBolsas.id }).from(flitoBolsas).where(eq(flitoBolsas.companiaId, id)).for('update');
+    await tx.select({ id: flitoBolsasUnicas.id }).from(flitoBolsasUnicas).where(bolsaDeCompania(id)).for('update');
 
     // Las condiciones, DESPUÉS de los bloqueos: ven lo confirmado hasta aquí (AC9).
     const impacto = await impactoCliente(tx, id);
