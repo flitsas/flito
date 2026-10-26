@@ -62,10 +62,14 @@ const GESTOR = '55555555-5555-4555-8555-555555555555';
 /** Uniones registradas: tabla unida, tipo de unión y condición `ON` en crudo. */
 const uniones: { tipo: 'leftJoin' | 'innerJoin'; tabla: unknown; on: unknown }[] = [];
 
+/** Condiciones `WHERE` registradas, en crudo (HU #13948: el filtro de eliminados se espía). */
+const filtros: unknown[] = [];
+
 beforeEach(() => {
   selectMock.mockReset();
   logPiiAccessMock.mockClear();
   uniones.length = 0;
+  filtros.length = 0;
 });
 
 /**
@@ -80,6 +84,7 @@ function chainConUniones(filas: unknown[]) {
   for (const tipo of ['leftJoin', 'innerJoin'] as const) {
     t[tipo] = (tabla: unknown, on: unknown) => { uniones.push({ tipo, tabla, on }); return t; };
   }
+  t.where = (cond: unknown) => { filtros.push(cond); return t; };
   return t;
 }
 
@@ -102,6 +107,7 @@ const fila = (over: Record<string, unknown> = {}) => ({
   phone: null, email: null, address: null, city: 'MEDELLIN',
   soatAutogestionable: false, soatSinTramite: true,
   impuestosAutogestionable: false, logisticaAutogestionable: false, logisticaPermiteParcial: false,
+  active: true,
   personType: null, idType: null, checkDigit: null, fiscalResponsibilities: [],
   countryCode: null, stateCode: null, cityCode: null, commercialName: null, branchOffice: 0,
   contactFirstName: null, contactLastName: null, contactEmail: null,
@@ -170,6 +176,34 @@ describe('el listado entrega el gestor por defecto RESUELTO', () => {
   });
 });
 
+describe('HU #13948 — el listado entrega el estado `active` de cada compañía', () => {
+  it('la activa llega con `active: true` y la inactiva con `active: false`', async () => {
+    const r = await listar('admin', [fila({ id: 41, active: true }), fila({ id: 42, active: false })]);
+
+    expect(r.status).toBe(200);
+    expect(r.body.map((c: { id: number; active: boolean }) => [c.id, c.active])).toEqual([
+      [41, true], [42, false],
+    ]);
+  });
+
+  it('`active` se pide a la base, no se inventa en el mapeo', async () => {
+    await listar();
+
+    const pedidas = selectMock.mock.calls[0][0] as Record<string, { name?: string }>;
+    expect(pedidas.active?.name).toBe('active');
+  });
+
+  it('**el eliminado sigue sin viajar**: el `WHERE` filtra por `deleted_at IS NULL`', async () => {
+    // Exponer `active` no abre la puerta a las bajas lógicas: inactiva ≠ eliminada. El mock no
+    // filtra, así que se afirma sobre la condición renderizada, que es lo único que no regala.
+    await listar();
+
+    expect(filtros).toHaveLength(1);
+    const { sql } = new PgDialect().sqlToQuery(filtros[0] as never);
+    expect(sql).toBe('"clients"."deleted_at" is null');
+  });
+});
+
 describe('la unión: por la izquierda y por la columna del canal', () => {
   it('**`LEFT JOIN`, nunca `INNER`**', async () => {
     await listar();
@@ -204,8 +238,9 @@ describe('la proyección se amplía NOMINALMENTE, y solo con eso', () => {
     // La HU #12078 cerró cinco proyecciones justamente para que la columna nueva no saliera sola. La
     // manera fácil de resolver el nombre —quitar la proyección y volver a `select()` desnudo— es la
     // que este caso prohíbe: se nombran las que ella dejó fuera por personales o por internas.
+    // `active` ya no está en la lista: sale desde la HU #13948 (la pestaña Clientes lo filtra).
     for (const fuera of [
-      'notes', 'active', 'cityTextoOrigen', 'flitoCarpetaStorage', 'flitoToleranciaValorImpuesto',
+      'notes', 'cityTextoOrigen', 'flitoCarpetaStorage', 'flitoToleranciaValorImpuesto',
       'personTypeOrigen', 'cityConfirmadaPor', 'cityConfirmadaEn', 'facturacionBloqueos', 'createdAt',
     ]) {
       expect(Object.keys(COLUMNAS_LISTADO_CON_GESTOR)).not.toContain(fuera);

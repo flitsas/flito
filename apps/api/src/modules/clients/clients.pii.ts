@@ -35,19 +35,23 @@
 //   · `pages/FlitoBolsas.tsx` y `pages/FlitoConciliacion.tsx` — solo `id` y `name`.
 //   · `pages/RndcRemesaForm.tsx` — `id`, `name` y `document`.
 //
-// La unión son las 27 columnas de `COLUMNAS_LISTADO`, de las 37 que tiene la tabla. El recorte no es
-// cosmético aunque sea de diez columnas: tres de ellas son personales —`notes` (texto libre, que es
-// donde acaba cualquier cosa), `city_texto_origen` (la ubicación que tenía la ficha antes de
-// confirmarse) y `flito_carpeta_storage` (que se deriva del NIT)— y las otras siete son internas
+// La unión son las columnas de `COLUMNAS_LISTADO`, no la tabla entera. El recorte no es cosmético
+// aunque sea de nueve columnas: tres de ellas son personales —`notes` (texto libre, que es donde
+// acaba cualquier cosa), `city_texto_origen` (la ubicación que tenía la ficha antes de confirmarse)
+// y `flito_carpeta_storage` (que se deriva del NIT)— y las otras seis son internas
 // (`flito_tolerancia_valor_impuesto`, `person_type_origen`, `city_confirmada_por`,
-// `city_confirmada_en`, `facturacion_bloqueos`, `created_at`, `active`) que ninguna pantalla lee.
+// `city_confirmada_en`, `facturacion_bloqueos`, `created_at`) que ninguna pantalla lee.
 // El efecto que más dura es el otro: la columna que se añada mañana a `clients` ya no sale sola por
 // esta ruta.
 //
-// `notes` y `active` se van aunque estén declarados en la interfaz `Client` de `Clients.tsx`:
-// declarados no es leídos —se comprobó por grep en toda la pantalla— y `notes` es justo la clase de
-// campo que no debe viajar en un listado de 500. Quedan como limpieza de dos líneas para el lado del
-// front; no se tocan desde aquí porque esta tanda no toca `apps/web`.
+// `active` SÍ sale desde la HU #13948: la pestaña Clientes de `Clients.tsx` muestra y filtra el
+// estado de cada compañía (activa / inactiva). Es un booleano interno, no un dato personal, y por eso
+// va también en `COLUMNAS_IMPERSONALES`. Lo que el listado sigue sin entregar es la compañía
+// ELIMINADA: eso lo decide `clienteVigente()` en el `WHERE` de la ruta, no esta proyección.
+//
+// `notes` se va aunque esté declarado en la interfaz `Client` de `Clients.tsx`: declarado no es
+// leído —se comprobó por grep en toda la pantalla— y es justo la clase de campo que no debe viajar
+// en un listado de 500.
 
 import type { Request } from 'express';
 import { sql } from 'drizzle-orm';
@@ -83,6 +87,8 @@ export const COLUMNAS_LISTADO = {
   impuestosAutogestionable: clients.impuestosAutogestionable,
   logisticaAutogestionable: clients.logisticaAutogestionable,
   logisticaPermiteParcial: clients.logisticaPermiteParcial,
+  // HU #13948: la pestaña Clientes muestra y filtra activa / inactiva. Impersonal (ver abajo).
+  active: clients.active,
   personType: clients.personType,
   idType: clients.idType,
   checkDigit: clients.checkDigit,
@@ -133,6 +139,8 @@ const COLUMNAS_IMPERSONALES = new Set<ClaveListado>([
   'impuestosAutogestionable',
   'logisticaAutogestionable',
   'logisticaPermiteParcial',
+  // HU #13948: el estado de la compañía (activa / inactiva). Dice si opera, no quién es.
+  'active',
   'personType',
   'idType',
   'checkDigit',
