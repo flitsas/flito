@@ -17,6 +17,7 @@ import {
   ACCIONES_ARBOL, ACCIONES_UNIVERSALES, CODIGOS_ABSORBIDOS, CONJUNCIONES_ARBOL, cumpleGrupo, esUniversal, expandirSinCadena, operacionesDe,
   PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA, predecesoresDe, predecesorNoAbsorbido, ROL_CON_TODAS_LAS_ACCIONES,
 } from './expansion.js';
+import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA } from './acciones-finanzas.js';
 
 export interface FilasReparto { filasRol: FilaRolEnSeco[]; filasUsuario: FilaUsuarioEnSeco[] }
 
@@ -35,6 +36,9 @@ const TODAS = Object.keys(ACCIONES_ARBOL).sort();
  */
 function accionesVivas(existentes?: ReadonlySet<string>, acciones: readonly string[] = TODAS): string[] {
   return [...acciones].sort()
+    // HU #13889: una acción nacida tras la siembra no tiene grupo (`predecesores: []`); con `every` sobre un grupo
+    // vacío la regla «todos» se la daría a CUALQUIERA. No la reparte el paso: solo la recibe `admin` (paso 2b).
+    .filter((a) => !ACCIONES_NACIDAS_TRAS_LA_SIEMBRA.has(a))
     .filter((a) => !existentes || predecesoresDe(a).every((p) => existentes.has(p)));
 }
 

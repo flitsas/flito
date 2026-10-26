@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cómo cargo un comprobante
   - qué leyó FLITO del comprobante
-version: 1.2
-fecha: 2026-10-22
+version: 1.3
+fecha: 2026-10-24
 ---
 ## Qué es
 
@@ -52,6 +52,20 @@ El camino de un comprobante, de un vistazo:
 7. Si el trámite no admite ese pago (por ejemplo, ya está pagado), FLITO se lo dice y le ofrece **Adjuntar como documentación**: el documento queda en el trámite sin contar como pago. Si ya había otro comprobante con ese valor, **Reemplazar** le pide un motivo, descarta el anterior y aplica este.
 8. Para sacar un documento de la cola, pulse **Descartar**, escriba el motivo (mínimo 5 caracteres) y confirme. El archivo deja de contar como duplicado: se podrá volver a cargar.
 
+## Corregir un comprobante aplicado
+
+Si un comprobante quedó aplicado al trámite o con el concepto equivocado, ábralo con **Ver**:
+
+1. **Desaplicar**: elija si vuelve a la cola (para asociarlo otra vez) o se descarta, escriba el
+   motivo (mínimo 5 caracteres) y confirme. Se deshace lo que el comprobante registró en el trámite.
+2. **Reemplazar**: elija el comprobante pendiente que va en su lugar y escriba el motivo. El
+   original queda descartado y el nuevo se aplica al mismo trámite y concepto. Si no hay
+   pendientes, cargue primero el comprobante correcto.
+
+No siempre se puede corregir aquí: si el descuento cae en un periodo cerrado de la bolsa, si el
+pago se corrige en su propio módulo, si el trámite ya está liquidado o si es un pago de servicios
+adicionales que se corrige en **Servicios adicionales**, FLITO se lo explica y no cambia nada.
+
 ## Estados
 
 - Cargando: la tabla muestra su esqueleto; en el modal, **Procesando…** y **enviando X de N archivos**.
@@ -72,7 +86,6 @@ El camino de un comprobante, de un vistazo:
 ## Qué no hace
 
 - No reparte un pago entre varios trámites: cada comprobante va a un solo trámite.
-- No deshace una aplicación: un comprobante aplicado se ve en solo lectura.
 - No acepta diferencias de valor frente a la tarifa: eso se hace desde el reporte de costos.
 - No abre archivos ZIP: suba los PDF o las imágenes sueltos.
 - No carga SOAT del canal Cliente: esas solicitudes no tienen trámite y siguen su propio camino.

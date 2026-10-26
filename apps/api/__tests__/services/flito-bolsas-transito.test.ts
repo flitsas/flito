@@ -51,7 +51,9 @@ function paramsDe(cond: unknown): string[] {
     if (Array.isArray(n)) { n.forEach(visitar); return; }
     const o = n as Record<string, unknown>;
     if (typeof o.value === 'string') out.push(o.value);
-    if (Array.isArray(o.queryChunks)) o.queryChunks.forEach(visitar);
+    // `like(col, 'consumo:%')` deja el patrón como cadena suelta entre los chunks (HU #13906: el
+    // barrido del libro único lo distingue del de cliente, `salida:%`).
+    if (Array.isArray(o.queryChunks)) o.queryChunks.forEach((c) => (typeof c === 'string' ? out.push(c) : visitar(c)));
   };
   visitar(cond);
   return out;
@@ -120,14 +122,14 @@ const AHORA = new Date('2026-07-30T15:00:00Z');
 const CTX = { userId: 9, nombre: 'financiera' };
 
 function aplicarEnSimulacion(tabla: string, datos: Record<string, unknown>): void {
-  if (tabla === 'flito_bolsas_transito' && typeof datos.saldo === 'string') {
+  if (tabla === 'flito_bolsas_unicas' && typeof datos.saldo === 'string') {
     saldoBolsa = Number(datos.saldo);
     return;
   }
-  // Reverso: la llave original se reescribe con el prefijo `rev:`.
-  if (tabla === 'flito_bolsa_transito_movimientos' && typeof datos.llaveIdempotencia === 'string') {
+  // Reverso: la llave original se reescribe como `rev:<id>:<llave>` (HU #13969).
+  if (tabla === 'flito_bolsas_unicas_movimientos' && typeof datos.llaveIdempotencia === 'string') {
     const nueva = datos.llaveIdempotencia;
-    const anterior = nueva.replace(/^rev:/, '');
+    const anterior = nueva.replace(/^rev:[^:]+:/, '');
     const fila = libroBolsa.find((f) => f.llaveIdempotencia === anterior);
     if (fila) fila.llaveIdempotencia = nueva;
   }
@@ -138,14 +140,25 @@ function aplicarEnSimulacion(tabla: string, datos: Record<string, unknown>): voi
  * el índice único de la migración garantiza que como mucho salga una fila.
  */
 const consultaCobertura: Resolver = () => {
-  const [organismoCodigo, concepto] = ultimosFiltros;
-  const hay = cobertura.some((c) => c.organismoCodigo === organismoCodigo && c.concepto === concepto);
-  return hay ? [{ id: BOLSA_ID, nombre: 'Bolsa de prueba' }] : [];
+  // HU #13906: el resolver filtra (alcance 'transito', organismo, concepto) sobre el modelo único.
+  const [alcance, organismoCodigo, concepto] = ultimosFiltros;
+  const hay = alcance === 'transito'
+    && cobertura.some((c) => c.organismoCodigo === organismoCodigo && c.concepto === concepto);
+  return hay ? [{ bolsaId: BOLSA_ID, nombre: 'Bolsa de prueba' }] : [];
 };
 /** Si la bolsa bajo prueba existe. Cargarla contra un id inexistente es 404, no un alta implícita. */
 let bolsaExiste = true;
 
-const bolsaVigente: Resolver = () => (bolsaExiste ? [{ id: BOLSA_ID, saldo: String(saldoBolsa) }] : []);
+/** Si la bolsa bajo prueba está activa (Q7: inactiva no consume ni admite cargas). */
+let bolsaActiva = true;
+
+/**
+ * `flito_bolsas_unicas` la consultan los dos alcances (HU #13906). Por id → la bolsa de tránsito bajo
+ * prueba; por compañía → ninguna: aquí no se afirma nada de la bolsa del cliente, solo que no estorbe.
+ */
+const bolsaVigente: Resolver = () => (bolsaExiste && ultimosFiltros[0] === BOLSA_ID
+  ? [{ id: BOLSA_ID, saldo: String(saldoBolsa), companiaId: null, activa: bolsaActiva }]
+  : []);
 
 /**
  * Resuelve las consultas al libro del organismo mirando por qué se filtra:
@@ -159,10 +172,12 @@ const consultaLibroBolsa: Resolver = () => {
   // consumos de conciliación (Feature #11623, CF-07)—, la simulación dejaría de filtrar por ella y
   // los tests se pondrían en rojo, en vez de seguir verdes afirmando una condición ya inexistente.
   if (filtros.length > 1) {
-    const [tramite, origen, tipo] = filtros;
+    // El prefijo también sale del filtro real: el libro único lo barren los dos alcances
+    // (`salida:%` el cliente, `consumo:%` tránsito) y cada uno solo ve su familia.
+    const [tramite, origen, tipo, patron] = filtros;
     return libroBolsa.filter((f) =>
       f.tramiteId === tramite && f.origen === origen && f.tipo === tipo
-      && String(f.llaveIdempotencia).startsWith('consumo:'));
+      && String(f.llaveIdempotencia).startsWith(String(patron).replace(/%$/, '')));
   }
   const fila = libroBolsa.find((f) => f.llaveIdempotencia === filtros[0]);
   return fila ? [fila] : [];
@@ -222,24 +237,19 @@ function escenarioSellado(calculo: Fila = {}, ids: Fila = {}): void {
     // DENTRO de la transacción antes de releer los servicios adicionales. Sin esta entrada la cola
     // se agota, `bloquearTramite` no encuentra el trámite y ningún sellado llega a la bolsa.
     .selectOnce('flito_tramites', [{ id: TRAMITE, idFlit: 'FLIT-1' }])
-    .select('flito_bolsas', [{ id: 'bolsa-cliente', saldo: '99000000' }])
-    .select('flito_bolsa_movimientos', [])
-    .select('flito_bolsa_transito_cobertura', consultaCobertura)
-    .select('flito_bolsas_transito', bolsaVigente)
-    .select('flito_bolsa_transito_movimientos', consultaLibroBolsa)
+    .select('flito_bolsas_unicas_cobertura', consultaCobertura)
+    .select('flito_bolsas_unicas', bolsaVigente)
+    .select('flito_bolsas_unicas_movimientos', consultaLibroBolsa)
     .insert('flito_liquidaciones', [filaLiquidacion])
-    .insert('flito_liquidacion_eventos', [])
-    .insert('flito_bolsa_movimientos', [{ id: 'mov-cliente' }]);
+    .insert('flito_liquidacion_eventos', []);
 }
 
 function escenarioReverso(): void {
   kdb.when
     .select('flito_liquidaciones', [filaLiquidacion])
-    .select('flito_bolsa_movimientos', [])
-    .select('flito_bolsas', [{ id: 'bolsa-cliente', saldo: '99000000' }])
-    .select('flito_bolsa_transito_cobertura', consultaCobertura)
-    .select('flito_bolsas_transito', bolsaVigente)
-    .select('flito_bolsa_transito_movimientos', consultaLibroBolsa);
+    .select('flito_bolsas_unicas_cobertura', consultaCobertura)
+    .select('flito_bolsas_unicas', bolsaVigente)
+    .select('flito_bolsas_unicas_movimientos', consultaLibroBolsa);
 }
 
 beforeEach(() => {
@@ -251,18 +261,19 @@ beforeEach(() => {
   saldoBolsa = 10_000_000;
   cobertura = [{ organismoCodigo: ORG_DERECHO, concepto: 'derecho' }];
   bolsaExiste = true;
+  bolsaActiva = true;
   tarifaDeMock.mockReset();
   tarifasConfiguradas();
   espiarMutaciones();
-  kdb.when.insert('flito_bolsa_transito_movimientos', () => {
-    const datos = insertsEn('flito_bolsa_transito_movimientos').at(-1)?.datos ?? {};
+  kdb.when.insert('flito_bolsas_unicas_movimientos', () => {
+    const datos = insertsEn('flito_bolsas_unicas_movimientos').at(-1)?.datos ?? {};
     const fila: Fila = { id: `org-${++secuencia}`, createdAt: AHORA, ...datos };
     libroBolsa.push(fila);
     return [fila];
   });
 });
 
-const movsBolsa = () => insertsEn('flito_bolsa_transito_movimientos').map((m) => m.datos);
+const movsBolsa = () => insertsEn('flito_bolsas_unicas_movimientos').map((m) => m.datos);
 const salidasBolsa = () => movsBolsa().filter((m) => m.tipo === 'salida');
 const entradasBolsa = () => movsBolsa().filter((m) => m.tipo === 'entrada');
 
@@ -381,7 +392,7 @@ describe('liquidar — AC1: solo consume lo que alguna bolsa cubra', () => {
 
     expect(dto.estado).toBe('liquidado');
     expect(movsBolsa()).toHaveLength(0);
-    expect(updatesEn('flito_bolsas_transito')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas')).toHaveLength(0);
   });
 
   it('un derecho sin organismo resuelto tampoco consume nada', async () => {
@@ -431,7 +442,7 @@ describe('liquidar — AC10: reintentar el sellado no duplica el consumo', () =>
 
     await liquidar(TRAMITE, 9);
 
-    expect(insertsEn('flito_bolsa_transito_movimientos')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
     expect(saldoBolsa).toBe(9_900_000);
   });
 });
@@ -455,15 +466,15 @@ describe('reversar — AC9: la bolsa recupera lo consumido', () => {
   });
 
   it('la devolución no se toma como base del nivel de alerta', async () => {
-    // `ultimaCargaValor` solo la mueven las CARGAS: contar una devolución por reverso como carga
+    // `ultimaEntradaValor` (antes ultimaCargaValor) solo la mueven las CARGAS: contar una devolución por reverso como carga
     // nueva falsearía el porcentaje del tablero.
     escenarioSellado();
     await liquidar(TRAMITE, 9);
     escenarioReverso();
     await reversar(TRAMITE, 'Error en el valor del derecho', 9);
 
-    for (const u of updatesEn('flito_bolsas_transito')) {
-      expect(u.datos).not.toHaveProperty('ultimaCargaValor');
+    for (const u of updatesEn('flito_bolsas_unicas')) {
+      expect(u.datos).not.toHaveProperty('ultimaEntradaValor');
     }
   });
 
@@ -473,10 +484,10 @@ describe('reversar — AC9: la bolsa recupera lo consumido', () => {
     escenarioReverso();
     await reversar(TRAMITE, 'Error en el valor del derecho', 9);
 
-    const reescrituras = updatesEn('flito_bolsa_transito_movimientos');
+    const reescrituras = updatesEn('flito_bolsas_unicas_movimientos');
     expect(reescrituras).toHaveLength(1);
     expect(reescrituras[0].datos.llaveIdempotencia)
-      .toBe(`rev:consumo:tramite:${TRAMITE}:derecho`);
+      .toMatch(new RegExp(`^rev:[^:]+:consumo:tramite:${TRAMITE}:derecho$`));
     expect(Object.keys(reescrituras[0].datos)).toHaveLength(1);
   });
 
@@ -541,14 +552,14 @@ describe('reversarConsumoTransito — un consumo de conciliación queda fuera de
     libroBolsa.push(consumoConciliado());
     saldoBolsa = 9_550_000;
     kdb.when
-      .select('flito_bolsas_transito', bolsaVigente)
-      .select('flito_bolsa_transito_movimientos', consultaLibroBolsa);
+      .select('flito_bolsas_unicas', bolsaVigente)
+      .select('flito_bolsas_unicas_movimientos', consultaLibroBolsa);
 
     const contras = await reversarConsumoTransito(kdb.db as never, TRAMITE, CTX);
 
     expect(contras).toEqual([]);
-    expect(insertsEn('flito_bolsa_transito_movimientos')).toHaveLength(0);
-    expect(updatesEn('flito_bolsa_transito_movimientos')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
     // El pago ante la secretaría ocurrió de verdad: el saldo no se recompone (CF-07).
     expect(saldoBolsa).toBe(9_550_000);
     expect(libroBolsa[0].llaveIdempotencia).toBe(`consumo:soat:${SOAT_ID}`);
@@ -566,7 +577,7 @@ describe('reversarConsumoTransito — un consumo de conciliación queda fuera de
       c.where = (cond: unknown) => { condicion = cond; return original(cond); };
       return c;
     });
-    kdb.when.select('flito_bolsa_transito_movimientos', []);
+    kdb.when.select('flito_bolsas_unicas_movimientos', []);
 
     await reversarConsumoTransito(kdb.db as never, TRAMITE, CTX);
 
@@ -582,9 +593,9 @@ describe('reversarConsumoTransito — un consumo de conciliación queda fuera de
 describe('registrarCargaTransito — AC2: FLIT precarga saldo', () => {
   function escenarioCarga(): void {
     kdb.when
-      .select('flito_bolsa_transito_cobertura', consultaCobertura)
-      .select('flito_bolsas_transito', bolsaVigente)
-      .select('flito_bolsa_transito_movimientos', consultaLibroBolsa);
+      .select('flito_bolsas_unicas_cobertura', consultaCobertura)
+      .select('flito_bolsas_unicas', bolsaVigente)
+      .select('flito_bolsas_unicas_movimientos', consultaLibroBolsa);
   }
 
   it('la carga entra como movimiento y deja el saldo al día', async () => {
@@ -605,8 +616,9 @@ describe('registrarCargaTransito — AC2: FLIT precarga saldo', () => {
     escenarioCarga();
     await registrarCargaTransito(BOLSA_ID, { valor: 10_000_000, fecha: '2026-07-30' }, CTX);
 
-    const u = updatesEn('flito_bolsas_transito').at(-1);
-    expect(u?.datos).toMatchObject({ ultimaCargaValor: '10000000' });
+    // HU #13906: en el modelo único la base es `ultima_entrada_*` (el DTO la sigue llamando ultimaCarga*).
+    const u = updatesEn('flito_bolsas_unicas').at(-1);
+    expect(u?.datos).toMatchObject({ ultimaEntradaValor: '10000000' });
   });
 
   it('AC6 — una carga sobre saldo negativo neta la deuda', async () => {
@@ -632,7 +644,7 @@ describe('registrarCargaTransito — AC2: FLIT precarga saldo', () => {
     await expect(
       registrarCargaTransito(BOLSA_ID, { valor: 1_000_000, fecha: '2026-07-30' }, CTX),
     ).rejects.toThrow(/no existe/i);
-    expect(insertsEn('flito_bolsa_transito_movimientos')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
   });
 
   it('una carga con valor no positivo se rechaza antes de tocar la bolsa', async () => {
@@ -641,7 +653,7 @@ describe('registrarCargaTransito — AC2: FLIT precarga saldo', () => {
     await expect(
       registrarCargaTransito(BOLSA_ID, { valor: 0, fecha: '2026-07-30' }, CTX),
     ).rejects.toThrow(/mayor que cero/i);
-    expect(insertsEn('flito_bolsa_transito_movimientos')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
   });
 
   it('una carga con fecha futura se rechaza', async () => {
@@ -650,5 +662,98 @@ describe('registrarCargaTransito — AC2: FLIT precarga saldo', () => {
     await expect(
       registrarCargaTransito(BOLSA_ID, { valor: 1_000_000, fecha: '2099-01-01' }, CTX),
     ).rejects.toThrow(/no puede ser futura/i);
+  });
+});
+
+// ─────────────── HU #13906 · libro de tránsito sobre el modelo único ─────────────
+
+describe('HU #13906 — la bolsa de tránsito vive en el modelo único (ADR-0029)', () => {
+  function escenarioCarga(): void {
+    kdb.when
+      .select('flito_bolsas_unicas_cobertura', consultaCobertura)
+      .select('flito_bolsas_unicas', bolsaVigente)
+      .select('flito_bolsas_unicas_movimientos', consultaLibroBolsa);
+  }
+
+  it('AC6 · sin corte y con cobertura activa, el sellado consume del libro ÚNICO de esa bolsa, sin crear bolsas', async () => {
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+
+    expect(salidasBolsa()).toHaveLength(1);
+    expect(salidasBolsa()[0]).toMatchObject({ bolsaId: BOLSA_ID, origen: 'automatico', valor: '100000' });
+    expect(insertsEn('flito_bolsas_unicas')).toHaveLength(0);
+    expect(saldoBolsa).toBe(9_900_000);
+  });
+
+  it('AC6 · con la bolsa que cubre el par INACTIVA, el sellado se completa sin consumo de tránsito', async () => {
+    bolsaActiva = false;
+    escenarioSellado();
+
+    await expect(liquidar(TRAMITE, 9)).resolves.toBeTruthy();
+
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas')).toHaveLength(0);
+    expect(saldoBolsa).toBe(10_000_000);
+  });
+
+  it('AC7 · la carga se asienta en el libro único con origen recarga y la ruta la sigue mostrando como carga', async () => {
+    saldoBolsa = 0;
+    escenarioCarga();
+
+    const { movimiento } = await registrarCargaTransito(BOLSA_ID, { valor: 2_000_000, fecha: '2026-07-30' }, CTX);
+
+    expect(movsBolsa()).toHaveLength(1);
+    expect(movsBolsa()[0]).toMatchObject({ bolsaId: BOLSA_ID, tipo: 'entrada', origen: 'recarga', valor: '2000000' });
+    expect(movimiento).toMatchObject({ origen: 'carga', valor: 2_000_000, saldoResultante: 2_000_000 });
+  });
+
+  it('AC7 · cargar una bolsa de tránsito INACTIVA → 409 bolsa_inactiva y no se mueve un peso', async () => {
+    bolsaActiva = false;
+    escenarioCarga();
+
+    await expect(
+      registrarCargaTransito(BOLSA_ID, { valor: 1_000_000, fecha: '2026-07-30' }, CTX),
+    ).rejects.toMatchObject({ estado: 409, codigo: 'bolsa_inactiva' });
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas')).toHaveLength(0);
+  });
+
+  it('AC7 · abrir la bolsa y ver sus movimientos lee el modelo único y responde con el contrato de siempre', async () => {
+    const { bolsaTransitoDe, movimientosTransitoDe } =
+      await import('../../src/modules/flito-bolsas/flito-bolsas-transito.service.js');
+    const fila = {
+      id: 'mov-1', bolsaId: BOLSA_ID, tipo: 'entrada', origen: 'recarga', concepto: null, organismoCodigo: null,
+      tramiteId: null, comprobanteId: null, revierteMovimientoId: null, valor: '5000000', saldoResultante: '5000000',
+      periodo: '2026-07', fecha: '2026-07-30', observacion: null, soporteId: null, registradoPorNombre: 'tesoreria',
+      createdAt: AHORA,
+    };
+    kdb.when
+      .select('flito_bolsas_unicas', [{
+        id: BOLSA_ID, alcance: 'transito', nombre: 'Bolsa de prueba', companiaId: null, activa: true, saldo: '5000000',
+        ultimaEntradaValor: '5000000', ultimaEntradaEn: AHORA,
+      }])
+      .selectOnce('flito_bolsas_unicas_movimientos', [{ cargado: '5000000', consumido: '0' }]) // totales de bolsaTransitoDe
+      .select('flito_bolsas_unicas_movimientos', [{ m: fila, idFlit: null }])
+      .select('flito_bolsas_unicas_cobertura', [{ bolsaId: BOLSA_ID, organismoCodigo: ORG_DERECHO, organismoNombre: 'Sabaneta', concepto: 'derecho' }]);
+
+    const bolsa = await bolsaTransitoDe(BOLSA_ID);
+    expect(bolsa).toMatchObject({
+      id: BOLSA_ID, nombre: 'Bolsa de prueba', saldo: 5_000_000, ultimaCargaValor: 5_000_000, totalCargado: 5_000_000,
+      cobertura: [{ organismoCodigo: ORG_DERECHO, concepto: 'derecho' }],
+    });
+    const movs = await movimientosTransitoDe(BOLSA_ID);
+    expect(movs).toEqual([expect.objectContaining({ id: 'mov-1', origen: 'carga', valor: 5_000_000, idFlit: null })]);
+  });
+
+  it('AC7 · reversar devuelve el consumo aunque la bolsa se haya inactivado (Q7: reversión de su propio movimiento)', async () => {
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+    bolsaActiva = false;
+    escenarioReverso();
+
+    await reversar(TRAMITE, 'Error en el valor del derecho', 9);
+
+    expect(entradasBolsa()).toHaveLength(1);
+    expect(saldoBolsa).toBe(10_000_000);
   });
 });

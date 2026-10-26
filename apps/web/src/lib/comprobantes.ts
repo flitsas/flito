@@ -9,8 +9,9 @@ import {
   ASOCIACIONES_COMPROBANTE, CAMPO_COMPROBANTE_LABEL, CAMPO_DERECHO_TRAMITE_LABEL, CAMPO_IMPUESTO_LABEL, CAMPO_SOAT_LABEL,
   CARGA_MASIVA_ARCHIVOS_POR_PETICION, MOTIVO_PENDIENTE_COMPROBANTE_LABEL, partirCargaMasivaEnTandas,
   type AceptarDiferenciaBody, type AdmisionConcepto, type AplicarComprobanteBody, type AsociacionComprobante, type CampoComprobanteDto, type CandidatoTramiteDto,
-  type ComprobanteDetalleDto, type ComprobanteListaDto, type ErrorComprobanteDto, type EstadoComprobante, type ResultadoAplicarComprobanteDto,
-  type ResultadoCargaComprobantes,
+  type ComprobanteDetalleDto, type ComprobanteListaDto, type DescuentoBolsaDto, type DesaplicarComprobanteDto, type ErrorComprobanteDto,
+  type EstadoComprobante, type ListaComprobantesDto, type ReemplazarComprobanteDto, type ResultadoAplicarComprobanteDto,
+  type ResultadoCargaComprobantes, type ResultadoDesaplicarComprobanteDto, type ResultadoReemplazarComprobanteDto,
 } from '@operaciones/shared-types';
 import type { ChipTone } from '../components/flit/StatusChip';
 import { ApiError, api } from './api';
@@ -238,6 +239,63 @@ export const aplicarComprobante = (id: string, body: AplicarComprobanteBody) =>
 
 export const descartarComprobante = (id: string, motivo: string) =>
   api.post<{ ok: true }>(`${RUTA_COMPROBANTES}/${id}/descartar`, { motivo });
+
+// ─────────────── Corregir un aplicado (HU #13904, Feature #13886, UX slim 13904) ──────────────────
+
+export const desaplicarComprobante = (id: string, body: DesaplicarComprobanteDto) =>
+  api.post<ResultadoDesaplicarComprobanteDto>(`${RUTA_COMPROBANTES}/${id}/desaplicar`, body);
+
+export const reemplazarComprobante = (id: string, body: ReemplazarComprobanteDto) =>
+  api.post<ResultadoReemplazarComprobanteDto>(`${RUTA_COMPROBANTES}/${id}/reemplazar`, body);
+
+/** Tamaño de la página de pendientes del selector de reemplazo (la misma lectura de la cola, sin texto libre). */
+export const PENDIENTES_REEMPLAZO = 50;
+
+export const listarPendientesReemplazo = () =>
+  api.get<ListaComprobantesDto>(`${RUTA_COMPROBANTES}?${new URLSearchParams({ estado: 'pendiente', page: '1', pageSize: String(PENDIENTES_REEMPLAZO) }).toString()}`);
+
+/** El pendiente «coincide» con el trámite del original por ID FLIT leído o por placa leída (slim §2.2). */
+export function coincideConTramite(c: Pick<ComprobanteListaDto, 'idFlitLeido' | 'placaLeida'>, tramite: { idFlit: string; placa: string | null } | null): boolean {
+  if (!tramite) return false;
+  const eq = (a: string | null, b: string | null) => !!a && !!b && a.trim().toUpperCase() === b.trim().toUpperCase();
+  return eq(c.idFlitLeido, tramite.idFlit) || eq(c.placaLeida, tramite.placa);
+}
+
+/** Orden del selector: primero los que coinciden con el trámite, luego el resto del más reciente al más antiguo. */
+export function ordenarPendientesReemplazo<T extends Pick<ComprobanteListaDto, 'idFlitLeido' | 'placaLeida' | 'createdAt'>>(
+  items: readonly T[], tramite: { idFlit: string; placa: string | null } | null,
+): T[] {
+  return [...items].sort((a, b) => {
+    const ca = coincideConTramite(a, tramite) ? 0 : 1;
+    const cb = coincideConTramite(b, tramite) ? 0 : 1;
+    return ca - cb || b.createdAt.localeCompare(a.createdAt);
+  });
+}
+
+const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+/** `2026-10` → «octubre de 2026». Lo que no tenga la forma AAAA-MM cae a «un periodo»: nunca se pinta crudo. */
+export function textoPeriodo(periodo: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(periodo ?? '');
+  const mes = m ? MESES_LARGOS[Number(m[2]) - 1] : undefined;
+  return m && mes ? `${mes} de ${m[1]}` : 'un periodo';
+}
+
+/** Nombre visible de una bolsa con respaldo: nunca el uuid (slim §4). */
+export const nombreBolsa = (nombre: string | null | undefined): string =>
+  nombre && nombre.trim() ? `la bolsa ${nombre.trim()}` : 'la bolsa del cliente';
+
+export type AlertaSaldoBolsa = DescuentoBolsaDto['alertas'][number];
+
+/** Una línea por bolsa (AC6): «La bolsa X quedó en saldo negativo: −$ 120.000. El comprobante se aplicó igual.» */
+export function textoAlertaSaldo(a: Pick<AlertaSaldoBolsa, 'bolsaNombre' | 'saldoResultante'>): string {
+  const bolsa = nombreBolsa(a.bolsaNombre);
+  const saldo = `${a.saldoResultante < 0 ? '−' : ''}${pesosComprobante(Math.abs(a.saldoResultante))}`;
+  return `${bolsa.charAt(0).toUpperCase()}${bolsa.slice(1)} quedó en saldo negativo: ${saldo}. El comprobante se aplicó igual.`;
+}
+
+/** Las alertas de saldo de una respuesta de aplicar o de reemplazar (el GET del detalle no las trae). */
+export const alertasSaldo = (c: Pick<ComprobanteDetalleDto, 'bolsa'> | null | undefined): AlertaSaldoBolsa[] => c?.bolsa?.alertas ?? [];
 
 /**
  * Deja constancia de que la diferencia documental de UN comprobante es correcta (HU #12654 → #12655).

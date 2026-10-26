@@ -30,6 +30,7 @@ import {
   ROL_CON_TODAS_LAS_ACCIONES,
 } from './arbol/expansion.js';
 import { ITEMS_LEGADO_OPS } from './arbol/acciones-legado.js';
+import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA, OPERACIONES_NACIDAS_EN_EL_ARBOL } from './arbol/acciones-finanzas.js';
 import { ITEMS_ADMINISTRACION_OPS } from './arbol/acciones-administracion.js';
 import { NOMBRES_LEGADO } from './catalogo-operaciones.legado.js';
 
@@ -237,6 +238,7 @@ function aCodigoDePartida(operaciones: FuncionCatalogo[]): FuncionCatalogo[] {
   for (const f of [...operaciones].sort((a, b) => Number(a.codigo in PARTIDA_DE_OPERACION_NUEVA) - Number(b.codigo in PARTIDA_DE_OPERACION_NUEVA))) {
     const partida = PARTIDA_DE_OPERACION_NUEVA[f.codigo];
     if (partida?.startsWith('pagina.')) continue;
+    if (OPERACIONES_NACIDAS_EN_EL_ARBOL.has(f.codigo)) continue; // HU #13889: sin partida, no existieron en el plano
     const viva = partida ? vivas.get(partida) : undefined;
     const g = !partida ? f : viva ? { ...viva, roles: f.roles } : deOperacionLegado(partida, f.roles);
     const previa = salida.get(g.codigo);
@@ -261,8 +263,8 @@ function deOperacionLegado(codigo: string, roles: string[]): FuncionCatalogo {
 export function catalogoOperacionesNuevas(guardas?: GuardaLeida[]): FuncionCatalogo[] {
   const plano = new Map(catalogoPlano(guardas).map((f) => [f.codigo, f]));
   return catalogoDeOperaciones(guardas)
-    .filter((f) => f.codigo in PARTIDA_DE_OPERACION_NUEVA)
-    .map((f) => ({ ...f, modulo: plano.get(PARTIDA_DE_OPERACION_NUEVA[f.codigo]!)?.modulo ?? f.modulo }));
+    .filter((f) => f.codigo in PARTIDA_DE_OPERACION_NUEVA || OPERACIONES_NACIDAS_EN_EL_ARBOL.has(f.codigo))
+    .map((f) => ({ ...f, modulo: plano.get(PARTIDA_DE_OPERACION_NUEVA[f.codigo] ?? '')?.modulo ?? f.modulo }));
 }
 
 /** Los nodos de acción del árbol (shared-types), en el orden del árbol. */
@@ -275,14 +277,15 @@ const NODOS_ACCION: readonly NodoArbolDef[] = ARBOL_ITEMS_Y_ACCIONES.filter((n) 
  */
 export function catalogoDeAcciones(plano: FuncionCatalogo[] = catalogoPlano()): FuncionCatalogo[] {
   const porCodigo = new Map(plano.map((f) => [f.codigo, f]));
-  const nuevas = new Set(Object.keys(PARTIDA_DE_OPERACION_NUEVA));
+  const nuevas = new Set([...Object.keys(PARTIDA_DE_OPERACION_NUEVA), ...OPERACIONES_NACIDAS_EN_EL_ARBOL]);
   const nodos = new Map(ARBOL_ITEMS_Y_ACCIONES.map((n) => [n.codigo, n]));
   const enArbol = new Set(NODOS_ACCION.map((n) => n.codigo));
   const errores: string[] = [];
   for (const a of Object.keys(ACCIONES_ARBOL)) if (!enArbol.has(a)) errores.push(`acción sin nodo en el árbol: ${a}`);
   for (const a of enArbol) if (!(a in ACCIONES_ARBOL)) errores.push(`nodo de acción sin operaciones: ${a}`);
   for (const a of Object.keys(ACCIONES_ARBOL)) {
-    if (predecesoresDe(a).length === 0 && !esUniversal(a)) errores.push(`acción sin operaciones: ${a}`);
+    // HU #13889: una acción nacida tras la siembra no tiene predecesores (nadie la tenía): solo la recibe `admin`.
+    if (predecesoresDe(a).length === 0 && !esUniversal(a) && !ACCIONES_NACIDAS_TRAS_LA_SIEMBRA.has(a)) errores.push(`acción sin operaciones: ${a}`);
     for (const op of operacionesDe(a)) if (!porCodigo.has(op) && !nuevas.has(op)) errores.push(`${a} concede un código inexistente: ${op}`);
     for (const p of predecesoresDe(a)) if (!porCodigo.has(p)) errores.push(`${a} tiene un predecesor que el mundo plano no conoce: ${p}`);
     for (const op of ACCIONES_ARBOL[a]!.opcionales ?? []) {
@@ -310,7 +313,7 @@ export function catalogoDeAcciones(plano: FuncionCatalogo[] = catalogoPlano()): 
       // unión, y `exigeItem` la deja solo a quien ya tiene la página del ítem.
       roles: [...new Set([
         ...(esUniversal(n.codigo) ? USER_ROLES
-          : ACCIONES_POR_ALGUNA.has(n.codigo) ? grupos.flat() : grupos[0]!.filter((r) => grupos.every((g) => g.includes(r))))
+          : ACCIONES_POR_ALGUNA.has(n.codigo) ? grupos.flat() : (grupos[0] ?? []).filter((r) => grupos.every((g) => g.includes(r))))
           .filter((r) => !ACCIONES_ARBOL[n.codigo]!.exigeItem || pagina.roles.includes(r)),
         ROL_CON_TODAS_LAS_ACCIONES,
       ])].sort(),

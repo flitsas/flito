@@ -61,7 +61,8 @@ describe('AC2 — solo la bolsa de C', () => {
     h.cap.responder([{ clientes: 1, saldoTotal: '10' }]);
     const r = await request(await app()).get('/api/flito/bolsas/consolidado').set('Authorization', await como('compania'));
     expect(r.status).toBe(200);
-    expect(wheres()).toEqual([{ sql: '"flito_bolsas"."compania_id" = $1', params: [C] }]);
+    // HU #13899: modelo único → además del alcance 'compania'.
+    expect(wheres()).toEqual([{ sql: '("flito_bolsas_unicas"."alcance" = $1 and "flito_bolsas_unicas"."compania_id" = $2)', params: ['compania', C] }]);
   });
 
   it('GET /alertas → saldo y conciliación de C; las alertas internas de FLIT no se consultan', async () => {
@@ -83,7 +84,7 @@ describe('AC2 — solo la bolsa de C', () => {
     // El `exists` es una subconsulta: su WHERE se captura aparte. Una de ellas acota el libro a C, y
     // ninguna mira el libro de tránsito.
     const w = wheres();
-    const delLibro = w.find((x) => x.sql.includes('"flito_bolsa_movimientos"."compania_id" = $'));
+    const delLibro = w.find((x) => x.sql.includes('"flito_bolsas_unicas"."compania_id" = $')); // HU #13899: por join a la bolsa
     expect(delLibro?.params).toContain(C);
     expect(w.some((x) => x.sql.includes('flito_bolsa_transito_movimientos'))).toBe(false);
   });
@@ -92,7 +93,8 @@ describe('AC2 — solo la bolsa de C', () => {
     h.cap.responder([{ clientes: 3, saldoTotal: '30' }]);
     const r = await request(await app()).get('/api/flito/bolsas/consolidado').set('Authorization', await como('ninguno', 'mensajero'));
     expect(r.body).toEqual({ clientes: 3, saldoTotal: 30 });
-    expect(wheres()).toEqual([]);
+    // HU #13899: solo el alcance del modelo único; ninguna condición de compañía.
+    expect(wheres()).toEqual([{ sql: '"flito_bolsas_unicas"."alcance" = $1', params: ['compania'] }]);
   });
 });
 
@@ -115,7 +117,7 @@ describe('AC3 — corregir un movimiento de OTRO libro bajo el path propio → 4
     const r = await request(await app()).post(`/api/flito/bolsas/${C}/movimientos/00000000-0000-0000-0000-0000000000aa/correccion`)
       .set('Authorization', await como('compania')).send({ valor: 10, motivo: 'corrección de prueba' });
     expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);
-    expect(wheres()[0]!.sql).toContain('"flito_bolsa_movimientos"."compania_id" = $');
+    expect(wheres()[0]!.sql).toContain('"flito_bolsas_unicas"."compania_id" = $'); // HU #13899: por join a la bolsa
     expect(wheres()[0]!.params).toContain(C);
     expect(h.cap.consultas.filter((c) => c.tipo !== 'select')).toEqual([]);
   });

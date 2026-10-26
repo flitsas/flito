@@ -147,6 +147,7 @@ describe('AC3 — snapshot de lo declarado: montajes con `conAlcance` y rutas de
       { prefijo: '/api/flito/logistica', modulo: 'logistica' },
       { prefijo: '/api/flito/logistica', modulo: 'logistica' },
       { prefijo: '/api/flito/bolsas', modulo: 'bolsas' },
+      { prefijo: '/api/flito/bolsas-documentos', modulo: 'bolsas' }, // HU #13889 (ADR-0028)
       { prefijo: '/api/flito/comprobantes', modulo: 'comprobantes' },
       { prefijo: '/api/transito', modulo: 'transito' },
     ]);
@@ -331,6 +332,31 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/bolsas/alertas',                                            'filtra'],
   ['GET /api/flito/bolsas/transito',                                           'soloSinEnlace'],
   ['POST /api/flito/bolsas/transito',                                          'soloSinEnlace'],
+  // HU #13907 (ADR-0029): rama TRÁNSITO del catálogo, sub-router montado ANTES del de compañía y con sus mismas rutas;
+  // gestión de FLIT, cerrada a todo enlace (lo que no es de tránsito lo cede con `next('route')`).
+  ['POST /api/flito/bolsas/buscar',                                            'soloSinEnlace'],
+  ['POST /api/flito/bolsas',                                                   'soloSinEnlace'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId',                                     'soloSinEnlace'],
+  ['PATCH /api/flito/bolsas/bolsa/:bolsaId',                                   'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/inactivar',                          'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/reactivar',                          'soloSinEnlace'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId/movimientos',                         'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/recargas',                           'soloSinEnlace'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId/cierres',                             'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/cierres',                            'soloSinEnlace'],
+  // HU #13900 (ADR-0029): catálogo del modelo único (sub-router montado ANTES de `/:companiaId`). `/buscar` acota por `companiaDeAlcance`; las rutas por bolsa,
+  // por `bolsaPropia` (bolsa → compañía); el estado, por `companiaPropia`; el alta, por la compañía del body.
+  ['POST /api/flito/bolsas/buscar',                                            'filtra'],
+  ['POST /api/flito/bolsas',                                                   'filtra'],
+  ['GET /api/flito/bolsas/compania/:companiaId/estado',                        'filtra'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId',                                     'filtra'],
+  ['PATCH /api/flito/bolsas/bolsa/:bolsaId',                                   'filtra'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/inactivar',                          'filtra'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/reactivar',                          'filtra'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId/movimientos',                         'filtra'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/recargas',                           'filtra'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId/cierres',                             'filtra'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/cierres',                            'filtra'],
   ['GET /api/flito/bolsas/:companiaId',                                        'filtra'],
   ['GET /api/flito/bolsas/:companiaId/movimientos',                            'filtra'],
   ['POST /api/flito/bolsas/:companiaId/recargas',                              'filtra'],
@@ -344,6 +370,15 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/bolsas/:companiaId/movimientos/:movimientoId/correccion',  'filtra'],
   ['GET /api/flito/bolsas/:companiaId/cierres',                                'filtra'],
   ['POST /api/flito/bolsas/:companiaId/cierres',                               'filtra'],
+  // HU #13889 (ADR-0028 D9): expediente documental de la compañía, solo personal FLIT.
+  ['GET /api/flito/bolsas-documentos/companias/:companiaId',                   'soloSinEnlace'],
+  ['GET /api/flito/bolsas-documentos/companias/:companiaId/tipos/:tipo/historial', 'soloSinEnlace'],
+  ['POST /api/flito/bolsas-documentos/companias/:companiaId/tipos/:tipo',      'soloSinEnlace'],
+  // HU #13890 (ADR-0028 §5 E4): fecha de expedición manual, también solo personal FLIT (orden del fuente).
+  ['PUT /api/flito/bolsas-documentos/documentos/:documentoId/fecha-expedicion', 'soloSinEnlace'],
+  ['GET /api/flito/bolsas-documentos/documentos/:documentoId/archivo',         'soloSinEnlace'],
+  // HU #13893 (ADR-0028 §5 E6): estado del lote para el chip del listado, solo personal FLIT.
+  ['POST /api/flito/bolsas-documentos/estado-lote',                            'soloSinEnlace'],
   ['POST /api/flito/comprobantes',                                             'soloSinEnlace'],
   ['GET /api/flito/comprobantes',                                              'filtra'],
   ['POST /api/flito/comprobantes/tramites/buscar',                             'soloSinEnlace'],
@@ -353,6 +388,9 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/comprobantes/:id/aplicar',                                 'soloSinEnlace'],
   ['POST /api/flito/comprobantes/:id/descartar',                               'soloSinEnlace'],
   ['POST /api/flito/comprobantes/:id/diferencia/aceptar',                      'soloSinEnlace'],
+  // HU #13903: cerradas a todo enlace (marca), pero lo ajeno responde 404 antes del 403 (AC10, ADR-0024).
+  ['POST /api/flito/comprobantes/:id/desaplicar',                              'soloSinEnlace'],
+  ['POST /api/flito/comprobantes/:id/reemplazar',                              'soloSinEnlace'],
   ['GET /api/transito/organismos',                                             'filtra'],
   ['GET /api/transito/pendientes',                                             'filtra'],
   ['GET /api/transito/mis-tramites',                                           'filtra'],

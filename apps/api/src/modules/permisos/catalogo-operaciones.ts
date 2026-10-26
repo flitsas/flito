@@ -49,6 +49,8 @@ const TAB = 'flito-tablero/flito-tablero.routes.ts';
 const BIT = 'flito-bitacora/flito-bitacora.routes.ts';
 const LOG = 'flito-logistica/flito-logistica.routes.ts';
 const BOL = 'flito-bolsas/flito-bolsas.routes.ts';
+const BCAT = 'flito-bolsas/flito-bolsas.catalogo.routes.ts'; // HU #13900
+const BCTR = 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts'; // HU #13907
 const CON = 'flito-conciliacion/flito-conciliacion.routes.ts';
 const CMP = 'flito-comparendos/flito-comparendos.routes.ts';
 const LIQ = 'flito-liquidacion/flito-liquidacion.routes.ts';
@@ -66,6 +68,7 @@ const PER = 'permisos/permisos.routes.ts';
 const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts';
 const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
 const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
+const BDOC = 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts'; // HU #13889 (ADR-0028)
 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
@@ -215,6 +218,41 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${BOL} PATCH /transito/:bolsaId`, 'bolsas.transito.editar', 'Editar una bolsa de organismo', 'Cambiar los datos de la bolsa de derechos.'),
   op(`${BOL} GET /transito/:bolsaId/movimientos`, 'bolsas.transito.ver_movimientos', 'Ver los movimientos de una bolsa de organismo', 'Recorrer las cargas y consumos de la bolsa de derechos.'),
   op(`${BOL} POST /transito/:bolsaId/cargas`, 'bolsas.transito.cargar', 'Cargar saldo a una bolsa de organismo', 'Abonar dinero a la bolsa de derechos con su soporte.'),
+  // HU #13889 (ADR-0028) — expediente documental de la compañía. Las 4 guardas piden dos operaciones;
+  // las conceden `accion.bolsas.ver_documentos` / `accion.bolsas.cargar_documentos` (arbol/acciones-finanzas.ts).
+  op(`${BDOC} GET /companias/:companiaId`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} GET /companias/:companiaId/tipos/:tipo/historial`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} GET /documentos/:documentoId/archivo`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} POST /companias/:companiaId/tipos/:tipo`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'),
+  op(`${BDOC} POST /estado-lote`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'), // HU #13893 (E6)
+  op(`${BDOC} PUT /documentos/:documentoId/fecha-expedicion`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'), // HU #13890 (E4)
+  // HU #13900 (Feature #13886, ADR-0029) — catálogo del modelo único de bolsa. Cuatro operaciones nuevas con la
+  // partida de su par, dentro de acciones de bolsas ya repartidas (arbol/acciones-finanzas.ts);
+  // las rutas por bolsa (`/bolsa/:bolsaId/*`) reutilizan los códigos de sus pares del canal Cliente.
+  op(`${BCAT} POST /buscar`, 'bolsas.bolsa.listar', 'Listar las bolsas', 'Buscar las bolsas por alcance, estado, nombre o NIT.'),
+  op(`${BCAT} POST /`, 'bolsas.bolsa.crear', 'Crear la bolsa de una compañía', 'Abrir la bolsa prepago de un cliente con los conceptos que descuenta.'),
+  op(`${BCAT} GET /compania/:companiaId/estado`, 'bolsas.bolsa.ver', 'Ver la bolsa de una compañía', 'Consultar el saldo y el estado de la bolsa de un cliente.'),
+  op(`${BCAT} GET /bolsa/:bolsaId`, 'bolsas.bolsa.ver', 'Ver la bolsa de una compañía', 'Consultar el saldo y el estado de la bolsa de un cliente.'),
+  op(`${BCAT} PATCH /bolsa/:bolsaId`, 'bolsas.bolsa.editar', 'Editar la bolsa de una compañía', 'Cambiar los conceptos que descuenta la bolsa de un cliente.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/inactivar`, 'bolsas.bolsa.inactivar', 'Inactivar o reactivar la bolsa de una compañía', 'Suspender la bolsa de un cliente con un motivo, o volver a activarla.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/reactivar`, 'bolsas.bolsa.inactivar', 'Inactivar o reactivar la bolsa de una compañía', 'Suspender la bolsa de un cliente con un motivo, o volver a activarla.'),
+  op(`${BCAT} GET /bolsa/:bolsaId/movimientos`, 'bolsas.movimientos.ver', 'Ver los movimientos de una bolsa', 'Recorrer las entradas y salidas de dinero de la bolsa.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/recargas`, 'bolsas.recarga.registrar', 'Registrar una recarga de bolsa', 'Abonar dinero a la bolsa del cliente con su soporte.'),
+  op(`${BCAT} GET /bolsa/:bolsaId/cierres`, 'bolsas.cierres.ver', 'Ver los cierres de una bolsa', 'Consultar los cortes de periodo ya cerrados.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/cierres`, 'bolsas.cierre.crear', 'Cerrar un periodo de bolsa', 'Cuadrar y cerrar el periodo de la bolsa del cliente.'),
+  // HU #13907 (Feature #13887, ADR-0029, Q3) — rama tránsito del catálogo único. Tres operaciones nuevas con la
+  // partida de su par, dentro de acciones de bolsas ya repartidas (arbol/acciones-finanzas.ts); el resto reutiliza
+  // los códigos `bolsas.transito.*` de las rutas antiguas `/transito/*` (que retira la HU #13911).
+  op(`${BCTR} POST /buscar`, 'bolsas.transito.listar', 'Ver las bolsas de organismos', 'Listar las bolsas de derechos abiertas ante los organismos de tránsito.'),
+  op(`${BCTR} POST /`, 'bolsas.transito.crear', 'Crear una bolsa de organismo', 'Abrir una bolsa de derechos ante un organismo de tránsito.'),
+  op(`${BCTR} GET /bolsa/:bolsaId`, 'bolsas.transito.ver', 'Ver una bolsa de organismo', 'Consultar el saldo y el detalle de una bolsa de derechos.'),
+  op(`${BCTR} PATCH /bolsa/:bolsaId`, 'bolsas.transito.editar', 'Editar una bolsa de organismo', 'Cambiar los datos de la bolsa de derechos.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/inactivar`, 'bolsas.transito.inactivar', 'Inactivar o reactivar una bolsa de tránsito', 'Suspender una bolsa de tránsito con un motivo, liberando su cobertura, o volver a activarla.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/reactivar`, 'bolsas.transito.inactivar', 'Inactivar o reactivar una bolsa de tránsito', 'Suspender una bolsa de tránsito con un motivo, liberando su cobertura, o volver a activarla.'),
+  op(`${BCTR} GET /bolsa/:bolsaId/movimientos`, 'bolsas.transito.ver_movimientos', 'Ver los movimientos de una bolsa de organismo', 'Recorrer las cargas y consumos de la bolsa de derechos.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/recargas`, 'bolsas.transito.cargar', 'Cargar saldo a una bolsa de organismo', 'Abonar dinero a la bolsa de derechos con su soporte.'),
+  op(`${BCTR} GET /bolsa/:bolsaId/cierres`, 'bolsas.transito.cierres.ver', 'Ver los cierres de una bolsa de tránsito', 'Consultar los cortes de periodo ya cerrados de una bolsa de tránsito.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/cierres`, 'bolsas.transito.cierre.crear', 'Cerrar un periodo de una bolsa de tránsito', 'Cuadrar y cerrar el periodo de una bolsa de tránsito.'),
 
   // ── Conciliación de recaudo SOAT ──────────────────────────────────────────────────────────────
   op(`${CON} POST /boletas`, 'conciliacion.boleta.cargar', 'Cargar una boleta de recaudo', 'Subir el archivo del portal con lo recaudado en el periodo.'),
@@ -421,6 +459,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${CPR} POST /tramites/buscar`, 'comprobantes.tramites.buscar', 'Buscar trámites para un comprobante', 'Buscar por ID FLIT, placa o VIN el trámite al que asociar un comprobante.'),
   op(`${CPR} POST /:id/aplicar`, 'comprobantes.comprobante.aplicar', 'Aplicar o adjuntar un comprobante', 'Asociar un comprobante a un trámite y concepto: como pago o como documentación.'),
   op(`${CPR} POST /:id/descartar`, 'comprobantes.comprobante.descartar', 'Descartar un comprobante', 'Sacar de la cola un comprobante que no corresponde, dejando el motivo.'),
+  // HU #13903: dos operaciones nuevas con la partida de `aplicar` (arbol/acciones-finanzas.ts), dentro de «Asociar».
+  op(`${CPR} POST /:id/desaplicar`, 'comprobantes.comprobante.desaplicar', 'Desaplicar un comprobante', 'Deshacer la aplicación de un comprobante (y el pago que registró) devolviéndolo a la cola o descartándolo, con motivo.'),
+  op(`${CPR} POST /:id/reemplazar`, 'comprobantes.comprobante.reemplazar', 'Reemplazar un comprobante aplicado', 'Descartar un comprobante aplicado y aplicar otro pendiente al mismo trámite y concepto, con motivo.'),
   op(`${CPR} POST /:id/diferencia/aceptar`, 'comprobantes.diferencia.aceptar', 'Aceptar la diferencia de un comprobante', 'Aceptar con motivo la diferencia entre el valor del comprobante y la tarifa de referencia.'),
 ];
 

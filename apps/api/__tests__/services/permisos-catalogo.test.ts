@@ -188,7 +188,20 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #13628: `PUT /flit1/parametros-lectura` reutiliza `tramites.sincronizacion.configurar` del interruptor
     // (diseño docs/diseno/hu-13628-parametros-lectura-flit1.md: sin función nueva ni siembra).
     // HU #13684: `POST /novedades/buscar` de flito-tramites reutiliza `tramites.cola.ver` del listado (sin función nueva ni siembra).
+    // HU #13889 (ADR-0028 §5): el expediente, el historial y la descarga piden la misma `bolsas.documentos.ver`.
+    // HU #13893 (ADR-0028 §5 E6): el estado del lote para el chip también pide `bolsas.documentos.ver`.
+    // HU #13890 (ADR-0028 §5 E4): la fecha de expedición manual reutiliza `bolsas.documentos.cargar` de la carga.
+    // HU #13900 (ADR-0029): las rutas por bolsa (`/bolsa/:bolsaId*`, `/compania/:companiaId/estado`) reutilizan los
+    // códigos de sus pares del canal Cliente; inactivar y reactivar piden la misma `bolsas.bolsa.inactivar`.
+    // HU #13907 (ADR-0029): la rama tránsito del catálogo reutiliza crear, ver y editar de las rutas `/transito…`
+    // (que retira la #13911), y también listar, ver movimientos y cargar; inactivar y reactivar piden la misma
+    // `bolsas.transito.inactivar`.
     expect(compartidosFlito.sort()).toEqual([
+      ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
+      ['bolsas.documentos.cargar', 2], ['bolsas.documentos.ver', 4],
+      ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
+      ['bolsas.transito.cargar', 2], ['bolsas.transito.crear', 2], ['bolsas.transito.editar', 2], ['bolsas.transito.inactivar', 2],
+      ['bolsas.transito.listar', 2], ['bolsas.transito.ver', 2], ['bolsas.transito.ver_movimientos', 2],
       ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.solicitud.crear', 2],
       ['tramites.cola.ver', 2], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);

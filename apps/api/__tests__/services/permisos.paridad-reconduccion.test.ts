@@ -136,8 +136,20 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
     const desconocidos = RUTAS_RECONDUCIDAS.filter((r) => !sembrados.has(enPlano(r.codigo))).map(etiqueta);
     // Un código que NINGÚN rol tiene sembrado es una guarda que responde 403 a todo el mundo. Solo hay
     // una, a propósito: el reemplazo del comprobante de pago nace sin rol (AC7 de la HU #13269) y el
-    // administrador lo concede desde el panel. Cualquier otra es un olvido.
-    expect(desconocidos).toEqual(['flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago']);
+    // administrador lo concede desde el panel. HU #13889 (ADR-0028): las cuatro del expediente documental
+    // tampoco tienen reparto de partida: nacen en el árbol y las concede su acción (la 0248 solo marca a `admin`).
+    // Cualquier otra es un olvido.
+    expect(desconocidos).toEqual([
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts GET /companias/:companiaId',
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts GET /companias/:companiaId/tipos/:tipo/historial',
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts POST /companias/:companiaId/tipos/:tipo',
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts GET /documentos/:documentoId/archivo',
+      // HU #13890 (ADR-0028 §5 E4): la fecha manual reutiliza `bolsas.documentos.cargar`, sin reparto de partida.
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts PUT /documentos/:documentoId/fecha-expedicion',
+      // HU #13893 (ADR-0028 §5 E6): el estado del lote reutiliza `bolsas.documentos.ver`, sin reparto de partida.
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts POST /estado-lote',
+      'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago',
+    ]);
   });
 });
 

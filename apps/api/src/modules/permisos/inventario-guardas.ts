@@ -111,6 +111,12 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   // HU #12997: lectura de las solicitudes SOAT incompletas (RUNT caído); fichero hermano de soat.
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-incompletas.routes.ts' },
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-documentos.routes.ts' }, // HU #13362
+  // HU #13889 (ADR-0028): expediente documental de la compañía; submódulo propio de bolsas.
+  { modulo: 'bolsas', fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts' },
+  // HU #13900 (ADR-0029): catálogo del modelo único de bolsa; sub-router de flito-bolsas.routes.ts.
+  { modulo: 'bolsas', fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts' },
+  // HU #13907: rama tránsito del catálogo (mismas rutas, fichero propio para que su llave sea distinta).
+  { modulo: 'bolsas', fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts' },
 ];
 
 /**
@@ -219,7 +225,8 @@ export function sinComentarios(fuente: string): string {
 const RUTAS = /router\.(get|post|put|patch|delete)\(\s*'([^']*)'\s*,([\s\S]{0,500}?)(?:async\s*\(|\(\s*_?req\b|\(\s*\)\s*=>|\);)/g;
 
 // El objeto admite dígitos desde la HU #13061 (`tramites.flit2.*`); módulo y acción siguen sin ellos.
-const CODIGO = /^'([a-z_]+\.[a-z0-9_]+\.[a-z_]+)'$/;
+// HU #13907: admite UN sub-objeto opcional (`bolsas.transito.cierres.ver`, `bolsas.transito.cierre.crear`, ADR-0029 Q3).
+const CODIGO = /^'([a-z_]+\.[a-z0-9_]+(?:\.[a-z_]+)?\.[a-z_]+)'$/;
 
 function codigoDe(argumentos: string, fichero: string, forma: string): string {
   const literal = CODIGO.exec(argumentos.trim());

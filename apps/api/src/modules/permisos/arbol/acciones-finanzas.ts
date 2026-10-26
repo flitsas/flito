@@ -41,16 +41,40 @@ export const ACCIONES_FINANZAS: Readonly<Record<string, AccionArbol>> = {
   'accion.gastos_diarios.ver': { lectura: true, operaciones: ['finanzas.gastos_diarios.ver'], predecesores: ['pagina.finanzas_gastos_diarios'] },
   // ── Bolsas ──
   'accion.bolsas.ver_clientes': { lectura: true,
-    operaciones: ['bolsas.consolidado.ver', 'bolsas.bolsa.ver', 'bolsas.movimientos.ver', 'bolsas.cierres.ver'],
+    // HU #13900: + `bolsas.bolsa.listar` (nacida en el árbol). `predecesores` fija el grupo de la siembra 0234/0235,
+    // que no puede cambiar (el generador reproduce byte a byte lo ya aplicado).
+    // HU #13907: + `bolsas.transito.cierres.ver`, con el reparto de su par `bolsas.cierres.ver`.
+    operaciones: ['bolsas.consolidado.ver', 'bolsas.bolsa.ver', 'bolsas.movimientos.ver', 'bolsas.cierres.ver', 'bolsas.bolsa.listar',
+      'bolsas.transito.cierres.ver'],
+    predecesores: ['bolsas.consolidado.ver', 'bolsas.bolsa.ver', 'bolsas.movimientos.ver', 'bolsas.cierres.ver'],
     opcionales: ['bolsas.soporte.descargar'],
   },
   'accion.bolsas.ver_transito': { lectura: true, operaciones: ['bolsas.transito.listar', 'bolsas.transito.ver', 'bolsas.transito.ver_movimientos'] },
-  'accion.bolsas.crear': { operaciones: ['bolsas.transito.crear'] },
-  'accion.bolsas.editar': { operaciones: ['bolsas.transito.editar'] },
+  // HU #13900: crear/editar/inactivar la bolsa de COMPAÑÍA viajan con su par de tránsito (mismos roles).
+  'accion.bolsas.crear': { operaciones: ['bolsas.transito.crear', 'bolsas.bolsa.crear'], predecesores: ['bolsas.transito.crear'] },
+  'accion.bolsas.editar': {
+    // HU #13907: + `bolsas.transito.inactivar` (inactivar/reactivar tránsito), con el reparto de `bolsas.transito.editar`.
+    operaciones: ['bolsas.transito.editar', 'bolsas.bolsa.editar', 'bolsas.bolsa.inactivar', 'bolsas.transito.inactivar'],
+    predecesores: ['bolsas.transito.editar'],
+  },
   'accion.bolsas.registrar_recargas': { operaciones: ['bolsas.recarga.registrar', 'bolsas.transito.cargar'] },
   'accion.bolsas.movimientos_manuales': { operaciones: ['bolsas.movimiento.registrar', 'bolsas.movimiento.corregir'] },
-  'accion.bolsas.cerrar_periodo': { operaciones: ['bolsas.cierre.crear', 'bolsas.extracto.descargar'] },
+  // HU #13907 (Q3): + `bolsas.transito.cierre.crear` con el reparto de `bolsas.cierre.crear`. `predecesores` fija el
+  // grupo de la siembra 0234/0235 (el generador reproduce byte a byte lo ya aplicado).
+  'accion.bolsas.cerrar_periodo': {
+    operaciones: ['bolsas.cierre.crear', 'bolsas.extracto.descargar', 'bolsas.transito.cierre.crear'],
+    predecesores: ['bolsas.cierre.crear', 'bolsas.extracto.descargar'],
+  },
   'accion.bolsas.ver_alertas': { lectura: true, operaciones: ['bolsas.alertas.ver', 'bolsas.riesgo.ver'] },
+  // HU #13889 (ADR-0028) — expediente documental de la compañía. Sin `apoyo` de lectura en la de cargar: con
+  // él, `bolsas.documentos.ver` no sería exclusiva de «Ver el expediente» y la acción de lectura no tendría
+  // operación propia (lo exige el muestreo del árbol). Quien carga recibe también la de ver.
+  // Sin `lectura: true`: `bolsas.documentos.ver` incluye la DESCARGA (AC6 de #13889: una sola función para ver y
+  // descargar), y la regla del PO (2026-10-13) no deja que una acción de lectura expanda a descargar. Va con la
+  // regla «todos», como «Cerrar periodo y descargar extracto».
+  // `predecesores: []`: nacen después de la siembra del árbol y nadie las tenía antes (ver ACCIONES_NACIDAS_TRAS_LA_SIEMBRA).
+  'accion.bolsas.ver_documentos': { operaciones: ['bolsas.documentos.ver'], predecesores: [] },
+  'accion.bolsas.cargar_documentos': { operaciones: ['bolsas.documentos.cargar'], predecesores: [] },
   // ── Tarifas ──
   'accion.tarifas.ver': { lectura: true, operaciones: ['parametrizacion.tarifas.listar', 'parametrizacion.tarifas.ver_por_cliente', 'parametrizacion.tarifas.historial'] },
   'accion.tarifas.crear_modificar': { operaciones: ['parametrizacion.tarifas.crear', 'parametrizacion.tarifas.editar'] },
@@ -61,7 +85,12 @@ export const ACCIONES_FINANZAS: Readonly<Record<string, AccionArbol>> = {
   'accion.servicios_adicionales.dar_de_baja': { operaciones: ['parametrizacion.servicios_adicionales.dar_de_baja'] },
   // ── Comprobantes ──
   'accion.comprobantes.cargar': { operaciones: ['comprobantes.lote.cargar'] },
-  'accion.comprobantes.asociar': { operaciones: ['comprobantes.tramites.buscar', 'comprobantes.comprobante.aplicar'] },
+  // HU #13903: + desaplicar y reemplazar (nacidas en el árbol, absorbidas: no se siembran). Las recibe quien
+  // tiene «Asociar», o sea quien aplica. `predecesores` fija el grupo de la siembra 0234/0235 (no cambia).
+  'accion.comprobantes.asociar': {
+    operaciones: ['comprobantes.tramites.buscar', 'comprobantes.comprobante.aplicar', 'comprobantes.comprobante.desaplicar', 'comprobantes.comprobante.reemplazar'],
+    predecesores: ['comprobantes.tramites.buscar', 'comprobantes.comprobante.aplicar'],
+  },
   'accion.comprobantes.ver_cola': { lectura: true, operaciones: ['comprobantes.cola.ver', 'comprobantes.comprobante.ver'], opcionales: ['comprobantes.archivo.descargar'] },
   // `releer` es OCR con coste: va en una acción que modifica (regla «todos»).
   'accion.comprobantes.resolver': { operaciones: ['comprobantes.comprobante.descartar', 'comprobantes.comprobante.releer', 'comprobantes.diferencia.aceptar'] },
@@ -119,7 +148,31 @@ export const PARTIDA_DE_OPERACION_NUEVA: Readonly<Record<string, string>> = {
   'siigo.credenciales.registrar_pruebas': TRANSITORIO_SIIGO,
   'siigo.credenciales.registrar_produccion': TRANSITORIO_SIIGO,
   'siigo.credenciales.probar': TRANSITORIO_SIIGO,
+  // HU #13900 (ADR-0029): el catálogo de la bolsa de COMPAÑÍA, con el reparto de su par. Las conceden acciones YA
+  // sembradas y repartidas («Ver bolsas de clientes», «Crear», «Editar»): sin migración de permisos.
+  'bolsas.bolsa.listar': 'bolsas.bolsa.ver',
+  'bolsas.bolsa.crear': 'bolsas.transito.crear',
+  'bolsas.bolsa.editar': 'bolsas.transito.editar',
+  'bolsas.bolsa.inactivar': 'bolsas.transito.editar',
+  // HU #13907 (ADR-0029, Q3): la rama tránsito del catálogo, con el reparto de su par. Las conceden acciones YA
+  // sembradas y repartidas («Ver bolsas de clientes», «Editar», «Cerrar periodo»): sin migración de permisos.
+  'bolsas.transito.inactivar': 'bolsas.transito.editar',
+  'bolsas.transito.cierres.ver': 'bolsas.cierres.ver',
+  'bolsas.transito.cierre.crear': 'bolsas.cierre.crear',
+  // HU #13903: desaplicar y reemplazar con el reparto de `aplicar` (las concede «Asociar», ya sembrada): sin migración.
+  'comprobantes.comprobante.desaplicar': 'comprobantes.comprobante.aplicar',
+  'comprobantes.comprobante.reemplazar': 'comprobantes.comprobante.aplicar',
 };
+
+/**
+ * HU #13889 (ADR-0028) — Lo que el árbol estrena DESPUÉS de su siembra (0234/0235/0238/0239, aplicadas): dos
+ * acciones y dos operaciones que no parten ninguna guarda vieja. Las operaciones no existieron en el mundo plano
+ * (`catalogoPlano()` no las lee: así sigue siendo lo que sembraron las migraciones ≤ 0231), nacen absorbidas por su
+ * acción (no se siembran), y el 403 y la expansión las conocen por `catalogoOperacionesNuevas()`. Las acciones
+ * quedan fuera de los generadores de la 0234/0235/0239 (su texto no cambia) y las siembra la 0248.
+ */
+export const OPERACIONES_NACIDAS_EN_EL_ARBOL: ReadonlySet<string> = new Set(['bolsas.documentos.cargar', 'bolsas.documentos.ver']);
+export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA: ReadonlySet<string> = new Set(['accion.bolsas.cargar_documentos', 'accion.bolsas.ver_documentos']);
 
 /** El área de esta HU sobre `OPERACIONES_DECLARADAS` (AC6 de cobertura), por prefijo del código. */
 export const AREA_FINANZAS = /^(liquidacion|bolsas|conciliacion|comprobantes|finanzas|siigo)\.|^parametrizacion\.(tarifas|servicios_adicionales)\./;

@@ -1,5 +1,13 @@
 import type {
+  BolsaDetalleDto, BolsaResumenDto, CierreBolsaTransitoDto, MovimientoTransitoDto, BuscarBolsasDto, CrearBolsaDto, EditarBolsaDto,
+  EstadoBolsaCompaniaConAutogestionDto,
+} from '@operaciones/shared-types';
+import type {
   ArbolRolRespuesta, ArbolUsuarioRespuesta, CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RespuestaReemplazoComprobante, RolCatalogo, TipoEnlace,
+} from '@operaciones/shared-types';
+import type {
+  DocumentoBolsaDto, EstadoExpedienteLoteBody, EstadoExpedienteLoteRespuesta, ExpedienteCompaniaDto,
+  HistorialDocumentoBolsaDto, TipoDocumentoBolsa,
 } from '@operaciones/shared-types';
 
 const BASE = '/api';
@@ -588,4 +596,60 @@ export const impuestosApi = {
    */
   reemplazarComprobantePago: (impuestoId: string, archivo: File) =>
     api.upload<RespuestaReemplazoComprobante>(`/flito/impuestos/${encodeURIComponent(impuestoId)}/recibos/reemplazar-pago`, archivo, 'archivo'),
+};
+
+// ── Bolsas: catálogo (HU #13901, contrato de la HU #13900) ─────────────────────
+//
+// Los filtros del listado van SIEMPRE en el body de `POST /buscar` (Ley 1581): el nombre y el NIT
+// de una compañía nunca viajan en la URL. Solo los ids opacos (uuid de la bolsa, id de compañía) van
+// en el path.
+export const bolsasApi = {
+  buscar: (filtros: BuscarBolsasDto) => api.post<BolsaResumenDto[]>('/flito/bolsas/buscar', filtros),
+  detalle: (bolsaId: string) => api.get<BolsaDetalleDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}`),
+  crear: (dto: CrearBolsaDto) => api.post<BolsaDetalleDto>('/flito/bolsas', dto),
+  editar: (bolsaId: string, dto: EditarBolsaDto) =>
+    api.patch<BolsaDetalleDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}`, dto),
+  inactivar: (bolsaId: string, motivo: string) =>
+    api.post<BolsaDetalleDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/inactivar`, { motivo }),
+  reactivar: (bolsaId: string, motivo: string) =>
+    api.post<BolsaDetalleDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/reactivar`, { motivo }),
+  estadoCompania: (companiaId: number) =>
+    api.get<EstadoBolsaCompaniaConAutogestionDto>(`/flito/bolsas/compania/${companiaId}/estado`),
+  // HU #13908: libro, cargas y cierres de una bolsa de TRÁNSITO por id (catálogo único, HU #13907).
+  movimientosTransito: (bolsaId: string) =>
+    api.get<MovimientoTransitoDto[]>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/movimientos`),
+  /** Multipart: `valor`, `fecha`, `observacion?` y `soporte?` (opcional). */
+  cargarTransito: (bolsaId: string, form: FormData) =>
+    api.post<{ saldo?: number }>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/recargas`, form),
+  cierresTransito: (bolsaId: string) =>
+    api.get<CierreBolsaTransitoDto[]>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/cierres`),
+  cerrarMesTransito: (bolsaId: string, periodo: string) =>
+    api.post<CierreBolsaTransitoDto>(`/flito/bolsas/bolsa/${encodeURIComponent(bolsaId)}/cierres`, { periodo }),
+};
+
+// ── Bolsas: expediente documental de la compañía (HU #13892, ADR-0028 §5) ─────────────────────────
+//
+// Solo ids opacos en el path (`companiaId`, uuid del documento). El archivo baja como blob con el
+// nombre que declara el servidor (`<tipo>-v<n>.<ext>`): nada de `/api/files` ni URL firmada (D6).
+const BOLSAS_DOCS = '/flito/bolsas-documentos';
+
+export const bolsasDocumentosApi = {
+  expediente: (companiaId: number) =>
+    api.get<ExpedienteCompaniaDto>(`${BOLSAS_DOCS}/companias/${companiaId}`),
+  /** E6 (HU #13893): estado del expediente de varias compañías; ids en el body, máx. `TOPE_ESTADO_LOTE_BOLSAS`. */
+  estadoLote: (body: EstadoExpedienteLoteBody) =>
+    api.post<EstadoExpedienteLoteRespuesta>(`${BOLSAS_DOCS}/estado-lote`, body),
+  historial: (companiaId: number, tipo: TipoDocumentoBolsa) =>
+    api.get<HistorialDocumentoBolsaDto>(`${BOLSAS_DOCS}/companias/${companiaId}/tipos/${encodeURIComponent(tipo)}/historial`),
+  cargar: (companiaId: number, tipo: TipoDocumentoBolsa, archivo: File) =>
+    api.upload<DocumentoBolsaDto>(`${BOLSAS_DOCS}/companias/${companiaId}/tipos/${encodeURIComponent(tipo)}`, archivo, 'archivo'),
+  fijarFecha: (documentoId: string, fecha: string) =>
+    api.put<DocumentoBolsaDto>(`${BOLSAS_DOCS}/documentos/${encodeURIComponent(documentoId)}/fecha-expedicion`, { fecha }),
+  /** Descarga el archivo de una versión; `respaldo` solo se usa si el servidor no declara nombre. */
+  descargar: async (documentoId: string, respaldo: string) => {
+    const { blob, nombre } = await api.getBlobNamed(
+      `${BOLSAS_DOCS}/documentos/${encodeURIComponent(documentoId)}/archivo`, respaldo,
+    );
+    entregarArchivo(blob, nombre);
+  },
 };

@@ -28,6 +28,15 @@ vi.mock('../../src/modules/flito-parametrizacion/flito-tarifas.service.js', () =
   tarifaDe: tarifaDeMock,
 }));
 
+// HU #13965 (RN-C2): `liquidar` pregunta si el instante cae desde el corte de bolsas, que se lee de la BD
+// (`corteVigente` → `tx.execute`). El tx simulado de este archivo no lo soporta: sin corte (false) es el
+// comportamiento previo y el que estos casos asumen. El corte en sí se prueba en flito-bolsas-descuento.test.ts.
+const cubiertoPorCorteMock = vi.fn();
+vi.mock('../../src/modules/flito-bolsas/flito-bolsas.descuento.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  cubiertoPorCorte: cubiertoPorCorteMock,
+}));
+
 const {
   calcular, conceptoLogistica, facturar, liquidacionDe, liquidar, reversar, salidasDe,
   LiquidacionBloqueadaError, LiquidacionError, TASA_GMF,
@@ -78,6 +87,8 @@ beforeEach(() => {
   transactionMock.mockReset();
   tarifaDeMock.mockReset();
   tarifasConfiguradas();
+  cubiertoPorCorteMock.mockReset();
+  cubiertoPorCorteMock.mockResolvedValue(false);
   // HU #12546 — `calcular()` hace un SELECT más (los servicios adicionales del trámite). Este
   // fallback lo deja en «sin servicios» para los casos que no hablan de ellos, DESPUÉS de los
   // `mockReturnValueOnce` que cada test encola: la cola se consume primero y esto responde al resto.
@@ -713,7 +724,7 @@ describe('reversar — el evento conserva el snapshot CON items y la puente no s
     expect(txSelects).not.toContain('flito_tramite_servicios_adicionales');
     // Ni la de viajes (HU #12626): reversar borra la fila y su snapshot; los viajes siguen vivos.
     expect(txSelects).not.toContain('flito_tramite_viajes_logistica');
-    expect(txSelects).toContain('flito_bolsa_movimientos');
+    expect(txSelects).toContain('flito_bolsas_unicas_movimientos');
   });
 });
 

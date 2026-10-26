@@ -6,9 +6,12 @@
 
 import toast from 'react-hot-toast';
 import {
-  NivelRiesgoBolsa, getOrganismoByCodigo, CLAVE_AGRUPACION_SIN_ASIGNAR, type SoporteFirmado,
+  NivelRiesgoBolsa, getOrganismoByCodigo, CLAVE_AGRUPACION_SIN_ASIGNAR, CONCEPTO_BOLSA_LABEL,
+  CONCEPTO_BOLSA_TRANSITO_LABEL,
+  type ConceptoBolsa, type ConceptoBolsaTransito, type NivelBolsaTransito, type ParCoberturaOcupada,
+  type SoporteFirmado,
 } from '@operaciones/shared-types';
-import { api, errorMessage } from './api';
+import { ApiError, api, errorMessage } from './api';
 import type { ChipTone } from '../components/flit/StatusChip';
 
 
@@ -125,4 +128,104 @@ export function descargarCsv(nombre: string, cabeceras: string[], filas: string[
   a.download = nombre;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ── Catálogo de bolsas (HU #13901) ──────────────────────────────────────────────
+
+/** Una compañía de `/clients`, lo único que el formulario necesita de ella. */
+export interface ClienteOpcion {
+  id: number;
+  name: string;
+}
+
+/**
+ * Código de negocio y datos extra de un error del API de bolsas (`{ error, codigo, ...datos }`).
+ *
+ * La pantalla decide el copy por el `codigo`, nunca enseña `error` tal cual: el texto del servidor
+ * está escrito para el log, no para quien opera.
+ */
+export function errorBolsa(e: unknown): { status: number | null; codigo: string | null; datos: Record<string, unknown> } {
+  if (e instanceof ApiError) {
+    const datos = (e.rawDetails && typeof e.rawDetails === 'object' ? e.rawDetails : {}) as Record<string, unknown>;
+    return { status: e.status, codigo: typeof datos.codigo === 'string' ? datos.codigo : null, datos };
+  }
+  return { status: null, codigo: null, datos: {} };
+}
+
+/** Cómo se nombra cada concepto autogestionable dentro del aviso («gestiona su SOAT…»). */
+const SU_CONCEPTO: Partial<Record<ConceptoBolsa, string>> = {
+  soat: 'su SOAT',
+  impuesto: 'sus impuestos',
+  logistica: 'su logística',
+};
+
+const unirConY = (partes: string[]): string =>
+  (partes.length <= 1 ? partes.join('') : `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`);
+
+/**
+ * Aviso de autogestión (AC10, D15). `null` si no hay nada que avisar.
+ * Uno: «…su SOAT por su cuenta: no llegarán movimientos a la bolsa salvo excepciones.»
+ * Varios: «…su SOAT y su logística por su cuenta: no llegarán movimientos a la bolsa por esos conceptos salvo excepciones.»
+ */
+export function avisoAutogestion(conceptos: readonly ConceptoBolsa[]): string | null {
+  if (conceptos.length === 0) return null;
+  const nombres = conceptos.map((c) => SU_CONCEPTO[c] ?? `su ${CONCEPTO_BOLSA_LABEL[c]}`);
+  return conceptos.length === 1
+    ? `Esta compañía gestiona ${nombres[0]} por su cuenta: no llegarán movimientos a la bolsa salvo excepciones.`
+    : `Esta compañía gestiona ${unirConY(nombres)} por su cuenta: no llegarán movimientos a la bolsa por esos conceptos salvo excepciones.`;
+}
+
+/** Longitud mínima del motivo de inactivar / reactivar (AC5, mismo umbral que el API). */
+export const MOTIVO_MINIMO = 5;
+
+// ── Bolsa de tránsito en el catálogo único (HU #13908) ──────────────────────────
+
+/**
+ * Tono del nivel de una bolsa de TRÁNSITO (su escala, con «En préstamo»). `sin_cargas` es borrador:
+ * no es una alarma, es una bolsa que todavía no ha empezado a operar.
+ */
+export const TONO_NIVEL_TRANSITO: Record<NivelBolsaTransito, ChipTone> = {
+  normal: 'success',
+  bajo: 'warning',
+  critico: 'danger',
+  agotada: 'danger',
+  en_prestamo: 'danger',
+  sin_cargas: 'draft',
+};
+
+/** Saldo con «−» escrito: en préstamo el signo se lee antes que el color. */
+export const saldoConSigno = (n: number): string => (n < 0 ? `− ${pesos(Math.abs(n))}` : pesos(n));
+
+/** Nombre visible de una secretaría por su código DIVIPOLA (nunca el código solo si hay catálogo). */
+export function nombreSecretaria(codigo: string): string {
+  const o = getOrganismoByCodigo(codigo);
+  return o ? `${o.ciudad} — ${o.nombre}` : codigo;
+}
+
+/** Pares del 409 `cobertura_ocupada` (alta, edición o reactivación). `[]` si el cuerpo no los trae. */
+export function paresOcupados(datos: Record<string, unknown>): ParCoberturaOcupada[] {
+  const pares = Array.isArray(datos.pares) ? datos.pares : [];
+  return pares.filter((p): p is ParCoberturaOcupada =>
+    !!p && typeof p === 'object'
+    && typeof (p as ParCoberturaOcupada).organismoCodigo === 'string'
+    && typeof (p as ParCoberturaOcupada).concepto === 'string'
+    && typeof (p as ParCoberturaOcupada).bolsaNombre === 'string');
+}
+
+/** Rótulo de un cobro de tránsito; el valor crudo solo si llega uno que la web no conoce. */
+export function cobroTransito(concepto: string): string {
+  return CONCEPTO_BOLSA_TRANSITO_LABEL[concepto as ConceptoBolsaTransito] ?? concepto;
+}
+
+/**
+ * Aviso de autogestión de impuestos en tránsito (AC9 de la HU #13908). `null` si no hay nada que avisar.
+ * Conserva literal el texto del AC desde «este organismo es autogestionado…».
+ */
+export function avisoAutogestionTransito(secretarias: string[]): string | null {
+  const unicas = [...new Set(secretarias)];
+  if (unicas.length === 0) return null;
+  if (unicas.length === 1) {
+    return `${unicas[0]}: este organismo es autogestionado para impuestos: no llegarán movimientos de impuesto a la bolsa salvo excepciones.`;
+  }
+  return `Estos organismos son autogestionados para impuestos: ${unicas.join(', ')}. No llegarán movimientos de impuesto a la bolsa salvo excepciones.`;
 }

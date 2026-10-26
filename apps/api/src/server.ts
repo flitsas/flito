@@ -22,6 +22,8 @@ import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
 import { startImpuestosAnalisisCron, stopImpuestosAnalisisCron } from './modules/flito-impuestos/flito-impuestos-analisis.cron.js';
+import { startBolsasDocumentosOcrCron, stopBolsasDocumentosOcrCron } from './modules/flito-bolsas-documentos/flito-bolsas-documentos-ocr.cron.js';
+import { startBolsasDocumentosPurgaCron, stopBolsasDocumentosPurgaCron } from './modules/flito-bolsas-documentos/flito-bolsas-documentos-purga.cron.js';
 import { startImpuestosEnvioFlit2Cron, stopImpuestosEnvioFlit2Cron } from './modules/flito-impuestos/flito-impuestos-envio-flit2.cron.js';
 import { startImpuestosEnvioFlit1Cron, stopImpuestosEnvioFlit1Cron } from './modules/flito-impuestos/flito-impuestos-envio-flit1.cron.js';
 import { registrarPasosAnalisisImpuestos } from './modules/flito-impuestos/flito-impuestos.analisis.pasos.js';
@@ -91,6 +93,8 @@ const server = app.listen(env.PORT, () => {
     startPortalReminderCron();
     startValidacionStaleCron();
     startImpuestosAnalisisCron();
+    startBolsasDocumentosOcrCron();
+    startBolsasDocumentosPurgaCron();
     // HU #13268: envío del comprobante de pago a FLIT 2 (no toma nada con FLIT2_ADJUNTOS_ENVIO_HABILITADO apagada).
     startImpuestosEnvioFlit2Cron();
     startImpuestosEnvioFlit1Cron();
@@ -161,6 +165,8 @@ function shutdown(signal: string) {
   stopPortalReminderCron();
   stopValidacionStaleCron();
   stopImpuestosAnalisisCron();
+  stopBolsasDocumentosOcrCron();
+  stopBolsasDocumentosPurgaCron();
   stopImpuestosEnvioFlit2Cron();
   stopImpuestosEnvioFlit1Cron();
   stopDerechosDriveCron();

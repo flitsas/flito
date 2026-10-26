@@ -52,6 +52,15 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'GET', ruta: '/:id/documentos-adicionales', codigo: 'soat.documentos_adicionales.ver' },
   { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'POST', ruta: '/:id/documentos-adicionales', codigo: 'soat.documentos_adicionales.cargar' },
   { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'DELETE', ruta: '/:id/documentos-adicionales/:soporteId', codigo: 'soat.documentos_adicionales.eliminar' },
+  // HU #13889 (ADR-0028): expediente documental de la compañía.
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/companias/:companiaId', codigo: 'bolsas.documentos.ver' },
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/companias/:companiaId/tipos/:tipo/historial', codigo: 'bolsas.documentos.ver' },
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'POST', ruta: '/companias/:companiaId/tipos/:tipo', codigo: 'bolsas.documentos.cargar' },
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/documentos/:documentoId/archivo', codigo: 'bolsas.documentos.ver' },
+  // HU #13890 (ADR-0028 §5 E4): fecha de expedición manual, reutiliza la función de la carga.
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'PUT', ruta: '/documentos/:documentoId/fecha-expedicion', codigo: 'bolsas.documentos.cargar' },
+  // HU #13893 (ADR-0028 §5 E6): estado agregado del lote para el chip del listado.
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'POST', ruta: '/estado-lote', codigo: 'bolsas.documentos.ver' },
   // HU #12998
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/reintentar', codigo: 'soat.solicitud.reintentar_runt' },
   // HU #13061: acceso de FLITO a FLIT 2 (0214, solo admin).
@@ -108,6 +117,29 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-bolsas/flito-bolsas.routes.ts', metodo: 'POST', ruta: '/:companiaId/movimientos/:movimientoId/correccion', codigo: 'bolsas.movimiento.corregir' },
   { fichero: 'flito-bolsas/flito-bolsas.routes.ts', metodo: 'GET', ruta: '/:companiaId/cierres', codigo: 'bolsas.cierres.ver' },
   { fichero: 'flito-bolsas/flito-bolsas.routes.ts', metodo: 'POST', ruta: '/:companiaId/cierres', codigo: 'bolsas.cierre.crear' },
+  // flito-bolsas/flito-bolsas.catalogo.routes.ts — HU #13900 (ADR-0029)
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'bolsas.bolsa.listar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'POST', ruta: '/', codigo: 'bolsas.bolsa.crear' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'GET', ruta: '/compania/:companiaId/estado', codigo: 'bolsas.bolsa.ver' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'GET', ruta: '/bolsa/:bolsaId', codigo: 'bolsas.bolsa.ver' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'PATCH', ruta: '/bolsa/:bolsaId', codigo: 'bolsas.bolsa.editar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/inactivar', codigo: 'bolsas.bolsa.inactivar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/reactivar', codigo: 'bolsas.bolsa.inactivar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'GET', ruta: '/bolsa/:bolsaId/movimientos', codigo: 'bolsas.movimientos.ver' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/recargas', codigo: 'bolsas.recarga.registrar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'GET', ruta: '/bolsa/:bolsaId/cierres', codigo: 'bolsas.cierres.ver' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/cierres', codigo: 'bolsas.cierre.crear' },
+  // flito-bolsas/flito-bolsas.catalogo-transito.routes.ts — HU #13907 (ADR-0029, Q3)
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'bolsas.transito.listar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/', codigo: 'bolsas.transito.crear' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'GET', ruta: '/bolsa/:bolsaId', codigo: 'bolsas.transito.ver' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'PATCH', ruta: '/bolsa/:bolsaId', codigo: 'bolsas.transito.editar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/inactivar', codigo: 'bolsas.transito.inactivar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/reactivar', codigo: 'bolsas.transito.inactivar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'GET', ruta: '/bolsa/:bolsaId/movimientos', codigo: 'bolsas.transito.ver_movimientos' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/recargas', codigo: 'bolsas.transito.cargar' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'GET', ruta: '/bolsa/:bolsaId/cierres', codigo: 'bolsas.transito.cierres.ver' },
+  { fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts', metodo: 'POST', ruta: '/bolsa/:bolsaId/cierres', codigo: 'bolsas.transito.cierre.crear' },
   // flito-revisiones/flito-revisiones.routes.ts
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'GET', ruta: '/', codigo: 'revisiones.cola.ver' },
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'GET', ruta: '/campos/:modulo', codigo: 'revisiones.campos.ver' },
@@ -357,6 +389,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/descartar', codigo: 'comprobantes.comprobante.descartar' },
   // HU #12654 — F3 #12607: aceptar la diferencia (+1; 0202).
   { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/diferencia/aceptar', codigo: 'comprobantes.diferencia.aceptar' },
+  // HU #13903: desaplicar y reemplazar (partida: aplicar).
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/desaplicar', codigo: 'comprobantes.comprobante.desaplicar' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/reemplazar', codigo: 'comprobantes.comprobante.reemplazar' },
 
   // ── HU #12619 — flito-logistica/flito-logistica-viajes.routes.ts (fichero hermano, nace reconducido; 3 rutas) ──
   { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'GET', ruta: '/tramites/:tramiteId/viajes', codigo: 'logistica.viajes.ver' },

@@ -83,6 +83,15 @@ vi.mock('../../src/modules/flito-derechos/flito-derechos.service.js', async (ori
   const real = await orig() as Record<string, unknown>;
   return { ...real, registrarDesdeRevision: registrarDerechoMock };
 });
+// HU #13902: el gancho de la bolsa se espía con la implementación REAL por defecto (sin corte devuelve null
+// sin tocar la base, así que los casos anteriores no cambian); los casos de la HU fijan su respuesta.
+const bolsaDescuento = vi.hoisted(() => ({ descontar: vi.fn(), revertir: vi.fn() }));
+vi.mock('../../src/modules/flito-bolsas/flito-bolsas.descuento.js', async (orig) => {
+  const real = await orig() as typeof import('../../src/modules/flito-bolsas/flito-bolsas.descuento.js');
+  bolsaDescuento.descontar.mockImplementation(real.descontarComprobante);
+  bolsaDescuento.revertir.mockImplementation(real.revertirDescuentoComprobante);
+  return { ...real, descontarComprobante: bolsaDescuento.descontar, revertirDescuentoComprobante: bolsaDescuento.revertir };
+});
 const logLineas: unknown[] = [];
 const logMock = { info: (...a: unknown[]) => logLineas.push(a), warn: (...a: unknown[]) => logLineas.push(a), error: (...a: unknown[]) => logLineas.push(a), debug: vi.fn(), child: () => logMock };
 vi.mock('../../src/shared/logger.js', () => ({ loggerFor: () => logMock, logger: logMock }));
@@ -637,7 +646,9 @@ describe('HU #12630 — POST /:id/aplicar con esPago=true: SOAT / impuesto / der
     expect(marcarPagadoMock).not.toHaveBeenCalled();
     const comps = espia.updatesEn(T_COMP);
     expect(comps).toHaveLength(2);
-    expect(comps[1]!.datos).toMatchObject({ estado: 'pendiente', esPago: null, valor: null, soporteAplicadoId: null, aplicadoPorId: null, aplicadoEn: null });
+    expect(comps[1]!.datos).toMatchObject({ estado: 'pendiente', motivoPendiente: 'destino_no_admite', esPago: null, valor: null, soporteAplicadoId: null, aplicadoPorId: null, aplicadoEn: null });
+    // HU #13938: el detalle del pendiente lleva lo que dijo el dueño (el CHECK 0198 exige motivo en pendiente).
+    expect(comps[1]!.datos.detallePendiente).toMatch(/El dueño \(soat\).*Solo se puede conciliar un documento contra un SOAT en adquisición/);
     expect(ligadoA(renderizar(comps[1]!.condiciones[0] as never), '"flito_comprobantes"."estado"')).toBe('aplicado');
     expect(auditMock).not.toHaveBeenCalled();
   });
@@ -958,6 +969,35 @@ describe('HU #12631 — POST /:id/aplicar con esPago=true: fila documental de tr
     expect(cierre()).toMatchObject({ concepto: 'servicios_adicionales', esPago: true, valor: '120', servicioTipoId: TIPO });
   });
 
+  it('HU #13903 (AC11) — captura del valor previo: la puente YA tenía la fila (80) → la fila guarda sa_asignacion_previa = true y sa_valor_previo = 80, leídos con FOR UPDATE dentro de la tx', async () => {
+    const app = await buildApp();
+    armarSa();
+    kdb.when.select(T_SA, [{ total: '999.00', valor: '80.00' }]);
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pagoSa());
+    expect(res.status).toBe(200);
+    expect(bloqueos.some((b) => b.tabla === T_SA && b.modo === 'update')).toBe(true);
+    expect(cierre()).toMatchObject({ servicioTipoId: TIPO, saAsignacionPrevia: true, saValorPrevio: '80.00' });
+    expect(espia.ultimoInsertEn(T_SA)).toMatchObject({ valor: '120' }); // y después el upsert, como siempre
+  });
+
+  it('HU #13903 (AC11) — captura del valor previo: la puente NO tenía la fila → sa_asignacion_previa = false y sa_valor_previo NULL', async () => {
+    const app = await buildApp();
+    armarSa();
+    kdb.when.select(T_SA, []);
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pagoSa());
+    expect(res.status).toBe(200);
+    expect(cierre()).toMatchObject({ servicioTipoId: TIPO, saAsignacionPrevia: false, saValorPrevio: null });
+  });
+
+  it('HU #13903 (AC11) — un honorario que NO es servicios adicionales no guarda estado de la puente', async () => {
+    const app = await buildApp();
+    armarHonorario({});
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago());
+    expect(res.status).toBe(200);
+    expect(cierre()).not.toHaveProperty('saAsignacionPrevia');
+    expect(cierre()).not.toHaveProperty('saValorPrevio');
+  });
+
   it('Bug #12913 — tarifa_referencia SA = valor del CATÁLOGO del tipo elegido (100; comprobante 120 → diferencia 20, marcado), leído por id del tipo; NUNCA Σ puente (mutante M2: la puente dice 999)', async () => {
     const app = await buildApp();
     armarSa();
@@ -965,7 +1005,11 @@ describe('HU #12631 — POST /:id/aplicar con esPago=true: fila documental de tr
     expect(res.status).toBe(200);
     expect(cierre()).toMatchObject({ tarifaReferencia: '100.00', diferenciaTarifa: '20.00', marcadoPorDiferencia: true });
     const sql = leido();
-    expect(sql).not.toContain('"flito_tramite_servicios_adicionales"."tramite_id"');
+    // HU #13903 (AC11): la ÚNICA lectura de la puente es la captura del valor previo, por (trámite, TIPO), una fila;
+    // un Σ por trámite (sin el tipo) sigue prohibido.
+    const dePuente = espia.condicionesLeidas().map((c) => renderizar(c as never)).filter((q) => q.sql.includes('"flito_tramite_servicios_adicionales"."tramite_id"'));
+    expect(dePuente).toHaveLength(1);
+    expect(ligadoA(dePuente[0]!, '"flito_tramite_servicios_adicionales"."tipo_id"')).toBe(TIPO);
     expect(sql).not.toContain('"flito_tarifas_vigencias"');
     const tipo = espia.condicionesLeidas().map((c) => renderizar(c as never)).filter((q) => q.sql.includes('"flito_servicios_adicionales_tipos"."id"'));
     expect(tipo.length).toBeGreaterThanOrEqual(3); // antes de S3, bajo el bloqueo, y la tarifa
@@ -1408,5 +1452,92 @@ describe('HU #12654 — POST /:id/diferencia/aceptar', () => {
     const res = await request(app).post(`${BASE}/abc/diferencia/aceptar`).set('Authorization', await auth()).send({ motivo: MOTIVO });
     expect(res.status).toBe(404);
     expect(kdb.select).not.toHaveBeenCalled();
+  });
+});
+
+// ═════════════════ HU #13902 · gancho de la bolsa de la compañía ══════════════════════════════════
+
+describe('HU #13902 — aplicar llama al descuento de la bolsa dentro de la tx y lo compensa si el dueño rechaza', () => {
+  const APROBADO = new Date('2026-08-01T15:00:00Z');
+  const conValor = () => { const e = extraccion(); e[CampoComprobante.VALOR_TOTAL] = campo('300000', 0.95); e[CampoComprobante.CONCEPTO] = campo('tramite_digital', 0.95); return e; };
+  const ctx = { userId: 7, username: 'u@flitsas.io', role: 'financiera' };
+  const DTO = {
+    movimientos: [{ bolsaId: 'bolsa-1', alcance: 'compania', movimientoId: 'mov-1', valor: 300000, saldoResultante: -200000 }],
+    omitidos: [], alertas: [{ bolsaId: 'bolsa-1', bolsaNombre: 'Cliente Uno', alcance: 'compania', saldoResultante: -200000 }],
+  };
+  function armarHonorario() {
+    kdb.when
+      .selectOnce(T_COMP, [cabecera({ extraccion: conValor(), extraccionDestino: null })])
+      .selectOnce(T_SOP, [soporte])
+      .selectOnce(T_COMP, [{ estado: 'pendiente' }])
+      .select(T_TRAM, [tramite({ companiaId: 1, tipoTramite: 'MATRICULA', fechaAprobacion: APROBADO })])
+      .select(T_LIQ, [])
+      .select(T_TAR, [{ valor: '300000.00' }])
+      .select(T_SA, [{ total: null }])
+      .selectOnce(T_COMP, [filaAplicada({ esPago: true, valor: '300000', concepto: 'tramite_digital' })])
+      .selectOnce(T_COMP, [{ extraccion: conValor(), extraccionDestino: null }])
+      .update(T_SOP, [{ id: 'sop-1' }])
+      .update(T_COMP, [{ id: ID }]);
+  }
+  const body = { tramiteId: T1, concepto: 'tramite_digital', esPago: true, campos: {} };
+  beforeEach(() => { bolsaDescuento.descontar.mockClear(); bolsaDescuento.revertir.mockClear(); });
+
+  it('AC5 · honorario: descuenta DESPUÉS de cerrar la fila, con el valor y el mismo aplicado_en; la respuesta trae `bolsa` con la alerta', async () => {
+    bolsaDescuento.descontar.mockResolvedValueOnce(DTO);
+    armarHonorario();
+    const dto = await aplicar(ID, body, ctx);
+    expect(bolsaDescuento.descontar).toHaveBeenCalledTimes(1);
+    const [tx, c, quien] = bolsaDescuento.descontar.mock.calls[0]!;
+    expect(tx).toBeDefined();
+    const cierre = espia.updatesEn(T_COMP)[0]!.datos;
+    expect(c).toEqual({ comprobanteId: ID, tramiteId: T1, concepto: 'tramite_digital', esPago: true, valor: '300000', aplicadoEn: cierre.aplicadoEn });
+    expect(quien).toEqual({ userId: 7, nombre: 'u@flitsas.io' });
+    expect(dto.bolsa).toEqual(DTO);
+    expect(dto).toMatchObject({ id: ID, estado: 'aplicado' });
+  });
+
+  it('AC1 · sin corte (gancho real → null) la respuesta NO trae `bolsa`', async () => {
+    armarHonorario();
+    const dto = await aplicar(ID, body, ctx);
+    expect(bolsaDescuento.descontar).toHaveBeenCalledTimes(1);
+    expect(await bolsaDescuento.descontar.mock.results[0]!.value).toBeNull();
+    expect('bolsa' in dto).toBe(false);
+  });
+
+  it('AC9 · auto-aplicación: el mismo descuento, a nombre de quien cargó el comprobante', async () => {
+    armarHonorario();
+    await aplicar(ID, body, ctx, { automatico: true });
+    expect(bolsaDescuento.descontar).toHaveBeenCalledTimes(1);
+    expect(bolsaDescuento.descontar.mock.calls[0]![2]).toEqual({ userId: 7, nombre: 'u@flitsas.io' });
+  });
+
+  it('AC4 · documentación (esPago=false) pasa por el gancho con esPago=false y valor null (→ no_es_pago)', async () => {
+    armarAplicar();
+    await aplicar(ID, { tramiteId: T1, concepto: 'soat', esPago: false, campos: {} }, ctx);
+    expect(bolsaDescuento.descontar.mock.calls[0]![1]).toMatchObject({ comprobanteId: ID, concepto: 'soat', esPago: false, valor: null });
+  });
+
+  it('AC8 · SOAT rechazado tras el commit: descontó en la tx y, al volver a pendiente, revierte con compensacion:true', async () => {
+    const app = await buildApp();
+    kdb.when
+      .selectOnce(T_COMP, [cabecera({ extraccionDestino: { numeroPoliza: campo('POL-1', 0.6), valorTotal: campo('350000', 0.9) } })])
+      .selectOnce(T_SOP, [soporte])
+      .selectOnce(T_COMP, [{ estado: 'pendiente' }])
+      .select(T_TRAM, [tramite({ soatId: 'soat-1', soatEstado: 'solicitado' })])
+      .select(T_IMP, [])
+      .select(T_DER, [])
+      .select(T_SOAT, [{ id: 'soat-1', estado: 'pagado' }])
+      .update(T_SOP, [{ id: 'sop-1' }])
+      .update(T_COMP, [{ id: ID }]);
+    bolsaDescuento.descontar.mockResolvedValueOnce(DTO);
+    bolsaDescuento.revertir.mockResolvedValueOnce([]);
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send({ tramiteId: T1, concepto: 'soat', esPago: true });
+    expect(res.status).toBe(409);
+    expect(bolsaDescuento.descontar.mock.calls[0]![1]).toMatchObject({ comprobanteId: ID, concepto: 'soat', esPago: true });
+    expect(bolsaDescuento.revertir).toHaveBeenCalledTimes(1);
+    const [, id, quien, o] = bolsaDescuento.revertir.mock.calls[0]!;
+    expect([id, quien, o.compensacion]).toEqual([ID, { userId: 7, nombre: 'u@flitsas.io' }, true]);
+    // La vuelta a pendiente sigue ocurriendo (la tx compartida la garantiza el código: el mock ejecuta `cb(db)`).
+    expect(espia.updatesEn(T_COMP)[1]!.datos).toMatchObject({ estado: 'pendiente' });
   });
 });
