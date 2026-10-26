@@ -76,11 +76,6 @@ Un solo `POST $User%20Story` con JSON Patch (`ensure_ascii=False` / UTF-8). Fase
   },
   {
     "op": "add",
-    "path": "/fields/System.Tags",
-    "value": "adopcion-ia; DOR"
-  },
-  {
-    "op": "add",
     "path": "/fields/Custom.Refinement",
     "value": true
   },
