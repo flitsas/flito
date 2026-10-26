@@ -489,14 +489,14 @@ export const EXPEDIENTE_BOLSA_DEMO = {
   companiaId: 901,
   completo: false,
   documentos: [
-    { tipo: 'camara_comercio', opcional: false, estado: 'valido',
+    { tipo: 'camara_comercio', opcional: false, estado: 'valido', tieneHistorial: true,
       vigente: versionDocDemo('camara_comercio', 1, { fechaExpedicion: '2026-10-05', venceEl: '2026-11-04', fechaOrigen: 'ocr' }) },
-    { tipo: 'rut', opcional: false, estado: 'vencido',
+    { tipo: 'rut', opcional: false, estado: 'vencido', tieneHistorial: true,
       vigente: versionDocDemo('rut', 2, { estado: 'vencido', version: 2, fechaExpedicion: '2026-09-10', venceEl: '2026-10-10', fechaOrigen: 'ocr' }) },
-    { tipo: 'cedula_representante', opcional: false, estado: 'valido', vigente: versionDocDemo('cedula_representante', 3, {}) },
-    { tipo: 'certificado_bancario', opcional: false, estado: 'no_validado',
+    { tipo: 'cedula_representante', opcional: false, estado: 'valido', tieneHistorial: true, vigente: versionDocDemo('cedula_representante', 3, {}) },
+    { tipo: 'certificado_bancario', opcional: false, estado: 'no_validado', tieneHistorial: true,
       vigente: versionDocDemo('certificado_bancario', 4, { estado: 'no_validado', cargadoEn: '2026-10-20T14:05:00.000Z' }) },
-    { tipo: 'adicional', opcional: true, estado: 'pendiente', vigente: null },
+    { tipo: 'adicional', opcional: true, estado: 'pendiente', tieneHistorial: false, vigente: null },
   ],
 };
 

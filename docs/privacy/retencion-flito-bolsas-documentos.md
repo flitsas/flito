@@ -1,6 +1,6 @@
 # Retención — expediente documental de la compañía (bolsas de documentos)
 
-HU #13891 · Feature #13888 · ADR-0028 §9 y §14 · módulo `apps/api/src/modules/flito-bolsas-documentos/`
+HU #13891 · HU #13964 (retiro) · Feature #13888 · ADR-0028 §9, §14 y adenda HU #13964 · módulo `apps/api/src/modules/flito-bolsas-documentos/`
 
 ## Qué datos
 
@@ -15,6 +15,11 @@ soportes de la compañía son datos personales o cuasi-personales (Ley 1581 de 2
 |---|---|---|---|
 | **Vigente** | Mientras sea la vigente | Nada | Todo |
 | **Reemplazada** | **5 años** desde `reemplazado_en` (frontera inclusiva) | El objeto en MinIO y `storage_key` (queda `NULL`); se marca `purgado_en` | La fila como constancia: tipo, versión, fechas, OCR y quién cargó |
+| **Retirada** (HU #13964) | **5 años** desde `retirado_en` (= `reemplazado_en`, mismo instante; frontera inclusiva) | Lo mismo que en una reemplazada (objeto, `storage_key`, `purgado_en`) **y además `motivo_retiro`** (queda `NULL`) | La fila como constancia, con `retirado_en` y `retirado_por` |
+
+**Motivo del retiro.** `motivo_retiro` es texto libre opcional (≤ 300 caracteres) y puede traer datos
+personales (p. ej. un nombre). No va a la Bitácora ni a los logs: solo vive en la fila y se muestra en el
+historial. La purga lo anula junto con el archivo, para que no quede para siempre en la constancia.
 
 ## Base legal
 
@@ -38,7 +43,9 @@ Un solo lugar: `BOLSAS_DOCUMENTOS_RETENCION_ANIOS` en `apps/api/src/config/env.t
 - Cron diario 03:00–03:59 `America/Bogota` (`flito-bolsas-documentos-purga.cron.ts`), con candado
   distribuido `flito-bolsas-docs-purga` (30 min) y lote de 200 versiones por corrida.
 - **Puerta positiva:** sin `BOLSAS_DOCUMENTOS_PURGA_CRON_ENABLED=1` no arranca (y lo dice en el log).
-- Por compañía, en una transacción: `storage_key = NULL` + `purgado_en = now()`, encolado del objeto en
+- Elegibles: `NOT vigente AND purgado_en IS NULL AND storage_key IS NOT NULL AND reemplazado_en <= ahora − N`.
+  Una retirada entra por la misma regla: el retiro escribe `reemplazado_en = retirado_en`.
+- Por compañía, en una transacción: `storage_key = NULL` + `purgado_en = now()` + `motivo_retiro = NULL`, encolado del objeto en
   `flito_storage_borrados_pendientes` (origen `bolsas-documentos`) y una entrada de Bitácora
   `bolsas.documentos.versiones_purgadas` (id opaco de la compañía, cantidad y bytes; fecha del registro).
 - Después se intenta borrar el objeto una vez. Si el almacenamiento falla, el pendiente queda abierto y

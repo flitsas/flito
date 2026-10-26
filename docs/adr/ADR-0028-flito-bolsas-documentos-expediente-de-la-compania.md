@@ -465,3 +465,146 @@ Respondidas por David Chica en la sesión flito-ba:
 Decisión del hilo (no de producto), consistente con el AC4 de #13892 («Validando…»): se mantiene **D4** — `validando` es un valor transitorio del `estado` en el DTO.
 
 Siguen pendientes: el contrato S0 con flito-df (§6, `estadoBolsaDeCompania`) y los puntos de montaje en la UI de #13886. Hasta S0 rige el fallback de §6.
+
+## Adenda HU #13964 — retiro de la versión vigente
+
+> Modo **slim** (architecture-agent, 2026-10-25). Extiende el patrón de E4 (`PUT …/fecha-expedicion`): misma
+> guarda, mismo UPDATE condicionado por `vigente`, misma traducción de errores. **ADR nuevo: no aplica** — no
+> cambia D1–D11 ni contradice §14; es una transición de estado más sobre la misma tabla. Estado: **Propuesto**.
+
+### A.1 Decisiones cerradas (David Chica, 2026-10-25)
+
+Permiso `bolsas.documentos.cargar` (sin función nueva) · motivo opcional ≤ 300 · purga de 5 años contada
+desde el retiro · confirmación modal · 409 con la bolsa inactiva · aplica a los 5 tipos · se puede retirar
+con el OCR en curso («Validando…») · solo se retira la vigente; restaurar = volver a cargar · sin
+`logPiiAccess` al retirar (sigue en la descarga de la cédula, como hoy).
+
+### A.2 Verificado contra el código (develop `85c5224e`)
+
+| Pregunta | Respuesta |
+|---|---|
+| ¿`completo` y el chip dependen solo de `vigente`? | **Sí.** `expedienteDe` y `estadoLoteDe` filtran `vigente = true`; sin fila vigente el tipo sale `pendiente`, y `completo` es `false` si es uno de los 4 principales. El `adicional` retirado no afecta a `completo`. Nada que cambiar en el cálculo. |
+| ¿Versión siguiente? | `max(version) + 1` por (compañía, tipo) dentro de la transacción de `cargarDocumento` — **no** un count. La retirada conserva su fila, así que tras retirar la v2 la carga siguiente es la **v3** (AC4). Nada que cambiar. |
+| ¿Cubre la purga a las retiradas? | **Sí, sin tocar el código.** Elegible = `NOT vigente AND purgado_en IS NULL AND storage_key IS NOT NULL AND reemplazado_en <= ahora − N`. El retiro escribe `reemplazado_en = retirado_en`, así que los 5 años cuentan desde el retiro. |
+| ¿Lock por compañía+tipo? | **No hace falta.** La carga tampoco toma lock: confía en los índices únicos parciales. El retiro es un único `UPDATE … WHERE id = $1 AND vigente` (atómico). Retiro ∥ carga: si la carga confirma antes, el retiro afecta 0 filas → 409; si el retiro confirma antes, el `UPDATE` de la carga re-evalúa `vigente` (READ COMMITTED), no toca nada e inserta `max+1` (la retirada conserva su número). Retiro ∥ retiro: el segundo afecta 0 filas → 409. Retiro ∥ fecha manual: E4 ya filtra `vigente` → 409. |
+| ¿Retirar con el OCR en curso? | El OCR (`.ocr.ts`) escribe por `id` sin filtrar `vigente`: completará fecha y estado sobre la fila retirada, igual que hoy pasa con una versión reemplazada durante «Validando…». No toca `vigente` ni `reemplazado_en`, así que no viola ningún CHECK. El cron de rescate puede retomarla una vez más. Es inocuo, se acepta y no se añade filtro. |
+| ¿Choca con el CHECK `ck_…_vigencia` (`vigente = (reemplazado_en IS NULL)`)? | No: el retiro pone `vigente = false` **y** `reemplazado_en`, en el mismo `UPDATE`. |
+
+### A.3 Contrato delta
+
+**E7** — `POST /api/flito/bolsas-documentos/documentos/:documentoId/retirar`
+- Guardas: `soloSinEnlace()`, `exigirFuncion('bolsas.documentos.cargar')` (con `authMiddleware` del router). Sin `rateLimiter` (no es carga ni OCR).
+- Params: `documentoParams` existente (uuid). Body: `z.object({ motivo: z.string().trim().max(300).optional() }).strict()`; un motivo vacío tras `trim` se guarda como `NULL`. Error 400: «El motivo admite hasta 300 caracteres.».
+- Respuesta **200**: `DocumentoExpedienteDto`, la **fila** del tipo ya actualizada: `{ tipo, estado: 'pendiente', opcional, vigente: null, tieneHistorial: true }`. Sigue el patrón de E3/E4: devuelven el DTO y `ExpedienteDocumental.aplicarDocumento` lo aplica a la fila y recalcula `completo` en el cliente, sin releer. Aquí se reemplaza la fila entera, en lugar de solo `vigente`. No se devuelve el expediente completo: los otros tipos no cambian.
+- Errores (cuerpo `{ error, codigo? }`; la UI decide por `status` y `codigo`, nunca por el texto):
+
+  | Status | `codigo` | Cuándo | Copy (`error`) |
+  |---|---|---|---|
+  | 400 | `motivo_invalido` | el body no pasa Zod (motivo > 300, clave extra) | «El motivo admite hasta 300 caracteres.» |
+  | 400 | — | `documentoId` no es uuid | «El documento no es válido.» (igual que E4) |
+  | 403 | — | `soloSinEnlace()` / `exigirFuncion` | respuesta estándar de los middlewares |
+  | 404 | — | el documento no existe | «El documento no existe.» |
+  | 409 | `bolsa_inactiva` | `!estadoBolsaDeCompania().activa` | «La bolsa de la compañía está inactiva: reactívala para retirar documentos.» |
+  | 409 | `no_vigente` | ya reemplazada o retirada (en la lectura o porque el UPDATE afectó 0 filas) | «Esta versión ya no es la vigente: actualiza para ver el expediente.» |
+  | 429 | — | solo si lo devuelve un limitador global montado antes del router; E7 **no** añade limitador propio (no es carga ni OCR) | estándar del limitador |
+
+  El `codigo` sale barato: `BolsaDocumentoError` gana un tercer parámetro opcional `codigo?: string`, y `fallo()` lo añade al JSON cuando existe. Es compatible hacia atrás: E3, E4 y E5 no lo usan, y la web actual solo lee `error`.
+- Auditoría: `audit(req, { action: 'update', resource: 'flito_bolsa_documento', resourceId: <uuid>, detail: 'Retiro del documento <tipo> v<version> de la compañía <companiaId>' })`. **No** lleva el motivo (es texto libre y puede traer PII; vive en la fila) ni el nombre del archivo.
+
+**Servicio** `retirarDocumento(documentoId, motivo: string | null, userId: number | null)` (en `.service.ts`, mismo molde que `fijarFechaManual`):
+1. `SELECT companiaId, tipo, version, vigente` por id → 404 si no existe; 409 si `!vigente`.
+2. `estadoBolsaDeCompania(companiaId)`; si `!activa` → 409.
+3. `UPDATE … SET vigente=false, reemplazado_en=:ahora, retirado_en=:ahora, retirado_por=:userId, motivo_retiro=:motivo WHERE id=:id AND vigente RETURNING id`. Con 0 filas → 409. `:ahora` es **un solo** `new Date()`, para cumplir el CHECK de igualdad.
+4. Devolver la fila del expediente: `{ tipo, estado: 'pendiente', opcional: tipo === 'adicional', vigente: null, tieneHistorial: true }`. No hace falta releer, porque tras un retiro correcto el tipo no tiene vigente: el índice único parcial garantiza que no hay otra.
+
+**shared-types** (`packages/shared-types/src/flito-bolsas-documentos.ts`):
+```ts
+export interface RetiroDocumentoBolsaDto {
+  /** ISO 8601 */
+  en: string;
+  /** Nombre del usuario FLIT que retiró (null si el usuario ya no existe). */
+  por: { nombre: string | null };
+  motivo: string | null;
+}
+export interface DocumentoBolsaVersionDto extends DocumentoBolsaDto {
+  vigente: boolean;
+  reemplazadoEn: string | null;
+  archivoDisponible: boolean;
+  retiro: RetiroDocumentoBolsaDto | null;   // NUEVO
+}
+export interface DocumentoExpedienteDto {
+  // …campos actuales…
+  /** NUEVO: el tipo tiene al menos una versión (vigente o no). Habilita «Historial» aunque no haya vigente. */
+  tieneHistorial: boolean;
+}
+export interface RetirarDocumentoBolsaBody { motivo?: string }
+export const MOTIVO_RETIRO_DOCUMENTO_BOLSA_MAX = 300;
+/** E7 responde con la fila del expediente (`DocumentoExpedienteDto`). Códigos de error estables para la UI. */
+export type CodigoErrorDocumentoBolsa = 'motivo_invalido' | 'bolsa_inactiva' | 'no_vigente';
+```
+**Retirada vs. reemplazada** en el historial: `vigente` → «vigente»; `retiro !== null` → «retirada el <fecha> por <nombre>» (+ motivo si lo hay); en otro caso → «reemplazada el <reemplazadoEn>». La señal es `retiro`, nunca una comparación de fechas.
+
+**`tieneHistorial` (hallazgo propio, confirmado también por UX en `docs/ux/hu-13964-quitar-version-vigente.md`; sin él falla el AC1):** hoy (`FilaDocumento.tsx`, botón en la línea ~180 y montaje en la ~197) `FilaDocumento` muestra el botón Historial y monta `HistorialDocumento` solo con `vigente && …`. Tras retirar la única vigente, el tipo queda `pendiente` con `vigente: null` y **la versión retirada no se podría consultar**. E1 añade `tieneHistorial`, calculado con **una** consulta agregada adicional (`SELECT tipo FROM … WHERE compania_id = $1 GROUP BY tipo`), y la web condiciona el Historial a `doc.tieneHistorial`.
+
+### A.4 Migración `0265_flito_bolsas_documentos_retiro.sql` (nueva; la 0248 no se toca)
+
+```sql
+-- HU #13964 (Feature #13888, ADR-0028 adenda): retiro de la versión vigente. Idempotente.
+ALTER TABLE flito_bolsas_documentos
+  ADD COLUMN IF NOT EXISTS retirado_en   timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS retirado_por  integer NULL,
+  ADD COLUMN IF NOT EXISTS motivo_retiro varchar(300) NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'flito_bolsas_documentos_retirado_por_users_id_fk') THEN
+    ALTER TABLE flito_bolsas_documentos
+      ADD CONSTRAINT flito_bolsas_documentos_retirado_por_users_id_fk
+      FOREIGN KEY (retirado_por) REFERENCES users(id) ON DELETE SET NULL;
+  END IF;
+  -- Motivo y autor solo existen con fecha de retiro.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_flito_bolsas_documentos_retiro_datos') THEN
+    ALTER TABLE flito_bolsas_documentos
+      ADD CONSTRAINT ck_flito_bolsas_documentos_retiro_datos
+      CHECK (retirado_en IS NOT NULL OR (motivo_retiro IS NULL AND retirado_por IS NULL));
+  END IF;
+  -- Retirada ⇒ no vigente y reemplazada en el mismo instante (la purga cuenta desde ahí).
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_flito_bolsas_documentos_retiro') THEN
+    ALTER TABLE flito_bolsas_documentos
+      ADD CONSTRAINT ck_flito_bolsas_documentos_retiro
+      CHECK (retirado_en IS NULL OR (NOT vigente AND reemplazado_en = retirado_en));
+  END IF;
+END $$;
+```
+Las filas existentes cumplen ambos CHECK: tienen `retirado_en` NULL, así que se validan sin backfill. **Sin índice nuevo:** el historial ya se lee por `(compania_id, tipo)` y la purga usa `idx_…_purga`. Drizzle (`schema/flito-bolsas-documentos.ts`): `retiradoEn`, `retiradoPor` (`references(() => users.id, { onDelete: 'set null' })`), `motivoRetiro: varchar(300)` y los dos `check(...)` con los mismos nombres (lección de la 0157).
+
+### A.5 Archivos a crear o modificar
+
+**backend-agent**
+- `apps/api/src/db/migrations/0265_flito_bolsas_documentos_retiro.sql` (nuevo; el número se confirma contra develop justo antes del PR).
+- `apps/api/src/db/schema/flito-bolsas-documentos.ts`: 3 columnas y 2 `check`.
+- `apps/api/src/modules/flito-bolsas-documentos/flito-bolsas-documentos.service.ts`: RN-BD7 en la cabecera; `retirarDocumento`; alias `retirador` de `users` en `consultaDto()`; `retiradoEn`, `motivoRetiro` y `retiradorNombre` en `columnasDto`/`FilaDto`; `retiro` en `aVersionDto`; `tieneHistorial` en `expedienteDe`. Hoy tiene 341 líneas: hay margen frente a 800.
+- `apps/api/src/modules/flito-bolsas-documentos/flito-bolsas-documentos.routes.ts`: E7 y Zod strict; `fallo()` emite `codigo` cuando viene.
+- En `.service.ts`, además: `BolsaDocumentoError(estado, mensaje, codigo?)`.
+- `apps/api/src/modules/flito-bolsas-documentos/flito-bolsas-documentos-purga.service.ts`: **solo el comentario** de RN-BDP1 («versiones reemplazadas **o retiradas**; para una retirada, `reemplazado_en = retirado_en`»). La consulta no cambia.
+- `apps/api/src/modules/permisos/inventario.generado.ts`: entrada a mano tras la de E4: `{ modulo: "bolsas", fichero: "flito-bolsas-documentos/flito-bolsas-documentos.routes.ts", metodo: "POST", ruta: "/documentos/:documentoId/retirar", roles: [], heredada: false }, // HU #13964 (E7)`.
+- Tests: `permisos.reconduccion-cierre.test.ts` cuenta **directorios (43) y ficheros (35)**, que no cambian porque la ruta va en un fichero existente; hay que revisar el total de montajes de `leerMontajes` (comentario «238 = …»), que sí podría subir +1. Revisar también `permisos-catalogo.test.ts` y la fixture `__tests__/fixtures/permisos-rutas-reconducidas.ts`, por si E4 tiene fila ahí y E7 necesita su gemela. Test nuevo del servicio y la ruta en el `__tests__` del módulo (P1: solo esos archivos).
+- `packages/shared-types/src/flito-bolsas-documentos.ts`: los tipos de A.3. Después, `grep` de `DocumentoBolsaVersionDto` y `DocumentoExpedienteDto` en `apps/web` (regla 7).
+- `docs/privacy/retencion-flito-bolsas-documentos.md`: fila **Retirada** en la tabla («5 años desde `retirado_en` (= `reemplazado_en`), frontera inclusiva»; se purga lo mismo que en una reemplazada; la fila se conserva con `retirado_en`/`retirado_por`/`motivo_retiro`) y una línea sobre el motivo como texto libre (ver R1).
+
+**frontend-agent**
+- `apps/web/src/lib/api.ts`: `retirar: (documentoId, motivo?) => api.post<DocumentoExpedienteDto>(\`${BOLSAS_DOCS}/documentos/${encodeURIComponent(documentoId)}/retirar\`, { motivo })` en el bloque `BOLSAS_DOCS`.
+- `apps/web/src/components/flito-bolsas-documentos/FilaDocumento.tsx`: acción secundaria «Quitar» (con `aria-label` que nombre el documento) cuando `puedeCargar && vigente`, también en `validando`; Historial condicionado a `doc.tieneHistorial` en lugar de `vigente`. Si el archivo se acerca al límite, extraer el modal.
+- `apps/web/src/components/flito-bolsas-documentos/ModalRetirarDocumento.tsx` (nuevo): confirmación modal con `<textarea>` etiquetado, contador de 300, primaria destructiva, foco atrapado y devuelto al cerrar. Sigue el patrón del modal del kit `components/flit/`.
+- `apps/web/src/components/flito-bolsas-documentos/ExpedienteDocumental.tsx`: `aplicarFila(fila: DocumentoExpedienteDto)`, gemela de `aplicarDocumento`. Reemplaza la fila del tipo, recalcula `completo` con `PRINCIPALES` y actualiza `previos`, **sin releer**. Errores: 409 o 404 → `onCarrera` (relee E1), con copy distinto según `codigo` (`bolsa_inactiva` / `no_vigente`); 400 se muestra en línea en el modal; 403 y 429 → toast cerrable con copy pulido, sin el error crudo. Si la página tiene un chip de lote aparte (E6), lo refresca el mismo callback `onBolsaCambio`/padre que ya use la carga.
+- `apps/web/src/components/flito-bolsas-documentos/HistorialDocumento.tsx`: etiqueta «retirada el … por …» y el motivo, según `retiro` (A.3).
+- Ficha de ayuda: `flit-ayuda-flito` si la pantalla de bolsas tiene ficha.
+
+### A.6 Riesgos y Notas
+
+- **R1 (pendiente humano/security):** `motivo_retiro` es texto libre y puede traer PII (p. ej. «la cédula de Juan Pérez está vencida»). La purga conserva la fila como constancia, así que el motivo quedaría **para siempre**. Propuesta: que la purga también anule `motivo_retiro` (una línea en el `SET` de la purga), y un hint en el modal: «No escribas datos personales». Hay que decidirlo antes del PR.
+- **R2:** con `retirado_por` ON DELETE SET NULL, el retiro puede quedar sin autor. El CHECK `retiro_datos` lo admite y la UI muestra «por —».
+- **R4:** E7 devuelve la fila sin releer. Si entre el UPDATE y la respuesta entra una carga concurrente, la UI mostrará `pendiente` hasta el siguiente refresco o sondeo. Es el mismo margen que hoy tiene E3 y se acepta.
+- **R3:** numeración de la migración: si alguien mergea una 0265 antes, se renumera **antes** de aplicar en cualquier ambiente.
+- **Nota db-review:** no hay índice sobre `retirado_por`. Es consistente con `cargado_por` y `fecha_manual_por` de la 0248.
+- **Gates:** `security-agent` aplica (ruta nueva + PII), igual que `db-review-agent` (migración). `ux-agent` en slim para el modal y la etiqueta del historial.
