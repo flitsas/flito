@@ -3,7 +3,8 @@
 // Vive en su propio archivo desde la HU #13961: `Clients.tsx` rozaba el techo de 800 líneas y esta
 // pestaña sumaba estado, filtro, menú ⋮ y diálogo. Reusa TAL CUAL las piezas de Clientes:
 //   · `EstadoRegistro` (#13948) — filtro Todos/Activos/Inactivos, chip, pie «Mostrando N de M» y vacío.
-//   · `MenuFila` (#13949) — el ⋮ de la fila. Eliminar (HU #13962) se suma a `opcionesFila`.
+//   · `MenuFila` (#13949) — el ⋮ de la fila. Eliminar (HU #13962) se suma a `opcionesFila` con
+//     `useEliminarProveedor`, gemelo de `useEliminarCliente` (#13956).
 //   · `DialogoEstadoRegistro` (#13949) — confirmar desactivar / activar, con la clasificación de
 //     errores (409 → toast y recarga; red/5xx → alerta con «Reintentar»; 403 → sin permiso).
 //
@@ -14,10 +15,16 @@
 //   · Ver la pestaña, el estado y el filtro: quien abre la página.
 //   · Crear / editar: `editable` (la misma función que gobierna las casillas de Clientes).
 //   · Menú ⋮ (Desactivar / Activar): `parametrizacion.proveedores.estado` (solo Administrador).
+//   · Menú ⋮ (Eliminar): `parametrizacion.proveedores.eliminar`. El motivo sale del impacto, que exige
+//     `estado`: sin ella la opción queda deshabilitada con «No tiene permiso para esta acción.».
+//
+// Nombre duplicado (HU #13962 AC3): el 409 `Ya existe un proveedor SOAT con el nombre X.` va bajo el
+// campo Nombre (aria-invalid + aria-describedby + foco), con el formulario abierto. Cualquier otro
+// fallo al guardar dice una frase propia, nunca el texto crudo del API.
 
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { toastError, toastOk } from '../flit/ToastFlito';
-import { api, errorMessage } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
 import {
   flitInp, FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitField,
@@ -28,6 +35,8 @@ import {
 } from './EstadoRegistro';
 import { MenuFila, type OpcionMenuFila } from '../flit/MenuFila';
 import { DialogoEstadoRegistro, type ImpactoEstado } from './DialogoEstadoRegistro';
+import { useEliminarProveedor } from './useEliminarProveedor';
+import { ErrorNit as ErrorCampo } from './nitDuplicado';
 
 export interface Proveedor {
   id: string; nombre: string; estrategia: string | null;
@@ -92,13 +101,20 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
   };
   useEffect(() => { load(); }, []);
 
-  // HU #13962 añadirá «Eliminar» aquí.
+  const eliminar = useEliminarProveedor<Proveedor>({
+    // La fila sale con la respuesta 2xx (de todos los filtros) y la recarga confirma el resto.
+    onEliminado: (p) => { setData((prev) => (prev ?? []).filter((x) => x.id !== p.id)); recargar(); },
+    onDesactualizado: recargar,
+    restoreFocusRef: refRespaldoFoco,
+  });
+
   const opcionesFila = (p: Proveedor): OpcionMenuFila[] => [
     ...(editaEstado
       ? [p.activo
         ? { id: 'desactivar', texto: 'Desactivar', onElegir: () => setEstadoDe({ p, accion: 'desactivar' }) }
         : { id: 'activar', texto: 'Activar', onElegir: () => setEstadoDe({ p, accion: 'activar' }) }]
       : []),
+    ...eliminar.opciones(p),
   ];
 
   return (
@@ -148,7 +164,7 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
                             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                               aria-label={`Editar ${p.nombre}`} onClick={() => setEditar(p)}>Editar</button>
                           )}
-                          {opciones.length > 0 && <MenuFila etiqueta={`Acciones de ${p.nombre}`} opciones={opciones} />}
+                          {opciones.length > 0 && <MenuFila etiqueta={`Acciones de ${p.nombre}`} opciones={opciones} onAbrir={() => eliminar.comprobar(p)} />}
                         </div>
                       </td>
                     </FlitTr>
@@ -204,6 +220,8 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
         />
       )}
 
+      {eliminar.dialogo}
+
       {crear && <FormProveedor onClose={() => setCrear(false)} onGuardado={() => { setCrear(false); load(); }} />}
       {editar && <FormProveedor proveedor={editar} onClose={() => setEditar(null)} onGuardado={() => { setEditar(null); recargar(); }} />}
     </>
@@ -220,10 +238,15 @@ function FormProveedor({ proveedor, onClose, onGuardado }: { proveedor?: Proveed
   const [umbral, setUmbral] = useState(proveedor?.umbralOcr != null ? String(proveedor.umbralOcr) : '');
   const [sla, setSla] = useState(proveedor?.slaHoras != null ? String(proveedor.slaHoras) : '');
   const [error, setError] = useState<string | null>(null);
+  // AC3: el 409 de nombre repetido se dice bajo el campo; se quita en cuanto el nombre cambia.
+  const [errorNombre, setErrorNombre] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const refNombre = useRef<HTMLInputElement>(null);
+  const idErrorNombre = useId();
+  useEffect(() => { if (errorNombre) refNombre.current?.focus(); }, [errorNombre]);
 
   const guardar = async () => {
-    setGuardando(true); setError(null);
+    setGuardando(true); setError(null); setErrorNombre(null);
     const body: Record<string, unknown> = {
       nombre: nombre.trim(),
       estrategia: estrategia.trim() || undefined,
@@ -234,14 +257,25 @@ function FormProveedor({ proveedor, onClose, onGuardado }: { proveedor?: Proveed
       if (proveedor) await api.patch(`/flito/parametrizacion/proveedores-soat/${proveedor.id}`, body);
       else await api.post('/flito/parametrizacion/proveedores-soat', body);
       onGuardado();
-    } catch (e) { setError(errorMessage(e)); }
+    } catch (e) {
+      const duplicado = mensajeNombreDuplicado(e);
+      if (duplicado) setErrorNombre(duplicado);
+      else setError(mensajeErrorGuardar(e));
+    }
     finally { setGuardando(false); }
   };
 
   return (
     <FlitModal title={proveedor ? 'Editar proveedor' : 'Nuevo proveedor'} onClose={onClose}>
       <div className="space-y-3">
-        <FlitField label="Nombre *"><input className={flitInp} value={nombre} onChange={(e) => setNombre(e.target.value)} /></FlitField>
+        <FlitField label="Nombre *">
+          <input ref={refNombre} className={flitInp} value={nombre}
+            onChange={(e) => { setNombre(e.target.value); setErrorNombre(null); }}
+            aria-invalid={errorNombre ? true : undefined}
+            aria-describedby={errorNombre ? idErrorNombre : undefined} />
+        </FlitField>
+        {/* Fuera del <label>: el error no debe sumarse al nombre accesible del campo. */}
+        {errorNombre && <ErrorCampo id={idErrorNombre}>{errorNombre}</ErrorCampo>}
         <FlitField label="Estrategia"><input className={flitInp} value={estrategia} onChange={(e) => setEstrategia(e.target.value)} placeholder="p.ej. portal, correo" /></FlitField>
         <FlitField label="Umbral OCR (0–1)"><input className={flitInp} type="number" step="0.01" min="0" max="1" value={umbral} onChange={(e) => setUmbral(e.target.value)} /></FlitField>
         <FlitField label="ANS pactado con el proveedor (horas)"><input className={flitInp} type="number" min="1" value={sla} onChange={(e) => setSla(e.target.value)} /></FlitField>
@@ -253,4 +287,24 @@ function FormProveedor({ proveedor, onClose, onGuardado }: { proveedor?: Proveed
       </div>
     </FlitModal>
   );
+}
+
+/** AC3 — el 409 del API (`mensajeNombreProveedorDuplicado`). Único texto del API que se muestra tal cual. */
+const NOMBRE_DUPLICADO = /^Ya existe un proveedor SOAT con el nombre .+\.$/;
+
+export function mensajeNombreDuplicado(e: unknown): string | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null;
+  const cuerpo = e.rawDetails as { error?: unknown } | null | undefined;
+  const texto = (typeof cuerpo?.error === 'string' ? cuerpo.error : e.message).trim();
+  return NOMBRE_DUPLICADO.test(texto) ? texto : null;
+}
+
+/** Cualquier otro fallo al guardar: frase propia, nunca el texto crudo del API (Nota de #13961). */
+export function mensajeErrorGuardar(e: unknown): string {
+  const status = e instanceof ApiError ? e.status : 0;
+  if (status === 403) return 'No tiene permiso para esta acción.';
+  if (status === 404) return 'Este proveedor ya no existe. Cierre y vuelva a cargar la lista.';
+  if (status === 400) return 'Revise los datos: el umbral OCR va de 0 a 1 y el ANS pactado es un número de horas mayor que cero.';
+  if (status === 0) return 'No pudimos conectar con FLITO. Revise su conexión e inténtelo de nuevo.';
+  return 'No pudimos guardar el proveedor. Inténtelo de nuevo.';
 }

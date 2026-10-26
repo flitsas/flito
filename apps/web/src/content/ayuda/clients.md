@@ -24,8 +24,11 @@ consultas:
   - cómo desactivo un proveedor de SOAT
   - cómo vuelvo a activar un proveedor
   - cómo veo solo los proveedores inactivos
-version: 2.0
-fecha: 2026-10-25
+  - cómo elimino un proveedor de SOAT
+  - por qué no puedo eliminar un proveedor
+  - por qué dice que ya existe un proveedor con ese nombre
+version: 2.1
+fecha: 2026-10-26
 ---
 ## Qué es
 
@@ -51,6 +54,7 @@ En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el pa
 8. Para quitar una compañía de FLITO, pulse **⋮** en su fila y elija **Eliminar** (al final del menú, separada por una línea; solo con la acción **Eliminar clientes**). Al abrir el menú, FLITO comprueba si se puede eliminar y, mientras tanto, bajo **Eliminar** se lee **Comprobando…**. Si no se puede, la opción aparece apagada y debajo dice por qué: **Primero debe desactivarlo.** (si sigue **Activo**), los procesos que tiene abiertos, o **Su bolsa tiene saldo de $150.000; debe quedar en cero.** (con el saldo real). Con el teclado, llegue a ella con las flechas y el motivo se lee igual. Si se puede, **Eliminar** abre el cuadro **Eliminar «(compañía)»**: **Dejará de aparecer en FLITO. Su historial se conserva. No se puede deshacer.** Pulse **Eliminar** para confirmar o **Cancelar**. Verá **Cliente eliminado.** y la compañía desaparece de la tabla con cualquier filtro.
 9. En **Proveedores**, la columna **Estado** dice si cada proveedor está **Activo** o **Inactivo**, y encima de la tabla está el mismo filtro **Estado** (**Todos**, **Activos**, **Inactivos**) con **Mostrando X de Y** debajo. **Nuevo proveedor** (o **Editar** en la fila): **Nombre**, **Estrategia**, **Umbral OCR (0–1)** y **ANS pactado con el proveedor (horas)**. **Guardar**. El estado ya no se cambia aquí, sino con el **⋮** de la fila. El ANS de gestión es único para toda la operación: estas horas quedan como referencia de lo pactado. ![Pestaña Proveedores con dos gestores demo, el filtro Estado, su estado, estrategia, umbral OCR, ANS pactado y el botón Editar](./clients/03-proveedores.png)
 10. Para sacar de operación a un proveedor, o volver a ponerlo, pulse **⋮** al final de su fila (solo lo ve el Administrador, con la acción **Activar o desactivar proveedores**). Si está **Activo**, el menú ofrece **Desactivar**: el cuadro **Desactivar «(proveedor)»** dice lo que tiene en curso, por ejemplo **4 SOAT en curso, proveedor de SOAT sin trámite de 2 compañías.** (o **No tiene procesos en curso.**). Mientras esté inactivo, sus usuarios no podrán ingresar a FLITO y no aparecerá entre los proveedores a elegir; si tiene usuarios, se cerrará su sesión. Pulse **Desactivar**; verá **Proveedor desactivado.** y la fila pasa a **Inactivo**. Si está **Inactivo**, **Activar** abre **Activar «(proveedor)»**; pulse **Activar** y verá **Proveedor activado.**
+11. Para quitar un proveedor de FLITO, pulse **⋮** en su fila y elija **Eliminar** (al final del menú, separada por una línea; solo con la acción **Eliminar proveedores**). Al abrir el menú, FLITO comprueba si se puede eliminar y, mientras tanto, bajo **Eliminar** se lee **Comprobando…**. Si no se puede, la opción aparece apagada y debajo dice por qué: **Primero debe desactivarlo.** (si sigue **Activo**), **Tiene 4 SOAT en curso.** (con el número real) o **Es el proveedor de SOAT sin trámite de 2 compañías (Alfa, Beta).** (con las compañías reales: elija otro proveedor para ellas en la columna **SOAT sin trámite** de **Clientes**). Si se puede, **Eliminar** abre el cuadro **Eliminar «(proveedor)»**: **Dejará de aparecer en FLITO. Su historial se conserva. No se puede deshacer.** Pulse **Eliminar** para confirmar o **Cancelar**. Verá **Proveedor eliminado.** y el proveedor desaparece de la tabla con cualquier filtro. Su nombre queda libre para un proveedor nuevo.
 
 ![Diagrama: en el cuadro se elige el proveedor de SOAT sin trámite; con Sin proveedor nadie de la compañía puede solicitar; con un proveedor activo, las solicitudes nuevas salen a él; si el proveedor está inactivo, quedan Gestionado por Operaciones](./clients/canal-soat-sin-tramite.svg)
 
@@ -59,6 +63,7 @@ En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el pa
 - Cargando: **Cargando compañías…** mientras llega el listado de clientes; **Cargando proveedores…** en el listado de proveedores.
 - Error: si el listado de compañías no llega, **No pudimos cargar los clientes.** (o **No pudimos cargar los proveedores.**) con **Reintentar** sobre la tarjeta; además, aviso al fallar el guardado (el listado no se cae si falla el informe de facturación).
 - NIT repetido: si al guardar un cliente nuevo, o los datos fiscales de uno existente, ya hay otro cliente vigente con ese NIT y esa sucursal, bajo el campo del NIT se lee **Ya existe un cliente con el NIT (número) y sucursal (número).**, el cursor queda en ese campo y el formulario conserva lo escrito. Corrija el NIT o cambie la sucursal y vuelva a guardar: el aviso se quita en cuanto cambia cualquiera de los dos.
+- Nombre de proveedor repetido: si al crear o renombrar un proveedor ya hay otro vigente con ese nombre, bajo el campo **Nombre** se lee **Ya existe un proveedor SOAT con el nombre (nombre).**, el cursor queda en ese campo y el formulario conserva lo escrito. El aviso se quita en cuanto cambia el nombre. Si el guardado falla por otra causa, el formulario sigue abierto y dice qué pasó (por ejemplo, **No pudimos guardar el proveedor. Inténtelo de nuevo.**).
 - Si el guardado del cliente falla por otra causa, un aviso que puede cerrar dice **No pudimos guardar el cliente. Intenta de nuevo.** y el formulario sigue abierto.
 - Vacío: **No hay clientes.** (si puede crearlos, añade **Cree el primero con «Nuevo cliente».**) / **No hay proveedores.** (si puede crearlos, añade **Cree el primero con «Nuevo proveedor».**)
 - Vacío del filtro: si hay compañías (o proveedores) pero ninguno con el filtro elegido, **No hay registros con este filtro.** con **Ver todos**, que vuelve a **Todos**. No es un error.
@@ -75,7 +80,7 @@ En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el pa
 - No fija ni cambia tarifas: eso vive en Finanzas, **Tarifas**, a donde lleva el botón **Tarifas** de la fila.
 - No **Factura** la liquidación de un trámite. **Lista** habla de **emisión electrónica**, no de Facturar.
 - El filtro **Estado** no activa ni desactiva compañías ni proveedores: solo muestra u oculta filas. Eso se hace con el **⋮** de la fila.
-- Desactivar no elimina: saca a la compañía de operación y puede volver a activarse. **Eliminar** sí la quita de FLITO (conserva su historial) y no se puede deshacer; exige que esté **Inactivo**, sin procesos abiertos y con la bolsa en cero.
+- Desactivar no elimina: saca a la compañía de operación y puede volver a activarse. **Eliminar** sí la quita de FLITO (conserva su historial) y no se puede deshacer; exige que esté **Inactivo**, sin procesos abiertos y con la bolsa en cero. Con un proveedor pasa igual: **Eliminar** exige que esté **Inactivo**, sin SOAT en curso y sin compañías que lo tengan como proveedor de SOAT sin trámite.
 - No es el catálogo de NIT vigilados de **Comparendos** (puede coincidir el NIT, pero es otro listado).
 - Un Gestor de Impuestos o un Proveedor no administran compañías desde aquí.
 - **SOAT sin trámite** solo dice a qué proveedor salen las solicitudes: no crea la solicitud ni compra el SOAT. Eso lo hace el usuario **Cliente** desde la cola **SOAT**.
