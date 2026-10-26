@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cómo concilio el recaudo SOAT
   - por qué no cuadra la conciliación
-version: 1.1
-fecha: 2026-10-21
+version: 1.2
+fecha: 2026-10-25
 ---
 ## Qué es
 
@@ -25,7 +25,7 @@ En el menú lateral, sección **Finanzas**, ítem **Conciliación**. El detalle 
 
 ## Pasos
 
-1. Pulse **+ Cargar boleta**. En **Cargar boleta del portal** elija **Cliente**, **Fecha del pago en el portal** (la del pago, no la de hoy) y el **Excel de la boleta (.xlsx)**, tal como lo descarga del portal. Pulse **Cargar y cruzar**. Cargar no pide confirmación: todavía no sale dinero. ![Ventana Cargar boleta del portal con Cliente, Fecha del pago en el portal, el Excel de la boleta y los botones Cancelar y Cargar y cruzar](./flito_conciliacion/01-cargar-boleta.png)
+1. Pulse **+ Cargar boleta**. En **Cargar boleta del portal** elija **Cliente**, **Fecha del pago en el portal** (la del pago, no la de hoy) y el **Excel de la boleta (.xlsx)**, tal como lo descarga del portal. Pulse **Cargar y cruzar**. Cargar no pide confirmación: todavía no sale dinero. Un cliente inactivo aparece con **(Inactivo)** y no se puede elegir para una boleta nueva; el filtro **Cliente** de la bandeja sí lo ofrece, para consultar sus boletas. ![Ventana Cargar boleta del portal con Cliente, Fecha del pago en el portal, el Excel de la boleta y los botones Cancelar y Cargar y cruzar](./flito_conciliacion/01-cargar-boleta.png)
 2. Filtre por **Cliente**, estado de la boleta (**Todas**, **Por conciliar**, **Conciliadas**, **Descartadas**) y **Pagadas entre**. **Limpiar filtros** restaura la bandeja. Los KPI dicen cuántas hay **Por conciliar**, cuántas **Conciliadas** y cuántas **Líneas sin resolver**; este último ofrece **Revisar**. ![Bandeja de Conciliación con los filtros, los tres KPI y tres boletas: una con una línea que no cuadra, otra con todas cuadradas y una conciliada](./flito_conciliacion/02-bandeja.png)
 3. En una fila, **Abrir**. El detalle dice cuántas líneas cuadran y, en la columna **Resultado**, qué pasó con cada una y qué hacer. Si hay líneas sin cuadrar, corrija y pulse **Volver a cruzar** (no mueve un peso). **Descartar** pide **Sí, descartar**: se pierde el cruce y el archivo se puede volver a cargar. ![Detalle de una boleta por conciliar: Conciliar boleta apagado porque 1 de 2 líneas no cuadra, y la línea con Valor distinto explicando la diferencia](./flito_conciliacion/03-detalle-sin-cuadrar.png)
 4. Cuando todas las líneas cuadran, pulse **Conciliar boleta** y, en el diálogo, **Sí, conciliar**. **No se puede deshacer**: el valor sale de la bolsa del cliente y de la de tránsito. ![Diálogo Conciliar con el número de SOAT, el cliente y el valor, el aviso No se puede deshacer y los botones Cancelar y Sí, conciliar](./flito_conciliacion/04-conciliar.png)

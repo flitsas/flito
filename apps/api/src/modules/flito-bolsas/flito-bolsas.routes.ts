@@ -34,6 +34,7 @@ import {
 } from './flito-bolsas-transito.service.js';
 import { routerCatalogo } from './flito-bolsas.catalogo.routes.js';
 import { routerCatalogoTransito } from './flito-bolsas.catalogo-transito.routes.js';
+import { MSG_CLIENTE_ELIMINADO_BOLSA } from './flito-bolsas.libro.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -565,11 +566,13 @@ async function crearCierre(req: Request, res: Response): Promise<void> {
 /** Sube el comprobante al almacenamiento. El registro en `flito_soportes` lo hace el servicio. */
 async function subirComprobante(companiaId: number, archivo: Express.Multer.File): Promise<string> {
   const [compania] = await db
-    .select({ id: clients.id, flitoCarpetaStorage: clients.flitoCarpetaStorage })
+    .select({ id: clients.id, flitoCarpetaStorage: clients.flitoCarpetaStorage, deletedAt: clients.deletedAt })
     .from(clients)
     .where(eq(clients.id, companiaId))
     .limit(1);
   if (!compania) throw new BolsaError('La compañía no existe', 404);
+  // RN-CLI-9 (HU #13953, AC5): antes de subir, para no dejar un comprobante huérfano en storage.
+  if (compania.deletedAt != null) throw new BolsaError(MSG_CLIENTE_ELIMINADO_BOLSA, 409);
 
   return uploadEntityDocument(
     carpetaDe(compania, 'bolsas-recargas'),

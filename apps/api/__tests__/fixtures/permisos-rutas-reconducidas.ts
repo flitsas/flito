@@ -590,6 +590,19 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'clients/clients.routes.ts', metodo: 'POST', ruta: '/', codigo: 'clients.clientes.crear' },
   { fichero: 'clients/clients.routes.ts', metodo: 'PATCH', ruta: '/:id', condicion: 'editar', codigo: 'clients.clientes.editar' },
   { fichero: 'clients/clients.routes.ts', metodo: 'POST', ruta: '*', condicion: 'fiscal', codigo: 'clients.clientes.datos_fiscales' },
+  // HU #13945: «Activar o desactivar clientes» — `clients.clientes.estado` nace absorbida por la acción EXCLUSIVA del
+  // Administrador `accion.clientes.activar_desactivar` (0255); el mundo plano no la tiene (ver la matriz de paridad).
+  { fichero: 'clients/clients.routes.ts', metodo: 'GET', ruta: '/:id/impacto', codigo: 'clients.clientes.estado' },
+  { fichero: 'clients/clients.routes.ts', metodo: 'PATCH', ruta: '/:id/estado', codigo: 'clients.clientes.estado' },
+  // HU #13954: «Eliminar clientes» — `clients.clientes.eliminar` nace absorbida por `accion.clientes.eliminar` (0258).
+  { fichero: 'clients/clients.routes.ts', metodo: 'DELETE', ruta: '/:id', codigo: 'clients.clientes.eliminar' },
+  // HU #13958: «Activar o desactivar proveedores» — `parametrizacion.proveedores.estado` nace absorbida por
+  // `accion.clientes.activar_desactivar_proveedores` (0261).
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/proveedores-soat/:id/impacto', codigo: 'parametrizacion.proveedores.estado' },
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/proveedores-soat/:id/estado', codigo: 'parametrizacion.proveedores.estado' },
+  // HU #13960: «Eliminar proveedores» — `parametrizacion.proveedores.eliminar` nace absorbida por
+  // `accion.clientes.eliminar_proveedores` (0263).
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'DELETE', ruta: '/proveedores-soat/:id', codigo: 'parametrizacion.proveedores.eliminar' },
   // ── HU #13423 (ADR-0023): laft/, privacy/, firma/, drive/, soat/ antiguo, siigo/ y las 4 de solo sesión ──
   { fichero: 'laft/lists.routes.ts', metodo: 'GET', ruta: '/', codigo: 'laft.listas.operar' },
   { fichero: 'laft/lists.routes.ts', metodo: 'POST', ruta: '/:code/sync', codigo: 'laft.listas.administrar' },

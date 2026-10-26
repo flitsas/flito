@@ -32,7 +32,7 @@ import RolFormModal from './roles-permisos/RolFormModal';
 import BorrarRolModal from './roles-permisos/BorrarRolModal';
 import { cambios as textoCambios } from './roles-permisos/modulos';
 import {
-  aviso409, funcionesParaGuardar, indexar, marcadosDelApi, normalizar, totalMarcables, type Aviso409, type Nodo,
+  aviso409, conExclusivas, funcionesParaGuardar, indexar, tratoExclusivasDe, marcadosDelApi, normalizar, totalMarcables, type Aviso409, type Nodo,
 } from './roles-permisos/arbol';
 import type { FocoArbol } from './roles-permisos/ArbolPermisos';
 
@@ -138,12 +138,16 @@ export default function RolesPermisos() {
   // La estructura es la misma para todos los roles: la de cualquier árbol ya cargado sirve para contar.
   const estructura = actual ?? Object.values(arboles)[0];
   const indice = useMemo(() => indexar(actual?.arbol ?? []), [actual]);
+  // HU #13951: las exclusivas del Administrador no dependen del clic: en otro rol nunca están marcadas
+  // (un dato heredado se pinta desmarcado y cuenta como cambio), en el Administrador siempre.
+  const trato = rol ? tratoExclusivasDe(rol.codigo) : undefined;
+  const borradorVisible = useMemo(() => (trato ? conExclusivas(borrador, indice, trato) : borrador), [borrador, indice, trato]);
   const total = useMemo(() => (estructura ? totalMarcables(estructura.arbol) : 0), [estructura]);
   const cuentaPorRol = useMemo(() => Object.fromEntries(roles.map((r) => [r.codigo, cuadros[r.codigo]?.length])), [roles, cuadros]);
   const base = useMemo(() => new Set(seleccionado ? cuadros[seleccionado] ?? [] : []), [cuadros, seleccionado]);
   const nCambios = useMemo(
-    () => [...borrador].filter((c) => !base.has(c)).length + [...base].filter((c) => !borrador.has(c)).length,
-    [borrador, base],
+    () => [...borradorVisible].filter((c) => !base.has(c)).length + [...base].filter((c) => !borradorVisible.has(c)).length,
+    [borradorVisible, base],
   );
   const hayCambios = permisos.guardar && nCambios > 0;
 
@@ -186,7 +190,7 @@ export default function RolesPermisos() {
     setGuardando(true);
     setErrorGuardado(null);
     try {
-      const respuesta = await permisosApi.guardarCuadro(seleccionado, funcionesParaGuardar(borrador, indice));
+      const respuesta = await permisosApi.guardarCuadro(seleccionado, funcionesParaGuardar(borrador, indice, trato));
       setCuadros((prev) => ({ ...prev, [seleccionado]: respuesta.funciones }));
       setBorrador(new Set(respuesta.funciones));
       setGuardados((prev) => new Set(prev).add(seleccionado));
@@ -200,7 +204,7 @@ export default function RolesPermisos() {
       } catch { /* sin `/mios` no hay comparación que hacer; el guardado ya está aplicado */ }
     } catch (e) {
       const cuerpo = cuerpoAntiBloqueo(e);
-      setErrorGuardado(cuerpo ? aviso409(cuerpo, indice, 'rol') : { texto: COPY_ERROR_GUARDADO, nodo: null });
+      setErrorGuardado(cuerpo ? aviso409(cuerpo, indice, 'rol', trato) : { texto: COPY_ERROR_GUARDADO, nodo: null });
     } finally {
       setGuardando(false);
     }
@@ -301,7 +305,7 @@ export default function RolesPermisos() {
               arbol={actual.arbol}
               indice={indice}
               base={base}
-              borrador={borrador}
+              borrador={borradorVisible}
               guardando={guardando}
               errorGuardado={errorGuardado}
               permisos={permisos}

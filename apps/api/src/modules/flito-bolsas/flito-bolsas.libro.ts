@@ -16,10 +16,13 @@
 //   RN-A4 Orden de locks: compañía antes que tránsito, en todas las rutas de escritura (sin deadlocks).
 //   RN-A5 La llave se relee DENTRO del lock (READ COMMITTED ve lo que la otra tx acaba de confirmar):
 //         dos escritores de la misma llave se serializan por el `FOR UPDATE` de la bolsa.
+//   RN-CLI-9 (HU #13953, AC5) Cliente ELIMINADO (`clients.deleted_at`): su bolsa no admite recargas, manuales ni
+//         correcciones (409 «El cliente fue eliminado; su bolsa no admite movimientos.»). Se mira ANTES que la
+//         bolsa (manda el motivo más fuerte). Los reversos y lecturas históricas no pasan por aquí.
 
 import { and, eq, getTableColumns, like } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { flitoBolsasUnicas, flitoBolsasUnicasCierres, flitoBolsasUnicasMovimientos, flitoSoportes } from '../../db/schema.js';
+import { clients, flitoBolsasUnicas, flitoBolsasUnicasCierres, flitoBolsasUnicasMovimientos, flitoSoportes } from '../../db/schema.js';
 import { aIso, parseFechaQuery, TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import {
   CodigoErrorBolsa,
@@ -173,8 +176,23 @@ export function exigirActiva(bolsa: BolsaEnLibro | undefined): BolsaEnLibro {
   return bolsa;
 }
 
+/** RN-CLI-9 (HU #13953, AC5): texto del 409 de un movimiento sobre la bolsa de un cliente eliminado. */
+export const MSG_CLIENTE_ELIMINADO_BOLSA = 'El cliente fue eliminado; su bolsa no admite movimientos.';
+
+/**
+ * RN-CLI-9: 409 si el cliente está eliminado. `bloquear` toma `FOR SHARE` (solo dentro de la tx del asiento), igual
+ * que RN-CLI-6: la baja lógica y el movimiento no se cruzan. Cliente inexistente → no decide (lo hace la bolsa).
+ */
+export async function exigirClienteNoEliminado(tx: DbOrTx, companiaId: number, bloquear = false): Promise<void> {
+  const consulta = tx.select({ deletedAt: clients.deletedAt }).from(clients).where(eq(clients.id, companiaId)).limit(1);
+  const [cliente] = bloquear ? await consulta.for('share') : await consulta;
+  // `!= null`: los dobles de prueba que devuelven una fila sin la clave no se leen como eliminados.
+  if (cliente?.deletedAt != null) throw new BolsaError(MSG_CLIENTE_ELIMINADO_BOLSA, 409);
+}
+
 /** Fuera de transacción: 409 si la compañía no tiene bolsa o está inactiva. Para validar antes de subir/escribir. */
 export async function exigirBolsaActivaDe(tx: DbOrTx, companiaId: number): Promise<BolsaEnLibro> {
+  await exigirClienteNoEliminado(tx, companiaId);
   const [fila] = await tx.select(COLUMNAS_BOLSA).from(flitoBolsasUnicas).where(deCompania(companiaId)).limit(1);
   return exigirActiva(fila ? aBolsa(fila) : undefined);
 }
@@ -369,6 +387,7 @@ export async function asentarMovimiento(
     const previo = await movimientoPorLlave(tx, datos.llaveIdempotencia);
     if (previo) return { movimiento: previo, duplicado: true };
   }
+  await exigirClienteNoEliminado(tx, companiaId, true);
   const bolsa = exigirActiva(await bolsaCompaniaBloqueada(tx, companiaId));
   return asentarEnBolsa(tx, bolsa, datos, ctx);
 }

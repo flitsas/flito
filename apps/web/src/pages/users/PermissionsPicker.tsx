@@ -11,6 +11,10 @@
 // /permisos/roles/:codigo/arbol` del rol elegido. Las excepciones viven en el formulario (`excepciones`)
 // y viajan en el `PATCH /users/:id` como hasta ahora.
 //
+// HU #13970: las funciones exclusivas del Administrador (`exclusivaAdmin`) no admiten excepción. Con un
+// rol que no es el Administrador se ven desmarcadas y bloqueadas; con el Administrador, concedidas por
+// el rol y bloqueadas. Una excepción heredada sobre una exclusiva no se pinta ni se reenvía.
+//
 // **Esto NO es kit.** Consumidores: los formularios de alta y de edición de usuario.
 
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
@@ -19,8 +23,8 @@ import { permisosApi, type GrupoDeFunciones } from '../../lib/api';
 import { flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
 import ArbolPermisos, { type FocoArbol } from '../roles-permisos/ArbolPermisos';
 import {
-  alternarExcepcion, indexar, marcadosDelApi, marcadosDelUsuario, normalizar, resumenExcepciones, resumenUsuario,
-  type Efecto, type Indice, type Nodo,
+  alternarExcepcion, conExclusivas, indexar, marcadosDelApi, marcadosDelUsuario, normalizar, resumenExcepciones, resumenUsuario,
+  sinExclusivas, tratoExclusivasDe, type Efecto, type Indice, type Nodo,
 } from '../roles-permisos/arbol';
 
 /** Catálogo plano de funciones (una vez por página): ya no pinta el bloque; lo usa `CambioRolExcepciones` para los nombres. */
@@ -97,8 +101,13 @@ export default function PermissionsPicker({
   const indice = useMemo(() => indexar(datos?.arbol ?? []), [datos]);
   useEffect(() => { if (datos) onIndice?.(indice); }, [datos, indice, onIndice]);
 
-  const mapa = useMemo(() => new Map<string, Efecto>(excepciones.map((f) => [f.codigo, f.efecto])), [excepciones]);
-  const rolSet = datos?.rol;
+  const trato = tratoExclusivasDe(role);
+  const mapa = useMemo(
+    () => new Map<string, Efecto>(sinExclusivas(excepciones, indice).map((f) => [f.codigo, f.efecto])),
+    [excepciones, indice],
+  );
+  // Lo que da el rol, con la regla de las exclusivas aplicada (todas en el Administrador, ninguna en otro).
+  const rolSet = useMemo(() => (datos ? conExclusivas(datos.rol, indice, trato) : undefined), [datos, indice, trato]);
   const marcados = useMemo(() => marcadosDelUsuario(rolSet ?? new Set(), mapa), [rolSet, mapa]);
   const modo = useMemo(
     () => ({ tipo: 'usuario' as const, quien, rol: rolSet ?? new Set<string>(), excepciones: mapa }),
@@ -106,17 +115,17 @@ export default function PermissionsPicker({
   );
   // Al abrir, se despliegan los ancestros de cada excepción (ficha full); el resto, plegado.
   const abiertosIniciales = useMemo(
-    () => (datos ? excepciones.flatMap((e) => indice.ancestros.get(e.codigo) ?? []) : []),
+    () => (datos ? sinExclusivas(excepciones, indice).flatMap((e) => indice.ancestros.get(e.codigo) ?? []) : []),
     // Solo al cargar el árbol: desplegar en cada clic movería lo que el administrador tiene delante.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [datos, indice],
   );
 
   const alternar = useCallback((codigo: string) => {
-    if (!rolSet) return;
+    if (!rolSet || indice.porCodigo.get(codigo)?.exclusivaAdmin) return;
     const siguiente = alternarExcepcion(codigo, rolSet, mapa);
     onChange([...siguiente].map(([c, efecto]) => ({ codigo: c, efecto })));
-  }, [rolSet, mapa, onChange]);
+  }, [rolSet, mapa, onChange, indice]);
 
   if (estado === 'cargando') {
     return (
@@ -142,7 +151,7 @@ export default function PermissionsPicker({
   const nombreRol = rolNombre || datos.rolNombre || role;
   const todos = [...indice.porCodigo.keys()];
   const resumen = resumenExcepciones(todos, rolSet, mapa, indice);
-  const hayExcepciones = excepciones.length > 0;
+  const hayExcepciones = mapa.size > 0;
   const vacio = rolSet.size === 0 && !hayExcepciones;
 
   return (
@@ -169,6 +178,7 @@ export default function PermissionsPicker({
           onToggle={alternar}
           abiertosIniciales={abiertosIniciales}
           foco={foco}
+          exclusivas={trato}
         />
       </div>
     </section>

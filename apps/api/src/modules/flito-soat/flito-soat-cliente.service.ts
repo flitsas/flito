@@ -130,6 +130,7 @@ import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametriz
 import { detectMime } from '../pesv/magic-number.js';
 import { motorYSerieParaVehiculo } from '../runt/vehiculo-motor-serie.js';
 import { uploadEntityDocument } from '../../services/storage.js';
+import { canalSinTramiteAbierto, exigirClienteOperable } from '../clients/cliente-operable.js';
 import { loggerFor } from '../../shared/logger.js';
 import { buscarConAcceso, ORIGEN_CLIENTE, type SoatCtx } from './flito-soat.service.js';
 import {
@@ -162,6 +163,13 @@ const log = loggerFor('flito-soat-cliente');
  * del mensaje es lo que se rompe la próxima vez que alguien corrija una tilde, así que el código va
  * en el cuerpo y es una constante de shared-types.
  */
+/**
+ * HU #13967 (AC2/AC4) — El texto del 403 `CANAL_DESACTIVADO`: la compañía no tiene proveedor de SOAT
+ * sin trámite elegido. Neutro a propósito: no menciona al proveedor ni a la configuración interna.
+ */
+export const MENSAJE_CANAL_DESACTIVADO =
+  'Esta opción no está disponible por ahora para su compañía. Si la necesita, comuníquese con su asesor de FLITO.';
+
 export class SolicitudSoatError extends Error {
   constructor(
     readonly status: number,
@@ -414,15 +422,15 @@ interface CanalCompania {
 async function canalDeLaCompania(ctx: SoatCtx, companiaIdPedida: number | null = null): Promise<CanalCompania> {
   const companiaId = companiaARadicar(ctx, companiaIdPedida);
   const [compania] = await db
-    .select({ id: clients.id, sinTramite: clients.soatSinTramite, carpeta: clients.flitoCarpetaStorage })
-    .from(clients).where(eq(clients.id, companiaId)).limit(1);
+    .select({ id: clients.id, carpeta: clients.flitoCarpetaStorage })
+    .from(clients).where(and(eq(clients.id, companiaId), canalSinTramiteAbierto)).limit(1);
 
-  // Sin fila y con el flag apagado son el mismo desenlace y el mismo mensaje a propósito: los dos
+  // Sin fila y sin proveedor son el mismo desenlace y el mismo mensaje a propósito: los dos
   // significan «esta compañía no tiene abierto el canal», y distinguirlos solo le diría a quien
-  // sondea —ahora también quien escoge el `companiaId`— si la compañía existe.
-  if (!compania?.sinTramite) {
-    throw fallo(403, CodigoErrorSolicitudSoat.CANAL_DESACTIVADO,
-      'La compañía no tiene habilitada la solicitud de SOAT sin trámite. Contacta a FLITO para activarla.');
+  // sondea —ahora también quien escoge el `companiaId`— si la compañía existe. HU #13967: el canal
+  // lo abre el proveedor elegido, y el texto es NEUTRO: no menciona al proveedor (AC2).
+  if (!compania) {
+    throw fallo(403, CodigoErrorSolicitudSoat.CANAL_DESACTIVADO, MENSAJE_CANAL_DESACTIVADO);
   }
   return { companiaId: compania.id, carpetaStorage: compania.carpeta };
 }
@@ -456,7 +464,7 @@ function companiaARadicar(ctx: SoatCtx, companiaIdPedida: number | null): number
  *
  * Enlace `compania` → solo la suya y `fija: true` (lista vacía si su compañía no tiene el canal: la
  * web pinta el vacío, y la frontera sigue siendo el 403 del alta). Sin enlace → todas las compañías
- * con el canal activo, por nombre, `fija: false`. Proveedor y organismos → 403. DTO = `id` + `nombre`:
+ * con el canal abierto (HU #13967: con proveedor elegido, activo o inactivo), por nombre, `fija: false`. Proveedor y organismos → 403. DTO = `id` + `nombre`:
  * nunca el NIT ni las banderas.
  */
 export async function companiasDelCanal(ctx: SoatCtx): Promise<CompaniasCanalSoat> {
@@ -464,12 +472,12 @@ export async function companiasDelCanal(ctx: SoatCtx): Promise<CompaniasCanalSoa
   if (ctx.alcance === 'compania') {
     if (!ctx.companiaId) return { fija: true, companias: [] };
     const companias = await db.select(columnas).from(clients)
-      .where(and(eq(clients.id, ctx.companiaId), eq(clients.soatSinTramite, true))).limit(1);
+      .where(and(eq(clients.id, ctx.companiaId), canalSinTramiteAbierto)).limit(1);
     return { fija: true, companias };
   }
   if (ctx.alcance === 'todo') {
     const companias = await db.select(columnas).from(clients)
-      .where(eq(clients.soatSinTramite, true)).orderBy(asc(clients.name));
+      .where(canalSinTramiteAbierto).orderBy(asc(clients.name));
     return { fija: false, companias };
   }
   throw fallo(403, CodigoErrorSolicitudSoat.SIN_COMPANIA,
@@ -1129,7 +1137,7 @@ export async function resolverDestinoCanalCliente(
   tx: Tx, companiaId: number,
 ): Promise<DestinoCanalCliente> {
   const [fila] = await tx
-    .select({ proveedorId: flitoProveedoresSoat.id, activo: flitoProveedoresSoat.activo })
+    .select({ proveedorId: flitoProveedoresSoat.id, activo: flitoProveedoresSoat.activo, deletedAt: flitoProveedoresSoat.deletedAt })
     .from(clients)
     .leftJoin(
       flitoProveedoresSoat,
@@ -1138,7 +1146,8 @@ export async function resolverDestinoCanalCliente(
     .where(eq(clients.id, companiaId))
     .limit(1);
 
-  const disponible = fila?.proveedorId != null && fila.activo === true;
+  // HU #13959 (AC5): un proveedor ELIMINADO (`deleted_at`) cuenta como no disponible aunque siga `activo`.
+  const disponible = fila?.proveedorId != null && fila.activo === true && fila.deletedAt == null;
   if (!disponible) {
     return {
       proveedorSoatId: null,
@@ -1188,6 +1197,7 @@ export async function insertarSolicitudDespachada(
   // que el estado (AC1). Es el argumento ya escrito para `procedencia` de `flitoCompradores`:
   // escribirlo aparte —un UPDATE después— dejaría una ventana en la que la fila está
   // `solicitado` y no dice a dónde va, más una segunda escritura que puede fallar sola.
+  await exigirClienteOperable(tx, companiaId, 'SOAT'); // HU #13947: cliente inactivo → 409, antes de crear nada
   const destino = await resolverDestinoCanalCliente(tx, companiaId);
 
   await tx.insert(flitoSoat).values({

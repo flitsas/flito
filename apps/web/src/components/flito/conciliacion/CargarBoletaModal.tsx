@@ -23,12 +23,14 @@ import { hoyColombia } from '../../../lib/bolsas';
 import { rechazoDeCarga, type Rechazo } from '../../../lib/conciliacion';
 import FlitModal from '../../flit/FlitModal';
 import FlitSelect from '../../flit/FlitSelect';
+import { opcionesConEstado } from '../../flit/opcionesConEstado';
 import FlitUploadBox from '../../flit/FlitUploadBox';
 import {
   FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../../flit/flitPageKit';
 
-export interface ClienteOpcion { id: number; name: string }
+/** `active` (HU #13948): un cliente inactivo se ve pero no se elige para una boleta nueva (HU #13950). */
+export interface ClienteOpcion { id: number; name: string; active?: boolean }
 
 interface Props {
   /**
@@ -88,10 +90,11 @@ export default function CargarBoletaModal(
         <FlitSelect
           label="Cliente *"
           value={companiaId}
-          opciones={[
-            { valor: '', etiqueta: clientes === null ? 'Cargando clientes…' : 'Elige un cliente' },
-            ...(clientes ?? []).map((c) => ({ valor: String(c.id), etiqueta: c.name })),
-          ]}
+          opciones={opcionesConEstado(
+            (clientes ?? []).map((c) => ({ id: c.id, nombre: c.name, activo: c.active })),
+            clientes === null ? '' : companiaId,
+            { placeholder: clientes === null ? 'Cargando clientes…' : 'Elige un cliente' },
+          )}
           onChange={setCompaniaId}
           disabled={cargando || clientes === null || falloClientes}
           ayuda={'Una boleta agrupa SOAT de un solo cliente. Si el Excel trae vehículos de otro, esas '

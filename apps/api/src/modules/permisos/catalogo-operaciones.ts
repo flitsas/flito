@@ -311,10 +311,15 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // HU #13428 (§5-ter.1 punto 2): el PATCH se parte por grupo de campos, en línea.
   op(`${PAR} PATCH /companias/:id [general]`, 'parametrizacion.companias.editar', 'Editar una compañía cliente', 'Cambiar la configuración comercial y operativa de la compañía.'),
   op(`${PAR} PATCH /companias/:id [autogestion]`, 'parametrizacion.companias.autogestion', 'Habilitar o revocar la autogestión de una compañía', 'Encender o apagar la autogestión de SOAT, impuestos y logística de la compañía.'),
-  op(`${PAR} PATCH /companias/:id [sinTramite]`, 'parametrizacion.companias.soat_sin_tramite', 'Configurar «SOAT sin trámite» de una compañía', 'Abrir o cerrar el canal «SOAT sin trámite» de la compañía y elegir su gestor por defecto.'),
+  op(`${PAR} PATCH /companias/:id [sinTramite]`, 'parametrizacion.companias.soat_sin_tramite', 'Elegir proveedor de SOAT sin trámite de una compañía', 'Elegir el proveedor al que van los SOAT sin trámite de la compañía (Sin proveedor cierra el canal).'),
   op(`${PAR} GET /proveedores-soat`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
   op(`${PAR} POST /proveedores-soat`, 'parametrizacion.proveedores.crear', 'Añadir un proveedor SOAT', 'Registrar un gestor SOAT nuevo.'),
   op(`${PAR} PATCH /proveedores-soat/:id`, 'parametrizacion.proveedores.editar', 'Editar un proveedor SOAT', 'Cambiar los datos o el estado de un gestor SOAT.'),
+  // HU #13958: nacen absorbidas por «Activar o desactivar proveedores» (exclusiva del Administrador, 0261).
+  op(`${PAR} GET /proveedores-soat/:id/impacto`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
+  op(`${PAR} PATCH /proveedores-soat/:id/estado`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
+  // HU #13960: nace absorbida por «Eliminar proveedores» (exclusiva del Administrador, 0263).
+  op(`${PAR} DELETE /proveedores-soat/:id`, 'parametrizacion.proveedores.eliminar', 'Eliminar proveedores', 'Eliminar (baja lógica) un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas.'),
   op(`${PAR} GET /organismos`, 'parametrizacion.organismos.listar', 'Ver los organismos de tránsito', 'Consultar los organismos y su parametrización FLITO.'),
   op(`${PAR} GET /organismos/:codigo/vigencias`, 'parametrizacion.organismos.ver_vigencias', 'Ver las vigencias de un organismo', 'Consultar los periodos de tarifas y modalidades del organismo.'),
   op(`${PAR} POST /organismos/:codigo/modalidad`, 'parametrizacion.organismos.fijar_modalidad', 'Fijar la modalidad de un organismo', 'Definir cómo se paga a ese organismo a partir de una fecha.'),
@@ -508,4 +513,14 @@ export const OPERACIONES_RETIRADAS_CANAL_CLIENTE = [
  * Vacía a propósito: esta HU entrega el MECANISMO. Las primeras exclusivas (estado y eliminación de clientes)
  * nacen con sus rutas en las HUs #13945/#13954, junto con la migración que les pone `exclusiva_admin = true`.
  */
-export const FUNCIONES_EXCLUSIVAS_ADMIN: readonly string[] = [];
+export const FUNCIONES_EXCLUSIVAS_ADMIN: readonly string[] = [
+  // HU #13945: «Activar o desactivar clientes». La marca va en la ACCIÓN del árbol (lo que se reparte y aparece en el
+  // cuadro); la operación `clients.clientes.estado` que exige la guarda nace absorbida por ella (no se siembra).
+  'accion.clientes.activar_desactivar',
+  // HU #13954: «Eliminar clientes» (baja lógica); la operación `clients.clientes.eliminar` nace absorbida (0258).
+  'accion.clientes.eliminar',
+  // HU #13958: «Activar o desactivar proveedores»; la operación `parametrizacion.proveedores.estado` nace absorbida (0261).
+  'accion.clientes.activar_desactivar_proveedores',
+  // HU #13960: «Eliminar proveedores» (baja lógica); la operación `parametrizacion.proveedores.eliminar` nace absorbida (0263).
+  'accion.clientes.eliminar_proveedores',
+];

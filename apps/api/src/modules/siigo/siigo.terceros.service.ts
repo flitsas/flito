@@ -60,7 +60,7 @@ export function claveCortacircuitosTerceros(ambiente: string): string {
 
 /** Fallo con nombre propio. La ruta lo traduce a HTTP; el servicio no sabe de códigos de estado. */
 export class SiigoTerceroError extends Error {
-  readonly codigo: 'cliente_no_existe' | 'sin_identificacion' | 'siigo_rechazo';
+  readonly codigo: 'cliente_no_existe' | 'cliente_inactivo' | 'sin_identificacion' | 'siigo_rechazo';
 
   constructor(codigo: SiigoTerceroError['codigo'], message: string) {
     super(message);
@@ -73,6 +73,10 @@ export class SiigoTerceroError extends Error {
 interface FichaCliente {
   id: number;
   name: string;
+  /** HU #13947: un cliente inactivo no se sincroniza con Siigo. Opcional para no exigirlo a quien arma la ficha. */
+  active?: boolean;
+  /** HU #13952: baja lógica. Un cliente eliminado no se sincroniza con Siigo. Opcional por lo mismo que `active`. */
+  deletedAt?: Date | null;
   document: string | null;
   idType: string | null;
   personType: string | null;
@@ -534,6 +538,8 @@ async function cargarCliente(clienteId: number): Promise<FichaCliente | null> {
   const [c] = await db.select({
     id: clients.id,
     name: clients.name,
+    active: clients.active,
+    deletedAt: clients.deletedAt,
     document: clients.document,
     idType: clients.idType,
     personType: clients.personType,
@@ -594,10 +600,28 @@ export async function buscarTercero(
  * El orden importa y no es casual: primero lo que no cuesta nada (validar), después lo que cuesta
  * una petición (consultar), y solo entonces lo que escribe fuera de FLITO.
  */
-export async function asegurarTercero(clienteId: number): Promise<ResultadoTercero> {
+export interface OpcionesAsegurarTercero {
+  /**
+   * HU #13947, opción b (regla 6 de la Épica: «lo que estaba en curso termina normal»). Solo la pasa el trabajador
+   * de emisión: un lote YA ENCOLADO antes de desactivar el cliente se emite igual. Lo NUEVO lo cortan la
+   * elegibilidad/encolado y la sincronización pedida fuera de la emisión (sin esta opción).
+   */
+  emisionDeLoteEnCurso?: boolean;
+}
+
+export async function asegurarTercero(
+  clienteId: number, opciones: OpcionesAsegurarTercero = {},
+): Promise<ResultadoTercero> {
   const cliente = await cargarCliente(clienteId);
   if (!cliente) {
     throw new SiigoTerceroError('cliente_no_existe', `No existe el cliente ${clienteId}.`);
+  }
+  // HU #13947: con el cliente inactivo no se llama a Siigo (ni a leer ni a escribir). 409 por `estadoDe` de la ruta.
+  // HU #13952: eliminado (`deleted_at`) → mismo código y mismo mensaje («… inactivo o eliminado»), pero SIN la
+  // excepción del lote en curso: esa es la regla 6 de la Épica para un cliente desactivado; uno eliminado no emite.
+  const eliminado = cliente.deletedAt != null;
+  if (eliminado || (cliente.active === false && opciones.emisionDeLoteEnCurso !== true)) {
+    throw new SiigoTerceroError('cliente_inactivo', `El cliente ${cliente.name} está inactivo o eliminado.`);
   }
 
   // C7 — la validación de facturabilidad se exige antes de ESCRIBIR en Siigo, no antes de LEER.

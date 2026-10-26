@@ -62,6 +62,7 @@ import {
 // lee con el `tx` que ya tomó el `FOR UPDATE` que registrar/quitar también toman (RN-04 de la HU
 // #12619). Leerlos con `db` sellaría un viaje que otro registró entre la previsualización y el sello.
 import { aDto as aDtoViaje, type FilaViaje, viajesDe } from '../flito-logistica/flito-logistica-viajes.service.js';
+import { exigirClienteOperable } from '../clients/cliente-operable.js';
 
 export class LiquidacionError extends Error {
   constructor(message: string, readonly faltantes: string[] = []) {
@@ -855,6 +856,7 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     // aquí nadie mete ni saca un servicio de este trámite hasta el COMMIT. Se toma ANTES de leer la
     // puente, que es lo único que hace que lo sellado sea lo que estaba asignado.
     await bloquearTramite(tx, tramiteId).catch(traducirTramiteNoEncontrado);
+    await exigirClienteOperable(tx, ids?.companiaId, 'liquidaciones'); // HU #13947: cliente inactivo → 409
     // Las filas documentales, con el MISMO `tx` y bajo el mismo bloqueo (HU #12654, AC5): `aplicar`
     // toma este `FOR UPDATE` antes de escribirlas, así que lo que se lee aquí es lo aplicado al COMMIT.
     const docs = await documentalesDe(tx, tramiteId);

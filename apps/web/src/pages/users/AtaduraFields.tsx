@@ -19,6 +19,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 import { getOrganismoByCodigo } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import FlitSelect from '../../components/flit/FlitSelect';
+import { opcionesConEstado } from '../../components/flit/opcionesConEstado';
 
 // ─────────────────────────────── Copy exacto (UX §5.1 a §5.4) ────────────────────────────────────
 
@@ -166,10 +167,10 @@ export function resumenOrganismos(etiquetas: string[]): string {
  * `<label for>`, región `role="status"` montada siempre, `aria-describedby`, `required` nativo,
  * `error`/`onInvalido` con foco al control y `onReintentar`. Esta HU no toca el kit.
  *
- * Lo que el molde de `CompaniaField` no resolvía y se añade aquí: **el proveedor desactivado**. Se
- * ofrecen los activos MÁS el asignado actual si no está entre ellos, con el matiz «(inactivo)» que
- * `FlitSelect` ya sabe pintar. Filtrar por `activo` a secas dejaría el `<select>` en blanco y
- * guardar cualquier otro campo se llevaría la atadura por delante, sin que el admin lo pidiera.
+ * **El proveedor desactivado** (HU #13963): sale en la lista con «Inactivo», deshabilitado y con
+ * `aria-disabled` (`opcionesConEstado`, el mismo de los desplegables de compañía, HU #13950); los
+ * eliminados el API ya no los devuelve. El asignado actual se conserva aunque esté inactivo: si se
+ * vaciara, guardar cualquier otro campo se llevaría la atadura por delante sin que el admin lo pidiera.
  */
 export function ProveedorSoatField({ proveedores, value, onChange, error, onInvalido, editando }: {
   proveedores: CatalogoProveedores;
@@ -182,14 +183,8 @@ export function ProveedorSoatField({ proveedores, value, onChange, error, onInva
   const { data, error: errorCarga, recargar } = proveedores;
   const cargando = data === null && !errorCarga;
 
-  const ofrecidos = useMemo(() => {
-    if (!data) return [];
-    const activos = data.filter((p) => p.activo);
-    const asignado = value ? data.find((p) => p.id === value) : undefined;
-    return asignado && !asignado.activo ? [...activos, asignado] : activos;
-  }, [data, value]);
-
-  const vacio = data !== null && ofrecidos.length === 0;
+  // Vacío = nada que se pueda elegir ni conservar: ni un activo ni el asignado actual en el catálogo.
+  const vacio = data !== null && !data.some((p) => p.activo || p.id === value);
   const mensaje = errorCarga ? PROVEEDOR_ERROR : cargando ? PROVEEDOR_CARGANDO : vacio ? PROVEEDOR_VACIO : null;
 
   return (
@@ -197,10 +192,10 @@ export function ProveedorSoatField({ proveedores, value, onChange, error, onInva
       label={PROVEEDOR_LABEL}
       value={value}
       onChange={onChange}
-      opciones={[
-        { valor: '', etiqueta: PROVEEDOR_VACIA },
-        ...ofrecidos.map((p) => ({ valor: p.id, etiqueta: p.nombre, ...(p.activo ? {} : { nota: 'inactivo' }) })),
-      ]}
+      opciones={opcionesConEstado(data ?? [], data ? value : '', {
+        placeholder: PROVEEDOR_VACIA,
+        etiquetaAusente: 'Proveedor asignado',
+      })}
       ayuda={editando ? `${PROVEEDOR_AYUDA} ${AVISO_RELOGIN}` : PROVEEDOR_AYUDA}
       mensaje={mensaje}
       fallo={!!errorCarga}

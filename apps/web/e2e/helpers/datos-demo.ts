@@ -802,13 +802,16 @@ export const COMPARENDOS_RUNS_DEMO = [
 
 // ── Clientes y proveedores ──
 export const CLIENTES_FICHA_DEMO = [
-  { soatSinTramite: true, gestorSoatSinTramite: { id: 'prov-demo-1', nombre: ASEGURADORAS_DEMO[0], activo: true } },
-  { soatSinTramite: false, gestorSoatSinTramite: null },
-  { soatSinTramite: true, gestorSoatSinTramite: null },
+  // HU #13968: el proveedor ES el canal; la tercera compañía trae el aviso del permiso sin efecto.
+  { gestorSoatSinTramite: { id: 'prov-demo-1', nombre: ASEGURADORAS_DEMO[0], activo: true }, permisoSinTramiteSinEfecto: false },
+  { gestorSoatSinTramite: null, permisoSinTramiteSinEfecto: false },
+  { gestorSoatSinTramite: null, permisoSinTramiteSinEfecto: true },
 ].map((canal, i) => ({
   id: 901 + i, name: EMPRESAS_DEMO[i], document: N[i], documentType: 'NIT',
   phone: DATOS_DEMO.telefonos[i], email: i < 2 ? DATOS_DEMO.correos[i + 1] : null, address: null,
   city: ['Manizales', 'Pereira', 'Bogotá'][i],
+  // HU #13948: una compañía inactiva para que la captura muestre los dos chips de Estado.
+  active: i !== 1,
   soatAutogestionable: i === 1, impuestosAutogestionable: false, logisticaAutogestionable: i === 2, logisticaPermiteParcial: i === 0,
   ...canal,
 }));

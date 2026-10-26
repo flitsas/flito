@@ -73,6 +73,11 @@ export const MIGRACIONES_CON_REPARTO = [
   '0243_permisos_retirar_sync_lanzar.sql', // HU #13631: retiro de `sync.sync.lanzar` (sincronización manual de FLIT 1)
   '0248_flito_bolsas_documentos.sql', // HU #13889 (ADR-0028): acciones del expediente documental, solo a `admin`
   '0254_flito_dr_flit_permiso_funciones.sql', // HU #13941: ítem Dr. Flit + 4 acciones; universal «ver manuales», `admin` las 4
+  '0255_permisos_clientes_activar_desactivar.sql', // HU #13945: «Activar o desactivar clientes», exclusiva de `admin`
+  '0258_permisos_clientes_eliminar.sql', // HU #13954: «Eliminar clientes», exclusiva de `admin`
+  '0261_permisos_proveedores_soat_estado.sql', // HU #13958: «Activar o desactivar proveedores», exclusiva de `admin`
+  '0263_permisos_proveedores_eliminar.sql', // HU #13960: «Eliminar proveedores», exclusiva de `admin`
+  '0262_flito_soat_canal_por_proveedor.sql', // HU #13967: renombre de `accion.clientes.soat_sin_tramite`
 ] as const;
 
 /**
@@ -190,7 +195,9 @@ const literales = (texto: string): string[] =>
 function tuplas(bloque: string): string[][] {
   if (!bloque.includes('(')) return literales(bloque).map((l) => [l]);
   const salida: string[][] = [];
-  for (const m of bloque.matchAll(/\(((?:'(?:[^']|'')*'\s*,?\s*)+)\)/g)) salida.push(literales(m[1]!));
+  // HU #13945: la 0255 cierra la tupla con un booleano sin comillas (`exclusiva_admin = true`, mecanismo de la 0253).
+  // Se admite SOLO como último elemento y no entra en la tupla (las columnas que se pliegan van antes).
+  for (const m of bloque.matchAll(/\(((?:'(?:[^']|'')*'\s*,?\s*)+)(?:,?\s*(?:true|false)\s*)?\)/g)) salida.push(literales(m[1]!));
   return salida;
 }
 

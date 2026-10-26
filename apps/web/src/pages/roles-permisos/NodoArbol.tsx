@@ -3,7 +3,7 @@
 // Patrón (ficha full «Accesibilidad»): listas anidadas con `fieldset` + casillas nativas + botón de
 // desplegar (disclosure), no `role="tree"`. Plegado, el panel se DESMONTA (nada oculto en el orden de
 // tabulación). Tri-estado: `indeterminate` por ref y `aria-checked="mixed"` solo en el parcial.
-// `aria-describedby` en el orden de la ficha: descripción → cuenta → explicación → origen.
+// `aria-describedby` en el orden de la ficha: descripción → nota exclusiva (#13951) → cuenta → explicación → origen.
 // Colores solo por token `--flit-*`; gris = inactivo, nunca `opacity` (decisión 30 de #12717).
 
 import { useEffect, useRef, type ReactNode } from 'react';
@@ -12,7 +12,7 @@ import { flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit
 import {
   COPY_AYUDA_DERIVADA, ancestroDesmarcadoCercano, ancestroFaltante, avisoSinAcciones, codigosDesmarcarTodo,
   codigosMarcarTodo, cuentaDe, descendientes, estadoDe, esHoja, explicacionDesmarcado, explicacionElementoAntiguo,
-  explicacionItemAntiguo, fraseSinEfecto, inactivo, itemsSinAcciones, noOpcionales, opcionalesDe, origenDe,
+  explicacionItemAntiguo, fraseSinEfecto, inactivo, itemsSinAcciones, noOpcionales, notaExclusiva, opcionalesDe, origenDe,
   resumenExcepciones, rotuloOpcional, sinAcciones, sufijoSinAcciones, textoCuenta, textoExcepciones,
   type EstadoCasilla, type Nodo, type Origen,
 } from './arbol';
@@ -45,8 +45,10 @@ export const Hueco = ({ ancho }: { ancho: 'chevron' | 'casilla' }) => (
   <span aria-hidden="true" className={ancho === 'chevron' ? 'h-7 w-7 shrink-0' : 'h-4 w-4 shrink-0'} />
 );
 
-function CasillaTri({ codigo, estado, deshabilitada, describedBy, inputRef, onChange }: {
+function CasillaTri({ codigo, estado, deshabilitada, bloqueada = false, describedBy, inputRef, onChange }: {
   codigo: string; estado: EstadoCasilla; deshabilitada: boolean; describedBy?: string;
+  /** HU #13951 (AC4): `aria-disabled` en vez de `disabled` — sigue enfocable y lee su nota; no cambia. */
+  bloqueada?: boolean;
   inputRef: (el: HTMLInputElement | null) => void; onChange: () => void;
 }) {
   const ref = useRef<HTMLInputElement | null>(null);
@@ -56,14 +58,15 @@ function CasillaTri({ codigo, estado, deshabilitada, describedBy, inputRef, onCh
     <input
       ref={(el) => { ref.current = el; inputRef(el); }}
       type="checkbox"
-      className="flit-focus mt-0.5 h-4 w-4 shrink-0 disabled:cursor-not-allowed"
+      className="flit-focus mt-0.5 h-4 w-4 shrink-0 disabled:cursor-not-allowed aria-disabled:cursor-not-allowed"
       data-codigo={codigo}
       data-estado={estado}
       checked={estado === 'marcada'}
       aria-checked={parcial ? 'mixed' : undefined}
-      disabled={deshabilitada}
+      disabled={bloqueada ? undefined : deshabilitada}
+      aria-disabled={bloqueada ? true : undefined}
       aria-describedby={describedBy}
-      onChange={onChange}
+      onChange={bloqueada ? () => undefined : onChange}
       style={{ accentColor: 'var(--flit-blue)' }}
     />
   );
@@ -112,14 +115,17 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
   const tieneHijos = nodo.hijos.length > 0;
   const abierto = tieneHijos && ctx.abiertos.has(nodo.codigo);
   const marcado = marcados.has(nodo.codigo);
-  const estado = estadoDe(nodo, marcados);
-  const hoja = esHoja(nodo);
+  // HU #13951: trato de las exclusivas del Administrador (panel del rol; HU #13970 también el del usuario).
+  const trato = ctx.exclusivas;
+  const exclusiva = trato !== undefined && nodo.exclusivaAdmin === true;
+  const estado = estadoDe(nodo, marcados, trato);
+  const hoja = esHoja(nodo, trato);
   let estaInactivo = inactivo(nodo.codigo, marcados, indice);
   // R6 (delta §2): el opcional con dos padres solo es fiable con el `efectivo` del servidor; sin cambios, manda ese.
   if (ctx.usarEfectivoServidor && nodo.opcional && marcado && nodo.efectivoServidor !== undefined) estaInactivo = !nodo.efectivoServidor;
   // HU #13452: cerrado por el enlace del rol → deshabilitado; la nota la lleva el ítem que lo cierra.
   const cerradoPor = ctx.cerrados?.get(nodo.codigo) ?? null;
-  const deshabilitada = !editable || estaInactivo || cerradoPor !== null;
+  const deshabilitada = exclusiva || !editable || estaInactivo || cerradoPor !== null;
   const id = (pieza: string) => idDe(idBase, pieza, nodo.codigo);
 
   const conSinAcciones = sinAcciones(nodo, marcados);
@@ -130,7 +136,7 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
 
   let meta = '';
   if (modo.tipo === 'rol') {
-    const cuenta = textoCuenta(cuentaDe(nodo, marcados), hoja, !marcado);
+    const cuenta = textoCuenta(cuentaDe(nodo, marcados, trato), hoja, !marcado);
     const sinAcc = esElemento ? sufijoSinAcciones(itemsSinAcciones(nodo, marcados)) : '';
     meta = [cuenta, sinAcc].filter(Boolean).join(' · ');
   } else if (tieneHijos) {
@@ -140,6 +146,7 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
 
   const describedBy = [
     nodo.descripcion ? id('desc') : null,
+    exclusiva ? id('excl') : null,
     meta ? id('cuenta') : null,
     faltante ? id('sinefecto') : null,
     cercano ? idDe(idBase, 'expl', cercano) : null,
@@ -150,7 +157,8 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
     mostrarOrigen ? id('origen') : null,
   ].filter(Boolean).join(' ') || undefined;
 
-  const nombreColor = cerradoPor ? 'var(--flit-text-secondary)' : esElemento && !estaInactivo ? 'var(--flit-blue-text)' : estaInactivo ? 'var(--flit-text-secondary)' : 'var(--flit-text-primary)';
+  const apagada = cerradoPor !== null || (exclusiva && trato === 'fuera');
+  const nombreColor = apagada ? 'var(--flit-text-secondary)' : esElemento && !estaInactivo ? 'var(--flit-blue-text)' : estaInactivo ? 'var(--flit-text-secondary)' : 'var(--flit-text-primary)';
   const hover = deshabilitada ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-[var(--flit-bg-hover)]';
 
   return (
@@ -170,6 +178,7 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
                 codigo={nodo.codigo}
                 estado={estado}
                 deshabilitada={deshabilitada}
+                bloqueada={exclusiva}
                 describedBy={describedBy}
                 inputRef={(el) => ctx.registrarInput(nodo.codigo, el)}
                 onChange={() => ctx.onToggle(nodo.codigo)}
@@ -187,6 +196,9 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
             )}
           </div>
           {nodo.descripcion && <p id={id('desc')} className="ml-8 text-sm" style={SECUNDARIO}>{nodo.descripcion}</p>}
+          {exclusiva && trato && (
+            <p id={id('excl')} className="ml-8 break-words text-sm" style={SECUNDARIO} data-aviso="exclusiva-admin">{notaExclusiva(trato, modo.tipo)}</p>
+          )}
           {faltante && <p id={id('sinefecto')} className="ml-8 text-sm" style={SECUNDARIO}>{fraseSinEfecto(faltante.nombre)}</p>}
           {conSinAcciones && (
             <p id={id('sinacc')} className="ml-8 text-sm" style={SECUNDARIO} data-aviso="sin-acciones">{avisoSinAcciones(nodo.nombre, modo.tipo)}</p>
@@ -219,10 +231,10 @@ function PanelNodo({ nodo, panelId }: { nodo: Nodo; panelId: string }) {
       {antiguo && <p className="text-sm" style={SECUNDARIO}>{antiguo}</p>}
       {conBotones && (
         <div className="flex flex-wrap gap-2">
-          <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => ctx.onConjunto?.(codigosMarcarTodo([nodo]).filter((c) => !ctx.cerrados?.has(c)), true)}>
+          <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => ctx.onConjunto?.(codigosMarcarTodo([nodo]).filter((c) => !ctx.cerrados?.has(c) && !(ctx.exclusivas === 'fuera' && ctx.indice.porCodigo.get(c)?.exclusivaAdmin)), true)}>
             Marcar todo<span className="sr-only"> en {nodo.nombre}</span>
           </button>
-          <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => ctx.onConjunto?.(codigosDesmarcarTodo([nodo]), false)}>
+          <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => ctx.onConjunto?.(codigosDesmarcarTodo([nodo]).filter((c) => !(ctx.exclusivas === 'fija' && ctx.indice.porCodigo.get(c)?.exclusivaAdmin)), false)}>
             Desmarcar todo<span className="sr-only"> en {nodo.nombre}</span>
           </button>
         </div>

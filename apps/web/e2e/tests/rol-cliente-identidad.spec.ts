@@ -291,7 +291,7 @@ test.describe('HU #11913 · AC3 — «SOAT sin trámite» en Clientes', () => {
   // control se llama por su nombre («SOAT sin trámite de X») y NO «Autogestión…», y el PATCH del
   // canal no arrastra ninguna de las otras cuatro banderas. Lo nuevo —el modal, sus cuatro estados
   // y el rechazo sin petición— vive en `soat-envio-directo-gestor.spec.ts`.
-  test('la columna se lee del listado —cerrada y abierta con su gestor— y se llama por su nombre', async ({ page }) => {
+  test('la columna se lee del listado —sin proveedor y con proveedor— y se llama por su nombre', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     // UNA sola ruta: el flag y su gestor viajan en `GET /clients` como las cuatro banderas vecinas.
     // Si la pantalla volviera a cruzarlo con `/flito/parametrizacion/companias`, el catch-all del
@@ -302,9 +302,9 @@ test.describe('HU #11913 · AC3 — «SOAT sin trámite» en Clientes', () => {
 
     await page.goto('/clients');
     await expect(page.getByRole('columnheader', { name: 'SOAT sin trámite' })).toBeVisible();
-    // Cerrada Y abierta. Solo el par prueba que el valor sale del payload y no de un fijo.
-    await expect(page.getByRole('button', { name: 'SOAT sin trámite de Concesionario Norte: Cerrado' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'SOAT sin trámite de Transportes Sur: Abierto · SURA' })).toBeVisible();
+    // Sin proveedor Y con proveedor. Solo el par prueba que el valor sale del payload y no de un fijo.
+    await expect(page.getByRole('button', { name: 'SOAT sin trámite de Concesionario Norte: Sin proveedor' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'SOAT sin trámite de Transportes Sur: SURA' })).toBeVisible();
     // El nombre por defecto de `CeldaFlag` afirmaría lo contrario de lo que hace el control. El
     // aserto positivo solo no lo detecta: hace falta el negativo.
     await expect(page.getByLabel(/Autogestión SOAT sin trámite/)).toHaveCount(0);
@@ -313,7 +313,7 @@ test.describe('HU #11913 · AC3 — «SOAT sin trámite» en Clientes', () => {
     await expect(page.getByRole('checkbox', { name: 'Autogestión SOAT de Transportes Sur' })).not.toBeChecked();
   });
 
-  test('abrir el canal manda SOLO las dos claves del canal y no toca la casilla de autogestión', async ({ page }) => {
+  test('elegir proveedor manda SOLO el proveedor (HU #13968) y no toca la casilla de autogestión', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await page.route(/\/api\/clients(\?|$)/, (route) => route.fulfill({
       status: 200, contentType: 'application/json', body: JSON.stringify(CLIENTES),
@@ -330,16 +330,15 @@ test.describe('HU #11913 · AC3 — «SOAT sin trámite» en Clientes', () => {
     });
 
     await page.goto('/clients');
-    await page.getByRole('button', { name: 'SOAT sin trámite de Concesionario Norte: Cerrado' }).click();
+    await page.getByRole('button', { name: 'SOAT sin trámite de Concesionario Norte: Sin proveedor' }).click();
     const modal = page.getByRole('dialog', { name: 'SOAT sin trámite · Concesionario Norte' });
-    await modal.getByLabel('Canal abierto').check();
-    await modal.getByLabel('Gestor por defecto').selectOption(GESTOR_SURA);
+    await modal.getByLabel('Proveedor de SOAT sin trámite').selectOption(GESTOR_SURA);
     await modal.getByRole('button', { name: 'Guardar' }).click();
 
     await expect.poll(() => body).not.toBeNull();
     // `toEqual` y no `toMatchObject`: lo que se comprueba es que NO viaja ninguna clave más — en
     // particular, ninguna de las otras cuatro banderas de autogestión.
-    expect(body).toEqual({ soatSinTramite: true, proveedorSoatSinTramiteId: GESTOR_SURA });
+    expect(body).toEqual({ proveedorSoatSinTramiteId: GESTOR_SURA });
     await expect(page.getByRole('checkbox', { name: 'Autogestión SOAT de Concesionario Norte' })).toBeChecked();
   });
 
@@ -350,7 +349,7 @@ test.describe('HU #11913 · AC3 — «SOAT sin trámite» en Clientes', () => {
     }));
 
     await page.goto('/clients');
-    await expect(page.getByRole('alert')).toHaveText('Listado caído');
+    await expect(page.getByRole('alert')).toHaveText('No pudimos cargar los clientes.');
     // El estado que esta HU paga: sin él, perder lo que se acaba de marcar y no haber cargado nunca
     // se leen exactamente igual — en la tabla donde se verifica el AC3.
     await expect(page.getByText('No hay clientes.')).toHaveCount(0);

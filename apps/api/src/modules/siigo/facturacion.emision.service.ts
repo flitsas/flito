@@ -991,7 +991,8 @@ export async function emitirFactura(
 
   // ── Tercero y armado, todavía sin reservar ────────────────────────────────
   const tramites = await cargarTramites(ids);
-  const tercero = await asegurarTercero(companiaDelGrupo(tramites));
+  // HU #13947, opción b: el lote ya estaba encolado → se emite aunque el cliente se haya desactivado después.
+  const tercero = await asegurarTercero(companiaDelGrupo(tramites), { emisionDeLoteEnCurso: true });
 
   const ahora = relojDe();
   // HU #11708 — la ficha solo se consulta cuando de verdad hace falta: si nadie pidió correo, o si

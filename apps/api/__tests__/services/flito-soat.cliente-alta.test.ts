@@ -182,7 +182,7 @@ function escenario(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
     clients: [{
-      id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme',
+      id: COMPANIA, carpeta: 'clientes/acme',
       // HU #12078: lo que devuelve el `LEFT JOIN` de `resolverDestinoCanalCliente`.
       proveedorId: PROVEEDOR_POR_DEFECTO, activo: true,
     }],
@@ -844,13 +844,16 @@ describe('AC4 — RN-01: un VIN, un SOAT', () => {
 // ───────────────────────────── AC5 — las guardas del canal ───────────────────
 
 describe('AC5 — flag, MIME real, PII fuera de la URL, rate limit y auditoría', () => {
-  it('**flag «SOAT sin trámite» APAGADO → 403 `canal_desactivado` y nada creado**', async () => {
-    escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: 'clientes/acme' }] });
+  it('**compañía SIN proveedor de SOAT sin trámite → 403 `canal_desactivado` neutro y nada creado** (HU #13967 AC2)', async () => {
+    escenario({ clients: [] });
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
     expect(r.status).toBe(403);
     expect(r.body.codigo).toBe('canal_desactivado');
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+    // HU #13967 (AC2): el texto es NEUTRO — no menciona al proveedor ni a la configuración.
+    expect(r.body.error).toBe('Esta opción no está disponible por ahora para su compañía. Si la necesita, comuníquese con su asesor de FLITO.');
+    expect(r.body.error).not.toMatch(/proveedor|gestor/i);
     // Ni siquiera se consultó el RUNT: la guarda más barata va primera.
     expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
   });
@@ -905,7 +908,7 @@ describe('AC5 — flag, MIME real, PII fuera de la URL, rate limit y auditoría'
   it('el limitador frena al usuario que insiste, y solo a ese usuario', async () => {
     escenario();
     // El canal está apagado para que cada intento sea barato: lo que se mide es el freno, no el alta.
-    kdb.when.select('clients', [{ id: COMPANIA, sinTramite: false, carpeta: null }]);
+    kdb.when.select('clients', []);
     const app = await buildApp();
     const insistente = await auth('cliente', siguienteUsuario());
 
@@ -1205,8 +1208,8 @@ describe('HU #12874 — a nombre de qué compañía se radica, en el alta, la pr
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
   });
 
-  it('**sin enlace + compañía con el canal APAGADO → 403 `canal_desactivado`**', async () => {
-    escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] });
+  it('**sin enlace + compañía SIN proveedor → 403 `canal_desactivado`** (HU #13967 AC4)', async () => {
+    escenario({ clients: [] });
     const r = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: String(COMPANIA) } });
 
     expect(r.status).toBe(403);
@@ -1215,7 +1218,7 @@ describe('HU #12874 — a nombre de qué compañía se radica, en el alta, la pr
   });
 
   it('**sin enlace + compañía INEXISTENTE → la MISMA respuesta que canal apagado** (sin oráculo)', async () => {
-    escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] });
+    escenario({ clients: [] });
     const apagada = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: String(COMPANIA) } });
     escenario({ clients: [] });
     const inexistente = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: '424242' } });
