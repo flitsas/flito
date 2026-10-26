@@ -169,6 +169,8 @@ export const users = pgTable('users', {
   // HU #12169: mismo argumento que el de arriba, para el `ON DELETE RESTRICT` de `users_role_fkey`.
   // Sin él, borrar un rol escanea `users` entera. También sirve al conteo por rol (CF-22).
   roleIdx: index('idx_users_role').on(t.role),
+  // HU #13971 (0264): impacto/desactivación/eliminación de un proveedor SOAT. Completo, no parcial (ver cabecera 0264).
+  proveedorSoatIdx: index('idx_users_flito_proveedor_soat').on(t.flitoProveedorSoatId),
 }));
 
 export const clients = pgTable('clients', {
@@ -263,6 +265,7 @@ export const clients = pgTable('clients', {
   // previa (`upper(btrim())`); sin NIT (NULL o vacío) no participa. Se conserva el no único (búsqueda exacta, con bajas).
   // Misma línea: techo de max-lines del archivo.
   documentBranchIdx: index('idx_clients_document_branch').on(t.document, t.branchOffice), documentBranchVivoUq: uniqueIndex('uq_clients_document_branch_vivo').on(sql`upper(btrim(${t.document}))`, t.branchOffice).where(sql`deleted_at IS NULL AND document IS NOT NULL AND btrim(document) <> ''`),
+  proveedorSoatSinTramiteIdx: index('idx_clients_flito_proveedor_soat_sin_tramite').on(t.flitoProveedorSoatSinTramiteId), // HU #13971 (0264)
 }));
 
 export const vehicles = pgTable('vehicles', {
