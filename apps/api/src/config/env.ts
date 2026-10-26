@@ -438,7 +438,7 @@ const envSchema = z.object({
   DRFLIT_IA_HABILITADA: z.string().optional().transform((v) => v === '1'),
   // Mensajes a la IA por usuario y día America/Bogota. 0 = IA sin cupo (ninguna reserva se concede).
   DRFLIT_IA_TOPE_DIARIO: z.preprocess(vacioComoAusente, z.coerce.number({
-    invalid_type_error: 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500',
+    error: mensajesDeTipo({ tipo: 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500' }),
   }).int('DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
     .min(0, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
     .max(500, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500').default(30)),

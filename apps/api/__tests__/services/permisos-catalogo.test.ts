@@ -207,7 +207,8 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.cargar', 2], ['bolsas.transito.crear', 2], ['bolsas.transito.editar', 2], ['bolsas.transito.inactivar', 2],
       ['bolsas.transito.listar', 2], ['bolsas.transito.ver', 2], ['bolsas.transito.ver_movimientos', 2],
-      ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.solicitud.crear', 2],
+      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2],
+      ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.cola.ver', 2], ['soat.solicitud.crear', 2],
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);
     // HU #13427: las de HOY (con las operaciones nuevas que parten una guarda vieja), no las del mundo plano.
