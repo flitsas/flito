@@ -379,6 +379,8 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/bolsas-documentos/companias/:companiaId/tipos/:tipo',      'soloSinEnlace'],
   // HU #13890 (ADR-0028 §5 E4): fecha de expedición manual, también solo personal FLIT (orden del fuente).
   ['PUT /api/flito/bolsas-documentos/documentos/:documentoId/fecha-expedicion', 'soloSinEnlace'],
+  // HU #13964 (ADR-0028 adenda E7): retirar la versión vigente, solo personal FLIT.
+  ['POST /api/flito/bolsas-documentos/documentos/:documentoId/retirar',        'soloSinEnlace'],
   ['GET /api/flito/bolsas-documentos/documentos/:documentoId/archivo',         'soloSinEnlace'],
   // HU #13893 (ADR-0028 §5 E6): estado del lote para el chip del listado, solo personal FLIT.
   ['POST /api/flito/bolsas-documentos/estado-lote',                            'soloSinEnlace'],

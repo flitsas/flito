@@ -78,13 +78,26 @@ export default function HistorialDocumento({ id, companiaId, tipo, onCerrar }: {
               <li key={v.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
                 <div className="min-w-0 flex-1 basis-56 break-words">
                   <p className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-                    Versión {v.version} · {v.vigente ? 'vigente' : `reemplazada el ${fechaDia(diaBogota(v.reemplazadoEn))}`}
+                    Versión {v.version} · {cabecera(v)}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
                     Cargada{v.cargadoPor ? ` por ${v.cargadoPor}` : ''} el {fechaHora(v.cargadoEn)}
                     {v.fechaExpedicion ? ` · ${participio(tipo, 'expedid')} el ${fechaDia(v.fechaExpedicion)}` : ''}
                     {!v.archivoDisponible ? ' · archivo eliminado por retención' : ''}
                   </p>
+                  {v.retiro && (
+                    // Texto plano (HU #13964): el motivo es libre y nunca se interpreta como HTML.
+                    <>
+                      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                        Retirada por {v.retiro.por.nombre ?? '—'} el {fechaHora(v.retiro.en)}
+                      </p>
+                      {v.retiro.motivo && (
+                        <p className="text-xs break-words" style={{ color: 'var(--flit-text-secondary)' }}>
+                          Motivo: «{v.retiro.motivo}»
+                        </p>
+                      )}
+                    </>
+                  )}
                   {v.fechaOrigen === 'manual' && v.fechaManual && (
                     <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
                       (fecha digitada{v.fechaManual.por ? ` por ${v.fechaManual.por}` : ''} el {fechaDia(diaBogota(v.fechaManual.en))})
@@ -105,4 +118,11 @@ export default function HistorialDocumento({ id, companiaId, tipo, onCerrar }: {
       )}
     </div>
   );
+}
+
+/** Vigente, retirada (la señal es `retiro`, nunca las fechas) o reemplazada por una carga. */
+function cabecera(v: DocumentoBolsaVersionDto): string {
+  if (v.vigente) return 'vigente';
+  if (v.retiro) return `retirada el ${fechaDia(diaBogota(v.retiro.en))}`;
+  return `reemplazada el ${fechaDia(diaBogota(v.reemplazadoEn))}`;
 }

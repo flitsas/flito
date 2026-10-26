@@ -37,13 +37,17 @@ function version(tipo: Tipo, o: Record<string, unknown> = {}) {
 }
 
 /** Expediente con los estados dados por tipo; los que no se den quedan en `pendiente`. */
-function expediente(companiaId: number, estados: Partial<Record<Tipo, Record<string, unknown>>> = {}) {
+function expediente(
+  companiaId: number, estados: Partial<Record<Tipo, Record<string, unknown>>> = {}, conHistorial: Tipo[] = [],
+) {
   const documentos = TIPOS.map((tipo) => {
     const v = estados[tipo];
     return {
       tipo, opcional: tipo === 'adicional',
       estado: v ? (v.estado as string) ?? 'valido' : 'pendiente',
       vigente: v ? version(tipo, v) : null,
+      // HU #13964: «Historial» depende de esto, no de `vigente`. Con vigente siempre hay historial.
+      tieneHistorial: v ? true : conHistorial.includes(tipo),
     };
   });
   const completo = documentos.filter((d) => d.tipo !== 'adicional').every((d) => d.estado === 'valido');
@@ -580,5 +584,231 @@ test.describe('FLITO — Bolsas · expediente documental de la compañía (HU #1
     await expect(campo).toHaveValue('2026-10-20');
     // Ni el sondeo ni el tecleo mueven el scroll.
     expect(await scrollDelModal(fila)).toBe(despues);
+  });
+});
+
+// ── HU #13964 — Quitar la versión vigente (spec docs/ux/hu-13964-quitar-version-vigente.md; ADR-0028
+// adenda, E7 `POST /documentos/:documentoId/retirar`). Red mockeada como el resto del spec.
+
+/** Los 4 principales válidos y el adicional cargado: «Docs completos». */
+const COMPLETO = expediente(1, {
+  camara_comercio: { estado: 'valido', fechaExpedicion: '2026-10-10', venceEl: '2026-11-09', fechaOrigen: 'ocr' },
+  rut: { estado: 'valido', fechaExpedicion: '2026-10-10', venceEl: '2026-11-09', fechaOrigen: 'ocr' },
+  cedula_representante: { estado: 'valido' },
+  certificado_bancario: { estado: 'valido', version: 2 },
+  adicional: { estado: 'valido' },
+});
+
+/** Fila que devuelve E7 tras retirar: pendiente, sin vigente y con historial. */
+const filaRetirada = (tipo: Tipo) => ({ tipo, estado: 'pendiente', opcional: tipo === 'adicional', vigente: null, tieneHistorial: true });
+
+const RETIRO = { en: '2026-10-25T21:05:00.000Z', por: { nombre: 'Ana Ruiz' }, motivo: 'Era el <b>certificado</b> de otra compañía.' };
+
+/** Mock de E7: responde con `respuesta` y guarda los cuerpos recibidos. */
+async function mockRetiro(page: Page, respuesta: (tipo: Tipo) => { status: number; body: unknown }) {
+  const cuerpos: unknown[] = [];
+  await page.route(/\/api\/flito\/bolsas-documentos\/documentos\/([^/]+)\/retirar$/, (r) => {
+    cuerpos.push(r.request().postDataJSON());
+    const idDoc = r.request().url().split('/').slice(-2)[0];
+    const tipo = TIPOS[Number(idDoc.slice(-1)) - 1];
+    const { status, body } = respuesta(tipo);
+    return json(r, body, status);
+  });
+  return cuerpos;
+}
+
+test.describe('FLITO — Bolsas · quitar la versión vigente (HU #13964)', () => {
+  test('AC1 + AC3: quitar el Certificado bancario deja la fila Pendiente con Cargar, el historial lo muestra retirado con descarga y el expediente deja de estar completo', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    await mock(page, { e1: COMPLETO });
+    const cuerpos = await mockRetiro(page, (tipo) => ({ status: 200, body: filaRetirada(tipo) }));
+    await page.route(/\/tipos\/certificado_bancario\/historial$/, (r) => json(r, {
+      versiones: [{ ...version('certificado_bancario', { version: 2 }), vigente: false, reemplazadoEn: RETIRO.en, archivoDisponible: true, retiro: RETIRO }],
+    }));
+    const s = seccion(await abrir(page));
+    await expect(s.getByText('Docs completos')).toBeVisible();
+    const fila = s.getByTestId('doc-certificado_bancario');
+    await fila.getByRole('button', { name: 'Quitar la versión vigente del Certificado bancario' }).click();
+
+    const modal = page.getByRole('dialog', { name: '¿Quitar la versión vigente?' });
+    await expect(modal).toContainText('Certificado bancario queda pendiente hasta que cargues una nueva. La versión 2 se conserva en el historial como retirada');
+    await expect(modal).toContainText('El expediente de la compañía queda incompleto.');
+    await modal.getByRole('button', { name: 'Quitar versión' }).click();
+
+    await expect(modal).toHaveCount(0);
+    await expect(page.getByText('Certificado bancario quedó pendiente. La versión 2 queda en el historial como retirada.')).toBeVisible();
+    expect(cuerpos).toHaveLength(1);
+    await expect(fila.getByText('Pendiente', { exact: true })).toBeVisible();
+    await expect(fila.getByText('Sin cargar.')).toBeVisible();
+    await expect(fila.getByLabel('Cargar Certificado bancario')).toBeAttached();
+    await expect(fila.getByRole('button', { name: /^Quitar/ })).toHaveCount(0);
+    // Foco: «Quitar» se desmonta y el foco va a «Cargar» de la fila, nunca a <body>.
+    await expect(fila.getByLabel('Cargar Certificado bancario')).toBeFocused();
+    // AC3: sin la vigente de un principal, el expediente deja de estar completo.
+    await expect(s.getByText('Docs pendientes')).toBeVisible();
+    await expect(s.getByText('Docs completos')).toHaveCount(0);
+
+    await fila.getByRole('button', { name: 'Ver el historial de Certificado bancario' }).click();
+    const historial = s.getByRole('region', { name: 'Historial del Certificado bancario' });
+    await expect(historial.getByText('Versión 2 · retirada el 25/10/2026')).toBeVisible();
+    await expect(historial.getByText(/reemplazada/)).toHaveCount(0);
+    await expect(historial.getByRole('button', { name: 'Descargar Certificado bancario (versión 2)' })).toBeVisible();
+  });
+
+  test('AC2: el historial dice «Retirada por … el …» y el motivo como texto literal', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: SOLO_VER });
+    await mock(page, { e1: expediente(1, {}, ['certificado_bancario']) });
+    await page.route(/\/tipos\/certificado_bancario\/historial$/, (r) => json(r, {
+      versiones: [
+        { ...version('certificado_bancario', { version: 2 }), vigente: false, reemplazadoEn: RETIRO.en, archivoDisponible: true, retiro: RETIRO },
+        { ...version('certificado_bancario', { id: '00000000-0000-4000-8000-0000000000bb' }), vigente: false, reemplazadoEn: '2026-10-02T14:00:00.000Z', archivoDisponible: true, retiro: null },
+      ],
+    }));
+    const s = seccion(await abrir(page));
+    await s.getByRole('button', { name: 'Ver el historial de Certificado bancario' }).click();
+    const historial = s.getByRole('region', { name: 'Historial del Certificado bancario' });
+    await expect(historial.getByText(/^Retirada por Ana Ruiz el 25\/10\/26, 4:05/)).toBeVisible();
+    await expect(historial.getByText('Motivo: «Era el <b>certificado</b> de otra compañía.»')).toBeVisible();
+    await expect(historial.locator('b')).toHaveCount(0);
+    await expect(historial.getByText('Versión 1 · reemplazada el 2/10/2026')).toBeVisible();
+  });
+
+  test('AC3: quitar el documento adicional no cambia «Docs completos»', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    await mock(page, { e1: COMPLETO });
+    await mockRetiro(page, (tipo) => ({ status: 200, body: filaRetirada(tipo) }));
+    const s = seccion(await abrir(page));
+    const fila = s.getByTestId('doc-adicional');
+    await fila.getByRole('button', { name: 'Quitar la versión vigente del Documento adicional' }).click();
+    const modal = page.getByRole('dialog', { name: '¿Quitar la versión vigente?' });
+    await expect(modal.getByText('El expediente de la compañía queda incompleto.')).toHaveCount(0);
+    await modal.getByRole('button', { name: 'Quitar versión' }).click();
+    await expect(fila.getByText('Pendiente', { exact: true })).toBeVisible();
+    await expect(s.getByText('Docs completos')).toBeVisible();
+  });
+
+  test('AC5: con la bolsa inactiva no se ve «Quitar»', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    await mock(page, { e1: COMPLETO });
+    const s = seccion(await abrir(page, 'RENTACAR NORTE'));
+    await expect(s.getByRole('button', { name: 'Descargar RUT (versión 1)' })).toBeVisible();
+    await expect(s.getByRole('button', { name: /^Quitar/ })).toHaveCount(0);
+  });
+
+  test('AC6: con solo ver documentos no se ve «Quitar»', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: SOLO_VER });
+    await mock(page, { e1: COMPLETO });
+    const s = seccion(await abrir(page));
+    await expect(s.getByRole('button', { name: 'Descargar RUT (versión 1)' })).toBeVisible();
+    await expect(s.getByRole('button', { name: /^Quitar/ })).toHaveCount(0);
+  });
+
+  test('«Quitar» sale también en «Validando…» y nunca en una fila pendiente', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    await mock(page, { e1: expediente(1, { rut: { estado: 'validando' } }) });
+    const s = seccion(await abrir(page));
+    await expect(s.getByTestId('doc-rut').getByRole('button', { name: 'Quitar la versión vigente del RUT' })).toBeVisible();
+    await expect(s.getByTestId('doc-camara_comercio').getByRole('button', { name: /^Quitar/ })).toHaveCount(0);
+  });
+
+  test('AC7: el 409 no_vigente cierra el modal, saca el toast pulido y relee el expediente', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    const peticiones = await mock(page, { e1: COMPLETO });
+    await mockRetiro(page, () => ({ status: 409, body: { error: 'Esta versión ya no es la vigente: texto del API', codigo: 'no_vigente' } }));
+    const s = seccion(await abrir(page));
+    const quitar = s.getByTestId('doc-rut').getByRole('button', { name: 'Quitar la versión vigente del RUT' });
+    await quitar.click();
+    const antes = { ...peticiones };
+    const modal = page.getByRole('dialog', { name: '¿Quitar la versión vigente?' });
+    await modal.getByRole('button', { name: 'Quitar versión' }).click();
+    await expect(modal).toHaveCount(0);
+    await expect(page.getByText('Algo cambió mientras quitabas la versión: el documento o la bolsa se actualizaron. Ya refrescamos el expediente; revísalo e intenta de nuevo.')).toBeVisible();
+    await expect(page.getByText(/texto del API/)).toHaveCount(0);
+    await expect.poll(() => peticiones.e1).toBeGreaterThan(antes.e1);
+    await expect.poll(() => peticiones.detalle).toBeGreaterThan(antes.detalle);
+  });
+
+  test('AC8: sin motivo el POST va sin motivo; contador y tope de 300; cancelar no llama a la API; el 400 sale en línea y conserva el motivo', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    await mock(page, { e1: COMPLETO });
+    let status = 400;
+    const cuerpos = await mockRetiro(page, (tipo) => (status === 200
+      ? { status: 200, body: filaRetirada(tipo) }
+      : { status: 400, body: { error: 'El motivo admite hasta 300 caracteres.', codigo: 'motivo_invalido' } }));
+    const s = seccion(await abrir(page));
+    const fila = s.getByTestId('doc-rut');
+    const quitar = fila.getByRole('button', { name: 'Quitar la versión vigente del RUT' });
+    const modal = page.getByRole('dialog', { name: '¿Quitar la versión vigente?' });
+
+    // Cancelar y Esc: sin petición, y el foco vuelve a «Quitar».
+    await quitar.click();
+    const motivo = modal.getByLabel('Motivo (opcional)');
+    await expect(motivo).toBeFocused();
+    await modal.getByRole('button', { name: 'Cancelar' }).click();
+    await expect(modal).toHaveCount(0);
+    await expect(quitar).toBeFocused();
+    await quitar.click();
+    await expect(motivo).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(modal).toHaveCount(0);
+    await expect(quitar).toBeFocused();
+    expect(cuerpos).toHaveLength(0);
+
+    // Contador y tope.
+    await quitar.click();
+    await expect(modal.getByTestId('contador-motivo')).toHaveText('0/300');
+    await expect(motivo).toHaveAttribute('aria-describedby', /.+ .+/);
+    await motivo.fill('x'.repeat(301));
+    await expect(motivo).toHaveValue('x'.repeat(300));
+    await expect(modal.getByTestId('contador-motivo')).toHaveText('300/300');
+
+    // 400 en línea, sin el texto del API, y el motivo se conserva.
+    await modal.getByRole('button', { name: 'Quitar versión' }).click();
+    await expect(modal.getByRole('alert')).toHaveText('No pudimos guardar el motivo. Revisa que no pase de 300 caracteres e intenta de nuevo.');
+    await expect(modal.getByText('El motivo admite hasta 300 caracteres.')).toHaveCount(0);
+    await expect(motivo).toHaveValue('x'.repeat(300));
+    await expect(motivo).toHaveAttribute('aria-invalid', 'true');
+    expect(cuerpos[0]).toEqual({ motivo: 'x'.repeat(300) });
+
+    // Sin motivo (solo espacios): el POST va sin motivo.
+    status = 200;
+    await motivo.fill('   ');
+    await modal.getByRole('button', { name: 'Quitar versión' }).click();
+    await expect(modal).toHaveCount(0);
+    expect(cuerpos[1]).toEqual({});
+  });
+
+  test('error de red: aviso pulido en el modal, el motivo se conserva y reintentar funciona', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    await mock(page, { e1: COMPLETO });
+    let caida = true;
+    await page.route(/\/retirar$/, (r) => (caida ? r.abort('internetdisconnected') : json(r, filaRetirada('rut'))));
+    const s = seccion(await abrir(page));
+    await s.getByTestId('doc-rut').getByRole('button', { name: 'Quitar la versión vigente del RUT' }).click();
+    const modal = page.getByRole('dialog', { name: '¿Quitar la versión vigente?' });
+    await modal.getByLabel('Motivo (opcional)').fill('Ilegible');
+    await modal.getByRole('button', { name: 'Quitar versión' }).click();
+    await expect(modal.getByRole('alert')).toHaveText('No pudimos quitar la versión. Revisa tu conexión e intenta de nuevo.');
+    await expect(modal.getByLabel('Motivo (opcional)')).toHaveValue('Ilegible');
+    caida = false;
+    await modal.getByRole('button', { name: 'Quitar versión' }).click();
+    await expect(modal).toHaveCount(0);
+    await expect(s.getByTestId('doc-rut').getByText('Pendiente', { exact: true })).toBeVisible();
+  });
+
+  test('el historial se ve con tieneHistorial aunque no haya vigente', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: CON_CARGA });
+    await mock(page, { e1: expediente(1, {}, ['rut']) });
+    await page.route(/\/tipos\/rut\/historial$/, (r) => json(r, {
+      versiones: [{ ...version('rut'), vigente: false, reemplazadoEn: RETIRO.en, archivoDisponible: true, retiro: { ...RETIRO, motivo: null } }],
+    }));
+    const s = seccion(await abrir(page));
+    const fila = s.getByTestId('doc-rut');
+    await expect(fila.getByRole('button', { name: /^Quitar/ })).toHaveCount(0);
+    await expect(s.getByTestId('doc-camara_comercio').getByRole('button', { name: /Ver el historial/ })).toHaveCount(0);
+    await fila.getByRole('button', { name: 'Ver el historial de RUT' }).click();
+    const historial = s.getByRole('region', { name: 'Historial del RUT' });
+    await expect(historial.getByText('Versión 1 · retirada el 25/10/2026')).toBeVisible();
+    await expect(historial.getByText(/^Motivo:/)).toHaveCount(0);
   });
 });

@@ -7,7 +7,7 @@ import type {
 } from '@operaciones/shared-types';
 import type {
   DocumentoBolsaDto, EstadoExpedienteLoteBody, EstadoExpedienteLoteRespuesta, ExpedienteCompaniaDto,
-  HistorialDocumentoBolsaDto, TipoDocumentoBolsa,
+  DocumentoExpedienteDto, HistorialDocumentoBolsaDto, RetirarDocumentoBolsaBody, TipoDocumentoBolsa,
 } from '@operaciones/shared-types';
 
 const BASE = '/api';
@@ -645,6 +645,9 @@ export const bolsasDocumentosApi = {
     api.upload<DocumentoBolsaDto>(`${BOLSAS_DOCS}/companias/${companiaId}/tipos/${encodeURIComponent(tipo)}`, archivo, 'archivo'),
   fijarFecha: (documentoId: string, fecha: string) =>
     api.put<DocumentoBolsaDto>(`${BOLSAS_DOCS}/documentos/${encodeURIComponent(documentoId)}/fecha-expedicion`, { fecha }),
+  /** E7 (HU #13964): retira la versión vigente; responde con la fila del expediente ya pendiente. */
+  retirar: (documentoId: string, body: RetirarDocumentoBolsaBody) =>
+    api.post<DocumentoExpedienteDto>(`${BOLSAS_DOCS}/documentos/${encodeURIComponent(documentoId)}/retirar`, body),
   /** Descarga el archivo de una versión; `respaldo` solo se usa si el servidor no declara nombre. */
   descargar: async (documentoId: string, respaldo: string) => {
     const { blob, nombre } = await api.getBlobNamed(

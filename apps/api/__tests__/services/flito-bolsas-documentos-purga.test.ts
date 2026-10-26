@@ -172,7 +172,7 @@ describe('AC1 — versión reemplazada hace más de N años', () => {
     expect(r).toEqual({ consideradas: 2, purgadas: 2, companias: 1, bytes: 2000, objetosBorrados: 2, objetosPendientes: 0 });
     expect(f.transacciones).toBe(1);
     const marca = f.updates.find((u) => u.tabla === 'flito_bolsas_documentos')!;
-    expect(marca.datos).toEqual({ storageKey: null, purgadoEn: AHORA });
+    expect(marca.datos).toEqual({ storageKey: null, purgadoEn: AHORA, motivoRetiro: null });
     const { sql, params } = render(marca.cond);
     expect(sql).toContain('"flito_bolsas_documentos"."vigente" = $');
     expect(sql).toContain('"flito_bolsas_documentos"."purgado_en" is null');
@@ -206,6 +206,23 @@ describe('AC1 — versión reemplazada hace más de N años', () => {
     expect(audit[0].detail).toContain('retención de 5 años');
     expect(audit[1]).toMatchObject({ resourceId: '88' });
     expect(audit[1].detail).toContain('Versiones purgadas: 1.');
+    sinPii();
+  });
+});
+
+describe('HU #13964 AC9 — versión RETIRADA hace más de N años', () => {
+  it('entra por la misma regla (reemplazado_en = retirado_en) y la purga anula el motivo; la fila queda como constancia', async () => {
+    const retiradoEn = new Date(CORTE.getTime() - DIA);
+    f.candidatas = [version('v-1', { reemplazadoEn: retiradoEn, retiradoEn, motivoRetiro: 'Juan Perez vencida' })];
+    const r = await ejecutarPurgaVersiones({ ahora: AHORA });
+    expect(r.purgadas).toBe(1);
+    // El WHERE de elegibilidad no cambia: la retirada se elige por `reemplazado_en`.
+    expect(render(f.selects[0].cond).sql).toContain('"flito_bolsas_documentos"."reemplazado_en" <= $1');
+    const marca = f.updates.find((u) => u.tabla === 'flito_bolsas_documentos')!;
+    // Solo se anulan clave y motivo: `retirado_en` y `retirado_por` no se tocan (constancia).
+    expect(marca.datos).toEqual({ storageKey: null, purgadoEn: AHORA, motivoRetiro: null });
+    expect(marca.datos).not.toHaveProperty('retiradoEn');
+    expect(marca.datos).not.toHaveProperty('retiradoPor');
     sinPii();
   });
 });
@@ -248,7 +265,7 @@ describe('AC4 — falla el borrado en storage', () => {
 
     expect(r).toMatchObject({ purgadas: 1, objetosBorrados: 0, objetosPendientes: 1 });
     // La fila sigue (solo se marcó; nunca DELETE) y el pendiente queda ABIERTO con el error.
-    expect(f.updates.find((u) => u.tabla === 'flito_bolsas_documentos')!.datos).toEqual({ storageKey: null, purgadoEn: AHORA });
+    expect(f.updates.find((u) => u.tabla === 'flito_bolsas_documentos')!.datos).toEqual({ storageKey: null, purgadoEn: AHORA, motivoRetiro: null });
     const fallo = f.updates.find((u) => u.tabla === 'flito_storage_borrados_pendientes')!;
     expect(fallo.datos).toEqual({ intentos: 1, ultimoIntentoEn: AHORA, ultimoError: 'AccessDenied' });
     expect(fallo.datos).not.toHaveProperty('resueltoEn');
