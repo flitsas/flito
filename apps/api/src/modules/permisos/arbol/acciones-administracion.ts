@@ -83,6 +83,10 @@ export const ACCIONES_ADMINISTRACION: Readonly<Record<string, AccionArbol>> = {
   'accion.clientes.activar_desactivar_proveedores': {
     operaciones: ['parametrizacion.proveedores.estado'], predecesores: [], apoyo: ['parametrizacion.proveedores.listar'],
   },
+  // HU #13960 — exclusiva del Administrador, mismo patrón (0263): eliminar un proveedor SOAT. Apoyo: el listado.
+  'accion.clientes.eliminar_proveedores': {
+    operaciones: ['parametrizacion.proveedores.eliminar'], predecesores: [], apoyo: ['parametrizacion.proveedores.listar'],
+  },
   // ── General · Tablero (P-11: absorbe la página del Tablero FLITO, patrón compuerta) ──
   'accion.dashboard.ver': { lectura: true, operaciones: ['tablero.tablero.ver', 'pagina.flito_tablero'] },
   // ── Perfil (P-22: a todos los roles) ──
@@ -122,11 +126,13 @@ export const OPERACIONES_NACIDAS_EN_EL_ARBOL_ADMINISTRACION: readonly string[] =
   'clients.clientes.estado',
   'clients.clientes.eliminar', // HU #13954 (0258)
   'parametrizacion.proveedores.estado', // HU #13958 (0261)
+  'parametrizacion.proveedores.eliminar', // HU #13960 (0263)
 ];
 export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA_ADMINISTRACION: readonly string[] = [
   'accion.clientes.activar_desactivar',
   'accion.clientes.eliminar', // HU #13954 (0258)
   'accion.clientes.activar_desactivar_proveedores', // HU #13958 (0261)
+  'accion.clientes.eliminar_proveedores', // HU #13960 (0263)
 ];
 
 /** El área de esta HU sobre `OPERACIONES_DECLARADAS` (AC6 de cobertura), por prefijo del código. */

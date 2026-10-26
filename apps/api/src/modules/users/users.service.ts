@@ -532,6 +532,24 @@ function cambiosDeLaEdicion(
  * que el valor anterior es, exactamente, la negación del que vuelve. Sin `FOR UPDATE` y sin
  * ventana entre lectura y escritura.
  */
+// ── HU #13960 — RN-PROV-8: un usuario huérfano (su proveedor SOAT fue eliminado) no se activa sin reasignarlo ───────
+// Activar (`PATCH /api/users/:id/toggle`) o reactivar tras baja (`POST /api/users/:id/reactivar`) dejaría un usuario
+// activo atado a un proveedor eliminado: 409 hasta que el administrador le asigne uno vigente (`PATCH /api/users/:id`).
+export const MENSAJE_PROVEEDOR_SOAT_ELIMINADO =
+  'El proveedor SOAT de este usuario fue eliminado; asígnale otro antes de activarlo.';
+
+export class ProveedorSoatDelUsuarioEliminadoError extends Error {
+  constructor() { super(MENSAJE_PROVEEDOR_SOAT_ELIMINADO); this.name = 'ProveedorSoatDelUsuarioEliminadoError'; }
+}
+
+/** RN-PROV-8. Dentro de la transacción que activa: lanza `ProveedorSoatDelUsuarioEliminadoError` si es huérfano. */
+async function exigirProveedorSoatNoEliminado(tx: Tx, userId: number): Promise<void> {
+  const [fila] = await tx.select({ eliminado: flitoProveedoresSoat.deletedAt }).from(users)
+    .innerJoin(flitoProveedoresSoat, eq(flitoProveedoresSoat.id, users.flitoProveedorSoatId))
+    .where(eq(users.id, userId)).limit(1);
+  if (fila?.eliminado != null) throw new ProveedorSoatDelUsuarioEliminadoError();
+}
+
 export async function cambiarActivo(id: number, actor: ActorAuditoria): Promise<UsuarioConAmbito | null> {
   return db.transaction(async (tx) => {
     // HU #12084 (AC4): desactivar es otro de los cinco caminos. Se envuelve SIEMPRE: reactivar nunca
@@ -541,6 +559,8 @@ export async function cambiarActivo(id: number, actor: ActorAuditoria): Promise<
       .where(eq(users.id, id))
       .returning(userSelect));
     if (!updated) return null;
+    // HU #13960 (AC7): activar a un usuario cuyo proveedor SOAT fue eliminado → 409; la transacción revierte.
+    if (updated.active && updated.flitoProveedorSoatId != null) await exigirProveedorSoatNoEliminado(tx, id);
     await registrarCambioPermisos(tx, actor, {
       entidad: 'usuario',
       accion: updated.active ? 'activar' : 'desactivar',
@@ -642,6 +662,8 @@ export async function reactivarUsuario(id: number, actor: ActorAuditoria): Promi
       .where(eq(users.id, id))
       .returning(userSelect);
     if (!updated) return null;
+    // HU #13960 (AC7): quedaría activo con un proveedor SOAT eliminado → 409; la transacción revierte.
+    if (updated.active && updated.flitoProveedorSoatId != null) await exigirProveedorSoatNoEliminado(tx, id);
 
     await registrarCambioPermisos(tx, actor, {
       entidad: 'usuario',

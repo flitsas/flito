@@ -197,6 +197,7 @@ describe('HU #13944 — el arranque compara también las funciones exclusivas de
     // HU #13958: + «Activar o desactivar proveedores» (0261).
     expect([...EXCLUSIVAS].sort()).toEqual([
       'accion.clientes.activar_desactivar', 'accion.clientes.activar_desactivar_proveedores', 'accion.clientes.eliminar',
+      'accion.clientes.eliminar_proveedores', // HU #13960 (0263)
     ]);
     selectMock.mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo), exclusivaAdmin: EXCLUSIVAS.has(codigo) }))));
     await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();

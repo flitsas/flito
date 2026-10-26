@@ -50,8 +50,9 @@ describe('0236 — análisis estático', () => {
     const sembradas = leerFuncionesSembradas([ARCHIVO]);
     // HU #13945: `accion.clientes.activar_desactivar` nace después (0255); la 0236 aplicada no cambia.
     // HU #13954: `accion.clientes.eliminar` también (0258). HU #13958: la de proveedores (0261).
+    // HU #13960: «Eliminar proveedores» (0263).
     expect([...sembradas.keys()].sort()).toEqual(accionesSembradasDe('administracion'));
-    expect(ACCIONES_POR_AREA.administracion.length - accionesSembradasDe('administracion').length).toBe(3);
+    expect(ACCIONES_POR_AREA.administracion.length - accionesSembradasDe('administracion').length).toBe(4);
     expect(sembradas.size).toBe(24);
     for (const f of sembradas.values()) expect(f.tipo, f.codigo).toBe('accion');
     expect(SIN_COMENTARIOS).toMatch(/ON CONFLICT \(codigo\) DO UPDATE SET/);
