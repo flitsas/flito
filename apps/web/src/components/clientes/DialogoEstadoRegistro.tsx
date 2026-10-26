@@ -21,7 +21,12 @@ import {
 
 export interface ProcesosAbiertos { soat: number; impuestos: number; tramites: number; liquidaciones: number }
 
-export interface ImpactoEstado { procesosAbiertos: ProcesosAbiertos; usuariosAfectados: number }
+/**
+ * Lo que el diálogo pinta del impacto. Clientes trae `procesosAbiertos` y la frase se arma aquí;
+ * Proveedores (HU #13961) cuenta otras cosas (SOAT en curso, compañías que lo tienen de proveedor
+ * de SOAT sin trámite) y entrega la `frase` ya hecha. Si viene `frase`, manda.
+ */
+export interface ImpactoEstado { procesosAbiertos?: ProcesosAbiertos; frase?: string; usuariosAfectados: number }
 
 export type Sustantivo = 'cliente' | 'proveedor';
 
@@ -49,6 +54,8 @@ export function fraseUsuarios(n: number): string | null {
   if (n <= 0) return null;
   return n === 1 ? 'Se cerrará la sesión de su usuario.' : `Se cerrará la sesión de sus ${n} usuarios.`;
 }
+
+const SIN_PROCESOS: ProcesosAbiertos = { soat: 0, impuestos: 0, tramites: 0, liquidaciones: 0 };
 
 const SIN_PERMISO = 'No tiene permiso para esta acción.';
 const SIN_RED = 'No pudimos conectar con FLITO. Revise su conexión e inténtelo de nuevo.';
@@ -163,7 +170,9 @@ export function DialogoEstadoRegistro({
             )}
           </div>
         )}
-        {impacto?.fase === 'listo' && <p>{fraseProcesos(impacto.impacto.procesosAbiertos, sustantivo)}</p>}
+        {impacto?.fase === 'listo' && (
+          <p>{impacto.impacto.frase ?? fraseProcesos(impacto.impacto.procesosAbiertos ?? SIN_PROCESOS, sustantivo)}</p>
+        )}
         <p>{consecuencia}</p>
         {impacto?.fase === 'listo' && fraseUsuarios(impacto.impacto.usuariosAfectados) && (
           <p>{fraseUsuarios(impacto.impacto.usuariosAfectados)}</p>
