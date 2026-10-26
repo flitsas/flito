@@ -127,7 +127,9 @@ test.describe('HU #13968 · AC1 / AC4 — el cuadro: un solo control y el aviso'
     await expect(modal.getByLabel('Canal abierto')).toHaveCount(0);
     const selector = modal.getByLabel(ETIQUETA);
     await expect(selector).toHaveValue('');
-    await expect(selector.locator('option')).toHaveText(['Sin proveedor', 'SURA', 'AXA']);
+    // HU #13963: el inactivo se ve, con «(Inactivo)» y deshabilitado (antes se ocultaba).
+    await expect(selector.locator('option')).toHaveText(['Sin proveedor', 'SURA', 'AXA', 'MUNDIAL (Inactivo)']);
+    await expect(selector.locator(`option[value="${MUNDIAL}"]`)).toHaveJSProperty('disabled', true);
     // AC4: sin el indicador, no hay aviso.
     await expect(modal.getByText(AVISO)).toHaveCount(0);
 
@@ -155,7 +157,7 @@ test.describe('HU #13968 · AC1 / AC4 — el cuadro: un solo control y el aviso'
     const modal = modalDe(page, 'Flota Occidente');
     const selector = modal.getByLabel(ETIQUETA);
     await expect(selector).toHaveValue(MUNDIAL);
-    await expect(selector.locator(`option[value="${MUNDIAL}"]`)).toContainText('inactivo');
+    await expect(selector.locator(`option[value="${MUNDIAL}"]`)).toContainText('(Inactivo)'); // HU #13963
     await modal.getByRole('button', { name: 'Guardar' }).click();
     await expect(modal).toHaveCount(0);
     expect(patches).toEqual([]);
