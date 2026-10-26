@@ -30,7 +30,7 @@ interface Props {
   /** HU #13452: nodos cerrados por el enlace del rol (deshabilitados, con nota en el ítem). */
   cerrados?: ReadonlyMap<string, string>;
   notaCerrado?: string;
-  /** HU #13951: trato de las exclusivas del Administrador (solo en el panel de un rol). */
+  /** HU #13951: trato de las exclusivas del Administrador (panel de un rol; HU #13970: también del usuario). */
   exclusivas?: TratoExclusivas;
 }
 

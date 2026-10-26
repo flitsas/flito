@@ -37,7 +37,7 @@ export interface ContextoArbol {
   notaCerrado?: string;
   /**
    * HU #13951: trato de las funciones exclusivas del Administrador. `fuera` = otro rol (bloqueadas
-   * desmarcadas, no cuentan), `fija` = el Administrador (bloqueadas marcadas). Ausente en modo usuario.
+   * desmarcadas, no cuentan), `fija` = el Administrador (bloqueadas marcadas). HU #13970: también en modo usuario (según su rol).
    */
   exclusivas?: TratoExclusivas;
 }
