@@ -39,16 +39,14 @@ export function TarjetaCanalDeshabilitado({ salida = null, avisoCarrera = false 
         </h2>
         {avisoCarrera && (
           <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-            El canal se deshabilitó mientras llenaba el formulario, así que no se envió nada.
+            Esta opción dejó de estar disponible mientras llenaba el formulario, así que no se envió nada.
           </p>
         )}
+        {/* HU #13968 (AC6): copy neutro, en usted y sin nombrar nunca al proveedor. Lo mismo por
+            enlace directo que tras un 403 `CANAL_DESACTIVADO`. */}
         <p className="text-sm">
-          Su compañía todavía no tiene habilitado este canal, así que por ahora aquí solo puede
-          consultar sus SOAT.
-        </p>
-        <p className="text-sm">
-          Para pedirle un SOAT a FLIT sin un trámite abierto, escríbale a su contacto comercial y
-          pídale que lo habilite.
+          Esta opción no está disponible por ahora para su compañía. Si la necesita, comuníquese con su
+          asesor de FLITO.
         </p>
         {salida && (
           <p className="pt-1">

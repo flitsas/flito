@@ -11,8 +11,10 @@ consultas:
   - dónde cambio los datos comerciales de una empresa
   - qué es la autogestión
   - qué significa marcar SOAT, Impuestos o Logística
-version: 1.4
-fecha: 2026-10-24
+  - cómo elijo el proveedor de SOAT sin trámite de una compañía
+  - por qué el permiso de SOAT sin trámite no toma efecto
+version: 1.5
+fecha: 2026-10-25
 ---
 ## Qué es
 
@@ -31,20 +33,20 @@ En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el pa
 1. Elija la pestaña **Clientes** o **Proveedores**.
 2. En **Clientes**, pulse **Nuevo cliente**, complete **Nombre o razón social** (obligatorio) y, si los tiene, **NIT / Cédula**, **Teléfono** y **Email**, y pulse **Guardar** (o **Cancelar**).
 3. En cada fila, marque **SOAT**, **Impuestos** y **Logística** para indicar que FLITO gestiona ese servicio para la compañía; si la casilla queda desmarcada, la compañía lo hace por su cuenta (autogestión). Debajo de la tabla, dos notas recuerdan qué significa cada casilla. ![Pestaña Clientes con tres compañías demo, sus casillas de servicios, la columna SOAT sin trámite y el chip de Facturación](./clients/01-clientes.png)
-4. Al final de las casillas, la columna **SOAT sin trámite** dice si el canal de esa compañía está **Cerrado** o **Abierto** y, si lo está, a qué gestor salen sus solicitudes (por ejemplo, **Abierto · Aseguradora Demo Uno**). Púlselo para abrir el cuadro **SOAT sin trámite · (compañía)**: marque **Canal abierto** para que los usuarios **Cliente** de esa compañía puedan pedirle un SOAT a FLITO sin que haya un trámite abierto, elija el **Gestor por defecto** de la lista y pulse **Guardar**. Las dos cosas se guardan juntas; si abre el canal sin elegir gestor, el cuadro se lo pide y no guarda nada. Es independiente de **SOAT**: marcar o desmarcar una no cambia la otra, y una compañía nueva nace con el canal **Cerrado**. **Financiera** y **Auditor** leen la columna pero no la cambian. ![Cuadro SOAT sin trámite de una compañía con la casilla Canal abierto marcada y el gestor por defecto elegido](./clients/02-soat-sin-tramite.png)
+4. Al final de las casillas, la columna **SOAT sin trámite** dice a qué proveedor salen las solicitudes de SOAT que los usuarios **Cliente** de esa compañía hacen sin un trámite abierto: el nombre del proveedor (por ejemplo, **Aseguradora Demo Uno**), el nombre seguido de **(inactivo)** si ese proveedor está desactivado, o **Sin proveedor**. Si su usuario tiene la acción **Elegir proveedor de SOAT sin trámite** (se reparte desde **Roles y permisos**), púlselo para abrir el cuadro **SOAT sin trámite · (compañía)**, elija en **Proveedor de SOAT sin trámite** un proveedor activo o **Sin proveedor**, y pulse **Guardar**. Con **Sin proveedor**, los usuarios de la compañía no pueden solicitar SOAT sin trámite. Si el cuadro muestra **Tiene usuarios con permiso de SOAT sin trámite, pero no tiene proveedor elegido: el permiso no toma efecto hasta elegirlo.**, elija un proveedor para que ese permiso sirva. Es independiente de la casilla **SOAT**: marcar o desmarcar una no cambia la otra. Sin esa acción, la columna se lee pero no se cambia. ![Cuadro SOAT sin trámite de una compañía con la lista Proveedor de SOAT sin trámite](./clients/02-soat-sin-tramite.png)
 5. Desplace la tabla a la derecha para ver las acciones de la fila. Pulse **Tarifas** para ir al configurador de valores de esa compañía (en Finanzas, **Tarifas**), con la compañía ya elegida; el botón solo lo ven quienes entran a esa pantalla. Pulse **Datos fiscales** para los datos de **emisión electrónica**. El chip de la columna **Facturación** (**Lista**, **Por clasificar** o **Faltan** con el número de datos que faltan) resume si la compañía puede emitirse después.
 6. En **Proveedores**, **Nuevo proveedor** (o **Editar** en la fila): **Nombre**, **Estrategia**, **Umbral OCR (0–1)**, **ANS pactado con el proveedor (horas)** y **Activo**. **Guardar**. El ANS de gestión es único para toda la operación: estas horas quedan como referencia de lo pactado. ![Pestaña Proveedores con dos gestores demo, su estrategia, umbral OCR, ANS pactado, estado y el botón Editar](./clients/03-proveedores.png)
 
-![Diagrama: el canal nace Cerrado; al abrirlo hay que elegir gestor por defecto o no se guarda; con gestor, las solicitudes nuevas salen a él; si el gestor está inactivo o falta, quedan Gestionado por Operaciones](./clients/canal-soat-sin-tramite.svg)
+![Diagrama: en el cuadro se elige el proveedor de SOAT sin trámite; con Sin proveedor nadie de la compañía puede solicitar; con un proveedor activo, las solicitudes nuevas salen a él; si el proveedor está inactivo, quedan Gestionado por Operaciones](./clients/canal-soat-sin-tramite.svg)
 
 ## Estados
 
 - Cargando: **Cargando compañías…** mientras llega el listado de clientes; **Cargando…** en el listado de proveedores.
 - Error: si el listado de compañías no llega, mensaje en rojo con **Reintentar** sobre la tarjeta; además, aviso al fallar el guardado (el listado no se cae si falla el informe de facturación).
 - Vacío: **No hay clientes.** / **No hay proveedores. Crea el primero con «Nuevo proveedor».**
-- Lleno: tabla **Empresa**, **Documento**, **Ciudad**, **Teléfono**, **Email**, las casillas de servicios (**SOAT**, **Impuestos**, **Logística**: marcada = FLITO lo gestiona), **SOAT sin trámite**, **Facturación** y acciones. Si el gestor por defecto de una compañía está desactivado, la columna lo dice —**Abierto · (gestor) (inactivo)**— y sus solicitudes nuevas quedan **Gestionado por Operaciones**.
-- La columna también puede decir **Abierto · sin gestor**: el canal está abierto pero esa compañía no tiene **Gestor por defecto** configurado. Mientras siga así, sus solicitudes nuevas quedan **Gestionado por Operaciones**, igual que si el gestor estuviera desactivado. Púlselo, elija el **Gestor por defecto** y **Guardar**.
-- En el cuadro de **SOAT sin trámite**, la lista de gestores tiene sus propios estados: **Cargando gestores…**, **No se pudieron cargar los gestores.** con **Volver a cargar gestores**, y **No hay gestores de SOAT activos. Cree uno en la pestaña Proveedores antes de abrir el canal de esta compañía.**
+- Lleno: tabla **Empresa**, **Documento**, **Ciudad**, **Teléfono**, **Email**, las casillas de servicios (**SOAT**, **Impuestos**, **Logística**: marcada = FLITO lo gestiona), **SOAT sin trámite**, **Facturación** y acciones. Si el proveedor de SOAT sin trámite de una compañía está desactivado, la columna lo dice —**(proveedor) (inactivo)**— y sus solicitudes nuevas quedan **Gestionado por Operaciones**.
+- La columna dice **Sin proveedor** cuando la compañía no tiene proveedor elegido: sus usuarios no ven **Solicitar SOAT**. No es un error; si la compañía lo necesita, elija un proveedor.
+- En el cuadro de **SOAT sin trámite**, la lista tiene sus propios estados: **Cargando proveedores…**, **No se pudieron cargar los proveedores.** con **Volver a cargar**, y **No hay proveedores de SOAT activos. Cree uno en la pestaña Proveedores.** Mientras la lista no esté lista, **Guardar** no se puede pulsar. Si al guardar algo falla, el cuadro sigue abierto con su elección y le dice qué pasó (por ejemplo, **Ese proveedor ya no está activo. Elija otro o «Sin proveedor».**).
 
 ## Qué no hace
 
@@ -53,6 +55,6 @@ En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el pa
 - No **Factura** la liquidación de un trámite. **Lista** habla de **emisión electrónica**, no de Facturar.
 - No es el catálogo de NIT vigilados de **Comparendos** (puede coincidir el NIT, pero es otro listado).
 - Un Gestor de Impuestos o un Proveedor no administran compañías desde aquí.
-- **SOAT sin trámite** solo abre el canal y dice a dónde salen sus solicitudes: no crea la solicitud ni compra el SOAT. Eso lo hace el usuario **Cliente** desde la cola **SOAT**.
-- Cambiar el **Gestor por defecto** no reasigna nada de lo ya radicado: solo afecta a las solicitudes **nuevas** del canal. Las que ya están en la cola conservan el gestor que tienen.
-- Cerrar el canal no borra el gestor configurado: se conserva por si vuelve a abrirlo.
+- **SOAT sin trámite** solo dice a qué proveedor salen las solicitudes: no crea la solicitud ni compra el SOAT. Eso lo hace el usuario **Cliente** desde la cola **SOAT**.
+- Cambiar el proveedor no reasigna nada de lo ya radicado: solo afecta a las solicitudes **nuevas**. Las que ya están en la cola conservan el proveedor que tienen.
+- No da por sí solo el permiso de solicitar: ese se reparte en **Roles y permisos**. Hacen falta los dos, el proveedor y el permiso.
