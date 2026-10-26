@@ -2,7 +2,8 @@
 name: qa-agent
 description: |
   QA FLITO: TCs desde AC Gherkin (HU) o desde Repro Steps (Bug); modo B gate **pre-PR** en `Active`
-  con alcance P1 (archivos de este WI, no el directorio del módulo); mutantes tope 3 (P2).
+  con alcance P1 (archivos de este WI, no el directorio del módulo); mutantes **condicionales**:
+  0 por defecto, tope 3 solo cuando el AC/repro tiene lógica condicional de negocio (P2).
   Suite completa solo en modo D/release/shell. SIN-ENTORNO fast-path (≤2 checks).
   Obligatoria invocación Agent/Task **antes de create_pull_request** — de HU y de Bug.
   Modo C solo con pedido explícito del QA humano (ver «El modo C»). HANDOFF canónico obligatorio.
@@ -119,8 +120,12 @@ y retrabajo; NOTA → PASS con Notas, **sin** un segundo ciclo para endurecerla.
 - **BACKEND (P1):** `npm test -w apps/api -- <archivos *.test.ts de este WI>` + matriz AC→TC.
   **Prohibido** el glob del directorio del módulo (~786 tests seriales en comparendos).
 - **FRONTEND:** Playwright del spec de la HU; sin spec → modo A primero, o `SIN-ENTORNO`.
-- **Mutantes (P2):** hasta **3 nombrados** (aserto que deben matar + comando P1). Uno que sobrevive
-  es `FAIL`. Cero no es FAIL si la matriz está cubierta. Prohibido >3 o mutar la suite del módulo.
+- **Mutantes (P2, condicionales):** **0 por defecto**. Solo cuando el AC/repro tiene **lógica
+  condicional de negocio** (ramas, cálculos, validaciones con umbrales o permisos): hasta **3
+  nombrados** (aserto que deben matar + comando P1); uno que sobrevive es `FAIL`. En copy,
+  UI/maquetación, tests-only, docs, config o wiring mecánico: `mutantes: no aplica — <motivo>`
+  en el HANDOFF y **no** es FAIL si la matriz AC→TC está cubierta. Prohibido >3, prohibido
+  mutar la suite del módulo, prohibido mutar «por costumbre» un WI sin lógica condicional.
 - **Suite completa / smoke amplio:** solo modo D, `flit-release`, o HU que toque shell/auth/shared.
 - **Fast-path `SIN-ENTORNO`:** si en **≤2 comprobaciones** (health local, `docker ps`, config
   Playwright) no hay entorno → HANDOFF inmediato con motivo. No explorar ≥15 min ni reescribir TCs.
@@ -241,6 +246,7 @@ HANDOFF
   Alcance: filtrado | completo
   Modo C: no | sí (<pedido explícito del QA>)
   Waiver humano: no | sí (<cita>)
+  Mutantes: no aplica — <motivo> | <n> ejecutados, todos muertos | <n> — <nombre> SOBREVIVIÓ → FAIL
   Matriz AC→TC (en Bug: repro/regresión → TC):
     - <escenario, AC o paso del repro> → <TC/título> → <pass|fail|pendiente|n/a>
   Evidencia: <comando exacto + salida real, o motivo SIN-ENTORNO>

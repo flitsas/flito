@@ -78,7 +78,7 @@ abren el PR. Review **después** del PR = fallo de proceso (aunque el veredicto 
 - [ ] **Uniformidad de barra:** una sola altura de control (kit, `h-10`); sin overrides ad-hoc (`h-9`, `py-1.5`), sin clones locales de input/select, sin segundas versiones de un filtro que el kit ya tiene.
 - [ ] **Notificaciones y voz:** toasts cerrables, una frase con qué pasó y qué sigue (sin `e.message` crudo ni telemetría); aviso en página para estado persistente; un solo tratamiento (usted/tú) por pantalla; subtítulo de cabecera de una frase, sin mecánica interna.
 - [ ] **Tema oscuro:** sin color crudo en superficies (`'white'`, `bg-white`, `slate-*`/`red-*` crudos — salvo lienzo de PDF); todo token `--flit-*` con par oscuro **definido** (referenciar un token inexistente deja el fondo sin pintar en ambos temas); errores sobre tarjeta con `--flit-danger-ink`.
-- [ ] **Verificación visual:** el HANDOFF del impl trae capturas 1366 + 375 en claro y 1366 en oscuro, con lo revisado (o `SIN-ENTORNO` / «no aplica» declarado — p. ej. cambio BACKEND-only).
+- [ ] **Verificación visual (bloqueante):** el HANDOFF del impl trae **rutas reales** de las capturas 1366×768 + 375×812 en claro y 1366×768 en oscuro, con la lista de lo revisado a ojo (barra a una sola altura, hover presente en controles, sin overflow horizontal, header que envuelve, 4 estados, oscuro legible). **Sin capturas → BLOQUEADO** (un typecheck verde no prueba que la pantalla se vea bien). Únicas excepciones, siempre declaradas: `SIN-ENTORNO` con motivo, o «no aplica — BACKEND-only / cambio sin superficie visual».
 
 ### 4. Escalado a seguridad (bloqueante)
 

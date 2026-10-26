@@ -159,7 +159,7 @@ Pasos 3 (y luego la cascada del Paso 4 una vez por Feature afectado).
 
 0. **Tag `QA`** (obligatorio, petición **aparte** de estado y comentario — `TF401289` si se
    mezcla). Leer `System.Tags` del WI y del Feature; añadir `QA` si no está (conservar los
-   existentes; no borrar `DOR` / `adopcion-ia`). Mismo PATCH de tags en el Feature. Si ADO
+   existentes — solo los del catálogo real del proyecto: `QA_PDN`, `PDN`, `QA_NOVEDAD`, …). Mismo PATCH de tags en el Feature. Si ADO
    rechaza el tag, **reintentar una vez** y si persiste **informar** — el resto del Paso 3
    (Resolved + mención) **sí** se ejecuta; el tag no se da por puesto.
 1. Estado **`Resolved`** solo si: PR mergeado a `develop`, `qa-agent` B pasó **antes** del PR,

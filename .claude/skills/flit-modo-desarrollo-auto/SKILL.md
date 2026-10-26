@@ -388,7 +388,7 @@ en paralelo avanzar la siguiente HU si el ledger lo permite; al verde él mergea
 Con el diff (`git diff origin/develop...HEAD`), **antes** de abrir PR (**cada HU**).
 **El PR significa desarrollo completo y verificado.** Tras abrirlo solo corre el `pr-monitor-agent`.
 
-1. **`Agent qa-agent` modo B** (re-run P1; mutantes ≤3). `FAIL` → corregir; **no** abrir PR; **no** Bug.
+1. **`Agent qa-agent` modo B** (re-run P1; mutantes condicionales: 0 por defecto, ≤3 solo con lógica condicional — P2). `FAIL` → corregir; **no** abrir PR; **no** Bug.
 2. **`Skill flit-code-review`** (veredicto canónico). `BLOQUEADO` → corregir; no abrir PR.
 3. **`Skill flit-ayuda-flito`** si HU FRONTEND o Bug cambia el comportamiento visible de un módulo **con ficha**. Sin delta de ayuda → **no** abrir PR. N/A (declarar): BACKEND-only, copy/a11y, CHORE/DOCS, Bug que no cambia lo que se ve/hace, módulos sin ficha aún.
 4. **`security-agent` (diff-scoped)** si superficie sensible (P5: no en copy/CSS/tests-only). `FAIL` → corregir **en el mismo hilo**.

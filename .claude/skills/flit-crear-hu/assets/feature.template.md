@@ -15,7 +15,7 @@
 | Area | `FLIT - FLITO` |
 | Iteration | Sprint **siguiente** al activo (nunca el en curso) |
 | AssignedTo | El humano que lo pide (obligatorio, sin placeholder) |
-| Tags | `DOR; adopcion-ia; fase-1-diseño` — en **petición aparte** (TF401289) |
+| Tags | **Ninguno al crear** — el catálogo real del proyecto solo tiene tags de ciclo QA y la identidad no puede crear nuevos (TF401289); catálogo en `flit-azure-devops` |
 | Parent | La Épica de la que nace (obligatorio; un Feature sin Épica es error de proceso) |
 
 ## Largo (regla de corte)
