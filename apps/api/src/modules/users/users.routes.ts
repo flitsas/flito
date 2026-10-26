@@ -24,7 +24,7 @@ import { actorDeRequest, registrarRechazoAntiBloqueo } from '../../shared/histor
 import {
   actualizarUsuario, cambiarActivo, crearUsuario, funcionesDeVarios, listarUsuarios, nombresDeAmbito,
   organismosDe, organismosDeVarios, organismosInexistentes, proveedorSoatExiste, restablecerContrasena,
-  resumenUsuarios, rolAsignable as rolAsignableCrudo,
+  ProveedorSoatDelUsuarioEliminadoError, resumenUsuarios, rolAsignable as rolAsignableCrudo,
   type FiltrosUsuarios, type PaginacionUsuarios,
 } from './users.service.js';
 import { handleDarDeBaja, handleReactivar } from './users-baja.js';
@@ -840,6 +840,10 @@ router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (re
         if (e instanceof BloqueoAdministracionError) {
             await registrarRechazoAntiBloqueo(req, { operacion: 'desactivar', objetivo: { tipo: 'usuario', id }, funcion: e.funcion });
             res.status(409).json({ error: e.message, funcion: e.funcion });
+            return;
+        }
+        if (e instanceof ProveedorSoatDelUsuarioEliminadoError) {
+            res.status(409).json({ error: e.message });
             return;
         }
         throw e;

@@ -88,8 +88,8 @@ describe.skipIf(!URL_BASE)('flito-proveedores-estado.service — contra PostgreS
         soatEnCurso: 4,
         companiasGestorPorDefecto: { cantidad: 2, nombres: ['Alfa HU13958', 'Beta HU13958'] },
         usuariosAfectados: 2, // g y h (la inactiva sigue siendo del proveedor); i tiene baja
-        puedeEliminar: false,
-        motivoNoEliminable: null,
+        puedeEliminar: false, // HU #13960: activo → el primer motivo de RN-PROV-6
+        motivoNoEliminable: 'Primero debe desactivarlo.',
       });
       expect(await tx`SELECT activo FROM flito_proveedores_soat WHERE id = ${f.id}`).toEqual(antes);
     });

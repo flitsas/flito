@@ -6,8 +6,8 @@
 //   · RN-PROV-1 — Impacto (solo lectura): `soatEnCurso` = filas de `flito_soat` con `proveedor_soat_id` = P y
 //       `estado <> 'pagado'`; `companiasGestorPorDefecto` = clientes VIGENTES (`clienteVigente()`) cuyo gestor por
 //       defecto de «SOAT sin trámite» es P (`clients.flito_proveedor_soat_sin_tramite_id`); `usuariosAfectados` =
-//       usuarios con `flito_proveedor_soat_id` = P y sin baja lógica. `puedeEliminar`/`motivoNoEliminable` van neutros
-//       (`false`/`null`): las condiciones de la baja las define otra HU.
+//       usuarios con `flito_proveedor_soat_id` = P y sin baja lógica. `puedeEliminar`/`motivoNoEliminable` = RN-PROV-6
+//       (HU #13960, `motivoNoEliminableProveedor`).
 //   · RN-PROV-2 — Cambio de estado en UNA transacción con `SELECT … FOR UPDATE` sobre la fila del proveedor: inexistente
 //       o eliminado (`deleted_at`, 0259) → 404; `activo` distinto de `activoEsperado` → 409 (otro administrador se
 //       adelantó; la segunda petición espera el bloqueo y lee el estado ya cambiado).
@@ -41,9 +41,29 @@ export interface ImpactoProveedorSoat {
   soatEnCurso: number;
   companiasGestorPorDefecto: { cantidad: number; nombres: string[] };
   usuariosAfectados: number;
-  /** Neutros en esta HU: las condiciones de la baja las completa otra HU. */
+  /** RN-PROV-6 (HU #13960): `true` solo si cumple las tres condiciones; si no, el PRIMER motivo que falla. */
   puedeEliminar: boolean;
   motivoNoEliminable: string | null;
+}
+
+export const MENSAJE_PROVEEDOR_ACTIVO = 'Primero debe desactivarlo.';
+
+/**
+ * RN-PROV-6 (HU #13960): condiciones EN ORDEN para eliminar un proveedor SOAT; el primer motivo que falla, o `null`.
+ * 1) inactivo; 2) sin SOAT en curso (mismo conteo que el impacto); 3) no es el proveedor de SOAT sin trámite de
+ * compañías VIGENTES (una compañía eliminada no cuenta).
+ */
+export function motivoNoEliminableProveedor(
+  { activo, soatEnCurso, companiasGestorPorDefecto: c }:
+    Pick<ImpactoProveedorSoat, 'activo' | 'soatEnCurso' | 'companiasGestorPorDefecto'>,
+): string | null {
+  if (activo) return MENSAJE_PROVEEDOR_ACTIVO;
+  if (soatEnCurso > 0) return `Tiene ${soatEnCurso} SOAT en curso.`;
+  if (c.cantidad > 0) {
+    return `Es el proveedor de SOAT sin trámite de ${c.cantidad} ${c.cantidad === 1 ? 'compañía' : 'compañías'}`
+      + ` (${c.nombres.join(', ')}).`;
+  }
+  return null;
 }
 
 const proveedorVigente = (id: string) => and(eq(flitoProveedoresSoat.id, id), isNull(flitoProveedoresSoat.deletedAt));
@@ -64,14 +84,14 @@ export async function impactoProveedorSoat(tx: Ejecutor, id: string): Promise<Im
       .where(and(eq(users.flitoProveedorSoatId, id), isNull(users.deletedAt))),
   ]);
 
-  return {
+  const base = {
     activo: proveedor.activo,
     soatEnCurso: Number(soat[0]?.total ?? 0),
     companiasGestorPorDefecto: { cantidad: companias.length, nombres: companias.map((c) => c.name) },
     usuariosAfectados: Number(usuarios[0]?.total ?? 0),
-    puedeEliminar: false,
-    motivoNoEliminable: null,
   };
+  const motivo = motivoNoEliminableProveedor(base);
+  return { ...base, puedeEliminar: motivo === null, motivoNoEliminable: motivo };
 }
 
 export interface CambioDeEstadoProveedor {

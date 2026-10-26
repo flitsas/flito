@@ -49,6 +49,9 @@ import {
   EstadoProveedorCambiadoError, MENSAJE_ESTADO_POR_ACCION, ProveedorSoatNoEncontradoError,
   ProveedorSoatNoUsableError, cambiarEstadoProveedorSoat, exigirProveedorSoatUsable, impactoProveedorSoat,
 } from './flito-proveedores-estado.service.js';
+import { ProveedorSoatNoEliminableError, eliminarProveedorSoat } from './flito-proveedores-eliminar.service.js';
+import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
+import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -406,6 +409,32 @@ router.patch('/proveedores-soat/:id/estado', exigirFuncion('parametrizacion.prov
       + (cambio.activo ? '' : ` · sesiones invalidadas: ${cambio.usuariosInvalidados.length} usuario(s)`),
   });
   res.json({ id: cambio.id, activo: cambio.activo });
+});
+
+// ── HU #13960: eliminar un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas (RN-PROV-6/7) ─────────
+// Exige `parametrizacion.proveedores.eliminar`, que concede «Eliminar proveedores», exclusiva del Administrador (0263).
+router.delete('/proveedores-soat/:id', exigirFuncion('parametrizacion.proveedores.eliminar'), async (req: Request, res: Response, next: NextFunction) => {
+  const id = idProveedor(req);
+  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
+  let eliminado;
+  try {
+    eliminado = await eliminarProveedorSoat(id, actorDeRequest(req));
+  } catch (e) {
+    if (e instanceof ProveedorSoatNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
+    if (e instanceof EstadoProveedorCambiadoError || e instanceof ProveedorSoatNoEliminableError) {
+      res.status(409).json({ error: e.message }); return;
+    }
+    // Seguro anti-bloqueo (HU #12089): desactivar a sus usuarios dejaría sin administrador. La tx revirtió.
+    if (e instanceof BloqueoAdministracionError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return; }
+    next(e); return;
+  }
+  // DESPUÉS del commit: la siguiente petición de cada usuario relee `active = false`.
+  for (const userId of eliminado.usuariosDesactivados) invalidateSessionCacheFor(userId);
+  await audit(req, {
+    action: 'delete', resource: 'flito_proveedor_soat', resourceId: id,
+    detail: `Proveedor SOAT eliminado: ${eliminado.nombre} · usuarios desactivados: ${eliminado.usuariosDesactivados.length}`,
+  });
+  res.json({ id: eliminado.id, eliminado: true });
 });
 
 // ───────────────────────────────── Organismos + modalidad ───────────────────
