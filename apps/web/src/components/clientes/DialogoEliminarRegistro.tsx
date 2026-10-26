@@ -3,7 +3,7 @@
 // la misma clasificación del error de confirmar, que decide dónde se dice:
 //   2xx  → la pestaña cierra, avisa con toast y quita la fila (`onHecho`).
 //   409 «Otro administrador ya cambió su estado» → toast y recarga (`onDesactualizado('cambiado')`).
-//   409 con el motivo de no-eliminable (RN-CLI-10) → ese motivo en el diálogo: es copy de producto.
+//   409 con el motivo de no-eliminable (RN-CLI-10 / RN-PROV-6) → ese motivo en el diálogo: es copy de producto.
 //   409 otro (seguro anti-bloqueo de administración) → frase fija en el diálogo.
 //   404  → el registro ya no existe: toast y recarga (`onDesactualizado('no-existe')`).
 //   red / 5xx → alerta en el diálogo y el botón pasa a «Reintentar».
@@ -22,8 +22,18 @@ const SIN_PERMISO = 'No tiene permiso para esta acción.';
 const SIN_RED = 'No pudimos conectar con FLITO. Revise su conexión e inténtelo de nuevo.';
 const CONCURRENCIA = 'Otro administrador ya cambió su estado';
 
-/** Los motivos de RN-CLI-10 tal como los redacta `motivoNoEliminable` del API. */
-const MOTIVO_NO_ELIMINABLE = /^(Primero debe desactivarlo\.|Tiene \d+ procesos? abiertos? \(.*\)\.|Su bolsa tiene saldo de -?\$[\d.]+; debe quedar en cero\.)$/;
+/**
+ * Los motivos tal como los redacta `motivoNoEliminable` del API: RN-CLI-10 (clientes, #13956) y
+ * RN-PROV-6 (proveedores SOAT, #13962: «Tiene 4 SOAT en curso.», «Es el proveedor de SOAT sin
+ * trámite de 2 compañías (Alfa, Beta).»).
+ */
+const MOTIVO_NO_ELIMINABLE = new RegExp('^(' + [
+  'Primero debe desactivarlo\\.',
+  'Tiene \\d+ procesos? abiertos? \\(.*\\)\\.',
+  'Su bolsa tiene saldo de -?\\$[\\d.]+; debe quedar en cero\\.',
+  'Tiene \\d+ SOAT en curso\\.',
+  'Es el proveedor de SOAT sin trámite de \\d+ compañías? \\(.*\\)\\.',
+].join('|') + ')$');
 
 type ErrorConfirmar = { texto: string; reintentable: boolean };
 
