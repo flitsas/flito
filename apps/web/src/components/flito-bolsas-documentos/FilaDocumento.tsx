@@ -7,7 +7,7 @@ import type { DocumentoBolsaDto, DocumentoExpedienteDto } from '@operaciones/sha
 import { bolsasDocumentosApi } from '../../lib/api';
 import { errorBolsa, fechaDia, fechaHora } from '../../lib/bolsas';
 import {
-  ACCEPT_DOCUMENTO_BOLSA, conVigencia, diaBogota, ESTADO_DOCUMENTO, errorArchivoLocal, nombreDocumento,
+  ACCEPT_DOCUMENTO_BOLSA, conVigencia, delDocumento, diaBogota, ESTADO_DOCUMENTO, errorArchivoLocal, nombreDocumento,
   participio, tituloDocumento,
 } from '../../lib/bolsasDocumentos';
 import StatusChip from '../flit/StatusChip';
@@ -15,6 +15,7 @@ import { flitBtnIconoSm, flitBtnSecondarySm, flitBtnSecondarySmToggle } from '..
 import { toastOk } from '../flit/ToastFlito';
 import EditorFechaExpedicion from './EditorFechaExpedicion';
 import HistorialDocumento from './HistorialDocumento';
+import ModalRetirarDocumento from './ModalRetirarDocumento';
 import { useDescargaDocumentoBolsa } from './useDescargaDocumentoBolsa';
 
 // El input de carga NO se deshabilita mientras sube: si tenía el foco, `disabled` lo tiraría a <body> y
@@ -40,6 +41,8 @@ export interface FilaDocumentoProps {
   onEditar: (abrir: boolean) => void;
   /** Carga o fecha aceptadas: la fila toma el DTO sin releer. */
   onDocumento: (dto: DocumentoBolsaDto, origen: 'carga' | 'fecha') => void;
+  /** Retiro aceptado (E7, HU #13964): la fila se reemplaza con la respuesta, sin releer. */
+  onRetirado: (fila: DocumentoExpedienteDto) => void;
   /**
    * 409 (o 404 de la bolsa) en la carga o en la fecha = carrera: bolsa inactivada, carga concurrente o
    * versión reemplazada. Se decide por el status, nunca por el texto del API. Refresca el detalle y E1.
@@ -60,6 +63,7 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
   const fechaRef = useRef<HTMLButtonElement>(null);
   const filaRef = useRef<HTMLLIElement>(null);
   const cargaRef = useRef<HTMLInputElement>(null);
+  const [retirando, setRetirando] = useState(false);
   const { descargar, enCurso } = useDescargaDocumentoBolsa();
 
   // Al cerrar el editor (guardar o cancelar), el foco vuelve a «Corregir» / «Digitar fecha».
@@ -126,6 +130,8 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
   ) : null;
 
   const ocupadoDescarga = vigente ? enCurso.has(vigente.id) : false;
+  // También en «Validando…» (ADR-0028 adenda A.1); nunca en una fila pendiente.
+  const puedeQuitar = puedeCargar && vigente !== null && estado !== 'pendiente';
 
   return (
     <li ref={filaRef} className="grid grid-cols-1 gap-x-4 gap-y-2 py-3 sm:grid-cols-[1fr_auto]" style={{ borderColor: 'var(--flit-border-soft)' }}
@@ -177,13 +183,21 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
             <Download size={14} aria-hidden="true" />
           </button>
         )}
-        {vigente && (
+        {doc.tieneHistorial && (
           <button ref={toggleRef} type="button" className={flitBtnSecondarySmToggle}
             aria-expanded={p.historialAbierto} aria-controls={p.historialAbierto ? idHistorial : undefined}
             aria-label={`Ver el historial de ${nombre}`}
             onClick={() => { if (!p.historialAbierto) p.onEditar(false); p.onHistorial(!p.historialAbierto); }}>
             Historial
             {p.historialAbierto ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+          </button>
+        )}
+        {/* Al final de la barra y sin tono de peligro: el peso de peligro va en la confirmación (HU #13964). */}
+        {puedeQuitar && (
+          <button type="button" className={flitBtnSecondarySm} disabled={subiendo}
+            aria-label={`Quitar la versión vigente ${delDocumento(tipo)}`}
+            onClick={() => setRetirando(true)}>
+            Quitar
           </button>
         )}
       </div>
@@ -194,9 +208,17 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
           onCarrera={() => { cerrarEditor(); p.onCarrera(); }} />
       )}
 
-      {p.historialAbierto && vigente && (
-        <HistorialDocumento id={idHistorial} companiaId={p.companiaId} tipo={tipo}
+      {p.historialAbierto && doc.tieneHistorial && (
+        // La clave cambia con la vigente: tras quitarla (o cargar otra) el historial abierto se relee.
+        <HistorialDocumento key={vigente?.id ?? 'sin-vigente'} id={idHistorial} companiaId={p.companiaId} tipo={tipo}
           onCerrar={() => { p.onHistorial(false); toggleRef.current?.focus(); }} />
+      )}
+
+      {retirando && vigente && (
+        <ModalRetirarDocumento doc={doc} vigente={vigente} focoRespaldoRef={cargaRef}
+          onCerrar={() => setRetirando(false)}
+          onRetirado={p.onRetirado}
+          onCarrera={p.onCarrera} />
       )}
     </li>
   );

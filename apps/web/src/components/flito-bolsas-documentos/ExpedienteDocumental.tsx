@@ -14,7 +14,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { RotateCw } from 'lucide-react';
 import {
   TIPOS_DOCUMENTO_BOLSA_PRINCIPALES,
-  type DocumentoBolsaDto, type EstadoDocumentoBolsa, type ExpedienteCompaniaDto, type TipoDocumentoBolsa,
+  type DocumentoBolsaDto, type DocumentoExpedienteDto, type EstadoDocumentoBolsa, type ExpedienteCompaniaDto, type TipoDocumentoBolsa,
 } from '@operaciones/shared-types';
 import { bolsasDocumentosApi } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -124,12 +124,23 @@ function Seccion({ companiaId, activa, onBolsaCambio, tieneCargar, puedeReactiva
   const aplicarDocumento = useCallback((dto: DocumentoBolsaDto, origen: 'carga' | 'fecha') => {
     setCarga((c) => {
       if (c.fase !== 'lista') return c;
-      const documentos = c.expediente.documentos.map((d) => (d.tipo === dto.tipo ? { ...d, estado: dto.estado, vigente: dto } : d));
+      const documentos = c.expediente.documentos.map((d) => (d.tipo === dto.tipo ? { ...d, estado: dto.estado, vigente: dto, tieneHistorial: true } : d));
       const completo = documentos.filter((d) => PRINCIPALES.includes(d.tipo)).every((d) => d.estado === 'valido');
       previos.current.set(dto.tipo, dto.estado);
       return { fase: 'lista', expediente: { ...c.expediente, documentos, completo } };
     });
     if (origen === 'carga' && dto.estado === 'validando') { inicioSondeo.current = Date.now(); setLento(false); }
+  }, []);
+
+  /** Gemela de `aplicarDocumento` para E7 (HU #13964): la fila entera se reemplaza con la respuesta. */
+  const aplicarFila = useCallback((fila: DocumentoExpedienteDto) => {
+    setCarga((c) => {
+      if (c.fase !== 'lista') return c;
+      const documentos = c.expediente.documentos.map((d) => (d.tipo === fila.tipo ? fila : d));
+      const completo = documentos.filter((d) => PRINCIPALES.includes(d.tipo)).every((d) => d.estado === 'valido');
+      previos.current.set(fila.tipo, fila.estado);
+      return { fase: 'lista', expediente: { ...c.expediente, documentos, completo } };
+    });
   }, []);
 
   if (carga.fase === 'sin-permiso') return null;
@@ -227,6 +238,7 @@ function Seccion({ companiaId, activa, onBolsaCambio, tieneCargar, puedeReactiva
                     editando={editando === d.tipo && puedeCargar}
                     onEditar={(abrir) => setEditando((t) => (abrir ? d.tipo : (t === d.tipo ? null : t)))}
                     onDocumento={aplicarDocumento}
+                    onRetirado={aplicarFila}
                     onCarrera={() => { onBolsaCambio?.(); void leer(true); }} />
                 ))}
               </ul>

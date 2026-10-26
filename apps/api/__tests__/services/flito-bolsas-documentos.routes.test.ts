@@ -70,7 +70,7 @@ function filaDto(over: Record<string, unknown> = {}) {
     id: DOC_ID, tipo: 'rut', version: 1, vigente: true, mime: 'application/pdf', tamanoBytes: PDF_REAL.length,
     storageKey: KEY, fechaExpedicion: null, fechaOrigen: null, fechaManualEn: null, ocrEstado: 'validando',
     cargadoEn: new Date('2026-10-23T15:00:00Z'), reemplazadoEn: null, cargadoPorNombre: 'Ana Operaciones',
-    fechaManualPorNombre: null, ...over,
+    fechaManualPorNombre: null, retiradoEn: null, motivoRetiro: null, retiradorNombre: null, ...over,
   };
 }
 
@@ -545,5 +545,166 @@ describe('#13893 — E6 POST /estado-lote', () => {
     const auth = `Bearer ${await testToken({ sub: 31, role: 'cliente', funciones: [VER] })}`;
     const res = await request(app).post('/api/flito/bolsas-documentos/estado-lote').set('Authorization', auth).send({ companiaIds: [COMPANIA] });
     expect(res.status).toBe(403);
+  });
+});
+
+// ── HU #13964 — E7 POST /documentos/:documentoId/retirar ───────────────────────────────────────────
+
+const RETIRAR = `/api/flito/bolsas-documentos/documentos/${DOC_ID}/retirar`;
+const vigenteRut = (over: Record<string, unknown> = {}) =>
+  ({ companiaId: COMPANIA, tipo: 'rut', version: 2, vigente: true, ...over });
+
+describe('HU #13964 AC1/AC2 — retirar con bolsas.documentos.cargar', () => {
+  it('200 con la fila del tipo ya pendiente; no toca el almacenamiento; audita tipo, versión y compañía sin motivo', async () => {
+    const MOTIVO = 'La cédula de Juan Pérez estaba vencida';
+    const sets = capturarUpdates();
+    kdb.when.selectOnce(DOCS, [vigenteRut()]);
+    const app = await buildApp();
+    const res = await request(app).post(RETIRAR).set('Authorization', await token([CARGAR], 9)).send({ motivo: `  ${MOTIVO}  ` });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ tipo: 'rut', estado: 'pendiente', opcional: false, vigente: null, tieneHistorial: true });
+    expect(sets).toHaveLength(1);
+    expect(sets[0]).toMatchObject({ vigente: false, retiradoPor: 9, motivoRetiro: MOTIVO }); // trim
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(deleteMock).not.toHaveBeenCalled();
+    expect(streamMock).not.toHaveBeenCalled();
+    expect(piiMock).not.toHaveBeenCalled();
+
+    expect(auditMock).toHaveBeenCalledTimes(1);
+    const entrada = auditMock.mock.calls[0]![1] as Record<string, unknown>;
+    expect(entrada).toEqual({
+      action: 'update', resource: 'flito_bolsa_documento', resourceId: DOC_ID,
+      detail: `Retiro del documento rut v2 de la compañía ${COMPANIA}`,
+    });
+    expect(JSON.stringify(entrada)).not.toContain('Juan');
+    expect(JSON.stringify(entrada)).not.toMatch(/\.(pdf|png|jpg)/);
+  });
+
+  it('el historial (E2) devuelve retiro: { en, por: { nombre }, motivo } en la retirada', async () => {
+    const en = new Date('2026-10-25T14:00:00Z');
+    kdb.when.select(DOCS, [
+      filaDto({ vigente: false, reemplazadoEn: en, retiradoEn: en, motivoRetiro: 'Equivocado', retiradorNombre: 'Ana Operaciones' }),
+    ]);
+    const app = await buildApp();
+    const res = await request(app).get(`/api/flito/bolsas-documentos/companias/${COMPANIA}/tipos/rut/historial`)
+      .set('Authorization', await token([VER]));
+    expect(res.status).toBe(200);
+    expect(res.body.versiones[0].retiro).toEqual({ en: '2026-10-25T14:00:00.000Z', por: { nombre: 'Ana Operaciones' }, motivo: 'Equivocado' });
+  });
+});
+
+describe('HU #13964 AC8 — motivo', () => {
+  it.each([
+    ['más de 300 caracteres', { motivo: 'x'.repeat(301) }],
+    ['una clave extra', { motivo: 'ok', borrarArchivo: true }],
+    ['un motivo que no es texto', { motivo: 42 }],
+  ])('%s → 400 motivo_invalido sin escribir', async (_n, body) => {
+    const app = await buildApp();
+    const res = await request(app).post(RETIRAR).set('Authorization', await token([CARGAR])).send(body);
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'El motivo admite hasta 300 caracteres.', codigo: 'motivo_invalido' });
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+
+  it('exactamente 300 caracteres se acepta', async () => {
+    const sets = capturarUpdates();
+    kdb.when.selectOnce(DOCS, [vigenteRut()]);
+    const app = await buildApp();
+    const res = await request(app).post(RETIRAR).set('Authorization', await token([CARGAR])).send({ motivo: 'x'.repeat(300) });
+    expect(res.status).toBe(200);
+    expect((sets[0]!.motivoRetiro as string).length).toBe(300);
+  });
+
+  it.each([
+    ['sin body', undefined],
+    ['body vacío', {}],
+    ['motivo en blanco (trim → NULL)', { motivo: '   ' }],
+  ])('%s → se retira igual con motivo NULL', async (_n, body) => {
+    const sets = capturarUpdates();
+    kdb.when.selectOnce(DOCS, [vigenteRut()]);
+    const app = await buildApp();
+    const r = request(app).post(RETIRAR).set('Authorization', await token([CARGAR]));
+    const res = body === undefined ? await r : await r.send(body);
+    expect(res.status).toBe(200);
+    expect(sets[0]!.motivoRetiro).toBeNull();
+  });
+});
+
+describe('HU #13964 AC5/AC7 — rechazos de negocio con codigo', () => {
+  it('AC5: bolsa inactiva → 409 bolsa_inactiva sin escribir', async () => {
+    estadoBolsaMock.mockResolvedValue({ existe: true, activa: false });
+    kdb.when.selectOnce(DOCS, [vigenteRut()]);
+    const app = await buildApp();
+    const res = await request(app).post(RETIRAR).set('Authorization', await token([CARGAR])).send({});
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      error: 'La bolsa de la compañía está inactiva: reactívala para retirar documentos.', codigo: 'bolsa_inactiva',
+    });
+    expect(kdb.update).not.toHaveBeenCalled();
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('AC7: versión ya no vigente → 409 no_vigente sin escribir', async () => {
+    kdb.when.selectOnce(DOCS, [vigenteRut({ vigente: false })]);
+    const app = await buildApp();
+    const res = await request(app).post(RETIRAR).set('Authorization', await token([CARGAR])).send({});
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'Esta versión ya no es la vigente: actualiza para ver el expediente.', codigo: 'no_vigente' });
+    expect(kdb.update).not.toHaveBeenCalled();
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('AC7: carrera — si el UPDATE de retiro afecta 0 filas → 409 no_vigente, sin auditar (la condición vigente = true del WHERE la comprueba el test de servicio)', async () => {
+    capturarUpdates([]);
+    kdb.when.selectOnce(DOCS, [vigenteRut()]);
+    const app = await buildApp();
+    const res = await request(app).post(RETIRAR).set('Authorization', await token([CARGAR])).send({});
+    expect(res.status).toBe(409);
+    expect(res.body.codigo).toBe('no_vigente');
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('documento inexistente → 404 sin codigo; id no uuid → 400', async () => {
+    kdb.when.selectOnce(DOCS, []);
+    const app = await buildApp();
+    const auth = await token([CARGAR]);
+    const r404 = await request(app).post(RETIRAR).set('Authorization', auth).send({});
+    expect(r404.status).toBe(404);
+    expect(r404.body).toEqual({ error: 'El documento no existe.' });
+    const r400 = await request(app).post('/api/flito/bolsas-documentos/documentos/no-es-uuid/retirar').set('Authorization', auth).send({});
+    expect(r400.status).toBe(400);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('HU #13964 AC6 — sin bolsas.documentos.cargar no se retira', () => {
+  it('solo con ver → 403 y no se toca la base', async () => {
+    const app = await buildApp();
+    const res = await request(app).post(RETIRAR).set('Authorization', await token([VER])).send({});
+    expect(res.status).toBe(403);
+    expect(res.body.funcion).toBe(CARGAR);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+
+  it('un usuario con enlace de compañía → 403 aunque tenga la función', async () => {
+    const auth = `Bearer ${await testToken({ sub: 31, role: 'cliente', funciones: [CARGAR] })}`;
+    const app = await buildApp();
+    const res = await request(app).post(RETIRAR).set('Authorization', auth).send({});
+    expect(res.status).toBe(403);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('HU #13964 AC9 — la versión retirada se sigue descargando', () => {
+  it('la descarga de una cédula retirada responde el archivo y registra logPiiAccess como hoy', async () => {
+    const contenido = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(32, 0x20)]);
+    prepararDescarga('cedula_representante', contenido);
+    const app = await buildApp();
+    const res = await request(app).get(`/api/flito/bolsas-documentos/documentos/${DOC_ID}/archivo`)
+      .set('Authorization', await token([VER], 77));
+    expect(res.status).toBe(200);
+    expect(Buffer.compare(res.body as Buffer, contenido)).toBe(0);
+    expect(piiMock).toHaveBeenCalledTimes(1);
   });
 });
