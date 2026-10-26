@@ -38,7 +38,7 @@ import { archivosDeCarga, limpiarTemporales, uploadAdicionales } from './flito-s
 const router = Router();
 router.use(authMiddleware);
 
-const idSchema = z.string().uuid();
+const idSchema = z.string().guid();
 
 /** Lo que se entrega (`pii_access_log.campos_accedidos`): documentos del cliente que pueden traer datos personales. */
 export const CAMPOS_PII_DOCUMENTOS_ADICIONALES = ['documentos_adicionales'] as const;

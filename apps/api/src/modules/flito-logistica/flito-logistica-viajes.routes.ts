@@ -12,6 +12,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { mensajesDeTipo } from '../../shared/utils/zod-mensajes.js';
 import { MOTIVOS_VIAJE_LOGISTICA } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
@@ -26,7 +27,7 @@ import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alc
 const router = Router();
 router.use(authMiddleware);
 
-const uuidSchema = z.string().uuid();
+const uuidSchema = z.string().guid();
 /** Un id que no es uuid es «no existe» (404): el id es opaco para el cliente. */
 const idUuid = (raw: string): string | null => (uuidSchema.safeParse(raw).success ? raw : null);
 
@@ -34,11 +35,13 @@ const idUuid = (raw: string): string | null => (uuidSchema.safeParse(raw).succes
 const VALOR_MAXIMO = 999_999_999_999.99;
 
 const motivoYDetalle = {
+  // zod 4: un enum reporta `invalid_value` también para lo ausente o no-texto; se reproduce el
+  // mensaje de zod 3 (ausente / no-texto) y lo demás queda con el mensaje por defecto (Bug #13928).
   motivo: z.enum(MOTIVOS_VIAJE_LOGISTICA, {
-    required_error: 'es obligatorio',
-    invalid_type_error: `debe ser uno de: ${MOTIVOS_VIAJE_LOGISTICA.join(', ')}`,
+    error: (iss) => (iss.input === undefined ? 'es obligatorio'
+      : typeof iss.input !== 'string' ? `debe ser uno de: ${MOTIVOS_VIAJE_LOGISTICA.join(', ')}` : undefined),
   }),
-  motivoDetalle: z.string({ invalid_type_error: 'debe ser texto' }).trim()
+  motivoDetalle: z.string({ error: mensajesDeTipo({ tipo: 'debe ser texto' }) }).trim()
     .min(1, 'no puede estar en blanco').max(300, 'no puede superar 300 caracteres').optional(),
 };
 
@@ -47,7 +50,7 @@ const registrarSchema = z.discriminatedUnion('modo', [
   z.object({ modo: z.literal('inicial'), ...motivoYDetalle }).strict(),
   z.object({
     modo: z.literal('manual'),
-    valor: z.number({ required_error: 'es obligatorio', invalid_type_error: 'debe ser un número' })
+    valor: z.number({ error: mensajesDeTipo({ requerido: 'es obligatorio', tipo: 'debe ser un número' }) })
       .finite('debe ser un número').min(0, 'debe ser mayor o igual a 0').max(VALOR_MAXIMO, 'supera el máximo'),
     ...motivoYDetalle,
   }).strict(),

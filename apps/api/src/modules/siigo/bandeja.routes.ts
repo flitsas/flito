@@ -129,11 +129,11 @@ const filtrosSchema = z.object({
 }).strict();
 
 const reintentoSchema = z.object({
-  facturaIds: z.array(z.string().uuid()).min(1).max(SIIGO_BANDEJA_TOPE_REINTENTO),
+  facturaIds: z.array(z.string().guid()).min(1).max(SIIGO_BANDEJA_TOPE_REINTENTO),
 }).strict();
 
 const reenvioSchema = z.object({
-  facturaIds: z.array(z.string().uuid()).min(1).max(SIIGO_BANDEJA_TOPE_REENVIO),
+  facturaIds: z.array(z.string().guid()).min(1).max(SIIGO_BANDEJA_TOPE_REENVIO),
 }).strict();
 
 /**
@@ -155,14 +155,14 @@ const reenvioSchema = z.object({
  */
 const descarteSchema = z.object({
   fuente: z.enum(SIIGO_BANDEJA_FUENTES),
-  refId: z.string().uuid(),
+  refId: z.string().guid(),
   motivo: z.enum(SIIGO_BANDEJA_MOTIVOS_DESCARTE),
   nota: z.string().trim().max(SIIGO_BANDEJA_NOTA_MAX).optional(),
 }).strict();
 
 const reactivacionSchema = z.object({
   fuente: z.enum(SIIGO_BANDEJA_FUENTES),
-  refId: z.string().uuid(),
+  refId: z.string().guid(),
 }).strict();
 
 function datosInvalidos(res: Response, error: z.ZodError): void {

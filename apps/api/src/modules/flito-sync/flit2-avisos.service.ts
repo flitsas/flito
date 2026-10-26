@@ -95,9 +95,9 @@ export function verificarFirmaAviso(
 // ── Esquema del aviso ────────────────────────────────────────────────────────────────────────────
 
 export const avisoFlit2Schema = z.object({
-  eventId: z.string().uuid(),
+  eventId: z.string().guid(),
   tipo: z.string().min(1).max(64),
-  id: z.string().uuid(),
+  id: z.string().guid(),
   syncVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   fechaUltimoCambio: z.string().datetime({ offset: true }),
   eliminado: z.boolean(),

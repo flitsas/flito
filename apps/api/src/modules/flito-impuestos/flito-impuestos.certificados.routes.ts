@@ -32,7 +32,7 @@ type Contexto = (user: NonNullable<Request['user']>) => Promise<ImpuestoCtx>;
  * mensaje (AC5). Un `.max()` de Zod daría un 400 indistinguible de un cuerpo roto.
  */
 export const zipCertificadosSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1),
+  ids: z.array(z.string().guid()).min(1),
 }).strict();
 
 /**

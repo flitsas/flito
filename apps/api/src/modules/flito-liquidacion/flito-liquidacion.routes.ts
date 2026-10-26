@@ -69,7 +69,7 @@ router.post('/:tramiteId/liquidar', exigirFuncion('liquidacion.liquidacion.liqui
 });
 
 // POST /lote/liquidar — liquidación en lote. Nunca falla entera: reporta cada trámite por separado.
-const loteSchema = z.object({ tramiteIds: z.array(z.string().uuid()).min(1).max(200) });
+const loteSchema = z.object({ tramiteIds: z.array(z.string().guid()).min(1).max(200) });
 router.post('/lote/liquidar', exigirFuncion('liquidacion.liquidacion.liquidar_lote'), async (req: Request, res: Response) => {
   const parsed = loteSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
