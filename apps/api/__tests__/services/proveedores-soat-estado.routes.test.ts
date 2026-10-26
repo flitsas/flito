@@ -146,8 +146,9 @@ describe('GET /proveedores-soat/:id/impacto (HU #13958)', () => {
       soatEnCurso: 4,
       companiasGestorPorDefecto: { cantidad: 2, nombres: ['Alfa', 'Beta'] },
       usuariosAfectados: 3,
+      // HU #13960: activo → el primer motivo de RN-PROV-6.
       puedeEliminar: false,
-      motivoNoEliminable: null,
+      motivoNoEliminable: 'Primero debe desactivarlo.',
     });
     expect(updateMock).not.toHaveBeenCalled();
     expect(transactionMock).not.toHaveBeenCalled();

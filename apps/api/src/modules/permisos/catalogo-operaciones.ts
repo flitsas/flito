@@ -317,6 +317,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // HU #13958: nacen absorbidas por «Activar o desactivar proveedores» (exclusiva del Administrador, 0261).
   op(`${PAR} GET /proveedores-soat/:id/impacto`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
   op(`${PAR} PATCH /proveedores-soat/:id/estado`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
+  // HU #13960: nace absorbida por «Eliminar proveedores» (exclusiva del Administrador, 0263).
+  op(`${PAR} DELETE /proveedores-soat/:id`, 'parametrizacion.proveedores.eliminar', 'Eliminar proveedores', 'Eliminar (baja lógica) un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas.'),
   op(`${PAR} GET /organismos`, 'parametrizacion.organismos.listar', 'Ver los organismos de tránsito', 'Consultar los organismos y su parametrización FLITO.'),
   op(`${PAR} GET /organismos/:codigo/vigencias`, 'parametrizacion.organismos.ver_vigencias', 'Ver las vigencias de un organismo', 'Consultar los periodos de tarifas y modalidades del organismo.'),
   op(`${PAR} POST /organismos/:codigo/modalidad`, 'parametrizacion.organismos.fijar_modalidad', 'Fijar la modalidad de un organismo', 'Definir cómo se paga a ese organismo a partir de una fecha.'),
@@ -518,4 +520,6 @@ export const FUNCIONES_EXCLUSIVAS_ADMIN: readonly string[] = [
   'accion.clientes.eliminar',
   // HU #13958: «Activar o desactivar proveedores»; la operación `parametrizacion.proveedores.estado` nace absorbida (0261).
   'accion.clientes.activar_desactivar_proveedores',
+  // HU #13960: «Eliminar proveedores» (baja lógica); la operación `parametrizacion.proveedores.eliminar` nace absorbida (0263).
+  'accion.clientes.eliminar_proveedores',
 ];

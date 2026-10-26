@@ -174,6 +174,8 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       // (0261, solo `admin`).
       'flito-parametrizacion/flito-parametrizacion.routes.ts GET /proveedores-soat/:id/impacto',
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /proveedores-soat/:id/estado',
+      // HU #13960: `parametrizacion.proveedores.eliminar`, absorbida por `accion.clientes.eliminar_proveedores` (0263).
+      'flito-parametrizacion/flito-parametrizacion.routes.ts DELETE /proveedores-soat/:id',
     ]);
   });
 });
