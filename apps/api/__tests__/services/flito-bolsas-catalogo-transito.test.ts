@@ -401,9 +401,9 @@ describe.skipIf(!URL)('HU #13907 — catálogo de la bolsa de tránsito (Postgre
     expect((await request(app).post(`/api/flito/bolsas/bolsa/${recargable}/recargas`).set('Authorization', auth).field('valor', '1')).status).toBe(403);
   });
 
-  it('G-rutas · las rutas antiguas /transito/* siguen vivas (su retiro es la HU #13911)', async () => {
+  it('G-rutas · HU #13911 (AC6): la ruta antigua /transito/:bolsaId ya no existe → 404; la nueva sí responde', async () => {
     const r = await request(app).get(`/api/flito/bolsas/transito/${recargable}`).set('Authorization', auth);
-    expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ id: recargable, saldo: 250_000 });
+    expect(r.status).toBe(404);
+    expect((await request(app).get(`/api/flito/bolsas/bolsa/${recargable}`).set('Authorization', auth)).status).toBe(200);
   });
 });

@@ -718,8 +718,9 @@ describe('HU #13906 — la bolsa de tránsito vive en el modelo único (ADR-0029
     expect(updatesEn('flito_bolsas_unicas')).toHaveLength(0);
   });
 
-  it('AC7 · abrir la bolsa y ver sus movimientos lee el modelo único y responde con el contrato de siempre', async () => {
-    const { bolsaTransitoDe, movimientosTransitoDe } =
+  it('AC7 · ver los movimientos de la bolsa lee el modelo único y responde con el contrato de siempre', async () => {
+    // HU #13911: `bolsaTransitoDe` se retiró con `GET /transito/:bolsaId`; el detalle lo da el catálogo único.
+    const { movimientosTransitoDe } =
       await import('../../src/modules/flito-bolsas/flito-bolsas-transito.service.js');
     const fila = {
       id: 'mov-1', bolsaId: BOLSA_ID, tipo: 'entrada', origen: 'recarga', concepto: null, organismoCodigo: null,
@@ -727,20 +728,8 @@ describe('HU #13906 — la bolsa de tránsito vive en el modelo único (ADR-0029
       periodo: '2026-07', fecha: '2026-07-30', observacion: null, soporteId: null, registradoPorNombre: 'tesoreria',
       createdAt: AHORA,
     };
-    kdb.when
-      .select('flito_bolsas_unicas', [{
-        id: BOLSA_ID, alcance: 'transito', nombre: 'Bolsa de prueba', companiaId: null, activa: true, saldo: '5000000',
-        ultimaEntradaValor: '5000000', ultimaEntradaEn: AHORA,
-      }])
-      .selectOnce('flito_bolsas_unicas_movimientos', [{ cargado: '5000000', consumido: '0' }]) // totales de bolsaTransitoDe
-      .select('flito_bolsas_unicas_movimientos', [{ m: fila, idFlit: null }])
-      .select('flito_bolsas_unicas_cobertura', [{ bolsaId: BOLSA_ID, organismoCodigo: ORG_DERECHO, organismoNombre: 'Sabaneta', concepto: 'derecho' }]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [{ m: fila, idFlit: null }]);
 
-    const bolsa = await bolsaTransitoDe(BOLSA_ID);
-    expect(bolsa).toMatchObject({
-      id: BOLSA_ID, nombre: 'Bolsa de prueba', saldo: 5_000_000, ultimaCargaValor: 5_000_000, totalCargado: 5_000_000,
-      cobertura: [{ organismoCodigo: ORG_DERECHO, concepto: 'derecho' }],
-    });
     const movs = await movimientosTransitoDe(BOLSA_ID);
     expect(movs).toEqual([expect.objectContaining({ id: 'mov-1', origen: 'carga', valor: 5_000_000, idFlit: null })]);
   });

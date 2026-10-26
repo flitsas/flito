@@ -151,28 +151,8 @@ export interface CoberturaBolsaTransito {
   concepto: ConceptoBolsaTransito;
 }
 
-/** Bolsa de tránsito con su saldo vigente. */
-export interface BolsaTransitoDto {
-  id: string;
-  nombre: string;
-  /** Puede ser NEGATIVO: es el préstamo, no un estado inválido. */
-  saldo: number;
-  /** Base del nivel. `null` mientras no se le haya cargado nada. */
-  ultimaCargaValor: number | null;
-  ultimaCargaEn: string | null;
-  cobertura: CoberturaBolsaTransito[];
-}
-
-/** Bolsa de tránsito con su nivel ya clasificado por el servidor. */
-export interface BolsaTransitoConNivel extends BolsaTransitoDto {
-  nivel: NivelBolsaTransito;
-  /** Saldo como porcentaje de la última carga; `null` si nunca se cargó. */
-  porcentaje: number | null;
-  /** Lo que se le debe a quien opera la bolsa ahora mismo. 0 si el saldo no es negativo. */
-  deuda: number;
-  totalCargado: number;
-  totalConsumido: number;
-}
+// HU #13911: `BolsaTransitoDto` y `BolsaTransitoConNivel` (contrato de las rutas `/transito/*`) se retiraron con
+// esas rutas; el detalle de una bolsa de tránsito lo da `BolsaDetalleDto.transito` (`DatosBolsaTransitoDto`).
 
 /** Una línea del libro de la bolsa de tránsito. */
 export interface MovimientoTransitoDto {
@@ -197,18 +177,4 @@ export interface MovimientoTransitoDto {
   soporteId: string | null;
   registradoPorNombre: string;
   createdAt: string;
-}
-
-/** Respuesta del POST de cargas. `duplicado` es el contrato de idempotencia, igual que en recargas. */
-export interface RespuestaCargaTransito {
-  movimiento: MovimientoTransitoDto;
-  saldo: number;
-  duplicado: boolean;
-}
-
-/** Lo que hace falta para crear o redefinir una bolsa. El producto de ambas listas es su cobertura. */
-export interface DatosBolsaTransito {
-  nombre: string;
-  organismos: string[];
-  conceptos: ConceptoBolsaTransito[];
 }

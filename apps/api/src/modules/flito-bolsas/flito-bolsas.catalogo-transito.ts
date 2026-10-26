@@ -205,8 +205,8 @@ export async function editarBolsaTransitoUnica(bolsaId: string, datos: DatosBols
 // ─────────────────────────── Datos de tránsito del DTO único ──────────────────
 
 /**
- * Nivel en la escala de tránsito, deuda y totales del libro de cada bolsa (lo que hoy da `GET /transito/:id`
- * con `BolsaTransitoConNivel`), en UNA consulta para todas. La regla es la de `flito-bolsas-transito.service.ts`.
+ * Nivel en la escala de tránsito, deuda y totales del libro de cada bolsa (lo que daba `GET /transito/:id`,
+ * retirada en la HU #13911), en UNA consulta para todas.
  */
 export async function datosTransitoDe(
   bolsas: Array<{ id: string; saldo: number; ultimaEntradaValor: number | null }>,

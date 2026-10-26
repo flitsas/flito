@@ -50,7 +50,7 @@ async function sembrar(tx: Tx, s: Semilla = {}) {
       VALUES ('HU13954-1', now(), ${await vehiculo()}, ${id}, 'entregado'::flito_tramite_estado) RETURNING id`;
     await tx`INSERT INTO flito_liquidaciones (tramite_id, estado, total, base_gmf, valor_gmf) VALUES (${t!.id}, 'liquidado', 0, 0, 0)`;
   }
-  if (s.saldo !== null) await tx`INSERT INTO flito_bolsas (compania_id, saldo) VALUES (${id}, ${s.saldo ?? 0})`;
+  if (s.saldo !== null) await tx`INSERT INTO flito_bolsas_unicas (alcance, compania_id, saldo) VALUES ('compania', ${id}, ${s.saldo ?? 0})`;
   // Un rol distinto de `admin`: los usuarios del cliente no son la población administradora.
   const [rol] = await tx`SELECT codigo FROM permisos_roles WHERE codigo <> 'admin' ORDER BY codigo LIMIT 1`;
   const usuario = async (n: string, compania: number, baja = false) =>
@@ -158,7 +158,7 @@ describe.skipIf(!URL_BASE)('eliminarCliente — contra PostgreSQL (tx con ROLLBA
   it('AC9: un movimiento que deja el saldo ≠ 0 y confirma antes del bloqueo → rechazo por saldo', async () => {
     await conBase({}, async (tx, f) => {
       expect(await impactoCliente(actual.db!, f.id)).toMatchObject({ puedeEliminar: true, motivoNoEliminable: null });
-      await tx`UPDATE flito_bolsas SET saldo = saldo + 15000 WHERE compania_id = ${f.id}`;
+      await tx`UPDATE flito_bolsas_unicas SET saldo = saldo + 15000 WHERE alcance = 'compania' AND compania_id = ${f.id}`;
       const e = await rechazo(eliminarCliente(f.id, f.actor));
       expect(e).toBeInstanceOf(ClienteNoEliminableError);
       expect(e.message).toBe('Su bolsa tiene saldo de $15.000; debe quedar en cero.');

@@ -333,8 +333,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/bolsas/consolidado',                                        'filtra'],
   ['GET /api/flito/bolsas/riesgo',                                             'filtra'],
   ['GET /api/flito/bolsas/alertas',                                            'filtra'],
-  ['GET /api/flito/bolsas/transito',                                           'soloSinEnlace'],
-  ['POST /api/flito/bolsas/transito',                                          'soloSinEnlace'],
+  // HU #13911: las rutas antiguas `/api/flito/bolsas/transito…` se retiraron (404 por `router.use`, sin ruta).
   // HU #13907 (ADR-0029): rama TRÁNSITO del catálogo, sub-router montado ANTES del de compañía y con sus mismas rutas;
   // gestión de FLIT, cerrada a todo enlace (lo que no es de tránsito lo cede con `next('route')`).
   ['POST /api/flito/bolsas/buscar',                                            'soloSinEnlace'],
@@ -364,10 +363,6 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/bolsas/:companiaId/movimientos',                            'filtra'],
   ['POST /api/flito/bolsas/:companiaId/recargas',                              'filtra'],
   ['GET /api/flito/bolsas/soportes/:soporteId',                                'filtra'],
-  ['GET /api/flito/bolsas/transito/:bolsaId',                                  'soloSinEnlace'],
-  ['PATCH /api/flito/bolsas/transito/:bolsaId',                                'soloSinEnlace'],
-  ['GET /api/flito/bolsas/transito/:bolsaId/movimientos',                      'soloSinEnlace'],
-  ['POST /api/flito/bolsas/transito/:bolsaId/cargas',                          'soloSinEnlace'],
   ['GET /api/flito/bolsas/:companiaId/extracto',                               'filtra'],
   ['POST /api/flito/bolsas/:companiaId/movimientos-manuales',                  'filtra'],
   ['POST /api/flito/bolsas/:companiaId/movimientos/:movimientoId/correccion',  'filtra'],
