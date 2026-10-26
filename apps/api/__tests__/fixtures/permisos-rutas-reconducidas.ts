@@ -22,6 +22,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // ── Oleada 1 — cadena SOAT (60 rutas) ──
   // flito-soat/flito-soat.routes.ts
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'GET', ruta: '/', codigo: 'soat.cola.ver' },
+  { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'soat.cola.ver' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/export', codigo: 'soat.excel.exportar' },
   // Bug #12642: guarda en línea del archivo ampliado (`incluirPago: true`).
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/export', condicion: 'incluirPago', codigo: 'soat.excel.exportar_pago' },
@@ -53,6 +54,10 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'POST', ruta: '/:id/documentos-adicionales', codigo: 'soat.documentos_adicionales.cargar' },
   { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'DELETE', ruta: '/:id/documentos-adicionales/:soporteId', codigo: 'soat.documentos_adicionales.eliminar' },
   // HU #13889 (ADR-0028): expediente documental de la compañía.
+  // HU #13941: las funciones de Dr. Flit, en línea en su fichero de guardas (sin reparto de partida: nacen en el árbol).
+  { fichero: 'flito-dr-flit/dr-flit.funciones.ts', metodo: 'POST', ruta: '*', condicion: 'usar_ia', codigo: 'drflit.ia.usar' },
+  { fichero: 'flito-dr-flit/dr-flit.funciones.ts', metodo: 'POST', ruta: '*', condicion: 'radicar_soporte', codigo: 'drflit.soporte.radicar' },
+  { fichero: 'flito-dr-flit/dr-flit.funciones.ts', metodo: 'POST', ruta: '*', condicion: 'consultar_gestion', codigo: 'drflit.gestion.consultar' },
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/companias/:companiaId', codigo: 'bolsas.documentos.ver' },
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/companias/:companiaId/tipos/:tipo/historial', codigo: 'bolsas.documentos.ver' },
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'POST', ruta: '/companias/:companiaId/tipos/:tipo', codigo: 'bolsas.documentos.cargar' },
@@ -154,6 +159,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/:id/factura-venta', codigo: 'impuestos.factura.ver' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/soportes/zip', codigo: 'impuestos.soportes.descargar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'impuestos.cola.ver' },
+  { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'impuestos.cola.ver' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/export', codigo: 'impuestos.excel.exportar' },
   // Bug #12642: guarda en línea del archivo ampliado (`incluirPago: true`).
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/export', condicion: 'incluirPago', codigo: 'impuestos.excel.exportar_pago' },
@@ -178,6 +184,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // flito-derechos/flito-derechos.routes.ts
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'POST', ruta: '/cargar', codigo: 'derechos.recibos.cargar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'derechos.cola.ver' },
+  { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'derechos.cola.ver' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/facetas', codigo: 'derechos.cola.filtrar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/drive/archivos', codigo: 'derechos.drive.listar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/drive/registro', codigo: 'derechos.drive.ver_registro' },
@@ -196,6 +203,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/solicitar-impuestos', codigo: 'tramites.solicitud.pedir_impuestos' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/solicitar-ambos', codigo: 'tramites.solicitud.pedir_ambos' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/novedades/buscar', codigo: 'tramites.cola.ver' },
+  { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'tramites.cola.ver' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/entregar', codigo: 'tramites.tramite.entregar' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/:id/desbloquear-autogestion', codigo: 'tramites.autogestion.desbloquear' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/:id/revocar-autogestion', codigo: 'tramites.autogestion.revocar' },

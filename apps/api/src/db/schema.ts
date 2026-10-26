@@ -51,6 +51,8 @@ import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js'
 export { flitoTramiteViajesLogistica };
 // HU #13061: `flito_sync_flit2_acceso` vive en `./schema/flito-sync.ts` por el mismo techo.
 export { flitoSyncFlit2Acceso, flitoSyncFlit2Lectura, flitoSyncInterruptor, flitoSyncFlit1Lectura } from './schema/flito-sync.js';
+// HU #13803: `flito_drflit_autorizaciones` (Dr. Flit, Ley 1581) vive en `./schema/flito-drflit.ts` y NO se
+// re-exporta: este archivo está EN el techo (3400) y una línea más rompe el lint. Se importa de ahí directo.
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);

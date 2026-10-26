@@ -176,6 +176,19 @@ describe('AC1 — POST /roles', () => {
       .toEqual(['accion.perfil.cambiar_contrasena', 'accion.perfil.ver_datos', 'pagina.perfil']);
   });
 
+  it('HU #13941 (AC2) — un rol nuevo nace también con «Dr. Flit» + «Ver los manuales» y su elemento (si la base los tiene); nunca con IA, gestión ni soporte', async () => {
+    kdb.when.select('permisos_funciones', [
+      { codigo: 'accion.perfil.cambiar_contrasena' }, { codigo: 'accion.perfil.ver_datos' }, { codigo: 'pagina.perfil' }, { codigo: 'menu.perfil' },
+      { codigo: 'accion.dr_flit.ver_manuales' }, { codigo: 'pagina.flito_dr_flit' }, { codigo: 'menu.general' },
+    ]);
+    kdb.when.insert('permisos_roles', [ROL()]);
+    const { funciones: _f, ...sinFunciones } = cuerpo;
+    expect((await request(app()).post('/api/permisos/roles').set('Authorization', await admin()).send(sinFunciones)).status).toBe(201);
+    const marcadas = espia.ultimoInsertEn('permisos_rol_funcion')!.map((x: { funcionCodigo: string }) => x.funcionCodigo);
+    for (const c of ['accion.dr_flit.ver_manuales', 'pagina.flito_dr_flit', 'menu.general']) expect(marcadas, c).toContain(c);
+    for (const c of ['accion.dr_flit.usar_ia', 'accion.dr_flit.consultar_gestion', 'accion.dr_flit.radicar_soporte']) expect(marcadas, c).not.toContain(c);
+  });
+
   it('HU #13428 — desmarcables (las dos acciones y la página): si se quitan y se guarda el cuadro, no reaparecen (el PUT escribe solo lo pedido)', async () => {
     kdb.when.select('permisos_funciones', [{ codigo: 'soat.cola.ver' }])
       .select('permisos_roles', [{ tipoEnlace: 'ninguno' }]).select('users', [USERS_OK])
@@ -562,5 +575,89 @@ describe('HU #13424 — admin editable (AC1), conjunción en el cuadro (AC3), bo
     expect(r.status).toBe(200);
     expect(eventos).toEqual(['commit', 'invalidar-rol:gestor_x']);
     expect(rechazos()).toEqual([]);
+  });
+});
+
+// HU #13944 — Funciones exclusivas del Administrador. La regla lee la COLUMNA `exclusiva_admin` (la misma lectura que
+// la existencia de los códigos, fuera de la tx): el mock devuelve una función de prueba marcada como exclusiva. En
+// producción `FUNCIONES_EXCLUSIVAS_ADMIN` está vacía (las primeras nacen en #13945/#13954); aquí se prueba el mecanismo.
+describe('HU #13944 — funciones exclusivas del Administrador en el cuadro de un rol', () => {
+  const EXCLUSIVA = { codigo: 'accion.clientes.autogestion', nombreNegocio: 'Habilitar o revocar la autogestión del cliente', exclusivaAdmin: true };
+  const NORMAL = { codigo: 'soat.cola.ver', nombreNegocio: 'Ver la cola', exclusivaAdmin: false };
+  const MSG_ASIGNAR = 'La función Habilitar o revocar la autogestión del cliente es exclusiva del Administrador y no se puede asignar a otro rol.';
+  const MSG_QUITAR = 'La función Habilitar o revocar la autogestión del cliente es exclusiva del Administrador y no se puede quitar.';
+
+  it('AC2: guardar el cuadro de otro rol con la exclusiva → 409 «no se puede asignar a otro rol»; el cuadro no cambia', async () => {
+    kdb.when.select('permisos_funciones', [NORMAL, EXCLUSIVA])
+      .select('permisos_roles', [{ tipoEnlace: 'ninguno' }]).select('users', [USERS_OK]).select('permisos_rol_funcion', []);
+    const r = await request(app()).put('/api/permisos/roles/coordinador/funciones').set('Authorization', await admin())
+      .send({ funciones: ['soat.cola.ver', 'accion.clientes.autogestion'] });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MSG_ASIGNAR, funcion: 'accion.clientes.autogestion' });
+    expect(kdb.transaction).not.toHaveBeenCalled();
+    expect(borrados).toEqual([]);
+    expect(espia.insertsEn('permisos_rol_funcion')).toHaveLength(0);
+    expect(auditadas()).toHaveLength(0);
+    expect(invalidarRolMock).not.toHaveBeenCalled();
+  });
+
+  it('AC4: guardar el cuadro de `admin` SIN la exclusiva → 409 «no se puede quitar», antes del seguro antibloqueo', async () => {
+    kdb.when.select('permisos_funciones', [NORMAL, EXCLUSIVA])
+      .select('permisos_roles', [{ tipoEnlace: 'ninguno' }]).select('users', [USERS_OK]).select('permisos_rol_funcion', []);
+    const r = await request(app()).put('/api/permisos/roles/admin/funciones').set('Authorization', await admin())
+      .send({ funciones: ['soat.cola.ver'] });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MSG_QUITAR, funcion: 'accion.clientes.autogestion' });
+    expect(kdb.transaction).not.toHaveBeenCalled();
+    expect(borrados).toEqual([]);
+    expect(rechazos()).toEqual([]); // no es un rechazo del antibloqueo
+  });
+
+  it('AC4: el cuadro VACÍO de `admin` también pregunta por las exclusivas → 409 «no se puede quitar»', async () => {
+    kdb.when.select('permisos_funciones', [EXCLUSIVA]);
+    const r = await request(app()).put('/api/permisos/roles/admin/funciones').set('Authorization', await admin()).send({ funciones: [] });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MSG_QUITAR, funcion: 'accion.clientes.autogestion' });
+    expect(kdb.transaction).not.toHaveBeenCalled();
+  });
+
+  it('el cuadro de `admin` CON la exclusiva se guarda como hoy', async () => {
+    kdb.when.select('permisos_funciones', [NORMAL, EXCLUSIVA])
+      .select('permisos_roles', [{ tipoEnlace: 'ninguno' }]).select('users', [USERS_OK]).select('permisos_rol_funcion', []);
+    const r = await request(app()).put('/api/permisos/roles/admin/funciones').set('Authorization', await admin())
+      .send({ funciones: ['soat.cola.ver', 'accion.clientes.autogestion'] });
+    expect(r.status).toBe(200);
+    expect(espia.ultimoInsertEn('permisos_rol_funcion')).toEqual([
+      { rolCodigo: 'admin', funcionCodigo: 'accion.clientes.autogestion' }, { rolCodigo: 'admin', funcionCodigo: 'soat.cola.ver' },
+    ]);
+  });
+
+  it('AC6: con una exclusiva en la base, asignar a otro rol una función SIN marca se guarda como hoy', async () => {
+    kdb.when.select('permisos_funciones', [NORMAL, EXCLUSIVA])
+      .select('permisos_roles', [{ tipoEnlace: 'ninguno' }]).select('users', [USERS_OK]).select('permisos_rol_funcion', []);
+    const r = await request(app()).put('/api/permisos/roles/coordinador/funciones').set('Authorization', await admin())
+      .send({ funciones: ['soat.cola.ver'] });
+    expect(r.status).toBe(200);
+    expect(r.body.concedidas).toEqual(['soat.cola.ver']);
+    expect(espia.ultimoInsertEn('permisos_rol_funcion')).toEqual([{ rolCodigo: 'coordinador', funcionCodigo: 'soat.cola.ver' }]);
+    expect(eventos).toEqual(['commit', 'invalidar-rol:coordinador']);
+  });
+
+  it('crearRol con la exclusiva → 409 «no se puede asignar a otro rol»; ni el rol ni el cuadro se escriben', async () => {
+    kdb.when.select('permisos_funciones', [NORMAL, EXCLUSIVA]);
+    const r = await request(app()).post('/api/permisos/roles').set('Authorization', await admin())
+      .send({ codigo: 'gestor_x', nombre: 'Gestor X', tipoEnlace: 'ninguno', funciones: ['soat.cola.ver', 'accion.clientes.autogestion'] });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MSG_ASIGNAR, funcion: 'accion.clientes.autogestion' });
+    expect(kdb.insert).not.toHaveBeenCalled();
+    expect(kdb.transaction).not.toHaveBeenCalled();
+  });
+
+  it('crearRol sin la exclusiva (aunque exista en la base) → 201 como hoy', async () => {
+    kdb.when.select('permisos_funciones', [NORMAL, EXCLUSIVA]).insert('permisos_roles', [ROL()]);
+    const r = await request(app()).post('/api/permisos/roles').set('Authorization', await admin())
+      .send({ codigo: 'gestor_x', nombre: 'Gestor X', tipoEnlace: 'ninguno', funciones: ['soat.cola.ver'] });
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('permisos_rol_funcion')).not.toContainEqual(expect.objectContaining({ funcionCodigo: 'accion.clientes.autogestion' }));
   });
 });

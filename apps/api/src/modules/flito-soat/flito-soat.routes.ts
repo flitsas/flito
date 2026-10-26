@@ -26,12 +26,16 @@ import {
 import {
   CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, esFiltroVigenciaCola,
   EstadoSoat, FILTROS_VIGENCIA_COLA, TipoSoporteZip,
+  type ResultadoGestion, type TarjetaSoatGestion,
 } from '@operaciones/shared-types';
 import {
   asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
   devolverAlGestor, facetasCola, detalle, enviarAlGestor, historialConAcceso,
-  reactivar, rechazar, registrosZipSoat, reversar, SoatError, type ArchivoSubido,
+  reactivar, rechazar, registrosZipSoat, reversar, SoatError, type ArchivoSubido, type SoatColaItemSalida,
 } from './flito-soat.service.js';
+import { drFlitGestionLimiter } from '../../shared/middleware/rateLimiter.js';
+import { busquedaGestionSchema, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
+import { exigirConsultaGestionDrFlit } from '../flito-dr-flit/dr-flit.funciones.js';
 import {
   construirFilasExportSoat, nombreArchivoExportSoat,
 } from './flito-soat.export.service.js';
@@ -155,6 +159,41 @@ router.get('/', exigirFuncion('soat.cola.ver'), async (req: Request, res: Respon
   });
   await registrarAccesoSoat(req, { accion: 'search', filas: pagina.items.length });
   res.json(pagina);
+});
+
+// POST /buscar — consulta de gestión de Dr. Flit (HU #13837, Feature #13834). El valor (placa, VIN o id
+// FLIT) va en el BODY (AGENTS.md §14). Mismo permiso, servicio y alcance (`contextoSoat`: compañía /
+// proveedor) que el GET /; primera página de `TARJETAS_POR_MODULO` filas + total real. Rastro PII con 200
+// (también con 0 filas) por `registrarAccesoSoat`, cuyo motivo lleva solo `filas=N`; con 400/403 no hay
+// rastro. El valor no entra en el motivo, ni en logs ni en `audit`.
+//
+// La tarjeta (UX F6.6) usa solo campos presentes en las DOS ramas de `SoatColaItemSalida` (interna y del
+// canal Cliente): nada de proveedor, gestión, valor ni vigencia. La compañía viaja solo si la cola se la
+// muestra al usuario (sin proyección del canal Cliente) y el VIN solo cuando no hay placa (es el título).
+const CAMPOS_PII_TARJETA_SOAT = ['placa', 'vin'] as const;
+
+function aTarjetaSoat(f: SoatColaItemSalida, conCompania: boolean): TarjetaSoatGestion {
+  return {
+    id: f.id, placa: f.placa,
+    ...(f.placa ? {} : { vin: f.vin }),
+    estado: f.estado,
+    ...(conCompania ? { compania: f.companiaNombre } : {}),
+    solicitado: f.enviadoEn, pagado: f.pagadoEn,
+  };
+}
+
+// HU #13941 (AC4/AC6): la función «Consultar la gestión» de Dr. Flit PRIMERO; la frontera sigue siendo `conAlcance`.
+router.post('/buscar', exigirConsultaGestionDrFlit, exigirFuncion('soat.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
+  const parsed = busquedaGestionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  const ctx = await contextoSoat(req.user!);
+  const { items, total } = await cola(ctx, { buscar: parsed.data.valor, ...PAGINA_GESTION });
+  await registrarAccesoSoat(req, { accion: 'search', filas: items.length, campos: CAMPOS_PII_TARJETA_SOAT });
+  const cuerpo: ResultadoGestion<TarjetaSoatGestion> = {
+    total, items: items.map((f) => aTarjetaSoat(f, !ctx.proyeccionCliente)),
+  };
+  res.set('Cache-Control', 'no-store');
+  res.json(cuerpo);
 });
 
 /**

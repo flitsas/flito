@@ -69,10 +69,13 @@ const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.route
 const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
 const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
 const BDOC = 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts'; // HU #13889 (ADR-0028)
+const DRF = 'flito-dr-flit/dr-flit.funciones.ts'; // HU #13941
 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
   op(`${SOAT} GET /`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
+  // HU #13837: consulta de gestión de Dr. Flit (valor en el body); misma lectura que la cola.
+  op(`${SOAT} POST /buscar`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
   op(`${SOAT} GET /facetas`, 'soat.cola.filtrar', 'Filtrar la cola de SOAT', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${SOAT} POST /export`, 'soat.excel.exportar', 'Exportar la cola de SOAT a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
   // Bug #12642: guarda EN LÍNEA dentro del mismo handler (`tieneFuncion` cuando el cuerpo trae
@@ -112,6 +115,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
 
   // ── Impuestos ─────────────────────────────────────────────────────────────────────────────────
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
+  // HU #13838: consulta de gestión de Dr. Flit (valor en el body); misma lectura que la cola.
+  op(`${IMP} POST /buscar`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
   op(`${IMP} GET /facetas`, 'impuestos.cola.filtrar', 'Filtrar la cola de impuestos', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${IMP} POST /export`, 'impuestos.excel.exportar', 'Exportar la cola de impuestos a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
   // Bug #12642: guarda EN LÍNEA (`tieneFuncion` con `incluirPago: true`); textos byte a byte con la 0203.
@@ -139,6 +144,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
+  // HU #13838: consulta de gestión de Dr. Flit (valor en el body); misma lectura que el listado.
+  op(`${DER} POST /buscar`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
   op(`${DER} GET /facetas`, 'derechos.cola.filtrar', 'Filtrar los derechos de tránsito', 'Leer los contadores y las facetas del listado de derechos.'),
   op(`${DER} POST /cargar`, 'derechos.recibos.cargar', 'Cargar recibos de derechos de tránsito', 'Subir los archivos de recibos para que el sistema los lea y los cruce.'),
   op(`${DER} GET /drive/archivos`, 'derechos.drive.listar', 'Ver los archivos de derechos en Drive', 'Listar los recibos que esperan proceso en la carpeta de Drive.'),
@@ -171,6 +178,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TRA} POST /solicitar-impuestos`, 'tramites.solicitud.pedir_impuestos', 'Solicitar impuestos para un vehículo', 'Radicar un trámite de impuesto vehicular desde Operaciones.'),
   op(`${TRA} POST /solicitar-ambos`, 'tramites.solicitud.pedir_ambos', 'Solicitar SOAT e impuestos a la vez', 'Radicar los dos trámites del vehículo en una sola operación.'),
   op(`${TRA} POST /novedades/buscar`, 'tramites.cola.ver', 'Ver la cola de trámites FLITO', 'Abrir la bandeja de trámites de SOAT e impuestos.'),
+  // HU #13836: consulta de gestión de Dr. Flit (valor en el body); misma lectura que el listado.
+  op(`${TRA} POST /buscar`, 'tramites.cola.ver', 'Ver la cola de trámites FLITO', 'Abrir la bandeja de trámites de SOAT e impuestos.'),
   op(`${TRA} POST /entregar`, 'tramites.tramite.entregar', 'Entregar trámites FLITO', 'Marcar como entregados los trámites seleccionados.'),
   op(`${TRA} POST /:id/desbloquear-autogestion`, 'tramites.autogestion.desbloquear', 'Desbloquear la autogestión del cliente', 'Permitir que el cliente vuelva a radicar por su cuenta.'),
   op(`${TRA} POST /:id/revocar-autogestion`, 'tramites.autogestion.revocar', 'Revocar la autogestión del cliente', 'Quitarle al cliente la posibilidad de radicar por su cuenta.'),
@@ -463,6 +472,11 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${CPR} POST /:id/desaplicar`, 'comprobantes.comprobante.desaplicar', 'Desaplicar un comprobante', 'Deshacer la aplicación de un comprobante (y el pago que registró) devolviéndolo a la cola o descartándolo, con motivo.'),
   op(`${CPR} POST /:id/reemplazar`, 'comprobantes.comprobante.reemplazar', 'Reemplazar un comprobante aplicado', 'Descartar un comprobante aplicado y aplicar otro pendiente al mismo trámite y concepto, con motivo.'),
   op(`${CPR} POST /:id/diferencia/aceptar`, 'comprobantes.diferencia.aceptar', 'Aceptar la diferencia de un comprobante', 'Aceptar con motivo la diferencia entre el valor del comprobante y la tarifa de referencia.'),
+  // HU #13941: las funciones de Dr. Flit, en línea en su fichero de guardas. Nacen en el árbol (General · Dr. Flit,
+  // `arbol/acciones-dr-flit.ts`); `drflit.manuales.ver` no tiene guarda (es sonda del servicio de la IA).
+  op(`${DRF} POST * [usar_ia]`, 'drflit.ia.usar', 'Usar la IA de Dr. Flit', 'Preguntarle a la IA de Dr. Flit y aceptar su autorización de tratamiento de datos.'),
+  op(`${DRF} POST * [radicar_soporte]`, 'drflit.soporte.radicar', 'Radicar casos de soporte en Dr. Flit', 'Enviar un caso a la mesa de soporte y aceptar su autorización de tratamiento de datos.'),
+  op(`${DRF} POST * [consultar_gestion]`, 'drflit.gestion.consultar', 'Consultar la gestión desde Dr. Flit', 'Buscar desde Dr. Flit trámites, SOAT, impuestos y derechos (con la cola de cada módulo).'),
 ];
 
 // HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).
@@ -482,3 +496,15 @@ export const OPERACIONES_RETIRADAS_CANAL_CLIENTE = [
   'soat.causales.ver',
   'soat.solicitud.subsanar',
 ] as const;
+
+/**
+ * HU #13944 (Feature #13939) — Funciones EXCLUSIVAS del Administrador: solo el rol `admin` las tiene, nadie
+ * puede asignarlas a otro rol ni a un usuario (excepción `conceder`), ni quitárselas a `admin` (cuadro del rol o
+ * excepción `revocar`). Fuente de verdad = esta lista; `permisos_funciones.exclusiva_admin` (0253) es su copia,
+ * que `verificarCatalogoAlArrancar` compara al arrancar (patrón de `modulo`, HU #12716 AC7). Cada código tiene que
+ * existir en el catálogo con reparto de partida `['admin']` (`catalogoCompleto` lo valida).
+ *
+ * Vacía a propósito: esta HU entrega el MECANISMO. Las primeras exclusivas (estado y eliminación de clientes)
+ * nacen con sus rutas en las HUs #13945/#13954, junto con la migración que les pone `exclusiva_admin = true`.
+ */
+export const FUNCIONES_EXCLUSIVAS_ADMIN: readonly string[] = [];

@@ -147,3 +147,11 @@ export * from './flito-gastos-diarios.js';
 export * from './flito-tramite-fuente.js';
 // Expediente documental de la compañía en bolsas (HU #13889, Feature #13888, ADR-0028).
 export * from './flito-bolsas-documentos.js';
+// Dr. Flit — autorización de tratamiento de datos y soporte (HU #13803, Feature #13695).
+export * from './flito-dr-flit.js';
+// Dr. Flit — consultas de gestión sin IA (HU #13836, Feature #13834): body `{ valor }`, `{ total, items }`
+// y las tarjetas por módulo.
+export * from './flito-dr-flit-gestion.js';
+// Dr. Flit — enmascaramiento de PII antes de la IA (HU #13855, Feature #13696 IA-3). Fuente única de
+// los patrones de valor de gestión de F6.
+export * from './flito-dr-flit-mascara.js';

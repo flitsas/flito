@@ -270,6 +270,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/impuestos/:id/factura-venta',                               'filtra'],
   ['POST /api/flito/impuestos/soportes/zip',                                   'filtra'],
   ['GET /api/flito/impuestos',                                                 'filtra'],
+  ['POST /api/flito/impuestos/buscar',                                         'filtra'], // HU #13838: Dr. Flit gestión, alcance de la cola
   ['POST /api/flito/impuestos/export',                                         'filtra'],
   ['GET /api/flito/impuestos/facetas',                                         'filtra'],
   ['GET /api/flito/impuestos/:id',                                             'filtra'],
@@ -288,6 +289,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/impuestos/:id/recibo-caja',                                'filtra'],
   ['POST /api/flito/derechos/cargar',                                          'filtra'],
   ['GET /api/flito/derechos',                                                  'filtra'],
+  ['POST /api/flito/derechos/buscar',                                          'filtra'], // HU #13838: Dr. Flit gestión, alcance por organismos
   ['GET /api/flito/derechos/facetas',                                          'filtra'],
   ['GET /api/flito/derechos/drive/archivos',                                   'soloSinEnlace'],
   ['GET /api/flito/derechos/drive/registro',                                   'soloSinEnlace'],
@@ -296,6 +298,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/derechos/soporte/:id',                                      'filtra'],
   ['GET /api/flito/tramites',                                                  'filtra'],
   ['POST /api/flito/tramites/novedades/buscar',                                'filtra'],
+  ['POST /api/flito/tramites/buscar',                                          'filtra'], // HU #13836: Dr. Flit gestión, alcance del listado
   ['GET /api/flito/tramites/facetas',                                          'filtra'],
   ['GET /api/flito/tramites/:id/historial',                                    'filtra'],
   ['GET /api/flito/tramites/:id/soportes',                                     'filtra'],
@@ -403,7 +406,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
 
 /**
  * Foto de las rutas de los cuatro routers de `/api/flito/soat` (orden de montaje y de declaración).
- * Las 26 acotan por `contextoSoat` (compañía / proveedor) o por `buscarConAcceso` (404-no-403 fuera de
+ * Las 27 acotan por `contextoSoat` (compañía / proveedor) o por `buscarConAcceso` (404-no-403 fuera de
  * su alcance); por eso ninguna lleva `soloSinEnlace()` en #12875. Añadir una aquí es decidir eso.
  */
 const RUTAS_SOAT_ABIERTAS: string[] = [
@@ -420,6 +423,9 @@ const RUTAS_SOAT_ABIERTAS: string[] = [
   'POST /api/flito/soat/:id/documentos-adicionales',
   'DELETE /api/flito/soat/:id/documentos-adicionales/:soporteId',
   'GET /api/flito/soat',
+  // HU #13837 (añadida a propósito): Dr. Flit gestión. Acota por `contextoSoat` como el GET /: el enlace
+  // `compania` también entra (solo la suya), igual que en la cola.
+  'POST /api/flito/soat/buscar',
   'POST /api/flito/soat/export',
   'POST /api/flito/soat/soportes/zip',
   'GET /api/flito/soat/facetas',

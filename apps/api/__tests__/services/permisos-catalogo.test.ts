@@ -47,7 +47,7 @@ const paginas = catalogo.filter((f) => f.tipo === 'pagina');
 const operaciones = catalogo.filter((f) => f.tipo === 'operacion');
 
 describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo era', () => {
-  it('`PAGE_GROUPS` trae 74 entradas para 73 slugs únicos: `transito` está dos veces', () => {
+  it('`PAGE_GROUPS` trae 76 entradas para 75 slugs únicos: `transito` está dos veces', () => {
     // 44 → 45 / 43 → 44 desde la HU #12375: entra `flito_tarifas` en «Finanzas».
     // 45 → 46 / 44 → 45 desde la HU #12085: entra `roles_permisos` en «Administración».
     // 46 → 47 / 45 → 46 desde la HU #12542: entra `flito_servicios_adicionales` en «Finanzas».
@@ -57,9 +57,10 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     // 50 → 71 / 49 → 70 desde la HU #13421: entran las 21 páginas por ítem del menú PESV.
     // 71 → 74 / 70 → 73 desde la HU #13422: entran las 3 páginas por ítem del menú Mantenimiento.
     // 74 → 75 / 73 → 74 desde la HU #13588: entra `admin_rendimiento` («Rendimiento») en «Administración».
+    // 75 → 76 / 74 → 75 desde la HU #13941: entra `flito_dr_flit` («Dr. Flit») en «General».
     const entradas = PAGE_GROUPS.flatMap((g) => g.pages);
-    expect(entradas).toHaveLength(75);
-    expect(new Set(entradas).size).toBe(74);
+    expect(entradas).toHaveLength(76);
+    expect(new Set(entradas).size).toBe(75);
     const repetidos = entradas.filter((s, i) => entradas.indexOf(s) !== i);
     expect(repetidos).toEqual(['transito']);
   });
@@ -85,12 +86,13 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     expect(catalogo.map((f) => f.codigo)).not.toContain('pagina.flito_ayuda');
   });
 
-  it('las funciones de tipo `pagina` del mundo plano son 73: los 75 slugs de PAGES menos `flito_ayuda` y `admin_rendimiento`', () => {
+  it('las funciones de tipo `pagina` del mundo plano son 73: los 76 slugs de PAGES menos `flito_ayuda`, `admin_rendimiento` y `flito_dr_flit`', () => {
     // HU #13255: +1 (`perfil`). HU #13421: +21 (una por ítem del menú PESV). HU #13422: +3 (Mantenimiento).
     // HU #13588: +1 en PAGES (`admin_rendimiento`), que nace en el árbol (la 0240): no es del mundo plano (≤ 0231).
-    expect(Object.keys(PAGES)).toHaveLength(75);
+    // HU #13941: +1 en PAGES (`flito_dr_flit`), que también nace en el árbol (la 0254).
+    expect(Object.keys(PAGES)).toHaveLength(76);
     expect(paginas).toHaveLength(73);
-    const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda' && s !== 'admin_rendimiento').sort();
+    const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda' && s !== 'admin_rendimiento' && s !== 'flito_dr_flit').sort();
     expect(paginas.map((f) => f.codigo.replace('pagina.', '')).sort()).toEqual(esperados);
   });
 });
@@ -196,14 +198,18 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #13907 (ADR-0029): la rama tránsito del catálogo reutiliza crear, ver y editar de las rutas `/transito…`
     // (que retira la #13911), y también listar, ver movimientos y cargar; inactivar y reactivar piden la misma
     // `bolsas.transito.inactivar`.
+    // HU #13836: `POST /buscar` de flito-tramites (Dr. Flit) reutiliza `tramites.cola.ver` del listado (sin función nueva ni siembra).
+    // HU #13837: `POST /buscar` de flito-soat (Dr. Flit) reutiliza `soat.cola.ver` de la cola (sin función nueva ni siembra).
+    // HU #13838: `POST /buscar` de flito-impuestos y de flito-derechos (Dr. Flit) reutilizan `impuestos.cola.ver` y `derechos.cola.ver`.
     expect(compartidosFlito.sort()).toEqual([
       ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
       ['bolsas.documentos.cargar', 2], ['bolsas.documentos.ver', 4],
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.cargar', 2], ['bolsas.transito.crear', 2], ['bolsas.transito.editar', 2], ['bolsas.transito.inactivar', 2],
       ['bolsas.transito.listar', 2], ['bolsas.transito.ver', 2], ['bolsas.transito.ver_movimientos', 2],
-      ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.solicitud.crear', 2],
-      ['tramites.cola.ver', 2], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
+      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2],
+      ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.cola.ver', 2], ['soat.solicitud.crear', 2],
+      ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);
     // HU #13427: las de HOY (con las operaciones nuevas que parten una guarda vieja), no las del mundo plano.
     const deHoy = catalogoDeOperaciones();
@@ -252,11 +258,14 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     expect(() => catalogoDeOperaciones(faltante)).toThrow(/SIN guarda viva/);
   });
 
-  it('las veinticinco guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425, una de la HU #13422, ocho de la HU #13423: las acciones de Siigo; dos de la HU #13427: credenciales de Siigo por ambiente; seis de la HU #13428: compañía por grupo de campos, clientes editar y fiscal, contraseña propia)', () => {
+  it('las veintiocho guardas en línea (tres de la HU #13941: las funciones de Dr. Flit) van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425, una de la HU #13422, ocho de la HU #13423: las acciones de Siigo; dos de la HU #13427: credenciales de Siigo por ambiente; seis de la HU #13428: compañía por grupo de campos, clientes editar y fiscal, contraseña propia)', () => {
     const enLinea = guardas.filter((g) => g.condicion);
     expect(enLinea.map(llaveDe).sort()).toEqual([
       'clients/clients.routes.ts PATCH /:id [editar]',
       'clients/clients.routes.ts POST * [fiscal]',
+      'flito-dr-flit/dr-flit.funciones.ts POST * [consultar_gestion]',
+      'flito-dr-flit/dr-flit.funciones.ts POST * [radicar_soporte]',
+      'flito-dr-flit/dr-flit.funciones.ts POST * [usar_ia]',
       'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
       'flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar [operarAjenas]',
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [autogestion]',

@@ -6,6 +6,7 @@ import { useDisclosureNav } from '../shell/useDisclosureNav';
 import { useEdgeClamp } from '../shell/useEdgeClamp';
 import { SECTION_ICON, SECTION_ACCENT, groupItems } from '../shell/sectionMeta';
 import { IconChevronDown } from './icons';
+import { useDrFlitVisible } from '../drflit/useDrFlitVisible';
 
 // FlitNavBar — navegación principal de escritorio: un dock flotante centrado al
 // PIE de la pantalla, por encima del contenido. Sustituye a la barra horizontal
@@ -74,6 +75,9 @@ export default function FlitNavBar() {
   const [condensadoPorScroll, setCondensadoPorScroll] = useState(false);
   const [condensadoPorAncho, setCondensadoPorAncho] = useState(false);
   const contenedorRef = useRef<HTMLDivElement>(null);
+  // HU #13764 (P9-3): con el botón de Dr. Flit, reserva lateral SIMÉTRICA (16 + 48 + 16 px) para que
+  // el dock siga centrado y no lo tape; `medir()` ya descuenta el padding y condensa si no cabe.
+  const reservaDrFlit = useDrFlitVisible();
   // El panel de PESV (4 columnas) se sale del viewport si el módulo queda a la
   // derecha del dock.
   const { ref: panelRef, shift } = useEdgeClamp<HTMLDivElement>(openSection);
@@ -241,7 +245,7 @@ export default function FlitNavBar() {
     // clics: solo el dock y sus paneles son interactivos.
     <div
       ref={contenedorRef}
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-30 hidden justify-center px-4 pb-5 lg:flex"
+      className={`pointer-events-none fixed inset-x-0 bottom-0 z-30 hidden justify-center pb-5 lg:flex ${reservaDrFlit ? 'px-20' : 'px-4'}`}
     >
       <nav
         ref={navRef}

@@ -14,6 +14,7 @@ import { catalogoCompleto, type FuncionCatalogo } from '../catalogo.js';
 import { ACCIONES_POR_AREA, PADRE, paginaDeAccion } from './expansion.js';
 import { ITEMS_LEGADO_OPS } from './acciones-legado.js';
 import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA } from './acciones-finanzas.js';
+import { ITEM_DR_FLIT } from './acciones-dr-flit.js';
 import { lit, sqlRepartoArbol } from './sql-arbol.js';
 
 export const TMP_LEGADO = 'tmp_legado_13429';
@@ -26,8 +27,10 @@ export const TMP_PRIMERA = 'tmp_primera_13429';
  */
 export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set([
   'pagina.admin_rendimiento',
-  // HU #13889 (ADR-0028): las acciones del expediente documental, sembradas por la 0248.
+  // HU #13889 (ADR-0028): las acciones del expediente documental, sembradas por la 0248; y desde la HU
+  // #13941 las de Dr. Flit, que siembra la 0254 junto con su ítem.
   ...ACCIONES_NACIDAS_TRAS_LA_SIEMBRA,
+  ITEM_DR_FLIT,
 ]);
 
 /** Operación de ítem antiguo → ítem, ordenado (lo que lee la 0239 y el pliegue del test). */

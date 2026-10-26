@@ -255,6 +255,29 @@ export const soatClienteLimiter = rateLimit({
 });
 
 /**
+ * HU #13804 (AC9) — Dr. Flit: radicar un caso en FLIT - SOPORTE (`POST /api/flito/dr-flit/casos-soporte`).
+ * `DRFLIT_RADICACIONES_POR_HORA` (5) por usuario y hora. Cuenta lo que llama (o pudo llamar) a un
+ * tercero: las radicaciones (2xx) y los fallos (5xx, incluidos los de ADO). NO cuenta los 4xx de
+ * validación, autorización ni `radicacion-en-curso`. Va DESPUÉS de auth/rol/enlace y ANTES de la
+ * autorización y del handler. Con ADO caído el usuario tiene ~4 reintentos en la hora (declarado).
+ */
+export const drflitCasosLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: env.DRFLIT_RADICACIONES_POR_HORA,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('drflit-casos:'),
+  handler: frenoConRastro('drflit-casos'),
+  skipFailedRequests: true,
+  requestWasSuccessful: (_req, res) => res.statusCode < 400 || res.statusCode >= 500,
+  message: {
+    error: 'Ya radicó varios casos en la última hora. Espere un rato e intente de nuevo.',
+    codigo: 'demasiadas-radicaciones',
+  },
+  store: makeStore('rl:drflit-casos:'),
+});
+
+/**
  * HU #13364 (AC10) — carga posterior de documentos adicionales (`POST /api/flito/soat/:id/documentos-adicionales`).
  * 30 envíos / 15 min por usuario + IP. Presupuesto PROPIO: otro público (operación y proveedor) y
  * otra ruta que el canal Cliente. Va DESPUÉS de `exigirFuncion` y ANTES de multer: quien no tiene la
@@ -497,4 +520,39 @@ export const novedadesTramitesLimiter = rateLimit({
   handler: frenoConRastro('flito-tramites-novedades'),
   message: { error: 'Demasiadas consultas de novedades. Espera un minuto.' },
   store: makeStore('rl:flito-tramites-novedades:'),
+});
+
+/**
+ * HU #13836 (Feature #13834) — consultas de gestión de Dr. Flit (`POST /api/flito/<modulo>/buscar`): 40 / min
+ * por usuario, UNA bolsa compartida por los cuatro módulos (una consulta completa son hasta 4 POST, así que
+ * 40 ≈ 10 consultas por minuto). Va DETRÁS de `exigirFuncion` (quien no tiene la función no gasta cupo).
+ * No comparte bolsa con `drflit-casos` ni con el cupo de IA. Cota revisable y sin telemetría (decisión
+ * humana Q4 del diseño). `frenoConRastro` registra la ruta, nunca el body con el valor buscado.
+ */
+export const drFlitGestionLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('drflit-gestion:'),
+  handler: frenoConRastro('drflit-gestion'),
+  message: { error: 'Hizo muchas consultas seguidas; intente en un momento' },
+  store: makeStore('rl:drflit-gestion:'),
+});
+
+/**
+ * HU #13856 (Feature #13696, IA-4) — ráfaga del chat con IA de Dr. Flit (`POST /api/flito/dr-flit/chat`):
+ * 10 / min por usuario. Va PRIMERO en la cadena del chat (antes de Zod y del cupo): es un freno de ráfaga,
+ * no el control de costo (ese es el cupo diario en PostgreSQL, `dr-flit-ia.cupo.ts`). Bolsa propia: no
+ * comparte con `drflit-casos` ni con `drflit-gestion`. `frenoConRastro` no registra el cuerpo (el mensaje).
+ */
+export const drflitChatLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('drflit-chat:'),
+  handler: frenoConRastro('drflit-chat'),
+  message: { error: 'Envió muchos mensajes seguidos. Espere un momento e intente de nuevo.', codigo: 'demasiados-mensajes' },
+  store: makeStore('rl:drflit-chat:'),
 });

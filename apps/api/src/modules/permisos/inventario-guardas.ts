@@ -117,6 +117,9 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'bolsas', fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts' },
   // HU #13907: rama tránsito del catálogo (mismas rutas, fichero propio para que su llave sea distinta).
   { modulo: 'bolsas', fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts' },
+  // HU #13941: las funciones de Dr. Flit, en línea (`tieneFuncion`) en su fichero de guardas; las usan
+  // `dr-flit.routes.ts`, `dr-flit-chat.routes.ts` y los POST /buscar de trámites, SOAT, impuestos y derechos.
+  { modulo: 'drflit', fichero: 'flito-dr-flit/dr-flit.funciones.ts' },
 ];
 
 /**

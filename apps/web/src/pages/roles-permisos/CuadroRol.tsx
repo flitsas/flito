@@ -21,6 +21,7 @@ import { FlitCard, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle }
 import { ETIQUETA_ENLACE, desmarcadas, marcadas, notaCerradoPorEnlace } from './modulos';
 import { cerradosPorEnlace, codigosDesmarcarTodo, codigosMarcarTodo, type Aviso409, type Indice, type Nodo } from './arbol';
 import ArbolPermisos, { type FocoArbol } from './ArbolPermisos';
+import { useFabOffset } from '../../components/drflit/useFabOffset';
 
 export const COPY_SOLO_LECTURA =
   'Solo lectura: puedes consultar los permisos de cada rol, pero no cambiarlos. Para cambiarlos hace falta la acción «Asignar permisos» de Roles y permisos.';
@@ -60,10 +61,13 @@ export default function CuadroRol({
 }: Props) {
   const tituloRef = useRef<HTMLHeadingElement>(null);
   const avisoRef = useRef<HTMLParagraphElement>(null);
+  // HU #13764: barra pegada al pie en <lg → el botón de Dr. Flit sube por encima de ella.
+  const barraRef = useRef<HTMLDivElement>(null);
   const editable = permisos.guardar;
   const nuevas = [...borrador].filter((c) => !base.has(c)).length;
   const quitadas = [...base].filter((c) => !borrador.has(c)).length;
   const hayCambios = editable && nuevas + quitadas > 0;
+  useFabOffset(barraRef, hayCambios);
   const resumenCambios = [nuevas > 0 ? marcadas(nuevas) : null, quitadas > 0 ? desmarcadas(quitadas) : null].filter(Boolean).join(', ');
   const modo = useMemo(() => ({ tipo: 'rol' as const, rolNombre: rol.nombre }), [rol.nombre]);
 
@@ -116,7 +120,7 @@ export default function CuadroRol({
       </FlitCard>
 
       {hayCambios && (
-        <div className={BARRA}>
+        <div ref={barraRef} className={BARRA}>
           <FlitCard>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Sin guardar: {resumenCambios}</p>

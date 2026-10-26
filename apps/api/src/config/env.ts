@@ -20,6 +20,19 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
  * boot, que es justo lo contrario del defecto seguro.
  */
 const vacioComoAusente = (v: unknown) => (v === '' ? undefined : v);
+/** HU #13804: nombre de campo de ADO (`Microsoft.VSTS.TCM.ReproSteps`, `Custom.Environment`). */
+const RE_CAMPO_ADO = /^[A-Za-z][A-Za-z0-9]*(\.[A-Za-z][A-Za-z0-9]*)+$/;
+/** HU #13803: origen permitido para la organización de Azure DevOps de Dr. Flit (https y host de ADO). */
+export function esOrigenAdoPermitido(valor: string): boolean {
+  try {
+    const u = new URL(valor);
+    const host = u.hostname.toLowerCase();
+    return u.protocol === 'https:' && u.username === '' && u.password === ''
+      && (host === 'dev.azure.com' || /^[a-z0-9-]+\.visualstudio\.com$/.test(host));
+  } catch {
+    return false;
+  }
+}
 const MSG_FLIT2_RESPALDO_MIN = 'FLIT2_RESPALDO_MIN debe ser un entero de 1 a 120 (minutos)';
 
 const envSchema = z.object({
@@ -373,7 +386,87 @@ const envSchema = z.object({
   SYNC_CRON: z.string().default('0 */5 * * * *'),
   // Habilita el job de sincronización FLITO. Default true; 'false'/'0' lo apaga.
   SYNC_HABILITADO: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
+  // ── Dr. Flit soporte (Feature #13695, HU #13803) ─────────────────────────────────────────────
+  // Ambiente del despliegue. NUNCA se deriva de NODE_ENV (salvo el fallback DEV de `development` en
+  // `dr-flit.config.ts`). Ausente en producción → soporte no disponible (fallo cerrado).
+  DEPLOY_ENVIRONMENT: z.preprocess(vacioComoAusente, z.enum(['DEV', 'QA', 'PDN']).optional()),
+  // Adaptador del cliente de FLIT - SOPORTE. `simulado` no hace red y está PROHIBIDO en PDN (superRefine).
+  DRFLIT_ADO_MODO: z.preprocess(vacioComoAusente, z.enum(['real', 'simulado']).default('real')),
+  // SECRETO: PAT con alcance «Work Items (Read & Write)». Nunca en logs ni en `.env.example` con valor.
+  DRFLIT_ADO_PAT: z.preprocess(vacioComoAusente, z.string().min(1).optional()),
+  // Organización de ADO. Solo `https://dev.azure.com/...` o `https://<org>.visualstudio.com` (cierra SSRF
+  // por configuración).
+  DRFLIT_ADO_ORG_URL: z.preprocess(
+    vacioComoAusente,
+    z.string().url().refine(esOrigenAdoPermitido, {
+      message: 'DRFLIT_ADO_ORG_URL debe ser https://dev.azure.com/<org> o https://<org>.visualstudio.com',
+    }).optional(),
+  ),
+  DRFLIT_ADO_PROJECT: z.preprocess(vacioComoAusente, z.string().min(1).max(64).default('FLIT - SOPORTE')),
+  // ── HU #13804: radicación en FLIT - SOPORTE ─────────────────────────────────────────────────
+  // Tiempo de espera POR LLAMADA a ADO (AbortSignal.timeout).
+  DRFLIT_ADO_TIMEOUT_MS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1000).max(30_000).default(15_000)),
+  // Un intento `pendiente` más viejo que esto (s) se puede reclamar (la petición que lo tomó murió).
+  DRFLIT_ADO_PENDIENTE_VENCE_S: z.preprocess(vacioComoAusente, z.coerce.number().int().min(60).max(86_400).default(120)),
+  // Tipo de work item y nombres de campo del mapeo (P9-2). Validados con regex: la configuración no
+  // puede inyectar rutas en el json-patch ni en la URL.
+  DRFLIT_ADO_TIPO: z.preprocess(vacioComoAusente, z.string().regex(/^[A-Za-z][\w ]*$/).max(64).default('Bug')),
+  DRFLIT_ADO_CAMPO_DETALLE: z.preprocess(vacioComoAusente,
+    z.string().regex(RE_CAMPO_ADO).max(128).default('Microsoft.VSTS.TCM.ReproSteps')),
+  DRFLIT_ADO_CAMPO_PRIORIDAD: z.preprocess(vacioComoAusente,
+    z.string().regex(RE_CAMPO_ADO).max(128).default('Microsoft.VSTS.Common.Priority')),
+  // Vacío = no se envía. Ausente = `Custom.Environment` (verificado en el Bug #13713 de FLIT - SOPORTE).
+  DRFLIT_ADO_CAMPO_AMBIENTE: z.string().max(128).default('Custom.Environment')
+    .refine((v) => v === '' || RE_CAMPO_ADO.test(v), { message: 'DRFLIT_ADO_CAMPO_AMBIENTE no es un nombre de campo' }),
+  // Vacío (default) = no se envía `System.AreaPath` (queda la raíz del proyecto).
+  DRFLIT_ADO_AREA_PATH: z.preprocess(vacioComoAusente, z.string().max(256).regex(/^[^<>;]*$/).optional()),
+  DRFLIT_ADO_TAGS: z.preprocess(vacioComoAusente, z.string().max(128).regex(/^[\w ;.-]+$/).default('FLITO')),
+  // Tag extra en DEV y QA, para no ensuciar la bandeja de soporte con casos de prueba.
+  DRFLIT_ADO_TAGS_PRUEBAS: z.preprocess(vacioComoAusente, z.string().max(128).regex(/^[\w ;.-]+$/).default('FLITO-PRUEBAS')),
+  // `drflitCasosLimiter`: radicaciones por hora por usuario (cuenta 2xx y 5xx, no los 4xx).
+  // HU #13805 — adjuntos del caso: cuántos archivos (0 = sin adjuntos) y cuántos MB por archivo. Los
+  // TIPOS no son configurables (PNG, JPG, PDF; P9-4). Viajan en memoria a ADO; FLITO no los guarda.
+  DRFLIT_ADJUNTOS_MAX: z.preprocess(vacioComoAusente, z.coerce.number().int().min(0).max(10).default(3)),
+  DRFLIT_ADJUNTO_MAX_MB: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(25).default(5)),
+  DRFLIT_RADICACIONES_POR_HORA: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(60).default(5)),
+  // ── HU #13853 (Feature #13696, IA-1): presupuesto del contexto de fichas para la IA ──────────────
+  // Caracteres de secciones por mensaje (el índice va aparte, siempre) y tope por sección (recorte).
+  DRFLIT_IA_CONTEXTO_MAX_CHARS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(4000).max(120_000).default(32_000)),
+  DRFLIT_IA_SECCION_MAX_CHARS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(500).max(20_000).default(6000)),
+  // ── HU #13854 (Feature #13696, IA-2): interruptor y cupo diario de la IA ────────────────────────
+  // Puerta POSITIVA: la IA solo se enciende con =1 (y además exige ANTHROPIC_API_KEY, `iaDisponible`).
+  DRFLIT_IA_HABILITADA: z.string().optional().transform((v) => v === '1'),
+  // Mensajes a la IA por usuario y día America/Bogota. 0 = IA sin cupo (ninguna reserva se concede).
+  DRFLIT_IA_TOPE_DIARIO: z.preprocess(vacioComoAusente, z.coerce.number({
+    error: mensajesDeTipo({ tipo: 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500' }),
+  }).int('DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
+    .min(0, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
+    .max(500, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500').default(30)),
+  // ── HU #13856 (Feature #13696, IA-4): modelo y límites de la llamada del chat ──────────────────
+  // Modelo de Dr. Flit IA (lo revisa también el probe diario de `modules/ai`). En blanco = default.
+  ANTHROPIC_MODEL_DRFLIT: z.preprocess(vacioComoAusente, z.string().min(1).max(100).default('claude-haiku-5-5')),
+  // Timeout de UNA llamada (sin reintentos) y tope de tokens de salida.
+  DRFLIT_IA_TIMEOUT_MS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(2000).max(30_000).default(12_000)),
+  DRFLIT_IA_MAX_TOKENS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(100).max(2000).default(600)),
+  // Puerta POSITIVA de la purga de intentos a 12 meses (RN-DRF3): solo con =1.
+  DRFLIT_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
 }).superRefine((data, ctx) => {
+  // HU #13803 (P9-1): el cliente simulado de FLIT - SOPORTE no puede arrancar en PDN. Desde HU #13913
+  // una producción sin DEPLOY_ENVIRONMENT se asume PDN, así que tampoco admite el simulado.
+  if (data.DRFLIT_ADO_MODO === 'simulado' && data.DEPLOY_ENVIRONMENT === 'PDN') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DRFLIT_ADO_MODO'],
+      message: 'DRFLIT_ADO_MODO=simulado no está permitido con DEPLOY_ENVIRONMENT=PDN',
+    });
+  }
+  if (data.DRFLIT_ADO_MODO === 'simulado' && data.NODE_ENV === 'production' && !data.DEPLOY_ENVIRONMENT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DRFLIT_ADO_MODO'],
+      message: 'DRFLIT_ADO_MODO=simulado no está permitido en producción sin DEPLOY_ENVIRONMENT: ausente se asume PDN; declare DEV o QA',
+    });
+  }
   // Bloquea CORS_ORIGIN='*' en producción (XSS cross-origin).
   if (data.NODE_ENV === 'production' && data.FLIT2_SYNC_ADAPTER === 'fake') {
     ctx.addIssue({

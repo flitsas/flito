@@ -18,6 +18,7 @@
 // modifican (regla «todos») y no cambian. `liquidacion.pago_manual.administrar` es de Órdenes de trabajo
 // (P-14): `FUERA_DE_AREA_FINANZAS`, lo retira #13429.
 import type { AccionArbol } from './acciones-gestion.js';
+import { ACCIONES_DR_FLIT, OPERACIONES_DR_FLIT } from './acciones-dr-flit.js';
 
 const REPORTE = 'finanzas.reporte_costos.ver';
 const TRANSITORIO_SIIGO = 'siigo.parametrizacion.administrar';
@@ -171,8 +172,11 @@ export const PARTIDA_DE_OPERACION_NUEVA: Readonly<Record<string, string>> = {
  * acción (no se siembran), y el 403 y la expansión las conocen por `catalogoOperacionesNuevas()`. Las acciones
  * quedan fuera de los generadores de la 0234/0235/0239 (su texto no cambia) y las siembra la 0248.
  */
-export const OPERACIONES_NACIDAS_EN_EL_ARBOL: ReadonlySet<string> = new Set(['bolsas.documentos.cargar', 'bolsas.documentos.ver']);
-export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA: ReadonlySet<string> = new Set(['accion.bolsas.cargar_documentos', 'accion.bolsas.ver_documentos']);
+// HU #13941: las de General · Dr. Flit nacen igual (la 0254 siembra su ítem y sus acciones).
+export const OPERACIONES_NACIDAS_EN_EL_ARBOL: ReadonlySet<string> = new Set(['bolsas.documentos.cargar', 'bolsas.documentos.ver', ...OPERACIONES_DR_FLIT]);
+export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA: ReadonlySet<string> = new Set([
+  'accion.bolsas.cargar_documentos', 'accion.bolsas.ver_documentos', ...Object.keys(ACCIONES_DR_FLIT),
+]);
 
 /** El área de esta HU sobre `OPERACIONES_DECLARADAS` (AC6 de cobertura), por prefijo del código. */
 export const AREA_FINANZAS = /^(liquidacion|bolsas|conciliacion|comprobantes|finanzas|siigo)\.|^parametrizacion\.(tarifas|servicios_adicionales)\./;

@@ -286,6 +286,13 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
       'PATCH /api/users/:id/password',
       // HU #13428 (P-22): «Ver mis datos» de Perfil, solo datos propios. Nada del montaje SOAT.
       'GET /api/auth/perfil',
+      // HU #13803 (ADR-0024, diseño F5 §D3): autorización Ley 1581 de Dr. Flit, solo del propio usuario.
+      'GET /api/flito/dr-flit/autorizacion',
+      'POST /api/flito/dr-flit/autorizacion',
+      // HU #13804: radicar el caso de soporte; solo datos del propio usuario (`sub`), nada del montaje SOAT.
+      'POST /api/flito/dr-flit/casos-soporte',
+      // HU #13856 (IA-4): chat con IA; solo el mensaje del propio usuario (`sub`), nada del montaje SOAT.
+      'POST /api/flito/dr-flit/chat',
     ]);
   });
 });
