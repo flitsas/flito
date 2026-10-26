@@ -11,56 +11,41 @@
 // sellado de la liquidación no tenga que preguntarle a nadie a dónde va el dinero.
 //
 // HU #13906 (Feature #13887, ADR-0029): desde la 0257 este módulo lee y escribe el MODELO ÚNICO
-// (`flito_bolsas_unicas` con `alcance='transito'`, su cobertura y el libro único). Las rutas
-// `/transito/*` y sus DTO no cambian: el origen 'recarga' del libro único se sigue mostrando como
-// 'carga' (`OrigenMovimientoTransito`) hasta que la HU-G retire estas rutas. El asiento es el núcleo
+// (`flito_bolsas_unicas` con `alcance='transito'`, su cobertura y el libro único). HU #13911 retiró las
+// rutas `/transito/…` (y aquí su listado, alta y edición: los da el catálogo único); queda el libro —
+// movimientos, carga, consumo y reverso—. El origen 'recarga' del libro único se sigue mostrando como
+// 'carga' en `MovimientoTransitoDto` (`OrigenMovimientoTransito`). El asiento es el núcleo
 // común de `flito-bolsas.libro.ts` (`asentarEnBolsa`), así que las reglas de imputación (periodo,
 // redondeo, tope, fecha) son por construcción las mismas en los dos alcances.
 //
 // RN-T1 (Q7): una bolsa inactiva no admite cargas (409 `bolsa_inactiva`) ni consumos; sí la
 //        devolución de sus propios consumos al reversar una liquidación.
 
-import { and, desc, eq, inArray, like, sql } from 'drizzle-orm';
+import { and, desc, eq, like } from 'drizzle-orm';
 import { db } from '../../db/client.js';
+import { flitoBolsasUnicasMovimientos, flitoTramites } from '../../db/schema.js';
 import {
-  flitoBolsasUnicas, flitoBolsasUnicasCobertura, flitoBolsasUnicasMovimientos, flitoTramites,
-  organismosTransitoConfig,
-} from '../../db/schema.js';
-import {
-  type BolsaTransitoConNivel,
-  type BolsaTransitoDto,
   CodigoErrorBolsa,
   type ConceptoBolsaTransito,
-  CONCEPTOS_BOLSA_TRANSITO,
-  type CoberturaBolsaTransito,
-  type DatosBolsaTransito,
-  deudaBolsaTransito,
-  esConceptoBolsaTransito,
   type MovimientoBolsaDto,
   type MovimientoTransitoDto,
-  nivelBolsaTransitoDe,
-  type NivelBolsaTransito,
   type OrigenMovimientoTransito,
-  porcentajeSaldo,
   type TipoMovimientoTransito,
 } from '@operaciones/shared-types';
 import {
   aMovimientoDto as aMovimientoLibro, asentarEnBolsa, BolsaError, bolsaBloqueadaPorId, type BolsaEnLibro,
-  type CtxUsuario, type DatosMovimiento, esLlaveDuplicada, hoyIso, MSG_BOLSA_INACTIVA, movimientoPorLlave, num,
-  llaveReversada, redondear, type SoporteRecarga, type Tx, validarMovimiento,
+  type CtxUsuario, type DatosMovimiento, hoyIso, MSG_BOLSA_INACTIVA, movimientoPorLlave, num,
+  llaveReversada, type SoporteRecarga, type Tx, validarMovimiento,
 } from './flito-bolsas.libro.js';
 import { bolsaTransitoPara } from './flito-bolsas.resolver.js';
 
-export type { BolsaTransitoConNivel, BolsaTransitoDto, MovimientoTransitoDto };
+export type { MovimientoTransitoDto };
 
 /** Tipo del comprobante de una carga en `flito_soportes`. */
 const TIPO_SOPORTE_CARGA = 'carga_organismo';
 
 /** Prefijo de familia de las llaves. El índice único es uno solo para todo el libro único. */
 export const PREFIJO_CONSUMO = 'consumo:';
-
-/** Filtro de alcance: las rutas de tránsito nunca ven ni tocan una bolsa de compañía. */
-const DE_TRANSITO = eq(flitoBolsasUnicas.alcance, 'transito');
 
 // ─────────────────────────── Cobertura ───────────────────────────────────────
 
@@ -81,216 +66,9 @@ export async function bolsaQueCubre(
   return r.bolsa ?? null;
 }
 
-/** Cobertura de varias bolsas de una sola consulta, con el alias del organismo ya resuelto. */
-async function coberturaDe(bolsaIds: string[]): Promise<Map<string, CoberturaBolsaTransito[]>> {
-  const porBolsa = new Map<string, CoberturaBolsaTransito[]>();
-  if (bolsaIds.length === 0) return porBolsa;
-
-  const filas = await db
-    .select({
-      bolsaId: flitoBolsasUnicasCobertura.bolsaId,
-      organismoCodigo: flitoBolsasUnicasCobertura.organismoCodigo,
-      organismoNombre: organismosTransitoConfig.alias,
-      concepto: flitoBolsasUnicasCobertura.concepto,
-    })
-    .from(flitoBolsasUnicasCobertura)
-    .leftJoin(
-      organismosTransitoConfig,
-      eq(organismosTransitoConfig.codigo, flitoBolsasUnicasCobertura.organismoCodigo),
-    )
-    .where(inArray(flitoBolsasUnicasCobertura.bolsaId, bolsaIds))
-    .orderBy(flitoBolsasUnicasCobertura.organismoCodigo, flitoBolsasUnicasCobertura.concepto);
-
-  for (const f of filas) {
-    const lista = porBolsa.get(f.bolsaId) ?? [];
-    lista.push({
-      organismoCodigo: f.organismoCodigo,
-      organismoNombre: f.organismoNombre,
-      concepto: f.concepto as ConceptoBolsaTransito,
-    });
-    porBolsa.set(f.bolsaId, lista);
-  }
-  return porBolsa;
-}
-
-/**
- * Valida y normaliza lo que llega del formulario de creación.
- *
- * Deduplica secretarías y conceptos antes de materializar el producto: repetir Medellín en la lista
- * chocaría contra la clave primaria de la cobertura y convertiría un descuido de la pantalla en un
- * 500.
- */
-function normalizarDatos(datos: DatosBolsaTransito): {
-  nombre: string; organismos: string[]; conceptos: ConceptoBolsaTransito[];
-} {
-  const nombre = datos.nombre?.trim() ?? '';
-  if (nombre.length < 3) throw new BolsaError('El nombre de la bolsa debe tener al menos 3 caracteres');
-  if (nombre.length > 120) throw new BolsaError('El nombre de la bolsa no puede superar 120 caracteres');
-
-  const organismos = [...new Set((datos.organismos ?? []).map((o) => o.trim()).filter(Boolean))];
-  if (organismos.length === 0) throw new BolsaError('Selecciona al menos una secretaría');
-
-  const conceptos = [...new Set(datos.conceptos ?? [])];
-  if (conceptos.length === 0) throw new BolsaError('Selecciona al menos un concepto');
-  for (const c of conceptos) {
-    if (!esConceptoBolsaTransito(c)) throw new BolsaError(`Concepto no válido: ${c}`);
-  }
-  // Orden fijo para que la cobertura se lea igual venga como venga del formulario.
-  conceptos.sort((a, b) => CONCEPTOS_BOLSA_TRANSITO.indexOf(a) - CONCEPTOS_BOLSA_TRANSITO.indexOf(b));
-
-  return { nombre, organismos, conceptos };
-}
-
-/**
- * Traduce el choque contra `uq_flito_bolsas_unicas_cobertura_activa` en un mensaje que diga QUÉ se
- * solapa. Solo compiten las parejas ACTIVAS (D3): una bolsa inactiva no reserva su cobertura.
- *
- * Se consulta después del fallo y no antes: comprobar primero dejaría una ventana entre la
- * comprobación y el INSERT, y en algo que decide a dónde va el dinero esa ventana no es aceptable.
- * El índice es el árbitro; esto solo traduce su veredicto.
- */
-async function errorDeSolapamiento(
-  organismos: string[],
-  conceptos: ConceptoBolsaTransito[],
-  bolsaIdExcluida?: string,
-): Promise<BolsaError> {
-  const chocan = await db
-    .select({
-      organismoCodigo: flitoBolsasUnicasCobertura.organismoCodigo,
-      organismoNombre: organismosTransitoConfig.alias,
-      concepto: flitoBolsasUnicasCobertura.concepto,
-      bolsaNombre: flitoBolsasUnicas.nombre,
-      bolsaId: flitoBolsasUnicasCobertura.bolsaId,
-    })
-    .from(flitoBolsasUnicasCobertura)
-    .innerJoin(flitoBolsasUnicas, eq(flitoBolsasUnicas.id, flitoBolsasUnicasCobertura.bolsaId))
-    .leftJoin(
-      organismosTransitoConfig,
-      eq(organismosTransitoConfig.codigo, flitoBolsasUnicasCobertura.organismoCodigo),
-    )
-    .where(and(
-      eq(flitoBolsasUnicasCobertura.activa, true),
-      inArray(flitoBolsasUnicasCobertura.organismoCodigo, organismos),
-      inArray(flitoBolsasUnicasCobertura.concepto, conceptos),
-    ));
-
-  const ajenos = chocan.filter((c) => c.bolsaId !== bolsaIdExcluida);
-  if (ajenos.length === 0) {
-    return new BolsaError('Ya existe una bolsa con esa cobertura', 409, CodigoErrorBolsa.COBERTURA_OCUPADA);
-  }
-  const detalle = ajenos
-    .slice(0, 3)
-    .map((c) => `${c.organismoNombre ?? c.organismoCodigo} (${c.concepto}) ya está en «${c.bolsaNombre ?? ''}»`)
-    .join('; ');
-  const resto = ajenos.length > 3 ? ` y ${ajenos.length - 3} más` : '';
-  return new BolsaError(
-    `Una secretaría no puede tener el mismo concepto en dos bolsas: ${detalle}${resto}.`,
-    409,
-    CodigoErrorBolsa.COBERTURA_OCUPADA,
-  );
-}
-
-const nombreEnUso = (nombre: string): BolsaError =>
-  new BolsaError(`Ya existe una bolsa llamada «${nombre}»`, 409, CodigoErrorBolsa.NOMBRE_EN_USO);
-
 // ─────────────────────────── Lectura ─────────────────────────────────────────
 
-function aBolsaDto(
-  f: typeof flitoBolsasUnicas.$inferSelect,
-  cobertura: CoberturaBolsaTransito[],
-): BolsaTransitoDto {
-  return {
-    id: f.id,
-    nombre: f.nombre ?? '',
-    saldo: num(f.saldo),
-    // El libro único llama «entrada» a lo que aquí fue siempre «carga»: mismo dato, mismo DTO.
-    ultimaCargaValor: f.ultimaEntradaValor === null ? null : num(f.ultimaEntradaValor),
-    ultimaCargaEn: f.ultimaEntradaEn?.toISOString() ?? null,
-    cobertura,
-  };
-}
-
-function conNivel(base: BolsaTransitoDto, cargado: string, consumido: string): BolsaTransitoConNivel {
-  return {
-    ...base,
-    nivel: nivelBolsaTransitoDe(base.saldo, base.ultimaCargaValor),
-    porcentaje: porcentajeSaldo(base.saldo, base.ultimaCargaValor),
-    deuda: deudaBolsaTransito(base.saldo),
-    totalCargado: redondear(num(cargado)),
-    totalConsumido: redondear(num(consumido)),
-  };
-}
-
 const M = flitoBolsasUnicasMovimientos;
-const TOTALES = {
-  cargado: sql<string>`coalesce(sum(case when ${M.tipo} = 'entrada' then ${M.valor} else 0 end), 0)`,
-  consumido: sql<string>`coalesce(sum(case when ${M.tipo} = 'salida' then ${M.valor} else 0 end), 0)`,
-};
-
-/** Bolsa con su nivel ya clasificado, o `null` si no existe (o no es de tránsito). */
-export async function bolsaTransitoDe(bolsaId: string): Promise<BolsaTransitoConNivel | null> {
-  const [fila] = await db
-    .select()
-    .from(flitoBolsasUnicas)
-    .where(and(eq(flitoBolsasUnicas.id, bolsaId), DE_TRANSITO))
-    .limit(1);
-  if (!fila) return null;
-
-  // El valor se guarda siempre positivo y la dirección la da `tipo`, así que los dos totales salen
-  // de la misma pasada filtrando por dirección.
-  const [[totales], cobertura] = await Promise.all([
-    db.select(TOTALES).from(M).where(eq(M.bolsaId, bolsaId)),
-    coberturaDe([bolsaId]),
-  ]);
-
-  return conNivel(
-    aBolsaDto(fila, cobertura.get(bolsaId) ?? []),
-    totales?.cargado ?? '0',
-    totales?.consumido ?? '0',
-  );
-}
-
-/**
- * Orden en que se atienden las bolsas: primero la que más urge (HU #11210).
- *
- * `sin_cargas` va por delante de `normal` a propósito, aunque no sea una alarma: una bolsa creada a
- * la que nunca se le ha cargado nada es un trámite pendiente de alguien, mientras que una en nivel
- * normal no pide nada.
- */
-const ORDEN_NIVEL: Record<NivelBolsaTransito, number> = {
-  en_prestamo: 0, agotada: 1, critico: 2, bajo: 3, sin_cargas: 4, normal: 5,
-};
-
-/**
- * Todas las bolsas de tránsito, de la más urgente a la más tranquila (HU #11210, AC9).
- *
- * Tres consultas fijas, no una por bolsa: el listado se pinta entero de una vez y un N+1 aquí
- * crecería con cada bolsa que se abra.
- */
-export async function bolsasTransito(): Promise<BolsaTransitoConNivel[]> {
-  const filas = await db.select().from(flitoBolsasUnicas).where(DE_TRANSITO).orderBy(flitoBolsasUnicas.nombre);
-  if (filas.length === 0) return [];
-
-  const ids = filas.map((f) => f.id);
-  const [totales, cobertura] = await Promise.all([
-    db.select({ bolsaId: M.bolsaId, ...TOTALES }).from(M).where(inArray(M.bolsaId, ids)).groupBy(M.bolsaId),
-    coberturaDe(ids),
-  ]);
-
-  const totalPorBolsa = new Map(totales.map((t) => [t.bolsaId, t]));
-
-  return filas
-    .map((f) => {
-      const t = totalPorBolsa.get(f.id);
-      return conNivel(
-        aBolsaDto(f, cobertura.get(f.id) ?? []),
-        t?.cargado ?? '0',
-        t?.consumido ?? '0',
-      );
-    })
-    .sort((a, b) => ORDEN_NIVEL[a.nivel] - ORDEN_NIVEL[b.nivel] || a.saldo - b.saldo);
-}
-
 /** Movimientos de la bolsa, del más reciente al más antiguo, con el trámite legible. */
 export async function movimientosTransitoDe(bolsaId: string): Promise<MovimientoTransitoDto[]> {
   const filas = await db
@@ -301,96 +79,6 @@ export async function movimientosTransitoDe(bolsaId: string): Promise<Movimiento
     .orderBy(desc(M.createdAt));
 
   return filas.map(({ m, idFlit }) => aMovimientoDto(aMovimientoLibro(m, null, idFlit ?? null)));
-}
-
-// ─────────────────────────── Creación y edición ──────────────────────────────
-
-/** Cobertura de una bolsa: el producto de sus secretarías por sus conceptos, con su estado. */
-function filasCobertura(bolsaId: string, organismos: string[], conceptos: ConceptoBolsaTransito[], activa: boolean) {
-  return organismos.flatMap((organismoCodigo) =>
-    conceptos.map((concepto) => ({ bolsaId, organismoCodigo, concepto, activa })));
-}
-
-/**
- * Crea una bolsa con su cobertura.
- *
- * Bolsa y cobertura se escriben en la MISMA transacción: una bolsa sin cobertura no cubriría nada y
- * sería dinero sin destino, exactamente el estado que este modelo existe para evitar.
- */
-export async function crearBolsaTransito(
-  datos: DatosBolsaTransito,
-  ctx: CtxUsuario,
-): Promise<BolsaTransitoConNivel> {
-  const { nombre, organismos, conceptos } = normalizarDatos(datos);
-
-  const id = await db.transaction(async (tx) => {
-    let bolsaId: string;
-    try {
-      const [creada] = await tx.insert(flitoBolsasUnicas)
-        .values({ alcance: 'transito', nombre, saldo: '0', creadaPorId: ctx.userId })
-        .returning();
-      bolsaId = creada.id;
-    } catch (e) {
-      if (esLlaveDuplicada(e)) throw nombreEnUso(nombre);
-      throw e;
-    }
-
-    try {
-      await tx.insert(flitoBolsasUnicasCobertura).values(filasCobertura(bolsaId, organismos, conceptos, true));
-    } catch (e) {
-      if (!esLlaveDuplicada(e)) throw e;
-      throw await errorDeSolapamiento(organismos, conceptos);
-    }
-    return bolsaId;
-  });
-
-  const bolsa = await bolsaTransitoDe(id);
-  if (!bolsa) throw new BolsaError('No fue posible crear la bolsa', 500);
-  return bolsa;
-}
-
-/**
- * Redefine nombre y cobertura de una bolsa. El SALDO no se toca: es dinero real y no se edita.
- *
- * La cobertura se reemplaza entera (borrar + insertar) en vez de calcular el diferencial: el
- * formulario manda el estado final, y un diff sobre tres conceptos no compra nada frente a la
- * simplicidad de reescribirla. Sigue dentro de una transacción, así que nadie ve la bolsa sin
- * cobertura a medio camino. La cobertura nueva hereda el `activa` de la bolsa (invariante del modelo).
- */
-export async function actualizarBolsaTransito(
-  bolsaId: string,
-  datos: DatosBolsaTransito,
-  _ctx: CtxUsuario,
-): Promise<BolsaTransitoConNivel> {
-  const { nombre, organismos, conceptos } = normalizarDatos(datos);
-
-  await db.transaction(async (tx) => {
-    const existe = await bolsaTransitoBloqueada(tx, bolsaId);
-
-    try {
-      await tx.update(flitoBolsasUnicas)
-        .set({ nombre, updatedAt: new Date() })
-        .where(eq(flitoBolsasUnicas.id, bolsaId));
-    } catch (e) {
-      if (esLlaveDuplicada(e)) throw nombreEnUso(nombre);
-      throw e;
-    }
-
-    await tx.delete(flitoBolsasUnicasCobertura)
-      .where(eq(flitoBolsasUnicasCobertura.bolsaId, bolsaId));
-
-    try {
-      await tx.insert(flitoBolsasUnicasCobertura)
-        .values(filasCobertura(bolsaId, organismos, conceptos, existe.activa));
-    } catch (e) {
-      if (!esLlaveDuplicada(e)) throw e;
-      throw await errorDeSolapamiento(organismos, conceptos, bolsaId);
-    }
-  });
-
-  const bolsa = await bolsaTransitoDe(bolsaId);
-  if (!bolsa) throw new BolsaError('La bolsa no existe', 404);
-  return bolsa;
 }
 
 // ─────────────────────────── Escritura del libro ─────────────────────────────
@@ -424,7 +112,7 @@ async function asentar(
   return { movimiento: aMovimientoDto(r.movimiento), duplicado: r.duplicado };
 }
 
-/** El libro único dice 'recarga'; el contrato de `/transito/*` sigue diciendo 'carga'. */
+/** El libro único dice 'recarga'; el DTO de movimientos de tránsito sigue diciendo 'carga'. */
 function aMovimientoDto(m: MovimientoBolsaDto): MovimientoTransitoDto {
   return {
     id: m.id,

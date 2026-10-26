@@ -8,11 +8,14 @@
 // Cubre AC1 (copia fiel + evento), AC2 (las autocreadas vacías no se migran), AC3 (descuadre → falla
 // ENTERA, sin PII, sin filas), AC4 (idempotencia) y AC5 (la FK de conciliación apunta al libro único,
 // consultada en `pg_constraint` por tabla y columna, nunca por un nombre supuesto).
+//
+// HU #13911: desde la 0266 los libros viejos viven en `archivo_bolsas`; `enTxLibrosViejos` los devuelve a
+// `public` dentro de la transacción (ROLLBACK al salir), así estas pruebas siguen corriendo tras el retiro.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { URL_BASE, abrirBase, enTx, leerMigracion } from '../helpers/base-en-tx.js';
+import { URL_BASE, abrirBase, enTxLibrosViejos as enTx, leerMigracion } from '../helpers/base-en-tx.js';
 
 const SQL_0249 = leerMigracion('0249_flito_bolsas_unicas.sql');
 const SQL_0250 = leerMigracion('0250_flito_bolsas_unicas_datos_cliente.sql');
