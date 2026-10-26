@@ -52,7 +52,53 @@ lee ni escribe nada.
    a ejecutar el paso 4: retoma con los pendientes sin duplicar (los ya hechos salen como `ya_descontado`).
 6. **Verificación**: una segunda simulación debe mostrar 0 líneas `descontado`.
 
+## Vía SQL desde un cliente gráfico (HU #13972)
+
+Para cuando no se puede correr el script TS en el ambiente: dos archivos SQL **autocontenidos** que dan el
+mismo resultado que el script (mismas llaves, omisiones, orden, periodo imputable y `saldo_resultante`; lo
+prueba `apps/api/__tests__/scripts/flito-bolsas-backfill-comprobantes-sql.test.ts` contra el TS):
+
+- `apps/api/src/db/manual/flito-bolsas-backfill-comprobantes-simulacion.sql` — `BEGIN … ROLLBACK`: no escribe.
+- `apps/api/src/db/manual/flito-bolsas-backfill-comprobantes-aplicar.sql` — `BEGIN … COMMIT`: escribe.
+
+Viven fuera de `migrations/`: el runner (`db:apply`) **no** los aplica. No usan metacomandos de psql (`\set`,
+`\i`, `:var`) y crean solo funciones y una tabla **temporales** (`pg_temp`), que desaparecen con la sesión.
+
+Pasos (DBeaver o pgAdmin, conectado a la BD del ambiente con un usuario que pueda escribir en las tablas de bolsas):
+
+1. **Corte registrado** (paso 1 de arriba). Sin la 0260 aplicada el SQL se detiene con
+   `Falta el corte: aplique la migración 0260 antes del backfill` y no lee ni escribe nada más.
+2. **Abrir `…-simulacion.sql`** y editar **el único valor**: el id del usuario que ejecuta (`users.id`), entre las
+   comillas de la línea `SET LOCAL flito.backfill_usuario = '';` al inicio del archivo (p. ej. `'17'`). Es el
+   `registrado_por` de los movimientos, el mismo que `--usuario` del script TS. Vacío, no numérico o
+   inexistente → se detiene con `Falta el id del usuario…` / `El usuario N no existe…`.
+3. **Ejecutar el archivo COMPLETO como script**: DBeaver → *Execute SQL Script* (Alt+X), con «detener en error»
+   (por defecto); pgAdmin → Query Tool → *Execute* (F5) sin nada seleccionado (corre todo el editor). No ejecutar sentencias sueltas.
+4. **Leer el reporte**: una fila por comprobante × alcance con `linea, comprobante_id, alcance, bolsa_id, concepto,
+   valor, resultado, motivo, saldo_negativo`. `resultado`: `descontado` (se asentaría) | `ya_descontado` |
+   `omitido` (con `motivo`, los mismos del script TS: `cubierto_por_liquidacion`, `cubierto_por_conciliacion`,
+   `sin_bolsa`, `inactiva`, `concepto_no_cubierto`, `sin_organismo`, `sin_compania`, `autogestionado`,
+   `sin_valor`, `ya_no_es_candidato`). En DBeaver sale en la pestaña de resultados del `SELECT`; en pgAdmin,
+   que solo muestra el resultado de la última sentencia, se lee en la pestaña **Messages**: el SQL emite cada
+   línea como `NOTICE` (`comprobante <id> | <alcance> | bolsa <id> | <concepto> | <valor> | <resultado>`) más un
+   resumen (candidatos, descuentos nuevos y su total). Revisarlo con Financiera igual que en el paso 3 de arriba.
+5. **Abrir `…-aplicar.sql`**, poner el **mismo** usuario y ejecutarlo completo igual que en el paso 3. El
+   reporte es el mismo de la simulación, con `descontado` = asentado ahora.
+6. **Verificación**: volver a correr la simulación: 0 filas `descontado` (todo `ya_descontado` u `omitido`).
+
+**Si aborta** (cualquier `ERROR` en los mensajes): a diferencia del script TS (una transacción por
+comprobante), el SQL corre **todo en una sola transacción**, así que un fallo deshace **todo**: no queda
+ningún comprobante a medias ni ningún movimiento de esa ejecución (el `COMMIT` final sobre una transacción
+abortada responde `ROLLBACK`). Si el cliente quedó con la transacción abierta, ejecutar `ROLLBACK;`. Se
+corrige la causa (el mensaje trae el id del comprobante cuando es de un comprobante) y se vuelve a ejecutar
+el archivo completo: es idempotente por llave, así que lo que ya estuviera asentado (por el TS, por una
+ejecución anterior o por el gancho) sale como `ya_descontado` y no se duplica.
+
+Diferencias con el script TS que no cambian el resultado: el SQL recorre **todos** los candidatos (no tiene
+filtro por comprobante) y fecha los movimientos con el día de Colombia del inicio de la transacción.
+
 ## Datos personales (Ley 1581)
 
-El reporte y los logs llevan solo ids (comprobante, bolsa, movimiento), concepto, valor y motivo. No
+El reporte y los logs (y, en la vía SQL, el resultado y los `NOTICE`) llevan solo ids (comprobante, bolsa,
+movimiento), concepto, valor y motivo. No
 imprimen placas, VIN, NIT ni nombres. No pegar la salida en canales públicos de todos modos.
