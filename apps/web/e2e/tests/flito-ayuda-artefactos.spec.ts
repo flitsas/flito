@@ -454,10 +454,11 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // 1.0; Roles y permisos e Integración con Siigo suben a 1.1 (Roles tenía 3 listas ordenadas en Pasos). Log de
   // accesos PII describe una consulta de 3 pasos: sin diagrama. Privacidad no tiene captura del diálogo de
   // anonimización ni de su resultado (AC4).
-  const ADMIN_13774: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
+  // HU #13951: Roles y permisos sube a 1.2 (funciones exclusivas del Administrador); sus capturas no cambian.
+  const ADMIN_13774: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
     privacy_log_pii: { version: '1.0', diagrama: null, capturas: ['01-resumen.png', '02-filtros.png'] },
     users: { version: '1.0', diagrama: 'ciclo-usuario.svg', capturas: ['01-usuarios.png', '02-nuevo-usuario.png', '03-historial.png'] },
-    roles_permisos: { version: '1.1', diagrama: 'reparto-de-permisos.svg', capturas: [
+    roles_permisos: { version: '1.2', fecha: '2026-10-25', diagrama: 'reparto-de-permisos.svg', capturas: [
       '01-roles.png', '02-arbol.png', '03-sin-guardar.png', '04-nuevo-rol.png'] },
     drive: { version: '1.0', diagrama: 'procesar-cuentas.svg', capturas: ['01-carpeta-raiz.png', '02-carpeta.png', '03-resultado.png'] },
     privacy: { version: '1.0', diagrama: 'derecho-al-olvido.svg', capturas: ['01-documento.png', '02-registros-afectados.png'] },
@@ -466,13 +467,13 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   };
 
   for (const [clave, esperado] of Object.entries(ADMIN_13774)) {
-    test(`HU #13774 — ${clave}: versión ${esperado.version} del 2026-10-22, capturas y diagrama con alt`, () => {
+    test(`HU #13774 — ${clave}: versión ${esperado.version} del ${esperado.fecha ?? '2026-10-22'}, capturas y diagrama con alt`, () => {
       const md = leer(`apps/web/src/content/ayuda/${clave}.md`);
       const { encabezado, errores } = parsearFicha(md);
       expect(errores, clave).toEqual([]);
       // AC5 — la ficha cambió: sube la versión menor y la fecha.
       expect(encabezado!.version, `${clave} · version`).toBe(esperado.version);
-      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe('2026-10-22');
+      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe(esperado.fecha ?? '2026-10-22');
       // AC4 — sin rutas de API ni rutas de la app en el texto.
       expect(md, `${clave} · sin rutas`).not.toMatch(/`\/|\/api\/|\/flito\//);
 
