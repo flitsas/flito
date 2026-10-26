@@ -1,11 +1,11 @@
 ---
 name: flit-azure-devops
-description: Integración con Azure DevOps Boards para el proyecto FLIT - FLITO. Conexión: MCP (servidor `ado`); ante fallo de MCP → detener, reintentar una vez a los pocos segundos y, si persiste, detener e informar el error (fallback REST/borrador SUSPENDIDOS desde 2026-08-21 salvo pedido explícito del humano; excepción: upload de capturas en flit-evidencias-dev). Invocar antes de crear, actualizar o consultar work items en ADO desde cualquier skill (flit-crear-hu, flit-gestion-hu, flit-integration-ado, flit-evidencias-dev).
+description: Integración con Azure DevOps Boards para el proyecto FLIT - FLITO. Conexión: MCP (servidor `ado`); ante fallo de MCP → detener, reintentar una vez a los pocos segundos y, si persiste, detener e informar el error (fallback REST/borrador SUSPENDIDOS desde 2026-08-21 salvo pedido explícito del humano). Subida de capturas/adjuntos: `az` CLI (token de la sesión `az login`) + REST `--data-binary` desde el archivo, con verificación sha256; el upload del MCP exige el base64 inline y solo sirve para archivos diminutos. Invocar antes de crear, actualizar o consultar work items en ADO desde cualquier skill (flit-crear-hu, flit-gestion-hu, flit-integration-ado, flit-evidencias-dev).
 ---
 
 # Azure DevOps — MCP primero, REST después
 
-Todas las skills que toquen Azure DevOps **deben** seguir este contrato. Entorno real: **Linux + bash**, monorepo Node/TypeScript. No hay Azure CLI ni PowerShell aquí; no los uses.
+Todas las skills que toquen Azure DevOps **deben** seguir este contrato. Entorno real: **Linux + bash**, monorepo Node/TypeScript. Hay **Azure CLI** (`az`, con la extensión `azure-devops` y sesión `az login` del humano): úsalo **solo** para subir adjuntos (ver «Adjuntos»), no como vía general de work items. No hay PowerShell.
 
 **Fuente de verdad del servidor MCP en Cursor:** id **`ado`** (regla `.cursor/rules/mcp-github-primero.mdc`).  
 **Prohibido** invocar un servidor llamado `azure-devops` o tools `mcp__azure-devops__*` — ese nombre es legado y **no existe** en este runtime.
@@ -79,7 +79,26 @@ Las tools son **action-based** (un tool + `action`), no un tool por verbo. Antes
 | Hijo bajo padre | `wit_work_item_write` | `action: "add_child"`, `parentId`, `items[]` | create + link |
 | Comentario | `wit_work_item_comment_write` | `action: "add"`, `workItemId`, `text`, `format` | Comments API |
 | Descargar adjunto | `wit_work_item_attachment` | `attachmentId` | GET attachment |
-| Subir captura (solo `flit-evidencias-dev`) | REST Attachments + relación `AttachedFile` | con `AZURE_PAT` de sesión, o el humano en la UI | `POST …/wit/attachments` |
+| Subir adjunto (capturas) | `wit_work_item_attachment_upload` | `fileName`, `content` (**base64**) | `POST …/wit/attachments` |
+| Vincular adjunto al WI | `wit_work_item_attachment_link` | `workItemId`, `attachmentUrl` (la que devuelve el upload), `comment` opcional | PATCH relación `AttachedFile` |
+
+**Adjuntos (verificado 2026-10-26):** el MCP `wit_work_item_attachment_upload` existe, pero recibe el
+archivo como **base64 dentro del parámetro `content`**: el modelo tiene que copiar la cadena, y con
+capturas reales (10–60 KB → 15–80 K caracteres) la copia se corrompe sin aviso (probado: 10.353 B
+subidos como 8.352 B, sha distinto). **Vía canónica para capturas:** `az` CLI + REST, que envía el
+archivo intacto desde disco:
+
+```bash
+TOKEN=$(az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)  # nunca imprimirlo
+url=$(curl -sS -X POST "$ORG/$PROJ/_apis/wit/attachments?fileName=$n&api-version=7.1" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/octet-stream" --data-binary @"$f" | jq -r .url)
+curl -sS -L "$url" -H "Authorization: Bearer $TOKEN" -o verif.jpg   # verificar sha256 contra el local ANTES de vincular
+# PATCH al WI: [{"op":"add","path":"/relations/-","value":{"rel":"AttachedFile","url":"<url>","attributes":{"comment":"…"}}}]
+```
+
+Sin `az login` en la sesión → el humano las sube en la UI (Feature → Attachments). El upload por MCP
+solo para archivos diminutos, y siempre verificando con `wit_work_item_attachment` (`savePath`) + sha256
+antes del `link`.
 | Vincular WIs | `wit_work_item_link_write` | `action: "link"`, `updates[]` | relations PATCH |
 | Link a PR | `wit_work_item_link_write` | `action: "link_to_pull_request"` | artifact link |
 
@@ -303,7 +322,7 @@ await fetch(`${org}/${projectEncoded}/_apis/wit/workitems/$User%20Story?api-vers
 
 ## Fallback nivel 3 — borrador local `.md` — **SUSPENDIDO 2026-08-21 salvo pedido explícito del humano**
 
-Si MCP falla y no hay PAT: la política vigente es detener e informar (ver «Estrategia de ejecución»). Solo si el humano lo pide explícitamente: entregar un `.md` con el work item redactado (título, campos, HTML) para que un humano lo cargue. **No** intentar Azure CLI.
+Si MCP falla y no hay PAT: la política vigente es detener e informar (ver «Estrategia de ejecución»). Solo si el humano lo pide explícitamente: entregar un `.md` con el work item redactado (título, campos, HTML) para que un humano lo cargue. **No** usar Azure CLI para esto (`az` solo para adjuntos).
 
 ## Tags FLIT por defecto
 

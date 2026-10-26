@@ -100,13 +100,16 @@ Sin captura del flujo **no** hay evidencia de esa HU, aunque el humano diga «s�
 1. `GET` el Feature: valor actual de `Custom.Evidences` y tags.
 2. **Append** (nunca borrar lo previo) un bloque HTML por sesión (plantilla abajo).
 3. Adjuntar las capturas al Feature:
-   - **Vía 1 (preferida en sesión):** el humano las sube en ADO (Feature → Attachments)
+   - **Vía 1 (canónica — `az` CLI + REST):** subir cada captura desde disco con
+     `curl --data-binary @archivo` a `_apis/wit/attachments` usando el token de
+     `az account get-access-token` (nunca impreso), **descargar el adjunto y comparar sha256**
+     con el local, y solo entonces vincularlo (`AttachedFile`) al Feature. Receta en
+     `flit-azure-devops` «Adjuntos».
+   - **No** usar el upload del MCP para capturas reales: exige el base64 inline y la copia se
+     corrompe sin aviso (verificado 2026-10-26).
+   - **Vía 2:** sin `az login` en la sesión, el humano las sube en ADO (Feature → Attachments)
      y el hilo las nombra en el HTML.
-   - **Vía 2:** si hay `AZURE_PAT` en la sesión, subir con la Attachments REST de ADO
-     (`POST …/_apis/wit/attachments` + `PATCH` relación `AttachedFile`) — **excepción
-     autorizada** al fallback REST suspendido, **solo** para binarios de esta skill
-     (MCP `ado` no tiene upload).
-   - MCP `wit_work_item_attachment` **solo descarga**; no sirve para subir.
+   - MCP `wit_work_item_attachment` (sin `_upload`) **solo descarga**; no confundir.
 4. Si el tipo Feature rechaza `Custom.Evidences`: HTML en Discussion del Feature **y**
    declararlo. Nunca descartar las capturas.
 5. Comentario breve en el Feature (Discussion), **sin** mencionar a Daniel Amado:
