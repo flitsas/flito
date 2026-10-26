@@ -100,13 +100,13 @@ Sin captura del flujo **no** hay evidencia de esa HU, aunque el humano diga «s�
 1. `GET` el Feature: valor actual de `Custom.Evidences` y tags.
 2. **Append** (nunca borrar lo previo) un bloque HTML por sesión (plantilla abajo).
 3. Adjuntar las capturas al Feature:
-   - **Vía 1 (preferida en sesión):** el humano las sube en ADO (Feature → Attachments)
-     y el hilo las nombra en el HTML.
-   - **Vía 2:** si hay `AZURE_PAT` en la sesión, subir con la Attachments REST de ADO
-     (`POST …/_apis/wit/attachments` + `PATCH` relación `AttachedFile`) — **excepción
-     autorizada** al fallback REST suspendido, **solo** para binarios de esta skill
-     (MCP `ado` no tiene upload).
-   - MCP `wit_work_item_attachment` **solo descarga**; no sirve para subir.
+   - **Vía 1 (canónica — MCP):** `wit_work_item_attachment_upload` (`fileName` + `content`
+     en **base64**) por cada captura, y luego `wit_work_item_attachment_link` con la
+     `attachmentUrl` devuelta, al `workItemId` del Feature. **El MCP sí tiene upload**
+     (verificado 2026-10-26); no hace falta PAT ni REST.
+   - **Vía 2:** el humano las sube en ADO (Feature → Attachments) y el hilo las nombra
+     en el HTML.
+   - MCP `wit_work_item_attachment` (sin `_upload`) **solo descarga**; no confundir.
 4. Si el tipo Feature rechaza `Custom.Evidences`: HTML en Discussion del Feature **y**
    declararlo. Nunca descartar las capturas.
 5. Comentario breve en el Feature (Discussion), **sin** mencionar a Daniel Amado:
