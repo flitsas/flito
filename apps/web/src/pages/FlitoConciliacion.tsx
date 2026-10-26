@@ -77,7 +77,7 @@ function Conciliacion() {
     let vivo = true;
     setFalloClientes(false);
     api.get<ClienteOpcion[]>('/clients')
-      .then((c) => { if (vivo) setClientes(Array.isArray(c) ? c.map((x) => ({ id: x.id, name: x.name })) : []); })
+      .then((c) => { if (vivo) setClientes(Array.isArray(c) ? c.map((x) => ({ id: x.id, name: x.name, active: x.active })) : []); })
       // Sin la lista de clientes se pierde el filtro por cliente, no la pantalla: las boletas se
       // siguen listando y su detalle sigue accesible.
       .catch(() => { if (vivo) { setClientes([]); setFalloClientes(true); } });

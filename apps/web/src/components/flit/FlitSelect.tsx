@@ -48,6 +48,12 @@ export interface FlitSelectOpcion {
    * fiable entre navegadores, y aunque se pudiera, el color no puede cargar solo con la información.
    */
   nota?: string;
+  /**
+   * Aditivo (HU #13950). La opción se ve pero no se puede elegir —una compañía inactiva—. Baja como
+   * `disabled` (el navegador la pinta en gris y la salta) y `aria-disabled`, y el motivo tiene que
+   * viajar en `nota`: el gris solo no informa. Lo construye `opcionesConEstado`.
+   */
+  deshabilitada?: boolean;
 }
 
 interface Props {
@@ -184,7 +190,12 @@ export default function FlitSelect({
         onChange={(e) => onChange(e.target.value)}
       >
         {opciones.map((o) => (
-          <option key={o.valor} value={o.valor}>
+          <option
+            key={o.valor}
+            value={o.valor}
+            disabled={o.deshabilitada || undefined}
+            aria-disabled={o.deshabilitada ? true : undefined}
+          >
             {o.nota ? `${o.etiqueta} (${o.nota})` : o.etiqueta}
           </option>
         ))}
