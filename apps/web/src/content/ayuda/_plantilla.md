@@ -1,3 +1,16 @@
+---
+resumen: Una frase que dice para qué sirve la pantalla. Es el subtítulo del índice y de la ficha.
+palabras_clave:
+  - término que un usuario escribiría
+  - otro término
+consultas:
+  - cómo hago la tarea principal de la pantalla
+  - por qué no veo lo que esperaba
+version: 1.0
+fecha: 2026-10-20
+---
+El bloque `---` de arriba es obligatorio: resumen, palabras_clave (al menos una), consultas (al menos una), version (1.0) y fecha (AAAA-MM-DD). Cada vez que usted cambie esta ficha, suba la version y ponga la fecha del día. Borre este párrafo al copiar la plantilla.
+
 ## Qué es
 
 Una o dos frases: para qué existe la pantalla. Escriba en tono de usted, en español de producto.
@@ -15,6 +28,19 @@ Cómo se llega con el menú o, si la pantalla no es un ítem de menú, desde qu�
 1. Cite el copy real del botón o enlace de la interfaz, entre comillas o en **negrita**.
 2. No invente un control que la pantalla no tiene.
 3. Una acción por paso.
+
+Para destacar algo, use un aviso: un bloque `>` cuya primera línea es el tipo. Hay tres y solo tres; cualquier otro `>` se muestra como cita normal.
+
+> [!NOTA]
+> Dato útil que no cambia el resultado. Ejemplo: el filtro se conserva al volver a la pantalla.
+
+> [!IMPORTANTE]
+> Algo que la persona debe saber para que la tarea salga bien. Ejemplo: guarde antes de cambiar de pestaña.
+
+> [!PRECAUCION]
+> Una acción que no se puede deshacer o que afecta dinero o datos. Ejemplo: al anular, el comprobante no se recupera.
+
+Puede añadir una captura o un diagrama **solo con datos demo** (sin cédulas, placas, nombres ni teléfonos reales). Guarde el archivo en `apps/web/public/ayuda/<clave>/` y cítelo así, con un texto alternativo que diga lo que muestra: `![Bandeja con el filtro Pendientes](./<clave>/bandeja.png)`. Solo se cargan imágenes de esa carpeta; un enlace externo muestra únicamente el texto alternativo. Las capturas de pantalla no se toman a mano: se generan con `npm run capturas:ayuda -w apps/web -- --grep <clave>` sobre datos demo y se llaman `NN-<paso>.png`; si la pantalla cambia, vuelva a correr el comando.
 
 ## Estados
 

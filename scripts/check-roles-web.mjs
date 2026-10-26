@@ -34,10 +34,10 @@ const CONST_ROLES = /^ROL(?:E|ES)?_[A-Z_]+$/;
 const CONST_PERMITIDAS = new Set(['ROLE_TONE', 'ROLE_LABELS']);
 
 /**
- * Única excepción declarada (decisión del Líder Técnico en la HU #12872): la matriz rol × estado
- * del traspaso vive en `packages/shared-types/src/traspaso-permisos.ts` y la consume el expediente
- * STT. Pasarla a funciones exige rediseñar esa matriz (servidor + shared-types): pendiente de la
- * Épica #13411. Las rutas son relativas a la raíz del repo, con `/`.
+ * Excepciones declaradas. Las rutas son relativas a la raíz del repo, con `/`.
+ * - Traspaso (decisión del Líder Técnico en la HU #12872): la matriz rol × estado del traspaso vive en
+ *   `packages/shared-types/src/traspaso-permisos.ts` y la consume el expediente STT. Pasarla a
+ *   funciones exige rediseñar esa matriz (servidor + shared-types): pendiente de la Épica #13411.
  */
 export const EXCEPCIONES = {
   'apps/web/src/pages/TransitoTraspasoExpediente.tsx': {

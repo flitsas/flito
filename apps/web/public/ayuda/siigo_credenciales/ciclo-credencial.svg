@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 440" width="1000" height="440" role="img" aria-labelledby="t">
+  <title id="t">Ciclo de una credencial de Siigo por ambiente: sin configurar, registrar y cifrar, activa, probar la conexión, registrar otra al rotar la llave o desactivar dejándola en el historial (diagrama demo, sin datos reales)</title>
+  <rect width="1000" height="440" fill="#ffffff"/>
+  <defs>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1a202c">
+    <rect x="10" y="60" width="170" height="84" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="95" y="98" font-size="16">Sin configurar</text>
+    <text x="95" y="120" font-size="13">por ambiente</text>
+    <rect x="215" y="60" width="170" height="84" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="300" y="98" font-size="16">Registrar</text>
+    <text x="300" y="120" font-size="13">usuario y access key</text>
+    <rect x="420" y="60" width="170" height="84" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="505" y="98" font-size="16">Activa</text>
+    <text x="505" y="120" font-size="13">cifrada</text>
+    <rect x="625" y="60" width="170" height="84" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="710" y="98" font-size="16">Probar conexión</text>
+    <text x="710" y="120" font-size="13">resultado en la tarjeta</text>
+    <rect x="830" y="60" width="160" height="84" rx="12" fill="#fff4e0" stroke="#b7791f" stroke-width="2"/>
+    <text x="910" y="98" font-size="16">Desactivada</text>
+    <text x="910" y="120" font-size="13">queda en historial</text>
+    <line x1="180" y1="102" x2="213" y2="102" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <line x1="385" y1="102" x2="418" y2="102" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <line x1="590" y1="102" x2="623" y2="102" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <path d="M590 130 L620 130 L620 200 L910 200 L910 146" fill="none" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <text x="197" y="40" font-size="13">Registrar nueva</text>
+    <text x="197" y="55" font-size="12">credencial</text>
+    <text x="392" y="40" font-size="13">Guardar y</text>
+    <text x="392" y="55" font-size="12">cifrar</text>
+    <text x="760" y="190" font-size="13">Desactivar (con confirmación)</text>
+    <rect x="420" y="290" width="250" height="84" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="545" y="328" font-size="16">Registrar otra credencial</text>
+    <text x="545" y="350" font-size="13">la anterior pasa al historial</text>
+    <path d="M505 288 L505 146" fill="none" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <text x="515" y="240" font-size="13" text-anchor="start">Rotar la llave</text>
+    <text x="500" y="420" font-size="13" fill="#4a5568">Pruebas y producción son independientes. Sin credencial activa en producción no se emite ninguna factura ante la DIAN.</text>
+  </g>
+</svg>
