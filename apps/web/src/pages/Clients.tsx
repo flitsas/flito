@@ -19,10 +19,10 @@
 //   financiera  — tarifas sí (en su pantalla), servicios no: qué gestiona FLITO es decisión de Operaciones.
 //   auditor     — solo lectura.
 
-import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { toastError } from '../components/flit/ToastFlito';
+import { toastError, toastOk } from '../components/flit/ToastFlito';
 import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { hasPage } from '../lib/permissions';
@@ -42,6 +42,9 @@ import type { VeredictoCliente } from '../components/clientes/tipos';
 import {
   FiltroEstadoPills, ChipEstado, PieConteo, VacioFiltro, filtrarPorEstado, type FiltroEstado,
 } from '../components/clientes/EstadoRegistro';
+// Menú ⋮ de la fila y diálogo de desactivar / activar (HU #13949): genéricos, Proveedores los reusa.
+import { MenuFila } from '../components/flit/MenuFila';
+import { DialogoEstadoRegistro, type ImpactoEstado } from '../components/clientes/DialogoEstadoRegistro';
 // El catálogo de gestores de SOAT y su selector con los cuatro estados (HU #12053). Se REUTILIZA y
 // no se copia: `ProveedorSoatField` ya resuelve el caso que aquí también hace falta —reinyectar el
 // gestor asignado aunque esté desactivado, para que guardar otra cosa no se lo quite a la compañía
@@ -93,9 +96,16 @@ interface Proveedor {
 // Los tres `*Autogestionable` se pintan invertidos (HU #13935): el check dice «FLITO gestiona».
 type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable';
 type Tab = 'clientes' | 'proveedores';
+type CambioEstado = { c: Client; accion: 'desactivar' | 'activar' };
+
+// Copy de consecuencia verificado contra RN-CLI-3/4 y #13947 (spec UX #13949).
+const CONSECUENCIA_DESACTIVAR = 'Mientras esté inactivo no recibirá SOAT, impuestos ni trámites nuevos.';
+const CONSECUENCIA_ACTIVAR = 'Vuelve a recibir SOAT, impuestos y trámites, y se liberan los trámites que quedaron retenidos mientras estuvo inactivo.';
 
 export default function Clients() {
   const { user, hasFuncion } = useAuth();
+  // HU #13949: Desactivar / Activar desde el ⋮ de la fila.
+  const editaEstado = hasFuncion('clients.clientes.estado');
   // Operaciones decide qué gestiona FLITO; Finanzas solo pone precio.
   // HU #12170
   const editaAutogestion = hasFuncion('tramites.autogestion.desbloquear');
@@ -121,7 +131,7 @@ export default function Clients() {
       </FlitPillGroup>
 
       {tab === 'clientes'
-        ? <TabClientes editaAutogestion={editaAutogestion} editaSinTramite={editaSinTramite} veTarifas={veTarifas} />
+        ? <TabClientes editaAutogestion={editaAutogestion} editaSinTramite={editaSinTramite} veTarifas={veTarifas} editaEstado={editaEstado} />
         : <TabProveedores editable={editaAutogestion} />}
     </div>
   );
@@ -129,8 +139,8 @@ export default function Clients() {
 
 // ───────────────────────────── Clientes ─────────────────────────────────────
 
-function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
-  editaAutogestion: boolean; editaSinTramite: boolean; veTarifas: boolean;
+function TabClientes({ editaAutogestion, editaSinTramite, veTarifas, editaEstado }: {
+  editaAutogestion: boolean; editaSinTramite: boolean; veTarifas: boolean; editaEstado: boolean;
 }) {
   // `null` = cargando. Antes era `[]` desde el primer render y el `catch` ponía `[]` también, así
   // que un fallo del servidor se leía «No hay clientes.» y no había estado de carga: tres de los
@@ -149,6 +159,13 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
   const [showForm, setShowForm] = useState(false);
   const [fiscalDe, setFiscalDe] = useState<Client | null>(null);
   const [canalDe, setCanalDe] = useState<Client | null>(null);
+  const [estadoDe, setEstadoDe] = useState<CambioEstado | null>(null);
+  // Respaldo del foco al cerrar el diálogo si la fila salió del filtro (p. ej. «Activos» y se
+  // desactivó): la pill marcada del filtro Estado, nunca <body>.
+  const refFiltro = useRef<HTMLDivElement>(null);
+  const refRespaldoFoco = useMemo<RefObject<HTMLElement | null>>(() => ({
+    get current() { return refFiltro.current?.querySelector<HTMLElement>('[aria-pressed="true"]') ?? null; },
+  }), []);
   const [veredictos, setVeredictos] = useState<Map<number, VeredictoCliente>>(new Map());
   const [form, setForm] = useState({ name: '', document: '', documentType: 'NIT', phone: '', email: '', address: '', city: '', notes: '' });
 
@@ -165,6 +182,16 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
     setClients(null); setErrorCarga(false);
     api.get<Client[]>('/clients').then(setClients).catch(() => setErrorCarga(true));
   };
+  // Recarga SILENCIOSA (HU #13949): sin pasar por «Cargando compañías…» ni perder el filtro.
+  const recargar = () => {
+    api.get<Client[]>('/clients').then(setClients).catch(() => setErrorCarga(true));
+  };
+
+  const opcionesFila = (c: Client) => (editaEstado
+    ? [c.active
+      ? { id: 'desactivar', texto: 'Desactivar', onElegir: () => setEstadoDe({ c, accion: 'desactivar' }) }
+      : { id: 'activar', texto: 'Activar', onElegir: () => setEstadoDe({ c, accion: 'activar' }) }]
+    : []);
 
   // Quién puede facturarse y quién no (AC5). Se pide aparte del listado: un fallo del informe no
   // puede dejar sin pantalla de clientes a quien solo venía a mirar una tarifa.
@@ -261,7 +288,7 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
           // Vacío total: filtro y pie ocultos (filtrar una lista vacía no ayuda).
           <FlitEmpty>No hay clientes.{editaAutogestion && ' Cree el primero con «Nuevo cliente».'}</FlitEmpty>
         ) : (<>
-          <div className="mb-3"><FiltroEstadoPills valor={filtroEstado} onCambio={setFiltroEstado} /></div>
+          <div className="mb-3" ref={refFiltro}><FiltroEstadoPills valor={filtroEstado} onCambio={setFiltroEstado} /></div>
           {visibles.length === 0 ? <VacioFiltro onVerTodos={() => setFiltroEstado('todos')} /> : (
           <FlitTable>
             <thead>
@@ -299,7 +326,8 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
                   <CeldaCanalSoat c={c} editable={editaSinTramite} onAbrir={() => setCanalDe(c)} />
                   <td className="px-3 py-2"><ChipFacturable veredicto={veredictos.get(c.id)} /></td>
                   <td className="px-3 py-2">
-                    <div className="flex gap-2">
+                    {/* La celda no envuelve (UX #13949): con el ⋮, «Datos fiscales» se partía en dos líneas. */}
+                    <div className="flex gap-2 whitespace-nowrap">
                       {veTarifas && (
                         <Link to={`/flito/tarifas/${c.id}`} className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                           aria-label={`Tarifas de ${c.name}`}>Tarifas</Link>
@@ -307,6 +335,7 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
                       <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                         aria-label={`Datos fiscales de ${c.name}`}
                         onClick={() => setFiscalDe(c)}>Datos fiscales</button>
+                      <MenuFila etiqueta={`Acciones de ${c.name}`} opciones={opcionesFila(c)} />
                     </div>
                   </td>
                 </FlitTr>
@@ -329,6 +358,41 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas }: {
           </p>
         )}
       </FlitCard>
+
+      {estadoDe && (
+        <DialogoEstadoRegistro
+          accion={estadoDe.accion}
+          nombre={estadoDe.c.name}
+          sustantivo="cliente"
+          cargarImpacto={estadoDe.accion === 'desactivar'
+            ? () => api.get<ImpactoEstado>(`/clients/${estadoDe.c.id}/impacto`)
+            : undefined}
+          consecuencia={estadoDe.accion === 'desactivar' ? CONSECUENCIA_DESACTIVAR : CONSECUENCIA_ACTIVAR}
+          confirmar={async () => {
+            await api.patch(`/clients/${estadoDe.c.id}/estado`, {
+              activo: estadoDe.accion === 'activar', activoEsperado: estadoDe.c.active,
+            });
+          }}
+          onHecho={() => {
+            const { c, accion } = estadoDe;
+            // La fila cambia con la respuesta 2xx (no antes) y la recarga confirma el resto.
+            setClients((prev) => (prev ?? []).map((x) => (x.id === c.id ? { ...x, active: accion === 'activar' } : x)));
+            setEstadoDe(null);
+            toastOk(accion === 'desactivar' ? 'Cliente desactivado.' : 'Cliente activado.', { id: `estado-${c.id}` });
+            recargar();
+          }}
+          onDesactualizado={(motivo) => {
+            const id = estadoDe.c.id;
+            setEstadoDe(null);
+            toastError(motivo === 'cambiado'
+              ? 'Otro administrador ya cambió su estado.'
+              : 'Este cliente ya no existe. Se actualizó la lista.', undefined, { id: `estado-${id}` });
+            recargar();
+          }}
+          onCerrar={() => setEstadoDe(null)}
+          restoreFocusRef={refRespaldoFoco}
+        />
+      )}
 
       {canalDe && (
         <ModalCanalSoat
