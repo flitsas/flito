@@ -136,6 +136,8 @@ export function descargarCsv(nombre: string, cabeceras: string[], filas: string[
 export interface ClienteOpcion {
   id: number;
   name: string;
+  /** HU #13948. Una compañía inactiva se ve en el selector pero no se elige (HU #13950). */
+  active?: boolean;
 }
 
 /**

@@ -234,7 +234,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
       '01-bandeja.png', '02-ver-caso.png', '03-reintentar-varios.png'] },
     flito_comprobantes: { version: '1.3', fecha: '2026-10-24', diagrama: 'camino-comprobante.svg', capturas: [
       '01-cargar.png', '02-cola.png', '03-asociar.png'] },
-    flito_conciliacion: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-boleta.svg', capturas: [
+    flito_conciliacion: { version: '1.2', fecha: '2026-10-25', diagrama: 'ciclo-boleta.svg', capturas: [
       '01-cargar-boleta.png', '02-bandeja.png', '03-detalle-sin-cuadrar.png', '04-conciliar.png', '05-comprobante-pse.png'] },
     // HU #13901: alta manual de la bolsa, conceptos y autogestión, inactivar y reactivar.
     // HU #13892: paso 7 «Documentos» (v1.3); botón de descargar a la altura del kit en la 05 (v1.5).
@@ -242,7 +242,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // HU #13964: «Quitar» la versión vigente y el estado «retirada» del historial (v1.8).
     flito_bolsas: { version: '1.8', fecha: '2026-10-26', diagrama: 'ciclo-periodo.svg', capturas: [
       '01-cabecera-y-kpi.png', '02-companias.png', '03-crear-bolsa.png', '04-detalle-compania.png', '05-documentos.png'] },
-    flito_tarifas: { version: '1.1', fecha: '2026-10-21', diagrama: 'vigencias.svg', capturas: [
+    flito_tarifas: { version: '1.2', fecha: '2026-10-25', diagrama: 'vigencias.svg', capturas: [
       '01-elegir-compania.png', '02-fijar-valor.png', '03-historial.png'] },
     // Citadas en el orden de los pasos de la ficha (la 01 ilustra el paso 5, «Por tarifar»).
     flito_servicios_adicionales: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-tipo.svg', capturas: [
@@ -458,7 +458,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // HU #13951: Roles y permisos sube a 1.2 (funciones exclusivas del Administrador); sus capturas no cambian.
   const ADMIN_13774: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
     privacy_log_pii: { version: '1.0', diagrama: null, capturas: ['01-resumen.png', '02-filtros.png'] },
-    users: { version: '1.0', diagrama: 'ciclo-usuario.svg', capturas: ['01-usuarios.png', '02-nuevo-usuario.png', '03-historial.png'] },
+    users: { version: '1.1', fecha: '2026-10-25', diagrama: 'ciclo-usuario.svg', capturas: ['01-usuarios.png', '02-nuevo-usuario.png', '03-historial.png'] },
     roles_permisos: { version: '1.2', fecha: '2026-10-25', diagrama: 'reparto-de-permisos.svg', capturas: [
       '01-roles.png', '02-arbol.png', '03-sin-guardar.png', '04-nuevo-rol.png'] },
     drive: { version: '1.0', diagrama: 'procesar-cuentas.svg', capturas: ['01-carpeta-raiz.png', '02-carpeta.png', '03-resultado.png'] },

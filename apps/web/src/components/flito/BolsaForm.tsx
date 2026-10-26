@@ -33,6 +33,7 @@ import {
 import FlitModal from '../flit/FlitModal';
 import { toastOk } from '../flit/ToastFlito';
 import StatusChip from '../flit/StatusChip';
+import { opcionesConEstado } from '../flit/opcionesConEstado';
 import { flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 
 type ConceptoCompania = (typeof CONCEPTOS_BOLSA_COMPANIA)[number];
@@ -209,7 +210,7 @@ function RamaCompania({ bolsa, companiaInicial, user, cabecera, onClose, onGuard
     Promise.all([api.get<ClienteOpcion[]>('/clients'), bolsasApi.buscar({ alcance: 'compania' })])
       .then(([c, b]) => {
         if (!vigente) return;
-        setClientes(Array.isArray(c) ? c.map((x) => ({ id: x.id, name: x.name })) : []);
+        setClientes(Array.isArray(c) ? c.map((x) => ({ id: x.id, name: x.name, active: x.active })) : []);
         const mapa = new Map<number, BolsaExistente>();
         for (const x of Array.isArray(b) ? b : []) {
           if (x.companiaId !== null) mapa.set(x.companiaId, { bolsaId: x.id, activa: x.activa });
@@ -319,7 +320,13 @@ function RamaCompania({ bolsa, companiaInicial, user, cabecera, onClose, onGuard
                 setCompaniaId(e.target.value ? Number(e.target.value) : null);
               }}>
               <option value="">{estadoLista === 'cargando' ? 'Cargando compañías…' : 'Elige una compañía…'}</option>
-              {clientes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {/* HU #13950: inactiva = en gris, «(Inactivo)» en texto y no elegible. */}
+              {opcionesConEstado(clientes.map((c) => ({ id: c.id, nombre: c.name, activo: c.active })), String(companiaId ?? ''))
+                .map((o) => (
+                  <option key={o.valor} value={o.valor} disabled={o.deshabilitada || undefined} aria-disabled={o.deshabilitada || undefined}>
+                    {o.nota ? `${o.etiqueta} (${o.nota})` : o.etiqueta}
+                  </option>
+                ))}
             </select>
           )}
         </div>
