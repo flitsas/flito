@@ -24,6 +24,7 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { toastError, toastOk } from '../components/flit/ToastFlito';
 import { api, ApiError, errorMessage } from '../lib/api';
+import { SUCURSAL_MAXIMA, SUCURSAL_MINIMA } from '@operaciones/shared-types';
 import { useAuth } from '../lib/auth';
 import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -38,6 +39,8 @@ import {
 // tiene dos pestañas, un modal y dos formularios, y no cabe más sin acercarse al techo de 800.
 import FichaFiscal, { ChipFacturable } from '../components/clientes/FichaFiscal';
 import type { VeredictoCliente } from '../components/clientes/tipos';
+// NIT + sucursal duplicados (HU #13955): error en el campo NIT, cualquier otro fallo → toast pulido.
+import { ErrorNit, manejarErrorGuardarCliente } from '../components/clientes/nitDuplicado';
 // Estado activo/inactivo y su filtro (HU #13948): piezas compartidas con Proveedores (#13961).
 import {
   FiltroEstadoPills, ChipEstado, PieConteo, VacioFiltro, filtrarPorEstado, type FiltroEstado,
@@ -167,7 +170,12 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas, editaEstado
     get current() { return refFiltro.current?.querySelector<HTMLElement>('[aria-pressed="true"]') ?? null; },
   }), []);
   const [veredictos, setVeredictos] = useState<Map<number, VeredictoCliente>>(new Map());
-  const [form, setForm] = useState({ name: '', document: '', documentType: 'NIT', phone: '', email: '', address: '', city: '', notes: '' });
+  const FORM_VACIO = { name: '', document: '', documentType: 'NIT', branchOffice: '', phone: '', email: '', address: '', city: '', notes: '' };
+  const [form, setForm] = useState(FORM_VACIO);
+  // HU #13955: 409 de NIT+sucursal → mensaje bajo el NIT (AC1/AC2); se limpia al tocar NIT o sucursal.
+  const [errorNit, setErrorNit] = useState<string | null>(null);
+  const refNit = useRef<HTMLInputElement>(null);
+  const idErrorNit = useId();
 
   /**
    * El catálogo de gestores, **una vez por pestaña y solo para quien lo puede leer**.
@@ -206,15 +214,21 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas, editaEstado
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      const body: Record<string, string> = { ...form };
+      const { branchOffice, ...textos } = form;
+      const body: Record<string, string | number> = { ...textos };
       Object.keys(body).forEach((k) => { if (!body[k]) delete body[k]; });
+      if (branchOffice.trim() !== '') body.branchOffice = Number(branchOffice);
       await api.post('/clients', body);
       toast.success('Cliente creado');
       setShowForm(false);
-      setForm({ name: '', document: '', documentType: 'NIT', phone: '', email: '', address: '', city: '', notes: '' });
+      setErrorNit(null);
+      setForm(FORM_VACIO);
       load();
     } catch (err) {
-      toast.error(errorMessage(err));
+      // El formulario sigue abierto con lo escrito (AC1): solo se marca el campo o se avisa.
+      const nit = manejarErrorGuardarCliente(err);
+      setErrorNit(nit);
+      if (nit) refNit.current?.focus();
     }
   };
 
@@ -260,17 +274,24 @@ function TabClientes({ editaAutogestion, editaSinTramite, veTarifas, editaEstado
         <FlitCard>
           <h3 className="mb-3 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Nuevo cliente</h3>
           <form onSubmit={handleCreate}>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 md:grid-cols-4">
               <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nombre o razón social *" className={flitInp} />
-              <input value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} placeholder="NIT / Cédula" className={flitInp} />
+              <div>
+                <input ref={refNit} value={form.document} aria-label="NIT / Cédula" placeholder="NIT / Cédula" className={flitInp}
+                  aria-invalid={errorNit ? true : undefined} aria-describedby={errorNit ? idErrorNit : undefined}
+                  onChange={(e) => { setErrorNit(null); setForm({ ...form, document: e.target.value }); }} />
+                {errorNit && <ErrorNit id={idErrorNit}>{errorNit}</ErrorNit>}
+              </div>
+              <input type="number" min={SUCURSAL_MINIMA} max={SUCURSAL_MAXIMA} value={form.branchOffice} aria-label="Sucursal" placeholder="Sucursal (por defecto 0)" className={flitInp}
+                onChange={(e) => { setErrorNit(null); setForm({ ...form, branchOffice: e.target.value }); }} />
               <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Teléfono" className={flitInp} />
               <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" className={flitInp} />
               <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Ciudad" className={flitInp} />
-              <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Dirección" className={`${flitInp} col-span-2`} />
+              <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Dirección" className={`${flitInp} sm:col-span-2`} />
             </div>
             <div className="mt-4 flex gap-2">
               <GradientButton type="submit">Guardar</GradientButton>
-              <button type="button" onClick={() => setShowForm(false)} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Cancelar</button>
+              <button type="button" onClick={() => { setShowForm(false); setErrorNit(null); }} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Cancelar</button>
             </div>
           </form>
         </FlitCard>

@@ -308,7 +308,9 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
       '01-registros.png', '02-detalle.png', '03-sincronizacion.png', '04-configuracion.png'] },
     // HU #13935: la ficha de Clientes cambió después (checks «FLITO gestiona»); HU #13948: Estado y filtro;
     // HU #13949: menú ⋮ para desactivar y activar (capturas sin cambio: el ⋮ queda fuera del encuadre).
-    clients: { version: '1.7', fecha: '2026-10-25', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
+    // HU #13955: NIT duplicado bajo el campo y campo Sucursal en el alta (capturas sin cambio: el
+    // formulario de alta y la ficha fiscal no salen en ninguna).
+    clients: { version: '1.8', fecha: '2026-10-25', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
       '01-clientes.png', '02-soat-sin-tramite.png', '03-proveedores.png'] },
     flito_tablero: { version: '1.2', diagrama: null, capturas: ['01-indicadores-y-alertas.png', '02-por-estado.png'] },
   };
