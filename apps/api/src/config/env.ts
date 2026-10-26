@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mensajesDeTipo } from '../shared/utils/zod-mensajes.js';
 import dotenv from 'dotenv';
 import {
   COMPARENDOS_EXPORT_MAX_FILAS, CONCILIACION_MAX_FILAS, FLITO_COLA_EXPORT_MAX_FILAS,
@@ -166,7 +167,7 @@ const envSchema = z.object({
   // umbral de la alerta del estado se deriva de este valor (2·R + 5 min, RN-08 de flit2-estado.service.ts).
   FLIT2_RESPALDO_MIN: z.preprocess(
     vacioComoAusente,
-    z.coerce.number({ invalid_type_error: MSG_FLIT2_RESPALDO_MIN })
+    z.coerce.number({ error: mensajesDeTipo({ tipo: MSG_FLIT2_RESPALDO_MIN }) })
       .int(MSG_FLIT2_RESPALDO_MIN).min(1, MSG_FLIT2_RESPALDO_MIN).max(120, MSG_FLIT2_RESPALDO_MIN).default(5),
   ),
   // HU #13268 (ADR-0020): envío del comprobante de pago a FLIT 2. APAGADA por defecto en todos los

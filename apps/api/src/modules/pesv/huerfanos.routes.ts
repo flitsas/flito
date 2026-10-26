@@ -53,7 +53,7 @@ router.get('/auditorias/:id', requirePage('pesv_auditorias'), async (req, res) =
 
 router.post('/auditorias', requirePage('pesv_auditorias'), exigirFuncion('pesv.auditorias.administrar'), async (req: Request, res: Response) => {
   const parsed = auditoriaSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const [row] = await db.insert(pesvAuditorias).values({
     ...parsed.data,
     auditorExterno: parsed.data.auditorExterno ?? null,
@@ -95,7 +95,7 @@ router.post('/auditorias/:id/hallazgos', requirePage('pesv_auditorias'), exigirF
   const auditoriaId = parseInt(req.params.id, 10);
   if (!Number.isFinite(auditoriaId) || auditoriaId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = hallazgoSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   try {
     const [row] = await db.insert(pesvAuditoriaHallazgos).values({
@@ -150,7 +150,7 @@ router.get('/comunicaciones/:id', requirePage('pesv_comunicaciones'), async (req
 
 router.post('/comunicaciones', requirePage('pesv_comunicaciones'), exigirFuncion('pesv.comunicaciones.administrar'), async (req: Request, res: Response) => {
   const parsed = comSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const [row] = await db.insert(pesvComunicaciones).values({
     ...parsed.data,
     vencimientoAcuse: parsed.data.vencimientoAcuse ?? null,
@@ -218,7 +218,7 @@ router.get('/contratistas', requirePage('pesv_contratistas'), async (req, res) =
 
 router.post('/contratistas', requirePage('pesv_contratistas'), exigirFuncion('pesv.contratistas.administrar'), async (req: Request, res: Response) => {
   const parsed = contratSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   try {
     const [row] = await db.insert(pesvContratistas).values({
@@ -239,7 +239,7 @@ router.patch('/contratistas/:id', requirePage('pesv_contratistas'), exigirFuncio
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = contratSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data as any;
   const [row] = await db.update(pesvContratistas).set(d).where(eq(pesvContratistas.id, id)).returning();
   if (!row) return res.status(404).json({ error: 'No encontrado' });
@@ -259,7 +259,7 @@ router.patch('/incidents/:id/causa-raiz', requirePage('pesv_incidentes'), exigir
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = causaRaizSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   const [row] = await db.update(roadIncidents).set({
     causaRaizMetodo: d.metodo,

@@ -106,7 +106,7 @@ const consultaLimiter = rateLimit({
  * servidor pase lo que pase— pero dejaría al que llama creyendo que eligió, que es peor.
  */
 const envioSchema = z.object({
-  tramiteIds: z.array(z.string().uuid()).min(1).max(TOPE_TRAMITES_ENVIO),
+  tramiteIds: z.array(z.string().guid()).min(1).max(TOPE_TRAMITES_ENVIO),
   // A1 — qué se factura viaja explícito y SIN valor por omisión. Un default aquí («todos los
   // aplicables», que es lo que hacía antes) convertiría el olvido de un cliente en una factura ante
   // la DIAN con conceptos que nadie pidió, y eso no se deshace.
