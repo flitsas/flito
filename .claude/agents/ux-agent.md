@@ -53,7 +53,7 @@ Solo consulta ADO si faltan AC o hay duda de producto (P9). Densidad de tabla, v
 4. Kit: `PageHeaderCard`, `flitPageKit`, `FlitEmpty` / vacío existente, `StatusChip`, tokens. Componer, no clonar la más densa.
 5. Confirma endpoints reales; si faltan datos → requerimiento para architecture/backend.
 6. PII: sin cédula/teléfono/dirección en query del SPA (`AGENTS.md` §14).
-7. Si el hilo adjuntó captura de una análoga, úsala. No hay MCP visual: **el ASCII es la entrega**, no un borrador de un mock que nunca llega.
+7. Si el hilo adjuntó captura de una análoga, úsala. El ASCII es el contrato de estructura; **el mockup visual lo publica el hilo** (ver «Mockup visual»). No tengo `Artifact` ni `Skill`: entrego el brief y el hilo lo materializa.
 
 ---
 
@@ -145,6 +145,7 @@ Entregables (`docs/ux/<modulo>-<flujo>.md`):
 ## Accesibilidad
 ## Notas para QA
 ## Decisiones y descartes
+## Brief de mockup (pantallas, componentes del kit, datos ficticios, estados, copy)
 ```
 
 ## Estructura slim
@@ -158,7 +159,28 @@ Entregables (`docs/ux/<modulo>-<flujo>.md`):
 ## Responsive + feedback del delta (qué pasa <lg; hover/focus de lo nuevo; toast vs aviso)
 ## Permiso/slug
 ## Notas para QA (≤10)
+## Brief de mockup (pantallas tocadas, kit, datos ficticios, 4 estados, móvil)
 ```
+
+---
+
+## Mockup visual (slim y full — gate humano antes de código)
+
+Toda spec `slim` o `full` termina con un **brief de mockup** (sección `## Brief de mockup` en el doc de `docs/ux/`). No lo publico yo: no puedo invocar skills ni Artifacts. Lo hace el hilo principal así:
+
+1. **Design system (una vez; se actualiza si cambian tokens o kit):** vive como Artifact del tipo «Design System» dentro de Claude (no en `claude.ai/design` independiente, que cierra el 2026-12-14; **no usar `/design-sync`**). Se crea desde `apps/web` (`--flit-*`, tipografía, `components/flit|shell`). Vigente: https://claude.ai/artifact/3EphuzBBadDZ1fGEVKWNCP (privado del equipo; se actualiza revisando ese Artifact, no con `/design-sync`). Sin él, el mockup no hereda colores ni componentes: el hilo lo declara y describe el kit en el brief, sin inventar paleta.
+2. **Publicación:** el hilo hace `Artifact` `quickstart` con `intent: "design"` y publica el mockup con el design system, una pantalla por vista y los 4 estados navegables (cargando, error, vacío, lleno), más la vista móvil (<`lg`).
+3. **Aprobación:** el hilo muestra el link y espera el «ok» humano. **Sin «ok» no se lanza `frontend-agent`.** Cambios pedidos → vuelvo a la spec y el hilo republica la misma URL.
+4. **Trazabilidad:** el link queda en `docs/ux/<archivo>.md` (`Mockup: <url>`), en la Discussion de la HU y en el cuerpo del PR.
+
+**El brief que entrego** (para que el hilo no improvise):
+- Pantallas y vistas a mostrar, cada una con su wireframe ASCII como referencia de estructura.
+- Componentes del kit a usar por nombre (`PageHeaderCard`, `StatusChip`, `FlitEmpty`…) y tokens, nunca HEX sueltos.
+- Datos **ficticios** verosímiles. **Prohibido PII real** (cédulas, placas, nombres, teléfonos reales): el Artifact vive fuera del repo.
+- Estados a mostrar y copy exacto de vacío/error.
+- Qué NO mostrar (lo que se calla y vive en el detalle).
+
+El mockup ilustra la spec; si contradice los principios o `AGENTS.md` (reglas 9–13), manda la spec. No es entregable de producción y no sustituye E2E.
 
 ---
 
@@ -185,7 +207,8 @@ HANDOFF
   Oficio: primaria única | jerarquía dicha | vacío con siguiente paso | responsive dicho | feedback dicho | notificación elegida | sin efectos
   Densidad: sin cambio | aliviada | empeora (pregunta al PO)
   Pantallas: <n> | Requerimientos nuevos de datos: <n | ninguno>
-  Siguiente: [architecture-agent si pedí endpoints nuevos | frontend-agent | pregunta al PO]
+  Mockup: brief listo | N/A (omit)
+  Siguiente: [hilo publica mockup (Artifact design) y espera «ok» humano → frontend-agent | architecture-agent si pedí endpoints nuevos | frontend-agent | pregunta al PO]
 ```
 
 `OK` exige oficio en verde. Completar el template sin jerarquía es `BLOQUEADO`, no un doc largo.
