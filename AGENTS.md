@@ -330,6 +330,7 @@ contra el proyecto real el 2026-08-22 sobre los Bugs #11518, #11599, #11604, #11
 |---|---|
 | Requerimiento informal → borrador canónico | skill `flit-intake` (+ [`docs/dominio.md`](docs/dominio.md)) |
 | Planear un flujo multi-fase | `orchestrator-agent` |
+| Decidir flujo local vs directo a DEV (Paso 0 de todo desarrollo) | skill `flit-flujo-local` |
 | Features, HUs, DoR/DoD, deuda técnica | `tech-lead-agent` |
 | Diseño técnico (slim\|full) | `architecture-agent` |
 | Diseño UX/UI (slim\|full\|omit) | `ux-agent` |
@@ -367,6 +368,7 @@ el hilo principal es quien encadena.
 | Momento | Disparador (sí → invocar) | Ejecutor | Si se omite |
 |---|---|---|---|
 | Pedido informal sin Feature/HU | No hay WI en ADO; «hay unos bugs» / «termina Siigo» sin IDs | `flit-intake` | Trabajo sin trazabilidad |
+| Paso 0 de todo desarrollo | Al arrancar un Feature/lote (antes de la primera rama) o al activar un WI suelto: decidir flujo local (merge retenido + sesión local con el humano) vs directo a DEV | **Skill** `flit-flujo-local` | Desarrollo que arranca sin la decisión / merge sin el OK humano de la sesión local / evidencias locales en Azure |
 | Alcance multi-fase / «por dónde empiezo» | Varias fases o duda de orden. **No aplica** en HU suelta ni en Feature único con modo auto (ese ciclo ya está enlatado en `flit-modo-desarrollo-auto`): es normal que no se invoque ahí | `orchestrator-agent` (plan con Skill/Agent reales + ledger) | Fases saltadas / orquestación improvisada |
 | ≥2 Features Active / varias sesiones en paralelo | Siigo + conciliación + comparendos a la vez; «retoma X» con Y también en vuelo | `orchestrator-agent` (bloque `DUEÑOS`) **antes de codear** | Deriva de alcance (un hilo codea el Feature del otro) |
 | Épica en el board sin Features / descomponer HUs / DoR | Planear o refinar backlog **a partir de la Épica** (se lee, no se redacta): Features hijos de la Épica, HUs hijas del Feature. **P9:** ronda de cierre contra código/spec **antes** de crear HUs; corte = ítems del pedido, no capas | `tech-lead-agent` | HUs mal cortadas / alcance descubierto en desarrollo / Features huérfanos sin Épica |
