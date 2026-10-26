@@ -12,8 +12,8 @@ consultas:
   - cómo le cambio la contraseña a un usuario
   - cómo desactivo o doy de baja a un usuario
   - quién le cambió el rol a un usuario
-version: 1.0
-fecha: 2026-10-22
+version: 1.1
+fecha: 2026-10-25
 ---
 ## Qué es
 
@@ -30,7 +30,7 @@ Menú **Administración**, ítem **Usuarios**.
 ## Pasos
 
 1. Entre a **Usuarios**. En la pestaña **Usuarios** filtre por **Rol** y por **Vista** (**En alta**, **Dados de baja** o **Todos**); debajo, **Usuarios por rol** cuenta cuántos hay de cada rol y cuántos están activos e inactivos. **Descargar Excel** baja todas las coincidencias del filtro. ![Lista de usuarios demo con filtros, conteo por rol y acciones por fila](./users/01-usuarios.png)
-2. Para crear a alguien pulse **Nuevo usuario** y complete **Username (login)**, **Nombre completo**, **Email (opcional)**, **Contraseña** (mínimo 8 caracteres con minúscula, mayúscula, número y un carácter especial) y **Rol base**; según el enlace del rol se pide la compañía, el proveedor o los organismos. Debajo, **Permisos de este usuario** muestra lo que trae el rol y permite añadir o quitar excepciones. Pulse **Crear usuario**. ![Formulario Nuevo usuario vacío con los campos y los permisos que trae el rol](./users/02-nuevo-usuario.png)
+2. Para crear a alguien pulse **Nuevo usuario** y complete **Username (login)**, **Nombre completo**, **Email (opcional)**, **Contraseña** (mínimo 8 caracteres con minúscula, mayúscula, número y un carácter especial) y **Rol base**; según el enlace del rol se pide la compañía, el proveedor o los organismos. Una compañía inactiva aparece con **(Inactivo)** y no se puede elegir; si el usuario ya estaba atado a una que se desactivó, el campo la conserva con esa marca y el resto del formulario se guarda igual. Debajo, **Permisos de este usuario** muestra lo que trae el rol y permite añadir o quitar excepciones. Pulse **Crear usuario**. ![Formulario Nuevo usuario vacío con los campos y los permisos que trae el rol](./users/02-nuevo-usuario.png)
 3. En la fila de una persona, **Editar** cambia sus datos, su rol, su ámbito y sus excepciones de permisos, y **Contraseña** le asigna una nueva.
 4. **Desactivar** le impide entrar sin sacarla de la lista; **Activar** la devuelve. Usted no puede desactivarse ni darse de baja a sí mismo (su fila dice «(tú)»).
 5. **Dar de baja** la saca de la lista **En alta**; queda en **Dados de baja**, donde **Reactivar** la recupera.
