@@ -349,7 +349,7 @@ test.describe('HU #11913 · AC3 — «SOAT sin trámite» en Clientes', () => {
     }));
 
     await page.goto('/clients');
-    await expect(page.getByRole('alert')).toHaveText('Listado caído');
+    await expect(page.getByRole('alert')).toHaveText('No pudimos cargar los clientes.');
     // El estado que esta HU paga: sin él, perder lo que se acaba de marcar y no haber cargado nunca
     // se leen exactamente igual — en la tabla donde se verifica el AC3.
     await expect(page.getByText('No hay clientes.')).toHaveCount(0);
