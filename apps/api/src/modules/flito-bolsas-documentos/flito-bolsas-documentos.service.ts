@@ -17,12 +17,17 @@
 // RN-BD6  Fecha manual (E4, HU #13890): solo sobre la versión VIGENTE de un tipo con vigencia, con bolsa
 //         activa (409 si no), y deja quién y cuándo (`fecha_manual_por/_en`). El OCR nunca la pisa
 //         (`WHERE fecha_origen IS DISTINCT FROM 'manual'`). La regla de 30 días se aplica igual sobre ella.
+// RN-BD7  Retiro (E7, HU #13964): solo la versión VIGENTE, con bolsa activa (409 si no), también en
+//         `validando`. Un único `UPDATE … WHERE id AND vigente` (0 filas → 409) pone `vigente = false` y
+//         `reemplazado_en = retirado_en` (mismo instante: la purga de 5 años cuenta desde el retiro) y deja
+//         quién y el motivo opcional. El archivo NO se borra; el tipo queda `pendiente` y la próxima carga
+//         toma `max + 1`. Restaurar = volver a cargar.
 import { and, asc, desc, eq, inArray, max } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   DIAS_VIGENCIA_DOCUMENTO_BOLSA, TIPOS_DOCUMENTO_BOLSA, TIPOS_DOCUMENTO_BOLSA_CON_VIGENCIA,
   TIPOS_DOCUMENTO_BOLSA_PRINCIPALES,
-  type DocumentoBolsaDto, type DocumentoBolsaVersionDto, type EstadoDocumentoBolsa, type EstadoExpedienteLoteDto,
+  type CodigoErrorDocumentoBolsa, type DocumentoBolsaDto, type DocumentoBolsaVersionDto, type DocumentoExpedienteDto, type EstadoDocumentoBolsa, type EstadoExpedienteLoteDto,
   type ExpedienteCompaniaDto, type TipoDocumentoBolsaPrincipal,
   type MimeDocumentoBolsa, type OrigenFechaExpedicion, type TipoDocumentoBolsa,
 } from '@operaciones/shared-types';
@@ -37,9 +42,12 @@ import { estadoBolsaDeCompania } from './flito-bolsas-documentos.bolsa-compania.
 /** Prefijo de las claves en el almacenamiento: `flito-bolsas-documentos/<companiaId>/<ts>_<uuid>.bin`. */
 export const PREFIJO_STORAGE = 'flito-bolsas-documentos';
 
-/** Error de negocio: la ruta lo traduce a `{ error }` con `estado`. El mensaje es copy de producto. */
+/**
+ * Error de negocio: la ruta lo traduce a `{ error, codigo? }` con `estado`. El mensaje es copy de producto;
+ * `codigo` (opcional, HU #13964) es la señal estable que lee la UI.
+ */
 export class BolsaDocumentoError extends Error {
-  constructor(readonly estado: number, mensaje: string) {
+  constructor(readonly estado: number, mensaje: string, readonly codigo?: CodigoErrorDocumentoBolsa) {
     super(mensaje);
     this.name = 'BolsaDocumentoError';
   }
@@ -48,6 +56,7 @@ export class BolsaDocumentoError extends Error {
 const t = flitoBolsasDocumentos;
 const cargador = alias(users, 'cargador');
 const fijador = alias(users, 'fijador');
+const retirador = alias(users, 'retirador');
 const CON_VIGENCIA = new Set<string>(TIPOS_DOCUMENTO_BOLSA_CON_VIGENCIA);
 
 /** La AAD de una fila: liga el texto cifrado a ESTE documento (un blob de otra fila no descifra aquí). */
@@ -85,6 +94,7 @@ const columnasDto = {
   storageKey: t.storageKey, fechaExpedicion: t.fechaExpedicion, fechaOrigen: t.fechaOrigen,
   fechaManualEn: t.fechaManualEn, ocrEstado: t.ocrEstado, cargadoEn: t.cargadoEn, reemplazadoEn: t.reemplazadoEn,
   cargadoPorNombre: cargador.name, fechaManualPorNombre: fijador.name,
+  retiradoEn: t.retiradoEn, motivoRetiro: t.motivoRetiro, retiradorNombre: retirador.name,
 };
 
 interface FilaDto {
@@ -92,12 +102,14 @@ interface FilaDto {
   storageKey: string | null; fechaExpedicion: string | null; fechaOrigen: string | null;
   fechaManualEn: Date | null; ocrEstado: string; cargadoEn: Date; reemplazadoEn: Date | null;
   cargadoPorNombre: string | null; fechaManualPorNombre: string | null;
+  retiradoEn: Date | null; motivoRetiro: string | null; retiradorNombre: string | null;
 }
 
 function consultaDto() {
   return db.select(columnasDto).from(t)
     .leftJoin(cargador, eq(cargador.id, t.cargadoPor))
-    .leftJoin(fijador, eq(fijador.id, t.fechaManualPor));
+    .leftJoin(fijador, eq(fijador.id, t.fechaManualPor))
+    .leftJoin(retirador, eq(retirador.id, t.retiradoPor));
 }
 
 /** DTO sin PII: ni clave de almacenamiento, ni nombre de archivo, ni hash (ADR-0028 §5). */
@@ -125,6 +137,9 @@ function aVersionDto(f: FilaDto, hoy: string): DocumentoBolsaVersionDto {
     vigente: f.vigente,
     reemplazadoEn: f.reemplazadoEn ? f.reemplazadoEn.toISOString() : null,
     archivoDisponible: f.storageKey !== null,
+    retiro: f.retiradoEn
+      ? { en: f.retiradoEn.toISOString(), por: { nombre: f.retiradorNombre }, motivo: f.motivoRetiro }
+      : null,
   };
 }
 
@@ -138,13 +153,17 @@ export async function expedienteDe(companiaId: number, hoy: string = hoyColombia
   await exigirCompania(companiaId);
   const filas = await consultaDto().where(and(eq(t.companiaId, companiaId), eq(t.vigente, true))) as FilaDto[];
   const porTipo = new Map(filas.map((f) => [f.tipo, f]));
-  const documentos = TIPOS_DOCUMENTO_BOLSA.map((tipo) => {
+  // Una consulta agregada más: qué tipos tienen alguna versión (vigente o no) — HU #13964.
+  const conVersiones = new Set((await db.select({ tipo: t.tipo }).from(t)
+    .where(eq(t.companiaId, companiaId)).groupBy(t.tipo)).map((r) => r.tipo));
+  const documentos = TIPOS_DOCUMENTO_BOLSA.map((tipo): DocumentoExpedienteDto => {
     const f = porTipo.get(tipo) ?? null;
     return {
       tipo,
       estado: estadoDe(f, hoy),
       opcional: !(TIPOS_DOCUMENTO_BOLSA_PRINCIPALES as readonly string[]).includes(tipo),
       vigente: f ? aDto(f, hoy) : null,
+      tieneHistorial: conVersiones.has(tipo),
     };
   });
   const completo = documentos.filter((d) => !d.opcional).every((d) => d.estado === 'valido');
@@ -298,6 +317,52 @@ export async function fijarFechaManual(
   const [fila] = await consultaDto().where(eq(t.id, documentoId)).limit(1) as FilaDto[];
   if (!fila) throw new Error('El documento recién actualizado no se pudo leer');
   return aDto(fila, hoyColombia());
+}
+
+// ── Retiro de la vigente (E7, RN-BD7) ───────────────────────────────────────────────────────────
+
+const MSG_NO_VIGENTE = 'Esta versión ya no es la vigente: actualiza para ver el expediente.';
+
+/** `fila` es la respuesta de E7; `companiaId` y `version` solo alimentan la auditoría de la ruta. */
+export interface RetiroResultado {
+  fila: DocumentoExpedienteDto;
+  companiaId: number;
+  version: number;
+}
+
+/**
+ * Retira la versión vigente: el tipo queda `pendiente`, la fila y el archivo se conservan. `motivo` ya
+ * llega normalizado por la ruta (trim; vacío → null). Devuelve la fila del expediente sin releer: tras un
+ * retiro correcto el índice único parcial garantiza que el tipo no tiene otra vigente.
+ */
+export async function retirarDocumento(
+  documentoId: string, motivo: string | null, userId: number | null,
+): Promise<RetiroResultado> {
+  const [f] = await db.select({ companiaId: t.companiaId, tipo: t.tipo, version: t.version, vigente: t.vigente })
+    .from(t).where(eq(t.id, documentoId)).limit(1);
+  if (!f) throw new BolsaDocumentoError(404, 'El documento no existe.');
+  if (!f.vigente) throw new BolsaDocumentoError(409, MSG_NO_VIGENTE, 'no_vigente');
+  const bolsa = await estadoBolsaDeCompania(f.companiaId);
+  if (!bolsa.activa) {
+    throw new BolsaDocumentoError(
+      409, 'La bolsa de la compañía está inactiva: reactívala para retirar documentos.', 'bolsa_inactiva',
+    );
+  }
+
+  // UN solo instante: el CHECK `ck_…_retiro` exige `reemplazado_en = retirado_en`.
+  const ahora = new Date();
+  const actualizadas = await db.update(t).set({
+    vigente: false, reemplazadoEn: ahora, retiradoEn: ahora, retiradoPor: userId, motivoRetiro: motivo,
+  }).where(and(eq(t.id, documentoId), eq(t.vigente, true))).returning({ id: t.id });
+  // Entre la lectura y el UPDATE otra carga u otro retiro pudo ganarle.
+  if (actualizadas.length === 0) throw new BolsaDocumentoError(409, MSG_NO_VIGENTE, 'no_vigente');
+
+  const tipo = f.tipo as TipoDocumentoBolsa;
+  return {
+    fila: { tipo, estado: 'pendiente', opcional: tipo === 'adicional', vigente: null, tieneHistorial: true },
+    companiaId: f.companiaId,
+    version: f.version,
+  };
 }
 
 // ── Descarga (E5) ───────────────────────────────────────────────────────────────────────────────

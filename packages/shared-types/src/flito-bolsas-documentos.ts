@@ -53,6 +53,8 @@ export interface DocumentoExpedienteDto {
   /** `true` solo para el `adicional`: su ausencia no es un faltante (AC4). */
   opcional: boolean;
   vigente: DocumentoBolsaDto | null;
+  /** El tipo tiene al menos una versión (vigente o no). Habilita «Historial» aunque no haya vigente (HU #13964). */
+  tieneHistorial: boolean;
 }
 
 export interface ExpedienteCompaniaDto {
@@ -61,11 +63,33 @@ export interface ExpedienteCompaniaDto {
   documentos: DocumentoExpedienteDto[];
 }
 
+/** Retiro de una versión (HU #13964). Solo lo tienen las versiones retiradas, no las reemplazadas. */
+export interface RetiroDocumentoBolsaDto {
+  /** ISO 8601 */
+  en: string;
+  /** Nombre del usuario FLIT que retiró (null si el usuario ya no existe). */
+  por: { nombre: string | null };
+  /** Motivo opcional; null si no se dio o si la purga ya lo anuló. */
+  motivo: string | null;
+}
+
 export interface DocumentoBolsaVersionDto extends DocumentoBolsaDto {
   vigente: boolean;
   reemplazadoEn: string | null;
   archivoDisponible: boolean;
+  /** `null` = vigente o reemplazada por una carga; con valor = retirada (la señal es esta, no las fechas). */
+  retiro: RetiroDocumentoBolsaDto | null;
 }
+
+/** E7 `POST /documentos/:documentoId/retirar` (HU #13964): motivo opcional, ≤ 300 tras `trim`. */
+export interface RetirarDocumentoBolsaBody {
+  motivo?: string;
+}
+
+export const MOTIVO_RETIRO_DOCUMENTO_BOLSA_MAX = 300;
+
+/** E7 responde con la fila del expediente (`DocumentoExpedienteDto`). Códigos de error estables para la UI. */
+export type CodigoErrorDocumentoBolsa = 'motivo_invalido' | 'bolsa_inactiva' | 'no_vigente';
 
 export interface HistorialDocumentoBolsaDto {
   versiones: DocumentoBolsaVersionDto[];

@@ -1,6 +1,6 @@
-// HU #13891 (Feature #13888, ADR-0028 §9/§14) — purga por retención de las versiones REEMPLAZADAS del
-// expediente documental de la compañía. La programación vive en `flito-bolsas-documentos-purga.cron.ts`;
-// la política, en `docs/privacy/retencion-flito-bolsas-documentos.md`.
+// HU #13891 (Feature #13888, ADR-0028 §9/§14) — purga por retención de las versiones REEMPLAZADAS (o
+// RETIRADAS, HU #13964) del expediente documental de la compañía. La programación vive en
+// `flito-bolsas-documentos-purga.cron.ts`; la política, en `docs/privacy/retencion-flito-bolsas-documentos.md`.
 //
 // ── Reglas de negocio ────────────────────────────────────────────────────────────────────────────
 //
@@ -8,7 +8,10 @@
 //          `reemplazado_en` (Ley 1581 de 2012 art. 4 lit. b; Decreto 1377 de 2013 art. 11). Elegible:
 //          `NOT vigente AND purgado_en IS NULL AND reemplazado_en <= ahora − N años` (frontera
 //          inclusiva). La VIGENTE nunca se purga, tenga la antigüedad que tenga (AC2); una reemplazada
-//          de menos de N años se conserva (AC3).
+//          de menos de N años se conserva (AC3). Las RETIRADAS (HU #13964) entran por la misma regla:
+//          el retiro escribe `reemplazado_en = retirado_en`, así que los N años cuentan desde el retiro.
+//          Al purgar se anula también `motivo_retiro` (texto libre, puede traer PII); la fila conserva
+//          `retirado_en` y `retirado_por` como constancia.
 //
 // RN-BDP2  La FILA se conserva como constancia (tipo, versión, fechas, quién cargó) sin archivo: en UNA
 //          transacción por compañía se anula `storage_key`, se marca `purgado_en`, se ENCOLA el borrado
@@ -92,7 +95,7 @@ async function marcarCompania(companiaId: number, filas: Candidata[], ahora: Dat
   return db.transaction(async (tx) => {
     // Primero se anula la clave y se marca la purga; después se encola el objeto (ADR-0028 §9).
     const marcadas = await tx.update(t)
-      .set({ storageKey: null, purgadoEn: ahora })
+      .set({ storageKey: null, purgadoEn: ahora, motivoRetiro: null })
       .where(and(
         inArray(t.id, [...claves.keys()]),
         eq(t.companiaId, companiaId),

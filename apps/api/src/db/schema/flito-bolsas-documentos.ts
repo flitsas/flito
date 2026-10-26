@@ -49,6 +49,11 @@ export const flitoBolsasDocumentos = pgTable('flito_bolsas_documentos', {
   cargadoEn: timestamp('cargado_en', { withTimezone: true }).notNull().defaultNow(),
   reemplazadoEn: timestamp('reemplazado_en', { withTimezone: true }),
   purgadoEn: timestamp('purgado_en', { withTimezone: true }),
+  // Retiro de la vigente (HU #13964, migración 0265): `reemplazado_en = retirado_en` en el mismo UPDATE.
+  retiradoEn: timestamp('retirado_en', { withTimezone: true }),
+  retiradoPor: integer('retirado_por').references(() => users.id, { onDelete: 'set null' }),
+  /** Texto libre opcional (≤ 300); la purga lo anula (puede traer PII). */
+  motivoRetiro: varchar('motivo_retiro', { length: 300 }),
 }, (t) => ({
   vigenteUq: uniqueIndex('uq_flito_bolsas_documentos_vigente').on(t.companiaId, t.tipo).where(sql`${t.vigente}`),
   versionUq: uniqueIndex('uq_flito_bolsas_documentos_version').on(t.companiaId, t.tipo, t.version),
@@ -70,4 +75,9 @@ export const flitoBolsasDocumentos = pgTable('flito_bolsas_documentos', {
   vigenciaChk: check('ck_flito_bolsas_documentos_vigencia', sql`${t.vigente} = (${t.reemplazadoEn} IS NULL)`),
   purgaChk: check('ck_flito_bolsas_documentos_purga',
     sql`(${t.purgadoEn} IS NULL) = (${t.storageKey} IS NOT NULL) AND (${t.purgadoEn} IS NULL OR NOT ${t.vigente})`),
+  // HU #13964 (0265): motivo y autor solo con fecha de retiro; retirada ⇒ no vigente y reemplazada a la vez.
+  retiroDatosChk: check('ck_flito_bolsas_documentos_retiro_datos',
+    sql`${t.retiradoEn} IS NOT NULL OR (${t.motivoRetiro} IS NULL AND ${t.retiradoPor} IS NULL)`),
+  retiroChk: check('ck_flito_bolsas_documentos_retiro',
+    sql`${t.retiradoEn} IS NULL OR (NOT ${t.vigente} AND ${t.reemplazadoEn} = ${t.retiradoEn})`),
 }));

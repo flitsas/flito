@@ -12,7 +12,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import multer from 'multer';
 import { z } from 'zod';
 import {
-  MIMES_DOCUMENTO_BOLSA, TAMANO_MAX_DOCUMENTO_BOLSA, TIPOS_DOCUMENTO_BOLSA, TOPE_ESTADO_LOTE_BOLSAS,
+  MIMES_DOCUMENTO_BOLSA, MOTIVO_RETIRO_DOCUMENTO_BOLSA_MAX, TAMANO_MAX_DOCUMENTO_BOLSA, TIPOS_DOCUMENTO_BOLSA, TOPE_ESTADO_LOTE_BOLSAS,
   type MimeDocumentoBolsa,
 } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
@@ -25,6 +25,7 @@ import { detectMime } from '../pesv/magic-number.js';
 import { hoyColombia } from '../../shared/utils/fecha-rango.js';
 import {
   archivoDe, BolsaDocumentoError, cargarDocumento, estadoLoteDe, expedienteDe, fijarFechaManual, historialDe,
+  retirarDocumento,
 } from './flito-bolsas-documentos.service.js';
 import { lanzarOcr } from './flito-bolsas-documentos.ocr.js';
 
@@ -60,9 +61,12 @@ function recibirArchivo(req: Request, res: Response, next: NextFunction): void {
   });
 }
 
-/** BolsaDocumentoError es de negocio; lo demás sube al error handler. */
+/** BolsaDocumentoError es de negocio; lo demás sube al error handler. `codigo` solo si el error lo trae. */
 function fallo(res: Response, e: unknown): void {
-  if (e instanceof BolsaDocumentoError) { res.status(e.estado).json({ error: e.message }); return; }
+  if (e instanceof BolsaDocumentoError) {
+    res.status(e.estado).json(e.codigo ? { error: e.message, codigo: e.codigo } : { error: e.message });
+    return;
+  }
   throw e;
 }
 
@@ -147,6 +151,32 @@ router.put('/documentos/:documentoId/fecha-expedicion', soloSinEnlace(), exigirF
       detail: `Fecha de expedición manual del documento ${doc.tipo} v${doc.version}`,
     });
     res.json(doc);
+  } catch (e) { fallo(res, e); }
+});
+
+// E7 — motivo opcional, ≤ 300 tras trim; vacío → NULL. Clave extra → 400 (strict).
+const retiroBody = z.object({
+  motivo: z.string().trim().max(MOTIVO_RETIRO_DOCUMENTO_BOLSA_MAX).optional(),
+}).strict();
+const MSG_MOTIVO = `El motivo admite hasta ${MOTIVO_RETIRO_DOCUMENTO_BOLSA_MAX} caracteres.`;
+
+/**
+ * E7 — Retira la versión vigente (HU #13964, RN-BD7). Sin limitador propio: no es carga ni OCR. Sin
+ * `logPiiAccess`: no se lee el archivo (la descarga de la cédula lo sigue registrando).
+ */
+router.post('/documentos/:documentoId/retirar', soloSinEnlace(), exigirFuncion('bolsas.documentos.cargar'), async (req: Request, res: Response) => {
+  const p = documentoParams.safeParse(req.params);
+  if (!p.success) { res.status(400).json({ error: 'El documento no es válido.' }); return; }
+  const b = retiroBody.safeParse(req.body ?? {});
+  if (!b.success) { res.status(400).json({ error: MSG_MOTIVO, codigo: 'motivo_invalido' }); return; }
+  try {
+    const r = await retirarDocumento(p.data.documentoId, b.data.motivo || null, req.user?.sub ?? null);
+    // Sin el motivo (texto libre, puede traer PII; vive en la fila) ni el nombre del archivo.
+    await audit(req, {
+      action: 'update', resource: 'flito_bolsa_documento', resourceId: p.data.documentoId,
+      detail: `Retiro del documento ${r.fila.tipo} v${r.version} de la compañía ${r.companiaId}`,
+    });
+    res.json(r.fila);
   } catch (e) { fallo(res, e); }
 });
 
