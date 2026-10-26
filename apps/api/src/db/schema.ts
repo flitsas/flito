@@ -493,7 +493,7 @@ export const organismosTransitoConfig = pgTable('organismos_transito_config', {
    *
    * Marcaba si el organismo operaba con saldo prepago de FLIT, cuando una bolsa era una secretaría.
    * Ahora cualquier secretaría puede entrar en una bolsa y quien lo decide es
-   * `flitoBolsaTransitoCobertura`. La columna se conserva —mismo criterio que con
+   * `flitoBolsasUnicasCobertura`. La columna se conserva —mismo criterio que con
    * `flito_reglas_proveedor_soat`: borrar datos en el cambio que retira su último lector es
    * innecesariamente irreversible— y su DROP irá en una migración posterior.
    */
@@ -3872,129 +3872,15 @@ export const flitoExcepcionesAutogestion = pgTable('flito_excepciones_autogestio
   excepcionTramiteIdx: index('idx_flito_excepciones_tramite').on(t.tramiteId),
 }));
 
-// ── FLITO Bolsas (HU #11121) ─────────────────────────────────────────────────
-
-/**
- * Bolsa prepago del cliente: UNA por compañía (Feature #11120 §3). El consumo se reparte entre
- * organismos por movimiento, no abriendo una bolsa por OT.
- *
- * `saldo` está denormalizado a propósito. Sumar el libro entero en cada lectura se vuelve caro con
- * el histórico de un año; la consistencia la da el lock de esta fila (`FOR UPDATE`) mientras se
- * escribe el movimiento.
- *
- * Puede quedar NEGATIVO: si el organismo aprobó, el gasto ya ocurrió y bloquear el descuento
- * desalinearía el sistema de la realidad. Lo que hace el saldo negativo es disparar la alerta.
- */
-export const flitoBolsas = pgTable('flito_bolsas', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  // RESTRICT y no CASCADE: es un libro contable, no configuración. Borrar un cliente no puede
-  // llevarse por delante su saldo ni su histórico. Mismo criterio que flito_liquidaciones.
-  companiaId: integer('compania_id').notNull().unique().references(() => clients.id, { onDelete: 'restrict' }),
-  saldo: numeric('saldo', { precision: 14, scale: 2 }).notNull().default('0'),
-  // Base del nivel de riesgo (HU #11125). NULL mientras no haya recargas: ahí no hay porcentaje que
-  // calcular, y es lo que distingue «sin recargas» de «agotada».
-  ultimaRecargaValor: numeric('ultima_recarga_valor', { precision: 14, scale: 2 }),
-  ultimaRecargaEn: timestamp('ultima_recarga_en', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-/**
- * Libro append-only de la bolsa. Nada se edita ni se borra: una corrección es otro movimiento
- * (HU #11123), igual que `flito_liquidacion_eventos`.
- *
- * `valor` es siempre positivo y la dirección la da `tipo`: guardar las salidas en negativo obligaría
- * a recordar el signo en cada suma del extracto.
- */
-export const flitoBolsaMovimientos = pgTable('flito_bolsa_movimientos', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsas.id, { onDelete: 'restrict' }),
-  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
-  /** 'entrada' | 'salida'. */
-  tipo: varchar('tipo', { length: 10 }).notNull(),
-  /** 'recarga' | 'automatico' | 'manual'. */
-  origen: varchar('origen', { length: 20 }).notNull(),
-  // Las cuatro siguientes son NULL en una recarga: el dinero entra sin pasar por un organismo ni por
-  // un trámite. Las llenan las salidas automáticas de la HU #11122.
-  concepto: varchar('concepto', { length: 30 }),
-  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
-  tramiteId: uuid('tramite_id').references(() => flitoTramites.id, { onDelete: 'set null' }),
-  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
-  saldoResultante: numeric('saldo_resultante', { precision: 14, scale: 2 }).notNull(),
-  /** Periodo contable 'YYYY-MM' al que se imputa; lo usa el cierre mensual (HU #11126). */
-  periodo: varchar('periodo', { length: 7 }).notNull(),
-  fecha: date('fecha').notNull(),
-  observacion: text('observacion'),
-  // RESTRICT: una entrada de dinero no puede quedarse sin su comprobante.
-  soporteId: uuid('soporte_id').references(() => flitoSoportes.id, { onDelete: 'restrict' }),
-  registradoPorId: integer('registrado_por_id').references(() => users.id, { onDelete: 'set null' }),
-  registradoPorNombre: varchar('registrado_por_nombre', { length: 150 }).notNull(),
-  // Anti doble cobro de las salidas automáticas (HU #11122). NULL en lo que registra una persona:
-  // dos recargas iguales el mismo día son dos recargas, no un duplicado.
-  llaveIdempotencia: varchar('llave_idempotencia', { length: 200 }),
-  // Movimiento que este ajuste corrige (HU #11123). Corregir no es un UPDATE del valor —el libro es
-  // append-only—, sino un movimiento nuevo que apunta al original.
-  corrigeMovimientoId: uuid('corrige_movimiento_id'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  companiaIdx: index('idx_flito_bolsa_mov_compania').on(t.companiaId, t.createdAt),
-  periodoIdx: index('idx_flito_bolsa_mov_periodo').on(t.companiaId, t.periodo),
-  // Extracto por organismo (bolsa simbólica, HU #11124). Parcial: las recargas no tienen organismo.
-  organismoIdx: index('idx_flito_bolsa_mov_organismo')
-    .on(t.organismoCodigo, t.concepto)
-    .where(sql`${t.organismoCodigo} IS NOT NULL`),
-  // Se declara aquí y no solo en el SQL: es la ÚNICA protección anti doble cobro de las salidas
-  // automáticas (HU #11122), y si el esquema no la conoce, el próximo `db:generate` emitiría un
-  // DROP INDEX que la borraría antes de que la HU que la usa llegue a producción.
-  llaveIdx: uniqueIndex('idx_flito_bolsa_mov_llave')
-    .on(t.llaveIdempotencia)
-    .where(sql`${t.llaveIdempotencia} IS NOT NULL`),
-  // «¿Qué correcciones tiene este movimiento?» sin barrer el libro entero (HU #11123). Parcial: la
-  // inmensa mayoría de los movimientos no corrigen nada.
-  corrigeIdx: index('idx_flito_bolsa_mov_corrige')
-    .on(t.corrigeMovimientoId)
-    .where(sql`${t.corrigeMovimientoId} IS NOT NULL`),
-}));
-
-/**
- * Cierre mensual de la bolsa de un cliente (HU #11126, Feature #11120 §8).
- *
- * Cerrar es congelar: los movimientos del periodo dejan de admitir altas y correcciones, y el saldo
- * final pasa a ser el saldo inicial del mes siguiente. El disparo es MANUAL —Financiera cierra
- * cuando ha conciliado, no el día 30 a medianoche—, así que no hay cron.
- *
- * Los totales se copian en vez de recalcularse al leer, igual que `flito_liquidaciones` sella sus
- * valores: un reporte de cierre de hace un año debe seguir diciendo lo que dijo, aunque después
- * entren movimientos rezagados imputados a otro periodo.
- */
-export const flitoBolsaCierres = pgTable('flito_bolsa_cierres', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsas.id, { onDelete: 'restrict' }),
-  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
-  /** Periodo contable 'YYYY-MM' que se cierra. */
-  periodo: varchar('periodo', { length: 7 }).notNull(),
-  /** Saldo final del cierre anterior; cero en el primero. */
-  saldoInicial: numeric('saldo_inicial', { precision: 14, scale: 2 }).notNull(),
-  totalEntradas: numeric('total_entradas', { precision: 14, scale: 2 }).notNull(),
-  totalSalidas: numeric('total_salidas', { precision: 14, scale: 2 }).notNull(),
-  saldoFinal: numeric('saldo_final', { precision: 14, scale: 2 }).notNull(),
-  movimientos: integer('movimientos').notNull(),
-  observaciones: text('observaciones'),
-  cerradoPorId: integer('cerrado_por_id').references(() => users.id, { onDelete: 'set null' }),
-  cerradoPorNombre: varchar('cerrado_por_nombre', { length: 150 }).notNull(),
-  cerradoEn: timestamp('cerrado_en', { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  // Un cliente no puede cerrar dos veces el mismo periodo (AC4), y sobre todo dos cierres
-  // simultáneos no pueden producir dos reportes distintos del mismo mes.
-  periodoUnico: uniqueIndex('uq_flito_bolsa_cierre_periodo').on(t.companiaId, t.periodo),
-  companiaIdx: index('idx_flito_bolsa_cierres_compania').on(t.companiaId, t.periodo),
-}));
+// ── FLITO Pagos a organismos (HU #11124) ─────────────────────────────────────
+// HU #13911: los libros viejos de bolsas (flito_bolsas*, flito_bolsa_*) salieron a `archivo_bolsas`
+// (migración 0266); el modelo único vive en `./schema/flito-bolsas-unicas.ts`.
 
 /**
  * Pago de FLIT a un Organismo de Tránsito (HU #11124, Feature #11120 §4.1).
  *
  * La «bolsa simbólica» del organismo no tiene saldo propio: es una vista agregada sobre
- * `flito_bolsa_movimientos` que dice cuánto se le cobró al cliente por cuenta de ese organismo. Esta
+ * el libro único (`flito_bolsas_unicas_movimientos`) que dice cuánto se le cobró al cliente por cuenta de ese organismo. Esta
  * tabla es el otro lado de la conciliación —cuánto se le ha pagado— y lo único que se persiste del
  * estado de cuenta.
  *
@@ -4014,102 +3900,6 @@ export const flitoOrganismoPagos = pgTable('flito_organismo_pagos', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   organismoIdx: index('idx_flito_organismo_pagos_organismo').on(t.organismoCodigo, t.fecha),
-}));
-
-// ── FLITO Bolsa de Tránsito (HU #11161; remodelada en el ajuste 0124) ────────
-
-/**
- * Bolsa que FLIT precarga para que se paguen trámites ante las secretarías. Es la inversa de la del
- * cliente: aquí FLIT pone el dinero y otro lo gasta.
- *
- * NO está atada a una secretaría ni a un concepto. Una bolsa cubre las parejas (secretaría,
- * concepto) que diga `flitoBolsaTransitoCobertura` —«Bolsa de mi sector» puede cubrir Medellín,
- * Envigado y Sabaneta solo para impuestos—, y se identifica por su nombre.
- *
- * `saldo` puede ser NEGATIVO y eso no es un estado inválido: es el PRÉSTAMO. Si se siguió pagando
- * después de agotar el saldo, el gasto ya ocurrió; la siguiente carga lo neta sumando, sin que la
- * deuda necesite tabla ni columna propia.
- *
- * Denormalizado por la misma razón que `flito_bolsas.saldo`, y con la misma garantía: el lock de
- * esta fila (`FOR UPDATE`) mientras se escribe el movimiento.
- */
-export const flitoBolsasTransito = pgTable('flito_bolsas_transito', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  /** Cómo la llama quien la creó. Único: es el identificador humano de la bolsa. */
-  nombre: varchar('nombre', { length: 120 }).notNull().unique(),
-  saldo: numeric('saldo', { precision: 14, scale: 2 }).notNull().default('0'),
-  // Base del nivel de alerta. NULL mientras no haya cargas: distingue «sin cargas» de «agotada».
-  ultimaCargaValor: numeric('ultima_carga_valor', { precision: 14, scale: 2 }),
-  ultimaCargaEn: timestamp('ultima_carga_en', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-/**
- * Qué paga cada bolsa: el producto de sus secretarías por sus conceptos.
- *
- * El índice único sobre (organismo, concepto) es la pieza central del modelo, no una validación
- * defensiva: garantiza que al sellar una liquidación exista UNA sola bolsa candidata para cada
- * concepto, y por eso el descuento no tiene que preguntarle a nadie a dónde va el dinero. Una
- * secretaría puede repetirse entre bolsas mientras no repita concepto.
- */
-export const flitoBolsaTransitoCobertura = pgTable('flito_bolsa_transito_cobertura', {
-  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsasTransito.id, { onDelete: 'cascade' }),
-  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull()
-    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
-  /** 'derecho' | 'soat' | 'impuesto' (`ConceptoBolsaTransito`). */
-  concepto: varchar('concepto', { length: 20 }).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  pk: primaryKey({ columns: [t.bolsaId, t.organismoCodigo, t.concepto] }),
-  // Se declara aquí y no solo en el SQL: si el esquema no la conoce, el próximo `db:generate`
-  // emitiría un DROP INDEX y el modelo quedaría sin su única garantía de enrutamiento.
-  parUnicoIdx: uniqueIndex('uq_bolsa_transito_cobertura').on(t.organismoCodigo, t.concepto),
-  bolsaIdx: index('idx_bolsa_transito_cobertura_bolsa').on(t.bolsaId),
-}));
-
-/**
- * Libro append-only de la bolsa de tránsito. Mismo criterio que `flito_bolsa_movimientos`: nada se
- * edita ni se borra, el valor va siempre positivo y la dirección la da `tipo`.
- *
- * `organismoCodigo` y `concepto` son el DESGLOSE de la salida, no la identidad de la bolsa: dicen
- * qué se pagó y ante quién. Una carga no lleva ninguno de los dos —el dinero entra a la bolsa
- * entera— y por eso ambos son nullables.
- */
-export const flitoBolsaTransitoMovimientos = pgTable('flito_bolsa_transito_movimientos', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsasTransito.id, { onDelete: 'restrict' }),
-  organismoCodigo: varchar('organismo_codigo', { length: 5 })
-    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
-  /** Concepto que produjo la salida. NULL en las cargas. */
-  concepto: varchar('concepto', { length: 20 }),
-  /** 'entrada' | 'salida'. */
-  tipo: varchar('tipo', { length: 10 }).notNull(),
-  /** 'carga' | 'automatico'. */
-  origen: varchar('origen', { length: 20 }).notNull(),
-  tramiteId: uuid('tramite_id').references(() => flitoTramites.id, { onDelete: 'set null' }),
-  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
-  saldoResultante: numeric('saldo_resultante', { precision: 14, scale: 2 }).notNull(),
-  periodo: varchar('periodo', { length: 7 }).notNull(),
-  fecha: date('fecha').notNull(),
-  observacion: text('observacion'),
-  soporteId: uuid('soporte_id').references(() => flitoSoportes.id, { onDelete: 'restrict' }),
-  registradoPorId: integer('registrado_por_id').references(() => users.id, { onDelete: 'set null' }),
-  registradoPorNombre: varchar('registrado_por_nombre', { length: 150 }).notNull(),
-  llaveIdempotencia: varchar('llave_idempotencia', { length: 200 }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  organismoIdx: index('idx_flito_org_mov_organismo').on(t.organismoCodigo, t.createdAt),
-  bolsaIdx: index('idx_flito_bolsa_transito_mov_bolsa').on(t.bolsaId, t.createdAt),
-  // Se declara aquí y no solo en el SQL: es la ÚNICA protección anti doble consumo del sellado, y si
-  // el esquema no la conoce, el próximo `db:generate` emitiría un DROP INDEX que la borraría.
-  llaveIdx: uniqueIndex('idx_flito_org_mov_llave')
-    .on(t.llaveIdempotencia)
-    .where(sql`${t.llaveIdempotencia} IS NOT NULL`),
-  // «¿Qué consumió este trámite?» sin barrer el libro entero; lo usa el reverso de la liquidación.
-  tramiteIdx: index('idx_flito_org_mov_tramite')
-    .on(t.tramiteId)
-    .where(sql`${t.tramiteId} IS NOT NULL`),
 }));
 
 // ============================================================================

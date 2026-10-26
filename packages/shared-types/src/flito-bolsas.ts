@@ -406,7 +406,7 @@ export interface BolsaResumenDto {
   nivel: NivelRiesgoBolsa;
   porcentaje: number | null;
   /**
-   * HU #13907: lo propio de una bolsa de TRÁNSITO, que hoy da `GET /transito/:bolsaId` (`BolsaTransitoConNivel`):
+   * HU #13907: lo propio de una bolsa de TRÁNSITO (lo que daba `GET /transito/:bolsaId`, retirada en la HU #13911):
    * nivel en SU escala (con préstamo), deuda y totales del libro. `null` en las de compañía. `nivel` sigue en la
    * escala de compañía para no cambiar el tipo que lee la web.
    */

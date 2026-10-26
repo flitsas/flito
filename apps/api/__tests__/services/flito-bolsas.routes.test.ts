@@ -1063,22 +1063,31 @@ describe('orden de las rutas — un segmento fijo nunca puede quedar bajo /:comp
     expect(antesDelParametro).toEqual(expect.arrayContaining(['/consolidado', '/riesgo', '/alertas']));
   });
 
-  it('las rutas de bolsa de tránsito con parámetro no necesitan ir antes: las salvan sus segmentos', async () => {
-    // Documenta por qué esas sí pueden vivir más abajo, para que nadie «arregle» lo que no está roto
-    // moviéndolas y se lleve por delante el orden de las otras.
-    //
-    // `/transito` a secas (un solo segmento fijo) SÍ depende del orden y lo cubre el test de arriba.
-    // Las que llevan `:bolsaId` no: `/:companiaId` solo captura rutas de un segmento, y las de dos
-    // no chocan porque las que ya existen con esa forma tienen su segundo segmento literal
-    // (`/:companiaId/movimientos`, `/:companiaId/extracto`…), no un parámetro.
+  it('HU #13911 (AC6): el router ya no declara ninguna ruta `/transito…`', async () => {
     const rutas = await rutasDeclaradas();
-    const conParametro = rutas.filter((r) => r.startsWith('/transito/'));
-
-    expect(conParametro).toEqual(expect.arrayContaining([
-      '/transito/:bolsaId',
-      '/transito/:bolsaId/movimientos',
-      '/transito/:bolsaId/cargas',
-    ]));
-    expect(conParametro.every((r) => r.split('/').filter(Boolean).length >= 2)).toBe(true);
+    expect(rutas.filter((r) => r === '/transito' || r.startsWith('/transito/'))).toEqual([]);
   });
+});
+
+// ─────────────────────────── HU #13911 — rutas antiguas de tránsito retiradas ─
+
+describe('HU #13911 (AC6) — las rutas antiguas `/transito…` responden 404', () => {
+  const B = '00000000-0000-0000-0000-0000000000f6';
+  const casos: [string, 'get' | 'post' | 'patch', string][] = [
+    ['GET /transito', 'get', '/api/flito/bolsas/transito'],
+    ['POST /transito', 'post', '/api/flito/bolsas/transito'],
+    ['GET /transito/:bolsaId', 'get', `/api/flito/bolsas/transito/${B}`],
+    ['PATCH /transito/:bolsaId', 'patch', `/api/flito/bolsas/transito/${B}`],
+    ['GET /transito/:bolsaId/movimientos', 'get', `/api/flito/bolsas/transito/${B}/movimientos`],
+    ['POST /transito/:bolsaId/cargas', 'post', `/api/flito/bolsas/transito/${B}/cargas`],
+  ];
+
+  it.each(casos)('%s → 404 para el administrador y no audita ninguna mutación', async (_n, metodo, url) => {
+    const app = await buildApp();
+    const r = await request(app)[metodo](url).set('Authorization', await auth('admin'))
+      .send({ nombre: 'Bolsa', organismos: ['05001'], conceptos: ['derecho'], valor: 1000 });
+    expect(r.status).toBe(404);
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
 });

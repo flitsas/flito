@@ -124,9 +124,11 @@ describe('AC3 — corregir un movimiento de OTRO libro bajo el path propio → 4
 });
 
 describe('AC4 — las bolsas de tránsito (de FLIT, por secretaría) cerradas a todo enlace', () => {
-  it.each(['/transito', '/transito/00000000-0000-0000-0000-0000000000f6'])('GET %s → 403, sin consultar', async (ruta) => {
+  // HU #13911: las rutas antiguas `/transito…` se retiraron → 404 para todos, también con enlace, sin consultar.
+  // La rama tránsito del catálogo único (`/bolsa/:bolsaId*`) conserva su `soloSinEnlace()`.
+  it.each(['/transito', '/transito/00000000-0000-0000-0000-0000000000f6'])('GET %s → 404 (retirada), sin consultar', async (ruta) => {
     const r = await request(await app()).get(`/api/flito/bolsas${ruta}`).set('Authorization', await como('compania'));
-    expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);
+    expect(r.status).toBe(404);
     expect(h.cap.consultas).toEqual([]);
   });
 });
