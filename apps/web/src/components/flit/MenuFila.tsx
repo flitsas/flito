@@ -27,6 +27,18 @@ export interface OpcionMenuFila {
   onElegir: () => void;
   /** `peligro`: tinta `--flit-danger-text` (par oscuro definido) y separada por un divisor arriba. */
   tono?: 'normal' | 'peligro';
+  /**
+   * HU #13956: la opción se ve y se ENFOCA, pero no se elige (`aria-disabled`, no `disabled`
+   * nativo: un ítem `disabled` no recibe foco y su motivo no se alcanzaría con teclado).
+   */
+  deshabilitada?: boolean;
+  /**
+   * Texto secundario bajo la opción («Primero debe desactivarlo.»). Visible —no un `title`, que no
+   * llega ni al teclado ni al tacto— y asociado a la opción por `aria-describedby` (AC6 de #13956).
+   */
+  motivo?: string;
+  /** `false`: elegirla no cierra el menú (p. ej. reintentar una comprobación). Por defecto `true`. */
+  cierra?: boolean;
 }
 
 interface Props {
@@ -34,6 +46,8 @@ interface Props {
   etiqueta: string;
   /** Vacío → no se pinta nada (nunca un ⋮ que abre un menú vacío). */
   opciones: OpcionMenuFila[];
+  /** Al abrir el menú (HU #13956: Clientes pide ahí si el cliente se puede eliminar). */
+  onAbrir?: () => void;
 }
 
 const ANCHO_PANEL = 192; // px; coincide con `w-48`.
@@ -41,7 +55,7 @@ const MARGEN = 8;
 
 interface Posicion { top: number; left: number }
 
-export function MenuFila({ etiqueta, opciones }: Props) {
+export function MenuFila({ etiqueta, opciones, onAbrir }: Props) {
   const [abierto, setAbierto] = useState(false);
   const [activo, setActivo] = useState(0);
   const [pos, setPos] = useState<Posicion | null>(null);
@@ -59,7 +73,11 @@ export function MenuFila({ etiqueta, opciones }: Props) {
   const abrir = (indice: number) => {
     setActivo(indice);
     setAbierto(true);
+    onAbrir?.();
   };
+
+  // Si el contenido cambia con el menú abierto (llega un motivo), se vuelve a colocar.
+  const firma = opciones.map((o) => `${o.id}|${o.motivo ?? ''}`).join('·');
 
   // Posición: alineado al borde derecho del ⋮, abajo; arriba si no cabe. Se mide tras pintar el panel.
   useLayoutEffect(() => {
@@ -84,7 +102,7 @@ export function MenuFila({ etiqueta, opciones }: Props) {
       window.removeEventListener('resize', colocar);
       window.removeEventListener('scroll', colocar, true);
     };
-  }, [abierto]);
+  }, [abierto, firma]);
 
   // Foco itinerante: el ítem activo recibe el foco real.
   useEffect(() => {
@@ -106,7 +124,8 @@ export function MenuFila({ etiqueta, opciones }: Props) {
   if (opciones.length === 0) return null;
 
   const elegir = (o: OpcionMenuFila) => {
-    cerrar(true);
+    if (o.deshabilitada) return;
+    if (o.cierra !== false) cerrar(true);
     o.onElegir();
   };
 
@@ -176,7 +195,13 @@ export function MenuFila({ etiqueta, opciones }: Props) {
             boxShadow: 'var(--flit-shadow-card)',
           }}
         >
-          {opciones.map((o, i) => (
+          {opciones.map((o, i) => {
+            const idTexto = `${idPanel}-${o.id}-texto`;
+            const idMotivo = `${idPanel}-${o.id}-motivo`;
+            const tinta = o.deshabilitada
+              ? 'var(--flit-text-muted)'
+              : o.tono === 'peligro' ? 'var(--flit-danger-text)' : 'var(--flit-text-primary)';
+            return (
             <Fragment key={o.id}>
               {o.tono === 'peligro' && i > 0 && (
                 <div role="separator" className="my-1 border-t" style={{ borderColor: 'var(--flit-border-soft)' }} />
@@ -186,18 +211,26 @@ export function MenuFila({ etiqueta, opciones }: Props) {
                 type="button"
                 role="menuitem"
                 tabIndex={-1}
+                aria-disabled={o.deshabilitada ? true : undefined}
+                aria-labelledby={idTexto}
+                aria-describedby={o.motivo ? idMotivo : undefined}
                 onClick={() => elegir(o)}
                 onMouseEnter={() => setActivo(i)}
                 className={
-                  'flit-focus flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--flit-bg-hover)]'
+                  'flit-focus flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--flit-bg-hover)]'
                   + (i === activo ? ' bg-[var(--flit-bg-hover)]' : '')
+                  + (o.deshabilitada ? ' cursor-not-allowed' : '')
                 }
-                style={{ color: o.tono === 'peligro' ? 'var(--flit-danger-text)' : 'var(--flit-text-primary)' }}
+                style={{ color: tinta }}
               >
-                {o.texto}
+                <span id={idTexto}>{o.texto}</span>
+                {o.motivo && (
+                  <span id={idMotivo} className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{o.motivo}</span>
+                )}
               </button>
             </Fragment>
-          ))}
+            );
+          })}
         </div>,
         document.body,
       )}
