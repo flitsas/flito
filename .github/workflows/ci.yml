@@ -14,11 +14,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-test:
-    name: build + test
+  # 2026-10-26 — el antiguo job monolítico `build-test` (~12 min y creciendo) se partió en
+  # cuatro caminos paralelos: `checks` (guardas de solo-fuentes), `test-api` (suite API en
+  # 4 shards matrix), `build-api` (typecheck) y `build-web` (typecheck + vite + guards de
+  # dist). El camino crítico pasa a ser npm ci + el shard más lento (~4-5 min). El job
+  # `build-test-gate` conserva el nombre de check «build + test» que exige la protección
+  # de rama y vigila `pr-monitor-agent`: falla si cualquiera de los cuatro falla.
+  checks:
+    name: checks
     runs-on: ubuntu-latest
-    # Los tests mockean Postgres/Redis (drizzle chain + env de __tests__/setup.ts),
-    # por eso NO se necesitan servicios externos en CI.
+    timeout-minutes: 10
     env:
       # @playwright/test está en devDeps de apps/web; ESTE job no corre e2e, así que evitamos
       # descargar navegadores en el npm ci. El único que sí los necesita es `e2e-visor-pdf`
@@ -35,9 +40,9 @@ jobs:
       - name: Install (workspaces)
         run: npm ci
 
-      - name: Build shared-types (tsc)
-        run: npm run build -w @operaciones/shared-types
-
+      # Sin `npm run build -w @operaciones/shared-types`: el alias de
+      # `apps/api/vitest.config.ts` resuelve el paquete a su FUENTE, y los checks
+      # siguientes solo leen fuentes (AST/regex). Este job no compila nada.
       - name: Test shared-types (vitest)
         run: npm run test:shared-types
 
@@ -88,16 +93,98 @@ jobs:
       - name: Origen del worker de pdfjs (web)
         run: npm run check:pdf-worker
 
-      # Typecheck: el build de API es `tsc`, el de web es `tsc --noEmit && vite build`.
-      - name: Build API (tsc)
-        run: npm run build:api
+      # 2026-10-26 — gate estático de patrón visual FLITO (decisión «ux-enforcement»):
+      # `<table>` cruda en módulos FLITO (la tabla es la FlitTable del kit), HEX sueltos
+      # (regla 13 de AGENTS.md: tokens --flit-*, no HEX) y controles crudos con altura fija
+      # `h-N` (la altura la fija el kit). AST no hace falta: línea a línea sin comentarios.
+      - name: Patrón visual FLITO (check + test)
+        run: |
+          node --test scripts/check-ui.test.mjs
+          node scripts/check-ui.mjs
+
+  # Suite API en shards matrix. `fileParallelism: false` (serial) es deliberado por mocks de
+  # módulo compartidos DENTRO del mismo proceso; cada shard es un proceso y un job aparte con
+  # su subconjunto de archivos en serial, así que el aislamiento se mantiene y el tiempo se
+  # divide ~4. Validado en local el 2026-10-26: los 4 shards verdes (675 archivos de test).
+  # `fail-fast: false`: si un shard se rompe, los demás terminan y el diagnóstico es completo.
+  test-api:
+    name: test api (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
+
+      # Los tests mockean Postgres/Redis (drizzle chain + env de __tests__/setup.ts), por eso
+      # NO se necesitan servicios externos. El alias de `apps/api/vitest.config.ts` resuelve
+      # shared-types a fuente DENTRO de vitest, pero los tests de seed (migracion-0179/0205)
+      # lanzan `npx tsx` como subproceso, que resuelve `@operaciones/shared-types` por su
+      # `main` → `dist/`: sin este build esos archivos fallan con «action no cuelga de
+      # ninguna página» o MODULE_NOT_FOUND. ~20 s que no se pueden ahorrar.
+      - name: Build shared-types (tsc)
+        run: npm run build -w @operaciones/shared-types
 
       # HU #13207: los tests de compresión de comprobantes usan pdftotext/pdftoppm reales (poppler).
       - name: Instalar poppler-utils
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
 
-      - name: Test API (vitest)
-        run: npm run test -w apps/api
+      - name: Test API (vitest, shard ${{ matrix.shard }}/4)
+        run: npm run test -w apps/api -- --shard=${{ matrix.shard }}/4
+
+  build-api:
+    name: build api
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
+
+      - name: Build shared-types (tsc)
+        run: npm run build -w @operaciones/shared-types
+
+      # Typecheck: el build de API es `tsc -b && tsc-alias`. El heap lo pone el entorno del
+      # runner (ver «Heap de build:api» en AGENTS.md): sin flag y con el árbol frío compila.
+      - name: Build API (tsc)
+        run: npm run build:api
+
+  build-web:
+    name: build web
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
 
       - name: Build web (typecheck + vite)
         run: npm run build:web
@@ -115,6 +202,29 @@ jobs:
       # (imports estáticos pesados, pérdida de code-splitting).
       - name: Bundle budget (web)
         run: npm run check:bundle
+
+  # Agregador: conserva el check «build + test» que la protección de rama y
+  # `pr-monitor-agent` vigilan. `if: always()` es la pieza clave: sin él, un fallo en un
+  # need marcaría este job como «skipped» y la protección de rama podría contarlo como
+  # verde; con él, el job corre siempre y sale rojo nombrando al culpable.
+  build-test-gate:
+    name: build + test
+    needs: [checks, test-api, build-api, build-web]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Veredicto agregado de checks / test-api / builds
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "  \(.key): \(.value.result)"'
+          ROTO=$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success") | "\(.key)=\(.value.result)"' | paste -sd' ' -)
+          if [ -n "$ROTO" ]; then
+            echo "::error::build + test en rojo por: $ROTO"
+            exit 1
+          fi
+          echo "build + test — OK: checks, test-api (4 shards), build api y build web en verde."
 
   # Gate de lint — ESLint flat config (eslint.config.mjs). Son ERROR (= check
   # rojo) max-lines (800 global; techos congelados por archivo legacy) y
@@ -272,7 +382,7 @@ jobs:
   # cargarse —MIME, caché o desajuste de versión API↔worker—: la pantalla monta igual y solo enseña
   # «Setting up fake worker failed». Sin este job, el primero en enterarse sería un usuario.
   #
-  # Es el único que descarga navegador, por eso va aparte del `build-test` (que conserva su
+  # Es el único que descarga navegador, por eso va aparte de los jobs de fuentes (que conservan su
   # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD): son ~2 minutos de `playwright install` que no tiene sentido
   # pagar en los jobs que solo leen fuentes.
   #
