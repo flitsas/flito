@@ -424,13 +424,8 @@ describe('alta renovación', () => {
     expect(espia.inserts).toHaveLength(0);
   });
 
-  it('RUNT caído en el alta de renovación => 503 y NO se aparca (la #14018 lo hará)', async () => {
-    escenario();
-    consultarVehiculoRuntMock.mockRejectedValue(new Error('timeout'));
-    const r = await altaRenovacion(await buildApp(), await auth(siguienteUsuario()));
-    expect(r.status).toBe(503);
-    expect(espia.insertsEn('flito_soat_incompletas')).toHaveLength(0);
-  });
+  // El RUNT caído en la renovación ya NO es 503: se aparca (HU #14018, AC1) — ver
+  // flito-soat.cliente-renovacion-incompleta.test.ts.
 
   it('renovación con placa inválida => 400', async () => {
     escenario();

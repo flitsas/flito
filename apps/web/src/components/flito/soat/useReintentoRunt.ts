@@ -58,7 +58,7 @@ export default function useReintentoRunt({ esCliente, onResuelto }: { esCliente:
     let desenlace: DesenlaceReintento;
     try {
       const r = await api.post<ResultadoReintentoRunt>(`/flito/soat/cliente/incompletas/${fila.id}/reintentar`, {});
-      toastDeResultado(r, fila.vin);
+      toastDeResultado(r, fila.vin ?? '');
       desenlace = r;
     } catch (e) {
       const status = e instanceof ApiError ? e.status : 0;

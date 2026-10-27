@@ -825,6 +825,13 @@ export const CodigoErrorSolicitudSoat = {
    * estado actual; la fila no se toca (AC6/AC7).
    */
   INCOMPLETA_YA_RESUELTA: 'incompleta_ya_resuelta',
+
+  /**
+   * HU #14018: el reintento llegó a una incompleta cuyo `motivo_pendiente` no es `runt_sin_respuesta`
+   * (falta factura / faltan datos del propietario, de la carga masiva futura): se resuelve completando,
+   * no reintentando el RUNT.
+   */
+  INCOMPLETA_NO_REINTENTABLE: 'incompleta_no_reintentable',
 } as const;
 
 export type CodigoErrorSolicitudSoat =
@@ -861,9 +868,23 @@ export type EstadoSolicitudIncompletaSoat =
  */
 export const MOTIVOS_DESCARTE_SOAT = [
   'soat_vigente', 'runt_no_cuadra', 'runt_sin_registro', 'runt_sin_vin', 'solicitud_existente',
+  /** HU #14018: la renovación reintentada y el RUNT dice que el vehículo no registra SOAT. */
+  'sin_soat_anterior',
 ] as const;
 
 export type MotivoDescarteSoat = (typeof MOTIVOS_DESCARTE_SOAT)[number];
+
+/** HU #14018: cómo consulta el RUNT una incompleta (0269): por VIN (Inicial) o por placa + documento (Renovación). */
+export type ModalidadConsultaRunt = 'vin' | 'placa';
+
+/**
+ * HU #14018: por qué una incompleta está pendiente (0269). Los valores son los del CHECK
+ * `flito_soat_incompletas_motivo_pendiente_chk`. Los dos últimos son de la carga masiva futura.
+ */
+export const MOTIVOS_PENDIENTE_INCOMPLETA = [
+  'runt_sin_respuesta', 'falta_factura_venta', 'faltan_datos_propietario',
+] as const;
+export type MotivoPendienteIncompleta = (typeof MOTIVOS_PENDIENTE_INCOMPLETA)[number];
 
 /**
  * Autor que ve quien mira un descarte hecho por alguien FUERA de su enlace de compañía (Q6 / P-4 del
@@ -874,17 +895,22 @@ export const AUTOR_DESCARTE_FLITO = 'FLITO';
 /**
  * Una fila de `POST /api/flito/soat/cliente/incompletas/buscar` (HU #12997, diseño §4.1).
  *
- * `placa`, `marca` y `linea` son SIEMPRE `null` (R5 del UX): el RUNT no respondió y no hay de dónde
- * sacarlas. Viajan igualmente para que la tabla de la cola no tenga que distinguir la forma.
+ * `marca` y `linea` son SIEMPRE `null` (R5 del UX): el RUNT no respondió y no hay de dónde sacarlas.
+ * `placa` es la tecleada (renovación por placa) o `null` (Inicial). `vin` es `null` en una renovación con
+ * RUNT caído (HU #14018).
  * `descarte` solo en `estado = 'descartada'`; `soatId` solo en `completada`.
  */
 export interface SolicitudIncompletaFila {
   id: string;
   estado: EstadoSolicitudIncompletaSoat;
-  vin: string;
+  vin: string | null;
   companiaId: number;
   companiaNombre: string | null;
-  placa: null;
+  placa: string | null;
+  /** HU #14018. */
+  tipoSoat: TipoSoat;
+  modalidadConsulta: ModalidadConsultaRunt;
+  motivoPendiente: MotivoPendienteIncompleta;
   marca: null;
   linea: null;
   /** Nombre del titular (derivado, como el de la cola): el mismo dato personal que la cola ya muestra. */
@@ -917,7 +943,8 @@ export interface PropietarioSolicitudIncompleta {
 /** `GET /api/flito/soat/cliente/incompletas/:id` (HU #12997). */
 export interface SolicitudIncompletaDetalle extends SolicitudIncompletaFila {
   propietario: PropietarioSolicitudIncompleta | null;
-  factura: { nombreArchivo: string; contentType: string; tamanoBytes: number };
+  /** `null` en una renovación sin factura (HU #14018). */
+  factura: { nombreArchivo: string; contentType: string; tamanoBytes: number } | null;
   /**
    * HU #13409: ISO de cuándo la retención (30 días tras el descarte) borró la factura y los
    * documentos adicionales del almacenamiento. `null` = no purgada.

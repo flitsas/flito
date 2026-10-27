@@ -252,6 +252,8 @@ export const DESENLACE_HABLA_DEL_VEHICULO: Record<CodigoErrorSolicitudSoat, bool
   [CodigoErrorSolicitudSoat.INCOMPLETA_YA_RESUELTA]: true,
 
   // ── No: la respuesta es la misma para cualquier VIN ───────────────────────────────────────────
+  /** HU #14018 — De la INCOMPLETA: su motivo no es el RUNT; no se consultó nada. */
+  [CodigoErrorSolicitudSoat.INCOMPLETA_NO_REINTENTABLE]: false,
   /** Del USUARIO: no tiene compañía. No se llegó a mirar ningún vehículo. */
   [CodigoErrorSolicitudSoat.SIN_COMPANIA]: false,
   /** De la COMPAÑÍA: el canal está apagado. Ídem. */
@@ -531,7 +533,7 @@ async function verificarRn01(
   // ADR-0031: el SOAT ACTUAL del vehículo (el abierto si lo hay; si no, el último terminal).
   const actual = await soatActualDelVin(db, vin);
   // Sin SOAT, la RN-01 sigue mirando la incompleta abierta (HU #12996). Con SOAT, ese 409 manda.
-  if (!actual) { await verificarIncompletaAbierta(vin, companiaId); return null; }
+  if (!actual) { await verificarIncompletaAbierta({ vin }, companiaId); return null; }
 
   // Mismo código, mismo cuerpo recortado y MISMO TEXTO que el vehículo ajeno sin SOAT: los dos son
   // «no es de su compañía» y distinguirlos sería contarle cuál de los dos es. Aplica igual al
@@ -561,12 +563,18 @@ async function verificarRn01(
  * Misma forma que la RN-01 de siempre: `propia: true` + `id` para la compañía que la radicó (la puede
  * abrir); `propia: false`, sin id ni estado, para cualquier otra.
  */
-async function verificarIncompletaAbierta(vin: string, companiaId: number): Promise<void> {
+async function verificarIncompletaAbierta(
+  clave: { vin: string } | { placa: string }, companiaId: number,
+): Promise<void> {
+  // HU #14018: la renovación aparca por PLACA (sin VIN); misma forma de 409 que por VIN.
+  const columna = 'vin' in clave
+    ? eq(flitoSoatIncompletas.vin, clave.vin)
+    : eq(flitoSoatIncompletas.placa, clave.placa);
   const [abierta] = await db
     .select({ id: flitoSoatIncompletas.id, companiaId: flitoSoatIncompletas.companiaId })
     .from(flitoSoatIncompletas)
     .where(and(
-      eq(flitoSoatIncompletas.vin, vin),
+      columna,
       eq(flitoSoatIncompletas.estado, EstadoSolicitudIncompletaSoat.INCOMPLETA),
     ))
     .limit(1);
@@ -1449,18 +1457,24 @@ export interface SolicitudAparcada {
  * vuelve a mirar la RN-01 para dar la forma propia/ajena; si ni así aparece, el 409 recortado.
  */
 async function aparcarPorRuntCaido(
-  entrada: EntradaSolicitud, archivo: ArchivoSolicitud, ctx: SoatCtx, canal: CanalCompania, vin: string,
-  adicionales: AdicionalAceptado[],
+  entrada: EntradaSolicitud, archivo: ArchivoSolicitud | null, ctx: SoatCtx, canal: CanalCompania,
+  consulta: ConsultaRunt, adicionales: AdicionalAceptado[],
 ): Promise<SolicitudAparcada> {
+  // Renovación (HU #14018): queda por PLACA, sin VIN y con la factura opcional. Inicial: como siempre.
+  const porPlaca = consulta.modalidad === 'placa';
   const r = await aparcarSolicitud({
-    vin, companiaId: canal.companiaId, carpetaStorage: canal.carpetaStorage,
+    tipoSoat: porPlaca ? 'renovacion' : 'inicial', modalidad: consulta.modalidad,
+    vin: consulta.modalidad === 'vin' ? consulta.vin : null,
+    placa: consulta.modalidad === 'placa' ? consulta.placa : null,
+    companiaId: canal.companiaId, carpetaStorage: canal.carpetaStorage,
     propietario: entrada.propietario,
     nombreCompleto: nombreCompletoDe(entrada.propietario),
     procedencia: procedenciaCompleta(entrada.procedencia),
     archivo, adicionales,
   }, ctx);
   if (!r.aparcada) {
-    await verificarRn01(vin, canal.companiaId);
+    if (consulta.modalidad === 'placa') await verificarIncompletaAbierta({ placa: consulta.placa }, canal.companiaId);
+    else await verificarRn01(consulta.vin, canal.companiaId);
     throw incompletaAjena();
   }
   return {
@@ -1524,6 +1538,9 @@ export async function crearSolicitud(
   if (!renovacion) {
     await verificarRn01(vinTecleado, canal.companiaId);
     await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
+  } else if (consulta.modalidad === 'placa') {
+    // Sin VIN antes del RUNT solo hay una guarda barata: la incompleta abierta de esa placa (HU #14018, AC3).
+    await verificarIncompletaAbierta({ placa: consulta.placa }, canal.companiaId);
   }
 
   // HU #12996: el 503 de la compuerta ya no aborta el ALTA —la preconsulta sigue en 503—. Solo ese
@@ -1532,9 +1549,9 @@ export async function crearSolicitud(
   try {
     runt = await verificarRuntCompuerta(consulta, tipoSoat);
   } catch (e) {
-    // Solo Inicial aparca; la renovación con RUNT caído responde 503 (aparcarla es la HU #14018).
-    if (!renovacion && archivo && e instanceof SolicitudSoatError && e.codigo === CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE) {
-      return aparcarPorRuntCaido(entrada, archivo, ctx, canal, vinTecleado, adicionales);
+    // Inicial y renovación (con o sin factura) aparcan con el RUNT caído (HU #14018, AC1).
+    if (e instanceof SolicitudSoatError && e.codigo === CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE) {
+      return aparcarPorRuntCaido(entrada, archivo, ctx, canal, consulta, adicionales);
     }
     throw e;
   }

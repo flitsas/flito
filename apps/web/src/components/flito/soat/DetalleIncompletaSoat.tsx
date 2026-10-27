@@ -33,6 +33,8 @@ export const MOTIVO_DESCARTE_TEXTO: Record<MotivoDescarteSoat, string> = {
   runt_no_cuadra: 'El VIN no coincide con el que el RUNT tiene registrado.',
   runt_sin_vin: 'El RUNT no devolvió el VIN del vehículo.',
   solicitud_existente: 'Ese VIN ya tenía una solicitud en la cola de FLITO.',
+  // Guarda mínima de la HU #14018 (backend); el copy final y la UI de renovación son de la HU #14019.
+  sin_soat_anterior: 'El RUNT no registra un SOAT anterior para este vehículo.',
 };
 
 const CAJA = { background: 'var(--flit-bg-app)', borderColor: 'var(--flit-border-soft)' } as const;
@@ -162,12 +164,12 @@ export default function DetalleIncompletaSoat({
 
         {/* Lo digitado: es la prueba de que no se perdió nada (UX §5). */}
         <dl className="grid grid-cols-1 gap-x-4 gap-y-2 border-t pt-4 sm:grid-cols-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <Dato k="VIN" v={d.vin} id="incompleta-vin" />
+          <Dato k="VIN" v={d.vin ?? '—'} id="incompleta-vin" />
           <Dato k="Compañía" v={d.companiaNombre ?? '—'} />
           <Dato k="Solicitado por" v={d.solicitadoPorNombre} />
           <Dato k="Solicitado" v={fecha(d.solicitadoEn)} />
           {det && <Dato k="Propietario" v={p ? `${nombreProp} · ${documentoConTipo(p.tipoDocumento, p.numeroDocumento)}` : '—'} />}
-          {det && <Dato k="Factura" v={`${det.factura.nombreArchivo} · ${kb(det.factura.tamanoBytes)}`} />}
+          {det && <Dato k="Factura" v={det.factura ? `${det.factura.nombreArchivo} · ${kb(det.factura.tamanoBytes)}` : '—'} />}
         </dl>
 
         {!det && !error && (
