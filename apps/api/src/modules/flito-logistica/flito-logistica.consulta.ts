@@ -235,8 +235,9 @@ export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
 
 // ── Listado de actas (panel de despacho/entrega) ─────────────────────────────
 
+// HU #14109: `companiaId` es NULL solo en el acta de organismo (multi-compañía).
 export interface ActaFila {
-  id: string; companiaId: number; companiaNombre: string | null; estado: string; estadoLabel: string;
+  id: string; companiaId: number | null; companiaNombre: string | null; estado: string; estadoLabel: string;
   mensajeroId: number | null; mensajeroNombre: string | null; documentos: number;
   receptorNombre: string | null; entregadoEn: string | null; creadoEn: string;
 }
