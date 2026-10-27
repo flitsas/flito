@@ -168,8 +168,9 @@ export const ESTADO_SOAT_LABEL: Record<EstadoSoat, string> = {
 };
 
 /**
- * RN-01: un SOAT se adquiere una sola vez por VIN. Solicitado y Pagado bloquean el reencolado;
- * Con novedad NO (se comporta como Pendiente: se corrige y se reenvía).
+ * RN-01 (ADR-0031, Feature #14012): un vehículo puede tener VARIOS SOAT, pero a lo sumo UNO ABIERTO a
+ * la vez. Solicitado y Pagado bloquean el reencolado de un trámite de FLIT; Con novedad NO (se
+ * comporta como Pendiente: se corrige y se reenvía).
  *
  * Desde la HU #12080 no hay más estados que estos cuatro, así que la lista no tiene que declarar
  * ninguna exclusión: los dos del canal Cliente que el ADR-0008 §2 dejaba fuera ya no existen.
@@ -180,6 +181,42 @@ export const ESTADOS_SOAT_BLOQUEAN_REENCOLADO: readonly EstadoSoat[] = [
 
 export function soatBloqueaReencolado(estado: EstadoSoat): boolean {
   return (ESTADOS_SOAT_BLOQUEAN_REENCOLADO as readonly string[]).includes(estado);
+}
+
+/**
+ * Estados TERMINALES del SOAT: solo `pagado` (decisión cerrada del Feature #14012). Un SOAT terminal
+ * es historial del vehículo; los otros tres (`pendiente`, `solicitado`, `con_novedad`) son ABIERTOS
+ * ("en proceso") y de ellos puede haber uno solo por vehículo (índices únicos parciales de la 0267).
+ */
+export const ESTADOS_SOAT_TERMINALES: readonly EstadoSoat[] = ['pagado'];
+
+/** ¿El SOAT está abierto (en proceso), es decir, NO terminal? */
+export function soatEstaAbierto(estado: EstadoSoat): boolean {
+  return !(ESTADOS_SOAT_TERMINALES as readonly string[]).includes(estado);
+}
+
+/**
+ * «Ya en FLITO» de un vehículo, para la preconsulta y para los 409 de RN-01 (Feature #14012).
+ * Aditivo y presente solo cuando el vehículo es de la compañía de quien consulta: el 409 de un
+ * vehículo AJENO no lleva este bloque (no se sondea cartera ajena).
+ */
+export interface SoatFlitoContexto {
+  /** Existe al menos un `flito_soat` de ESE vehículo y de ESA compañía. */
+  yaEnFlito: boolean;
+  /** Hay uno no terminal (en proceso): nunca renovable. */
+  abierto: boolean;
+  /** Estado del abierto; `null` si no hay abierto. */
+  estadoAbierto: EstadoSoat | null;
+  /** El abierto, o el último terminal. */
+  soatId: string | null;
+  /** `venceEl` - hoy (día Bogotá). `<= 0` = vencido. `null` = sin fecha. */
+  diasVigencia: number | null;
+  /** 'YYYY-MM-DD'. */
+  venceEl: string | null;
+  /** El RUNT recién consultado manda; si no trae fecha, `flito_soat.vence_el`. */
+  fuenteVigencia: 'runt' | 'flito' | null;
+  /** `!abierto && diasVigencia !== null && diasVigencia <= DIAS_RENOVACION_ANTICIPADA (30)`. */
+  renovable: boolean;
 }
 
 /**

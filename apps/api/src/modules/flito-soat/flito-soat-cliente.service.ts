@@ -120,6 +120,7 @@ import {
   type ProcedenciaComprador,
   type ProcedenciaCompradorPersistida,
   type SoatActivoRunt,
+  type SoatFlitoContexto,
   TipoSoporte,
   type TipoDocumentoRunt,
   type VigenciaProximaSoat,
@@ -133,6 +134,9 @@ import { uploadEntityDocument } from '../../services/storage.js';
 import { canalSinTramiteAbierto, exigirClienteOperable } from '../clients/cliente-operable.js';
 import { loggerFor } from '../../shared/logger.js';
 import { buscarConAcceso, ORIGEN_CLIENTE, type SoatCtx } from './flito-soat.service.js';
+import { diaEnBogota } from './flito-soat-cliente-runt.js';
+import { soatActualDelVin, type SoatActualDelVin } from './flito-soat-actual.js';
+import { contextoFlito, contextoSinFlito, diasEntre } from './flito-soat-contexto.js';
 import {
   consultarYClasificar,
   type CodigoRevise,
@@ -487,7 +491,7 @@ export async function companiasDelCanal(ctx: SoatCtx): Promise<CompaniasCanalSoa
 /**
  * RN-01, comprobada ANTES de consultar el RUNT y antes de subir nada (AC4).
  *
- * `flito_soat.vin` es NOT NULL UNIQUE, así que la última línea de defensa es la base y no esto —y
+ * `flito_soat.vin` lleva un índice único PARCIAL «abierto» (`uq_flito_soat_vin_abierto`, 0267), así que la última línea de defensa es la base y no esto —y
  * por eso el INSERT también atrapa el 23505—. Esta consulta existe para dar el mensaje útil: quien
  * radica tiene que saber que el vehículo YA tiene una solicitud y que no se crea una segunda.
  *
@@ -511,20 +515,31 @@ export async function companiasDelCanal(ctx: SoatCtx): Promise<CompaniasCanalSoa
  *
  * El bloqueo es el MISMO en los dos casos: RN-01 no se relaja por no ser suya.
  */
-async function verificarRn01(vin: string, companiaId: number): Promise<void> {
-  const [existente] = await db
-    .select({ id: flitoSoat.id, estado: flitoSoat.estado, companiaId: flitoSoat.companiaId })
-    .from(flitoSoat).where(eq(flitoSoat.vin, vin)).limit(1);
+async function verificarRn01(
+  vin: string, companiaId: number, opciones: { permiteTerminal?: boolean } = {},
+): Promise<SoatActualDelVin | null> {
+  // ADR-0031: el SOAT ACTUAL del vehículo (el abierto si lo hay; si no, el último terminal).
+  const actual = await soatActualDelVin(db, vin);
   // Sin SOAT, la RN-01 sigue mirando la incompleta abierta (HU #12996). Con SOAT, ese 409 manda.
-  if (!existente) { await verificarIncompletaAbierta(vin, companiaId); return; }
+  if (!actual) { await verificarIncompletaAbierta(vin, companiaId); return null; }
 
   // Mismo código, mismo cuerpo recortado y MISMO TEXTO que el vehículo ajeno sin SOAT: los dos son
-  // «no es de su compañía» y distinguirlos sería contarle cuál de los dos es.
-  if (existente.companiaId !== companiaId) throw vehiculoAjeno();
+  // «no es de su compañía» y distinguirlos sería contarle cuál de los dos es. Aplica igual al
+  // terminal: no se consulta ni se renueva el SOAT de otra compañía.
+  if (actual.companiaId !== companiaId) throw vehiculoAjeno();
 
+  const flito = contextoFlito(actual, diaEnBogota());
+  if (flito.abierto) {
+    throw fallo(409, CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT,
+      'Este vehículo ya está en un proceso de SOAT en FLITO. Termine o corrija esa solicitud antes de pedir otro.',
+      { propia: true, id: actual.id, estado: actual.estado, flito });
+  }
+  // Terminal (`pagado`): la preconsulta lo deja pasar para informar «ya en FLITO»; el alta Inicial
+  // conserva el 409 (decisión cerrada) y, si es propio, avisa si es renovable.
+  if (opciones.permiteTerminal) return actual;
   throw fallo(409, CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT,
-    'Este vehículo ya tiene un SOAT en FLITO. Un vehículo no puede tener dos (RN-01).',
-    { propia: true, id: existente.id, estado: existente.estado });
+    'Este vehículo ya tiene un SOAT en FLITO.',
+    { propia: true, id: actual.id, estado: actual.estado, flito });
 }
 
 /**
@@ -584,7 +599,7 @@ const vehiculoAjeno = () => fallo(
  * vehículo puede existir en `vehicles` SIN fila en `flito_soat`, y de hecho es el caso mayoritario
  * —`upsertVehiculo()` del sync corre para todos los trámites, mientras que `resolverSoat()` solo
  * corre con el trámite asignado y con compañía y organismo emparejados—. Para uno de esos VIN, la
- * RN-01 no encuentra nada y el UNIQUE de `flito_soat.vehiculo_id` tampoco salta, porque el vehículo
+ * RN-01 no encuentra nada y el índice único parcial de `flito_soat.vehiculo_id` tampoco salta, porque el vehículo
  * ajeno no tiene SOAT: sin esta comprobación, el alta hacía UPDATE sobre la ficha de otra compañía y
  * le sobrescribía titular, cédula, placa, marca, línea, año y clase con lo que teclea quien radica.
  *
@@ -795,6 +810,21 @@ const MENSAJE_REVISE: Record<CodigoRevise, string> = {
     'El RUNT no publica el VIN de este vehículo, y sin VIN no podemos radicar la solicitud. Escríbenos para revisarlo.',
 };
 
+/**
+ * Si el RUNT dice «vigente» (409 `soat_vigente`, vigencia fuera de la ventana) sobre un vehículo que
+ * YA tiene un SOAT `pagado` de la compañía, el 409 lleva además `diasVigencia` y `flito`
+ * (`renovable: false`). El resto de errores pasa intacto.
+ */
+function conFlitoEnSoatVigente(e: unknown, actual: SoatActualDelVin | null): unknown {
+  if (!actual || !(e instanceof SolicitudSoatError) || e.codigo !== CodigoErrorSolicitudSoat.SOAT_VIGENTE) return e;
+  const hoy = diaEnBogota();
+  const venceRunt = typeof e.datos?.fechaVencimiento === 'string' ? e.datos.fechaVencimiento : null;
+  const flito = { ...contextoFlito(actual, hoy, venceRunt), renovable: false };
+  return fallo(e.status, e.codigo, e.message, {
+    ...e.datos, diasVigencia: venceRunt ? diasEntre(hoy, venceRunt) : flito.diasVigencia, flito,
+  });
+}
+
 // ───────────────────────────── Preconsulta ──────────────────────────────────
 
 export interface Preconsulta {
@@ -812,6 +842,13 @@ export interface Preconsulta {
   organismo: { codigo: string | null; nombre: string | null };
   /** Solo el nombre, y solo si el RUNT lo trajo. Ver `DatosRuntCanal.propietarioNombre`. */
   propietario: { nombreCompleto: string } | null;
+  /**
+   * «Ya en FLITO» (Feature #14012, ADR-0031): si el vehículo ya tiene SOAT gestionado por FLITO
+   * (de la compañía de quien consulta), cuántos días de vigencia le quedan y si es renovable. Siempre
+   * presente; `yaEnFlito: false` cuando no hay ninguno. Nunca se arma para un vehículo de otra
+   * compañía (ese caso es el 409 recortado).
+   */
+  flito: SoatFlitoContexto;
   /**
    * «Este vehículo ya tiene SOAT y vence pronto; se puede renovar por anticipado» (HU #12212, AC1).
    *
@@ -862,14 +899,27 @@ export async function preconsulta(
 
   // Las dos guardas baratas, ANTES de gastar una consulta a Kyverum. Se vuelven a mirar debajo sobre
   // el VIN efectivo porque entre una cosa y la otra hay una llamada de red entera.
-  await verificarRn01(vinNorm, canal.companiaId);
+  // `permiteTerminal`: un SOAT `pagado` propio NO bloquea la preconsulta, la enriquece con `flito`.
+  const actualPrevio = await verificarRn01(vinNorm, canal.companiaId, { permiteTerminal: true });
   await verificarTenenciaVehiculo(vinNorm, canal.companiaId);
 
-  const { datos, vinEfectivo, organismoCodigo, vigenciaProxima } = await verificarRuntCompuerta(vinNorm);
+  let runt: ResultadoRunt;
+  try {
+    runt = await verificarRuntCompuerta(vinNorm);
+  } catch (e) {
+    throw conFlitoEnSoatVigente(e, actualPrevio);
+  }
+  const { datos, vinEfectivo, organismoCodigo, vigenciaProxima } = runt;
 
   // Autoritativas. El 409 que producen es idéntico al de la RN-01 ajena, sin id y sin estado.
-  await verificarRn01(vinEfectivo, canal.companiaId);
+  const actualPost = await verificarRn01(vinEfectivo, canal.companiaId, { permiteTerminal: true });
   await verificarTenenciaVehiculo(vinEfectivo, canal.companiaId);
+  // La fecha del RUNT manda sobre `flito_soat.vence_el`; sin ninguna, `renovable: false`.
+  const hoy = diaEnBogota();
+  const venceElRunt = vigenciaProxima?.venceEl ?? null;
+  const flito = actualPost
+    ? contextoFlito(actualPost, hoy, venceElRunt)
+    : contextoSinFlito(hoy, venceElRunt);
 
   const [organismo] = organismoCodigo
     ? await db.select({ alias: organismosTransitoConfig.alias })
@@ -893,6 +943,7 @@ export async function preconsulta(
     },
     organismo: { codigo: organismoCodigo, nombre: organismo?.alias ?? null },
     propietario: datos.propietarioNombre ? { nombreCompleto: datos.propietarioNombre } : null,
+    flito,
     // Se PROYECTA, no se reenvía: las siete claves se escriben a mano (HU #12842, AC5; la póliza se
     // publica por la RN-05 del Feature #12840). Sin spread por eso mismo — un `...vigenciaProxima`
     // publicaría el campo que se añadiera mañana sin que nadie lo decidiera.
@@ -916,7 +967,7 @@ export async function preconsulta(
  * *Upsert* del vehículo por VIN, con la política del sync (`setVehiculoDesdeFlit`): **un campo vacío
  * no borra lo que ya se sabía** (ADR-0008 §1.4).
  *
- * `flito_soat.vehiculo_id` es NOT NULL UNIQUE, así que el alta TIENE que resolver un `vehicles.id`
+ * `flito_soat.vehiculo_id` es NOT NULL (y único entre los abiertos), así que el alta TIENE que resolver un `vehicles.id`
  * antes de insertar. Las dos ramas escriben con reglas distintas, igual que `upsertVehiculo()`: en
  * el UPDATE los `null` del RUNT se omiten —la fila puede traer datos de otra fuente, p. ej. el OCR
  * de la tarjeta de propiedad—, y en el INSERT van tal cual, porque en una fila nueva `null` es la
@@ -979,8 +1030,8 @@ export async function upsertVehiculoRunt(
   // adoptable y le sobrescribiría titular, cédula y placa a una ficha que, para cuando se escribe,
   // ya tiene dueño. `FOR UPDATE` serializa las dos escrituras: la que llega segunda espera y relee.
   //
-  // La carrera GRANDE —dos altas del mismo VIN— no depende de esto: la cierra el UNIQUE de
-  // `flito_soat.vin`, que es la base y no el servicio (RN-01). Esto cierra la que quedaba, que es
+  // La carrera GRANDE —dos altas del mismo VIN— no depende de esto: la cierra el índice único parcial
+  // `uq_flito_soat_vin_abierto` (ADR-0031), que es la base y no el servicio (RN-01). Esto cierra la que quedaba, que es
   // contra un escritor que no pasa por esa constraint.
   //
   // `FOR UPDATE` y no `SKIP LOCKED`: aquí no se despacha una cola en la que saltarse una fila

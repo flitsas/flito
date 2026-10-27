@@ -34,6 +34,7 @@ import {
 } from '../flito-impuestos/impuesto-por-vehiculo.js';
 import { exigirClienteOperable } from '../clients/cliente-operable.js';
 import { loggerFor } from '../../shared/logger.js';
+import { soatActualDelVin } from '../flito-soat/flito-soat-actual.js';
 
 const log = loggerFor('flito-excepciones');
 
@@ -163,12 +164,13 @@ export async function desbloquear(
 
 /**
  * Crea el SOAT que la autogestión impidió. Si el VIN ya tiene uno —otro trámite del mismo vehículo
- * ya se desbloqueó—, se marca el existente en vez de duplicar: el SOAT es por VIN (RN-01).
+ * ya se desbloqueó—, se marca el existente en vez de duplicar: el SOAT actual del VIN (RN-01, ADR-0031).
  */
 async function crearSoatExcepcional(tx: Tx, f: FilaTramite, ctx: ExcepcionCtx): Promise<string> {
   // Sin VIN no hay llave con la que buscar ni con la que crear: el SOAT se ancla al vehículo.
   if (f.vin === null) throw new ExcepcionError(400, 'El trámite no tiene VIN: el SOAT se ancla al vehículo');
-  const [existente] = await tx.select().from(flitoSoat).where(eq(flitoSoat.vin, f.vin)).limit(1);
+  // ADR-0031: el SOAT ACTUAL del VIN (abierto primero; si no, el último terminal).
+  const existente = await soatActualDelVin(tx, f.vin);
 
   if (existente) {
     await tx.update(flitoSoat).set({ excepcionAutogestion: true, updatedAt: new Date() })

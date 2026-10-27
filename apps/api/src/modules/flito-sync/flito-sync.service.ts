@@ -54,6 +54,7 @@ import {
 } from '../flito-impuestos/impuesto-por-vehiculo.js';
 import { getFlitAdapter } from './flit.adapter.js';
 import { mapearCompradores, type CompradorMapeado } from './mapeo-compradores.js';
+import { soatActualDelVin } from '../flito-soat/flito-soat-actual.js';
 import {
   diferenciasCompradores, diferenciasTramite, registrarBitacoraSync, registrarFalloBitacoraSync, tipoDeError, vistaHistorial,
   vistaTramite, type Diferencia,
@@ -518,12 +519,14 @@ async function resolverSoat(
 ): Promise<void> {
   if (compania.soatAutogestionable) return;
 
-  const [existente] = await tx.select().from(flitoSoat).where(eq(flitoSoat.vin, tf.vin)).limit(1);
+  // ADR-0031: el SOAT ACTUAL del VIN (abierto primero; si no, el último). Un `pagado` vencido se
+  // vincula igual que antes: la renovación no nace por el sync.
+  const existente = await soatActualDelVin(tx, tf.vin);
   if (existente) {
     if (soatIdActual !== existente.id) {
       await tx.update(flitoTramites).set({ soatId: existente.id, updatedAt: new Date() }).where(eq(flitoTramites.id, tramiteId));
     }
-    if (soatBloqueaReencolado(existente.estado as EstadoSoat)) {
+    if (soatBloqueaReencolado(existente.estado)) {
       r.soatBloqueadosPorVin += 1;
       await auditSistema(tx, { action: 'update', resource: 'flito_soat', resourceId: existente.id, detail: `Reencolado bloqueado (RN-01): el VIN ${tf.vin} ya tiene SOAT en "${existente.estado}". Trámite ${tf.idFlit}.` });
     }
