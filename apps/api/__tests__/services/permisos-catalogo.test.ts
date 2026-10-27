@@ -204,12 +204,16 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // piden la misma `bolsas.transito.inactivar`.
     // HU #13958: el impacto y el cambio de estado de un proveedor SOAT piden la misma `parametrizacion.proveedores.estado`
     // (gemelo de `clients.clientes.estado`).
+    // HU #14103: las rutas de proveedores de LOGÍSTICA reutilizan las funciones de gestión de proveedores (listar/crear/editar/estado),
+    // sin función nueva ni siembra (el AC habla de «la función de gestión de proveedores»).
     expect(compartidosFlito.sort()).toEqual([
       ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
       ['bolsas.documentos.cargar', 3], ['bolsas.documentos.ver', 4],
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.inactivar', 2],
-      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2], ['parametrizacion.proveedores.estado', 2],
+      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2],
+      ['parametrizacion.proveedores.crear', 2], ['parametrizacion.proveedores.editar', 2],
+      ['parametrizacion.proveedores.estado', 3], ['parametrizacion.proveedores.listar', 2],
       ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.cola.ver', 2], ['soat.solicitud.crear', 2],
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);
