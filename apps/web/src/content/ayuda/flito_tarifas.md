@@ -8,12 +8,12 @@ palabras_clave:
 consultas:
   - cuánto se le cobra a un cliente
   - cómo cambio la tarifa de un cliente
-version: 1.2
-fecha: 2026-10-25
+version: 1.3
+fecha: 2026-10-27
 ---
 ## Qué es
 
-La pantalla donde se fija cuánto cobra FLITO a cada cliente por el trámite digital —Matrícula, Traspaso y Otros— y por la logística. Cada valor tiene una vigencia: rige desde el momento en que usted lo guarda y hasta que lo cambie o deje de cobrarlo.
+La pantalla donde se fija cuánto cobra FLITO a cada cliente por el trámite digital —Matrícula, Traspaso y Otros— y por la logística, que tiene dos precios: **Entrega a cliente** y **Entrega a FLIT**. Cada valor tiene una vigencia: rige desde el momento en que usted lo guarda y hasta que lo cambie o deje de cobrarlo.
 
 ## Para quién
 
@@ -25,11 +25,11 @@ En el menú, **Finanzas → Tarifas**. También desde **Clientes y proveedores**
 
 ## Pasos
 
-1. Elija la compañía en la lista **Clientes** de la izquierda (o búsquela en **Buscar cliente…**). Las que tienen valores sin configurar muestran **Falta 1** o **Faltan N**; con la pestaña **Con faltantes** ve solo esas. Un cliente inactivo aparece en gris con **Inactivo** y no se puede elegir. A la derecha, sus cuatro filas —**Matrícula**, **Traspaso** y **Otros** del trámite digital, y **Logística**— con el valor vigente, desde cuándo y quién lo fijó. ![Lista de clientes con Falta 1 y Faltan 4, y las cuatro filas de tarifas de un cliente: tres con valor y Logística Sin configurar](./flito_tarifas/01-elegir-compania.png)
-2. Pulse **Fijar valor** en una fila que diga **Sin configurar**, o **Cambiar** en una que ya tenga valor. Escriba el número y pulse **Guardar** (o **Cancelar**). El tipo de trámite ya está en la fila: no se escribe. ![Fila Logística en edición con el valor escrito y los botones Guardar y Cancelar](./flito_tarifas/02-fijar-valor.png)
+1. Elija la compañía en la lista **Clientes** de la izquierda (o búsquela en **Buscar cliente…**). Las que tienen valores sin configurar muestran **Falta 1** o **Faltan N**; con la pestaña **Con faltantes** ve solo esas. Un cliente inactivo aparece en gris con **Inactivo** y no se puede elegir. A la derecha, las tres filas del trámite digital —**Matrícula**, **Traspaso** y **Otros**— y, debajo, el grupo **Logística** con dos paneles, **Entrega a cliente** y **Entrega a FLIT**; cada uno con el valor vigente, desde cuándo y quién lo fijó. ![Lista de clientes con Falta 1 y Faltan 4, y las cuatro filas de tarifas de un cliente: tres con valor y Logística Sin configurar](./flito_tarifas/01-elegir-compania.png)
+2. Pulse **Fijar valor** en una fila o panel que diga **Sin configurar**, o **Cambiar** en uno que ya tenga valor. Escriba el número y pulse **Guardar** (o **Cancelar**). El tipo de trámite ya está en la fila: no se escribe. ![Fila Logística en edición con el valor escrito y los botones Guardar y Cancelar](./flito_tarifas/02-fijar-valor.png)
 3. Si escribe **0**, FLITO le pide confirmar: cero significa que el trámite **se cobra a $0**, no que está sin configurar.
-4. Para no cobrar un concepto, pulse **Dejar de cobrar** y confirme. La fila vuelve a **Sin configurar** y la vigencia queda cerrada en el historial, con su nombre y la hora.
-5. Pulse **Historial** en una fila, o **Historial del cliente** arriba, para abrir **Historial de vigencias**: valor, desde, hasta (o **Vigente**), quién la fijó y quién la cerró. Las pastillas filtran por trámite y **Fijadas entre** acota por fecha. ![Historial de vigencias con una tarifa Vigente y la anterior cerrada, con quién la fijó y quién la cerró](./flito_tarifas/03-historial.png)
+4. Para no cobrar un concepto, pulse **Dejar de cobrar** y confirme (en un panel sin valor este botón está apagado). La fila o el panel vuelve a **Sin configurar** y la vigencia queda cerrada en el historial, con su nombre y la hora.
+5. Pulse **Historial** en una fila o panel, o **Historial del cliente** arriba, para abrir **Historial de vigencias**: valor, desde, hasta (o **Vigente**), quién la fijó y quién la cerró. Las pastillas filtran por trámite y **Fijadas entre** acota por fecha. ![Historial de vigencias con una tarifa Vigente y la anterior cerrada, con quién la fijó y quién la cerró](./flito_tarifas/03-historial.png)
 
 Cómo cambia un valor y qué queda guardado, de un vistazo:
 
@@ -40,7 +40,7 @@ Cómo cambia un valor y qué queda guardado, de un vistazo:
 - Cargando: un esqueleto en el lugar de la lista o de la matriz, con los botones apagados.
 - Error: **No se pudieron cargar los valores de…** con **Reintentar**. FLITO no muestra $0 ni **Sin configurar** por un error: si ve una fila, es lo que hay guardado.
 - Vacío: **Todavía no hay clientes.** cuando no existe ninguna compañía; **Sin configurar** en la fila a la que no se le ha fijado valor.
-- Lleno: las cuatro filas del cliente con su valor, desde cuándo rige y quién lo fijó.
+- Lleno: las tres filas de trámite y los dos paneles de logística del cliente con su valor, desde cuándo rige y quién lo fijó.
 
 ## Qué no hace
 
