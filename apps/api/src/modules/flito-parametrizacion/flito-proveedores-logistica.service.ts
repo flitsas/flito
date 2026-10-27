@@ -7,10 +7,11 @@
 //   · RN-PLOG-2 — el NIT se guarda normalizado (sin puntos ni espacios, dígito de verificación opcional tras «-») y es
 //       ÚNICO (índice parcial 0273); duplicado → NitProveedorDuplicadoError (409), también ante la carrera (23505).
 //   · RN-PLOG-3 — el nombre ya era único en la tabla: duplicado → NombreProveedorLogisticaDuplicadoError (409).
-//   · El bloqueo de inactivar un proveedor asignado a una compañía llega con la HU A2 (#14104), que crea esa FK.
+//   · HU #14104 (RN-PLOGC-3) — inactivar un proveedor asignado a compañías vigentes → ProveedorLogisticaAsignadoError (409).
 import { and, asc, eq, ne } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { flitoProveedoresLogistica } from '../../db/schema.js';
+import { ProveedorLogisticaAsignadoError, companiasConProveedorLogistica } from './flito-logistica-proveedor-compania.service.js';
 
 export const INDICE_PROVEEDOR_LOGISTICA_NIT = 'uq_flito_proveedores_logistica_nit';
 
@@ -85,8 +86,29 @@ export async function actualizarProveedorLogistica(
   id: string, d: Partial<DatosProveedorLogistica> & { activo?: boolean },
 ): Promise<FilaProveedorLogistica> {
   await validarUnicos(d.nombre, d.nit, id);
+  if (d.activo === false) return inactivarSinCompanias(id, d);
   const [act] = await escribir(() => db.update(flitoProveedoresLogistica).set(d)
     .where(eq(flitoProveedoresLogistica.id, id)).returning(), d.nombre, d.nit);
   if (act === undefined) throw new ProveedorLogisticaNoEncontradoError();
   return act;
+}
+
+/**
+ * RN-PLOGC-3. Inactivar en UNA transacción con `FOR UPDATE` sobre el proveedor: una asignación concurrente
+ * (que toma `FOR SHARE`, RN-PLOGC-2) espera, y relee el estado ya confirmado.
+ */
+async function inactivarSinCompanias(id: string, d: Partial<DatosProveedorLogistica> & { activo?: boolean }): Promise<FilaProveedorLogistica> {
+  return db.transaction(async (tx) => {
+    const [actual] = await tx.select({ activo: flitoProveedoresLogistica.activo }).from(flitoProveedoresLogistica)
+      .where(eq(flitoProveedoresLogistica.id, id)).for('update').limit(1);
+    if (actual === undefined) throw new ProveedorLogisticaNoEncontradoError();
+    // Ya inactivo: idempotente, no hay nada que bloquear.
+    if (actual.activo) {
+      const companias = await companiasConProveedorLogistica(tx, id);
+      if (companias.length > 0) throw new ProveedorLogisticaAsignadoError(companias);
+    }
+    const [act] = await escribir(() => tx.update(flitoProveedoresLogistica).set(d)
+      .where(eq(flitoProveedoresLogistica.id, id)).returning(), d.nombre, d.nit);
+    return act!;
+  });
 }

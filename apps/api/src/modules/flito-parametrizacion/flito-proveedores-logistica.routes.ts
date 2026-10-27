@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { ProveedorLogisticaAsignadoError } from './flito-logistica-proveedor-compania.service.js';
 import {
   NIT_VALIDO, NitProveedorDuplicadoError, NombreProveedorLogisticaDuplicadoError, ProveedorLogisticaNoEncontradoError,
   actualizarProveedorLogistica, crearProveedorLogistica, listarProveedoresLogistica, normalizarNit, proveedorLogisticaDto,
@@ -79,6 +80,7 @@ router.patch('/:id/estado', exigirFuncion('parametrizacion.proveedores.estado'),
 
 function manejar(e: unknown, res: Response, next: NextFunction): void {
   if (e instanceof NitProveedorDuplicadoError || e instanceof NombreProveedorLogisticaDuplicadoError) { res.status(409).json({ error: e.message }); return; }
+  if (e instanceof ProveedorLogisticaAsignadoError) { res.status(409).json({ error: e.message, companias: e.companias }); return; }
   if (e instanceof ProveedorLogisticaNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
   next(e);
 }
