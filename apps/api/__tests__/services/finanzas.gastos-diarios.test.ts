@@ -168,7 +168,7 @@ describe('AC4 — cada categoría cuenta su evento, en día colombiano', () => {
     expect(sql).toContain(`"flito_tramites"."fecha_aprobacion" IS NOT NULL`);
     expect(sql).toContain(`left join "clients" on "flito_tramites"."compania_id" = "clients"."id"`);
     expect(sql).toContain(`left join "flito_excepciones_autogestion" on ("flito_excepciones_autogestion"."tramite_id" = "flito_tramites"."id" and "flito_excepciones_autogestion"."concepto" = $1 and "flito_excepciones_autogestion"."revocado_en" is null)`);
-    expect(sql).toContain(`left join "flito_tarifas_vigencias" "lg" on "lg"."compania_id" = "flito_tramites"."compania_id" AND "lg"."concepto" = 'logistica'`);
+    expect(sql).toContain(`left join "flito_tarifas_vigencias" "lg" on "lg"."compania_id" = "flito_tramites"."compania_id" AND "lg"."concepto" IN ('logistica_cliente', 'logistica')`);
     // Sin el resto de `conJoins()`: ni vehicles ni liquidaciones ni tarifa de trámite digital.
     expect(sql).not.toContain('"vehicles"');
     expect(sql).not.toContain('"td"');
