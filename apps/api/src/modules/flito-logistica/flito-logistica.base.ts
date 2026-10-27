@@ -28,7 +28,7 @@ export const aprobadoSql = sql`lower(${flitoTramites.flitEstado}) = 'aprobado' A
 
 /** Error de negocio con estado HTTP sugerido (lo traduce la ruta). */
 export class LogisticaError extends Error {
-  constructor(message: string, readonly status = 400, readonly extra?: unknown) { super(message); }
+  constructor(message: string, readonly status = 400, readonly extra?: unknown, readonly codigo?: string) { super(message); }
 }
 
 // ── Transición genérica (deja evento; sostiene CA-07/RN-04/RN-07) ────────────

@@ -305,6 +305,8 @@ export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
 export interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string | null }
 export interface ActaEvento { id: string; documentoId: string; placa: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string }
 export interface ActaDetalle {
+  /** 'organismo' | 'flit' | 'cliente' (HU #14110: el acta de organismo se completa con firmas y líneas en la ruta). */
+  punto?: string;
   acta: ActaFila; tienePdf: boolean; firmaEntrega: boolean; firmaRecibe: boolean; entregaNombre: string | null;
   documentos: ActaLinea[]; bitacora: ActaEvento[];
 }
@@ -316,7 +318,7 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     receptorNombre: flitoLogisticaActas.receptorNombre, entregadoEn: flitoLogisticaActas.entregadoEn,
     creadoEn: flitoLogisticaActas.createdAt, pdfStorageKey: flitoLogisticaActas.pdfStorageKey,
     firmaEntregaKey: flitoLogisticaActas.firmaEntregaStorageKey, entregaNombre: flitoLogisticaActas.entregaNombre,
-    firmaRecibeKey: flitoLogisticaActas.firmaStorageKey,
+    firmaRecibeKey: flitoLogisticaActas.firmaStorageKey, punto: flitoLogisticaActas.punto,
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
     .leftJoin(users, eq(flitoLogisticaActas.mensajeroId, users.id))
@@ -354,6 +356,7 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     creadoEn: cab.creadoEn.toISOString(),
   };
   return {
+    ...(cab.punto ? { punto: cab.punto } : {}),
     acta, tienePdf: cab.pdfStorageKey !== null,
     firmaEntrega: cab.firmaEntregaKey !== null, firmaRecibe: cab.firmaRecibeKey !== null, entregaNombre: cab.entregaNombre,
     documentos: docs.map((d) => ({

@@ -126,7 +126,7 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
   'accion.logistica.ver_consola': { lectura: true, operaciones: ['logistica.consola.ver', 'logistica.consola.filtrar', 'logistica.documento.ver'] },
   'accion.logistica.registrar_viajes': { operaciones: ['logistica.viajes.ver', 'logistica.viajes.registrar', 'logistica.viajes.quitar'] },
   'accion.logistica.generar_actas': { operaciones: ['logistica.lt.validar'] },
-  'accion.logistica.ver_actas': { lectura: true, operaciones: ['logistica.actas.listar', 'logistica.actas.ver'], opcionales: ['logistica.actas.descargar'] },
+  'accion.logistica.ver_actas': { lectura: true, operaciones: ['logistica.actas.listar', 'logistica.actas.ver'], opcionales: ['logistica.actas.descargar', 'logistica.actas.ver_documento_firmante'] }, // + ver_documento_firmante (HU #14110): PII, se concede aparte
   'accion.logistica.despachar_entregar_devolver': {
     // PO 2026-10-13: despachar y operar ajenas son OPCIONALES: el mensajero recibe la acción (entregar y
     // devolver) sin despachar ni operar actas ajenas; quien las tenía las conserva como marca directa.
