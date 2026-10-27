@@ -198,3 +198,44 @@ export async function quitar(tramiteId: string, viajeId: string): Promise<Quitad
     return { numero: borrado.numero, modo: borrado.modo, valor: Number(borrado.valor), idFlit: tramite.idFlit };
   });
 }
+
+// ── Registro masivo (HU #14127) ───────────────────────────────────────────────
+// Varias LT (trámites) en una operación, cada una con su valor libre (modo `manual`, mismo motivo
+// para todas). NO es todo-o-nada: cada LT corre por `registrar` (RN-01..RN-05, su propia transacción
+// y su propio bloqueo), así que una liquidada o de compañía autogestionable se rechaza sola y las
+// demás se registran. La regla vive en un solo lugar: `registrar`.
+
+/** Tope de LT por operación masiva (AC4; a confirmar con el PO). */
+export const MAX_LT_POR_OPERACION = 200;
+
+export interface ItemMasivo { tramiteId: string; valor: number }
+export interface RechazoMasivo { tramiteId: string; motivo: string; codigo: string }
+export interface CreadoMasivo { tramiteId: string; idFlit: string; viaje: ViajeLogistica }
+export interface ResultadoMasivo { creados: CreadoMasivo[]; rechazados: RechazoMasivo[] }
+
+/**
+ * Registra cada item en orden. `permitido` deja a la ruta aplicar el alcance por compañía (un ajeno
+ * se rechaza como inexistente, sin oráculo). Un error que no sea de dominio se relanza.
+ */
+export async function registrarMasivo(
+  items: ItemMasivo[],
+  comun: { motivo: MotivoViajeLogistica; motivoDetalle?: string },
+  usuarioId: number | null,
+  permitido: (tramiteId: string) => Promise<boolean> = async () => true,
+): Promise<ResultadoMasivo> {
+  const resultado: ResultadoMasivo = { creados: [], rechazados: [] };
+  for (const { tramiteId, valor } of items) {
+    try {
+      if (!await permitido(tramiteId)) throw new TramiteNoEncontradoError();
+      const { viaje, idFlit } = await registrar(tramiteId, { modo: 'manual', valor, ...comun }, usuarioId);
+      resultado.creados.push({ tramiteId, idFlit, viaje });
+    } catch (e) {
+      if (e instanceof TramiteNoEncontradoError) {
+        resultado.rechazados.push({ tramiteId, motivo: 'El trámite no existe', codigo: 'TRAMITE_NO_ENCONTRADO' });
+      } else if (e instanceof ViajeLogisticaError) {
+        resultado.rechazados.push({ tramiteId, motivo: e.message, codigo: e.codigo });
+      } else throw e;
+    }
+  }
+  return resultado;
+}

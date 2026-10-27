@@ -18,8 +18,11 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
-  TramiteNoEncontradoError, ViajeLogisticaError, ViajeNoEncontradoError, listar, quitar, registrar,
+  MAX_LT_POR_OPERACION, TramiteNoEncontradoError, ViajeLogisticaError, ViajeNoEncontradoError, listar, quitar,
+  registrar, registrarMasivo,
 } from './flito-logistica-viajes.service.js';
+import { buscarIdempotencia, guardarIdempotencia } from './flito-logistica.service.js';
+import { viajesMasivoLimiter } from '../../shared/middleware/rateLimiter.js';
 import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
 import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alcance.js';
@@ -33,6 +36,10 @@ const idUuid = (raw: string): string | null => (uuidSchema.safeParse(raw).succes
 
 /** Tope de numeric(14,2): por encima la base respondería 22003 y aquí sería un 500 sin explicación. */
 const VALOR_MAXIMO = 999_999_999_999.99;
+
+/** Valor libre de un viaje manual: ≥ 0, sin tope de negocio (solo el de la columna). */
+const valorManualSchema = z.number({ error: mensajesDeTipo({ requerido: 'es obligatorio', tipo: 'debe ser un número' }) })
+  .finite('debe ser un número').min(0, 'debe ser mayor o igual a 0').max(VALOR_MAXIMO, 'supera el máximo');
 
 const motivoYDetalle = {
   // zod 4: un enum reporta `invalid_value` también para lo ausente o no-texto; se reproduce el
@@ -50,8 +57,7 @@ const registrarSchema = z.discriminatedUnion('modo', [
   z.object({ modo: z.literal('inicial'), ...motivoYDetalle }).strict(),
   z.object({
     modo: z.literal('manual'),
-    valor: z.number({ error: mensajesDeTipo({ requerido: 'es obligatorio', tipo: 'debe ser un número' }) })
-      .finite('debe ser un número').min(0, 'debe ser mayor o igual a 0').max(VALOR_MAXIMO, 'supera el máximo'),
+    valor: valorManualSchema,
     ...motivoYDetalle,
   }).strict(),
 ]).superRefine((d, ctx) => {
@@ -105,6 +111,64 @@ router.post('/tramites/:tramiteId/viajes', exigirFuncion('logistica.viajes.regis
     });
     res.status(201).json(viaje);
   } catch (e) { fallo(res, e); }
+});
+
+/**
+ * HU #14127 — registro masivo: N LT (trámites), cada una con su valor. El valor de cada item se valida
+ * APARTE (negativo o vacío rechaza solo esa LT, AC3); lo estructural (tope, uuid, motivo) es 400.
+ * Idempotencia opcional por `Idempotency-Key` (AC5): repetirla devuelve la respuesta guardada.
+ */
+const masivoSchema = z.object({
+  items: z.array(z.object({ tramiteId: z.string(), valor: z.unknown().optional() }).strict(), {
+    error: 'debe ser una lista de LT',
+  }).min(1, 'debe traer al menos una LT')
+    .max(MAX_LT_POR_OPERACION, `no puede superar ${MAX_LT_POR_OPERACION} LT por operación`),
+  ...motivoYDetalle,
+}).strict().superRefine((d, ctx) => {
+  if (d.motivo === 'otro' && d.motivoDetalle === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['motivoDetalle'], message: 'es obligatorio cuando el motivo es «otro»' });
+  }
+});
+
+router.post('/viajes/masivo', exigirFuncion('logistica.viajes.registrar'), viajesMasivoLimiter, async (req: Request, res: Response) => {
+  const parsed = masivoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
+  const usuarioId = req.user?.sub ?? null;
+  const claveBruta = req.header('Idempotency-Key')?.trim();
+  const clave = claveBruta ? `viajes-masivo:${usuarioId ?? 'anon'}:${claveBruta.slice(0, 120)}` : undefined;
+  if (clave) {
+    const previa = await buscarIdempotencia(clave);
+    if (previa) { res.status(previa.status).json(previa.body); return; }
+  }
+  const alcance = await alcanceDe(req);
+  const rechazadosDeEntrada: { tramiteId: string; motivo: string; codigo: string }[] = [];
+  const validos: { tramiteId: string; valor: number }[] = [];
+  const vistos = new Set<string>();
+  for (const it of parsed.data.items) {
+    const valor = valorManualSchema.safeParse(it.valor);
+    const rechazo = (motivo: string, codigo: string) => rechazadosDeEntrada.push({ tramiteId: it.tramiteId, motivo, codigo });
+    if (idUuid(it.tramiteId) === null) rechazo('El trámite no existe', 'TRAMITE_NO_ENCONTRADO');
+    else if (vistos.has(it.tramiteId)) rechazo('LT repetida en la operación', 'LT_REPETIDA');
+    else if (!valor.success) rechazo(`Valor inválido: ${valor.error.issues.map((i) => i.message).join('; ')}`, 'VALOR_INVALIDO');
+    else { vistos.add(it.tramiteId); validos.push({ tramiteId: it.tramiteId, valor: valor.data }); }
+  }
+  const { motivo, motivoDetalle } = parsed.data;
+  const r = await registrarMasivo(validos, { motivo, motivoDetalle }, usuarioId,
+    (id) => enAlcanceLogistica('tramite', id, alcance));
+  for (const c of r.creados) {
+    await audit(req, {
+      action: 'create', resource: 'flito_tramite_viaje_logistica', resourceId: c.viaje.id,
+      detail: `Viaje adicional #${c.viaje.numero} (${c.viaje.modo}, ${c.viaje.valor}) registrado en el trámite ${c.idFlit} (masivo)`,
+    });
+  }
+  const cuerpo = {
+    solicitadas: parsed.data.items.length,
+    creados: r.creados.map(({ tramiteId, viaje }) => ({ tramiteId, viaje })),
+    rechazados: [...rechazadosDeEntrada, ...r.rechazados],
+  };
+  const status = r.creados.length > 0 ? 201 : 200;
+  if (clave) await guardarIdempotencia(clave, status, cuerpo);
+  res.status(status).json(cuerpo);
 });
 
 router.delete('/tramites/:tramiteId/viajes/:viajeId', exigirFuncion('logistica.viajes.quitar'), async (req: Request, res: Response) => {
