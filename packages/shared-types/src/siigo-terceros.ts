@@ -175,6 +175,8 @@ export const CLIENTS_COLUMNAS_SIN_PII = [
   // cadena, así que la huérfana era una trampa cargada: con ella puesta, una columna de PII llamada
   // casi igual habría pasado en verde sin que nadie la clasificara.
   'flitoProveedorSoatSinTramiteId',
+  // `flitoProveedorLogisticaId` (HU #14104): uuid del proveedor de logística de la compañía; parametrización, no PII.
+  'flitoProveedorLogisticaId',
   'personType', 'idType', 'checkDigit', 'fiscalResponsibilities',
   'countryCode', 'stateCode', 'cityCode', 'branchOffice',
   'personTypeOrigen', 'facturacionBloqueos',
