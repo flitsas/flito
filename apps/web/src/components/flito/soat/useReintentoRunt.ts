@@ -23,11 +23,13 @@ export type OrigenReintento = 'fila' | 'detalle';
 const DESCARTADA_SIN_VIN = 'La solicitud quedó descartada: el RUNT no tiene registrado ese VIN. Puede verla en «Descartadas».';
 
 /** El toast de un 200. Exportado para leerlo desde un solo sitio si otra pantalla lo necesita. */
-export function toastDeResultado(r: ResultadoReintentoRunt, vin: string): void {
+export function toastDeResultado(r: ResultadoReintentoRunt, vin: string, renovacion = false): void {
   if (r.resultado === 'completada') {
     toastOk(r.vigenciaProxima
       ? `El RUNT respondió: la solicitud pasó a Solicitado. El SOAT actual vence el ${fechaLargaOGuion(r.vigenciaProxima.venceEl)}.`
-      : `El RUNT respondió: la solicitud del VIN …${vin.slice(-4)} pasó a Solicitado.`);
+      : renovacion
+        ? 'El RUNT respondió: la solicitud de renovación pasó a Solicitado.'
+        : `El RUNT respondió: la solicitud del VIN …${vin.slice(-4)} pasó a Solicitado.`);
     return;
   }
   if (r.resultado === 'sigue_incompleta') {
@@ -41,12 +43,20 @@ export function toastDeResultado(r: ResultadoReintentoRunt, vin: string): void {
       : 'La solicitud quedó descartada: el vehículo ya tiene SOAT activo. Puede verla en «Descartadas».');
     return;
   }
+  if (r.motivo === 'sin_soat_anterior') {
+    toastError('La solicitud quedó descartada: el RUNT no registra un SOAT anterior para esa placa. Puede verla en «Descartadas».');
+    return;
+  }
   if (r.motivo === 'solicitud_existente') {
-    toastError('La solicitud quedó descartada: ese VIN ya tenía una solicitud en la cola de FLITO. Puede verla en «Descartadas».');
+    toastError(renovacion
+      ? 'La solicitud quedó descartada: ese vehículo ya tenía una solicitud en la cola de FLITO. Puede verla en «Descartadas».'
+      : 'La solicitud quedó descartada: ese VIN ya tenía una solicitud en la cola de FLITO. Puede verla en «Descartadas».');
     return;
   }
   // `runt_sin_registro`, `runt_no_cuadra`, `runt_sin_vin`: el 422 del RUNT, un solo copy (AC3).
-  toastError(DESCARTADA_SIN_VIN);
+  toastError(renovacion
+    ? 'La solicitud quedó descartada: el RUNT no tiene registrado ese vehículo con esa placa y documento. Puede verla en «Descartadas».'
+    : DESCARTADA_SIN_VIN);
 }
 
 export default function useReintentoRunt({ esCliente, onResuelto }: { esCliente: boolean; onResuelto: () => void }) {
@@ -58,7 +68,7 @@ export default function useReintentoRunt({ esCliente, onResuelto }: { esCliente:
     let desenlace: DesenlaceReintento;
     try {
       const r = await api.post<ResultadoReintentoRunt>(`/flito/soat/cliente/incompletas/${fila.id}/reintentar`, {});
-      toastDeResultado(r, fila.vin ?? '');
+      toastDeResultado(r, fila.vin ?? '', fila.tipoSoat === 'RENOVACION');
       desenlace = r;
     } catch (e) {
       const status = e instanceof ApiError ? e.status : 0;

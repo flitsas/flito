@@ -11,6 +11,7 @@
 
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
+import { elegirTipoInicial } from '../helpers/soat-tipo';
 import { loginAs, ADMIN_USER, CLIENTE_CON_CANAL } from '../helpers/auth';
 
 const VIN = '9BWZZZ377VT004251';
@@ -101,7 +102,7 @@ const lista = (fija: boolean, companias: unknown[]): Respuesta => ({ status: 200
 
 const selector = (page: Page) => page.getByRole('combobox', { name: 'Compañía' });
 const btnConsultar = (page: Page) => page.getByRole('button', { name: 'Consultar el RUNT' });
-const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al gestor' });
+const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar solicitud' });
 const fichaRunt = (page: Page) => page.getByRole('region', { name: 'Datos del RUNT' });
 
 async function llenarPropietario(page: Page) {
@@ -132,6 +133,7 @@ async function abrirSinEnlace(page: Page, opciones: Parameters<typeof mockCanal>
   await loginAs(page, SIN_ENLACE, { funciones: FUNCIONES_SIN_ENLACE });
   const m = await mockCanal(page, opciones);
   await page.goto('/flito/soat/solicitud');
+  await elegirTipoInicial(page);
   return m;
 }
 
@@ -140,6 +142,7 @@ test.describe('HU #12874 · AC1 — enlace compañía: su compañía fija y no e
     await loginAs(page, CLIENTE_CON_CANAL);
     const { cap } = await mockCanal(page, { companias: lista(true, [SUYA]) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     const seccion = page.getByRole('region', { name: 'Compañía' });
     await expect(seccion.getByRole('definition').first()).toHaveText(SUYA.nombre);

@@ -38,10 +38,11 @@
 
 import type { RefObject } from 'react';
 import { Link } from 'react-router-dom';
-import { ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
+import { ESTADO_SOAT_LABEL, EstadoSoat, type SoatFlitoContexto } from '@operaciones/shared-types';
 import FlitModal from '../../flit/FlitModal';
 import StatusChip from '../../flit/StatusChip';
 import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import { esRenovable, FRASE_RENOVAR_EN_MODAL } from '../../../lib/mensajesTipoSoat';
 
 const COLA = '/flito/soat';
 
@@ -67,12 +68,20 @@ interface ComunProps {
  * salvo que `propia === true`; esto es la tercera cerradura: **sin `estado` no se escribe estado**.
  */
 export function ModalVinEnCola(
-  { propia, estado, id, onClose, restoreFocusRef }: ComunProps & {
+  { propia, estado, id, onClose, restoreFocusRef, flito, onRenovar }: ComunProps & {
     propia: boolean;
     estado?: EstadoSoat;
     id?: string;
+    /**
+     * HU #14019: el contexto «ya en FLITO» del 409. Solo se usa con `propia` y si es renovable; con un
+     * vehículo ajeno (sin contexto) el modal es el de siempre — la frontera de no-sondeo no cambia.
+     */
+    flito?: SoatFlitoContexto;
+    /** «Renovar»: pasa la solicitud a Renovación. Sin él (o sin contexto renovable) no hay botón. */
+    onRenovar?: () => void;
   },
 ) {
+  const renovar = propia && Boolean(onRenovar) && esRenovable(flito);
   // Hasta la HU #12079 había una TERCERA variante: si el choque era contra una solicitud PROPIA y
   // rechazada, el primario era «Abrir la solicitud rechazada» y llevaba a `/flito/soat/solicitud/:id`.
   // Esa ruta se retiró con la subsanación, así que ese botón aterrizaría en el comodín `*` — un
@@ -90,6 +99,8 @@ export function ModalVinEnCola(
             : 'Este vehículo ya tiene una solicitud de SOAT en FLITO. Cada vehículo puede tener una sola.'}
         </p>
 
+        {renovar && <p>{FRASE_RENOVAR_EN_MODAL}</p>}
+
         <p>
           {propia
             ? 'Puede seguir su estado desde sus SOAT.'
@@ -97,11 +108,19 @@ export function ModalVinEnCola(
         </p>
 
         <div className="flex flex-wrap justify-end gap-2 pt-1">
+          {renovar && (
+            <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onRenovar}>
+              Renovar
+            </button>
+          )}
           {propia && id && (
             // Sin dirección propia: el detalle de la cola es un modal. El id viaja en el estado de
             // navegación —no en la URL— y la cola lo abre si esa fila está en la página cargada.
             // Así **ninguna PII y ningún identificador viajan por el query** (AGENTS.md §14).
-            <Link to={COLA} state={{ verSoatId: id }} className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
+            <Link
+              to={COLA} state={{ verSoatId: id }} className={`${renovar ? flitBtnSecondary : flitBtnPrimary} justify-center`}
+              style={renovar ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
+            >
               Ver la solicitud
             </Link>
           )}
