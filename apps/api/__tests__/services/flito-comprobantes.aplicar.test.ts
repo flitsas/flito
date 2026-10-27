@@ -896,7 +896,8 @@ describe('HU #12631 — POST /:id/aplicar con esPago=true: fila documental de tr
     expect(res.status).toBe(200);
     expect(cierre()).toMatchObject({ concepto: 'logistica', esPago: true, valor: '350000', tarifaReferencia: '300000.00', diferenciaTarifa: '50000.00', marcadoPorDiferencia: true });
     const tarifa = espia.condicionesLeidas().map((c) => renderizar(c as never)).find((q) => q.sql.includes('"flito_tarifas_vigencias"."compania_id"'))!;
-    expect(ligadoA(tarifa, '"flito_tarifas_vigencias"."concepto"')).toBe('logistica');
+    expect(tarifa.sql).toContain('"flito_tarifas_vigencias"."concepto" in (');
+    expect(tarifa.params).toEqual(expect.arrayContaining(['logistica_cliente', 'logistica'])); // alias (HU #14106)
     expect(tarifa.sql).toContain('"flito_tarifas_vigencias"."tipo_tramite" is null');
   });
 
