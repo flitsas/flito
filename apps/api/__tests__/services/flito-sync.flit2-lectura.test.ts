@@ -119,15 +119,24 @@ function montarDb(): void {
         const sel = filas(t).filter(filtro(t, cond));
         if (orden.length) {
           const porNombre = Object.fromEntries(Object.entries(columnas(t)).map(([k, col]) => [col.name, k]));
+          // HU #14016: `("col" <> 'literal') desc` (abiertos primero en `soatActualDelVin`) → booleano 1/0.
+          const noIgual: Record<string, string> = {};
           const claves = orden.map((o) => {
-            const m = /"(\w+)" (asc|desc)$/i.exec(dialecto.sqlToQuery(o).sql);
+            const sqlTxt = dialecto.sqlToQuery(o).sql;
+            const ne = /\((?:"\w+"\.)?"(\w+)" <> '([^']*)'\) (asc|desc)$/i.exec(sqlTxt);
+            if (ne && porNombre[ne[1]]) {
+              noIgual[porNombre[ne[1]]] = ne[2];
+              return { k: porNombre[ne[1]], dir: ne[3].toLowerCase() === 'desc' ? -1 : 1 };
+            }
+            const m = /"(\w+)" (asc|desc)$/i.exec(sqlTxt);
             if (!m || !porNombre[m[1]]) throw new Error('orderBy no soportado por el mock');
             return { k: porNombre[m[1]], dir: m[2].toLowerCase() === 'desc' ? -1 : 1 };
           });
-          const val = (v: unknown) => (v instanceof Date ? v.getTime() : (v as number | string | null));
+          const val = (v: unknown, k?: string): number | string | null =>
+            k && k in noIgual ? (v !== noIgual[k] ? 1 : 0) : v instanceof Date ? v.getTime() : (v as number | string | null);
           sel.sort((a, b) => {
             for (const { k, dir } of claves) {
-              const x = val(a[k]); const y = val(b[k]);
+              const x = val(a[k], k); const y = val(b[k], k);
               if (x === y) continue;
               if (x == null) return dir; if (y == null) return -dir;
               return (x < y ? -1 : 1) * dir;
