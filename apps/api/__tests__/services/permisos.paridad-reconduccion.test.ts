@@ -56,8 +56,6 @@ const DE_TODOS = new Set(ACCIONES_UNIVERSALES.flatMap((u) => operacionesDe(u.acc
  * nacen en el árbol, sin partida en el mundo plano: la siembra de su acción es posterior (0255) y el plano no puede
  * decidirlas (solo el grupo `operaciones`: el `apoyo` de lectura sí es del plano). Se excluyen SOLO de la matriz plana; la de la base real sí las mide (admin SÍ, el resto NO).
  */
-/** HU #14110: `logistica.actas.ver_documento_firmante` nace con la 0276 (solo admin) y no tiene partida en el mundo plano. */
-const NACE_SIN_PARTIDA = ['logistica.actas.ver_documento_firmante'];
 const DE_EXCLUSIVAS = new Set(FUNCIONES_EXCLUSIVAS_ADMIN.flatMap((a) => ACCIONES_ARBOL[a]?.operaciones ?? []));
 import {
   fijarFuenteDePermisos, invalidarPermisosDe, resolverPermisos, type FilasPermisos,
@@ -168,8 +166,6 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       // HU #13893 (ADR-0028 §5 E6): el estado del lote reutiliza `bolsas.documentos.ver`, sin reparto de partida.
       'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts POST /estado-lote',
       'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago',
-      // HU #14110: ver la cédula del firmante nace con la 0276 (solo `admin`), sin reparto de partida.
-      'flito-logistica/flito-logistica.routes.ts POST /actas/:id/firmas/:firmaId/documento',
       // HU #13945: `clients.clientes.estado` nace absorbida por la acción exclusiva del Administrador
       // `accion.clientes.activar_desactivar`; la siembra la 0255 (solo `admin`), no el seed plano.
       'clients/clients.routes.ts GET /:id/impacto',
@@ -208,7 +204,7 @@ describe('HU #13428 (P-22) — las guardas de Perfil: antes las pasaba cualquier
   });
 });
 
-matriz('AC7 — el motor alimentado con el SQL de la 0179 + 0181 decide, ruta a ruta y rol a rol, lo mismo que el requireRole de antes', () => leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL), enPlano, new Set([...DE_EXCLUSIVAS, ...NACE_SIN_PARTIDA]));
+matriz('AC7 — el motor alimentado con el SQL de la 0179 + 0181 decide, ruta a ruta y rol a rol, lo mismo que el requireRole de antes', () => leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL), enPlano, DE_EXCLUSIVAS);
 
 // ── Variante contra la base real ─────────────────────────────────────────────────────────────────
 const URL_BASE = process.env.TEST_DATABASE_URL;

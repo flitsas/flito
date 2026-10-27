@@ -202,7 +202,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // HU #14110: confirmar la recogida con el acta de organismo reutiliza la función del escaneo (mismo paso de campo del mensajero).
   op(`${LOG} POST /recogidas/confirmar`, 'logistica.documento.escanear', 'Escanear un documento en campo', 'Registrar el paso de un documento leyendo su código de barras.'),
   // HU #14110: función NUEVA (PII). Ver la cédula completa del funcionario que firmó el acta de organismo.
-  op(`${LOG} POST /actas/:id/firmas/:firmaId/documento`, 'logistica.actas.ver_documento_firmante', 'Ver la cédula del firmante de un acta', 'Consultar la cédula completa del funcionario que firmó el acta de organismo; cada consulta queda registrada.'),
+  op(`${LOG} POST /actas/:id/firmas/:firmaId/documento`, 'logistica.actas.ver_documento_firmante', 'Ver la cédula del firmante de un acta', 'Consultar la cédula completa del funcionario que firmó el acta de organismo, cada consulta queda registrada.'),
   op(`${LOG} POST /documentos/:id/novedad`, 'logistica.documento.reportar_novedad', 'Reportar una novedad de entrega', 'Dejar constancia de que la entrega no se pudo completar y por qué.'),
   op(`${LOG} POST /cerrar-lote`, 'logistica.lote.cerrar', 'Cerrar un lote de logística', 'Dar por armado el lote de documentos que va a despacharse.'),
   op(`${LOG} POST /actas/:id/despachar`, 'logistica.actas.despachar', 'Despachar un acta', 'Poner en ruta el acta y sus documentos.'),
