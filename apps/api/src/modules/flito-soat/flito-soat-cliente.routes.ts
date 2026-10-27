@@ -246,14 +246,14 @@ const companiaIdSchema = z.preprocess(
  * de documento: el servidor lo resuelve, NIT incluido). Placa: `normalizarId` + 5–7 alfanuméricos;
  * el formato fino lo decide el RUNT. PII en body, nunca en la URL.
  */
-const placaSchema = z.preprocess(
+export const placaSchema = z.preprocess(
   (v) => (typeof v === 'string' ? normalizarId(v) : v),
   z.string()
     .min(5, 'La placa debe tener entre 5 y 7 caracteres')
     .max(7, 'La placa debe tener entre 5 y 7 caracteres')
     .regex(/^[A-Z0-9]+$/, 'La placa solo lleva letras y números'),
 );
-const numeroDocumentoSchema = z.string().trim().min(4, 'El documento del propietario es obligatorio').max(30);
+export const numeroDocumentoSchema = z.string().trim().min(4, 'El documento del propietario es obligatorio').max(30);
 
 /**
  * `tipo` AUSENTE = `inicial` (compatible con la web actual; decisión cerrada del Feature). La rama

@@ -36,6 +36,7 @@ const op = (llave: string, codigo: string, nombre: string, descripcion: string):
 
 const SOAT = 'flito-soat/flito-soat.routes.ts';
 const SOAT_CLI = 'flito-soat/flito-soat-cliente.routes.ts';
+const SOAT_MAS = 'flito-soat/flito-soat-masivo.routes.ts';
 const SOAT_INC = 'flito-soat/flito-soat-incompletas.routes.ts';
 const SOAT_DOC = 'flito-soat/flito-soat-documentos.routes.ts';
 const IMP = 'flito-impuestos/flito-impuestos.routes.ts';
@@ -100,6 +101,10 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // función nueva ni migración). Mismo código ⇒ mismo nombre, descripción y reparto que `POST /cliente`
   // (`catalogoDeOperaciones` lo exige: «un código, un reparto»).
   op(`${SOAT_CLI} GET /cliente/companias`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  // HU #14131 (Feature #14013): la carga masiva reutiliza `soat.solicitud.crear` (sin función nueva ni migración de permisos).
+  op(`${SOAT_MAS} GET /cliente/masivo/plantilla`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_MAS} POST /cliente/masivo`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_MAS} GET /cliente/masivo/:loteId`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
   op(`${SOAT_CLI} POST /cliente/factura/lectura`, 'soat.factura.leer', 'Leer la factura de venta del vehículo', 'Extraer del PDF de la factura los datos del vehículo para prellenar la solicitud.'),
   // HU #12997 (Feature #12841, diseño §11.1): lectura de las solicitudes que esperan al RUNT. Códigos
   // propios —el catálogo es «una función por ruta»— sembrados por la 0211 a todo rol que ya tenga
