@@ -95,7 +95,7 @@ describe.skipIf(!URL_BASE)('resumen, descarga y purga contra Postgres real', () 
   it('AC1: el resumen cuadra (creadas + por validar + rechazadas = total) y ofrece la descarga', async () => {
     const id = await loteTerminado({ terminadoEn: new Date() });
     const a = await svc.avanceLote(id, ctxDe(companiaId));
-    expect(a!.resumen).toEqual({ total: 2, creadas: 0, porValidar: 0, rechazadas: 2 });
+    expect(a!.resumen).toEqual({ total: 2, creadas: 0, porValidar: 0, rechazadas: 2, porValidarFactura: 0, porValidarPropietario: 0 });
     expect(a!.resumen!.creadas + a!.resumen!.porValidar + a!.resumen!.rechazadas).toBe(a!.total);
     expect(a!.descargaRechazadas).toBe(true);
   });

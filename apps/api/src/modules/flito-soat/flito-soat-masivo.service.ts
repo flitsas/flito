@@ -12,17 +12,19 @@
 import { createHash } from 'node:crypto';
 import { and, count, eq, inArray } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { flitoSoatMasivoFilas, flitoSoatMasivoLotes, users } from '../../db/schema.js';
+import { flitoSoatIncompletas, flitoSoatMasivoFilas, flitoSoatMasivoLotes, users } from '../../db/schema.js';
 import { canalDeLaCompania } from './flito-soat-cliente.service.js';
 import { exigirClienteOperable } from '../clients/cliente-operable.js';
 import type { SoatCtx } from './flito-soat.service.js';
 import { falloMasivo } from './flito-soat-masivo.errors.js';
-import { MENSAJE_MOTIVO, parsearXlsxRenovacion } from './flito-soat-masivo-parse.js';
+import { parsearXlsxRenovacion } from './flito-soat-masivo-parse.js';
+import { parsearXlsxInicial } from './flito-soat-masivo-parse-inicial.js';
+import { textoMotivo } from './flito-soat-masivo-motivos.js';
 import { descargaVencida, purgarPiiRechazadas } from './flito-soat-masivo-purga.js';
 
 export interface LoteCreado {
   loteId: string;
-  tipo: 'renovacion';
+  tipo: 'renovacion' | 'inicial';
   total: number;
   aceptadasEnCola: number;
   rechazadasDeEntrada: number;
@@ -41,7 +43,11 @@ export interface AvanceLote {
   motivosRechazo: Array<{ codigo: string; mensaje: string; cantidad: number }>;
   creadoEn: string;
   /** HU #14133 (AC1): solo con el lote terminado; creadas + porValidar + rechazadas = total (contadores congelados). */
-  resumen: { total: number; creadas: number; porValidar: number; rechazadas: number } | null;
+  resumen: {
+    total: number; creadas: number; porValidar: number; rechazadas: number;
+    /** HU #14135 (AC2): de las «por validar», las que esperan la factura de venta y las que esperan los datos del propietario. */
+    porValidarFactura: number; porValidarPropietario: number;
+  } | null;
   /** HU #14133 (AC4/AC5): ¿se ofrece la descarga de las rechazadas? Nunca con el lote sin terminar. */
   descargaRechazadas: boolean;
 }
@@ -62,7 +68,7 @@ async function loteActivoDe(companiaId: number): Promise<string | null> {
 export async function crearLoteMasivo(
   buffer: Buffer, tipo: string, ctx: SoatCtx, companiaIdPedida: number | null,
 ): Promise<LoteCreado> {
-  if (tipo !== 'renovacion') throw falloMasivo(400, 'tipo_invalido', 'El tipo de plantilla no es válido.');
+  if (tipo !== 'renovacion' && tipo !== 'inicial') throw falloMasivo(400, 'tipo_invalido', 'El tipo de plantilla no es válido.');
   // AC7: alcance (403 sin compañía / ajena, 400 admin sin elegir), canal abierto (403) y cliente operable (409).
   const canal = await canalDeLaCompania(ctx, companiaIdPedida);
   await exigirClienteOperable(db, canal.companiaId, 'SOAT');
@@ -70,7 +76,9 @@ export async function crearLoteMasivo(
   const activo = await loteActivoDe(canal.companiaId);
   if (activo) throw falloMasivo(409, 'lote_activo', MENSAJE_LOTE_ACTIVO, { loteId: activo });
 
-  const { filas } = await parsearXlsxRenovacion(buffer);
+  // Filas homogéneas para el INSERT: Renovación (placa/doc/nombre/correo/celular) o Inicial (solo VIN).
+  const filas: Array<{ nFila: number; motivoRechazo: string | null; placa?: string; documento?: string; nombre?: string; correo?: string; celular?: string; vin?: string }> =
+    tipo === 'inicial' ? (await parsearXlsxInicial(buffer)).filas : (await parsearXlsxRenovacion(buffer)).filas;
   const hash = createHash('sha256').update(buffer).digest('hex');
   const [u] = await db.select({ nombre: users.name }).from(users).where(eq(users.id, ctx.userId)).limit(1);
   const creadoPorNombre = (u?.nombre || ctx.username || 'usuario').slice(0, 150);
@@ -78,19 +86,19 @@ export async function crearLoteMasivo(
   try {
     const loteId = await db.transaction(async (tx) => {
       const [lote] = await tx.insert(flitoSoatMasivoLotes).values({
-        companiaId: canal.companiaId, creadoPorId: ctx.userId, creadoPorNombre, tipoSoat: 'renovacion',
+        companiaId: canal.companiaId, creadoPorId: ctx.userId, creadoPorNombre, tipoSoat: tipo,
         estado: 'en_cola', totalFilas: filas.length, archivoHash: hash,
       }).returning({ id: flitoSoatMasivoLotes.id });
       await tx.insert(flitoSoatMasivoFilas).values(filas.map((f) => ({
         loteId: lote!.id, nFila: f.nFila,
         estado: f.motivoRechazo ? 'rechazada' : 'pendiente', motivoRechazo: f.motivoRechazo,
         placa: f.placa || null, documento: f.documento || null, nombre: f.nombre || null,
-        correo: f.correo || null, celular: f.celular || null,
+        correo: f.correo || null, celular: f.celular || null, vin: f.vin || null,
       })));
       return lote!.id;
     });
     const rechazadas = filas.filter((f) => f.motivoRechazo).length;
-    return { loteId, tipo: 'renovacion', total: filas.length, aceptadasEnCola: filas.length - rechazadas, rechazadasDeEntrada: rechazadas };
+    return { loteId, tipo, total: filas.length, aceptadasEnCola: filas.length - rechazadas, rechazadasDeEntrada: rechazadas };
   } catch (e) {
     if (esViolacionUnica(e)) {
       throw falloMasivo(409, 'lote_activo', MENSAJE_LOTE_ACTIVO, { loteId: await loteActivoDe(canal.companiaId) });
@@ -127,15 +135,22 @@ export async function avanceLote(loteId: string, ctx: SoatCtx): Promise<AvanceLo
     .from(flitoSoatMasivoFilas)
     .where(and(eq(flitoSoatMasivoFilas.loteId, loteId), eq(flitoSoatMasivoFilas.estado, 'rechazada')))
     .groupBy(flitoSoatMasivoFilas.motivoRechazo);
+  // AC2 (HU #14135): las «por validar» se distinguen por el motivo de su pendiente (factura vs datos del propietario).
+  const pv = terminado ? await db.select({ motivo: flitoSoatIncompletas.motivoPendiente, n: count() })
+    .from(flitoSoatMasivoFilas).innerJoin(flitoSoatIncompletas, eq(flitoSoatIncompletas.id, flitoSoatMasivoFilas.incompletaId))
+    .where(and(eq(flitoSoatMasivoFilas.loteId, loteId), eq(flitoSoatMasivoFilas.estado, 'por_validar')))
+    .groupBy(flitoSoatIncompletas.motivoPendiente) : [];
+  const nPv = (m: string) => Number(pv.find((r) => r.motivo === m)?.n ?? 0);
   const n = (e: string) => Number(porEstado.find((r) => r.estado === e)?.n ?? 0);
   return {
     loteId: lote.id, estado: lote.estado, tipo: lote.tipoSoat, total: lote.totalFilas,
     pendientes: n('pendiente'), procesando: n('consultando'), aceptadas: n('aceptada'),
     porValidar: n('por_validar'), rechazadas: n('rechazada'),
-    motivosRechazo: motivos.filter((m) => m.codigo).map((m) => ({ codigo: m.codigo!, mensaje: MENSAJE_MOTIVO[m.codigo!] ?? 'Fila rechazada', cantidad: Number(m.n) })),
+    motivosRechazo: motivos.filter((m) => m.codigo).map((m) => ({ codigo: m.codigo!, mensaje: textoMotivo(m.codigo!, null, lote.tipoSoat === 'inicial' ? 'inicial' : 'renovacion'), cantidad: Number(m.n) })),
     creadoEn: lote.creadoEn.toISOString(),
     resumen: terminado
-      ? { total: lote.totalFilas, creadas: lote.nAceptadas ?? 0, porValidar: lote.nPorValidar ?? 0, rechazadas: lote.nRechazadas ?? 0 }
+      ? { total: lote.totalFilas, creadas: lote.nAceptadas ?? 0, porValidar: lote.nPorValidar ?? 0, rechazadas: lote.nRechazadas ?? 0,
+        porValidarFactura: nPv('falta_factura_venta'), porValidarPropietario: nPv('faltan_datos_propietario') }
       : null,
     descargaRechazadas: terminado && (lote.nRechazadas ?? 0) > 0 && !descargaVencida(lote, ahora),
   };

@@ -94,8 +94,8 @@ export function validarFila(c: { placa: string; documento: string; nombre: strin
 
 export interface ArchivoParseado { filas: FilaParseada[]; }
 
-/** Valida el contenedor y lee la hoja. Lanza `ErrorLoteMasivo` (sin datos de celdas) ante cualquier rechazo completo. */
-export async function parsearXlsxRenovacion(buf: Buffer): Promise<ArchivoParseado> {
+/** Valida el contenedor y devuelve la primera hoja. Lanza `ErrorLoteMasivo` (sin datos de celdas) ante cualquier rechazo completo. */
+export async function abrirHoja(buf: Buffer): Promise<ExcelJS.Worksheet> {
   if (buf.length === 0) throw falloMasivo(400, 'archivo_vacio', 'El archivo está vacío.');
   if (buf.length > MAX_BYTES) throw falloMasivo(413, 'archivo_muy_grande', 'El archivo supera 1 MB.');
   if (!esXlsxReal(buf)) throw falloMasivo(400, 'formato_invalido', 'El archivo no es un Excel .xlsx válido.');
@@ -108,6 +108,18 @@ export async function parsearXlsxRenovacion(buf: Buffer): Promise<ArchivoParsead
   }
   const ws = wb.worksheets[0];
   if (!ws) throw falloMasivo(400, 'archivo_vacio', 'El archivo no tiene datos.');
+  return ws;
+}
+
+/** HU #14135 (AC9): el archivo es de la otra plantilla; se rechaza completo diciéndolo. */
+export const plantillaEquivocada = (elegida: 'renovacion' | 'inicial') => falloMasivo(400, 'plantilla_equivocada',
+  elegida === 'inicial'
+    ? 'El archivo es de la plantilla de Renovación, pero elegiste SOAT inicial. Descarga la plantilla Inicial (columna VIN) o cambia el tipo de carga.'
+    : 'El archivo es de la plantilla de SOAT inicial, pero elegiste Renovación. Descarga la plantilla de Renovación o cambia el tipo de carga.');
+
+/** Valida el contenedor y lee la hoja de Renovación. */
+export async function parsearXlsxRenovacion(buf: Buffer): Promise<ArchivoParseado> {
+  const ws = await abrirHoja(buf);
 
   // Encabezados (fila 1).
   const columnaDe = new Map<keyof typeof LARGO, number>();
@@ -117,6 +129,7 @@ export async function parsearXlsxRenovacion(buf: Buffer): Promise<ArchivoParsead
     throw falloMasivo(400, 'encabezados_invalidos', 'El archivo tiene columnas que no son de la plantilla.', { esperados: [...ENCABEZADOS_RENOVACION] });
   }
   let repetido = false;
+  let vinVisto = false;
   const fila1 = ws.getRow(1);
   for (let c = 1; c <= maxCol; c++) {
     const texto = celdaATexto(fila1.getCell(c).value);
@@ -125,11 +138,14 @@ export async function parsearXlsxRenovacion(buf: Buffer): Promise<ArchivoParsead
     // HU #14133 (AC3): el archivo de rechazadas trae una columna final «Motivo»; se ignora al re-subirlo.
     if (norm === ENCABEZADO_MOTIVO) continue;
     const clave = CLAVES[norm];
+    if (norm === 'vin') vinVisto = true;
     if (!clave) { desconocidos.push(c); continue; }
     if (columnaDe.has(clave)) repetido = true;
     columnaDe.set(clave, c);
   }
   const faltan = ENCABEZADOS_RENOVACION.filter((h) => !columnaDe.has(CLAVES[normalizarEncabezado(h)]!));
+  // AC9 (HU #14135): una hoja con solo «VIN» (ninguna columna de Renovación) es la plantilla Inicial.
+  if (vinVisto && columnaDe.size === 0) throw plantillaEquivocada('renovacion');
   if (faltan.length > 0 || desconocidos.length > 0 || repetido) {
     // Solo NOMBRES de columna de la plantilla (nunca lo tecleado en la hoja): ni el desconocido se devuelve.
     throw falloMasivo(400, 'encabezados_invalidos',

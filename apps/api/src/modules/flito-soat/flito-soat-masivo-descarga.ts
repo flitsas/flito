@@ -15,11 +15,14 @@ import { falloMasivo } from './flito-soat-masivo.errors.js';
 import { cargarLoteEnAlcance } from './flito-soat-masivo.service.js';
 import { descargaVencida, purgarPiiRechazadas } from './flito-soat-masivo-purga.js';
 import { textoMotivo } from './flito-soat-masivo-motivos.js';
-import { ENCABEZADOS_RENOVACION, escaparFormula } from './flito-soat-masivo-plantilla.js';
+import { ENCABEZADOS_INICIAL, ENCABEZADOS_RENOVACION, escaparFormula } from './flito-soat-masivo-plantilla.js';
 
 export const NOMBRE_ARCHIVO_RECHAZADAS = 'rechazadas-soat-renovacion.xlsx';
 
-export interface DescargaRechazadas { buffer: Buffer; filas: number; loteId: string }
+export const nombreArchivoRechazadas = (tipo: 'renovacion' | 'inicial'): string =>
+  tipo === 'inicial' ? 'rechazadas-soat-inicial.xlsx' : NOMBRE_ARCHIVO_RECHAZADAS;
+
+export interface DescargaRechazadas { buffer: Buffer; filas: number; loteId: string; tipo: 'renovacion' | 'inicial' }
 
 export async function descargarRechazadas(loteId: string, ctx: SoatCtx, ahora: Date = new Date()): Promise<DescargaRechazadas | null> {
   const lote = await cargarLoteEnAlcance(loteId, ctx);
@@ -32,11 +35,11 @@ export async function descargarRechazadas(loteId: string, ctx: SoatCtx, ahora: D
   if ((lote.nRechazadas ?? 0) === 0) throw NO_DISPONIBLE;
 
   const filas = await db.select({
-    placa: F.placa, documento: F.documento, nombre: F.nombre, correo: F.correo, celular: F.celular,
+    vin: F.vin, placa: F.placa, documento: F.documento, nombre: F.nombre, correo: F.correo, celular: F.celular,
     motivo: F.motivoRechazo, vigenteHasta: F.vigenteHasta,
   }).from(F).where(and(eq(F.loteId, lote.id), eq(F.estado, 'rechazada'))).orderBy(asc(F.nFila));
   // Purgadas por otra vía (mantenimiento): ninguna fila conserva datos → no hay nada que entregar.
-  const conDatos = filas.filter((f) => f.placa || f.documento || f.nombre || f.correo || f.celular);
+  const conDatos = filas.filter((f) => f.vin || f.placa || f.documento || f.nombre || f.correo || f.celular);
   if (conDatos.length === 0) throw NO_DISPONIBLE;
 
   // La primera descarga abre la ventana de 15 min; las siguientes no la mueven.
@@ -44,12 +47,16 @@ export async function descargarRechazadas(loteId: string, ctx: SoatCtx, ahora: D
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Rechazadas');
-  ws.addRow([...ENCABEZADOS_RENOVACION, 'Motivo']);
+  // AC3 (HU #14135): en un lote Inicial la plantilla es «VIN» + «Motivo» final.
+  const tipo = lote.tipoSoat === 'inicial' ? 'inicial' : 'renovacion';
+  const encabezados = tipo === 'inicial' ? ENCABEZADOS_INICIAL : ENCABEZADOS_RENOVACION;
+  ws.addRow([...encabezados, 'Motivo']);
   ws.getRow(1).font = { bold: true };
-  for (let i = 1; i <= ENCABEZADOS_RENOVACION.length + 1; i++) { const c = ws.getColumn(i); c.numFmt = '@'; c.width = i === 6 ? 60 : 22; }
+  for (let i = 1; i <= encabezados.length + 1; i++) { const c = ws.getColumn(i); c.numFmt = '@'; c.width = i === encabezados.length + 1 ? 60 : 22; }
   for (const f of conDatos) {
-    ws.addRow([f.placa, f.documento, f.nombre, f.correo, f.celular, f.motivo ? textoMotivo(f.motivo, f.vigenteHasta) : '']
-      .map((v) => escaparFormula(v ?? '')));
+    const motivo = f.motivo ? textoMotivo(f.motivo, f.vigenteHasta, tipo) : '';
+    const celdas = tipo === 'inicial' ? [f.vin, motivo] : [f.placa, f.documento, f.nombre, f.correo, f.celular, motivo];
+    ws.addRow(celdas.map((v) => escaparFormula(v ?? '')));
   }
-  return { buffer: Buffer.from(await wb.xlsx.writeBuffer()), filas: conDatos.length, loteId: lote.id };
+  return { buffer: Buffer.from(await wb.xlsx.writeBuffer()), filas: conDatos.length, loteId: lote.id, tipo };
 }

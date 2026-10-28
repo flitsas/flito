@@ -8,7 +8,7 @@ import type { DesenlaceRunt } from './flito-soat-cliente-runt.js';
 
 export type MotivoRechazoWorker =
   | 'runt_no_cuadra' | 'runt_sin_registro' | 'runt_sin_vin' | 'soat_vigente' | 'sin_soat_anterior'
-  | 'solicitud_existente' | 'no_procesada';
+  | 'solicitud_existente' | 'no_procesada' | 'vin_invalido';
 
 /** Intentos con el RUNT caído antes de aparcar en «Por validar» (1 reintento automático = 2 llamadas). */
 export const MAX_INTENTOS_RUNT = 2;
@@ -29,16 +29,29 @@ export const MENSAJE_MOTIVO_MASIVO: Record<string, string> = {
   no_procesada: 'No se pudo procesar a tiempo; vuelva a subir el archivo',
 };
 
+/** HU #14135: vocabulario de la plantilla Inicial (solo VIN). Los códigos son los mismos; cambia el texto. */
+const TEXTO_REVISE_VIN = 'El RUNT no reconoce este VIN: revíselo';
+export const MENSAJE_MOTIVO_INICIAL: Record<string, string> = {
+  vin_invalido: 'VIN inválido',
+  fila_duplicada: 'VIN repetido en el archivo',
+  runt_no_cuadra: TEXTO_REVISE_VIN,
+  runt_sin_registro: TEXTO_REVISE_VIN,
+  runt_sin_vin: TEXTO_REVISE_VIN,
+  solicitud_existente: MENSAJE_MOTIVO_MASIVO.solicitud_existente!,
+  no_procesada: MENSAJE_MOTIVO_MASIVO.no_procesada!,
+};
+
 /** `2026-12-31` → `31/12/2026`. */
 const aDiaMesAnio = (iso: string): string => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 
 /** Texto del rechazo. `soat_vigente` dice hasta cuándo está vigente el SOAT (AC5). */
-export function textoMotivo(motivo: string, vigenteHasta?: string | null): string {
+export function textoMotivo(motivo: string, vigenteHasta?: string | null, tipo: 'renovacion' | 'inicial' = 'renovacion'): string {
   if (motivo === 'soat_vigente') {
     return vigenteHasta
       ? `Este vehículo tiene un SOAT vigente hasta el ${aDiaMesAnio(vigenteHasta)}: solo se renueva dentro de los 30 días previos al vencimiento`
       : 'Este vehículo tiene un SOAT vigente: solo se renueva dentro de los 30 días previos al vencimiento';
   }
+  if (tipo === 'inicial' && MENSAJE_MOTIVO_INICIAL[motivo]) return MENSAJE_MOTIVO_INICIAL[motivo]!;
   return MENSAJE_MOTIVO_MASIVO[motivo] ?? 'No se pudo procesar la fila';
 }
 

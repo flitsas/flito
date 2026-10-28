@@ -38,15 +38,18 @@ export interface FilaReclamada {
   nombre: string | null;
   correo: string | null;
   celular: string | null;
+  /** HU #14135: tipo del lote y VIN de la fila (plantilla Inicial). Ausentes = Renovación. */
+  tipoSoat?: 'renovacion' | 'inicial';
+  vin?: string | null;
 }
 
 export async function reclamarFilas(cupoLocal: number, ahora: Date = new Date()): Promise<FilaReclamada[]> {
   if (cupoLocal <= 0) return [];
   return db.transaction(async (tx) => {
     const lotes = await tx.select({
-      id: L.id, companiaId: L.companiaId, creadoPorId: L.creadoPorId, creadoPorNombre: L.creadoPorNombre,
+      id: L.id, companiaId: L.companiaId, creadoPorId: L.creadoPorId, creadoPorNombre: L.creadoPorNombre, tipoSoat: L.tipoSoat,
     }).from(L)
-      .where(and(inArray(L.estado, ['en_cola', 'procesando']), eq(L.tipoSoat, 'renovacion')))
+      .where(inArray(L.estado, ['en_cola', 'procesando']))
       .orderBy(asc(L.creadoEn))
       .for('update', { skipLocked: true });
 
@@ -69,7 +72,7 @@ export async function reclamarFilas(cupoLocal: number, ahora: Date = new Date())
       }).where(inArray(F.id, ids.map((x) => x.id)))
         .returning({
           id: F.id, nFila: F.nFila, soatIdReservado: F.soatIdReservado, intentos: F.intentos,
-          placa: F.placa, documento: F.documento, nombre: F.nombre, correo: F.correo, celular: F.celular,
+          placa: F.placa, documento: F.documento, nombre: F.nombre, correo: F.correo, celular: F.celular, vin: F.vin,
         });
       await tx.update(L).set({ estado: 'procesando', iniciadoEn: sql`coalesce(${L.iniciadoEn}, now())` })
         .where(eq(L.id, lote.id));
@@ -77,6 +80,7 @@ export async function reclamarFilas(cupoLocal: number, ahora: Date = new Date())
         reclamadas.push({
           ...f, soatIdReservado: f.soatIdReservado as string, loteId: lote.id, companiaId: lote.companiaId,
           creadoPorId: lote.creadoPorId, creadoPorNombre: lote.creadoPorNombre,
+          tipoSoat: lote.tipoSoat === 'inicial' ? 'inicial' : 'renovacion',
         });
       }
     }
