@@ -3,7 +3,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { EstadoDocumentoLogistica, parseLicenciaTransito } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { clients, flitoLogisticaDocumentos, flitoLogisticaEventos, flitoTramites, vehicles } from '../../db/schema.js';
+import { clients, flitoLogisticaDocumentos, flitoLogisticaEventos, flitoTramites, organismosTransitoConfig, vehicles } from '../../db/schema.js';
 import { uploadEntityDocument } from '../../services/storage.js';
 import { LT, LogisticaError, aprobadoSql, log, normPlaca, transicionar, type LogisticaCtx } from './flito-logistica.base.js';
 
@@ -30,9 +30,36 @@ const SIN_PENDIENTE = 'El vehículo no tiene un trámite aprobado pendiente de L
 const SIN_TRAMITE = 'No hay ningún trámite aprobado con esta placa.';
 const AUTOGESTION = 'La logística de esta compañía es autogestionada por el cliente; FLITO no la gestiona.';
 
+/** Ingreso manual de la LT (sin código de barras): placa + n.º de licencia (frente) + n.º de sustrato «LT…» (reverso). */
+export interface EntradaManual { placa: string; numeroLicencia: string; numeroLt: string }
+
+/** Lectura común a ambos modos (PDF417 o manual): lo único que cambia es de dónde sale. VIN null = no se compara. */
+interface Lectura {
+  placa: string; vin: string | null; numeroLicencia: string; numeroLt: string | null; manual: boolean;
+  propietarioNombre: string | null; propietarioDocumento: string | null; combustible: string | null; fotoBase64: string | null; flitRaw: unknown;
+}
+
+function leer(entrada: string | EntradaManual, numeroLt: string | null): Lectura {
+  if (typeof entrada !== 'string') {
+    const lt = entrada.numeroLt.trim().toUpperCase();
+    if (!/^LT/.test(lt) || lt.length < 3) throw new LogisticaError('El número de sustrato del reverso debe empezar por «LT».', 422, { code: 'NUMERO_LT_SIN_PREFIJO' });
+    const nl = entrada.numeroLicencia.trim();
+    if (!nl) throw new LogisticaError('Falta el número de licencia.', 422, { code: 'NUMERO_LICENCIA_REQUERIDO' });
+    return { placa: normPlaca(entrada.placa), vin: null, numeroLicencia: nl, numeroLt: lt, manual: true, propietarioNombre: null, propietarioDocumento: null, combustible: null, fotoBase64: null, flitRaw: { manual: true } };
+  }
+  const p = parseLicenciaTransito(entrada);
+  if (!p) throw new LogisticaError('No se pudo leer el código de la licencia. Reintenta el escaneo.');
+  return {
+    placa: normPlaca(p.placa), vin: p.vin.toUpperCase(), numeroLicencia: p.numeroLicencia, numeroLt: numeroLt?.trim() || null, manual: false,
+    propietarioNombre: p.propietarioNombre, propietarioDocumento: p.propietarioDocumento, combustible: p.combustible, fotoBase64: p.fotoBase64 ?? null,
+    flitRaw: { raw: entrada, parsed: { ...p, fotoBase64: p.fotoBase64 ? '<jpeg>' : null } },
+  };
+}
+
 type FilaTramite = {
   tramiteId: string; idFlit: string; organismoCodigo: string | null; companiaId: number | null; companiaNit: string | null;
   companiaNombre: string | null; vehiculoId: number; vin: string | null; autogestionable: boolean | null; docId: string | null;
+  organismoNombre: string | null; marca: string | null; linea: string | null; modelo: number | null;
 };
 
 /** Trámites APROBADOS del vehículo (por placa) con el id de su LT si ya la tienen. El alcance es el de la ruta (`soloSinEnlace`). */
@@ -42,9 +69,11 @@ async function tramitesDelVehiculo(placa: string): Promise<FilaTramite[]> {
     companiaId: flitoTramites.companiaId, companiaNit: flitoTramites.companiaNit, companiaNombre: clients.name,
     vehiculoId: flitoTramites.vehiculoId, vin: vehicles.vin, autogestionable: clients.logisticaAutogestionable,
     docId: flitoLogisticaDocumentos.id,
+    organismoNombre: organismosTransitoConfig.alias, marca: vehicles.brand, linea: vehicles.model, modelo: vehicles.year,
   }).from(flitoTramites)
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
+    .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoLogisticaDocumentos, and(eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id), eq(flitoLogisticaDocumentos.tipo, LT)))
     .where(and(aprobadoSql, sql`upper(replace(${vehicles.plate}, '-', '')) = ${placa}`));
 }
@@ -88,23 +117,22 @@ const esUnica23505 = (e: unknown): boolean => {
  * VIN distinto → 'novedad' (RN-04). Sin trámite → 'sin_match' (no persiste). Idempotente: el mismo
  * `numeroLicencia` o un trámite que ya tiene LT → 'duplicado'. El n.º de LT llega por `numeroLt`.
  */
-export async function escanearLt(rawValue: string, numeroLt: string | null, evidencia: { lat?: string | null; lng?: string | null }, ctx: LogisticaCtx, opc: OpcionesEscaneo = {}): Promise<ResultadoEscaneo> {
-  const p = parseLicenciaTransito(rawValue);
-  if (!p) throw new LogisticaError('No se pudo leer el código de la licencia. Reintenta el escaneo.');
-  const placa = normPlaca(p.placa);
-  const vin = p.vin.toUpperCase();
-  const base = { placa, vin, numeroLicencia: p.numeroLicencia, propietarioNombre: p.propietarioNombre };
+export async function escanearLt(entrada: string | EntradaManual, numeroLt: string | null, evidencia: { lat?: string | null; lng?: string | null }, ctx: LogisticaCtx, opc: OpcionesEscaneo = {}): Promise<ResultadoEscaneo> {
+  const p = leer(entrada, numeroLt);
+  const placa = p.placa;
+  let vin = p.vin ?? '';
+  const base = () => ({ placa, vin, numeroLicencia: p.numeroLicencia, propietarioNombre: p.propietarioNombre });
 
   // Reescaneo de la misma LT física: no crea ni ofrece otro trámite.
   const previa = await ltConNumeroLicencia(p.numeroLicencia);
   if (previa) {
-    await completarNumeroLt(previa.id, numeroLt);
-    return { ...base, resultado: 'duplicado', documentoId: previa.id, motivo: 'Esta LT ya fue registrada.' };
+    await completarNumeroLt(previa.id, p.numeroLt);
+    return { ...base(), resultado: 'duplicado', documentoId: previa.id, motivo: 'Esta LT ya fue registrada.' };
   }
 
   const d = decidir(await tramitesDelVehiculo(placa), opc);
   if (d.kind === 'fin') {
-    if (d.r.resultado === 'duplicado' && d.r.documentoId) await completarNumeroLt(d.r.documentoId, numeroLt);
+    if (d.r.resultado === 'duplicado' && d.r.documentoId) await completarNumeroLt(d.r.documentoId, p.numeroLt);
     return { placa, vin, ...d.r };
   }
   const pendiente = d.kind === 'pendiente';
@@ -112,13 +140,14 @@ export async function escanearLt(rawValue: string, numeroLt: string | null, evid
   const candidatosPend: FilaTramite[] = d.kind === 'pendiente' ? d.candidatos : [];
   const fila0: FilaTramite = t ?? candidatosPend[0];
   const vinVehiculo = fila0.vin;
+  if (!p.vin) vin = (vinVehiculo ?? '').toUpperCase(); // modo manual: el VIN es el del vehículo (no hay código que comparar)
 
   let organismoCodigo: string | null;
   if (t) {
     // Parametrización por compañía (RN-05): si la compañía autogestiona su logística, FLITO no la gestiona.
-    if (t.autogestionable) return { ...base, resultado: 'no_gestionable', idFlit: t.idFlit, motivo: AUTOGESTION };
-    if (!t.companiaId) return { ...base, resultado: 'sin_match', idFlit: t.idFlit, motivo: 'El trámite de esta placa aún no tiene compañía FLITO asignada.' };
-    if (!t.organismoCodigo) return { ...base, resultado: 'sin_match', idFlit: t.idFlit, motivo: 'El trámite de esta placa no tiene organismo emparejado.' };
+    if (t.autogestionable) return { ...base(), resultado: 'no_gestionable', idFlit: t.idFlit, motivo: AUTOGESTION };
+    if (!t.companiaId) return { ...base(), resultado: 'sin_match', idFlit: t.idFlit, motivo: 'El trámite de esta placa aún no tiene compañía FLITO asignada.' };
+    if (!t.organismoCodigo) return { ...base(), resultado: 'sin_match', idFlit: t.idFlit, motivo: 'El trámite de esta placa no tiene organismo emparejado.' };
     organismoCodigo = t.organismoCodigo;
   } else {
     const comunes = new Set(candidatosPend.map((c) => c.organismoCodigo));
@@ -126,7 +155,7 @@ export async function escanearLt(rawValue: string, numeroLt: string | null, evid
     if (!organismoCodigo) throw new LogisticaError('Indica el organismo de tránsito para dejar la LT pendiente de trámite.');
   }
 
-  const vinCoincide = vin === (vinVehiculo ?? '').toUpperCase();
+  const vinCoincide = p.manual || vin === (vinVehiculo ?? '').toUpperCase();
   const estado = vinCoincide ? EstadoDocumentoLogistica.RECOGIDO : EstadoDocumentoLogistica.NOVEDAD;
   const motivo = vinCoincide ? null : `El VIN del código (${vin}) no coincide con el del ${pendiente ? 'vehículo' : 'trámite'} (${vinVehiculo ?? '—'}).`;
 
@@ -137,10 +166,9 @@ export async function escanearLt(rawValue: string, numeroLt: string | null, evid
         tramiteId: t?.tramiteId ?? null, tipo: LT, estado,
         organismoCodigo: organismoCodigo!, companiaId: t?.companiaId ?? null, companiaNit: t?.companiaNit ?? null,
         vehiculoId: fila0.vehiculoId, identificador: placa,
-        numeroLicencia: p.numeroLicencia, numeroLt: numeroLt?.trim() || null,
+        numeroLicencia: p.numeroLicencia, numeroLt: p.numeroLt,
         propietarioNombre: p.propietarioNombre, propietarioDocumento: p.propietarioDocumento,
-        combustible: p.combustible, motivo,
-        flitRaw: { raw: rawValue, parsed: { ...p, fotoBase64: p.fotoBase64 ? '<jpeg>' : null } },
+        combustible: p.combustible, motivo, flitRaw: p.flitRaw,
       }).onConflictDoNothing({ target: [flitoLogisticaDocumentos.tramiteId, flitoLogisticaDocumentos.tipo] })
         .returning({ id: flitoLogisticaDocumentos.id });
 
@@ -148,8 +176,8 @@ export async function escanearLt(rawValue: string, numeroLt: string | null, evid
         // Carrera: el trámite recibió su LT entre la lectura y el insert → duplicado idempotente.
         const [existente] = await tx.select({ id: flitoLogisticaDocumentos.id }).from(flitoLogisticaDocumentos)
           .where(and(eq(flitoLogisticaDocumentos.tramiteId, t!.tramiteId), eq(flitoLogisticaDocumentos.tipo, LT))).limit(1);
-        if (numeroLt?.trim() && existente) {
-          await tx.update(flitoLogisticaDocumentos).set({ numeroLt: numeroLt.trim(), updatedAt: new Date() }).where(eq(flitoLogisticaDocumentos.id, existente.id));
+        if (p.numeroLt && existente) {
+          await tx.update(flitoLogisticaDocumentos).set({ numeroLt: p.numeroLt, updatedAt: new Date() }).where(eq(flitoLogisticaDocumentos.id, existente.id));
         }
         return { documentoId: existente?.id, duplicado: true };
       }
@@ -157,7 +185,7 @@ export async function escanearLt(rawValue: string, numeroLt: string | null, evid
       await tx.insert(flitoLogisticaEventos).values({
         documentoId: creado.id, estadoAnterior: null, estadoNuevo: estado, actorId: ctx.userId,
         lat: evidencia.lat ?? null, lng: evidencia.lng ?? null, motivo, origen: 'usuario',
-        ...(pendiente ? { tipo: 'recogida_organismo', payload: { pendienteTramite: true } } : {}),
+        ...(pendiente || p.manual ? { tipo: 'recogida_organismo', payload: { ...(pendiente ? { pendienteTramite: true } : {}), ...(p.manual ? { origen: 'manual' } : {}) } } : {}),
       });
       // Clasificación automática: la empresa destino ya vive en el trámite (CA-03), si el VIN cuadra. Un pendiente no la tiene.
       if (vinCoincide && t) {
@@ -170,7 +198,7 @@ export async function escanearLt(rawValue: string, numeroLt: string | null, evid
     if (pendiente && esUnica23505(e)) {
       const [ya] = await db.select({ id: flitoLogisticaDocumentos.id }).from(flitoLogisticaDocumentos)
         .where(and(eq(flitoLogisticaDocumentos.vehiculoId, fila0.vehiculoId), eq(flitoLogisticaDocumentos.tipo, LT), isNull(flitoLogisticaDocumentos.tramiteId))).limit(1);
-      return { ...base, resultado: 'duplicado', documentoId: ya?.id, pendienteTramite: true, motivo: 'Este vehículo ya tiene una LT pendiente de trámite.' };
+      return { ...base(), resultado: 'duplicado', documentoId: ya?.id, pendienteTramite: true, motivo: 'Este vehículo ya tiene una LT pendiente de trámite.' };
     }
     throw e;
   }
@@ -184,7 +212,7 @@ export async function escanearLt(rawValue: string, numeroLt: string | null, evid
   }
 
   const resultado: ResultadoEscaneo['resultado'] = salida.duplicado ? 'duplicado' : (vinCoincide ? 'recogido' : 'novedad');
-  return { ...base, resultado, documentoId: salida.documentoId, idFlit: t?.idFlit, motivo, ...(pendiente ? { pendienteTramite: true } : {}) };
+  return { ...base(), resultado, documentoId: salida.documentoId, idFlit: t?.idFlit, motivo, ...(pendiente ? { pendienteTramite: true } : {}) };
 }
 
 async function completarNumeroLt(documentoId: string, numeroLt: string | null) {
@@ -206,28 +234,50 @@ export interface ResultadoValidacion {
  * nada se registra hasta «Confirmar recogida»). Espejo de solo lectura de escanearLt: 'relacionada',
  * 'novedad', 'sin_match', 'no_gestionable', 'ya_registrada' o 'elegir_tramite' (varios candidatos).
  */
-export async function validarLt(rawValue: string): Promise<ResultadoValidacion> {
-  const p = parseLicenciaTransito(rawValue);
-  if (!p) throw new LogisticaError('No se pudo leer el código de la licencia. Reintenta el escaneo.');
-  const placa = normPlaca(p.placa);
-  const vin = p.vin.toUpperCase();
-  const base = { placa, vin, numeroLicencia: p.numeroLicencia, propietarioNombre: p.propietarioNombre };
+export async function validarLt(entrada: string | EntradaManual): Promise<ResultadoValidacion> {
+  const p = leer(entrada, null);
+  const placa = p.placa;
+  let vin = p.vin ?? '';
+  const base = () => ({ placa, vin, numeroLicencia: p.numeroLicencia, propietarioNombre: p.propietarioNombre });
 
-  if (await ltConNumeroLicencia(p.numeroLicencia)) return { ...base, resultado: 'ya_registrada', motivo: 'Esta LT ya fue registrada.' };
+  if (await ltConNumeroLicencia(p.numeroLicencia)) return { ...base(), resultado: 'ya_registrada', motivo: 'Esta LT ya fue registrada.' };
 
   const d = decidir(await tramitesDelVehiculo(placa), {});
   if (d.kind === 'fin') {
     const { resultado, ...resto } = d.r;
-    return { ...base, ...resto, resultado: resultado === 'duplicado' ? 'ya_registrada' : (resultado as ResultadoValidacion['resultado']) };
+    return { ...base(), ...resto, resultado: resultado === 'duplicado' ? 'ya_registrada' : (resultado as ResultadoValidacion['resultado']) };
   }
   const t = (d as { t: FilaTramite }).t;
-  if (t.autogestionable) return { ...base, resultado: 'no_gestionable', idFlit: t.idFlit, motivo: AUTOGESTION };
-  if (!t.companiaId) return { ...base, resultado: 'sin_match', idFlit: t.idFlit, motivo: 'El trámite de esta placa aún no tiene compañía FLITO asignada.' };
-  if (!t.organismoCodigo) return { ...base, resultado: 'sin_match', idFlit: t.idFlit, motivo: 'El trámite de esta placa no tiene organismo emparejado.' };
+  if (t.autogestionable) return { ...base(), resultado: 'no_gestionable', idFlit: t.idFlit, motivo: AUTOGESTION };
+  if (!t.companiaId) return { ...base(), resultado: 'sin_match', idFlit: t.idFlit, motivo: 'El trámite de esta placa aún no tiene compañía FLITO asignada.' };
+  if (!t.organismoCodigo) return { ...base(), resultado: 'sin_match', idFlit: t.idFlit, motivo: 'El trámite de esta placa no tiene organismo emparejado.' };
 
-  const vinCoincide = vin === (t.vin ?? '').toUpperCase();
+  if (!p.vin) vin = (t.vin ?? '').toUpperCase();
+  const vinCoincide = p.manual || vin === (t.vin ?? '').toUpperCase();
   return {
-    ...base, resultado: vinCoincide ? 'relacionada' : 'novedad', idFlit: t.idFlit,
+    ...base(), resultado: vinCoincide ? 'relacionada' : 'novedad', idFlit: t.idFlit,
     motivo: vinCoincide ? null : `El VIN del código (${vin}) no coincide con el del trámite (${t.vin ?? '—'}).`,
+  };
+}
+
+// ── Consulta por placa (ingreso manual de la LT) ─────────────────────────────
+
+export interface CandidatoConsulta extends CandidatoTramite {
+  vin: string | null; organismoNombre: string | null;
+  vehiculo: { marca: string | null; linea: string | null; modelo: number | null };
+}
+export type ResultadoConsulta = { encontrado: false } | { encontrado: true; candidatos: CandidatoConsulta[] };
+
+/**
+ * Trámites APROBADOS del vehículo (por placa) que todavía no tienen LT, para que el mensajero que ingresa la LT
+ * a mano confirme a cuál corresponde. Mismo universo que el escaneo (aprobadoSql). Sin trámite pendiente →
+ * `{encontrado:false}` (no 404). La placa llega por body y no se registra.
+ */
+export async function consultarVehiculo(placaCruda: string): Promise<ResultadoConsulta> {
+  const cand = (await tramitesDelVehiculo(normPlaca(placaCruda))).filter((f) => !f.docId);
+  if (!cand.length) return { encontrado: false };
+  return {
+    encontrado: true,
+    candidatos: cand.map((f) => ({ ...aCandidato(f), vin: f.vin, organismoNombre: f.organismoNombre, vehiculo: { marca: f.marca, linea: f.linea, modelo: f.modelo } })),
   };
 }

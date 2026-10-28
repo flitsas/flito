@@ -10,6 +10,7 @@ import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-func
 import { audit } from '../../shared/middleware/audit.js';
 import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
 import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alcance.js';
+import { consultarVehiculoLimiter } from '../../shared/middleware/rateLimiter.js';
 import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { confirmarRecogida } from './flito-logistica.recogida.js';
@@ -17,7 +18,7 @@ import { candidatosDe, listarPendientes, resolverTramite } from './flito-logisti
 import { misRecogidas, recogidaDetalle, revelarDocumentoFirmante } from './flito-logistica.firmante.js';
 import { recogidaConfirmarLimiter, revelarDocumentoLimiter } from './flito-logistica.limitadores.js';
 import {
-  actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, escanearLt, facetas,
+  actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, consultarVehiculo, escanearLt, facetas,
   guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
   registrarNovedad, reversar, tramiteDetalle, urlActaPdf, validarLt, type FiltrosLogistica, type LogisticaCtx,
 } from './flito-logistica.service.js';
@@ -161,30 +162,54 @@ router.get('/:id', exigirFuncion('logistica.documento.ver'), async (req: Request
   if (r !== undefined) res.json(esProyeccionCliente(alcance) ? { ...r, eventos: sinActor(r.eventos) } : r); // ídem acta
 });
 
+// Entrada de la LT: o el código PDF417 (`rawValue`) o el ingreso manual (placa + n.º de licencia del frente +
+// n.º de sustrato «LT…» del reverso). XOR. La placa va SIEMPRE en el body (PII), nunca en URL/query ni en logs.
+const manualCampos = { placa: z.string().trim().min(1).max(10), numeroLicencia: z.string().trim().min(1).max(40), numeroLt: z.string().trim().min(1).max(40) };
+const xorEntrada = (b: { rawValue?: string; placa?: string; numeroLicencia?: string; numeroLt?: string }) => {
+  const manual = b.placa !== undefined || b.numeroLicencia !== undefined;
+  return b.rawValue !== undefined ? !manual : (b.placa !== undefined && b.numeroLicencia !== undefined && b.numeroLt !== undefined);
+};
+const entradaDe = (b: { rawValue?: string; placa?: string; numeroLicencia?: string; numeroLt?: string }) =>
+  b.rawValue !== undefined ? b.rawValue : { placa: b.placa!, numeroLicencia: b.numeroLicencia!, numeroLt: b.numeroLt! };
+
 // POST /validar-lt — valida el match de una LT SIN persistir (el mensajero escanea en lote; solo al
 // confirmar se llama a /escanear por cada LT relacionada). Solo lectura → sin idempotencia ni auditoría.
-const validarSchema = z.object({ rawValue: z.string().min(1) });
+const validarSchema = z.object({ rawValue: z.string().min(1).optional(), placa: manualCampos.placa.optional(), numeroLicencia: manualCampos.numeroLicencia.optional(), numeroLt: manualCampos.numeroLt.optional() }).strict().refine(xorEntrada);
 // HU #13426 (P-2): buscan por placa/VIN entre TODOS los trámites → oráculo para una compañía: cerradas.
 router.post('/validar-lt', soloSinEnlace(), exigirFuncion('logistica.lt.validar'), async (req: Request, res: Response) => {
   const parsed = validarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
-  const r = await ejecutar(res, () => validarLt(parsed.data.rawValue));
+  const r = await ejecutar(res, () => validarLt(entradaDe(parsed.data as never)));
   if (r !== undefined) res.json(r);
 });
 
-// POST /escanear — recogida de una LT desde su código PDF417 (match placa+VIN → recogida/novedad).
+// POST /consultar-vehiculo — HU #14142: trámites aprobados sin LT de una placa (ingreso manual). Placa en body;
+// mismas guardas que /escanear + tope de consultas por usuario (no enumerar placas). Sin auditoría con la placa.
+const consultarSchema = z.object({ placa: manualCampos.placa }).strict();
+router.post('/consultar-vehiculo', soloSinEnlace(), exigirFuncion('logistica.documento.escanear'), consultarVehiculoLimiter, async (req: Request, res: Response) => {
+  const parsed = consultarSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  const r = await ejecutar(res, () => consultarVehiculo(parsed.data.placa));
+  if (r !== undefined) res.json(r);
+});
+
+// POST /escanear — recogida de una LT desde su código PDF417 o ingresada a mano (match placa → recogida/novedad).
 // HU #14142: `tramiteId` (elige entre candidatos) y `dejarPendiente` son excluyentes; `organismoCodigo` solo aplica al pendiente.
 const escanearSchema = z.object({
-  rawValue: z.string().min(1), numeroLt: z.string().optional(), lat: z.string().optional(), lng: z.string().optional(),
+  rawValue: z.string().min(1).optional(), numeroLt: z.string().optional(), lat: z.string().optional(), lng: z.string().optional(),
+  placa: manualCampos.placa.optional(), numeroLicencia: manualCampos.numeroLicencia.optional(),
   tramiteId: z.string().uuid().optional(), dejarPendiente: z.boolean().optional(), organismoCodigo: z.string().min(1).max(5).optional(),
-}).strict().refine((b) => !(b.tramiteId && b.dejarPendiente), { message: 'tramiteId y dejarPendiente son excluyentes' });
+}).strict()
+  .refine((b) => b.rawValue !== undefined ? (b.placa === undefined && b.numeroLicencia === undefined) : (b.placa !== undefined && b.numeroLicencia !== undefined && b.numeroLt !== undefined), { message: 'rawValue o (placa, numeroLicencia, numeroLt)' })
+  .refine((b) => !(b.tramiteId && b.dejarPendiente), { message: 'tramiteId y dejarPendiente son excluyentes' });
 router.post('/escanear', soloSinEnlace(), exigirFuncion('logistica.documento.escanear'), async (req: Request, res: Response) => {
   const parsed = escanearSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await escanearLt(parsed.data.rawValue, parsed.data.numeroLt ?? null, { lat: parsed.data.lat, lng: parsed.data.lng }, ctxDe(req.user!),
-      { tramiteId: parsed.data.tramiteId, dejarPendiente: parsed.data.dejarPendiente, organismoCodigo: parsed.data.organismoCodigo });
-    await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Escaneo LT ${r.placa}: ${r.resultado}` });
+    const d = parsed.data;
+    const r = await escanearLt(entradaDe(d as never), d.rawValue !== undefined ? (d.numeroLt ?? null) : null, { lat: d.lat, lng: d.lng }, ctxDe(req.user!),
+      { tramiteId: d.tramiteId, dejarPendiente: d.dejarPendiente, organismoCodigo: d.organismoCodigo });
+    await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Escaneo LT: ${r.resultado}${d.rawValue === undefined ? ' (manual)' : ''}` }); // sin placa (PII)
     return { body: r };
   });
 });

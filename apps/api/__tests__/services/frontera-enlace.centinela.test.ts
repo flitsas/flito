@@ -323,6 +323,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/logistica/documentos/:id/resolver-tramite',                   'soloSinEnlace'], // HU #14143
   ['GET /api/flito/logistica/:id',                                             'filtra'],
   ['POST /api/flito/logistica/validar-lt',                                     'soloSinEnlace'],
+  ['POST /api/flito/logistica/consultar-vehiculo',                             'soloSinEnlace'],
   ['POST /api/flito/logistica/escanear',                                       'soloSinEnlace'],
   ['POST /api/flito/logistica/documentos/:id/novedad',                         'filtra'],
   ['POST /api/flito/logistica/cerrar-lote',                                    'filtra'],
