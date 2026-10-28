@@ -14,7 +14,7 @@
 // Los colaboradores se inyectan (`DepsFila`). Nada de PII en logs: ni VIN ni placa.
 
 import { db } from '../../db/client.js';
-import { flitoSoatIncompletas } from '../../db/schema.js';
+import { flitoSoatIncompletas, flitoSoatMasivoFilas } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import { EstadoSolicitudIncompletaSoat } from '@operaciones/shared-types';
 import { normalizarId, verificarRn01, verificarTenenciaVehiculo, type CanalCompania } from './flito-soat-cliente.service.js';
@@ -23,7 +23,7 @@ import type { SoatCtx } from './flito-soat.service.js';
 import type { MotivoRechazoWorker } from './flito-soat-masivo-motivos.js';
 import type { FilaReclamada } from './flito-soat-masivo-reclamo.js';
 import type { DepsFila, ResultadoFila } from './flito-soat-masivo-procesar-fila.js';
-import { FilaYaNoVigenteError, marcarFila } from './flito-soat-masivo-crear.js';
+import { FilaYaNoVigenteError, marcarFila, vehiculoDeDesenlace } from './flito-soat-masivo-crear.js';
 import { esVinValido } from './flito-soat-masivo-parse-inicial.js';
 
 const log = loggerFor('flito-soat-masivo-worker');
@@ -66,8 +66,10 @@ const esUnica = (e: unknown): boolean => {
 /** Deja la pendiente en `flito_soat_incompletas` y la fila en «Por validar», en una transacción. */
 export async function aparcarFilaInicial(p: {
   fila: FilaReclamada; canal: CanalCompania; ctx: SoatCtx; vin: string; decision: Extract<DecisionInicial, { tipo: 'pendiente' }>;
+  /** HU #14134: marca/línea/modelo del RUNT para la tabla de avance (vacío si el RUNT no respondió). */
+  vehiculo?: Partial<typeof flitoSoatMasivoFilas.$inferInsert>;
 }): Promise<'aparcada' | 'ocupada'> {
-  const { fila, canal, ctx, vin, decision } = p;
+  const { fila, canal, ctx, vin, decision, vehiculo } = p;
   const ahora = new Date();
   try {
     await db.transaction(async (tx) => {
@@ -88,7 +90,7 @@ export async function aparcarFilaInicial(p: {
         ultimoIntentoEn: ahora,
         ultimoIntentoPorId: ctx.userId,
       }).returning({ id: flitoSoatIncompletas.id });
-      const ok = await marcarFila(fila.id, fila.loteId, { estado: 'por_validar', incompletaId: i!.id }, true, tx);
+      const ok = await marcarFila(fila.id, fila.loteId, { estado: 'por_validar', incompletaId: i!.id, ...vehiculo }, true, tx);
       if (!ok) throw new FilaYaNoVigenteError();
     });
     return 'aparcada';
@@ -130,7 +132,7 @@ export async function procesarInicial(
     case 'pendiente': {
       // Inicial: un SOAT propio terminal sí bloquea (RN-01 estricta), igual que el alta individual.
       if (decision.tipoSoat === 'inicial') await deps.guardaVin(vin, canal.companiaId, false);
-      const r = await deps.aparcarInicial({ fila: f, canal, ctx, vin: decision.vinRunt ?? vin, decision });
+      const r = await deps.aparcarInicial({ fila: f, canal, ctx, vin: decision.vinRunt ?? vin, decision, vehiculo: vehiculoDeDesenlace(desenlace) });
       if (r === 'ocupada') return rechazar('solicitud_existente');
       log.info({ loteId: f.loteId, filaId: f.id, resultado: 'por_validar', motivo: decision.motivoPendiente }, 'carga masiva SOAT Inicial: fila en Por validar');
       return 'por_validar';

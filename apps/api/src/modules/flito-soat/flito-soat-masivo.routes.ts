@@ -4,7 +4,7 @@
 //
 //   GET  /cliente/masivo/plantilla?tipo=renovacion|inicial — plantilla XLSX (solo encabezados; GET legítimo: sin PII).
 //   POST /cliente/masivo                           — multipart `archivo` + `tipo` (+ `companiaId`): crea el lote `en_cola`.
-//   GET  /cliente/masivo/:loteId                   — avance del lote (contadores, sin PII); 404 fuera de alcance.
+//   GET  /cliente/masivo/:loteId                   — avance del lote (contadores y filas; placa/vehículo efímeros, un registro PII por lote); 404 fuera de alcance.
 //   GET  /cliente/masivo/:loteId/rechazadas        — XLSX de rechazadas + «Motivo» (HU #14133; PII, un registro por descarga).
 //
 // Todas con `authMiddleware` + `exigirFuncion('soat.solicitud.crear')` (la del alta; sin función nueva).
@@ -25,7 +25,7 @@ import { ErrorLoteMasivo, falloMasivo } from './flito-soat-masivo.errors.js';
 import { avanceLote, crearLoteMasivo } from './flito-soat-masivo.service.js';
 import { soatMasivoAltaLimiter, soatMasivoDescargaLimiter, soatMasivoLecturaLimiter } from './flito-soat-masivo.limiters.js';
 import { NOMBRE_ARCHIVO_PLANTILLA, generarPlantilla, type TipoPlantillaMasivo } from './flito-soat-masivo-plantilla.js';
-import { registrarAltaLoteMasivo, registrarDescargaRechazadasMasivo } from './flito-soat-masivo.pii.js';
+import { registrarAltaLoteMasivo, registrarDescargaRechazadasMasivo, registrarLecturaFilasMasivo } from './flito-soat-masivo.pii.js';
 import { descargarRechazadas, nombreArchivoRechazadas } from './flito-soat-masivo-descarga.js';
 import { MAX_BYTES } from './flito-soat-masivo-parse.js';
 
@@ -128,6 +128,8 @@ router.get('/cliente/masivo/:loteId', exigirFuncion('soat.solicitud.crear'), soa
     const avance = await avanceLote(req.params.loteId, ctx);
     // 404 y no 403 fuera de alcance: no se confirma que el lote exista.
     if (!avance) { res.status(404).json({ error: 'La carga no existe' }); return; }
+    // HU #14134: UN registro PII por lote y usuario al devolver filas con placa/VIN (no uno por sondeo).
+    if (avance.filas.some((f) => f.placa || f.vin)) await registrarLecturaFilasMasivo(req, { id: avance.loteId, filas: avance.filas.length }, req.user!.sub);
     res.setHeader('Cache-Control', 'no-store');
     res.json(avance);
   });

@@ -337,7 +337,9 @@ describe('AC8 — el avance solo lo ve la compañía dueña', () => {
   const get = async () => request(await app()).get(`/api/flito/soat/cliente/masivo/${LOTE_ID}`).set('Authorization', await auth());
 
   it('la dueña ve contadores por estado de fila y motivos, sin PII y sin caché', async () => {
-    cola = [[lote(7)], [{ estado: 'pendiente', n: 3 }, { estado: 'rechazada', n: 2 }], [{ codigo: 'placa_invalida', n: 2 }]];
+    cola = [[lote(7)], [{ estado: 'pendiente', n: 3 }, { estado: 'rechazada', n: 2 }], [{ codigo: 'placa_invalida', n: 2 }],
+      [{ nFila: 2, estado: 'rechazada', placa: 'AB', vin: null, marca: null, linea: null, modelo: null, motivo: 'placa_invalida', vigenteHasta: null },
+        { nFila: 3, estado: 'pendiente', placa: 'ABC123', vin: null, marca: null, linea: null, modelo: null, motivo: null, vigenteHasta: null }]];
     const r = await get();
     expect(r.status).toBe(200);
     expect(r.headers['cache-control']).toBe('no-store');
@@ -345,7 +347,14 @@ describe('AC8 — el avance solo lo ve la compañía dueña', () => {
       loteId: LOTE_ID, estado: 'en_cola', tipo: 'renovacion', total: 5, pendientes: 3, procesando: 0, aceptadas: 0, porValidar: 0, rechazadas: 2,
       motivosRechazo: [{ codigo: 'placa_invalida', mensaje: 'Placa inválida', cantidad: 2 }], creadoEn: '2026-10-27T10:00:00.000Z',
       resumen: null, descargaRechazadas: false,
+      filas: [
+        { nFila: 2, placa: 'AB', vin: null, estado: 'rechazada', marca: null, linea: null, modelo: null, motivo: { codigo: 'placa_invalida', mensaje: 'Placa inválida' } },
+        { nFila: 3, placa: 'ABC123', vin: null, estado: 'en_cola', marca: null, linea: null, modelo: null, motivo: null },
+      ],
     });
+    // Un registro PII por lote y usuario, sin placas.
+    expect(piiMock).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(piiMock.mock.calls[0]![1])).not.toContain('ABC123');
   });
   it('otra compañía → 404 (no 403); proveedor y alcance nada → 404; id no uuid → 404; inexistente → 404', async () => {
     cola = [[lote(8)]];

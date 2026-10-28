@@ -10,7 +10,7 @@
 // en mensajes de error ni en la respuesta del avance. El Excel no se persiste (solo su sha256).
 
 import { createHash } from 'node:crypto';
-import { and, count, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { flitoSoatIncompletas, flitoSoatMasivoFilas, flitoSoatMasivoLotes, users } from '../../db/schema.js';
 import { canalDeLaCompania } from './flito-soat-cliente.service.js';
@@ -28,6 +28,24 @@ export interface LoteCreado {
   total: number;
   aceptadasEnCola: number;
   rechazadasDeEntrada: number;
+}
+
+/** Estados de una fila en el contrato del avance (HU #14134); la tabla guarda pendiente/consultando/aceptada/… */
+export type EstadoFilaAvance = 'en_cola' | 'consultando' | 'creada' | 'por_validar' | 'rechazada';
+const ESTADO_FILA: Record<string, EstadoFilaAvance> = {
+  pendiente: 'en_cola', consultando: 'consultando', aceptada: 'creada', por_validar: 'por_validar', rechazada: 'rechazada',
+};
+
+/** HU #14134: una fila del lote, SIN documento, nombre, correo ni celular del propietario. Placa/VIN/vehículo son efímeros (null tras terminar o purgar). */
+export interface FilaAvance {
+  nFila: number;
+  placa: string | null;
+  vin: string | null;
+  estado: EstadoFilaAvance;
+  marca: string | null;
+  linea: string | null;
+  modelo: number | null;
+  motivo: { codigo: string; mensaje: string } | null;
 }
 
 export interface AvanceLote {
@@ -50,6 +68,8 @@ export interface AvanceLote {
   } | null;
   /** HU #14133 (AC4/AC5): ¿se ofrece la descarga de las rechazadas? Nunca con el lote sin terminar. */
   descargaRechazadas: boolean;
+  /** HU #14134: filas por nFila (máx. 200). */
+  filas: FilaAvance[];
 }
 
 const MENSAJE_LOTE_ACTIVO = 'Ya hay una carga masiva en curso para esta compañía. Espera a que termine para subir otra.';
@@ -142,7 +162,19 @@ export async function avanceLote(loteId: string, ctx: SoatCtx): Promise<AvanceLo
     .groupBy(flitoSoatIncompletas.motivoPendiente) : [];
   const nPv = (m: string) => Number(pv.find((r) => r.motivo === m)?.n ?? 0);
   const n = (e: string) => Number(porEstado.find((r) => r.estado === e)?.n ?? 0);
+  const F = flitoSoatMasivoFilas;
+  const filasDb = await db.select({
+    nFila: F.nFila, estado: F.estado, placa: F.placa, vin: F.vin, marca: F.vehiculoMarca, linea: F.vehiculoLinea,
+    modelo: F.vehiculoModelo, motivo: F.motivoRechazo, vigenteHasta: F.vigenteHasta,
+  }).from(F).where(eq(F.loteId, loteId)).orderBy(asc(F.nFila)).limit(200);
+  const tipoMotivo = lote.tipoSoat === 'inicial' ? 'inicial' : 'renovacion';
+  const filas: FilaAvance[] = filasDb.map((f) => ({
+    nFila: f.nFila, placa: f.placa, vin: f.vin, estado: ESTADO_FILA[f.estado] ?? 'en_cola',
+    marca: f.marca, linea: f.linea, modelo: f.modelo,
+    motivo: f.motivo ? { codigo: f.motivo, mensaje: textoMotivo(f.motivo, f.vigenteHasta, tipoMotivo) } : null,
+  }));
   return {
+    filas,
     loteId: lote.id, estado: lote.estado, tipo: lote.tipoSoat, total: lote.totalFilas,
     pendientes: n('pendiente'), procesando: n('consultando'), aceptadas: n('aceptada'),
     porValidar: n('por_validar'), rechazadas: n('rechazada'),

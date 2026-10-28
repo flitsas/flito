@@ -20,8 +20,9 @@ export function descargaVencida(l: { terminadoEn: Date | null; primeraDescargaEn
   return !!l.primeraDescargaEn && ahora.getTime() - l.primeraDescargaEn.getTime() >= VENTANA_DESCARGA_MS;
 }
 
-const SIN_PII = { placa: null, documento: null, nombre: null, correo: null, celular: null, vin: null };
-const CON_PII = or(isNotNull(F.placa), isNotNull(F.documento), isNotNull(F.nombre), isNotNull(F.correo), isNotNull(F.celular), isNotNull(F.vin));
+const SIN_PII = { placa: null, documento: null, nombre: null, correo: null, celular: null, vin: null, vehiculoMarca: null, vehiculoLinea: null, vehiculoModelo: null };
+const CON_PII = or(isNotNull(F.placa), isNotNull(F.documento), isNotNull(F.nombre), isNotNull(F.correo), isNotNull(F.celular), isNotNull(F.vin),
+  isNotNull(F.vehiculoMarca), isNotNull(F.vehiculoLinea), isNotNull(F.vehiculoModelo));
 
 /** Purga los lotes vencidos (o solo `loteId`). Devuelve las filas depuradas. Idempotente. */
 export async function purgarPiiRechazadas(ahora: Date = new Date(), loteId?: string): Promise<number> {

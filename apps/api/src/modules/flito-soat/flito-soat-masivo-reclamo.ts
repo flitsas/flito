@@ -111,7 +111,7 @@ async function terminarEnTx(tx: Tx, loteId: string, ahora: Date): Promise<boolea
   if (r.length === 0) return false;
   // Misma transacción: la PII de las filas aceptadas y por validar se anonimiza al terminar (ADR-0032).
   // Las rechazadas la conservan hasta la purga de la descarga (A3).
-  await tx.update(F).set({ placa: null, documento: null, nombre: null, correo: null, celular: null, vin: null })
+  await tx.update(F).set({ placa: null, documento: null, nombre: null, correo: null, celular: null, vin: null, vehiculoMarca: null, vehiculoLinea: null, vehiculoModelo: null })
     .where(and(eq(F.loteId, loteId), inArray(F.estado, ['aceptada', 'por_validar'])));
   return true;
 }
