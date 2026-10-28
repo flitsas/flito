@@ -369,6 +369,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "GET", ruta: "/tramites/:tramiteId/viajes", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "POST", ruta: "/tramites/:tramiteId/viajes", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "DELETE", ruta: "/tramites/:tramiteId/viajes/:viajeId", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "POST", ruta: "/viajes/masivo", roles: ["admin"], heredada: false },
   // HU #13421 (ADR-0023): las 76 guardas `requireRole` de pesv/ (48), drivers/ (24), jornadas/ (3) y rum/ (1)
   // el día que dejaron de decidir (develop 29d3461e). `roles` = la lista literal de su `requireRole`, que es
   // también el reparto de su código: las guardas que comparten código tienen la misma lista (ver
