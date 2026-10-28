@@ -31,8 +31,8 @@ export class ProveedorLogisticaNoUsableError extends Error {
 }
 /** 409: el proveedor está asignado a compañías y no se puede inactivar. */
 export class ProveedorLogisticaAsignadoError extends Error {
-  constructor(readonly companias: string[]) {
-    super(`No se puede inactivar: está asignado a ${companias.length} ${companias.length === 1 ? 'compañía' : 'compañías'} (${companias.join(', ')}). Asigna otro proveedor primero.`);
+  constructor(readonly companias: string[], accion: 'inactivar' | 'eliminar' = 'inactivar') {
+    super(`No se puede ${accion}: está asignado a ${companias.length} ${companias.length === 1 ? 'compañía' : 'compañías'} (${companias.join(', ')}). Asigna otro proveedor primero.`);
     this.name = 'ProveedorLogisticaAsignadoError';
   }
 }

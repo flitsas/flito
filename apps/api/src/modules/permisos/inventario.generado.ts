@@ -225,6 +225,10 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "POST", ruta: "/", roles: ["admin"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "PATCH", ruta: "/:id", roles: ["admin"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "PATCH", ruta: "/:id/estado", roles: ["admin"], heredada: false },
+  // HU #14148: impacto y baja de proveedores de logística, y listado unificado (mismas funciones que los de SOAT).
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "GET", ruta: "/:id/impacto", roles: ["admin"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "DELETE", ruta: "/:id", roles: ["admin"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/proveedores", roles: ["admin","auditor"], heredada: false },
   // HU #13960: «Eliminar proveedores», exclusiva del Administrador (nace en el árbol; su acción la siembra la 0263).
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "DELETE", ruta: "/proveedores-soat/:id", roles: ["admin"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/organismos", roles: ["admin","auditor"], heredada: false },

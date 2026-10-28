@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { ProveedorLogisticaEnUsoError, eliminarProveedorLogistica, impactoProveedorLogistica } from './flito-proveedores-logistica-gestion.service.js';
 import { ProveedorLogisticaAsignadoError } from './flito-logistica-proveedor-compania.service.js';
 import {
   NIT_VALIDO, NitProveedorDuplicadoError, NombreProveedorLogisticaDuplicadoError, ProveedorLogisticaNoEncontradoError,
@@ -33,7 +34,10 @@ const editarSchema = z.object({
   contacto: opcional(150),
   telefono: opcional(30),
 });
-const estadoSchema = z.object({ activo: z.boolean() });
+// HU #14148: `activoEsperado` (concurrencia optimista del PATCH de SOAT) se ACEPTA y se IGNORA de forma explícita: la
+// transición de inactivar ya es atómica (`FOR UPDATE`) y reactivar es idempotente. La web puede enviarlo sin romperse.
+const estadoSchema = z.object({ activo: z.boolean(), activoEsperado: z.boolean().optional() });
+const UUID = z.string().uuid();
 
 /** 422 con el primer campo inválido o faltante. */
 function responder422(res: Response, error: z.ZodError): void {
@@ -78,9 +82,26 @@ router.patch('/:id/estado', exigirFuncion('parametrizacion.proveedores.estado'),
   } catch (e) { manejar(e, res, next); }
 });
 
+// HU #14148 — impacto de una baja (inactivar o eliminar): cuántas compañías lo tienen y los 3 primeros nombres.
+router.get('/:id/impacto', exigirFuncion('parametrizacion.proveedores.estado'), async (req: Request, res: Response, next: NextFunction) => {
+  if (!UUID.safeParse(req.params.id).success) { res.status(400).json({ error: 'ID inválido' }); return; }
+  try { res.json(await impactoProveedorLogistica(req.params.id!)); } catch (e) { manejar(e, res, next); }
+});
+
+// HU #14148 — eliminar: solo sin compañías asignadas (409). Exclusiva del Administrador (`…proveedores.eliminar`).
+router.delete('/:id', exigirFuncion('parametrizacion.proveedores.eliminar'), async (req: Request, res: Response, next: NextFunction) => {
+  if (!UUID.safeParse(req.params.id).success) { res.status(400).json({ error: 'ID inválido' }); return; }
+  try {
+    const eliminado = await eliminarProveedorLogistica(req.params.id!);
+    await audit(req, { action: 'delete', resource: 'flito_proveedor_logistica', resourceId: eliminado.id, detail: `Proveedor de logística eliminado: ${eliminado.nombre}` });
+    res.json({ id: eliminado.id, eliminado: true });
+  } catch (e) { manejar(e, res, next); }
+});
+
 function manejar(e: unknown, res: Response, next: NextFunction): void {
   if (e instanceof NitProveedorDuplicadoError || e instanceof NombreProveedorLogisticaDuplicadoError) { res.status(409).json({ error: e.message }); return; }
   if (e instanceof ProveedorLogisticaAsignadoError) { res.status(409).json({ error: e.message, companias: e.companias }); return; }
+  if (e instanceof ProveedorLogisticaEnUsoError) { res.status(409).json({ error: e.message }); return; }
   if (e instanceof ProveedorLogisticaNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
   next(e);
 }

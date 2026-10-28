@@ -52,6 +52,7 @@ import {
   EstadoProveedorCambiadoError, MENSAJE_ESTADO_POR_ACCION, ProveedorSoatNoEncontradoError,
   ProveedorSoatNoUsableError, cambiarEstadoProveedorSoat, exigirProveedorSoatUsable, impactoProveedorSoat,
 } from './flito-proveedores-estado.service.js';
+import { listarProveedoresUnificados } from './flito-proveedores-logistica-gestion.service.js';
 import { ProveedorSoatNoEliminableError, eliminarProveedorSoat } from './flito-proveedores-eliminar.service.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
@@ -306,6 +307,12 @@ function proveedorDto(p: typeof flitoProveedoresSoat.$inferSelect) {
     activo: p.activo,
   };
 }
+
+// HU #14148: listado UNIFICADO de proveedores (SOAT + logística) con `tipo` y `companiasAsignadas`. Misma función que
+// los listados por tipo (`parametrizacion.proveedores.listar`): no ensancha quién ve NIT/contacto/teléfono.
+router.get('/proveedores', exigirFuncion('parametrizacion.proveedores.listar'), async (_req: Request, res: Response) => {
+  res.json(await listarProveedoresUnificados());
+});
 
 router.get('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.listar'), async (_req: Request, res: Response) => {
   // HU #13957: los proveedores eliminados (baja lógica, `deleted_at`) no se listan.

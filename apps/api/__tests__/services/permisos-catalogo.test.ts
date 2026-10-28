@@ -212,8 +212,10 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.inactivar', 2],
       ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2],
+      // HU #14148: +impacto de logística (estado 4), +baja de logística (eliminar 2) y +listado unificado (listar 3).
       ['parametrizacion.proveedores.crear', 2], ['parametrizacion.proveedores.editar', 2],
-      ['parametrizacion.proveedores.estado', 3], ['parametrizacion.proveedores.listar', 2],
+      ['parametrizacion.proveedores.eliminar', 2],
+      ['parametrizacion.proveedores.estado', 4], ['parametrizacion.proveedores.listar', 3],
       ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.cola.ver', 2], ['soat.solicitud.crear', 2],
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);
