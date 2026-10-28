@@ -11,6 +11,11 @@ import { audit } from '../../shared/middleware/audit.js';
 import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
 import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alcance.js';
 import { esProyeccionCliente } from '../../shared/alcance-filas.js';
+import { logPiiAccess } from '../../shared/pii-audit.js';
+import { confirmarRecogida } from './flito-logistica.recogida.js';
+import { candidatosDe, listarPendientes, resolverTramite } from './flito-logistica.pendientes.js';
+import { misRecogidas, recogidaDetalle, revelarDocumentoFirmante } from './flito-logistica.firmante.js';
+import { recogidaConfirmarLimiter, revelarDocumentoLimiter } from './flito-logistica.limitadores.js';
 import {
   actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, escanearLt, facetas,
   guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
@@ -52,7 +57,7 @@ async function ejecutar<T>(res: Response, fn: () => Promise<T>): Promise<T | und
   try {
     return await fn();
   } catch (error) {
-    if (error instanceof LogisticaError) { res.status(error.status).json({ error: error.message, ...(error.extra ? { detalle: error.extra } : {}) }); return undefined; }
+    if (error instanceof LogisticaError) { res.status(error.status).json({ error: error.message, ...(error.codigo ? { codigo: error.codigo } : {}), ...(error.extra ? { detalle: error.extra } : {}) }); return undefined; }
     throw error;
   }
 }
@@ -61,8 +66,10 @@ async function ejecutar<T>(res: Response, fn: () => Promise<T>): Promise<T | und
  * Envuelve una escritura de campo con idempotencia (RN-06/CA-06). Si la petición trae `Idempotency-Key`
  * y ya se procesó, devuelve la respuesta guardada sin re-ejecutar; así un reenvío offline no duplica.
  */
-async function conIdempotencia(req: Request, res: Response, run: () => Promise<{ status?: number; body: unknown }>): Promise<void> {
-  const key = req.header('Idempotency-Key') || undefined;
+async function conIdempotencia(req: Request, res: Response, run: () => Promise<{ status?: number; body: unknown }>, ruta?: string): Promise<void> {
+  const cabecera = req.header('Idempotency-Key') || undefined;
+  // ADR-0030 §10: con `ruta`, la clave se prefija `usuarioId:ruta:` y no colisiona entre usuarios ni endpoints.
+  const key = cabecera && ruta ? `${req.user!.sub}:${ruta}:${cabecera}` : cabecera;
   if (key) {
     const prev = await buscarIdempotencia(key);
     if (prev) { res.status(prev.status).json(prev.body); return; }
@@ -72,7 +79,7 @@ async function conIdempotencia(req: Request, res: Response, run: () => Promise<{
     if (key) await guardarIdempotencia(key, status, body);
     res.status(status).json(body);
   } catch (error) {
-    if (error instanceof LogisticaError) { res.status(error.status).json({ error: error.message, ...(error.extra ? { detalle: error.extra } : {}) }); return; }
+    if (error instanceof LogisticaError) { res.status(error.status).json({ error: error.message, ...(error.codigo ? { codigo: error.codigo } : {}), ...(error.extra ? { detalle: error.extra } : {}) }); return; }
     throw error;
   }
 }
@@ -121,6 +128,31 @@ router.get('/actas/:id/pdf', exigirFuncion('logistica.actas.descargar'), async (
   if (url !== undefined) res.json({ url });
 });
 
+// ── LT pendientes de trámite (HU #14143, ADR-0030 §17.3) ─────────────────────
+// Función propia (`logistica.documento.resolver_tramite`); cliente y enlace no ven nada (`soloSinEnlace`).
+// Antes de `GET /:id` para que `pendientes-tramite` no se tome por un id.
+router.get('/pendientes-tramite', soloSinEnlace(), exigirFuncion('logistica.documento.resolver_tramite'), async (_req: Request, res: Response) => {
+  res.json({ pendientes: await listarPendientes() });
+});
+router.get('/documentos/:id/candidatos-tramite', soloSinEnlace(), exigirFuncion('logistica.documento.resolver_tramite'), async (req: Request, res: Response) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) { res.status(404).json({ error: 'La LT no existe', codigo: 'LT_NO_ENCONTRADA' }); return; }
+  const r = await ejecutar(res, () => candidatosDe(id.data));
+  if (r !== undefined) res.json({ candidatos: r });
+});
+const resolverSchema = z.object({ tramiteId: z.string().uuid() });
+router.post('/documentos/:id/resolver-tramite', soloSinEnlace(), exigirFuncion('logistica.documento.resolver_tramite'), async (req: Request, res: Response) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) { res.status(404).json({ error: 'La LT no existe', codigo: 'LT_NO_ENCONTRADA' }); return; }
+  const parsed = resolverSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(422).json({ error: 'Indica el trámite que corresponde a la LT', codigo: 'DATOS_INVALIDOS' }); return; }
+  await conIdempotencia(req, res, async () => {
+    const r = await resolverTramite(id.data, parsed.data.tramiteId, ctxDe(req.user!));
+    await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: id.data, detail: `Trámite de LT pendiente resuelto: trámite ${r.tramiteId}, compañía ${r.companiaId}` });
+    return { body: r };
+  }, 'documentos/resolver-tramite');
+});
+
 // GET /:id — detalle del trámite aprobado + su LT + bitácora (CA-07).
 router.get('/:id', exigirFuncion('logistica.documento.ver'), async (req: Request, res: Response) => {
   const alcance = await alcanceDe(req);
@@ -141,14 +173,17 @@ router.post('/validar-lt', soloSinEnlace(), exigirFuncion('logistica.lt.validar'
 });
 
 // POST /escanear — recogida de una LT desde su código PDF417 (match placa+VIN → recogida/novedad).
+// HU #14142: `tramiteId` (elige entre candidatos) y `dejarPendiente` son excluyentes; `organismoCodigo` solo aplica al pendiente.
 const escanearSchema = z.object({
   rawValue: z.string().min(1), numeroLt: z.string().optional(), lat: z.string().optional(), lng: z.string().optional(),
-});
+  tramiteId: z.string().uuid().optional(), dejarPendiente: z.boolean().optional(), organismoCodigo: z.string().min(1).max(5).optional(),
+}).strict().refine((b) => !(b.tramiteId && b.dejarPendiente), { message: 'tramiteId y dejarPendiente son excluyentes' });
 router.post('/escanear', soloSinEnlace(), exigirFuncion('logistica.documento.escanear'), async (req: Request, res: Response) => {
   const parsed = escanearSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await escanearLt(parsed.data.rawValue, parsed.data.numeroLt ?? null, { lat: parsed.data.lat, lng: parsed.data.lng }, ctxDe(req.user!));
+    const r = await escanearLt(parsed.data.rawValue, parsed.data.numeroLt ?? null, { lat: parsed.data.lat, lng: parsed.data.lng }, ctxDe(req.user!),
+      { tramiteId: parsed.data.tramiteId, dejarPendiente: parsed.data.dejarPendiente, organismoCodigo: parsed.data.organismoCodigo });
     await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Escaneo LT ${r.placa}: ${r.resultado}` });
     return { body: r };
   });
@@ -237,6 +272,54 @@ router.post('/documentos/:id/reversar', exigirFuncion('logistica.documento.rever
   if (r === undefined && res.headersSent) return;
   await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: req.params.id, detail: `Reversa a "${parsed.data.estadoDestino}": ${parsed.data.motivo}` });
   res.json({ ok: true });
+});
+
+// POST /recogidas/confirmar — confirma la recogida: UN firmante (firma y cédula cifrada, una sola vez) y UNA acta
+// de organismo por compañía (HU #14110, ADR-0030 §17.1). Las LT sin trámite llevan la firma y no acta.
+// Ni logs ni auditoría llevan nombre, cédula ni firma. Función propia; las LT ajenas exigen `operar_ajenas`.
+const recogidaSchema = z.object({
+  organismoCodigo: z.string().trim().min(1).max(5),
+  documentoIds: z.array(z.string().uuid()).min(1).max(200),
+  firmante: z.object({ nombre: z.string().trim().min(1).max(150), documento: z.string().trim().min(4).max(30), firma: z.string().min(1) }),
+  lat: z.string().max(20).optional(), lng: z.string().max(20).optional(),
+});
+router.post('/recogidas/confirmar', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), recogidaConfirmarLimiter, async (req: Request, res: Response) => {
+  const parsed = recogidaSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(422).json({ error: 'Datos inválidos: el organismo, las LT y el nombre, la cédula y la firma del funcionario son obligatorios', codigo: 'DATOS_INVALIDOS' }); return; }
+  await conIdempotencia(req, res, async () => {
+    const r = await confirmarRecogida(parsed.data, await ctxConPropiedad(req));
+    // Solo ids y conteos: sin nombre, cédula ni firma del funcionario.
+    await audit(req, { action: 'create', resource: 'flito_logistica_recogida_firmante', detail: `Recogida confirmada ${r.firmanteId}: ${r.actas.length} actas de organismo, ${r.pendientesTramite} LT pendientes de trámite` });
+    return { body: r };
+  }, 'recogidas/confirmar');
+});
+
+// GET /recogidas/mias y /recogidas/:firmanteId — la recogida se consulta aparte de las actas (sin filtros con PII;
+// cédula enmascarada ••••1234). Antes de `/:firmanteId` para que `mias` no se tome por un id.
+router.get('/recogidas/mias', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
+  const r = await ejecutar(res, async () => misRecogidas(await ctxConPropiedad(req)));
+  if (r !== undefined) res.json({ recogidas: r });
+});
+router.get('/recogidas/:firmanteId', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
+  const id = z.string().uuid().safeParse(req.params.firmanteId);
+  if (!id.success) { res.status(404).json({ error: 'La recogida no existe', codigo: 'RECOGIDA_NO_ENCONTRADA' }); return; }
+  const r = await ejecutar(res, async () => recogidaDetalle(id.data, await ctxConPropiedad(req)));
+  if (r !== undefined) res.json(r);
+});
+
+// POST /recogidas/:firmanteId/documento — cédula COMPLETA del firmante (PII). Función propia, rateLimiter y
+// registro de acceso (`logPiiAccess`); el uuid va en `motivo` porque resource_id es integer.
+router.post('/recogidas/:firmanteId/documento', soloSinEnlace(), exigirFuncion('logistica.actas.ver_documento_firmante'), revelarDocumentoLimiter, async (req: Request, res: Response) => {
+  const id = z.string().uuid().safeParse(req.params.firmanteId);
+  if (!id.success) { res.status(404).json({ error: 'El documento del firmante no está disponible' }); return; }
+  const documento = await ejecutar(res, () => revelarDocumentoFirmante(id.data));
+  if (documento === undefined) return;
+  await logPiiAccess(req, {
+    resourceTipo: 'flito_logistica_recogida_firmante', accion: 'read', camposAccedidos: ['documento'],
+    motivo: `firmante:${id.data}`,
+  });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ documento });
 });
 
 export default router;
