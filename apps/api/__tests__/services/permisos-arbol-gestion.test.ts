@@ -375,6 +375,8 @@ describe('Opcionales (PO, 2026-10-13): ni grupo, ni expansión, ni retiro', () =
       AJENAS, DESPACHAR, RUNT,
       'comparendos.registros.exportar', 'logistica.actas.descargar', 'revisiones.soporte.descargar',
       'impuestos.factura.ver',
+      'logistica.actas.ver_documento_firmante', // HU #14110: cédula del firmante del acta de organismo (PII, se concede aparte)
+      'logistica.recogida.confirmar', // HU #14110: opcional de accion.mi_ruta.escanear (firma del organismo)
     ].sort());
   });
 

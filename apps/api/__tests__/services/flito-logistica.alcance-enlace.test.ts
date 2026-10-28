@@ -68,11 +68,12 @@ describe('AC2 — la compañía solo ve lo suyo', () => {
     for (const x of w) expect(x.params).toContain(C);
   });
 
-  it('GET /actas → `flito_logistica_actas.compania_id = C`', async () => {
+  // HU #14109 (ADR-0030 §9): el acta de organismo es multi-compañía y es invisible para el enlace → `punto <> 'organismo'`.
+  it('GET /actas → `flito_logistica_actas.compania_id = C` y sin actas de organismo', async () => {
     deC();
     const r = await request(await app()).get('/api/flito/logistica/actas').set('Authorization', await como('compania'));
     expect(r.status).toBe(200);
-    expect(wheres()).toEqual([{ sql: '"flito_logistica_actas"."compania_id" = $1', params: [C] }]);
+    expect(wheres()).toEqual([{ sql: '("flito_logistica_actas"."compania_id" = $1 and "flito_logistica_actas"."punto" <> $2)', params: [C, 'organismo'] }]);
   });
 
   it('GET /actas/:id ajena → 404 con la condición EN EL WHERE', async () => {
@@ -80,7 +81,10 @@ describe('AC2 — la compañía solo ve lo suyo', () => {
     h.cap.responder([]);
     const r = await request(await app()).get(`/api/flito/logistica/actas/${ACTA}`).set('Authorization', await como('compania'));
     expect([r.status, r.body]).toEqual([404, { error: 'El acta no existe' }]);
-    expect(wheres()[0]).toEqual({ sql: '("flito_logistica_actas"."id" = $1 and "flito_logistica_actas"."compania_id" = $2)', params: [ACTA, C] });
+    expect(wheres()[0]).toEqual({
+      sql: '("flito_logistica_actas"."id" = $1 and ("flito_logistica_actas"."compania_id" = $2 and "flito_logistica_actas"."punto" <> $3))',
+      params: [ACTA, C, 'organismo'],
+    });
   });
 });
 
