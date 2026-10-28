@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError, errorMessage } from '../lib/api';
 import {
-  RUTA_TARIFAS, etiquetaLlave, normalizarVista, faltantesDe, faltantesPorCompania, normalizaTexto,
+  RUTA_TARIFAS, etiquetaLlave, normalizarVista, faltantesDe, faltantesPorCompania, esLlaveOpcional, normalizaTexto,
   type FilaVistaTarifa, type TarifaAbierta, type VistaTarifasCompania,
 } from '../lib/tarifas';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -104,7 +104,7 @@ export default function FlitoTarifas() {
         if (!vigente()) return;
         const vn = normalizarVista(v);
         setVista(vn);
-        const n = vn.tarifas.filter((f) => f.valor === null).length;
+        const n = vn.tarifas.filter((f) => f.valor === null && !esLlaveOpcional(f)).length;
         setAnuncio(`Valores de ${vn.companiaNombre}.${n > 0 ? ` ${faltanValores(n)}.` : ''}`);
       })
       .catch((e) => {
@@ -355,7 +355,7 @@ function PanelCliente({ nombre, vista, cargando, refrescando, error, onReintenta
   onHistorialCliente: () => void;
   onEdicionCambia: (fila: FilaVistaTarifa | null) => void;
 }) {
-  const faltantes = vista ? vista.tarifas.filter((f) => f.valor === null).length : 0;
+  const faltantes = vista ? vista.tarifas.filter((f) => f.valor === null && !esLlaveOpcional(f)).length : 0;
   return (
     <FlitCard>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">

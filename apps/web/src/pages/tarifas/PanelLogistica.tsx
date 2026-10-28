@@ -3,7 +3,7 @@
 // trámite. La edición en sitio y el guardado viven en `MatrizTarifas`; aquí solo se pinta.
 
 import { useId, type KeyboardEvent, type RefObject } from 'react';
-import { etiquetaLlave, fechaCorta, nombreUsuario, pesosTarifa, validarValorTarifa, type FilaVistaTarifa } from '../../lib/tarifas';
+import { esLlaveOpcional, etiquetaLlave, fechaCorta, nombreUsuario, pesosTarifa, validarValorTarifa, type FilaVistaTarifa } from '../../lib/tarifas';
 import StatusChip from '../../components/flit/StatusChip';
 import {
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitBtnSecondarySm,
@@ -66,6 +66,7 @@ function PanelPrecio(p: PanelProps) {
   const idTitulo = `${idBase}-titulo`;
   const etiqueta = etiquetaLlave(fila);
   const tieneValor = fila.valor !== null;
+  const opcional = esLlaveOpcional(fila);
   const guardable = !!enEdicion && !enEdicion.guardando && validarValorTarifa(enEdicion.texto, fila.valor).ok;
   const mensaje = enEdicion?.fallo ?? validacion;
 
@@ -122,11 +123,17 @@ function PanelPrecio(p: PanelProps) {
         </div>
       ) : (
         <div className="space-y-1">
-          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold" style={{ color: 'var(--flit-warning-ink)' }}>
-            {SIN_CONFIGURAR}
-            <StatusChip tone="warning">Falta</StatusChip>
-          </p>
-          <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{AVISO_FALTA}</p>
+          {opcional ? (
+            <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{SIN_CONFIGURAR}</p>
+          ) : (
+            <>
+              <p className="flex flex-wrap items-center gap-2 text-sm font-semibold" style={{ color: 'var(--flit-warning-ink)' }}>
+                {SIN_CONFIGURAR}
+                <StatusChip tone="warning">Falta</StatusChip>
+              </p>
+              <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{AVISO_FALTA}</p>
+            </>
+          )}
         </div>
       )}
 

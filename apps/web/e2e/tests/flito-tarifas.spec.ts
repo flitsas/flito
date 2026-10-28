@@ -31,7 +31,7 @@ const CLIENTES = [
   { id: 7, name: ANDINOS, document: '900777', logisticaAutogestionable: false },
 ];
 
-/** Vigencias abiertas de TODOS: Andinos 2/5, Coomotor 5/5, Agrocarga 0/5. */
+/** Vigencias abiertas de TODOS: Andinos 2/4, Coomotor 4/4 (+ FLIT, opcional), Agrocarga 0/4. */
 const ABIERTAS = [
   { id: 'v-mat-7', companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'MATRICULA', valor: 270000, activo: true },
   { id: 'v-log-7', companiaId: 7, concepto: 'logistica', tipoTramite: null, valor: 45000, activo: true },
@@ -171,8 +171,8 @@ test.describe('FLITO — Tarifas · lista y matriz (AC1, AC2, AC3)', () => {
 
     await page.goto('/flito/tarifas');
     const lista = page.getByRole('list', { name: 'Clientes' });
-    await expect(lista.getByRole('button', { name: /^Agrocarga del Norte/ })).toContainText('Faltan 5');
-    await expect(lista.getByRole('button', { name: /^Transportes Andinos/ })).toContainText('Faltan 3');
+    await expect(lista.getByRole('button', { name: /^Agrocarga del Norte/ })).toContainText('Faltan 4');
+    await expect(lista.getByRole('button', { name: /^Transportes Andinos/ })).toContainText('Faltan 2');
     await expect(lista.getByRole('button', { name: /^Coomotor/ })).not.toContainText(/Falta/);
 
     await page.getByRole('button', { name: /^Con faltantes · 2/ }).click();

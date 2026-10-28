@@ -58,7 +58,7 @@ export interface ResultadoCambioTarifa {
 }
 
 /** Una vigencia abierta de `GET /tarifas` (sin `companiaId`): lo justo para contar faltantes. */
-export interface TarifaAbierta { id: string; companiaId: number }
+export interface TarifaAbierta { id: string; companiaId: number; concepto?: string }
 
 export const RUTA_TARIFAS = '/flito/parametrizacion/tarifas';
 
@@ -162,18 +162,24 @@ export function validarValorTarifa(texto: string, vigente: number | null): Valid
   return { ok: true, valor };
 }
 
-/** «Faltan n» por cliente = las cinco llaves menos las vigencias abiertas que tiene. */
+/** «Entrega a FLIT» es opcional (existe el flujo Organismo→Cliente directo): nunca cuenta como faltante. */
+export const esLlaveOpcional = (k: { concepto: ConceptoTarifa | string }): boolean => k.concepto === 'logistica_flit';
+
+/** Las llaves que sí pueden faltar: todas las de la vista menos las opcionales. */
+const LLAVES_OBLIGATORIAS = LLAVES_VISTA.filter((k) => !esLlaveOpcional(k)).length;
+
+/** «Faltan n» por cliente = las llaves obligatorias menos las vigencias abiertas que tiene (sin contar FLIT). */
 export function faltantesPorCompania(abiertas: TarifaAbierta[]): Map<number, number> {
   const cuenta = new Map<number, number>();
-  for (const t of abiertas) cuenta.set(t.companiaId, (cuenta.get(t.companiaId) ?? 0) + 1);
+  for (const t of abiertas.filter((a) => !esLlaveOpcional({ concepto: a.concepto ?? '' }))) cuenta.set(t.companiaId, (cuenta.get(t.companiaId) ?? 0) + 1);
   const faltan = new Map<number, number>();
-  for (const [id, n] of cuenta) faltan.set(id, Math.max(0, LLAVES_VISTA.length - n));
+  for (const [id, n] of cuenta) faltan.set(id, Math.max(0, LLAVES_OBLIGATORIAS - n));
   return faltan;
 }
 
-/** Cuántos valores le faltan a un cliente; sin entrada en el mapa, le faltan los cinco. */
+/** Cuántos valores le faltan a un cliente; sin entrada en el mapa, le faltan todas las obligatorias. */
 export const faltantesDe = (faltan: Map<number, number>, companiaId: number): number =>
-  faltan.get(companiaId) ?? LLAVES_VISTA.length;
+  faltan.get(companiaId) ?? LLAVES_OBLIGATORIAS;
 
 /** Compara nombres sin tildes ni mayúsculas, para la búsqueda en cliente. */
 export const normalizaTexto = (s: string): string =>
