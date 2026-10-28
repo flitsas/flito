@@ -42,7 +42,7 @@ import useReintentoRunt, { FUNCION_REINTENTAR_RUNT } from '../components/flito/s
 
 /** Vacíos literales de las pastillas nuevas (UX §4, HU #12997). */
 const VACIO_INCOMPLETAS = {
-  incompleta: 'No hay solicitudes por validar. Cuando el RUNT no responde al pedir un SOAT, la solicitud queda aquí para volver a consultarla.',
+  incompleta: 'No hay solicitudes por validar. Aquí quedan las que esperan al RUNT, la factura de venta o los datos del propietario.',
   descartada: 'No hay solicitudes descartadas. Aquí quedan, sin borrarse, las que el RUNT no dejó continuar.',
 } as const;
 
@@ -73,6 +73,8 @@ export default function FlitoSoat() {
   const puedeVerIncompleta = hasFuncion('soat.incompleta.ver');
   // HU #12998: sin la función el botón no se pinta (ni en la fila ni en el detalle).
   const puedeReintentar = hasFuncion(FUNCION_REINTENTAR_RUNT);
+  // HU #14137: completar una pendiente de la carga masiva (factura, propietario, crear) = la función del alta.
+  const puedeCompletar = hasFuncion('soat.solicitud.crear');
   // HU #12872 (AC4): cada acción del detalle por la función de su endpoint, una por una.
   // HU #13452: el catálogo de proveedores vive en parametrización, cerrada a todo enlace (#12875).
   // Enviar, cambiar o devolver al proveedor eligen de ese catálogo y son operación interna: con
@@ -592,7 +594,7 @@ export default function FlitoSoat() {
           puedeDescargar={puedeDescargar} descargaComprobante={descargaComprobante} onVer={setDetalleId}
           sustantivo={vistaIncompletas ? 'solicitudes' : 'SOAT'} sustantivoSingular={vistaIncompletas ? 'solicitud' : 'SOAT'}
           incompletas={incFilas} puedeVerIncompleta={puedeVerIncompleta} onVerIncompleta={setDetalleIncompleta}
-          puedeReintentarIncompleta={puedeReintentar} incompletasEnVuelo={enVuelo}
+          puedeReintentarIncompleta={puedeReintentar} puedeCompletarIncompleta={puedeCompletar} incompletasEnVuelo={enVuelo}
           onReintentarIncompleta={(f) => { void reintentarDesdeFila(f); }} />
       )}
 
@@ -601,7 +603,7 @@ export default function FlitoSoat() {
 
       {detalleIncompleta && (
         <DetalleIncompletaSoat fila={detalleIncompleta} restoreFocusRef={refPills} onClose={() => setDetalleIncompleta(null)}
-          puedeReintentar={puedeReintentar} consultando={detalleIncompleta.id in enVuelo}
+          puedeReintentar={puedeReintentar} puedeCompletar={puedeCompletar} onCompletada={() => { setDetalleIncompleta(null); refrescar(); }} consultando={detalleIncompleta.id in enVuelo}
           onReintentar={(f) => reintentar(f, 'detalle')} />
       )}
 

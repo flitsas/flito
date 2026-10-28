@@ -30,6 +30,10 @@ vi.mock('../../src/modules/flito-soat/flito-soat-incompletas.service.js', async 
 
 const { reclamarMock, cerrarMock } = vi.hoisted(() => ({ reclamarMock: vi.fn(), cerrarMock: vi.fn() }));
 vi.mock('../../src/shared/utils/lock.js', () => ({ withLock: async (_n: string, _t: number, fn: () => unknown) => fn() }));
+vi.mock('../../src/modules/flito-soat/flito-soat-masivo-purga.js', async (original) => ({
+  ...(await original<typeof import('../../src/modules/flito-soat/flito-soat-masivo-purga.js')>()),
+  purgarPiiRechazadas: vi.fn().mockResolvedValue(0),
+}));
 vi.mock('../../src/modules/flito-soat/flito-soat-masivo-reclamo.js', async (original) => ({
   ...(await original<typeof import('../../src/modules/flito-soat/flito-soat-masivo-reclamo.js')>()),
   reclamarFilas: reclamarMock, cerrarLoteSiTermino: cerrarMock,

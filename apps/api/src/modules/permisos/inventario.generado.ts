@@ -43,6 +43,9 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat-masivo.routes.ts", metodo: "GET", ruta: "/cliente/masivo/plantilla", roles: ["cliente"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat-masivo.routes.ts", metodo: "POST", ruta: "/cliente/masivo", roles: ["cliente"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat-masivo.routes.ts", metodo: "GET", ruta: "/cliente/masivo/:loteId", roles: ["cliente"], heredada: false },
+  { modulo: "soat", fichero: "flito-soat/flito-soat-masivo.routes.ts", metodo: "GET", ruta: "/cliente/masivo/:loteId/rechazadas", roles: ["cliente"], heredada: false },
+  { modulo: "soat", fichero: "flito-soat/flito-soat-incompletas-completar.routes.ts", metodo: "POST", ruta: "/cliente/incompletas/:id/factura", roles: ["cliente"], heredada: false },
+  { modulo: "soat", fichero: "flito-soat/flito-soat-incompletas-completar.routes.ts", metodo: "POST", ruta: "/cliente/incompletas/:id/confirmar", roles: ["cliente"], heredada: false },
   // HU #12997: lectura de las incompletas por RUNT caído; mismos roles de partida que `GET /` y `GET /:id` (0211).
   { modulo: "soat", fichero: "flito-soat/flito-soat-incompletas.routes.ts", metodo: "POST", ruta: "/cliente/incompletas/buscar", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat-incompletas.routes.ts", metodo: "GET", ruta: "/cliente/incompletas/:id", roles: ["admin","auditor","cliente","proveedor"], heredada: false },

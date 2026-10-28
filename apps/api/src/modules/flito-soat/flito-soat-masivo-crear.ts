@@ -38,6 +38,20 @@ export const propietarioDeFila = (f: FilaReclamada): PropietarioAparcable => ({
   direccion: null, municipio: null, departamento: null,
 });
 
+/**
+ * HU #14134: marca, línea y modelo que devolvió el RUNT (los mismos de `DatosRuntCanal`), para la tabla de avance.
+ * Solo si el RUNT los trajo (`null` = no se inventa). El modelo va a `smallint`: texto no numérico → null.
+ */
+export function vehiculoDeDesenlace(d: DesenlaceRunt): Partial<typeof F.$inferInsert> {
+  if (d.clase !== 'ok' && d.clase !== 'renovacion_anticipada') return {};
+  const modelo = Number.parseInt(d.datos.modelo ?? '', 10);
+  return {
+    vehiculoMarca: d.datos.marca?.trim().slice(0, 60) || null,
+    vehiculoLinea: d.datos.linea?.trim().slice(0, 80) || null,
+    vehiculoModelo: Number.isInteger(modelo) && modelo >= 1900 && modelo <= 2100 ? modelo : null,
+  };
+}
+
 /** Marca la fila como terminada (y el avance del lote). `false` si ya no estaba `consultando`. */
 export async function marcarFila(
   id: string, loteId: string, cambios: Partial<typeof F.$inferInsert>, terminal: boolean,
@@ -87,7 +101,7 @@ export async function crearRenovacionDeFila(p: {
       procedencia: procedenciaCompleta(null),
       orden: 0,
     });
-    const ok = await marcarFila(fila.id, fila.loteId, { estado: 'aceptada', soatId }, true, tx);
+    const ok = await marcarFila(fila.id, fila.loteId, { estado: 'aceptada', soatId, ...vehiculoDeDesenlace(desenlace) }, true, tx);
     if (!ok) throw new FilaYaNoVigenteError();
   });
   return soatId;

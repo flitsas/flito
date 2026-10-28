@@ -6,6 +6,7 @@
 // RN-MAS1  Un lote activo por compañía (índice de A1); el reclamo bloquea el lote con SKIP LOCKED: dos réplicas
 //          con el worker encendido no duplican trabajo, se reparten el cupo.
 // RN-MAS2  La llamada al RUNT va fuera de toda transacción.
+// RN-MAS4  El mantenimiento purga la PII de rechazadas vencidas (24 h / 15 min tras la primera descarga; HU #14133).
 // RN-MAS3  Al terminar el lote se anonimiza la PII de aceptadas y por validar (misma transacción).
 
 import { loggerFor } from '../../shared/logger.js';
@@ -15,6 +16,7 @@ import {
   type FilaReclamada,
 } from './flito-soat-masivo-reclamo.js';
 import { procesarFila, depsReales, type DepsFila, type ResultadoFila } from './flito-soat-masivo-procesar-fila.js';
+import { purgarPiiRechazadas } from './flito-soat-masivo-purga.js';
 import { siguienteBackoff } from './flito-soat-masivo-motivos.js';
 
 const log = loggerFor('flito-soat-masivo-worker');
@@ -40,8 +42,9 @@ export async function mantenimientoMasivo(ahora: Date = new Date()): Promise<voi
     huerfanas: await recuperarHuerfanas(ahora),
     vacios: await cerrarLotesSinPendientes(ahora),
     vigilante: await cerrarLotesSinAvance(ahora),
+    purgadas: await purgarPiiRechazadas(ahora),
   }));
-  if (r && (r.huerfanas || r.vacios || r.vigilante)) log.info(r, 'carga masiva SOAT: mantenimiento');
+  if (r && (r.huerfanas || r.vacios || r.vigilante || r.purgadas)) log.info(r, 'carga masiva SOAT: mantenimiento');
 }
 
 /** Un ciclo: mantenimiento (si toca), reclamo, proceso de las filas reclamadas y cierre de los lotes tocados. */

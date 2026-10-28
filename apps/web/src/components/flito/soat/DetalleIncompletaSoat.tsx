@@ -23,6 +23,7 @@ import { documentoConTipo } from '../../flit/columnasComunes';
 import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary } from '../../flit/flitPageKit';
 import TarjetaSoatActivo from '../soat-cliente/TarjetaSoatActivo';
 import ChipEstadoSoat, { ChipIncompletaSoat } from './ChipEstadoSoat';
+import CompletarIncompletaSoat from './CompletarIncompletaSoat';
 import EtiquetaTipoSoat from './EtiquetaTipoSoat';
 import type { DesenlaceReintento } from './useReintentoRunt';
 import { fecha, fechaLarga } from './tipos';
@@ -72,6 +73,7 @@ const kb = (b: number) => b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(1)} 
 
 export default function DetalleIncompletaSoat({
   fila, restoreFocusRef, onClose, puedeReintentar = false, consultando = false, onReintentar,
+  puedeCompletar = false, onCompletada,
 }: {
   fila: SolicitudIncompletaFila; restoreFocusRef?: RefObject<HTMLElement | null>; onClose: () => void;
   /** `soat.solicitud.reintentar_runt` (HU #12998). */
@@ -79,7 +81,13 @@ export default function DetalleIncompletaSoat({
   /** La consulta de esta solicitud está en vuelo (desde aquí o desde su fila). */
   consultando?: boolean;
   onReintentar?: (f: SolicitudIncompletaFila) => Promise<DesenlaceReintento>;
+  /** `soat.solicitud.crear` (HU #14137): completar la pendiente de la carga masiva. */
+  puedeCompletar?: boolean;
+  /** La solicitud se creó y salió al gestor, o hay que recargar la lista (409). */
+  onCompletada?: () => void;
 }) {
+  const [ocupado, setOcupado] = useState(false);
+  const [destinoPie, setDestinoPie] = useState<HTMLDivElement | null>(null);
   const [det, setDet] = useState<SolicitudIncompletaDetalle | null>(null);
   const [error, setError] = useState(false);
   const [intento, setIntento] = useState(0);
@@ -110,11 +118,13 @@ export default function DetalleIncompletaSoat({
   const d = det ?? fila;
   const renovacion = d.tipoSoat === 'RENOVACION';
   const p = det?.propietario ?? null;
+  // HU #14137: la factura o el propietario que faltan (el RUNT SÍ respondió) se completan aquí.
+  const porCompletar = d.estado === 'incompleta' && (d.motivoPendiente === 'falta_factura_venta' || d.motivoPendiente === 'faltan_datos_propietario');
   const nombreProp = p ? (p.razonSocial || [p.nombres, p.apellidos].filter(Boolean).join(' ') || '—') : '—';
 
   return (
     // Con `vin` null (renovación con RUNT caído) el título lleva la PLACA (HU #14019, AC7).
-    <FlitModal title={`Solicitud · ${fila.vin ?? fila.placa ?? ''}`.trimEnd()} onClose={onClose} wide restoreFocusRef={restoreFocusRef} cierreBloqueado={consultando}>
+    <FlitModal title={`Solicitud · ${fila.vin ?? fila.placa ?? ''}`.trimEnd()} onClose={onClose} wide restoreFocusRef={restoreFocusRef} cierreBloqueado={consultando || ocupado}>
       <div ref={cuerpoRef} tabIndex={-1} className="flit-focus space-y-4 rounded text-sm">
         {/* Un único anuncio de la consulta en vuelo (AC8); vacío en reposo. */}
         <p role="status" className="sr-only">{consultando ? 'Consultando el RUNT…' : ''}</p>
@@ -127,7 +137,7 @@ export default function DetalleIncompletaSoat({
           <TarjetaSoatActivo variante="aviso" datos={completada.vigenciaProxima} venceEl={completada.vigenciaProxima.venceEl} />
         )}
 
-        {!completada && d.estado === 'incompleta' && (
+        {!completada && d.estado === 'incompleta' && !porCompletar && (
           <section className="space-y-2 rounded-lg border p-3" style={CAJA} aria-labelledby="incompleta-pendiente">
             <h3 id="incompleta-pendiente" className="flex items-center gap-2 font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
               <Insignia tono="warning"><ShieldQuestion size={16} /></Insignia>
@@ -157,6 +167,22 @@ export default function DetalleIncompletaSoat({
             )}
           </section>
         )}
+
+        {!completada && porCompletar && (puedeCompletar ? (
+          det && (
+            <CompletarIncompletaSoat
+              fila={fila} renovacion={renovacion} propietario={det.propietario} onOcupado={setOcupado} onCerrar={onClose} destinoPie={destinoPie}
+              onCompletada={() => onCompletada?.()} onActualizarLista={() => onCompletada?.()}
+            />
+          )
+        ) : (
+          <section className="space-y-2 rounded-lg border p-3" style={CAJA} aria-labelledby="incompleta-por-completar">
+            <h3 id="incompleta-por-completar" className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+              {d.motivoPendiente === 'falta_factura_venta' ? 'Falta la factura de venta' : 'Faltan datos del propietario'}
+            </h3>
+            <p style={{ color: 'var(--flit-text-secondary)' }}>Quien solicita SOAT en su compañía puede completar esta solicitud.</p>
+          </section>
+        ))}
 
         {!completada && d.estado === 'descartada' && d.descarte && (
           <section className="space-y-2 rounded-lg border p-3" style={CAJA} aria-labelledby="incompleta-descartada">
@@ -202,6 +228,9 @@ export default function DetalleIncompletaSoat({
             </button>
           </div>
         )}
+
+        {/* Pie de «Completar»: Cerrar / Crear solicitud quedan al final, bajo los datos. */}
+        <div ref={setDestinoPie} />
       </div>
     </FlitModal>
   );

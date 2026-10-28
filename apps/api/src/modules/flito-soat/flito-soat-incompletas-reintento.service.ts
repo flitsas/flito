@@ -26,20 +26,20 @@
 // Solo el uuid de la incompleta, la compañía y el desenlace. Ni VIN, ni placa, ni documento, ni el
 // mensaje de ningún error (la causa de la caída es el vocabulario cerrado de `causaDeCaida`).
 
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, isNull, ne } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { flitoCompradores, flitoSoatIncompletas } from '../../db/schema.js';
 import { actualEstaAbierto, soatActualDelVin } from './flito-soat-actual.js';
 import {
   CodigoErrorSolicitudSoat, EstadoSoat, EstadoSolicitudIncompletaSoat,
-  type MotivoDescarteSoat, type ResultadoReintentoRunt, type SoatActivoRunt,
+  type MotivoDescarteSoat, type ProcedenciaCompradorPersistida, type ResultadoReintentoRunt, type SoatActivoRunt,
 } from '@operaciones/shared-types';
 import { loggerFor } from '../../shared/logger.js';
 import type { SoatCtx } from './flito-soat.service.js';
 import { consultarYClasificar, type CausaCaidaRunt } from './flito-soat-cliente-runt.js';
 import type { EntradaConsultaRunt, TipoSoatCanal } from './flito-soat-cliente-consulta.js';
 import {
-  insertarSolicitudDespachada, proyectarSoatActivo, SolicitudSoatError, upsertVehiculoRunt,
+  insertarSolicitudDespachada, nombreCompletoDe, procedenciaCompleta, proyectarSoatActivo, SolicitudSoatError, upsertVehiculoRunt,
   type DestinoCanalCliente, type PropietarioSolicitud,
 } from './flito-soat-cliente.service.js';
 import { condicionAlcance } from './flito-soat-incompletas.service.js';
@@ -281,7 +281,7 @@ async function descartar(
  * soat_id_reservado`, el propietario re-apuntado al SOAT (conserva `soat_incompleta_id`; el
  * `padre_chk` lo admite) y la incompleta `completada`. Todo o nada.
  */
-async function completar(
+export async function completar(
   inc: IncompletaLeida,
   runt: {
     vin: string;
@@ -291,6 +291,12 @@ async function completar(
     tipoSoat: TipoSoatCanal;
     /** Renovación: el SOAT terminal propio del VIN, si lo hay (ADR-0031). */
     soatAnteriorId: string | null;
+    /**
+     * HU #14136: el propietario CONFIRMADO por quien completa la pendiente de la carga masiva. Si viene, se
+     * (re)escribe como comprador orden 0 DENTRO de esta transacción, bajo el bloqueo; si no, se usa el que ya
+     * tiene la incompleta (reintento por RUNT caído).
+     */
+    propietarioNuevo?: { propietario: PropietarioSolicitud; procedencia: ProcedenciaCompradorPersistida | null };
   },
   consultadoEn: Date, ctx: SoatCtx,
 ): Promise<{ soatId: string; destino: DestinoCanalCliente }> {
@@ -298,6 +304,18 @@ async function completar(
   return db.transaction(async (tx) => {
     const fila = await bloquearAbierta(tx, inc);
     const soatId = fila.soatIdReservado;
+
+    if (runt.propietarioNuevo) {
+      const { propietario: n, procedencia } = runt.propietarioNuevo;
+      await tx.delete(flitoCompradores).where(and(eq(flitoCompradores.soatIncompletaId, inc.id), isNull(flitoCompradores.soatId)));
+      await tx.insert(flitoCompradores).values({
+        soatIncompletaId: inc.id, nombreCompleto: nombreCompletoDe(n),
+        nombres: n.nombres, apellidos: n.apellidos, razonSocial: n.razonSocial,
+        numeroDocumento: n.numeroDocumento, tipoDocumento: n.tipoDocumento,
+        correo: n.correo, celular: n.celular, direccion: n.direccion, municipio: n.municipio, departamento: n.departamento,
+        procedencia: procedenciaCompleta(procedencia), orden: 0,
+      });
+    }
 
     const [p] = await tx.select({
       tipoDocumento: flitoCompradores.tipoDocumento,
