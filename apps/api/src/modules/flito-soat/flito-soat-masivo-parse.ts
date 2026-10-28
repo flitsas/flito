@@ -32,6 +32,9 @@ export interface FilaParseada {
   motivoRechazo: MotivoRechazoEntrada | null;
 }
 
+/** Columna informativa del archivo de rechazadas (HU #14133): se acepta y se ignora. */
+export const ENCABEZADO_MOTIVO = 'motivo';
+
 const LARGO = { placa: 10, documento: 30, nombre: 150, correo: 150, celular: 20 } as const;
 
 /** Minúsculas y sin tildes: «DOCUMENTO», «documentó» y «Documento» son el mismo encabezado. */
@@ -118,7 +121,10 @@ export async function parsearXlsxRenovacion(buf: Buffer): Promise<ArchivoParsead
   for (let c = 1; c <= maxCol; c++) {
     const texto = celdaATexto(fila1.getCell(c).value);
     if (texto === '') continue;
-    const clave = CLAVES[normalizarEncabezado(texto)];
+    const norm = normalizarEncabezado(texto);
+    // HU #14133 (AC3): el archivo de rechazadas trae una columna final «Motivo»; se ignora al re-subirlo.
+    if (norm === ENCABEZADO_MOTIVO) continue;
+    const clave = CLAVES[norm];
     if (!clave) { desconocidos.push(c); continue; }
     if (columnaDe.has(clave)) repetido = true;
     columnaDe.set(clave, c);

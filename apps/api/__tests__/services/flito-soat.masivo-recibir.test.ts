@@ -344,6 +344,7 @@ describe('AC8 — el avance solo lo ve la compañía dueña', () => {
     expect(r.body).toEqual({
       loteId: LOTE_ID, estado: 'en_cola', tipo: 'renovacion', total: 5, pendientes: 3, procesando: 0, aceptadas: 0, porValidar: 0, rechazadas: 2,
       motivosRechazo: [{ codigo: 'placa_invalida', mensaje: 'Placa inválida', cantidad: 2 }], creadoEn: '2026-10-27T10:00:00.000Z',
+      resumen: null, descargaRechazadas: false,
     });
   });
   it('otra compañía → 404 (no 403); proveedor y alcance nada → 404; id no uuid → 404; inexistente → 404', async () => {

@@ -28,3 +28,15 @@ export const soatMasivoLecturaLimiter = rateLimit({
   message: { error: 'Demasiadas consultas. Espera un momento e intenta de nuevo.' },
   store: makeStore('rl:soat-masivo-lectura:'),
 });
+
+/** Descarga de rechazadas (PII): 10 por 15 min y usuario. */
+export const soatMasivoDescargaLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('soat-masivo-descarga:'),
+  handler: frenoConRastro('soat-masivo-descarga'),
+  message: { error: 'Demasiadas descargas. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:soat-masivo-descarga:'),
+});

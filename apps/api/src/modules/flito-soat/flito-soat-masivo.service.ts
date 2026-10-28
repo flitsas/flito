@@ -18,6 +18,7 @@ import { exigirClienteOperable } from '../clients/cliente-operable.js';
 import type { SoatCtx } from './flito-soat.service.js';
 import { falloMasivo } from './flito-soat-masivo.errors.js';
 import { MENSAJE_MOTIVO, parsearXlsxRenovacion } from './flito-soat-masivo-parse.js';
+import { descargaVencida, purgarPiiRechazadas } from './flito-soat-masivo-purga.js';
 
 export interface LoteCreado {
   loteId: string;
@@ -39,6 +40,10 @@ export interface AvanceLote {
   rechazadas: number;
   motivosRechazo: Array<{ codigo: string; mensaje: string; cantidad: number }>;
   creadoEn: string;
+  /** HU #14133 (AC1): solo con el lote terminado; creadas + porValidar + rechazadas = total (contadores congelados). */
+  resumen: { total: number; creadas: number; porValidar: number; rechazadas: number } | null;
+  /** HU #14133 (AC4/AC5): ¿se ofrece la descarga de las rechazadas? Nunca con el lote sin terminar. */
+  descargaRechazadas: boolean;
 }
 
 const MENSAJE_LOTE_ACTIVO = 'Ya hay una carga masiva en curso para esta compañía. Espera a que termine para subir otra.';
@@ -99,12 +104,22 @@ export async function crearLoteMasivo(
  * sin enlace) → cualquiera, como el resto del módulo; proveedor / nada → nada. Todo lo demás es `null`
  * (la ruta responde 404, nunca 403: no se confirma que el lote exista).
  */
-export async function avanceLote(loteId: string, ctx: SoatCtx): Promise<AvanceLote | null> {
+export async function cargarLoteEnAlcance(loteId: string, ctx: SoatCtx): Promise<typeof flitoSoatMasivoLotes.$inferSelect | null> {
   if (ctx.alcance === 'proveedor' || ctx.alcance === 'nada') return null;
   if (ctx.alcance === 'compania' && !ctx.companiaId) return null;
   const [lote] = await db.select().from(flitoSoatMasivoLotes).where(eq(flitoSoatMasivoLotes.id, loteId)).limit(1);
   if (!lote) return null;
   if (ctx.alcance === 'compania' && lote.companiaId !== ctx.companiaId) return null;
+  return lote;
+}
+
+export async function avanceLote(loteId: string, ctx: SoatCtx): Promise<AvanceLote | null> {
+  const lote = await cargarLoteEnAlcance(loteId, ctx);
+  if (!lote) return null;
+  const ahora = new Date();
+  const terminado = lote.estado === 'terminado';
+  // Purga perezosa: aunque el worker esté apagado, el plazo se cumple al consultar.
+  if (terminado && descargaVencida(lote, ahora)) await purgarPiiRechazadas(ahora, lote.id);
 
   const porEstado = await db.select({ estado: flitoSoatMasivoFilas.estado, n: count() })
     .from(flitoSoatMasivoFilas).where(eq(flitoSoatMasivoFilas.loteId, loteId)).groupBy(flitoSoatMasivoFilas.estado);
@@ -119,6 +134,10 @@ export async function avanceLote(loteId: string, ctx: SoatCtx): Promise<AvanceLo
     porValidar: n('por_validar'), rechazadas: n('rechazada'),
     motivosRechazo: motivos.filter((m) => m.codigo).map((m) => ({ codigo: m.codigo!, mensaje: MENSAJE_MOTIVO[m.codigo!] ?? 'Fila rechazada', cantidad: Number(m.n) })),
     creadoEn: lote.creadoEn.toISOString(),
+    resumen: terminado
+      ? { total: lote.totalFilas, creadas: lote.nAceptadas ?? 0, porValidar: lote.nPorValidar ?? 0, rechazadas: lote.nRechazadas ?? 0 }
+      : null,
+    descargaRechazadas: terminado && (lote.nRechazadas ?? 0) > 0 && !descargaVencida(lote, ahora),
   };
 }
 

@@ -22,3 +22,13 @@ export async function registrarAltaLoteMasivo(
     motivo: `alta_masivo lote=${lote.id} tipo=${lote.tipo} filas=${lote.filas}`,
   });
 }
+
+/** HU #14133 (AC2): UN registro por descarga de rechazadas, con el conteo de filas y sin datos de fila. */
+export async function registrarDescargaRechazadasMasivo(req: Request, lote: { id: string; filas: number }): Promise<void> {
+  await logPiiAccess(req, {
+    resourceTipo: RECURSO_LOTE_MASIVO,
+    accion: 'export',
+    camposAccedidos: [...CAMPOS_PII_LOTE_MASIVO],
+    motivo: `descarga_rechazadas lote=${lote.id} filas=${lote.filas}`,
+  });
+}

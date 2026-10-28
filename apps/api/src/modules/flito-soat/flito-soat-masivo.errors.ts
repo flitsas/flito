@@ -3,7 +3,8 @@
 
 export type CodigoErrorMasivo =
   | 'archivo_requerido' | 'formato_invalido' | 'encabezados_invalidos' | 'archivo_vacio'
-  | 'archivo_muy_grande' | 'demasiadas_filas' | 'lote_activo' | 'tipo_invalido' | 'carga_masiva_no_disponible';
+  | 'archivo_muy_grande' | 'demasiadas_filas' | 'lote_activo' | 'tipo_invalido' | 'carga_masiva_no_disponible'
+  | 'lote_en_proceso' | 'descarga_no_disponible';
 
 export class ErrorLoteMasivo extends Error {
   constructor(

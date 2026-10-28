@@ -36,6 +36,8 @@ export const flitoSoatMasivoLotes = pgTable('flito_soat_masivo_lotes', {
   nAceptadas: smallint('n_aceptadas'),
   nPorValidar: smallint('n_por_validar'),
   nRechazadas: smallint('n_rechazadas'),
+  // Migración 0272 (HU #14133): primera descarga de las rechazadas; abre la ventana de 15 min antes de la purga de PII.
+  primeraDescargaEn: timestamp('primera_descarga_en', { withTimezone: true }),
 }, (t) => ({
   idxPorTerminar: index('idx_flito_soat_masivo_lotes_por_terminar').on(t.ultimoAvanceEn).where(sql`estado <> 'terminado'`),
   terminadoChk: check('flito_soat_masivo_lotes_terminado_chk', sql`(estado = 'terminado') = (terminado_en IS NOT NULL)`),
