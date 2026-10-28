@@ -1,5 +1,5 @@
-// HU #14110 (Feature C1 #14091, ADR-0030) — confirmar la recogida con UN acta de organismo multicompañía y
-// UNA firma; la cédula del firmante va cifrada, se muestra enmascarada y solo se revela con función propia,
+// HU #14110 (Feature C1 #14091, ADR-0030 §17) — confirmar la recogida: UN firmante (firma y cédula una sola vez) y
+// UNA acta de organismo POR COMPAÑÍA; las LT pendientes de trámite llevan la firma y no acta; la cédula del firmante va cifrada, se muestra enmascarada y solo se revela con función propia,
 // rateLimiter y registro de acceso PII. Doubles de BD/almacenamiento; las rutas usan authMiddleware y
 // exigirFuncion de verdad sobre el double de permisos de `helpers/auth.ts`.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -37,8 +37,7 @@ vi.mock('../../src/shared/logger.js', async (orig) => {
 const { default: logisticaRoutes } = await import('../../src/modules/flito-logistica/flito-logistica.routes.js');
 const { imagenDesdeDataUrl, mimeReal, FIRMA_MAX_BYTES } = await import('../../src/modules/flito-logistica/flito-logistica.imagen.js');
 const { protegerDocumento, revelarDocumento, enmascarar } = await import('../../src/modules/flito-logistica/flito-logistica.cifrado.js');
-const { extrasDeActa } = await import('../../src/modules/flito-logistica/flito-logistica.firmante.js');
-const { flitoLogisticaActas, flitoLogisticaActaFirmas, flitoLogisticaActaLineas, flitoLogisticaIdempotencia } = await import('../../src/db/schema.js');
+const { flitoLogisticaActas, flitoLogisticaRecogidaFirmantes, flitoLogisticaActaLineas, flitoLogisticaIdempotencia } = await import('../../src/db/schema.js');
 
 const PNG_B64 = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 7)]).toString('base64');
 const JPG_B64 = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64, 7)]).toString('base64');
@@ -52,9 +51,13 @@ const CEDULA = '1036640908';
 const cuerpo = (over: Record<string, unknown> = {}) => ({
   organismoCodigo: '11001', documentoIds: [D1, D2], firmante: { nombre: NOMBRE, documento: CEDULA, firma: FIRMA }, ...over,
 });
+const D3 = '55555555-5555-4555-8555-555555555555';
+const T = '66666666-6666-4666-8666-666666666666';
+const ACTA2 = '77777777-7777-4777-8777-777777777777';
+const base = { organismoCodigo: '11001', tramiteId: T, firmanteId: null };
 const DOCS = [
-  { id: D1, estado: 'recogido', organismoCodigo: '11001', companiaId: 5 },
-  { id: D2, estado: 'clasificado', organismoCodigo: '11001', companiaId: 6 },
+  { id: D1, estado: 'recogido', companiaId: 5, ...base },
+  { id: D2, estado: 'clasificado', companiaId: 6, ...base },
 ];
 
 type Insercion = { tabla: unknown; valores: unknown };
@@ -69,7 +72,10 @@ function tx(opts: { docs?: unknown[]; propias?: unknown[]; yaEn?: unknown[]; fal
   insertMock.mockImplementation((tabla: unknown) => ({
     values: (valores: unknown) => {
       inserciones.push({ tabla, valores });
-      if (tabla === flitoLogisticaActas) return opts.falla23505 ? chainReject(Object.assign(new Error('dup'), { code: '23505' })) : chain([{ id: ACTA }]);
+      if (tabla === flitoLogisticaActas) {
+        if (opts.falla23505) return chainReject(Object.assign(new Error('dup'), { code: '23505' }));
+        return chain([{ id: [ACTA, ACTA2][inserciones.filter((i) => i.tabla === flitoLogisticaActas).length - 1] }]);
+      }
       return chain([]);
     },
   }));
@@ -86,6 +92,12 @@ async function post(ruta: string, body: unknown, token: string, headers: Record<
 const admin = () => testToken({ role: 'admin', sub: 1 });
 const mensajero = () => testToken({ role: 'mensajero', sub: 9 });
 const adminRevela = () => testToken({ role: 'admin', sub: 1, funciones: ['logistica.actas.ver_documento_firmante'] });
+const get = async (ruta: string, token: string) => {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/flito/logistica', logisticaRoutes);
+  return request(app).get(`/api/flito/logistica${ruta}`).set('Authorization', `Bearer ${token}`);
+};
 
 beforeEach(() => {
   selectMock.mockReset(); insertMock.mockReset(); uploadMock.mockReset().mockResolvedValue('storage/firma-key');
@@ -121,65 +133,105 @@ describe('AC4 — cédula cifrada, últimos 4 y máscara', () => {
     expect(() => revelarDocumento(p.cifrado, D1)).toThrow(); // otra fila: la AAD no cuadra
     expect(enmascarar('0908')).toBe('••••0908');
   });
-  it('el detalle del acta solo expone los últimos 4 dígitos', async () => {
-    const p = protegerDocumento(CEDULA, FIRMA_ID);
-    selectMock.mockReturnValueOnce(chain([{ punto: 'organismo', organismoCodigo: '11001' }]))
-      .mockReturnValueOnce(chain([{ id: FIRMA_ID, rol: 'entrega', nombre: NOMBRE, ultimos: p.ultimos, firmadoEn: new Date('2026-10-27T10:00:00Z') }]))
-      .mockReturnValueOnce(chain([{ documentoId: D1, companiaId: 5 }, { documentoId: D2, companiaId: 6 }]));
-    const extras = await extrasDeActa(ACTA);
-    expect(extras.firmas[0].documentoEnmascarado).toBe('••••0908');
-    const json = JSON.stringify(extras);
-    expect(json).not.toContain(CEDULA);
-    expect(json).not.toContain(p.cifrado);
-    expect(extras.lineas).toHaveLength(2);
-  });
 });
 
-describe('AC4 — GET /actas/:id del acta de organismo', () => {
-  it('responde con las firmas (solo ••••1234) y las líneas por compañía; jamás la cédula completa ni el cifrado', async () => {
+describe('GET /recogidas — el acta de organismo se consulta aparte, con la cédula enmascarada', () => {
+  it('GET /recogidas/:firmanteId — firmante enmascarado, actas por compañía y LT pendientes; jamás la cédula ni el cifrado', async () => {
     const p = protegerDocumento(CEDULA, FIRMA_ID);
-    const cab = {
-      id: ACTA, companiaId: null, companiaNombre: null, estado: 'entregada', mensajeroId: 9, mensajeroNombre: 'Mensajero', receptorNombre: null,
-      entregadoEn: new Date('2026-10-27T10:00:00Z'), creadoEn: new Date('2026-10-27T10:00:00Z'), pdfStorageKey: null,
-      firmaEntregaKey: null, entregaNombre: null, firmaRecibeKey: null, punto: 'organismo',
-    };
-    selectMock.mockReturnValueOnce(chain([cab])).mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([]))
-      .mockReturnValueOnce(chain([{ punto: 'organismo', organismoCodigo: '11001' }]))
-      .mockReturnValueOnce(chain([{ id: FIRMA_ID, rol: 'entrega', nombre: NOMBRE, ultimos: p.ultimos, firmadoEn: new Date('2026-10-27T10:00:00Z') }]))
-      .mockReturnValueOnce(chain([{ documentoId: D1, companiaId: 5 }]));
-    const app = express();
-    app.use(express.json());
-    app.use('/api/flito/logistica', logisticaRoutes);
-    const r = await request(app).get(`/api/flito/logistica/actas/${ACTA}`).set('Authorization', `Bearer ${await admin()}`);
+    selectMock
+      .mockReturnValueOnce(chain([{ id: FIRMA_ID, organismoCodigo: '11001', nombre: NOMBRE, ultimos: p.ultimos, firmadoEn: new Date('2026-10-28T10:00:00Z'), registradoPorId: 9 }]))
+      .mockReturnValueOnce(chain([{ actaId: ACTA, companiaId: 5, companiaNombre: 'A' }, { actaId: ACTA2, companiaId: 6, companiaNombre: 'B' }]))
+      .mockReturnValueOnce(chain([{ actaId: ACTA, documentoId: D1 }, { actaId: ACTA2, documentoId: D2 }]))
+      .mockReturnValueOnce(chain([{ id: D3 }]));
+    const r = await get(`/recogidas/${FIRMA_ID}`, await mensajero());
     expect(r.status).toBe(200);
-    expect(r.body.punto).toBe('organismo');
-    expect(r.body.firmas[0].documentoEnmascarado).toBe('••••0908');
-    expect(r.body.lineas).toEqual([{ documentoId: D1, companiaId: 5 }]);
+    expect(r.body.documentoEnmascarado).toBe('••••0908');
+    expect(r.body.actas).toEqual([
+      { actaId: ACTA, companiaId: 5, companiaNombre: 'A', documentoIds: [D1] },
+      { actaId: ACTA2, companiaId: 6, companiaNombre: 'B', documentoIds: [D2] },
+    ]);
+    expect(r.body.pendientesTramite).toEqual([D3]);
     expect(JSON.stringify(r.body)).not.toContain(CEDULA);
     expect(JSON.stringify(r.body)).not.toContain(p.cifrado);
+  });
+  it('una recogida firmada por otro (sin operar_ajenas) responde 404 igual que una inexistente', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: FIRMA_ID, organismoCodigo: '11001', nombre: NOMBRE, ultimos: '0908', firmadoEn: new Date(), registradoPorId: 1 }]));
+    const r = await get(`/recogidas/${FIRMA_ID}`, await mensajero());
+    expect(r.status).toBe(404);
+    expect(r.body.codigo).toBe('RECOGIDA_NO_ENCONTRADA');
+  });
+  it('GET /recogidas/mias — lista mis recogidas con conteos y cédula enmascarada', async () => {
+    selectMock.mockReturnValueOnce(chain([{ firmanteId: FIRMA_ID, organismoCodigo: '11001', nombre: NOMBRE, ultimos: '0908', firmadoEn: new Date('2026-10-28T10:00:00Z'), actas: 2, pendientes: 1 }]));
+    const r = await get('/recogidas/mias', await mensajero());
+    expect(r.status).toBe(200);
+    expect(r.body.recogidas).toEqual([{ firmanteId: FIRMA_ID, organismoCodigo: '11001', nombre: NOMBRE, documentoEnmascarado: '••••0908', firmadoEn: '2026-10-28T10:00:00.000Z', actas: 2, pendientesTramite: 1 }]);
+  });
+  it('sin la función de confirmar → 403', async () => {
+    const r = await get('/recogidas/mias', await testToken({ role: 'cliente', sub: 77 }));
+    expect([401, 403]).toContain(r.status);
   });
 });
 
 describe('POST /recogidas/confirmar', () => {
-  it('AC1/AC4/AC5 — LT de dos compañías: UNA acta de organismo, UNA firma cifrada, líneas por compañía y pendiente=false', async () => {
+  it('AC1/AC4/AC5 — LT de dos compañías: UN firmante cifrado, DOS actas que lo referencian, líneas por compañía y pendiente=false', async () => {
     tx({ propias: [{ id: D1 }, { id: D2 }] });
     const r = await post('/recogidas/confirmar', cuerpo(), await mensajero());
     expect(r.status).toBe(200);
-    expect(r.body).toEqual({ actaId: ACTA, documentos: 2, companias: [5, 6] });
     const de = (t: unknown) => inserciones.filter((i) => i.tabla === t);
-    expect(de(flitoLogisticaActas)).toHaveLength(1);
-    expect(de(flitoLogisticaActas)[0].valores).toMatchObject({ punto: 'organismo', companiaId: null, organismoCodigo: '11001' });
-    expect(de(flitoLogisticaActaFirmas)).toHaveLength(1);
-    const firma = de(flitoLogisticaActaFirmas)[0].valores as Record<string, unknown>;
-    expect(firma.documentoUltimos).toBe('0908');
-    expect(String(firma.documentoCifrado)).not.toContain(CEDULA);
-    expect(revelarDocumento(String(firma.documentoCifrado), String(firma.id))).toBe(CEDULA);
-    expect(de(flitoLogisticaActaLineas)[0].valores).toEqual([
-      { actaId: ACTA, documentoId: D1, punto: 'organismo', companiaId: 5 },
-      { actaId: ACTA, documentoId: D2, punto: 'organismo', companiaId: 6 },
+    const firmante = de(flitoLogisticaRecogidaFirmantes);
+    expect(firmante).toHaveLength(1); // la firma se guarda UNA vez
+    const f = firmante[0].valores as Record<string, unknown>;
+    expect(r.body).toEqual({ firmanteId: f.id, actas: [{ actaId: ACTA, companiaId: 5, documentos: 1 }, { actaId: ACTA2, companiaId: 6, documentos: 1 }], pendientesTramite: 0 });
+    expect(f).toMatchObject({ organismoCodigo: '11001', documentoUltimos: '0908', registradoPorId: 9 });
+    expect(String(f.documentoCifrado)).not.toContain(CEDULA);
+    expect(revelarDocumento(String(f.documentoCifrado), String(f.id))).toBe(CEDULA); // la AAD es el id del firmante
+    const actas = de(flitoLogisticaActas).map((i) => i.valores);
+    expect(actas).toHaveLength(2);
+    expect(actas[0]).toMatchObject({ punto: 'organismo', companiaId: 5, organismoCodigo: '11001', firmanteId: f.id });
+    expect(actas[1]).toMatchObject({ punto: 'organismo', companiaId: 6, firmanteId: f.id });
+    expect(de(flitoLogisticaActaLineas).map((i) => i.valores)).toEqual([
+      [{ actaId: ACTA, documentoId: D1, punto: 'organismo', companiaId: 5 }],
+      [{ actaId: ACTA2, documentoId: D2, punto: 'organismo', companiaId: 6 }],
     ]);
-    expect(sets).toContainEqual(expect.objectContaining({ actaOrganismoPendiente: false }));
+    expect(sets).toContainEqual(expect.objectContaining({ actaOrganismoPendiente: false, recogidaFirmanteId: f.id }));
     expect(uploadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('AC — 3 LT con trámite y 2 pendientes: 1 acta, y las pendientes quedan con la firma sin acta ni apagar el indicador', async () => {
+    const docs = [
+      { ...DOCS[0] }, { id: D2, estado: 'recogido', companiaId: 5, ...base },
+      { id: D3, estado: 'recogido', companiaId: null, ...base, tramiteId: null },
+    ];
+    tx({ docs, propias: [{ id: D1 }, { id: D2 }, { id: D3 }] });
+    const r = await post('/recogidas/confirmar', cuerpo({ documentoIds: [D1, D2, D3] }), await mensajero());
+    expect(r.status).toBe(200);
+    expect(r.body.actas).toEqual([{ actaId: ACTA, companiaId: 5, documentos: 2 }]);
+    expect(r.body.pendientesTramite).toBe(1);
+    const lineas = inserciones.filter((i) => i.tabla === flitoLogisticaActaLineas).flatMap((i) => i.valores as Array<{ documentoId: string }>);
+    expect(lineas.map((l) => l.documentoId)).toEqual([D1, D2]); // la pendiente NO tiene línea
+    const pendiente = sets.find((v) => !('actaOrganismoPendiente' in (v as object)));
+    expect(pendiente).toMatchObject({ recogidaFirmanteId: r.body.firmanteId });
+  });
+
+  it.each(['generado', 'novedad', 'entregado', 'devuelto'])('solo se confirma LT en recogida/tránsito: estado %s → 409 LT_ESTADO_NO_CONFIRMABLE', async (estado) => {
+    tx({ docs: [{ ...DOCS[0], estado }, DOCS[1]] });
+    const r = await post('/recogidas/confirmar', cuerpo(), await mensajero());
+    expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('LT_ESTADO_NO_CONFIRMABLE');
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['recogido', 'clasificado', 'en_acta', 'despachado', 'en_flit'])('estado %s se puede confirmar', async (estado) => {
+    tx({ docs: [{ ...DOCS[0], estado }, DOCS[1]], propias: [{ id: D1 }, { id: D2 }] });
+    expect((await post('/recogidas/confirmar', cuerpo(), await mensajero())).status).toBe(200);
+  });
+
+  it('una LT que ya tiene firma de organismo (incluida la pendiente de trámite) → 409 LT_YA_EN_ACTA_ORGANISMO', async () => {
+    tx({ docs: [{ ...DOCS[0], firmanteId: FIRMA_ID }, DOCS[1]], propias: [{ id: D1 }, { id: D2 }] });
+    const r = await post('/recogidas/confirmar', cuerpo(), await mensajero());
+    expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('LT_YA_EN_ACTA_ORGANISMO');
+    expect(uploadMock).not.toHaveBeenCalled();
   });
 
   it('AC2 — LT que ya está en un acta de organismo → 409 LT_YA_EN_ACTA_ORGANISMO', async () => {
@@ -229,7 +281,7 @@ describe('POST /recogidas/confirmar', () => {
       expect(volcado).not.toContain(PNG_B64);
     }
     const eventos = inserciones.filter((i) => Array.isArray(i.valores) && (i.valores as Array<{ tipo?: string }>)[0]?.tipo === 'acta_organismo');
-    expect(eventos).toHaveLength(1);
+    expect(eventos).toHaveLength(2);
     expect(JSON.stringify(eventos.map((e) => e.valores))).not.toContain(CEDULA);
   });
 
@@ -260,7 +312,7 @@ describe('POST /recogidas/confirmar', () => {
     expect(b.body.codigo).toBe('LT_NO_ENCONTRADA');
   });
 
-  it('exige sesión y la función del paso de campo: sin ella 403 (rol sin acceso)', async () => {
+  it('exige sesión y la función propia `logistica.recogida.confirmar`: sin ella 403 (rol sin acceso)', async () => {
     const r = await post('/recogidas/confirmar', cuerpo(), await testToken({ role: 'cliente', sub: 77 }));
     expect([401, 403]).toContain(r.status);
     expect(transactionMock).not.toHaveBeenCalled();
@@ -289,7 +341,7 @@ describe('POST /recogidas/confirmar', () => {
 });
 
 describe('AC6 — revelar la cédula del firmante', () => {
-  const ruta = `/actas/${ACTA}/firmas/${FIRMA_ID}/documento`;
+  const ruta = `/recogidas/${FIRMA_ID}/documento`;
   it('con la función: devuelve la cédula completa, sin caché, y registra el acceso PII con el uuid en `motivo`', async () => {
     const p = protegerDocumento(CEDULA, FIRMA_ID);
     selectMock.mockReturnValueOnce(chain([{ id: FIRMA_ID, cifrado: p.cifrado }]));
@@ -299,9 +351,8 @@ describe('AC6 — revelar la cédula del firmante', () => {
     expect(r.headers['cache-control']).toBe('no-store');
     expect(piiMock).toHaveBeenCalledTimes(1);
     const [, opts] = piiMock.mock.calls[0];
-    expect(opts).toMatchObject({ resourceTipo: 'flito_logistica_acta_firma', accion: 'read', camposAccedidos: ['documento'] });
+    expect(opts).toMatchObject({ resourceTipo: 'flito_logistica_recogida_firmante', accion: 'read', camposAccedidos: ['documento'] });
     expect(opts.resourceId).toBeUndefined();
-    expect(opts.motivo).toContain(ACTA);
     expect(opts.motivo).toContain(FIRMA_ID);
     expect(opts.motivo).not.toContain(CEDULA);
   });
@@ -311,7 +362,7 @@ describe('AC6 — revelar la cédula del firmante', () => {
     expect(selectMock).not.toHaveBeenCalled();
     expect(piiMock).not.toHaveBeenCalled();
   });
-  it('firma inexistente, de otra acta o ya purgada → 404 y NO registra acceso (no se reveló nada)', async () => {
+  it('firmante inexistente o con la cédula ya purgada → 404 y NO registra acceso (no se reveló nada)', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: FIRMA_ID, cifrado: null }]));
     const r = await post(ruta, {}, await adminRevela());
     expect(r.status).toBe(404);

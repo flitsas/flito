@@ -33,6 +33,8 @@ export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set([
   ITEM_DR_FLIT,
   // HU #14110: opcional de `accion.logistica.ver_actas`; su `padre_codigo` lo siembra la 0276 (la 0238 ya está aplicada).
   'logistica.actas.ver_documento_firmante',
+  // HU #14110: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra también la 0276.
+  'logistica.recogida.confirmar',
 ]);
 
 /** Operación de ítem antiguo → ítem, ordenado (lo que lee la 0239 y el pliegue del test). */

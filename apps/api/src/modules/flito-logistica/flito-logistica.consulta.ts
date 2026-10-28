@@ -1,6 +1,6 @@
 // FLITO Logística — consultas de la consola, actas y ruta del mensajero (HU #14108, ADR-0030 §11).
 
-import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL,
   ESTADO_DOCUMENTO_LOGISTICA_LABEL, ESTADO_LOGISTICA_SIMPLE_LABEL, EstadoLogisticaSimple,
@@ -251,7 +251,8 @@ export async function listarActas(alcance: AlcanceResuelto = { enlace: 'ninguno'
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
     .leftJoin(users, eq(flitoLogisticaActas.mensajeroId, users.id))
-    .where(condicionActasLogistica(alcance)) // HU #13426
+    // HU #13426 (alcance) + HU #14110 (ADR-0030 §17.1): el acta de organismo se consulta aparte (GET /recogidas/…).
+    .where(condicionActasLogistica(alcance) ?? ne(flitoLogisticaActas.punto, 'organismo')) // con enlace la condición ya excluye 'organismo'
     .orderBy(desc(flitoLogisticaActas.createdAt));
   return rows.map((r) => ({
     ...r,
@@ -278,8 +279,8 @@ export interface MiRuta { entregas: RutaEntrega[] }
 export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
   const soloMias = !ctx.operaAjenas;
   const actaCond = soloMias
-    ? and(eq(flitoLogisticaActas.estado, EstadoActaLogistica.DESPACHADA), eq(flitoLogisticaActas.mensajeroId, ctx.userId))
-    : eq(flitoLogisticaActas.estado, EstadoActaLogistica.DESPACHADA);
+    ? and(eq(flitoLogisticaActas.estado, EstadoActaLogistica.DESPACHADA), ne(flitoLogisticaActas.punto, 'organismo'), eq(flitoLogisticaActas.mensajeroId, ctx.userId))
+    : and(eq(flitoLogisticaActas.estado, EstadoActaLogistica.DESPACHADA), ne(flitoLogisticaActas.punto, 'organismo'));
   const actas = await db.select({
     actaId: flitoLogisticaActas.id, companiaNombre: clients.name,
     direccionEntrega: flitoLogisticaActas.direccionEntrega, contactoNombre: flitoLogisticaActas.contactoNombre,

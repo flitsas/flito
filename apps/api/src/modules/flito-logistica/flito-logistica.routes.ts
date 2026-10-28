@@ -13,7 +13,7 @@ import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alc
 import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { confirmarRecogida } from './flito-logistica.recogida.js';
-import { extrasDeActa, revelarDocumentoFirmante } from './flito-logistica.firmante.js';
+import { misRecogidas, recogidaDetalle, revelarDocumentoFirmante } from './flito-logistica.firmante.js';
 import { recogidaConfirmarLimiter, revelarDocumentoLimiter } from './flito-logistica.limitadores.js';
 import {
   actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, escanearLt, facetas,
@@ -115,11 +115,7 @@ router.get('/actas/:id', exigirFuncion('logistica.actas.ver'), async (req: Reque
   // HU #13426 (AC2): un acta de otra compañía responde 404, igual que una inexistente.
   const alcance = await alcanceDe(req);
   if (!await enAlcanceLogistica('acta', req.params.id, alcance)) { res.status(404).json({ error: 'El acta no existe' }); return; }
-  const r = await ejecutar(res, async () => {
-    const detalle = await actaDetalle(req.params.id);
-    // HU #14110: el acta de organismo trae sus firmas (cédula enmascarada) y sus líneas por compañía.
-    return detalle.punto === 'organismo' ? { ...detalle, ...(await extrasDeActa(req.params.id)) } : detalle;
-  });
+  const r = await ejecutar(res, () => actaDetalle(req.params.id));
   // Habeas Data (HU #13426): la compañía no recibe quién de FLIT movió cada documento de la bitácora.
   if (r !== undefined) res.json(esProyeccionCliente(alcance) ? { ...r, bitacora: sinActor(r.bitacora) } : r);
 });
@@ -249,36 +245,49 @@ router.post('/documentos/:id/reversar', exigirFuncion('logistica.documento.rever
   res.json({ ok: true });
 });
 
-// POST /recogidas/confirmar — confirma la recogida de LT de varias compañías con UN acta de organismo y
-// UNA firma del funcionario (HU #14110). Cédula cifrada; ni logs ni auditoría llevan nombre, cédula ni firma.
-// Guarda: la del escaneo (es el paso de campo del mensajero); las LT ajenas exigen `operar_ajenas` (en línea).
+// POST /recogidas/confirmar — confirma la recogida: UN firmante (firma y cédula cifrada, una sola vez) y UNA acta
+// de organismo por compañía (HU #14110, ADR-0030 §17.1). Las LT sin trámite llevan la firma y no acta.
+// Ni logs ni auditoría llevan nombre, cédula ni firma. Función propia; las LT ajenas exigen `operar_ajenas`.
 const recogidaSchema = z.object({
   organismoCodigo: z.string().trim().min(1).max(5),
   documentoIds: z.array(z.string().uuid()).min(1).max(200),
   firmante: z.object({ nombre: z.string().trim().min(1).max(150), documento: z.string().trim().min(4).max(30), firma: z.string().min(1) }),
   lat: z.string().max(20).optional(), lng: z.string().max(20).optional(),
 });
-router.post('/recogidas/confirmar', soloSinEnlace(), exigirFuncion('logistica.documento.escanear'), recogidaConfirmarLimiter, async (req: Request, res: Response) => {
+router.post('/recogidas/confirmar', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), recogidaConfirmarLimiter, async (req: Request, res: Response) => {
   const parsed = recogidaSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: 'Datos inválidos: el organismo, las LT y el nombre, la cédula y la firma del funcionario son obligatorios', codigo: 'DATOS_INVALIDOS' }); return; }
   await conIdempotencia(req, res, async () => {
     const r = await confirmarRecogida(parsed.data, await ctxConPropiedad(req));
     // Solo ids y conteos: sin nombre, cédula ni firma del funcionario.
-    await audit(req, { action: 'create', resource: 'flito_logistica_acta', resourceId: r.actaId, detail: `Recogida confirmada con acta de organismo: ${r.documentos} LT, ${r.companias.length} compañías` });
+    await audit(req, { action: 'create', resource: 'flito_logistica_recogida_firmante', detail: `Recogida confirmada ${r.firmanteId}: ${r.actas.length} actas de organismo, ${r.pendientesTramite} LT pendientes de trámite` });
     return { body: r };
   }, 'recogidas/confirmar');
 });
 
-// POST /actas/:id/firmas/:firmaId/documento — cédula COMPLETA del firmante (PII). Función propia,
-// rateLimiter y registro de acceso (`logPiiAccess`); el uuid va en `motivo` porque resource_id es integer.
-router.post('/actas/:id/firmas/:firmaId/documento', soloSinEnlace(), exigirFuncion('logistica.actas.ver_documento_firmante'), revelarDocumentoLimiter, async (req: Request, res: Response) => {
-  const ids = z.object({ id: z.string().uuid(), firmaId: z.string().uuid() }).safeParse(req.params);
-  if (!ids.success) { res.status(404).json({ error: 'El documento del firmante no está disponible' }); return; }
-  const documento = await ejecutar(res, () => revelarDocumentoFirmante(ids.data.id, ids.data.firmaId));
+// GET /recogidas/mias y /recogidas/:firmanteId — la recogida se consulta aparte de las actas (sin filtros con PII;
+// cédula enmascarada ••••1234). Antes de `/:firmanteId` para que `mias` no se tome por un id.
+router.get('/recogidas/mias', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
+  const r = await ejecutar(res, async () => misRecogidas(await ctxConPropiedad(req)));
+  if (r !== undefined) res.json({ recogidas: r });
+});
+router.get('/recogidas/:firmanteId', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
+  const id = z.string().uuid().safeParse(req.params.firmanteId);
+  if (!id.success) { res.status(404).json({ error: 'La recogida no existe', codigo: 'RECOGIDA_NO_ENCONTRADA' }); return; }
+  const r = await ejecutar(res, async () => recogidaDetalle(id.data, await ctxConPropiedad(req)));
+  if (r !== undefined) res.json(r);
+});
+
+// POST /recogidas/:firmanteId/documento — cédula COMPLETA del firmante (PII). Función propia, rateLimiter y
+// registro de acceso (`logPiiAccess`); el uuid va en `motivo` porque resource_id es integer.
+router.post('/recogidas/:firmanteId/documento', soloSinEnlace(), exigirFuncion('logistica.actas.ver_documento_firmante'), revelarDocumentoLimiter, async (req: Request, res: Response) => {
+  const id = z.string().uuid().safeParse(req.params.firmanteId);
+  if (!id.success) { res.status(404).json({ error: 'El documento del firmante no está disponible' }); return; }
+  const documento = await ejecutar(res, () => revelarDocumentoFirmante(id.data));
   if (documento === undefined) return;
   await logPiiAccess(req, {
-    resourceTipo: 'flito_logistica_acta_firma', accion: 'read', camposAccedidos: ['documento'],
-    motivo: `acta:${ids.data.id} firma:${ids.data.firmaId}`,
+    resourceTipo: 'flito_logistica_recogida_firmante', accion: 'read', camposAccedidos: ['documento'],
+    motivo: `firmante:${id.data}`,
   });
   res.setHeader('Cache-Control', 'no-store');
   res.json({ documento });
