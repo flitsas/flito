@@ -355,13 +355,20 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
     const tinta = await page.evaluate(() => { const d = document.createElement('i'); d.style.color = 'var(--flit-warning-ink)'; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; });
     expect(colorFila).toEqual(colorCab);
     expect(colorFila[0]).toBe(tinta); // token de advertencia, no el gris neutro
-    await page.getByRole('button', { name: 'Firmar 2 LT' }).click();
+    // Selección: desmarcar una LT cambia el botón y lo que se firma; sin ninguna, el botón se deshabilita.
+    await page.getByRole('checkbox', { name: /DEF456/ }).uncheck();
+    await expect(page.getByRole('button', { name: 'Firmar 1 LT' })).toBeEnabled();
+    await page.getByRole('checkbox', { name: /ABC123/ }).uncheck();
+    await expect(page.getByRole('button', { name: 'Elige LT para firmar' })).toBeDisabled();
+    await page.getByRole('checkbox', { name: /ABC123/ }).check();
+    await page.getByRole('button', { name: 'Firmar 1 LT' }).click();
     await expect(page.getByRole('heading', { name: 'Confirmar recogida' })).toBeVisible();
     await llenarFuncionario(page);
     firmadas = true;
     await page.getByRole('button', { name: 'Confirmar recogida' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Firmaste' })).toBeVisible();
-    expect(espias.confirmar[0].documentoIds).toEqual(['p-1', 'p-2']);
+    expect(espias.confirmar).toHaveLength(1);
+    expect(espias.confirmar[0].documentoIds).toEqual(['p-1']); // solo la seleccionada, no las dos
     await expect(page.getByText('Falta firma · 2')).toHaveCount(0);
     await expect(page.locator('[data-flit-chip]').filter({ hasText: 'Firmada' })).toBeVisible();
     expect(espias.consola.join(' ')).not.toContain('ABC123');
