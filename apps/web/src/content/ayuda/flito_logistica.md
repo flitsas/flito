@@ -9,8 +9,8 @@ palabras_clave:
 consultas:
   - cómo genero un acta de despacho
   - dónde está un documento enviado
-version: 1.1
-fecha: 2026-10-22
+version: 1.2
+fecha: 2026-10-28
 ---
 ## Qué es
 
@@ -34,6 +34,7 @@ En el menú lateral, sección **Gestión**, ítem **Logística**.
 6. En la pestaña **Actas**, pulse **Ver** para revisar las licencias, las firmas y la bitácora del despacho; dentro está **Descargar PDF**. ![Pestaña Actas con actas Generada, Despachada y Entregada y sus acciones Ver, Firmar y despachar y Devolver](./flito_logistica/05-actas.png)
 7. En un acta **Generada**, pulse **Firmar y despachar**. En la ventana **Firmar entrega y despachar** elija el **Mensajero**, escriba si quiere el **Nombre de quien entrega (Operaciones)**, trace la **Firma de quien entrega** y pulse **Firmar y despachar**. ![Ventana Firmar entrega y despachar con el mensajero elegido y la firma trazada](./flito_logistica/06-firmar-y-despachar.png)
 8. Si el receptor no recibió un acta **Despachada**, pulse **Devolver**, escriba el **Motivo (obligatorio)** y pulse **Confirmar**.
+9. Si tiene la función de resolver trámites, verá la pestaña **LT pendientes** con el número de LT que esperan. Son licencias que el mensajero recogió sin saber a qué trámite pertenecen; la más antigua aparece primero (pulse **Antigüedad** para invertir el orden). Busque por placa o filtre por **Con firma** / **Sin firma** y pulse **Elegir trámite**: elija el trámite al que pertenece la LT (no viene ninguno marcado), pulse **Continuar**, lea qué pasará con el acta y pulse **Asignar trámite**. Si la LT ya tiene la firma del organismo, entra al acta de la compañía con esa misma firma; si no, entrará al acta cuando el organismo firme.
 
 ![Ciclo de una licencia de tránsito: Pendiente de recogida, Registrada cuando el mensajero la escanea, acta generada, Despachada al firmar y despachar, y Entregada con la firma del receptor; la novedad y la devolución la dejan Con novedad](./flito_logistica/ciclo-licencia.svg)
 
@@ -43,6 +44,7 @@ En el menú lateral, sección **Gestión**, ítem **Logística**.
 - Error: mensaje en rojo sobre la tarjeta. Si los viajes no cargan, el aviso trae **Reintentar**.
 - Vacío en trámites: **No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.** Con enlace de compañía: **No hay trámites aprobados de su compañía en esta vista.** seguido de la misma explicación. En actas: **No hay LT registradas pendientes de acta…** / **Aún no hay actas. Ve a «Generación de actas»…** En el detalle de una licencia aún no recogida: **La licencia aún no se ha recogido. El mensajero la escaneará en el organismo.**
 - Lleno: listado con placa, propietario, empresa, secretaría, N.º LT y estado.
+- LT pendientes: sin LT verá **No hay LT esperando trámite…**; con un filtro sin resultados, **Ninguna LT coincide con tu búsqueda** y **Limpiar filtros**; si no carga, **Reintentar**. Si la LT no tiene trámites aprobados para elegir, el diálogo dice **Aún no hay trámites aprobados de este vehículo para elegir.** y solo se puede cerrar. Si otro usuario ya le asignó el trámite, un aviso lo dice y la lista se actualiza.
 - Sin mensajeros: en **Firmar entrega y despachar** verá **No hay mensajeros registrados. Crea un usuario con rol Mensajero.**
 - Viajes adicionales (en el detalle): sin viajes verá **Sin viajes adicionales. El viaje 1 se cobra con la tarifa vigente.** y **Viajes: 1 (incluye el viaje 1)**; si el trámite ya está liquidado la sección es de solo lectura (**Trámite liquidado: reversa la liquidación para registrar o quitar viajes.**); si la compañía autogestiona la logística verá **La logística de esta compañía la gestiona el cliente.** y no podrá registrar; sin tarifa de logística vigente, **Precio inicial** queda deshabilitado (**La compañía no tiene tarifa de logística vigente**) y solo puede fijar **Nuevo precio**.
 
