@@ -122,6 +122,7 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
   });
 
   test('AC3: elegir_tramite con candidato no gestionable; «No sé cuál» deja la LT pendiente y se firma sin acta', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
     const e = await preparar(page);
     await page.getByRole('button', { name: 'Ingresar a mano' }).click();
     await page.getByLabel('Placa', { exact: true }).fill('MUL111');
@@ -132,6 +133,12 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
 
     const hoja = page.getByRole('dialog', { name: /MUL111 tiene varios trámites/ });
     await expect(hoja).toBeVisible();
+    // En móvil es una hoja anclada abajo con esquinas superiores redondeadas.
+    const caja = await hoja.boundingBox();
+    expect(Math.round(caja!.y + caja!.height)).toBe(812);
+    expect(caja!.width).toBe(375);
+    await expect(hoja).toHaveCSS('border-top-left-radius', '20px');
+    for (const f of await hoja.getByRole('button').all()) expect((await f.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     const noGestionable = hoja.getByRole('button', { name: /Autogestión/ });
     await expect(noGestionable).toBeDisabled();
     await expect(hoja.getByText('No la recoge FLITO: lo gestiona el cliente.')).toBeVisible();
