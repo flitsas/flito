@@ -464,7 +464,7 @@ export type DesenlaceRunt =
    * `causa` solo cuando la pasarela LANZÓ (timeout, red, circuito…): es el token de `causaDeCaida`.
    * Un no-200 clasificado como caído no la trae (HU #12998: se guarda `NULL`).
    */
-  | { clase: 'caido'; causa?: CausaCaidaRunt };
+  | { clase: 'caido'; causa?: CausaCaidaRunt; httpStatus?: number };
 
 /**
  * ¿Este `ok:false` es una NEGATIVA DE NEGOCIO del RUNT, o es que el RUNT no respondió?
@@ -525,7 +525,7 @@ export async function clasificarDesenlaceRunt(
 ): Promise<DesenlaceRunt> {
   if (!respuesta?.ok) {
     if (esNegativaDeNegocio(respuesta)) return { clase: 'revise', codigo: 'runt_no_cuadra' };
-    return { clase: 'caido' };
+    return respuesta?.httpStatus === undefined ? { clase: 'caido' } : { clase: 'caido', httpStatus: respuesta.httpStatus };
   }
   if (runtSinRegistro(respuesta.data)) return { clase: 'revise', codigo: 'runt_sin_registro' };
 

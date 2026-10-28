@@ -80,6 +80,11 @@ export const MENSAJE_SOLICITUD_INCOMPLETA =
   'El RUNT no respondió. Su solicitud quedó guardada, pendiente de validar, y no se enviará al gestor hasta que el RUNT confirme el vehículo.';
 
 /** Lo que el alta ya validó y resolvió antes de aparcar: nada de esto se vuelve a decidir aquí. */
+export type PropietarioAparcable = Omit<PropietarioSolicitud, 'tipoDocumento' | 'direccion' | 'municipio' | 'departamento'> & {
+  tipoDocumento: PropietarioSolicitud['tipoDocumento'] | null;
+  direccion: string | null; municipio: string | null; departamento: string | null;
+};
+
 export interface EntradaAparcar {
   /** HU #14018: 'inicial' (VIN + factura obligatoria) o 'renovacion' (placa + documento, factura opcional). */
   tipoSoat: TipoSoatCanal;
@@ -91,7 +96,8 @@ export interface EntradaAparcar {
   placa?: string | null;
   companiaId: number;
   carpetaStorage: string | null;
-  propietario: PropietarioSolicitud;
+  /** La carga masiva (HU #14132) no trae tipo de documento ni ubicación: llegan `null`, no inventados. */
+  propietario: PropietarioAparcable;
   /** Nombre derivado (`nombreCompletoDe`), el mismo que escribe el alta normal. */
   nombreCompleto: string;
   /** Mapa completo (`procedenciaCompleta`), igual que el alta normal. */
@@ -100,6 +106,8 @@ export interface EntradaAparcar {
   archivo: ArchivoSolicitud | null;
   /** HU #13362 (D3-bis): los adicionales aceptados también se guardan, contra la por validar. */
   adicionales?: AdicionalAceptado[];
+  /** HU #14132 (AC9): el id que la carga masiva fijó al reclamar la fila; ausente = uno nuevo (alta individual). */
+  soatIdReservado?: string;
 }
 
 export type ResultadoAparcar =
@@ -124,7 +132,7 @@ export type ResultadoAparcar =
  * deshacer un PUT en S3, y retenerla abierta mientras sube el PDF es peor.
  */
 export async function aparcarSolicitud(entrada: EntradaAparcar, ctx: SoatCtx): Promise<ResultadoAparcar> {
-  const soatIdReservado = randomUUID();
+  const soatIdReservado = entrada.soatIdReservado ?? randomUUID();
   const { archivo } = entrada;
   const hash = archivo ? createHash('sha256').update(archivo.buffer).digest('hex') : null;
   const storageKey = archivo

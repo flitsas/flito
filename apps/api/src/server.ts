@@ -39,6 +39,7 @@ import {
 import {
   startSoatRetencionCron, stopSoatRetencionCron,
 } from './modules/flito-soat/flito-soat-retencion.cron.js';
+import { startSoatMasivoCron, stopSoatMasivoCron } from './modules/flito-soat/flito-soat-masivo.cron.js';
 import { startDrflitPurgaCron, stopDrflitPurgaCron } from './modules/flito-dr-flit/dr-flit.cron.js';
 import {
   startSoatBorradosPendientesCron, stopSoatBorradosPendientesCron,
@@ -129,6 +130,9 @@ const server = app.listen(env.PORT, () => {
     // solicitudes por validar descartadas hace 30 días o más (03:00 de Colombia). Noop si
     // SOAT_RETENCION_CRON_ENABLED!=1. Candado `flito-soat-retencion`.
     startSoatRetencionCron();
+    // FLITO SOAT: worker de la carga masiva de renovaciones (HU #14132, ADR-0032). Noop si
+    // SOAT_MASIVO_WORKER_ENABLED!=1. Cola en Postgres (SKIP LOCKED); sin candado en el tick.
+    startSoatMasivoCron();
     // Dr. Flit (HU #13804, D6): purga a 12 meses de los intentos de radicación en FLIT - SOPORTE
     // (03:00 de Colombia). Noop si DRFLIT_PURGA_CRON_ENABLED!=1. Candado `flito-drflit-purga`.
     startDrflitPurgaCron();
@@ -181,6 +185,7 @@ function shutdown(signal: string) {
   stopComparendosPurgaCron();
   stopSoatVigenciaCron();
   stopSoatRetencionCron();
+  stopSoatMasivoCron();
   stopDrflitPurgaCron();
   stopSoatBorradosPendientesCron();
 

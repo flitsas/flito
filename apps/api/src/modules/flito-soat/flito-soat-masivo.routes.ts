@@ -13,6 +13,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
+import { env } from '../../config/env.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -86,7 +87,17 @@ router.get('/cliente/masivo/plantilla', exigirFuncion('soat.solicitud.crear'), s
     res.send(buf);
   });
 
-router.post('/cliente/masivo', exigirFuncion('soat.solicitud.crear'), soatMasivoAltaLimiter, recibirArchivo,
+/**
+ * HU #14132: sin worker no hay quien procese el lote, y un lote `en_cola` bloquea a su compañía (índice de un
+ * lote activo). Con `SOAT_MASIVO_WORKER_ENABLED` apagado el alta responde 503 ANTES del limiter y de multer,
+ * sin leer el archivo ni crear nada. La plantilla y el avance siguen disponibles.
+ */
+const exigirWorkerEncendido = (_req: Request, res: Response, next: NextFunction): void => {
+  if (env.SOAT_MASIVO_WORKER_ENABLED) { next(); return; }
+  responder(res, falloMasivo(503, 'carga_masiva_no_disponible', 'La carga masiva no está disponible por ahora.'));
+};
+
+router.post('/cliente/masivo', exigirFuncion('soat.solicitud.crear'), exigirWorkerEncendido, soatMasivoAltaLimiter, recibirArchivo,
   async (req: Request, res: Response) => {
     try {
       if (!req.file) { responder(res, falloMasivo(400, 'archivo_requerido', 'Adjunta el archivo Excel de la carga.')); return; }
