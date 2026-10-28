@@ -40,7 +40,8 @@ async function preparar(page: Page, funciones: readonly string[] = FUNCIONES): P
     const b = r.request().postDataJSON() as Record<string, unknown>;
     espias.escanear.push(b);
     n += 1;
-    const base = { placa: b.placa, vin: 'VIN0000000000001', numeroLicencia: b.numeroLicencia, propietarioNombre: 'Propietario de Prueba' };
+    const c0 = (CANDIDATOS[b.placa as string]?.[0] ?? null) as { organismoCodigo: string; companiaNombre: string } | null;
+    const base = { placa: b.placa, organismoCodigo: c0?.organismoCodigo ?? null, companiaNombre: b.dejarPendiente ? null : (c0?.companiaNombre ?? null), vin: 'VIN0000000000001', numeroLicencia: b.numeroLicencia, propietarioNombre: 'Propietario de Prueba' };
     const multiple = b.placa === 'MUL111' && !b.tramiteId && !b.dejarPendiente;
     const body = multiple
       ? { ...base, resultado: 'elegir_tramite', candidatos: CANDIDATOS.MUL111 }
@@ -298,10 +299,11 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
   test('Mis recogidas: cargando, error con reintento, lleno (cédula enmascarada) y vacío', async ({ page }) => {
     await preparar(page);
     let intento = 0;
+    await page.route(/\/api\/flito\/logistica\/recogidas\/pendientes-firma$/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pendientes: [] }) }));
     await page.route(/\/api\/flito\/logistica\/recogidas\/mias$/, (r) => {
       intento += 1;
       if (intento === 1) return r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'x' }) });
-      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ recogidas: [{ firmanteId: 'f-1', organismoCodigo: '11001', nombre: 'Funcionario de Prueba', documentoEnmascarado: '••••3456', firmadoEn: '2026-10-28T15:00:00Z', actas: 2, pendientesTramite: 1 }] }) });
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ recogidas: [{ firmanteId: 'f-1', organismoCodigo: '11001', nombre: 'Funcionario de Prueba', documentoEnmascarado: '••••3456', firmadoEn: '2026-10-28T15:00:00Z', actas: 2, pendientesTramite: 1, estadoFirma: 'firmada' }], pendientesFirma: 0 }) });
     });
     await page.route(/\/api\/flito\/logistica\/recogidas\/f-1$/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
       firmanteId: 'f-1', organismoCodigo: '11001', nombre: 'Funcionario de Prueba', documentoEnmascarado: '••••3456', firmadoEn: '2026-10-28T15:00:00Z',
@@ -321,11 +323,41 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
 
     // Vacío.
     await page.unroute(/\/api\/flito\/logistica\/recogidas\/mias$/);
-    await page.route(/\/api\/flito\/logistica\/recogidas\/mias$/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ recogidas: [] }) }));
+    await page.route(/\/api\/flito\/logistica\/recogidas\/mias$/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ recogidas: [], pendientesFirma: 0 }) }));
     await page.getByRole('button', { name: /Mis recogidas/ }).click();
     await expect(page.getByText(/Todavía no has confirmado recogidas/)).toBeVisible();
     await page.getByRole('button', { name: 'Ir a escanear' }).click();
     await expect(page.getByRole('heading', { name: 'Recoger licencias' })).toBeVisible();
+  });
+
+  test('Mis recogidas: LT pendientes de firma con contador y firma desde ahí', async ({ page }) => {
+    const espias = await preparar(page);
+    let firmadas = false;
+    const pend = [
+      { documentoId: 'p-1', placa: 'ABC123', numeroLt: 'LT10000848803', idFlit: 'FLIT-1', companiaId: 1, companiaNombre: 'Transportes del Norte S.A.S.', organismoCodigo: '11001', pendienteTramite: false, estado: 'recogido', fecha: '2026-10-28T15:00:00Z' },
+      { documentoId: 'p-2', placa: 'DEF456', numeroLt: 'LT10000848804', idFlit: null, companiaId: null, companiaNombre: null, organismoCodigo: '11001', pendienteTramite: true, estado: 'recogido', fecha: '2026-10-28T16:00:00Z' },
+    ];
+    await page.route(/\/api\/flito\/logistica\/recogidas\/pendientes-firma$/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pendientes: firmadas ? [] : pend }) }));
+    await page.route(/\/api\/flito\/logistica\/recogidas\/mias$/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      recogidas: firmadas ? [{ firmanteId: 'f-1', organismoCodigo: '11001', nombre: 'Funcionario de Prueba', documentoEnmascarado: '••••3456', firmadoEn: '2026-10-28T17:00:00Z', actas: 1, pendientesTramite: 1, estadoFirma: 'firmada' }] : [],
+      pendientesFirma: firmadas ? 0 : 2 }) }));
+
+    await page.getByRole('button', { name: /Mis recogidas/ }).click();
+    await expect(page.getByText('Falta firma · 2')).toBeVisible();
+    await expect(page.getByText('ABC123 · LT10000848803')).toBeVisible();
+    await expect(page.getByText(/Transportes del Norte S\.A\.S\. · Org\. 11001/)).toBeVisible();
+    await expect(page.getByText(/^Pendiente de trámite · Org\. 11001/)).toBeVisible();
+    expect(page.url()).not.toContain('ABC123');
+    await page.getByRole('button', { name: 'Firmar 2 LT' }).click();
+    await expect(page.getByRole('heading', { name: 'Confirmar recogida' })).toBeVisible();
+    await llenarFuncionario(page);
+    firmadas = true;
+    await page.getByRole('button', { name: 'Confirmar recogida' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Firmaste' })).toBeVisible();
+    expect(espias.confirmar[0].documentoIds).toEqual(['p-1', 'p-2']);
+    await expect(page.getByText('Falta firma · 2')).toHaveCount(0);
+    await expect(page.locator('[data-flit-chip]').filter({ hasText: 'Firmada' })).toBeVisible();
+    expect(espias.consola.join(' ')).not.toContain('ABC123');
   });
 
   test('móvil 375: sin scroll horizontal en lista y firma', async ({ page }) => {

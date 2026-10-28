@@ -81,7 +81,7 @@ export default function FlitoRuta() {
       {msg && <div className="rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(112,207,58,0.14)', color: 'var(--flit-success)' }}>{msg}</div>}
       {error && <div className="rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(228,61,48,0.14)', color: 'var(--flit-danger)' }}>{error}</div>}
 
-      {vista === 'recogidas' && <MisRecogidas onVolver={() => setVista('ruta')} onEscanear={() => setVista('ruta')} />}
+      {vista === 'recogidas' && <MisRecogidas puedeConfirmar={puedeConfirmar} onVolver={() => setVista('ruta')} onEscanear={() => setVista('ruta')} />}
       {/* Montado siempre: ir a «Mis recogidas» a mitad de una recogida no pierde la lista. */}
       <div hidden={vista === 'recogidas'}><PanelRecogida puedeConfirmar={puedeConfirmar} onVerRecogidas={() => setVista('recogidas')} /></div>
 

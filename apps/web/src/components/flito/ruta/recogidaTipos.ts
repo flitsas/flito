@@ -12,13 +12,31 @@ export type ResultadoEscaneo = 'recogido' | 'novedad' | 'duplicado' | 'sin_match
 export interface RespuestaEscaneo {
   resultado: ResultadoEscaneo; documentoId?: string; placa: string; vin: string; idFlit?: string;
   numeroLicencia?: string; propietarioNombre?: string | null; motivo?: string | null; candidatos?: Candidato[]; pendienteTramite?: boolean;
+  /** HU #14161: el servidor ya devuelve organismo y compañía (compañía null en pendientes de trámite). */
+  organismoCodigo?: string | null; companiaNombre?: string | null;
 }
 export interface RespuestaValidacion {
   resultado: 'relacionada' | 'novedad' | 'sin_match' | 'no_gestionable' | 'ya_registrada' | 'elegir_tramite';
-  motivo?: string | null; candidatos?: Candidato[];
+  motivo?: string | null; candidatos?: Candidato[]; organismoCodigo?: string | null; companiaNombre?: string | null;
 }
 export type RespuestaConsulta = { encontrado: false } | { encontrado: true; candidatos: Candidato[] };
 export interface RecogidaConfirmada { firmanteId: string; actas: Array<{ actaId: string; companiaId: number; documentos: number }>; pendientesTramite: number }
+
+/** HU #14161: una LT escaneada y registrada cuya acta aún no tiene la firma del funcionario. */
+export interface PendienteFirma {
+  documentoId: string; placa: string | null; numeroLt: string | null; idFlit: string | null; companiaId: number | null; companiaNombre: string | null;
+  organismoCodigo: string; pendienteTramite: boolean; estado: string; fecha: string;
+}
+export interface RespuestaPendientesFirma { pendientes: PendienteFirma[] }
+export interface ResumenRecogidaMia { firmanteId: string; organismoCodigo: string; nombre: string; documentoEnmascarado: string | null; firmadoEn: string; actas: number; pendientesTramite: number; estadoFirma: 'firmada' }
+export interface RespuestaMisRecogidas { recogidas: ResumenRecogidaMia[]; pendientesFirma: number }
+
+/** Una pendiente de firma como fila del paso «Confirmar recogida» (reusa el flujo existente). */
+export const filaDePendiente = (p: PendienteFirma): FilaLt => ({
+  key: p.documentoId, manual: null, rawValue: null, placa: p.placa ?? '', vin: null, propietario: null, numeroLicencia: '', combustible: null,
+  numeroLt: p.numeroLt ?? '', estado: p.pendienteTramite ? 'pendiente' : 'lista', motivo: null, candidatos: null,
+  organismoCodigo: p.organismoCodigo, companiaNombre: p.companiaNombre, documentoId: p.documentoId, registro: 'registrada',
+});
 
 export interface DatosManual { placa: string; numeroLicencia: string; numeroLt: string }
 

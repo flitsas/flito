@@ -19,7 +19,7 @@ import PasoFirma, { type ResumenRecogida } from './PasoFirma';
 import TarjetaLtRecogida from './TarjetaLtRecogida';
 import {
   entra, estadoDeEscaneo, estadoDeValidacion, mensajeEscanear, nuevaKey,
-  type Candidato, type DatosManual, type FilaLt, type RespuestaConsulta, type RespuestaEscaneo, type RespuestaValidacion,
+  type Candidato, type DatosManual, type FilaLt, type RespuestaEscaneo, type RespuestaValidacion,
 } from './recogidaTipos';
 
 type Vista = 'lista' | 'firma' | 'confirmada';
@@ -77,7 +77,8 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
       const estado = f.dejarPendiente && (r.resultado === 'recogido' || r.resultado === 'novedad') ? 'pendiente' : estadoDeEscaneo(r);
       patch(f.key, {
         estado, motivo: r.motivo ?? null, documentoId: r.documentoId, vin: r.vin ?? f.vin, propietario: r.propietarioNombre ?? f.propietario,
-        numeroLicencia: r.numeroLicencia ?? f.numeroLicencia, candidatos: r.candidatos ?? null, registro: estado === 'elegir' ? 'no' : 'registrada',
+        numeroLicencia: r.numeroLicencia ?? f.numeroLicencia, candidatos: r.candidatos ?? null,
+        organismoCodigo: r.organismoCodigo ?? f.organismoCodigo, companiaNombre: r.companiaNombre ?? f.companiaNombre, registro: estado === 'elegir' ? 'no' : 'registrada',
       });
       if (estado === 'elegir') { setHojaKey(f.key); return 'elegir'; }
       return 'ok';
@@ -88,20 +89,13 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
   };
 
   // ── Escaneo con cámara: valida sin persistir; se registra al continuar ─────
-  const enriquecer = async (key: string, placa: string) => {
-    try { // compañía y organismo para agrupar las actas; si falla, la LT se avisa en el paso de firma
-      const r = await api.post<RespuestaConsulta>('/flito/logistica/consultar-vehiculo', { placa });
-      if (r.encontrado && r.candidatos.length === 1) patch(key, { companiaNombre: r.candidatos[0].companiaNombre, organismoCodigo: r.candidatos[0].organismoCodigo });
-    } catch { /* silencioso */ }
-  };
   const validar = async (f: FilaLt) => {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) { patch(f.key, { estado: 'sin_conexion' }); return; }
     try {
       const r = await api.post<RespuestaValidacion>('/flito/logistica/validar-lt', { rawValue: f.rawValue });
       const estado = estadoDeValidacion(r);
-      patch(f.key, { estado, motivo: r.motivo ?? null, candidatos: r.candidatos ?? null });
+      patch(f.key, { estado, motivo: r.motivo ?? null, candidatos: r.candidatos ?? null, organismoCodigo: r.organismoCodigo ?? null, companiaNombre: r.companiaNombre ?? null });
       if (estado === 'elegir') setHojaKey(f.key);
-      else if (estado === 'lista' || estado === 'novedad') void enriquecer(f.key, f.placa);
     } catch { patch(f.key, { estado: 'error', motivo: 'No pudimos validar la LT. Revisa la señal e inténtalo de nuevo.' }); }
   };
   const procesar = (rawValue: string, numeroLt?: string | null) => {
