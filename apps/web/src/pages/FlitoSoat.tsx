@@ -557,7 +557,7 @@ export default function FlitoSoat() {
                     <p>Todavía no hay ningún SOAT de su compañía en FLITO.</p>
                     {puedeSolicitar && (
                       <p className="mt-2">
-                        Solicite el primero con la placa y el VIN del vehículo.
+                        Solicite el primero con el VIN del vehículo, o con la placa si es una renovación.
                         {/* Secundario desde la HU #12819: la primaria ya está en la cabecera. */}
                         <span className="mt-3 block">
                           <Link to="/flito/soat/solicitud" className={flitBtnSecondary}>

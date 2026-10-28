@@ -25,6 +25,7 @@
 // justo lo que el Cliente no sabe leer.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
+import { elegirTipoInicial } from '../helpers/soat-tipo';
 import { loginAs, CLIENTE_CON_CANAL, FUNCIONES_POR_ROL } from '../helpers/auth';
 
 const VIN = '9BWZZZ377VT004251';
@@ -103,6 +104,7 @@ async function mockCanal(
       : json(route, 200, RUNT_OK);
   });
   await page.goto('/flito/soat/solicitud');
+  await elegirTipoInicial(page);
   return { altas, preconsultas, lecturas, liberarPreconsulta: () => abrir() };
 }
 
@@ -121,7 +123,7 @@ const bloque = (page: Page, titulo: string) => page.getByRole('region', { name: 
 const campoVin = (page: Page) => page.getByLabel('VIN (número de chasis)');
 const btnConsultar = (page: Page) => page.getByRole('button', { name: 'Consultar el RUNT' });
 const btnReconsultar = (page: Page) => page.getByRole('button', { name: 'Volver a consultar' });
-const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al gestor' });
+const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar solicitud' });
 const btnGuardar = (page: Page) => page.getByRole('button', { name: 'Guardar pendiente de validar' });
 const fichaRunt = (page: Page) => page.getByRole('region', { name: 'Datos del RUNT' });
 
@@ -309,7 +311,7 @@ test.describe('HU #12091 · AC2 — el orden de la pantalla', () => {
     await expect(page.getByRole('heading', { level: 2 }))
       // HU #13363: el bloque 4 (opcional) va al final, después del propietario.
       // HU #12874: la compañía (fija o escogida) abre el formulario: alimenta la consulta del RUNT.
-      .toHaveText(['Compañía', '1 · Vehículo', '2 · Factura de venta', '3 · Propietario', '4 · Documentos adicionales (opcional)']);
+      .toHaveText(['Compañía', 'Tipo de SOAT', '1 · Vehículo', '2 · Factura de venta', '3 · Propietario', '4 · Documentos adicionales (opcional)']);
 
     // Y no hay asistente por pasos ni borrador: crear sigue siendo enviar.
     await expect(page.getByRole('button', { name: /Siguiente|Continuar|Guardar borrador/ })).toHaveCount(0);

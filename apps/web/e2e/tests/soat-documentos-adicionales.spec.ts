@@ -10,6 +10,7 @@
 import { promises as fs } from 'node:fs';
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
+import { elegirTipoInicial } from '../helpers/soat-tipo';
 import {
   loginAs, CLIENTE_CON_CANAL, CLIENTE_USER, FUNCIONES_POR_ROL, OPERACIONES_USER, PROVEEDOR_USER,
 } from '../helpers/auth';
@@ -55,7 +56,7 @@ const txt = (name: string): Archivo => ({ name, mimeType: 'text/plain', buffer: 
 // ── Alta ────────────────────────────────────────────────────────────────────────────────────────
 const bloque4 = (page: Page) => page.getByRole('region', { name: '4 · Documentos adicionales (opcional)' });
 const inputAdicionales = (page: Page) => bloque4(page).locator('input[type="file"]');
-const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al gestor' });
+const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar solicitud' });
 
 type Alta = { status: number; cuerpo: unknown } | 'abort';
 
@@ -95,6 +96,7 @@ async function abrirAlta(page: Page, alta?: Alta) {
   await loginAs(page, CLIENTE_CON_CANAL);
   const cap = await mockAlta(page, alta);
   await page.goto('/flito/soat/solicitud');
+  await elegirTipoInicial(page);
   return cap;
 }
 

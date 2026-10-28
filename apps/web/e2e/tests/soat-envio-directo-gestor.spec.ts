@@ -25,6 +25,7 @@
 // `QA_AXE_PATH` sale rojo por entorno, igual que los demás specs de axe del repo.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
+import { elegirTipoInicial } from '../helpers/soat-tipo';
 import { loginAs, CLIENTE_CON_CANAL, OPERACIONES_USER } from '../helpers/auth';
 
 const PLACA = 'ABC123';
@@ -83,11 +84,12 @@ async function montarAlta(page: Page) {
     return json(route, 201, { id: UUID_SOLICITUD, estado: 'solicitado' });
   });
   await page.goto('/flito/soat/solicitud');
+  await elegirTipoInicial(page);
   return { altas };
 }
 
 const linea = (page: Page) => page.locator('#sol-falta');
-const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al gestor' });
+const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar solicitud' });
 
 /**
  * Consulta el RUNT, para abrir la compuerta y nada más.
@@ -194,6 +196,7 @@ test.describe('HU #12079 · AC1 — el botón bloqueado enumera lo que falta', (
       error: 'El RUNT reporta que este vehículo ya tiene un SOAT vigente.', codigo: 'soat_vigente',
     }));
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await page.getByLabel('VIN').fill(VIN);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
@@ -283,7 +286,7 @@ test.describe('HU #12079 · AC3 — las pantallas retiradas no existen ni por UR
     // caería en `<Alta />` y una dirección guardada prometería una solicitud existente pintando un
     // formulario NUEVO en blanco. Los dos asertos hacen falta.
     await expect(page).toHaveURL(/\/flito\/soat$/);
-    await expect(page.getByRole('button', { name: 'Enviar al gestor' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Enviar solicitud' })).toHaveCount(0);
   });
 });
 

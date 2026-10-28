@@ -99,7 +99,7 @@ export default function TablaColaSoat({
                   )}
                   <CeldaVehiculoSoat placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea}
                     cilindraje={f.cilindraje} carroceria={f.carroceria} tipoServicio={f.tipoServicio}
-                    multiplePropietario={f.esMultiplePropietario} />
+                    multiplePropietario={f.esMultiplePropietario} tipoSoat={f.tipoSoat} />
                   {/* La vigencia entra AQUÍ y no en una columna nueva: esta celda es, desde la HU
                       #11905, donde viven las señales temporales de riesgo del mismo SOAT, y una
                       columna más devolvería la tabla a 11 y con ella el desborde a 1280 px que

@@ -23,6 +23,7 @@ import { documentoConTipo } from '../../flit/columnasComunes';
 import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary } from '../../flit/flitPageKit';
 import TarjetaSoatActivo from '../soat-cliente/TarjetaSoatActivo';
 import ChipEstadoSoat, { ChipIncompletaSoat } from './ChipEstadoSoat';
+import EtiquetaTipoSoat from './EtiquetaTipoSoat';
 import type { DesenlaceReintento } from './useReintentoRunt';
 import { fecha, fechaLarga } from './tipos';
 
@@ -33,8 +34,16 @@ export const MOTIVO_DESCARTE_TEXTO: Record<MotivoDescarteSoat, string> = {
   runt_no_cuadra: 'El VIN no coincide con el que el RUNT tiene registrado.',
   runt_sin_vin: 'El RUNT no devolvió el VIN del vehículo.',
   solicitud_existente: 'Ese VIN ya tenía una solicitud en la cola de FLITO.',
-  // Guarda mínima de la HU #14018 (backend); el copy final y la UI de renovación son de la HU #14019.
+  // HU #14018/#14019: en una renovación se usa `MOTIVO_DESCARTE_RENOVACION` (habla de la placa).
   sin_soat_anterior: 'El RUNT no registra un SOAT anterior para este vehículo.',
+};
+
+/** En una renovación el vehículo se nombra por la placa, no por el VIN (HU #14019). */
+const MOTIVO_DESCARTE_RENOVACION: Partial<Record<MotivoDescarteSoat, string>> = {
+  runt_sin_registro: 'El RUNT no tiene registrada esa placa.',
+  runt_no_cuadra: 'El documento no corresponde al propietario de esa placa.',
+  solicitud_existente: 'Ese vehículo ya tenía una solicitud en la cola de FLITO.',
+  sin_soat_anterior: 'El RUNT no registra un SOAT anterior para esta placa.',
 };
 
 const CAJA = { background: 'var(--flit-bg-app)', borderColor: 'var(--flit-border-soft)' } as const;
@@ -99,16 +108,19 @@ export default function DetalleIncompletaSoat({
   }, [fila.id, intento]);
 
   const d = det ?? fila;
+  const renovacion = d.tipoSoat === 'RENOVACION';
   const p = det?.propietario ?? null;
   const nombreProp = p ? (p.razonSocial || [p.nombres, p.apellidos].filter(Boolean).join(' ') || '—') : '—';
 
   return (
-    <FlitModal title={`Solicitud · ${fila.vin}`} onClose={onClose} wide restoreFocusRef={restoreFocusRef} cierreBloqueado={consultando}>
+    // Con `vin` null (renovación con RUNT caído) el título lleva la PLACA (HU #14019, AC7).
+    <FlitModal title={`Solicitud · ${fila.vin ?? fila.placa ?? ''}`.trimEnd()} onClose={onClose} wide restoreFocusRef={restoreFocusRef} cierreBloqueado={consultando}>
       <div ref={cuerpoRef} tabIndex={-1} className="flit-focus space-y-4 rounded text-sm">
         {/* Un único anuncio de la consulta en vuelo (AC8); vacío en reposo. */}
         <p role="status" className="sr-only">{consultando ? 'Consultando el RUNT…' : ''}</p>
         <div className="flex flex-wrap items-center gap-2">
           {completada ? <ChipEstadoSoat estado={EstadoSoat.SOLICITADO} /> : <ChipIncompletaSoat estado={d.estado} />}
+          <EtiquetaTipoSoat tipo={d.tipoSoat} />
         </div>
 
         {completada?.vigenciaProxima && (
@@ -122,7 +134,9 @@ export default function DetalleIncompletaSoat({
               Pendiente de validar con el RUNT
             </h3>
             <p style={{ color: 'var(--flit-text-secondary)' }}>
-              La placa, la marca, la línea y la ficha técnica las trae el RUNT. Aparecerán aquí cuando la consulta responda.
+              {renovacion
+                ? 'El RUNT trae la marca, la línea y la ficha técnica a partir de la placa y el documento del propietario. Aparecerán aquí cuando la consulta responda.'
+                : 'La placa, la marca, la línea y la ficha técnica las trae el RUNT. Aparecerán aquí cuando la consulta responda.'}
             </p>
             <p className="tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>
               Último intento: {fechaLarga(d.ultimoIntentoRuntEn)}
@@ -152,7 +166,7 @@ export default function DetalleIncompletaSoat({
             </h3>
             <dl className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-[auto_1fr]">
               <dt style={{ color: 'var(--flit-text-muted)' }}>Motivo</dt>
-              <dd style={{ color: 'var(--flit-text-primary)' }}>{MOTIVO_DESCARTE_TEXTO[d.descarte.motivo] ?? '—'}</dd>
+              <dd style={{ color: 'var(--flit-text-primary)' }}>{(renovacion && MOTIVO_DESCARTE_RENOVACION[d.descarte.motivo]) || MOTIVO_DESCARTE_TEXTO[d.descarte.motivo] || '—'}</dd>
               <dt style={{ color: 'var(--flit-text-muted)' }}>Cuándo</dt>
               <dd className="tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{fechaLarga(d.descarte.en)}</dd>
               <dt style={{ color: 'var(--flit-text-muted)' }}>Quién</dt>
@@ -164,7 +178,9 @@ export default function DetalleIncompletaSoat({
 
         {/* Lo digitado: es la prueba de que no se perdió nada (UX §5). */}
         <dl className="grid grid-cols-1 gap-x-4 gap-y-2 border-t pt-4 sm:grid-cols-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <Dato k="VIN" v={d.vin ?? '—'} id="incompleta-vin" />
+          {renovacion
+            ? <Dato k="Placa" v={d.placa ?? '—'} id="incompleta-vin" />
+            : <Dato k="VIN" v={d.vin ?? '—'} id="incompleta-vin" />}
           <Dato k="Compañía" v={d.companiaNombre ?? '—'} />
           <Dato k="Solicitado por" v={d.solicitadoPorNombre} />
           <Dato k="Solicitado" v={fecha(d.solicitadoEn)} />
