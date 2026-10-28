@@ -70,7 +70,8 @@ async function montar(page: Page, m: Montaje = {}) {
 
 const filas = (page: Page) => page.getByRole('table').locator('tbody tr');
 const fila = (page: Page, nombre: string) => filas(page).filter({ hasText: nombre });
-const chip = (page: Page, nombre: string) => fila(page, nombre).locator('td').nth(1);
+// HU #14105: el chip de estado va bajo el nombre, en la celda «Empresa».
+const chip = (page: Page, nombre: string) => fila(page, nombre).locator('td').nth(0).getByText(/^(Activo|Inactivo)$/);
 const kebab = (page: Page, nombre: string) => page.getByRole('button', { name: `Acciones de ${nombre}` });
 const menu = (page: Page) => page.getByRole('menu');
 const dialogo = (page: Page) => page.getByRole('dialog');
