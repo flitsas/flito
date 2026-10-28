@@ -16,7 +16,7 @@ Además las filas llevan PII (placa, documento, nombre, correo, celular del prop
 
 ## Decisión
 
-1. **Cola = tablas en Postgres.** `flito_soat_masivo_lotes` y `flito_soat_masivo_filas`. El worker corre **en la misma API** (cron `setInterval`, puerta positiva `SOAT_MASIVO_WORKER_ENABLED=1`) y reclama filas con `FOR UPDATE SKIP LOCKED`. Sin Redis/BullMQ ni dependencia nueva.
+1. **Cola = tablas en Postgres.** `flito_soat_masivo_lotes` y `flito_soat_masivo_filas`. El worker corre **en la misma API** (cron `setInterval`, defecto encendido; `SOAT_MASIVO_WORKER_ENABLED=0` apaga. Enmienda del 2026-10-28: sustituye la puerta positiva `=1`) y reclama filas con `FOR UPDATE SKIP LOCKED`. Sin Redis/BullMQ ni dependencia nueva.
 2. **Concurrencia:** 2 filas en vuelo por proceso; tope **por compañía aplicado en la base** (el reclamo bloquea primero la fila del lote con `FOR UPDATE SKIP LOCKED`, cuenta las `consultando` de la compañía y reclama solo el cupo libre), de modo que el tope vale aunque haya varias réplicas. Si la pasarela responde 429, el proceso entra en pausa con backoff exponencial y las filas vuelven a `pendiente` **sin gastar su reintento**.
 3. **Recuperación:** una fila `consultando` cuyo arrendamiento (`reclamada_en`) venció se devuelve a `pendiente` sumando un intento (una fila que mata el pod no puede ciclar para siempre). Cada fila usa un `soat_id_reservado` fijado al reclamarla, de modo que repetir el efecto tras una caída a mitad es **idempotente** (se detecta la incompleta/SOAT con ese id en lugar de rechazar por duplicado).
 4. **Un lote activo por compañía:** índice único parcial sobre `compania_id` donde `estado IN ('en_cola','procesando')`.

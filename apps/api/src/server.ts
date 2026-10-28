@@ -131,7 +131,7 @@ const server = app.listen(env.PORT, () => {
     // SOAT_RETENCION_CRON_ENABLED!=1. Candado `flito-soat-retencion`.
     startSoatRetencionCron();
     // FLITO SOAT: worker de la carga masiva de renovaciones (HU #14132, ADR-0032). Noop si
-    // SOAT_MASIVO_WORKER_ENABLED!=1. Cola en Postgres (SKIP LOCKED); sin candado en el tick.
+    // SOAT_MASIVO_WORKER_ENABLED=0 (defecto: encendido). Cola en Postgres (SKIP LOCKED); sin candado en el tick.
     startSoatMasivoCron();
     // Dr. Flit (HU #13804, D6): purga a 12 meses de los intentos de radicación en FLIT - SOPORTE
     // (03:00 de Colombia). Noop si DRFLIT_PURGA_CRON_ENABLED!=1. Candado `flito-drflit-purga`.

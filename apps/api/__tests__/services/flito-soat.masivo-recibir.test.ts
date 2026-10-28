@@ -11,7 +11,7 @@ import express from 'express';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { testToken } from '../helpers/auth.js';
-import { env } from '../../src/config/env.js';
+import { env, workerMasivoEncendido } from '../../src/config/env.js';
 const flagWorker = (v: boolean) => { (env as { SOAT_MASIVO_WORKER_ENABLED: boolean }).SOAT_MASIVO_WORKER_ENABLED = v; };
 
 let cola: unknown[] = [];
@@ -400,5 +400,13 @@ describe('HU #14132 — con el worker apagado el alta no crea nada', () => {
     expect(selectMock).not.toHaveBeenCalled();
     const p = await request(await app()).get('/api/flito/soat/cliente/masivo/plantilla').set('Authorization', await auth());
     expect(p.status).toBe(200);
+  });
+});
+
+describe('HU #14132 — regla de env SOAT_MASIVO_WORKER_ENABLED (defecto encendido)', () => {
+  it('ausente => true, "0" => false, "1" => true', () => {
+    expect(workerMasivoEncendido(undefined)).toBe(true);
+    expect(workerMasivoEncendido('0')).toBe(false);
+    expect(workerMasivoEncendido('1')).toBe(true);
   });
 });

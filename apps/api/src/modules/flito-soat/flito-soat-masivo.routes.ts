@@ -92,7 +92,7 @@ router.get('/cliente/masivo/plantilla', exigirFuncion('soat.solicitud.crear'), s
 
 /**
  * HU #14132: sin worker no hay quien procese el lote, y un lote `en_cola` bloquea a su compañía (índice de un
- * lote activo). Con `SOAT_MASIVO_WORKER_ENABLED` apagado el alta responde 503 ANTES del limiter y de multer,
+ * lote activo). Con `SOAT_MASIVO_WORKER_ENABLED=0` (apagado explícito; el defecto es encendido) el alta responde 503 ANTES del limiter y de multer,
  * sin leer el archivo ni crear nada. La plantilla y el avance siguen disponibles.
  */
 const exigirWorkerEncendido = (_req: Request, res: Response, next: NextFunction): void => {
