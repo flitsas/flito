@@ -7,6 +7,7 @@ import 'express-async-errors';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { chain, chainReject } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
 import { conAlcance } from '../helpers/frontera.js';
@@ -116,6 +117,46 @@ describe('AC1 — resolver con firma de organismo ya capturada', () => {
     expect(r.body.actaId).toBeNull();
     expect(inserciones.some((i) => i.tabla === flitoLogisticaActas || i.tabla === flitoLogisticaActaLineas)).toBe(false);
     expect(sets[0]).not.toHaveProperty('actaOrganismoPendiente');
+  });
+
+  it('reutilizar el acta discrimina la COMPAÑÍA: con un acta de organismo de otra compañía y el mismo firmante, crea una nueva', async () => {
+    const dialect = new PgDialect();
+    // Double de la tabla de actas: solo existe el acta de la compañía 5; filtra por los números del WHERE real.
+    const tablaActas = () => {
+      let filas: unknown[] = [];
+      const t = {
+        from: () => t, limit: () => t,
+        where: (cond: never) => {
+          const nums = dialect.sqlToQuery(cond).params.filter((p) => typeof p === 'number');
+          filas = nums.every((n) => n === 5) ? [{ id: 'acta-de-la-5' }] : [];
+          return t;
+        },
+        then: (res: (v: unknown) => unknown) => Promise.resolve(filas).then(res),
+      };
+      return t;
+    };
+    selectMock.mockReturnValueOnce(chain([docPendiente()]));
+    selectMock.mockReturnValueOnce(chain([tramiteOk({ companiaId: 6 })]));
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(tablaActas());
+    selectMock.mockReturnValueOnce(chain([{ por: 3, en: new Date('2026-10-01T00:00:00Z'), lat: null, lng: null }]));
+    insertMock.mockImplementation((tabla: unknown) => ({
+      values: (valores: Record<string, unknown>) => {
+        inserciones.push({ tabla, valores });
+        return tabla === flitoLogisticaActas ? chain([{ id: ACTA }]) : chain([]);
+      },
+    }));
+    const r = await llamar('post', RUTA, await operador(), { tramiteId: TRAM });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ companiaId: 6, actaId: ACTA });
+    expect(inserciones.find((i) => i.tabla === flitoLogisticaActas)!.valores).toMatchObject({ companiaId: 6, firmanteId: FIRMANTE });
+    expect(inserciones.find((i) => i.tabla === flitoLogisticaActaLineas)!.valores).toMatchObject({ actaId: ACTA, companiaId: 6 });
+  });
+
+  it('LT inexistente → 404 LT_NO_ENCONTRADA', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    const r = await llamar('post', RUTA, await operador(), { tramiteId: TRAM });
+    expect([r.status, r.body.codigo]).toEqual([404, 'LT_NO_ENCONTRADA']);
   });
 
   it('no loguea placa, VIN ni cédula', async () => {

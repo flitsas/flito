@@ -164,6 +164,16 @@ describe('cerrarLote — entregas parciales siempre (sin regla "Solo completo")'
     await expect(svc.cerrarLote(5, ctx)).rejects.toMatchObject({ status: 400, message: 'No hay LT clasificadas para esta empresa' });
     expect(insertMock).not.toHaveBeenCalled();
   });
+
+  it('HU #14143: una LT pendiente de trámite entre las listas → 409 LT_PENDIENTE_DE_TRAMITE y no se crea el acta', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([compania(false)]))
+      .mockReturnValueOnce(chain(docs))
+      .mockReturnValueOnce(chain([{ id: 'd2' }])); // la guarda halla una LT con tramite_id NULL
+    await expect(svc.cerrarLote(5, ctx)).rejects.toMatchObject({ status: 409, codigo: 'LT_PENDIENTE_DE_TRAMITE', extra: { documentoIds: ['d2'] } });
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
 });
 
 // ───────────────────────── despachar — firma de Operaciones (entrega) ─────
