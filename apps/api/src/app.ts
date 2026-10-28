@@ -27,7 +27,6 @@ import flit2AvisosRoutes, { RUTA_AVISOS_FLIT2 } from './modules/flito-sync/flit2
 import permisosRoutes from './modules/permisos/permisos.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
 import { conAlcance } from './shared/middleware/frontera-enlace.js';
-import flitoSoatMasivoRoutes from './modules/flito-soat/flito-soat-masivo.routes.js';
 import flitoSoatClienteRoutes from './modules/flito-soat/flito-soat-cliente.routes.js';
 import flitoSoatIncompletasRoutes from './modules/flito-soat/flito-soat-incompletas.routes.js';
 import flitoSoatDocumentosRoutes from './modules/flito-soat/flito-soat-documentos.routes.js';
@@ -269,7 +268,6 @@ export function createApp() {
   // del módulo tiene el techo de líneas congelado y estas rutas traen consigo su rate limit, su
   // validación de MIME real y su `requireRole('cliente')`. Primero el específico: hoy ningún patrón
   // del router de abajo casa con `/cliente`, y si mañana alguien añadiera uno, gana este.
-  app.use('/api/flito/soat', conAlcance('soat', flitoSoatMasivoRoutes)); // HU #14131: /cliente/masivo…, antes del canal Cliente
   app.use('/api/flito/soat', conAlcance('soat', flitoSoatClienteRoutes));
   // Lectura de las incompletas por RUNT caído (HU #12997): `/cliente/incompletas/…`, antes del módulo.
   app.use('/api/flito/soat', conAlcance('soat', flitoSoatIncompletasRoutes));

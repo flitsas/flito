@@ -403,7 +403,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
 
 /**
  * Foto de las rutas de los cuatro routers de `/api/flito/soat` (orden de montaje y de declaración).
- * Las 27 acotan por `contextoSoat` (compañía / proveedor) o por `buscarConAcceso` (404-no-403 fuera de
+ * Las 30 acotan por `contextoSoat` (compañía / proveedor) o por `buscarConAcceso` (404-no-403 fuera de
  * su alcance); por eso ninguna lleva `soloSinEnlace()` en #12875. Añadir una aquí es decidir eso.
  */
 const RUTAS_SOAT_ABIERTAS: string[] = [
@@ -413,6 +413,11 @@ const RUTAS_SOAT_ABIERTAS: string[] = [
   'GET /api/flito/soat/cliente/companias',
   'POST /api/flito/soat/cliente',
   'POST /api/flito/soat/cliente/factura/lectura',
+  // HU #14131 (añadidas a propósito): carga masiva de renovaciones, montada DENTRO del router de incompletas (sin un
+  // montaje más). Acotan por `contextoSoat` (alcance de compañía; lote ajeno = 404), no por `soloSinEnlace()`.
+  'GET /api/flito/soat/cliente/masivo/plantilla',
+  'POST /api/flito/soat/cliente/masivo',
+  'GET /api/flito/soat/cliente/masivo/:loteId',
   'POST /api/flito/soat/cliente/incompletas/buscar',
   'GET /api/flito/soat/cliente/incompletas/:id',
   'POST /api/flito/soat/cliente/incompletas/:id/reintentar',
