@@ -28,7 +28,8 @@
 
 import { and, eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { flitoCompradores, flitoSoat, flitoSoatIncompletas } from '../../db/schema.js';
+import { flitoCompradores, flitoSoatIncompletas } from '../../db/schema.js';
+import { soatActualDelVin } from './flito-soat-actual.js';
 import {
   CodigoErrorSolicitudSoat, EstadoSoat, EstadoSolicitudIncompletaSoat,
   type MotivoDescarteSoat, type ResultadoReintentoRunt, type SoatActivoRunt,
@@ -123,7 +124,9 @@ export async function reintentarIncompleta(id: string, ctx: SoatCtx): Promise<Re
         : null;
       const vin = desenlace.vinEfectivo;
       // RN-01 barata: el VIN ya tiene SOAT (otra solicitud se radicó mientras esta esperaba, Q3).
-      const [ocupado] = await db.select({ id: flitoSoat.id }).from(flitoSoat).where(eq(flitoSoat.vin, vin)).limit(1);
+      // ADR-0031: cualquier SOAT del VIN ocupa (el alta de esta incompleta es Inicial); el helper
+      // devuelve el actual —abierto primero— y la base cierra la carrera con el índice parcial.
+      const ocupado = await soatActualDelVin(db, vin);
       if (ocupado) return { ...base, respuesta: await descartar(inc, 'solicitud_existente', null, consultadoEn, ctx) };
 
       try {

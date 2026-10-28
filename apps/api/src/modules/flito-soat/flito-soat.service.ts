@@ -51,6 +51,7 @@ import { exigirProveedorSoatUsable } from '../flito-parametrizacion/flito-provee
 import { uploadEntityDocument } from '../../services/storage.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { EXISTS_COMPROBANTE_SOAT, TIPO_FACTURA_SOAT } from './flito-soat-censo.js';
+import { hayOtroAbiertoAlReabrir } from './flito-soat-actual.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 import { resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
 import { alcanceDeUsuario } from '../../shared/middleware/frontera-enlace.js';
@@ -1660,6 +1661,7 @@ export async function reversarEnTx(
   tx: Tx, soat: Pick<typeof flitoSoat.$inferSelect, 'id' | 'estado'>,
   estadoDestino: EstadoSoat, motivo: string, ctx: Pick<SoatCtx, 'userId' | 'username'>,
 ): Promise<typeof flitoSoat.$inferSelect> {
+  if (await hayOtroAbiertoAlReabrir(tx, soat.id, estadoDestino)) throw new SoatError(409, 'El vehículo ya tiene otro SOAT abierto');
   const limpiar = estadoDestino === EstadoSoat.PENDIENTE
     ? { enviadoPorId: null, enviadoEn: null, pagadoEn: null, valorPagado: null, motivoRechazo: null }
     : {};
