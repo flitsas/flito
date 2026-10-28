@@ -2718,7 +2718,8 @@ export const flitoOrganismoVigencias = pgTable('flito_organismo_vigencias', {
   vigenteUnica: uniqueIndex('uq_flito_vig_vigente').on(t.organismoCodigo).where(sql`hasta IS NULL`),
 }));
 
-// SOAT anclado al VIN (RN-01: un SOAT por VIN — `vin` UNIQUE lo hace por construcción).
+// SOAT anclado al VIN. RN-01 (ADR-0031, migración 0267): a lo sumo UN SOAT ABIERTO (estado <> 'pagado')
+// por VIN y por vehículo —índices únicos parciales—; los `pagado` son historial y pueden ser varios.
 export const flitoSoat = pgTable('flito_soat', {
   id: uuid('id').primaryKey().defaultRandom(),
   /**
@@ -2743,8 +2744,8 @@ export const flitoSoat = pgTable('flito_soat', {
    * trampa del 55P04 que este Feature ya paga dos veces.
    */
   origen: varchar('origen', { length: 10 }).notNull().default('tramite'),
-  vin: varchar('vin', { length: 17 }).notNull().unique(),
-  vehiculoId: integer('vehiculo_id').notNull().unique().references(() => vehicles.id),
+  vin: varchar('vin', { length: 17 }).notNull(),
+  vehiculoId: integer('vehiculo_id').notNull().references(() => vehicles.id),
   estado: flitoSoatEstadoEnum('estado').notNull().default('pendiente'),
   // Denormalizados y congelados: el SOAT vive más que sus trámites.
   companiaId: integer('compania_id').notNull().references(() => clients.id),
@@ -2842,7 +2843,10 @@ export const flitoSoat = pgTable('flito_soat', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
-  estadoIdx: index('idx_flito_soat_estado').on(t.estado),
+  // Migración 0267 (ADR-0031): los UNIQUE incondicionales de `vin`/`vehiculo_id` se reemplazan por
+  // índices de lookup + índices únicos PARCIALES «abierto» (a lo sumo un SOAT no `pagado`).
+  // (En una sola línea: `schema.ts` tiene techo de líneas congelado en ESLint.)
+  estadoIdx: index('idx_flito_soat_estado').on(t.estado), vinIdx: index('idx_flito_soat_vin').on(t.vin), vehiculoIdx: index('idx_flito_soat_vehiculo').on(t.vehiculoId), vinAbiertoUq: uniqueIndex('uq_flito_soat_vin_abierto').on(t.vin).where(sql`${t.estado} <> 'pagado'`), vehiculoAbiertoUq: uniqueIndex('uq_flito_soat_vehiculo_abierto').on(t.vehiculoId).where(sql`${t.estado} <> 'pagado'`),
   proveedorIdx: index('idx_flito_soat_proveedor').on(t.proveedorSoatId),
   // Migración 0169 (HU #11914), por la auditoría de esquema. Desde la HU #11913 `compania_id` es el
   // PREDICADO OBLIGATORIO del aislamiento del rol `cliente` —lo aplican `condicionesCola()`, que
