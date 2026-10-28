@@ -26,10 +26,10 @@
 // Solo el uuid de la incompleta, la compañía y el desenlace. Ni VIN, ni placa, ni documento, ni el
 // mensaje de ningún error (la causa de la caída es el vocabulario cerrado de `causaDeCaida`).
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { flitoCompradores, flitoSoatIncompletas } from '../../db/schema.js';
-import { soatActualDelVin } from './flito-soat-actual.js';
+import { actualEstaAbierto, soatActualDelVin } from './flito-soat-actual.js';
 import {
   CodigoErrorSolicitudSoat, EstadoSoat, EstadoSolicitudIncompletaSoat,
   type MotivoDescarteSoat, type ResultadoReintentoRunt, type SoatActivoRunt,
@@ -37,6 +37,7 @@ import {
 import { loggerFor } from '../../shared/logger.js';
 import type { SoatCtx } from './flito-soat.service.js';
 import { consultarYClasificar, type CausaCaidaRunt } from './flito-soat-cliente-runt.js';
+import type { EntradaConsultaRunt, TipoSoatCanal } from './flito-soat-cliente-consulta.js';
 import {
   insertarSolicitudDespachada, proyectarSoatActivo, SolicitudSoatError, upsertVehiculoRunt,
   type DestinoCanalCliente, type PropietarioSolicitud,
@@ -56,7 +57,11 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * ocurrió y tiene que quedar en `pii_access_log`.
  */
 export class IncompletaYaResueltaError extends SolicitudSoatError {
-  constructor(readonly estado: string, readonly runtConsultado: boolean, readonly vin: string) {
+  constructor(
+    readonly estado: string, readonly runtConsultado: boolean, readonly vin: string | null,
+    /** La placa tecleada (renovación): para el rastro de PII, que la anota como token. */
+    readonly placa: string | null = null,
+  ) {
     super(409, CodigoErrorSolicitudSoat.INCOMPLETA_YA_RESUELTA,
       'Esta solicitud ya había cambiado de estado.', { estado });
     this.name = 'IncompletaYaResueltaError';
@@ -66,8 +71,12 @@ export class IncompletaYaResueltaError extends SolicitudSoatError {
 /** Lo que la ruta necesita además del cuerpo del 200: el rastro de PII y la auditoría. */
 export interface ReintentoHecho {
   respuesta: ResultadoReintentoRunt;
-  vin: string;
-  /** La placa que devolvió el RUNT (solo `completada`): el HMAC del registro del artículo 17. */
+  /** `null` en una renovación por placa cuyo RUNT sigue caído (no hay VIN todavía). */
+  vin: string | null;
+  /**
+   * La placa que devolvió el RUNT en `completada`; en los demás desenlaces, la TECLEADA de una
+   * renovación (o `null` en Inicial). Siempre se anota como HMAC (artículo 17).
+   */
   placa: string | null;
   /** Solo `completada`: a dónde se despachó, para `audit_logs` (no viaja en el 200). */
   destino: DestinoCanalCliente | null;
@@ -85,6 +94,10 @@ export async function reintentarIncompleta(id: string, ctx: SoatCtx): Promise<Re
     id: flitoSoatIncompletas.id,
     estado: flitoSoatIncompletas.estado,
     vin: flitoSoatIncompletas.vin,
+    placa: flitoSoatIncompletas.placa,
+    tipoSoat: flitoSoatIncompletas.tipoSoat,
+    modalidadConsulta: flitoSoatIncompletas.modalidadConsulta,
+    motivoPendiente: flitoSoatIncompletas.motivoPendiente,
     companiaId: flitoSoatIncompletas.companiaId,
   }).from(flitoSoatIncompletas)
     .where(and(eq(flitoSoatIncompletas.id, id), alcance))
@@ -92,12 +105,19 @@ export async function reintentarIncompleta(id: string, ctx: SoatCtx): Promise<Re
   if (!inc) return null;
   // Ya resuelta ANTES de consultar: no se gasta una consulta al RUNT (AC7).
   if (inc.estado !== EstadoSolicitudIncompletaSoat.INCOMPLETA) {
-    throw new IncompletaYaResueltaError(inc.estado, false, inc.vin);
+    throw new IncompletaYaResueltaError(inc.estado, false, inc.vin, inc.placa);
+  }
+  // Los motivos de la carga masiva futura (falta factura / datos) se resuelven completando, no reintentando.
+  if (inc.motivoPendiente !== 'runt_sin_respuesta') {
+    throw new SolicitudSoatError(409, CodigoErrorSolicitudSoat.INCOMPLETA_NO_REINTENTABLE,
+      'Esta solicitud no se reintenta con el RUNT: se resuelve completando lo que falta.');
   }
 
-  const desenlace = await consultarYClasificar(inc.vin);
+  const tipoSoat: TipoSoatCanal = inc.tipoSoat === 'renovacion' ? 'renovacion' : 'inicial';
+  const consulta = await consultaDe(inc);
+  const desenlace = await consultarYClasificar(consulta, tipoSoat);
   const consultadoEn = new Date();
-  const base = { vin: inc.vin, placa: null, destino: null };
+  const base = { vin: inc.vin, placa: inc.placa, destino: null };
 
   switch (desenlace.clase) {
     case 'caido': {
@@ -112,10 +132,9 @@ export async function reintentarIncompleta(id: string, ctx: SoatCtx): Promise<Re
     }
     case 'revise':
       return { ...base, respuesta: await descartar(inc, desenlace.codigo, null, consultadoEn, ctx) };
-    // Solo la renovación lo produce y el reintento consulta como Inicial (default): el reintento por
-    // placa y el descarte `sin_soat_anterior` son de la HU #14018. Inalcanzable hoy.
+    // Solo la renovación lo produce (HU #14018, AC4): el RUNT dice que no hay SOAT anterior.
     case 'sin_soat_anterior':
-      throw new Error('sin_soat_anterior solo aplica a renovación (reintento por placa: HU #14018)');
+      return { ...base, respuesta: await descartar(inc, 'sin_soat_anterior', null, consultadoEn, ctx) };
     case 'vigente':
       return {
         ...base,
@@ -128,19 +147,26 @@ export async function reintentarIncompleta(id: string, ctx: SoatCtx): Promise<Re
         : null;
       const vin = desenlace.vinEfectivo;
       // RN-01 barata: el VIN ya tiene SOAT (otra solicitud se radicó mientras esta esperaba, Q3).
-      // ADR-0031: cualquier SOAT del VIN ocupa (el alta de esta incompleta es Inicial); el helper
-      // devuelve el actual —abierto primero— y la base cierra la carrera con el índice parcial.
-      const ocupado = await soatActualDelVin(db, vin);
-      if (ocupado) return { ...base, respuesta: await descartar(inc, 'solicitud_existente', null, consultadoEn, ctx) };
+      // ADR-0031: el helper devuelve el SOAT actual del VIN —abierto primero—; la base cierra la
+      // carrera con el índice parcial. Inicial: cualquiera ocupa el VIN. Renovación: solo ocupa uno
+      // ABIERTO o de otra compañía; el terminal propio (`pagado`) es el antecesor que se enlaza.
+      const actual = await soatActualDelVin(db, vin);
+      const ocupa = actual && (tipoSoat === 'inicial' || actualEstaAbierto(actual) || actual.companiaId !== inc.companiaId);
+      // Otra incompleta abierta del mismo vehículo (p. ej. Inicial por VIN + Renovación por placa, que
+      // sin RUNT no se podían cruzar). Solo si la propia no tenía VIN: por VIN el índice único ya lo
+      // garantiza y Inicial se queda exactamente como estaba.
+      const hermana = ocupa || inc.vin !== null ? false : await otraAbiertaConVin(vin, inc.id);
+      if (ocupa || hermana) return { ...base, respuesta: await descartar(inc, 'solicitud_existente', null, consultadoEn, ctx) };
 
       try {
         const r = await completar(inc, {
           vin, datos: desenlace.datos, organismoCodigo: desenlace.organismoCodigo, vigenciaProxima,
+          tipoSoat, soatAnteriorId: tipoSoat === 'renovacion' ? actual?.id ?? null : null,
         }, consultadoEn, ctx);
         log.info({ incompletaId: id, companiaId: inc.companiaId, desenlace: 'completada' },
           'Reintento RUNT de solicitud SOAT incompleta: completada y despachada');
         return {
-          vin: inc.vin, placa: desenlace.datos.placa, destino: r.destino,
+          vin, placa: desenlace.datos.placa, destino: r.destino,
           respuesta: { resultado: 'completada', soatId: r.soatId, estado: EstadoSoat.SOLICITADO, vigenciaProxima },
         };
       } catch (e) {
@@ -162,7 +188,30 @@ function esVinOcupado(e: unknown): boolean {
   return e instanceof SolicitudSoatError && e.codigo === CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT;
 }
 
-interface IncompletaLeida { id: string; vin: string; companiaId: number }
+interface IncompletaLeida { id: string; vin: string | null; placa: string | null; companiaId: number }
+
+/**
+ * Qué se le pregunta al RUNT: el VIN (Inicial) o la placa + el documento del propietario (renovación).
+ * El documento NO es una columna de la incompleta: es el del comprador `orden 0` (mismo campo, diseño §3).
+ */
+async function consultaDe(inc: IncompletaLeida & { modalidadConsulta: string }): Promise<EntradaConsultaRunt> {
+  // Por VIN: el `string` de siempre (Inicial no cambia ni en la forma de la llamada).
+  if (inc.modalidadConsulta !== 'placa' || !inc.placa) return inc.vin as string;
+  const [p] = await db.select({ numeroDocumento: flitoCompradores.numeroDocumento }).from(flitoCompradores)
+    .where(eq(flitoCompradores.soatIncompletaId, inc.id)).orderBy(flitoCompradores.orden).limit(1);
+  if (!p) throw new Error(`Incompleta ${inc.id} sin propietario`);
+  return { modalidad: 'placa', placa: inc.placa, documento: p.numeroDocumento };
+}
+
+async function otraAbiertaConVin(vin: string, propiaId: string): Promise<boolean> {
+  const [otra] = await db.select({ id: flitoSoatIncompletas.id }).from(flitoSoatIncompletas)
+    .where(and(
+      eq(flitoSoatIncompletas.vin, vin),
+      eq(flitoSoatIncompletas.estado, EstadoSolicitudIncompletaSoat.INCOMPLETA),
+      ne(flitoSoatIncompletas.id, propiaId),
+    )).limit(1);
+  return !!otra;
+}
 
 /**
  * Relee la incompleta con `FOR UPDATE` DENTRO de la transacción y exige que siga `incompleta`. Es
@@ -185,7 +234,7 @@ async function bloquearAbierta(tx: Tx, inc: IncompletaLeida) {
   }).from(flitoSoatIncompletas).where(eq(flitoSoatIncompletas.id, inc.id)).for('update').limit(1);
   // La fila nunca se borra; si faltara, es el mismo «ya no está por validar».
   if (!fila || fila.estado !== EstadoSolicitudIncompletaSoat.INCOMPLETA) {
-    throw new IncompletaYaResueltaError(fila?.estado ?? EstadoSolicitudIncompletaSoat.DESCARTADA, true, inc.vin);
+    throw new IncompletaYaResueltaError(fila?.estado ?? EstadoSolicitudIncompletaSoat.DESCARTADA, true, inc.vin, inc.placa);
   }
   return fila;
 }
@@ -239,6 +288,9 @@ async function completar(
     datos: Parameters<typeof upsertVehiculoRunt>[2];
     organismoCodigo: string | null;
     vigenciaProxima: Parameters<typeof insertarSolicitudDespachada>[1]['vigenciaProxima'];
+    tipoSoat: TipoSoatCanal;
+    /** Renovación: el SOAT terminal propio del VIN, si lo hay (ADR-0031). */
+    soatAnteriorId: string | null;
   },
   consultadoEn: Date, ctx: SoatCtx,
 ): Promise<{ soatId: string; destino: DestinoCanalCliente }> {
@@ -267,13 +319,18 @@ async function completar(
       tx, { vin: runt.vin }, runt.datos, propietario, inc.companiaId, ctx, soatId,
     );
     const destino = await insertarSolicitudDespachada(tx, {
-      soatId, tipoSoat: 'inicial', vin: runt.vin, vehiculoId, companiaId: inc.companiaId,
+      soatId, tipoSoat: runt.tipoSoat, soatAnteriorId: runt.soatAnteriorId, vin: runt.vin, vehiculoId,
+      companiaId: inc.companiaId,
       organismoCodigo: runt.organismoCodigo, vigenciaProxima: runt.vigenciaProxima,
       consultadoEn, ahora,
-      factura: {
-        nombreArchivo: fila.facturaNombreArchivo, contentType: fila.facturaContentType,
-        storageKey: fila.facturaStorageKey, hash: fila.facturaHash, tamanoBytes: fila.facturaTamanoBytes,
-      },
+      // Renovación sin factura (HU #14018, AC2): se despacha SIN pedirla y sin insertar soporte.
+      factura: fila.facturaStorageKey !== null && fila.facturaNombreArchivo !== null && fila.facturaContentType !== null
+        && fila.facturaHash !== null && fila.facturaTamanoBytes !== null
+        ? {
+          nombreArchivo: fila.facturaNombreArchivo, contentType: fila.facturaContentType,
+          storageKey: fila.facturaStorageKey, hash: fila.facturaHash, tamanoBytes: fila.facturaTamanoBytes,
+        }
+        : null,
       solicitante: { id: fila.solicitadoPorId, nombre: fila.solicitadoPorNombre, en: fila.solicitadoEn },
     }, ctx);
 
@@ -285,6 +342,9 @@ async function completar(
     await tx.update(flitoSoatIncompletas).set({
       estado: EstadoSolicitudIncompletaSoat.COMPLETADA,
       soatId,
+      // El VIN efectivo del RUNT (la renovación por placa no lo tenía). El índice único es parcial sobre
+      // `incompleta`: la completada no colisiona.
+      vin: runt.vin,
       resueltaPorId: ctx.userId,
       resueltaPorNombre: ctx.username,
       resueltaEn: ahora,

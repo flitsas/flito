@@ -75,7 +75,7 @@ router.get('/cliente/incompletas/:id', exigirFuncion('soat.incompleta.ver'), asy
   // 404 y no 403 fuera de alcance (AC3): no se confirma que el id exista. Tampoco se anota.
   if (!d) { res.status(404).json({ error: 'La solicitud no existe' }); return; }
   await registrarAccesoIncompleta(req, {
-    accion: 'read', incompletaId: d.id, vin: d.vin, filas: 1, campos: CAMPOS_PII_INCOMPLETA_DETALLE,
+    accion: 'read', incompletaId: d.id, vin: d.vin, placa: d.placa, filas: 1, campos: CAMPOS_PII_INCOMPLETA_DETALLE,
   });
   res.json(d);
 });
@@ -99,7 +99,7 @@ async function registrarConsultaReintento(req: Request, hecho: ReintentoHecho): 
   }
   const resultado = r.resultado === 'sigue_incompleta' ? CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE : r.motivo;
   await registrarAccesoRuntCliente(req, {
-    vin: hecho.vin, conPropietario: false, motivo: 'reintento', resultado,
+    vin: hecho.vin, placa: hecho.placa, conPropietario: false, motivo: 'reintento', resultado,
     ...(r.resultado === 'descartada' && r.soatActivo
       ? { soatActivoEnIntento: r.soatActivo.vencimiento ? 'con_fecha' as const : 'sin_fecha' as const }
       : {}),
@@ -130,7 +130,7 @@ router.post('/cliente/incompletas/:id/reintentar', exigirFuncion('soat.solicitud
         // La carrera (AC6): el RUNT SÍ se consultó antes del 409, y esa consulta queda en el registro.
         if (e instanceof IncompletaYaResueltaError && e.runtConsultado) {
           try {
-            await registrarAccesoRuntCliente(req, { vin: e.vin, conPropietario: false, motivo: 'reintento', resultado: e.codigo });
+            await registrarAccesoRuntCliente(req, { vin: e.vin, placa: e.placa, conPropietario: false, motivo: 'reintento', resultado: e.codigo });
           } catch { /* el rastro no cambia la respuesta: mismo criterio que el alta */ }
         }
         res.status(e.status).json({ error: e.message, codigo: e.codigo, ...(e.datos ?? {}) });
