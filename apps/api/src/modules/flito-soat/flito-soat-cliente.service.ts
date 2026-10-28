@@ -527,7 +527,7 @@ export async function companiasDelCanal(ctx: SoatCtx): Promise<CompaniasCanalSoa
  *
  * El bloqueo es el MISMO en los dos casos: RN-01 no se relaja por no ser suya.
  */
-async function verificarRn01(
+export async function verificarRn01(
   vin: string, companiaId: number, opciones: { permiteTerminal?: boolean } = {},
 ): Promise<SoatActualDelVin | null> {
   // ADR-0031: el SOAT ACTUAL del vehículo (el abierto si lo hay; si no, el último terminal).
@@ -563,7 +563,7 @@ async function verificarRn01(
  * Misma forma que la RN-01 de siempre: `propia: true` + `id` para la compañía que la radicó (la puede
  * abrir); `propia: false`, sin id ni estado, para cualquier otra.
  */
-async function verificarIncompletaAbierta(
+export async function verificarIncompletaAbierta(
   clave: { vin: string } | { placa: string }, companiaId: number,
 ): Promise<void> {
   // HU #14018: la renovación aparca por PLACA (sin VIN); misma forma de 409 que por VIN.
@@ -649,7 +649,7 @@ function esDeOtraCompania(fila: { clientId?: number | null } | undefined, compan
  * veces: para no dejar un objeto huérfano en el bucket ni gastar una consulta al RUNT por un alta
  * que ya se sabe que no va a entrar.
  */
-async function verificarTenenciaVehiculo(vin: string, companiaId: number): Promise<void> {
+export async function verificarTenenciaVehiculo(vin: string, companiaId: number): Promise<void> {
   const [ficha] = await db.select({ clientId: vehicles.clientId })
     .from(vehicles).where(eq(vehicles.vin, vin)).limit(1);
   if (esDeOtraCompania(ficha, companiaId)) throw vehiculoAjeno();

@@ -43,8 +43,9 @@ describe('0270 — análisis estático', () => {
   it('el modelo Drizzle refleja la 0270: columnas, índice parcial único y CHECKs repetidos (lección de la 0157)', () => {
     const l = getTableConfig(flitoSoatMasivoLotes);
     const f = getTableConfig(flitoSoatMasivoFilas);
-    expect(l.columns.map((c) => c.name).sort()).toEqual(
-      ['archivo_hash', 'compania_id', 'creado_en', 'creado_por_id', 'creado_por_nombre', 'estado', 'id', 'tipo_soat', 'total_filas']);
+    // Las columnas de la 0270 siguen ahí (la 0271 añade las del worker: HU #14132).
+    expect(l.columns.map((c) => c.name)).toEqual(expect.arrayContaining(
+      ['archivo_hash', 'compania_id', 'creado_en', 'creado_por_id', 'creado_por_nombre', 'estado', 'id', 'tipo_soat', 'total_filas']));
     const uq = l.indexes.find((i) => i.config.name === 'uq_flito_soat_masivo_lote_activo');
     expect(uq?.config.unique).toBe(true);
     expect(uq?.config.where).toBeDefined();

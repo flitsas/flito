@@ -74,7 +74,7 @@ export function celdaATexto(v: Valor): string {
 }
 
 /** Valida y normaliza una fila cruda con las reglas del canal. Devuelve el motivo del primer campo inválido. */
-function validarFila(c: { placa: string; documento: string; nombre: string; correo: string; celular: string }):
+export function validarFila(c: { placa: string; documento: string; nombre: string; correo: string; celular: string }):
   { placa: string; documento: string; motivo: MotivoRechazoEntrada | null } {
   const placa = placaSchema.safeParse(c.placa);
   const documento = numeroDocumentoSchema.safeParse(c.documento);
