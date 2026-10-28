@@ -33,7 +33,7 @@ export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', '
 // Import (y no solo `export … from`) porque `users.role` referencia `permisosRoles.codigo` aquí abajo.
 import { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria } from './schema/permisos.js';
 export { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria };
-export * from './schema/flito-bolsas-documentos.js'; // HU #13889 (ADR-0028): expediente documental de la compañía
+export * from './schema/flito-bolsas-documentos.js'; export * from './schema/flito-soat-masivo.js'; // HU #14131 (cola masiva SOAT) / HU #13889 (ADR-0028): expediente documental de la compañía
 // Épica #12245: `flito_comprobantes` vive en `./schema/flito-comprobantes.ts` por el mismo techo (HU #12611).
 import { flitoComprobantes } from './schema/flito-comprobantes.js';
 export { flitoComprobantes };

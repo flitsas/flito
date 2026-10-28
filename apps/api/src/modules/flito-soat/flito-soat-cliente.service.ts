@@ -411,7 +411,7 @@ export const normalizarId = (v: string): string => v.toUpperCase().replace(/[^A-
 // ───────────────────────────── Guardas del alta ─────────────────────────────
 
 /** La compañía del `cliente`, con el flag del canal y la carpeta de storage ya resueltos. */
-interface CanalCompania {
+export interface CanalCompania {
   companiaId: number;
   carpetaStorage: string | null;
 }
@@ -435,7 +435,7 @@ interface CanalCompania {
  * De ahí en adelante todo (RN-01, tenencia, destino, carpeta, incompletas) usa el `companiaId` que
  * devuelve esta función, y por eso el cambio de la HU queda localizado aquí.
  */
-async function canalDeLaCompania(ctx: SoatCtx, companiaIdPedida: number | null = null): Promise<CanalCompania> {
+export async function canalDeLaCompania(ctx: SoatCtx, companiaIdPedida: number | null = null): Promise<CanalCompania> {
   const companiaId = companiaARadicar(ctx, companiaIdPedida);
   const [compania] = await db
     .select({ id: clients.id, carpeta: clients.flitoCarpetaStorage })
