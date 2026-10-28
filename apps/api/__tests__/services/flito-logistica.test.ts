@@ -51,11 +51,12 @@ beforeEach(() => {
 describe('escanearLt — recogida por escaneo del PDF417', () => {
   const tramite = (over: Record<string, unknown> = {}) => ({
     tramiteId: 't1', idFlit: 'F1', organismoCodigo: '05001', companiaId: 5, companiaNit: '900',
-    vehiculoId: 9, vin: 'LRWYGCFJ0TC496126', autogestionable: false, ...over,
+    vehiculoId: 9, vin: 'LRWYGCFJ0TC496126', autogestionable: false, companiaNombre: 'ACME', docId: null, ...over,
   });
 
   it('sin trámite aprobado con esa placa → sin_match, no persiste', async () => {
-    selectMock.mockReturnValueOnce(chain([])); // búsqueda del trámite: vacío
+    selectMock.mockReturnValueOnce(chain([])); // numeroLicencia no registrado
+    selectMock.mockReturnValueOnce(chain([])); // trámites del vehículo: vacío
     const r = await svc.escanearLt(RAW, 'LT-001', {}, ctx);
     expect(r.resultado).toBe('sin_match');
     expect(r.placa).toBe('QOX858');
@@ -63,7 +64,7 @@ describe('escanearLt — recogida por escaneo del PDF417', () => {
   });
 
   it('placa+VIN coinciden → recogida + clasificación automática (CA-03)', async () => {
-    selectMock.mockReturnValueOnce(chain([tramite()]));
+    selectMock.mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([tramite()])); // [numeroLicencia, trámites]
     insertMock.mockReturnValueOnce(chain([{ id: 'd1' }])); // insert de la LT (creado)
     const r = await svc.escanearLt(RAW, 'LT-001', {}, ctx);
     expect(r.resultado).toBe('recogido');
@@ -72,7 +73,7 @@ describe('escanearLt — recogida por escaneo del PDF417', () => {
   });
 
   it('placa coincide pero el VIN no → novedad con motivo (RN-04)', async () => {
-    selectMock.mockReturnValueOnce(chain([tramite({ vin: 'LRWYGCFJ0TC499999' })]));
+    selectMock.mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([tramite({ vin: 'LRWYGCFJ0TC499999' })])); // [numeroLicencia, trámites]
     insertMock.mockReturnValueOnce(chain([{ id: 'd1' }]));
     const r = await svc.escanearLt(RAW, null, {}, ctx);
     expect(r.resultado).toBe('novedad');
@@ -85,7 +86,7 @@ describe('escanearLt — recogida por escaneo del PDF417', () => {
   });
 
   it('parametrización por compañía (RN-05): compañía autogestionada → no_gestionable, no persiste', async () => {
-    selectMock.mockReturnValueOnce(chain([tramite({ autogestionable: true })]));
+    selectMock.mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([tramite({ autogestionable: true })])); // [numeroLicencia, trámites]
     const r = await svc.escanearLt(RAW, 'LT-001', {}, ctx);
     expect(r.resultado).toBe('no_gestionable');
     expect(transactionMock).not.toHaveBeenCalled();

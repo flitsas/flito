@@ -147,14 +147,17 @@ router.post('/validar-lt', soloSinEnlace(), exigirFuncion('logistica.lt.validar'
 });
 
 // POST /escanear — recogida de una LT desde su código PDF417 (match placa+VIN → recogida/novedad).
+// HU #14142: `tramiteId` (elige entre candidatos) y `dejarPendiente` son excluyentes; `organismoCodigo` solo aplica al pendiente.
 const escanearSchema = z.object({
   rawValue: z.string().min(1), numeroLt: z.string().optional(), lat: z.string().optional(), lng: z.string().optional(),
-});
+  tramiteId: z.string().uuid().optional(), dejarPendiente: z.boolean().optional(), organismoCodigo: z.string().min(1).max(5).optional(),
+}).strict().refine((b) => !(b.tramiteId && b.dejarPendiente), { message: 'tramiteId y dejarPendiente son excluyentes' });
 router.post('/escanear', soloSinEnlace(), exigirFuncion('logistica.documento.escanear'), async (req: Request, res: Response) => {
   const parsed = escanearSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await escanearLt(parsed.data.rawValue, parsed.data.numeroLt ?? null, { lat: parsed.data.lat, lng: parsed.data.lng }, ctxDe(req.user!));
+    const r = await escanearLt(parsed.data.rawValue, parsed.data.numeroLt ?? null, { lat: parsed.data.lat, lng: parsed.data.lng }, ctxDe(req.user!),
+      { tramiteId: parsed.data.tramiteId, dejarPendiente: parsed.data.dejarPendiente, organismoCodigo: parsed.data.organismoCodigo });
     await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Escaneo LT ${r.placa}: ${r.resultado}` });
     return { body: r };
   });
