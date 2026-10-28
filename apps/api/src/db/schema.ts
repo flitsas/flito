@@ -3785,8 +3785,7 @@ export const flitoLogisticaActas = pgTable('flito_logistica_actas', {
 }, (t) => ({
   companiaIdx: index('idx_flito_log_actas_compania').on(t.companiaId),
   estadoIdx: index('idx_flito_log_actas_estado').on(t.estado),
-  mensajeroIdx: index('idx_flito_log_actas_mensajero').on(t.mensajeroId), trasladoIdx: index('idx_flito_log_actas_traslado').on(t.trasladoId),
-  firmanteCompaniaUq: uniqueIndex('uq_flito_log_actas_firmante_compania').on(t.firmanteId, t.companiaId).where(sql`${t.punto} = 'organismo'`), firmanteCk: check('ck_flito_log_actas_firmante_punto', sql`${t.punto} <> 'organismo' OR ${t.firmanteId} IS NOT NULL`),
+  mensajeroIdx: index('idx_flito_log_actas_mensajero').on(t.mensajeroId), trasladoIdx: index('idx_flito_log_actas_traslado').on(t.trasladoId), firmanteCompaniaUq: uniqueIndex('uq_flito_log_actas_firmante_compania').on(t.firmanteId, t.companiaId).where(sql`${t.punto} = 'organismo'`), firmanteCk: check('ck_flito_log_actas_firmante_punto', sql`${t.punto} <> 'organismo' OR ${t.firmanteId} IS NOT NULL`),
 }));
 
 // Documento físico individual (RN-01). Congela organismo (dónde se generó) y compañía (destino),

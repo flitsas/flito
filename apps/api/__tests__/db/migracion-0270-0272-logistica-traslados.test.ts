@@ -31,7 +31,7 @@ describe('0270-0272 — reglas de los archivos (estática)', () => {
     expect(sinComentarios(SQL[A272])).not.toMatch(/en_flit/);
   });
 
-  it('AC1: la 0271 crea las 5 tablas con IF NOT EXISTS, `punto` con CHECK y compania_id nullable', () => {
+  it('AC1: la 0271 crea las 5 tablas con IF NOT EXISTS, `punto` con CHECK y compania_id NOT NULL (§17)', () => {
     const s = sinComentarios(SQL[A271]);
     for (const t of ['motivos_llegada', 'traslados', 'traslado_lts', 'acta_lineas', 'acta_firmas']) {
       expect(s).toMatch(new RegExp(`CREATE TABLE IF NOT EXISTS flito_logistica_${t} `));
