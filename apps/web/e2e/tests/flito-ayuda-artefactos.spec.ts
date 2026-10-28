@@ -405,8 +405,8 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // Corredor Impuestos (versión y fecha exactas, sin rutas, capturas citadas en orden y dentro de su paso, una
   // sola lista ordenada en Pasos, diagrama SVG con alt). Las dos fichas describen procesos de más de 3 pasos.
   // flito_logistica_ruta conserva sus 5 capturas de la piloto (HU #13769): el texto cambió, la pantalla no.
-  const LOGISTICA_13773: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
-    flito_logistica: { version: '1.1', diagrama: 'ciclo-licencia.svg', capturas: [
+  const LOGISTICA_13773: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
+    flito_logistica: { version: '1.2', fecha: '2026-10-28', diagrama: 'ciclo-licencia.svg', capturas: [
       '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-generacion-de-actas.png', '05-actas.png',
       '06-firmar-y-despachar.png'] },
     flito_logistica_ruta: { version: '1.2', diagrama: 'recorrido-mensajero.svg', capturas: [
@@ -415,13 +415,13 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   };
 
   for (const [clave, esperado] of Object.entries(LOGISTICA_13773)) {
-    test(`HU #13773 — ${clave}: versión ${esperado.version} del 2026-10-22, capturas y diagrama con alt`, () => {
+    test(`HU #13773 — ${clave}: versión ${esperado.version} del ${esperado.fecha ?? '2026-10-22'}, capturas y diagrama con alt`, () => {
       const md = leer(`apps/web/src/content/ayuda/${clave}.md`);
       const { encabezado, errores } = parsearFicha(md);
       expect(errores, clave).toEqual([]);
       // AC5 — la ficha cambió: sube la versión menor y la fecha.
       expect(encabezado!.version, `${clave} · version`).toBe(esperado.version);
-      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe('2026-10-22');
+      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe(esperado.fecha ?? '2026-10-22');
       // AC4 — sin rutas de API ni rutas de la app en el texto.
       expect(md, `${clave} · sin rutas`).not.toMatch(/`\/|\/api\/|\/flito\//);
 
