@@ -347,6 +347,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── Logística — viajes adicionales por trámite (HU #12619; textos byte a byte con la 0199; solo admin) ──
   op(`${LOGV} GET /tramites/:tramiteId/viajes`, 'logistica.viajes.ver', 'Ver los viajes adicionales de un trámite', 'Consultar los viajes adicionales de logística de un trámite y su total.'),
   op(`${LOGV} POST /tramites/:tramiteId/viajes`, 'logistica.viajes.registrar', 'Registrar un viaje adicional en un trámite', 'Añadir a un trámite no liquidado un viaje adicional de logística, copiando la tarifa vigente o fijando el precio a mano.'),
+  op(`${LOGV} POST /viajes/masivo`, 'logistica.viajes.registrar', 'Registrar un viaje adicional en un trámite', 'Añadir a un trámite no liquidado un viaje adicional de logística, copiando la tarifa vigente o fijando el precio a mano.'), // mismo código y texto: el masivo comparte la función del individual (HU #14127)
   op(`${LOGV} DELETE /tramites/:tramiteId/viajes/:viajeId`, 'logistica.viajes.quitar', 'Quitar un viaje adicional de un trámite', 'Retirar de un trámite no liquidado un viaje adicional de logística registrado.'),
 
   // ── Sincronización FLITO ──────────────────────────────────────────────────────────────────────

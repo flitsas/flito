@@ -329,6 +329,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/logistica/documentos/:id/reversar',                        'filtra'],
   ['GET /api/flito/logistica/tramites/:tramiteId/viajes',                      'filtra'],
   ['POST /api/flito/logistica/tramites/:tramiteId/viajes',                     'filtra'],
+  ['POST /api/flito/logistica/viajes/masivo',                                  'filtra'],
   ['DELETE /api/flito/logistica/tramites/:tramiteId/viajes/:viajeId',          'filtra'],
   ['GET /api/flito/bolsas/consolidado',                                        'filtra'],
   ['GET /api/flito/bolsas/riesgo',                                             'filtra'],

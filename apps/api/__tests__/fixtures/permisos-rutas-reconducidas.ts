@@ -409,6 +409,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'GET', ruta: '/tramites/:tramiteId/viajes', codigo: 'logistica.viajes.ver' },
   { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'POST', ruta: '/tramites/:tramiteId/viajes', codigo: 'logistica.viajes.registrar' },
   { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'DELETE', ruta: '/tramites/:tramiteId/viajes/:viajeId', codigo: 'logistica.viajes.quitar' },
+  // HU #14127 — registro masivo: misma función que el individual.
+  { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'POST', ruta: '/viajes/masivo', codigo: 'logistica.viajes.registrar' },
 
   // ── HU #13421 (ADR-0023) — legacy pesv/, drivers/, jornadas/ y rum/ (76 guardas) ──
   // Varias rutas comparten código (transitorio «Administrar <ítem>»): la matriz comprueba, ruta a ruta,

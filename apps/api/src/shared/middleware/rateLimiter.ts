@@ -444,6 +444,21 @@ export const bolsasDocumentosCargaLimiter = rateLimit({
 });
 
 /**
+ * Registro masivo de viajes adicionales de logística (HU #14127, AGENTS #18): hasta 200 LT por
+ * petición, cada una con su transacción. 10 / 10 min por usuario.
+ */
+export const viajesMasivoLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('viajes-masivo:'),
+  handler: frenoConRastro('viajes-masivo'),
+  message: { error: 'Demasiados registros masivos seguidos. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:viajes-masivo:'),
+});
+
+/**
  * `PATCH /api/users/:id/password`: 10 / 15 min / usuario autenticado (HU #13255, Feature #13254).
  *
  * La HU abre la ruta al canal externo (pantalla Perfil), y la regla 18 de AGENTS.md pide freno para
