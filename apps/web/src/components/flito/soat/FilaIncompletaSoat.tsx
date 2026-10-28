@@ -12,6 +12,7 @@
 // se pinta. El botón se describe con la celda del vehículo (`aria-describedby`), no con el VIN en su
 // nombre. En vuelo: `disabled` + `aria-busy` + «Consultando…», solo en ESTA fila.
 
+import EtiquetaTipoSoat from './EtiquetaTipoSoat';
 import { ChevronRight, Loader2, RotateCw } from 'lucide-react';
 import type { SolicitudIncompletaFila } from '@operaciones/shared-types';
 import { FlitTr, flitBtnSecondarySm } from '../../flit/flitPageKit';
@@ -39,7 +40,11 @@ export default function FilaIncompletaSoat({
           invita a preguntar por qué. Mantiene alineadas las columnas. */}
       {conCasillas && <td className="px-3 py-2" />}
       <td id={idVehiculo} className="px-4 py-2 align-top">
-        <div className="whitespace-nowrap font-mono text-sm font-semibold">{fila.vin}</div>
+        {/* Renovación con RUNT caído: `vin` es null y el identificador es la PLACA (HU #14019, AC7/AC9). */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="whitespace-nowrap font-mono text-sm font-semibold">{fila.vin ?? fila.placa ?? '—'}</span>
+          <EtiquetaTipoSoat tipo={fila.tipoSoat} />
+        </div>
         <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Datos del RUNT pendientes</div>
       </td>
       <td className="px-3 py-2">
@@ -49,6 +54,9 @@ export default function FilaIncompletaSoat({
             <span className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>
               Último intento: {fecha(fila.ultimoIntentoRuntEn)}
             </span>
+          )}
+          {incompleta && fila.motivoPendiente === 'runt_sin_respuesta' && (
+            <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>El RUNT no respondió</span>
           )}
         </div>
       </td>

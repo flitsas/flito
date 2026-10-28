@@ -9,6 +9,8 @@
 // | bloqueo  | `409 soat_vigente` con `soatActivo`      | «ya tiene» · ShieldCheck · success «No hace falta…»    |
 // | aviso    | `200` con `vigenciaProxima`              | «todavía tiene» · CalendarClock · active «Puede…»      |
 //
+// | renovar  | Renovación, vehículo YA en FLITO (#14019)| «Ya está en FLITO · quedan N días» · «Renovar»        |
+//
 // Las variantes se distinguen por título, icono y texto del chip (AC3), no solo por el tono.
 //
 // **La póliza y la aseguradora se pintan AQUÍ y en ningún otro sitio** (RN-05 del Feature #12840):
@@ -16,10 +18,13 @@
 // sección sale del `h3`, que no interpola ningún dato.
 
 import { useId, type Ref } from 'react';
-import { CalendarClock, ShieldCheck } from 'lucide-react';
-import type { SoatActivoRunt } from '@operaciones/shared-types';
+import { CalendarClock, ShieldCheck, TriangleAlert } from 'lucide-react';
+import type { SoatActivoRunt, SoatFlitoContexto } from '@operaciones/shared-types';
 import StatusChip from '../../flit/StatusChip';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import {
+  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+} from '../../flit/flitPageKit';
+import { copyRenovar } from '../../../lib/mensajesTipoSoat';
 import {
   AVISO_VIGENCIA_CHIP, avisoVigenciaProxima, fechaLargaOGuion, fraseBloqueoVigente,
 } from '../../../lib/soatCliente';
@@ -42,7 +47,7 @@ const VARIANTE = {
   },
 };
 
-interface Props {
+interface PropsRunt {
   variante: 'bloqueo' | 'aviso';
   datos: SoatActivoRunt;
   /** Aviso: el `venceEl` del 200. Bloqueo: el `fechaVencimiento` del 409, si vino. */
@@ -55,7 +60,68 @@ interface Props {
   hoy?: Date;
 }
 
-export default function TarjetaSoatActivo({ variante, datos, venceEl, onConsultarOtro, tituloRef, hoy }: Props) {
+interface PropsRenovar {
+  variante: 'renovar';
+  /** El contexto «ya en FLITO» de la preconsulta: días y fecha; no hay póliza ni aseguradora (UX P8). */
+  flito: SoatFlitoContexto;
+  /** Continúa el flujo en la misma pantalla (no consulta de nuevo). Solo si el contexto es renovable. */
+  onRenovar?: () => void;
+  onConsultarOtro: () => void;
+  tituloRef?: Ref<HTMLHeadingElement>;
+}
+
+export default function TarjetaSoatActivo(props: PropsRunt | PropsRenovar) {
+  return props.variante === 'renovar' ? <TarjetaRenovar {...props} /> : <TarjetaRunt {...props} />;
+}
+
+/** Renovable (vigente 0–30 días o vencido) con «Renovar»; fuera de ventana, la misma tarjeta SIN botón. */
+function TarjetaRenovar({ flito, onRenovar, onConsultarOtro, tituloRef }: PropsRenovar) {
+  const idTitulo = useId();
+  const c = copyRenovar(flito);
+  const vencido = c.tono === 'warning';
+  const Icono = vencido ? TriangleAlert : CalendarClock;
+  return (
+    <section
+      aria-labelledby={idTitulo} role="status" data-variante="renovar"
+      className="mt-3 rounded-[10px] p-4 sm:p-5"
+      style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
+    >
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+          style={vencido
+            ? { background: 'var(--flit-chip-warning-bg)', color: 'var(--flit-warning-ink)' }
+            : { background: 'var(--flit-chip-active-bg)', color: 'var(--flit-blue-ink)' }}
+        >
+          <Icono size={18} />
+        </span>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h3 id={idTitulo} ref={tituloRef} tabIndex={-1} className="flit-focus rounded text-base font-semibold outline-none" style={{ color: 'var(--flit-text-primary)' }}>
+              {c.titulo}
+            </h3>
+            {c.chip && <StatusChip tone={c.tono}>{c.chip}</StatusChip>}
+          </div>
+          {c.frase && <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.frase}</p>}
+          {c.detalle && <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.detalle}</p>}
+        </div>
+      </div>
+      <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+        <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={onConsultarOtro}>
+          Consultar otro vehículo
+        </button>
+        {c.puedeRenovar && onRenovar && (
+          <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle} onClick={onRenovar}>
+            Renovar
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TarjetaRunt({ variante, datos, venceEl, onConsultarOtro, tituloRef, hoy }: PropsRunt) {
   const idTitulo = useId();
   const v = VARIANTE[variante];
   const esAviso = variante === 'aviso';

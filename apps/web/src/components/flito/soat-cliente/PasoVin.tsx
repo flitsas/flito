@@ -45,13 +45,14 @@ export function AvisoLongitudVin({ texto }: { texto: string }) {
 }
 
 /** Estado vacío: antes de la primera consulta, o después de editar el VIN. */
-export function VacioVin() {
+export function VacioVin({ renovacion = false }: { renovacion?: boolean }) {
   return (
     <div className="mt-3 flex items-start gap-3 rounded-[10px] p-4" style={CAJA}>
       <ScanSearch size={20} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-text-muted)' }} />
       <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-        Con el VIN, el RUNT le trae la placa, la marca, la línea, el modelo y la ficha técnica. Usted
-        no tiene que escribirlos.
+        {renovacion
+          ? 'Con la placa y el documento del propietario, el RUNT le trae la marca, la línea, el modelo y la ficha técnica. Usted no tiene que escribirlos.'
+          : 'Con el VIN, el RUNT le trae la placa, la marca, la línea, el modelo y la ficha técnica. Usted no tiene que escribirlos.'}
       </p>
     </div>
   );
