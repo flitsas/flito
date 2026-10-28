@@ -45,6 +45,10 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // HU #12874: la lista de compañías del formulario reutiliza la función del alta (decisión del PO).
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'GET', ruta: '/cliente/companias', codigo: 'soat.solicitud.crear' },
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente', codigo: 'soat.solicitud.crear' },
+  // HU #14131: carga masiva de SOAT; reutiliza la función del alta (sin función nueva).
+  { fichero: 'flito-soat/flito-soat-masivo.routes.ts', metodo: 'GET', ruta: '/cliente/masivo/plantilla', codigo: 'soat.solicitud.crear' },
+  { fichero: 'flito-soat/flito-soat-masivo.routes.ts', metodo: 'POST', ruta: '/cliente/masivo', codigo: 'soat.solicitud.crear' },
+  { fichero: 'flito-soat/flito-soat-masivo.routes.ts', metodo: 'GET', ruta: '/cliente/masivo/:loteId', codigo: 'soat.solicitud.crear' },
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente/factura/lectura', codigo: 'soat.factura.leer' },
   // flito-soat/flito-soat-incompletas.routes.ts (HU #12997)
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/buscar', codigo: 'soat.incompletas.buscar' },
