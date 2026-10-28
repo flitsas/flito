@@ -8,7 +8,7 @@ palabras_clave:
 consultas:
   - qué entregas tengo asignadas
   - cómo marco una recogida como hecha
-version: 1.3
+version: 1.4
 fecha: 2026-10-28
 ---
 ## Qué es

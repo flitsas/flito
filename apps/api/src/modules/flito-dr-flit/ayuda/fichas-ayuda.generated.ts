@@ -512,7 +512,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_logistica_ruta",
     "etiqueta": "Mi ruta",
     "resumen": "Recogidas y entregas asignadas al mensajero.",
-    "version": "1.3",
+    "version": "1.4",
     "fecha": "2026-10-28",
     "palabrasClave": [
       "mi ruta",
