@@ -890,7 +890,7 @@ describe('AC2 — el `tipoDocPropietario` de la vía directa no se persiste ni s
     // La proyección de la preconsulta es cerrada: vehículo, organismo, propietario y —desde la
     // HU #12212— el aviso de vigencia próxima, que va SIEMPRE presente y vale `null` cuando no hay.
     // Si alguien devolviera `datos` entero, esta comparación de claves lo vería antes que ninguna otra.
-    expect(Object.keys(r.body).sort()).toEqual(['flito', 'organismo', 'propietario', 'vehiculo', 'vigenciaProxima']);
+    expect(Object.keys(r.body).sort()).toEqual(['flito', 'organismo', 'propietario', 'tipo', 'vehiculo', 'vigenciaProxima']);
   });
 
   it('el tipo de documento que SÍ se guarda es el del formulario, no el del RUNT', async () => {

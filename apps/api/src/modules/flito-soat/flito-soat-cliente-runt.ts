@@ -40,6 +40,7 @@ import { extraerVehiculoRunt, normalizarIdentificador, runtSinRegistro } from '.
 import { derivePreflightChecks } from '../tramites/preflight.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
 import { loggerFor } from '../../shared/logger.js';
+import { comoConsulta, sinSoatAnterior, type EntradaConsultaRunt, type TipoSoatCanal } from './flito-soat-cliente-consulta.js';
 
 const log = loggerFor('flito-soat-cliente');
 
@@ -362,10 +363,16 @@ export async function resolverOrganismoCatalogo(nombre: string | null): Promise<
  * Devuelve el campo y no un booleano porque el 422 lleva `campo: 'vin'` para que el wizard ponga el
  * foco donde toca — y hoy ese es además el ÚNICO campo que la persona pudo escribir mal.
  */
-export function campoQueNoCuadra(vinTecleado: string, datos: DatosRuntCanal): 'vin' | null {
-  const vinRunt = normalizarIdentificador(datos.vin);
-  const vinIn = normalizarIdentificador(vinTecleado);
-  if (vinRunt !== null && vinIn !== null && vinRunt !== vinIn) return 'vin';
+export function campoQueNoCuadra(entrada: EntradaConsultaRunt, datos: DatosRuntCanal): 'vin' | 'placa' | null {
+  const consulta = comoConsulta(entrada);
+  // HU #14017: en renovación lo tecleado es la PLACA (el VIN es el dato devuelto). Mismo criterio:
+  // lo que el RUNT no trae no es «distinto». El valor del RUNT nunca sale en el 422.
+  const [campo, devuelto, tecleado] = consulta.modalidad === 'vin'
+    ? ['vin' as const, datos.vin, consulta.vin]
+    : ['placa' as const, datos.placa, consulta.placa];
+  const runt = normalizarIdentificador(devuelto);
+  const dado = normalizarIdentificador(tecleado);
+  if (runt !== null && dado !== null && runt !== dado) return campo;
   return null;
 }
 
@@ -406,8 +413,14 @@ export type RespuestaKyverum = {
  * (`tiposAIntentar = ['C']`) — relleno fijo, no un dato del registro. Este canal no lo lee, no lo
  * persiste y no lo publica; ver el docblock de {@link extraerDatosCanal}, que no lo extrae.
  */
-export async function consultarRuntCrudo(vin: string): Promise<RespuestaKyverum> {
-  return await consultarVehiculoRunt(undefined, vin, '', '') as RespuestaKyverum;
+export async function consultarRuntCrudo(entrada: EntradaConsultaRunt): Promise<RespuestaKyverum> {
+  const consulta = comoConsulta(entrada);
+  if (consulta.modalidad === 'vin') {
+    return await consultarVehiculoRunt(undefined, consulta.vin, '', '') as RespuestaKyverum;
+  }
+  // Renovación (HU #14017): placa + documento, SIN VIN (con placa, `runt-direct` ignora el VIN) y
+  // SIN tipo de documento (decisión del Feature: el servidor lo resuelve, NIT incluido).
+  return await consultarVehiculoRunt(consulta.placa, undefined, consulta.documento, undefined) as RespuestaKyverum;
 }
 
 /** Los códigos de la familia «revise los datos», tal como los emite la compuerta. */
@@ -444,7 +457,9 @@ export type DesenlaceRunt =
   | ({ clase: 'ok' } & PayloadOk)
   | ({ clase: 'renovacion_anticipada'; venceEl: string; soatActivo: SoatActivoRunt } & PayloadOk)
   | { clase: 'vigente'; fechaVencimiento: string | null; soatActivo: SoatActivoRunt }
-  | { clase: 'revise'; codigo: CodigoRevise; campo?: 'vin' }
+  | { clase: 'revise'; codigo: CodigoRevise; campo?: 'vin' | 'placa' }
+  /** Solo renovación (HU #14017, AC6): el RUNT respondió y el vehículo no registra SOAT anterior. */
+  | { clase: 'sin_soat_anterior' }
   /**
    * `causa` solo cuando la pasarela LANZÓ (timeout, red, circuito…): es el token de `causaDeCaida`.
    * Un no-200 clasificado como caído no la trae (HU #12998: se guarda `NULL`).
@@ -503,8 +518,10 @@ export function esNegativaDeNegocio(respuesta: RespuestaKyverum): boolean {
  */
 export async function clasificarDesenlaceRunt(
   respuesta: RespuestaKyverum,
-  vinTecleado: string,
+  consultaTecleada: EntradaConsultaRunt,
   hoy: string = diaEnBogota(),
+  /** HU #14017: solo `renovacion` evalúa el paso 5-bis. Por defecto `inicial` (intacto). */
+  tipo: TipoSoatCanal = 'inicial',
 ): Promise<DesenlaceRunt> {
   if (!respuesta?.ok) {
     if (esNegativaDeNegocio(respuesta)) return { clase: 'revise', codigo: 'runt_no_cuadra' };
@@ -517,12 +534,21 @@ export async function clasificarDesenlaceRunt(
   // El 422 NUNCA lleva el VIN del RUNT. El riesgo cambió de forma con la HU #12090 y no
   // desapareció: antes era filtrar el VIN a quien sondeaba placas ajenas; ahora es confirmarle el
   // VIN bueno a quien sondea VINs de una flota —que son consecutivos—. Solo se dice QUÉ revisar.
-  if (campoQueNoCuadra(vinTecleado, datos) !== null) {
-    return { clase: 'revise', codigo: 'runt_no_cuadra', campo: 'vin' };
+  const campoNoCuadra = campoQueNoCuadra(consultaTecleada, datos);
+  if (campoNoCuadra !== null) {
+    return { clase: 'revise', codigo: 'runt_no_cuadra', campo: campoNoCuadra };
   }
 
   const vinEfectivo = normalizarIdentificador(datos.vin);
   if (vinEfectivo === null) return { clase: 'revise', codigo: 'runt_sin_vin' };
+
+  // Paso 5-bis (HU #14017), SOLO renovación y después de los «revise»: el indeterminado es `caido`
+  // (defecto seguro de ADR-0010), nunca «sin SOAT». Ver `sinSoatAnterior`.
+  if (tipo === 'renovacion') {
+    const sin = sinSoatAnterior(respuesta.data);
+    if (sin === null) return { clase: 'caido' };
+    if (sin) return { clase: 'sin_soat_anterior' };
+  }
 
   if (soatVigenteSegunRunt(respuesta)) {
     const soatActivo = soatActivoRunt(respuesta.data);
@@ -603,10 +629,12 @@ export function causaDeCaida(err: unknown): CausaCaidaRunt {
  * que hace falta para medir en DEV el riesgo de la clasificación (ver {@link esNegativaDeNegocio}) y
  * la causa del organismo vacío, sin abrir una vía de PII en logs.
  */
-export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> {
+export async function consultarYClasificar(
+  consulta: EntradaConsultaRunt, tipo: TipoSoatCanal = 'inicial',
+): Promise<DesenlaceRunt> {
   let respuesta: RespuestaKyverum;
   try {
-    respuesta = await consultarRuntCrudo(vin);
+    respuesta = await consultarRuntCrudo(consulta);
   } catch (err: unknown) {
     // Un `throw` no es una respuesta: el defecto seguro es «caído», que no crea nada.
     //
@@ -622,7 +650,7 @@ export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> 
     return { clase: 'caido', causa };
   }
 
-  const desenlace = await clasificarDesenlaceRunt(respuesta, vin);
+  const desenlace = await clasificarDesenlaceRunt(respuesta, consulta, diaEnBogota(), tipo);
 
   // ── La línea de los desenlaces que resuelven organismo, y por qué existe (Bug #12179) ────────
   //
@@ -666,10 +694,11 @@ export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> 
     );
   }
 
-  if (desenlace.clase === 'caido' || desenlace.clase === 'revise') {
+  if (desenlace.clase === 'caido' || desenlace.clase === 'revise' || desenlace.clase === 'sin_soat_anterior') {
     log.info(
       {
         desenlace: desenlace.clase,
+        ...(comoConsulta(consulta).modalidad === 'placa' ? { modalidad: 'placa' } : {}),
         codigo: desenlace.clase === 'revise' ? desenlace.codigo : null,
         httpStatus: respuesta.httpStatus ?? null,
       },

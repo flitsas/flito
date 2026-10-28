@@ -136,6 +136,10 @@ import { loggerFor } from '../../shared/logger.js';
 import { buscarConAcceso, ORIGEN_CLIENTE, type SoatCtx } from './flito-soat.service.js';
 import { diaEnBogota } from './flito-soat-cliente-runt.js';
 import { soatActualDelVin, type SoatActualDelVin } from './flito-soat-actual.js';
+import {
+  comoConsulta, MENSAJE_REVISE_POR_MODALIDAD, MENSAJE_SIN_SOAT_ANTERIOR, type ConsultaRunt, type EntradaConsultaRunt,
+  type TipoSoatCanal,
+} from './flito-soat-cliente-consulta.js';
 import { contextoFlito, contextoSinFlito, diasEntre } from './flito-soat-contexto.js';
 import {
   consultarYClasificar,
@@ -238,6 +242,8 @@ export const DESENLACE_HABLA_DEL_VEHICULO: Record<CodigoErrorSolicitudSoat, bool
   [CodigoErrorSolicitudSoat.RUNT_SIN_VIN]: true,
   /** El RUNT reporta SOAT vigente para ese vehículo. */
   [CodigoErrorSolicitudSoat.SOAT_VIGENTE]: true,
+  /** Renovación: el registro nacional no registra SOAT anterior para esa placa (HU #14017). */
+  [CodigoErrorSolicitudSoat.SOAT_SIN_ANTERIOR]: true,
   /** Ese VIN ya está en FLITO: el 409 que confirma cartera, propia o ajena. */
   [CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT]: true,
   /** Ese VIN tiene una solicitud incompleta abierta (HU #12996): confirma que está en FLITO. */
@@ -327,6 +333,10 @@ export interface EntradaSolicitud {
    * valor que nadie confirmó.
    */
   vin: string;
+  /** HU #14017: ausente = `inicial` (compatible con la web actual). `renovacion` consulta por `placa` + documento del propietario. */
+  tipo?: TipoSoatCanal;
+  /** Solo renovación: la placa tecleada (el documento consultado es `propietario.numeroDocumento`). */
+  placa?: string;
   propietario: PropietarioSolicitud;
   /**
    * De dónde salió cada dato del propietario (HU #12093, AC2). Puede venir INCOMPLETO o no venir:
@@ -722,8 +732,10 @@ export interface ResultadoRunt {
  * (`MENSAJE_VEHICULO_AJENO`), y lo garantiza la construcción del error: `desenlace.campo` es el
  * único dato que entra en `datos`, y `CodigoErrorSolicitudSoat`/`MENSAJE_REVISE` son constantes.
  */
-async function verificarRuntCompuerta(vin: string): Promise<ResultadoRunt> {
-  const desenlace = await consultarYClasificar(vin);
+async function verificarRuntCompuerta(
+  consulta: EntradaConsultaRunt, tipo: TipoSoatCanal = 'inicial',
+): Promise<ResultadoRunt> {
+  const desenlace = await consultarYClasificar(consulta, tipo);
   // Inmediatamente después del `await` y antes de cualquier rama: es el instante en que el registro
   // nacional respondió, que es lo que el AC4 pide poder enseñar. Se toma también en los desenlaces
   // que abortan —cuesta cero y evita que el «cuándo» dependa de qué contestó el RUNT—, y solo se
@@ -735,8 +747,12 @@ async function verificarRuntCompuerta(vin: string): Promise<ResultadoRunt> {
       throw fallo(503, CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE,
         'No fue posible consultar el RUNT en este momento. Intenta de nuevo en unos minutos.');
     case 'revise':
-      throw fallo(422, CODIGO_REVISE[desenlace.codigo], MENSAJE_REVISE[desenlace.codigo],
+      throw fallo(422, CODIGO_REVISE[desenlace.codigo],
+        MENSAJE_REVISE_POR_MODALIDAD[comoConsulta(consulta).modalidad][desenlace.codigo],
         desenlace.campo ? { campo: desenlace.campo } : undefined);
+    // Solo renovación (HU #14017, AC6). Sin ningún dato del RUNT en el cuerpo.
+    case 'sin_soat_anterior':
+      throw fallo(422, CodigoErrorSolicitudSoat.SOAT_SIN_ANTERIOR, MENSAJE_SIN_SOAT_ANTERIOR);
     case 'vigente': {
       // `fechaVencimiento` se CONSERVA con su contrato de siempre —ausente, nunca null, si el RUNT
       // no trae fecha—; el spread condicional existe solo para eso. `soatActivo` va siempre, anidado
@@ -801,14 +817,7 @@ const CODIGO_REVISE: Record<CodigoRevise, CodigoErrorSolicitudSoat> = {
  * tipo y el número de documento», que desde esta HU no son entrada de nada. Un mensaje que pide
  * corregir un campo que la pantalla ya no tiene es peor que no decir nada.
  */
-const MENSAJE_REVISE: Record<CodigoRevise, string> = {
-  runt_no_cuadra:
-    'El RUNT no confirma este vehículo. Revisa el VIN que escribiste.',
-  runt_sin_registro:
-    'El RUNT no tiene registrado un vehículo con ese VIN. Revísalo.',
-  runt_sin_vin:
-    'El RUNT no publica el VIN de este vehículo, y sin VIN no podemos radicar la solicitud. Escríbenos para revisarlo.',
-};
+// Los textos viven por modalidad en `flito-soat-cliente-consulta.ts` (MENSAJE_REVISE_POR_MODALIDAD).
 
 /**
  * Si el RUNT dice «vigente» (409 `soat_vigente`, vigencia fuera de la ventana) sobre un vehículo que
@@ -828,6 +837,8 @@ function conFlitoEnSoatVigente(e: unknown, actual: SoatActualDelVin | null): unk
 // ───────────────────────────── Preconsulta ──────────────────────────────────
 
 export interface Preconsulta {
+  /** HU #14017: la modalidad con la que se consultó. */
+  tipo: TipoSoatCanal;
   /**
    * Sin `numMotor` ni `numSerie` (HU #12401): se persisten en `vehicles`, no se enseñan. La
    * pantalla del canal no los pinta y publicarlos aquí sería sacar un dato del RUNT por la API
@@ -892,20 +903,30 @@ export interface Preconsulta {
  *   · `organismo.codigo` puede ser `null` (#11966, AC5).
  */
 export async function preconsulta(
-  vin: string, ctx: SoatCtx, companiaIdPedida: number | null = null,
+  /** `string` = VIN (Inicial); `{ modalidad: 'placa' }` = Renovación (HU #14017). */
+  entrada: string | ConsultaRunt, ctx: SoatCtx, companiaIdPedida: number | null = null,
 ): Promise<Preconsulta> {
   const canal = await canalDeLaCompania(ctx, companiaIdPedida);
-  const vinNorm = normalizarId(vin);
+  const consultaIn = comoConsulta(entrada);
+  const tipo: TipoSoatCanal = consultaIn.modalidad === 'placa' ? 'renovacion' : 'inicial';
+  const consulta: ConsultaRunt = consultaIn.modalidad === 'vin'
+    ? { modalidad: 'vin', vin: normalizarId(consultaIn.vin) }
+    : { modalidad: 'placa', placa: normalizarId(consultaIn.placa), documento: consultaIn.documento };
 
   // Las dos guardas baratas, ANTES de gastar una consulta a Kyverum. Se vuelven a mirar debajo sobre
   // el VIN efectivo porque entre una cosa y la otra hay una llamada de red entera.
   // `permiteTerminal`: un SOAT `pagado` propio NO bloquea la preconsulta, la enriquece con `flito`.
-  const actualPrevio = await verificarRn01(vinNorm, canal.companiaId, { permiteTerminal: true });
-  await verificarTenenciaVehiculo(vinNorm, canal.companiaId);
+  // Renovación: antes del RUNT no hay VIN, así que no hay guardas baratas (la de la incompleta
+  // abierta por placa es de la HU #14018); la autoritativa corre debajo sobre el VIN efectivo.
+  let actualPrevio: SoatActualDelVin | null = null;
+  if (consulta.modalidad === 'vin') {
+    actualPrevio = await verificarRn01(consulta.vin, canal.companiaId, { permiteTerminal: true });
+    await verificarTenenciaVehiculo(consulta.vin, canal.companiaId);
+  }
 
   let runt: ResultadoRunt;
   try {
-    runt = await verificarRuntCompuerta(vinNorm);
+    runt = await verificarRuntCompuerta(consulta, tipo);
   } catch (e) {
     throw conFlitoEnSoatVigente(e, actualPrevio);
   }
@@ -927,6 +948,7 @@ export async function preconsulta(
     : [];
 
   return {
+    tipo,
     vehiculo: {
       // **La placa es la del RUNT** (HU #12090, AC3), y sigue siendo «la que se va a persistir»: es
       // el mismo valor que `upsertVehiculoRunt` escribe en `vehicles.plate`. Lo que cambió es de
@@ -1218,6 +1240,8 @@ export async function resolverDestinoCanalCliente(
 /** Lo que `insertarSolicitudDespachada` necesita: todo resuelto por quien llama. */
 export interface SolicitudADespachar {
   soatId: string;
+  /** Obligatorio a propósito (HU #14017): ningún escritor del satélite puede omitir el tipo. Valor de `tipo_soat`. */
+  tipoSoat: 'inicial' | 'renovacion';
   vin: string;
   vehiculoId: number;
   companiaId: number;
@@ -1225,7 +1249,10 @@ export interface SolicitudADespachar {
   vigenciaProxima: VigenciaProximaSoat | null;
   consultadoEn: Date;
   ahora: Date;
-  factura: { nombreArchivo: string; contentType: string; storageKey: string; hash: string; tamanoBytes: number };
+  /** `null` en una renovación sin factura (HU #14017, AC2): no se inserta soporte. */
+  factura: { nombreArchivo: string; contentType: string; storageKey: string; hash: string; tamanoBytes: number } | null;
+  /** Renovación de un SOAT ya gestionado por FLITO: su SOAT terminal (`pagado`). `null` = el previo solo está en el RUNT. */
+  soatAnteriorId?: string | null;
   /** Quien RADICÓ: «solicitado por» y autor del soporte. `en: null` = ahora (default de la columna). */
   solicitante: { id: number | null; nombre: string; en: Date | null };
 }
@@ -1311,6 +1338,8 @@ export async function insertarSolicitudDespachada(
 
   await tx.insert(flitoSoatSolicitud).values({
     soatId,
+    tipoSoat: p.tipoSoat,
+    soatAnteriorId: p.soatAnteriorId ?? null,
     solicitadoPorId: solicitante.id,
     solicitadoPorNombre: solicitante.nombre,
     // El reintento conserva la fecha del radicador (HU #12998, Q5); el alta deja el default.
@@ -1337,16 +1366,19 @@ export async function insertarSolicitudDespachada(
     runtConsultadoEn: consultadoEn,
   });
 
-  await tx.insert(flitoSoportes).values({
-    tipo: TipoSoporte.FACTURA_VENTA,
-    nombreArchivo: factura.nombreArchivo,
-    contentType: factura.contentType,
-    storageKey: factura.storageKey, hash: factura.hash, tamanoBytes: factura.tamanoBytes,
-    soatId,
-    // La factura la subió quien radicó, también cuando despacha un reintento.
-    subidoPorId: solicitante.id,
-    subidoPorNombre: solicitante.nombre,
-  });
+  // Renovación sin factura (HU #14017, AC2): no hay soporte que insertar.
+  if (factura) {
+    await tx.insert(flitoSoportes).values({
+      tipo: TipoSoporte.FACTURA_VENTA,
+      nombreArchivo: factura.nombreArchivo,
+      contentType: factura.contentType,
+      storageKey: factura.storageKey, hash: factura.hash, tamanoBytes: factura.tamanoBytes,
+      soatId,
+      // La factura la subió quien radicó, también cuando despacha un reintento.
+      subidoPorId: solicitante.id,
+      subidoPorNombre: solicitante.nombre,
+    });
+  }
 
   await registrarCambio(tx, {
     concepto: ConceptoHistorial.SOAT,
@@ -1468,7 +1500,8 @@ async function aparcarPorRuntCaido(
  */
 export async function crearSolicitud(
   entrada: EntradaSolicitud,
-  archivo: ArchivoSolicitud,
+  /** `null` solo en renovación (la factura es opcional); en Inicial es obligatoria. */
+  archivo: ArchivoSolicitud | null,
   ctx: SoatCtx,
   /** HU #13362: ya clasificados por `clasificarAdicionales`; se suben tras la factura y se insertan en la tx. */
   adicionales: AdicionalAceptado[] = [],
@@ -1476,19 +1509,31 @@ export async function crearSolicitud(
   companiaIdPedida: number | null = null,
 ): Promise<SolicitudCreada | SolicitudAparcada> {
   const canal = await canalDeLaCompania(ctx, companiaIdPedida);
-  await verificarPdfReal(archivo);
+  const renovacion = entrada.tipo === 'renovacion';
+  const tipoSoat: TipoSoatCanal = renovacion ? 'renovacion' : 'inicial';
+  if (archivo) await verificarPdfReal(archivo);
+  else if (!renovacion) {
+    throw fallo(400, CodigoErrorSolicitudSoat.ARCHIVO_NO_PDF, 'Falta la factura de venta (PDF)');
+  }
 
+  // Renovación: placa + documento del propietario (el MISMO campo que se persiste). Inicial: VIN.
   const vinTecleado = normalizarId(entrada.vin);
-  await verificarRn01(vinTecleado, canal.companiaId);
-  await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
+  const consulta: ConsultaRunt = renovacion
+    ? { modalidad: 'placa', placa: normalizarId(entrada.placa ?? ''), documento: entrada.propietario.numeroDocumento }
+    : { modalidad: 'vin', vin: vinTecleado };
+  if (!renovacion) {
+    await verificarRn01(vinTecleado, canal.companiaId);
+    await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
+  }
 
   // HU #12996: el 503 de la compuerta ya no aborta el ALTA —la preconsulta sigue en 503—. Solo ese
   // desenlace aparca; el 422 y el 409 del RUNT siguen saliendo tal cual y no guardan nada (AC6).
   let runt: ResultadoRunt;
   try {
-    runt = await verificarRuntCompuerta(vinTecleado);
+    runt = await verificarRuntCompuerta(consulta, tipoSoat);
   } catch (e) {
-    if (e instanceof SolicitudSoatError && e.codigo === CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE) {
+    // Solo Inicial aparca; la renovación con RUNT caído responde 503 (aparcarla es la HU #14018).
+    if (!renovacion && archivo && e instanceof SolicitudSoatError && e.codigo === CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE) {
       return aparcarPorRuntCaido(entrada, archivo, ctx, canal, vinTecleado, adicionales);
     }
     throw e;
@@ -1499,15 +1544,20 @@ export async function crearSolicitud(
   // tecleado —la compuerta garantiza esa igualdad—: lo que esta pareja cubre es la ventana entre la
   // comprobación previa y el INSERT, en la que cabe otra petición entera radicando el mismo VIN.
   const vin = vinEfectivo;
-  await verificarRn01(vin, canal.companiaId);
+  // Renovación: un SOAT `pagado` propio NO bloquea y se enlaza como antecesor; uno abierto sigue
+  // siendo 409 y uno ajeno el 409 recortado. Inicial conserva el 409 también con el terminal.
+  const antecesor = await verificarRn01(vin, canal.companiaId, { permiteTerminal: renovacion });
   await verificarTenenciaVehiculo(vin, canal.companiaId);
 
   const soatId = randomUUID();
-  const hash = createHash('sha256').update(archivo.buffer).digest('hex');
-  const storageKey = await uploadEntityDocument(
-    carpetaDe({ id: canal.companiaId, flitoCarpetaStorage: canal.carpetaStorage }, 'soat/facturas-venta'),
-    soatId, archivo.originalname, archivo.buffer, archivo.mimetype,
-  );
+  const carpetaFactura = carpetaDe({ id: canal.companiaId, flitoCarpetaStorage: canal.carpetaStorage }, 'soat/facturas-venta');
+  const factura = archivo
+    ? {
+      nombreArchivo: archivo.originalname, contentType: archivo.mimetype,
+      hash: createHash('sha256').update(archivo.buffer).digest('hex'), tamanoBytes: archivo.size,
+      storageKey: await uploadEntityDocument(carpetaFactura, soatId, archivo.originalname, archivo.buffer, archivo.mimetype),
+    }
+    : null;
   const subidos: AdicionalSubido[] = await subirAdicionales(
     carpetaDe({ id: canal.companiaId, flitoCarpetaStorage: canal.carpetaStorage }, CARPETA_ADICIONALES),
     soatId, adicionales,
@@ -1528,9 +1578,8 @@ export async function crearSolicitud(
       // Destino + SOAT + satélite + soporte + historial: el MISMO camino que el reintento de una
       // incompleta (HU #12998). Ver `insertarSolicitudDespachada`.
       destino = await insertarSolicitudDespachada(tx, {
-        soatId, vin, vehiculoId, companiaId: canal.companiaId, organismoCodigo, vigenciaProxima,
-        consultadoEn, ahora,
-        factura: { nombreArchivo: archivo.originalname, contentType: archivo.mimetype, storageKey, hash, tamanoBytes: archivo.size },
+        soatId, tipoSoat, soatAnteriorId: antecesor?.id ?? null, vin, vehiculoId, companiaId: canal.companiaId,
+        organismoCodigo, vigenciaProxima, consultadoEn, ahora, factura,
         solicitante: { id: ctx.userId, nombre: ctx.username, en: null },
       }, ctx);
 

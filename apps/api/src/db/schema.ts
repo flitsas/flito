@@ -2991,12 +2991,13 @@ export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
    */
   runtConsultadoEn: timestamp('runt_consultado_en', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Mig. 0268 (HU #14017): 'inicial' | 'renovacion' y el SOAT antecesor (solo en renovación).
+  tipoSoat: varchar('tipo_soat', { length: 10 }).notNull().default('inicial'), soatAnteriorId: uuid('soat_anterior_id').references(() => flitoSoat.id),
 }, (t) => ({
   // `idx_flito_soat_solicitud_causal` se va con su columna en la 0176.
-  verificacionEstadoChk: check(
-    'flito_soat_solicitud_verificacion_estado_chk',
-    sql`${t.verificacionEstado} IN ('pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok')`,
-  ),
+  verificacionEstadoChk: check('flito_soat_solicitud_verificacion_estado_chk', sql`${t.verificacionEstado} IN ('pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok')`),
+  tipoSoatChk: check('flito_soat_solicitud_tipo_soat_chk', sql`${t.tipoSoat} IN ('inicial', 'renovacion')`), anteriorChk: check('flito_soat_solicitud_anterior_chk', sql`${t.tipoSoat} = 'renovacion' OR ${t.soatAnteriorId} IS NULL`),
+  anteriorIdx: index('idx_flito_soat_solicitud_anterior').on(t.soatAnteriorId).where(sql`${t.soatAnteriorId} IS NOT NULL`),
 }));
 
 /**

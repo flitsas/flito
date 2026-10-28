@@ -196,6 +196,15 @@ export function soatEstaAbierto(estado: EstadoSoat): boolean {
 }
 
 /**
+ * Tipo de SOAT de una solicitud del canal Cliente (Feature #14012, HU #14017, ADR-0030).
+ * El contrato lo expone en MAYÚSCULAS; la columna `flito_soat_solicitud.tipo_soat` guarda
+ * 'inicial' | 'renovacion'. `null` en la cola/detalle = fila de trámite, sin solicitud del canal.
+ */
+export const TipoSoat = { INICIAL: 'INICIAL', RENOVACION: 'RENOVACION' } as const;
+export type TipoSoat = (typeof TipoSoat)[keyof typeof TipoSoat];
+export const TIPOS_SOAT: readonly TipoSoat[] = [TipoSoat.INICIAL, TipoSoat.RENOVACION];
+
+/**
  * «Ya en FLITO» de un vehículo, para la preconsulta y para los 409 de RN-01 (Feature #14012).
  * Aditivo y presente solo cuando el vehículo es de la compañía de quien consulta: el 409 de un
  * vehículo AJENO no lleva este bloque (no se sondea cartera ajena).
@@ -761,6 +770,8 @@ export const CodigoErrorSolicitudSoat = {
   RUNT_SIN_VIN: 'runt_sin_vin',
   /** El RUNT dice que el vehículo YA tiene SOAT vigente (AC3) → modal, y no se compra. */
   SOAT_VIGENTE: 'soat_vigente',
+  /** Renovación: el RUNT no registra SOAT anterior para la placa → pida un SOAT inicial (HU #14017, AC6). */
+  SOAT_SIN_ANTERIOR: 'soat_sin_anterior',
   /** Ese VIN ya tiene fila en `flito_soat`, de trámite o de este canal, incluida una Rechazada (AC4). */
   VIN_YA_TIENE_SOAT: 'vin_ya_tiene_soat',
   /** El adjunto no es un PDF por CONTENIDO, no solo por extensión (AC5). */
