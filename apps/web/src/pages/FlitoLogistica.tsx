@@ -20,6 +20,7 @@ import {
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FirmaCanvas from '../components/flito/FirmaCanvas';
+import ViajesMasivo from '../components/flito/logistica/ViajesMasivo';
 import ViajesLogistica from '../components/flito/logistica/ViajesLogistica';
 
 interface TramiteFila {
@@ -54,7 +55,7 @@ const ESTADOS_SIMPLE: EstadoLogisticaSimple[] = ['pendiente', 'registrada', 'des
 
 const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
-type Tab = 'tramites' | 'actas-gen' | 'actas';
+type Tab = 'tramites' | 'actas-gen' | 'actas' | 'viajes';
 
 /** HU #13452: con enlace el vacío dice de quién son los trámites y no manda a sincronizar (operación interna). */
 function vacioLogistica(tipoEnlace: Parameters<typeof vacioConEnlace>[1]): string {
@@ -122,6 +123,7 @@ export default function FlitoLogistica() {
     { key: 'tramites', label: 'Trámites', badge: data?.total },
     { key: 'actas-gen', label: 'Generación de actas', badge: registradas || undefined },
     { key: 'actas', label: 'Actas', badge: actasPendientes || undefined },
+    ...(hasFuncion('logistica.viajes.registrar') ? [{ key: 'viajes' as const, label: 'Viajes adicionales' }] : []),
   ];
 
   return (
@@ -155,6 +157,8 @@ export default function FlitoLogistica() {
       </div>
 
       {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
+
+      {tab === 'viajes' && hasFuncion('logistica.viajes.registrar') && <ViajesMasivo />}
 
       {/* ── Pestaña 1: Trámites (tabla general) ── */}
       {tab === 'tramites' && (
