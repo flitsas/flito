@@ -30,8 +30,8 @@ consultas:
   - cómo elimino un proveedor de SOAT
   - por qué no puedo eliminar un proveedor
   - por qué dice que ya existe un proveedor con ese nombre
-version: 2.2
-fecha: 2026-10-26
+version: 2.3
+fecha: 2026-10-28
 ---
 ## Qué es
 

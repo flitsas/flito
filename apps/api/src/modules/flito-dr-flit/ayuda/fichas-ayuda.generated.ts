@@ -135,8 +135,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "clients",
     "etiqueta": "Clientes y proveedores",
     "resumen": "Empresas, servicios que gestiona FLITO y datos comerciales.",
-    "version": "2.2",
-    "fecha": "2026-10-26",
+    "version": "2.3",
+    "fecha": "2026-10-28",
     "palabrasClave": [
       "clientes",
       "proveedores",
