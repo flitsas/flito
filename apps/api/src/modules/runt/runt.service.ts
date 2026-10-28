@@ -105,7 +105,7 @@ async function consultarVehiculoProxy(placa?: string, vin?: string, documento?: 
   if (placa) body.placa = placa.toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (documento) body.documento = documento;
   if (tipoDocumento) body.tipoDocumento = tipoDocumento;
-  log.info({ tipoDoc: body.tipoDocumento || 'CC', via: 'gateway' }, 'consulta vehiculo');
+  log.info({ tipoDoc: body.tipoDocumento ?? null, via: 'gateway' }, 'consulta vehiculo');
   const r = await withCircuitBreaker('runt-vehicle', () =>
     httpsReq('POST', GATEWAY_RUNT_URL, body, gatewayAuth()),
   );

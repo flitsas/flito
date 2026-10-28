@@ -136,7 +136,8 @@ export async function consultarVehiculoRuntDirect(placa?: string, vin?: string, 
         const results = await Promise.allSettled(endpoints.map(([, ep]) => httpsJson('GET', `${RUNT_VEH_BASE}${ep}`, null, h)));
         endpoints.forEach(([key], i) => { const val = noErr(safe(results[i])); if (val) extras[key] = val; });
       }
-      log.info({ placa: placaNorm, via: 'direct' }, 'runt vehiculo');
+      // Sin placa en el log (Ley 1581, HU #14017): solo la modalidad.
+      log.info({ modalidad: placaNorm ? 'placa' : 'vin', via: 'direct' }, 'runt vehiculo');
       return { ok: true, data: { vehiculo: result.vehiculo, tipoDocPropietario: tipo, ...extras } };
     }
     if (result.resp) lastError = result.resp.data?.descripcionRespuesta || result.resp.data?.message || '';

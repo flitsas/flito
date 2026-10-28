@@ -373,6 +373,8 @@ describe('AC1 — el alta crea la fila del canal y la DESPACHA (invertido por la
 
     expect(espia.ultimoInsertEn('flito_soat_solicitud')).toMatchObject({
       soatId: r.body.id, solicitadoPorId: sub, solicitadoPorNombre: 'cliente@empresa.co',
+      // HU #14017 fase 1: el alta del canal persiste el tipo Inicial de forma explícita.
+      tipoSoat: 'inicial',
       // INVERTIDO por la #11966: nacía en `pendiente` porque el desenlace se conocía después del
       // COMMIT. Ahora la compuerta ya corrió, así que la lectura es CONCLUYENTE: `ok`, y
       // `soatVigente: false` —si estuviera vigente no habría fila que anotar—.

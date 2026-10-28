@@ -112,6 +112,10 @@ export async function reintentarIncompleta(id: string, ctx: SoatCtx): Promise<Re
     }
     case 'revise':
       return { ...base, respuesta: await descartar(inc, desenlace.codigo, null, consultadoEn, ctx) };
+    // Solo la renovación lo produce y el reintento consulta como Inicial (default): el reintento por
+    // placa y el descarte `sin_soat_anterior` son de la HU #14018. Inalcanzable hoy.
+    case 'sin_soat_anterior':
+      throw new Error('sin_soat_anterior solo aplica a renovación (reintento por placa: HU #14018)');
     case 'vigente':
       return {
         ...base,
@@ -263,7 +267,7 @@ async function completar(
       tx, { vin: runt.vin }, runt.datos, propietario, inc.companiaId, ctx, soatId,
     );
     const destino = await insertarSolicitudDespachada(tx, {
-      soatId, vin: runt.vin, vehiculoId, companiaId: inc.companiaId,
+      soatId, tipoSoat: 'inicial', vin: runt.vin, vehiculoId, companiaId: inc.companiaId,
       organismoCodigo: runt.organismoCodigo, vigenciaProxima: runt.vigenciaProxima,
       consultadoEn, ahora,
       factura: {
