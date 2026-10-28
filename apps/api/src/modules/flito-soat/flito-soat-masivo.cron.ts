@@ -1,9 +1,9 @@
 // HU #14132 (Feature #14013, ADR-0032) — PROGRAMACIÓN del worker de la carga masiva de SOAT: un `setInterval` de
 // 2,5 s. La lógica vive en `flito-soat-masivo.worker.ts`.
 //
-// RN-MASC1  Puerta POSITIVA: sin `SOAT_MASIVO_WORKER_ENABLED=1` no arranca NADA (ni worker, ni mantenimiento, ni
-//           vigilante). Por eso el alta del lote (POST /cliente/masivo) responde 503 `carga_masiva_no_disponible`
-//           con el flag apagado: de lo contrario el lote quedaría `en_cola` para siempre y bloquearía a su compañía.
+// RN-MASC1  Puerta NEGATIVA (enmienda 2026-10-28): defecto ENCENDIDO; con `SOAT_MASIVO_WORKER_ENABLED=0` no arranca
+//           NADA (ni worker, ni mantenimiento, ni vigilante). Por eso el alta del lote (POST /cliente/masivo)
+//           responde 503 `carga_masiva_no_disponible` con el worker apagado: de lo contrario el lote quedaría `en_cola` para siempre y bloquearía a su compañía.
 // RN-MASC2  Sin `withLock` en el tick: el reclamo (SKIP LOCKED) ya serializa entre réplicas.
 // Logs: solo host y nombre del error; ningún dato de persona.
 
@@ -22,7 +22,7 @@ let timer: NodeJS.Timeout | null = null;
 export function startSoatMasivoCron(): void {
   if (timer) return;
   if (!env.SOAT_MASIVO_WORKER_ENABLED) {
-    log.info({ host: HOST_ID }, 'worker de la carga masiva de SOAT DESHABILITADO (SOAT_MASIVO_WORKER_ENABLED!=1)');
+    log.info({ host: HOST_ID }, 'worker de la carga masiva de SOAT DESHABILITADO (SOAT_MASIVO_WORKER_ENABLED=0)');
     return;
   }
   log.info({ host: HOST_ID, concurrencia: CONCURRENCIA_LOCAL, latidoMs: LATIDO_MASIVO_MS }, 'worker de la carga masiva de SOAT ACTIVO');
