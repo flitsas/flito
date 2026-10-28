@@ -242,7 +242,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // HU #13964: «Quitar» la versión vigente y el estado «retirada» del historial (v1.8).
     flito_bolsas: { version: '1.8', fecha: '2026-10-26', diagrama: 'ciclo-periodo.svg', capturas: [
       '01-cabecera-y-kpi.png', '02-companias.png', '03-crear-bolsa.png', '04-detalle-compania.png', '05-documentos.png'] },
-    flito_tarifas: { version: '1.2', fecha: '2026-10-25', diagrama: 'vigencias.svg', capturas: [
+    flito_tarifas: { version: '1.3', fecha: '2026-10-27', diagrama: 'vigencias.svg', capturas: [
       '01-elegir-compania.png', '02-fijar-valor.png', '03-historial.png'] },
     // Citadas en el orden de los pasos de la ficha (la 01 ilustra el paso 5, «Por tarifar»).
     flito_servicios_adicionales: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-tipo.svg', capturas: [

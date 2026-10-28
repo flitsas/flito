@@ -3633,8 +3633,8 @@ export const flitoTarifasVigencias = pgTable('flito_tarifas_vigencias', {
   // Una sola abierta por llave. El COALESCE es imprescindible: NULL no colisiona con NULL.
   abiertaUq: uniqueIndex('idx_flito_tarifas_vigencias_abierta')
     .on(t.companiaId, t.concepto, sql`COALESCE(${t.tipoTramite}, '')`).where(sql`${t.vigenteHasta} IS NULL`),
-  conceptoChk: check('flito_tarifas_vigencias_concepto_chk', sql`${t.concepto} IN ('tramite_digital', 'logistica')`),
-  tipoChk: check('flito_tarifas_vigencias_tipo_chk', sql`(${t.concepto} = 'tramite_digital' AND ${t.tipoTramite} IS NOT NULL AND ${t.tipoTramite} IN ('MATRICULA', 'TRASPASO', 'OTROS')) OR (${t.concepto} = 'logistica' AND ${t.tipoTramite} IS NULL)`),
+  conceptoChk: check('flito_tarifas_vigencias_concepto_chk', sql`${t.concepto} IN ('tramite_digital', 'logistica', 'logistica_cliente', 'logistica_flit')`),
+  tipoChk: check('flito_tarifas_vigencias_tipo_chk', sql`(${t.concepto} = 'tramite_digital' AND ${t.tipoTramite} IS NOT NULL AND ${t.tipoTramite} IN ('MATRICULA', 'TRASPASO', 'OTROS')) OR (${t.concepto} IN ('logistica', 'logistica_cliente', 'logistica_flit') AND ${t.tipoTramite} IS NULL)`),
   valorChk: check('flito_tarifas_vigencias_valor_chk', sql`${t.valor} >= 0`),
   // >= y no >: una tarifa creada inactiva y nunca activada migra como rango vacío [t, t).
   rangoChk: check('flito_tarifas_vigencias_rango_chk', sql`${t.vigenteHasta} IS NULL OR ${t.vigenteHasta} >= ${t.vigenteDesde}`),

@@ -173,7 +173,7 @@ describe('tarifaDe — resuelve la vigencia que CONTIENE la fecha de aprobación
 
   it('un tipo desconocido es «no configurada», no «OTROS» ni una genérica, y ni siquiera consulta', async () => {
     const r = await tarifaDe(7, 'tramite_digital', 'Cancelacion');
-    expect(r).toEqual({ valor: null, origen: 'no_configurada' });
+    expect(r).toEqual({ valor: null, origen: 'no_configurada', vigenciaId: null });
     expect(selectMock).not.toHaveBeenCalled();
   });
 
@@ -181,7 +181,7 @@ describe('tarifaDe — resuelve la vigencia que CONTIENE la fecha de aprobación
     // Un cero aquí sumaría un total falso en el reporte y nadie lo notaría.
     selectMock.mockReturnValueOnce(chain([]));
     const r = await tarifaDe(7, 'tramite_digital', 'Matricula', new Date('2026-08-10T12:00:00Z'));
-    expect(r).toEqual({ valor: null, origen: 'no_configurada' });
+    expect(r).toEqual({ valor: null, origen: 'no_configurada', vigenciaId: null });
     expect(r.valor).not.toBe(0);
   });
 
@@ -471,7 +471,7 @@ describe('historial — filtros por llave y por rango de días (AC13, AC14)', ()
     await historial(7, { concepto: 'logistica', tipoTramite: 'TRASPASO' });
     const { sql, params } = renderizar(q.where!);
     expect(sql).toMatch(/"concepto" = \$2/);
-    expect(params).toEqual([7, 'logistica']);
+    expect(params).toEqual([7, 'logistica_cliente']); // alias persistido (HU #14106)
     expect(sql).not.toMatch(/tipo_tramite/);
   });
 });

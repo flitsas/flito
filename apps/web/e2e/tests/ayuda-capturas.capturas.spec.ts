@@ -874,13 +874,13 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await entrarComoAdminDemo(page);
 
     await page.goto('/flito/tarifas/901');
-    await expect(page.getByRole('button', { name: /Fijar valor · / })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Fijar valor · Entrega a FLIT de / })).toBeVisible();
 
     // Paso 1 — Elegir la compañía: la lista marca las que tienen valores sin configurar.
     await capturar(page, dir, '01-elegir-compania');
 
-    // Paso 2 — Fijar valor en la fila Sin configurar.
-    await page.getByRole('button', { name: /Fijar valor · / }).click();
+    // Paso 2 — Fijar valor en el panel «Entrega a FLIT», Sin configurar.
+    await page.getByRole('button', { name: /Fijar valor · Entrega a FLIT de / }).click();
     await page.getByRole('textbox').last().fill('45000');
     await capturar(page, dir, '02-fijar-valor');
     await page.getByRole('button', { name: /Cancelar · / }).click();
