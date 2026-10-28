@@ -128,7 +128,18 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/actas/:id/pdf", roles: ["admin","auditor"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/:id", roles: ["admin","auditor"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/validar-lt", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/consultar-vehiculo", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/escanear", roles: ["admin","mensajero"], heredada: false },
+  // HU #14110: confirmar la recogida (función propia) y revelar la cédula del firmante (función nueva, solo admin).
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/recogidas/confirmar", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/mias", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/pendientes-firma", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/:firmanteId", roles: ["admin","mensajero"], heredada: false },
+  // HU #14143: resolver el trámite de una LT pendiente; la 0277 la siembra SOLO a `admin`.
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/pendientes-tramite", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/documentos/:id/candidatos-tramite", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/documentos/:id/resolver-tramite", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/recogidas/:firmanteId/documento", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/documentos/:id/novedad", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/cerrar-lote", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/actas/:id/despachar", roles: ["admin"], heredada: false },

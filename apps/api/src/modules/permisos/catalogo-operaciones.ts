@@ -208,7 +208,19 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} GET /actas/:id`, 'logistica.actas.ver', 'Ver un acta de logística', 'Abrir el detalle de un acta y sus documentos.'),
   op(`${LOG} GET /actas/:id/pdf`, 'logistica.actas.descargar', 'Descargar el PDF de un acta', 'Bajar el acta firmada en formato PDF.'),
   op(`${LOG} POST /validar-lt`, 'logistica.lt.validar', 'Validar un número de guía', 'Comprobar que la guía de transporte existe y corresponde.'),
+  op(`${LOG} POST /consultar-vehiculo`, 'logistica.documento.escanear', 'Escanear un documento en campo', 'Registrar el paso de un documento leyendo su código de barras.'),
   op(`${LOG} POST /escanear`, 'logistica.documento.escanear', 'Escanear un documento en campo', 'Registrar el paso de un documento leyendo su código de barras.'),
+  // HU #14110 (ADR-0030 §17): función NUEVA para confirmar la recogida y consultar mis recogidas (ya no `escanear`).
+  op(`${LOG} POST /recogidas/confirmar`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
+  op(`${LOG} GET /recogidas/mias`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
+  op(`${LOG} GET /recogidas/pendientes-firma`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
+  op(`${LOG} GET /recogidas/:firmanteId`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
+  // HU #14110: función NUEVA (PII). Ver la cédula completa del funcionario que firmó la recogida del organismo.
+  // HU #14143 (ADR-0030 §17.3): función NUEVA para resolver el trámite de una LT pendiente.
+  op(`${LOG} GET /pendientes-tramite`, 'logistica.documento.resolver_tramite', 'Resolver el trámite de una LT pendiente', 'Elegir a qué trámite corresponde una LT escaneada sin trámite y consultar la bandeja de pendientes.'),
+  op(`${LOG} GET /documentos/:id/candidatos-tramite`, 'logistica.documento.resolver_tramite', 'Resolver el trámite de una LT pendiente', 'Elegir a qué trámite corresponde una LT escaneada sin trámite y consultar la bandeja de pendientes.'),
+  op(`${LOG} POST /documentos/:id/resolver-tramite`, 'logistica.documento.resolver_tramite', 'Resolver el trámite de una LT pendiente', 'Elegir a qué trámite corresponde una LT escaneada sin trámite y consultar la bandeja de pendientes.'),
+  op(`${LOG} POST /recogidas/:firmanteId/documento`, 'logistica.actas.ver_documento_firmante', 'Ver la cédula del firmante de un acta', 'Consultar la cédula completa del funcionario que firmó el acta de organismo, cada consulta queda registrada.'),
   op(`${LOG} POST /documentos/:id/novedad`, 'logistica.documento.reportar_novedad', 'Reportar una novedad de entrega', 'Dejar constancia de que la entrega no se pudo completar y por qué.'),
   op(`${LOG} POST /cerrar-lote`, 'logistica.lote.cerrar', 'Cerrar un lote de logística', 'Dar por armado el lote de documentos que va a despacharse.'),
   op(`${LOG} POST /actas/:id/despachar`, 'logistica.actas.despachar', 'Despachar un acta', 'Poner en ruta el acta y sus documentos.'),

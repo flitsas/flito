@@ -51,11 +51,12 @@ beforeEach(() => {
 describe('escanearLt — recogida por escaneo del PDF417', () => {
   const tramite = (over: Record<string, unknown> = {}) => ({
     tramiteId: 't1', idFlit: 'F1', organismoCodigo: '05001', companiaId: 5, companiaNit: '900',
-    vehiculoId: 9, vin: 'LRWYGCFJ0TC496126', autogestionable: false, ...over,
+    vehiculoId: 9, vin: 'LRWYGCFJ0TC496126', autogestionable: false, companiaNombre: 'ACME', docId: null, ...over,
   });
 
   it('sin trámite aprobado con esa placa → sin_match, no persiste', async () => {
-    selectMock.mockReturnValueOnce(chain([])); // búsqueda del trámite: vacío
+    selectMock.mockReturnValueOnce(chain([])); // numeroLicencia no registrado
+    selectMock.mockReturnValueOnce(chain([])); // trámites del vehículo: vacío
     const r = await svc.escanearLt(RAW, 'LT-001', {}, ctx);
     expect(r.resultado).toBe('sin_match');
     expect(r.placa).toBe('QOX858');
@@ -63,7 +64,7 @@ describe('escanearLt — recogida por escaneo del PDF417', () => {
   });
 
   it('placa+VIN coinciden → recogida + clasificación automática (CA-03)', async () => {
-    selectMock.mockReturnValueOnce(chain([tramite()]));
+    selectMock.mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([tramite()])); // [numeroLicencia, trámites]
     insertMock.mockReturnValueOnce(chain([{ id: 'd1' }])); // insert de la LT (creado)
     const r = await svc.escanearLt(RAW, 'LT-001', {}, ctx);
     expect(r.resultado).toBe('recogido');
@@ -72,7 +73,7 @@ describe('escanearLt — recogida por escaneo del PDF417', () => {
   });
 
   it('placa coincide pero el VIN no → novedad con motivo (RN-04)', async () => {
-    selectMock.mockReturnValueOnce(chain([tramite({ vin: 'LRWYGCFJ0TC499999' })]));
+    selectMock.mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([tramite({ vin: 'LRWYGCFJ0TC499999' })])); // [numeroLicencia, trámites]
     insertMock.mockReturnValueOnce(chain([{ id: 'd1' }]));
     const r = await svc.escanearLt(RAW, null, {}, ctx);
     expect(r.resultado).toBe('novedad');
@@ -85,7 +86,7 @@ describe('escanearLt — recogida por escaneo del PDF417', () => {
   });
 
   it('parametrización por compañía (RN-05): compañía autogestionada → no_gestionable, no persiste', async () => {
-    selectMock.mockReturnValueOnce(chain([tramite({ autogestionable: true })]));
+    selectMock.mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([tramite({ autogestionable: true })])); // [numeroLicencia, trámites]
     const r = await svc.escanearLt(RAW, 'LT-001', {}, ctx);
     expect(r.resultado).toBe('no_gestionable');
     expect(transactionMock).not.toHaveBeenCalled();
@@ -128,6 +129,7 @@ describe('cerrarLote — entregas parciales siempre (sin regla "Solo completo")'
     selectMock
       .mockReturnValueOnce(chain([compania(false)]))
       .mockReturnValueOnce(chain(docs))
+      .mockReturnValueOnce(chain([])) // HU #14143: guarda `exigirTramiteResuelto` (ninguna LT pendiente de trámite)
       .mockReturnValueOnce(chain([{ id: 'prov1' }])); // proveedor logístico por defecto
     const valuesActa: unknown[] = [];
     const actaInsert = chain([{ id: 'acta1' }]);
@@ -161,6 +163,16 @@ describe('cerrarLote — entregas parciales siempre (sin regla "Solo completo")'
       .mockReturnValueOnce(chain([{ id: 'd4', estado: EstadoDocumentoLogistica.NOVEDAD }]));
     await expect(svc.cerrarLote(5, ctx)).rejects.toMatchObject({ status: 400, message: 'No hay LT clasificadas para esta empresa' });
     expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it('HU #14143: una LT pendiente de trámite entre las listas → 409 LT_PENDIENTE_DE_TRAMITE y no se crea el acta', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([compania(false)]))
+      .mockReturnValueOnce(chain(docs))
+      .mockReturnValueOnce(chain([{ id: 'd2' }])); // la guarda halla una LT con tramite_id NULL
+    await expect(svc.cerrarLote(5, ctx)).rejects.toMatchObject({ status: 409, codigo: 'LT_PENDIENTE_DE_TRAMITE', extra: { documentoIds: ['d2'] } });
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
   });
 });
 

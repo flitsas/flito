@@ -190,12 +190,10 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   });
   // HU #13769 AC4 — ficha piloto con una captura por paso clave, todas con alt y en disco (el test de
   // arriba ya valida src/carpeta/archivo) y ≤ 200 KB.
-  test('HU #13769 AC4 — flito_logistica_ruta cita sus 5 capturas NN-<paso>.png con alt y ≤ 200 KB', () => {
+  test('HU #13769 AC4 — flito_logistica_ruta cita sus capturas NN-<paso>.png con alt y ≤ 200 KB', () => {
     const md = leer('apps/web/src/content/ayuda/flito_logistica_ruta.md');
     const imgs = [...md.matchAll(/!\[([^\]]+)\]\(\.\/flito_logistica_ruta\/(\d{2}-[a-z0-9-]+\.png)\)/g)];
-    expect(imgs.map((m) => m[2])).toEqual([
-      '01-recoger-licencias.png', '02-resultado-validacion.png', '03-confirmar-recogida.png', '04-entregar.png', '05-sin-conexion.png',
-    ]);
+    expect(imgs.map((m) => m[2])).toEqual(['04-entregar.png', '05-sin-conexion.png']); // 01-03 dejaron de citarse con la HU #14111
     for (const [, alt, archivo] of imgs) {
       expect(alt.trim().length, archivo).toBeGreaterThan(10);
       expect(statSync(resolve(raiz, 'apps/web/public/ayuda/flito_logistica_ruta', archivo)).size, archivo).toBeLessThanOrEqual(200 * 1024);
@@ -405,23 +403,22 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // Corredor Impuestos (versión y fecha exactas, sin rutas, capturas citadas en orden y dentro de su paso, una
   // sola lista ordenada en Pasos, diagrama SVG con alt). Las dos fichas describen procesos de más de 3 pasos.
   // flito_logistica_ruta conserva sus 5 capturas de la piloto (HU #13769): el texto cambió, la pantalla no.
-  const LOGISTICA_13773: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
+  const LOGISTICA_13773: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
     flito_logistica: { version: '1.1', diagrama: 'ciclo-licencia.svg', capturas: [
       '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-generacion-de-actas.png', '05-actas.png',
       '06-firmar-y-despachar.png'] },
-    flito_logistica_ruta: { version: '1.2', diagrama: 'recorrido-mensajero.svg', capturas: [
-      '01-recoger-licencias.png', '02-resultado-validacion.png', '03-confirmar-recogida.png', '04-entregar.png',
-      '05-sin-conexion.png'] },
+    flito_logistica_ruta: { version: '1.4', fecha: '2026-10-28', diagrama: 'recorrido-mensajero.svg', capturas: [
+      '04-entregar.png', '05-sin-conexion.png'] },
   };
 
   for (const [clave, esperado] of Object.entries(LOGISTICA_13773)) {
-    test(`HU #13773 — ${clave}: versión ${esperado.version} del 2026-10-22, capturas y diagrama con alt`, () => {
+    test(`HU #13773 — ${clave}: versión ${esperado.version} del ${esperado.fecha ?? '2026-10-22'}, capturas y diagrama con alt`, () => {
       const md = leer(`apps/web/src/content/ayuda/${clave}.md`);
       const { encabezado, errores } = parsearFicha(md);
       expect(errores, clave).toEqual([]);
       // AC5 — la ficha cambió: sube la versión menor y la fecha.
       expect(encabezado!.version, `${clave} · version`).toBe(esperado.version);
-      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe('2026-10-22');
+      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe(esperado.fecha ?? '2026-10-22');
       // AC4 — sin rutas de API ni rutas de la app en el texto.
       expect(md, `${clave} · sin rutas`).not.toMatch(/`\/|\/api\/|\/flito\//);
 

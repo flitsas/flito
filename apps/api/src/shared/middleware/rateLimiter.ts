@@ -571,3 +571,18 @@ export const drflitChatLimiter = rateLimit({
   message: { error: 'Envió muchos mensajes seguidos. Espere un momento e intente de nuevo.', codigo: 'demasiados-mensajes' },
   store: makeStore('rl:drflit-chat:'),
 });
+
+/**
+ * HU #14142 — `POST /api/flito/logistica/consultar-vehiculo` (consulta por placa = PII): 20 / min por usuario
+ * para que un mensajero no enumere placas. Va DETRÁS de `exigirFuncion`. Llave y store propios.
+ */
+export const consultarVehiculoLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-log-consultar-vehiculo:'),
+  handler: frenoConRastro('flito-log-consultar-vehiculo'),
+  message: { error: 'Demasiadas consultas. Espera un minuto.' },
+  store: makeStore('rl:flito-log-consultar-vehiculo:'),
+});

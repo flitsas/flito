@@ -225,7 +225,18 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/actas/:id/pdf', codigo: 'logistica.actas.descargar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'logistica.documento.ver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/validar-lt', codigo: 'logistica.lt.validar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/consultar-vehiculo', codigo: 'logistica.documento.escanear' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/escanear', codigo: 'logistica.documento.escanear' },
+  // HU #14110: confirmar recogida y sus consultas (función propia) y revelar la cédula del firmante (función nueva).
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/recogidas/confirmar', codigo: 'logistica.recogida.confirmar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/recogidas/mias', codigo: 'logistica.recogida.confirmar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/recogidas/pendientes-firma', codigo: 'logistica.recogida.confirmar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/recogidas/:firmanteId', codigo: 'logistica.recogida.confirmar' },
+  // HU #14143: resolver el trámite de una LT pendiente.
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/pendientes-tramite', codigo: 'logistica.documento.resolver_tramite' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/documentos/:id/candidatos-tramite', codigo: 'logistica.documento.resolver_tramite' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/resolver-tramite', codigo: 'logistica.documento.resolver_tramite' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/recogidas/:firmanteId/documento', codigo: 'logistica.actas.ver_documento_firmante' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/novedad', codigo: 'logistica.documento.reportar_novedad' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/cerrar-lote', codigo: 'logistica.lote.cerrar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/actas/:id/despachar', codigo: 'logistica.actas.despachar' },
