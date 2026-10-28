@@ -1,6 +1,6 @@
 // HU #14104 (Feature #14089) — proveedor de logística por compañía: la regla «encendida exige proveedor» en
 // `PATCH /api/flito/parametrizacion/companias/:id`, el resolvedor `proveedorDeCompania` y el bloqueo de inactivar un
-// proveedor asignado (`PATCH /proveedores-logistica/:id/estado`). La migración 0274 se valida en la BD (HANDOFF).
+// proveedor asignado (`PATCH /proveedores-logistica/:id/estado`). La migración 0278 se valida en la BD (HANDOFF).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
@@ -160,8 +160,8 @@ describe('AC6 — no inactivar un proveedor asignado', () => {
   });
 });
 
-describe('AC3 — migración 0274 (forma del SQL; la ejecución real se valida en la BD)', () => {
-  const sql = readFileSync(resolve(__dirname, '../../src/db/migrations/0274_flito_clients_proveedor_logistica.sql'), 'utf8');
+describe('AC3 — migración 0278 (forma del SQL; la ejecución real se valida en la BD)', () => {
+  const sql = readFileSync(resolve(__dirname, '../../src/db/migrations/0278_flito_clients_proveedor_logistica.sql'), 'utf8');
   it('idempotente, FK RESTRICT, índice y SIN backfill de proveedor', () => {
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS flito_proveedor_logistica_id uuid/);
     expect(sql).toMatch(/pg_constraint WHERE conname = 'clients_flito_proveedor_logistica_id_fkey'/);

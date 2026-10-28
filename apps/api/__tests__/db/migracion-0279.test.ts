@@ -1,4 +1,4 @@
-// HU #14106 AC1 — la 0275 mueve `logistica` → `logistica_cliente` sin duplicar ni perder historial,
+// HU #14106 AC1 — la 0279 mueve `logistica` → `logistica_cliente` sin duplicar ni perder historial,
 // y es idempotente (2 corridas). Contra PostgreSQL en transacción con ROLLBACK; solo con
 // TEST_DATABASE_URL (sin ella se SALTA).
 process.env.TZ = 'UTC';
@@ -7,9 +7,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type postgres from 'postgres';
 import { abrirBase, companiaDesechable, enTx, leerMigracion, URL_BASE } from '../helpers/base-en-tx.js';
 
-const SQL_0275 = leerMigracion('0275_flito_tarifas_logistica_cliente_flit.sql');
+const SQL_0275 = leerMigracion('0279_flito_tarifas_logistica_cliente_flit.sql');
 
-describe.skipIf(!URL_BASE)('0275 — contra la base real', () => {
+describe.skipIf(!URL_BASE)('0279 — contra la base real', () => {
   let sql: postgres.Sql;
   beforeAll(async () => { sql = abrirBase(); });
   afterAll(async () => { await sql?.end(); });

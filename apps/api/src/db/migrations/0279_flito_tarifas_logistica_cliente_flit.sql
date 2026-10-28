@@ -1,4 +1,4 @@
--- 0275_flito_tarifas_logistica_cliente_flit.sql
+-- 0279_flito_tarifas_logistica_cliente_flit.sql
 -- HU #14106 (Feature B #14090, Epica #13758): la tarifa de logistica se parte en dos conceptos,
 --   `logistica_cliente` («entrega a cliente») y `logistica_flit` («entrega a FLIT»). Contrato:
 --   ADR-0030 §6. Autor: equipo FLITO.
@@ -28,7 +28,7 @@ ALTER TABLE flito_tarifas_vigencias ADD CONSTRAINT flito_tarifas_vigencias_tipo_
   (concepto = 'tramite_digital' AND tipo_tramite IS NOT NULL AND tipo_tramite IN ('MATRICULA', 'TRASPASO', 'OTROS'))
   OR (concepto IN ('logistica', 'logistica_cliente', 'logistica_flit') AND tipo_tramite IS NULL));
 
-DO $logisticacliente0275$
+DO $logisticacliente0279$
 DECLARE
   n int;
   omitidas int;
@@ -44,8 +44,8 @@ BEGIN
      );
   GET DIAGNOSTICS n = ROW_COUNT;
   SELECT count(*) INTO omitidas FROM flito_tarifas_vigencias WHERE concepto = 'logistica';
-  RAISE NOTICE '0275: % vigencia(s) logistica -> logistica_cliente; % omitida(s) por solape', n, omitidas;
-END $logisticacliente0275$;
+  RAISE NOTICE '0279: % vigencia(s) logistica -> logistica_cliente; % omitida(s) por solape', n, omitidas;
+END $logisticacliente0279$;
 
 COMMENT ON COLUMN flito_tarifas_vigencias.concepto IS
   'tramite_digital | logistica_cliente | logistica_flit (logistica = legado transitorio, alias de logistica_cliente).';

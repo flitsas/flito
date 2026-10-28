@@ -1,6 +1,6 @@
 // HU #14106 (Feature B #14090) — conceptos `logistica_cliente` y `logistica_flit`, alias `logistica`,
-// `vigenciaId` en `ValorTarifa` y migración 0275 (análisis estático; la mitad contra PostgreSQL
-// vive en __tests__/db/migracion-0275.test.ts).
+// `vigenciaId` en `ValorTarifa` y migración 0279 (análisis estático; la mitad contra PostgreSQL
+// vive en __tests__/db/migracion-0279.test.ts).
 process.env.TZ = 'UTC';
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -117,9 +117,9 @@ describe('escritura — la llave de logística no lleva tipo y logistica se pers
   });
 });
 
-describe('0275 — reglas del archivo (estático)', () => {
+describe('0279 — reglas del archivo (estático)', () => {
   const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/db/migrations');
-  const ARCHIVO = '0275_flito_tarifas_logistica_cliente_flit.sql';
+  const ARCHIVO = '0279_flito_tarifas_logistica_cliente_flit.sql';
   const SQL_0275 = readFileSync(path.join(dir, ARCHIVO), 'utf8');
   const limpio = SQL_0275.replace(/--[^\n]*/g, '');
 

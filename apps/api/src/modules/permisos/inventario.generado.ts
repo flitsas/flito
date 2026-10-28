@@ -135,7 +135,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/mias", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/pendientes-firma", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/:firmanteId", roles: ["admin","mensajero"], heredada: false },
-  // HU #14143: resolver el trámite de una LT pendiente; la 0277 la siembra SOLO a `admin`.
+  // HU #14143: resolver el trámite de una LT pendiente; la 0281 la siembra SOLO a `admin`.
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/pendientes-tramite", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/documentos/:id/candidatos-tramite", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/documentos/:id/resolver-tramite", roles: ["admin"], heredada: false },

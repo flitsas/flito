@@ -221,7 +221,7 @@ export const clients = pgTable('clients', {
   flitoProveedorSoatSinTramiteId: uuid('flito_proveedor_soat_sin_tramite_id')
     .references((): any => flitoProveedoresSoat.id, { onDelete: 'restrict' }),
   impuestosAutogestionable: boolean('impuestos_autogestionable').notNull().default(true),
-  // HU #14104 (0274, Feature #14089): quién maneja la logística de la compañía. NULLABLE; con la logística ENCENDIDA
+  // HU #14104 (0278, Feature #14089): quién maneja la logística de la compañía. NULLABLE; con la logística ENCENDIDA
   // (`logistica_autogestionable = false`) el PATCH de compañías exige proveedor (422). Sin default: las encendidas hoy
   // quedan en NULL. `ON DELETE RESTRICT` (como la FK SOAT). En la misma línea: el techo congelado de schema.ts no admite crecer.
   logisticaAutogestionable: boolean('logistica_autogestionable').notNull().default(true), flitoProveedorLogisticaId: uuid('flito_proveedor_logistica_id').references((): any => flitoProveedoresLogistica.id, { onDelete: 'restrict' }),
@@ -3603,7 +3603,7 @@ export const flitoReglasProveedorSoat = pgTable('flito_reglas_proveedor_soat', {
 // Trazabilidad del documento físico (LT/placa) del organismo al cliente. La unidad es el
 // DOCUMENTO individual (RN-01); actas y rutas son agrupaciones sobre él. Los literales de estos
 // enums coinciden con packages/shared-types/src/flito-logistica.ts (fuente única del dominio).
-export const flitoLogisticaDocEstadoEnum = pgEnum('flito_logistica_doc_estado', ['generado', 'recogido', 'clasificado', 'en_acta', 'despachado', 'entregado', 'novedad', 'devuelto', 'en_flit']); // 'en_flit': 0270 (HU #14109)
+export const flitoLogisticaDocEstadoEnum = pgEnum('flito_logistica_doc_estado', ['generado', 'recogido', 'clasificado', 'en_acta', 'despachado', 'entregado', 'novedad', 'devuelto', 'en_flit']); // 'en_flit': 0274 (HU #14109)
 export const flitoLogisticaActaEstadoEnum = pgEnum('flito_logistica_acta_estado', ['generada', 'despachada', 'entregada', 'devuelta']);
 export const flitoLogisticaTipoDocEnum = pgEnum('flito_logistica_tipo_doc', ['licencia_transito', 'placa', 'otro']);
 
@@ -3758,14 +3758,14 @@ export const flitoProveedoresLogistica = pgTable('flito_proveedores_logistica', 
   nombre: varchar('nombre', { length: 150 }).notNull().unique(),
   estrategia: varchar('estrategia', { length: 40 }).notNull().default('pwa_propia'),
   activo: boolean('activo').notNull().default(true),
-  // HU #14103 (0273): nit (único parcial `uq_flito_proveedores_logistica_nit` en la migración; NULL en filas previas), contacto y teléfono, en la misma línea: el techo congelado de schema.ts no admite crecer.
+  // HU #14103 (0277): nit (único parcial `uq_flito_proveedores_logistica_nit` en la migración; NULL en filas previas), contacto y teléfono, en la misma línea: el techo congelado de schema.ts no admite crecer.
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), nit: varchar('nit', { length: 20 }), contacto: varchar('contacto', { length: 150 }), telefono: varchar('telefono', { length: 30 }),
 });
 
 // Acta: agrupación por empresa para despacho/entrega (CA-04, una por empresa por lote). El acta
 // firmada + evidencia (columnas de entrega) se pueblan en la Fase 2 (PWA); aquí quedan definidas.
 // HU #14109 (ADR-0030 §17): UNA acta por compañía en los tres puntos (`compania_id` NOT NULL); `punto` y `firmante_id` (FK a
-// `flito_logistica_recogida_firmantes`, solo SQL por el import circular; CHECK/único en la 0271). Las columnas viejas (`receptor_*`, `firma_*`) NO se borran hasta la HU de cifrado del histórico.
+// `flito_logistica_recogida_firmantes`, solo SQL por el import circular; CHECK/único en la 0275). Las columnas viejas (`receptor_*`, `firma_*`) NO se borran hasta la HU de cifrado del histórico.
 export const flitoLogisticaActas = pgTable('flito_logistica_actas', {
   id: uuid('id').primaryKey().defaultRandom(),
   companiaId: integer('compania_id').notNull().references(() => clients.id),
@@ -3801,7 +3801,7 @@ export const flitoLogisticaActas = pgTable('flito_logistica_actas', {
 // para que sobreviva a cambios del trámite. Un mismo documento físico no se duplica: (tramite, tipo) único.
 export const flitoLogisticaDocumentos = pgTable('flito_logistica_documentos', {
   id: uuid('id').primaryKey().defaultRandom(),
-  /** NULL = LT pendiente de trámite (ADR-0030 §17.2): CHECK `tramite_id IS NOT NULL OR compania_id IS NULL`; único parcial (vehiculo_id, tipo) en la 0271. */
+  /** NULL = LT pendiente de trámite (ADR-0030 §17.2): CHECK `tramite_id IS NOT NULL OR compania_id IS NULL`; único parcial (vehiculo_id, tipo) en la 0275. */
   tramiteId: uuid('tramite_id').references(() => flitoTramites.id, { onDelete: 'cascade' }),
   tipo: flitoLogisticaTipoDocEnum('tipo').notNull(),
   estado: flitoLogisticaDocEstadoEnum('estado').notNull().default('generado'),
@@ -3822,7 +3822,7 @@ export const flitoLogisticaDocumentos = pgTable('flito_logistica_documentos', {
   // Foto del propietario embebida en el código (JPEG), subida a storage.
   fotoStorageKey: varchar('foto_storage_key', { length: 400 }),
   actaId: uuid('acta_id').references(() => flitoLogisticaActas.id), recogidaFirmanteId: uuid('recogida_firmante_id'),
-  /** INDICADOR (no bloqueo): true = falta el acta de organismo de la LT. Backfill 0271: false solo en las ya entregadas. */
+  /** INDICADOR (no bloqueo): true = falta el acta de organismo de la LT. Backfill 0275: false solo en las ya entregadas. */
   actaOrganismoPendiente: boolean('acta_organismo_pendiente').notNull().default(true),
   // Motivo de la última novedad/devolución (obligatorio en esos estados, RN-04).
   motivo: text('motivo'),

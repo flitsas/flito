@@ -1,4 +1,4 @@
--- 0276_flito_logistica_permiso_ver_documento_firmante.sql
+-- 0280_flito_logistica_permiso_ver_documento_firmante.sql
 -- (enmendada en su lugar, ADR-0030 §17.4: ninguna HU de la Épica está en develop; también siembra `logistica.recogida.confirmar`)
 -- HU #14110 (Feature #14091, Épica #13758, ADR-0030 §5/§9) — la función `logistica.actas.ver_documento_firmante`:
 --   ver la cédula COMPLETA del funcionario que firmó un acta de organismo (PII, Ley 1581). Cada consulta

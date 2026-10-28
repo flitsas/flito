@@ -1,5 +1,5 @@
 // HU #14148 (Feature #14089) — listado unificado, impacto y baja de proveedores de logística, contra PostgreSQL de
-// verdad dentro de una transacción con ROLLBACK (se SALTA sin TEST_DATABASE_URL). Las migraciones 0273/0274 se aplican
+// verdad dentro de una transacción con ROLLBACK (se SALTA sin TEST_DATABASE_URL). Las migraciones 0277/0278 se aplican
 // DENTRO de la transacción (idempotentes) porque la base local compartida puede no tenerlas.
 import { describe, it, expect, vi } from 'vitest';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -32,8 +32,8 @@ async function conBase(fn: (tx: Tx) => Promise<void>) {
   const sql = abrirBase();
   try {
     await enTx(sql, async (tx) => {
-      await tx.unsafe(leerMigracion('0273_flito_proveedores_logistica_nit_contacto.sql'));
-      await tx.unsafe(leerMigracion('0274_flito_clients_proveedor_logistica.sql'));
+      await tx.unsafe(leerMigracion('0277_flito_proveedores_logistica_nit_contacto.sql'));
+      await tx.unsafe(leerMigracion('0278_flito_clients_proveedor_logistica.sql'));
       actual.db = drizzle(Object.assign(tx, { options: sql.options }) as unknown as postgres.Sql, { schema });
       await fn(tx);
     });

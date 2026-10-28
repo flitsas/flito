@@ -1,7 +1,7 @@
--- 0277_flito_logistica_permiso_resolver_tramite.sql
+-- 0281_flito_logistica_permiso_resolver_tramite.sql
 -- HU #14143 (Feature #14091, Épica #13758, ADR-0030 §17.3) — la función `logistica.documento.resolver_tramite`:
 --   elegir a qué trámite corresponde una LT pendiente (escaneada por vehículo sin trámite) y consultar la bandeja
---   de pendientes. Solo siembra de datos, idempotente, sin BEGIN/COMMIT (calco de la 0276).
+--   de pendientes. Solo siembra de datos, idempotente, sin BEGIN/COMMIT (calco de la 0280).
 -- Es un OPCIONAL de `accion.logistica.reversar_paso` (acciones-gestion.ts): nace con su `padre_codigo`.
 -- Reparto: SOLO `admin` (Operaciones es `admin`). El mensajero NO la recibe. Otros roles/usuarios, desde el panel de permisos.
 

@@ -78,8 +78,8 @@ export const MIGRACIONES_CON_REPARTO = [
   '0261_permisos_proveedores_soat_estado.sql', // HU #13958: «Activar o desactivar proveedores», exclusiva de `admin`
   '0263_permisos_proveedores_eliminar.sql', // HU #13960: «Eliminar proveedores», exclusiva de `admin`
   '0262_flito_soat_canal_por_proveedor.sql', // HU #13967: renombre de `accion.clientes.soat_sin_tramite`
-  '0276_flito_logistica_permiso_ver_documento_firmante.sql', // HU #14110: operación nueva de logística (PII), solo a `admin`
-  '0277_flito_logistica_permiso_resolver_tramite.sql', // HU #14143: resolver el trámite de una LT pendiente, solo a `admin`
+  '0280_flito_logistica_permiso_ver_documento_firmante.sql', // HU #14110: operación nueva de logística (PII), solo a `admin`
+  '0281_flito_logistica_permiso_resolver_tramite.sql', // HU #14143: resolver el trámite de una LT pendiente, solo a `admin`
 ] as const;
 
 /**
@@ -87,9 +87,9 @@ export const MIGRACIONES_CON_REPARTO = [
  * salen también del catálogo plano (`catalogoPlano()`, la foto `inventario.generado.ts`), así que el
  * pliegue del mundo plano tiene que verlos para seguir cuadrando con el generador de hoy.
  */
-// HU #14110: la 0276 también entra aquí, pero por ALTA: `logistica.actas.ver_documento_firmante` es una operación con guarda en la
+// HU #14110: la 0280 también entra aquí, pero por ALTA: `logistica.actas.ver_documento_firmante` es una operación con guarda en la
 // foto (`inventario.generado.ts`), así que el catálogo plano la trae y el pliegue plano tiene que sembrarla para cuadrar.
-const RETIROS_DEL_MUNDO_PLANO: ReadonlySet<string> = new Set(['0243_permisos_retirar_sync_lanzar.sql', '0276_flito_logistica_permiso_ver_documento_firmante.sql', '0277_flito_logistica_permiso_resolver_tramite.sql']);
+const RETIROS_DEL_MUNDO_PLANO: ReadonlySet<string> = new Set(['0243_permisos_retirar_sync_lanzar.sql', '0280_flito_logistica_permiso_ver_documento_firmante.sql', '0281_flito_logistica_permiso_resolver_tramite.sql']);
 
 /**
  * HU #12873 — Las migraciones del mundo PLANO (antes del árbol, ≤ 0231, más `RETIROS_DEL_MUNDO_PLANO`). Los tests de cada migración

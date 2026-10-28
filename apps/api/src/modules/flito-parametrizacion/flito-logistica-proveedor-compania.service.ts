@@ -1,4 +1,4 @@
-// HU #14104 (Feature #14089, Épica #13758) — Proveedor de logística POR COMPAÑÍA (`clients.flito_proveedor_logistica_id`, 0274).
+// HU #14104 (Feature #14089, Épica #13758) — Proveedor de logística POR COMPAÑÍA (`clients.flito_proveedor_logistica_id`, 0278).
 // Contrato en ADR-0030 §6. Módulo FLITO `flito-parametrizacion` (lo usa el PATCH de compañías y la baja de proveedores).
 //
 // Reglas:

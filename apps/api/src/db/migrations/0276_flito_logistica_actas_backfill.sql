@@ -1,6 +1,6 @@
--- 0272_flito_logistica_actas_backfill.sql
+-- 0276_flito_logistica_actas_backfill.sql
 -- HU #14109 (Feature #14091, Epica #13758) — ADR-0030. Backfill de las actas existentes al modelo nuevo.
--- Datos puros; las tablas/columnas las crea la 0271.
+-- Datos puros; las tablas/columnas las crea la 0275.
 --
 -- Cada acta existente recibe: su traslado LEGADO (destino cliente, origen organismo), sus lineas por LT
 -- (sin precio: concepto 'legado', precio NULL — NO hay precio retroactivo), sus lineas de acta y sus firmas.

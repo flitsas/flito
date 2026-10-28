@@ -5,8 +5,8 @@
 // `schema.ts` (son extensiones de tablas existentes). Aquí viven las 6 tablas nuevas (5 + el firmante del organismo, §17).
 //
 // Lo que Drizzle no declara bien (índices únicos parciales, UNIQUE sobre lower(nombre), FK compuesta
-// de la línea de LT al traslado) está en la migración 0271 y se documenta junto a cada tabla.
-// CHECKs declarados AQUÍ y en la 0271 (lección 0157: un CHECK que solo vive en la base sorprende al
+// de la línea de LT al traslado) está en la migración 0275 y se documenta junto a cada tabla.
+// CHECKs declarados AQUÍ y en la 0275 (lección 0157: un CHECK que solo vive en la base sorprende al
 // primer INSERT nuevo con 23514).
 //
 // PII (Ley 1581): la cédula del firmante NUNCA va en claro aquí: `documento_cifrado` (cifrado de campo)
@@ -34,7 +34,7 @@ export const flitoLogisticaMotivosLlegada = pgTable('flito_logistica_motivos_lle
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
-  // uq_flito_log_motivos_llegada_nombre: UNIQUE sobre lower(nombre), solo en SQL (0271).
+  // uq_flito_log_motivos_llegada_nombre: UNIQUE sobre lower(nombre), solo en SQL (0275).
   ordenIdx: index('idx_flito_log_motivos_llegada_orden').on(t.activo, t.orden),
 }));
 

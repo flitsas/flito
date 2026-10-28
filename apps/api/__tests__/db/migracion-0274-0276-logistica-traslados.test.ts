@@ -1,4 +1,4 @@
-// HU #14109 (Feature #14091, ADR-0030) — Esquema de traslados/actas/firmas, migraciones 0270-0272 y frontera por enlace.
+// HU #14109 (Feature #14091, ADR-0030) — Esquema de traslados/actas/firmas, migraciones 0274-0276 y frontera por enlace.
 //   AC1 tablas/columnas/CHECK · AC2 indicador (una sola vez) · AC3 en_flit en archivo aparte · AC4 backfill idempotente
 //   AC5 columnas viejas intactas · AC6 acta de organismo invisible para enlace.
 // Estática (siempre) + contra PostgreSQL solo con TEST_DATABASE_URL (en tx con ROLLBACK).
@@ -14,29 +14,29 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn(),
 }));
 
-const A270 = '0270_flito_logistica_enum_en_flit.sql';
-const A271 = '0271_flito_logistica_traslados.sql';
-const A272 = '0272_flito_logistica_actas_backfill.sql';
+const A270 = '0274_flito_logistica_enum_en_flit.sql';
+const A271 = '0275_flito_logistica_traslados.sql';
+const A272 = '0276_flito_logistica_actas_backfill.sql';
 const SQL = { [A270]: leerMigracion(A270), [A271]: leerMigracion(A271), [A272]: leerMigracion(A272) };
 const sinComentarios = (s: string) => s.replace(/--[^\n]*/g, '');
 
-describe('0270-0272 — reglas de los archivos (estática)', () => {
+describe('0274-0276 — reglas de los archivos (estática)', () => {
   it.each(Object.keys(SQL))('%s: sin control de transacción propio', (a) => {
     expect(scanForTxControl(a, SQL[a as keyof typeof SQL])).toEqual([]);
   });
 
-  it('AC3: en_flit va SOLO en la 0270; la 0271 y la 0272 no lo mencionan', () => {
+  it('AC3: en_flit va SOLO en la 0274; la 0275 y la 0276 no lo mencionan', () => {
     expect(sinComentarios(SQL[A270])).toMatch(/ALTER TYPE flito_logistica_doc_estado ADD VALUE IF NOT EXISTS 'en_flit'/);
     expect(sinComentarios(SQL[A271])).not.toMatch(/en_flit/);
     expect(sinComentarios(SQL[A272])).not.toMatch(/en_flit/);
   });
 
-  it('AC1: la 0271 crea las 5 tablas con IF NOT EXISTS, `punto` con CHECK y compania_id NOT NULL (§17)', () => {
+  it('AC1: la 0275 crea las 5 tablas con IF NOT EXISTS, `punto` con CHECK y compania_id NOT NULL (§17)', () => {
     const s = sinComentarios(SQL[A271]);
     for (const t of ['motivos_llegada', 'traslados', 'traslado_lts', 'acta_lineas', 'acta_firmas']) {
       expect(s).toMatch(new RegExp(`CREATE TABLE IF NOT EXISTS flito_logistica_${t} `));
     }
-    // §17: acta por compañía => compania_id NOT NULL en todos los puntos (sana la forma anterior de la 0271)
+    // §17: acta por compañía => compania_id NOT NULL en todos los puntos (sana la forma anterior de la 0275)
     expect(s).not.toMatch(/ALTER COLUMN compania_id DROP NOT NULL/);
     expect(s).toMatch(/DROP CONSTRAINT IF EXISTS ck_flito_log_actas_compania_punto/);
     expect(s).toMatch(/ALTER COLUMN compania_id SET NOT NULL/);
@@ -135,7 +135,7 @@ describe('AC6 — frontera por enlace: acta de organismo / sin compañía invisi
   });
 });
 
-describe.skipIf(!URL_BASE)('0270-0272 — contra PostgreSQL (tx con ROLLBACK)', () => {
+describe.skipIf(!URL_BASE)('0274-0276 — contra PostgreSQL (tx con ROLLBACK)', () => {
   it('AC2/AC4: dos corridas; el backfill crea traslado/líneas/firmas una vez y no cambia datos al repetir', async () => {
     const sql = abrirBase();
     try {

@@ -2,7 +2,7 @@
 -- `clients.flito_proveedor_logistica_id` (uuid, NULLABLE) -> flito_proveedores_logistica(id), ON DELETE RESTRICT.
 -- SIN proveedor por defecto: las compañías con la logística encendida hoy (logistica_autogestionable = false) quedan
 -- con NULL y Operaciones lo asigna después; la regla «encendida exige proveedor» la aplica el PATCH de compañías
--- (422), no un CHECK, para no invalidar las filas existentes. Idempotente. Depende de la 0273 / tabla de la HU #14103.
+-- (422), no un CHECK, para no invalidar las filas existentes. Idempotente. Depende de la 0277 / tabla de la HU #14103.
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS flito_proveedor_logistica_id uuid;
 
 DO $$

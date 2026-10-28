@@ -5,7 +5,7 @@
 // Reglas:
 //   · RN-PLOG-1 — nombre y NIT obligatorios (422 con el campo); contacto y teléfono opcionales.
 //   · RN-PLOG-2 — el NIT se guarda normalizado (sin puntos ni espacios, dígito de verificación opcional tras «-») y es
-//       ÚNICO (índice parcial 0273); duplicado → NitProveedorDuplicadoError (409), también ante la carrera (23505).
+//       ÚNICO (índice parcial 0277); duplicado → NitProveedorDuplicadoError (409), también ante la carrera (23505).
 //   · RN-PLOG-3 — el nombre ya era único en la tabla: duplicado → NombreProveedorLogisticaDuplicadoError (409).
 //   · HU #14104 (RN-PLOGC-3) — inactivar un proveedor asignado a compañías vigentes → ProveedorLogisticaAsignadoError (409).
 import { and, asc, eq, ne } from 'drizzle-orm';

@@ -1,4 +1,4 @@
--- 0271_flito_logistica_traslados.sql
+-- 0275_flito_logistica_traslados.sql
 -- HU #14109 (Feature #14091, Epica #13758) — ADR-0030: traslados, lineas por LT, motivos de llegada,
 -- lineas y firmas de acta; `punto` en el acta; indicador `acta_organismo_pendiente`.
 -- ENMIENDA 2026-10-28 (ADR-0030 §17, ninguna HU de la Epica en develop => se enmienda en su lugar):
@@ -6,11 +6,11 @@
 --   · fila propia del firmante del organismo (`flito_logistica_recogida_firmantes`), compartida por las actas de
 --     una recogida via `actas.firmante_id`;
 --   · LT por vehiculo: `documentos.tramite_id` NULLABLE (LT pendiente de tramite) + `recogida_firmante_id`.
--- Una BD que ya aplico la 0271 ANTERIOR (compania_id NULLABLE + ck_flito_log_actas_compania_punto) se SANA al
+-- Una BD que ya aplico la 0275 ANTERIOR (compania_id NULLABLE + ck_flito_log_actas_compania_punto) se SANA al
 -- correr este archivo a mano con psql (el runner no lo reaplica: calcula por nombre); falla si hay actas sin compania.
 --
 -- Sin BEGIN/COMMIT propio (ADR-DB-001: el runner envuelve el archivo). Idempotente: la segunda pasada no
--- cambia NI UNA FILA. El valor `en_flit` del enum esta en la 0270 y NO se usa aqui.
+-- cambia NI UNA FILA. El valor `en_flit` del enum esta en la 0274 y NO se usa aqui.
 --
 -- Las columnas viejas del acta (receptor_*, firma_*, contacto_documento) NO se tocan: receptor_documento
 -- sigue en claro hasta la HU de cifrado del historico (#14112).
@@ -121,7 +121,7 @@ ALTER TABLE flito_logistica_actas ADD COLUMN IF NOT EXISTS punto VARCHAR(10) NOT
 ALTER TABLE flito_logistica_actas ADD COLUMN IF NOT EXISTS organismo_codigo VARCHAR(5) REFERENCES organismos_transito_config(codigo);
 ALTER TABLE flito_logistica_actas ADD COLUMN IF NOT EXISTS traslado_id UUID REFERENCES flito_logistica_traslados(id);
 ALTER TABLE flito_logistica_actas ADD COLUMN IF NOT EXISTS firmante_id UUID REFERENCES flito_logistica_recogida_firmantes(id);
--- Sana la forma anterior de la 0271 (CHECK de acta de organismo sin compania + NULLABLE). No-op en BD limpia.
+-- Sana la forma anterior de la 0275 (CHECK de acta de organismo sin compania + NULLABLE). No-op en BD limpia.
 ALTER TABLE flito_logistica_actas DROP CONSTRAINT IF EXISTS ck_flito_log_actas_compania_punto;
 ALTER TABLE flito_logistica_actas ALTER COLUMN compania_id SET NOT NULL;
 
