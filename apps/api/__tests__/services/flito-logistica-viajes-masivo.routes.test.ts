@@ -39,6 +39,12 @@ vi.mock('../../src/shared/middleware/rateLimiter.js', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   viajesMasivoLimiter: (_q: unknown, _s: unknown, next: () => void) => next(),
 }));
+// Alcance por compañía: por defecto pasa de largo (admin); cada test restringe con `ajenos`.
+const ajenos = new Set<string>();
+vi.mock('../../src/modules/flito-logistica/flito-logistica.alcance.js', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  enAlcanceLogistica: async (_t: string, id: string) => !ajenos.has(id),
+}));
 const buscarIdem = vi.fn();
 const guardarIdem = vi.fn();
 vi.mock('../../src/modules/flito-logistica/flito-logistica.service.js', () => ({
@@ -93,7 +99,7 @@ const post = async (body: unknown, extra: Record<string, string> = {}) =>
 
 beforeEach(() => {
   for (const m of [selectMock, transactionMock, txSelect, txInsert, buscarIdem, guardarIdem]) m.mockReset();
-  auditMock.mockClear();
+  auditMock.mockClear(); ajenos.clear();
   transactionMock.mockImplementation(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx));
   buscarIdem.mockResolvedValue(null);
 });
@@ -214,6 +220,33 @@ describe('HU #14127 — registro masivo de viajes adicionales', () => {
     const r = await post({ ...BASE, items: [{ placa: P1, valor: 10 }] });
     expect(r.body.rechazados).toEqual([expect.objectContaining({ codigo: 'NO_ENCONTRADO' })]);
     expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('Alcance: un aprobado ajeno + uno propio → se registra el propio, no VARIOS', async () => {
+    ajenos.add(LT1);
+    candidatos(LT1, LT2); elegibilidad(LT2);
+    txSelect.mockReturnValueOnce(chain([{ id: LT2, idFlit: CTX(LT2).idFlit }])).mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([CTX(LT2)])).mockReturnValueOnce(chain([{ siguiente: 2 }])).mockReturnValueOnce(chain([{ name: 'Ana' }]));
+    txInsert.mockReturnValueOnce(chain([fila('10.00')]));
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 10 }] });
+    expect(r.body.rechazados).toEqual([]);
+    expect(r.body.creados).toEqual([expect.objectContaining({ tramiteId: LT2 })]);
+  });
+
+  it('Alcance: único aprobado ajeno y liquidado → NO_ENCONTRADO (sin oráculo de TRAMITE_LIQUIDADO)', async () => {
+    ajenos.add(LT1);
+    candidatos(LT1); // sin elegibilidad(): un ajeno ni se evalúa
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 10 }] });
+    expect(r.body.rechazados).toEqual([expect.objectContaining({ placa: P1, codigo: 'NO_ENCONTRADO' })]);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('Alcance: 2 propios + 1 ajeno → VARIOS con solo los 2 propios como candidatos', async () => {
+    ajenos.add(LT2);
+    candidatos(LT1, LT2, LT3); elegibilidad(LT1); elegibilidad(LT3);
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 10 }] });
+    expect(r.body.rechazados[0].codigo).toBe('VARIOS_TRAMITES_APROBADOS');
+    expect(r.body.rechazados[0].candidatos.map((c: { tramiteId: string }) => c.tramiteId)).toEqual([LT1, LT3]);
   });
 
   it('La placa (PII) no viaja al rastro de auditoría', async () => {
