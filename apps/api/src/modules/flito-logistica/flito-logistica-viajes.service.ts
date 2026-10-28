@@ -29,7 +29,8 @@ import type {
   ModoPrecioViaje, MotivoViajeLogistica, ViajeLogistica, ViajesLogisticaDeTramite,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { clients, flitoExcepcionesAutogestion, flitoTramiteViajesLogistica, flitoTramites, users } from '../../db/schema.js';
+import { clients, flitoExcepcionesAutogestion, flitoTramiteViajesLogistica, flitoTramites, users, vehicles } from '../../db/schema.js';
+import { aprobadoSql, normPlaca } from './flito-logistica.aprobado.js';
 import {
   bloquearTramite, tramiteLiquidado, TramiteNoEncontradoError, type Ejecutor, type Tx,
 } from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
@@ -199,23 +200,38 @@ export async function quitar(tramiteId: string, viajeId: string): Promise<Quitad
   });
 }
 
-// ── Registro masivo (HU #14127) ───────────────────────────────────────────────
-// Varias LT (trámites) en una operación, cada una con su valor libre (modo `manual`, mismo motivo
-// para todas). NO es todo-o-nada: cada LT corre por `registrar` (RN-01..RN-05, su propia transacción
-// y su propio bloqueo), así que una liquidada o de compañía autogestionable se rechaza sola y las
-// demás se registran. La regla vive en un solo lugar: `registrar`.
+// ── Registro masivo (HU #14127, ADR-0030 §17.2) ───────────────────────────────
+// Varias LT en una operación, cada una con su valor libre (modo `manual`, mismo motivo para todas).
+// La LT pertenece a un VEHÍCULO: cada ítem trae la placa y se resuelve el TRÁMITE APROBADO del vehículo
+// (mismo `aprobadoSql` que el escaneo). 1 aprobado → se usa; 0 o vehículo inexistente → rechazo
+// NO_ENCONTRADO; varios → VARIOS_TRAMITES_APROBADOS con los candidatos (ids opacos + idFlit, sin PII).
+// El masivo NUNCA crea LT pendientes. NO es todo-o-nada: cada LT corre por `registrar` (RN-01..RN-05,
+// su propia transacción y bloqueo), así que una liquidada o autogestionada se rechaza sola. La placa es
+// PII cuasi-identificante: llega en el body, se devuelve solo a quien la envió y nunca se loguea.
 
 /** Tope de LT por operación masiva (AC4; a confirmar con el PO). */
 export const MAX_LT_POR_OPERACION = 200;
 
-export interface ItemMasivo { tramiteId: string; valor: number }
-export interface RechazoMasivo { tramiteId: string; motivo: string; codigo: string }
-export interface CreadoMasivo { tramiteId: string; idFlit: string; viaje: ViajeLogistica }
+export interface ItemMasivo { placa: string; valor: number }
+export interface CandidatoMasivo { tramiteId: string; idFlit: string }
+export interface RechazoMasivo { placa: string; motivo: string; codigo: string; candidatos?: CandidatoMasivo[] }
+export interface CreadoMasivo { placa: string; tramiteId: string; idFlit: string; viaje: ViajeLogistica }
 export interface ResultadoMasivo { creados: CreadoMasivo[]; rechazados: RechazoMasivo[] }
 
+/** Trámites aprobados del vehículo con esa placa (normalizada). */
+async function aprobadosDePlaca(placaNorm: string): Promise<CandidatoMasivo[]> {
+  if (placaNorm === '') return [];
+  const filas = await db.select({ tramiteId: flitoTramites.id, idFlit: flitoTramites.idFlit })
+    .from(flitoTramites)
+    .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
+    .where(and(aprobadoSql, sql`upper(replace(${vehicles.plate}, '-', '')) = ${placaNorm}`))
+    .orderBy(asc(flitoTramites.idFlit));
+  return filas;
+}
+
 /**
- * Registra cada item en orden. `permitido` deja a la ruta aplicar el alcance por compañía (un ajeno
- * se rechaza como inexistente, sin oráculo). Un error que no sea de dominio se relanza.
+ * Registra cada item en orden. `permitido` deja a la ruta aplicar el alcance por compañía: un trámite
+ * ajeno ni se usa ni se lista como candidato (sin oráculo). Un error que no sea de dominio se relanza.
  */
 export async function registrarMasivo(
   items: ItemMasivo[],
@@ -224,16 +240,30 @@ export async function registrarMasivo(
   permitido: (tramiteId: string) => Promise<boolean> = async () => true,
 ): Promise<ResultadoMasivo> {
   const resultado: ResultadoMasivo = { creados: [], rechazados: [] };
-  for (const { tramiteId, valor } of items) {
+  for (const { placa: bruta, valor } of items) {
+    const placa = normPlaca(bruta);
     try {
-      if (!await permitido(tramiteId)) throw new TramiteNoEncontradoError();
+      const candidatos: CandidatoMasivo[] = [];
+      for (const c of await aprobadosDePlaca(placa)) if (await permitido(c.tramiteId)) candidatos.push(c);
+      if (candidatos.length === 0) {
+        resultado.rechazados.push({ placa, motivo: 'No encontrado: el vehículo no existe o no tiene un trámite aprobado', codigo: 'NO_ENCONTRADO' });
+        continue;
+      }
+      if (candidatos.length > 1) {
+        resultado.rechazados.push({
+          placa, codigo: 'VARIOS_TRAMITES_APROBADOS', candidatos,
+          motivo: 'El vehículo tiene varios trámites aprobados; registra el viaje desde el trámite correspondiente',
+        });
+        continue;
+      }
+      const { tramiteId } = candidatos[0]!;
       const { viaje, idFlit } = await registrar(tramiteId, { modo: 'manual', valor, ...comun }, usuarioId);
-      resultado.creados.push({ tramiteId, idFlit, viaje });
+      resultado.creados.push({ placa, tramiteId, idFlit, viaje });
     } catch (e) {
       if (e instanceof TramiteNoEncontradoError) {
-        resultado.rechazados.push({ tramiteId, motivo: 'El trámite no existe', codigo: 'TRAMITE_NO_ENCONTRADO' });
+        resultado.rechazados.push({ placa, motivo: 'No encontrado: el trámite ya no existe', codigo: 'NO_ENCONTRADO' });
       } else if (e instanceof ViajeLogisticaError) {
-        resultado.rechazados.push({ tramiteId, motivo: e.message, codigo: e.codigo });
+        resultado.rechazados.push({ placa, motivo: e.message, codigo: e.codigo });
       } else throw e;
     }
   }

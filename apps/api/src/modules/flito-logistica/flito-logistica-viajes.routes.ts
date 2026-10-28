@@ -19,8 +19,9 @@ import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   MAX_LT_POR_OPERACION, TramiteNoEncontradoError, ViajeLogisticaError, ViajeNoEncontradoError, listar, quitar,
-  registrar, registrarMasivo,
+  registrar, registrarMasivo, type ItemMasivo, type RechazoMasivo,
 } from './flito-logistica-viajes.service.js';
+import { normPlaca } from './flito-logistica.aprobado.js';
 import { buscarIdempotencia, guardarIdempotencia } from './flito-logistica.service.js';
 import { viajesMasivoLimiter } from '../../shared/middleware/rateLimiter.js';
 import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
@@ -114,12 +115,13 @@ router.post('/tramites/:tramiteId/viajes', exigirFuncion('logistica.viajes.regis
 });
 
 /**
- * HU #14127 — registro masivo: N LT (trámites), cada una con su valor. El valor de cada item se valida
+ * HU #14127 — registro masivo: N LT identificadas por la PLACA del vehículo (la LT es del vehículo, ADR-0030
+ * §17.2; la placa es PII y va en el body), cada una con su valor. El valor de cada item se valida
  * APARTE (negativo o vacío rechaza solo esa LT, AC3); lo estructural (tope, uuid, motivo) es 400.
  * Idempotencia opcional por `Idempotency-Key` (AC5): repetirla devuelve la respuesta guardada.
  */
 const masivoSchema = z.object({
-  items: z.array(z.object({ tramiteId: z.string(), valor: z.unknown().optional() }).strict(), {
+  items: z.array(z.object({ placa: z.string(), valor: z.unknown().optional() }).strict(), {
     error: 'debe ser una lista de LT',
   }).min(1, 'debe traer al menos una LT')
     .max(MAX_LT_POR_OPERACION, `no puede superar ${MAX_LT_POR_OPERACION} LT por operación`),
@@ -141,20 +143,22 @@ router.post('/viajes/masivo', exigirFuncion('logistica.viajes.registrar'), viaje
     if (previa) { res.status(previa.status).json(previa.body); return; }
   }
   const alcance = await alcanceDe(req);
-  const rechazadosDeEntrada: { tramiteId: string; motivo: string; codigo: string }[] = [];
-  const validos: { tramiteId: string; valor: number }[] = [];
-  const vistos = new Set<string>();
+  const rechazadosDeEntrada: RechazoMasivo[] = [];
+  const validos: ItemMasivo[] = [];
+  const vistas = new Set<string>();
   for (const it of parsed.data.items) {
+    const placa = normPlaca(it.placa);
     const valor = valorManualSchema.safeParse(it.valor);
-    const rechazo = (motivo: string, codigo: string) => rechazadosDeEntrada.push({ tramiteId: it.tramiteId, motivo, codigo });
-    if (idUuid(it.tramiteId) === null) rechazo('El trámite no existe', 'TRAMITE_NO_ENCONTRADO');
-    else if (vistos.has(it.tramiteId)) rechazo('LT repetida en la operación', 'LT_REPETIDA');
+    const rechazo = (motivo: string, codigo: string) => rechazadosDeEntrada.push({ placa, motivo, codigo });
+    if (placa === '') rechazo('La placa es obligatoria', 'PLACA_INVALIDA');
+    else if (vistas.has(placa)) rechazo('Placa repetida en la operación', 'PLACA_REPETIDA');
     else if (!valor.success) rechazo(`Valor inválido: ${valor.error.issues.map((i) => i.message).join('; ')}`, 'VALOR_INVALIDO');
-    else { vistos.add(it.tramiteId); validos.push({ tramiteId: it.tramiteId, valor: valor.data }); }
+    else { vistas.add(placa); validos.push({ placa, valor: valor.data }); }
   }
   const { motivo, motivoDetalle } = parsed.data;
   const r = await registrarMasivo(validos, { motivo, motivoDetalle }, usuarioId,
     (id) => enAlcanceLogistica('tramite', id, alcance));
+  // Sin PII en el rastro: el `detail` lleva idFlit, número, modo y valor; la placa no se registra.
   for (const c of r.creados) {
     await audit(req, {
       action: 'create', resource: 'flito_tramite_viaje_logistica', resourceId: c.viaje.id,
@@ -163,7 +167,7 @@ router.post('/viajes/masivo', exigirFuncion('logistica.viajes.registrar'), viaje
   }
   const cuerpo = {
     solicitadas: parsed.data.items.length,
-    creados: r.creados.map(({ tramiteId, viaje }) => ({ tramiteId, viaje })),
+    creados: r.creados.map(({ placa, tramiteId, idFlit, viaje }) => ({ placa, tramiteId, idFlit, viaje })),
     rechazados: [...rechazadosDeEntrada, ...r.rechazados],
   };
   const status = r.creados.length > 0 ? 201 : 200;

@@ -1,4 +1,5 @@
-// HU #14127 — registro masivo de viajes adicionales sobre varias LT (AC1–AC6).
+// HU #14127 — registro masivo de viajes adicionales sobre varias LT (AC1–AC6), identificadas por la PLACA
+// del vehículo (ADR-0030 §17.2): 1 trámite aprobado → se usa; 0 → NO_ENCONTRADO; varios → VARIOS_TRAMITES_APROBADOS.
 // Calco de flito-logistica-viajes.routes.test.ts: db/audit/redis/tarifaDe mockeados, permisos por el
 // motor real. Cada LT corre por `registrar` (una transacción por LT), no todo-o-nada.
 process.env.TZ = 'UTC';
@@ -47,6 +48,7 @@ vi.mock('../../src/modules/flito-logistica/flito-logistica.service.js', () => ({
 const LT1 = '7d2f4a10-0b1c-4d2e-9f30-a1b2c3d4e5f1';
 const LT2 = '7d2f4a10-0b1c-4d2e-9f30-a1b2c3d4e5f2';
 const LT3 = '7d2f4a10-0b1c-4d2e-9f30-a1b2c3d4e5f3';
+const P1 = 'ABC123'; const P2 = 'DEF456'; const P3 = 'GHI789';
 const URL = '/api/flito/logistica/viajes/masivo';
 const T0 = new Date('2026-09-16T15:00:00.000Z');
 const CTX = (id: string) => ({ id, idFlit: `FLIT-${id.slice(-1)}`, companiaId: 12, logisticaAutogestionable: false, excepcionViva: false });
@@ -57,8 +59,12 @@ const fila = (valor: string) => ({
 });
 const BASE = { motivo: 'devolucion' };
 
+/** Candidatos aprobados que devuelve la búsqueda por placa (un `db.select` por ítem). */
+const candidatos = (...ids: string[]) => selectMock.mockReturnValueOnce(chain(ids.map((id) => ({ tramiteId: id, idFlit: CTX(id).idFlit }))));
+
 /** Una LT por `registrar`: trámite, liquidación, contexto, MAX, actor + INSERT. */
 function armarLt(id: string, o: { liquidada?: boolean; autogestion?: boolean; valor?: string } = {}) {
+  candidatos(id);
   txSelect.mockReturnValueOnce(chain([{ id, idFlit: CTX(id).idFlit }]))
     .mockReturnValueOnce(chain(o.liquidada ? [{ id: 'liq' }] : []));
   if (o.liquidada) return;
@@ -89,7 +95,7 @@ beforeEach(() => {
 describe('HU #14127 — registro masivo de viajes adicionales', () => {
   it('AC1 — N LT válidas con su valor → N viajes (uno por LT, con su valor)', async () => {
     armarLt(LT1, { valor: '1000.00' }); armarLt(LT2, { valor: '2500.50' });
-    const r = await post({ ...BASE, items: [{ tramiteId: LT1, valor: 1000 }, { tramiteId: LT2, valor: 2500.5 }] });
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 1000 }, { placa: P2, valor: 2500.5 }] });
     expect(r.status).toBe(201);
     expect(r.body.creados).toHaveLength(2);
     expect(r.body.rechazados).toEqual([]);
@@ -99,12 +105,12 @@ describe('HU #14127 — registro masivo de viajes adicionales', () => {
 
   it('AC2 — liquidada y autogestionable se rechazan solas con motivo; las demás se registran', async () => {
     armarLt(LT1, { liquidada: true }); armarLt(LT2, { autogestion: true }); armarLt(LT3);
-    const r = await post({ ...BASE, items: [LT1, LT2, LT3].map((tramiteId) => ({ tramiteId, valor: 10 })) });
+    const r = await post({ ...BASE, items: [P1, P2, P3].map((placa) => ({ placa, valor: 10 })) });
     expect(r.status).toBe(201);
     expect(r.body.creados).toHaveLength(1);
-    expect(r.body.creados[0].tramiteId).toBe(LT3);
-    expect(r.body.rechazados.map((x: { tramiteId: string; codigo: string }) => [x.tramiteId, x.codigo])).toEqual([
-      [LT1, 'TRAMITE_LIQUIDADO'], [LT2, 'LOGISTICA_AUTOGESTIONADA'],
+    expect(r.body.creados[0]).toMatchObject({ placa: P3, tramiteId: LT3 });
+    expect(r.body.rechazados.map((x: { placa: string; codigo: string }) => [x.placa, x.codigo])).toEqual([
+      [P1, 'TRAMITE_LIQUIDADO'], [P2, 'LOGISTICA_AUTOGESTIONADA'],
     ]);
     expect(r.body.rechazados[0].motivo).toMatch(/liquidación/);
   });
@@ -112,7 +118,7 @@ describe('HU #14127 — registro masivo de viajes adicionales', () => {
   it('AC3 — valor 0 válido; negativo, vacío o no numérico rechazan solo esa LT, sin tocar la base', async () => {
     armarLt(LT1, { valor: '0.00' });
     const r = await post({ ...BASE, items: [
-      { tramiteId: LT1, valor: 0 }, { tramiteId: LT2, valor: -5 }, { tramiteId: LT3 },
+      { placa: P1, valor: 0 }, { placa: P2, valor: -5 }, { placa: P3 },
     ] });
     expect(r.status).toBe(201);
     expect(r.body.creados).toHaveLength(1);
@@ -122,14 +128,15 @@ describe('HU #14127 — registro masivo de viajes adicionales', () => {
   });
 
   it('AC3 — sin ninguna creada responde 200 con todo rechazado', async () => {
-    const r = await post({ ...BASE, items: [{ tramiteId: LT1, valor: 'x' }] });
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 'x' }] });
     expect(r.status).toBe(200);
     expect(r.body.creados).toEqual([]);
     expect(r.body.rechazados).toHaveLength(1);
   });
 
   it('AC4 — 200 LT pasan; 201 → 400 con mensaje claro y sin tocar la base; vacío → 400', async () => {
-    const items = (n: number) => Array.from({ length: n }, () => ({ tramiteId: 'no-uuid', valor: 1 }));
+    // valor 'x' → rechazo de entrada, sin tocar la base
+    const items = (n: number) => Array.from({ length: n }, (_, i) => ({ placa: `P${i}`, valor: 'x' }));
     expect((await post({ ...BASE, items: items(200) })).status).toBe(200);
     const r = await post({ ...BASE, items: items(201) });
     expect(r.status).toBe(400);
@@ -140,33 +147,64 @@ describe('HU #14127 — registro masivo de viajes adicionales', () => {
 
   it('AC5 — misma Idempotency-Key: devuelve lo guardado y no registra de nuevo', async () => {
     armarLt(LT1);
-    const r1 = await post({ ...BASE, items: [{ tramiteId: LT1, valor: 10 }] }, { 'Idempotency-Key': 'k1' });
+    const r1 = await post({ ...BASE, items: [{ placa: P1, valor: 10 }] }, { 'Idempotency-Key': 'k1' });
     expect(r1.status).toBe(201);
     expect(guardarIdem).toHaveBeenCalledWith('viajes-masivo:7:k1', 201, r1.body);
     buscarIdem.mockResolvedValueOnce({ status: 201, body: r1.body });
-    const r2 = await post({ ...BASE, items: [{ tramiteId: LT1, valor: 10 }] }, { 'Idempotency-Key': 'k1' });
+    const r2 = await post({ ...BASE, items: [{ placa: P1, valor: 10 }] }, { 'Idempotency-Key': 'k1' });
     expect(r2.status).toBe(201);
     expect(r2.body).toEqual(r1.body);
     expect(txInsert).toHaveBeenCalledTimes(1);
     expect(auditMock).toHaveBeenCalledTimes(1);
   });
 
-  it('LT repetida en la misma operación: la segunda se rechaza', async () => {
+  it('Placa repetida en la misma operación (también con otro formato): la segunda se rechaza', async () => {
     armarLt(LT1);
-    const r = await post({ ...BASE, items: [{ tramiteId: LT1, valor: 1 }, { tramiteId: LT1, valor: 2 }] });
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 1 }, { placa: 'abc-123', valor: 2 }] });
     expect(r.body.creados).toHaveLength(1);
-    expect(r.body.rechazados[0].codigo).toBe('LT_REPETIDA');
+    expect(r.body.rechazados[0].codigo).toBe('PLACA_REPETIDA');
+  });
+
+  it('Vehículo inexistente o sin trámite aprobado → NO_ENCONTRADO; sin crear nada', async () => {
+    candidatos();
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 10 }] });
+    expect(r.status).toBe(200);
+    expect(r.body.rechazados).toEqual([expect.objectContaining({ placa: P1, codigo: 'NO_ENCONTRADO' })]);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('Varios trámites aprobados → VARIOS_TRAMITES_APROBADOS con candidatos (id + idFlit); las demás pasan; nunca crea pendientes', async () => {
+    candidatos(LT1, LT2);
+    armarLt(LT3);
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 10 }, { placa: P3, valor: 10 }] });
+    expect(r.status).toBe(201);
+    expect(r.body.creados).toHaveLength(1);
+    expect(r.body.rechazados).toEqual([{
+      placa: P1, codigo: 'VARIOS_TRAMITES_APROBADOS', motivo: expect.any(String),
+      candidatos: [{ tramiteId: LT1, idFlit: 'FLIT-1' }, { tramiteId: LT2, idFlit: 'FLIT-2' }],
+    }]);
+    expect(txInsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('La placa (PII) no viaja al rastro de auditoría', async () => {
+    armarLt(LT1);
+    await post({ ...BASE, items: [{ placa: P1, valor: 10 }] });
+    expect(JSON.stringify(auditMock.mock.calls.map((c) => c[1]))).not.toContain(P1);
+  });
+
+  it('El item con tramiteId (contrato viejo) es 400', async () => {
+    expect((await post({ ...BASE, items: [{ tramiteId: LT1, valor: 1 }] })).status).toBe(400);
   });
 
   it('motivo «otro» exige detalle; motivo ausente → 400', async () => {
-    expect((await post({ motivo: 'otro', items: [{ tramiteId: LT1, valor: 1 }] })).status).toBe(400);
-    expect((await post({ items: [{ tramiteId: LT1, valor: 1 }] })).status).toBe(400);
+    expect((await post({ motivo: 'otro', items: [{ placa: P1, valor: 1 }] })).status).toBe(400);
+    expect((await post({ items: [{ placa: P1, valor: 1 }] })).status).toBe(400);
   });
 
   it('sin token 401; rol sin la función 403 (misma función que el individual)', async () => {
     const app = await buildApp();
     expect((await request(app).post(URL).send({})).status).toBe(401);
-    const r = await request(app).post(URL).set('Authorization', await auth('financiera')).send({ ...BASE, items: [{ tramiteId: LT1, valor: 1 }] });
+    const r = await request(app).post(URL).set('Authorization', await auth('financiera')).send({ ...BASE, items: [{ placa: P1, valor: 1 }] });
     expect(r.status).toBe(403);
     expect(transactionMock).not.toHaveBeenCalled();
   });
