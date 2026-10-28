@@ -348,6 +348,13 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
     await expect(page.getByText(/Transportes del Norte S\.A\.S\. · Org\. 11001/)).toBeVisible();
     await expect(page.getByText(/^Pendiente de trámite · Org\. 11001/)).toBeVisible();
     expect(page.url()).not.toContain('ABC123');
+    // Sin firmar se distingue de firmada por COLOR: el chip de la fila usa el tono de advertencia de la cabecera.
+    const chip = (t: string | RegExp) => page.locator('[data-flit-chip]').filter({ hasText: t }).first();
+    const colorCab = await chip('Falta firma · 2').evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).backgroundColor]);
+    const colorFila = await chip(/^Falta firma$/).evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).backgroundColor]);
+    const tinta = await page.evaluate(() => { const d = document.createElement('i'); d.style.color = 'var(--flit-warning-ink)'; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; });
+    expect(colorFila).toEqual(colorCab);
+    expect(colorFila[0]).toBe(tinta); // token de advertencia, no el gris neutro
     await page.getByRole('button', { name: 'Firmar 2 LT' }).click();
     await expect(page.getByRole('heading', { name: 'Confirmar recogida' })).toBeVisible();
     await llenarFuncionario(page);

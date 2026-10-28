@@ -105,7 +105,7 @@ export default function MisRecogidas({ onVolver, onEscanear, puedeConfirmar }: {
                       {p.pendienteTramite ? 'Pendiente de trámite' : (p.companiaNombre ?? 'Compañía sin nombre')} · Org. {p.organismoCodigo} · {fecha(p.fecha)}
                     </span>
                   </span>
-                  <StatusChip tone={p.pendienteTramite ? 'warning' : 'neutral'}>{p.pendienteTramite ? 'Pendiente de trámite' : 'Falta firma'}</StatusChip>
+                  <StatusChip tone="warning">{p.pendienteTramite ? 'Pendiente de trámite' : 'Falta firma'}</StatusChip>
                 </label>
               </li>
             ))}
