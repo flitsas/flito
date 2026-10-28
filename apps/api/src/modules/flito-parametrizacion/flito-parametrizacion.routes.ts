@@ -31,6 +31,7 @@ import {
   SERVICIO_ADICIONAL_NOMBRE_MAX,
   TARIFA_VALOR_MAX,
   tipoTramiteTarifaDe,
+  esConceptoLogistica,
 } from '@operaciones/shared-types';
 import {
   esDuplicadoNombreProveedorSoat, mensajeNombreProveedorDuplicado, modalidadVigente,
@@ -680,7 +681,7 @@ router.get('/tarifas/companias/:id/historial', exigirFuncion('parametrizacion.ta
   if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
   const { concepto, tipoTramite, desde, hasta } = parsed.data;
   let tipo: ReturnType<typeof tipoTramiteTarifaDe> | undefined;
-  if (tipoTramite !== undefined && concepto !== 'logistica') {
+  if (tipoTramite !== undefined && !(concepto && esConceptoLogistica(concepto))) {
     tipo = tipoTramiteTarifaDe(tipoTramite);
     if (tipo === null) { res.status(400).json({ error: 'Datos inválidos: tipoTramite debe ser Matricula, Traspaso u Otros' }); return; }
   }

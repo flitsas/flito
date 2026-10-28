@@ -521,21 +521,21 @@ function filaTarifa(concepto: string, tipoTramite: string | null, valor: number 
   return {
     concepto, tipoTramite, vigenciaId: valor === null ? null : `vig-demo-${i}`, valor,
     vigenteDesde: valor === null ? null : '2026-09-01T15:00:00.000Z', fijadoPor: valor === null ? null : USUARIO_TARIFAS_DEMO,
-    ...(concepto === 'logistica' ? { flitoGestionaLogistica: true } : {}),
+    ...(concepto === 'logistica_cliente' ? { flitoGestionaLogistica: true } : {}),
   };
 }
 
 export const TARIFAS_DEMO = {
-  /** Vigencias abiertas por compañía: 901 tiene 3 de 4, 902 ninguna, 903 las 4. */
+  /** Vigencias abiertas por compañía: 901 tiene 4 de 5 (falta Entrega a FLIT), 902 ninguna, 903 las 5. */
   abiertas: [
-    ...[1, 2, 3].map((i) => ({ id: `vig-demo-${i}`, companiaId: 901 })),
-    ...[4, 5, 6, 7].map((i) => ({ id: `vig-demo-${i}`, companiaId: 903 })),
+    ...[1, 2, 3, 8].map((i) => ({ id: `vig-demo-${i}`, companiaId: 901 })),
+    ...[4, 5, 6, 7, 9].map((i) => ({ id: `vig-demo-${i}`, companiaId: 903 })),
   ],
   vista901: {
     companiaId: 901, companiaNombre: EMPRESAS_DEMO[0], capacidades: { editar: true, verHistorial: true },
     tarifas: [
       filaTarifa('tramite_digital', 'MATRICULA', 180000, 1), filaTarifa('tramite_digital', 'TRASPASO', 150000, 2),
-      filaTarifa('tramite_digital', 'OTROS', 90000, 3), filaTarifa('logistica', null, null, 0),
+      filaTarifa('tramite_digital', 'OTROS', 90000, 3), filaTarifa('logistica_cliente', null, 38000, 8), filaTarifa('logistica_flit', null, null, 0),
     ],
   },
   historial: [

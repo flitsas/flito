@@ -887,8 +887,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_tarifas",
     "etiqueta": "Tarifas",
     "resumen": "Cuánto se le cobra a cada cliente por trámite y logística.",
-    "version": "1.2",
-    "fecha": "2026-10-25",
+    "version": "1.3",
+    "fecha": "2026-10-27",
     "palabrasClave": [
       "tarifas",
       "precios",
@@ -903,7 +903,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "que-es",
         "titulo": "Qué es",
-        "texto": "La pantalla donde se fija cuánto cobra FLITO a cada cliente por el trámite digital —Matrícula, Traspaso y Otros— y por la logística. Cada valor tiene una vigencia: rige desde el momento en que usted lo guarda y hasta que lo cambie o deje de cobrarlo."
+        "texto": "La pantalla donde se fija cuánto cobra FLITO a cada cliente por el trámite digital —Matrícula, Traspaso y Otros— y por la logística, que tiene dos precios: Entrega a cliente y Entrega a FLIT. Cada valor tiene una vigencia: rige desde el momento en que usted lo guarda y hasta que lo cambie o deje de cobrarlo."
       },
       {
         "ancla": "para-quien",
@@ -918,12 +918,12 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "pasos",
         "titulo": "Pasos",
-        "texto": "Elija la compañía en la lista Clientes de la izquierda (o búsquela en Buscar cliente…). Las que tienen valores sin configurar muestran Falta 1 o Faltan N; con la pestaña Con faltantes ve solo esas. Un cliente inactivo aparece en gris con Inactivo y no se puede elegir. A la derecha, sus cuatro filas —Matrícula, Traspaso y Otros del trámite digital, y Logística— con el valor vigente, desde cuándo y quién lo fijó. Lista de clientes con Falta 1 y Faltan 4, y las cuatro filas de tarifas de un cliente: tres con valor y Logística Sin configurar Pulse Fijar valor en una fila que diga Sin configurar, o Cambiar en una que ya tenga valor. Escriba el número y pulse Guardar (o Cancelar). El tipo de trámite ya está en la fila: no se escribe. Fila Logística en edición con el valor escrito y los botones Guardar y Cancelar Si escribe 0, FLITO le pide confirmar: cero significa que el trámite se cobra a $0, no que está sin configurar. Para no cobrar un concepto, pulse Dejar de cobrar y confirme. La fila vuelve a Sin configurar y la vigencia queda cerrada en el historial, con su nombre y la hora. Pulse Historial en una fila, o Historial del cliente arriba, para abrir Historial de vigencias: valor, desde, hasta (o Vigente), quién la fijó y quién la cerró. Las pastillas filtran por trámite y Fijadas entre acota por fecha. Historial de vigencias con una tarifa Vigente y la anterior cerrada, con quién la fijó y quién la cerró Cómo cambia un valor y qué queda guardado, de un vistazo: Diagrama: una fila sin configurar pasa a vigente al fijar valor y guardar; cambiarla cierra la vigencia anterior y abre otra; dejar de cobrar la devuelve a sin configurar; todo queda en el historial con quién la fijó y quién la cerró"
+        "texto": "Elija la compañía en la lista Clientes de la izquierda (o búsquela en Buscar cliente…). Las que tienen valores sin configurar muestran Falta 1 o Faltan N; con la pestaña Con faltantes ve solo esas. Un cliente inactivo aparece en gris con Inactivo y no se puede elegir. A la derecha, las tres filas del trámite digital —Matrícula, Traspaso y Otros— y, debajo, el grupo Logística con dos paneles, Entrega a cliente y Entrega a FLIT; cada uno con el valor vigente, desde cuándo y quién lo fijó. Entrega a FLIT también hay que configurarla —cuenta en Falta / Faltan N—, pero solo se cobra cuando la logística pasa por FLIT; sin precio no se puede registrar un viaje a FLIT y no se bloquea nada más. Lista de clientes con Falta 1 y Faltan 5, y las filas de tarifas de un cliente: el trámite digital con valor y, en Logística, Entrega a cliente con valor y Entrega a FLIT Sin configurar con el chip Falta Pulse Fijar valor en una fila o panel que diga Sin configurar, o Cambiar en uno que ya tenga valor. Escriba el número y pulse Guardar (o Cancelar). El tipo de trámite ya está en la fila: no se escribe. Fila Logística en edición con el valor escrito y los botones Guardar y Cancelar Si escribe 0, FLITO le pide confirmar: cero significa que el trámite se cobra a $0, no que está sin configurar. Para no cobrar un concepto, pulse Dejar de cobrar y confirme (en un panel sin valor este botón está apagado). La fila o el panel vuelve a Sin configurar y la vigencia queda cerrada en el historial, con su nombre y la hora. Pulse Historial en una fila o panel, o Historial del cliente arriba, para abrir Historial de vigencias: valor, desde, hasta (o Vigente), quién la fijó y quién la cerró. Las pastillas filtran por trámite y Fijadas entre acota por fecha. Historial de vigencias con una tarifa Vigente y la anterior cerrada, con quién la fijó y quién la cerró Cómo cambia un valor y qué queda guardado, de un vistazo: Diagrama: una fila sin configurar pasa a vigente al fijar valor y guardar; cambiarla cierra la vigencia anterior y abre otra; dejar de cobrar la devuelve a sin configurar; todo queda en el historial con quién la fijó y quién la cerró"
       },
       {
         "ancla": "estados",
         "titulo": "Estados",
-        "texto": "Cargando: un esqueleto en el lugar de la lista o de la matriz, con los botones apagados. Error: No se pudieron cargar los valores de… con Reintentar. FLITO no muestra $0 ni Sin configurar por un error: si ve una fila, es lo que hay guardado. Vacío: Todavía no hay clientes. cuando no existe ninguna compañía; Sin configurar en la fila a la que no se le ha fijado valor. Lleno: las cuatro filas del cliente con su valor, desde cuándo rige y quién lo fijó."
+        "texto": "Cargando: un esqueleto en el lugar de la lista o de la matriz, con los botones apagados. Error: No se pudieron cargar los valores de… con Reintentar. FLITO no muestra $0 ni Sin configurar por un error: si ve una fila, es lo que hay guardado. Vacío: Todavía no hay clientes. cuando no existe ninguna compañía; Sin configurar en la fila a la que no se le ha fijado valor. Lleno: las tres filas de trámite y los dos paneles de logística del cliente con su valor, desde cuándo rige y quién lo fijó."
       },
       {
         "ancla": "que-no-hace",
