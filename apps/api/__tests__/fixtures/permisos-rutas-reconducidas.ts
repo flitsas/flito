@@ -75,6 +75,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'POST', ruta: '/estado-lote', codigo: 'bolsas.documentos.ver' },
   // HU #12998
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/reintentar', codigo: 'soat.solicitud.reintentar_runt' },
+  // HU #14136: completar una pendiente de la carga masiva; reutiliza la función del alta.
+  { fichero: 'flito-soat/flito-soat-incompletas-completar.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/factura', codigo: 'soat.solicitud.crear' },
+  { fichero: 'flito-soat/flito-soat-incompletas-completar.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/confirmar', codigo: 'soat.solicitud.crear' },
   // HU #13061: acceso de FLITO a FLIT 2 (0214, solo admin).
   { fichero: 'flito-sync/flit2.routes.ts', metodo: 'GET', ruta: '/acceso', codigo: 'tramites.flit2.ver_acceso' },
   { fichero: 'flito-sync/flit2.routes.ts', metodo: 'PUT', ruta: '/acceso', codigo: 'tramites.flit2.guardar_acceso' },

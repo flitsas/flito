@@ -37,6 +37,7 @@ const op = (llave: string, codigo: string, nombre: string, descripcion: string):
 const SOAT = 'flito-soat/flito-soat.routes.ts';
 const SOAT_CLI = 'flito-soat/flito-soat-cliente.routes.ts';
 const SOAT_MAS = 'flito-soat/flito-soat-masivo.routes.ts';
+const SOAT_COMP = 'flito-soat/flito-soat-incompletas-completar.routes.ts'; // HU #14136
 const SOAT_INC = 'flito-soat/flito-soat-incompletas.routes.ts';
 const SOAT_DOC = 'flito-soat/flito-soat-documentos.routes.ts';
 const IMP = 'flito-impuestos/flito-impuestos.routes.ts';
@@ -106,6 +107,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${SOAT_MAS} POST /cliente/masivo`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
   op(`${SOAT_MAS} GET /cliente/masivo/:loteId`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
   op(`${SOAT_MAS} GET /cliente/masivo/:loteId/rechazadas`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_COMP} POST /cliente/incompletas/:id/factura`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_COMP} POST /cliente/incompletas/:id/confirmar`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
   op(`${SOAT_CLI} POST /cliente/factura/lectura`, 'soat.factura.leer', 'Leer la factura de venta del vehículo', 'Extraer del PDF de la factura los datos del vehículo para prellenar la solicitud.'),
   // HU #12997 (Feature #12841, diseño §11.1): lectura de las solicitudes que esperan al RUNT. Códigos
   // propios —el catálogo es «una función por ruta»— sembrados por la 0211 a todo rol que ya tenga

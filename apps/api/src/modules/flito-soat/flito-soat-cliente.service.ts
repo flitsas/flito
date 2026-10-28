@@ -667,7 +667,7 @@ export async function verificarTenenciaVehiculo(vin: string, companiaId: number)
  * y exigir que coincidan rechazaría un PDF legítimo enviado con `application/octet-stream`, que es
  * lo que mandan varios clientes HTTP.
  */
-async function verificarPdfReal(archivo: ArchivoSolicitud): Promise<void> {
+export async function verificarPdfReal(archivo: ArchivoSolicitud): Promise<void> {
   const detectado = await detectMime(archivo.buffer);
   if (detectado !== 'application/pdf') {
     throw fallo(400, CodigoErrorSolicitudSoat.ARCHIVO_NO_PDF,
@@ -740,7 +740,7 @@ export interface ResultadoRunt {
  * (`MENSAJE_VEHICULO_AJENO`), y lo garantiza la construcción del error: `desenlace.campo` es el
  * único dato que entra en `datos`, y `CodigoErrorSolicitudSoat`/`MENSAJE_REVISE` son constantes.
  */
-async function verificarRuntCompuerta(
+export async function verificarRuntCompuerta(
   consulta: EntradaConsultaRunt, tipo: TipoSoatCanal = 'inicial',
 ): Promise<ResultadoRunt> {
   const desenlace = await consultarYClasificar(consulta, tipo);

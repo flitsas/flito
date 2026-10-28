@@ -280,7 +280,7 @@ const preconsultaSchema = z.preprocess(
  *
  * Mismo criterio de siempre: PII en el cuerpo, nunca en la URL.
  */
-const documentoSchema = z.object({
+export const documentoSchema = z.object({
   tipoDocumento: z.enum(TIPOS_DOCUMENTO_RUNT),
   numeroDocumento: z.string().trim().min(4, 'El documento del propietario es obligatorio').max(30),
 });
@@ -443,7 +443,7 @@ async function registrarIntentoRunt(
  * columnas sigan nullable en la tabla: la nulabilidad la necesitan las filas de trámite, que llegan
  * sin contacto. La regla es del CANAL, y por eso vive en el borde del canal.
  */
-const titularCampos = {
+export const titularCampos = {
   nombres: z.preprocess(vacioANull, z.string().trim().max(200).nullable().optional()),
   apellidos: z.preprocess(vacioANull, z.string().trim().max(200).nullable().optional()),
   razonSocial: z.preprocess(vacioANull, z.string().trim().max(200).nullable().optional()),
@@ -491,7 +491,7 @@ const titularCampos = {
 /** `flito_compradores.nombre_completo` y `vehicles.owner_name` son los dos `varchar(200)`. */
 const MAX_NOMBRE_COMPLETO = 200;
 
-function refinarTitular(
+export function refinarTitular(
   d: { tipoDocumento: string; nombres?: unknown; apellidos?: unknown; razonSocial?: unknown },
   ctx: z.RefinementCtx,
 ): void {
@@ -547,7 +547,7 @@ function refinarTitular(
  */
 const procedenciaValorSchema = z.enum(PROCEDENCIAS_DATO).optional();
 
-const procedenciaMapaSchema = z.object(
+export const procedenciaMapaSchema = z.object(
   // `fromEntries` y no un objeto literal con las nueve claves tecleadas: la lista es la compartida.
   // El tipo que Zod infiere de aquí es un índice `{ [k: string]: … }` en vez de las nueve claves
   // exactas —el precio de construir el shape en tiempo de ejecución—, y por eso el borde de salida

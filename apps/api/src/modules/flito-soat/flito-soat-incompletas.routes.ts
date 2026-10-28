@@ -24,6 +24,7 @@ import { soatClienteLimiter, soatPreconsultaLimiter } from '../../shared/middlew
 import { CodigoErrorSolicitudSoat, EstadoSolicitudIncompletaSoat, type ResultadoReintentoRunt } from '@operaciones/shared-types';
 import { contextoSoat } from './flito-soat.service.js';
 import masivoRouter from './flito-soat-masivo.routes.js';
+import completarRouter from './flito-soat-incompletas-completar.routes.js';
 import { buscarIncompletas, detalleIncompleta } from './flito-soat-incompletas.service.js';
 import { IncompletaYaResueltaError, reintentarIncompleta, type ReintentoHecho } from './flito-soat-incompletas-reintento.service.js';
 import { SolicitudSoatError } from './flito-soat-cliente.service.js';
@@ -37,6 +38,8 @@ const router = Router();
 router.use(authMiddleware);
 // HU #14131: la carga masiva (`/cliente/masivo…`) se monta aquí dentro para no sumar un montaje más en app.ts.
 router.use(masivoRouter);
+// HU #14136: adjuntar la factura y confirmar una pendiente (sub-router propio; mismo montaje).
+router.use(completarRouter);
 
 const ESTADOS = [
   EstadoSolicitudIncompletaSoat.INCOMPLETA,
