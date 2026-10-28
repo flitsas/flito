@@ -247,7 +247,7 @@ export default function ViajesMasivo() {
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2 text-xs font-semibold" style={{ borderColor: 'var(--flit-border-soft)' }}>
               <label className="inline-flex items-center gap-2">
-                <input ref={todasRef} type="checkbox" className="flit-focus h-4 w-4" style={CHECK} disabled={enviando}
+                <input ref={todasRef} type="checkbox" className="flit-focus size-4" style={CHECK} disabled={enviando}
                   checked={filas.length > 0 && seleccionadas.length === filas.length}
                   onChange={(e) => cambiarFilas((fs) => fs.map((f) => ({ ...f, sel: e.target.checked })))} />
                 Seleccionar todas
@@ -266,7 +266,7 @@ export default function ViajesMasivo() {
                     className="flex flex-wrap items-start gap-x-3 gap-y-1 rounded-lg border p-3 transition-colors hover:bg-[var(--flit-bg-hover)] sm:border-0 sm:px-2 sm:py-1.5"
                     style={{ borderColor: 'var(--flit-border-soft)' }}>
                     <label className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium tabular-nums sm:h-10 sm:w-40 sm:flex-none">
-                      <input type="checkbox" className="flit-focus h-4 w-4" style={CHECK} checked={f.sel} disabled={enviando}
+                      <input type="checkbox" className="flit-focus size-4" style={CHECK} checked={f.sel} disabled={enviando}
                         data-nueva={f.id === nuevoId.current || undefined}
                         onChange={(e) => cambiarFilas((fs) => fs.map((x) => (x.id === f.id ? { ...x, sel: e.target.checked } : x)))} />
                       <span className="sr-only">Seleccionar </span>{f.placa}
