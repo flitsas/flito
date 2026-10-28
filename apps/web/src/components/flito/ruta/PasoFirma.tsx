@@ -59,7 +59,7 @@ export default function PasoFirma({ filas, onAtras, onConfirmado, onSinFirma }: 
       let actas = 0;
       for (const [organismo, fs] of porOrganismo) {
         const ids = fs.map((f) => f.documentoId!).sort();
-        const sig = `${organismo}:${ids.join(',')}`;
+        const sig = `${organismo}:${ids.join(',')}:${nombre.trim()}:${cedula}:${firma}`; // misma clave solo si el cuerpo es idéntico
         if (!claves.current.has(sig)) claves.current.set(sig, nuevaKey()); // el reintento reusa la clave: no duplica actas
         const r = await api.post<RecogidaConfirmada>('/flito/logistica/recogidas/confirmar',
           { organismoCodigo: organismo, documentoIds: ids, firmante: { nombre: nombre.trim(), documento: cedula, firma }, ...geo },

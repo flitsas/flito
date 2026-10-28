@@ -203,6 +203,54 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
     await expect(page.getByText('boom stack')).toHaveCount(0);
   });
 
+  test('AC4: el reintento reutiliza la Idempotency-Key; si se edita un dato, la clave cambia', async ({ page }) => {
+    await preparar(page);
+    await agregarManual(page, 'ABC123', '10038156339', 'LT10000848803');
+    await page.getByRole('button', { name: /Continuar a la firma/ }).click();
+    const claves: Array<string | undefined> = [];
+    let falla = 2;
+    await page.unroute(/\/api\/flito\/logistica\/recogidas\/confirmar$/);
+    await page.route(/\/api\/flito\/logistica\/recogidas\/confirmar$/, (r) => {
+      claves.push(r.request().headers()['idempotency-key']);
+      if (falla-- > 0) return r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'x' }) });
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ firmanteId: 'f-1', actas: [{ actaId: 'a-1', companiaId: 1, documentos: 1 }], pendientesTramite: 0 }) });
+    });
+    await llenarFuncionario(page);
+    await page.getByRole('button', { name: 'Confirmar recogida' }).click();
+    const alerta = page.getByRole('alert').filter({ hasText: 'No pudimos confirmar la recogida' });
+    await expect(alerta).toBeVisible();
+    await alerta.getByRole('button', { name: 'Reintentar' }).click();
+    await expect.poll(() => claves.length).toBe(2);
+    expect(claves[0]).toBeTruthy();
+    expect(claves[1]).toBe(claves[0]); // mismo intento lógico → misma clave: no duplica actas
+
+    await expect(alerta).toBeVisible();
+    await page.getByLabel('Nombre', { exact: true }).fill('Funcionario Corregido');
+    await page.getByRole('button', { name: 'Confirmar recogida' }).click();
+    await expect(page.getByRole('heading', { name: /Recogida confirmada/ })).toBeVisible();
+    expect(claves).toHaveLength(3);
+    expect(claves[2]).toBeTruthy();
+    expect(claves[2]).not.toBe(claves[0]); // cuerpo distinto → clave nueva
+  });
+
+  test('sin señal: la LT ingresada a mano se encola y no se puede confirmar', async ({ page, context }) => {
+    const e = await preparar(page);
+    await page.getByRole('button', { name: 'Ingresar a mano' }).click();
+    await page.getByLabel('Placa', { exact: true }).fill('ABC123');
+    await expect(page.getByText('Confirma que es el vehículo')).toBeVisible();
+    await page.getByLabel(/licencia de tránsito/).fill('10038156339');
+    await page.getByLabel(/sustrato/).fill('LT10000848803');
+    await context.setOffline(true);
+    await page.getByRole('button', { name: 'Agregar LT' }).click();
+    await expect(page.getByRole('article', { name: 'LT ABC123' }).getByText('En cola')).toBeVisible();
+    expect(e.escanear).toHaveLength(0);
+    await page.getByRole('button', { name: /Continuar a la firma/ }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Sin señal' })).toBeVisible();
+    await expect(page.getByLabel('Cédula', { exact: true })).toHaveCount(0);
+    expect(e.confirmar).toHaveLength(0);
+    await context.setOffline(false);
+  });
+
   test('AC4: sin el permiso de confirmar el mensajero escanea y guarda, pero no ve la firma ni Mis recogidas', async ({ page }) => {
     const e = await preparar(page, SIN_CONFIRMAR);
     await expect(page.getByRole('button', { name: /Mis recogidas/ })).toHaveCount(0);
