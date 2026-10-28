@@ -297,7 +297,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // son de solo lectura y de tres pasos o menos: sin diagrama.
   const SOAT_13771: Record<string, { version: string; capturas: string[]; diagrama: string | null; fecha?: string }> = {
     // HU #13968: SOAT sin trámite por proveedor (soat y clients cambiaron de nuevo).
-    soat: { version: '1.5', fecha: '2026-10-27', diagrama: 'ciclo-soat.svg', capturas: [
+    soat: { version: '1.6', fecha: '2026-10-28', diagrama: 'ciclo-soat.svg', capturas: [
       '01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png'] },
     flito_tramites: { version: '1.2', diagrama: 'camino-a-entregar.svg', capturas: [
       '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-seleccion.png', '04-documentos-del-zip.png'] },

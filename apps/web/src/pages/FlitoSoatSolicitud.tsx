@@ -91,6 +91,7 @@ import {
 import { TarjetaCanalAjeno, TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import FichaRunt from '../components/flito/soat-cliente/FichaRunt';
 import SelectorTipoSoat from '../components/flito/soat-cliente/SelectorTipoSoat';
+import ModalidadRenovacion from '../components/flito/soat-cliente/masivo/ModalidadRenovacion';
 import BloqueVehiculoRenovacion from '../components/flito/soat-cliente/BloqueVehiculoRenovacion';
 import BarraEnvioSolicitud from '../components/flito/soat-cliente/BarraEnvioSolicitud';
 import {
@@ -972,6 +973,7 @@ function Alta() {
       <CampoCompaniaSoat compania={compania} onCambio={cambiarCompania} />
       {/* ── Tipo de SOAT (HU #14019): sin valor por defecto; hasta elegirlo no hay bloques ni barra. */}
       <SelectorTipoSoat valor={tipo} hayDatos={hayDatos || consulta.fase !== 'inicial'} onCambiar={cambiarTipo} error={errorTipo} />
+      <ModalidadRenovacion tipo={tipo} compania={compania}>
       {tipo !== null && (
       <>
       {/* ── Bloque 1 · Vehículo ─────────────────────────────────────────────────────────────────
@@ -1120,6 +1122,7 @@ function Alta() {
       )}
       </>
       )}
+      </ModalidadRenovacion>
       </>
       )}
 
