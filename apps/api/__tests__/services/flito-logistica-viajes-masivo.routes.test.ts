@@ -241,6 +241,15 @@ describe('HU #14127 — registro masivo de viajes adicionales', () => {
     expect(transactionMock).not.toHaveBeenCalled();
   });
 
+  it('Alcance: un propio inelegible + un ajeno → motivo de la RN del propio, no NO_ENCONTRADO; sin viaje', async () => {
+    ajenos.add(LT2);
+    candidatos(LT1, LT2); elegibilidad(LT1, { liquidada: true });
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 10 }] });
+    expect(r.body.rechazados).toEqual([expect.objectContaining({ placa: P1, codigo: 'TRAMITE_LIQUIDADO' })]);
+    expect(r.body.creados).toEqual([]);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
   it('Alcance: 2 propios + 1 ajeno → VARIOS con solo los 2 propios como candidatos', async () => {
     ajenos.add(LT2);
     candidatos(LT1, LT2, LT3); elegibilidad(LT1); elegibilidad(LT3);
