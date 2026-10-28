@@ -33,6 +33,8 @@ export interface TablaColaSoatProps {
   onVerIncompleta?: (f: SolicitudIncompletaFila) => void;
   /** HU #12998: reintento de la consulta al RUNT (sin la función, ni se pinta). */
   puedeReintentarIncompleta?: boolean;
+  /** `soat.solicitud.crear` (HU #14137). */
+  puedeCompletarIncompleta?: boolean;
   incompletasEnVuelo?: Record<string, unknown>;
   onReintentarIncompleta?: (f: SolicitudIncompletaFila) => void;
   /** Lo que cuenta la paginación: «SOAT» o, en las pastillas nuevas, «solicitudes». */
@@ -52,7 +54,7 @@ export default function TablaColaSoat({
   data, filas, totalPaginas, onPrev, onNext, conCasillas, seleccion, setSeleccion, seleccionables, toggle,
   esCliente, puedeDescargar, descargaComprobante, conCompania, onVer,
   incompletas = [], puedeVerIncompleta = false, onVerIncompleta = () => {}, sustantivo = 'SOAT', sustantivoSingular,
-  puedeReintentarIncompleta = false, incompletasEnVuelo = {}, onReintentarIncompleta,
+  puedeReintentarIncompleta = false, puedeCompletarIncompleta = false, incompletasEnVuelo = {}, onReintentarIncompleta,
 }: TablaColaSoatProps) {
   return (
         <FlitCard>
@@ -88,7 +90,7 @@ export default function TablaColaSoat({
               {incompletas.map((f) => (
                 <FilaIncompletaSoat key={`inc-${f.id}`} fila={f} conCasillas={conCasillas} conCompania={conCompania}
                   esCliente={esCliente} puedeVer={puedeVerIncompleta} onVer={onVerIncompleta}
-                  puedeReintentar={puedeReintentarIncompleta} consultando={f.id in incompletasEnVuelo}
+                  puedeReintentar={puedeReintentarIncompleta} puedeCompletar={puedeCompletarIncompleta} consultando={f.id in incompletasEnVuelo}
                   onReintentar={onReintentarIncompleta} />
               ))}
               {filas.map((f) => (

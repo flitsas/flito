@@ -22,3 +22,40 @@ export async function registrarAltaLoteMasivo(
     motivo: `alta_masivo lote=${lote.id} tipo=${lote.tipo} filas=${lote.filas}`,
   });
 }
+
+/** HU #14133 (AC2): UN registro por descarga de rechazadas, con el conteo de filas y sin datos de fila. */
+export async function registrarDescargaRechazadasMasivo(req: Request, lote: { id: string; filas: number }): Promise<void> {
+  await logPiiAccess(req, {
+    resourceTipo: RECURSO_LOTE_MASIVO,
+    accion: 'export',
+    camposAccedidos: [...CAMPOS_PII_LOTE_MASIVO],
+    motivo: `descarga_rechazadas lote=${lote.id} filas=${lote.filas}`,
+  });
+}
+
+// HU #14134: el avance devuelve filas con placa/VIN (cuasi-PII) y se sondea cada ~2,5 s. UN registro por lote y
+// usuario (la primera vez que se devuelven filas con placa), no uno por sondeo. La clave vive en memoria acotada
+// (FIFO de 500): lo más simple sin columna nueva; tras un reinicio o en otra réplica se registra una vez más, lo
+// que sobre-registra pero nunca omite. El motivo lleva solo ids opacos y el conteo: nunca una placa.
+const LECTURAS_REGISTRADAS = new Set<string>();
+const MAX_LECTURAS_REGISTRADAS = 500;
+
+export async function registrarLecturaFilasMasivo(
+  req: Request, lote: { id: string; filas: number }, userId: number,
+): Promise<void> {
+  const clave = `${userId}:${lote.id}`;
+  if (LECTURAS_REGISTRADAS.has(clave)) return;
+  if (LECTURAS_REGISTRADAS.size >= MAX_LECTURAS_REGISTRADAS) {
+    LECTURAS_REGISTRADAS.delete(LECTURAS_REGISTRADAS.values().next().value as string);
+  }
+  LECTURAS_REGISTRADAS.add(clave);
+  await logPiiAccess(req, {
+    resourceTipo: RECURSO_LOTE_MASIVO,
+    accion: 'read',
+    camposAccedidos: ['placa', 'vin'],
+    motivo: `avance_filas lote=${lote.id} filas=${lote.filas}`,
+  });
+}
+
+/** Solo para pruebas. */
+export function reiniciarLecturasRegistradasMasivo(): void { LECTURAS_REGISTRADAS.clear(); }

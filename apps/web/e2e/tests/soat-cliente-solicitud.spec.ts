@@ -340,6 +340,9 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await page.getByRole('heading', { name: 'Solicitud de SOAT' }).focus();
     await page.keyboard.press('Tab');
     await expect(page.getByRole('radio', { name: /SOAT inicial/ })).toBeFocused();
+    // HU #14137: «Forma de cargar» aparece con ambos tipos; su radio marcado (Individual) va antes del VIN.
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('radio', { name: 'Individual' })).toBeFocused();
     // HU #12091: el orden viejo era placa → tipo → número → VIN, los cuatro en el bloque 1. Ahora el
     // primer control del formulario es el VIN y el siguiente ya es el botón que consulta: entre los
     // dos no queda nada porque el bloque 1 no tiene nada más.

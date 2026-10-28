@@ -36,6 +36,8 @@ export const flitoSoatMasivoLotes = pgTable('flito_soat_masivo_lotes', {
   nAceptadas: smallint('n_aceptadas'),
   nPorValidar: smallint('n_por_validar'),
   nRechazadas: smallint('n_rechazadas'),
+  // Migración 0272 (HU #14133): primera descarga de las rechazadas; abre la ventana de 15 min antes de la purga de PII.
+  primeraDescargaEn: timestamp('primera_descarga_en', { withTimezone: true }),
 }, (t) => ({
   idxPorTerminar: index('idx_flito_soat_masivo_lotes_por_terminar').on(t.ultimoAvanceEn).where(sql`estado <> 'terminado'`),
   terminadoChk: check('flito_soat_masivo_lotes_terminado_chk', sql`(estado = 'terminado') = (terminado_en IS NOT NULL)`),
@@ -67,6 +69,10 @@ export const flitoSoatMasivoFilas = pgTable('flito_soat_masivo_filas', {
   correo: varchar('correo', { length: 150 }),
   celular: varchar('celular', { length: 20 }),
   vin: varchar('vin', { length: 17 }),
+  // Migración 0273 (HU #14134): datos del vehículo del RUNT. PII efímera: se anonimiza junto con la placa.
+  vehiculoMarca: varchar('vehiculo_marca', { length: 60 }),
+  vehiculoLinea: varchar('vehiculo_linea', { length: 80 }),
+  vehiculoModelo: smallint('vehiculo_modelo'),
   // Migración 0271 (HU #14132): reclamo, reintento e idempotencia del worker.
   intentos: smallint('intentos').notNull().default(0),
   proximoIntentoEn: timestamp('proximo_intento_en', { withTimezone: true }).notNull().defaultNow(),

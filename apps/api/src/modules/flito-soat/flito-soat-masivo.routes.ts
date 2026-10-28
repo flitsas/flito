@@ -2,9 +2,10 @@
 // Diseño: docs/diseno-feature-14013-14014-carga-masiva-soat.md §5. Montado en `/api/flito/soat`, ANTES del
 // router del canal Cliente (ver `app.ts`).
 //
-//   GET  /cliente/masivo/plantilla?tipo=renovacion — plantilla XLSX (solo encabezados; GET legítimo: sin PII).
+//   GET  /cliente/masivo/plantilla?tipo=renovacion|inicial — plantilla XLSX (solo encabezados; GET legítimo: sin PII).
 //   POST /cliente/masivo                           — multipart `archivo` + `tipo` (+ `companiaId`): crea el lote `en_cola`.
-//   GET  /cliente/masivo/:loteId                   — avance del lote (contadores, sin PII); 404 fuera de alcance.
+//   GET  /cliente/masivo/:loteId                   — avance del lote (contadores y filas; placa/vehículo efímeros, un registro PII por lote); 404 fuera de alcance.
+//   GET  /cliente/masivo/:loteId/rechazadas        — XLSX de rechazadas + «Motivo» (HU #14133; PII, un registro por descarga).
 //
 // Todas con `authMiddleware` + `exigirFuncion('soat.solicitud.crear')` (la del alta; sin función nueva).
 // Limiters propios (NO `soatClienteLimiter`: el sondeo lo agotaría), ANTES de multer. El XLSX viaja en el
@@ -22,9 +23,10 @@ import { SolicitudSoatError } from './flito-soat-cliente.service.js';
 import { ClienteNoOperableError } from '../clients/cliente-operable.js';
 import { ErrorLoteMasivo, falloMasivo } from './flito-soat-masivo.errors.js';
 import { avanceLote, crearLoteMasivo } from './flito-soat-masivo.service.js';
-import { soatMasivoAltaLimiter, soatMasivoLecturaLimiter } from './flito-soat-masivo.limiters.js';
-import { NOMBRE_ARCHIVO_PLANTILLA, generarPlantillaRenovacion } from './flito-soat-masivo-plantilla.js';
-import { registrarAltaLoteMasivo } from './flito-soat-masivo.pii.js';
+import { soatMasivoAltaLimiter, soatMasivoDescargaLimiter, soatMasivoLecturaLimiter } from './flito-soat-masivo.limiters.js';
+import { NOMBRE_ARCHIVO_PLANTILLA, generarPlantilla, type TipoPlantillaMasivo } from './flito-soat-masivo-plantilla.js';
+import { registrarAltaLoteMasivo, registrarDescargaRechazadasMasivo, registrarLecturaFilasMasivo } from './flito-soat-masivo.pii.js';
+import { descargarRechazadas, nombreArchivoRechazadas } from './flito-soat-masivo-descarga.js';
 import { MAX_BYTES } from './flito-soat-masivo-parse.js';
 
 const router = Router();
@@ -77,12 +79,13 @@ const idSchema = z.string().guid();
 
 router.get('/cliente/masivo/plantilla', exigirFuncion('soat.solicitud.crear'), soatMasivoLecturaLimiter,
   async (req: Request, res: Response) => {
-    if (req.query.tipo !== undefined && req.query.tipo !== 'renovacion') {
+    const tipo = req.query.tipo ?? 'renovacion';
+    if (tipo !== 'renovacion' && tipo !== 'inicial') {
       responder(res, falloMasivo(400, 'tipo_invalido', 'El tipo de plantilla no es válido.')); return;
     }
-    const buf = await generarPlantillaRenovacion();
+    const buf = await generarPlantilla(tipo as TipoPlantillaMasivo);
     res.setHeader('Content-Type', XLSX_MIME);
-    res.setHeader('Content-Disposition', `attachment; filename="${NOMBRE_ARCHIVO_PLANTILLA.renovacion}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${NOMBRE_ARCHIVO_PLANTILLA[tipo as TipoPlantillaMasivo]}"`);
     res.setHeader('Cache-Control', 'no-store');
     res.send(buf);
   });
@@ -125,8 +128,30 @@ router.get('/cliente/masivo/:loteId', exigirFuncion('soat.solicitud.crear'), soa
     const avance = await avanceLote(req.params.loteId, ctx);
     // 404 y no 403 fuera de alcance: no se confirma que el lote exista.
     if (!avance) { res.status(404).json({ error: 'La carga no existe' }); return; }
+    // HU #14134: UN registro PII por lote y usuario al devolver filas con placa/VIN (no uno por sondeo).
+    if (avance.filas.some((f) => f.placa || f.vin)) await registrarLecturaFilasMasivo(req, { id: avance.loteId, filas: avance.filas.length }, req.user!.sub);
     res.setHeader('Cache-Control', 'no-store');
     res.json(avance);
+  });
+
+router.get('/cliente/masivo/:loteId/rechazadas', exigirFuncion('soat.solicitud.crear'), soatMasivoDescargaLimiter,
+  async (req: Request, res: Response) => {
+    if (!idSchema.safeParse(req.params.loteId).success) { res.status(404).json({ error: 'La carga no existe' }); return; }
+    try {
+      const ctx = await contextoSoat(req.user!);
+      const d = await descargarRechazadas(req.params.loteId, ctx);
+      if (!d) { res.status(404).json({ error: 'La carga no existe' }); return; }
+      await registrarDescargaRechazadasMasivo(req, { id: d.loteId, filas: d.filas });
+      await audit(req, { action: 'export', resource: 'flito_soat_masivo_lote', resourceId: d.loteId,
+        detail: `Descarga de rechazadas de la carga masiva de SOAT: ${d.filas} filas` });
+      res.setHeader('Content-Type', XLSX_MIME);
+      res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivoRechazadas(d.tipo)}"`);
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(d.buffer);
+    } catch (e) {
+      if (e instanceof ErrorLoteMasivo) { responder(res, e); return; }
+      throw e;
+    }
   });
 
 export default router;

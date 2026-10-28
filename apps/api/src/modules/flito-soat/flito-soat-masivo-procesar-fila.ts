@@ -19,11 +19,12 @@ import {
 } from './flito-soat-cliente.service.js';
 import { CodigoErrorSolicitudSoat } from '@operaciones/shared-types';
 import { consultarYClasificar, type DesenlaceRunt } from './flito-soat-cliente-runt.js';
-import type { EntradaConsultaRunt } from './flito-soat-cliente-consulta.js';
+import { comoConsulta, type EntradaConsultaRunt } from './flito-soat-cliente-consulta.js';
 import { contextoSoat, type SoatCtx } from './flito-soat.service.js';
 import { validarFila } from './flito-soat-masivo-parse.js';
 import { decidir, MAX_INTENTOS_FILA, REINTENTO_CAIDA_MS, type MotivoRechazoWorker } from './flito-soat-masivo-motivos.js';
 import type { FilaReclamada } from './flito-soat-masivo-reclamo.js';
+import { aparcarFilaInicial, guardaVinReal, procesarInicial } from './flito-soat-masivo-inicial.js';
 import { aparcarFila, crearRenovacionDeFila, FilaYaNoVigenteError, marcarFila } from './flito-soat-masivo-crear.js';
 
 const log = loggerFor('flito-soat-masivo-worker');
@@ -37,6 +38,9 @@ export interface DepsFila {
   consultar(c: EntradaConsultaRunt): Promise<DesenlaceRunt>;
   crear(p: Parameters<typeof crearRenovacionDeFila>[0]): Promise<string>;
   aparcar(p: Parameters<typeof aparcarFila>[0]): Promise<'aparcada' | 'ocupada'>;
+  /** HU #14135 (Inicial): guarda de solicitud abierta / SOAT del VIN. */
+  guardaVin(vin: string, companiaId: number, permiteTerminal: boolean): Promise<void>;
+  aparcarInicial(p: Parameters<typeof aparcarFilaInicial>[0]): Promise<'aparcada' | 'ocupada'>;
   marcar(f: FilaReclamada, cambios: Parameters<typeof marcarFila>[2], terminal: boolean): Promise<boolean>;
 }
 
@@ -58,7 +62,9 @@ export const depsReales: DepsFila = {
   },
   contexto: contextoReal,
   incompletaAbierta: (placa, companiaId) => verificarIncompletaAbierta({ placa }, companiaId),
-  consultar: (c) => consultarYClasificar(c, 'renovacion'),
+  consultar: (c) => consultarYClasificar(c, comoConsulta(c).modalidad === 'vin' ? 'inicial' : 'renovacion'),
+  guardaVin: guardaVinReal,
+  aparcarInicial: aparcarFilaInicial,
   crear: crearRenovacionDeFila,
   aparcar: aparcarFila,
   marcar: (f, cambios, terminal) => marcarFila(f.id, f.loteId, cambios, terminal),
@@ -92,6 +98,8 @@ export async function procesarFila(f: FilaReclamada, deps: DepsFila = depsReales
       await deps.marcar(f, { estado: 'por_validar', incompletaId: previo.incompletaId }, true);
       return 'por_validar';
     }
+    // HU #14135: plantilla Inicial (solo VIN) tiene su propio camino.
+    if (f.tipoSoat === 'inicial') return await procesarInicial(f, deps, rechazar);
     // 2. AC8 — campos, sin RUNT.
     const v = validarFila({
       placa: f.placa ?? '', documento: f.documento ?? '', nombre: f.nombre ?? '', correo: f.correo ?? '', celular: f.celular ?? '',
