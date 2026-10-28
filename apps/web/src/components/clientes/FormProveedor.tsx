@@ -16,7 +16,7 @@ import {
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../flit/flitPageKit';
 import { ErrorNit as ErrorCampo } from './nitDuplicado';
-import { rutaProveedor, nombresResumidos, type Proveedor, type TipoProveedor } from './proveedoresDatos';
+import { rutaProveedor, type Proveedor, type TipoProveedor } from './proveedoresDatos';
 
 const NIT_VALIDO = /^\d{5,15}(-\d)?$/;
 const ERROR_NIT = 'Escriba el NIT solo con números, con dígito de verificación opcional (ej. 900123456-7).';
@@ -55,13 +55,13 @@ interface Props {
   /** Detalle: campos deshabilitados, solo «Cerrar». */
   soloLectura?: boolean;
   tipoInicial?: TipoProveedor;
-  /** Nombres de las compañías asignadas (solo se muestran en edición y detalle). */
-  companias?: string[] | null;
+  /** Cuántas compañías lo tienen asignado (lo cuenta el servidor; solo se muestra en edición y detalle). */
+  companiasAsignadas?: number | null;
   onClose: () => void;
   onGuardado: () => void;
 }
 
-export default function FormProveedor({ proveedor, soloLectura = false, tipoInicial = 'SOAT', companias, onClose, onGuardado }: Props) {
+export default function FormProveedor({ proveedor, soloLectura = false, tipoInicial = 'SOAT', companiasAsignadas, onClose, onGuardado }: Props) {
   const [tipo, setTipo] = useState<TipoProveedor>(proveedor?.tipo ?? tipoInicial);
   const [nombre, setNombre] = useState(proveedor?.nombre ?? '');
   const [estrategia, setEstrategia] = useState(proveedor?.estrategia ?? '');
@@ -198,10 +198,10 @@ export default function FormProveedor({ proveedor, soloLectura = false, tipoInic
           </>
         )}
 
-        {(edicion || ro) && companias && (
+        {(edicion || ro) && companiasAsignadas != null && (
           <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            {companias.length === 0 ? 'Sin compañías asignadas.'
-              : `Asignado a ${companias.length} ${companias.length === 1 ? 'compañía' : 'compañías'}: ${nombresResumidos(companias)}.`}
+            {companiasAsignadas === 0 ? 'Sin compañías asignadas.'
+              : `Asignado a ${companiasAsignadas} ${companiasAsignadas === 1 ? 'compañía' : 'compañías'}.`}
           </p>
         )}
 

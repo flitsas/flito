@@ -16,6 +16,7 @@ const CLIENTES = [
     id: 1, name: 'Concesionario Norte', document: '900111', documentType: 'NIT',
     phone: '3001112233', email: 'norte@x.co', address: null, city: 'Manizales', notes: null, active: true,
     soatAutogestionable: true, soatSinTramite: false, impuestosAutogestionable: false, logisticaAutogestionable: true,
+    proveedorLogisticaId: null, proveedorLogisticaNombre: null,
   },
 ];
 
@@ -26,8 +27,6 @@ async function mock(page: import('@playwright/test').Page, clientes = CLIENTES) 
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(clientes) }));
   await page.route(/\/api\/flito\/parametrizacion\/proveedores-logistica$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROV_LOG) }));
-  await page.route(/\/api\/flito\/parametrizacion\/companias$/, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }));
 }
 
 type P = import('@playwright/test').Page;
@@ -243,6 +242,11 @@ const PROVEEDORES = [
 
 async function mockModulo(page: import('@playwright/test').Page) {
   await mock(page);
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores$/, (route) =>
+    route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify(PROVEEDORES.map((p) => ({ tipo: 'soat', id: p.id, nombre: p.nombre, nit: null, contacto: null, telefono: null, activo: p.activo, companiasAsignadas: 0 }))),
+    }));
   await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROVEEDORES) }));
 }

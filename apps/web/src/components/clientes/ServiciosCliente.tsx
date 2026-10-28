@@ -43,11 +43,9 @@ export interface Client {
   gestorSoatSinTramite: { id: string; nombre: string; activo: boolean } | null;
   /** HU #13967/#13968: la compañía no tiene proveedor y algún usuario ya tiene el permiso: sin efecto. */
   permisoSinTramiteSinEfecto?: boolean;
-  /**
-   * HU #14105: proveedor de logística. `GET /clients` aún no lo entrega; la web lo une desde
-   * `GET /flito/parametrizacion/companias`. `undefined` = desconocido (no se marca nada); `null` = sin proveedor.
-   */
+  /** HU #14162: proveedor de logística que entrega `GET /clients` (también con la logística apagada). `null` = sin proveedor. */
   proveedorLogisticaId?: string | null;
+  proveedorLogisticaNombre?: string | null;
 }
 
 /** Logística encendida (FLITO gestiona) y con proveedor CONOCIDAMENTE vacío. */

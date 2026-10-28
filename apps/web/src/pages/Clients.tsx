@@ -36,7 +36,6 @@ import {
   flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
 import { ChipsServicios, ModalCliente, sinProveedorLogistica, type Client } from '../components/clientes/ServiciosCliente';
-import { useCompaniasAsignacion, useProveedoresLogistica } from '../components/clientes/proveedoresDatos';
 // Ficha fiscal (HU #11298). Vive en su propio componente desde el primer commit: esta pantalla ya
 // tiene dos pestañas, un modal y dos formularios, y no cabe más sin acercarse al techo de 800.
 import { ChipFacturable } from '../components/clientes/FichaFiscal';
@@ -116,18 +115,10 @@ function TabClientes({ editaAutogestion, editaSinTramite, puedeCrearProveedor, v
   // cuatro estados colapsados en uno. Se paga aquí porque es sobre ESTA tabla donde se verifica que
   // el flag persiste, y si la recarga falla el admin no puede distinguir «se perdió lo que marqué»
   // de «no cargó».
-  const [clientsBase, setClients] = useState<Client[] | null>(null);
-  // HU #14105: `GET /clients` aún no entrega el proveedor de logística; se une desde parametrización.
-  // Sin la función de lectura la asignación queda desconocida y no se marca ninguna compañía.
-  const asignacion = useCompaniasAsignacion();
-  const logisticaCat = useProveedoresLogistica(true);
-  const clients = useMemo<Client[] | null>(() => {
-    if (!clientsBase) return null;
-    const mapa = new Map((asignacion.data ?? []).map((a) => [a.id, a.proveedorLogisticaId]));
-    return clientsBase.map((c) => (mapa.has(c.id) ? { ...c, proveedorLogisticaId: mapa.get(c.id) ?? null } : c));
-  }, [clientsBase, asignacion.data]);
-  const nombreProveedor = (id: string | null | undefined) =>
-    (id ? logisticaCat.data?.find((p) => p.id === id)?.nombre ?? null : null);
+  // HU #14162: `GET /clients` ya entrega `proveedorLogisticaId` y `proveedorLogisticaNombre` de cada
+  // compañía: no se cruza con catálogos (quien solo ve Clientes tampoco recibe 403 por ellos).
+  const [clients, setClients] = useState<Client[] | null>(null);
+  const nombreProveedor = (c: Client) => c.proveedorLogisticaNombre ?? null;
   const [soloSinProveedor, setSoloSinProveedor] = useState(false);
   const sinProveedor = useMemo(() => (clients ?? []).filter((c) => c.active && sinProveedorLogistica(c)), [clients]);
   // Bandera y no el mensaje: el error crudo del API no se pinta (AC5); el copy es fijo.
@@ -166,12 +157,10 @@ function TabClientes({ editaAutogestion, editaSinTramite, puedeCrearProveedor, v
 
   const load = () => {
     setClients(null); setErrorCarga(false);
-    asignacion.recargar();
     api.get<Client[]>('/clients').then(setClients).catch(() => setErrorCarga(true));
   };
   // Recarga SILENCIOSA (HU #13949): sin pasar por «Cargando compañías…» ni perder el filtro.
   const recargar = () => {
-    asignacion.recargar();
     api.get<Client[]>('/clients').then(setClients).catch(() => setErrorCarga(true));
   };
 
@@ -324,7 +313,7 @@ function TabClientes({ editaAutogestion, editaSinTramite, puedeCrearProveedor, v
                   </td>
                   <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.documentType ?? 'NIT'} {c.document || '—'}</td>
                   <td className="min-w-[280px] px-3 py-2">
-                    <ChipsServicios c={c} nombreProveedorLogistica={nombreProveedor(c.proveedorLogisticaId)}
+                    <ChipsServicios c={c} nombreProveedorLogistica={nombreProveedor(c)}
                       editaSinTramite={editaSinTramite} puedeAbrir={editaAutogestion} onAbrir={() => setEditarDe(c)} />
                   </td>
                   <td className="px-3 py-2"><ChipFacturable veredicto={veredictos.get(c.id)} /></td>

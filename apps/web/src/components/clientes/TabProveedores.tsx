@@ -39,7 +39,7 @@ import { DialogoEstadoRegistro, type ImpactoEstado } from './DialogoEstadoRegist
 import { useEliminarProveedor } from './useEliminarProveedor';
 import FormProveedor from './FormProveedor';
 import {
-  cargarProveedores, companiasDe, rutaProveedor, textoBajaBloqueada, useCompaniasAsignacion,
+  cargarProveedores, cargarImpactoLogistica, completarSoat, rutaProveedor, textoBajaBloqueada,
   type Proveedor, type TipoProveedor,
 } from './proveedoresDatos';
 
@@ -96,9 +96,8 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos');
   const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('todos');
   const [estadoDe, setEstadoDe] = useState<CambioEstado | null>(null);
-  const [bloqueo, setBloqueo] = useState<{ nombre: string; companias: string[] } | null>(null);
+  const [bloqueo, setBloqueo] = useState<{ nombre: string; total: number; companias: string[] } | null>(null);
   const carreraAsignado = useRef(false);
-  const asignacion = useCompaniasAsignacion();
   const visibles = useMemo(
     () => (data ? filtrarPorEstado(data, filtroEstado, (p) => p.activo).filter((p) => filtroTipo === 'todos' || p.tipo === filtroTipo) : []),
     [data, filtroEstado, filtroTipo],
@@ -110,11 +109,11 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
   }), []);
 
   const load = () => {
-    setData(null); setErrorCarga(false); asignacion.recargar();
+    setData(null); setErrorCarga(false);
     cargarProveedores().then(setData).catch(() => setErrorCarga(true));
   };
   // Recarga silenciosa tras cambiar el estado: sin pasar por «Cargando…» ni perder el filtro.
-  const recargar = () => { asignacion.recargar(); cargarProveedores().then(setData).catch(() => setErrorCarga(true)); };
+  const recargar = () => { cargarProveedores().then(setData).catch(() => setErrorCarga(true)); };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const eliminar = useEliminarProveedor<Proveedor>({
@@ -124,25 +123,37 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
     restoreFocusRef: refRespaldoFoco,
   });
 
-  const nombresDe = (p: Proveedor) => companiasDe(p, asignacion.data)?.map((c) => c.nombre) ?? null;
+  // Al desactivar un proveedor de logística se pregunta el impacto al servidor: con compañías vigentes
+  // la baja se bloquea con el total y hasta 3 nombres; si falla la consulta, se dice sin bloquear a ciegas.
+  const intentarDesactivar = (p: Proveedor) => {
+    if (p.tipo !== 'LOGISTICA') { setEstadoDe({ p, accion: 'desactivar' }); return; }
+    cargarImpactoLogistica(p.id)
+      .then((i) => {
+        if (i.companias > 0) setBloqueo({ nombre: p.nombre, total: i.companias, companias: i.nombres });
+        else setEstadoDe({ p, accion: 'desactivar' });
+      })
+      .catch(() => toastError('No pudimos comprobar si el proveedor tiene compañías asignadas. Inténtelo de nuevo.', undefined, { id: `impacto-prov-${p.id}` }));
+  };
 
-  // Logística no tiene baja (no hay DELETE en el API): solo SOAT suma «Eliminar».
+  // SOAT: estrategia, umbral y ANS no vienen en el listado unificado; se completan al abrir.
+  const abrir = (p: Proveedor, destino: 'ver' | 'editar') => {
+    completarSoat(p)
+      .then((c) => (destino === 'ver' ? setVer(c) : setEditar(c)))
+      .catch(() => toastError('No pudimos abrir el proveedor. Inténtelo de nuevo.', undefined, { id: `abrir-prov-${p.id}` }));
+  };
+
   const opcionesFila = (p: Proveedor): OpcionMenuFila[] => [
     ...(editaEstado
       ? [p.activo
-        ? { id: 'desactivar', texto: 'Desactivar', onElegir: () => {
-          const nombres = p.tipo === 'LOGISTICA' ? nombresDe(p) : null;
-          if (nombres && nombres.length > 0) setBloqueo({ nombre: p.nombre, companias: nombres });
-          else setEstadoDe({ p, accion: 'desactivar' });
-        } }
+        ? { id: 'desactivar', texto: 'Desactivar', onElegir: () => intentarDesactivar(p) }
         : { id: 'activar', texto: 'Activar', onElegir: () => setEstadoDe({ p, accion: 'activar' }) }]
       : []),
-    ...(p.tipo === 'SOAT' ? eliminar.opciones(p) : []),
+    ...eliminar.opciones(p),
   ];
 
   const cargarImpacto = (p: Proveedor) => async (): Promise<ImpactoEstado> => {
     if (p.tipo === 'LOGISTICA') {
-      return { frase: fraseImpactoProveedor({ soatEnCurso: 0, companiasGestorPorDefecto: { cantidad: 0, nombres: [] } }, nombresDe(p)?.length ?? 0), usuariosAfectados: 0 };
+      return { frase: fraseImpactoProveedor({ soatEnCurso: 0, companiasGestorPorDefecto: { cantidad: 0, nombres: [] } }, p.companiasAsignadas), usuariosAfectados: 0 };
     }
     const i = await api.get<ImpactoProveedor>(`${rutaProveedor(p)}/${p.id}/impacto`);
     return { frase: fraseImpactoProveedor(i), usuariosAfectados: i.usuariosAfectados ?? 0 };
@@ -194,7 +205,6 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
               <tbody>
                 {visibles.map((p) => {
                   const opciones = opcionesFila(p);
-                  const asignadas = nombresDe(p);
                   const contacto = [p.contacto, p.telefono].filter(Boolean).join(' · ');
                   return (
                     <FlitTr key={`${p.tipo}-${p.id}`}>
@@ -202,15 +212,15 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
                       <td className="px-3 py-2"><span className="whitespace-nowrap"><StatusChip tone="neutral">{p.tipo === 'LOGISTICA' ? 'Logística' : 'SOAT'}</StatusChip></span></td>
                       <td className="px-3 py-2 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{p.nit ?? '—'}</td>
                       <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{contacto || '—'}</td>
-                      <td className="px-3 py-2 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{asignadas ? asignadas.length : '—'}</td>
+                      <td className="px-3 py-2 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{p.companiasAsignadas}</td>
                       <td className="px-3 py-2"><ChipEstado activo={p.activo} /></td>
                       <td className="px-3 py-2">
                         <div className="flex gap-2 whitespace-nowrap">
                           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                            aria-label={`Ver detalle de ${p.nombre}`} onClick={() => setVer(p)}>Ver detalle</button>
+                            aria-label={`Ver detalle de ${p.nombre}`} onClick={() => abrir(p, 'ver')}>Ver detalle</button>
                           {editable && (
                             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                              aria-label={`Editar ${p.nombre}`} onClick={() => setEditar(p)}>Editar</button>
+                              aria-label={`Editar ${p.nombre}`} onClick={() => abrir(p, 'editar')}>Editar</button>
                           )}
                           {opciones.length > 0 && (
                             <MenuFila etiqueta={`Acciones de ${p.nombre}`} opciones={opciones}
@@ -246,7 +256,9 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
             carreraAsignado.current = false;
             try {
               await api.patch(`${rutaProveedor(estadoDe.p)}/${estadoDe.p.id}/estado`, {
-                activo: estadoDe.accion === 'activar', activoEsperado: estadoDe.p.activo,
+                activo: estadoDe.accion === 'activar',
+                // Logística lo ignora (HU #14162); el PATCH de SOAT sigue usándolo contra la concurrencia.
+                ...(estadoDe.p.tipo === 'SOAT' ? { activoEsperado: estadoDe.p.activo } : {}),
               });
             } catch (e) {
               // Carrera: alguien asignó el proveedor a una compañía entre el diálogo y el clic.
@@ -281,7 +293,7 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
         <FlitModal title="No se puede inactivar" onClose={() => setBloqueo(null)} restoreFocusRef={refRespaldoFoco}>
           <div className="space-y-4">
             <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-              {textoBajaBloqueada(bloqueo.nombre, bloqueo.companias)}
+              {textoBajaBloqueada(bloqueo.nombre, bloqueo.total, bloqueo.companias)}
             </p>
             <div className="flex justify-end">
               <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setBloqueo(null)}>Entendido</button>
@@ -293,8 +305,8 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
       {eliminar.dialogo}
 
       {crear && <FormProveedor onClose={() => setCrear(false)} onGuardado={() => { setCrear(false); load(); }} />}
-      {editar && <FormProveedor proveedor={editar} companias={nombresDe(editar)} onClose={() => setEditar(null)} onGuardado={() => { setEditar(null); recargar(); }} />}
-      {ver && <FormProveedor proveedor={ver} soloLectura companias={nombresDe(ver)} onClose={() => setVer(null)} onGuardado={() => setVer(null)} />}
+      {editar && <FormProveedor proveedor={editar} companiasAsignadas={editar.companiasAsignadas} onClose={() => setEditar(null)} onGuardado={() => { setEditar(null); recargar(); }} />}
+      {ver && <FormProveedor proveedor={ver} soloLectura companiasAsignadas={ver.companiasAsignadas} onClose={() => setVer(null)} onGuardado={() => setVer(null)} />}
     </>
   );
 }
