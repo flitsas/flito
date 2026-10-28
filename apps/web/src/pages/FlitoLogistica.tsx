@@ -22,6 +22,9 @@ import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FirmaCanvas from '../components/flito/FirmaCanvas';
 import ViajesMasivo from '../components/flito/logistica/ViajesMasivo';
 import ViajesLogistica from '../components/flito/logistica/ViajesLogistica';
+import BandejaLtPendientes from '../components/flito/logistica/bandeja/BandejaLtPendientes';
+import { useLtPendientes } from '../components/flito/logistica/bandeja/useLtPendientes';
+import { FUNCION_RESOLVER_TRAMITE } from '../components/flito/logistica/bandeja/tipos';
 
 interface TramiteFila {
   tramiteId: string; idFlit: string; placa: string | null; vin: string | null; propietario: string | null;
@@ -55,7 +58,7 @@ const ESTADOS_SIMPLE: EstadoLogisticaSimple[] = ['pendiente', 'registrada', 'des
 
 const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
-type Tab = 'tramites' | 'actas-gen' | 'actas' | 'viajes';
+type Tab = 'tramites' | 'actas-gen' | 'actas' | 'viajes' | 'pendientes';
 
 /** HU #13452: con enlace el vacío dice de quién son los trámites y no manda a sincronizar (operación interna). */
 function vacioLogistica(tipoEnlace: Parameters<typeof vacioConEnlace>[1]): string {
@@ -69,6 +72,9 @@ export default function FlitoLogistica() {
   const { hasFuncion, tipoEnlace } = useAuth();
   // HU #12170
   const esOperaciones = hasFuncion('logistica.lote.cerrar');
+  // HU #14149: sin la función no hay pestaña ni petición a `/pendientes-tramite`.
+  const puedeResolverLt = hasFuncion(FUNCION_RESOLVER_TRAMITE);
+  const ltPend = useLtPendientes(puedeResolverLt);
 
   const [tab, setTab] = useState<Tab>('tramites');
   const [data, setData] = useState<Listado | null>(null);
@@ -124,6 +130,7 @@ export default function FlitoLogistica() {
     { key: 'actas-gen', label: 'Generación de actas', badge: registradas || undefined },
     { key: 'actas', label: 'Actas', badge: actasPendientes || undefined },
     ...(hasFuncion('logistica.viajes.registrar') ? [{ key: 'viajes' as const, label: 'Viajes adicionales' }] : []),
+    ...(puedeResolverLt ? [{ key: 'pendientes' as Tab, label: 'LT pendientes', badge: ltPend.error ? undefined : (ltPend.items?.length || undefined) }] : []),
   ];
 
   return (
@@ -139,7 +146,8 @@ export default function FlitoLogistica() {
           const activa = tab === t.key;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className="relative -mb-px rounded-t-lg px-4 py-2.5 text-sm font-semibold transition-colors"
+              aria-label={t.badge != null ? `${t.label}, ${t.badge}` : undefined}
+              className="flit-focus relative -mb-px rounded-t-lg px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
               style={{
                 color: activa ? 'var(--flit-blue-text)' : 'var(--flit-text-secondary)',
                 borderBottom: `2px solid ${activa ? 'var(--flit-blue-text)' : 'transparent'}`,
@@ -156,7 +164,7 @@ export default function FlitoLogistica() {
         })}
       </div>
 
-      {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
+      {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
 
       {tab === 'viajes' && hasFuncion('logistica.viajes.registrar') && <ViajesMasivo />}
 
@@ -300,6 +308,9 @@ export default function FlitoLogistica() {
           )}
         </FlitCard>
       )}
+
+      {/* ── Pestaña: LT pendientes de trámite (HU #14149) ── */}
+      {tab === 'pendientes' && puedeResolverLt && <BandejaLtPendientes {...ltPend} />}
 
       {detalle && <DetalleModal doc={detalle} onClose={() => setDetalle(null)} />}
       {actaDetalle && <ActaDetalleModal detalle={actaDetalle} onClose={() => setActaDetalle(null)} onPdf={() => descargarPdf(actaDetalle.acta.id)} />}

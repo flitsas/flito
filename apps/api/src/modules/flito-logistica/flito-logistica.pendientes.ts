@@ -7,7 +7,7 @@
 // (se crea o se reutiliza por `UNIQUE (firmante_id, compania_id)`) y se apaga `acta_organismo_pendiente`.
 // Nunca se loguea placa, VIN ni cédula: solo ids y conteos.
 
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   clients, flitoLogisticaActaLineas, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos,
@@ -17,6 +17,10 @@ import { LT, LogisticaError, aprobadoSql, log, type DbOrTx, type LogisticaCtx } 
 
 export interface CandidatoPendiente {
   tramiteId: string; idFlit: string; companiaId: number; companiaNombre: string | null; organismoCodigo: string | null;
+  /** ISO de `flito_tramites.fecha_aprobacion`; null si el trámite no la trae. */
+  fechaAprobacion: string | null;
+  /** `flito_tramites.tipo_tramite` tal cual (texto de FLIT); null si falta. */
+  tipoTramite: string | null;
 }
 export interface PendienteTramite {
   documentoId: string; placa: string | null; organismoCodigo: string; estado: string; firmada: boolean;
@@ -49,16 +53,24 @@ async function candidatosPorVehiculo(exec: DbOrTx, vehiculoIds: number[]): Promi
   const filas = await exec.select({
     vehiculoId: flitoTramites.vehiculoId, tramiteId: flitoTramites.id, idFlit: flitoTramites.idFlit,
     companiaId: flitoTramites.companiaId, companiaNombre: clients.name, organismoCodigo: flitoTramites.organismoCodigo,
+    fechaAprobacion: flitoTramites.fechaAprobacion, tipoTramite: flitoTramites.tipoTramite,
   }).from(flitoTramites)
     .innerJoin(clients, eq(flitoTramites.companiaId, clients.id))
     .leftJoin(flitoLogisticaDocumentos, and(eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id), eq(flitoLogisticaDocumentos.tipo, LT)))
     .where(and(aprobadoSql, inArray(flitoTramites.vehiculoId, vehiculoIds), isNull(flitoLogisticaDocumentos.id),
       sql`NOT coalesce(${clients.logisticaAutogestionable}, false)`))
-    .orderBy(asc(flitoTramites.idFlit));
+    .orderBy(sql`${desc(flitoTramites.fechaAprobacion)} NULLS LAST`, asc(flitoTramites.id));
+  // Orden determinista también en memoria: fecha de aprobación DESC (sin fecha al final), desempate por tramiteId.
+  filas.sort((a, b) => {
+    const fa = a.fechaAprobacion?.getTime() ?? null, fb = b.fechaAprobacion?.getTime() ?? null;
+    if (fa !== fb) return fa === null ? 1 : fb === null ? -1 : fb - fa;
+    return a.tramiteId < b.tramiteId ? -1 : a.tramiteId > b.tramiteId ? 1 : 0;
+  });
   for (const f of filas) {
     if (f.companiaId === null) continue;
     const lista = mapa.get(f.vehiculoId) ?? [];
-    lista.push({ tramiteId: f.tramiteId, idFlit: f.idFlit, companiaId: f.companiaId, companiaNombre: f.companiaNombre, organismoCodigo: f.organismoCodigo, organismo: f.organismoCodigo });
+    lista.push({ tramiteId: f.tramiteId, idFlit: f.idFlit, companiaId: f.companiaId, companiaNombre: f.companiaNombre, organismoCodigo: f.organismoCodigo,
+      fechaAprobacion: f.fechaAprobacion?.toISOString() ?? null, tipoTramite: f.tipoTramite ?? null, organismo: f.organismoCodigo });
     mapa.set(f.vehiculoId, lista);
   }
   return mapa;

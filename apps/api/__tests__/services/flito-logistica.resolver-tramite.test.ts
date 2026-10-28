@@ -253,7 +253,7 @@ describe('AC5 — doble clic', () => {
 describe('AC6 — bandeja y candidatos', () => {
   const EN = new Date(Date.now() - 3 * 86_400_000);
   const DOC_FILA = { id: DOC, vehiculoId: 7, placa: PLACA, organismoCodigo: '11001', estado: 'recogido', firmanteId: FIRMANTE, createdAt: EN };
-  const cand = (over: Record<string, unknown>) => ({ vehiculoId: 7, tramiteId: TRAM, idFlit: 'F-1', companiaId: 5, companiaNombre: 'Cia', organismoCodigo: '11001', ...over });
+  const cand = (over: Record<string, unknown>) => ({ vehiculoId: 7, tramiteId: TRAM, idFlit: 'F-1', companiaId: 5, companiaNombre: 'Cia', organismoCodigo: '11001', fechaAprobacion: new Date('2026-10-01T10:00:00.000Z'), tipoTramite: 'MATRICULA', ...over });
 
   it('lista la antigüedad en días y SOLO los candidatos del mismo vehículo y organismo (el ajeno no se lista)', async () => {
     selectMock.mockReturnValueOnce(chain([DOC_FILA]));
@@ -263,7 +263,28 @@ describe('AC6 — bandeja y candidatos', () => {
     expect(r.status).toBe(200);
     expect(r.body.pendientes).toHaveLength(1);
     expect(r.body.pendientes[0]).toMatchObject({ documentoId: DOC, antiguedadDias: 3, firmada: true, recogidoPorNombre: 'Mensajero Uno' });
-    expect(r.body.pendientes[0].candidatos).toEqual([{ tramiteId: TRAM, idFlit: 'F-1', companiaId: 5, companiaNombre: 'Cia', organismoCodigo: '11001' }]);
+    expect(r.body.pendientes[0].candidatos).toEqual([{ tramiteId: TRAM, idFlit: 'F-1', companiaId: 5, companiaNombre: 'Cia', organismoCodigo: '11001', fechaAprobacion: '2026-10-01T10:00:00.000Z', tipoTramite: 'MATRICULA' }]);
+    expect(JSON.stringify(logLlamadas)).not.toContain(PLACA);
+  });
+
+  it('HU #14160: orden fecha DESC, sin fecha al final, desempate por tramiteId; nulos → null', async () => {
+    const f = (d: string) => new Date(`${d}T00:00:00.000Z`);
+    // candidatosDe consume primero el documento y luego los candidatos
+    selectMock.mockReset();
+    selectMock.mockReturnValueOnce(chain([{ vehiculoId: 7, organismoCodigo: '11001', tramiteId: null }]));
+    selectMock.mockReturnValueOnce(chain([
+      cand({ tramiteId: 'c', fechaAprobacion: null, tipoTramite: null }),
+      cand({ tramiteId: 'b', fechaAprobacion: f('2026-10-02') }),
+      cand({ tramiteId: 'a', fechaAprobacion: f('2026-10-02'), tipoTramite: 'TRASPASO' }),
+      cand({ tramiteId: 'z', fechaAprobacion: f('2026-10-05') }),
+      cand({ tramiteId: 'otro-org', fechaAprobacion: f('2026-12-01'), organismoCodigo: '05001' }),
+    ]));
+    const r = await llamar('get', `/documentos/${DOC}/candidatos-tramite`, await operador());
+    expect(r.status).toBe(200);
+    const cs = r.body.candidatos as Array<Record<string, unknown>>;
+    expect(cs.map((c) => c.tramiteId)).toEqual(['z', 'a', 'b', 'c']);
+    expect(cs[1]).toMatchObject({ fechaAprobacion: '2026-10-02T00:00:00.000Z', tipoTramite: 'TRASPASO' });
+    expect(cs[3]).toMatchObject({ fechaAprobacion: null, tipoTramite: null });
     expect(JSON.stringify(logLlamadas)).not.toContain(PLACA);
   });
 

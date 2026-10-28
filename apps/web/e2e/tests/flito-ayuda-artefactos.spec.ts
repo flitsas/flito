@@ -404,7 +404,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // sola lista ordenada en Pasos, diagrama SVG con alt). Las dos fichas describen procesos de más de 3 pasos.
   // flito_logistica_ruta conserva sus 5 capturas de la piloto (HU #13769): el texto cambió, la pantalla no.
   const LOGISTICA_13773: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
-    flito_logistica: { version: '1.1', diagrama: 'ciclo-licencia.svg', capturas: [
+    flito_logistica: { version: '1.2', fecha: '2026-10-28', diagrama: 'ciclo-licencia.svg', capturas: [
       '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-generacion-de-actas.png', '05-actas.png',
       '06-firmar-y-despachar.png'] },
     flito_logistica_ruta: { version: '1.4', fecha: '2026-10-28', diagrama: 'recorrido-mensajero.svg', capturas: [
