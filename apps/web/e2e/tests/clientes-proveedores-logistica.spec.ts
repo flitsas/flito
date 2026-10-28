@@ -24,12 +24,13 @@ const CLIENTES = [
   base(2, 'Compañía Ejemplo 2'), // encendida SIN proveedor
   base(3, 'Compañía Ejemplo 3', { logisticaAutogestionable: true }), // apagada, conserva proveedor
   base(4, 'Compañía Ejemplo 4', { gestorSoatSinTramite: { id: SOAT_1, nombre: 'SURA', activo: true } }), // encendida sin proveedor
+  base(5, 'Compañía Ejemplo 5', { logisticaAutogestionable: true }), // autogestiona y sin proveedor: NO es «sin proveedor»
 ];
 const asig = (c: ReturnType<typeof base>, prov: string | null) => ({
   id: c.id, nombre: c.name, activo: true, logisticaAutogestionable: c.logisticaAutogestionable,
   proveedorLogisticaId: prov, proveedorSoatSinTramiteId: null,
 });
-const COMPANIAS = [asig(CLIENTES[0]!, LOG_A), asig(CLIENTES[1]!, null), asig(CLIENTES[2]!, LOG_A), asig(CLIENTES[3]!, null)];
+const COMPANIAS = [asig(CLIENTES[0]!, LOG_A), asig(CLIENTES[1]!, null), asig(CLIENTES[2]!, LOG_A), asig(CLIENTES[3]!, null), asig(CLIENTES[4]!, null)];
 
 const PROV_LOG = [
   { id: LOG_A, nombre: 'Logística Andina S.A.S.', nit: '900123456-7', contacto: 'Ana Gómez', telefono: '3001112233', activo: true },
@@ -159,11 +160,15 @@ test.describe('HU #14105 · AC3/AC4 — Clientes: servicios y compañías sin pr
     await loginAs(page, ADMIN_USER);
     await montar(page, '/clients');
     const aviso = page.getByRole('status').filter({ hasText: 'no tienen proveedor asignado' });
+    await expect(page.getByRole('row', { name: /Compañía Ejemplo 5/ })).toContainText('Logística · Autogestiona');
     await expect(aviso).toContainText('2 compañías con logística no tienen proveedor asignado. Asígneles uno para que puedan registrar viajes.');
     await page.getByRole('button', { name: 'Sin proveedor (2)' }).click();
     await expect(page.getByRole('row', { name: /Compañía Ejemplo 1/ })).toHaveCount(0);
     await expect(page.getByRole('row', { name: /Compañía Ejemplo 2/ })).toBeVisible();
     await expect(page.getByRole('row', { name: /Compañía Ejemplo 4/ })).toBeVisible();
+    // Una compañía que autogestiona su logística y no tiene proveedor no cuenta ni se lista.
+    await expect(page.getByRole('row', { name: /Compañía Ejemplo 5/ })).toHaveCount(0);
+    await expect(page.getByRole('row', { name: /Compañía Ejemplo 3/ })).toHaveCount(0);
   });
 
   test('auditor ve el chip, el filtro y el aviso, pero no «Ver compañías» ni abre la edición desde el chip', async ({ page }) => {
