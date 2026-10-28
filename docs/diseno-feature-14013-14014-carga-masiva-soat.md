@@ -205,7 +205,7 @@ Dedupe en el alta (A1): placa/VIN repetidos en el mismo archivo → la 2.ª fila
 - `flito-soat-masivo-parse.ts` (exceljs: validación del contenedor, encabezados, normalización, validación de fila)
 - `flito-soat-masivo-plantilla.ts` (plantillas y Excel de rechazadas)
 - `flito-soat-masivo.pii.ts`, `flito-soat-masivo.limiters.ts`
-- `flito-soat-masivo.worker.ts` (reclamo, recuperación, backoff, cierre del lote) · `flito-soat-masivo-fila.ts` (una fila por tipo; compone servicios) · `flito-soat-masivo.cron.ts` (tick, SIGTERM, puerta `SOAT_MASIVO_WORKER_ENABLED`, purga)
+- `flito-soat-masivo.worker.ts` (reclamo, recuperación, backoff, cierre del lote) · `flito-soat-masivo-fila.ts` (una fila por tipo; compone servicios) · `flito-soat-masivo.cron.ts` (tick, SIGTERM, puerta `SOAT_MASIVO_WORKER_ENABLED`: defecto encendido, `=0` apaga (enmienda 2026-10-28), purga)
 - `flito-soat-incompletas-confirmar.service.ts` y `…routes.ts` (B2)
 - `packages/shared-types/src/flito-soat-masivo.ts` (DTOs de contrato; exportar en el índice; `grep` en `apps/web`)
 - `docs/privacy/retencion-flito-soat.md`: sección de PII de filas (A3)
@@ -216,7 +216,7 @@ Dedupe en el alta (A1): placa/VIN repetidos en el mismo archivo → la 2.ª fila
 - `flito-soat-incompletas.service.ts` (420): `EntradaAparcar.soatIdReservado?` opcional (A2); `propietario` opcional (B1).
 - `flito-soat-cliente.service.ts` (1705, techo congelado): solo `export` de primitivas si hacen falta (R-3); **sin líneas nuevas**.
 - Montaje del router en `server.ts`/donde se monta el `flito-soat-cliente.routes` y arranque del cron.
-- `flit-gitops` (DEV/QA/PDN): `SOAT_MASIVO_WORKER_ENABLED`, y verificar `terminationGracePeriodSeconds`.
+- `flit-gitops` (DEV/QA/PDN): verificar `terminationGracePeriodSeconds`.
 
 **Web (A4/B3, supuesto):** `FlitoSoatSolicitud.tsx` (779/800) **no se toca**. El conmutador «Individual / Masiva» vive en un contenedor nuevo (p. ej. `SoatSolicitudHost.tsx`) y `FlitoSoat.tsx`/`App.tsx` importan este en lugar de la solicitud; componentes nuevos `SoatCargaMasiva*.tsx` bajo `components/` con las 4 estados, polling 2–3 s (`api.ts`, nunca `fetch` suelto), tabla «Por validar» con acción «Adjuntar factura / Completar» (B3). Patrón de referencia para la subida: `CargaMasivaSoat.tsx` (HU #12872).
 
@@ -250,7 +250,7 @@ Verificación por eslabón: `npm test -w apps/api -- <tests de la HU>`, `build:a
 
 - **backend-agent:** leer primero `crearSolicitud`/`insertarSolicitudDespachada` para fijar la costura (R-3); mantener todo archivo nuevo < 800 líneas; imports con `.js`; no reordenar el montaje del router (`masivo` antes de `/:id`).
 - **frontend-agent:** replicar `CargaMasivaSoat.tsx` y `components/flit/`; el polling se detiene al llegar `terminado` o al desmontar, y al volver a la vista consulta `GET /masivo/activo`; no mostrar PII del lote; `ux-agent` previo (nueva pantalla significativa).
-- **devops:** `SOAT_MASIVO_WORKER_ENABLED` por ambiente en `flit-gitops`; `terminationGracePeriodSeconds` ≥ timeout RUNT + margen.
+- **devops:** `SOAT_MASIVO_WORKER_ENABLED` ya no se configura por ambiente (defecto encendido; `=0` apaga; enmienda 2026-10-28); `terminationGracePeriodSeconds` ≥ timeout RUNT + margen.
 
 ## 11. Pendiente humano
 
