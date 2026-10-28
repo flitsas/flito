@@ -43,7 +43,7 @@ const panelDe = (page: Page, nombre: string) => page.getByRole('region', { name:
 test.describe('FLITO — Tarifas · logística cliente y FLIT (HU #14107)', () => {
   test.use({ viewport: { width: 1366, height: 768 } });
 
-  test('AC1: ambos precios, con desde y quién; FLIT sin configurar es neutro y no cuenta como falta', async ({ page }) => {
+  test('AC1: ambos precios, con desde y quién; FLIT sin configurar se marca como falta', async ({ page }) => {
     await preparar(page);
     await page.goto('/flito/tarifas/7');
     const cliente = panelDe(page, 'Entrega a cliente');
@@ -51,11 +51,12 @@ test.describe('FLITO — Tarifas · logística cliente y FLIT (HU #14107)', () =
     await expect(cliente).toContainText('Desde 2 oct 2026 · Ana Pérez');
     const flit = panelDe(page, 'Entrega a FLIT');
     await expect(flit).toContainText('Sin configurar');
-    await expect(flit).not.toContainText('Falta');
-    await expect(flit).not.toContainText('Sin este precio');
+    await expect(flit).toContainText('Falta');
+    await expect(flit).toContainText('Sin este precio no se puede registrar un viaje a FLIT.');
+    await expect(flit).toContainText('Se cobra solo cuando la LT pasa por FLIT');
     await expect(flit.getByRole('button', { name: /^Dejar de cobrar/ })).toBeDisabled();
     await expect(page.getByText('Gestiona FLITO')).toHaveCount(1);
-    await expect(page.getByText(/Faltan? \d+ valor/)).toHaveCount(0);
+    await expect(page.getByText('Falta 1 valor', { exact: false }).first()).toBeVisible();
     await expect(page.getByText(/\blogistica(_flit)?\b/)).toHaveCount(0);
   });
 
