@@ -2,7 +2,7 @@
 // Vive aparte de `schema.ts` por el techo de max-lines (3291, congelado); `schema.ts` lo re-exporta.
 //
 // Las columnas nuevas de `flito_logistica_actas`, `…_documentos` y `…_documento_eventos` están en
-// `schema.ts` (son extensiones de tablas existentes). Aquí viven las 5 tablas nuevas.
+// `schema.ts` (son extensiones de tablas existentes). Aquí viven las 6 tablas nuevas (5 + el firmante del organismo, §17).
 //
 // Lo que Drizzle no declara bien (índices únicos parciales, UNIQUE sobre lower(nombre), FK compuesta
 // de la línea de LT al traslado) está en la migración 0271 y se documenta junto a cada tabla.
@@ -21,7 +21,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import {
-  clients, users, flitoLogisticaActas, flitoLogisticaDocumentos, flitoTarifasVigencias,
+  clients, users, organismosTransitoConfig, flitoLogisticaActas, flitoLogisticaDocumentos, flitoTarifasVigencias,
 } from '../schema.js';
 
 /** Catálogo de motivos por los que una LT llega a FLIT. Único por `lower(nombre)` (índice SQL). */
@@ -100,7 +100,7 @@ export const flitoLogisticaTrasladoLts = pgTable('flito_logistica_traslado_lts',
   motivoCk: check('ck_flito_log_traslado_lts_motivo', sql`${t.destino} <> 'flit' OR ${t.motivoLlegadaId} IS NOT NULL`),
 }));
 
-/** LT incluida en un acta, por punto. El acta de organismo es multi-compañía: la compañía va por línea. */
+/** LT incluida en un acta, por punto. Una acta es de UNA compañía (§17); `compania_id` de la línea = el de la acta. */
 export const flitoLogisticaActaLineas = pgTable('flito_logistica_acta_lineas', {
   actaId: uuid('acta_id').notNull().references(() => flitoLogisticaActas.id, { onDelete: 'cascade' }),
   documentoId: uuid('documento_id').notNull().references(() => flitoLogisticaDocumentos.id, { onDelete: 'restrict' }),
@@ -138,4 +138,29 @@ export const flitoLogisticaActaFirmas = pgTable('flito_logistica_acta_firmas', {
   actaRolUq: unique('uq_flito_log_acta_firmas_acta_rol').on(t.actaId, t.rol),
   rolCk: check('ck_flito_log_acta_firmas_rol', sql`${t.rol} IN ('entrega','recibe')`),
   ultimosCk: check('ck_flito_log_acta_firmas_ultimos', sql`${t.documentoUltimos} IS NULL OR char_length(${t.documentoUltimos}) <= 4`),
+}));
+
+/**
+ * Firmante del organismo (ADR-0030 §17.1): UNA firma por recogida, referenciada por las actas de organismo de
+ * cada compañía (`actas.firmante_id`) y por las LT firmadas (`documentos.recogida_firmante_id`, también las
+ * pendientes de trámite). `id` lo genera la app (sin default): es la AAD del cifrado de la cédula
+ * (`protegerDocumento`, ver C1.3), así que se necesita ANTES del INSERT. Una sola copia de PII para purga/reveal.
+ */
+export const flitoLogisticaRecogidaFirmantes = pgTable('flito_logistica_recogida_firmantes', {
+  id: uuid('id').primaryKey(),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
+  nombre: varchar('nombre', { length: 150 }).notNull(),
+  /** PII cifrada en reposo. NULL tras la purga a 10 años (solo la cédula; nombre y firma se conservan). */
+  documentoCifrado: text('documento_cifrado'),
+  documentoUltimos: varchar('documento_ultimos', { length: 4 }),
+  firmaStorageKey: varchar('firma_storage_key', { length: 400 }).notNull(),
+  /** Mensajero/operador que capturó la firma. */
+  registradoPorId: integer('registrado_por_id').notNull().references(() => users.id),
+  firmadoEn: timestamp('firmado_en', { withTimezone: true }).notNull().defaultNow(),
+  lat: numeric('lat', { precision: 10, scale: 7 }),
+  lng: numeric('lng', { precision: 10, scale: 7 }),
+}, (t) => ({
+  registradoIdx: index('idx_flito_log_recogida_firmantes_registrado').on(t.registradoPorId, t.firmadoEn),
+  organismoIdx: index('idx_flito_log_recogida_firmantes_organismo').on(t.organismoCodigo),
+  ultimosCk: check('ck_flito_log_recogida_firmantes_ultimos', sql`${t.documentoUltimos} IS NULL OR char_length(${t.documentoUltimos}) <= 4`),
 }));

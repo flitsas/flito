@@ -36,11 +36,25 @@ describe('0270-0272 — reglas de los archivos (estática)', () => {
     for (const t of ['motivos_llegada', 'traslados', 'traslado_lts', 'acta_lineas', 'acta_firmas']) {
       expect(s).toMatch(new RegExp(`CREATE TABLE IF NOT EXISTS flito_logistica_${t} `));
     }
-    expect(s).toMatch(/ALTER COLUMN compania_id DROP NOT NULL/);
+    // §17: acta por compañía => compania_id NOT NULL en todos los puntos (sana la forma anterior de la 0271)
+    expect(s).not.toMatch(/ALTER COLUMN compania_id DROP NOT NULL/);
+    expect(s).toMatch(/DROP CONSTRAINT IF EXISTS ck_flito_log_actas_compania_punto/);
+    expect(s).toMatch(/ALTER COLUMN compania_id SET NOT NULL/);
     expect(s).toMatch(/CHECK \(punto IN \('organismo','flit','cliente'\)\)/);
-    expect(s).toMatch(/CHECK \(punto = 'organismo' OR compania_id IS NOT NULL\)/);
     expect(s).toMatch(/FOREIGN KEY \(traslado_id, destino\)/);
     expect(s).not.toMatch(/requiere_acta_organismo/);
+  });
+
+  it('§17: firmante del organismo, acta con firmante (CHECK + único por compañía) y LT pendiente de trámite', () => {
+    const s = sinComentarios(SQL[A271]);
+    expect(s).toMatch(/CREATE TABLE IF NOT EXISTS flito_logistica_recogida_firmantes \(\s+id UUID PRIMARY KEY,/);
+    expect(s).toMatch(/documento_cifrado TEXT,\s+documento_ultimos VARCHAR\(4\)/);
+    expect(s).toMatch(/CHECK \(punto <> 'organismo' OR firmante_id IS NOT NULL\)/);
+    expect(s).toMatch(/uq_flito_log_actas_firmante_compania ON flito_logistica_actas \(firmante_id, compania_id\)\s+WHERE punto = 'organismo'/);
+    expect(s).toMatch(/ALTER COLUMN tramite_id DROP NOT NULL/);
+    expect(s).toMatch(/CHECK \(tramite_id IS NOT NULL OR compania_id IS NULL\)/);
+    expect(s).toMatch(/uq_flito_log_doc_vehiculo_pendiente ON flito_logistica_documentos \(vehiculo_id, tipo\)\s+WHERE tramite_id IS NULL/);
+    expect(s).toMatch(/ADD COLUMN IF NOT EXISTS recogida_firmante_id UUID REFERENCES flito_logistica_recogida_firmantes/);
   });
 
   it('AC2: el indicador nace en un bloque condicional (backfill UNA sola vez) y solo pone false en entregado', () => {
@@ -60,16 +74,28 @@ describe('0270-0272 — reglas de los archivos (estática)', () => {
 });
 
 describe('Drizzle — AC1/AC5/AC3', () => {
-  it('exporta las 5 tablas nuevas desde schema.ts', () => {
+  it('exporta las 6 tablas nuevas desde schema.ts', () => {
     for (const t of ['flitoLogisticaMotivosLlegada', 'flitoLogisticaTraslados', 'flitoLogisticaTrasladoLts',
-      'flitoLogisticaActaLineas', 'flitoLogisticaActaFirmas']) expect((schema as Record<string, unknown>)[t]).toBeDefined();
+      'flitoLogisticaActaLineas', 'flitoLogisticaActaFirmas', 'flitoLogisticaRecogidaFirmantes']) expect((schema as Record<string, unknown>)[t]).toBeDefined();
   });
 
-  it('acta: punto con default cliente, compania_id nullable, columnas viejas intactas', () => {
+  it('§17 Drizzle: firmante del organismo; acta con firmante_id; documentos con tramite_id nullable y recogida_firmante_id', () => {
+    const f = getTableConfig(schema.flitoLogisticaRecogidaFirmantes).columns.map((c) => c.name);
+    expect(f).toEqual(expect.arrayContaining(['id', 'nombre', 'documento_cifrado', 'documento_ultimos', 'firma_storage_key', 'registrado_por_id', 'lat', 'lng']));
+    expect(f).not.toContain('documento');
+    const a = getTableConfig(schema.flitoLogisticaActas).columns.find((c) => c.name === 'firmante_id');
+    expect(a).toBeDefined();
+    const d = Object.fromEntries(getTableConfig(schema.flitoLogisticaDocumentos).columns.map((c) => [c.name, c]));
+    expect(d.tramite_id.notNull).toBe(false);
+    expect(d.compania_id.notNull).toBe(false);
+    expect(d.recogida_firmante_id).toBeDefined();
+  });
+
+  it('acta: punto con default cliente, compania_id NOT NULL (§17), columnas viejas intactas', () => {
     const cols = Object.fromEntries(getTableConfig(schema.flitoLogisticaActas).columns.map((c) => [c.name, c]));
     expect(cols.punto.notNull).toBe(true);
     expect(cols.punto.default).toBe('cliente');
-    expect(cols.compania_id.notNull).toBe(false);
+    expect(cols.compania_id.notNull).toBe(true);
     for (const vieja of ['receptor_documento', 'receptor_nombre', 'firma_storage_key', 'firma_entrega_storage_key', 'contacto_documento']) {
       expect(cols[vieja]).toBeDefined();
     }

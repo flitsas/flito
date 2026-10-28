@@ -1,6 +1,13 @@
 -- 0271_flito_logistica_traslados.sql
 -- HU #14109 (Feature #14091, Epica #13758) — ADR-0030: traslados, lineas por LT, motivos de llegada,
--- lineas y firmas de acta; `punto` y `compania_id` NULL en el acta; indicador `acta_organismo_pendiente`.
+-- lineas y firmas de acta; `punto` en el acta; indicador `acta_organismo_pendiente`.
+-- ENMIENDA 2026-10-28 (ADR-0030 §17, ninguna HU de la Epica en develop => se enmienda en su lugar):
+--   · acta por COMPANIA en los tres puntos (`compania_id` NOT NULL siempre; sin acta multi-compania);
+--   · fila propia del firmante del organismo (`flito_logistica_recogida_firmantes`), compartida por las actas de
+--     una recogida via `actas.firmante_id`;
+--   · LT por vehiculo: `documentos.tramite_id` NULLABLE (LT pendiente de tramite) + `recogida_firmante_id`.
+-- Una BD que ya aplico la 0271 ANTERIOR (compania_id NULLABLE + ck_flito_log_actas_compania_punto) se SANA al
+-- correr este archivo a mano con psql (el runner no lo reaplica: calcula por nombre); falla si hay actas sin compania.
 --
 -- Sin BEGIN/COMMIT propio (ADR-DB-001: el runner envuelve el archivo). Idempotente: la segunda pasada no
 -- cambia NI UNA FILA. El valor `en_flit` del enum esta en la 0270 y NO se usa aqui.
@@ -87,12 +94,36 @@ CREATE INDEX IF NOT EXISTS idx_flito_log_traslado_lts_motivo ON flito_logistica_
 CREATE INDEX IF NOT EXISTS idx_flito_log_traslado_lts_documento ON flito_logistica_traslado_lts (documento_id);
 
 -- ---------------------------------------------------------------------------
--- 4. Extensiones del acta: `punto`, organismo, traslado; `compania_id` admite NULL
+-- 4a. Firmante del organismo (UNA firma por recogida, compartida por las actas de las companias de esa recogida).
+--     PII: cedula CIFRADA con AAD = `id` (lo genera la app, NO hay DEFAULT: el id se necesita ANTES de cifrar).
+--     `documento_cifrado` es NULL tras la purga a 10 anios; el nombre y la firma se conservan.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS flito_logistica_recogida_firmantes (
+  id UUID PRIMARY KEY,
+  organismo_codigo VARCHAR(5) NOT NULL REFERENCES organismos_transito_config(codigo),
+  nombre VARCHAR(150) NOT NULL,
+  documento_cifrado TEXT,
+  documento_ultimos VARCHAR(4),
+  firma_storage_key VARCHAR(400) NOT NULL,
+  registrado_por_id INTEGER NOT NULL REFERENCES users(id),
+  firmado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lat NUMERIC(10,7),
+  lng NUMERIC(10,7),
+  CONSTRAINT ck_flito_log_recogida_firmantes_ultimos CHECK (documento_ultimos IS NULL OR char_length(documento_ultimos) <= 4)
+);
+CREATE INDEX IF NOT EXISTS idx_flito_log_recogida_firmantes_registrado ON flito_logistica_recogida_firmantes (registrado_por_id, firmado_en DESC);
+CREATE INDEX IF NOT EXISTS idx_flito_log_recogida_firmantes_organismo ON flito_logistica_recogida_firmantes (organismo_codigo);
+
+-- ---------------------------------------------------------------------------
+-- 4. Extensiones del acta: `punto`, organismo, traslado, firmante; `compania_id` NOT NULL en todos los puntos
 -- ---------------------------------------------------------------------------
 ALTER TABLE flito_logistica_actas ADD COLUMN IF NOT EXISTS punto VARCHAR(10) NOT NULL DEFAULT 'cliente';
 ALTER TABLE flito_logistica_actas ADD COLUMN IF NOT EXISTS organismo_codigo VARCHAR(5) REFERENCES organismos_transito_config(codigo);
 ALTER TABLE flito_logistica_actas ADD COLUMN IF NOT EXISTS traslado_id UUID REFERENCES flito_logistica_traslados(id);
-ALTER TABLE flito_logistica_actas ALTER COLUMN compania_id DROP NOT NULL;
+ALTER TABLE flito_logistica_actas ADD COLUMN IF NOT EXISTS firmante_id UUID REFERENCES flito_logistica_recogida_firmantes(id);
+-- Sana la forma anterior de la 0271 (CHECK de acta de organismo sin compania + NULLABLE). No-op en BD limpia.
+ALTER TABLE flito_logistica_actas DROP CONSTRAINT IF EXISTS ck_flito_log_actas_compania_punto;
+ALTER TABLE flito_logistica_actas ALTER COLUMN compania_id SET NOT NULL;
 
 DO $$
 BEGIN
@@ -100,14 +131,38 @@ BEGIN
     ALTER TABLE flito_logistica_actas
       ADD CONSTRAINT ck_flito_log_actas_punto CHECK (punto IN ('organismo','flit','cliente'));
   END IF;
-  -- Solo el acta de organismo (multi-compania) puede no tener compania.
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_flito_log_actas_compania_punto') THEN
+  -- El acta de organismo siempre referencia al firmante de la recogida.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_flito_log_actas_firmante_punto') THEN
     ALTER TABLE flito_logistica_actas
-      ADD CONSTRAINT ck_flito_log_actas_compania_punto CHECK (punto = 'organismo' OR compania_id IS NOT NULL);
+      ADD CONSTRAINT ck_flito_log_actas_firmante_punto CHECK (punto <> 'organismo' OR firmante_id IS NOT NULL);
   END IF;
 END
 $$;
+-- Una acta de organismo por compania y recogida (idempotencia en BD).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_flito_log_actas_firmante_compania ON flito_logistica_actas (firmante_id, compania_id)
+  WHERE punto = 'organismo';
+CREATE INDEX IF NOT EXISTS idx_flito_log_actas_firmante ON flito_logistica_actas (firmante_id);
 CREATE INDEX IF NOT EXISTS idx_flito_log_actas_traslado ON flito_logistica_actas (traslado_id);
+
+-- ---------------------------------------------------------------------------
+-- 4b. Documentos: la LT pertenece a un VEHICULO; el tramite puede estar pendiente (ADR-0030 §17.2).
+--     `tramite_id` NULLABLE (= LT pendiente de tramite; ortogonal al estado, sin valor nuevo en el enum).
+--     `compania_id` de documentos ya era NULLABLE desde la 0102: no cambia. Una pendiente no tiene compania.
+-- ---------------------------------------------------------------------------
+ALTER TABLE flito_logistica_documentos ALTER COLUMN tramite_id DROP NOT NULL;
+ALTER TABLE flito_logistica_documentos ADD COLUMN IF NOT EXISTS recogida_firmante_id UUID REFERENCES flito_logistica_recogida_firmantes(id);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_flito_log_doc_tramite_compania') THEN
+    ALTER TABLE flito_logistica_documentos
+      ADD CONSTRAINT ck_flito_log_doc_tramite_compania CHECK (tramite_id IS NOT NULL OR compania_id IS NULL);
+  END IF;
+END
+$$;
+-- No hay dos LT pendientes del mismo vehiculo (con tramite, la unicidad la da uq_flito_log_doc_tramite_tipo).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_flito_log_doc_vehiculo_pendiente ON flito_logistica_documentos (vehiculo_id, tipo)
+  WHERE tramite_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_flito_log_doc_recogida_firmante ON flito_logistica_documentos (recogida_firmante_id);
 
 -- ---------------------------------------------------------------------------
 -- 5. Lineas del acta (LT por acta y por punto)
@@ -128,7 +183,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_flito_log_acta_linea_traslado_lt ON flito_l
 CREATE INDEX IF NOT EXISTS idx_flito_log_acta_lineas_documento ON flito_logistica_acta_lineas (documento_id);
 
 -- ---------------------------------------------------------------------------
--- 6. Firmas del acta (cedula CIFRADA; el acta de FLIT la firma un usuario y no lleva cedula)
+-- 6. Firmas del acta de FLIT y de cliente (cedula CIFRADA; la del organismo vive en recogida_firmantes)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS flito_logistica_acta_firmas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -263,7 +263,7 @@ export async function listarActas(alcance: AlcanceResuelto = { enlace: 'ninguno'
 
 // ── Ruta del mensajero (PWA de campo, CA-11) ─────────────────────────────────
 
-export interface RutaDocumento { id: string; placa: string | null; idFlit: string; numeroLt: string | null }
+export interface RutaDocumento { id: string; placa: string | null; idFlit: string | null; numeroLt: string | null }
 export interface RutaEntrega {
   actaId: string; companiaNombre: string | null; direccionEntrega: string | null;
   contactoNombre: string | null; documentos: RutaDocumento[];
@@ -292,7 +292,7 @@ export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
     const docs = await db.select({
       id: flitoLogisticaDocumentos.id, placa: vehicles.plate, idFlit: flitoTramites.idFlit, numeroLt: flitoLogisticaDocumentos.numeroLt,
     }).from(flitoLogisticaDocumentos)
-      .innerJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id))
+      .leftJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id)) // leftJoin: tramite_id NULLABLE (LT pendiente, ADR-0030 §17.5)
       .innerJoin(vehicles, eq(flitoLogisticaDocumentos.vehiculoId, vehicles.id))
       .where(eq(flitoLogisticaDocumentos.actaId, a.actaId));
     entregas.push({ actaId: a.actaId, companiaNombre: a.companiaNombre, direccionEntrega: a.direccionEntrega, contactoNombre: a.contactoNombre, documentos: docs });
@@ -302,7 +302,7 @@ export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
 
 // ── Detalle del acta (CA-13: filas del acta + bitácora + firmas) ─────────────
 
-export interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string }
+export interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string | null }
 export interface ActaEvento { id: string; documentoId: string; placa: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string }
 export interface ActaDetalle {
   acta: ActaFila; tienePdf: boolean; firmaEntrega: boolean; firmaRecibe: boolean; entregaNombre: string | null;
@@ -329,7 +329,7 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     propietario: flitoLogisticaDocumentos.propietarioNombre, numeroLicencia: flitoLogisticaDocumentos.numeroLicencia,
     numeroLt: flitoLogisticaDocumentos.numeroLt, idFlit: flitoTramites.idFlit,
   }).from(flitoLogisticaDocumentos)
-    .innerJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id))
+    .leftJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id)) // leftJoin: tramite_id NULLABLE (LT pendiente, ADR-0030 §17.5)
     .innerJoin(vehicles, eq(flitoLogisticaDocumentos.vehiculoId, vehicles.id))
     .leftJoin(organismosTransitoConfig, eq(flitoLogisticaDocumentos.organismoCodigo, organismosTransitoConfig.codigo))
     .where(eq(flitoLogisticaDocumentos.actaId, actaId));
