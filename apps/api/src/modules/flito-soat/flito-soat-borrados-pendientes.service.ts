@@ -122,7 +122,8 @@ export async function clavesReferenciadas(claves: string[]): Promise<Set<string>
     db.select({ clave: flitoSoatIncompletas.facturaStorageKey }).from(flitoSoatIncompletas)
       .where(inArray(flitoSoatIncompletas.facturaStorageKey, claves)),
   ]);
-  return new Set([...soportes, ...incompletas].map((f) => f.clave));
+  // Una incompleta de renovación sin factura tiene la clave en NULL (0269): no es un objeto a conservar.
+  return new Set([...soportes, ...incompletas].map((f) => f.clave).filter((c): c is string => c !== null));
 }
 
 export interface ResultadoBorrados {

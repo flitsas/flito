@@ -80,6 +80,7 @@ const OK = { clase: 'ok', datos: DATOS, vinEfectivo: VIN, organismoCodigo: '2528
 
 const fila = (over: Record<string, unknown> = {}) => ({
   id: ID, estado: 'incompleta', vin: VIN, companiaId: COMPANIA, intentos: 2,
+  placa: null, tipoSoat: 'inicial', modalidadConsulta: 'vin', motivoPendiente: 'runt_sin_respuesta',
   soatIdReservado: RESERVADO, solicitadoPorId: RADICADOR, solicitadoPorNombre: 'ana@motos.co', solicitadoEn: T0,
   facturaStorageKey: `clientes/acme/soat/facturas-venta/${RESERVADO}.pdf`, facturaHash: 'a'.repeat(64),
   facturaNombreArchivo: 'factura.pdf', facturaContentType: 'application/pdf', facturaTamanoBytes: 1234,
@@ -150,7 +151,7 @@ describe('AC1 — el RUNT responde OK: la incompleta pasa a Solicitado por el ca
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ resultado: 'completada', soatId: RESERVADO, estado: 'solicitado', vigenciaProxima: null });
     expect(consultarMock).toHaveBeenCalledTimes(1);
-    expect(consultarMock).toHaveBeenCalledWith(VIN);
+    expect(consultarMock).toHaveBeenCalledWith(VIN, 'inicial');
   });
 
   it('el SOAT nace con id = soat_id_reservado, destino de la compañía AL MOMENTO y «enviado por» quien reintenta', async () => {
