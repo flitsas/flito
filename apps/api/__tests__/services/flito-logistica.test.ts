@@ -129,6 +129,7 @@ describe('cerrarLote — entregas parciales siempre (sin regla "Solo completo")'
     selectMock
       .mockReturnValueOnce(chain([compania(false)]))
       .mockReturnValueOnce(chain(docs))
+      .mockReturnValueOnce(chain([])) // HU #14143: guarda `exigirTramiteResuelto` (ninguna LT pendiente de trámite)
       .mockReturnValueOnce(chain([{ id: 'prov1' }])); // proveedor logístico por defecto
     const valuesActa: unknown[] = [];
     const actaInsert = chain([{ id: 'acta1' }]);

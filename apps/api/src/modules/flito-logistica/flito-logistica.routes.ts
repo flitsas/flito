@@ -13,6 +13,7 @@ import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alc
 import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { confirmarRecogida } from './flito-logistica.recogida.js';
+import { candidatosDe, listarPendientes, resolverTramite } from './flito-logistica.pendientes.js';
 import { misRecogidas, recogidaDetalle, revelarDocumentoFirmante } from './flito-logistica.firmante.js';
 import { recogidaConfirmarLimiter, revelarDocumentoLimiter } from './flito-logistica.limitadores.js';
 import {
@@ -125,6 +126,31 @@ router.get('/actas/:id/pdf', exigirFuncion('logistica.actas.descargar'), async (
   if (!await enAlcanceLogistica('acta', req.params.id, await alcanceDe(req))) { res.status(404).json({ error: 'El acta no existe' }); return; }
   const url = await ejecutar(res, () => urlActaPdf(req.params.id));
   if (url !== undefined) res.json({ url });
+});
+
+// ── LT pendientes de trámite (HU #14143, ADR-0030 §17.3) ─────────────────────
+// Función propia (`logistica.documento.resolver_tramite`); cliente y enlace no ven nada (`soloSinEnlace`).
+// Antes de `GET /:id` para que `pendientes-tramite` no se tome por un id.
+router.get('/pendientes-tramite', soloSinEnlace(), exigirFuncion('logistica.documento.resolver_tramite'), async (_req: Request, res: Response) => {
+  res.json({ pendientes: await listarPendientes() });
+});
+router.get('/documentos/:id/candidatos-tramite', soloSinEnlace(), exigirFuncion('logistica.documento.resolver_tramite'), async (req: Request, res: Response) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) { res.status(404).json({ error: 'La LT no existe', codigo: 'LT_NO_ENCONTRADA' }); return; }
+  const r = await ejecutar(res, () => candidatosDe(id.data));
+  if (r !== undefined) res.json({ candidatos: r });
+});
+const resolverSchema = z.object({ tramiteId: z.string().uuid() });
+router.post('/documentos/:id/resolver-tramite', soloSinEnlace(), exigirFuncion('logistica.documento.resolver_tramite'), async (req: Request, res: Response) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) { res.status(404).json({ error: 'La LT no existe', codigo: 'LT_NO_ENCONTRADA' }); return; }
+  const parsed = resolverSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(422).json({ error: 'Indica el trámite que corresponde a la LT', codigo: 'DATOS_INVALIDOS' }); return; }
+  await conIdempotencia(req, res, async () => {
+    const r = await resolverTramite(id.data, parsed.data.tramiteId, ctxDe(req.user!));
+    await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: id.data, detail: `Trámite de LT pendiente resuelto: trámite ${r.tramiteId}, compañía ${r.companiaId}` });
+    return { body: r };
+  }, 'documentos/resolver-tramite');
 });
 
 // GET /:id — detalle del trámite aprobado + su LT + bitácora (CA-07).

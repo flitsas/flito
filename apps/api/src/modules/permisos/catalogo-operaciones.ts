@@ -204,6 +204,10 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} GET /recogidas/mias`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
   op(`${LOG} GET /recogidas/:firmanteId`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
   // HU #14110: función NUEVA (PII). Ver la cédula completa del funcionario que firmó la recogida del organismo.
+  // HU #14143 (ADR-0030 §17.3): función NUEVA para resolver el trámite de una LT pendiente.
+  op(`${LOG} GET /pendientes-tramite`, 'logistica.documento.resolver_tramite', 'Resolver el trámite de una LT pendiente', 'Elegir a qué trámite corresponde una LT escaneada sin trámite y consultar la bandeja de pendientes.'),
+  op(`${LOG} GET /documentos/:id/candidatos-tramite`, 'logistica.documento.resolver_tramite', 'Resolver el trámite de una LT pendiente', 'Elegir a qué trámite corresponde una LT escaneada sin trámite y consultar la bandeja de pendientes.'),
+  op(`${LOG} POST /documentos/:id/resolver-tramite`, 'logistica.documento.resolver_tramite', 'Resolver el trámite de una LT pendiente', 'Elegir a qué trámite corresponde una LT escaneada sin trámite y consultar la bandeja de pendientes.'),
   op(`${LOG} POST /recogidas/:firmanteId/documento`, 'logistica.actas.ver_documento_firmante', 'Ver la cédula del firmante de un acta', 'Consultar la cédula completa del funcionario que firmó el acta de organismo, cada consulta queda registrada.'),
   op(`${LOG} POST /documentos/:id/novedad`, 'logistica.documento.reportar_novedad', 'Reportar una novedad de entrega', 'Dejar constancia de que la entrega no se pudo completar y por qué.'),
   op(`${LOG} POST /cerrar-lote`, 'logistica.lote.cerrar', 'Cerrar un lote de logística', 'Dar por armado el lote de documentos que va a despacharse.'),

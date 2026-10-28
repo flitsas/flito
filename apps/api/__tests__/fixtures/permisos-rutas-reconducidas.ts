@@ -222,6 +222,10 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/recogidas/confirmar', codigo: 'logistica.recogida.confirmar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/recogidas/mias', codigo: 'logistica.recogida.confirmar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/recogidas/:firmanteId', codigo: 'logistica.recogida.confirmar' },
+  // HU #14143: resolver el trámite de una LT pendiente.
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/pendientes-tramite', codigo: 'logistica.documento.resolver_tramite' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/documentos/:id/candidatos-tramite', codigo: 'logistica.documento.resolver_tramite' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/resolver-tramite', codigo: 'logistica.documento.resolver_tramite' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/recogidas/:firmanteId/documento', codigo: 'logistica.actas.ver_documento_firmante' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/novedad', codigo: 'logistica.documento.reportar_novedad' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/cerrar-lote', codigo: 'logistica.lote.cerrar' },

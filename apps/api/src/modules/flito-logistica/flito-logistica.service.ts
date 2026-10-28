@@ -17,7 +17,7 @@ import {
 import { db } from '../../db/client.js';
 import { clients, flitoLogisticaActas, flitoLogisticaDocumentos, flitoProveedoresLogistica } from '../../db/schema.js';
 import { uploadEntityDocument } from '../../services/storage.js';
-import { LogisticaError, bufDesdeDataUrl, log, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
+import { LogisticaError, bufDesdeDataUrl, exigirTramiteResuelto, log, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
 import { generarActaPdf } from './flito-logistica.acta-pdf.js';
 
 // HU #14108 (ADR-0030 §11): barrel. Los importadores (rutas, soportes, tests) siguen importando este archivo.
@@ -87,6 +87,7 @@ export async function cerrarLote(companiaId: number, ctx: LogisticaCtx): Promise
       ));
 
     const listos = docs.filter((d) => puedeEntrarEnActa(d.estado as TEstadoDoc));
+    await exigirTramiteResuelto(tx, listos.map((d) => d.id)); // ADR-0030 §17.2: nunca una LT pendiente en un acta de compañía
     const pendientes = docs.filter((d) => !puedeEntrarEnActa(d.estado as TEstadoDoc));
     if (listos.length === 0) throw new LogisticaError('No hay LT clasificadas para esta empresa', 400, { pendientes: pendientes.length });
 

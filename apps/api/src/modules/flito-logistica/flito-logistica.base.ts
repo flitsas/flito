@@ -1,7 +1,7 @@
 // FLITO Logística — base compartida (HU #14108, ADR-0030 §11): contexto, error de dominio, tipos de
 // transacción, constantes y helpers que usan los demás archivos del módulo. Sin dependencias de ellos.
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { type EstadoDocumentoLogistica as TEstadoDoc } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoLogisticaDocumentos, flitoLogisticaEventos, flitoTramites } from '../../db/schema.js';
@@ -50,4 +50,22 @@ export async function transicionar(exec: DbOrTx, doc: DocMin, estadoNuevo: TEsta
 export function bufDesdeDataUrl(dataUrl: string): Buffer {
   const b64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
   return Buffer.from(b64, 'base64');
+}
+
+/** ADR-0030 §17.2: una LT sin trámite resuelto no entra a un traslado, a un acta de compañía ni genera cobro. */
+export class LtPendienteDeTramiteError extends LogisticaError {
+  constructor(documentoIds: string[]) {
+    super('Una o más LT están pendientes de trámite: resuelve el trámite antes de usarlas', 409, { documentoIds }, 'LT_PENDIENTE_DE_TRAMITE');
+  }
+}
+
+/**
+ * Puerta única para todo flujo que meta LT en un traslado/viaje o en un acta de compañía, FLIT o cliente:
+ * lanza `LT_PENDIENTE_DE_TRAMITE` (409) si alguna tiene `tramite_id` NULL. Va ANTES de escribir o cobrar nada.
+ */
+export async function exigirTramiteResuelto(exec: DbOrTx, documentoIds: string[]): Promise<void> {
+  if (!documentoIds.length) return;
+  const pend = await exec.select({ id: flitoLogisticaDocumentos.id }).from(flitoLogisticaDocumentos)
+    .where(and(inArray(flitoLogisticaDocumentos.id, documentoIds), isNull(flitoLogisticaDocumentos.tramiteId)));
+  if (pend.length) throw new LtPendienteDeTramiteError(pend.map((d) => d.id));
 }
