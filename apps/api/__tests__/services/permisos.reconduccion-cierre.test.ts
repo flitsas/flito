@@ -211,8 +211,8 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +1 por la HU #13964 (`POST /documentos/:documentoId/retirar`, reutiliza `bolsas.documentos.cargar`).
     // −6 por la HU #13911 (retiro de las rutas antiguas `/transito…` de bolsas: listar, crear, ver, editar,
     // movimientos y cargas; sus códigos siguen montados en la rama tránsito del catálogo).
-    expect(GUARDAS_MEDIDAS).toHaveLength(630);
-    expect(montajes).toHaveLength(630); // +3 por la HU #14131 (carga masiva de SOAT: plantilla, alta y avance; reutilizan `soat.solicitud.crear`)
+    expect(GUARDAS_MEDIDAS).toHaveLength(631);
+    expect(montajes).toHaveLength(631); // +1 por la HU #14133 (rechazadas, faltaba en la foto) · +3 por la HU #14131 (carga masiva de SOAT: plantilla, alta y avance; reutilizan `soat.solicitud.crear`)
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)
