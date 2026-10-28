@@ -85,12 +85,12 @@ async function abrirMasiva(page: Page) {
 const cargar = (page: Page) => page.getByRole('button', { name: 'Cargar renovaciones' });
 
 test.describe('HU #14134 — carga masiva de renovaciones', () => {
-  test('AC1: el selector solo existe con Renovación; Masiva no pinta la barra de envío y alternar conserva lo digitado', async ({ page }) => {
+  test('AC1: el selector existe con ambos tipos (HU #14137); Masiva no pinta la barra de envío y alternar conserva lo digitado', async ({ page }) => {
     await montar(page);
     await loginAs(page, CLIENTE_CON_CANAL);
     await page.goto('/flito/soat/solicitud');
     await page.getByRole('radio', { name: /SOAT inicial/ }).check();
-    await expect(page.getByRole('radiogroup', { name: 'Forma de cargar' })).toHaveCount(0);
+    await expect(page.getByRole('radiogroup', { name: 'Forma de cargar' })).toBeVisible();
     await page.getByRole('radio', { name: /Renovación/ }).check();
     await expect(page.getByRole('radiogroup', { name: 'Forma de cargar' })).toBeVisible();
     await page.getByLabel('Placa').fill('XYZ123');
@@ -149,7 +149,7 @@ test.describe('HU #14134 — carga masiva de renovaciones', () => {
     await expect(tabla.getByText('ABC123')).toBeVisible();
     await expect(tabla.getByText('RENAULT LOGAN · 2019')).toBeVisible();
     await expect(page.getByText('2 creadas').first()).toBeVisible();
-    await expect(page.getByText('1 por validar').first()).toBeVisible();
+    await expect(page.getByText('1 en Por validar').first()).toBeVisible();
     await expect(page.getByText('JKL012 · El vehículo ya tiene SOAT vigente')).toBeVisible();
     // Nada de PII en storage.
     const guardado = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }));

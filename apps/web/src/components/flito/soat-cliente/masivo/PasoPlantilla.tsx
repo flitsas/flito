@@ -16,9 +16,14 @@ export default function PasoPlantilla({ tipo, descargando, onDescargar, children
   return (
     <ol className="space-y-4">
       <li className="flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-          <span className="font-semibold">1. </span>{copy.paso1}
-        </p>
+        <div className="min-w-0 space-y-1">
+          <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            <span className="font-semibold">1. </span>{copy.paso1}
+          </p>
+          {copy.notaPaso1 && (
+            <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{copy.notaPaso1}</p>
+          )}
+        </div>
         <button
           type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle}
           aria-disabled={descargando || undefined} onClick={() => { if (!descargando) onDescargar(); }}

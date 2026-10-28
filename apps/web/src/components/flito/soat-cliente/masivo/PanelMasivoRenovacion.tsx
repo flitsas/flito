@@ -2,7 +2,8 @@
 // «Reintentar» en cada paso. Al desmontarse (salir de la vista o pasar a Individual) el polling se
 // cancela; el procesamiento sigue en el servidor y no hay pantalla para retomarlo (AC6).
 import { useEffect } from 'react';
-import { FileSpreadsheet, Loader2 } from 'lucide-react';
+import { FileSpreadsheet } from 'lucide-react';
+import AvisoProcesando from '../../../flit/AvisoProcesando';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../../flit/flitPageKit';
 import { Seccion } from '../bloques';
 import { COPY_COMUN, COPY_MASIVO } from './copyMasivo';
@@ -53,10 +54,10 @@ export default function PanelMasivoRenovacion({ tipo, companiaId, faltaCompania,
           />
         </Seccion>
       )}
-      <Seccion titulo={l.terminado ? 'Filas de la carga' : copy.tituloSeccion} icono={l.terminado ? undefined : icono}>
+      <Seccion titulo={l.terminado ? (tipo === 'inicial' ? 'Detalle por VIN' : 'Filas de la carga') : copy.tituloSeccion} icono={l.terminado ? undefined : icono}>
         <div className="space-y-3">
           {l.errorAvance === 'red' && (
-            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
               <p className="min-w-0">{COPY_COMUN.falloAvance}</p>
               <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={l.reintentarAvance}>
                 Reintentar
@@ -64,19 +65,19 @@ export default function PanelMasivoRenovacion({ tipo, companiaId, faltaCompania,
             </div>
           )}
           {l.errorAvance === 'no_encontrado' && (
-            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
               <p className="min-w-0">{copy.noEncontrada}</p>
               <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={l.reiniciar}>
                 Cargar otro archivo
               </button>
             </div>
           )}
-          {l.enCurso && !l.errorAvance && avance && (
-            <p role="status" className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-              <Loader2 size={16} aria-hidden="true" className="shrink-0 animate-spin" />
-              {`Procesando: ${procesadas} de ${avance.total} filas. Puede salir de esta página; el proceso continúa.`}
-            </p>
-          )}
+          {l.enCurso && !l.errorAvance && (avance ? (
+            <AvisoProcesando
+              texto={`Procesando: ${procesadas} de ${avance.total} filas. Puede salir de esta página; el proceso continúa.`}
+              anuncio="Procesando la carga en masa. Puede salir de esta página; el proceso continúa."
+            />
+          ) : <AvisoProcesando texto="Preparando el avance…" />)}
           {l.filas.length > 0 ? <TablaFilasLote tipo={tipo} filas={l.filas} /> : !l.errorAvance && <FilasEsqueleto />}
         </div>
       </Seccion>

@@ -1,5 +1,6 @@
 // HU #14134 — elegir el .xlsx y cargarlo. Validación del cliente: solo la extensión (AC4); vacío y
 // más de 200 filas los decide el servidor y su copy sale del diccionario, nunca del mensaje del API.
+import AvisoProcesando from '../../../flit/AvisoProcesando';
 import FlitUploadBox from '../../../flit/FlitUploadBox';
 import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../../../flit/flitPageKit';
 import { COPY_COMUN, COPY_MASIVO, type ErrorSubida } from './copyMasivo';
@@ -34,9 +35,9 @@ export default function ZonaCargaExcel({ tipo, archivo, errorArchivo, subiendo, 
         />
       </div>
       {aviso && (
-        <p id="masivo-aviso-archivo" role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>{aviso}</p>
+        <p id="masivo-aviso-archivo" role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{aviso}</p>
       )}
-      {subiendo && <p role="status" className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{COPY_COMUN.recibiendo}</p>}
+      {subiendo && <AvisoProcesando texto={COPY_COMUN.recibiendo} />}
       <div className="flex flex-wrap items-center justify-end gap-3">
         {razon && !subiendo && <p id="masivo-razon" className="min-w-0 flex-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{razon}</p>}
         {errorSubida?.accion === 'reintentar' && !subiendo && (

@@ -11,6 +11,17 @@ import type { FilaLote, ResumenLoteDto } from './tiposMasivo';
 const MAX_RECHAZADAS_VISIBLES = 5;
 
 const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
+const IR_A_POR_VALIDAR = { state: { pastilla: 'incompleta' } } as const;
+
+/** Por qué quedaron en Por validar: solo los motivos con n > 0 (HU #14137). */
+function motivosPorValidar(r: ResumenLoteDto): string {
+  const resto = Math.max(0, r.porValidar - r.porValidarFactura - r.porValidarPropietario);
+  return [
+    r.porValidarFactura > 0 && `${plural(r.porValidarFactura, 'espera', 'esperan')} la factura de venta`,
+    r.porValidarPropietario > 0 && `${plural(r.porValidarPropietario, 'falta', 'faltan')} datos del propietario`,
+    resto > 0 && `${plural(resto, 'espera', 'esperan')} al RUNT`,
+  ].filter(Boolean).join(' · ');
+}
 
 export default function ResumenLote({
   resumen, filas, puedeDescargar, vencida, descargando, onDescargar, onOtro,
@@ -31,6 +42,8 @@ export default function ResumenLote({
   const rechazadas = filas.filter((f) => f.estado === 'rechazada');
   const visibles = rechazadas.slice(0, MAX_RECHAZADAS_VISIBLES);
   const hayDescarga = resumen.rechazadas > 0 && puedeDescargar && !vencida;
+  // Sin rechazadas y con pendientes por completar, lo que queda por hacer es completarlas (HU #14137).
+  const irAPorValidar = resumen.rechazadas === 0 && resumen.porValidarFactura + resumen.porValidarPropietario > 0;
   const btnOtro = (primaria: boolean) => (
     <button type="button" className={`${primaria ? flitBtnPrimary : flitBtnSecondary} w-full justify-center sm:w-auto`}
       style={primaria ? flitBtnPrimaryStyle : undefined} onClick={onOtro}>Cargar otro archivo</button>
@@ -42,25 +55,24 @@ export default function ResumenLote({
         Resultado de la carga terminada
       </h3>
       <p className="sr-only" aria-live="polite">
-        {`Carga terminada: ${plural(resumen.creadas, 'creada', 'creadas')}, ${resumen.porValidar} por validar, ${plural(resumen.rechazadas, 'rechazada', 'rechazadas')}.`}
+        {`Carga terminada: ${plural(resumen.creadas, 'creada', 'creadas')}, ${resumen.porValidar} en Por validar, ${plural(resumen.rechazadas, 'rechazada', 'rechazadas')}.`}
       </p>
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-4">
         <StatusChip tone="success">{plural(resumen.creadas, 'creada', 'creadas')}</StatusChip>
-        <StatusChip tone="warning">{`${resumen.porValidar} por validar`}</StatusChip>
+        <StatusChip tone="warning">{`${resumen.porValidar} en Por validar`}</StatusChip>
         <StatusChip tone="danger">{plural(resumen.rechazadas, 'rechazada', 'rechazadas')}</StatusChip>
       </div>
 
       {resumen.porValidar > 0 && (
         <div className="space-y-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-          {resumen.porValidarFactura > 0 && <p>{plural(resumen.porValidarFactura, 'espera', 'esperan')} la factura de venta.</p>}
-          {resumen.porValidarPropietario > 0 && <p>{plural(resumen.porValidarPropietario, 'espera', 'esperan')} los datos del propietario.</p>}
+          <p>{motivosPorValidar(resumen)}.</p>
           <button
             type="button"
             className="flit-focus -mx-1 inline-flex min-h-[44px] items-center rounded px-1 text-sm font-semibold underline-offset-2 transition-colors hover:underline sm:min-h-0"
             style={{ color: 'var(--flit-blue-text)' }}
-            onClick={() => navigate('/flito/soat', { state: { pastilla: 'incompleta' } })}
+            onClick={() => navigate('/flito/soat', IR_A_POR_VALIDAR)}
           >
-            Ver en Por validar
+            Ver en Por validar →
           </button>
         </div>
       )}
@@ -93,6 +105,12 @@ export default function ResumenLote({
               {descargando ? <Loader2 size={16} aria-hidden="true" className="animate-spin" /> : <Download size={16} aria-hidden="true" />}
               {descargando ? 'Descargando…' : 'Descargar rechazadas'}
             </button>
+            {btnOtro(false)}
+          </>
+        ) : irAPorValidar ? (
+          <>
+            <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
+              onClick={() => navigate('/flito/soat', IR_A_POR_VALIDAR)}>Ir a Por validar</button>
             {btnOtro(false)}
           </>
         ) : btnOtro(true)}

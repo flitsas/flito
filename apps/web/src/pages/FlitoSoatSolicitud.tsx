@@ -202,7 +202,7 @@ function Alta() {
   const consultarRef = useRef<HTMLButtonElement>(null);
 
   // HU #14019: el TIPO manda. `null` = sin elegir (AC1): ni bloques, ni barra, ni consulta.
-  const [tipo, setTipo] = useState<TipoSoat | null>(null);
+  const [tipo, setTipo] = useState<TipoSoat | null>(null); const [masivoEnCurso, setMasivoEnCurso] = useState(false); // lote en curso: cambiar de tipo lo perdería
   const [errorTipo, setErrorTipo] = useState<string | undefined>();
   const [vin, setVin] = useState('');
   // Renovación (bloque 1): placa y documento del propietario. Viajan en el cuerpo del POST, nunca en la URL.
@@ -972,8 +972,8 @@ function Alta() {
       <>
       <CampoCompaniaSoat compania={compania} onCambio={cambiarCompania} />
       {/* ── Tipo de SOAT (HU #14019): sin valor por defecto; hasta elegirlo no hay bloques ni barra. */}
-      <SelectorTipoSoat valor={tipo} hayDatos={hayDatos || consulta.fase !== 'inicial'} onCambiar={cambiarTipo} error={errorTipo} />
-      <ModalidadRenovacion tipo={tipo} compania={compania}>
+      <SelectorTipoSoat valor={tipo} hayDatos={hayDatos || consulta.fase !== 'inicial' || masivoEnCurso} onCambiar={cambiarTipo} error={errorTipo} />
+      <ModalidadRenovacion tipo={tipo} compania={compania} onMasivoEnCurso={setMasivoEnCurso}>
       {tipo !== null && (
       <>
       {/* ── Bloque 1 · Vehículo ─────────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
-// HU #14134 (AC1) — selector «Individual / Masiva» de la solicitud de SOAT con tipo Renovación.
+// HU #14134 (AC1) / #14137 (AC1) — selector «Individual / Masiva» de la solicitud de SOAT, con AMBOS
+// tipos: la plantilla la decide el «Tipo de SOAT» ya elegido (no hay selector nuevo).
 //
-// Punto de montaje único en `FlitoSoatSolicitud.tsx` (render-prop): si el tipo no es Renovación o la
+// Punto de montaje único en `FlitoSoatSolicitud.tsx` (render-prop): si no hay tipo o la
 // forma es Individual devuelve `children` (el formulario actual, sin tocarlo); si es Masiva pinta el
 // panel y NO monta `children` (así tampoco aparece la barra de envío). El estado de los campos
 // individuales vive en la página, por lo que alternar no pierde lo digitado.
@@ -12,25 +13,33 @@ import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondary
 import type { CompaniaSoat } from '../CampoCompaniaSoat';
 import { Seccion } from '../bloques';
 import PanelMasivoRenovacion from './PanelMasivoRenovacion';
+import type { TipoMasivo } from './tiposMasivo';
 
 type Forma = 'individual' | 'masiva';
 
-const OPCIONES: { forma: Forma; titulo: string; texto: string }[] = [
-  { forma: 'individual', titulo: 'Individual', texto: 'Un vehículo' },
-  { forma: 'masiva', titulo: 'Masiva', texto: 'Hasta 200 renovaciones desde un Excel' },
-];
+const TEXTO_MASIVA: Record<TipoMasivo, string> = {
+  renovacion: 'Hasta 200 renovaciones desde un Excel',
+  inicial: 'Hasta 200 vehículos desde un Excel',
+};
 
-export default function ModalidadRenovacion({ tipo, compania, children }: {
+export default function ModalidadRenovacion({ tipo, compania, onMasivoEnCurso, children }: {
   tipo: TipoSoat | null;
   compania: CompaniaSoat;
+  /** La página lo usa para pedir confirmación antes de cambiar de tipo con un lote en curso. */
+  onMasivoEnCurso?: (enCurso: boolean) => void;
   children: ReactNode;
 }) {
   const [forma, setForma] = useState<Forma>('individual');
   const [enCurso, setEnCurso] = useState(false);
   const [confirmar, setConfirmar] = useState(false);
-  const alEnCurso = useCallback((v: boolean) => setEnCurso(v), []);
+  const alEnCurso = useCallback((v: boolean) => { setEnCurso(v); onMasivoEnCurso?.(v); }, [onMasivoEnCurso]);
 
-  if (tipo !== TipoSoat.RENOVACION) return <>{children}</>;
+  if (tipo === null) return <>{children}</>;
+  const tipoMasivo: TipoMasivo = tipo === TipoSoat.RENOVACION ? 'renovacion' : 'inicial';
+  const opciones = [
+    { forma: 'individual' as Forma, titulo: 'Individual', texto: 'Un vehículo' },
+    { forma: 'masiva' as Forma, titulo: 'Masiva', texto: TEXTO_MASIVA[tipoMasivo] },
+  ];
 
   const elegir = (f: Forma) => {
     if (f === forma) return;
@@ -42,7 +51,7 @@ export default function ModalidadRenovacion({ tipo, compania, children }: {
     <>
       <Seccion titulo="Forma de cargar" icono={<Layers size={18} aria-hidden="true" className="shrink-0" />}>
         <div role="radiogroup" aria-label="Forma de cargar" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {OPCIONES.map((o) => {
+          {opciones.map((o) => {
             const marcada = forma === o.forma;
             return (
               <div
@@ -71,7 +80,7 @@ export default function ModalidadRenovacion({ tipo, compania, children }: {
       </Seccion>
 
       {forma === 'individual' ? children : (
-        <PanelMasivoRenovacion tipo="renovacion" companiaId={compania.companiaId} faltaCompania={compania.faltante} onEnCurso={alEnCurso} />
+        <PanelMasivoRenovacion key={tipoMasivo} tipo={tipoMasivo} companiaId={compania.companiaId} faltaCompania={compania.faltante} onEnCurso={alEnCurso} />
       )}
 
       {confirmar && (

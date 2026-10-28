@@ -12,6 +12,8 @@ export interface CopyMasivo {
   hintCaja: string;
   botonCargar: string;
   paso1: string;
+  /** Línea de ayuda bajo el paso 1 (vacía si no hay). */
+  notaPaso1: string;
   paso2: string;
   toastRecibido: string;
   columnaClave: string;
@@ -28,6 +30,7 @@ export const COPY_MASIVO: Record<TipoMasivo, CopyMasivo> = {
     hintCaja: 'Excel .xlsx · hasta 200 filas',
     botonCargar: 'Cargar renovaciones',
     paso1: 'Descargue la plantilla y llene una fila por vehículo.',
+    notaPaso1: '',
     paso2: 'Suba el archivo con las renovaciones.',
     toastRecibido: 'Archivo recibido. Estamos procesando las renovaciones.',
     columnaClave: 'Placa',
@@ -36,13 +39,14 @@ export const COPY_MASIVO: Record<TipoMasivo, CopyMasivo> = {
     noEncontrada: 'No encontramos esta carga. Cargue el archivo de nuevo si no ve sus renovaciones en la lista.',
     nombrePlantilla: 'plantilla-renovaciones.xlsx',
   },
-  // TODO #14137: la HU de SOAT inicial en masa ajusta estos textos; hoy solo existen para no rehacer los componentes.
+  // HU #14137: la plantilla Inicial lleva solo el VIN; la factura se carga después, en Por validar.
   inicial: {
     tituloSeccion: 'SOAT inicial en masa',
     etiquetaCaja: 'Elegir archivo de vehículos',
     hintCaja: 'Excel .xlsx · hasta 200 filas',
     botonCargar: 'Cargar vehículos',
-    paso1: 'Descargue la plantilla y llene una fila por vehículo.',
+    paso1: 'Descargue la plantilla y escriba el VIN de cada vehículo, una fila por vehículo.',
+    notaPaso1: 'La factura de venta se carga después, en Por validar.',
     paso2: 'Suba el archivo con los vehículos.',
     toastRecibido: 'Archivo recibido. Estamos procesando los vehículos.',
     columnaClave: 'VIN',
