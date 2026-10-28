@@ -151,6 +151,18 @@ export interface Registrado { viaje: ViajeLogistica; idFlit: string }
 export interface Quitado { numero: number; modo: string; valor: number; idFlit: string }
 
 /**
+ * RN-03 y RN-01 del estado PROPIO del trámite (liquidado / logística autogestionada): el error de
+ * dominio que `registrar` lanzaría, o null si es elegible. Fuente única: `registrar` y el masivo.
+ */
+export async function motivoNoElegible(
+  ejecutor: Ejecutor, tramiteId: string,
+): Promise<{ error: ViajeLogisticaError | null; ctx: ContextoLogistica | null }> {
+  if (await tramiteLiquidado(ejecutor, tramiteId)) return { error: new TramiteLiquidadoViajeError(), ctx: null };
+  const ctx = await contextoLogisticaDe(ejecutor, tramiteId);
+  return { error: ctx.gestiona ? null : new LogisticaAutogestionadaError(), ctx };
+}
+
+/**
  * Registrar: bloqueo del trámite → guarda de liquidado → guarda de quién gestiona → tarifa de hoy →
  * MAX(numero)+1 → INSERT, todo en una transacción (RN-01..RN-05). El nombre del actor se lee dentro
  * para devolver la fila completa.
@@ -158,9 +170,8 @@ export interface Quitado { numero: number; modo: string; valor: number; idFlit: 
 export async function registrar(tramiteId: string, entrada: EntradaViaje, usuarioId: number | null): Promise<Registrado> {
   return db.transaction(async (tx: Tx) => {
     const tramite = await bloquearTramite(tx, tramiteId);
-    if (await tramiteLiquidado(tx, tramiteId)) throw new TramiteLiquidadoViajeError();
-    const ctx = await contextoLogisticaDe(tx, tramiteId);
-    if (!ctx.gestiona) throw new LogisticaAutogestionadaError();
+    const { error, ctx } = await motivoNoElegible(tx, tramiteId);
+    if (error || !ctx) throw error!;
     const tarifa = await tarifaLogisticaHoy(ctx.companiaId);
     let valor: number;
     if (entrada.modo === 'inicial') {
@@ -243,10 +254,24 @@ export async function registrarMasivo(
   for (const { placa: bruta, valor } of items) {
     const placa = normPlaca(bruta);
     try {
+      // Solo cuentan los aprobados ELEGIBLES (mismo predicado que `registrar`: no liquidado y logística
+      // gestionada por FLITO). 0 elegibles: con un único aprobado se rechaza con el motivo de su RN; con
+      // varios aprobados y ninguno elegible, NO_ENCONTRADO (no hay a cuál apuntar; lo más simple).
       const candidatos: CandidatoMasivo[] = [];
-      for (const c of await aprobadosDePlaca(placa)) if (await permitido(c.tramiteId)) candidatos.push(c);
+      const permitidos: CandidatoMasivo[] = [];
+      let unicoError: ViajeLogisticaError | null = null;
+      for (const c of await aprobadosDePlaca(placa)) {
+        if (!(await permitido(c.tramiteId))) continue;
+        permitidos.push(c);
+        const { error } = await motivoNoElegible(db, c.tramiteId);
+        if (error) unicoError = error; else candidatos.push(c);
+      }
       if (candidatos.length === 0) {
-        resultado.rechazados.push({ placa, motivo: 'No encontrado: el vehículo no existe o no tiene un trámite aprobado', codigo: 'NO_ENCONTRADO' });
+        if (permitidos.length === 1 && unicoError) {
+          resultado.rechazados.push({ placa, motivo: unicoError.message, codigo: unicoError.codigo });
+        } else {
+          resultado.rechazados.push({ placa, motivo: 'No encontrado: el vehículo no existe o no tiene un trámite aprobado elegible', codigo: 'NO_ENCONTRADO' });
+        }
         continue;
       }
       if (candidatos.length > 1) {

@@ -62,15 +62,21 @@ const BASE = { motivo: 'devolucion' };
 /** Candidatos aprobados que devuelve la búsqueda por placa (un `db.select` por ítem). */
 const candidatos = (...ids: string[]) => selectMock.mockReturnValueOnce(chain(ids.map((id) => ({ tramiteId: id, idFlit: CTX(id).idFlit }))));
 
-/** Una LT por `registrar`: trámite, liquidación, contexto, MAX, actor + INSERT. */
+/** Elegibilidad previa (con `db`): liquidación y contexto del trámite; luego, si es elegible, `registrar` (tx). */
+function elegibilidad(id: string, o: { liquidada?: boolean; autogestion?: boolean } = {}) {
+  selectMock.mockReturnValueOnce(chain(o.liquidada ? [{ id: 'liq' }] : []));
+  if (o.liquidada) return;
+  selectMock.mockReturnValueOnce(chain([o.autogestion ? CTX_AUTOGESTION(id) : CTX(id)]));
+}
+
+/** Una LT por `registrar`: aprobados + elegibilidad previa; si es elegible, trámite, liquidación, contexto, MAX, actor + INSERT. */
 function armarLt(id: string, o: { liquidada?: boolean; autogestion?: boolean; valor?: string } = {}) {
   candidatos(id);
-  txSelect.mockReturnValueOnce(chain([{ id, idFlit: CTX(id).idFlit }]))
-    .mockReturnValueOnce(chain(o.liquidada ? [{ id: 'liq' }] : []));
-  if (o.liquidada) return;
-  txSelect.mockReturnValueOnce(chain([o.autogestion ? CTX_AUTOGESTION(id) : CTX(id)]));
-  if (o.autogestion) return;
-  txSelect.mockReturnValueOnce(chain([{ siguiente: 2 }])).mockReturnValueOnce(chain([{ name: 'Ana' }]));
+  elegibilidad(id, o);
+  if (o.liquidada || o.autogestion) return;
+  txSelect.mockReturnValueOnce(chain([{ id, idFlit: CTX(id).idFlit }])).mockReturnValueOnce(chain([]))
+    .mockReturnValueOnce(chain([CTX(id)]))
+    .mockReturnValueOnce(chain([{ siguiente: 2 }])).mockReturnValueOnce(chain([{ name: 'Ana' }]));
   txInsert.mockReturnValueOnce(chain([fila(o.valor ?? '1000.00')]));
 }
 
@@ -174,7 +180,7 @@ describe('HU #14127 — registro masivo de viajes adicionales', () => {
   });
 
   it('Varios trámites aprobados → VARIOS_TRAMITES_APROBADOS con candidatos (id + idFlit); las demás pasan; nunca crea pendientes', async () => {
-    candidatos(LT1, LT2);
+    candidatos(LT1, LT2); elegibilidad(LT1); elegibilidad(LT2);
     armarLt(LT3);
     const r = await post({ ...BASE, items: [{ placa: P1, valor: 10 }, { placa: P3, valor: 10 }] });
     expect(r.status).toBe(201);
@@ -184,6 +190,30 @@ describe('HU #14127 — registro masivo de viajes adicionales', () => {
       candidatos: [{ tramiteId: LT1, idFlit: 'FLIT-1' }, { tramiteId: LT2, idFlit: 'FLIT-2' }],
     }]);
     expect(txInsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('Varios aprobados con uno liquidado → el elegible pasa (no es VARIOS)', async () => {
+    candidatos(LT1, LT2); elegibilidad(LT1, { liquidada: true }); elegibilidad(LT2);
+    txSelect.mockReturnValueOnce(chain([{ id: LT2, idFlit: CTX(LT2).idFlit }])).mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([CTX(LT2)])).mockReturnValueOnce(chain([{ siguiente: 2 }])).mockReturnValueOnce(chain([{ name: 'Ana' }]));
+    txInsert.mockReturnValueOnce(chain([fila('10.00')]));
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 10 }] });
+    expect(r.body.rechazados).toEqual([]);
+    expect(r.body.creados).toEqual([expect.objectContaining({ placa: P1, tramiteId: LT2 })]);
+  });
+
+  it('Varios aprobados, solo los elegibles son candidatos (el autogestionado no aparece)', async () => {
+    candidatos(LT1, LT2, LT3); elegibilidad(LT1); elegibilidad(LT2, { autogestion: true }); elegibilidad(LT3);
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 10 }] });
+    expect(r.body.rechazados[0]).toMatchObject({ codigo: 'VARIOS_TRAMITES_APROBADOS' });
+    expect(r.body.rechazados[0].candidatos.map((c: { tramiteId: string }) => c.tramiteId)).toEqual([LT1, LT3]);
+  });
+
+  it('Varios aprobados y ninguno elegible → NO_ENCONTRADO', async () => {
+    candidatos(LT1, LT2); elegibilidad(LT1, { liquidada: true }); elegibilidad(LT2, { autogestion: true });
+    const r = await post({ ...BASE, items: [{ placa: P1, valor: 10 }] });
+    expect(r.body.rechazados).toEqual([expect.objectContaining({ codigo: 'NO_ENCONTRADO' })]);
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 
   it('La placa (PII) no viaja al rastro de auditoría', async () => {
