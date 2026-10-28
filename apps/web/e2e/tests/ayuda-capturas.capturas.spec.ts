@@ -22,6 +22,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { ADMIN_USER, CLIENTE_CON_CANAL, FUNCIONES_POR_ROL, loginAs, MENSAJERO_USER } from '../helpers/auth';
+import { elegirTipoInicial } from '../helpers/soat-tipo';
 import { FUNCIONES_BOLSAS, detalleDe, resumenDe } from '../helpers/bolsas';
 import {
   BOLSAS_DEMO,
@@ -1313,6 +1314,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     ]);
     await entrarComoDemo(cliente, { ...CLIENTE_CON_CANAL, username: 'cliente_demo', name: NOMBRES_DEMO[0], companiaId: 901 });
     await cliente.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(cliente);
     await expect(cliente.getByText(EMPRESAS_DEMO[0]).first()).toBeVisible();
     await expect(cliente.getByRole('button', { name: 'Consultar el RUNT' })).toBeVisible();
     await sinFoco(cliente);

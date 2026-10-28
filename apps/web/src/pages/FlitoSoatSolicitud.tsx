@@ -55,31 +55,32 @@
 // query: los selectores de axe arrastran valores de atributo, y una frase con 17 caracteres dentro
 // no se lee mejor que «este vehículo».
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Car, CircleCheck, FileText, Loader2, RotateCw, Save, Search, Send, UserRound,
+  ArrowLeft, Car, CircleCheck, FileText, Loader2, RotateCw, Search, UserRound,
 } from 'lucide-react';
 import { toastOk } from '../components/flit/ToastFlito';
 import {
-  CodigoErrorSolicitudSoat, PROCEDENCIA_POR_DEFECTO, ProcedenciaDato,
+  CodigoErrorSolicitudSoat, PROCEDENCIA_POR_DEFECTO, ProcedenciaDato, TipoSoat,
   type ExtraccionFacturaVenta, type RespuestaAltaSolicitudSoat, type ResultadoDocumentosAdicionales, type SoatActivoRunt,
 } from '@operaciones/shared-types';
 import { api } from '../lib/api';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
 import {
-  avisoVin, camposLeidos, camposQueViajan, errorApellidos, errorArchivo, errorCelular, errorCorreo,
-  errorDepartamento, errorDireccion, errorMunicipio, errorNombreCompleto, errorNombres,
-  errorNumeroDocumento, errorRazonSocial, errorTipoDocumento, errorVin, esCampoComprador, esNit,
+  avisoVin, camposLeidos, camposQueViajan, errorArchivo, esCampoComprador, esNit,
   leerFallo, normalizarVin, reaccionA, reaccionALectura,
   DESENLACE_SIN_RED, DESENLACE_GENERICO, MENSAJE_ARCHIVO_NO_PDF,
   type CampoComprador, type CampoLeido, type DesenlaceRunt, type FalloCanal, type PreconsultaRunt,
 } from '../lib/soatCliente';
+import {
+  DESENLACE_GENERICO_RENOVACION, MENSAJE_ELIJA_TIPO, esRenovable, subtituloSolicitud,
+} from '../lib/mensajesTipoSoat';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip from '../components/flit/StatusChip';
 import {
-  FlitCard, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
 import { ModalIncompletaExistente, ModalVinEnCola } from '../components/flito/soat-cliente/ModalesBloqueo';
 import TarjetaSolicitudGuardada from '../components/flito/soat-cliente/TarjetaSolicitudGuardada';
@@ -89,6 +90,14 @@ import {
 } from '../components/flito/soat-cliente/PasoVin';
 import { TarjetaCanalAjeno, TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import FichaRunt from '../components/flito/soat-cliente/FichaRunt';
+import SelectorTipoSoat from '../components/flito/soat-cliente/SelectorTipoSoat';
+import ModalidadRenovacion from '../components/flito/soat-cliente/masivo/ModalidadRenovacion';
+import BloqueVehiculoRenovacion from '../components/flito/soat-cliente/BloqueVehiculoRenovacion';
+import BarraEnvioSolicitud from '../components/flito/soat-cliente/BarraEnvioSolicitud';
+import {
+  ORDEN_FOCO_BASE, ETIQUETA_CAMPO, chipLectura, faltaParaEnviar, frasePendientes, primerErrorEnfocable,
+  sinClave, validador, validarTodo, validarVehiculo, type CampoFormulario, type Errores,
+} from '../components/flito/soat-cliente/validacionSolicitud';
 import { CampoCompaniaSoat, ITEM_COMPANIA, useCompaniaSoat } from '../components/flito/soat-cliente/CampoCompaniaSoat';
 import { BloqueDocumentosAdicionales } from '../components/flito/soat/DocumentosAdicionalesSelector';
 import {
@@ -96,7 +105,7 @@ import {
   type ElegidoAdicional,
 } from '../components/flito/soat/documentosAdicionales';
 import {
-  AvisoLectura, BandaSobrescritura, BloqueFactura, BloquePropietario, CAMPOS_NOMBRE, Campo,
+  AvisoLectura, BandaSobrescritura, BloqueFactura, BloquePropietario, Campo,
   ID_CAMPO, ID_CONFIRMAR, PROPIETARIO_VACIO, Seccion, useFocoPrimerError,
   type CampoPropietario, type EstadoLectura, type FilaSobrescritura, type Propietario,
 } from '../components/flito/soat-cliente/bloques';
@@ -106,26 +115,11 @@ const COLA = '/flito/soat';
 /** Id de la banda de desenlace, para que el campo VIN pueda apuntar a ella con `aria-describedby`. */
 const ID_BANDA_RUNT = 'sol-desenlace-runt';
 
-/** Id de la línea que enumera lo que falta, para el `aria-describedby` del primario. */
-const ID_FALTANTES = 'sol-falta';
-
-/**
- * El rótulo del primario (HU #12079, AC2, literal).
- *
- * «Gestor» es vocabulario interno y esta es la primera pantalla donde un rol externo lo lee. Queda
- * como una cadena y no interpolado en el JSX porque hay una pregunta abierta al PO: si prefiere
- * «Enviar la solicitud», se cambia aquí y en la ficha de ayuda, no en la estructura.
- */
-const ROTULO_ENVIAR = 'Enviar al gestor';
 const TOAST_ENVIADA = 'Solicitud enviada. Ya está en gestión.';
-/** HU #12996 (UX §2.2, literal): rótulo y frase de la barra en «modo RUNT caído». */
-const ROTULO_GUARDAR = 'Guardar pendiente de validar';
+/** HU #12996 (UX §2.2, literal): la frase de la barra en «modo RUNT caído». */
 const FRASE_CAIDO = 'El RUNT no respondió: la solicitud quedará pendiente de validar y se consultará de nuevo antes de enviarla al gestor.';
 /** No es una lista de lo que falta: no falta nada, está PROHIBIDO. Por eso no pasa por la plantilla. */
 const AVISO_VIGENTE = 'Este vehículo tiene SOAT vigente según el RUNT: no se puede radicar la solicitud.';
-
-type CampoFormulario = 'vin' | CampoPropietario | 'archivo';
-type Errores = Partial<Record<CampoFormulario, string>>;
 
 /**
  * En qué punto está la consulta al RUNT. **Un solo control con cuatro rótulos**, no un botón de
@@ -203,9 +197,19 @@ function Alta() {
   const compania = useCompaniaSoat(useAuth().tipoEnlace === 'compania');
   const tituloRef = useRef<HTMLHeadingElement>(null);
   const vinRef = useRef<HTMLInputElement>(null);
+  const placaRef = useRef<HTMLInputElement>(null);
+  const docVehiculoRef = useRef<HTMLInputElement>(null);
   const consultarRef = useRef<HTMLButtonElement>(null);
 
+  // HU #14019: el TIPO manda. `null` = sin elegir (AC1): ni bloques, ni barra, ni consulta.
+  const [tipo, setTipo] = useState<TipoSoat | null>(null); const [masivoEnCurso, setMasivoEnCurso] = useState(false); // lote en curso: cambiar de tipo lo perdería
+  const [errorTipo, setErrorTipo] = useState<string | undefined>();
   const [vin, setVin] = useState('');
+  // Renovación (bloque 1): placa y documento del propietario. Viajan en el cuerpo del POST, nunca en la URL.
+  const [placa, setPlaca] = useState('');
+  const [docVehiculo, setDocVehiculo] = useState('');
+  /** «Renovar» de la tarjeta «Ya está en FLITO»: continúa el flujo sin consultar de nuevo. */
+  const [renovarOk, setRenovarOk] = useState(false);
   const [propietario, setPropietario] = useState<Propietario>(PROPIETARIO_VACIO);
   const [archivo, setArchivo] = useState<File | null>(null);
   // HU #13363: bloque 4. Sobrevive a un error del alta (AC5): ni el `catch` ni el `finally` lo vacían.
@@ -258,7 +262,7 @@ function Alta() {
    * HU #12996 (AC3/AC8): el alta respondió `202 incompleta`. El VIN que se guardó, para la tarjeta de
    * confirmación que REEMPLAZA al formulario. `null` = el formulario sigue en pantalla.
    */
-  const [guardada, setGuardada] = useState<{ vin: string; adicionales?: ResultadoDocumentosAdicionales } | null>(null);
+  const [guardada, setGuardada] = useState<{ vin: string | null; placa?: string; adicionales?: ResultadoDocumentosAdicionales } | null>(null);
   /** Sube con «Solicitar otro SOAT»: el efecto enfoca el VIN cuando el formulario vuelve a montarse. */
   const [reinicios, setReinicios] = useState(0);
 
@@ -318,7 +322,13 @@ function Alta() {
   useEffect(() => { procedenciaRef.current = procedencia; }, [procedencia]);
 
   // Tras guardar, el registro ya existe: salir no descarta nada y no pide confirmación (UX §2.3).
-  const hayDatos = !guardada && Boolean(vin || archivo || adicionales.length || Object.values(propietario).some(Boolean));
+  const hayDatos = !guardada && Boolean(vin || placa || docVehiculo || archivo || adicionales.length || Object.values(propietario).some(Boolean));
+  const t = tipo ?? TipoSoat.INICIAL;
+  const vehiculo = { vin, placa, documentoVehiculo: docVehiculo };
+  const renovacion = tipo === TipoSoat.RENOVACION;
+  // «Ya está en FLITO» (renovación): la tarjeta ocupa el sitio de la ficha hasta «Renovar»; fuera de ventana no hay salida.
+  const flitoCtx = renovacion && consulta.fase === 'ok' ? consulta.datos.flito : undefined;
+  const bloqueoFlito = Boolean(flitoCtx?.yaEnFlito) && !renovarOk;
   /**
    * **La compuerta del RUNT, y solo eso.** Hasta la HU #12079 esto se llamaba `puedeEnviar` y
    * decidía DOS cosas: el aspecto del botón y a dónde va el foco al pulsarlo. Redefinirlo para que
@@ -332,10 +342,11 @@ function Alta() {
    * `invalidada` y la cierra hasta volver a consultar: el 503 era de OTRO VIN.
    */
   const modoCaido = consulta.fase === 'fallo' && consulta.desenlace.guardable === true;
-  const compuertaAbierta = consulta.fase === 'ok' || modoCaido;
+  const compuertaAbierta = (consulta.fase === 'ok' && !bloqueoFlito) || modoCaido;
 
   useEffect(() => { tituloRef.current?.focus(); }, []);
-  useEffect(() => { if (reinicios > 0) vinRef.current?.focus(); }, [reinicios]);
+  // Solo hay un campo de entrada montado (VIN o placa): el que exista recibe el foco.
+  useEffect(() => { if (reinicios > 0) (placaRef.current ?? vinRef.current)?.focus(); }, [reinicios]);
 
   // Foco tras un desenlace con banda: al campo VIN cuando hay algo suyo que corregir —el VIN que no
   // cuadra, el que el RUNT no tiene registrado— y al botón de consulta cuando no lo hay (el servicio
@@ -347,7 +358,10 @@ function Alta() {
     // recorre después la frase y los seis pares en orden. Vale también si el 409 llega al ENVIAR.
     if (consulta.fase === 'vigente') { tarjetaVigenteRef.current?.focus(); return; }
     if (consulta.fase !== 'fallo') return;
-    if (consulta.desenlace.foco === 'vin') vinRef.current?.focus();
+    const foco = consulta.desenlace.foco;
+    if (foco === 'vin') vinRef.current?.focus();
+    else if (foco === 'placa') placaRef.current?.focus();
+    else if (foco === 'documento') docVehiculoRef.current?.focus();
     else consultarRef.current?.focus();
   }, [consulta]);
 
@@ -360,6 +374,7 @@ function Alta() {
    */
   const invalidarConsulta = () => {
     turno.current += 1;
+    setRenovarOk(false);
     setConsulta((c) => (c.fase === 'inicial' ? c : { fase: 'invalidada' }));
   };
 
@@ -373,6 +388,22 @@ function Alta() {
   const cambiarVin = (v: string) => {
     setVin(normalizarVin(v));
     setErrores((e) => ({ ...e, vin: undefined }));
+    invalidarConsulta();
+  };
+
+  const cambiarPlaca = (v: string) => {
+    setPlaca(v);
+    setErrores((e) => ({ ...e, placa: undefined }));
+    invalidarConsulta();
+  };
+
+  /** El número del bloque 1 prellena SOLO el número del bloque 3 (editable): nunca pisa lo que la factura o la persona pusieron. */
+  const cambiarDocVehiculo = (v: string) => {
+    const previo = docVehiculo;
+    setDocVehiculo(v);
+    setErrores((e) => ({ ...e, documentoVehiculo: undefined }));
+    setPropietario((p) => ((p.numeroDocumento === '' || p.numeroDocumento === previo)
+      && procedenciaRef.current.numeroDocumento !== ProcedenciaDato.FACTURA ? { ...p, numeroDocumento: v } : p));
     invalidarConsulta();
   };
 
@@ -590,7 +621,7 @@ function Alta() {
    * solo dónde se pinta lo que no es del RUNT: en la consulta no hay tarjeta de envío que usar.
    */
   const encajarFallo = (f: FalloCanal, origen: 'consulta' | 'envio') => {
-    const r = reaccionA(f, compania.escoge);
+    const r = reaccionA(f, compania.escoge, tipo);
     switch (r.tipo) {
       case 'compania':
         if (origen === 'consulta') setConsulta({ fase: 'inicial' });
@@ -636,8 +667,9 @@ function Alta() {
         // el API tutea y una API desfasada nombra campos que esta pantalla ya no tiene. En el ENVÍO
         // sí se conserva: ahí el mensaje es lo único que distingue un fallo desconocido de otro, y
         // la superficie es una tarjeta de aviso, no la banda del bloque 1.
-        if (origen === 'consulta') setConsulta({ fase: 'fallo', desenlace: DESENLACE_GENERICO });
-        else setAvisoEnvio(r.mensaje);
+        if (origen === 'consulta') setConsulta({ fase: 'fallo', desenlace: renovacion ? DESENLACE_GENERICO_RENOVACION : DESENLACE_GENERICO });
+        // Renovación (HU #14019, AC8): nunca el texto crudo del API; el de Inicial conserva el suyo.
+        else setAvisoEnvio(renovacion ? 'No pudimos enviar la solicitud. Revise los datos e inténtelo de nuevo en unos minutos.' : r.mensaje);
     }
   };
 
@@ -648,9 +680,10 @@ function Alta() {
   // esquema, que no trae `codigo` del canal y sale por la rama por defecto. El Cliente leería «no
   // pudimos consultar el RUNT» cuando lo que pasa es que le faltan caracteres al VIN.
   const consultar = async () => {
+    if (!tipo) { setErrorTipo(MENSAJE_ELIJA_TIPO); return; }
     if (compania.faltante) { compania.pedir(); return; }
-    const errs = validarVehiculo(vin);
-    setErrores((e) => ({ ...e, vin: errs.vin }));
+    const errs = validarVehiculo(tipo, vehiculo);
+    setErrores((e) => ({ ...e, vin: errs.vin, placa: errs.placa, documentoVehiculo: errs.documentoVehiculo }));
     setIntento((n) => n + 1);
     if (Object.keys(errs).length > 0) return;
 
@@ -661,7 +694,9 @@ function Alta() {
       // **El cuerpo es `{ vin }` y nada más** (HU #12090, AC1): la modalidad de VIN del RUNT no pide
       // documento del propietario, y mandarlo sería entregar un dato personal sin destino. `vin` ya
       // está normalizado en el estado, con la misma función que aplica el borde.
-      const datos = await api.post<PreconsultaRunt>('/flito/soat/cliente/preconsulta', { vin, ...(compania.companiaId ? { companiaId: compania.companiaId } : {}) });
+      // Renovación: `{ tipo, placa, numeroDocumento }` y sin VIN (HU #14019, AC2); sin `tipo` = inicial.
+      const dedo = renovacion ? { tipo: 'renovacion', placa, numeroDocumento: docVehiculo.trim() } : { vin };
+      const datos = await api.post<PreconsultaRunt>('/flito/soat/cliente/preconsulta', { ...dedo, ...(compania.companiaId ? { companiaId: compania.companiaId } : {}) });
       if (turno.current !== mio) return;
       setConsulta({ fase: 'ok', datos, consultadoEn: new Date() });
     } catch (e) {
@@ -672,7 +707,7 @@ function Alta() {
 
   // ── Envío (AC1: crear ES enviar, sin borrador, y solo con el RUNT resuelto) ───────────────────
   const enviar = async () => {
-    const errs = validarTodo(vin, propietario, archivo);
+    const errs = validarTodo(t, vehiculo, propietario, archivo);
     setErrores(errs);
     setIntento((n) => n + 1);
     if (Object.keys(errs).length > 0) {
@@ -695,9 +730,9 @@ function Alta() {
     try {
       const juridica = esNit(propietario.tipoDocumento);
       const form = new FormData();
-      // Sin `placa`: la del alta es la que devuelve el RUNT (HU #12090, AC5) y `EntradaSolicitud` la
-      // perdió. El VIN va SIEMPRE, que es lo que dejó de ser opcional.
-      form.append('vin', vin);
+      // Inicial: sin `placa` (la del alta es la que devuelve el RUNT, HU #12090) y el VIN va SIEMPRE.
+      // Renovación (HU #14019): `tipo` + `placa`, sin VIN, y la factura es opcional.
+      if (renovacion) { form.append('tipo', 'renovacion'); form.append('placa', placa); } else form.append('vin', vin);
       if (compania.companiaId) form.append('companiaId', String(compania.companiaId));
       form.append('tipoDocumento', propietario.tipoDocumento);
       form.append('numeroDocumento', propietario.numeroDocumento.trim());
@@ -714,7 +749,7 @@ function Alta() {
       form.append('direccion', propietario.direccion.trim());
       form.append('municipio', propietario.municipio.trim());
       form.append('departamento', propietario.departamento.trim());
-      form.append('facturaVenta', archivo!);
+      if (archivo) form.append('facturaVenta', archivo);
       const conAdicionales = adjuntarAdicionales(form, adicionales) > 0;
       /**
        * De dónde salió cada dato del comprador (AC7), **como cadena JSON dentro del multipart**.
@@ -744,7 +779,7 @@ function Alta() {
       // formulario (AC8). Vale también si la consulta salió OK y el RUNT cayó al enviar (AC3). Una
       // API anterior sin `desenlace` sigue por el flujo de siempre.
       if (resp?.desenlace === 'incompleta') {
-        setGuardada({ vin, adicionales: resp.documentosAdicionales });
+        setGuardada({ vin: renovacion ? null : vin, placa: renovacion ? placa : undefined, adicionales: resp.documentosAdicionales });
         return;
       }
       // Cerrable (HU #12819): `toast.success` no se podía cerrar.
@@ -786,10 +821,13 @@ function Alta() {
    */
   const consultarOtroVehiculo = () => {
     setVin('');
-    setErrores((e) => ({ ...e, vin: undefined }));
+    setPlaca('');
+    setDocVehiculo('');
+    setRenovarOk(false);
+    setErrores((e) => ({ ...e, vin: undefined, placa: undefined, documentoVehiculo: undefined }));
     turno.current += 1;
     setConsulta({ fase: 'inicial' });
-    vinRef.current?.focus();
+    (placaRef.current ?? vinRef.current)?.focus();
   };
 
   const salir = () => (hayDatos ? setConfirmarSalida(true) : navigate(COLA));
@@ -798,10 +836,13 @@ function Alta() {
    * «Solicitar otro SOAT» de la tarjeta de confirmación: es OTRA solicitud, así que se limpia el
    * formulario entero —a diferencia de «Consultar otro vehículo»— y el foco va al VIN (AC8).
    */
-  const solicitarOtro = () => {
+  const limpiarTodo = () => {
     turno.current += 1;
     turnoLectura.current += 1;
     setVin('');
+    setPlaca('');
+    setDocVehiculo('');
+    setRenovarOk(false);
     setPropietario(PROPIETARIO_VACIO);
     setArchivo(null);
     setAdicionales([]);
@@ -812,9 +853,22 @@ function Alta() {
     setSobrescritura(null);
     setErrores({});
     setAvisoEnvio(null);
+    setErrorTipo(undefined);
+  };
+  const solicitarOtro = () => {
+    limpiarTodo();
     setGuardada(null);
     setReinicios((n) => n + 1);
   };
+
+  /**
+   * Cambiar de tipo limpia todo lo dependiente (AC6): consulta, factura, propietario. La confirmación,
+   * si había datos, la pide el selector; aquí ya está decidido. «Renovar» del 409 llega por
+   * `renovarDesdeModal`, que no pregunta y deja el foco en «Placa».
+   */
+  const cambiarTipo = (nuevo: TipoSoat) => { limpiarTodo(); setModal(null); setTipo(nuevo); };
+  const renovarDesdeModal = () => { cambiarTipo(TipoSoat.RENOVACION); setReinicios((n) => n + 1); };
+  const continuarRenovacion = () => { setRenovarOk(true); requestAnimationFrame(() => consultarRef.current?.focus()); };
 
   /**
    * Lo que falta para poder enviar, **derivado de `validarTodo`** — la misma función que bloquea el
@@ -847,15 +901,15 @@ function Alta() {
     // En modo RUNT caído la consulta ya no es un pendiente: lo que falta son los datos (UX §2.2).
     () => [
       ...(compania.faltante ? [ITEM_COMPANIA] : []),
-      ...faltaParaEnviar(modoCaido ? 'ok' : consulta.fase, vin, propietario, archivo, pendientesRevision.length),
+      ...faltaParaEnviar(t, modoCaido ? 'ok' : consulta.fase, { vin, placa, documentoVehiculo: docVehiculo }, propietario, archivo, pendientesRevision.length),
     ],
-    [compania.faltante, modoCaido, consulta.fase, vin, propietario, archivo, pendientesRevision.length],
+    [compania.faltante, modoCaido, consulta.fase, t, vin, placa, docVehiculo, propietario, archivo, pendientesRevision.length],
   );
   const fraseFaltantes = consulta.fase === 'vigente'
     ? AVISO_VIGENTE
     : frasePendientes(faltantes) ?? (modoCaido ? FRASE_CAIDO : null);
 
-  const idPrimerError = useMemo(() => primerErrorEnfocable(errores), [errores]);
+  const idPrimerError = useMemo(() => primerErrorEnfocable(t, errores), [t, errores]);
   useFocoPrimerError(idPrimerError, intento);
 
   if (canalCaido) {
@@ -880,6 +934,21 @@ function Alta() {
   const consultaResuelta = consulta.fase === 'ok' || consulta.fase === 'vigente' || (modoCaido && !bloqueado);
   const IconoConsulta = cargando ? Loader2 : consulta.fase === 'inicial' ? Search : RotateCw;
 
+  const mostrarFormulario = tipo !== null && !bloqueoFlito;
+  const botonConsultar = (
+    <button
+      type="button" ref={consultarRef}
+      className={`${consultaResuelta ? flitBtnSecondary : flitBtnPrimary} w-full justify-center sm:w-auto`}
+      style={consultaResuelta ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
+      disabled={cargando}
+      onClick={() => { void consultar(); }}
+    >
+      <IconoConsulta size={16} aria-hidden="true" className={`shrink-0 ${cargando ? 'animate-spin motion-reduce:animate-none' : ''}`} />
+      {ROTULO_CONSULTA[consulta.fase]}
+    </button>
+  );
+  const focoEn = consulta.fase === 'fallo' ? consulta.desenlace.foco : null;
+
   return (
     <div className="space-y-4">
       <div>
@@ -892,31 +961,41 @@ function Alta() {
         <PageHeaderCard
           titleRef={tituloRef}
           title="Solicitud de SOAT"
-          // Una frase (HU #12819): «entra en gestión» vive solo en la barra de envío.
-          subtitle="Escriba el VIN, adjunte la factura de venta y complete el propietario."
+          // Una frase (HU #12819): «entra en gestión» vive solo en la barra de envío. Cambia con el tipo (#14019).
+          subtitle={subtituloSolicitud(tipo)}
         />
       </div>
 
       {guardada ? (
-        <TarjetaSolicitudGuardada vin={guardada.vin} adicionales={guardada.adicionales} onIrACola={() => navigate(COLA, { state: { pastilla: 'incompleta' } })} onSolicitarOtro={solicitarOtro} />
+        <TarjetaSolicitudGuardada vin={guardada.vin} placa={guardada.placa} adicionales={guardada.adicionales} onIrACola={() => navigate(COLA, { state: { pastilla: 'incompleta' } })} onSolicitarOtro={solicitarOtro} />
       ) : (
       <>
       <CampoCompaniaSoat compania={compania} onCambio={cambiarCompania} />
+      {/* ── Tipo de SOAT (HU #14019): sin valor por defecto; hasta elegirlo no hay bloques ni barra. */}
+      <SelectorTipoSoat valor={tipo} hayDatos={hayDatos || consulta.fase !== 'inicial' || masivoEnCurso} onCambiar={cambiarTipo} error={errorTipo} />
+      <ModalidadRenovacion tipo={tipo} compania={compania} onMasivoEnCurso={setMasivoEnCurso}>
+      {tipo !== null && (
+      <>
       {/* ── Bloque 1 · Vehículo ─────────────────────────────────────────────────────────────────
-          **Un solo campo** (AC1). Placa, tipo y número de documento salieron de aquí: desde la
-          HU #12090 el RUNT se interroga por VIN, y un campo que no cambia el resultado de la
-          consulta es un campo que sobra. El documento no desapareció —se edita en el bloque 3, con
-          el propietario, que es donde se entiende para qué sirve. */}
+          Inicial: **un solo campo**, el VIN (HU #12091, AC1). Renovación: placa + documento del
+          propietario, sin tipo de documento (HU #14019, AC2). */}
       <Seccion
         titulo="1 · Vehículo"
         icono={<Car size={18} aria-hidden="true" className="shrink-0" />}
-        chip={consulta.fase === 'ok'
+        chip={consulta.fase === 'ok' && !bloqueoFlito
           ? <StatusChip tone="success" icono={<CircleCheck size={14} aria-hidden="true" />}>Consultado</StatusChip>
           : undefined}
       >
-        {/* HU #12844: el rótulo va fuera del renglón y el botón COMPARTE renglón con el input, a la
-            misma altura (fuera el `sm:mt-[1.35rem]`). En 375 el renglón envuelve y el botón baja a
-            ancho completo. */}
+        {renovacion ? (
+          <BloqueVehiculoRenovacion
+            placa={placa} documento={docVehiculo} onPlaca={cambiarPlaca} onDocumento={cambiarDocVehiculo}
+            onBlurPlaca={() => validarCampo('placa', placa)} onBlurDocumento={() => validarCampo('documentoVehiculo', docVehiculo)}
+            errorPlaca={errores.placa} errorDocumento={errores.documentoVehiculo}
+            placaRef={placaRef} documentoRef={docVehiculoRef} readOnly={cargando}
+            placaInvalida={focoEn === 'placa'} documentoInvalido={focoEn === 'documento'}
+            describedByExtra={ID_BANDA_RUNT} accion={botonConsultar}
+          />
+        ) : (
         <Campo
           id={ID_CAMPO.vin} label="VIN (número de chasis)"
           valor={vin} inputRef={vinRef} codigo
@@ -926,29 +1005,17 @@ function Alta() {
           ayuda={<AyudaVin vin={vin} />}
           maxLength={25} autoComplete="off"
           readOnly={cargando}
-          invalido={consulta.fase === 'fallo' && consulta.desenlace.foco === 'vin'}
+          invalido={focoEn === 'vin'}
           /* Condicionado AQUÍ y no dentro de `Campo` (HU #12094): el VIN solo apunta a la banda
              cuando la banda existe. */
-          describedByExtra={consulta.fase === 'fallo' && consulta.desenlace.foco === 'vin'
-            ? ID_BANDA_RUNT
-            : undefined}
-          accion={(
-            <button
-              type="button" ref={consultarRef}
-              className={`${consultaResuelta ? flitBtnSecondary : flitBtnPrimary} w-full justify-center sm:w-auto`}
-              style={consultaResuelta ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
-              disabled={cargando}
-              onClick={() => { void consultar(); }}
-            >
-              <IconoConsulta size={16} aria-hidden="true" className={`shrink-0 ${cargando ? 'animate-spin motion-reduce:animate-none' : ''}`} />
-              {ROTULO_CONSULTA[consulta.fase]}
-            </button>
-          )}
+          describedByExtra={focoEn === 'vin' ? ID_BANDA_RUNT : undefined}
+          accion={botonConsultar}
         />
+        )}
 
-        {avisoLongitudVin && !errores.vin && <AvisoLongitudVin texto={avisoLongitudVin} />}
+        {!renovacion && avisoLongitudVin && !errores.vin && <AvisoLongitudVin texto={avisoLongitudVin} />}
 
-        {(consulta.fase === 'inicial' || consulta.fase === 'invalidada') && <VacioVin />}
+        {(consulta.fase === 'inicial' || consulta.fase === 'invalidada') && <VacioVin renovacion={renovacion} />}
 
         {cargando && (
           <>
@@ -967,7 +1034,7 @@ function Alta() {
             acaba de hacer. */}
         {consulta.fase === 'invalidada' && (
           <p role="status" className="mt-3 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-            Cambió el VIN: vuelva a consultar el RUNT antes de enviar.
+            {renovacion ? 'Cambió la placa o el documento: vuelva a consultar el RUNT antes de enviar.' : 'Cambió el VIN: vuelva a consultar el RUNT antes de enviar.'}
           </p>
         )}
 
@@ -979,24 +1046,41 @@ function Alta() {
           />
         )}
 
+        {/* «Ya está en FLITO» (renovación): tarjeta en línea, `role="status"`, sin mover el foco. «Renovar» solo si es renovable. */}
+        {bloqueoFlito && flitoCtx && (
+          <TarjetaSoatActivo
+            variante="renovar" flito={flitoCtx} onConsultarOtro={consultarOtroVehiculo}
+            onRenovar={esRenovable(flitoCtx) ? continuarRenovacion : undefined}
+          />
+        )}
+
         {/* Aviso (200 con `vigenciaProxima`): ENCIMA de la ficha, porque responde «¿puedo seguir?»
             antes que once pares etiqueta–valor. `role="status"`, sin mover el foco. */}
-        {vigencia && <TarjetaSoatActivo variante="aviso" datos={vigencia} venceEl={vigencia.venceEl} />}
+        {vigencia && !flitoCtx?.yaEnFlito && <TarjetaSoatActivo variante="aviso" datos={vigencia} venceEl={vigencia.venceEl} />}
 
-        {consulta.fase === 'ok' && (
+        {consulta.fase === 'ok' && !bloqueoFlito && (
           <div className="mt-3">
-            <FichaRunt datos={consulta.datos} consultadoEn={consulta.consultadoEn} />
+            <FichaRunt datos={consulta.datos} consultadoEn={consulta.consultadoEn} ocultarVin={renovacion} />
           </div>
         )}
       </Seccion>
 
+      {mostrarFormulario && (
+      <>
       {/* ── Bloque 2 · Factura de venta ─────────────────────────────────────────────────────────
           Delante del propietario desde la HU #12091 (AC2), y desde la #12094 es también donde la
-          lectura dice de sí misma en qué punto está. El chip vive en el encabezado de la sección,
-          hermano del «✓ Consultado» del bloque 1: la pantalla ya tiene ese vocabulario. */}
-      <Seccion titulo="2 · Factura de venta" icono={<FileText size={18} aria-hidden="true" className="shrink-0" />} chip={chipLectura(lectura)}>
+          lectura dice de sí misma en qué punto está. En Renovación es opcional (HU #14019). */}
+      <Seccion
+        titulo={renovacion ? '2 · Factura de venta (opcional)' : '2 · Factura de venta'}
+        icono={<FileText size={18} aria-hidden="true" className="shrink-0" />} chip={chipLectura(lectura)}
+      >
         <div className="space-y-3">
-          <BloqueFactura archivo={archivo} error={errores.archivo} onElegir={elegirArchivo} onQuitar={quitarArchivo} />
+          {renovacion && (
+            <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+              Si la adjunta, FLITO lee el propietario y lo llena. Si no, escríbalo.
+            </p>
+          )}
+          <BloqueFactura rotulo={renovacion ? "Un solo archivo PDF · máximo 15 MB · opcional" : undefined} archivo={archivo} error={errores.archivo} onElegir={elegirArchivo} onQuitar={quitarArchivo} />
           {/* Debajo de la caja del archivo, que es donde el tabulador las encuentra, y sin robar el
               foco: la lectura pudo tardar un minuto y el Cliente puede estar escribiendo abajo. */}
           <AvisoLectura
@@ -1028,77 +1112,17 @@ function Alta() {
       {/* ── Bloque 4 · Documentos adicionales (HU #13363): opcional, no suma a lo que falta. */}
       <BloqueDocumentosAdicionales value={adicionales} onChange={setAdicionales} factura={archivo} />
 
-      {/* Barra de envío PEGAJOSA (HU #12819, §12.2): la frase de lo que falta y «Enviar al gestor»
-          quedan a la vista durante todo el formulario, que tiene doce campos. En `lg` se levanta
-          sobre la barra de módulos flotante del shell, que vive fija al pie. */}
-      <div className="sticky bottom-2 z-20 lg:bottom-[5.5rem]">
-      <FlitCard>
-        {envioIncierto
-          ? (
-            <div className="space-y-2">
-              <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
-                No sabemos si la solicitud llegó a FLITO. Vuelva a sus SOAT y busque ese VIN antes de volver a enviarla.
-              </p>
-              <Link to={COLA} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Volver a mis SOAT</Link>
-            </div>
-          )
-          : (
-            <div className="space-y-3">
-              {avisoEnvio && (
-                <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{avisoEnvio}</p>
-              )}
-              {!modoCaido && (
-                <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                  No se guarda como borrador: al enviarla, entra en gestión.
-                </p>
-              )}
-              {enviando && (validos(adicionales).length
-                ? <p role="status" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{textoEnviandoAdicionales(validos(adicionales).length)}</p>
-                : <span role="status" className="sr-only">{modoCaido ? 'Guardando…' : 'Enviando…'}</span>)}
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                {/* **Texto plano con `id`, no una región viva.** El botón la referencia con
-                    `aria-describedby` mientras está bloqueado, así que el lector anuncia «Enviar al
-                    gestor, no disponible, Para enviar falta: …» cuando el foco LLEGA al botón, que
-                    es cuando importa. Una `role="status"` aquí se reanunciaría con cada pulsación
-                    de tecla del formulario: doce campos interrumpiendo a quien escribe. */}
-                {fraseFaltantes && (
-                  <p id={ID_FALTANTES} className="line-clamp-2 w-full text-xs font-semibold sm:mr-auto sm:w-auto sm:flex-1" style={{ color: 'var(--flit-text-secondary)' }}>
-                    {fraseFaltantes}
-                  </p>
-                )}
-                {/* En modo RUNT caído el rótulo es largo: a <sm se apilan con la primaria arriba en vez
-                    de partir el texto dentro de un botón de altura fija. */}
-                <div className={modoCaido
-                  ? 'flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row'
-                  : 'grid w-full grid-cols-[auto_1fr] gap-2 sm:flex sm:w-auto'}>
-                <button type="button" className={`${flitBtnSecondary} justify-center`} style={flitBtnSecondaryStyle} onClick={salir}>
-                  Cancelar
-                </button>
-                {/* **`aria-disabled` y no `disabled`, y es una decisión de accesibilidad.** Un botón
-                    `disabled` sale del recorrido de tabulación: quien navega con teclado llega al
-                    final del formulario y el primario simplemente NO EXISTE, sin explicación. Con
-                    `aria-disabled` el lector anuncia «no disponible», el foco lo alcanza y al
-                    pulsarlo la pantalla lo lleva a la acción que sí toca. El AC1 se cumple igual:
-                    no se envía nada. La atenuación va EXPLÍCITA porque `aria-disabled` no dispara
-                    las variantes `disabled:` de Tailwind. */}
-                <button type="button" className={`${flitBtnPrimary} justify-center`}
-                  style={bloqueado
-                    ? { ...flitBtnPrimaryStyle, opacity: 0.5, cursor: 'not-allowed' }
-                    : flitBtnPrimaryStyle}
-                  aria-disabled={bloqueado ? true : undefined}
-                  aria-describedby={bloqueado && fraseFaltantes ? ID_FALTANTES : undefined}
-                  disabled={enviando} onClick={intentarEnviar}>
-                  {modoCaido
-                    ? <Save size={16} aria-hidden="true" className="shrink-0" />
-                    : <Send size={16} aria-hidden="true" className="shrink-0" />}
-                  {enviando ? (modoCaido ? 'Guardando…' : 'Enviando…') : (modoCaido ? ROTULO_GUARDAR : ROTULO_ENVIAR)}
-                </button>
-                </div>
-              </div>
-            </div>
-          )}
-      </FlitCard>
-      </div>
+      {/* Barra de envío ANCLADA al borde inferior (HU #14019, UX §3.5): ver `BarraEnvioSolicitud`. */}
+      <BarraEnvioSolicitud
+        colaHref={COLA} envioIncierto={envioIncierto} avisoEnvio={avisoEnvio} modoCaido={modoCaido} enviando={enviando}
+        textoEnviandoAdicionales={validos(adicionales).length ? textoEnviandoAdicionales(validos(adicionales).length) : null}
+        fraseFaltantes={fraseFaltantes} bloqueado={bloqueado} onCancelar={salir} onEnviar={intentarEnviar}
+      />
+      </>
+      )}
+      </>
+      )}
+      </ModalidadRenovacion>
       </>
       )}
 
@@ -1106,15 +1130,16 @@ function Alta() {
           7). La placa ya no existe como dato tecleado, y el VIN no la sustituye: en `vin_ya_tiene_soat`
           la RN-01 corre ANTES de Kyverum, así que no hay respuesta del RUNT de la que sacarlo — y
           meter 17 caracteres en el `aria-label` de un diálogo es PII en la superficie exacta de la
-          que tiran los selectores de axe. `restoreFocusRef` es el VIN, el único campo que queda. */}
+          que tiran los selectores de axe. `restoreFocusRef` es el campo de entrada del tipo vigente. */}
       {modal?.codigo === CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT && (
         <ModalVinEnCola
           propia={modal.propia === true} estado={modal.estado} id={modal.id}
-          restoreFocusRef={vinRef} onClose={() => setModal(null)}
+          flito={modal.flito} onRenovar={tipo === TipoSoat.INICIAL ? renovarDesdeModal : undefined}
+          restoreFocusRef={renovacion ? placaRef : vinRef} onClose={() => setModal(null)}
         />
       )}
       {modal?.codigo === CodigoErrorSolicitudSoat.SOLICITUD_INCOMPLETA_EXISTENTE && (
-        <ModalIncompletaExistente propia={modal.propia === true} restoreFocusRef={vinRef} onClose={() => setModal(null)} />
+        <ModalIncompletaExistente propia={modal.propia === true} restoreFocusRef={renovacion ? placaRef : vinRef} onClose={() => setModal(null)} />
       )}
 
       {confirmarSalida && (
@@ -1132,227 +1157,4 @@ function Alta() {
       )}
     </div>
   );
-}
-
-// ───────────────────────────── Validación ────────────────────────────────────────────────────────
-
-/**
- * El validador de un campo. **El tipo de documento decide cuál se aplica al nombre**: pedirle
- * apellidos a un NIT sería exigir un dato que el servidor rechaza.
- */
-function validador(campo: CampoFormulario, tipoDocumento: string): ((v: string) => string | null) | null {
-  switch (campo) {
-    case 'vin': return errorVin;
-    case 'tipoDocumento': return errorTipoDocumento;
-    case 'numeroDocumento': return errorNumeroDocumento;
-    case 'nombres': return esNit(tipoDocumento) ? null : errorNombres;
-    case 'apellidos': return esNit(tipoDocumento) ? null : errorApellidos;
-    case 'razonSocial': return esNit(tipoDocumento) ? errorRazonSocial : null;
-    case 'correo': return errorCorreo;
-    case 'celular': return errorCelular;
-    case 'direccion': return errorDireccion;
-    case 'municipio': return errorMunicipio;
-    case 'departamento': return errorDepartamento;
-    default: return null;
-  }
-}
-
-/**
- * Lo que la CONSULTA necesita: **el VIN y nada más** (HU #12091, AC1).
- *
- * Que sea una función de un solo campo y no una comprobación en línea es lo que mantiene una sola
- * fuente de verdad con `validarTodo`, que la reusa: el día que el VIN gane otra regla, la consulta
- * y el envío la aplican los dos o ninguno.
- */
-function validarVehiculo(vin: string): Errores {
-  const errs: Errores = {};
-  const msg = errorVin(vin);
-  if (msg) errs.vin = msg;
-  return errs;
-}
-
-/** Todas las reglas a la vez, en el ORDEN VISUAL: el primero que falle es al que va el foco. */
-function validarTodo(vin: string, p: Propietario, archivo: File | null): Errores {
-  const errs = validarVehiculo(vin);
-  const poner = (c: CampoFormulario, m: string | null) => { if (m) errs[c] = m; };
-  poner('tipoDocumento', errorTipoDocumento(p.tipoDocumento));
-  poner('numeroDocumento', errorNumeroDocumento(p.numeroDocumento));
-  const campoNombre = (c: 'nombres' | 'apellidos' | 'razonSocial') => poner(c, validador(c, p.tipoDocumento)?.(p[c]) ?? null);
-  campoNombre('razonSocial');
-  campoNombre('nombres');
-  campoNombre('apellidos');
-  // La cota del DERIVADO, la misma del borde: `nombres` y `apellidos` son dos topes independientes
-  // de 200 sobre una columna de 200, así que el máximo alcanzable es 401. Cuelga de los DOS campos
-  // —el usuario acorta el que quiera— y se frena aquí porque el `400` del servidor aterrizaba en el
-  // aviso genérico de la tarjeta de envío, que no marca ningún campo, tras subir el PDF entero.
-  if (!esNit(p.tipoDocumento) && !errs.nombres && !errs.apellidos) {
-    const msg = errorNombreCompleto(p.nombres, p.apellidos);
-    if (msg) { errs.nombres = msg; errs.apellidos = msg; }
-  }
-  poner('correo', errorCorreo(p.correo));
-  poner('celular', errorCelular(p.celular));
-  poner('direccion', errorDireccion(p.direccion));
-  poner('municipio', errorMunicipio(p.municipio));
-  poner('departamento', errorDepartamento(p.departamento));
-  if (!archivo) errs.archivo = 'Adjunte la factura de venta en PDF.';
-  return errs;
-}
-
-// ─────────────────── Lo que falta para enviar, dicho por su nombre (HU #12079) ──────────────────
-
-/**
- * El orden VISUAL de los campos ENFOCABLES: el primero que falle es al que va el foco.
- *
- * Reordenado en la HU #12091 (AC2) con la pantalla: el VIN abre —es el único control del bloque 1— y
- * el documento baja al bloque del propietario, delante del nombre. `archivo` **no está aquí** y no
- * es un olvido: la caja de subida no tiene un id en `ID_CAMPO` al que llevar el foco, así que
- * incluirla haría que `primerErrorEnfocable` devolviera `null` —y nadie recibiría el foco— cada vez
- * que faltara la factura y algo más. Su sitio en la enumeración sí cambia, abajo.
- */
-const ORDEN_FOCO_BASE: CampoFormulario[] = [
-  'vin', 'tipoDocumento', 'numeroDocumento',
-  ...CAMPOS_NOMBRE, 'correo', 'celular', 'direccion', 'municipio', 'departamento',
-];
-
-/**
- * El nombre VISIBLE de cada campo: el mismo literal que su `<label>` en `bloques.tsx`.
- *
- * Etiquetas y nunca valores — «Correo electrónico», jamás lo que el Cliente escribió en él —: esta
- * frase se lee en voz alta y se pinta en pantalla, y un valor ahí sería PII en una superficie que
- * no la necesita.
- */
-const ETIQUETA_CAMPO: Record<CampoFormulario, string> = {
-  tipoDocumento: 'Tipo de documento',
-  numeroDocumento: 'Número de documento',
-  vin: 'VIN',
-  razonSocial: 'Razón social',
-  nombres: 'Nombre/s',
-  apellidos: 'Apellido/s',
-  correo: 'Correo electrónico',
-  celular: 'Celular',
-  direccion: 'Dirección',
-  municipio: 'Municipio',
-  departamento: 'Departamento',
-  archivo: 'Factura de venta',
-};
-
-/**
- * El orden de la enumeración: **el del foco, con la factura en su sitio nuevo**.
- *
- * Es el orden visual y el del tabulador, y es lo que hace la frase afirmable en un test: sin un
- * orden fijo, «faltan el correo y el celular» y «faltan el celular y el correo» serían las dos
- * correctas y ninguna comprobable. La factura ya no va al final: desde la HU #12091 su bloque está
- * ENTRE el vehículo y el propietario, y una frase que la nombrara al final mandaría a mirar abajo
- * lo que está arriba.
- */
-const ORDEN_FALTANTES: CampoFormulario[] = ['vin', 'archivo', ...ORDEN_FOCO_BASE.slice(1)];
-
-/**
- * El ítem del RUNT, redactado según la fase, y **siempre el primero**.
- *
- * Calca `ROTULO_CONSULTA`, que es el rótulo del botón al que la frase apunta: si el botón dice
- * «Volver a consultar», la frase no puede decir «consultar». `cargando` sigue contando —la
- * compuerta sigue cerrada mientras el RUNT piensa— y se redacta como `inicial` porque «volver a»
- * sería falso: es la primera consulta y está en vuelo.
- */
-const ITEM_RUNT: Record<Consulta['fase'], string | null> = {
-  inicial: 'consultar el RUNT',
-  cargando: 'consultar el RUNT',
-  fallo: 'consultar el RUNT',
-  'sin-banda': 'consultar el RUNT',
-  // Cuenta para que el primario siga bloqueado; la frase que se ve es `AVISO_VIGENTE`.
-  vigente: 'consultar el RUNT',
-  invalidada: 'volver a consultar el RUNT',
-  ok: null,
-};
-
-/**
- * Todo lo que impide enviar, en el orden del foco. Lista vacía = el botón está activo.
- *
- * **Se deriva de `validarTodo`**, la función que ya bloquea el envío. Nunca de un `campo === ''`
- * paralelo: con dos fuentes de verdad, un correo mal escrito dejaría el botón activo, la pulsación
- * no enviaría nada y el Cliente no tendría forma de saber por qué.
- */
-function faltaParaEnviar(
-  fase: Consulta['fase'], vin: string, p: Propietario, archivo: File | null, porRevisar: number,
-): string[] {
-  const errs = validarTodo(vin, p, archivo);
-  const runt = ITEM_RUNT[fase];
-  return [
-    ...(runt ? [runt] : []),
-    ...(porRevisar > 0 ? [itemRevision(porRevisar)] : []),
-    ...ORDEN_FALTANTES.filter((c) => errs[c]).map((c) => ETIQUETA_CAMPO[c]),
-  ];
-}
-
-/**
- * El ítem de la revisión pendiente (HU #12094, AC3), **siempre el SEGUNDO** — detrás del RUNT, y el
- * primero cuando el RUNT ya está resuelto.
- *
- * No es una preferencia de redacción: `frasePendientes` conserva los dos primeros segmentos y resume
- * el resto, así que esa posición es la única que garantiza que el número de campos por revisar nunca
- * caiga dentro del «y N datos más». El AC pide que el botón indique cuántos faltan por revisar; al
- * final de la lista, en el caso más común —formulario a medias y dos lecturas dudosas— dejaría de
- * indicarlo.
- *
- * Es la ÚNICA variante de singular/plural de esta plantilla, y trae su localizador para QA:
- * `/revisar \d+ datos? leídos?/`.
- */
-function itemRevision(n: number): string {
-  return n === 1 ? 'revisar 1 dato leído' : `revisar ${n} datos leídos`;
-}
-
-/** Copia el mapa sin una clave. Un `= undefined` dejaría la clave presente ante `in` y `Object.keys`. */
-function sinClave<K extends string, V>(mapa: Partial<Record<K, V>>, clave: K): Partial<Record<K, V>> {
-  const n = { ...mapa };
-  delete n[clave];
-  return n;
-}
-
-/**
- * El chip del bloque 2, uno por estado de la LECTURA (UX §3).
- *
- * La lectura vacía **no lleva chip**: un «✓ Factura leída» sobre un bloque 3 en blanco se leería como
- * que los datos están puestos. Lo que hay que decir ahí lo dice la línea de `AvisoLectura`.
- */
-function chipLectura(lectura: EstadoLectura): ReactNode {
-  switch (lectura.fase) {
-    case 'leyendo': return <StatusChip tone="active">Leyendo la factura…</StatusChip>;
-    case 'ok': return <StatusChip tone="success">✓ Factura leída</StatusChip>;
-    case 'fallo': return <StatusChip tone="warning">No se pudo leer</StatusChip>;
-    default: return undefined;
-  }
-}
-
-/**
- * «Para enviar falta: A, B y C.» — **una sola plantilla**, sin variantes de singular ni de plural,
- * para que exista UN localizador que afirmar en un test.
- *
- * **Tope: tres segmentos.** Con el formulario en blanco faltan doce cosas y enumerarlas todas es un
- * párrafo que nadie lee. Cuando sobran, los dos primeros nombres y «y N datos más» — el corte va en
- * dos y no en tres a propósito: con cuatro pendientes, «A, B, C y 1 datos más» obligaría a la
- * variante de singular que esta plantilla existe para no tener.
- */
-function frasePendientes(items: string[]): string | null {
-  if (items.length === 0) return null;
-  const segmentos = items.length <= 3
-    ? items
-    : [...items.slice(0, 2), `${items.length - 2} datos más`];
-  const ultimo = segmentos[segmentos.length - 1];
-  const previos = segmentos.slice(0, -1);
-  return `Para enviar falta: ${previos.length ? `${previos.join(', ')} y ${ultimo}` : ultimo}.`;
-}
-
-
-
-/**
- * El id del primer control inválido, o `null`.
- *
- * `null` también cuando el primero es el tipo de documento: `FlitSelect` se enfoca a sí mismo al
- * recibir `error` y su id lo genera `useId()`. Devolver algo aquí competiría con ese foco.
- */
-function primerErrorEnfocable(errores: Errores): string | null {
-  const primero = ORDEN_FOCO_BASE.find((c) => errores[c]);
-  if (!primero || primero === 'tipoDocumento') return null;
-  return ID_CAMPO[primero as keyof typeof ID_CAMPO] ?? null;
 }

@@ -20,8 +20,10 @@ import { motivoEnFrase, textoGuardados } from '../soat/documentosAdicionales';
 export const TITULO_GUARDADA = 'Su solicitud quedó guardada, pendiente de validar';
 
 export default function TarjetaSolicitudGuardada(
-  { vin, adicionales, onIrACola, onSolicitarOtro }: {
-    vin: string;
+  { vin, placa, adicionales, onIrACola, onSolicitarOtro }: {
+    /** `null` en una renovación (HU #14019): se identifica por la placa. */
+    vin: string | null;
+    placa?: string;
     /** HU #13363: los adicionales también se guardan con el RUNT caído; sus descartes van aquí, no en un toast. */
     adicionales?: ResultadoDocumentosAdicionales;
     onIrACola: () => void; onSolicitarOtro: () => void;
@@ -53,15 +55,16 @@ export default function TarjetaSolicitudGuardada(
           </h2>
         </div>
         <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-          El RUNT no respondió, así que todavía no la enviamos al gestor. Guardamos el VIN, la factura y
-          los datos del propietario: no tiene que volver a escribirlos.{' '}
+          El RUNT no respondió, así que todavía no la enviamos al gestor.{' '}
+          {vin ? 'Guardamos el VIN, la factura y los datos del propietario' : 'Guardamos la placa y los datos del propietario'}
+          : no tiene que volver a escribirlos.{' '}
           {puedeReintentar
             ? 'Cuando el RUNT responda, la consulta se repite desde «Mis SOAT» con «Reintentar consulta».'
             : 'FLITO volverá a consultar el RUNT y usted verá el cambio de estado en «Mis SOAT».'}
         </p>
         <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-          VIN{' '}
-          <span className="break-all font-mono font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{vin}</span>
+          {vin ? 'VIN' : 'Placa'}{' '}
+          <span className="break-all font-mono font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{vin ?? placa}</span>
         </p>
         {adicionales && adicionales.aceptados.length > 0 && (
           <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{textoGuardados(adicionales.aceptados.length)}</p>

@@ -40,6 +40,7 @@ import { ANS_OPERATIVO,
   MotivoRevision,
   polizaParaColumna,
   TipoPropiedad,
+  TipoSoat,
   type ExtraccionSoat,
   type FiltroVigenciaCola,
   type VigenciaSoatVista,
@@ -51,6 +52,7 @@ import { exigirProveedorSoatUsable } from '../flito-parametrizacion/flito-provee
 import { uploadEntityDocument } from '../../services/storage.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { EXISTS_COMPROBANTE_SOAT, TIPO_FACTURA_SOAT } from './flito-soat-censo.js';
+import { hayOtroAbiertoAlReabrir } from './flito-soat-actual.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 import { resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
 import { alcanceDeUsuario } from '../../shared/middleware/frontera-enlace.js';
@@ -243,6 +245,8 @@ export interface SoatColaItem {
    * de nombre con `numero_poliza`, que es otro número (el que el OCR sacó de la factura de FLITO).
    */
   vigencia: { estado: VigenciaSoatVista; verificadaEn: string | null; venceEl: string | null } | null;
+  /** Inicial/Renovación de la solicitud del canal (HU #14017); `null` = fila de trámite, sin solicitud. */
+  tipoSoat: TipoSoat | null;
 }
 
 /**
@@ -603,7 +607,9 @@ export function conJoinsCola<Q extends PgSelect>(q: Q) {
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .leftJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
-    .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id));
+    .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id))
+    // HU #14017: `flito_soat_solicitud` es 1:1 por PK (`soat_id`), así que no multiplica filas.
+    .leftJoin(flitoSoatSolicitud, eq(flitoSoatSolicitud.soatId, flitoSoat.id));
 }
 
 /**
@@ -699,6 +705,7 @@ export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatP
       proveedorSoatNombre: flitoProveedoresSoat.nombre,
       proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
       enviadoPorNombre: users.name,
+      tipoSoat: flitoSoatSolicitud.tipoSoat,
       ...PROYECCION_VIGENCIA,
     }).from(flitoSoat).$dynamic()).where(where)
       // Lo más RECIENTE arriba (HU #11963). La cola abre por lo que acaba de entrar para que una
@@ -815,6 +822,8 @@ type ColaRow = {
   companiaNombre: string;
   organismoNombre: string | null; proveedorSoatNombre: string | null; proveedorSlaHoras: number | null;
   enviadoPorNombre: string | null;
+  /** `null` en filas de trámite (sin solicitud del canal). */
+  tipoSoat: string | null;
   /** Los tres persistidos (Feature #12075). `venceEl` es `date`, o sea `yyyy-mm-dd` en texto. */
   estadoVigencia: string; verificadaEn: Date | null; venceEl: string | null;
   /** ¿Esta fila entra en la verificación diaria? Es el `EXISTS` del censo, no un `estado = pagado`. */
@@ -1030,6 +1039,7 @@ async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaIte
       estancado: estaEstancado(r.estado, r.enviadoEn),
       motivoRechazo: r.motivoRechazo,
       creadoEn: r.createdAt.toISOString(),
+      tipoSoat: r.tipoSoat === null ? null : r.tipoSoat === 'renovacion' ? TipoSoat.RENOVACION : TipoSoat.INICIAL,
       // El bloque entero es `null` cuando la fila no entra en la verificación diaria. Y NO se emite
       // «vacío con nulls dentro»: la pantalla distingue una fila muda de una con pastilla, y un
       // objeto presente con todo a null la obligaría a inventarse un cuarto caso.
@@ -1411,6 +1421,7 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSa
       companiaNombre: clients.name, organismoNombre: organismosTransitoConfig.alias,
       proveedorSoatNombre: flitoProveedoresSoat.nombre, proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
       enviadoPorNombre: users.name,
+      tipoSoat: flitoSoatSolicitud.tipoSoat,
       ...PROYECCION_VIGENCIA,
     })
     .from(flitoSoat)
@@ -1419,6 +1430,7 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSa
     .leftJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id))
+    .leftJoin(flitoSoatSolicitud, eq(flitoSoatSolicitud.soatId, flitoSoat.id))
     .where(eq(flitoSoat.id, id))
     .limit(1);
 
@@ -1660,6 +1672,7 @@ export async function reversarEnTx(
   tx: Tx, soat: Pick<typeof flitoSoat.$inferSelect, 'id' | 'estado'>,
   estadoDestino: EstadoSoat, motivo: string, ctx: Pick<SoatCtx, 'userId' | 'username'>,
 ): Promise<typeof flitoSoat.$inferSelect> {
+  if (await hayOtroAbiertoAlReabrir(tx, soat.id, estadoDestino)) throw new SoatError(409, 'El vehículo ya tiene otro SOAT abierto');
   const limpiar = estadoDestino === EstadoSoat.PENDIENTE
     ? { enviadoPorId: null, enviadoEn: null, pagadoEn: null, valorPagado: null, motivoRechazo: null }
     : {};

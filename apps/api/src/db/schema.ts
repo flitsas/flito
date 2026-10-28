@@ -33,7 +33,7 @@ export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', '
 // Import (y no solo `export … from`) porque `users.role` referencia `permisosRoles.codigo` aquí abajo.
 import { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria } from './schema/permisos.js';
 export { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria };
-export * from './schema/flito-bolsas-documentos.js'; // HU #13889 (ADR-0028): expediente documental de la compañía
+export * from './schema/flito-bolsas-documentos.js'; export * from './schema/flito-soat-masivo.js'; // HU #14131 (cola masiva SOAT) / HU #13889 (ADR-0028): expediente documental de la compañía
 // Épica #12245: `flito_comprobantes` vive en `./schema/flito-comprobantes.ts` por el mismo techo (HU #12611).
 import { flitoComprobantes } from './schema/flito-comprobantes.js';
 export { flitoComprobantes };
@@ -2718,7 +2718,8 @@ export const flitoOrganismoVigencias = pgTable('flito_organismo_vigencias', {
   vigenteUnica: uniqueIndex('uq_flito_vig_vigente').on(t.organismoCodigo).where(sql`hasta IS NULL`),
 }));
 
-// SOAT anclado al VIN (RN-01: un SOAT por VIN — `vin` UNIQUE lo hace por construcción).
+// SOAT anclado al VIN. RN-01 (ADR-0031, migración 0267): a lo sumo UN SOAT ABIERTO (estado <> 'pagado')
+// por VIN y por vehículo —índices únicos parciales—; los `pagado` son historial y pueden ser varios.
 export const flitoSoat = pgTable('flito_soat', {
   id: uuid('id').primaryKey().defaultRandom(),
   /**
@@ -2743,8 +2744,8 @@ export const flitoSoat = pgTable('flito_soat', {
    * trampa del 55P04 que este Feature ya paga dos veces.
    */
   origen: varchar('origen', { length: 10 }).notNull().default('tramite'),
-  vin: varchar('vin', { length: 17 }).notNull().unique(),
-  vehiculoId: integer('vehiculo_id').notNull().unique().references(() => vehicles.id),
+  vin: varchar('vin', { length: 17 }).notNull(),
+  vehiculoId: integer('vehiculo_id').notNull().references(() => vehicles.id),
   estado: flitoSoatEstadoEnum('estado').notNull().default('pendiente'),
   // Denormalizados y congelados: el SOAT vive más que sus trámites.
   companiaId: integer('compania_id').notNull().references(() => clients.id),
@@ -2842,7 +2843,10 @@ export const flitoSoat = pgTable('flito_soat', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
-  estadoIdx: index('idx_flito_soat_estado').on(t.estado),
+  // Migración 0267 (ADR-0031): los UNIQUE incondicionales de `vin`/`vehiculo_id` se reemplazan por
+  // índices de lookup + índices únicos PARCIALES «abierto» (a lo sumo un SOAT no `pagado`).
+  // (En una sola línea: `schema.ts` tiene techo de líneas congelado en ESLint.)
+  estadoIdx: index('idx_flito_soat_estado').on(t.estado), vinIdx: index('idx_flito_soat_vin').on(t.vin), vehiculoIdx: index('idx_flito_soat_vehiculo').on(t.vehiculoId), vinAbiertoUq: uniqueIndex('uq_flito_soat_vin_abierto').on(t.vin).where(sql`${t.estado} <> 'pagado'`), vehiculoAbiertoUq: uniqueIndex('uq_flito_soat_vehiculo_abierto').on(t.vehiculoId).where(sql`${t.estado} <> 'pagado'`),
   proveedorIdx: index('idx_flito_soat_proveedor').on(t.proveedorSoatId),
   // Migración 0169 (HU #11914), por la auditoría de esquema. Desde la HU #11913 `compania_id` es el
   // PREDICADO OBLIGATORIO del aislamiento del rol `cliente` —lo aplican `condicionesCola()`, que
@@ -2987,12 +2991,13 @@ export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
    */
   runtConsultadoEn: timestamp('runt_consultado_en', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Mig. 0268 (HU #14017): 'inicial' | 'renovacion' y el SOAT antecesor (solo en renovación).
+  tipoSoat: varchar('tipo_soat', { length: 10 }).notNull().default('inicial'), soatAnteriorId: uuid('soat_anterior_id').references(() => flitoSoat.id),
 }, (t) => ({
   // `idx_flito_soat_solicitud_causal` se va con su columna en la 0176.
-  verificacionEstadoChk: check(
-    'flito_soat_solicitud_verificacion_estado_chk',
-    sql`${t.verificacionEstado} IN ('pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok')`,
-  ),
+  verificacionEstadoChk: check('flito_soat_solicitud_verificacion_estado_chk', sql`${t.verificacionEstado} IN ('pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok')`),
+  tipoSoatChk: check('flito_soat_solicitud_tipo_soat_chk', sql`${t.tipoSoat} IN ('inicial', 'renovacion')`), anteriorChk: check('flito_soat_solicitud_anterior_chk', sql`${t.tipoSoat} = 'renovacion' OR ${t.soatAnteriorId} IS NULL`),
+  anteriorIdx: index('idx_flito_soat_solicitud_anterior').on(t.soatAnteriorId).where(sql`${t.soatAnteriorId} IS NOT NULL`),
 }));
 
 /**

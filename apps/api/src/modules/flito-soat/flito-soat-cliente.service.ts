@@ -120,6 +120,7 @@ import {
   type ProcedenciaComprador,
   type ProcedenciaCompradorPersistida,
   type SoatActivoRunt,
+  type SoatFlitoContexto,
   TipoSoporte,
   type TipoDocumentoRunt,
   type VigenciaProximaSoat,
@@ -133,6 +134,13 @@ import { uploadEntityDocument } from '../../services/storage.js';
 import { canalSinTramiteAbierto, exigirClienteOperable } from '../clients/cliente-operable.js';
 import { loggerFor } from '../../shared/logger.js';
 import { buscarConAcceso, ORIGEN_CLIENTE, type SoatCtx } from './flito-soat.service.js';
+import { diaEnBogota } from './flito-soat-cliente-runt.js';
+import { soatActualDelVin, type SoatActualDelVin } from './flito-soat-actual.js';
+import {
+  comoConsulta, MENSAJE_REVISE_POR_MODALIDAD, MENSAJE_SIN_SOAT_ANTERIOR, type ConsultaRunt, type EntradaConsultaRunt,
+  type TipoSoatCanal,
+} from './flito-soat-cliente-consulta.js';
+import { contextoFlito, contextoSinFlito, diasEntre } from './flito-soat-contexto.js';
 import {
   consultarYClasificar,
   type CodigoRevise,
@@ -234,6 +242,8 @@ export const DESENLACE_HABLA_DEL_VEHICULO: Record<CodigoErrorSolicitudSoat, bool
   [CodigoErrorSolicitudSoat.RUNT_SIN_VIN]: true,
   /** El RUNT reporta SOAT vigente para ese vehículo. */
   [CodigoErrorSolicitudSoat.SOAT_VIGENTE]: true,
+  /** Renovación: el registro nacional no registra SOAT anterior para esa placa (HU #14017). */
+  [CodigoErrorSolicitudSoat.SOAT_SIN_ANTERIOR]: true,
   /** Ese VIN ya está en FLITO: el 409 que confirma cartera, propia o ajena. */
   [CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT]: true,
   /** Ese VIN tiene una solicitud incompleta abierta (HU #12996): confirma que está en FLITO. */
@@ -242,6 +252,8 @@ export const DESENLACE_HABLA_DEL_VEHICULO: Record<CodigoErrorSolicitudSoat, bool
   [CodigoErrorSolicitudSoat.INCOMPLETA_YA_RESUELTA]: true,
 
   // ── No: la respuesta es la misma para cualquier VIN ───────────────────────────────────────────
+  /** HU #14018 — De la INCOMPLETA: su motivo no es el RUNT; no se consultó nada. */
+  [CodigoErrorSolicitudSoat.INCOMPLETA_NO_REINTENTABLE]: false,
   /** Del USUARIO: no tiene compañía. No se llegó a mirar ningún vehículo. */
   [CodigoErrorSolicitudSoat.SIN_COMPANIA]: false,
   /** De la COMPAÑÍA: el canal está apagado. Ídem. */
@@ -323,6 +335,10 @@ export interface EntradaSolicitud {
    * valor que nadie confirmó.
    */
   vin: string;
+  /** HU #14017: ausente = `inicial` (compatible con la web actual). `renovacion` consulta por `placa` + documento del propietario. */
+  tipo?: TipoSoatCanal;
+  /** Solo renovación: la placa tecleada (el documento consultado es `propietario.numeroDocumento`). */
+  placa?: string;
   propietario: PropietarioSolicitud;
   /**
    * De dónde salió cada dato del propietario (HU #12093, AC2). Puede venir INCOMPLETO o no venir:
@@ -395,7 +411,7 @@ export const normalizarId = (v: string): string => v.toUpperCase().replace(/[^A-
 // ───────────────────────────── Guardas del alta ─────────────────────────────
 
 /** La compañía del `cliente`, con el flag del canal y la carpeta de storage ya resueltos. */
-interface CanalCompania {
+export interface CanalCompania {
   companiaId: number;
   carpetaStorage: string | null;
 }
@@ -419,7 +435,7 @@ interface CanalCompania {
  * De ahí en adelante todo (RN-01, tenencia, destino, carpeta, incompletas) usa el `companiaId` que
  * devuelve esta función, y por eso el cambio de la HU queda localizado aquí.
  */
-async function canalDeLaCompania(ctx: SoatCtx, companiaIdPedida: number | null = null): Promise<CanalCompania> {
+export async function canalDeLaCompania(ctx: SoatCtx, companiaIdPedida: number | null = null): Promise<CanalCompania> {
   const companiaId = companiaARadicar(ctx, companiaIdPedida);
   const [compania] = await db
     .select({ id: clients.id, carpeta: clients.flitoCarpetaStorage })
@@ -487,7 +503,7 @@ export async function companiasDelCanal(ctx: SoatCtx): Promise<CompaniasCanalSoa
 /**
  * RN-01, comprobada ANTES de consultar el RUNT y antes de subir nada (AC4).
  *
- * `flito_soat.vin` es NOT NULL UNIQUE, así que la última línea de defensa es la base y no esto —y
+ * `flito_soat.vin` lleva un índice único PARCIAL «abierto» (`uq_flito_soat_vin_abierto`, 0267), así que la última línea de defensa es la base y no esto —y
  * por eso el INSERT también atrapa el 23505—. Esta consulta existe para dar el mensaje útil: quien
  * radica tiene que saber que el vehículo YA tiene una solicitud y que no se crea una segunda.
  *
@@ -511,20 +527,31 @@ export async function companiasDelCanal(ctx: SoatCtx): Promise<CompaniasCanalSoa
  *
  * El bloqueo es el MISMO en los dos casos: RN-01 no se relaja por no ser suya.
  */
-async function verificarRn01(vin: string, companiaId: number): Promise<void> {
-  const [existente] = await db
-    .select({ id: flitoSoat.id, estado: flitoSoat.estado, companiaId: flitoSoat.companiaId })
-    .from(flitoSoat).where(eq(flitoSoat.vin, vin)).limit(1);
+export async function verificarRn01(
+  vin: string, companiaId: number, opciones: { permiteTerminal?: boolean } = {},
+): Promise<SoatActualDelVin | null> {
+  // ADR-0031: el SOAT ACTUAL del vehículo (el abierto si lo hay; si no, el último terminal).
+  const actual = await soatActualDelVin(db, vin);
   // Sin SOAT, la RN-01 sigue mirando la incompleta abierta (HU #12996). Con SOAT, ese 409 manda.
-  if (!existente) { await verificarIncompletaAbierta(vin, companiaId); return; }
+  if (!actual) { await verificarIncompletaAbierta({ vin }, companiaId); return null; }
 
   // Mismo código, mismo cuerpo recortado y MISMO TEXTO que el vehículo ajeno sin SOAT: los dos son
-  // «no es de su compañía» y distinguirlos sería contarle cuál de los dos es.
-  if (existente.companiaId !== companiaId) throw vehiculoAjeno();
+  // «no es de su compañía» y distinguirlos sería contarle cuál de los dos es. Aplica igual al
+  // terminal: no se consulta ni se renueva el SOAT de otra compañía.
+  if (actual.companiaId !== companiaId) throw vehiculoAjeno();
 
+  const flito = contextoFlito(actual, diaEnBogota());
+  if (flito.abierto) {
+    throw fallo(409, CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT,
+      'Este vehículo ya está en un proceso de SOAT en FLITO. Termine o corrija esa solicitud antes de pedir otro.',
+      { propia: true, id: actual.id, estado: actual.estado, flito });
+  }
+  // Terminal (`pagado`): la preconsulta lo deja pasar para informar «ya en FLITO»; el alta Inicial
+  // conserva el 409 (decisión cerrada) y, si es propio, avisa si es renovable.
+  if (opciones.permiteTerminal) return actual;
   throw fallo(409, CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT,
-    'Este vehículo ya tiene un SOAT en FLITO. Un vehículo no puede tener dos (RN-01).',
-    { propia: true, id: existente.id, estado: existente.estado });
+    'Este vehículo ya tiene un SOAT en FLITO.',
+    { propia: true, id: actual.id, estado: actual.estado, flito });
 }
 
 /**
@@ -536,12 +563,18 @@ async function verificarRn01(vin: string, companiaId: number): Promise<void> {
  * Misma forma que la RN-01 de siempre: `propia: true` + `id` para la compañía que la radicó (la puede
  * abrir); `propia: false`, sin id ni estado, para cualquier otra.
  */
-async function verificarIncompletaAbierta(vin: string, companiaId: number): Promise<void> {
+export async function verificarIncompletaAbierta(
+  clave: { vin: string } | { placa: string }, companiaId: number,
+): Promise<void> {
+  // HU #14018: la renovación aparca por PLACA (sin VIN); misma forma de 409 que por VIN.
+  const columna = 'vin' in clave
+    ? eq(flitoSoatIncompletas.vin, clave.vin)
+    : eq(flitoSoatIncompletas.placa, clave.placa);
   const [abierta] = await db
     .select({ id: flitoSoatIncompletas.id, companiaId: flitoSoatIncompletas.companiaId })
     .from(flitoSoatIncompletas)
     .where(and(
-      eq(flitoSoatIncompletas.vin, vin),
+      columna,
       eq(flitoSoatIncompletas.estado, EstadoSolicitudIncompletaSoat.INCOMPLETA),
     ))
     .limit(1);
@@ -584,7 +617,7 @@ const vehiculoAjeno = () => fallo(
  * vehículo puede existir en `vehicles` SIN fila en `flito_soat`, y de hecho es el caso mayoritario
  * —`upsertVehiculo()` del sync corre para todos los trámites, mientras que `resolverSoat()` solo
  * corre con el trámite asignado y con compañía y organismo emparejados—. Para uno de esos VIN, la
- * RN-01 no encuentra nada y el UNIQUE de `flito_soat.vehiculo_id` tampoco salta, porque el vehículo
+ * RN-01 no encuentra nada y el índice único parcial de `flito_soat.vehiculo_id` tampoco salta, porque el vehículo
  * ajeno no tiene SOAT: sin esta comprobación, el alta hacía UPDATE sobre la ficha de otra compañía y
  * le sobrescribía titular, cédula, placa, marca, línea, año y clase con lo que teclea quien radica.
  *
@@ -616,7 +649,7 @@ function esDeOtraCompania(fila: { clientId?: number | null } | undefined, compan
  * veces: para no dejar un objeto huérfano en el bucket ni gastar una consulta al RUNT por un alta
  * que ya se sabe que no va a entrar.
  */
-async function verificarTenenciaVehiculo(vin: string, companiaId: number): Promise<void> {
+export async function verificarTenenciaVehiculo(vin: string, companiaId: number): Promise<void> {
   const [ficha] = await db.select({ clientId: vehicles.clientId })
     .from(vehicles).where(eq(vehicles.vin, vin)).limit(1);
   if (esDeOtraCompania(ficha, companiaId)) throw vehiculoAjeno();
@@ -634,7 +667,7 @@ async function verificarTenenciaVehiculo(vin: string, companiaId: number): Promi
  * y exigir que coincidan rechazaría un PDF legítimo enviado con `application/octet-stream`, que es
  * lo que mandan varios clientes HTTP.
  */
-async function verificarPdfReal(archivo: ArchivoSolicitud): Promise<void> {
+export async function verificarPdfReal(archivo: ArchivoSolicitud): Promise<void> {
   const detectado = await detectMime(archivo.buffer);
   if (detectado !== 'application/pdf') {
     throw fallo(400, CodigoErrorSolicitudSoat.ARCHIVO_NO_PDF,
@@ -707,8 +740,10 @@ export interface ResultadoRunt {
  * (`MENSAJE_VEHICULO_AJENO`), y lo garantiza la construcción del error: `desenlace.campo` es el
  * único dato que entra en `datos`, y `CodigoErrorSolicitudSoat`/`MENSAJE_REVISE` son constantes.
  */
-async function verificarRuntCompuerta(vin: string): Promise<ResultadoRunt> {
-  const desenlace = await consultarYClasificar(vin);
+export async function verificarRuntCompuerta(
+  consulta: EntradaConsultaRunt, tipo: TipoSoatCanal = 'inicial',
+): Promise<ResultadoRunt> {
+  const desenlace = await consultarYClasificar(consulta, tipo);
   // Inmediatamente después del `await` y antes de cualquier rama: es el instante en que el registro
   // nacional respondió, que es lo que el AC4 pide poder enseñar. Se toma también en los desenlaces
   // que abortan —cuesta cero y evita que el «cuándo» dependa de qué contestó el RUNT—, y solo se
@@ -720,8 +755,12 @@ async function verificarRuntCompuerta(vin: string): Promise<ResultadoRunt> {
       throw fallo(503, CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE,
         'No fue posible consultar el RUNT en este momento. Intenta de nuevo en unos minutos.');
     case 'revise':
-      throw fallo(422, CODIGO_REVISE[desenlace.codigo], MENSAJE_REVISE[desenlace.codigo],
+      throw fallo(422, CODIGO_REVISE[desenlace.codigo],
+        MENSAJE_REVISE_POR_MODALIDAD[comoConsulta(consulta).modalidad][desenlace.codigo],
         desenlace.campo ? { campo: desenlace.campo } : undefined);
+    // Solo renovación (HU #14017, AC6). Sin ningún dato del RUNT en el cuerpo.
+    case 'sin_soat_anterior':
+      throw fallo(422, CodigoErrorSolicitudSoat.SOAT_SIN_ANTERIOR, MENSAJE_SIN_SOAT_ANTERIOR);
     case 'vigente': {
       // `fechaVencimiento` se CONSERVA con su contrato de siempre —ausente, nunca null, si el RUNT
       // no trae fecha—; el spread condicional existe solo para eso. `soatActivo` va siempre, anidado
@@ -786,18 +825,28 @@ const CODIGO_REVISE: Record<CodigoRevise, CodigoErrorSolicitudSoat> = {
  * tipo y el número de documento», que desde esta HU no son entrada de nada. Un mensaje que pide
  * corregir un campo que la pantalla ya no tiene es peor que no decir nada.
  */
-const MENSAJE_REVISE: Record<CodigoRevise, string> = {
-  runt_no_cuadra:
-    'El RUNT no confirma este vehículo. Revisa el VIN que escribiste.',
-  runt_sin_registro:
-    'El RUNT no tiene registrado un vehículo con ese VIN. Revísalo.',
-  runt_sin_vin:
-    'El RUNT no publica el VIN de este vehículo, y sin VIN no podemos radicar la solicitud. Escríbenos para revisarlo.',
-};
+// Los textos viven por modalidad en `flito-soat-cliente-consulta.ts` (MENSAJE_REVISE_POR_MODALIDAD).
+
+/**
+ * Si el RUNT dice «vigente» (409 `soat_vigente`, vigencia fuera de la ventana) sobre un vehículo que
+ * YA tiene un SOAT `pagado` de la compañía, el 409 lleva además `diasVigencia` y `flito`
+ * (`renovable: false`). El resto de errores pasa intacto.
+ */
+function conFlitoEnSoatVigente(e: unknown, actual: SoatActualDelVin | null): unknown {
+  if (!actual || !(e instanceof SolicitudSoatError) || e.codigo !== CodigoErrorSolicitudSoat.SOAT_VIGENTE) return e;
+  const hoy = diaEnBogota();
+  const venceRunt = typeof e.datos?.fechaVencimiento === 'string' ? e.datos.fechaVencimiento : null;
+  const flito = { ...contextoFlito(actual, hoy, venceRunt), renovable: false };
+  return fallo(e.status, e.codigo, e.message, {
+    ...e.datos, diasVigencia: venceRunt ? diasEntre(hoy, venceRunt) : flito.diasVigencia, flito,
+  });
+}
 
 // ───────────────────────────── Preconsulta ──────────────────────────────────
 
 export interface Preconsulta {
+  /** HU #14017: la modalidad con la que se consultó. */
+  tipo: TipoSoatCanal;
   /**
    * Sin `numMotor` ni `numSerie` (HU #12401): se persisten en `vehicles`, no se enseñan. La
    * pantalla del canal no los pinta y publicarlos aquí sería sacar un dato del RUNT por la API
@@ -812,6 +861,13 @@ export interface Preconsulta {
   organismo: { codigo: string | null; nombre: string | null };
   /** Solo el nombre, y solo si el RUNT lo trajo. Ver `DatosRuntCanal.propietarioNombre`. */
   propietario: { nombreCompleto: string } | null;
+  /**
+   * «Ya en FLITO» (Feature #14012, ADR-0031): si el vehículo ya tiene SOAT gestionado por FLITO
+   * (de la compañía de quien consulta), cuántos días de vigencia le quedan y si es renovable. Siempre
+   * presente; `yaEnFlito: false` cuando no hay ninguno. Nunca se arma para un vehículo de otra
+   * compañía (ese caso es el 409 recortado).
+   */
+  flito: SoatFlitoContexto;
   /**
    * «Este vehículo ya tiene SOAT y vence pronto; se puede renovar por anticipado» (HU #12212, AC1).
    *
@@ -855,21 +911,44 @@ export interface Preconsulta {
  *   · `organismo.codigo` puede ser `null` (#11966, AC5).
  */
 export async function preconsulta(
-  vin: string, ctx: SoatCtx, companiaIdPedida: number | null = null,
+  /** `string` = VIN (Inicial); `{ modalidad: 'placa' }` = Renovación (HU #14017). */
+  entrada: string | ConsultaRunt, ctx: SoatCtx, companiaIdPedida: number | null = null,
 ): Promise<Preconsulta> {
   const canal = await canalDeLaCompania(ctx, companiaIdPedida);
-  const vinNorm = normalizarId(vin);
+  const consultaIn = comoConsulta(entrada);
+  const tipo: TipoSoatCanal = consultaIn.modalidad === 'placa' ? 'renovacion' : 'inicial';
+  const consulta: ConsultaRunt = consultaIn.modalidad === 'vin'
+    ? { modalidad: 'vin', vin: normalizarId(consultaIn.vin) }
+    : { modalidad: 'placa', placa: normalizarId(consultaIn.placa), documento: consultaIn.documento };
 
   // Las dos guardas baratas, ANTES de gastar una consulta a Kyverum. Se vuelven a mirar debajo sobre
   // el VIN efectivo porque entre una cosa y la otra hay una llamada de red entera.
-  await verificarRn01(vinNorm, canal.companiaId);
-  await verificarTenenciaVehiculo(vinNorm, canal.companiaId);
+  // `permiteTerminal`: un SOAT `pagado` propio NO bloquea la preconsulta, la enriquece con `flito`.
+  // Renovación: antes del RUNT no hay VIN, así que no hay guardas baratas (la de la incompleta
+  // abierta por placa es de la HU #14018); la autoritativa corre debajo sobre el VIN efectivo.
+  let actualPrevio: SoatActualDelVin | null = null;
+  if (consulta.modalidad === 'vin') {
+    actualPrevio = await verificarRn01(consulta.vin, canal.companiaId, { permiteTerminal: true });
+    await verificarTenenciaVehiculo(consulta.vin, canal.companiaId);
+  }
 
-  const { datos, vinEfectivo, organismoCodigo, vigenciaProxima } = await verificarRuntCompuerta(vinNorm);
+  let runt: ResultadoRunt;
+  try {
+    runt = await verificarRuntCompuerta(consulta, tipo);
+  } catch (e) {
+    throw conFlitoEnSoatVigente(e, actualPrevio);
+  }
+  const { datos, vinEfectivo, organismoCodigo, vigenciaProxima } = runt;
 
   // Autoritativas. El 409 que producen es idéntico al de la RN-01 ajena, sin id y sin estado.
-  await verificarRn01(vinEfectivo, canal.companiaId);
+  const actualPost = await verificarRn01(vinEfectivo, canal.companiaId, { permiteTerminal: true });
   await verificarTenenciaVehiculo(vinEfectivo, canal.companiaId);
+  // La fecha del RUNT manda sobre `flito_soat.vence_el`; sin ninguna, `renovable: false`.
+  const hoy = diaEnBogota();
+  const venceElRunt = vigenciaProxima?.venceEl ?? null;
+  const flito = actualPost
+    ? contextoFlito(actualPost, hoy, venceElRunt)
+    : contextoSinFlito(hoy, venceElRunt);
 
   const [organismo] = organismoCodigo
     ? await db.select({ alias: organismosTransitoConfig.alias })
@@ -877,6 +956,7 @@ export async function preconsulta(
     : [];
 
   return {
+    tipo,
     vehiculo: {
       // **La placa es la del RUNT** (HU #12090, AC3), y sigue siendo «la que se va a persistir»: es
       // el mismo valor que `upsertVehiculoRunt` escribe en `vehicles.plate`. Lo que cambió es de
@@ -893,6 +973,7 @@ export async function preconsulta(
     },
     organismo: { codigo: organismoCodigo, nombre: organismo?.alias ?? null },
     propietario: datos.propietarioNombre ? { nombreCompleto: datos.propietarioNombre } : null,
+    flito,
     // Se PROYECTA, no se reenvía: las siete claves se escriben a mano (HU #12842, AC5; la póliza se
     // publica por la RN-05 del Feature #12840). Sin spread por eso mismo — un `...vigenciaProxima`
     // publicaría el campo que se añadiera mañana sin que nadie lo decidiera.
@@ -916,7 +997,7 @@ export async function preconsulta(
  * *Upsert* del vehículo por VIN, con la política del sync (`setVehiculoDesdeFlit`): **un campo vacío
  * no borra lo que ya se sabía** (ADR-0008 §1.4).
  *
- * `flito_soat.vehiculo_id` es NOT NULL UNIQUE, así que el alta TIENE que resolver un `vehicles.id`
+ * `flito_soat.vehiculo_id` es NOT NULL (y único entre los abiertos), así que el alta TIENE que resolver un `vehicles.id`
  * antes de insertar. Las dos ramas escriben con reglas distintas, igual que `upsertVehiculo()`: en
  * el UPDATE los `null` del RUNT se omiten —la fila puede traer datos de otra fuente, p. ej. el OCR
  * de la tarjeta de propiedad—, y en el INSERT van tal cual, porque en una fila nueva `null` es la
@@ -979,8 +1060,8 @@ export async function upsertVehiculoRunt(
   // adoptable y le sobrescribiría titular, cédula y placa a una ficha que, para cuando se escribe,
   // ya tiene dueño. `FOR UPDATE` serializa las dos escrituras: la que llega segunda espera y relee.
   //
-  // La carrera GRANDE —dos altas del mismo VIN— no depende de esto: la cierra el UNIQUE de
-  // `flito_soat.vin`, que es la base y no el servicio (RN-01). Esto cierra la que quedaba, que es
+  // La carrera GRANDE —dos altas del mismo VIN— no depende de esto: la cierra el índice único parcial
+  // `uq_flito_soat_vin_abierto` (ADR-0031), que es la base y no el servicio (RN-01). Esto cierra la que quedaba, que es
   // contra un escritor que no pasa por esa constraint.
   //
   // `FOR UPDATE` y no `SKIP LOCKED`: aquí no se despacha una cola en la que saltarse una fila
@@ -1167,6 +1248,8 @@ export async function resolverDestinoCanalCliente(
 /** Lo que `insertarSolicitudDespachada` necesita: todo resuelto por quien llama. */
 export interface SolicitudADespachar {
   soatId: string;
+  /** Obligatorio a propósito (HU #14017): ningún escritor del satélite puede omitir el tipo. Valor de `tipo_soat`. */
+  tipoSoat: 'inicial' | 'renovacion';
   vin: string;
   vehiculoId: number;
   companiaId: number;
@@ -1174,7 +1257,10 @@ export interface SolicitudADespachar {
   vigenciaProxima: VigenciaProximaSoat | null;
   consultadoEn: Date;
   ahora: Date;
-  factura: { nombreArchivo: string; contentType: string; storageKey: string; hash: string; tamanoBytes: number };
+  /** `null` en una renovación sin factura (HU #14017, AC2): no se inserta soporte. */
+  factura: { nombreArchivo: string; contentType: string; storageKey: string; hash: string; tamanoBytes: number } | null;
+  /** Renovación de un SOAT ya gestionado por FLITO: su SOAT terminal (`pagado`). `null` = el previo solo está en el RUNT. */
+  soatAnteriorId?: string | null;
   /** Quien RADICÓ: «solicitado por» y autor del soporte. `en: null` = ahora (default de la columna). */
   solicitante: { id: number | null; nombre: string; en: Date | null };
 }
@@ -1260,6 +1346,8 @@ export async function insertarSolicitudDespachada(
 
   await tx.insert(flitoSoatSolicitud).values({
     soatId,
+    tipoSoat: p.tipoSoat,
+    soatAnteriorId: p.soatAnteriorId ?? null,
     solicitadoPorId: solicitante.id,
     solicitadoPorNombre: solicitante.nombre,
     // El reintento conserva la fecha del radicador (HU #12998, Q5); el alta deja el default.
@@ -1286,16 +1374,19 @@ export async function insertarSolicitudDespachada(
     runtConsultadoEn: consultadoEn,
   });
 
-  await tx.insert(flitoSoportes).values({
-    tipo: TipoSoporte.FACTURA_VENTA,
-    nombreArchivo: factura.nombreArchivo,
-    contentType: factura.contentType,
-    storageKey: factura.storageKey, hash: factura.hash, tamanoBytes: factura.tamanoBytes,
-    soatId,
-    // La factura la subió quien radicó, también cuando despacha un reintento.
-    subidoPorId: solicitante.id,
-    subidoPorNombre: solicitante.nombre,
-  });
+  // Renovación sin factura (HU #14017, AC2): no hay soporte que insertar.
+  if (factura) {
+    await tx.insert(flitoSoportes).values({
+      tipo: TipoSoporte.FACTURA_VENTA,
+      nombreArchivo: factura.nombreArchivo,
+      contentType: factura.contentType,
+      storageKey: factura.storageKey, hash: factura.hash, tamanoBytes: factura.tamanoBytes,
+      soatId,
+      // La factura la subió quien radicó, también cuando despacha un reintento.
+      subidoPorId: solicitante.id,
+      subidoPorNombre: solicitante.nombre,
+    });
+  }
 
   await registrarCambio(tx, {
     concepto: ConceptoHistorial.SOAT,
@@ -1366,18 +1457,24 @@ export interface SolicitudAparcada {
  * vuelve a mirar la RN-01 para dar la forma propia/ajena; si ni así aparece, el 409 recortado.
  */
 async function aparcarPorRuntCaido(
-  entrada: EntradaSolicitud, archivo: ArchivoSolicitud, ctx: SoatCtx, canal: CanalCompania, vin: string,
-  adicionales: AdicionalAceptado[],
+  entrada: EntradaSolicitud, archivo: ArchivoSolicitud | null, ctx: SoatCtx, canal: CanalCompania,
+  consulta: ConsultaRunt, adicionales: AdicionalAceptado[],
 ): Promise<SolicitudAparcada> {
+  // Renovación (HU #14018): queda por PLACA, sin VIN y con la factura opcional. Inicial: como siempre.
+  const porPlaca = consulta.modalidad === 'placa';
   const r = await aparcarSolicitud({
-    vin, companiaId: canal.companiaId, carpetaStorage: canal.carpetaStorage,
+    tipoSoat: porPlaca ? 'renovacion' : 'inicial', modalidad: consulta.modalidad,
+    vin: consulta.modalidad === 'vin' ? consulta.vin : null,
+    placa: consulta.modalidad === 'placa' ? consulta.placa : null,
+    companiaId: canal.companiaId, carpetaStorage: canal.carpetaStorage,
     propietario: entrada.propietario,
     nombreCompleto: nombreCompletoDe(entrada.propietario),
     procedencia: procedenciaCompleta(entrada.procedencia),
     archivo, adicionales,
   }, ctx);
   if (!r.aparcada) {
-    await verificarRn01(vin, canal.companiaId);
+    if (consulta.modalidad === 'placa') await verificarIncompletaAbierta({ placa: consulta.placa }, canal.companiaId);
+    else await verificarRn01(consulta.vin, canal.companiaId);
     throw incompletaAjena();
   }
   return {
@@ -1417,7 +1514,8 @@ async function aparcarPorRuntCaido(
  */
 export async function crearSolicitud(
   entrada: EntradaSolicitud,
-  archivo: ArchivoSolicitud,
+  /** `null` solo en renovación (la factura es opcional); en Inicial es obligatoria. */
+  archivo: ArchivoSolicitud | null,
   ctx: SoatCtx,
   /** HU #13362: ya clasificados por `clasificarAdicionales`; se suben tras la factura y se insertan en la tx. */
   adicionales: AdicionalAceptado[] = [],
@@ -1425,20 +1523,35 @@ export async function crearSolicitud(
   companiaIdPedida: number | null = null,
 ): Promise<SolicitudCreada | SolicitudAparcada> {
   const canal = await canalDeLaCompania(ctx, companiaIdPedida);
-  await verificarPdfReal(archivo);
+  const renovacion = entrada.tipo === 'renovacion';
+  const tipoSoat: TipoSoatCanal = renovacion ? 'renovacion' : 'inicial';
+  if (archivo) await verificarPdfReal(archivo);
+  else if (!renovacion) {
+    throw fallo(400, CodigoErrorSolicitudSoat.ARCHIVO_NO_PDF, 'Falta la factura de venta (PDF)');
+  }
 
+  // Renovación: placa + documento del propietario (el MISMO campo que se persiste). Inicial: VIN.
   const vinTecleado = normalizarId(entrada.vin);
-  await verificarRn01(vinTecleado, canal.companiaId);
-  await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
+  const consulta: ConsultaRunt = renovacion
+    ? { modalidad: 'placa', placa: normalizarId(entrada.placa ?? ''), documento: entrada.propietario.numeroDocumento }
+    : { modalidad: 'vin', vin: vinTecleado };
+  if (!renovacion) {
+    await verificarRn01(vinTecleado, canal.companiaId);
+    await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
+  } else if (consulta.modalidad === 'placa') {
+    // Sin VIN antes del RUNT solo hay una guarda barata: la incompleta abierta de esa placa (HU #14018, AC3).
+    await verificarIncompletaAbierta({ placa: consulta.placa }, canal.companiaId);
+  }
 
   // HU #12996: el 503 de la compuerta ya no aborta el ALTA —la preconsulta sigue en 503—. Solo ese
   // desenlace aparca; el 422 y el 409 del RUNT siguen saliendo tal cual y no guardan nada (AC6).
   let runt: ResultadoRunt;
   try {
-    runt = await verificarRuntCompuerta(vinTecleado);
+    runt = await verificarRuntCompuerta(consulta, tipoSoat);
   } catch (e) {
+    // Inicial y renovación (con o sin factura) aparcan con el RUNT caído (HU #14018, AC1).
     if (e instanceof SolicitudSoatError && e.codigo === CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE) {
-      return aparcarPorRuntCaido(entrada, archivo, ctx, canal, vinTecleado, adicionales);
+      return aparcarPorRuntCaido(entrada, archivo, ctx, canal, consulta, adicionales);
     }
     throw e;
   }
@@ -1448,15 +1561,20 @@ export async function crearSolicitud(
   // tecleado —la compuerta garantiza esa igualdad—: lo que esta pareja cubre es la ventana entre la
   // comprobación previa y el INSERT, en la que cabe otra petición entera radicando el mismo VIN.
   const vin = vinEfectivo;
-  await verificarRn01(vin, canal.companiaId);
+  // Renovación: un SOAT `pagado` propio NO bloquea y se enlaza como antecesor; uno abierto sigue
+  // siendo 409 y uno ajeno el 409 recortado. Inicial conserva el 409 también con el terminal.
+  const antecesor = await verificarRn01(vin, canal.companiaId, { permiteTerminal: renovacion });
   await verificarTenenciaVehiculo(vin, canal.companiaId);
 
   const soatId = randomUUID();
-  const hash = createHash('sha256').update(archivo.buffer).digest('hex');
-  const storageKey = await uploadEntityDocument(
-    carpetaDe({ id: canal.companiaId, flitoCarpetaStorage: canal.carpetaStorage }, 'soat/facturas-venta'),
-    soatId, archivo.originalname, archivo.buffer, archivo.mimetype,
-  );
+  const carpetaFactura = carpetaDe({ id: canal.companiaId, flitoCarpetaStorage: canal.carpetaStorage }, 'soat/facturas-venta');
+  const factura = archivo
+    ? {
+      nombreArchivo: archivo.originalname, contentType: archivo.mimetype,
+      hash: createHash('sha256').update(archivo.buffer).digest('hex'), tamanoBytes: archivo.size,
+      storageKey: await uploadEntityDocument(carpetaFactura, soatId, archivo.originalname, archivo.buffer, archivo.mimetype),
+    }
+    : null;
   const subidos: AdicionalSubido[] = await subirAdicionales(
     carpetaDe({ id: canal.companiaId, flitoCarpetaStorage: canal.carpetaStorage }, CARPETA_ADICIONALES),
     soatId, adicionales,
@@ -1477,9 +1595,8 @@ export async function crearSolicitud(
       // Destino + SOAT + satélite + soporte + historial: el MISMO camino que el reintento de una
       // incompleta (HU #12998). Ver `insertarSolicitudDespachada`.
       destino = await insertarSolicitudDespachada(tx, {
-        soatId, vin, vehiculoId, companiaId: canal.companiaId, organismoCodigo, vigenciaProxima,
-        consultadoEn, ahora,
-        factura: { nombreArchivo: archivo.originalname, contentType: archivo.mimetype, storageKey, hash, tamanoBytes: archivo.size },
+        soatId, tipoSoat, soatAnteriorId: antecesor?.id ?? null, vin, vehiculoId, companiaId: canal.companiaId,
+        organismoCodigo, vigenciaProxima, consultadoEn, ahora, factura,
         solicitante: { id: ctx.userId, nombre: ctx.username, en: null },
       }, ctx);
 

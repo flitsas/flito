@@ -45,6 +45,11 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // HU #12874: la lista de compañías del formulario reutiliza la función del alta (decisión del PO).
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'GET', ruta: '/cliente/companias', codigo: 'soat.solicitud.crear' },
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente', codigo: 'soat.solicitud.crear' },
+  // HU #14131: carga masiva de SOAT; reutiliza la función del alta (sin función nueva).
+  { fichero: 'flito-soat/flito-soat-masivo.routes.ts', metodo: 'GET', ruta: '/cliente/masivo/plantilla', codigo: 'soat.solicitud.crear' },
+  { fichero: 'flito-soat/flito-soat-masivo.routes.ts', metodo: 'POST', ruta: '/cliente/masivo', codigo: 'soat.solicitud.crear' },
+  { fichero: 'flito-soat/flito-soat-masivo.routes.ts', metodo: 'GET', ruta: '/cliente/masivo/:loteId', codigo: 'soat.solicitud.crear' },
+  { fichero: 'flito-soat/flito-soat-masivo.routes.ts', metodo: 'GET', ruta: '/cliente/masivo/:loteId/rechazadas', codigo: 'soat.solicitud.crear' }, // HU #14133 (faltaba en la foto)
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente/factura/lectura', codigo: 'soat.factura.leer' },
   // flito-soat/flito-soat-incompletas.routes.ts (HU #12997)
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/buscar', codigo: 'soat.incompletas.buscar' },
@@ -70,6 +75,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'POST', ruta: '/estado-lote', codigo: 'bolsas.documentos.ver' },
   // HU #12998
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/reintentar', codigo: 'soat.solicitud.reintentar_runt' },
+  // HU #14136: completar una pendiente de la carga masiva; reutiliza la función del alta.
+  { fichero: 'flito-soat/flito-soat-incompletas-completar.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/factura', codigo: 'soat.solicitud.crear' },
+  { fichero: 'flito-soat/flito-soat-incompletas-completar.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/confirmar', codigo: 'soat.solicitud.crear' },
   // HU #13061: acceso de FLITO a FLIT 2 (0214, solo admin).
   { fichero: 'flito-sync/flit2.routes.ts', metodo: 'GET', ruta: '/acceso', codigo: 'tramites.flit2.ver_acceso' },
   { fichero: 'flito-sync/flit2.routes.ts', metodo: 'PUT', ruta: '/acceso', codigo: 'tramites.flit2.guardar_acceso' },

@@ -241,7 +241,34 @@ const companiaIdSchema = z.preprocess(
   z.coerce.number().int('La compañía no es válida').positive('La compañía no es válida').nullable().optional(),
 );
 
-const preconsultaSchema = vehiculoSchema.extend({ companiaId: companiaIdSchema });
+/**
+ * HU #14017 (Feature #14012): la renovación consulta por PLACA + documento del propietario (sin tipo
+ * de documento: el servidor lo resuelve, NIT incluido). Placa: `normalizarId` + 5–7 alfanuméricos;
+ * el formato fino lo decide el RUNT. PII en body, nunca en la URL.
+ */
+export const placaSchema = z.preprocess(
+  (v) => (typeof v === 'string' ? normalizarId(v) : v),
+  z.string()
+    .min(5, 'La placa debe tener entre 5 y 7 caracteres')
+    .max(7, 'La placa debe tener entre 5 y 7 caracteres')
+    .regex(/^[A-Z0-9]+$/, 'La placa solo lleva letras y números'),
+);
+export const numeroDocumentoSchema = z.string().trim().min(4, 'El documento del propietario es obligatorio').max(30);
+
+/**
+ * `tipo` AUSENTE = `inicial` (compatible con la web actual; decisión cerrada del Feature). La rama
+ * `renovacion` exige `tipo: 'renovacion'` EXPLÍCITO. Cualquier otro valor es 400.
+ */
+const preconsultaSchema = z.preprocess(
+  (v) => (v && typeof v === 'object' && !Array.isArray(v) && (v as { tipo?: unknown }).tipo === undefined
+    ? { ...(v as object), tipo: 'inicial' } : v),
+  z.discriminatedUnion('tipo', [
+    vehiculoSchema.extend({ tipo: z.literal('inicial'), companiaId: companiaIdSchema }),
+    z.object({
+      tipo: z.literal('renovacion'), placa: placaSchema, numeroDocumento: numeroDocumentoSchema, companiaId: companiaIdSchema,
+    }),
+  ]),
+);
 
 /**
  * El documento del PROPIETARIO, que desde la HU #12090 es solo del alta.
@@ -253,7 +280,7 @@ const preconsultaSchema = vehiculoSchema.extend({ companiaId: companiaIdSchema }
  *
  * Mismo criterio de siempre: PII en el cuerpo, nunca en la URL.
  */
-const documentoSchema = z.object({
+export const documentoSchema = z.object({
   tipoDocumento: z.enum(TIPOS_DOCUMENTO_RUNT),
   numeroDocumento: z.string().trim().min(4, 'El documento del propietario es obligatorio').max(30),
 });
@@ -297,10 +324,16 @@ const documentoSchema = z.object({
 router.post('/cliente/preconsulta', exigirFuncion('soat.runt.preconsultar'), soatClienteLimiter, soatPreconsultaLimiter, async (req: Request, res: Response) => {
   const parsed = preconsultaSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-  const { vin } = parsed.data;
+  const datosIn = parsed.data;
+  const vin = datosIn.tipo === 'inicial' ? datosIn.vin : null;
   try {
     const ctx = await contextoSoat(req.user!);
-    const resultado = await preconsulta(vin, ctx, parsed.data.companiaId ?? null);
+    const resultado = await preconsulta(
+      datosIn.tipo === 'inicial'
+        ? datosIn.vin
+        : { modalidad: 'placa', placa: datosIn.placa, documento: datosIn.numeroDocumento },
+      ctx, datosIn.companiaId ?? null,
+    );
     // El VIN va TECLEADO y no el efectivo del RUNT, y son el mismo valor en todo camino que llega
     // aquí: `campoQueNoCuadra` corta con 422 si difieren y con `runt_sin_vin` si el RUNT no lo
     // publica, así que solo el desenlace `ok` sigue. Se toma el tecleado porque es `string` —el del
@@ -308,7 +341,7 @@ router.post('/cliente/preconsulta', exigirFuncion('soat.runt.preconsultar'), soa
     // lector futuro no puede romper por descuido. La invariante está PROBADA, no comentada, en
     // `flito-soat.cliente-runt-por-vin.test.ts`. La placa, en cambio, solo puede venir del RUNT.
     await registrarAccesoRuntCliente(req, {
-      vin, placa: resultado.vehiculo.placa, conPropietario: resultado.propietario !== null,
+      vin: vin ?? resultado.vehiculo.vin, placa: resultado.vehiculo.placa, conPropietario: resultado.propietario !== null,
       // El 200 con renovación anticipada divulga ADEMÁS hasta cuándo vence el SOAT que el RUNT
       // reporta (HU #12212). Sin esta línea, `campos_accedidos` sub-declararía justo en las
       // respuestas que dicen más. Se deriva del resultado y no del cuerpo de la petición: lo que el
@@ -319,7 +352,7 @@ router.post('/cliente/preconsulta', exigirFuncion('soat.runt.preconsultar'), soa
     });
     res.json(resultado);
   } catch (e) {
-    await registrarIntentoRunt(req, vin, e, 'preconsulta');
+    await registrarIntentoRunt(req, vin, e, 'preconsulta', datosIn.tipo === 'renovacion' ? datosIn.placa : null);
     manejarError(res, e);
   }
 });
@@ -378,7 +411,7 @@ router.post('/cliente/preconsulta', exigirFuncion('soat.runt.preconsultar'), soa
  * Escribirlo como «intento de acceso» metería en una tabla legal cualquier bug que se cuele por aquí.
  */
 async function registrarIntentoRunt(
-  req: Request, vin: string, e: unknown, motivo: 'preconsulta' | 'alta',
+  req: Request, vin: string | null, e: unknown, motivo: 'preconsulta' | 'alta', placa: string | null = null,
 ): Promise<void> {
   if (!(e instanceof SolicitudSoatError)) return;
   if (!DESENLACE_HABLA_DEL_VEHICULO[e.codigo]) return;
@@ -388,7 +421,7 @@ async function registrarIntentoRunt(
     ? (typeof e.datos?.fechaVencimiento === 'string' ? 'con_fecha' as const : 'sin_fecha' as const)
     : undefined;
   try {
-    await registrarAccesoRuntCliente(req, { vin, conPropietario: false, motivo, resultado, soatActivoEnIntento });
+    await registrarAccesoRuntCliente(req, { vin, placa, conPropietario: false, motivo, resultado, soatActivoEnIntento });
   } catch { /* el rastro no puede tapar el error de dominio: ver el punto 2 de arriba */ }
 }
 
@@ -410,7 +443,7 @@ async function registrarIntentoRunt(
  * columnas sigan nullable en la tabla: la nulabilidad la necesitan las filas de trámite, que llegan
  * sin contacto. La regla es del CANAL, y por eso vive en el borde del canal.
  */
-const titularCampos = {
+export const titularCampos = {
   nombres: z.preprocess(vacioANull, z.string().trim().max(200).nullable().optional()),
   apellidos: z.preprocess(vacioANull, z.string().trim().max(200).nullable().optional()),
   razonSocial: z.preprocess(vacioANull, z.string().trim().max(200).nullable().optional()),
@@ -458,7 +491,7 @@ const titularCampos = {
 /** `flito_compradores.nombre_completo` y `vehicles.owner_name` son los dos `varchar(200)`. */
 const MAX_NOMBRE_COMPLETO = 200;
 
-function refinarTitular(
+export function refinarTitular(
   d: { tipoDocumento: string; nombres?: unknown; apellidos?: unknown; razonSocial?: unknown },
   ctx: z.RefinementCtx,
 ): void {
@@ -514,7 +547,7 @@ function refinarTitular(
  */
 const procedenciaValorSchema = z.enum(PROCEDENCIAS_DATO).optional();
 
-const procedenciaMapaSchema = z.object(
+export const procedenciaMapaSchema = z.object(
   // `fromEntries` y no un objeto literal con las nueve claves tecleadas: la lista es la compartida.
   // El tipo que Zod infiere de aquí es un índice `{ [k: string]: … }` en vez de las nueve claves
   // exactas —el precio de construir el shape en tiempo de ejecución—, y por eso el borde de salida
@@ -544,10 +577,15 @@ const procedenciaCruda = (v: unknown): unknown => {
   try { return JSON.parse(texto); } catch { return v; }
 };
 
-const altaSchema = vehiculoSchema.merge(documentoSchema).extend(titularCampos).extend({
+const camposComunesAlta = {
   procedencia: z.preprocess(procedenciaCruda, procedenciaMapaSchema.optional()),
   companiaId: companiaIdSchema,
-}).superRefine(refinarTitular);
+};
+const altaSchema = vehiculoSchema.merge(documentoSchema).extend(titularCampos).extend(camposComunesAlta)
+  .superRefine(refinarTitular);
+/** Renovación (HU #14017): placa + documento del propietario (el mismo campo que se persiste); sin VIN. */
+const altaRenovacionSchema = z.object({ placa: placaSchema }).merge(documentoSchema).extend(titularCampos)
+  .extend(camposComunesAlta).superRefine(refinarTitular);
 
 /**
  * HU #12874 — Las compañías a cuyo nombre puede radicar quien llena el formulario (`fija` con enlace
@@ -602,21 +640,30 @@ const bloqueAdicionales = (enviados: number, guardados: AdicionalGuardado[], c: 
   (enviados > 0 ? { documentosAdicionales: resultadoAdicionales(guardados, c.descartados) } : {});
 
 async function altaCliente(req: Request, res: Response): Promise<void> {
-  const parsed = altaSchema.safeParse(req.body);
+  // `tipo` ausente = inicial (HU #14017); otro valor distinto de los dos, 400.
+  const tipoCrudo = (req.body as { tipo?: unknown } | undefined)?.tipo;
+  const tipo = tipoCrudo === undefined || tipoCrudo === '' ? 'inicial' : tipoCrudo;
+  if (tipo !== 'inicial' && tipo !== 'renovacion') {
+    res.status(400).json({ error: 'Datos inválidos', details: { fieldErrors: { tipo: ['El tipo de SOAT no es válido'] } } }); return;
+  }
+  const renovacion = tipo === 'renovacion';
+  const parsed = renovacion ? altaRenovacionSchema.safeParse(req.body) : altaSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const { factura, adicionales: recibidos, etiquetas } = archivosDelAlta(req);
-  if (!factura) { res.status(400).json({ error: 'Falta la factura de venta (PDF)' }); return; }
+  // La factura es obligatoria en Inicial y OPCIONAL en Renovación (AC2).
+  if (!factura && !renovacion) { res.status(400).json({ error: 'Falta la factura de venta (PDF)' }); return; }
 
-  const { vin } = parsed.data;
-  const archivo: ArchivoSolicitud = {
-    originalname: factura.originalname, mimetype: factura.mimetype,
-    buffer: factura.buffer, size: factura.size,
-  };
+  const datos = parsed.data;
+  const vin = 'vin' in datos ? datos.vin : '';
+  const placa = 'placa' in datos ? datos.placa : undefined;
+  const archivo: ArchivoSolicitud | null = factura
+    ? { originalname: factura.originalname, mimetype: factura.mimetype, buffer: factura.buffer, size: factura.size }
+    : null;
 
   try {
     // D2: puro, antes de cualquier E/S. Un adicional inválido se descarta, no tumba el alta.
     const clasificacion = await clasificarAdicionales(
-      recibidos, etiquetas, createHash('sha256').update(archivo.buffer).digest('hex'),
+      recibidos, etiquetas, archivo ? createHash('sha256').update(archivo.buffer).digest('hex') : null,
     );
     const ctx = await contextoSoat(req.user!);
     const companiaIdPedida = parsed.data.companiaId ?? null;
@@ -624,7 +671,7 @@ async function altaCliente(req: Request, res: Response): Promise<void> {
       {
         // Sin `placa`: la del alta es la que devuelve el RUNT (HU #12090, AC5), y `EntradaSolicitud`
         // ya no tiene dónde ponerla aunque el formulario la mande.
-        vin, propietario: propietarioDe(parsed.data),
+        vin, tipo, ...(placa !== undefined ? { placa } : {}), propietario: propietarioDe(parsed.data),
         // Lo declarado y nada más: completarlo es del servicio (`procedenciaCompleta`, AC3), que es
         // quien tiene que garantizar el mapa sin huecos ante CUALQUIER llamador y no solo ante esta
         // ruta. `?? null` y no `?? {}` para que «no vino» siga siendo distinguible aquí arriba.
@@ -644,7 +691,7 @@ async function altaCliente(req: Request, res: Response): Promise<void> {
     if (creada.desenlace === 'incompleta') {
       try {
         await registrarAccesoRuntCliente(req, {
-          vin, conPropietario: false, motivo: 'alta', resultado: CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE,
+          vin: vin || null, conPropietario: false, motivo: 'alta', resultado: CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE,
         });
       } catch { /* el rastro no puede tapar el alta ya guardada: mismo criterio que `registrarIntentoRunt` */ }
       await audit(req, {
@@ -672,7 +719,7 @@ async function altaCliente(req: Request, res: Response): Promise<void> {
     // valor— y la placa es la que devolvió el RUNT, que llega en `creada.placa` porque no hay otra
     // fuente: es el dato que esta misma HU convirtió en salida.
     await registrarAccesoRuntCliente(req, {
-      vin, placa: creada.placa, conPropietario: false, motivo: 'alta',
+      vin: vin || null, placa: creada.placa, conPropietario: false, motivo: 'alta',
     });
     // El `detail` NO lleva placa, VIN ni documento, y no es una omisión: `audit_logs` es una tabla
     // append-only que se exporta y se lee entera, y el patrón contrario ya existe en el repo
@@ -701,7 +748,7 @@ async function altaCliente(req: Request, res: Response): Promise<void> {
       ...bloqueAdicionales(recibidos.length, creada.adicionalesGuardados, clasificacion),
     } satisfies RespuestaAltaSolicitudSoat);
   } catch (e) {
-    await registrarIntentoRunt(req, vin, e, 'alta');
+    await registrarIntentoRunt(req, vin || null, e, 'alta', placa ?? null);
     manejarError(res, e);
   }
 }

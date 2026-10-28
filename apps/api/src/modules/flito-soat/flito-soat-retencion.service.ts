@@ -119,7 +119,8 @@ export interface ResultadoPurgaIncompleta {
   pendientes: number;
 }
 
-interface Candidata { id: string; facturaStorageKey: string; facturaTamanoBytes: number }
+/** HU #14018 (0269): una renovación sin factura tiene la clave y el tamaño en NULL. */
+interface Candidata { id: string; facturaStorageKey: string | null; facturaTamanoBytes: number | null }
 
 /** Purga UNA solicitud descartada. Ver la cabecera para el orden y por qué. */
 export async function purgarIncompleta(inc: Candidata, ahora: Date): Promise<ResultadoPurgaIncompleta> {
@@ -143,11 +144,14 @@ export async function purgarIncompleta(inc: Candidata, ahora: Date): Promise<Res
     bytes += Number(a.tamanoBytes) || 0;
   }
 
-  if (await borrarObjeto(inc.facturaStorageKey, { incompletaId: inc.id, que: 'factura' })) {
-    archivos += 1;
-    bytes += Number(inc.facturaTamanoBytes) || 0;
-  } else {
-    pendientes += 1;
+  // Sin factura (renovación, 0269) no hay objeto que borrar: el paso suma 0 y no deja pendiente.
+  if (inc.facturaStorageKey !== null) {
+    if (await borrarObjeto(inc.facturaStorageKey, { incompletaId: inc.id, que: 'factura' })) {
+      archivos += 1;
+      bytes += Number(inc.facturaTamanoBytes) || 0;
+    } else {
+      pendientes += 1;
+    }
   }
 
   if (pendientes > 0) return { purgada: false, archivos, bytes, pendientes };

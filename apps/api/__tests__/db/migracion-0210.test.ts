@@ -30,6 +30,16 @@ const CHECKS_INCOMPLETAS = [
   'flito_soat_incompletas_completada_chk',
 ];
 
+/** Los CHECK que añadió la 0269 (HU #14018) al modelo; la 0210 no los lleva en su SQL. */
+const CHECKS_0269 = [
+  'flito_soat_incompletas_tipo_soat_chk',
+  'flito_soat_incompletas_modalidad_consulta_chk',
+  'flito_soat_incompletas_modalidad_chk',
+  'flito_soat_incompletas_factura_completa_chk',
+  'flito_soat_incompletas_motivo_pendiente_chk',
+  'flito_soat_incompletas_factura_inicial_chk',
+];
+
 describe('0210 — análisis estático', () => {
   it('sin BEGIN/COMMIT; DO etiquetados; sin `$$` sin etiqueta; número único', () => {
     expect(scanForTxControl(ARCHIVO, SQL_0210)).toEqual([]);
@@ -80,7 +90,7 @@ describe('0210 — análisis estático', () => {
   it('el modelo Drizzle refleja la 0210: tabla, CHECK (lección 0157), índice parcial y la columna nueva', () => {
     const cfg = getTableConfig(flitoSoatIncompletas);
     expect(cfg.name).toBe('flito_soat_incompletas');
-    expect(cfg.checks.map((c) => c.name).sort()).toEqual([...CHECKS_INCOMPLETAS].sort());
+    expect(cfg.checks.map((c) => c.name).sort()).toEqual([...CHECKS_INCOMPLETAS, ...CHECKS_0269].sort());
     const uq = cfg.indexes.find((i) => i.config.name === 'uq_flito_soat_incompletas_vin_abierta');
     expect(uq?.config.unique).toBe(true);
     expect(uq?.config.where).toBeDefined();
@@ -109,7 +119,7 @@ describe.skipIf(!URL_BASE)('0210 — aplicar ×2 sobre BD ya migrada (P6)', () =
     return salida;
   }
 
-  it('segunda pasada no rompe ni duplica: 1 columna, 1 CHECK de padre, los seis CHECK de la tabla', async () => {
+  it('segunda pasada no rompe ni duplica: 1 columna, 1 CHECK de padre, los CHECK de la tabla (0210 + 0269)', async () => {
     await enTx(async (tx) => {
       await tx.unsafe(SQL_0210);
       await tx.unsafe(SQL_0210);
@@ -118,7 +128,7 @@ describe.skipIf(!URL_BASE)('0210 — aplicar ×2 sobre BD ya migrada (P6)', () =
       const [padre] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'flito_compradores_padre_chk'`;
       expect(padre!.n).toBe(1);
       const [chk] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_constraint WHERE conrelid = 'flito_soat_incompletas'::regclass AND contype = 'c'`;
-      expect(chk!.n).toBe(CHECKS_INCOMPLETAS.length);
+      expect(chk!.n).toBe(CHECKS_INCOMPLETAS.length + CHECKS_0269.length);
     });
   }, 60_000);
 });
