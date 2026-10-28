@@ -219,7 +219,10 @@ export const clients = pgTable('clients', {
   flitoProveedorSoatSinTramiteId: uuid('flito_proveedor_soat_sin_tramite_id')
     .references((): any => flitoProveedoresSoat.id, { onDelete: 'restrict' }),
   impuestosAutogestionable: boolean('impuestos_autogestionable').notNull().default(true),
-  logisticaAutogestionable: boolean('logistica_autogestionable').notNull().default(true),
+  // HU #14104 (0274, Feature #14089): quién maneja la logística de la compañía. NULLABLE; con la logística ENCENDIDA
+  // (`logistica_autogestionable = false`) el PATCH de compañías exige proveedor (422). Sin default: las encendidas hoy
+  // quedan en NULL. `ON DELETE RESTRICT` (como la FK SOAT). En la misma línea: el techo congelado de schema.ts no admite crecer.
+  logisticaAutogestionable: boolean('logistica_autogestionable').notNull().default(true), flitoProveedorLogisticaId: uuid('flito_proveedor_logistica_id').references((): any => flitoProveedoresLogistica.id, { onDelete: 'restrict' }),
   // FLITO Logística: si acepta entregas parciales (CA-08/09). Si es false, el acta se retiene
   // hasta tener todos los documentos de la empresa (Solo completo).
   logisticaPermiteParcial: boolean('logistica_permite_parcial').notNull().default(false),
@@ -265,7 +268,7 @@ export const clients = pgTable('clients', {
   // previa (`upper(btrim())`); sin NIT (NULL o vacío) no participa. Se conserva el no único (búsqueda exacta, con bajas).
   // Misma línea: techo de max-lines del archivo.
   documentBranchIdx: index('idx_clients_document_branch').on(t.document, t.branchOffice), documentBranchVivoUq: uniqueIndex('uq_clients_document_branch_vivo').on(sql`upper(btrim(${t.document}))`, t.branchOffice).where(sql`deleted_at IS NULL AND document IS NOT NULL AND btrim(document) <> ''`),
-  proveedorSoatSinTramiteIdx: index('idx_clients_flito_proveedor_soat_sin_tramite').on(t.flitoProveedorSoatSinTramiteId), // HU #13971 (0264)
+  proveedorSoatSinTramiteIdx: index('idx_clients_flito_proveedor_soat_sin_tramite').on(t.flitoProveedorSoatSinTramiteId), proveedorLogisticaIdx: index('idx_clients_flito_proveedor_logistica').on(t.flitoProveedorLogisticaId), // HU #13971 (0264) / #14104 (0274)
 }));
 
 export const vehicles = pgTable('vehicles', {
@@ -3748,7 +3751,8 @@ export const flitoProveedoresLogistica = pgTable('flito_proveedores_logistica', 
   nombre: varchar('nombre', { length: 150 }).notNull().unique(),
   estrategia: varchar('estrategia', { length: 40 }).notNull().default('pwa_propia'),
   activo: boolean('activo').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  // HU #14103 (0273): nit (único parcial `uq_flito_proveedores_logistica_nit` en la migración; NULL en filas previas), contacto y teléfono, en la misma línea: el techo congelado de schema.ts no admite crecer.
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), nit: varchar('nit', { length: 20 }), contacto: varchar('contacto', { length: 150 }), telefono: varchar('telefono', { length: 30 }),
 });
 
 // Acta: agrupación por empresa para despacho/entrega (CA-04, una por empresa por lote). El acta
