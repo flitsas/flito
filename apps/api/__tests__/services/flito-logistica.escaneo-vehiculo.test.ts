@@ -26,6 +26,7 @@ vi.mock('../../src/services/storage.js', () => ({
   getEntityDocumentStream: vi.fn().mockResolvedValue([]),
 }));
 
+const { audit } = await import('../../src/shared/middleware/audit.js');
 const svc = await import('../../src/modules/flito-logistica/flito-logistica.service.js');
 const { default: logisticaRoutes } = await import('../../src/modules/flito-logistica/flito-logistica.routes.js');
 
@@ -203,5 +204,107 @@ describe('POST /escanear — contrato (HU #14142)', () => {
     expect((await post({ rawValue: RAW, extra: 1 })).status).toBe(400);
     expect((await post({ rawValue: RAW, tramiteId: '3f2b1c0e-7a64-4f4e-9d38-1a2b3c4d5e6f', dejarPendiente: true })).status).toBe(400);
     expect((await post({ rawValue: RAW, tramiteId: 'no-uuid' })).status).toBe(400);
+  });
+});
+
+const MANUAL = { placa: 'qox-858', numeroLicencia: '10038156339', numeroLt: 'lt0012345' };
+
+describe('ingreso manual (placa + n.º de licencia + sustrato LT) — HU #14142', () => {
+  it('modo manual feliz: converge en la misma decisión, marca origen manual y guarda el sustrato', async () => {
+    lecturas([], [fila()]);
+    insertMock.mockReturnValueOnce(insertCapturando([{ id: 'm1' }]));
+    const r = await svc.escanearLt(MANUAL, null, {}, ctx);
+    expect(r).toMatchObject({ resultado: 'recogido', placa: 'QOX858', vin: 'LRWYGCFJ0TC496126', numeroLicencia: '10038156339' });
+    expect(insertados[0]).toMatchObject({ tramiteId: 't1', numeroLt: 'LT0012345', numeroLicencia: '10038156339', estado: 'recogido' });
+    expect(insertados[1]).toMatchObject({ tipo: 'recogida_organismo', payload: { origen: 'manual' } });
+  });
+
+  it('manual con varios trámites → elegir_tramite; con tramiteId elegido se crea con ese', async () => {
+    lecturas([], [fila(), fila({ tramiteId: 't2' })]);
+    expect((await svc.escanearLt(MANUAL, null, {}, ctx)).resultado).toBe('elegir_tramite');
+    lecturas([], [fila(), fila({ tramiteId: 't2', companiaId: 6 })]);
+    insertMock.mockReturnValueOnce(insertCapturando([{ id: 'm2' }]));
+    await svc.escanearLt(MANUAL, null, {}, ctx, { tramiteId: 't2' });
+    expect(insertados[0]).toMatchObject({ tramiteId: 't2', companiaId: 6 });
+  });
+
+  it('manual: numeroLicencia ya registrado → duplicado; placa sin trámite → sin_match', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 'dPrevio' }]));
+    expect(await svc.escanearLt(MANUAL, null, {}, ctx)).toMatchObject({ resultado: 'duplicado', documentoId: 'dPrevio' });
+    lecturas([], []);
+    expect((await svc.escanearLt(MANUAL, null, {}, ctx)).resultado).toBe('sin_match');
+  });
+
+  it('sustrato sin prefijo «LT» → 422 con código estable, sin consultar', async () => {
+    await expect(svc.escanearLt({ ...MANUAL, numeroLt: '12345' }, null, {}, ctx)).rejects.toMatchObject({ status: 422, extra: { code: 'NUMERO_LT_SIN_PREFIJO' } });
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('consultarVehiculo — HU #14142', () => {
+  it('devuelve solo los trámites sin LT, con VIN, organismo y vehículo; excluye los que ya tienen LT', async () => {
+    selectMock.mockReturnValueOnce(chain([
+      fila({ organismoNombre: 'Tránsito Medellín', marca: 'BYD', linea: 'Dolphin', modelo: 2026 }),
+      fila({ tramiteId: 'conLt', docId: 'x' }),
+    ]));
+    const r = await svc.consultarVehiculo('qox-858');
+    expect(r).toEqual({ encontrado: true, candidatos: [{
+      tramiteId: 't1', idFlit: 'F1', companiaNombre: 'ACME', organismoCodigo: '05001', gestionable: true,
+      vin: 'LRWYGCFJ0TC496126', organismoNombre: 'Tránsito Medellín', vehiculo: { marca: 'BYD', linea: 'Dolphin', modelo: 2026 },
+    }] });
+  });
+  it('sin trámites pendientes (o todos con LT) → {encontrado:false}', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    expect(await svc.consultarVehiculo('QOX858')).toEqual({ encontrado: false });
+    selectMock.mockReturnValueOnce(chain([fila({ docId: 'x' })]));
+    expect(await svc.consultarVehiculo('QOX858')).toEqual({ encontrado: false });
+  });
+});
+
+describe('rutas manual / consultar-vehiculo — HU #14142', () => {
+  const app = express(); app.use(express.json()); app.use('/api/flito/logistica', logisticaRoutes);
+  const como = async (ruta: string, body: unknown, role = 'mensajero') =>
+    request(app).post(`/api/flito/logistica${ruta}`).set('Authorization', `Bearer ${await testToken({ role })}`).send(body as object);
+
+  it('XOR rawValue / manual, manual incompleto o con extras → 400', async () => {
+    expect((await como('/escanear', { rawValue: RAW, ...MANUAL })).status).toBe(400);
+    expect((await como('/escanear', { placa: 'QOX858', numeroLicencia: '1' })).status).toBe(400);
+    expect((await como('/escanear', { ...MANUAL, extra: 1 })).status).toBe(400);
+    expect((await como('/validar-lt', { rawValue: RAW, placa: 'QOX858' })).status).toBe(400);
+    expect((await como('/consultar-vehiculo', { placa: 'QOX858', x: 1 })).status).toBe(400);
+  });
+
+  it('sustrato sin «LT» por HTTP → 422 con detalle.code estable y sin la placa en la respuesta', async () => {
+    const r = await como('/escanear', { ...MANUAL, numeroLt: '999' });
+    expect(r.status).toBe(422);
+    expect(r.body.detalle).toEqual({ code: 'NUMERO_LT_SIN_PREFIJO' });
+    expect(JSON.stringify(r.body)).not.toMatch(/QOX/i);
+  });
+
+  it('consultar-vehiculo sin trámite → 200 {encontrado:false}; auditor (sin función) → 403', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    const ok = await como('/consultar-vehiculo', { placa: 'QOX858' });
+    expect([ok.status, ok.body]).toEqual([200, { encontrado: false }]);
+    expect((await como('/consultar-vehiculo', { placa: 'QOX858' }, 'auditor')).status).toBe(403);
+  });
+
+  it('el escaneo manual no deja la placa en la auditoría', async () => {
+    vi.mocked(audit).mockClear();
+    selectMock.mockReturnValue(chain([]));
+    const r = await como('/escanear', MANUAL);
+    expect(r.status).toBe(200);
+    expect(JSON.stringify(vi.mocked(audit).mock.calls.map((c) => c[1]))).not.toMatch(/QOX/i);
+  });
+
+  it('tope de intentos: la consulta 21 en un minuto → 429 sin eco de la placa', async () => {
+    selectMock.mockReturnValue(chain([]));
+    const token = `Bearer ${await testToken({ role: 'mensajero' })}`;
+    let ultimo = 200; let cuerpo = '';
+    for (let i = 0; i < 21; i++) {
+      const r = await request(app).post('/api/flito/logistica/consultar-vehiculo').set('Authorization', token).send({ placa: 'QOX858' });
+      ultimo = r.status; cuerpo = JSON.stringify(r.body);
+    }
+    expect(ultimo).toBe(429);
+    expect(cuerpo).not.toMatch(/QOX/i);
   });
 });

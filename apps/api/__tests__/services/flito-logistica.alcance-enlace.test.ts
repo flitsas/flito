@@ -117,7 +117,7 @@ describe('AC3 / P-2 — escritura ajena 403 sin oráculo; la propia pasa la guar
 });
 
 describe('P-2 — escaneo, validación por placa y ruta del mensajero cerrados a todo enlace', () => {
-  it.each([['post', '/validar-lt'], ['post', '/escanear'], ['get', '/mi-ruta']] as const)('%s %s → 403, sin consultar', async (m, ruta) => {
+  it.each([['post', '/validar-lt'], ['post', '/escanear'], ['post', '/consultar-vehiculo'], ['get', '/mi-ruta']] as const)('%s %s → 403, sin consultar', async (m, ruta) => {
     const r = await request(await app())[m](`/api/flito/logistica${ruta}`).set('Authorization', await como('compania')).send({ rawValue: 'X' });
     expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);
     expect(h.cap.consultas).toEqual([]);
