@@ -19,7 +19,7 @@ import type { SoatCtx } from './flito-soat.service.js';
 import { falloMasivo } from './flito-soat-masivo.errors.js';
 import { parsearXlsxRenovacion } from './flito-soat-masivo-parse.js';
 import { parsearXlsxInicial } from './flito-soat-masivo-parse-inicial.js';
-import { textoMotivo } from './flito-soat-masivo-motivos.js';
+import { MENSAJE_MOTIVO_PENDIENTE, textoMotivo } from './flito-soat-masivo-motivos.js';
 import { descargaVencida, purgarPiiRechazadas } from './flito-soat-masivo-purga.js';
 
 export interface LoteCreado {
@@ -166,12 +166,15 @@ export async function avanceLote(loteId: string, ctx: SoatCtx): Promise<AvanceLo
   const filasDb = await db.select({
     nFila: F.nFila, estado: F.estado, placa: F.placa, vin: F.vin, marca: F.vehiculoMarca, linea: F.vehiculoLinea,
     modelo: F.vehiculoModelo, motivo: F.motivoRechazo, vigenteHasta: F.vigenteHasta,
-  }).from(F).where(eq(F.loteId, loteId)).orderBy(asc(F.nFila)).limit(200);
+    motivoPendiente: flitoSoatIncompletas.motivoPendiente,
+  }).from(F).leftJoin(flitoSoatIncompletas, eq(flitoSoatIncompletas.id, F.incompletaId)).where(eq(F.loteId, loteId)).orderBy(asc(F.nFila)).limit(200);
   const tipoMotivo = lote.tipoSoat === 'inicial' ? 'inicial' : 'renovacion';
   const filas: FilaAvance[] = filasDb.map((f) => ({
     nFila: f.nFila, placa: f.placa, vin: f.vin, estado: ESTADO_FILA[f.estado] ?? 'en_cola',
     marca: f.marca, linea: f.linea, modelo: f.modelo,
-    motivo: f.motivo ? { codigo: f.motivo, mensaje: textoMotivo(f.motivo, f.vigenteHasta, tipoMotivo) } : null,
+    motivo: f.motivo ? { codigo: f.motivo, mensaje: textoMotivo(f.motivo, f.vigenteHasta, tipoMotivo) }
+      : f.estado === 'por_validar' && f.motivoPendiente && MENSAJE_MOTIVO_PENDIENTE[f.motivoPendiente]
+        ? { codigo: f.motivoPendiente, mensaje: MENSAJE_MOTIVO_PENDIENTE[f.motivoPendiente]! } : null,
   }));
   return {
     filas,

@@ -87,6 +87,7 @@ export default function DetalleIncompletaSoat({
   onCompletada?: () => void;
 }) {
   const [ocupado, setOcupado] = useState(false);
+  const [destinoPie, setDestinoPie] = useState<HTMLDivElement | null>(null);
   const [det, setDet] = useState<SolicitudIncompletaDetalle | null>(null);
   const [error, setError] = useState(false);
   const [intento, setIntento] = useState(0);
@@ -170,7 +171,7 @@ export default function DetalleIncompletaSoat({
         {!completada && porCompletar && (puedeCompletar ? (
           det && (
             <CompletarIncompletaSoat
-              fila={fila} renovacion={renovacion} propietario={det.propietario} onOcupado={setOcupado} onCerrar={onClose}
+              fila={fila} renovacion={renovacion} propietario={det.propietario} onOcupado={setOcupado} onCerrar={onClose} destinoPie={destinoPie}
               onCompletada={() => onCompletada?.()} onActualizarLista={() => onCompletada?.()}
             />
           )
@@ -227,6 +228,9 @@ export default function DetalleIncompletaSoat({
             </button>
           </div>
         )}
+
+        {/* Pie de «Completar»: Cerrar / Crear solicitud quedan al final, bajo los datos. */}
+        <div ref={setDestinoPie} />
       </div>
     </FlitModal>
   );

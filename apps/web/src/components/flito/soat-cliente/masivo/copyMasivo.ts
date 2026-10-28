@@ -21,6 +21,7 @@ export interface CopyMasivo {
   plantillaEquivocada: string;
   noEncontrada: string;
   nombrePlantilla: string;
+  nombreRechazadas: string;
 }
 
 export const COPY_MASIVO: Record<TipoMasivo, CopyMasivo> = {
@@ -38,6 +39,7 @@ export const COPY_MASIVO: Record<TipoMasivo, CopyMasivo> = {
     plantillaEquivocada: 'Este archivo es de la plantilla Inicial. Elija Inicial o descargue la plantilla de Renovación.',
     noEncontrada: 'No encontramos esta carga. Cargue el archivo de nuevo si no ve sus renovaciones en la lista.',
     nombrePlantilla: 'plantilla-renovaciones.xlsx',
+    nombreRechazadas: 'rechazadas-soat-renovacion.xlsx',
   },
   // HU #14137: la plantilla Inicial lleva solo el VIN; la factura se carga después, en Por validar.
   inicial: {
@@ -54,6 +56,7 @@ export const COPY_MASIVO: Record<TipoMasivo, CopyMasivo> = {
     plantillaEquivocada: 'Este archivo es de la plantilla de Renovación. Elija Renovación o descargue la plantilla Inicial.',
     noEncontrada: 'No encontramos esta carga. Cargue el archivo de nuevo si no ve sus solicitudes en la lista.',
     nombrePlantilla: 'plantilla-inicial.xlsx',
+    nombreRechazadas: 'rechazadas-soat-inicial.xlsx',
   },
 };
 

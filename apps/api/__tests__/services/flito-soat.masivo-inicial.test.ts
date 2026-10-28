@@ -117,7 +117,7 @@ describe('decisión pura de la fila Inicial', () => {
   it('textos Inicial: AC4 «VIN repetido en el archivo», AC5 «ya tiene un SOAT en gestión»', () => {
     expect(textoMotivo('fila_duplicada', null, 'inicial')).toBe('VIN repetido en el archivo');
     expect(textoMotivo('fila_duplicada')).toBe('Placa repetida en el archivo');
-    expect(textoMotivo('solicitud_existente', null, 'inicial')).toBe('Esta placa ya tiene un SOAT en gestión');
+    expect(textoMotivo('solicitud_existente', null, 'inicial')).toBe('Este VIN ya tiene un SOAT en gestión.');
   });
 });
 

@@ -134,7 +134,8 @@ export function useLoteMasivo(tipo: TipoMasivo, companiaId: number | undefined) 
     if (!loteId) return;
     setDescargando('rechazadas');
     try {
-      await api.download(`${BASE_MASIVO}/${encodeURIComponent(loteId)}/rechazadas`, 'rechazadas.xlsx');
+      await api.download(`${BASE_MASIVO}/${encodeURIComponent(loteId)}/rechazadas`, COPY_MASIVO[tipo].nombreRechazadas);
+      toastOk('Rechazadas descargadas.', { id: 'soat-masivo-descarga' });
     } catch (e) {
       const codigo = codigoDe(e);
       if (codigo === 'descarga_no_disponible') {
@@ -146,7 +147,7 @@ export function useLoteMasivo(tipo: TipoMasivo, companiaId: number | undefined) 
     } finally {
       setDescargando(null);
     }
-  }, [loteId]);
+  }, [loteId, tipo]);
 
   return {
     archivo, errorArchivo, subiendo, errorSubida, loteId, avance, filas, errorAvance, descargando, rechazadasVencidas, terminado,

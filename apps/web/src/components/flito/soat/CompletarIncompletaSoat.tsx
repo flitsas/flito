@@ -10,6 +10,7 @@
 //  · Privacidad (ADR-0032): documento, correo, celular y dirección solo viven en el estado; viajan en
 //    el cuerpo; nunca en URL, storage, consola ni toasts.
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { CircleAlert, Info, Loader2, RotateCw } from 'lucide-react';
 import type { ExtraccionFacturaVenta, PropietarioSolicitudIncompleta, SolicitudIncompletaFila } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
@@ -19,6 +20,7 @@ import FlitUploadBox from '../../flit/FlitUploadBox';
 import { toastOk } from '../../flit/ToastFlito';
 import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 import { BloquePropietario, PROPIETARIO_VACIO, type CampoPropietario, type Propietario } from '../soat-cliente/bloques';
+import { normalizarDocumentoOcr } from './normalizarDocumentoOcr';
 import { codigoDe } from '../soat-cliente/masivo/copyMasivo';
 import { ORDEN_FOCO_BASE, validador } from '../soat-cliente/validacionSolicitud';
 
@@ -62,7 +64,9 @@ function Aviso({ tono, children, id }: { tono: 'warning' | 'neutro'; children: R
   );
 }
 
-export default function CompletarIncompletaSoat({ fila, renovacion, propietario, onCompletada, onActualizarLista, onOcupado, onCerrar }: {
+const ID_FORM = 'completar-incompleta-form';
+
+export default function CompletarIncompletaSoat({ fila, renovacion, propietario, onCompletada, onActualizarLista, onOcupado, onCerrar, destinoPie }: {
   fila: SolicitudIncompletaFila;
   renovacion: boolean;
   propietario: PropietarioSolicitudIncompleta | null;
@@ -71,6 +75,8 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
   /** Hay una petición en vuelo: el modal no debe cerrarse. */
   onOcupado: (ocupado: boolean) => void;
   onCerrar: () => void;
+  /** Si viene, el pie (Cerrar / Crear solicitud) se pinta ahí: al final del modal, bajo los datos de la solicitud. */
+  destinoPie?: HTMLElement | null;
 }) {
   const [archivo, setArchivo] = useState<File | null>(null);
   const [leyendo, setLeyendo] = useState(false);
@@ -97,7 +103,10 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
         for (const [campo, dato] of Object.entries(leidos)) {
           // El documento ya consultado manda: si la factura trae otro, se avisa y NO se sobrescribe.
           if (form.documentoDifiere && (campo === 'tipoDocumento' || campo === 'numeroDocumento')) continue;
-          if (dato && campo in sig) sig[campo as CampoPropietario] = dato.valor;
+          if (!dato || !(campo in sig)) continue;
+          sig[campo as CampoPropietario] = campo === 'numeroDocumento'
+            ? normalizarDocumentoOcr(leidos.tipoDocumento?.valor ?? sig.tipoDocumento, dato.valor)
+            : dato.valor;
         }
         return sig;
       });
@@ -161,6 +170,7 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
   const onSubmit = (ev: FormEvent) => { ev.preventDefault(); if (!creando) void crear(); };
   const pie = 'mt-4 flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:flex-wrap sm:justify-end';
   const bordePie = { borderColor: 'var(--flit-border-soft)' } as const;
+  const enPie = (nodo: ReactNode) => (destinoPie ? createPortal(nodo, destinoPie) : nodo);
   const botonCerrar = (
     <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle}
       disabled={creando} onClick={onCerrar}>Cerrar</button>
@@ -245,7 +255,7 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
       )}
 
       {hayFormulario ? (
-        <form ref={formRef} aria-label="Datos del propietario" noValidate onSubmit={onSubmit} aria-busy={creando || undefined}>
+        <form id={ID_FORM} ref={formRef} aria-label="Datos del propietario" noValidate onSubmit={onSubmit} aria-busy={creando || undefined}>
           {errorCrear && (
             <div role="alert" className="mb-3 flex flex-wrap items-center gap-3 text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
               <CircleAlert size={16} aria-hidden="true" className="shrink-0" />
@@ -276,19 +286,19 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
             Al pulsar «Crear solicitud», la solicitud sale al gestor.
           </p>
           {!completo && !creando && <p id="completar-razon" className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{RAZON}</p>}
-          <div className={pie} style={bordePie}>
+          {enPie(<div className={pie} style={bordePie}>
             {botonCerrar}
-            <button type="submit" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
+            <button type="submit" form={ID_FORM} className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
               aria-disabled={!completo || creando || undefined} aria-busy={creando || undefined}
               aria-describedby={!completo ? 'completar-razon' : undefined}
               onClick={(ev) => { if (!completo || creando) { ev.preventDefault(); if (!creando) void crear(); } }}>
               {creando && <Loader2 size={16} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />}
               {creando ? 'Creando solicitud…' : 'Crear solicitud'}
             </button>
-          </div>
+          </div>)}
         </form>
       ) : (
-        <div className={pie} style={bordePie}>{botonCerrar}</div>
+        enPie(<div className={pie} style={bordePie}>{botonCerrar}</div>)
       )}
     </div>
   );

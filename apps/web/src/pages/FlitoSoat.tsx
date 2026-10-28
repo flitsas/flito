@@ -42,7 +42,7 @@ import useReintentoRunt, { FUNCION_REINTENTAR_RUNT } from '../components/flito/s
 
 /** Vacíos literales de las pastillas nuevas (UX §4, HU #12997). */
 const VACIO_INCOMPLETAS = {
-  incompleta: 'No hay solicitudes por validar. Cuando el RUNT no responde al pedir un SOAT, la solicitud queda aquí para volver a consultarla.',
+  incompleta: 'No hay solicitudes por validar. Aquí quedan las que esperan al RUNT, la factura de venta o los datos del propietario.',
   descartada: 'No hay solicitudes descartadas. Aquí quedan, sin borrarse, las que el RUNT no dejó continuar.',
 } as const;
 

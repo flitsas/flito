@@ -44,7 +44,7 @@ const TERMINADO = avance({
   resumen: { total: 4, creadas: 2, porValidar: 1, rechazadas: 1, porValidarFactura: 1, porValidarPropietario: 0 },
   descargaRechazadas: true,
   filas: [
-    fila(1, 'creada'), fila(2, 'creada'), fila(3, 'por_validar'),
+    fila(1, 'creada'), fila(2, 'creada'), fila(3, 'por_validar', { motivo: { codigo: 'faltan_datos_propietario', mensaje: 'Faltan datos del propietario' } }),
     fila(4, 'rechazada', { placa: 'JKL012', motivo: { codigo: 'soat_vigente', mensaje: 'El vehículo ya tiene SOAT vigente' } }),
   ],
 });
@@ -151,6 +151,7 @@ test.describe('HU #14134 — carga masiva de renovaciones', () => {
     await expect(page.getByText('2 creadas').first()).toBeVisible();
     await expect(page.getByText('1 en Por validar').first()).toBeVisible();
     await expect(page.getByText('JKL012 · El vehículo ya tiene SOAT vigente')).toBeVisible();
+    await expect(tabla.getByText('Faltan datos del propietario')).toBeVisible();
     // Nada de PII en storage.
     const guardado = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }));
     expect(guardado).not.toContain('ABC123');
@@ -163,7 +164,8 @@ test.describe('HU #14134 — carga masiva de renovaciones', () => {
     }));
     const descarga = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Descargar rechazadas' }).click();
-    expect((await descarga).suggestedFilename()).toContain('rechazadas');
+    expect((await descarga).suggestedFilename()).toBe('rechazadas-soat-renovacion.xlsx');
+    await expect(page.getByText('Rechazadas descargadas.')).toBeVisible();
 
     await page.getByRole('button', { name: 'Ver en Por validar' }).click();
     await expect(page).toHaveURL(/\/flito\/soat$/);

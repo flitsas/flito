@@ -34,7 +34,7 @@ const avance = (o: Record<string, unknown> = {}) => ({
   descargaRechazadas: false, filas: [], ...o,
 });
 const EN_CURSO = avance({
-  filas: [fila(1, 'por_validar', { vin: VIN, placa: PLACA, marca: 'RENAULT', linea: 'LOGAN', modelo: 2026 }),
+  filas: [fila(1, 'por_validar', { vin: VIN, placa: PLACA, marca: 'RENAULT', linea: 'LOGAN', modelo: 2026, motivo: { codigo: 'falta_factura_venta', mensaje: 'Falta factura de venta' } }),
     fila(2, 'consultando', { vin: '9ZZDEMO0000000002' }), fila(3, 'en_cola', { vin: '9ZZDEMO0000000003' })],
 });
 const terminado = (rechazadas: number) => avance({
@@ -278,6 +278,21 @@ test.describe('HU #14137 · AC3/AC4/AC6 — completar una pendiente Inicial con 
     expect(guardado).not.toContain('1020304050');
     expect(guardado).not.toContain(VIN);
   });
+
+  for (const [tipo, crudo, esperado] of [['NIT', '890903938-8', '890903938'], ['CC', '1.020.304.050', '1020304050'], ['CC', '1020304050-1', '10203040501']] as const) {
+    test(`el documento leído por OCR (${tipo} «${crudo}») se prellena limpio: «${esperado}»`, async ({ page }) => {
+      await montarCola(page, {
+        factura: () => ({ status: 200, cuerpo: { extraccion: extraccion({ tipoDocumento: tipo, numeroDocumento: crudo, razonSocial: 'Transportes Andinos', nombres: 'Ana', apellidos: 'Pérez', direccion: 'Calle 1 # 2-3', municipio: 'Bogotá', departamento: 'Cundinamarca', celular: '3001234567' }), lectura: 'ok', vinVerificado: true, documentoDifiere: false, estado: 'incompleta' } }),
+      });
+      await abrirPorValidar(page);
+      await filaDe(page, VIN).getByRole('button', { name: /Completar/ }).click();
+      await modal(page).locator('input[type=file]').setInputFiles(PDF);
+      await expect(modal(page).getByLabel('Número de documento')).toHaveValue(esperado);
+      await modal(page).getByLabel('Correo electrónico').fill('ana@example.com');
+      await expect(modal(page).getByText('solo lleva letras y números')).toHaveCount(0);
+      await expect(modal(page).getByRole('button', { name: 'Crear solicitud' })).toBeEnabled();
+    });
+  }
 
   test('VIN distinto: rechazo con el mensaje exacto, sin formulario y la pendiente no cambia', async ({ page }) => {
     const cap = await montarCola(page, { factura: () => ({ status: 422, cuerpo: { error: 'x', codigo: 'vin_factura_no_coincide' } }) });

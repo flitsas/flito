@@ -158,4 +158,30 @@ describe.skipIf(!URL_BASE)('filas del avance contra Postgres real', () => {
       await sql`DELETE FROM flito_soat_incompletas WHERE id = ${i!.id}`;
     }
   });
+
+  it('H3: la fila por_validar devuelve motivo {codigo, mensaje} desde la incompleta; las demás no cambian', async () => {
+    const mk = async (motivo: string, vin: string) => (await sql`INSERT INTO flito_soat_incompletas (soat_id_reservado, compania_id, vin, tipo_soat, modalidad_consulta, motivo_pendiente, estado, solicitado_por_nombre, solicitado_en, intentos, ultimo_intento_en)
+      VALUES (gen_random_uuid(), ${companiaId}, ${vin}, 'renovacion', 'vin', ${motivo}, 'incompleta', 'prueba', now(), 1, now()) RETURNING id`)[0]!.id as string;
+    const ids = [await mk('falta_factura_venta', 'ZZZH3000000000001'), await mk('faltan_datos_propietario', 'ZZZH3000000000002'), await mk('runt_sin_respuesta', 'ZZZH3000000000003')];
+    try {
+      const [l] = await sql`INSERT INTO flito_soat_masivo_lotes (compania_id, creado_por_nombre, tipo_soat, estado, total_filas, archivo_hash, iniciado_en)
+        VALUES (${companiaId}, 'Ana', 'inicial', 'procesando', 4, 'h', now()) RETURNING id`;
+      lotes.push(l!.id);
+      await sql`INSERT INTO flito_soat_masivo_filas (lote_id, n_fila, estado, vin, incompleta_id) VALUES
+        (${l!.id}, 1, 'por_validar', 'V1', ${ids[0]!}), (${l!.id}, 2, 'por_validar', 'V2', ${ids[1]!}), (${l!.id}, 3, 'por_validar', 'V3', ${ids[2]!})`;
+      await sql`INSERT INTO flito_soat_masivo_filas (lote_id, n_fila, estado, vin) VALUES (${l!.id}, 4, 'pendiente', 'V4')`;
+      const a = await svc.avanceLote(l!.id, ctxDe(companiaId));
+      expect(a!.filas.map((f) => f.motivo)).toEqual([
+        { codigo: 'falta_factura_venta', mensaje: 'Falta factura de venta' },
+        { codigo: 'faltan_datos_propietario', mensaje: 'Faltan datos del propietario' },
+        { codigo: 'runt_sin_respuesta', mensaje: 'Esperando al RUNT' },
+        null,
+      ]);
+      expect(Object.keys(a!.filas[0]!).sort()).toEqual(['estado', 'linea', 'marca', 'modelo', 'motivo', 'nFila', 'placa', 'vin']);
+    } finally {
+      await sql`DELETE FROM flito_soat_masivo_lotes WHERE id IN ${sql(lotes.length ? lotes : [''])}`.catch(() => {});
+      lotes.length = 0;
+      await sql`DELETE FROM flito_soat_incompletas WHERE id IN ${sql(ids)}`;
+    }
+  });
 });

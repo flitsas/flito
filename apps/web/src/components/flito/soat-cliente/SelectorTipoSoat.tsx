@@ -20,11 +20,11 @@ import { Seccion } from './bloques';
 const OPCIONES: { tipo: TipoSoat; titulo: string; texto: string }[] = [
   {
     tipo: TipoSoat.INICIAL, titulo: 'SOAT inicial',
-    texto: 'Vehículo nuevo o que nunca ha tenido SOAT. Se consulta por el VIN.',
+    texto: 'Vehículo nuevo o que nunca ha tenido SOAT.',
   },
   {
     tipo: TipoSoat.RENOVACION, titulo: 'Renovación',
-    texto: 'El vehículo ya tuvo SOAT. Se consulta por placa y documento del propietario.',
+    texto: 'El vehículo ya tuvo SOAT.',
   },
 ];
 

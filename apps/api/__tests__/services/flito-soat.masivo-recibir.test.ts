@@ -17,7 +17,7 @@ const flagWorker = (v: boolean) => { (env as { SOAT_MASIVO_WORKER_ENABLED: boole
 let cola: unknown[] = [];
 const selectMock = vi.fn(() => {
   const q = {
-    from: () => q, where: () => q, limit: () => q, for: () => q, groupBy: () => q, orderBy: () => q,
+    from: () => q, where: () => q, limit: () => q, for: () => q, groupBy: () => q, leftJoin: () => q, innerJoin: () => q, orderBy: () => q,
     then: (ok: (v: unknown) => unknown, ko?: (e: unknown) => unknown) =>
       Promise.resolve(cola.length ? cola.shift() : []).then(ok, ko),
   };

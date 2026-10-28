@@ -37,8 +37,16 @@ export const MENSAJE_MOTIVO_INICIAL: Record<string, string> = {
   runt_no_cuadra: TEXTO_REVISE_VIN,
   runt_sin_registro: TEXTO_REVISE_VIN,
   runt_sin_vin: TEXTO_REVISE_VIN,
-  solicitud_existente: MENSAJE_MOTIVO_MASIVO.solicitud_existente!,
+  // H7: en Inicial la fila se identifica por VIN. Ajena y propia comparten código y texto (no revela otra compañía).
+  solicitud_existente: 'Este VIN ya tiene un SOAT en gestión.',
   no_procesada: MENSAJE_MOTIVO_MASIVO.no_procesada!,
+};
+
+/** H3: motivo de una fila «Por validar» (valores del CHECK de `flito_soat_incompletas.motivo_pendiente`). */
+export const MENSAJE_MOTIVO_PENDIENTE: Record<string, string> = {
+  falta_factura_venta: 'Falta factura de venta',
+  faltan_datos_propietario: 'Faltan datos del propietario',
+  runt_sin_respuesta: 'Esperando al RUNT',
 };
 
 /** `2026-12-31` → `31/12/2026`. */
