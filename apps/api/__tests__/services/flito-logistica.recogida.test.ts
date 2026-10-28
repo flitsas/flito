@@ -146,6 +146,7 @@ describe('GET /recogidas — el acta de organismo se consulta aparte, con la cé
     const r = await get(`/recogidas/${FIRMA_ID}`, await mensajero());
     expect(r.status).toBe(200);
     expect(r.body.documentoEnmascarado).toBe('••••0908');
+    expect(r.body.estadoFirma).toBe('firmada');
     expect(r.body.actas).toEqual([
       { actaId: ACTA, companiaId: 5, companiaNombre: 'A', documentoIds: [D1] },
       { actaId: ACTA2, companiaId: 6, companiaNombre: 'B', documentoIds: [D2] },
@@ -161,14 +162,47 @@ describe('GET /recogidas — el acta de organismo se consulta aparte, con la cé
     expect(r.body.codigo).toBe('RECOGIDA_NO_ENCONTRADA');
   });
   it('GET /recogidas/mias — lista mis recogidas con conteos y cédula enmascarada', async () => {
-    selectMock.mockReturnValueOnce(chain([{ firmanteId: FIRMA_ID, organismoCodigo: '11001', nombre: NOMBRE, ultimos: '0908', firmadoEn: new Date('2026-10-28T10:00:00Z'), actas: 2, pendientes: 1 }]));
+    selectMock.mockReturnValueOnce(chain([{ firmanteId: FIRMA_ID, organismoCodigo: '11001', nombre: NOMBRE, ultimos: '0908', firmadoEn: new Date('2026-10-28T10:00:00Z'), actas: 2, pendientes: 1 }]))
+      .mockReturnValueOnce(chain([{ n: 3 }]));
     const r = await get('/recogidas/mias', await mensajero());
     expect(r.status).toBe(200);
-    expect(r.body.recogidas).toEqual([{ firmanteId: FIRMA_ID, organismoCodigo: '11001', nombre: NOMBRE, documentoEnmascarado: '••••0908', firmadoEn: '2026-10-28T10:00:00.000Z', actas: 2, pendientesTramite: 1 }]);
+    expect(r.body.pendientesFirma).toBe(3);
+    expect(r.body.recogidas).toEqual([{ firmanteId: FIRMA_ID, organismoCodigo: '11001', nombre: NOMBRE, documentoEnmascarado: '••••0908', firmadoEn: '2026-10-28T10:00:00.000Z', actas: 2, pendientesTramite: 1, estadoFirma: 'firmada' }]);
   });
   it('sin la función de confirmar → 403', async () => {
     const r = await get('/recogidas/mias', await testToken({ role: 'cliente', sub: 77 }));
     expect([401, 403]).toContain(r.status);
+  });
+});
+
+describe('GET /recogidas/pendientes-firma (HU #14147) — LT escaneadas que esperan la firma del organismo', () => {
+  const PLACA = 'QOX858';
+  const FILA = { documentoId: D1, placa: PLACA, numeroLt: 'LT123456', idFlit: 'F1', companiaId: 5, companiaNombre: 'ACME', organismoCodigo: '11001', tramiteId: T, estado: 'recogido', fecha: new Date('2026-10-28T10:00:00Z') };
+  it('responde el DTO por LT y NO la toma el /:firmanteId (se declara antes)', async () => {
+    selectMock.mockReturnValueOnce(chain([FILA, { ...FILA, documentoId: D2, tramiteId: null, companiaId: null, companiaNombre: null, idFlit: null }]));
+    const r = await get('/recogidas/pendientes-firma', await mensajero());
+    expect(r.status).toBe(200);
+    expect(r.body.pendientes).toEqual([
+      { documentoId: D1, placa: PLACA, numeroLt: 'LT123456', idFlit: 'F1', companiaId: 5, companiaNombre: 'ACME', organismoCodigo: '11001', pendienteTramite: false, estado: 'recogido', fecha: '2026-10-28T10:00:00.000Z' },
+      { documentoId: D2, placa: PLACA, numeroLt: 'LT123456', idFlit: null, companiaId: null, companiaNombre: null, organismoCodigo: '11001', pendienteTramite: true, estado: 'recogido', fecha: '2026-10-28T10:00:00.000Z' },
+    ]);
+  });
+  it('sin LT pendientes → lista vacía (no 404)', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    const r = await get('/recogidas/pendientes-firma', await mensajero());
+    expect(r.status).toBe(200);
+    expect(r.body.pendientes).toEqual([]);
+  });
+  it('la placa no sale en logs ni en la auditoría', async () => {
+    selectMock.mockReturnValueOnce(chain([FILA]));
+    await get('/recogidas/pendientes-firma', await mensajero());
+    expect(JSON.stringify(logLlamadas)).not.toContain(PLACA);
+    expect(JSON.stringify(auditMock.mock.calls)).not.toContain(PLACA);
+  });
+  it('sin la función de confirmar → 403 y no consulta', async () => {
+    const r = await get('/recogidas/pendientes-firma', await testToken({ role: 'cliente', sub: 77 }));
+    expect([401, 403]).toContain(r.status);
+    expect(selectMock).not.toHaveBeenCalled();
   });
 });
 

@@ -205,13 +205,13 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #14142: `POST /consultar-vehiculo` (ingreso manual de la LT) reutiliza `logistica.documento.escanear` de `/escanear` (sin función nueva).
     // HU #13958: el impacto y el cambio de estado de un proveedor SOAT piden la misma `parametrizacion.proveedores.estado`
     // (gemelo de `clients.clientes.estado`).
-    // HU #14110: confirmar la recogida y sus dos consultas piden la misma `logistica.recogida.confirmar`.
+    // HU #14110: confirmar la recogida y sus dos consultas piden la misma `logistica.recogida.confirmar`. HU #14147: +1 (pendientes-firma), cuatro rutas con la misma función.
     expect(compartidosFlito.sort()).toEqual([
       ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
       ['bolsas.documentos.cargar', 3], ['bolsas.documentos.ver', 4],
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.inactivar', 2],
-      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2], ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3], ['logistica.recogida.confirmar', 3], ['parametrizacion.proveedores.estado', 2],
+      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2], ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3], ['logistica.recogida.confirmar', 4], ['parametrizacion.proveedores.estado', 2],
       ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.cola.ver', 2], ['soat.solicitud.crear', 2],
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);

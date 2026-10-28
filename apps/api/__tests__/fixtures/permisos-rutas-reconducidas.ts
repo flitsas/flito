@@ -222,6 +222,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // HU #14110: confirmar recogida y sus consultas (función propia) y revelar la cédula del firmante (función nueva).
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/recogidas/confirmar', codigo: 'logistica.recogida.confirmar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/recogidas/mias', codigo: 'logistica.recogida.confirmar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/recogidas/pendientes-firma', codigo: 'logistica.recogida.confirmar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/recogidas/:firmanteId', codigo: 'logistica.recogida.confirmar' },
   // HU #14143: resolver el trámite de una LT pendiente.
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/pendientes-tramite', codigo: 'logistica.documento.resolver_tramite' },

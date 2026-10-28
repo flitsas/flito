@@ -308,3 +308,46 @@ describe('rutas manual / consultar-vehiculo — HU #14142', () => {
     expect(cuerpo).not.toMatch(/QOX/i);
   });
 });
+
+describe('HU #14147 — organismo y compañía en la respuesta del escaneo y la validación', () => {
+  it('escanear recogido: organismoCodigo y companiaNombre del trámite resuelto', async () => {
+    lecturas([], [fila()]);
+    insertMock.mockReturnValueOnce(insertCapturando([{ id: 'd1' }]));
+    const r = await svc.escanearLt(RAW, null, {}, ctx);
+    expect(r).toMatchObject({ resultado: 'recogido', organismoCodigo: '05001', companiaNombre: 'ACME' });
+  });
+  it('escanear novedad (VIN distinto): también los trae', async () => {
+    lecturas([], [fila({ vin: 'OTROVIN0000000000' })]);
+    insertMock.mockReturnValueOnce(insertCapturando([{ id: 'd1' }]));
+    const r = await svc.escanearLt(RAW, null, {}, ctx);
+    expect(r).toMatchObject({ resultado: 'novedad', organismoCodigo: '05001', companiaNombre: 'ACME' });
+  });
+  it('escanear duplicado por trámite con LT: los trae del trámite', async () => {
+    lecturas([], [fila({ docId: 'dX' })]);
+    const r = await svc.escanearLt(RAW, null, {}, ctx, { tramiteId: 't1' });
+    expect(r).toMatchObject({ resultado: 'duplicado', organismoCodigo: '05001', companiaNombre: 'ACME' });
+  });
+  it('escanear duplicado por n.º de licencia ya registrado: los trae del documento', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 'dY', organismoCodigo: '11001', companiaNombre: 'BETA' }]));
+    const r = await svc.escanearLt(RAW, null, {}, ctx);
+    expect(r).toMatchObject({ resultado: 'duplicado', documentoId: 'dY', organismoCodigo: '11001', companiaNombre: 'BETA' });
+  });
+  it('escanear LT pendiente de trámite: organismo con el que se creó y compañía null', async () => {
+    lecturas([], [fila(), fila({ tramiteId: 't2' })]);
+    insertMock.mockReturnValueOnce(insertCapturando([{ id: 'p1' }])).mockReturnValueOnce(insertCapturando([]));
+    const r = await svc.escanearLt(RAW, null, {}, ctx, { dejarPendiente: true });
+    expect(r).toMatchObject({ pendienteTramite: true, organismoCodigo: '05001', companiaNombre: null });
+  });
+  it('validar relacionada y ya_registrada traen organismo y compañía', async () => {
+    lecturas([], [fila()]);
+    expect(await svc.validarLt(RAW)).toMatchObject({ resultado: 'relacionada', organismoCodigo: '05001', companiaNombre: 'ACME' });
+    selectMock.mockReturnValueOnce(chain([{ id: 'dY', organismoCodigo: '11001', companiaNombre: 'BETA' }]));
+    expect(await svc.validarLt(RAW)).toMatchObject({ resultado: 'ya_registrada', organismoCodigo: '11001', companiaNombre: 'BETA' });
+  });
+  it('elegir_tramite: cada candidato ya trae organismo y compañía', async () => {
+    lecturas([], [fila(), fila({ tramiteId: 't2', companiaNombre: 'OTRA' })]);
+    const r = await svc.escanearLt(RAW, null, {}, ctx);
+    expect(r.candidatos!.map((c) => [c.organismoCodigo, c.companiaNombre])).toEqual([['05001', 'ACME'], ['05001', 'OTRA']]);
+  });
+});
+

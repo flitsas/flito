@@ -126,6 +126,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   // HU #14110: confirmar la recogida (función propia) y revelar la cédula del firmante (función nueva, solo admin).
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/recogidas/confirmar", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/mias", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/pendientes-firma", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/:firmanteId", roles: ["admin","mensajero"], heredada: false },
   // HU #14143: resolver el trámite de una LT pendiente; la 0277 la siembra SOLO a `admin`.
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/pendientes-tramite", roles: ["admin"], heredada: false },

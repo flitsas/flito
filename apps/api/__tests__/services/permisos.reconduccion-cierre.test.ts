@@ -212,8 +212,8 @@ describe('el lector de montajes cubre la foto entera', () => {
     // −6 por la HU #13911 (retiro de las rutas antiguas `/transito…` de bolsas: listar, crear, ver, editar,
     // movimientos y cargas; sus códigos siguen montados en la rama tránsito del catálogo).
     // +1 por la HU #14142 (`POST /consultar-vehiculo` de flito-logistica, reutiliza `logistica.documento.escanear`).
-    expect(GUARDAS_MEDIDAS).toHaveLength(635); // +3 de la HU #14143 (pendientes-tramite, candidatos-tramite y resolver-tramite); +4 de la HU #14110 (recogidas/confirmar, mias, :firmanteId y revelar el documento del firmante); +1 de la HU #14142 (consultar-vehiculo)
-    expect(montajes).toHaveLength(635);
+    expect(GUARDAS_MEDIDAS).toHaveLength(636); // +1 de la HU #14147 (recogidas/pendientes-firma);  +3 de la HU #14143 (pendientes-tramite, candidatos-tramite y resolver-tramite); +4 de la HU #14110 (recogidas/confirmar, mias, :firmanteId y revelar el documento del firmante); +1 de la HU #14142 (consultar-vehiculo)
+    expect(montajes).toHaveLength(636);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)

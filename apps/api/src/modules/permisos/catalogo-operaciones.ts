@@ -203,6 +203,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // HU #14110 (ADR-0030 §17): función NUEVA para confirmar la recogida y consultar mis recogidas (ya no `escanear`).
   op(`${LOG} POST /recogidas/confirmar`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
   op(`${LOG} GET /recogidas/mias`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
+  op(`${LOG} GET /recogidas/pendientes-firma`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
   op(`${LOG} GET /recogidas/:firmanteId`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
   // HU #14110: función NUEVA (PII). Ver la cédula completa del funcionario que firmó la recogida del organismo.
   // HU #14143 (ADR-0030 §17.3): función NUEVA para resolver el trámite de una LT pendiente.

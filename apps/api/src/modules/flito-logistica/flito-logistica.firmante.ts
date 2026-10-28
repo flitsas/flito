@@ -14,6 +14,8 @@ const F = flitoLogisticaRecogidaFirmantes;
 export interface RecogidaResumenDto {
   firmanteId: string; organismoCodigo: string; nombre: string; documentoEnmascarado: string | null; firmadoEn: string;
   actas: number; pendientesTramite: number;
+  /** HU #14147: toda recogida listada tiene firmante, luego está firmada; lo que falta por firmar son las LT de `GET /recogidas/pendientes-firma`. */
+  estadoFirma: 'firmada';
 }
 export interface RecogidaDetalleDto extends Omit<RecogidaResumenDto, 'actas' | 'pendientesTramite'> {
   actas: Array<{ actaId: string; companiaId: number; companiaNombre: string | null; documentoIds: string[] }>;
@@ -31,7 +33,7 @@ export async function misRecogidas(ctx: LogisticaCtx): Promise<RecogidaResumenDt
   }).from(F).where(eq(F.registradoPorId, ctx.userId)).orderBy(desc(F.firmadoEn)).limit(100);
   return rows.map((r) => ({
     firmanteId: r.firmanteId, organismoCodigo: r.organismoCodigo, nombre: r.nombre, documentoEnmascarado: enmascarar(r.ultimos),
-    firmadoEn: r.firmadoEn.toISOString(), actas: r.actas, pendientesTramite: r.pendientes,
+    firmadoEn: r.firmadoEn.toISOString(), actas: r.actas, pendientesTramite: r.pendientes, estadoFirma: 'firmada' as const,
   }));
 }
 
@@ -53,7 +55,7 @@ export async function recogidaDetalle(firmanteId: string, ctx: LogisticaCtx): Pr
     .where(and(eq(flitoLogisticaDocumentos.recogidaFirmanteId, firmanteId), isNull(flitoLogisticaDocumentos.tramiteId)));
   return {
     firmanteId: f.id, organismoCodigo: f.organismoCodigo, nombre: f.nombre, documentoEnmascarado: enmascarar(f.ultimos),
-    firmadoEn: f.firmadoEn.toISOString(),
+    firmadoEn: f.firmadoEn.toISOString(), estadoFirma: 'firmada',
     actas: actas.map((a) => ({
       actaId: a.actaId, companiaId: a.companiaId as number, companiaNombre: a.companiaNombre,
       documentoIds: lineas.filter((l) => l.actaId === a.actaId).map((l) => l.documentoId),

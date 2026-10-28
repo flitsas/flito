@@ -15,6 +15,7 @@ import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { confirmarRecogida } from './flito-logistica.recogida.js';
 import { candidatosDe, listarPendientes, resolverTramite } from './flito-logistica.pendientes.js';
+import { contarPendientesFirma, ltPendientesFirma } from './flito-logistica.pendientes-firma.js';
 import { misRecogidas, recogidaDetalle, revelarDocumentoFirmante } from './flito-logistica.firmante.js';
 import { recogidaConfirmarLimiter, revelarDocumentoLimiter } from './flito-logistica.limitadores.js';
 import {
@@ -322,8 +323,14 @@ router.post('/recogidas/confirmar', soloSinEnlace(), exigirFuncion('logistica.re
 // GET /recogidas/mias y /recogidas/:firmanteId — la recogida se consulta aparte de las actas (sin filtros con PII;
 // cédula enmascarada ••••1234). Antes de `/:firmanteId` para que `mias` no se tome por un id.
 router.get('/recogidas/mias', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
-  const r = await ejecutar(res, async () => misRecogidas(await ctxConPropiedad(req)));
-  if (r !== undefined) res.json({ recogidas: r });
+  const r = await ejecutar(res, async () => { const ctx = await ctxConPropiedad(req); return { recogidas: await misRecogidas(ctx), pendientesFirma: await contarPendientesFirma(ctx) }; });
+  if (r !== undefined) res.json(r);
+});
+// GET /recogidas/pendientes-firma — HU #14147: mis LT escaneadas cuya acta de organismo sigue pendiente (se firman con
+// POST /recogidas/confirmar). Sin filtros ni placa en la URL; la placa solo sale en la respuesta, nunca en audit/logs.
+router.get('/recogidas/pendientes-firma', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
+  const r = await ejecutar(res, async () => ltPendientesFirma(await ctxConPropiedad(req)));
+  if (r !== undefined) res.json({ pendientes: r });
 });
 router.get('/recogidas/:firmanteId', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
   const id = z.string().uuid().safeParse(req.params.firmanteId);
