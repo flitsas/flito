@@ -314,6 +314,9 @@ const envSchema = z.object({
   // DESCARTADAS (30 días tras el descarte, Ley 1581). Puerta POSITIVA como las de arriba: un job que
   // BORRA no se enciende por desplegarse; sin el '1' explícito no arranca y lo dice en el log.
   SOAT_RETENCION_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // HU #14132 (ADR-0032): worker de la carga masiva de SOAT. Puerta POSITIVA ('1'). Apagado (defecto) no corre ni el
+  // worker ni el vigilante, y el alta del lote responde 503 `carga_masiva_no_disponible`. Valores por ambiente: flit-gitops.
+  SOAT_MASIVO_WORKER_ENABLED: z.string().optional().transform((v) => v === '1'),
   // HU #13891 (ADR-0028 §9): purga de versiones REEMPLAZADAS del expediente de la compañía. Puerta
   // POSITIVA (un job que borra no se enciende por desplegarse) y N en años, 5 por defecto (§14).
   BOLSAS_DOCUMENTOS_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),

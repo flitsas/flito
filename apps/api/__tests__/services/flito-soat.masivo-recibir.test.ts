@@ -11,6 +11,8 @@ import express from 'express';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { testToken } from '../helpers/auth.js';
+import { env } from '../../src/config/env.js';
+const flagWorker = (v: boolean) => { (env as { SOAT_MASIVO_WORKER_ENABLED: boolean }).SOAT_MASIVO_WORKER_ENABLED = v; };
 
 let cola: unknown[] = [];
 const selectMock = vi.fn(() => {
@@ -89,6 +91,7 @@ async function subir(buf: Buffer | string, nombre = 'carga.xlsx', campos: Record
 }
 
 beforeEach(() => {
+  flagWorker(true);
   cola = []; insertados.length = 0; falloTx = null;
   selectMock.mockClear(); transactionMock.mockClear(); auditMock.mockClear(); piiMock.mockClear(); ctxMock.mockReset();
   ctxMock.mockResolvedValue(ctx('compania', 7));
@@ -372,5 +375,20 @@ describe('AC9 — un registro de acceso PII por lote y nada de PII en logs', () 
     altaFeliz();
     await subir(Buffer.from('no es un excel'));
     expect(piiMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('HU #14132 — con el worker apagado el alta no crea nada', () => {
+  it('POST /cliente/masivo responde 503 carga_masiva_no_disponible, sin leer el archivo ni crear lote; la plantilla sigue viva', async () => {
+    flagWorker(false);
+    altaFeliz();
+    const r = await subir(await xlsx([fila(1)]));
+    expect(r.status).toBe(503);
+    expect(r.body).toMatchObject({ codigo: 'carga_masiva_no_disponible', error: 'La carga masiva no está disponible por ahora.' });
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(insertados).toHaveLength(0);
+    expect(selectMock).not.toHaveBeenCalled();
+    const p = await request(await app()).get('/api/flito/soat/cliente/masivo/plantilla').set('Authorization', await auth());
+    expect(p.status).toBe(200);
   });
 });
