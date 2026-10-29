@@ -289,3 +289,48 @@ export interface LineaTiempoLogistica {
   tramiteId: string | null;
   hitos: HitoLineaTiempoLogistica[];
 }
+
+/**
+ * Estado de un viaje (`flito_logistica_traslados.estado`). HU #14125.
+ * Etiquetas: Registrado, En ruta, Entregado, Devuelto, Anulado.
+ */
+export type EstadoTrasladoLogistica = 'registrado' | 'en_ruta' | 'entregado' | 'devuelto' | 'anulado';
+
+export const ESTADO_TRASLADO_LOGISTICA_LABEL: Record<EstadoTrasladoLogistica, string> = {
+  registrado: 'Registrado',
+  en_ruta: 'En ruta',
+  entregado: 'Entregado',
+  devuelto: 'Devuelto',
+  anulado: 'Anulado',
+};
+
+/** Destino del viaje. Etiquetas: cliente → Cliente, flit → FLIT. */
+export type DestinoTrasladoLogistica = 'flit' | 'cliente';
+
+export const DESTINO_TRASLADO_LOGISTICA_LABEL: Record<DestinoTrasladoLogistica, string> = {
+  cliente: 'Cliente',
+  flit: 'FLIT',
+};
+
+/** Fila de la pestaña Entregas. Sin mensajero, precio, placa, cédula, dirección, firma, payload, origen, NIT ni legado. */
+export interface FilaEntregaLogistica {
+  id: string;
+  companiaId: number;
+  companiaNombre: string | null;
+  destino: DestinoTrasladoLogistica;
+  estado: EstadoTrasladoLogistica;
+  cantidadLt: number;
+  registradoEn: string; // ISO
+}
+
+/** Compañía con al menos un traslado. Sin NIT. */
+export interface CompaniaConViajeLogistica {
+  companiaId: number;
+  nombre: string | null;
+}
+
+export interface ListadoEntregasLogistica {
+  viajes: FilaEntregaLogistica[];
+  companias: CompaniaConViajeLogistica[];
+  truncado: boolean;
+}

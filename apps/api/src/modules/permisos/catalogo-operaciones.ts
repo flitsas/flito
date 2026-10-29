@@ -227,6 +227,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} POST /recogidas/:firmanteId/documento`, 'logistica.actas.ver_documento_firmante', 'Ver la cédula del firmante de un acta', 'Consultar la cédula completa del funcionario que firmó el acta de organismo, cada consulta queda registrada.'),
   op(`${LOG} POST /documentos/:id/novedad`, 'logistica.documento.reportar_novedad', 'Reportar una novedad de entrega', 'Dejar constancia de que la entrega no se pudo completar y por qué.'),
   op(`${LOG} POST /traslados`, 'logistica.traslado.registrar', 'Registrar un viaje de logística', 'Registrar el viaje a cliente de las LT de una compañía, con el precio congelado.'),
+  // HU #14125: pestaña Entregas. Misma función que GET /; nombre y descripción byte a byte (sin función nueva ni siembra).
+  op(`${LOG} POST /traslados/buscar`, 'logistica.consola.ver', 'Ver la consola de logística', 'Abrir la trazabilidad de documentos en tránsito.'),
   op(`${LOG} POST /traslados/:id/despachar`, 'logistica.actas.despachar', 'Despachar un acta', 'Poner en ruta el acta y sus documentos.'),
   // HU #14122: la guarda es en línea según el destino del viaje. Cliente sigue en `entregar`; FLIT pide `firmar_flit`.
   op(`${LOG} POST /traslados/:id/entregar [entregar]`, 'logistica.actas.entregar', 'Entregar un acta', 'Registrar la entrega del acta en destino.'),

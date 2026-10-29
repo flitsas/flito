@@ -26,6 +26,7 @@ import { LlegadaFlitModal } from '../components/flito/ruta/LlegadaFlit';
 import ViajesMasivo from '../components/flito/logistica/ViajesMasivo';
 import ViajesLogistica from '../components/flito/logistica/ViajesLogistica';
 import TabMotivosLlegada from '../components/flito/logistica/TabMotivosLlegada';
+import TabEntregas from '../components/flito/logistica/TabEntregas';
 import BandejaLtPendientes from '../components/flito/logistica/bandeja/BandejaLtPendientes';
 import { useLtPendientes } from '../components/flito/logistica/bandeja/useLtPendientes';
 import { FUNCION_RESOLVER_TRAMITE } from '../components/flito/logistica/bandeja/tipos';
@@ -68,7 +69,7 @@ const ESTADOS_SIMPLE: EstadoLogisticaSimple[] = ['pendiente', 'registrada', 'en_
 
 const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
-type Tab = 'tramites' | 'viajes-cliente' | 'actas' | 'viajes' | 'pendientes' | 'motivos-llegada';
+type Tab = 'tramites' | 'viajes-cliente' | 'entregas' | 'actas' | 'viajes' | 'pendientes' | 'motivos-llegada';
 type CargaFacetas = 'cargando' | 'ok' | 'error' | 'error403';
 
 /** HU #13452: con enlace el vacío dice de quién son los trámites y no manda a sincronizar (operación interna). */
@@ -91,6 +92,8 @@ export default function FlitoLogistica() {
   const ltPend = useLtPendientes(puedeResolverLt);
   // HU #14120: pestaña Motivos de llegada. GET solo al entrar (el tab lo pide). Sin badge.
   const puedeGestionarMotivos = hasFuncion('logistica.motivos.gestionar');
+  // HU #14125: pestaña Entregas. POST solo al entrar (el tab lo pide). Sin badge.
+  const puedeVerEntregas = hasFuncion('logistica.consola.ver');
 
   const [tab, setTab] = useState<Tab>('tramites');
   const [data, setData] = useState<Listado | null>(null);
@@ -154,6 +157,7 @@ export default function FlitoLogistica() {
   const TABS: Array<{ key: Tab; label: string; badge?: number }> = [
     { key: 'tramites', label: 'Trámites', badge: data?.total },
     ...(puedeRegistrarViaje ? [{ key: 'viajes-cliente' as const, label: 'Viajes', badge: registradas || undefined }] : []),
+    ...(puedeVerEntregas ? [{ key: 'entregas' as const, label: 'Entregas' }] : []),
     { key: 'actas', label: 'Actas', badge: actasPendientes || undefined },
     ...(hasFuncion('logistica.viajes.registrar') ? [{ key: 'viajes' as const, label: 'Viajes adicionales' }] : []),
     ...(puedeResolverLt ? [{ key: 'pendientes' as Tab, label: 'LT pendientes', badge: ltPend.error ? undefined : (ltPend.items?.length || undefined) }] : []),
@@ -276,6 +280,9 @@ export default function FlitoLogistica() {
           onIrMotivos={puedeGestionarMotivos ? () => setTab('motivos-llegada') : undefined}
         />
       )}
+
+      {/* ── Pestaña Entregas (HU #14125). POST solo con la pestaña activa. ── */}
+      {tab === 'entregas' && puedeVerEntregas && <TabEntregas />}
 
       {/* ── Pestaña 3: Actas ── */}
       {tab === 'actas' && (

@@ -317,6 +317,8 @@ const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
     'tramite.tramite.forzar_continuar', 'compuerta.tramite.entregar', 'logistica.lote.cerrar',
     // HU #14116: pestaña Viajes (migración 0282: admin y mensajero).
     'logistica.traslado.registrar',
+    // HU #14125: pestaña Entregas. La función ya está sembrada para admin y auditor.
+    'logistica.consola.ver',
     // HU #14123: Firmar llegada a FLIT. Sin ella el botón no existe (ni en Actas ni en Mi ruta).
     'logistica.actas.firmar_flit',
     // HU #14120: pestaña Motivos de llegada (migración 0284: solo admin).
@@ -381,6 +383,8 @@ const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
   ],
   auditor: [
     ...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes', ...LECTURAS_13422,
+    // HU #14125: la consola de logística, incluida Entregas (sembrada a admin y auditor).
+    'logistica.consola.ver',
     // HU #13423 (0230): lecturas de Siigo, el tablero LAFT y la consulta de vehículos (copia de pagina.soat).
     ...SIIGO_LEER_13423, 'laft.tablero.ver', 'vehicles.vehiculos.consultar',
   ],

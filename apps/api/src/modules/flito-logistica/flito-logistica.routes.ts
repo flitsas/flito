@@ -21,7 +21,7 @@ import { recogidaConfirmarLimiter, revelarDocumentoLimiter, trasladoCicloLimiter
 import {
   actaDetalle, anularTraslado, buscarIdempotencia, cerrarLote, despachar, despacharTraslado,
   destinoDeTraslado, devolverTraslado, entregar, entregarTraslado, firmarLlegadaFlit, consultarVehiculo, escanearLt, facetas,
-  guardarIdempotencia, lineaTiempoDocumento, lineaTiempoTramite, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
+  guardarIdempotencia, lineaTiempoDocumento, lineaTiempoTramite, listar, listarActas, listarEntregas, LogisticaError, miRuta, registrarDevolucion,
   registrarNovedad, registrarTraslado, reversar, tramiteDetalle, urlActaPdf, validarLt,
   type FiltrosLogistica, type LogisticaCtx,
 } from './flito-logistica.service.js';
@@ -270,6 +270,22 @@ router.post('/traslados', soloSinEnlace(), exigirFuncion('logistica.traslado.reg
     await audit(req, { action: 'create', resource: 'flito_logistica_traslado', detail: `Traslado ${r.id} destino ${parsed.data.destino} compañía ${parsed.data.companiaId}: ${r.documentos} LT` });
     return { body: r };
   }, 'traslados');
+});
+
+// POST /traslados/buscar — HU #14125. Pestaña Entregas. Placa en el body (nunca en query).
+// `soloSinEnlace` antes de la función. Sin audit (el motivo no puede llevar la placa), sin logPiiAccess
+// (el DTO no lleva PII) y sin limitador nuevo (no devuelve la placa).
+const buscarEntregasSchema = z.object({
+  placa: z.string().trim().max(10).optional(),
+  estado: z.enum(['registrado', 'en_ruta', 'entregado', 'devuelto', 'anulado']).optional(),
+  destino: z.enum(['flit', 'cliente']).optional(),
+  companiaId: z.number().int().positive().optional(),
+}).strict();
+router.post('/traslados/buscar', soloSinEnlace(), exigirFuncion('logistica.consola.ver'), async (req: Request, res: Response) => {
+  res.set('Cache-Control', 'no-store');
+  const parsed = buscarEntregasSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  res.json(await listarEntregas(parsed.data));
 });
 
 const uuidParam = (v: string | undefined) => z.string().uuid().safeParse(v);

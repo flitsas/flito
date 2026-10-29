@@ -349,6 +349,17 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       [/\/api\/flito\/logistica\/actas$/, () => ({ body: LOGISTICA_ACTAS_DEMO })],
       [/\/api\/flito\/logistica\/tramites\/tram-log-demo-2\/viajes$/, () => ({ body: LOGISTICA_VIAJES_DEMO })],
       [/\/api\/flito\/logistica\/tram-log-demo-2$/, () => ({ body: LOGISTICA_DETALLE_DEMO })],
+      [/\/api\/flito\/logistica\/traslados\/buscar$/, () => ({ body: {
+        viajes: [
+          { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', companiaId: 1, companiaNombre: 'Concesionario Demo Norte', destino: 'cliente', estado: 'en_ruta', cantidadLt: 2, registradoEn: '2026-10-28T14:40:00.000Z' },
+          { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', companiaId: 2, companiaNombre: 'Concesionario Demo Sur', destino: 'flit', estado: 'registrado', cantidadLt: 1, registradoEn: '2026-10-27T13:15:00.000Z' },
+        ],
+        companias: [
+          { companiaId: 1, nombre: 'Concesionario Demo Norte' },
+          { companiaId: 2, nombre: 'Concesionario Demo Sur' },
+        ],
+        truncado: false,
+      } })],
       [/\/api\/flito\/logistica\/motivos-llegada$/, () => ({ body: [
         { id: 'motivo-demo-1', nombre: 'Sin dirección de entrega al recoger', activo: true, orden: 10 },
         { id: 'motivo-demo-2', nombre: 'Destino lejano (transportadora externa)', activo: true, orden: 20 },
@@ -392,6 +403,13 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await sinFoco(page);
     await capturar(page, dir, '04-viajes-a-cliente');
 
+    // Paso 7 — Entregas (HU #14125): tabla de seguimiento, sin acciones de destino.
+    await page.getByRole('button', { name: 'Entregas' }).click();
+    await expect(page.getByRole('columnheader', { name: 'Compañía' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'Concesionario Demo Norte' })).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '08-entregas');
+
     // Paso 6 — Actas: Generada, Despachada y Entregada con sus acciones.
     await page.getByRole('button', { name: /^Actas/ }).click();
     await expect(page.getByRole('button', { name: 'Firmar y despachar' })).toBeVisible();
@@ -422,8 +440,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await mostrarBarraMotivos();
 
     comprobarCierre(api, dir, [
-      '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-viajes-a-cliente.png', '05-actas.png', '06-firmar-y-despachar.png',
-      '07-motivos-de-llegada.png',
+      '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-viajes-a-cliente.png',
+      '05-actas.png', '06-firmar-y-despachar.png', '07-motivos-de-llegada.png', '08-entregas.png',
     ]);
   });
 

@@ -218,9 +218,9 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +1 por la HU #14127 (logística: `POST /viajes/masivo`, reutiliza `logistica.viajes.registrar`).
     // +10 de la cadena logística C: +1 de la HU #14114 (POST /traslados); +1 de la HU #14147 (recogidas/pendientes-firma); +3 de la HU #14143 (pendientes-tramite, candidatos-tramite y resolver-tramite); +4 de la HU #14110 (recogidas/confirmar, mias, :firmanteId y revelar el documento del firmante); +1 de la HU #14142 (consultar-vehiculo, `logistica.documento.escanear`).
     // +4 de la HU #14115 (despachar/entregar/devolucion/anular el viaje).
-    expect(GUARDAS_MEDIDAS).toHaveLength(662); // +2 HU #14124 (las dos lecturas de línea de tiempo, logistica.documento.ver).
+    expect(GUARDAS_MEDIDAS).toHaveLength(663); // +2 HU #14124 (las dos lecturas de línea de tiempo, logistica.documento.ver). +1 HU #14125 (POST /traslados/buscar, logistica.consola.ver).
     // +4 de la HU #14103 (proveedores de logística), +3 de la HU #14148 (impacto, baja y listado unificado)
-    expect(montajes).toHaveLength(662); // +2 HU #14124 (GET documentos/:id/linea-tiempo y GET tramites/:tramiteId/linea-tiempo).
+    expect(montajes).toHaveLength(663); // +2 HU #14124 (GET documentos/:id/linea-tiempo y GET tramites/:tramiteId/linea-tiempo). +1 HU #14125 (POST /traslados/buscar).
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)

@@ -35,6 +35,7 @@ export * from './flito-logistica-traslados.service.js';
 export * from './flito-logistica-traslados.errors.js';
 export * from './flito-logistica-traslados-ciclo.service.js';
 export * from './flito-logistica-precios.js';
+export * from './flito-logistica.entregas.js';
 
 // ── Novedad sobre una LT ya escaneada ────────────────────────────────────────
 

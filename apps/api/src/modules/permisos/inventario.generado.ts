@@ -145,6 +145,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/recogidas/:firmanteId/documento", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/documentos/:id/novedad", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/traslados", roles: ["admin","mensajero"], heredada: false },
+  // HU #14125: pestaña Entregas. Mismos roles que GET / (`logistica.consola.ver`); sin función nueva ni siembra.
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/traslados/buscar", roles: ["admin","auditor"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/traslados/:id/despachar", roles: ["admin"], heredada: false },
   // HU #14122: entregar el viaje decide en línea. Cliente = `entregar` (admin y mensajero); FLIT = `firmar_flit` (solo admin en la siembra).
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/traslados/:id/entregar", condicion: "entregar", roles: ["admin","mensajero"], heredada: false },
