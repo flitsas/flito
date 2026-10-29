@@ -5,8 +5,10 @@ import {
   EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL,
   ESTADO_DOCUMENTO_LOGISTICA_LABEL, ESTADO_LOGISTICA_SIMPLE_LABEL, EstadoLogisticaSimple,
   simplificarEstadoLogistica,
-  type EstadoDocumentoLogistica as TEstadoDoc, type EstadoLogisticaSimple as TEstadoSimple,
+  type CompaniaCerrableLogistica, type EstadoDocumentoLogistica as TEstadoDoc,
+  type EstadoLogisticaSimple as TEstadoSimple,
 } from '@operaciones/shared-types';
+import { precioTrasladoDe } from './flito-logistica-precios.js';
 import { db } from '../../db/client.js';
 import {
   clients, flitoCompradores, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos,
@@ -183,9 +185,30 @@ export interface FacetasLogistica {
   estados: string[];
   empresas: Array<{ nit: string; nombre: string | null }>;
   organismos: Array<{ codigo: string; nombre: string | null }>;
-  companiasCerrables: Array<{ companiaId: number; nombre: string | null; disponibles: number }>;
+  companiasCerrables: CompaniaCerrableLogistica[];
   mensajeros: Array<{ id: number; nombre: string }>;
 }
+
+type DocCerrableRow = {
+  documentoId: string; placa: string | null; numeroLt: string | null; idFlit: string | null;
+  companiaId: number | null; nombre: string | null;
+};
+
+function agruparCerrables(rows: DocCerrableRow[]): CompaniaCerrableLogistica[] {
+  const porCompania = new Map<number, CompaniaCerrableLogistica>();
+  for (const r of rows) {
+    if (r.companiaId == null) continue;
+    let g = porCompania.get(r.companiaId);
+    if (!g) {
+      g = { companiaId: r.companiaId, nombre: r.nombre, disponibles: 0, precioEntregaCliente: null, lts: [] };
+      porCompania.set(r.companiaId, g);
+    }
+    g.lts.push({ documentoId: r.documentoId, placa: r.placa, numeroLt: r.numeroLt, idFlit: r.idFlit });
+    g.disponibles = g.lts.length;
+  }
+  return [...porCompania.values()];
+}
+
 /** Función que deja operar actas de otros (HU #13425). Sin ella, cada usuario solo opera las suyas. */
 export const FUNCION_OPERAR_AJENAS = 'logistica.actas.operar_ajenas';
 
@@ -205,7 +228,7 @@ export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
   // HU #13426 (AC7): y al alcance del enlace; los mensajeros (personal de FLITO) no se listan a una compañía.
   const gestionable = and(eq(clients.logisticaAutogestionable, false), condicionTramitesLogistica(alcance))!;
   const gestionableDocs = and(eq(clients.logisticaAutogestionable, false), condicionDocumentosLogistica(alcance))!;
-  const [empresas, organismos, cerrables, mensajeros] = await Promise.all([
+  const [empresas, organismos, docsCerrables, mensajeros] = await Promise.all([
     db.selectDistinct({ nit: flitoTramites.companiaNit, nombre: clients.name })
       .from(flitoTramites).leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
       .where(and(aprobadoSql, gestionable, sql`${flitoTramites.companiaNit} is not null`)),
@@ -214,21 +237,39 @@ export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
       .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
       .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
       .where(and(aprobadoSql, gestionable, sql`${flitoTramites.organismoCodigo} is not null`)),
-    db.select({ companiaId: flitoLogisticaDocumentos.companiaId, nombre: clients.name, disponibles: sql<number>`count(*)::int` })
-      .from(flitoLogisticaDocumentos).leftJoin(clients, eq(flitoLogisticaDocumentos.companiaId, clients.id))
-      .where(and(eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.CLASIFICADO), gestionableDocs, sql`${flitoLogisticaDocumentos.companiaId} is not null`))
-      .groupBy(flitoLogisticaDocumentos.companiaId, clients.name),
+    db.select({
+      documentoId: flitoLogisticaDocumentos.id,
+      placa: flitoLogisticaDocumentos.identificador,
+      numeroLt: flitoLogisticaDocumentos.numeroLt,
+      idFlit: flitoTramites.idFlit,
+      companiaId: flitoLogisticaDocumentos.companiaId,
+      nombre: clients.name,
+    }).from(flitoLogisticaDocumentos)
+      .leftJoin(clients, eq(flitoLogisticaDocumentos.companiaId, clients.id))
+      .leftJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id))
+      .where(and(
+        eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.CLASIFICADO),
+        gestionableDocs,
+        sql`${flitoLogisticaDocumentos.companiaId} is not null`,
+      )),
     // HU #13425: asignable = quien entrega actas y NO opera las ajenas (hoy: el rol mensajero), leído
     // de sus funciones efectivas y no del nombre del rol.
     alcance.enlace === 'ninguno' ? mensajerosAsignables() : Promise.resolve([]),
   ]);
+  const grupos = agruparCerrables(docsCerrables);
+  const ahora = new Date();
+  const precios = await Promise.all(grupos.map((g) => precioTrasladoDe(g.companiaId, 'cliente', ahora)));
+  for (let i = 0; i < grupos.length; i++) {
+    const p = precios[i];
+    grupos[i]!.precioEntregaCliente = p == null ? null : p.valor;
+  }
   return {
     // Vocabulario SIMPLE (5 estados) para los filtros de la consola.
     estados: [EstadoLogisticaSimple.PENDIENTE, EstadoLogisticaSimple.REGISTRADA,
       EstadoLogisticaSimple.DESPACHADA, EstadoLogisticaSimple.ENTREGADA, EstadoLogisticaSimple.NOVEDAD],
     empresas: empresas.filter((e): e is { nit: string; nombre: string | null } => !!e.nit),
     organismos: organismos.filter((o): o is { codigo: string; nombre: string | null } => !!o.codigo),
-    companiasCerrables: cerrables.filter((c): c is { companiaId: number; nombre: string | null; disponibles: number } => c.companiaId !== null),
+    companiasCerrables: grupos,
     mensajeros,
   };
 }
