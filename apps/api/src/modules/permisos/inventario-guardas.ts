@@ -101,6 +101,7 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'comprobantes', fichero: 'flito-comprobantes/flito-comprobantes.routes.ts' },
   // HU #12619: viajes adicionales de logística; fichero hermano bajo /api/flito/logistica.
   { modulo: 'logistica', fichero: 'flito-logistica/flito-logistica-viajes.routes.ts' },
+  { modulo: 'logistica', fichero: 'flito-logistica/flito-logistica-motivos.routes.ts' }, // HU #14119
   // HU #13061: el acceso de FLITO a FLIT 2; fichero hermano bajo /api/flito/sync, funciones del módulo tramites.
   { modulo: 'tramites', fichero: 'flito-sync/flit2.routes.ts' },
   // HU #13237: interruptor por fuente (PUT); el GET, que reutiliza el código, vive en

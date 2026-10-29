@@ -50,6 +50,7 @@ const TRA = 'flito-tramites/flito-tramites.routes.ts';
 const TAB = 'flito-tablero/flito-tablero.routes.ts';
 const BIT = 'flito-bitacora/flito-bitacora.routes.ts';
 const LOG = 'flito-logistica/flito-logistica.routes.ts';
+const LOGM = 'flito-logistica/flito-logistica-motivos.routes.ts'; // HU #14119
 const BOL = 'flito-bolsas/flito-bolsas.routes.ts';
 const BCAT = 'flito-bolsas/flito-bolsas.catalogo.routes.ts'; // HU #13900
 const BCTR = 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts'; // HU #13907
@@ -234,6 +235,11 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} POST /actas/:id/entregar [operarAjenas]`, 'logistica.actas.operar_ajenas', 'Operar actas asignadas a otro mensajero', 'Entregar, devolver y ver en la ruta las actas asignadas a otros usuarios, no solo las propias.'),
   op(`${LOG} POST /actas/:id/devolucion`, 'logistica.actas.devolver', 'Devolver un acta', 'Registrar que el acta vuelve sin haberse entregado.'),
   op(`${LOG} POST /documentos/:id/reversar`, 'logistica.documento.reversar', 'Reversar un paso de logística', 'Deshacer el último movimiento registrado sobre el documento.'),
+  // HU #14119: catálogo de motivos de llegada a FLIT (las 4 rutas, misma función).
+  op(`${LOGM} GET /`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
+  op(`${LOGM} POST /`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
+  op(`${LOGM} PATCH /:id`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
+  op(`${LOGM} PATCH /:id/estado`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
 
   // ── Bolsas prepago ────────────────────────────────────────────────────────────────────────────
   op(`${BOL} GET /consolidado`, 'bolsas.consolidado.ver', 'Ver el consolidado de bolsas', 'Consultar el saldo agregado de todas las bolsas prepago.'),

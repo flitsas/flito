@@ -123,7 +123,7 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
   'accion.revisiones.ver': { lectura: true, operaciones: ['revisiones.cola.ver', 'revisiones.campos.ver'], opcionales: ['revisiones.soporte.descargar'] },
   'accion.revisiones.revisar_lecturas': { operaciones: ['revisiones.revision.resolver', 'revisiones.revision.descartar'] },
   // ── Logística ──
-  'accion.logistica.ver_consola': { lectura: true, operaciones: ['logistica.consola.ver', 'logistica.consola.filtrar', 'logistica.documento.ver'] },
+  'accion.logistica.ver_consola': { lectura: true, operaciones: ['logistica.consola.ver', 'logistica.consola.filtrar', 'logistica.documento.ver'], opcionales: ['logistica.motivos.gestionar'] }, // + gestionar motivos de llegada (HU #14119): se concede aparte
   'accion.logistica.registrar_viajes': { operaciones: ['logistica.viajes.ver', 'logistica.viajes.registrar', 'logistica.viajes.quitar'] },
   'accion.logistica.generar_actas': { operaciones: ['logistica.lt.validar'] },
   'accion.logistica.ver_actas': { lectura: true, operaciones: ['logistica.actas.listar', 'logistica.actas.ver'], opcionales: ['logistica.actas.descargar', 'logistica.actas.ver_documento_firmante'] }, // + ver_documento_firmante (HU #14110): PII, se concede aparte
