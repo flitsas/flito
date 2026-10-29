@@ -128,8 +128,24 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/actas/:id/pdf", roles: ["admin","auditor"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/:id", roles: ["admin","auditor"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/validar-lt", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/consultar-vehiculo", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/escanear", roles: ["admin","mensajero"], heredada: false },
+  // HU #14110: confirmar la recogida (función propia) y revelar la cédula del firmante (función nueva, solo admin).
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/recogidas/confirmar", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/mias", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/pendientes-firma", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/:firmanteId", roles: ["admin","mensajero"], heredada: false },
+  // HU #14143: resolver el trámite de una LT pendiente; la 0281 la siembra SOLO a `admin`.
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/pendientes-tramite", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/documentos/:id/candidatos-tramite", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/documentos/:id/resolver-tramite", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/recogidas/:firmanteId/documento", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/documentos/:id/novedad", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/traslados", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/traslados/:id/despachar", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/traslados/:id/entregar", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/traslados/:id/devolucion", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/traslados/:id/anular", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/cerrar-lote", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/actas/:id/despachar", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/actas/:id/entregar", roles: ["admin","mensajero"], heredada: false },
@@ -227,6 +243,15 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   // HU #13958: «Activar o desactivar proveedores», exclusiva del Administrador (nace en el árbol; su acción la siembra la 0261).
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/proveedores-soat/:id/impacto", roles: ["admin"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "PATCH", ruta: "/proveedores-soat/:id/estado", roles: ["admin"], heredada: false },
+  // HU #14103: proveedores de logística (mismas funciones y reparto que los de SOAT).
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "POST", ruta: "/", roles: ["admin"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "PATCH", ruta: "/:id", roles: ["admin"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "PATCH", ruta: "/:id/estado", roles: ["admin"], heredada: false },
+  // HU #14148: impacto y baja de proveedores de logística, y listado unificado (mismas funciones que los de SOAT).
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "GET", ruta: "/:id/impacto", roles: ["admin"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "DELETE", ruta: "/:id", roles: ["admin"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/proveedores", roles: ["admin","auditor"], heredada: false },
   // HU #13960: «Eliminar proveedores», exclusiva del Administrador (nace en el árbol; su acción la siembra la 0263).
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "DELETE", ruta: "/proveedores-soat/:id", roles: ["admin"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/organismos", roles: ["admin","auditor"], heredada: false },
@@ -376,6 +401,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "GET", ruta: "/tramites/:tramiteId/viajes", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "POST", ruta: "/tramites/:tramiteId/viajes", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "DELETE", ruta: "/tramites/:tramiteId/viajes/:viajeId", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "POST", ruta: "/viajes/masivo", roles: ["admin"], heredada: false },
   // HU #13421 (ADR-0023): las 76 guardas `requireRole` de pesv/ (48), drivers/ (24), jornadas/ (3) y rum/ (1)
   // el día que dejaron de decidir (develop 29d3461e). `roles` = la lista literal de su `requireRole`, que es
   // también el reparto de su código: las guardas que comparten código tienen la misma lista (ver
