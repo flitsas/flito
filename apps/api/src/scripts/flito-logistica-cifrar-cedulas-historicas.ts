@@ -69,7 +69,7 @@ function texto(v: string | null | undefined): string {
 }
 
 async function fetchBatch(): Promise<ActaEnClaro[]> {
-  const r = await db.execute<ActaEnClaro>(sql`
+  const r = await db.execute(sql`
     SELECT a.id,
            a.receptor_documento, a.receptor_nombre,
            a.contacto_documento, a.contacto_nombre,
@@ -174,7 +174,7 @@ async function applyBatch(planes: PlanActa[]): Promise<void> {
 }
 
 export async function contarEnClaro(): Promise<number> {
-  const r = await db.execute<{ n: number }>(sql`
+  const r = await db.execute(sql`
     SELECT count(*)::int AS n
       FROM flito_logistica_actas
      WHERE (receptor_documento IS NOT NULL AND btrim(receptor_documento) <> '')
