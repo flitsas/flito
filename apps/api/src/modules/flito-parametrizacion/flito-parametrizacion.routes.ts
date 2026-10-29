@@ -31,11 +31,15 @@ import {
   SERVICIO_ADICIONAL_NOMBRE_MAX,
   TARIFA_VALOR_MAX,
   tipoTramiteTarifaDe,
+  esConceptoLogistica,
 } from '@operaciones/shared-types';
 import {
   esDuplicadoNombreProveedorSoat, mensajeNombreProveedorDuplicado, modalidadVigente,
 } from './flito-parametrizacion.service.js';
 import { clienteVigente } from '../clients/cliente-operable.js';
+import {
+  ProveedorLogisticaNoUsableError, ProveedorLogisticaRequeridoError, exigirProveedorLogisticaUsable, exigirProveedorSiEncendida,
+} from './flito-logistica-proveedor-compania.service.js';
 import { parseFechaQuery } from '../../shared/utils/fecha-rango.js';
 import {
   cambiarOCerrar, fijarTarifa, historial, listarTarifas, vistaPorCompania,
@@ -49,6 +53,7 @@ import {
   EstadoProveedorCambiadoError, MENSAJE_ESTADO_POR_ACCION, ProveedorSoatNoEncontradoError,
   ProveedorSoatNoUsableError, cambiarEstadoProveedorSoat, exigirProveedorSoatUsable, impactoProveedorSoat,
 } from './flito-proveedores-estado.service.js';
+import { listarProveedoresUnificados } from './flito-proveedores-logistica-gestion.service.js';
 import { ProveedorSoatNoEliminableError, eliminarProveedorSoat } from './flito-proveedores-eliminar.service.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
@@ -84,6 +89,7 @@ const COLUMNAS_COMPANIA_DTO = {
   flitoProveedorSoatSinTramiteId: clients.flitoProveedorSoatSinTramiteId,
   impuestosAutogestionable: clients.impuestosAutogestionable,
   logisticaAutogestionable: clients.logisticaAutogestionable,
+  flitoProveedorLogisticaId: clients.flitoProveedorLogisticaId,
   logisticaPermiteParcial: clients.logisticaPermiteParcial,
   flitoCarpetaStorage: clients.flitoCarpetaStorage,
   flitoToleranciaValorImpuesto: clients.flitoToleranciaValorImpuesto,
@@ -115,6 +121,8 @@ function companiaDto(c: FilaCompania) {
     proveedorSoatSinTramiteId: c.flitoProveedorSoatSinTramiteId,
     impuestosAutogestionable: c.impuestosAutogestionable,
     logisticaAutogestionable: c.logisticaAutogestionable,
+    // HU #14104 — proveedor que maneja la logística (uuid de una empresa; `null` = sin asignar).
+    proveedorLogisticaId: c.flitoProveedorLogisticaId,
     logisticaPermiteParcial: c.logisticaPermiteParcial,
     carpetaStorage: c.flitoCarpetaStorage,
     toleranciaValorImpuesto: Number(c.flitoToleranciaValorImpuesto),
@@ -132,6 +140,8 @@ const actualizarCompaniaSchema = z.object({
   // HU #13967: `soatSinTramite` ya no se acepta — `z.object` (no `.strict()`) lo DESCARTA en silencio.
   impuestosAutogestionable: z.boolean().optional(),
   logisticaAutogestionable: z.boolean().optional(),
+  // HU #14104: `null` explícito = quitar el proveedor (solo válido con la logística apagada).
+  proveedorLogisticaId: z.string().guid().nullable().optional(),
   logisticaPermiteParcial: z.boolean().optional(),
   carpetaStorage: z.string().max(300).nullable().optional(),
   toleranciaValorImpuesto: z.number().min(0, 'La tolerancia no puede ser negativa').optional(),
@@ -144,7 +154,8 @@ const actualizarCompaniaSchema = z.object({
 // su operación en línea — autogestión (`[autogestion]`), «SOAT sin trámite» (`[sinTramite]`) y el resto
 // (`[general]`, `parametrizacion.companias.editar`). Cada grupo presente exige la suya; un cuerpo sin
 // ningún campo conocido → 400. Se decide antes de validar el cuerpo (403 antes que 400).
-const CAMPOS_AUTOGESTION = ['soatAutogestionable', 'impuestosAutogestionable', 'logisticaAutogestionable'];
+// HU #14104: el proveedor de logística viaja con la autogestión de logística (misma operación, sin guarda nueva).
+const CAMPOS_AUTOGESTION = ['soatAutogestionable', 'impuestosAutogestionable', 'logisticaAutogestionable', 'proveedorLogisticaId'];
 const CAMPOS_SIN_TRAMITE = ['proveedorSoatSinTramiteId'];
 // HU #13967: `soatSinTramite` se IGNORA. No exige operación ni cuenta como campo; un cuerpo que solo
 // la trae pasa la guarda y cae en el 400 «Nada que actualizar» (la web siempre manda las dos claves).
@@ -183,6 +194,8 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
     .select({
       id: clients.id,
       proveedorSinTramiteId: clients.flitoProveedorSoatSinTramiteId,
+      logisticaAutogestionable: clients.logisticaAutogestionable,
+      proveedorLogisticaId: clients.flitoProveedorLogisticaId,
     })
     // RN-CLI-9 (HU #13953): un eliminado no admite gestor por defecto ni otra parametrización (= inexistente).
     .from(clients).where(and(eq(clients.id, id), clienteVigente())).limit(1);
@@ -201,6 +214,7 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
   if (cambios.soatAutogestionable !== undefined) set.soatAutogestionable = cambios.soatAutogestionable;
   if (cambios.impuestosAutogestionable !== undefined) set.impuestosAutogestionable = cambios.impuestosAutogestionable;
   if (cambios.logisticaAutogestionable !== undefined) set.logisticaAutogestionable = cambios.logisticaAutogestionable;
+  if (cambios.proveedorLogisticaId !== undefined) set.flitoProveedorLogisticaId = cambios.proveedorLogisticaId;
   if (cambios.logisticaPermiteParcial !== undefined) set.logisticaPermiteParcial = cambios.logisticaPermiteParcial;
   if (cambios.carpetaStorage !== undefined) set.flitoCarpetaStorage = cambios.carpetaStorage;
   if (cambios.toleranciaValorImpuesto !== undefined) set.flitoToleranciaValorImpuesto = String(cambios.toleranciaValorImpuesto);
@@ -211,17 +225,39 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
 
   if (Object.keys(set).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
 
+  // HU #14104 (RN-PLOGC-1): se valida el estado RESULTANTE, y solo si el cuerpo toca la logística o su proveedor —un
+  // PATCH de otra cosa no debe fallar por una compañía encendida que aún no tiene proveedor (las existentes al migrar).
+  const proveedorLogisticaFinal = cambios.proveedorLogisticaId !== undefined ? cambios.proveedorLogisticaId : previo.proveedorLogisticaId;
+  if (cambios.logisticaAutogestionable !== undefined || cambios.proveedorLogisticaId !== undefined) {
+    try {
+      exigirProveedorSiEncendida(cambios.logisticaAutogestionable ?? previo.logisticaAutogestionable, proveedorLogisticaFinal);
+    } catch (e) {
+      if (e instanceof ProveedorLogisticaRequeridoError) {
+        res.status(422).json({ error: e.message, campo: 'proveedorLogisticaId' });
+        return;
+      }
+      throw e;
+    }
+  }
+  const cambiaProveedorLogistica = cambios.proveedorLogisticaId != null
+    && cambios.proveedorLogisticaId !== previo.proveedorLogisticaId;
+
   let updated: FilaCompania | undefined;
   try {
     // `returning()` PROYECTADO a lo que el DTO publica: ver `COLUMNAS_COMPANIA_DTO`.
     [updated] = await db.transaction(async (tx) => {
       if (cambiaGestor) await exigirProveedorSoatUsable(tx, cambios.proveedorSoatSinTramiteId!);
+      if (cambiaProveedorLogistica) await exigirProveedorLogisticaUsable(tx, cambios.proveedorLogisticaId!);
       return tx.update(clients).set(set).where(and(eq(clients.id, id), clienteVigente()))
         .returning(COLUMNAS_COMPANIA_DTO);
     });
   } catch (e) {
     if (e instanceof ProveedorSoatNoUsableError) {
       res.status(400).json({ error: e.message, campo: 'proveedorSoatSinTramiteId' });
+      return;
+    }
+    if (e instanceof ProveedorLogisticaNoUsableError) {
+      res.status(422).json({ error: e.message, campo: 'proveedorLogisticaId' });
       return;
     }
     next(e);
@@ -246,6 +282,10 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
     cambiosDelCanal.push(`Proveedor SOAT sin trámite: ${cambios.proveedorSoatSinTramiteId ?? 'Sin proveedor'}`);
   }
 
+  if (cambios.proveedorLogisticaId !== undefined) {
+    cambiosDelCanal.push(`Proveedor de logística: ${cambios.proveedorLogisticaId ?? 'Sin proveedor'}`);
+  }
+
   await audit(req, {
     action: 'update',
     resource: 'flito_compania',
@@ -268,6 +308,12 @@ function proveedorDto(p: typeof flitoProveedoresSoat.$inferSelect) {
     activo: p.activo,
   };
 }
+
+// HU #14148: listado UNIFICADO de proveedores (SOAT + logística) con `tipo` y `companiasAsignadas`. Misma función que
+// los listados por tipo (`parametrizacion.proveedores.listar`): no ensancha quién ve NIT/contacto/teléfono.
+router.get('/proveedores', exigirFuncion('parametrizacion.proveedores.listar'), async (_req: Request, res: Response) => {
+  res.json(await listarProveedoresUnificados());
+});
 
 router.get('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.listar'), async (_req: Request, res: Response) => {
   // HU #13957: los proveedores eliminados (baja lógica, `deleted_at`) no se listan.
@@ -680,7 +726,7 @@ router.get('/tarifas/companias/:id/historial', exigirFuncion('parametrizacion.ta
   if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
   const { concepto, tipoTramite, desde, hasta } = parsed.data;
   let tipo: ReturnType<typeof tipoTramiteTarifaDe> | undefined;
-  if (tipoTramite !== undefined && concepto !== 'logistica') {
+  if (tipoTramite !== undefined && !(concepto && esConceptoLogistica(concepto))) {
     tipo = tipoTramiteTarifaDe(tipoTramite);
     if (tipo === null) { res.status(400).json({ error: 'Datos inválidos: tipoTramite debe ser Matricula, Traspaso u Otros' }); return; }
   }

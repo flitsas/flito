@@ -202,14 +202,28 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #13907 (ADR-0029): la rama tránsito del catálogo reutilizó los códigos de las rutas `/transito…`; desde la
     // HU #13911 (rutas retiradas) cada `bolsas.transito.*` lo guarda UNA sola ruta, salvo inactivar y reactivar, que
     // piden la misma `bolsas.transito.inactivar`.
+    // HU #14142: `POST /consultar-vehiculo` (ingreso manual de la LT) reutiliza `logistica.documento.escanear` de `/escanear` (sin función nueva).
     // HU #13958: el impacto y el cambio de estado de un proveedor SOAT piden la misma `parametrizacion.proveedores.estado`
     // (gemelo de `clients.clientes.estado`).
+    // HU #14127: `POST /viajes/masivo` reutiliza `logistica.viajes.registrar` del registro individual (sin función nueva ni migración).
+    // HU #14103: las rutas de proveedores de LOGÍSTICA reutilizan las funciones de gestión de proveedores (listar/crear/editar/estado),
+    // sin función nueva ni siembra (el AC habla de «la función de gestión de proveedores»).
+    // HU #14110: confirmar la recogida y sus dos consultas piden la misma `logistica.recogida.confirmar`. HU #14147: +1 (pendientes-firma), cuatro rutas con la misma función.
+    // HU #14115: despachar/entregar/devolver el viaje reutilizan `logistica.actas.*` de las rutas de acta.
     expect(compartidosFlito.sort()).toEqual([
       ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
       ['bolsas.documentos.cargar', 3], ['bolsas.documentos.ver', 4],
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.inactivar', 2],
-      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2], ['parametrizacion.proveedores.estado', 2],
+      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2],
+      ['logistica.actas.despachar', 2], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2],
+      ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],
+      ['logistica.motivos.gestionar', 4], // HU #14119: las 4 rutas del catálogo de motivos
+      ['logistica.recogida.confirmar', 4], ['logistica.viajes.registrar', 2],
+      // HU #14148: +impacto de logística (estado 4), +baja de logística (eliminar 2) y +listado unificado (listar 3).
+      ['parametrizacion.proveedores.crear', 2], ['parametrizacion.proveedores.editar', 2],
+      ['parametrizacion.proveedores.eliminar', 2],
+      ['parametrizacion.proveedores.estado', 4], ['parametrizacion.proveedores.listar', 3],
       ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.cola.ver', 2], ['soat.solicitud.crear', 8], // + 3 de la carga masiva (HU #14131)
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);
@@ -271,7 +285,10 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'flito-dr-flit/dr-flit.funciones.ts POST * [radicar_soporte]',
       'flito-dr-flit/dr-flit.funciones.ts POST * [usar_ia]',
       'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
+      'flito-logistica/flito-logistica-motivos.routes.ts GET / [listar]',
       'flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar [operarAjenas]',
+      'flito-logistica/flito-logistica.routes.ts POST /traslados/:id/entregar [entregar]',
+      'flito-logistica/flito-logistica.routes.ts POST /traslados/:id/entregar [firmarFlit]',
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [autogestion]',
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [general]',
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [sinTramite]',
