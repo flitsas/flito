@@ -20,7 +20,7 @@ import { misRecogidas, recogidaDetalle, revelarDocumentoFirmante } from './flito
 import { recogidaConfirmarLimiter, revelarDocumentoLimiter, trasladoCicloLimiter, trasladoRegistrarLimiter } from './flito-logistica.limitadores.js';
 import {
   actaDetalle, anularTraslado, buscarIdempotencia, cerrarLote, despachar, despacharTraslado,
-  devolverTraslado, entregar, entregarTraslado, consultarVehiculo, escanearLt, facetas,
+  destinoDeTraslado, devolverTraslado, entregar, entregarTraslado, firmarLlegadaFlit, consultarVehiculo, escanearLt, facetas,
   guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
   registrarNovedad, registrarTraslado, reversar, tramiteDetalle, urlActaPdf, validarLt,
   type FiltrosLogistica, type LogisticaCtx,
@@ -230,7 +230,7 @@ router.post('/documentos/:id/novedad', exigirFuncion('logistica.documento.report
   });
 });
 
-// POST /traslados — HU #14114: registrar viaje a cliente (precio congelado). Destino FLIT → 422 (C3.4).
+// POST /traslados — HU #14114 / #14122. `origen` solo se honra si destino = cliente.
 const trasladoLtSchema = z.object({
   documentoId: z.string().uuid(),
   motivoLlegadaId: z.string().uuid().optional(),
@@ -239,7 +239,9 @@ const trasladoLtSchema = z.object({
 const trasladoSchema = z.object({
   companiaId: z.number().int().positive(),
   destino: z.enum(['cliente', 'flit']),
+  origen: z.enum(['organismo', 'flit']).optional(),
   lts: z.array(trasladoLtSchema).min(1).max(200),
+  motivoLlegadaId: z.string().uuid().optional(),
   mensajeroId: z.number().int().positive().optional(),
 });
 router.post('/traslados', soloSinEnlace(), exigirFuncion('logistica.traslado.registrar'), trasladoRegistrarLimiter, async (req: Request, res: Response) => {
@@ -285,10 +287,56 @@ router.post('/traslados/:id/despachar', soloSinEnlace(), exigirFuncion('logistic
   }, 'traslados-despachar');
 });
 
-// POST /traslados/:id/entregar — receptor + firma; `ltsDevueltas` para parcial (AC3). Cédula cifrada.
-router.post('/traslados/:id/entregar', soloSinEnlace(), exigirFuncion('logistica.actas.entregar'), trasladoCicloLimiter, async (req: Request, res: Response) => {
+const llegadaFlitSchema = z.object({
+  firma: z.string().min(1),
+  lat: z.string().optional(),
+  lng: z.string().optional(),
+  ltsDevueltas: z.array(z.string().uuid()).optional(),
+  ltsEntregadas: z.array(z.string().uuid()).optional(),
+});
+const CAMPOS_PROHIBIDOS_LLEGADA = ['receptorNombre', 'receptorDocumento', 'firmante'] as const;
+
+function sinPermiso(res: Response): void {
+  res.status(403).json({ error: 'Sin permisos' });
+}
+
+// POST /traslados/:id/entregar — guarda en línea según destino (HU #14122).
+// Cliente: cédula + `logistica.actas.entregar`. FLIT: `{ firma, lat?, lng? }` + `logistica.actas.firmar_flit`.
+// 404 si el viaje no está, antes del 403 de función. Sin `exigirFuncion` de ruta: quien solo firma FLIT
+// no puede quedar fuera, y el mensajero (solo `entregar`) no puede entrar a un viaje a FLIT.
+router.post('/traslados/:id/entregar', soloSinEnlace(), trasladoCicloLimiter, async (req: Request, res: Response) => {
   const id = uuidParam(req.params.id);
   if (!id.success) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }
+  const destino = await destinoDeTraslado(id.data);
+  if (!destino) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }
+  if (destino === 'flit') {
+    if (!(await tieneFuncion(req, 'logistica.actas.firmar_flit'))) { sinPermiso(res); return; }
+    const cuerpo = req.body;
+    if (cuerpo && typeof cuerpo === 'object' && CAMPOS_PROHIBIDOS_LLEGADA.some((k) => k in cuerpo)) {
+      res.status(422).json({ error: 'La llegada a FLIT no admite cédula ni nombre de receptor', codigo: 'DATOS_INVALIDOS' });
+      return;
+    }
+    const parsed = llegadaFlitSchema.safeParse(cuerpo);
+    if (!parsed.success) {
+      const soloFirma = parsed.error.issues.every((i) => i.path[0] === 'firma');
+      if (soloFirma) {
+        res.status(422).json({ error: 'La llegada a FLIT requiere la firma de quien recibe', codigo: 'FIRMA_LLEGADA_REQUERIDA' });
+        return;
+      }
+      res.status(422).json({ error: 'Datos inválidos', codigo: 'DATOS_INVALIDOS' });
+      return;
+    }
+    await conIdempotencia(req, res, async () => {
+      const r = await firmarLlegadaFlit(id.data, parsed.data, await ctxConPropiedad(req));
+      await audit(req, {
+        action: 'update', resource: 'flito_logistica_traslado', resourceId: id.data,
+        detail: `Llegada a FLIT del viaje ${id.data}`,
+      });
+      return { body: r };
+    }, 'traslados-entregar');
+    return;
+  }
+  if (!(await tieneFuncion(req, 'logistica.actas.entregar'))) { sinPermiso(res); return; }
   const parsed = entregarTrasladoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: 'Datos inválidos: nombre, cédula y firma del receptor son obligatorios', codigo: 'DATOS_INVALIDOS' }); return; }
   await conIdempotencia(req, res, async () => {

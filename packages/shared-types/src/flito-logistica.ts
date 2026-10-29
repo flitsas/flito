@@ -180,6 +180,10 @@ export const EventoDocumentoLogisticaTipo = {
   SALIDA: 'salida',
   ENTREGA: 'entrega',
   ACTA_CLIENTE: 'acta_cliente',
+  /** HU #14122: acta del viaje a FLIT (sin cambio de estado; el caller lo pasa siempre). */
+  ACTA_FLIT: 'acta_flit',
+  /** HU #14122: llegada firmada a FLIT. No se infiere de `en_flit`. */
+  LLEGADA: 'llegada',
   DEVOLUCION: 'devolucion',
   ANULACION: 'anulacion',
   NOVEDAD: 'novedad',
@@ -198,6 +202,9 @@ export const EVENTO_DOCUMENTO_LOGISTICA_TIPO_ALIAS: Readonly<Record<string, Even
   devuelto: 'devolucion',
   anulado: 'anulacion',
   anulacion: 'anulacion',
+  // Nombres del ADR-0030: se guarda el canónico. `en_flit` no es alias (devolver también deja ese estado).
+  llegada_flit: 'llegada',
+  acta_flit_firmada: 'acta_flit',
 };
 
 const EVENTO_DOCUMENTO_LOGISTICA_TIPOS = new Set<string>(Object.values(EventoDocumentoLogisticaTipo));

@@ -143,10 +143,11 @@ describe('AC1 — registro válido: 3 LT de UNA compañía, precio congelado, ac
       id: TR, companiaId: 5, destino: 'cliente', origen: 'organismo', estado: 'registrado',
       actaId: ACTA, documentos: 3,
     });
+    const sinMotivo = { motivoLlegadaId: null, motivoPorId: null, motivoEn: null };
     expect(r.lts).toEqual([
-      { documentoId: D1, precio: 18500, tarifaVigenciaId: VIG, actaOrganismoPendiente: true },
-      { documentoId: D2, precio: 18500, tarifaVigenciaId: VIG, actaOrganismoPendiente: true },
-      { documentoId: D3, precio: 18500, tarifaVigenciaId: VIG, actaOrganismoPendiente: true },
+      { documentoId: D1, precio: 18500, tarifaVigenciaId: VIG, actaOrganismoPendiente: true, ...sinMotivo },
+      { documentoId: D2, precio: 18500, tarifaVigenciaId: VIG, actaOrganismoPendiente: true, ...sinMotivo },
+      { documentoId: D3, precio: 18500, tarifaVigenciaId: VIG, actaOrganismoPendiente: true, ...sinMotivo },
     ]);
     const lineas = inserciones.find((i) => i.tabla === flitoLogisticaTrasladoLts)?.valores as Array<Record<string, unknown>>;
     expect(lineas).toHaveLength(3);
@@ -314,11 +315,15 @@ describe('AC9 — POST /cerrar-lote equivale al viaje cliente; misma Idempotency
 });
 
 describe('destino FLIT y autenticación', () => {
-  it('destino=flit → 422 DESTINO_FLIT_NO_DISPONIBLE sin abrir transacción', async () => {
-    const r = await post('/traslados', cuerpo({ destino: 'flit' }), await admin());
-    expect(r.status).toBe(422);
-    expect(r.body.codigo).toBe('DESTINO_FLIT_NO_DISPONIBLE');
-    expect(transactionMock).not.toHaveBeenCalled();
+  it('destino=flit sin motivo → 422 MOTIVO_LLEGADA_REQUERIDO y no inserta el viaje', async () => {
+    selectMock.mockReturnValueOnce(chain(DOCS));
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([{ id: 5, nombre: 'ACME', autogestionable: false, direccion: 'Calle 1', contactoDoc: '900' }]));
+    selectMock.mockReturnValueOnce(chain([]));
+    await expect(registrarTraslado(cuerpo({ destino: 'flit' }) as never, ctxAdmin))
+      .rejects.toMatchObject({ status: 422, codigo: 'MOTIVO_LLEGADA_REQUERIDO' });
+    expect(insertMock).not.toHaveBeenCalled();
   });
 
   it('exige logistica.traslado.registrar: un auditor no la tiene → 403', async () => {

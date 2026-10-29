@@ -68,13 +68,40 @@ export class LtAjenaTrasladoError extends TrasladoLogisticaError {
   }
 }
 
-export class DestinoFlitNoDisponibleError extends TrasladoLogisticaError {
+/** AC2 HU #14122: falta el motivo, no existe o está inactivo. Un solo código. */
+export class MotivoLlegadaRequeridoError extends TrasladoLogisticaError {
   constructor() {
     super(
-      'El viaje a FLIT se registra en un flujo aparte; aquí solo se admite destino a cliente',
+      'Cada LT que viaja a FLIT necesita un motivo de llegada activo',
       422,
-      'DESTINO_FLIT_NO_DISPONIBLE',
+      'MOTIVO_LLEGADA_REQUERIDO',
     );
+  }
+}
+
+/** AC6 HU #14122: se pidió salir de FLIT y alguna LT no está en_flit. */
+export class LtNoEnFlitError extends TrasladoLogisticaError {
+  constructor(documentoIds: string[] = []) {
+    super(
+      'Para salir de FLIT todas las LT tienen que estar en FLIT',
+      409,
+      'LT_NO_EN_FLIT',
+      { documentoIds },
+    );
+  }
+}
+
+/** AC4 HU #14122: la llegada a FLIT exige el trazo de la sesión. */
+export class FirmaLlegadaRequeridaError extends TrasladoLogisticaError {
+  constructor() {
+    super('La llegada a FLIT requiere la firma de quien recibe', 422, 'FIRMA_LLEGADA_REQUERIDA');
+  }
+}
+
+/** Cuerpo de llegada con cédula, nombre de receptor o firmante: no se descarta en silencio. */
+export class DatosInvalidosTrasladoError extends TrasladoLogisticaError {
+  constructor() {
+    super('El cuerpo no corresponde a esta operación', 422, 'DATOS_INVALIDOS');
   }
 }
 

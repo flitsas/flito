@@ -271,12 +271,21 @@ describe('AC8 — alias /actas/:id/despachar|entregar|devolucion sobre acta de c
 });
 
 describe('destino FLIT, permisos y propiedad', () => {
-  it('despachar un viaje a FLIT → 422 DESTINO_FLIT_NO_DISPONIBLE', async () => {
-    selectMock.mockReturnValueOnce(chain([{
-      id: TR, destino: 'flit', origen: 'organismo', estado: 'registrado', mensajeroId: 9,
-    }]));
-    await expect(despacharTraslado(TR, { mensajeroId: 9 }, ctxAdmin))
-      .rejects.toMatchObject({ status: 422, codigo: 'DESTINO_FLIT_NO_DISPONIBLE' });
+  it('despachar un viaje a FLIT pasa a en_ruta', async () => {
+    txCiclo({ traslado: { destino: 'flit', origen: 'organismo' } });
+    const r = await despacharTraslado(TR, { mensajeroId: 9 }, ctxAdmin);
+    expect(r).toMatchObject({ trasladoId: TR, estado: 'en_ruta' });
+    expect(sets.find((s) => s.tabla === flitoLogisticaTraslados)?.valores.estado).toBe('en_ruta');
+    expect(eventosDe('salida').length).toBeGreaterThan(0);
+  });
+
+  it('HTTP: entregar un viaje a cliente sigue pidiendo cédula y no pide firmar_flit', async () => {
+    selectMock.mockReturnValueOnce(chain([{ destino: 'cliente' }]));
+    const res = await post(`/traslados/${TR}/entregar`, {
+      receptorNombre: 'Ana', firma: FIRMA,
+    }, await mensajero());
+    expect(res.status).toBe(422);
+    expect(res.body.codigo).toBe('DATOS_INVALIDOS');
   });
 
   it('mensajero no entrega el viaje de otro → 403', async () => {

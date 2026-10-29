@@ -1,9 +1,10 @@
-// HU #14115 (Feature C2 #14092, Épica #13758, ADR-0030 C2.2 / Q5b) — ciclo del traslado a cliente:
+// HU #14115 (Feature C2 #14092, Épica #13758, ADR-0030 C2.2 / Q5b) — ciclo del traslado:
 // despachar → entregar (parcial) | devolver; anular en `registrado`; reversa de línea entregada.
-// Destino FLIT (C3.4): 422. Liquidación (C2.5): no. Precio congelado: no se borra.
+// HU #14122: la llegada a FLIT es la rama `destino = 'flit'` de entregar (firma de la sesión, sin cédula).
+// Liquidación (C2.5): no. Precio congelado: no se borra.
 //
-// PII: la cédula del receptor se cifra en `acta_firmas` rol `recibe` (`protegerDocumento`, AAD = firmaId).
-// No se escribe `receptor_documento` en claro. Operaciones (rol `entrega`) no lleva cédula (N4).
+// PII: la cédula del receptor de CLIENTE se cifra en `acta_firmas` rol `recibe` (`protegerDocumento`).
+// La llegada a FLIT no llama `protegerDocumento` ni `logPiiAccess`: `documento_cifrado` queda null.
 
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -18,7 +19,7 @@ import { bufDesdeDataUrl, log, LogisticaError, transicionar, type DbOrTx, type L
 import { generarActaPdf } from './flito-logistica.acta-pdf.js';
 import { protegerDocumento } from './flito-logistica.cifrado.js';
 import {
-  DestinoFlitNoDisponibleError, EntregaSinEntregadasError,
+  DatosInvalidosTrasladoError, EntregaSinEntregadasError, FirmaLlegadaRequeridaError,
   TrasladoActaNoEncontradaError, TrasladoEstadoNoAdmisibleError, TrasladoLtsNoCoincidenError,
   TrasladoNoEncontradoError,
 } from './flito-logistica-traslados.errors.js';
@@ -29,6 +30,15 @@ export interface EntregaTrasladoInput {
   receptorNombre: string; receptorDocumento: string; firma?: string;
   foto?: string | null; lat?: string | null; lng?: string | null;
   ltsDevueltas?: string[]; ltsEntregadas?: string[];
+}
+
+/** Llegada a FLIT (HU #14122). Sin cédula, sin nombre de receptor y sin `firmante`. */
+export interface LlegadaFlitInput {
+  firma: string;
+  lat?: string | null;
+  lng?: string | null;
+  ltsDevueltas?: string[];
+  ltsEntregadas?: string[];
 }
 
 export interface ResultadoCicloTraslado {
@@ -44,10 +54,20 @@ interface TrasladoMin {
   id: string; destino: string; origen: string; estado: string; mensajeroId: number | null;
 }
 interface ActaMin { id: string; estado: string; mensajeroId: number | null }
-interface LineaMin { id: string; documentoId: string; estado: string; precio: string | null }
+interface LineaMin {
+  id: string; documentoId: string; estado: string; precio: string | null; motivoLlegadaId: string | null;
+}
 
 function estadoTrasRegreso(origen: string): TEstadoDoc {
   return origen === 'flit' ? EstadoDocumentoLogistica.EN_FLIT : EstadoDocumentoLogistica.CLASIFICADO;
+}
+
+/** Lectura sin bloqueo para la guarda de `POST /entregar` (404 antes del 403 de función). */
+export async function destinoDeTraslado(id: string): Promise<'cliente' | 'flit' | null> {
+  const [t] = await db.select({ destino: flitoLogisticaTraslados.destino })
+    .from(flitoLogisticaTraslados).where(eq(flitoLogisticaTraslados.id, id)).limit(1);
+  if (!t) return null;
+  return t.destino === 'flit' ? 'flit' : 'cliente';
 }
 
 async function cargarTraslado(exec: DbOrTx, id: string): Promise<TrasladoMin> {
@@ -57,7 +77,6 @@ async function cargarTraslado(exec: DbOrTx, id: string): Promise<TrasladoMin> {
     mensajeroId: flitoLogisticaTraslados.mensajeroId,
   }).from(flitoLogisticaTraslados).where(eq(flitoLogisticaTraslados.id, id)).limit(1).for('update');
   if (!t) throw new TrasladoNoEncontradoError();
-  if (t.destino === 'flit') throw new DestinoFlitNoDisponibleError();
   return t;
 }
 
@@ -73,6 +92,7 @@ async function lineasDe(exec: DbOrTx, trasladoId: string): Promise<LineaMin[]> {
   return exec.select({
     id: flitoLogisticaTrasladoLts.id, documentoId: flitoLogisticaTrasladoLts.documentoId,
     estado: flitoLogisticaTrasladoLts.estado, precio: flitoLogisticaTrasladoLts.precio,
+    motivoLlegadaId: flitoLogisticaTrasladoLts.motivoLlegadaId,
   }).from(flitoLogisticaTrasladoLts).where(eq(flitoLogisticaTrasladoLts.trasladoId, trasladoId))
     .orderBy(flitoLogisticaTrasladoLts.documentoId).for('update');
 }
@@ -151,7 +171,7 @@ export async function despacharTraslado(
 }
 
 function partirLineas(
-  lineas: LineaMin[], input: EntregaTrasladoInput,
+  lineas: LineaMin[], input: { ltsDevueltas?: string[]; ltsEntregadas?: string[] },
 ): { entregadas: LineaMin[]; devueltas: LineaMin[] } {
   const enRuta = lineas.filter((l) => l.estado === 'en_ruta');
   const idsRuta = new Set(enRuta.map((l) => l.documentoId));
@@ -196,6 +216,7 @@ export async function entregarTraslado(
 
   const res = await db.transaction(async (tx) => {
     const t = await cargarTraslado(tx, trasladoId);
+    if (t.destino === 'flit') throw new DatosInvalidosTrasladoError();
     if (t.estado !== 'en_ruta') throw new TrasladoEstadoNoAdmisibleError(t.estado, 'entregar');
     const acta = await actaDeTraslado(tx, t.id);
     exigirPropia(ctx, t.mensajeroId ?? acta.mensajeroId, 'entregar');
@@ -255,6 +276,82 @@ export async function entregarTraslado(
     };
   });
   await regenerarPdf(res.actaId, 'entrega');
+  const { actaId: _a, ...out } = res;
+  return out;
+}
+
+/**
+ * Llegada a FLIT: `en_ruta` → líneas `entregado` y LT `en_flit`. Firma rol `recibe` de la sesión
+ * (`usuario_id` NOT NULL, `documento_cifrado` null). No cifra cédula ni audita PII.
+ * El reparto parcial reutiliza `partirLineas`: lo devuelto vuelve a `clasificado` (origen organismo).
+ */
+export async function firmarLlegadaFlit(
+  trasladoId: string, datos: LlegadaFlitInput, ctx: LogisticaCtx,
+): Promise<ResultadoCicloTraslado> {
+  const firma = datos.firma?.trim();
+  if (!firma) throw new FirmaLlegadaRequeridaError();
+  const firmaKey = await uploadEntityDocument(
+    'flito-logistica-firmas-llegada', trasladoId, 'firma-llegada.png', bufDesdeDataUrl(firma), 'image/png',
+  );
+  const res = await db.transaction(async (tx) => {
+    const t = await cargarTraslado(tx, trasladoId);
+    if (t.destino !== 'flit') throw new DatosInvalidosTrasladoError();
+    if (t.estado !== 'en_ruta') throw new TrasladoEstadoNoAdmisibleError(t.estado, 'entregar');
+    const acta = await actaDeTraslado(tx, t.id);
+    exigirPropia(ctx, t.mensajeroId ?? acta.mensajeroId, 'firmar la llegada de');
+    const lineas = await lineasDe(tx, t.id);
+    const { entregadas, devueltas } = partirLineas(lineas, datos);
+    if (entregadas.length === 0) throw new EntregaSinEntregadasError();
+    const docs = await docsDe(tx, lineas.map((l) => l.documentoId));
+    const porId = new Map(docs.map((d) => [d.id, d]));
+    const ahora = new Date();
+    const firmaId = randomUUID();
+    await tx.insert(flitoLogisticaActaFirmas).values({
+      id: firmaId, actaId: acta.id, rol: 'recibe', nombre: ctx.username,
+      documentoCifrado: null, documentoUltimos: null, firmaStorageKey: firmaKey, usuarioId: ctx.userId,
+      lat: datos.lat ?? null, lng: datos.lng ?? null,
+    });
+    await tx.update(flitoLogisticaActas).set({
+      estado: EstadoActaLogistica.ENTREGADA, firmaStorageKey: firmaKey,
+      entregadoLat: datos.lat ?? null, entregadoLng: datos.lng ?? null, entregadoEn: ahora, updatedAt: ahora,
+    }).where(eq(flitoLogisticaActas.id, acta.id));
+    await tx.update(flitoLogisticaTraslados).set({ estado: 'entregado', updatedAt: ahora })
+      .where(eq(flitoLogisticaTraslados.id, t.id));
+    if (entregadas.length) {
+      await tx.update(flitoLogisticaTrasladoLts).set({ estado: 'entregado' })
+        .where(inArray(flitoLogisticaTrasladoLts.id, entregadas.map((l) => l.id)));
+    }
+    if (devueltas.length) {
+      await tx.update(flitoLogisticaTrasladoLts).set({ estado: 'devuelto' })
+        .where(inArray(flitoLogisticaTrasladoLts.id, devueltas.map((l) => l.id)));
+    }
+    for (const l of entregadas) {
+      const d = porId.get(l.documentoId);
+      if (d) {
+        await transicionar(tx, d, EstadoDocumentoLogistica.EN_FLIT, ctx, {
+          tipo: 'llegada', trasladoId: t.id, actaId: acta.id, destino: t.destino,
+          lat: datos.lat, lng: datos.lng,
+          payload: { trasladoId: t.id, actaId: acta.id, motivoLlegadaId: l.motivoLlegadaId },
+        });
+      }
+    }
+    await desvincularActa(tx, devueltas.map((l) => l.documentoId));
+    const destDev = estadoTrasRegreso(t.origen);
+    for (const l of devueltas) {
+      const d = porId.get(l.documentoId);
+      if (d) {
+        await transicionar(tx, d, destDev, ctx, {
+          tipo: 'devolucion', trasladoId: t.id, actaId: acta.id, destino: t.destino,
+          payload: { trasladoId: t.id, actaId: acta.id, linea: 'devuelto' },
+        });
+      }
+    }
+    return {
+      documentos: docs.length, trasladoId: t.id, estado: 'entregado' as const, actaId: acta.id,
+      entregados: entregadas.length, devueltos: devueltas.length, firmaId,
+    };
+  });
+  await regenerarPdf(res.actaId, 'llegada a FLIT');
   const { actaId: _a, ...out } = res;
   return out;
 }

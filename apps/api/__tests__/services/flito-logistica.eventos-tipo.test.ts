@@ -49,10 +49,10 @@ function ultimoEvento() {
 }
 
 describe('AC1 — catálogo canónico (la acción, no el estado)', () => {
-  it('expone los 10 tipos de AC1 más tramite_resuelto conservado', () => {
+  it('expone los tipos de AC1 más tramite_resuelto, llegada y acta_flit (HU #14122)', () => {
     expect(Object.values(EventoDocumentoLogisticaTipo)).toEqual([
       'recogida', 'acta_organismo', 'destino_registrado', 'salida', 'entrega',
-      'acta_cliente', 'devolucion', 'anulacion', 'novedad', 'reversa', 'tramite_resuelto',
+      'acta_cliente', 'acta_flit', 'llegada', 'devolucion', 'anulacion', 'novedad', 'reversa', 'tramite_resuelto',
     ]);
   });
 });
@@ -70,6 +70,8 @@ describe('AC2 — tipoEventoEfectivo: nulo se interpreta por estadoNuevo; aliase
   it('no adivina clasificado / en_flit / generado / en_acta', () => {
     expect(tipoEventoEfectivo(null, 'clasificado')).toBeNull();
     expect(tipoEventoEfectivo(null, 'en_flit')).toBeNull();
+    expect(tipoEventoEfectivo('llegada_flit', 'en_flit')).toBe('llegada');
+    expect(tipoEventoEfectivo('acta_flit_firmada', 'en_flit')).toBe('acta_flit');
     expect(tipoEventoEfectivo(null, 'generado')).toBeNull();
     expect(tipoEventoEfectivo(null, 'en_acta')).toBeNull();
   });

@@ -225,7 +225,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} POST /documentos/:id/novedad`, 'logistica.documento.reportar_novedad', 'Reportar una novedad de entrega', 'Dejar constancia de que la entrega no se pudo completar y por qué.'),
   op(`${LOG} POST /traslados`, 'logistica.traslado.registrar', 'Registrar un viaje de logística', 'Registrar el viaje a cliente de las LT de una compañía, con el precio congelado.'),
   op(`${LOG} POST /traslados/:id/despachar`, 'logistica.actas.despachar', 'Despachar un acta', 'Poner en ruta el acta y sus documentos.'),
-  op(`${LOG} POST /traslados/:id/entregar`, 'logistica.actas.entregar', 'Entregar un acta', 'Registrar la entrega del acta en destino.'),
+  // HU #14122: la guarda es en línea según el destino del viaje. Cliente sigue en `entregar`; FLIT pide `firmar_flit`.
+  op(`${LOG} POST /traslados/:id/entregar [entregar]`, 'logistica.actas.entregar', 'Entregar un acta', 'Registrar la entrega del acta en destino.'),
+  op(`${LOG} POST /traslados/:id/entregar [firmarFlit]`, 'logistica.actas.firmar_flit', 'Firmar la llegada a FLIT', 'Registrar la firma de quien recibe el viaje en las instalaciones de FLIT. No lleva cédula: el nombre y el usuario salen de la sesión.'),
   op(`${LOG} POST /traslados/:id/devolucion`, 'logistica.actas.devolver', 'Devolver un acta', 'Registrar que el acta vuelve sin haberse entregado.'),
   op(`${LOG} POST /traslados/:id/anular`, 'logistica.traslado.anular', 'Anular un viaje de logística', 'Anular un viaje a cliente que aún no se ha despachado. El precio congelado se conserva.'),
   op(`${LOG} POST /cerrar-lote`, 'logistica.lote.cerrar', 'Cerrar un lote de logística', 'Dar por armado el lote de documentos que va a despacharse.'),

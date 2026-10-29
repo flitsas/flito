@@ -131,7 +131,7 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
     // PO 2026-10-13: despachar y operar ajenas son OPCIONALES: el mensajero recibe la acción (entregar y
     // devolver) sin despachar ni operar actas ajenas; quien las tenía las conserva como marca directa.
     operaciones: ['logistica.actas.entregar', 'logistica.actas.devolver'],
-    opcionales: ['logistica.actas.despachar', 'logistica.actas.operar_ajenas'],
+    opcionales: ['logistica.actas.despachar', 'logistica.actas.operar_ajenas', 'logistica.actas.firmar_flit'], // + firmar la llegada a FLIT (HU #14122): el mensajero no la recibe
   },
   'accion.logistica.cerrar_lote': { operaciones: ['logistica.lote.cerrar'] },
   'accion.logistica.reversar_paso': { operaciones: ['logistica.documento.reversar'], opcionales: ['logistica.documento.resolver_tramite', 'logistica.traslado.anular'] }, // + resolver el trámite (HU #14143); + anular viaje (HU #14115): se conceden aparte
