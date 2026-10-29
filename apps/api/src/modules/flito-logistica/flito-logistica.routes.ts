@@ -17,9 +17,10 @@ import { confirmarRecogida } from './flito-logistica.recogida.js';
 import { candidatosDe, listarPendientes, resolverTramite } from './flito-logistica.pendientes.js';
 import { contarPendientesFirma, ltPendientesFirma } from './flito-logistica.pendientes-firma.js';
 import { misRecogidas, recogidaDetalle, revelarDocumentoFirmante } from './flito-logistica.firmante.js';
-import { recogidaConfirmarLimiter, revelarDocumentoLimiter, trasladoRegistrarLimiter } from './flito-logistica.limitadores.js';
+import { recogidaConfirmarLimiter, revelarDocumentoLimiter, trasladoCicloLimiter, trasladoRegistrarLimiter } from './flito-logistica.limitadores.js';
 import {
-  actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, consultarVehiculo, escanearLt, facetas,
+  actaDetalle, anularTraslado, buscarIdempotencia, cerrarLote, despachar, despacharTraslado,
+  devolverTraslado, entregar, entregarTraslado, consultarVehiculo, escanearLt, facetas,
   guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
   registrarNovedad, registrarTraslado, reversar, tramiteDetalle, urlActaPdf, validarLt,
   type FiltrosLogistica, type LogisticaCtx,
@@ -251,6 +252,79 @@ router.post('/traslados', soloSinEnlace(), exigirFuncion('logistica.traslado.reg
   }, 'traslados');
 });
 
+const uuidParam = (v: string | undefined) => z.string().uuid().safeParse(v);
+const despacharTrasladoSchema = z.object({
+  mensajeroId: z.number().int().positive(),
+  firmaEntrega: z.string().min(1).optional(),
+  entregaNombre: z.string().optional(),
+});
+const entregarTrasladoSchema = z.object({
+  receptorNombre: z.string().trim().min(1), receptorDocumento: z.string().trim().min(1),
+  firma: z.string().min(1), foto: z.string().optional(), lat: z.string().optional(), lng: z.string().optional(),
+  ltsDevueltas: z.array(z.string().uuid()).optional(), ltsEntregadas: z.array(z.string().uuid()).optional(),
+});
+
+async function auditarCedulaReceptor(req: Request, firmaId: string | undefined): Promise<void> {
+  if (!firmaId) return;
+  await logPiiAccess(req, {
+    resourceTipo: 'flito_logistica_acta_firmas', accion: 'read', camposAccedidos: ['documento_cifrado'],
+    motivo: `firma:${firmaId}`,
+  });
+}
+
+// POST /traslados/:id/despachar — HU #14115. Reusa `logistica.actas.despachar`. Firma de Operaciones opcional.
+router.post('/traslados/:id/despachar', soloSinEnlace(), exigirFuncion('logistica.actas.despachar'), trasladoCicloLimiter, async (req: Request, res: Response) => {
+  const id = uuidParam(req.params.id);
+  if (!id.success) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }
+  const parsed = despacharTrasladoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(422).json({ error: 'Datos inválidos: el mensajero es obligatorio', codigo: 'DATOS_INVALIDOS' }); return; }
+  await conIdempotencia(req, res, async () => {
+    const r = await despacharTraslado(id.data, parsed.data, ctxDe(req.user!));
+    await audit(req, { action: 'update', resource: 'flito_logistica_traslado', resourceId: id.data, detail: `Despacho a mensajero ${parsed.data.mensajeroId}` });
+    return { body: r };
+  }, 'traslados-despachar');
+});
+
+// POST /traslados/:id/entregar — receptor + firma; `ltsDevueltas` para parcial (AC3). Cédula cifrada.
+router.post('/traslados/:id/entregar', soloSinEnlace(), exigirFuncion('logistica.actas.entregar'), trasladoCicloLimiter, async (req: Request, res: Response) => {
+  const id = uuidParam(req.params.id);
+  if (!id.success) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }
+  const parsed = entregarTrasladoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(422).json({ error: 'Datos inválidos: nombre, cédula y firma del receptor son obligatorios', codigo: 'DATOS_INVALIDOS' }); return; }
+  await conIdempotencia(req, res, async () => {
+    const r = await entregarTraslado(id.data, parsed.data, await ctxConPropiedad(req));
+    await auditarCedulaReceptor(req, r.firmaId);
+    await audit(req, { action: 'update', resource: 'flito_logistica_traslado', resourceId: id.data, detail: 'Entrega de viaje' });
+    return { body: r };
+  }, 'traslados-entregar');
+});
+
+// POST /traslados/:id/devolucion — todo el viaje. Reusa `logistica.actas.devolver`.
+router.post('/traslados/:id/devolucion', soloSinEnlace(), exigirFuncion('logistica.actas.devolver'), trasladoCicloLimiter, async (req: Request, res: Response) => {
+  const id = uuidParam(req.params.id);
+  if (!id.success) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }
+  const parsed = motivoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
+  await conIdempotencia(req, res, async () => {
+    const r = await devolverTraslado(id.data, parsed.data.motivo, await ctxConPropiedad(req));
+    await audit(req, { action: 'update', resource: 'flito_logistica_traslado', resourceId: id.data, detail: `Devolución: ${parsed.data.motivo}` });
+    return { body: r };
+  }, 'traslados-devolucion');
+});
+
+// POST /traslados/:id/anular — solo `registrado`. Permiso propio; siembra admin (0283).
+router.post('/traslados/:id/anular', soloSinEnlace(), exigirFuncion('logistica.traslado.anular'), trasladoCicloLimiter, async (req: Request, res: Response) => {
+  const id = uuidParam(req.params.id);
+  if (!id.success) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }
+  const parsed = motivoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
+  await conIdempotencia(req, res, async () => {
+    const r = await anularTraslado(id.data, parsed.data.motivo, ctxDe(req.user!));
+    await audit(req, { action: 'update', resource: 'flito_logistica_traslado', resourceId: id.data, detail: `Anulación: ${parsed.data.motivo}` });
+    return { body: r };
+  }, 'traslados-anular');
+});
+
 // POST /cerrar-lote — adaptador (HU #14114): viaje a cliente de las LT clasificadas de la compañía.
 const cerrarLoteSchema = z.object({ companiaId: z.number().int().positive() });
 router.post('/cerrar-lote', exigirFuncion('logistica.lote.cerrar'), async (req: Request, res: Response) => {
@@ -288,6 +362,7 @@ router.post('/actas/:id/despachar', exigirFuncion('logistica.actas.despachar'), 
 const entregarSchema = z.object({
   receptorNombre: z.string().trim().min(1), receptorDocumento: z.string().trim().min(1),
   firma: z.string().min(1), foto: z.string().optional(), lat: z.string().optional(), lng: z.string().optional(),
+  ltsDevueltas: z.array(z.string().uuid()).optional(), ltsEntregadas: z.array(z.string().uuid()).optional(),
 });
 router.post('/actas/:id/entregar', exigirFuncion('logistica.actas.entregar'), async (req: Request, res: Response) => {
   const parsed = entregarSchema.safeParse(req.body);
@@ -295,6 +370,7 @@ router.post('/actas/:id/entregar', exigirFuncion('logistica.actas.entregar'), as
   await exigirPropioLogistica('acta', req.params.id, await alcanceDe(req));
   await conIdempotencia(req, res, async () => {
     const r = await entregar(req.params.id, parsed.data, await ctxConPropiedad(req));
+    await auditarCedulaReceptor(req, r.firmaId);
     await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Entrega a ${parsed.data.receptorNombre}` });
     return { body: r };
   });

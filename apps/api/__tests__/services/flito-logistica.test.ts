@@ -186,9 +186,10 @@ describe('cerrarLote — adaptador de registrarTraslado (HU #14114)', () => {
 
 // ───────────────────────── despachar — firma de Operaciones (entrega) ─────
 
-describe('despachar — RN-03 (firma de quien entrega)', () => {
-  it('rechaza el despacho sin la firma de Operaciones', async () => {
-    await expect(svc.despachar('acta1', { mensajeroId: 9, firmaEntrega: '' }, ctx)).rejects.toThrow(/firma/i);
+describe('despachar — firma de Operaciones opcional (ADR-0030 N4)', () => {
+  it('sin imagen de firma no rechaza en el servicio: resuelve el acta (404 si no existe)', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    await expect(svc.despachar('acta1', { mensajeroId: 9, firmaEntrega: '' }, ctx)).rejects.toMatchObject({ status: 404 });
   });
 });
 

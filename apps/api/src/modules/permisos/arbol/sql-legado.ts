@@ -39,6 +39,8 @@ export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set([
   'logistica.documento.resolver_tramite',
   // HU #14114: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra la 0282.
   'logistica.traslado.registrar',
+  // HU #14115: opcional de `accion.logistica.reversar_paso`; su `padre_codigo` lo siembra la 0283.
+  'logistica.traslado.anular',
 ]);
 
 /** Operación de ítem antiguo → ítem, ordenado (lo que lee la 0239 y el pliegue del test). */

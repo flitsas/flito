@@ -209,12 +209,15 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #14103: las rutas de proveedores de LOGÍSTICA reutilizan las funciones de gestión de proveedores (listar/crear/editar/estado),
     // sin función nueva ni siembra (el AC habla de «la función de gestión de proveedores»).
     // HU #14110: confirmar la recogida y sus dos consultas piden la misma `logistica.recogida.confirmar`. HU #14147: +1 (pendientes-firma), cuatro rutas con la misma función.
+    // HU #14115: despachar/entregar/devolver el viaje reutilizan `logistica.actas.*` de las rutas de acta.
     expect(compartidosFlito.sort()).toEqual([
       ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
       ['bolsas.documentos.cargar', 3], ['bolsas.documentos.ver', 4],
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.inactivar', 2],
-      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2], ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],
+      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2],
+      ['logistica.actas.despachar', 2], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2],
+      ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],
       ['logistica.recogida.confirmar', 4], ['logistica.viajes.registrar', 2],
       // HU #14148: +impacto de logística (estado 4), +baja de logística (eliminar 2) y +listado unificado (listar 3).
       ['parametrizacion.proveedores.crear', 2], ['parametrizacion.proveedores.editar', 2],

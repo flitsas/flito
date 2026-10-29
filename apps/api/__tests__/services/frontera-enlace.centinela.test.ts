@@ -327,6 +327,10 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/logistica/escanear',                                       'soloSinEnlace'],
   ['POST /api/flito/logistica/documentos/:id/novedad',                         'filtra'],
   ['POST /api/flito/logistica/traslados',                                      'soloSinEnlace'], // HU #14114
+  ['POST /api/flito/logistica/traslados/:id/despachar',                        'soloSinEnlace'], // HU #14115
+  ['POST /api/flito/logistica/traslados/:id/entregar',                         'soloSinEnlace'], // HU #14115
+  ['POST /api/flito/logistica/traslados/:id/devolucion',                       'soloSinEnlace'], // HU #14115
+  ['POST /api/flito/logistica/traslados/:id/anular',                           'soloSinEnlace'], // HU #14115
   ['POST /api/flito/logistica/cerrar-lote',                                    'filtra'],
   ['POST /api/flito/logistica/actas/:id/despachar',                            'filtra'],
   ['POST /api/flito/logistica/actas/:id/entregar',                             'filtra'],

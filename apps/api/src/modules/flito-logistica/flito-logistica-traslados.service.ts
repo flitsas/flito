@@ -1,5 +1,6 @@
 // HU #14114 (Feature C2 #14092, Épica #13758, ADR-0030 C3a) — registrar traslado a CLIENTE.
-// Destino FLIT, despachar/entregar/devolver/anular: C3.4 / C2.2. No se implementan aquí.
+// Destino FLIT (C3.4): 422. El ciclo despachar/entregar/devolver/anular vive en
+// `flito-logistica-traslados-ciclo.service.ts` (HU #14115).
 //
 // En una transacción: bloquea las LT (`ORDER BY id FOR UPDATE`), exige trámite resuelto (C1.8),
 // congela precio+vigencia, estampa el proveedor de la compañía, crea traslado + líneas + acta de

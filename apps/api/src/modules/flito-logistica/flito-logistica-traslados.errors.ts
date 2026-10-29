@@ -107,3 +107,38 @@ export class SinLtClasificadasError extends TrasladoLogisticaError {
     super('No hay LT clasificadas para esta empresa', 400, 'SIN_LT_CLASIFICADAS');
   }
 }
+
+export class TrasladoNoEncontradoError extends TrasladoLogisticaError {
+  constructor() {
+    super('Viaje no encontrado', 404, 'TRASLADO_NO_ENCONTRADO');
+  }
+}
+
+/** Despachar/entregar/devolver/anular sobre un estado que no lo admite (p. ej. anular ya en ruta). */
+export class TrasladoEstadoNoAdmisibleError extends TrasladoLogisticaError {
+  constructor(estado: string, accion: string) {
+    super(`El viaje no se puede ${accion} en estado "${estado}"`, 409, 'TRASLADO_ESTADO_NO_ADMISIBLE', { estado });
+  }
+}
+
+export class TrasladoActaNoEncontradaError extends TrasladoLogisticaError {
+  constructor() {
+    super('El viaje no tiene un acta de cliente asociada', 409, 'TRASLADO_SIN_ACTA');
+  }
+}
+
+export class EntregaSinEntregadasError extends TrasladoLogisticaError {
+  constructor() {
+    super(
+      'La entrega requiere al menos una LT entregada; para devolver el viaje completo usa la devolución',
+      422,
+      'ENTREGA_SIN_ENTREGADAS',
+    );
+  }
+}
+
+export class TrasladoLtsNoCoincidenError extends TrasladoLogisticaError {
+  constructor() {
+    super('Las LT indicadas no coinciden con las líneas en ruta de este viaje', 422, 'TRASLADO_LTS_NO_COINCIDEN');
+  }
+}
