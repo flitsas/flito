@@ -3,7 +3,8 @@
 // viaja en el barcode). El mensajero recoge VARIAS LT seguidas: tras cada lectura emite el resultado y
 // sigue escaneando (deduplica por contenido para no repetir la misma LT), hasta que pulsa «Listo».
 //
-// Requiere BarcodeDetector + contexto seguro (HTTPS/localhost). Robusto ante el doble-montaje (StrictMode).
+// Usa BarcodeDetector nativo; si falta (Safari iOS) carga BAJO DEMANDA el polyfill PDF417 (zxing-wasm).
+// Requiere contexto seguro (HTTPS/localhost). Robusto ante el doble-montaje (StrictMode).
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -11,7 +12,9 @@ import { parseLicenciaTransito } from '@operaciones/shared-types';
 import { ocrListo, ocrNumeroLt, precargarOcr } from '../../lib/ocrLt';
 
 export function escaneoDisponible(): boolean {
-  return typeof window !== 'undefined' && 'BarcodeDetector' in window;
+  if (typeof window === 'undefined') return false;
+  // Sin BarcodeDetector (iOS) el polyfill cubre el escaneo mientras haya cámara disponible.
+  return 'BarcodeDetector' in window || !!navigator.mediaDevices?.getUserMedia;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -73,10 +76,21 @@ export default function Escaner({ onScan, onClose }: { onScan: (code: string, nu
 
     (async () => {
       try {
+        let detector: Any;
         const BD = (window as Any).BarcodeDetector as Any;
-        let formats: string[] | undefined;
-        try { formats = await BD.getSupportedFormats?.(); } catch { /* default */ }
-        const detector: Any = formats?.length ? new BD({ formats }) : new BD();
+        if (BD) {
+          let formats: string[] | undefined;
+          try { formats = await BD.getSupportedFormats?.(); } catch { /* default */ }
+          detector = formats?.length ? new BD({ formats }) : new BD();
+        } else {
+          // Safari iOS: el polyfill (JS + wasm) se descarga solo aquí, nunca con detector nativo.
+          try {
+            detector = await (await import('../../lib/pdf417Polyfill')).crearDetectorPdf417();
+          } catch {
+            if (!cancelado) setError('No se pudo preparar el lector de códigos en este dispositivo. Cierra e ingresa el contenido del código a mano.');
+            return;
+          }
+        }
 
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
@@ -144,7 +158,12 @@ export default function Escaner({ onScan, onClose }: { onScan: (code: string, nu
     <div className="fixed inset-0 z-[70] flex flex-col bg-black">
       <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
       <div className="pointer-events-none absolute left-1/2 top-1/2 h-40 w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border-2 border-white/80" />
-      {error && <div className="absolute inset-x-0 top-6 px-4 text-center text-sm text-white">{error}</div>}
+      {error && (
+        <div role="alert" className="absolute inset-x-0 top-6 px-4 text-center text-sm text-white">
+          {error}
+          <span className="mt-1 block text-white/80">Pulsa «Cerrar» y pega el contenido del código a mano.</span>
+        </div>
+      )}
       {!error && !listo && <div className="absolute inset-x-0 top-6 px-4 text-center text-sm text-white/90">Abriendo cámara…</div>}
       {leyendo && (
         <div className="absolute inset-x-0 top-6 flex justify-center">
@@ -157,7 +176,7 @@ export default function Escaner({ onScan, onClose }: { onScan: (code: string, nu
         </div>
       )}
       <button type="button" onClick={onClose} className="absolute right-4 top-4 rounded-lg bg-white px-4 py-2 text-sm font-semibold" style={{ color: 'var(--flit-blue-dark)' }}>
-        Listo{conteo > 0 ? ` (${conteo})` : ''}
+        {error ? 'Cerrar' : 'Listo'}{conteo > 0 ? ` (${conteo})` : ''}
       </button>
       <p className="absolute inset-x-0 bottom-8 text-center text-sm text-white/90">Escanea cada LT: apunta al PDF417 con el N.º de LT visible debajo</p>
     </div>,

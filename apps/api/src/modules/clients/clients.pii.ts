@@ -55,7 +55,7 @@
 
 import type { Request } from 'express';
 import { sql } from 'drizzle-orm';
-import { clients, flitoProveedoresSoat } from '../../db/schema.js';
+import { clients, flitoProveedoresLogistica, flitoProveedoresSoat } from '../../db/schema.js';
 import { registrarAccesoCliente } from '../siigo/siigo.pii.js';
 
 /**
@@ -181,6 +181,16 @@ export const CAMPOS_PII_LISTADO: readonly string[] = Object.entries(COLUMNAS_LIS
 // para nadie que pueda leer esta ruta.
 
 /**
+ * HU #14148 — proveedor de logística de la compañía, RESUELTO por un `LEFT JOIN` (como el gestor SOAT): solo id y nombre.
+ * Contacto, teléfono y NIT del proveedor NO viajan aquí: quien solo ve Clientes no los ve (Ley 1581). Se publican planas
+ * (`proveedorLogisticaId`, `proveedorLogisticaNombre`), `null` las dos si la compañía no tiene proveedor.
+ */
+export const COLUMNAS_PROVEEDOR_LOGISTICA = {
+  proveedorLogisticaId: flitoProveedoresLogistica.id,
+  proveedorLogisticaNombre: flitoProveedoresLogistica.nombre,
+};
+
+/**
  * Lo que se le pide a `flito_proveedores_soat` al unirla, y NADA más.
  *
  * Tres columnas nombradas, no la tabla entera: la unión amplía lo que la ruta entrega y eso es una
@@ -221,6 +231,7 @@ export const COLUMNAS_GESTOR_SIN_TRAMITE = {
 export const COLUMNAS_LISTADO_CON_GESTOR = {
   ...COLUMNAS_LISTADO,
   ...COLUMNAS_GESTOR_SIN_TRAMITE,
+  ...COLUMNAS_PROVEEDOR_LOGISTICA,
 };
 
 /** Lo que el `LEFT JOIN` deja en la fila: las tres juntas, o las tres en nulo. */

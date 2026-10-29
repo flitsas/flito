@@ -50,8 +50,8 @@ test.describe('HU #12079 · AC5 — accesibilidad', () => {
     await loginAs(page, OPERACIONES_USER);
     await montarFicha(page);
 
-    await page.getByRole('button', { name: 'SOAT sin trámite de Concesionario Norte: SURA' }).click();
-    const modal = page.getByRole('dialog', { name: 'SOAT sin trámite · Concesionario Norte' });
+    await page.getByRole('button', { name: 'Editar Concesionario Norte', exact: true }).click();
+    const modal = page.getByRole('dialog', { name: 'Editar · Concesionario Norte' });
     await expect(modal).toBeVisible();
 
     // ── 1 · Cada control por su label ASOCIADO ────────────────────────────────────────────────
@@ -69,7 +69,7 @@ test.describe('HU #12079 · AC5 — accesibilidad', () => {
 
     // ── 2 · Ningún botón mudo ─────────────────────────────────────────────────────────────────
     const mudos = await page.locator('[role="dialog"] button').evaluateAll(
-      (els) => els.filter((el) => ((el.getAttribute('aria-label') ?? el.textContent ?? '').trim() === '')).length,
+      (els) => els.filter((el) => !el.getAttribute('aria-labelledby') && ((el.getAttribute('aria-label') ?? el.textContent ?? '').trim() === '')).length,
     );
     expect(mudos, 'hay botones sin texto ni aria-label en el modal').toBe(0);
 
@@ -84,7 +84,10 @@ test.describe('HU #12079 · AC5 — accesibilidad', () => {
     });
     await modal.getByRole('button', { name: 'Cerrar', exact: true }).focus();
     const sinFoco = await estiloDe();
-    await page.keyboard.press('Tab');
+    // HU #14105: entre el cierre y el selector hay ahora las pestañas del modal y los datos.
+    for (let i = 0; i < 8 && !(await selector.evaluate((el) => el === document.activeElement)); i += 1) {
+      await page.keyboard.press('Tab');
+    }
     await expect(selector).toBeFocused();
     expect(await estiloDe(), 'el foco del selector de proveedor no produce ninguna diferencia visible')
       .not.toEqual(sinFoco);
@@ -98,11 +101,11 @@ test.describe('HU #12079 · AC5 — accesibilidad', () => {
     await page.route(/\/api\/flito\/parametrizacion\/companias\/1$/, (route) => json(route, 403, { error: 'Sin permiso' }));
     await montarFicha(page);
 
-    await page.getByRole('button', { name: /SOAT sin trámite de Concesionario Norte/ }).click();
-    const modal = page.getByRole('dialog', { name: 'SOAT sin trámite · Concesionario Norte' });
+    await page.getByRole('button', { name: 'Editar Concesionario Norte', exact: true }).click();
+    const modal = page.getByRole('dialog', { name: 'Editar · Concesionario Norte' });
     // HU #13968: «Sin proveedor» es válido; el `role="alert"` lo pinta el guardado rechazado.
     await modal.getByLabel('Proveedor de SOAT sin trámite').selectOption('');
-    await modal.getByRole('button', { name: 'Guardar' }).click();
+    await modal.getByRole('button', { name: 'Guardar cambios' }).click();
 
     await expect(modal.getByRole('alert')).toHaveText('No tiene permiso para elegir el proveedor de esta compañía.');
     esperarSinViolacionesGraves(await correrAxe(page), 'modal «SOAT sin trámite» · rechazo del cliente');
