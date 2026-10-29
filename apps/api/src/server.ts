@@ -39,6 +39,9 @@ import {
 import {
   startSoatRetencionCron, stopSoatRetencionCron,
 } from './modules/flito-soat/flito-soat-retencion.cron.js';
+import {
+  startLogisticaRetencionCron, stopLogisticaRetencionCron,
+} from './modules/flito-logistica/flito-logistica-retencion.cron.js';
 import { startSoatMasivoCron, stopSoatMasivoCron } from './modules/flito-soat/flito-soat-masivo.cron.js';
 import { startDrflitPurgaCron, stopDrflitPurgaCron } from './modules/flito-dr-flit/dr-flit.cron.js';
 import {
@@ -130,6 +133,10 @@ const server = app.listen(env.PORT, () => {
     // solicitudes por validar descartadas hace 30 días o más (03:00 de Colombia). Noop si
     // SOAT_RETENCION_CRON_ENABLED!=1. Candado `flito-soat-retencion`.
     startSoatRetencionCron();
+    // FLITO Logística: retención de la cédula a 10 años (HU #14113, Ley 1581) — anula
+    // `documento_cifrado` y `documento_ultimos` en las firmas vencidas (03:00 de Colombia). Noop si
+    // LOGISTICA_RETENCION_CRON_ENABLED!=1. Candado `flito-logistica-retencion`.
+    startLogisticaRetencionCron();
     // FLITO SOAT: worker de la carga masiva de renovaciones (HU #14132, ADR-0032). Noop si
     // SOAT_MASIVO_WORKER_ENABLED=0 (defecto: encendido). Cola en Postgres (SKIP LOCKED); sin candado en el tick.
     startSoatMasivoCron();
@@ -185,6 +192,7 @@ function shutdown(signal: string) {
   stopComparendosPurgaCron();
   stopSoatVigenciaCron();
   stopSoatRetencionCron();
+  stopLogisticaRetencionCron();
   stopSoatMasivoCron();
   stopDrflitPurgaCron();
   stopSoatBorradosPendientesCron();
