@@ -127,10 +127,11 @@ export function FlitTable({ children, label }: { children: ReactNode; label?: st
  * `px-3` no vence a `px-4`: las dos utilidades pesan igual y gana la que va después en la hoja,
  * no en el atributo.
  */
-export function FlitTh({ children, center, estrecha, className = '' }: { children?: ReactNode; center?: boolean; estrecha?: boolean; className?: string }) {
+export function FlitTh({ children, center, estrecha, className = '', ariaSort }: { children?: ReactNode; center?: boolean; estrecha?: boolean; className?: string; ariaSort?: 'ascending' | 'descending' | 'none' }) {
   return (
     <th
       scope="col"
+      aria-sort={ariaSort}
       className={`${estrecha ? 'px-3' : 'px-4'} py-2.5 ${center ? 'text-center' : 'text-left'} text-[11px] font-semibold uppercase tracking-wide ${className}`}
       style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}
     >
