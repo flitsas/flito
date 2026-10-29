@@ -16,55 +16,66 @@ const CLIENTES = [
     id: 1, name: 'Concesionario Norte', document: '900111', documentType: 'NIT',
     phone: '3001112233', email: 'norte@x.co', address: null, city: 'Manizales', notes: null, active: true,
     soatAutogestionable: true, soatSinTramite: false, impuestosAutogestionable: false, logisticaAutogestionable: true,
+    proveedorLogisticaId: null, proveedorLogisticaNombre: null,
   },
 ];
+
+const PROV_LOG = [{ id: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', nombre: 'Logística Andina', nit: '900123456-7', contacto: null, telefono: null, activo: true }];
 
 async function mock(page: import('@playwright/test').Page, clientes = CLIENTES) {
   await page.route(/\/api\/clients(\?|$)/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(clientes) }));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores-logistica$/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROV_LOG) }));
 }
 
-const check = (page: import('@playwright/test').Page, servicio: string) =>
-  page.getByRole('checkbox', { name: `FLITO gestiona ${servicio} de Concesionario Norte` });
+type P = import('@playwright/test').Page;
+// HU #14105: los tres servicios se editan en el modal «Editar», con un interruptor «FLITO gestiona» cada uno.
+const interruptor = (page: P, servicio: string) =>
+  page.getByRole('switch', { name: `FLITO gestiona ${servicio} de Concesionario Norte` });
+const abrirEditar = async (page: P) => {
+  await page.getByRole('button', { name: 'Editar Concesionario Norte', exact: true }).click();
+  return page.getByRole('dialog', { name: 'Editar · Concesionario Norte' });
+};
 
-test.describe('Clientes · servicios que gestiona FLITO (HU #13935)', () => {
-  test('AC1/AC5: el check marcado es «FLITO gestiona» y lee el dato invertido', async ({ page }) => {
+test.describe('Clientes · servicios que gestiona FLITO (HU #13935 / #14105)', () => {
+  test('AC1/AC5: la lista dice qué gestiona FLITO en un chip por servicio y el modal lee el dato invertido', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     let patches = 0;
-    await page.route(/\/api\/flito\/parametrizacion\/companias\//, (route) => { patches += 1; return route.fulfill({ status: 200, body: '{}' }); });
+    await page.route(/\/api\/flito\/parametrizacion\/companias\/\d+$/, (route) => { patches += 1; return route.fulfill({ status: 200, body: '{}' }); });
 
     await page.goto('/clients');
     await expect(page.getByText('Concesionario Norte')).toBeVisible();
     await expect(page.getByRole('cell', { name: /900111/ })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'Manizales' })).toBeVisible();
-    // soat=true → desmarcado; impuestos=false → marcado; logística=true → desmarcado.
-    await expect(check(page, 'SOAT')).not.toBeChecked();
-    await expect(check(page, 'Impuestos')).toBeChecked();
-    await expect(check(page, 'Logística')).not.toBeChecked();
-    // AC5: ningún nombre accesible ni nota habla de «Autogestión» del check.
-    await expect(page.getByRole('checkbox', { name: /Autogestión/ })).toHaveCount(0);
-    await expect(page.getByText(/Marca «Autogestiona»/)).toHaveCount(0);
-    await expect(page.getByText(/cuando FLITO gestiona ese servicio/)).toBeVisible();
+    // soat=true → Autogestiona; impuestos=false → FLITO gestiona; logística=true → Autogestiona.
+    const fila = page.getByRole('row', { name: /Concesionario Norte/ });
+    await expect(fila).toContainText('SOAT · Autogestiona');
+    await expect(fila).toContainText('Impuestos · FLITO gestiona');
+    await expect(fila).toContainText('Logística · Autogestiona');
+    const modal = await abrirEditar(page);
+    await expect(interruptor(page, 'SOAT')).toHaveAttribute('aria-checked', 'false');
+    await expect(interruptor(page, 'Impuestos')).toHaveAttribute('aria-checked', 'true');
+    await expect(interruptor(page, 'Logística')).toHaveAttribute('aria-checked', 'false');
+    await expect(modal.getByText('Manizales')).toBeVisible();
+    // AC5: ningún nombre accesible habla de «Autogestión» del interruptor.
+    await expect(page.getByRole('switch', { name: /Autogestión/ })).toHaveCount(0);
     // Solo pintar no escribe nada.
     expect(patches).toBe(0);
-    await expect(page.getByRole('button', { name: 'Editar' })).toHaveCount(0);
     await expect(page.getByRole('columnheader', { name: /Tolerancia/i })).toHaveCount(0);
   });
 
-  test('AC4 (#13936): no existe la columna «Parcial» ni las notas hablan de entregas parciales', async ({ page }) => {
+  test('AC4 (#13936): no existe «Parcial» ni en la lista ni en el modal', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     // Aunque el API siguiera mandando el campo, la pantalla no lo pinta.
     await mock(page, CLIENTES.map((c) => ({ ...c, logisticaPermiteParcial: false })));
 
     await page.goto('/clients');
     await expect(page.getByText('Concesionario Norte')).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'Logística' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Parcial' })).toHaveCount(0);
-    await expect(page.getByRole('checkbox', { name: /Entregas parciales/ })).toHaveCount(0);
-    // Solo quedan los tres checks de servicio por fila.
-    await expect(page.getByRole('checkbox', { name: /^FLITO gestiona .* de Concesionario Norte$/ })).toHaveCount(3);
-    await expect(page.getByText(/cuando FLITO gestiona ese servicio/)).toBeVisible();
+    const modal = await abrirEditar(page);
+    // Solo quedan los tres servicios.
+    await expect(modal.getByRole('switch')).toHaveCount(3);
     await expect(page.getByText(/Parcial/)).toHaveCount(0);
     await expect(page.getByText(/Solo completo/i)).toHaveCount(0);
   });
@@ -75,28 +86,34 @@ test.describe('Clientes · servicios que gestiona FLITO (HU #13935)', () => {
     expect(ficha).not.toMatch(/Solo completo/i);
   });
 
-  test('AC2: marcar Logística envía logisticaAutogestionable=false y sigue marcado al recargar', async ({ page }) => {
+  test('AC2: encender Logística exige proveedor y envía logisticaAutogestionable=false + proveedor; persiste al recargar', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     let datos = CLIENTES.map((c) => ({ ...c }));
+    await mock(page);
     await page.route(/\/api\/clients(\?|$)/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(datos) }));
     let body: Record<string, unknown> | null = null;
     await page.route(/\/api\/flito\/parametrizacion\/companias\/1$/, async (route) => {
       body = route.request().postDataJSON() as Record<string, unknown>;
       expect(route.request().method()).toBe('PATCH');
-      datos = datos.map((c) => ({ ...c, ...body }));
+      const { proveedorLogisticaId: _omitido, ...resto } = body;
+      datos = datos.map((c) => ({ ...c, ...resto }));
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 1 }) });
     });
 
     await page.goto('/clients');
-    await check(page, 'Logística').check();
+    const modal = await abrirEditar(page);
+    await interruptor(page, 'Logística').click();
+    await expect(modal.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled();
+    await modal.getByLabel(/Proveedor de logística/).selectOption(PROV_LOG[0]!.id);
+    await modal.getByRole('button', { name: 'Guardar cambios' }).click();
 
     await expect.poll(() => body).not.toBeNull();
-    expect(body).toEqual({ logisticaAutogestionable: false });
-    await expect(check(page, 'Logística')).toBeChecked();
+    expect(body).toEqual({ logisticaAutogestionable: false, proveedorLogisticaId: PROV_LOG[0]!.id });
 
     await page.reload();
-    await expect(check(page, 'Logística')).toBeChecked();
+    await expect(page.getByRole('row', { name: /Concesionario Norte/ })).toContainText('Logística · ');
+    await expect(page.getByRole('row', { name: /Concesionario Norte/ })).not.toContainText('Logística · Autogestiona');
   });
 
   test('desmarcar Impuestos envía impuestosAutogestionable=true', async ({ page }) => {
@@ -109,26 +126,27 @@ test.describe('Clientes · servicios que gestiona FLITO (HU #13935)', () => {
     });
 
     await page.goto('/clients');
-    await check(page, 'Impuestos').uncheck();
+    const modal = await abrirEditar(page);
+    await interruptor(page, 'Impuestos').click();
+    await modal.getByRole('button', { name: 'Guardar cambios' }).click();
     await expect.poll(() => body).toEqual({ impuestosAutogestionable: true });
-    await expect(check(page, 'Impuestos')).not.toBeChecked();
   });
 
-  test('AC3: si el PATCH falla, el check vuelve y sale un toast cerrable sin el error crudo', async ({ page }) => {
+  test('AC3: si el PATCH falla, el modal sigue abierto con aviso propio y sin el error crudo', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.route(/\/api\/flito\/parametrizacion\/companias\/1$/, (route) =>
       route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'DB_TIMEOUT pg_pool' }) }));
 
     await page.goto('/clients');
-    await check(page, 'SOAT').click();
-    await expect(check(page, 'SOAT')).not.toBeChecked();
+    const modal = await abrirEditar(page);
+    await interruptor(page, 'SOAT').click();
+    await modal.getByRole('button', { name: 'Guardar cambios' }).click();
 
-    const aviso = page.getByRole('alert').filter({ hasText: 'No se pudo guardar «SOAT» de Concesionario Norte' });
+    const aviso = modal.getByRole('alert').filter({ hasText: 'No se pudieron guardar los cambios' });
     await expect(aviso).toBeVisible();
     await expect(aviso).not.toContainText('DB_TIMEOUT');
-    await aviso.getByRole('button', { name: 'Cerrar aviso' }).click();
-    await expect(aviso).toHaveCount(0);
+    await expect(interruptor(page, 'SOAT')).toHaveAttribute('aria-checked', 'true');
   });
 });
 
@@ -197,7 +215,7 @@ test.describe('Empresa nueva sin servicios gestionados por FLITO (HU #13937)', (
     });
   });
 
-  test('AC1: la compañía recién creada (tres *Autogestionable=true) se ve en Clientes con las tres casillas desmarcadas', async ({ page }) => {
+  test('AC1: la compañía recién creada (tres *Autogestionable=true) se ve en Clientes con los tres servicios «Autogestiona»', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page, CLIENTES.map((c) => ({
       ...c, soatAutogestionable: true, impuestosAutogestionable: true, logisticaAutogestionable: true,
@@ -205,8 +223,9 @@ test.describe('Empresa nueva sin servicios gestionados por FLITO (HU #13937)', (
 
     await page.goto('/clients');
     await expect(page.getByText('Concesionario Norte')).toBeVisible();
+    const fila = page.getByRole('row', { name: /Concesionario Norte/ });
     for (const servicio of ['SOAT', 'Impuestos', 'Logística']) {
-      await expect(check(page, servicio)).not.toBeChecked();
+      await expect(fila).toContainText(`${servicio} · Autogestiona`);
     }
   });
 });
@@ -223,6 +242,11 @@ const PROVEEDORES = [
 
 async function mockModulo(page: import('@playwright/test').Page) {
   await mock(page);
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores$/, (route) =>
+    route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify(PROVEEDORES.map((p) => ({ tipo: 'soat', id: p.id, nombre: p.nombre, nit: null, contacto: null, telefono: null, activo: p.activo, companiasAsignadas: 0 }))),
+    }));
   await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROVEEDORES) }));
 }
@@ -238,18 +262,19 @@ test.describe('Clientes y proveedores · módulo fusionado', () => {
 
     await page.getByRole('button', { name: 'Proveedores', exact: true }).click();
     await expect(page.getByRole('cell', { name: 'Seguros Alfa', exact: true })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'portal' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'SOAT', exact: true })).toBeVisible();
   });
 
-  test('«Tarifas» de la fila es un enlace al configurador y ya no abre ninguna ventana (AC11 #12375)', async ({ page }) => {
+  test('«Tarifas» del modal Editar es un enlace al configurador y ya no abre ninguna ventana (AC11 #12375)', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockModulo(page);
 
     await page.goto('/clients');
-    const enlace = page.getByRole('link', { name: 'Tarifas de Concesionario Norte' });
+    await page.getByRole('button', { name: 'Editar Concesionario Norte', exact: true }).click();
+    await page.getByRole('button', { name: 'Tarifas', exact: true }).click();
+    const enlace = page.getByRole('link', { name: 'Abrir tarifas' });
     await expect(enlace).toHaveAttribute('href', '/flito/tarifas/1');
     // Ni botón ni ventana: la tarifa se administra en su pantalla.
-    await expect(page.getByRole('button', { name: /^Tarifas/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Nueva tarifa' })).toHaveCount(0);
   });
 
@@ -259,7 +284,8 @@ test.describe('Clientes y proveedores · módulo fusionado', () => {
 
     await page.goto('/clients');
     await expect(page.getByText('Concesionario Norte')).toBeVisible();
-    await expect(page.getByRole('link', { name: /Tarifas de/ })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Editar Concesionario Norte', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Tarifas', exact: true })).toHaveCount(0);
   });
 
   test('ya no existe la pestaña de reglas de enrutamiento', async ({ page }) => {

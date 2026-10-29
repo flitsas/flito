@@ -225,7 +225,18 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/actas/:id/pdf', codigo: 'logistica.actas.descargar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'logistica.documento.ver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/validar-lt', codigo: 'logistica.lt.validar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/consultar-vehiculo', codigo: 'logistica.documento.escanear' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/escanear', codigo: 'logistica.documento.escanear' },
+  // HU #14110: confirmar recogida y sus consultas (función propia) y revelar la cédula del firmante (función nueva).
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/recogidas/confirmar', codigo: 'logistica.recogida.confirmar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/recogidas/mias', codigo: 'logistica.recogida.confirmar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/recogidas/pendientes-firma', codigo: 'logistica.recogida.confirmar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/recogidas/:firmanteId', codigo: 'logistica.recogida.confirmar' },
+  // HU #14143: resolver el trámite de una LT pendiente.
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/pendientes-tramite', codigo: 'logistica.documento.resolver_tramite' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/documentos/:id/candidatos-tramite', codigo: 'logistica.documento.resolver_tramite' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/resolver-tramite', codigo: 'logistica.documento.resolver_tramite' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/recogidas/:firmanteId/documento', codigo: 'logistica.actas.ver_documento_firmante' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/novedad', codigo: 'logistica.documento.reportar_novedad' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/cerrar-lote', codigo: 'logistica.lote.cerrar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/actas/:id/despachar', codigo: 'logistica.actas.despachar' },
@@ -409,6 +420,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'GET', ruta: '/tramites/:tramiteId/viajes', codigo: 'logistica.viajes.ver' },
   { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'POST', ruta: '/tramites/:tramiteId/viajes', codigo: 'logistica.viajes.registrar' },
   { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'DELETE', ruta: '/tramites/:tramiteId/viajes/:viajeId', codigo: 'logistica.viajes.quitar' },
+  // HU #14127 — registro masivo: misma función que el individual.
+  { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'POST', ruta: '/viajes/masivo', codigo: 'logistica.viajes.registrar' },
 
   // ── HU #13421 (ADR-0023) — legacy pesv/, drivers/, jornadas/ y rum/ (76 guardas) ──
   // Varias rutas comparten código (transitorio «Administrar <ítem>»): la matriz comprueba, ruta a ruta,
@@ -602,6 +615,15 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // `accion.clientes.activar_desactivar_proveedores` (0261).
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/proveedores-soat/:id/impacto', codigo: 'parametrizacion.proveedores.estado' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/proveedores-soat/:id/estado', codigo: 'parametrizacion.proveedores.estado' },
+  // HU #14103: proveedores de logística (reutilizan las funciones de gestión de proveedores).
+  { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'GET', ruta: '/', codigo: 'parametrizacion.proveedores.listar' },
+  { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'POST', ruta: '/', codigo: 'parametrizacion.proveedores.crear' },
+  { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'PATCH', ruta: '/:id', codigo: 'parametrizacion.proveedores.editar' },
+  { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'PATCH', ruta: '/:id/estado', codigo: 'parametrizacion.proveedores.estado' },
+  // HU #14148: impacto y baja de proveedores de logística y listado unificado (mismas funciones que los de SOAT).
+  { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'GET', ruta: '/:id/impacto', codigo: 'parametrizacion.proveedores.estado' },
+  { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'DELETE', ruta: '/:id', codigo: 'parametrizacion.proveedores.eliminar' },
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/proveedores', codigo: 'parametrizacion.proveedores.listar' },
   // HU #13960: «Eliminar proveedores» — `parametrizacion.proveedores.eliminar` nace absorbida por
   // `accion.clientes.eliminar_proveedores` (0263).
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'DELETE', ruta: '/proveedores-soat/:id', codigo: 'parametrizacion.proveedores.eliminar' },

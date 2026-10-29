@@ -220,7 +220,7 @@ describe('conJoins — la tarifa estimada es la vigencia que CONTIENE la fecha d
     const { sql } = q().toSQL();
     expect(sql).toMatch(/"td"\."concepto" = 'tramite_digital'/);
     expect(sql).toMatch(/"td"\."tipo_tramite" = UPPER\(TRIM\(COALESCE\("flito_tramites"\."tipo_tramite", ''\)\)\)/);
-    expect(sql).toMatch(/"lg"\."concepto" = 'logistica'/);
+    expect(sql).toMatch(/"lg"\."concepto" IN \('logistica_cliente', 'logistica'\)/);
     expect(sql).toMatch(/"lg"\."tipo_tramite" IS NULL/);
   });
 

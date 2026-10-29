@@ -318,8 +318,12 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/logistica/actas',                                           'filtra'],
   ['GET /api/flito/logistica/actas/:id',                                       'filtra'],
   ['GET /api/flito/logistica/actas/:id/pdf',                                   'filtra'],
+  ['GET /api/flito/logistica/pendientes-tramite',                                 'soloSinEnlace'], // HU #14143
+  ['GET /api/flito/logistica/documentos/:id/candidatos-tramite',                  'soloSinEnlace'], // HU #14143
+  ['POST /api/flito/logistica/documentos/:id/resolver-tramite',                   'soloSinEnlace'], // HU #14143
   ['GET /api/flito/logistica/:id',                                             'filtra'],
   ['POST /api/flito/logistica/validar-lt',                                     'soloSinEnlace'],
+  ['POST /api/flito/logistica/consultar-vehiculo',                             'soloSinEnlace'],
   ['POST /api/flito/logistica/escanear',                                       'soloSinEnlace'],
   ['POST /api/flito/logistica/documentos/:id/novedad',                         'filtra'],
   ['POST /api/flito/logistica/cerrar-lote',                                    'filtra'],
@@ -327,8 +331,14 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/logistica/actas/:id/entregar',                             'filtra'],
   ['POST /api/flito/logistica/actas/:id/devolucion',                           'filtra'],
   ['POST /api/flito/logistica/documentos/:id/reversar',                        'filtra'],
+  ['POST /api/flito/logistica/recogidas/confirmar',                            'soloSinEnlace'], // HU #14110
+  ['GET /api/flito/logistica/recogidas/mias',                                  'soloSinEnlace'], // HU #14110
+  ['GET /api/flito/logistica/recogidas/pendientes-firma',                       'soloSinEnlace'], // HU #14147
+  ['GET /api/flito/logistica/recogidas/:firmanteId',                           'soloSinEnlace'], // HU #14110
+  ['POST /api/flito/logistica/recogidas/:firmanteId/documento',                'soloSinEnlace'], // HU #14110
   ['GET /api/flito/logistica/tramites/:tramiteId/viajes',                      'filtra'],
   ['POST /api/flito/logistica/tramites/:tramiteId/viajes',                     'filtra'],
+  ['POST /api/flito/logistica/viajes/masivo',                                  'filtra'],
   ['DELETE /api/flito/logistica/tramites/:tramiteId/viajes/:viajeId',          'filtra'],
   ['GET /api/flito/bolsas/consolidado',                                        'filtra'],
   ['GET /api/flito/bolsas/riesgo',                                             'filtra'],
