@@ -39,6 +39,7 @@ import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.
 import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
 import flitoDrFlitRoutes from './modules/flito-dr-flit/dr-flit.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
+import flitoProveedoresLogisticaRoutes from './modules/flito-parametrizacion/flito-proveedores-logistica.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
 import flitoLogisticaViajesRoutes from './modules/flito-logistica/flito-logistica-viajes.routes.js';
 import flitoBolsasRoutes from './modules/flito-bolsas/flito-bolsas.routes.js';
@@ -259,6 +260,8 @@ export function createApp() {
   app.use('/api', integracionesRoutes); // TRAM-F3: /simit/consulta, /fasecolda/buscar, /mercadolibre/precio
   app.use('/api/vehicles', ocrRoutes);
   app.use('/api/clients', clientsRoutes);
+  // HU #14103: proveedores de logística (antes del router general, que comparte prefijo).
+  app.use('/api/flito/parametrizacion/proveedores-logistica', flitoProveedoresLogisticaRoutes);
   app.use('/api/flito/parametrizacion', flitoParametrizacionRoutes);
   // HU #13061: acceso a FLIT 2. Antes de `/api/flito/sync` para no pasar dos veces por su authMiddleware.
   app.use('/api/flito/sync/flit2', flit2Routes);
