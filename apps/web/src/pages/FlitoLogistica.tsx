@@ -24,6 +24,7 @@ import FirmaCanvas from '../components/flito/FirmaCanvas';
 import ViajesACliente from '../components/flito/logistica/ViajesACliente';
 import ViajesMasivo from '../components/flito/logistica/ViajesMasivo';
 import ViajesLogistica from '../components/flito/logistica/ViajesLogistica';
+import TabMotivosLlegada from '../components/flito/logistica/TabMotivosLlegada';
 import BandejaLtPendientes from '../components/flito/logistica/bandeja/BandejaLtPendientes';
 import { useLtPendientes } from '../components/flito/logistica/bandeja/useLtPendientes';
 import { FUNCION_RESOLVER_TRAMITE } from '../components/flito/logistica/bandeja/tipos';
@@ -60,7 +61,7 @@ const ESTADOS_SIMPLE: EstadoLogisticaSimple[] = ['pendiente', 'registrada', 'des
 
 const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
-type Tab = 'tramites' | 'viajes-cliente' | 'actas' | 'viajes' | 'pendientes';
+type Tab = 'tramites' | 'viajes-cliente' | 'actas' | 'viajes' | 'pendientes' | 'motivos-llegada';
 type CargaFacetas = 'cargando' | 'ok' | 'error' | 'error403';
 
 /** HU #13452: con enlace el vacío dice de quién son los trámites y no manda a sincronizar (operación interna). */
@@ -80,6 +81,8 @@ export default function FlitoLogistica() {
   // HU #14149: sin la función no hay pestaña ni petición a `/pendientes-tramite`.
   const puedeResolverLt = hasFuncion(FUNCION_RESOLVER_TRAMITE);
   const ltPend = useLtPendientes(puedeResolverLt);
+  // HU #14120: pestaña Motivos de llegada. GET solo al entrar (el tab lo pide). Sin badge.
+  const puedeGestionarMotivos = hasFuncion('logistica.motivos.gestionar');
 
   const [tab, setTab] = useState<Tab>('tramites');
   const [data, setData] = useState<Listado | null>(null);
@@ -145,6 +148,7 @@ export default function FlitoLogistica() {
     { key: 'actas', label: 'Actas', badge: actasPendientes || undefined },
     ...(hasFuncion('logistica.viajes.registrar') ? [{ key: 'viajes' as const, label: 'Viajes adicionales' }] : []),
     ...(puedeResolverLt ? [{ key: 'pendientes' as Tab, label: 'LT pendientes', badge: ltPend.error ? undefined : (ltPend.items?.length || undefined) }] : []),
+    ...(puedeGestionarMotivos ? [{ key: 'motivos-llegada' as const, label: 'Motivos de llegada' }] : []),
   ];
 
   return (
@@ -304,6 +308,9 @@ export default function FlitoLogistica() {
 
       {/* ── Pestaña: LT pendientes de trámite (HU #14149) ── */}
       {tab === 'pendientes' && puedeResolverLt && <BandejaLtPendientes {...ltPend} />}
+
+      {/* ── Pestaña: Motivos de llegada (HU #14120). GET al entrar, no al montar la consola. ── */}
+      {tab === 'motivos-llegada' && puedeGestionarMotivos && <TabMotivosLlegada />}
 
       {detalle && <DetalleModal doc={detalle} onClose={() => setDetalle(null)} />}
       {actaDetalle && <ActaDetalleModal detalle={actaDetalle} onClose={() => setActaDetalle(null)} onPdf={() => descargarPdf(actaDetalle.acta.id)} />}

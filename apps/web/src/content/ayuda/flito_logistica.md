@@ -10,7 +10,7 @@ palabras_clave:
 consultas:
   - cómo registro un viaje a cliente
   - dónde está un documento enviado
-version: 2.0
+version: 2.1
 fecha: 2026-10-29
 ---
 ## Qué es
@@ -37,6 +37,7 @@ En el menú lateral, sección **Gestión**, ítem **Logística**.
 8. En un acta **Generada**, pulse **Firmar y despachar**. En la ventana **Firmar entrega y despachar** elija el **Mensajero**, escriba si quiere el **Nombre de quien entrega (Operaciones)**, trace la **Firma de quien entrega** y pulse **Firmar y despachar**. ![Ventana Firmar entrega y despachar con el mensajero elegido y la firma trazada](./flito_logistica/06-firmar-y-despachar.png)
 9. Si el receptor no recibió un acta **Despachada**, pulse **Devolver**, escriba el **Motivo (obligatorio)** y pulse **Confirmar**.
 10. Si tiene la función de resolver trámites, verá la pestaña **LT pendientes** con el número de LT que esperan. Son licencias que el mensajero recogió sin saber a qué trámite pertenecen; la más antigua aparece primero (pulse **Antigüedad** para invertir el orden). Busque por placa o filtre por **Con firma** / **Sin firma** y pulse **Elegir trámite**: elija el trámite al que pertenece la LT (no viene ninguno marcado), pulse **Continuar**, lea qué pasará con el acta y pulse **Asignar trámite**. Si la LT ya tiene la firma del organismo, entra al acta de la compañía con esa misma firma; si no, entrará al acta cuando el organismo firme.
+11. En la pestaña **Motivos de llegada** (solo la ve quien tenga esa función asignada en **Roles y permisos**) administra el catálogo de motivos por los que un organismo llega a las instalaciones de FLIT. Pulse **Nuevo motivo**, escriba el **Nombre** y pulse **Crear motivo**: el nuevo queda al final de la lista. **Editar** corrige el nombre; **Subir** y **Bajar** dejan el orden en que aparecerá al registrar un viaje a FLIT; el menú ⋮ permite **Desactivar** o **Activar**. Filtre con **Todos**, **Activos** o **Inactivos**. Un motivo **no se elimina**: el histórico de viajes conserva el motivo. ![Pestaña Motivos de llegada con la lista en orden, el estado de cada motivo y las acciones Subir, Bajar, Editar y el menú de fila](./flito_logistica/07-motivos-de-llegada.png)
 
 ![Ciclo de una licencia de tránsito: Pendiente de recogida, Registrada cuando el mensajero la escanea, viaje a cliente registrado, Despachada al firmar y despachar, y Entregada con la firma de quien recibe; la novedad y la devolución la dejan Con novedad](./flito_logistica/ciclo-licencia.svg)
 
@@ -50,6 +51,7 @@ En el menú lateral, sección **Gestión**, ítem **Logística**.
 - Sin mensajeros: en **Firmar entrega y despachar** verá **No hay mensajeros registrados. Crea un usuario con rol Mensajero.**
 - Viajes adicionales (pestaña, registro masivo): sin placas verá **Aún no hay placas en la lista. Pega o escribe las placas arriba y pulse «Agregar a la lista».**; mientras se registra, **Registrando N viajes. No cierres ni recargues esta página.**; si falla la solicitud, **No pudimos registrar los viajes. Tus placas siguen en la lista; vuelve a intentarlo.** con **Reintentar**.
 - Viajes adicionales (en el detalle): sin viajes verá **Sin viajes adicionales. El viaje 1 se cobra con la tarifa vigente.** y **Viajes: 1 (incluye el viaje 1)**; si el trámite ya está liquidado la sección es de solo lectura (**Trámite liquidado: reversa la liquidación para registrar o quitar viajes.**); si la compañía autogestiona la logística verá **La logística de esta compañía la gestiona el cliente.** y no podrá registrar; sin tarifa de logística vigente, **Precio inicial** queda deshabilitado (**La compañía no tiene tarifa de logística vigente**) y solo puede fijar **Nuevo precio**.
+- Motivos de llegada: mientras carga se ve la silueta de la tabla. Si no carga: **No pudimos cargar los motivos de llegada.** con **Reintentar**. Si perdió el permiso: **No tiene permiso para gestionar los motivos de llegada.** sin Reintentar. Sin ningún motivo: **No hay motivos de llegada. Cree el primero con «Nuevo motivo».** Si un filtro no deja filas, **Ver todos**. Si el nombre ya existe, en la ventana: **Ya existe un motivo de llegada con ese nombre. Cambie el nombre o edite el que ya está en la lista.**
 
 ## Qué no hace
 
@@ -59,3 +61,4 @@ En el menú lateral, sección **Gestión**, ítem **Logística**.
 - Una compañía en autogestión de logística no aparece como trabajo de recogida de FLITO.
 - Los viajes adicionales no aparecen en el acta ni en su PDF: su costo se consulta en Finanzas (**Reporte de costos**). Ver, registrar o quitar viajes adicionales, y ver la pestaña **Viajes a cliente**, requiere que el administrador le haya asignado esas funciones en **Roles y permisos**.
 - Sin precio de entrega a cliente no se registra el viaje: el precio lo fija Finanzas en **Tarifas**.
+- Los motivos de llegada no se eliminan: se desactivan y el histórico conserva el motivo. Ver la pestaña exige que el administrador asigne esa función en **Roles y permisos**.

@@ -403,10 +403,11 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // Corredor Impuestos (versión y fecha exactas, sin rutas, capturas citadas en orden y dentro de su paso, una
   // sola lista ordenada en Pasos, diagrama SVG con alt). Las dos fichas describen procesos de más de 3 pasos.
   // HU #14116 — pestaña Viajes a cliente y paso de entrega; version 2.0 (cambio de fondo).
+  // HU #14120 — pestaña Motivos de llegada; version 2.1.
   const LOGISTICA_13773: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
-    flito_logistica: { version: '2.0', fecha: '2026-10-29', diagrama: 'ciclo-licencia.svg', capturas: [
+    flito_logistica: { version: '2.1', fecha: '2026-10-29', diagrama: 'ciclo-licencia.svg', capturas: [
       '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-viajes-a-cliente.png', '05-actas.png',
-      '06-firmar-y-despachar.png'] },
+      '06-firmar-y-despachar.png', '07-motivos-de-llegada.png'] },
     flito_logistica_ruta: { version: '2.0', fecha: '2026-10-29', diagrama: 'recorrido-mensajero.svg', capturas: [
       '04-entregar.png', '05-sin-conexion.png'] },
   };

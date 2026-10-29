@@ -317,6 +317,8 @@ const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
     'tramite.tramite.forzar_continuar', 'compuerta.tramite.entregar', 'logistica.lote.cerrar',
     // HU #14116: pestaña Viajes a cliente (migración 0282: admin y mensajero).
     'logistica.traslado.registrar',
+    // HU #14120: pestaña Motivos de llegada (migración 0284: solo admin).
+    'logistica.motivos.gestionar',
     'tablero.tablero.ver',
     // HU #13631: `sync.sync.lanzar` (sincronización manual de FLIT 1) retirada en la 0243.
     // HU #13098: estado de la conexión con FLIT 2 en Gestión Trámites (0179: sembrada a `admin`).

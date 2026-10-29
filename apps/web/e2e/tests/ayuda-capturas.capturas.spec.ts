@@ -349,6 +349,12 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       [/\/api\/flito\/logistica\/actas$/, () => ({ body: LOGISTICA_ACTAS_DEMO })],
       [/\/api\/flito\/logistica\/tramites\/tram-log-demo-2\/viajes$/, () => ({ body: LOGISTICA_VIAJES_DEMO })],
       [/\/api\/flito\/logistica\/tram-log-demo-2$/, () => ({ body: LOGISTICA_DETALLE_DEMO })],
+      [/\/api\/flito\/logistica\/motivos-llegada$/, () => ({ body: [
+        { id: 'motivo-demo-1', nombre: 'Sin dirección de entrega al recoger', activo: true, orden: 10 },
+        { id: 'motivo-demo-2', nombre: 'Destino lejano (transportadora externa)', activo: true, orden: 20 },
+        { id: 'motivo-demo-3', nombre: 'Otro', activo: true, orden: 30 },
+        { id: 'motivo-demo-4', nombre: 'Documentos incompletos en el organismo', activo: true, orden: 40 },
+      ] })],
     ]);
     await entrarComoAdminDemo(page);
 
@@ -406,8 +412,17 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '06-firmar-y-despachar', despachar);
     await page.keyboard.press('Escape');
 
+    // Paso 11 — Motivos de llegada (HU #14120): catálogo en orden, sin badge.
+    await page.getByRole('button', { name: 'Motivos de llegada' }).click();
+    await expect(page.getByText('Sin dirección de entrega al recoger')).toBeVisible();
+    const mostrarBarraMotivos = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '07-motivos-de-llegada');
+    await mostrarBarraMotivos();
+
     comprobarCierre(api, dir, [
       '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-viajes-a-cliente.png', '05-actas.png', '06-firmar-y-despachar.png',
+      '07-motivos-de-llegada.png',
     ]);
   });
 
