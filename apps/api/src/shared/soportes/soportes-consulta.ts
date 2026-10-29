@@ -365,7 +365,8 @@ export async function soportesDeTramite(tramiteId: string): Promise<SoporteVista
     actaPdf: flitoLogisticaActas.pdfStorageKey, actaEn: flitoLogisticaActas.createdAt,
     actaId: flitoLogisticaActas.id,
   }).from(flitoLogisticaDocumentos)
-    .leftJoin(flitoLogisticaActas, eq(flitoLogisticaDocumentos.actaId, flitoLogisticaActas.id))
+    // HU #14109: solo el acta de la compañía (`punto='cliente'`); la de organismo es multi-compañía y no se expone aquí.
+    .leftJoin(flitoLogisticaActas, and(eq(flitoLogisticaDocumentos.actaId, flitoLogisticaActas.id), eq(flitoLogisticaActas.punto, 'cliente')))
     .where(eq(flitoLogisticaDocumentos.tramiteId, tramiteId));
 
   const actasVistas = new Set<string>();

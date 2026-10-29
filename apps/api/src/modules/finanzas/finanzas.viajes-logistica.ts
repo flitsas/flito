@@ -5,8 +5,9 @@
 // no cuenta de qué se compone. Este archivo arma ese desglose SIN recalcular nada: lo que la
 // liquidación ya resuelve —`liquidacionDe` si está sellada, `calcular` si no— es la única fuente,
 // así que la celda del reporte, la previsualización y este desglose dicen lo mismo. Ninguna
-// consulta a `flito_tramite_viajes_logistica` aquí: la lectura de la tabla viva y la del snapshot
-// ya están en `flito-liquidacion.service.ts`, y una tercera copia divergiría.
+// consulta a `flito_tramite_viajes_logistica` ni a `flito_logistica_traslado_lts` aquí: la lectura
+// de la tabla viva y la del snapshot ya están en `flito-liquidacion.service.ts`. `traslados` y
+// `totalTraslados` se proyectan del concepto; no se recalcula `totalLogistica`.
 //
 // Lectura, no mutación: sin `audit`; el rastro de quién mira el reporte lo lleva el reporte.
 
@@ -34,7 +35,7 @@ export class TramiteNoEncontradoError extends Error {
  *  - `sin_desglose` ⇔ sellada con `viajes === null` (sello anterior a la HU #12626): solo el total.
  *  - `gestionaLogistica`: con lo vigente, `totalViajes !== 0` (`conceptoLogistica` pone 0 cuando la
  *    compañía autogestiona); con lo sellado, `valor !== null` (un sello sin logística la dejó en NULL).
- *  - `totalLogistica` es `valor` tal cual: tarifa + Σ viajes, o null si no gestiona / falta tarifa.
+ *  - `totalLogistica` es `valor` tal cual: no se recalcula con viajes ni con traslados.
  */
 export function desgloseDe(
   base: { tramiteId: string; idFlit: string; placa: string | null },
@@ -45,20 +46,31 @@ export function desgloseDe(
     return {
       ...base, gestionaLogistica: logistica.valor !== null, liquidado, liquidadoEn, origen: 'sin_desglose',
       tarifa: null, totalViajes: null, totalLogistica: logistica.valor, items: null,
+      traslados: null, totalTraslados: null,
     };
   }
   const gestionaLogistica = liquidado ? logistica.valor !== null : logistica.totalViajes !== 0;
+  const { traslados, totalTraslados } = proyectarTraslados(logistica);
   if (!gestionaLogistica) {
     return {
       ...base, gestionaLogistica: false, liquidado, liquidadoEn, origen: liquidado ? 'sellado' : 'vigente',
       tarifa: null, totalViajes: 0, totalLogistica: null, items: [],
+      traslados, totalTraslados,
     };
   }
   return {
     ...base, gestionaLogistica: true, liquidado, liquidadoEn, origen: liquidado ? 'sellado' : 'vigente',
     tarifa: logistica.tarifa, totalViajes: logistica.totalViajes, totalLogistica: logistica.valor,
     items: logistica.viajes ?? [],
+    traslados, totalTraslados,
   };
+}
+
+/** Σ de precios del snapshot. Sin clave (`null` / ausente) no se inventa `[]` ni un cero. */
+function proyectarTraslados(logistica: ConceptoLogistica): Pick<DesgloseViajesLogistica, 'traslados' | 'totalTraslados'> {
+  if (!Array.isArray(logistica.traslados)) return { traslados: null, totalTraslados: null };
+  const totalTraslados = Math.round(logistica.traslados.reduce((a, t) => a + t.precio, 0) * 100) / 100;
+  return { traslados: logistica.traslados, totalTraslados };
 }
 
 /** GET: el desglose del trámite. `TramiteNoEncontradoError` si no existe o el id no es uuid. */

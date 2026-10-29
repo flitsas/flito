@@ -106,11 +106,13 @@ const EXPORTACIONES_POR_POST = ['finanzas.reporte_costos.ver'] as const;
  * guarda `GET /` de flito-tramites y `POST /novedades/buscar` (¿hay trámites nuevos o actualizados?).
  * HU #13837: `soat.cola.ver` guarda `GET /` de flito-soat y `POST /buscar` (consulta de gestión de Dr. Flit).
  * HU #13838: `impuestos.cola.ver` y `derechos.cola.ver`, igual: `GET /` de su módulo y `POST /buscar`.
+ * HU #14125: `logistica.consola.ver` guarda `GET /` de logística y `POST /traslados/buscar` (la placa va en el cuerpo).
  * El aserto exige al menos una guarda GET y que TODAS sus guardas no-GET sean `POST …/buscar` sin
  * condición y con `auditor`; cualquier otro código no-GET del auditor sigue fallando en (2).
  */
 const LECTURAS_GET_CON_BUSCAR_POR_POST = [
   'tramites.cola.ver', 'soat.cola.ver', 'impuestos.cola.ver', 'derechos.cola.ver',
+  'logistica.consola.ver',
 ] as const;
 
 const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));

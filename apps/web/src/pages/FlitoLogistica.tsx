@@ -1,15 +1,15 @@
-// FLITO Logística — consola de Operaciones. Organizada en 3 pestañas:
+// FLITO Logística — consola de Operaciones. Organizada en pestañas:
 //   1) Trámites — tabla general de TODOS los trámites aprobados, sin importar su estado logístico
 //      (Pendiente de recogida → Registrada → Despachada → Entregada · Con novedad).
-//   2) Generación de actas — las LT ya registradas por el mensajero, agrupadas por empresa; desde aquí
-//      se genera el acta (una por empresa con las LT que radicó esa compañía).
+//   2) Viajes (HU #14116 / #14123) — LT clasificadas agrupadas por compañía; el destino es Cliente
+//      o FLIT (dos POST si el grupo se reparte). Nunca cerrar-lote.
 //   3) Actas — actas generadas: se firman y despachan (firma de Operaciones), se descarga el PDF y se
 //      hace seguimiento hasta la entrega firmada por el receptor.
 // La firma del RECEPTOR se captura en campo (PWA). El acta combina ambas firmas en su PDF.
 
 import { useEffect, useState } from 'react';
-import { ESTADO_LOGISTICA_SIMPLE_LABEL, type EstadoLogisticaSimple } from '@operaciones/shared-types';
-import { api, errorMessage } from '../lib/api';
+import { ESTADO_LOGISTICA_SIMPLE_LABEL, simplificarEstadoLogistica, type CompaniaCerrableLogistica, type EstadoLogisticaSimple } from '@operaciones/shared-types';
+import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { vacioConEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -19,8 +19,18 @@ import {
 } from '../components/flit/flitPageKit';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import { toastOk } from '../components/flit/ToastFlito';
 import FirmaCanvas from '../components/flito/FirmaCanvas';
+import ViajesACliente from '../components/flito/logistica/ViajesACliente';
+import { LlegadaFlitModal } from '../components/flito/ruta/LlegadaFlit';
+import ViajesMasivo from '../components/flito/logistica/ViajesMasivo';
 import ViajesLogistica from '../components/flito/logistica/ViajesLogistica';
+import LineaTiempoDetalle from '../components/flito/logistica/LineaTiempoDetalle';
+import TabMotivosLlegada from '../components/flito/logistica/TabMotivosLlegada';
+import TabEntregas from '../components/flito/logistica/TabEntregas';
+import BandejaLtPendientes from '../components/flito/logistica/bandeja/BandejaLtPendientes';
+import { useLtPendientes } from '../components/flito/logistica/bandeja/useLtPendientes';
+import { FUNCION_RESOLVER_TRAMITE } from '../components/flito/logistica/bandeja/tipos';
 
 interface TramiteFila {
   tramiteId: string; idFlit: string; placa: string | null; vin: string | null; propietario: string | null;
@@ -33,28 +43,35 @@ interface TramiteFila {
 }
 interface EventoDocumento { id: string; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; lat: string | null; lng: string | null; motivo: string | null; origen: string; creadoEn: string }
 interface TramiteDetalle extends TramiteFila { propietarioDocumento: string | null; combustible: string | null; tieneFoto: boolean; eventos: EventoDocumento[] }
-interface ActaFila { id: string; companiaId: number; companiaNombre: string | null; estado: string; estadoLabel: string; mensajeroId: number | null; mensajeroNombre: string | null; documentos: number; receptorNombre: string | null; entregadoEn: string | null; creadoEn: string }
+interface ActaFila {
+  id: string; companiaId: number | null; companiaNombre: string | null; estado: string; estadoLabel: string;
+  mensajeroId: number | null; mensajeroNombre: string | null; documentos: number;
+  receptorNombre: string | null; entregadoEn: string | null; creadoEn: string;
+  punto?: 'organismo' | 'flit' | 'cliente';
+  trasladoId?: string | null;
+}
 interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string }
 interface ActaEvento { id: string; documentoId: string; placa: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string }
 interface ActaDetalle { acta: ActaFila; tienePdf: boolean; firmaEntrega: boolean; firmaRecibe: boolean; entregaNombre: string | null; documentos: ActaLinea[]; bitacora: ActaEvento[] }
 interface Facetas {
   estados: string[]; empresas: Array<{ nit: string; nombre: string | null }>;
   organismos: Array<{ codigo: string; nombre: string | null }>;
-  companiasCerrables: Array<{ companiaId: number; nombre: string | null; disponibles: number }>;
+  companiasCerrables: CompaniaCerrableLogistica[];
   mensajeros: Array<{ id: number; nombre: string }>;
 }
 interface Listado { items: TramiteFila[]; total: number; page: number; pageSize: number }
 
 // Estados SIMPLE → tono del chip (mismos tonos del kit).
 const TONO_SIMPLE: Record<EstadoLogisticaSimple, ChipTone> = {
-  pendiente: 'neutral', registrada: 'active', despachada: 'warning', entregada: 'success', novedad: 'danger',
+  pendiente: 'neutral', registrada: 'active', en_flit: 'active', despachada: 'warning', entregada: 'success', novedad: 'danger',
 };
 const TONO_ACTA: Record<string, ChipTone> = { generada: 'neutral', despachada: 'warning', entregada: 'success', devuelta: 'danger' };
-const ESTADOS_SIMPLE: EstadoLogisticaSimple[] = ['pendiente', 'registrada', 'despachada', 'entregada', 'novedad'];
+const ESTADOS_SIMPLE: EstadoLogisticaSimple[] = ['pendiente', 'registrada', 'en_flit', 'despachada', 'entregada', 'novedad'];
 
 const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
-type Tab = 'tramites' | 'actas-gen' | 'actas';
+type Tab = 'tramites' | 'viajes-cliente' | 'entregas' | 'actas' | 'viajes' | 'pendientes' | 'motivos-llegada';
+type CargaFacetas = 'cargando' | 'ok' | 'error' | 'error403';
 
 /** HU #13452: con enlace el vacío dice de quién son los trámites y no manda a sincronizar (operación interna). */
 function vacioLogistica(tipoEnlace: Parameters<typeof vacioConEnlace>[1]): string {
@@ -66,13 +83,24 @@ function vacioLogistica(tipoEnlace: Parameters<typeof vacioConEnlace>[1]): strin
 
 export default function FlitoLogistica() {
   const { hasFuncion, tipoEnlace } = useAuth();
-  // HU #12170
+  // HU #12170 — despachar / novedad / devolver en Actas (no gobierna Viajes).
   const esOperaciones = hasFuncion('logistica.lote.cerrar');
+  // HU #14116 / #14123: pestaña Viajes. Sin la función no se pinta.
+  const puedeRegistrarViaje = hasFuncion('logistica.traslado.registrar');
+  const puedeFirmarLlegada = hasFuncion('logistica.actas.firmar_flit');
+  // HU #14149: sin la función no hay pestaña ni petición a `/pendientes-tramite`.
+  const puedeResolverLt = hasFuncion(FUNCION_RESOLVER_TRAMITE);
+  const ltPend = useLtPendientes(puedeResolverLt);
+  // HU #14120: pestaña Motivos de llegada. GET solo al entrar (el tab lo pide). Sin badge.
+  const puedeGestionarMotivos = hasFuncion('logistica.motivos.gestionar');
+  // HU #14125: pestaña Entregas. POST solo al entrar (el tab lo pide). Sin badge.
+  const puedeVerEntregas = hasFuncion('logistica.consola.ver');
 
   const [tab, setTab] = useState<Tab>('tramites');
   const [data, setData] = useState<Listado | null>(null);
   const [actas, setActas] = useState<ActaFila[] | null>(null);
   const [facetas, setFacetas] = useState<Facetas | null>(null);
+  const [facetasCarga, setFacetasCarga] = useState<CargaFacetas>('cargando');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -83,6 +111,7 @@ export default function FlitoLogistica() {
   const [detalle, setDetalle] = useState<TramiteDetalle | null>(null);
   const [motivoModal, setMotivoModal] = useState<{ tipo: 'novedad' | 'devolucion'; id: string } | null>(null);
   const [despacharActa, setDespacharActa] = useState<ActaFila | null>(null);
+  const [llegadaFlit, setLlegadaFlit] = useState<ActaFila | null>(null);
   const [actaDetalle, setActaDetalle] = useState<ActaDetalle | null>(null);
 
   const cargar = () => {
@@ -95,7 +124,15 @@ export default function FlitoLogistica() {
     api.get<ActaFila[]>('/flito/logistica/actas').then(setActas).catch(() => setActas([]));
   };
   useEffect(cargar, [buscar, estadosSel, empresaSel]);
-  const recargarFacetas = () => api.get<Facetas>('/flito/logistica/facetas').then(setFacetas).catch(() => setFacetas(null));
+  const recargarFacetas = () => {
+    setFacetasCarga('cargando');
+    return api.get<Facetas>('/flito/logistica/facetas')
+      .then((f) => { setFacetas(f); setFacetasCarga('ok'); })
+      .catch((e) => {
+        setFacetas(null);
+        setFacetasCarga(e instanceof ApiError && e.status === 403 ? 'error403' : 'error');
+      });
+  };
   useEffect(() => { recargarFacetas(); }, []);
 
   const accion = async (fn: () => Promise<unknown>) => {
@@ -120,8 +157,12 @@ export default function FlitoLogistica() {
 
   const TABS: Array<{ key: Tab; label: string; badge?: number }> = [
     { key: 'tramites', label: 'Trámites', badge: data?.total },
-    { key: 'actas-gen', label: 'Generación de actas', badge: registradas || undefined },
+    ...(puedeRegistrarViaje ? [{ key: 'viajes-cliente' as const, label: 'Viajes', badge: registradas || undefined }] : []),
+    ...(puedeVerEntregas ? [{ key: 'entregas' as const, label: 'Entregas' }] : []),
     { key: 'actas', label: 'Actas', badge: actasPendientes || undefined },
+    ...(hasFuncion('logistica.viajes.registrar') ? [{ key: 'viajes' as const, label: 'Viajes adicionales' }] : []),
+    ...(puedeResolverLt ? [{ key: 'pendientes' as Tab, label: 'LT pendientes', badge: ltPend.error ? undefined : (ltPend.items?.length || undefined) }] : []),
+    ...(puedeGestionarMotivos ? [{ key: 'motivos-llegada' as const, label: 'Motivos de llegada' }] : []),
   ];
 
   return (
@@ -137,7 +178,8 @@ export default function FlitoLogistica() {
           const activa = tab === t.key;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className="relative -mb-px rounded-t-lg px-4 py-2.5 text-sm font-semibold transition-colors"
+              aria-label={t.badge != null ? `${t.label}, ${t.badge}` : undefined}
+              className="flit-focus relative -mb-px rounded-t-lg px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
               style={{
                 color: activa ? 'var(--flit-blue-text)' : 'var(--flit-text-secondary)',
                 borderBottom: `2px solid ${activa ? 'var(--flit-blue-text)' : 'transparent'}`,
@@ -154,7 +196,9 @@ export default function FlitoLogistica() {
         })}
       </div>
 
-      {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
+      {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
+
+      {tab === 'viajes' && hasFuncion('logistica.viajes.registrar') && <ViajesMasivo />}
 
       {/* ── Pestaña 1: Trámites (tabla general) ── */}
       {tab === 'tramites' && (
@@ -170,7 +214,11 @@ export default function FlitoLogistica() {
             <div className="mt-3">
               <FlitPillGroup>
                 {ESTADOS_SIMPLE.map((e) => (
-                  <FlitPillButton key={e} active={estadosSel.includes(e)} onClick={() => toggleEstado(e)}>{ESTADO_LOGISTICA_SIMPLE_LABEL[e]}</FlitPillButton>
+                  <FlitPillButton key={e} active={estadosSel.includes(e)} onClick={() => toggleEstado(e)}>
+                    {e === 'en_flit'
+                      ? <span className="normal-case">{ESTADO_LOGISTICA_SIMPLE_LABEL[e]}</span>
+                      : ESTADO_LOGISTICA_SIMPLE_LABEL[e]}
+                  </FlitPillButton>
                 ))}
               </FlitPillGroup>
             </div>
@@ -224,42 +272,25 @@ export default function FlitoLogistica() {
         </>
       )}
 
-      {/* ── Pestaña 2: Generación de actas (LT registradas por empresa) ── */}
-      {tab === 'actas-gen' && (
-        <FlitCard>
-          <h2 className="mb-1 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>LT registradas por empresa</h2>
-          <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-            Cada empresa genera <strong>un acta</strong> con las licencias que radicó. Genera el acta cuando la empresa tenga sus LT registradas por el mensajero.
-          </p>
-          {cerrables.length === 0 ? (
-            <FlitEmpty>No hay LT registradas pendientes de acta. El mensajero debe recoger (escanear) las licencias en el organismo primero.</FlitEmpty>
-          ) : (
-            <ul className="space-y-2">
-              {cerrables.map((c) => (
-                <li key={c.companiaId} className="flex items-center justify-between gap-3 rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <div>
-                    <div className="text-sm font-medium">{c.nombre ?? `#${c.companiaId}`}</div>
-                    <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{c.disponibles} LT registrada(s)</div>
-                  </div>
-                  {esOperaciones && (
-                    <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={busy}
-                      onClick={() => accion(() => api.post('/flito/logistica/cerrar-lote', { companiaId: c.companiaId }).then(() => setTab('actas')))}>
-                      Generar acta
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </FlitCard>
+      {tab === 'viajes-cliente' && puedeRegistrarViaje && (
+        <ViajesACliente
+          grupos={cerrables}
+          estado={facetasCarga}
+          onReintentar={() => { void recargarFacetas(); }}
+          onRegistrado={() => { cargar(); void recargarFacetas(); }}
+          onIrMotivos={puedeGestionarMotivos ? () => setTab('motivos-llegada') : undefined}
+        />
       )}
+
+      {/* ── Pestaña Entregas (HU #14125). POST solo con la pestaña activa. ── */}
+      {tab === 'entregas' && puedeVerEntregas && <TabEntregas />}
 
       {/* ── Pestaña 3: Actas ── */}
       {tab === 'actas' && (
         <FlitCard>
           <h2 className="mb-3 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Actas</h2>
           {(!actas || actas.length === 0) ? (
-            <FlitEmpty>Aún no hay actas. Ve a «Generación de actas» y genera el acta de una empresa con LT registradas.</FlitEmpty>
+            <FlitEmpty>Aún no hay actas. Ve a «Viajes» y registra el viaje de una compañía con LT clasificadas.</FlitEmpty>
           ) : (
             <div className="overflow-x-auto">
               <FlitTable>
@@ -283,6 +314,14 @@ export default function FlitoLogistica() {
                           {esOperaciones && a.estado === 'generada' && (
                             <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => setDespacharActa(a)}>Firmar y despachar</button>
                           )}
+                          {puedeFirmarLlegada && a.punto === 'flit' && a.estado === 'despachada' && a.trasladoId && (
+                            <button type="button"
+                              className="flit-focus rounded-lg px-2 py-1 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
+                              style={{ color: 'var(--flit-blue-text)' }}
+                              onClick={() => setLlegadaFlit(a)}>
+                              Firmar llegada
+                            </button>
+                          )}
                           {esOperaciones && a.estado === 'despachada' && (
                             <button className="text-xs font-semibold" style={{ color: 'var(--flit-danger)' }} onClick={() => setMotivoModal({ tipo: 'devolucion', id: a.id })}>Devolver</button>
                           )}
@@ -297,6 +336,12 @@ export default function FlitoLogistica() {
         </FlitCard>
       )}
 
+      {/* ── Pestaña: LT pendientes de trámite (HU #14149) ── */}
+      {tab === 'pendientes' && puedeResolverLt && <BandejaLtPendientes {...ltPend} />}
+
+      {/* ── Pestaña: Motivos de llegada (HU #14120). GET al entrar, no al montar la consola. ── */}
+      {tab === 'motivos-llegada' && puedeGestionarMotivos && <TabMotivosLlegada />}
+
       {detalle && <DetalleModal doc={detalle} onClose={() => setDetalle(null)} />}
       {actaDetalle && <ActaDetalleModal detalle={actaDetalle} onClose={() => setActaDetalle(null)} onPdf={() => descargarPdf(actaDetalle.acta.id)} />}
       {motivoModal && (
@@ -305,9 +350,22 @@ export default function FlitoLogistica() {
             ? api.post(`/flito/logistica/documentos/${motivoModal.id}/novedad`, { motivo })
             : api.post(`/flito/logistica/actas/${motivoModal.id}/devolucion`, { motivo })).then(() => setMotivoModal(null))} />
       )}
+      {llegadaFlit?.trasladoId && (
+        <LlegadaFlitModal
+          actaId={llegadaFlit.id}
+          companiaNombre={llegadaFlit.companiaNombre}
+          trasladoId={llegadaFlit.trasladoId}
+          onClose={() => setLlegadaFlit(null)}
+          onListo={() => { setLlegadaFlit(null); cargar(); }}
+        />
+      )}
       {despacharActa && facetas && (
         <DespacharModal mensajeros={facetas.mensajeros} busy={busy} onClose={() => setDespacharActa(null)}
-          onDespachar={(payload) => accion(() => api.post(`/flito/logistica/actas/${despacharActa.id}/despachar`, payload)).then(() => setDespacharActa(null))} />
+          onDespachar={(payload) => accion(() => api.post(`/flito/logistica/actas/${despacharActa.id}/despachar`, payload)).then(() => {
+            const m = facetas.mensajeros.find((x) => x.id === payload.mensajeroId);
+            toastOk(`Viaje despachado a ${m?.nombre ?? 'el mensajero'}.`);
+            setDespacharActa(null);
+          })} />
       )}
     </div>
   );
@@ -330,22 +388,9 @@ function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: () => vo
         <ViajesLogistica tramiteId={doc.tramiteId} idFlit={doc.idFlit} fecha={fecha}
           puedeRegistrar={hasFuncion('logistica.viajes.registrar')} puedeQuitar={hasFuncion('logistica.viajes.quitar')} />
       )}
-      {doc.docId ? (
-        <>
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Bitácora</h3>
-          <ol className="space-y-2">
-            {doc.eventos.map((e) => (
-              <li key={e.id} className="text-sm">
-                <span className="font-medium">{ESTADO_LOGISTICA_SIMPLE_LABEL[simple(e.estadoNuevo)]}</span>
-                <span style={{ color: 'var(--flit-text-muted)' }}> · {fecha(e.creadoEn)} · {e.actorNombre ?? (e.origen === 'api' ? 'sistema' : '—')}</span>
-                {e.motivo && <div className="text-xs" style={{ color: 'var(--flit-danger)' }}>{e.motivo}</div>}
-                {(e.lat && e.lng) && <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>📍 {e.lat}, {e.lng}</div>}
-              </li>
-            ))}
-          </ol>
-        </>
-      ) : (
-        <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>La licencia aún no se ha recogido. El mensajero la escaneará en el organismo.</p>
+      {/* HU #14126: sin `logistica.documento.ver` la sección no existe ni pide nada al API. */}
+      {hasFuncion('logistica.documento.ver') && (
+        <LineaTiempoDetalle tramiteId={doc.tramiteId} fecha={fecha} />
       )}
     </FlitModal>
   );
@@ -353,13 +398,7 @@ function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: () => vo
 
 // Colapsa un estado interno de evento al vocabulario simple para la bitácora del detalle.
 function simple(estadoInterno: string): EstadoLogisticaSimple {
-  switch (estadoInterno) {
-    case 'recogido': case 'clasificado': case 'en_acta': return 'registrada';
-    case 'despachado': return 'despachada';
-    case 'entregado': return 'entregada';
-    case 'novedad': case 'devuelto': return 'novedad';
-    default: return 'pendiente';
-  }
+  return simplificarEstadoLogistica(estadoInterno);
 }
 
 function ActaDetalleModal({ detalle, onClose, onPdf }: { detalle: ActaDetalle; onClose: () => void; onPdf: () => void }) {

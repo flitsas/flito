@@ -75,9 +75,10 @@ function calculoSellado(fila: FilaLiquidacion): CalculoLiquidacion {
     impuesto: concepto(fila.valorImpuesto),
     derecho: concepto(fila.valorDerecho),
     tramiteDigital: honorario(fila.valorTramiteDigital),
-    // HU #12626 — `valor_logistica` ya es la SUMA (tarifa + viajes adicionales) y `salidasDe` emite
-    // una única salida por ella; el desglose por viaje vive en el detalle y aquí no hace falta.
-    logistica: { ...honorario(fila.valorLogistica), tarifa: null, viajes: null, totalViajes: null },
+    // HU #12626 — `valor_logistica` ya es la SUMA y `salidasDe` emite una única salida por ella.
+    // El desglose vive en el detalle. `traslados: null` (HU #14118): esta reconstrucción sale de
+    // la columna, no del snapshot, igual que `viajes`.
+    logistica: { ...honorario(fila.valorLogistica), tarifa: null, viajes: null, totalViajes: null, traslados: null },
     // HU #12546 — desde la 0194 la liquidación puede llevar servicios adicionales, y su salida usa
     // la llave `tramite:{id}:servicios_adicionales`. Se reconstruye desde la COLUMNA sellada, no
     // desde la puente: la puente puede haber cambiado (o vaciarse) después del sello. `items` va
