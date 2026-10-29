@@ -123,10 +123,10 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
   'accion.revisiones.ver': { lectura: true, operaciones: ['revisiones.cola.ver', 'revisiones.campos.ver'], opcionales: ['revisiones.soporte.descargar'] },
   'accion.revisiones.revisar_lecturas': { operaciones: ['revisiones.revision.resolver', 'revisiones.revision.descartar'] },
   // ── Logística ──
-  'accion.logistica.ver_consola': { lectura: true, operaciones: ['logistica.consola.ver', 'logistica.consola.filtrar', 'logistica.documento.ver'] },
+  'accion.logistica.ver_consola': { lectura: true, operaciones: ['logistica.consola.ver', 'logistica.consola.filtrar', 'logistica.documento.ver'], opcionales: ['logistica.motivos.gestionar'] }, // + gestionar motivos de llegada (HU #14119): se concede aparte
   'accion.logistica.registrar_viajes': { operaciones: ['logistica.viajes.ver', 'logistica.viajes.registrar', 'logistica.viajes.quitar'] },
   'accion.logistica.generar_actas': { operaciones: ['logistica.lt.validar'] },
-  'accion.logistica.ver_actas': { lectura: true, operaciones: ['logistica.actas.listar', 'logistica.actas.ver'], opcionales: ['logistica.actas.descargar'] },
+  'accion.logistica.ver_actas': { lectura: true, operaciones: ['logistica.actas.listar', 'logistica.actas.ver'], opcionales: ['logistica.actas.descargar', 'logistica.actas.ver_documento_firmante'] }, // + ver_documento_firmante (HU #14110): PII, se concede aparte
   'accion.logistica.despachar_entregar_devolver': {
     // PO 2026-10-13: despachar y operar ajenas son OPCIONALES: el mensajero recibe la acción (entregar y
     // devolver) sin despachar ni operar actas ajenas; quien las tenía las conserva como marca directa.
@@ -134,10 +134,10 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
     opcionales: ['logistica.actas.despachar', 'logistica.actas.operar_ajenas'],
   },
   'accion.logistica.cerrar_lote': { operaciones: ['logistica.lote.cerrar'] },
-  'accion.logistica.reversar_paso': { operaciones: ['logistica.documento.reversar'] },
+  'accion.logistica.reversar_paso': { operaciones: ['logistica.documento.reversar'], opcionales: ['logistica.documento.resolver_tramite', 'logistica.traslado.anular'] }, // + resolver el trámite (HU #14143); + anular viaje (HU #14115): se conceden aparte
   // ── Mi ruta (P-8) ── el mensajero abre el documento desde su ruta: `documento.ver` es de apoyo.
   'accion.mi_ruta.ver': { lectura: true, operaciones: ['logistica.ruta.ver'], apoyo: ['logistica.documento.ver'] },
-  'accion.mi_ruta.escanear': { operaciones: ['logistica.documento.escanear'] },
+  'accion.mi_ruta.escanear': { operaciones: ['logistica.documento.escanear'], opcionales: ['logistica.recogida.confirmar', 'logistica.traslado.registrar'] }, // + confirmar recogida (HU #14110); + registrar viaje a cliente (HU #14114): se conceden aparte
   'accion.mi_ruta.reportar_novedad': { operaciones: ['logistica.documento.reportar_novedad'] },
   // ── Comparendos ──
   'accion.comparendos.ver_listado': { lectura: true,
