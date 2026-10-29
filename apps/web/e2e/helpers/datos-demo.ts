@@ -1059,8 +1059,19 @@ export const LOGISTICA_FACETAS_DEMO = {
   empresas: EMPRESAS_DEMO.map((nombre, i) => ({ nit: DATOS_DEMO.nits[i], nombre })),
   organismos: [],
   companiasCerrables: [
-    { companiaId: 901, nombre: EMPRESAS_DEMO[0], disponibles: 2 },
-    { companiaId: 902, nombre: EMPRESAS_DEMO[1], disponibles: 1 },
+    {
+      companiaId: 901, nombre: EMPRESAS_DEMO[0], disponibles: 2, precioEntregaCliente: 12000,
+      lts: [
+        { documentoId: 'doc-log-demo-1', placa: DATOS_DEMO.placas[0], numeroLt: 'LT90000000101', idFlit: 'FLIT-DEMO-1' },
+        { documentoId: 'doc-log-demo-2', placa: DATOS_DEMO.placas[1], numeroLt: 'LT90000000202', idFlit: 'FLIT-DEMO-2' },
+      ],
+    },
+    {
+      companiaId: 902, nombre: EMPRESAS_DEMO[1], disponibles: 1, precioEntregaCliente: null,
+      lts: [
+        { documentoId: 'doc-log-demo-3', placa: DATOS_DEMO.placas[2], numeroLt: 'LT90000000303', idFlit: 'FLIT-DEMO-3' },
+      ],
+    },
   ],
   mensajeros: [{ id: 51, nombre: NOMBRES_DEMO[4] }],
 };

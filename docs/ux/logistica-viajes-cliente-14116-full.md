@@ -2,7 +2,7 @@
 
 Modo: full. Feature C2 #14092 · Épica 13758 · ADR-0030 (ciclo C2; destino FLIT queda fuera, 422).
 Público: operador de la consola logística y mensajero en Mi ruta. Tono: **tutea**, calcando `FlitoLogistica.tsx` y `FlitoRuta.tsx` («Selecciona…», «Escanea las LT…»).
-Mockup: pendiente (el hilo publica el Artifact `design` y espera el «ok» humano antes de `frontend-agent`).
+Mockup: ok humano 2026-10-29 (hilo Cursor; 7 vistas kit FLITO).
 
 UI dice **viaje**. Código y URLs dicen `traslado`. Nunca se pinta «traslado» en copy.
 

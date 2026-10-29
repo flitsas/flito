@@ -1,8 +1,7 @@
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
-// FLITO — Logística. Consola de Operaciones en tres pestañas: Trámites (aprobados, con su estado
-// logístico), Generación de actas (LT registradas por empresa) y Actas (despacho y firma).
+// FLITO — Logística. Consola de Operaciones: Trámites, Viajes a cliente (HU #14116) y Actas.
 //
 // El vocabulario es de CINCO estados —pendiente, registrada, despachada, entregada, novedad— que
 // colapsan los internos del documento; la fila los trae ya resueltos en `estadoSimple` y
@@ -103,34 +102,47 @@ test.describe('FLITO — Logística', () => {
     expect(typeof body!.firmaEntrega).toBe('string');
   });
 
-  test('cerrar lote genera el acta de una empresa', async ({ page }) => {
+  test('registrar viaje a cliente envía un POST /traslados por compañía, nunca cerrar-lote', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockLogistica(page);
-    let body: unknown = null;
+    let body: Record<string, unknown> | null = null;
+    let headers: Record<string, string> | null = null;
+    let cerroLote = false;
     await page.route(/\/api\/flito\/logistica\/cerrar-lote$/, async (route) => {
-      body = route.request().postDataJSON();
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ actaId: 'acta-nueva', documentos: 1 }) });
+      cerroLote = true;
+      return route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
+    });
+    await page.route(/\/api\/flito\/logistica\/traslados$/, async (route) => {
+      body = route.request().postDataJSON() as Record<string, unknown>;
+      headers = route.request().headers();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'tr-1', actaId: 'acta-nueva', documentos: 1 }) });
     });
 
     await page.goto('/flito/logistica');
-    // El «Cerrar lote» de un solo botón pasó a ser una pestaña con una empresa por fila: cada una
-    // genera SU acta con las LT que su mensajero radicó.
-    await page.getByRole('button', { name: /^Generación de actas/ }).click();
-    await expect(page.getByText('Concesionario Norte')).toBeVisible();
-    await expect(page.getByText('1 LT registrada(s)')).toBeVisible();
-    await page.getByRole('button', { name: 'Generar acta' }).click();
+    await page.getByRole('button', { name: /Viajes a cliente/ }).click();
+    await expect(page.getByText('Concesionario Norte · 1 LT')).toBeVisible();
+    await expect(page.getByText(/Se cobrará \$12\.000 por LT/)).toBeVisible();
+    await page.getByRole('button', { name: 'Registrar viaje' }).click();
+    const modal = page.getByRole('dialog', { name: /Registrar viaje a Concesionario Norte/ });
+    await expect(modal.getByText(/Se cobrará \$12\.000 por cada LT/)).toBeVisible();
+    await modal.getByRole('button', { name: 'Confirmar viaje' }).click();
     await expect.poll(() => body).not.toBeNull();
-    expect(body).toMatchObject({ companiaId: 5 });
+    expect(body).toMatchObject({
+      companiaId: 5,
+      destino: 'cliente',
+      lts: [{ documentoId: 'doc-2' }],
+    });
+    expect(headers?.['idempotency-key']).toBeTruthy();
+    expect(cerroLote).toBe(false);
   });
 
-  test('auditor entra en solo lectura: sin acciones', async ({ page }) => {
+  test('auditor entra en solo lectura: sin viajes a cliente ni despacho', async ({ page }) => {
     await loginAs(page, AUDITOR_USER);
     await mockLogistica(page);
 
     await page.goto('/flito/logistica');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
-    await page.getByRole('button', { name: /^Generación de actas/ }).click();
-    await expect(page.getByRole('button', { name: 'Generar acta' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Viajes a cliente/ })).toHaveCount(0);
     await page.getByRole('button', { name: /^Actas/ }).click();
     await expect(page.getByRole('button', { name: 'Firmar y despachar' })).toHaveCount(0);
   });

@@ -402,12 +402,12 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // HU #13773 — manuales del área Mensajero y Logística: misma comprobación que Facturación, Corredor SOAT y
   // Corredor Impuestos (versión y fecha exactas, sin rutas, capturas citadas en orden y dentro de su paso, una
   // sola lista ordenada en Pasos, diagrama SVG con alt). Las dos fichas describen procesos de más de 3 pasos.
-  // flito_logistica_ruta conserva sus 5 capturas de la piloto (HU #13769): el texto cambió, la pantalla no.
+  // HU #14116 — pestaña Viajes a cliente y paso de entrega; version 2.0 (cambio de fondo).
   const LOGISTICA_13773: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
-    flito_logistica: { version: '1.2', fecha: '2026-10-28', diagrama: 'ciclo-licencia.svg', capturas: [
-      '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-generacion-de-actas.png', '05-actas.png',
+    flito_logistica: { version: '2.0', fecha: '2026-10-29', diagrama: 'ciclo-licencia.svg', capturas: [
+      '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-viajes-a-cliente.png', '05-actas.png',
       '06-firmar-y-despachar.png'] },
-    flito_logistica_ruta: { version: '1.4', fecha: '2026-10-28', diagrama: 'recorrido-mensajero.svg', capturas: [
+    flito_logistica_ruta: { version: '2.0', fecha: '2026-10-29', diagrama: 'recorrido-mensajero.svg', capturas: [
       '04-entregar.png', '05-sin-conexion.png'] },
   };
 
