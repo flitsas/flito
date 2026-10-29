@@ -19,10 +19,10 @@
 //         `tarifaDe()` (compuerta de liquidación) como el reporte de costos: lo que se muestra
 //         estimado es lo que se sella (AC7). Lo ya sellado no se recalcula nunca (AC8).
 
-import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
-  CONCEPTOS_TARIFA, LLAVES_TARIFA, VIGENCIA_DESDE_SIEMPRE, tipoTramiteTarifaDe, valorTarifaValido,
+  CONCEPTOS_TARIFA, LLAVES_TARIFA, conceptoAlmacenado, esConceptoLogistica, VIGENCIA_DESDE_SIEMPRE, tipoTramiteTarifaDe, valorTarifaValido,
   type ConceptoTarifa, type TipoTramiteTarifa,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -76,9 +76,14 @@ export interface ValorTarifa {
   valor: number | null;
   /** De dónde salió: `especifica` (trámite digital por tipo), `generica` (logística), o ninguna. */
   origen: 'especifica' | 'generica' | 'no_configurada';
+  /** Id de la vigencia aplicada (HU #14106, AC4); null si no hay (el viaje congela esta vigencia). */
+  vigenciaId: string | null;
 }
 
-export const NO_CONFIGURADA: ValorTarifa = { valor: null, origen: 'no_configurada' };
+export const NO_CONFIGURADA: ValorTarifa = { valor: null, origen: 'no_configurada', vigenciaId: null };
+
+/** Como se ve un concepto hacia fuera: `logistica_cliente` sigue viéndose `logistica` (la UI actual; B2 #14107 la cambia). */
+const conceptoExterno = (c: string): ConceptoTarifa => (c === 'logistica_cliente' ? 'logistica' : c as ConceptoTarifa);
 
 /** Las dos columnas del rango; `AnyPgColumn` porque las de un `alias()` llevan otro nombre de tabla en el tipo. */
 export interface ColumnasVigencia { vigenteDesde: AnyPgColumn; vigenteHasta: AnyPgColumn }
@@ -122,15 +127,24 @@ export async function tarifaDe(
   enFecha: Date | null = null,
 ): Promise<ValorTarifa> {
   if (companiaId === null) return NO_CONFIGURADA;
-  const tipo = concepto === 'logistica' ? null : tipoTramiteTarifaDe(tipoTramite);
-  if (concepto === 'tramite_digital' && tipo === null) return NO_CONFIGURADA;
+  const logistica = esConceptoLogistica(concepto);
+  const tipo = logistica ? null : tipoTramiteTarifaDe(tipoTramite);
+  if (!logistica && tipo === null) return NO_CONFIGURADA;
 
-  const [vigente] = await db.select({ valor: v.valor })
+  // `logistica` es alias de `logistica_cliente` (HU #14106, AC3). Durante un rollout puede quedar una fila
+  // `logistica` escrita por un pod viejo: se lee también, pero `logistica_cliente` manda.
+  const conceptos = concepto === 'logistica' || concepto === 'logistica_cliente'
+    ? ['logistica_cliente', 'logistica'] : [concepto];
+  const [vigente] = await db.select({ id: v.id, valor: v.valor })
     .from(v)
-    .where(and(eq(v.companiaId, companiaId), llave(concepto, tipo), vigenteEn(v, enFecha)))
+    .where(and(
+      eq(v.companiaId, companiaId), inArray(v.concepto, conceptos),
+      tipo === null ? isNull(v.tipoTramite) : eq(v.tipoTramite, tipo), vigenteEn(v, enFecha),
+    ))
+    .orderBy(sql`(${v.concepto} = 'logistica') ASC`)
     .limit(1);
   if (!vigente) return NO_CONFIGURADA;
-  return { valor: Number(vigente.valor), origen: concepto === 'logistica' ? 'generica' : 'especifica' };
+  return { valor: Number(vigente.valor), origen: logistica ? 'generica' : 'especifica', vigenciaId: vigente.id };
 }
 
 const COLUMNAS_TARIFA = {
@@ -147,7 +161,7 @@ type FilaTarifa = {
 function aTarifa(f: FilaTarifa): Tarifa {
   return {
     id: f.id, companiaId: f.companiaId, companiaNombre: f.companiaNombre,
-    concepto: f.concepto as ConceptoTarifa, tipoTramite: f.tipoTramite,
+    concepto: conceptoExterno(f.concepto), tipoTramite: f.tipoTramite,
     valor: Number(f.valor), activo: f.vigenteHasta === null,
     actualizadoEn: f.fijadoEn.toISOString(), vigenteDesde: f.vigenteDesde.toISOString(),
   };
@@ -214,7 +228,7 @@ export async function vistaPorCompania(companiaId: number): Promise<VistaTarifas
     .where(and(eq(v.companiaId, companiaId), isNull(v.vigenteHasta)));
 
   const tarifas = LLAVES_TARIFA.map((k): FilaVistaTarifa => {
-    const a = abiertas.find((f) => f.concepto === k.concepto && (f.tipoTramite ?? null) === k.tipoTramite);
+    const a = abiertas.find((f) => conceptoExterno(f.concepto) === k.concepto && (f.tipoTramite ?? null) === k.tipoTramite);
     const fila: FilaVistaTarifa = {
       concepto: k.concepto, tipoTramite: k.tipoTramite,
       vigenciaId: a?.id ?? null, valor: a ? Number(a.valor) : null,
@@ -258,8 +272,9 @@ export async function historial(companiaId: number, f: FiltrosHistorial = {}): P
   await companiaDe(companiaId);
   const condiciones: (SQL | undefined)[] = [eq(v.companiaId, companiaId)];
   if (f.concepto) {
-    condiciones.push(f.concepto === 'logistica' || f.tipoTramite === undefined
-      ? eq(v.concepto, f.concepto) : llave(f.concepto, f.tipoTramite));
+    condiciones.push(esConceptoLogistica(f.concepto) || f.tipoTramite === undefined
+      ? eq(v.concepto, conceptoAlmacenado(f.concepto))
+      : llave(f.concepto, f.tipoTramite));
   }
   if (f.rango) condiciones.push(createdInRangeCondition(v.vigenteDesde, f.rango) ?? undefined);
 
@@ -275,7 +290,7 @@ export async function historial(companiaId: number, f: FiltrosHistorial = {}): P
     .orderBy(asc(v.concepto), asc(v.tipoTramite), desc(v.vigenteDesde));
 
   return filas.map((r) => ({
-    id: r.id, concepto: r.concepto as ConceptoTarifa, tipoTramite: (r.tipoTramite ?? null) as TipoTramiteTarifa | null,
+    id: r.id, concepto: conceptoExterno(r.concepto), tipoTramite: (r.tipoTramite ?? null) as TipoTramiteTarifa | null,
     valor: Number(r.valor), vigenteDesde: r.vigenteDesde.toISOString(),
     vigenteHasta: r.vigenteHasta ? r.vigenteHasta.toISOString() : null,
     fijadoPor: r.fijadoPorId != null ? { id: r.fijadoPorId, nombre: r.fijadoPorNombre ?? null } : null,
@@ -305,7 +320,7 @@ function validarValor(valor: unknown): asserts valor is number {
 export function tipoDeLlave(concepto: ConceptoTarifa, tipoTramite: string | null | undefined): TipoTramiteTarifa | null {
   if (!CONCEPTOS_TARIFA.includes(concepto)) throw new TarifaError('Concepto de tarifa desconocido');
   const vacio = (tipoTramite ?? '').trim() === '';
-  if (concepto === 'logistica') {
+  if (esConceptoLogistica(concepto)) {
     if (!vacio) throw new TarifaError('La logística tiene un solo valor por compañía; no lleva tipo');
     return null;
   }
@@ -328,6 +343,7 @@ const esChoqueDeLlave = (e: unknown): boolean => {
 export async function fijarTarifa(d: DatosFijar, usuarioId: number | null): Promise<Tarifa> {
   validarValor(d.valor);
   const tipo = tipoDeLlave(d.concepto, d.tipoTramite);
+  const concepto = conceptoAlmacenado(d.concepto);
   if (d.valor === 0 && !d.confirmarCero) throw new TarifaCeroSinConfirmarError();
   await companiaDe(d.companiaId).catch((e: unknown) => {
     if (e instanceof TarifaClienteEliminadoError) throw e;
@@ -338,14 +354,14 @@ export async function fijarTarifa(d: DatosFijar, usuarioId: number | null): Prom
   const vigenteDesde = new Date(VIGENCIA_DESDE_SIEMPRE);
   try {
     const [fila] = await db.insert(v).values({
-      companiaId: d.companiaId, concepto: d.concepto, tipoTramite: tipo, valor: String(d.valor),
+      companiaId: d.companiaId, concepto, tipoTramite: tipo, valor: String(d.valor),
       vigenteDesde, fijadoPorId: usuarioId, fijadoEn: ahora,
     }).returning({ id: v.id });
     return await leerTarifa(fila.id);
   } catch (e) {
     if (!esChoqueDeLlave(e)) throw e;
     const [abierta] = await db.select({ id: v.id }).from(v)
-      .where(and(eq(v.companiaId, d.companiaId), llave(d.concepto, tipo), isNull(v.vigenteHasta))).limit(1);
+      .where(and(eq(v.companiaId, d.companiaId), llave(concepto, tipo), isNull(v.vigenteHasta))).limit(1);
     throw new TarifaConflictoError('Ya hay un valor vigente para esa tarifa. Cámbielo con Editar.', abierta?.id ?? null);
   }
 }
