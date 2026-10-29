@@ -1,10 +1,18 @@
-// FLITO Logística — PDF del acta (tabla + dos firmas) (HU #14108, ADR-0030 §11).
+// FLITO Logística — PDF del acta (tabla + dos firmas) (HU #14108 / #14112, ADR-0030 §9 y §11).
+// La cédula del firmante se imprime COMPLETA (Q6b). Se descifra solo aquí; los DTO no la llevan.
+// Cada generación con cédula y cada descarga registran `logPiiAccess` (NQ4).
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
+import type { Request } from 'express';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { db } from '../../db/client.js';
-import { clients, flitoLogisticaActas, flitoLogisticaDocumentos, organismosTransitoConfig, vehicles } from '../../db/schema.js';
+import {
+  clients, flitoLogisticaActaFirmas, flitoLogisticaActas, flitoLogisticaDocumentos,
+  flitoLogisticaRecogidaFirmantes, organismosTransitoConfig, vehicles,
+} from '../../db/schema.js';
 import { getEntityDocumentStream, presignedGetEntityDocument, uploadEntityDocument } from '../../services/storage.js';
+import { logPiiAccess } from '../../shared/pii-audit.js';
+import { revelarDocumento } from './flito-logistica.cifrado.js';
 import { LogisticaError } from './flito-logistica.base.js';
 
 async function embeberFirma(pdf: PDFDocument, key: string): Promise<Awaited<ReturnType<PDFDocument['embedPng']>> | null> {
@@ -15,18 +23,56 @@ async function embeberFirma(pdf: PDFDocument, key: string): Promise<Awaited<Retu
   } catch { return null; }
 }
 
+function revelarONulo(cifrado: string, firmaId: string): string | null {
+  try { return revelarDocumento(cifrado, firmaId); } catch { return null; }
+}
+
+/** Cédula completa del firmante: cifrado de `recibe` / firmante de organismo; fallback al legado en claro. */
+async function cedulaDelFirmante(cab: {
+  punto: string | null; firmanteId: string | null; recibeCifrado: string | null; recibeFirmaId: string | null;
+  receptorDocumento: string | null;
+}): Promise<{ documento: string | null; nombreOrganismo: string | null }> {
+  if (cab.punto === 'organismo' && cab.firmanteId) {
+    const [f] = await db.select({
+      id: flitoLogisticaRecogidaFirmantes.id, cifrado: flitoLogisticaRecogidaFirmantes.documentoCifrado,
+      nombre: flitoLogisticaRecogidaFirmantes.nombre,
+    }).from(flitoLogisticaRecogidaFirmantes).where(eq(flitoLogisticaRecogidaFirmantes.id, cab.firmanteId)).limit(1);
+    if (f?.cifrado) return { documento: revelarONulo(f.cifrado, f.id), nombreOrganismo: f.nombre };
+    return { documento: null, nombreOrganismo: f?.nombre ?? null };
+  }
+  if (cab.recibeCifrado && cab.recibeFirmaId) {
+    return { documento: revelarONulo(cab.recibeCifrado, cab.recibeFirmaId), nombreOrganismo: null };
+  }
+  const claro = cab.receptorDocumento?.trim();
+  return { documento: claro || null, nombreOrganismo: null };
+}
+
 /** Genera el PDF del acta (empresa, tabla de LT, dos firmas), lo sube y fija pdfStorageKey (CA-13). */
-export async function generarActaPdf(actaId: string): Promise<string> {
+export async function generarActaPdf(actaId: string, req?: Request): Promise<string> {
   const [cab] = await db.select({
     companiaNombre: clients.name, direccion: flitoLogisticaActas.direccionEntrega,
     contactoNombre: flitoLogisticaActas.contactoNombre, creadoEn: flitoLogisticaActas.createdAt,
     firmaEntregaKey: flitoLogisticaActas.firmaEntregaStorageKey, entregaNombre: flitoLogisticaActas.entregaNombre,
     firmaRecibeKey: flitoLogisticaActas.firmaStorageKey, receptorNombre: flitoLogisticaActas.receptorNombre,
     receptorDocumento: flitoLogisticaActas.receptorDocumento, entregadoEn: flitoLogisticaActas.entregadoEn,
+    punto: flitoLogisticaActas.punto, firmanteId: flitoLogisticaActas.firmanteId,
+    recibeCifrado: flitoLogisticaActaFirmas.documentoCifrado, recibeFirmaId: flitoLogisticaActaFirmas.id,
+    recibeNombre: flitoLogisticaActaFirmas.nombre,
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
+    .leftJoin(flitoLogisticaActaFirmas, and(
+      eq(flitoLogisticaActaFirmas.actaId, flitoLogisticaActas.id),
+      eq(flitoLogisticaActaFirmas.rol, 'recibe'),
+    ))
     .where(eq(flitoLogisticaActas.id, actaId)).limit(1);
   if (!cab) throw new LogisticaError('Acta no encontrada', 404);
+  const firmante = await cedulaDelFirmante(cab);
+  if (req && firmante.documento) {
+    await logPiiAccess(req, {
+      resourceTipo: 'flito_logistica_acta_pdf', accion: 'read', camposAccedidos: ['documento'],
+      motivo: `generar:${actaId}`,
+    });
+  }
 
   const docs = await db.select({
     placa: vehicles.plate, secretaria: organismosTransitoConfig.alias, organismoCodigo: flitoLogisticaDocumentos.organismoCodigo,
@@ -92,8 +138,12 @@ export async function generarActaPdf(actaId: string): Promise<string> {
   };
   await bloqueFirma('Entrega (Operaciones)', 40, firmaEntrega,
     cab.entregaNombre ?? '—', firmaEntrega ? '' : 'Pendiente de firma');
+  const nombreRecibe = firmante.nombreOrganismo ?? cab.recibeNombre ?? cab.receptorNombre;
+  const lineaRecibe = nombreRecibe
+    ? `${nombreRecibe}  C.C. ${firmante.documento ?? '—'}`
+    : '—';
   await bloqueFirma('Recibe (cliente)', 320, firmaRecibe,
-    cab.receptorNombre ? `${cab.receptorNombre}  C.C. ${cab.receptorDocumento ?? '—'}` : '—',
+    lineaRecibe,
     cab.entregadoEn ? `Recibido: ${cab.entregadoEn.toISOString().slice(0, 16).replace('T', ' ')}` : (firmaRecibe ? '' : 'Pendiente de firma'));
 
   const bytes = await pdf.save();
@@ -103,10 +153,10 @@ export async function generarActaPdf(actaId: string): Promise<string> {
 }
 
 /** URL prefirmada para ver/descargar el PDF del acta; lo genera si aún no existe. */
-export async function urlActaPdf(actaId: string): Promise<string> {
+export async function urlActaPdf(actaId: string, req?: Request): Promise<string> {
   const [a] = await db.select({ key: flitoLogisticaActas.pdfStorageKey }).from(flitoLogisticaActas)
     .where(eq(flitoLogisticaActas.id, actaId)).limit(1);
   if (!a) throw new LogisticaError('Acta no encontrada', 404);
-  const key = a.key ?? await generarActaPdf(actaId);
+  const key = a.key ?? await generarActaPdf(actaId, req);
   return presignedGetEntityDocument(key, 300);
 }
