@@ -155,6 +155,7 @@ describe('AC1 — registro válido: 3 LT de UNA compañía, precio congelado, ac
     expect(acta).toMatchObject({ punto: 'cliente', proveedorLogisticaId: 'prov-1', trasladoId: TR, permiteParcial: true });
     const eventosTipo = inserciones.filter((i) => (i.valores as { tipo?: string })?.tipo === 'destino_registrado');
     expect(eventosTipo).toHaveLength(3);
+    expect(inserciones.filter((i) => (i.valores as { tipo?: string })?.tipo === 'acta_cliente')).toHaveLength(3);
     expect(r).not.toHaveProperty('contactoDocumento');
     expect(JSON.stringify(r.lts)).not.toContain('900');
   });

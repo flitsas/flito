@@ -123,7 +123,7 @@ describe('AC1 — despachar viaje registrado: LT despachado, líneas y traslado 
     expect(sets.find((s) => s.tabla === flitoLogisticaTraslados)?.valores).toMatchObject({ estado: 'en_ruta', mensajeroId: 9 });
     expect(sets.find((s) => s.tabla === flitoLogisticaTrasladoLts)?.valores).toMatchObject({ estado: 'en_ruta' });
     expect(sets.filter((s) => s.tabla === flitoLogisticaDocumentos && s.valores.estado === 'despachado')).toHaveLength(3);
-    expect(eventosDe('despachado')).toHaveLength(3);
+    expect(eventosDe('salida')).toHaveLength(3);
     const entrega = firmasDe('entrega')[0]?.valores as Record<string, unknown>;
     expect(entrega).toMatchObject({ rol: 'entrega', nombre: 'Operaciones', usuarioId: 1, documentoCifrado: null });
   });
@@ -179,8 +179,8 @@ describe('AC3 — entrega parcial: 5 LT, 3 entregan (cobran), 2 devuelven (no co
     expect(lineSets.some((s) => s.valores.estado === 'entregado')).toBe(true);
     expect(lineSets.some((s) => s.valores.estado === 'devuelto')).toBe(true);
     expect(sets.find((s) => s.tabla === flitoLogisticaTraslados)?.valores.estado).toBe('entregado');
-    expect(eventosDe('entregado')).toHaveLength(3);
-    expect(eventosDe('devuelto')).toHaveLength(2);
+    expect(eventosDe('entrega')).toHaveLength(3);
+    expect(eventosDe('devolucion')).toHaveLength(2);
   });
 });
 
@@ -219,7 +219,7 @@ describe('AC5 — anular en registrado: línea anulado, LT clasificado, precio i
     expect(lineaSet).not.toHaveProperty('precio');
     expect(sets.find((s) => s.tabla === flitoLogisticaTraslados)?.valores.estado).toBe('anulado');
     expect(sets.filter((s) => s.tabla === flitoLogisticaDocumentos && s.valores.estado === 'clasificado')).toHaveLength(3);
-    expect(eventosDe('anulado')).toHaveLength(3);
+    expect(eventosDe('anulacion')).toHaveLength(3);
   });
 });
 

@@ -14,7 +14,7 @@ import {
   flitoLogisticaEventos, flitoLogisticaTrasladoLts, flitoLogisticaTraslados,
 } from '../../db/schema.js';
 import { proveedorDeCompania } from '../flito-parametrizacion/flito-logistica-proveedor-compania.service.js';
-import { exigirTramiteResuelto, log, transicionar, type LogisticaCtx } from './flito-logistica.base.js';
+import { exigirTramiteResuelto, insertarEvento, log, transicionar, type LogisticaCtx } from './flito-logistica.base.js';
 import { conceptoPrecioDe, precioTrasladoDe, type DestinoTraslado } from './flito-logistica-precios.js';
 import { generarActaPdf } from './flito-logistica.acta-pdf.js';
 import {
@@ -170,6 +170,11 @@ export async function registrarTraslado(input: RegistrarTrasladoInput, ctx: Logi
         await transicionar(tx, d, EstadoDocumentoLogistica.EN_ACTA, ctx, {
           tipo: 'destino_registrado', trasladoId: traslado.id, actaId: acta.id, destino,
           payload: { trasladoId: traslado.id, actaId: acta.id, destino },
+        });
+        // Evento sin cambio de estado (calco de acta_organismo); mismo tx que destino_registrado.
+        await insertarEvento(tx, { id: d.id, estado: EstadoDocumentoLogistica.EN_ACTA }, EstadoDocumentoLogistica.EN_ACTA, ctx, {
+          tipo: 'acta_cliente', trasladoId: traslado.id, actaId: acta.id, destino,
+          payload: { actaId: acta.id, trasladoId: traslado.id, destino },
         });
       }
 

@@ -143,7 +143,7 @@ export async function despacharTraslado(
     }
     for (const d of docs) {
       await transicionar(tx, d, EstadoDocumentoLogistica.DESPACHADO, ctx, {
-        tipo: 'despachado', trasladoId: t.id, actaId: acta.id, destino: t.destino,
+        tipo: 'salida', trasladoId: t.id, actaId: acta.id, destino: t.destino,
         payload: { trasladoId: t.id, actaId: acta.id },
       });
     }
@@ -235,7 +235,7 @@ export async function entregarTraslado(
       const d = porId.get(l.documentoId);
       if (d) {
         await transicionar(tx, d, EstadoDocumentoLogistica.ENTREGADO, ctx, {
-          tipo: 'entregado', trasladoId: t.id, actaId: acta.id, destino: t.destino,
+          tipo: 'entrega', trasladoId: t.id, actaId: acta.id, destino: t.destino,
           lat: datos.lat, lng: datos.lng, payload: { trasladoId: t.id, actaId: acta.id },
         });
       }
@@ -247,7 +247,7 @@ export async function entregarTraslado(
       const d = porId.get(l.documentoId);
       if (d) {
         await transicionar(tx, d, destDev, ctx, {
-          tipo: 'devuelto', trasladoId: t.id, actaId: acta.id, destino: t.destino,
+          tipo: 'devolucion', trasladoId: t.id, actaId: acta.id, destino: t.destino,
           payload: { trasladoId: t.id, actaId: acta.id, linea: 'devuelto' },
         });
       }
@@ -290,7 +290,7 @@ export async function devolverTraslado(
     const dest = estadoTrasRegreso(t.origen);
     for (const d of docs) {
       await transicionar(tx, d, dest, ctx, {
-        tipo: 'devuelto', motivo: m, trasladoId: t.id, actaId: acta.id, destino: t.destino,
+        tipo: 'devolucion', motivo: m, trasladoId: t.id, actaId: acta.id, destino: t.destino,
         payload: { trasladoId: t.id, actaId: acta.id },
       });
     }
@@ -321,7 +321,7 @@ export async function anularTraslado(
     const dest = estadoTrasRegreso(t.origen);
     for (const d of docs) {
       await transicionar(tx, d, dest, ctx, {
-        tipo: 'anulado', motivo: m, trasladoId: t.id, actaId: acta.id, destino: t.destino,
+        tipo: 'anulacion', motivo: m, trasladoId: t.id, actaId: acta.id, destino: t.destino,
         payload: { trasladoId: t.id, actaId: acta.id },
       });
     }

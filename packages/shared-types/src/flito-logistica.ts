@@ -160,6 +160,67 @@ export const TIPO_DOCUMENTO_LOGISTICA_LABEL: Record<TipoDocumentoLogistica, stri
   otro: 'Otro',
 };
 
+/**
+ * Tipo de EVENTO de bitácora (la ACCIÓN, no el estado). HU #14117.
+ * `tramite_resuelto` se conserva fuera del catálogo AC1.
+ */
+export const EventoDocumentoLogisticaTipo = {
+  RECOGIDA: 'recogida',
+  ACTA_ORGANISMO: 'acta_organismo',
+  DESTINO_REGISTRADO: 'destino_registrado',
+  SALIDA: 'salida',
+  ENTREGA: 'entrega',
+  ACTA_CLIENTE: 'acta_cliente',
+  DEVOLUCION: 'devolucion',
+  ANULACION: 'anulacion',
+  NOVEDAD: 'novedad',
+  REVERSA: 'reversa',
+  TRAMITE_RESUELTO: 'tramite_resuelto',
+} as const;
+
+export type EventoDocumentoLogisticaTipo =
+  (typeof EventoDocumentoLogisticaTipo)[keyof typeof EventoDocumentoLogisticaTipo];
+
+/** Aliases históricos → canónico. `anulado` ↔ `anulacion`. */
+export const EVENTO_DOCUMENTO_LOGISTICA_TIPO_ALIAS: Readonly<Record<string, EventoDocumentoLogisticaTipo>> = {
+  recogida_organismo: 'recogida',
+  despachado: 'salida',
+  entregado: 'entrega',
+  devuelto: 'devolucion',
+  anulado: 'anulacion',
+  anulacion: 'anulacion',
+};
+
+const EVENTO_DOCUMENTO_LOGISTICA_TIPOS = new Set<string>(Object.values(EventoDocumentoLogisticaTipo));
+
+/** estadoNuevo → tipo cuando el evento viejo no trajo `tipo`. No adivina clasificado/en_flit/generado. */
+const TIPO_DESDE_ESTADO_NUEVO: Readonly<Record<string, EventoDocumentoLogisticaTipo>> = {
+  recogido: 'recogida',
+  novedad: 'novedad',
+  despachado: 'salida',
+  entregado: 'entrega',
+  devuelto: 'devolucion',
+  anulado: 'anulacion',
+};
+
+/**
+ * Tipo efectivo en LECTURA (y auto-fill de escritura): canónico si `tipo` viene (con aliases);
+ * si es nulo, se interpreta por `estadoNuevo`. Sin backfill SQL.
+ */
+export function tipoEventoEfectivo(
+  tipo: string | null | undefined,
+  estadoNuevo?: string | null,
+): EventoDocumentoLogisticaTipo | null {
+  if (tipo) {
+    const alias = EVENTO_DOCUMENTO_LOGISTICA_TIPO_ALIAS[tipo];
+    if (alias) return alias;
+    if (EVENTO_DOCUMENTO_LOGISTICA_TIPOS.has(tipo)) return tipo as EventoDocumentoLogisticaTipo;
+    return null;
+  }
+  if (!estadoNuevo) return null;
+  return TIPO_DESDE_ESTADO_NUEVO[estadoNuevo] ?? EVENTO_DOCUMENTO_LOGISTICA_TIPO_ALIAS[estadoNuevo] ?? null;
+}
+
 /** Estrategia del proveedor logístico: mensajería propia (PWA FLITO) o integración con tercero (§6). */
 export const EstrategiaProveedorLogistica = {
   PWA_PROPIA: 'pwa_propia',

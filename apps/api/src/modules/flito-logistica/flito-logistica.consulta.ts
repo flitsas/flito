@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-o
 import {
   EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL,
   ESTADO_DOCUMENTO_LOGISTICA_LABEL, ESTADO_LOGISTICA_SIMPLE_LABEL, EstadoLogisticaSimple,
-  simplificarEstadoLogistica,
+  simplificarEstadoLogistica, tipoEventoEfectivo,
   type CompaniaCerrableLogistica, type EstadoDocumentoLogistica as TEstadoDoc,
   type EstadoLogisticaSimple as TEstadoSimple,
 } from '@operaciones/shared-types';
@@ -143,6 +143,7 @@ export async function listar(filtros: FiltrosLogistica = {}, alcance: AlcanceRes
 export interface EventoDocumento {
   id: string; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null;
   lat: string | null; lng: string | null; motivo: string | null; origen: string; creadoEn: string;
+  tipo: string | null;
 }
 /** Bitácora de la LT (CA-07): cada transición con actor, hora y ubicación. */
 export async function eventos(documentoId: string): Promise<EventoDocumento[]> {
@@ -151,11 +152,12 @@ export async function eventos(documentoId: string): Promise<EventoDocumento[]> {
     estadoNuevo: flitoLogisticaEventos.estadoNuevo, actorNombre: users.name,
     lat: flitoLogisticaEventos.lat, lng: flitoLogisticaEventos.lng, motivo: flitoLogisticaEventos.motivo,
     origen: flitoLogisticaEventos.origen, creadoEn: flitoLogisticaEventos.createdAt,
+    tipo: flitoLogisticaEventos.tipo,
   }).from(flitoLogisticaEventos)
     .leftJoin(users, eq(flitoLogisticaEventos.actorId, users.id))
     .where(eq(flitoLogisticaEventos.documentoId, documentoId))
     .orderBy(desc(flitoLogisticaEventos.createdAt));
-  return rows.map((r) => ({ ...r, creadoEn: r.creadoEn.toISOString() }));
+  return rows.map((r) => ({ ...r, tipo: tipoEventoEfectivo(r.tipo, r.estadoNuevo), creadoEn: r.creadoEn.toISOString() }));
 }
 
 export interface TramiteDetalle extends TramiteFila {
@@ -345,7 +347,7 @@ export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
 // ── Detalle del acta (CA-13: filas del acta + bitácora + firmas) ─────────────
 
 export interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string | null }
-export interface ActaEvento { id: string; documentoId: string; placa: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string }
+export interface ActaEvento { id: string; documentoId: string; placa: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string; tipo: string | null }
 export interface ActaDetalle {
   /** 'organismo' | 'flit' | 'cliente' (HU #14110: el acta de organismo se completa con firmas y líneas en la ruta). */
   punto?: string;
@@ -382,7 +384,7 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     id: flitoLogisticaEventos.id, documentoId: flitoLogisticaEventos.documentoId, placa: vehicles.plate,
     estadoAnterior: flitoLogisticaEventos.estadoAnterior, estadoNuevo: flitoLogisticaEventos.estadoNuevo,
     actorNombre: users.name, motivo: flitoLogisticaEventos.motivo, origen: flitoLogisticaEventos.origen,
-    creadoEn: flitoLogisticaEventos.createdAt,
+    creadoEn: flitoLogisticaEventos.createdAt, tipo: flitoLogisticaEventos.tipo,
   }).from(flitoLogisticaEventos)
     .innerJoin(flitoLogisticaDocumentos, eq(flitoLogisticaEventos.documentoId, flitoLogisticaDocumentos.id))
     .innerJoin(vehicles, eq(flitoLogisticaDocumentos.vehiculoId, vehicles.id))
@@ -406,6 +408,6 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
       numeroLicencia: d.numeroLicencia, numeroLt: d.numeroLt,
       estado: d.estado, estadoLabel: ESTADO_DOCUMENTO_LOGISTICA_LABEL[d.estado as TEstadoDoc] ?? d.estado, idFlit: d.idFlit,
     })),
-    bitacora: bitacora.map((e) => ({ ...e, creadoEn: e.creadoEn.toISOString() })),
+    bitacora: bitacora.map((e) => ({ ...e, tipo: tipoEventoEfectivo(e.tipo, e.estadoNuevo), creadoEn: e.creadoEn.toISOString() })),
   };
 }
