@@ -190,12 +190,10 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   });
   // HU #13769 AC4 — ficha piloto con una captura por paso clave, todas con alt y en disco (el test de
   // arriba ya valida src/carpeta/archivo) y ≤ 200 KB.
-  test('HU #13769 AC4 — flito_logistica_ruta cita sus 5 capturas NN-<paso>.png con alt y ≤ 200 KB', () => {
+  test('HU #13769 AC4 — flito_logistica_ruta cita sus capturas NN-<paso>.png con alt y ≤ 200 KB', () => {
     const md = leer('apps/web/src/content/ayuda/flito_logistica_ruta.md');
     const imgs = [...md.matchAll(/!\[([^\]]+)\]\(\.\/flito_logistica_ruta\/(\d{2}-[a-z0-9-]+\.png)\)/g)];
-    expect(imgs.map((m) => m[2])).toEqual([
-      '01-recoger-licencias.png', '02-resultado-validacion.png', '03-confirmar-recogida.png', '04-entregar.png', '05-sin-conexion.png',
-    ]);
+    expect(imgs.map((m) => m[2])).toEqual(['04-entregar.png', '05-sin-conexion.png']); // 01-03 dejaron de citarse con la HU #14111
     for (const [, alt, archivo] of imgs) {
       expect(alt.trim().length, archivo).toBeGreaterThan(10);
       expect(statSync(resolve(raiz, 'apps/web/public/ayuda/flito_logistica_ruta', archivo)).size, archivo).toBeLessThanOrEqual(200 * 1024);
@@ -242,7 +240,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // HU #13964: «Quitar» la versión vigente y el estado «retirada» del historial (v1.8).
     flito_bolsas: { version: '1.8', fecha: '2026-10-26', diagrama: 'ciclo-periodo.svg', capturas: [
       '01-cabecera-y-kpi.png', '02-companias.png', '03-crear-bolsa.png', '04-detalle-compania.png', '05-documentos.png'] },
-    flito_tarifas: { version: '1.2', fecha: '2026-10-25', diagrama: 'vigencias.svg', capturas: [
+    flito_tarifas: { version: '1.3', fecha: '2026-10-27', diagrama: 'vigencias.svg', capturas: [
       '01-elegir-compania.png', '02-fijar-valor.png', '03-historial.png'] },
     // Citadas en el orden de los pasos de la ficha (la 01 ilustra el paso 5, «Por tarifar»).
     flito_servicios_adicionales: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-tipo.svg', capturas: [
@@ -311,7 +309,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // HU #13955: NIT duplicado bajo el campo y campo Sucursal en el alta (capturas sin cambio: el
     // formulario de alta y la ficha fiscal no salen en ninguna).
     // HU #13961: Proveedores con Estado, filtro y ⋮ para desactivar y activar (03-proveedores regenerada).
-    clients: { version: '2.2', fecha: '2026-10-26', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
+    clients: { version: '2.3', fecha: '2026-10-28', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
       '01-clientes.png', '02-soat-sin-tramite.png', '03-proveedores.png'] },
     flito_tablero: { version: '1.2', diagrama: null, capturas: ['01-indicadores-y-alertas.png', '02-por-estado.png'] },
   };
@@ -404,24 +402,25 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // HU #13773 — manuales del área Mensajero y Logística: misma comprobación que Facturación, Corredor SOAT y
   // Corredor Impuestos (versión y fecha exactas, sin rutas, capturas citadas en orden y dentro de su paso, una
   // sola lista ordenada en Pasos, diagrama SVG con alt). Las dos fichas describen procesos de más de 3 pasos.
-  // flito_logistica_ruta conserva sus 5 capturas de la piloto (HU #13769): el texto cambió, la pantalla no.
-  const LOGISTICA_13773: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
-    flito_logistica: { version: '1.1', diagrama: 'ciclo-licencia.svg', capturas: [
-      '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-generacion-de-actas.png', '05-actas.png',
-      '06-firmar-y-despachar.png'] },
-    flito_logistica_ruta: { version: '1.2', diagrama: 'recorrido-mensajero.svg', capturas: [
-      '01-recoger-licencias.png', '02-resultado-validacion.png', '03-confirmar-recogida.png', '04-entregar.png',
-      '05-sin-conexion.png'] },
+  // HU #14116 — pestaña Viajes a cliente y paso de entrega; version 2.0 (cambio de fondo).
+  // HU #14120 — pestaña Motivos de llegada; version 2.1.
+  // HU #14121 — estado En FLIT en el filtro de Trámites y en Mis recogidas; 2.2 y 2.1.
+  const LOGISTICA_13773: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
+    flito_logistica: { version: '2.4', fecha: '2026-10-29', diagrama: 'ciclo-licencia.svg', capturas: [
+      '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-viajes-a-cliente.png',
+      '08-entregas.png', '05-actas.png', '06-firmar-y-despachar.png', '07-motivos-de-llegada.png'] },
+    flito_logistica_ruta: { version: '2.2', fecha: '2026-10-29', diagrama: 'recorrido-mensajero.svg', capturas: [
+      '04-entregar.png', '05-sin-conexion.png'] },
   };
 
   for (const [clave, esperado] of Object.entries(LOGISTICA_13773)) {
-    test(`HU #13773 — ${clave}: versión ${esperado.version} del 2026-10-22, capturas y diagrama con alt`, () => {
+    test(`HU #13773 — ${clave}: versión ${esperado.version} del ${esperado.fecha ?? '2026-10-22'}, capturas y diagrama con alt`, () => {
       const md = leer(`apps/web/src/content/ayuda/${clave}.md`);
       const { encabezado, errores } = parsearFicha(md);
       expect(errores, clave).toEqual([]);
       // AC5 — la ficha cambió: sube la versión menor y la fecha.
       expect(encabezado!.version, `${clave} · version`).toBe(esperado.version);
-      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe('2026-10-22');
+      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe(esperado.fecha ?? '2026-10-22');
       // AC4 — sin rutas de API ni rutas de la app en el texto.
       expect(md, `${clave} · sin rutas`).not.toMatch(/`\/|\/api\/|\/flito\//);
 
