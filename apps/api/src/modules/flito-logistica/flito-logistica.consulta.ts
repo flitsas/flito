@@ -7,12 +7,13 @@ import {
   simplificarEstadoLogistica, tipoEventoEfectivo,
   type CompaniaCerrableLogistica, type EstadoDocumentoLogistica as TEstadoDoc,
   type EstadoLogisticaSimple as TEstadoSimple,
+  type HitoLineaTiempoLogistica, type LineaTiempoLogistica,
 } from '@operaciones/shared-types';
 import { precioTrasladoDe } from './flito-logistica-precios.js';
 import { db } from '../../db/client.js';
 import {
   clients, flitoCompradores, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos,
-  flitoTramites, organismosTransitoConfig, users, vehicles,
+  flitoLogisticaMotivosLlegada, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { usuariosConFuncion } from '../../shared/permisos-efectivos.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
@@ -432,4 +433,82 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     })),
     bitacora: bitacora.map((e) => ({ ...e, tipo: tipoEventoEfectivo(e.tipo, e.estadoNuevo), creadoEn: e.creadoEn.toISOString() })),
   };
+}
+
+// ── Línea de tiempo (HU #14124) ──────────────────────────────────────────────
+// Lectura del recorrido de UNA LT. No toca `tipoEventoEfectivo` ni el mapa de estados.
+// El payload solo se lee aquí, para resolver `motivoLlegadaId`; no sale en el DTO.
+
+const UUID_TEXTO = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+
+/**
+ * Motivo del hito: la columna `motivo` si trae texto. Si viene vacía y `payload.motivoLlegadaId`
+ * es un uuid del catálogo, el nombre (aunque el motivo esté inactivo). Id que no resuelve → null.
+ * El cast va detrás del formato: un jsonb sucio no puede convertirse en 22P02. La nota libre no sale.
+ */
+function motivoDeHito(): SQL<string | null> {
+  const idTexto = sql`${flitoLogisticaEventos.payload}->>'motivoLlegadaId'`;
+  const idUuid = sql`CASE WHEN (${idTexto}) ~ ${UUID_TEXTO} THEN (${idTexto})::uuid ELSE NULL END`;
+  return sql<string | null>`CASE
+    WHEN btrim(coalesce(${flitoLogisticaEventos.motivo}, '')) <> '' THEN ${flitoLogisticaEventos.motivo}
+    ELSE (
+      SELECT ${flitoLogisticaMotivosLlegada.nombre}
+      FROM ${flitoLogisticaMotivosLlegada}
+      WHERE ${flitoLogisticaMotivosLlegada.id} = (${idUuid})
+      LIMIT 1
+    )
+  END`;
+}
+
+async function hitosDe(documentoId: string): Promise<HitoLineaTiempoLogistica[]> {
+  const rows = await db.select({
+    id: flitoLogisticaEventos.id,
+    tipo: flitoLogisticaEventos.tipo,
+    fecha: flitoLogisticaEventos.createdAt,
+    actorNombre: users.name,
+    destino: flitoLogisticaEventos.destino,
+    motivo: motivoDeHito(),
+    estadoNuevo: flitoLogisticaEventos.estadoNuevo,
+  }).from(flitoLogisticaEventos)
+    .leftJoin(users, eq(flitoLogisticaEventos.actorId, users.id))
+    .where(eq(flitoLogisticaEventos.documentoId, documentoId))
+    .orderBy(desc(flitoLogisticaEventos.createdAt));
+  return rows.map((r) => ({
+    id: r.id,
+    tipo: tipoEventoEfectivo(r.tipo, r.estadoNuevo),
+    fecha: r.fecha.toISOString(),
+    actorNombre: r.actorNombre,
+    destino: r.destino,
+    motivo: r.motivo,
+    estadoNuevo: r.estadoNuevo,
+  }));
+}
+
+/** Eventos de esa LT, también si sigue pendiente de trámite (`tramiteId` null). */
+export async function lineaTiempoDocumento(documentoId: string): Promise<LineaTiempoLogistica> {
+  const [doc] = await db.select({
+    id: flitoLogisticaDocumentos.id,
+    tramiteId: flitoLogisticaDocumentos.tramiteId,
+  }).from(flitoLogisticaDocumentos)
+    .where(and(eq(flitoLogisticaDocumentos.id, documentoId), eq(flitoLogisticaDocumentos.tipo, LT)))
+    .limit(1);
+  if (!doc) throw new LogisticaError('La LT no existe', 404);
+  return { documentoId: doc.id, tramiteId: doc.tramiteId, hitos: await hitosDe(doc.id) };
+}
+
+/** La LT `licencia_transito` de ese trámite. Sin LT todavía: 200 con hitos vacíos. */
+export async function lineaTiempoTramite(tramiteId: string): Promise<LineaTiempoLogistica> {
+  const [row] = await db.select({
+    tramiteId: flitoTramites.id,
+    documentoId: flitoLogisticaDocumentos.id,
+  }).from(flitoTramites)
+    .leftJoin(flitoLogisticaDocumentos, and(
+      eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id),
+      eq(flitoLogisticaDocumentos.tipo, LT),
+    ))
+    .where(eq(flitoTramites.id, tramiteId))
+    .limit(1);
+  if (!row) throw new LogisticaError('El trámite no existe', 404);
+  if (!row.documentoId) return { documentoId: null, tramiteId: row.tramiteId, hitos: [] };
+  return { documentoId: row.documentoId, tramiteId: row.tramiteId, hitos: await hitosDe(row.documentoId) };
 }

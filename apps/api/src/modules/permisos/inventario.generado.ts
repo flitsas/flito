@@ -127,6 +127,9 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/actas/:id", roles: ["admin","auditor"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/actas/:id/pdf", roles: ["admin","auditor"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/:id", roles: ["admin","auditor"], heredada: false },
+  // HU #14124: línea de tiempo. Mismo código y mismo reparto que GET /:id (sin función nueva ni siembra).
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/documentos/:id/linea-tiempo", roles: ["admin","auditor"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/tramites/:tramiteId/linea-tiempo", roles: ["admin","auditor"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/validar-lt", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/consultar-vehiculo", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/escanear", roles: ["admin","mensajero"], heredada: false },

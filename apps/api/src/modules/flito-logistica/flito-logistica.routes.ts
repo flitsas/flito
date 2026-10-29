@@ -21,7 +21,7 @@ import { recogidaConfirmarLimiter, revelarDocumentoLimiter, trasladoCicloLimiter
 import {
   actaDetalle, anularTraslado, buscarIdempotencia, cerrarLote, despachar, despacharTraslado,
   destinoDeTraslado, devolverTraslado, entregar, entregarTraslado, firmarLlegadaFlit, consultarVehiculo, escanearLt, facetas,
-  guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
+  guardarIdempotencia, lineaTiempoDocumento, lineaTiempoTramite, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
   registrarNovedad, registrarTraslado, reversar, tramiteDetalle, urlActaPdf, validarLt,
   type FiltrosLogistica, type LogisticaCtx,
 } from './flito-logistica.service.js';
@@ -155,6 +155,24 @@ router.post('/documentos/:id/resolver-tramite', soloSinEnlace(), exigirFuncion('
     await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: id.data, detail: `Trámite de LT pendiente resuelto: trámite ${r.tramiteId}, compañía ${r.companiaId}` });
     return { body: r };
   }, 'documentos/resolver-tramite');
+});
+
+// HU #14124 — línea de tiempo. Misma función que GET /:id. `soloSinEnlace` antes de la función:
+// el enlace compañía recibe 403 sin mirar si el id existe. Proveedor y organismos los cierra la frontera del módulo.
+async function responderLinea(res: Response, fn: () => Promise<unknown>): Promise<void> {
+  res.set('Cache-Control', 'no-store');
+  const r = await ejecutar(res, fn);
+  if (r !== undefined) res.json(r);
+}
+router.get('/documentos/:id/linea-tiempo', soloSinEnlace(), exigirFuncion('logistica.documento.ver'), async (req: Request, res: Response) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) { res.set('Cache-Control', 'no-store').status(404).json({ error: 'La LT no existe' }); return; }
+  await responderLinea(res, () => lineaTiempoDocumento(id.data));
+});
+router.get('/tramites/:tramiteId/linea-tiempo', soloSinEnlace(), exigirFuncion('logistica.documento.ver'), async (req: Request, res: Response) => {
+  const id = z.string().uuid().safeParse(req.params.tramiteId);
+  if (!id.success) { res.set('Cache-Control', 'no-store').status(404).json({ error: 'El trámite no existe' }); return; }
+  await responderLinea(res, () => lineaTiempoTramite(id.data));
 });
 
 // GET /:id — detalle del trámite aprobado + su LT + bitácora (CA-07).

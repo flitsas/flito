@@ -204,6 +204,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} GET /`, 'logistica.consola.ver', 'Ver la consola de logística', 'Abrir la trazabilidad de documentos en tránsito.'),
   op(`${LOG} GET /facetas`, 'logistica.consola.filtrar', 'Filtrar la consola de logística', 'Leer los contadores y las facetas de la consola.'),
   op(`${LOG} GET /:id`, 'logistica.documento.ver', 'Ver un documento en logística', 'Consultar el detalle y el recorrido de un documento.'),
+  // HU #14124: las dos lecturas de la línea de tiempo reutilizan la misma función (sin función nueva ni siembra).
+  op(`${LOG} GET /documentos/:id/linea-tiempo`, 'logistica.documento.ver', 'Ver un documento en logística', 'Consultar el detalle y el recorrido de un documento.'),
+  op(`${LOG} GET /tramites/:tramiteId/linea-tiempo`, 'logistica.documento.ver', 'Ver un documento en logística', 'Consultar el detalle y el recorrido de un documento.'),
   op(`${LOG} GET /mi-ruta`, 'logistica.ruta.ver', 'Ver mi ruta de mensajería', 'Consultar las recogidas y entregas asignadas al mensajero.'),
   op(`${LOG} GET /actas`, 'logistica.actas.listar', 'Ver las actas de logística', 'Listar las actas de despacho y entrega.'),
   op(`${LOG} GET /actas/:id`, 'logistica.actas.ver', 'Ver un acta de logística', 'Abrir el detalle de un acta y sus documentos.'),

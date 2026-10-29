@@ -272,3 +272,20 @@ export interface CompaniaCerrableLogistica {
   precioEntregaFlit: number | null;
   lts: LtClasificadaCerrable[];
 }
+
+/** Hito de la línea de tiempo (HU #14124). Sin payload, ubicación ni firmas. */
+export interface HitoLineaTiempoLogistica {
+  id: string;
+  tipo: EventoDocumentoLogisticaTipo | null;
+  fecha: string; // created_at ISO
+  actorNombre: string | null; // users.name; null si el usuario ya no está
+  destino: string | null; // columna destino, tal cual; no se deduce del estado
+  motivo: string | null;
+  estadoNuevo: string;
+}
+
+export interface LineaTiempoLogistica {
+  documentoId: string | null;
+  tramiteId: string | null;
+  hitos: HitoLineaTiempoLogistica[];
+}

@@ -224,6 +224,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/actas/:id', codigo: 'logistica.actas.ver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/actas/:id/pdf', codigo: 'logistica.actas.descargar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'logistica.documento.ver' },
+  // HU #14124: línea de tiempo, la misma función que el detalle.
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/documentos/:id/linea-tiempo', codigo: 'logistica.documento.ver' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/tramites/:tramiteId/linea-tiempo', codigo: 'logistica.documento.ver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/validar-lt', codigo: 'logistica.lt.validar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/consultar-vehiculo', codigo: 'logistica.documento.escanear' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/escanear', codigo: 'logistica.documento.escanear' },

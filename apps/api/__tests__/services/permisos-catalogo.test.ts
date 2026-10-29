@@ -218,6 +218,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2],
       ['logistica.actas.despachar', 2], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2],
       ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],
+      ['logistica.documento.ver', 3], // HU #14124: GET /:id y las dos líneas de tiempo
       ['logistica.motivos.gestionar', 4], // HU #14119: las 4 rutas del catálogo de motivos
       ['logistica.recogida.confirmar', 4], ['logistica.viajes.registrar', 2],
       // HU #14148: +impacto de logística (estado 4), +baja de logística (eliminar 2) y +listado unificado (listar 3).
