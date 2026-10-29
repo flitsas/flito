@@ -1,0 +1,109 @@
+// HU #14114 (Feature C2 #14092, Épica #13758, ADR-0030 §5) — errores de dominio del registro de traslado.
+// Extienden `LogisticaError` para que `ejecutar` / `conIdempotencia` de la ruta los traduzcan.
+import { LogisticaError } from './flito-logistica.base.js';
+
+export class TrasladoLogisticaError extends LogisticaError {
+  constructor(message: string, status: number, codigo: string, extra?: unknown) {
+    super(message, status, extra, codigo);
+  }
+}
+
+/** AC2: la compañía no tiene precio vigente para el destino. */
+export class PrecioTrasladoNoConfiguradoError extends TrasladoLogisticaError {
+  constructor(destino: 'cliente' | 'flit') {
+    const etiqueta = destino === 'flit' ? 'FLIT' : 'cliente';
+    super(
+      `La compañía no tiene precio vigente de entrega a ${etiqueta}; configúralo en Tarifas antes de registrar el viaje`,
+      422,
+      'PRECIO_TRASLADO_NO_CONFIGURADO',
+    );
+  }
+}
+
+/**
+ * AC3: logística encendida sin proveedor. El ADR nombra `PROVEEDOR_LOGISTICA_NO_ASIGNADO`;
+ * el AC manda `PROVEEDOR_LOGISTICA_REQUERIDO` — ese es el código público. Ambos nombres de clase
+ * apuntan aquí.
+ */
+export class ProveedorLogisticaRequeridoError extends TrasladoLogisticaError {
+  constructor() {
+    super(
+      'Una compañía con la logística encendida necesita un proveedor de logística.',
+      422,
+      'PROVEEDOR_LOGISTICA_REQUERIDO',
+    );
+  }
+}
+export { ProveedorLogisticaRequeridoError as ProveedorLogisticaNoAsignadoError };
+
+/** AC4: las LT no son todas de la compañía del cuerpo. */
+export class TrasladoCompaniaMixtaError extends TrasladoLogisticaError {
+  constructor(documentoIds: string[]) {
+    super('Las LT de un viaje deben ser de una sola compañía', 422, 'TRASLADO_COMPANIA_MIXTA', { documentoIds });
+  }
+}
+
+/** AC4: la LT ya tiene un viaje vivo al mismo destino (también ante 23505). */
+export class LtYaEnTrasladoError extends TrasladoLogisticaError {
+  constructor(documentoIds: string[] = []) {
+    super('Una o más LT ya están en un viaje vivo a ese destino', 409, 'LT_YA_EN_TRASLADO', { documentoIds });
+  }
+}
+
+/** AC5: la compañía autogestiona su logística. */
+export class LogisticaAutogestionadaTrasladoError extends TrasladoLogisticaError {
+  constructor() {
+    super(
+      'La logística de esta compañía es autogestionada por el cliente; FLITO no la gestiona',
+      409,
+      'LOGISTICA_AUTOGESTIONADA',
+    );
+  }
+}
+
+/** AC6: mensajero sobre LT que no recogió, sin `operar_ajenas`. */
+export class LtAjenaTrasladoError extends TrasladoLogisticaError {
+  constructor() {
+    super('Solo puedes registrar el viaje de las LT que recogiste tú', 403, 'LT_AJENA');
+  }
+}
+
+export class DestinoFlitNoDisponibleError extends TrasladoLogisticaError {
+  constructor() {
+    super(
+      'El viaje a FLIT se registra en un flujo aparte; aquí solo se admite destino a cliente',
+      422,
+      'DESTINO_FLIT_NO_DISPONIBLE',
+    );
+  }
+}
+
+export class LtNoEncontradaTrasladoError extends TrasladoLogisticaError {
+  constructor(documentoIds: string[]) {
+    super('Una o más LT no existen', 422, 'LT_NO_ENCONTRADA', { documentoIds });
+  }
+}
+
+export class LtEstadoNoAdmisibleError extends TrasladoLogisticaError {
+  constructor(documentoIds: string[]) {
+    super('Una o más LT no están en un estado en el que se pueda registrar el viaje', 409, 'LT_ESTADO_NO_ADMISIBLE', { documentoIds });
+  }
+}
+
+export class TrasladoOrigenMixtoError extends TrasladoLogisticaError {
+  constructor() {
+    super('Las LT de un viaje deben tener el mismo origen (organismo o FLIT)', 422, 'TRASLADO_ORIGEN_MIXTO');
+  }
+}
+
+export class CompaniaNoEncontradaTrasladoError extends TrasladoLogisticaError {
+  constructor() {
+    super('Compañía no encontrada', 404, 'COMPANIA_NO_ENCONTRADA');
+  }
+}
+
+export class SinLtClasificadasError extends TrasladoLogisticaError {
+  constructor() {
+    super('No hay LT clasificadas para esta empresa', 400, 'SIN_LT_CLASIFICADAS');
+  }
+}

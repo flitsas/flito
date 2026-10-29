@@ -33,15 +33,23 @@ export class LogisticaError extends Error {
 // ── Transición genérica (deja evento; sostiene CA-07/RN-04/RN-07) ────────────
 
 export interface DocMin { id: string; estado: string }
-export interface TransOpts { motivo?: string | null; lat?: string | null; lng?: string | null; origen?: 'api' | 'usuario' }
+export interface TransOpts {
+  motivo?: string | null; lat?: string | null; lng?: string | null; origen?: 'api' | 'usuario';
+  /** HU #14114: evento tipificado (ADR-0030). Payload solo ids/códigos, nunca PII. */
+  tipo?: string | null; trasladoId?: string | null; actaId?: string | null; destino?: string | null;
+  payload?: Record<string, unknown> | null;
+}
 
 export async function transicionar(exec: DbOrTx, doc: DocMin, estadoNuevo: TEstadoDoc, ctx: LogisticaCtx, opts: TransOpts = {}): Promise<void> {
   const set: Record<string, unknown> = { estado: estadoNuevo, updatedAt: new Date() };
   if (opts.motivo !== undefined) set.motivo = opts.motivo;
+  if (opts.actaId) set.actaId = opts.actaId;
   await exec.update(flitoLogisticaDocumentos).set(set).where(eq(flitoLogisticaDocumentos.id, doc.id));
   await exec.insert(flitoLogisticaEventos).values({
     documentoId: doc.id, estadoAnterior: doc.estado, estadoNuevo, actorId: ctx.userId,
     lat: opts.lat ?? null, lng: opts.lng ?? null, motivo: opts.motivo ?? null, origen: opts.origen ?? 'usuario',
+    tipo: opts.tipo ?? null, trasladoId: opts.trasladoId ?? null, actaId: opts.actaId ?? null,
+    destino: opts.destino ?? null, payload: opts.payload ?? null,
   });
 }
 

@@ -17,11 +17,12 @@ import { confirmarRecogida } from './flito-logistica.recogida.js';
 import { candidatosDe, listarPendientes, resolverTramite } from './flito-logistica.pendientes.js';
 import { contarPendientesFirma, ltPendientesFirma } from './flito-logistica.pendientes-firma.js';
 import { misRecogidas, recogidaDetalle, revelarDocumentoFirmante } from './flito-logistica.firmante.js';
-import { recogidaConfirmarLimiter, revelarDocumentoLimiter } from './flito-logistica.limitadores.js';
+import { recogidaConfirmarLimiter, revelarDocumentoLimiter, trasladoRegistrarLimiter } from './flito-logistica.limitadores.js';
 import {
   actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, consultarVehiculo, escanearLt, facetas,
   guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
-  registrarNovedad, reversar, tramiteDetalle, urlActaPdf, validarLt, type FiltrosLogistica, type LogisticaCtx,
+  registrarNovedad, registrarTraslado, reversar, tramiteDetalle, urlActaPdf, validarLt,
+  type FiltrosLogistica, type LogisticaCtx,
 } from './flito-logistica.service.js';
 
 /** La bitácora sin el nombre del actor (HU #13426): la forma del DTO no cambia. */
@@ -228,7 +229,29 @@ router.post('/documentos/:id/novedad', exigirFuncion('logistica.documento.report
   });
 });
 
-// POST /cerrar-lote — genera el acta de una empresa con sus documentos clasificados (CA-04/08/09).
+// POST /traslados — HU #14114: registrar viaje a cliente (precio congelado). Destino FLIT → 422 (C3.4).
+const trasladoLtSchema = z.object({
+  documentoId: z.string().uuid(),
+  motivoLlegadaId: z.string().uuid().optional(),
+  nota: z.string().trim().max(300).optional(),
+});
+const trasladoSchema = z.object({
+  companiaId: z.number().int().positive(),
+  destino: z.enum(['cliente', 'flit']),
+  lts: z.array(trasladoLtSchema).min(1).max(200),
+  mensajeroId: z.number().int().positive().optional(),
+});
+router.post('/traslados', soloSinEnlace(), exigirFuncion('logistica.traslado.registrar'), trasladoRegistrarLimiter, async (req: Request, res: Response) => {
+  const parsed = trasladoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(422).json({ error: 'Datos inválidos: la compañía, el destino y al menos una LT son obligatorios', codigo: 'DATOS_INVALIDOS' }); return; }
+  await conIdempotencia(req, res, async () => {
+    const r = await registrarTraslado(parsed.data, await ctxConPropiedad(req));
+    await audit(req, { action: 'create', resource: 'flito_logistica_traslado', detail: `Traslado ${r.id} destino ${parsed.data.destino} compañía ${parsed.data.companiaId}: ${r.documentos} LT` });
+    return { body: r };
+  }, 'traslados');
+});
+
+// POST /cerrar-lote — adaptador (HU #14114): viaje a cliente de las LT clasificadas de la compañía.
 const cerrarLoteSchema = z.object({ companiaId: z.number().int().positive() });
 router.post('/cerrar-lote', exigirFuncion('logistica.lote.cerrar'), async (req: Request, res: Response) => {
   const parsed = cerrarLoteSchema.safeParse(req.body);
@@ -239,10 +262,11 @@ router.post('/cerrar-lote', exigirFuncion('logistica.lote.cerrar'), async (req: 
     res.status(403).json({ error: 'Sin permisos' });
     return;
   }
-  const r = await ejecutar(res, () => cerrarLote(parsed.data.companiaId, ctxDe(req.user!)));
-  if (r === undefined) return;
-  await audit(req, { action: 'create', resource: 'flito_logistica_acta', detail: `Acta generada para compañía ${parsed.data.companiaId}: ${JSON.stringify(r)}` });
-  res.json(r);
+  await conIdempotencia(req, res, async () => {
+    const r = await cerrarLote(parsed.data.companiaId, await ctxConPropiedad(req));
+    await audit(req, { action: 'create', resource: 'flito_logistica_acta', detail: `Acta generada para compañía ${parsed.data.companiaId}: ${r.documentos} documentos` });
+    return { body: r };
+  }, 'cerrar-lote');
 });
 
 // POST /actas/:id/despachar — Operaciones firma la ENTREGA en consola, asigna mensajero y pone las

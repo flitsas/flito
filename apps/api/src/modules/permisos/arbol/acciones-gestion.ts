@@ -137,7 +137,7 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
   'accion.logistica.reversar_paso': { operaciones: ['logistica.documento.reversar'], opcionales: ['logistica.documento.resolver_tramite'] }, // + resolver el trámite de una LT pendiente (HU #14143): se concede aparte
   // ── Mi ruta (P-8) ── el mensajero abre el documento desde su ruta: `documento.ver` es de apoyo.
   'accion.mi_ruta.ver': { lectura: true, operaciones: ['logistica.ruta.ver'], apoyo: ['logistica.documento.ver'] },
-  'accion.mi_ruta.escanear': { operaciones: ['logistica.documento.escanear'], opcionales: ['logistica.recogida.confirmar'] }, // + confirmar recogida (HU #14110): firma del organismo, se concede aparte
+  'accion.mi_ruta.escanear': { operaciones: ['logistica.documento.escanear'], opcionales: ['logistica.recogida.confirmar', 'logistica.traslado.registrar'] }, // + confirmar recogida (HU #14110); + registrar viaje a cliente (HU #14114): se conceden aparte
   'accion.mi_ruta.reportar_novedad': { operaciones: ['logistica.documento.reportar_novedad'] },
   // ── Comparendos ──
   'accion.comparendos.ver_listado': { lectura: true,

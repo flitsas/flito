@@ -11,6 +11,14 @@ export const recogidaConfirmarLimiter = rateLimit({
   store: makeStore('rl:log-recogida:'),
 });
 
+/** Registrar un traslado (viaje): escribe cabecera, líneas y acta. 60 / 15 min / usuario. */
+export const trasladoRegistrarLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: userOrIpKey('log-traslado:'),
+  message: { error: 'Demasiados registros de viaje. Espera unos minutos.' },
+  store: makeStore('rl:log-traslado:'),
+});
+
 /** Revelar la cédula de un firmante: PII; 20 / 15 min / usuario. */
 export const revelarDocumentoLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false,
