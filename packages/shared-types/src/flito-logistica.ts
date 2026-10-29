@@ -28,6 +28,7 @@ export const EstadoDocumentoLogistica = {
   GENERADO: 'generado',
   RECOGIDO: 'recogido',
   CLASIFICADO: 'clasificado',
+  EN_FLIT: 'en_flit',
   EN_ACTA: 'en_acta',
   DESPACHADO: 'despachado',
   ENTREGADO: 'entregado',
@@ -41,6 +42,7 @@ export const ESTADO_DOCUMENTO_LOGISTICA_LABEL: Record<EstadoDocumentoLogistica, 
   generado: 'Generado',
   recogido: 'Recogido',
   clasificado: 'Clasificado',
+  en_flit: 'En FLIT',
   en_acta: 'En acta',
   despachado: 'Despachado',
   entregado: 'Entregado',
@@ -68,19 +70,22 @@ export const ESTADOS_LOGISTICA_BLOQUEAN_ACTA: readonly EstadoDocumentoLogistica[
 
 // ── Estado SIMPLIFICADO (vista de negocio) ───────────────────────────────────
 // El ciclo interno tiene más matices (recogido/clasificado/en_acta…), pero la operación y el cliente
-// razonan con 5 estados. Este es el vocabulario que se muestra en la consola, el tracking y la ruta.
+// razonan con 6 estados de vocabulario. Este es el que se muestra en la consola, el tracking y la ruta.
 // El estado interno del documento sigue siendo el de arriba; aquí solo se COLAPSA para presentar.
 //
-//   Pendiente de recogida → Registrada → Despachada → Entregada         (Con novedad = lateral)
+//   Pendiente de recogida → Registrada → Despachada → Entregada
+//        (Con novedad y En FLIT viven fuera de esa línea de 4 pasos)
 //
 // - Pendiente de recogida: el trámite está aprobado pero el mensajero aún no escaneó la LT.
 // - Registrada:  el mensajero la recogió y quedó clasificada a su trámite. Lista para armar el acta.
+// - En FLIT:     el documento está en FLIT. No es un paso que todo trámite cruce.
 // - Despachada:  se generó el acta y el mensajero salió a entregarla (ya lleva la firma de Operaciones).
 // - Entregada:   el mensajero la entregó y el receptor firmó. Estado TERMINAL.
 // - Con novedad: hubo una novedad (o devolución) en cualquier punto del ciclo.
 export const EstadoLogisticaSimple = {
   PENDIENTE: 'pendiente',
   REGISTRADA: 'registrada',
+  EN_FLIT: 'en_flit',
   DESPACHADA: 'despachada',
   ENTREGADA: 'entregada',
   NOVEDAD: 'novedad',
@@ -91,6 +96,7 @@ export type EstadoLogisticaSimple = (typeof EstadoLogisticaSimple)[keyof typeof 
 export const ESTADO_LOGISTICA_SIMPLE_LABEL: Record<EstadoLogisticaSimple, string> = {
   pendiente: 'Pendiente de recogida',
   registrada: 'Registrada',
+  en_flit: 'En FLIT',
   despachada: 'Despachada',
   entregada: 'Entregada',
   novedad: 'Con novedad',
@@ -102,9 +108,10 @@ export const ESTADOS_LOGISTICA_SIMPLE_ORDEN: readonly EstadoLogisticaSimple[] = 
 ];
 
 /**
- * Colapsa el estado INTERNO del documento (o null = LT aún no escaneada) al vocabulario de 5 estados.
+ * Colapsa el estado INTERNO del documento (o null = LT aún no escaneada) al vocabulario de 6 estados.
  * `generado` y ausencia de documento = «Pendiente de recogida»; `recogido`/`clasificado`/`en_acta` =
- * «Registrada»; `despachado` = «Despachada»; `entregado` = «Entregada»; `novedad`/`devuelto` = «Con novedad».
+ * «Registrada»; `en_flit` se conserva como «En FLIT» (no se colapsa en Registrada); `despachado` =
+ * «Despachada»; `entregado` = «Entregada»; `novedad`/`devuelto` = «Con novedad».
  */
 export function simplificarEstadoLogistica(interno: string | null | undefined): EstadoLogisticaSimple {
   switch (interno) {
@@ -112,6 +119,8 @@ export function simplificarEstadoLogistica(interno: string | null | undefined): 
     case 'clasificado':
     case 'en_acta':
       return 'registrada';
+    case 'en_flit':
+      return 'en_flit';
     case 'despachado':
       return 'despachada';
     case 'entregado':
@@ -160,6 +169,74 @@ export const TIPO_DOCUMENTO_LOGISTICA_LABEL: Record<TipoDocumentoLogistica, stri
   otro: 'Otro',
 };
 
+/**
+ * Tipo de EVENTO de bitácora (la ACCIÓN, no el estado). HU #14117.
+ * `tramite_resuelto` se conserva fuera del catálogo AC1.
+ */
+export const EventoDocumentoLogisticaTipo = {
+  RECOGIDA: 'recogida',
+  ACTA_ORGANISMO: 'acta_organismo',
+  DESTINO_REGISTRADO: 'destino_registrado',
+  SALIDA: 'salida',
+  ENTREGA: 'entrega',
+  ACTA_CLIENTE: 'acta_cliente',
+  /** HU #14122: acta del viaje a FLIT (sin cambio de estado; el caller lo pasa siempre). */
+  ACTA_FLIT: 'acta_flit',
+  /** HU #14122: llegada firmada a FLIT. No se infiere de `en_flit`. */
+  LLEGADA: 'llegada',
+  DEVOLUCION: 'devolucion',
+  ANULACION: 'anulacion',
+  NOVEDAD: 'novedad',
+  REVERSA: 'reversa',
+  TRAMITE_RESUELTO: 'tramite_resuelto',
+} as const;
+
+export type EventoDocumentoLogisticaTipo =
+  (typeof EventoDocumentoLogisticaTipo)[keyof typeof EventoDocumentoLogisticaTipo];
+
+/** Aliases históricos → canónico. `anulado` ↔ `anulacion`. */
+export const EVENTO_DOCUMENTO_LOGISTICA_TIPO_ALIAS: Readonly<Record<string, EventoDocumentoLogisticaTipo>> = {
+  recogida_organismo: 'recogida',
+  despachado: 'salida',
+  entregado: 'entrega',
+  devuelto: 'devolucion',
+  anulado: 'anulacion',
+  anulacion: 'anulacion',
+  // Nombres del ADR-0030: se guarda el canónico. `en_flit` no es alias (devolver también deja ese estado).
+  llegada_flit: 'llegada',
+  acta_flit_firmada: 'acta_flit',
+};
+
+const EVENTO_DOCUMENTO_LOGISTICA_TIPOS = new Set<string>(Object.values(EventoDocumentoLogisticaTipo));
+
+/** estadoNuevo → tipo cuando el evento viejo no trajo `tipo`. No adivina clasificado/en_flit/generado. */
+const TIPO_DESDE_ESTADO_NUEVO: Readonly<Record<string, EventoDocumentoLogisticaTipo>> = {
+  recogido: 'recogida',
+  novedad: 'novedad',
+  despachado: 'salida',
+  entregado: 'entrega',
+  devuelto: 'devolucion',
+  anulado: 'anulacion',
+};
+
+/**
+ * Tipo efectivo en LECTURA (y auto-fill de escritura): canónico si `tipo` viene (con aliases);
+ * si es nulo, se interpreta por `estadoNuevo`. Sin backfill SQL.
+ */
+export function tipoEventoEfectivo(
+  tipo: string | null | undefined,
+  estadoNuevo?: string | null,
+): EventoDocumentoLogisticaTipo | null {
+  if (tipo) {
+    const alias = EVENTO_DOCUMENTO_LOGISTICA_TIPO_ALIAS[tipo];
+    if (alias) return alias;
+    if (EVENTO_DOCUMENTO_LOGISTICA_TIPOS.has(tipo)) return tipo as EventoDocumentoLogisticaTipo;
+    return null;
+  }
+  if (!estadoNuevo) return null;
+  return TIPO_DESDE_ESTADO_NUEVO[estadoNuevo] ?? EVENTO_DOCUMENTO_LOGISTICA_TIPO_ALIAS[estadoNuevo] ?? null;
+}
+
 /** Estrategia del proveedor logístico: mensajería propia (PWA FLITO) o integración con tercero (§6). */
 export const EstrategiaProveedorLogistica = {
   PWA_PROPIA: 'pwa_propia',
@@ -172,3 +249,43 @@ export const ESTRATEGIA_PROVEEDOR_LOGISTICA_LABEL: Record<EstrategiaProveedorLog
   pwa_propia: 'Mensajería propia (PWA)',
   integracion_tercero: 'Integración con tercero',
 };
+
+/** LT `clasificado` de una compañía cerrable (GET /facetas). Placa = identificador del documento; no VIN. */
+export interface LtClasificadaCerrable {
+  documentoId: string;
+  placa: string | null;
+  numeroLt: string | null;
+  idFlit: string | null;
+}
+
+/**
+ * Compañía con LTs listas para viaje a cliente (HU #14116). `disponibles === lts.length`.
+ * `precioEntregaCliente` y `precioEntregaFlit` null = sin tarifa (nunca pintar $0); `0` es un precio configurado.
+ * Sin `vigenciaId` en el DTO.
+ */
+export interface CompaniaCerrableLogistica {
+  companiaId: number;
+  nombre: string | null;
+  disponibles: number;
+  precioEntregaCliente: number | null;
+  /** Tarifa de entrega en instalaciones FLIT (HU #14123). Misma `ahora` que el precio a cliente. */
+  precioEntregaFlit: number | null;
+  lts: LtClasificadaCerrable[];
+}
+
+/** Hito de la línea de tiempo (HU #14124). Sin payload, ubicación ni firmas. */
+export interface HitoLineaTiempoLogistica {
+  id: string;
+  tipo: EventoDocumentoLogisticaTipo | null;
+  fecha: string; // created_at ISO
+  actorNombre: string | null; // users.name; null si el usuario ya no está
+  destino: string | null; // columna destino, tal cual; no se deduce del estado
+  motivo: string | null;
+  estadoNuevo: string;
+}
+
+export interface LineaTiempoLogistica {
+  documentoId: string | null;
+  tramiteId: string | null;
+  hitos: HitoLineaTiempoLogistica[];
+}

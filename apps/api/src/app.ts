@@ -39,8 +39,10 @@ import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.
 import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
 import flitoDrFlitRoutes from './modules/flito-dr-flit/dr-flit.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
+import flitoProveedoresLogisticaRoutes from './modules/flito-parametrizacion/flito-proveedores-logistica.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
 import flitoLogisticaViajesRoutes from './modules/flito-logistica/flito-logistica-viajes.routes.js';
+import flitoLogisticaMotivosRoutes from './modules/flito-logistica/flito-logistica-motivos.routes.js';
 import flitoBolsasRoutes from './modules/flito-bolsas/flito-bolsas.routes.js';
 import flitoBolsasDocumentosRoutes from './modules/flito-bolsas-documentos/flito-bolsas-documentos.routes.js';
 import flitoComparendosRoutes from './modules/flito-comparendos/flito-comparendos.routes.js';
@@ -259,6 +261,8 @@ export function createApp() {
   app.use('/api', integracionesRoutes); // TRAM-F3: /simit/consulta, /fasecolda/buscar, /mercadolibre/precio
   app.use('/api/vehicles', ocrRoutes);
   app.use('/api/clients', clientsRoutes);
+  // HU #14103: proveedores de logística (antes del router general, que comparte prefijo).
+  app.use('/api/flito/parametrizacion/proveedores-logistica', flitoProveedoresLogisticaRoutes);
   app.use('/api/flito/parametrizacion', flitoParametrizacionRoutes);
   // HU #13061: acceso a FLIT 2. Antes de `/api/flito/sync` para no pasar dos veces por su authMiddleware.
   app.use('/api/flito/sync/flit2', flit2Routes);
@@ -285,6 +289,8 @@ export function createApp() {
   // enlace; cada ruta exige su función de Dr. Flit (`dr-flit.funciones.ts`).
   app.use('/api/flito/dr-flit', flitoDrFlitRoutes);
   app.use('/api/flito/bitacora', flitoBitacoraRoutes);
+  // HU #14119: catálogo de motivos de llegada a FLIT. ANTES del router con `GET /:id`.
+  app.use('/api/flito/logistica/motivos-llegada', flitoLogisticaMotivosRoutes);
   app.use('/api/flito/logistica', conAlcance('logistica', flitoLogisticaRoutes));
   // Viajes adicionales de logística por trámite (HU #12619): misma URL base, fichero hermano
   // (`/tramites/:tramiteId/viajes` no choca con el `GET /:id` del router legado).

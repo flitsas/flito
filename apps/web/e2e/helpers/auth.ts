@@ -315,6 +315,12 @@ const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
     // auditor; financiera NO la tiene (la reparte el admin desde el panel): el spec la añade por usuario.
     'tramites.tramite.ver_soportes',
     'tramite.tramite.forzar_continuar', 'compuerta.tramite.entregar', 'logistica.lote.cerrar',
+    // HU #14116: pestaña Viajes (migración 0282: admin y mensajero).
+    'logistica.traslado.registrar',
+    // HU #14123: Firmar llegada a FLIT. Sin ella el botón no existe (ni en Actas ni en Mi ruta).
+    'logistica.actas.firmar_flit',
+    // HU #14120: pestaña Motivos de llegada (migración 0284: solo admin).
+    'logistica.motivos.gestionar',
     'tablero.tablero.ver',
     // HU #13631: `sync.sync.lanzar` (sincronización manual de FLIT 1) retirada en la 0243.
     // HU #13098: estado de la conexión con FLIT 2 en Gestión Trámites (0179: sembrada a `admin`).
