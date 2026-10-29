@@ -1,8 +1,11 @@
-// FLITO Logística — copy y helpers de viajes a cliente (HU #14116).
+// FLITO Logística — copy y helpers de viajes (HU #14116, destino HU #14123).
 // El precio `null` no se formatea (nunca `$0` por ausencia). `0` sí es un precio configurado.
+// La pestaña Viajes y la llegada a FLIT hablan de usted. La entrega a cliente sigue tuteando.
 import { ApiError } from './api';
 
 export const DESTINO_CLIENTE = 'cliente' as const;
+export const DESTINO_FLIT = 'flit' as const;
+export type DestinoViaje = typeof DESTINO_CLIENTE | typeof DESTINO_FLIT;
 
 export function formatoPrecio(valor: number): string {
   return `$${valor.toLocaleString('es-CO')}`;
@@ -12,8 +15,15 @@ export function nombreCompania(nombre: string | null, companiaId: number): strin
   return nombre?.trim() || `compañía #${companiaId}`;
 }
 
-export function avisoSinPrecio(nombre: string): string {
-  return `La compañía ${nombre} no tiene precio de entrega a cliente`;
+/** Mitad de la línea de la tarjeta. Con precio: «Cliente $12.000 por LT». Sin él: «FLIT: falta el precio». */
+export function textoPrecioDestino(etiqueta: 'Cliente' | 'FLIT', precio: number | null): string {
+  if (precio == null) return `${etiqueta}: falta el precio`;
+  return `${etiqueta} ${formatoPrecio(precio)} por LT`;
+}
+
+export function avisoSinPrecio(nombre: string, destino: DestinoViaje = DESTINO_CLIENTE): string {
+  const cual = destino === DESTINO_FLIT ? 'a FLIT' : 'a cliente';
+  return `La compañía ${nombre} no tiene precio de entrega ${cual}.`;
 }
 
 export function nuevaKey(): string {
@@ -30,7 +40,7 @@ export function codigoDe(e: unknown): string | null {
 
 export function mensajeCargarViajes(e: unknown): { texto: string; reintentar: boolean } {
   if (e instanceof ApiError && e.status === 403) {
-    return { texto: 'No tienes permiso para registrar viajes.', reintentar: false };
+    return { texto: 'No tiene permiso para registrar viajes.', reintentar: false };
   }
   return { texto: 'No se pudieron cargar las LT listas para viaje.', reintentar: true };
 }
@@ -42,23 +52,37 @@ export function mensajeCargarEntregas(e: unknown): { texto: string; reintentar: 
   return { texto: 'No se pudieron cargar tus entregas.', reintentar: true };
 }
 
-/** Errores de POST /traslados → copy en el modal. Nunca el mensaje crudo. */
-export function mensajeRegistrarViaje(e: unknown, nombre: string): string {
+/** Errores de POST /traslados → copy en el modal. Nunca el mensaje crudo. `destino` es el POST que falló. */
+export function mensajeRegistrarViaje(e: unknown, nombre: string, destino: DestinoViaje = DESTINO_CLIENTE): string {
   const c = codigoDe(e);
-  if (c === 'PRECIO_TRASLADO_NO_CONFIGURADO') return avisoSinPrecio(nombre);
+  if (c === 'PRECIO_TRASLADO_NO_CONFIGURADO') return avisoSinPrecio(nombre, destino);
+  if (c === 'MOTIVO_LLEGADA_REQUERIDO' || c === 'MOTIVO_LLEGADA_INACTIVO' || c === 'MOTIVO_LLEGADA_NO_EXISTE') {
+    return 'Elija el motivo de llegada.';
+  }
   if (c === 'PROVEEDOR_LOGISTICA_REQUERIDO') {
-    return 'Esta compañía no tiene proveedor de logística. Asígnalo antes de registrar el viaje.';
+    return 'Esta compañía no tiene proveedor de logística. Asígnele uno antes de registrar el viaje.';
   }
   if (c === 'LOGISTICA_AUTOGESTIONADA') return 'La logística de esta compañía la gestiona el cliente.';
   if (c === 'LT_YA_EN_TRASLADO' || c === 'LT_ESTADO_NO_ADMISIBLE') {
-    return 'Alguna LT de este grupo ya no está lista. Cierra y recarga la lista.';
+    return 'Alguna LT de este grupo ya no está lista. Cierre y recargue la lista.';
   }
-  if (c === 'LT_AJENA') return 'Solo puedes registrar el viaje de las LT que recogiste tú.';
+  if (c === 'LT_AJENA') return 'Solo puede registrar el viaje de las LT que recogió usted.';
   if (c === 'TRASLADO_COMPANIA_MIXTA' || c === 'TRASLADO_ORIGEN_MIXTO') {
-    return 'Este grupo no se puede registrar junto. Recarga la lista.';
+    return 'Este grupo no se puede registrar junto. Recargue la lista.';
   }
-  if (c === 'DESTINO_FLIT_NO_DISPONIBLE') return 'Aquí solo se registran viajes a cliente.';
-  return 'No se pudo registrar el viaje. Las LT siguen aquí; vuelve a intentarlo.';
+  return 'No se pudo registrar el viaje. Las LT siguen aquí; vuelva a intentarlo.';
+}
+
+/** Errores de POST /traslados/:id/entregar cuando el destino es FLIT. En el paso, no en toast. */
+export function mensajeLlegadaFlit(e: unknown): string {
+  const c = codigoDe(e);
+  if (c === 'FIRMA_LLEGADA_REQUERIDA') return 'Falta la firma de quien recibe en FLIT.';
+  if (c === 'DATOS_INVALIDOS') return 'La llegada a FLIT no lleva cédula ni nombre.';
+  if (c === 'TRASLADO_ESTADO_NO_ADMISIBLE' || c === 'ACTA_ESTADO_NO_ADMISIBLE') {
+    return 'Este viaje ya no está en ruta. Vuelva y recargue.';
+  }
+  if (e instanceof ApiError && e.status === 403) return 'Esta llegada no es suya.';
+  return 'No se pudo registrar la llegada. La firma sigue aquí; vuelva a intentarlo.';
 }
 
 /** Errores de POST /actas/:id/entregar → copy en el paso. */

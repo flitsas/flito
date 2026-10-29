@@ -106,6 +106,43 @@ describe('AC4: no existe DELETE', () => {
   });
 });
 
+describe('HU #14123 — ?soloActivos=true también lo abre quien registra el viaje', () => {
+  const registrar = () => testToken({ sub: 3, role: 'auditor', funciones: ['logistica.traslado.registrar'] });
+
+  it('solo logistica.traslado.registrar: 200 con ?soloActivos=true; 403 sin ese query, con false/TRUE, y en POST/PATCH', async () => {
+    const app = await buildApp();
+    const token = await registrar();
+    selectMock.mockReturnValue(chain([fila]));
+    const ok = await request(app).get(`${URL}?soloActivos=true`).set('Authorization', `Bearer ${token}`);
+    expect(ok.status).toBe(200);
+    expect(ok.body).toEqual([{ id: ID, nombre: fila.nombre, activo: true, orden: 20 }]);
+
+    const sinQuery = await request(app).get(URL).set('Authorization', `Bearer ${token}`);
+    expect(sinQuery.status).toBe(403);
+    expect(sinQuery.body.funcion).toBe(FUNCION);
+
+    const falso = await request(app).get(`${URL}?soloActivos=false`).set('Authorization', `Bearer ${token}`);
+    expect(falso.status).toBe(403);
+    expect(falso.body.funcion).toBe(FUNCION);
+
+    const mayus = await request(app).get(`${URL}?soloActivos=TRUE`).set('Authorization', `Bearer ${token}`);
+    expect(mayus.status).toBe(403);
+    expect(mayus.body.funcion).toBe(FUNCION);
+
+    const post = await request(app).post(URL).set('Authorization', `Bearer ${token}`).send({ nombre: 'X' });
+    expect(post.status).toBe(403);
+    const patch = await request(app).patch(`${URL}/${ID}`).set('Authorization', `Bearer ${token}`).send({ nombre: 'Z' });
+    expect(patch.status).toBe(403);
+    const estado = await request(app).patch(`${URL}/${ID}/estado`).set('Authorization', `Bearer ${token}`).send({ activo: false });
+    expect(estado.status).toBe(403);
+  });
+
+  it('sin token, ?soloActivos=true sigue en 401', async () => {
+    const r = await request(await buildApp()).get(`${URL}?soloActivos=true`);
+    expect(r.status).toBe(401);
+  });
+});
+
 describe('AC6: sin función → 403', () => {
   it('sin token 401; con token sin la función 403 en GET/POST/PATCH', async () => {
     const app = await buildApp();

@@ -385,9 +385,10 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await page.keyboard.press('Escape');
     await expect(detalle).toBeHidden();
 
-    // Paso 5 — Viajes a cliente: compañías con LT clasificadas y precio (HU #14116).
-    await page.getByRole('button', { name: /^Viajes a cliente/ }).click();
-    await expect(page.getByText(/Se cobrará \$12\.000 por LT/)).toBeVisible();
+    // Paso 6 — Viajes: precio de Cliente y de FLIT (HU #14123).
+    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await expect(page.getByText(/Cliente \$12\.000 por LT/)).toBeVisible();
+    await expect(page.getByText(/FLIT \$8\.000 por LT/)).toBeVisible();
     await sinFoco(page);
     await capturar(page, dir, '04-viajes-a-cliente');
 

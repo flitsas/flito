@@ -1,8 +1,8 @@
 // FLITO Logística — consola de Operaciones. Organizada en pestañas:
 //   1) Trámites — tabla general de TODOS los trámites aprobados, sin importar su estado logístico
 //      (Pendiente de recogida → Registrada → Despachada → Entregada · Con novedad).
-//   2) Viajes a cliente (HU #14116) — LT clasificadas agrupadas por compañía; se registra un viaje
-//      (POST /traslados destino cliente). Nunca cerrar-lote.
+//   2) Viajes (HU #14116 / #14123) — LT clasificadas agrupadas por compañía; el destino es Cliente
+//      o FLIT (dos POST si el grupo se reparte). Nunca cerrar-lote.
 //   3) Actas — actas generadas: se firman y despachan (firma de Operaciones), se descarga el PDF y se
 //      hace seguimiento hasta la entrega firmada por el receptor.
 // La firma del RECEPTOR se captura en campo (PWA). El acta combina ambas firmas en su PDF.
@@ -22,6 +22,7 @@ import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import { toastOk } from '../components/flit/ToastFlito';
 import FirmaCanvas from '../components/flito/FirmaCanvas';
 import ViajesACliente from '../components/flito/logistica/ViajesACliente';
+import { LlegadaFlitModal } from '../components/flito/ruta/LlegadaFlit';
 import ViajesMasivo from '../components/flito/logistica/ViajesMasivo';
 import ViajesLogistica from '../components/flito/logistica/ViajesLogistica';
 import TabMotivosLlegada from '../components/flito/logistica/TabMotivosLlegada';
@@ -40,7 +41,13 @@ interface TramiteFila {
 }
 interface EventoDocumento { id: string; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; lat: string | null; lng: string | null; motivo: string | null; origen: string; creadoEn: string }
 interface TramiteDetalle extends TramiteFila { propietarioDocumento: string | null; combustible: string | null; tieneFoto: boolean; eventos: EventoDocumento[] }
-interface ActaFila { id: string; companiaId: number; companiaNombre: string | null; estado: string; estadoLabel: string; mensajeroId: number | null; mensajeroNombre: string | null; documentos: number; receptorNombre: string | null; entregadoEn: string | null; creadoEn: string }
+interface ActaFila {
+  id: string; companiaId: number | null; companiaNombre: string | null; estado: string; estadoLabel: string;
+  mensajeroId: number | null; mensajeroNombre: string | null; documentos: number;
+  receptorNombre: string | null; entregadoEn: string | null; creadoEn: string;
+  punto?: 'organismo' | 'flit' | 'cliente';
+  trasladoId?: string | null;
+}
 interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string }
 interface ActaEvento { id: string; documentoId: string; placa: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string }
 interface ActaDetalle { acta: ActaFila; tienePdf: boolean; firmaEntrega: boolean; firmaRecibe: boolean; entregaNombre: string | null; documentos: ActaLinea[]; bitacora: ActaEvento[] }
@@ -74,10 +81,11 @@ function vacioLogistica(tipoEnlace: Parameters<typeof vacioConEnlace>[1]): strin
 
 export default function FlitoLogistica() {
   const { hasFuncion, tipoEnlace } = useAuth();
-  // HU #12170 — despachar / novedad / devolver en Actas (no gobierna Viajes a cliente).
+  // HU #12170 — despachar / novedad / devolver en Actas (no gobierna Viajes).
   const esOperaciones = hasFuncion('logistica.lote.cerrar');
-  // HU #14116: pestaña Viajes a cliente. Sin ella no se pinta (AC7).
+  // HU #14116 / #14123: pestaña Viajes. Sin la función no se pinta.
   const puedeRegistrarViaje = hasFuncion('logistica.traslado.registrar');
+  const puedeFirmarLlegada = hasFuncion('logistica.actas.firmar_flit');
   // HU #14149: sin la función no hay pestaña ni petición a `/pendientes-tramite`.
   const puedeResolverLt = hasFuncion(FUNCION_RESOLVER_TRAMITE);
   const ltPend = useLtPendientes(puedeResolverLt);
@@ -99,6 +107,7 @@ export default function FlitoLogistica() {
   const [detalle, setDetalle] = useState<TramiteDetalle | null>(null);
   const [motivoModal, setMotivoModal] = useState<{ tipo: 'novedad' | 'devolucion'; id: string } | null>(null);
   const [despacharActa, setDespacharActa] = useState<ActaFila | null>(null);
+  const [llegadaFlit, setLlegadaFlit] = useState<ActaFila | null>(null);
   const [actaDetalle, setActaDetalle] = useState<ActaDetalle | null>(null);
 
   const cargar = () => {
@@ -144,7 +153,7 @@ export default function FlitoLogistica() {
 
   const TABS: Array<{ key: Tab; label: string; badge?: number }> = [
     { key: 'tramites', label: 'Trámites', badge: data?.total },
-    ...(puedeRegistrarViaje ? [{ key: 'viajes-cliente' as const, label: 'Viajes a cliente', badge: registradas || undefined }] : []),
+    ...(puedeRegistrarViaje ? [{ key: 'viajes-cliente' as const, label: 'Viajes', badge: registradas || undefined }] : []),
     { key: 'actas', label: 'Actas', badge: actasPendientes || undefined },
     ...(hasFuncion('logistica.viajes.registrar') ? [{ key: 'viajes' as const, label: 'Viajes adicionales' }] : []),
     ...(puedeResolverLt ? [{ key: 'pendientes' as Tab, label: 'LT pendientes', badge: ltPend.error ? undefined : (ltPend.items?.length || undefined) }] : []),
@@ -264,6 +273,7 @@ export default function FlitoLogistica() {
           estado={facetasCarga}
           onReintentar={() => { void recargarFacetas(); }}
           onRegistrado={() => { cargar(); void recargarFacetas(); }}
+          onIrMotivos={puedeGestionarMotivos ? () => setTab('motivos-llegada') : undefined}
         />
       )}
 
@@ -272,7 +282,7 @@ export default function FlitoLogistica() {
         <FlitCard>
           <h2 className="mb-3 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Actas</h2>
           {(!actas || actas.length === 0) ? (
-            <FlitEmpty>Aún no hay actas. Ve a «Viajes a cliente» y registra el viaje de una compañía con LT clasificadas.</FlitEmpty>
+            <FlitEmpty>Aún no hay actas. Ve a «Viajes» y registra el viaje de una compañía con LT clasificadas.</FlitEmpty>
           ) : (
             <div className="overflow-x-auto">
               <FlitTable>
@@ -295,6 +305,14 @@ export default function FlitoLogistica() {
                           <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => verActa(a.id)}>Ver</button>
                           {esOperaciones && a.estado === 'generada' && (
                             <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => setDespacharActa(a)}>Firmar y despachar</button>
+                          )}
+                          {puedeFirmarLlegada && a.punto === 'flit' && a.estado === 'despachada' && a.trasladoId && (
+                            <button type="button"
+                              className="flit-focus rounded-lg px-2 py-1 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
+                              style={{ color: 'var(--flit-blue-text)' }}
+                              onClick={() => setLlegadaFlit(a)}>
+                              Firmar llegada
+                            </button>
                           )}
                           {esOperaciones && a.estado === 'despachada' && (
                             <button className="text-xs font-semibold" style={{ color: 'var(--flit-danger)' }} onClick={() => setMotivoModal({ tipo: 'devolucion', id: a.id })}>Devolver</button>
@@ -323,6 +341,15 @@ export default function FlitoLogistica() {
           onConfirmar={(motivo) => accion(() => motivoModal.tipo === 'novedad'
             ? api.post(`/flito/logistica/documentos/${motivoModal.id}/novedad`, { motivo })
             : api.post(`/flito/logistica/actas/${motivoModal.id}/devolucion`, { motivo })).then(() => setMotivoModal(null))} />
+      )}
+      {llegadaFlit?.trasladoId && (
+        <LlegadaFlitModal
+          actaId={llegadaFlit.id}
+          companiaNombre={llegadaFlit.companiaNombre}
+          trasladoId={llegadaFlit.trasladoId}
+          onClose={() => setLlegadaFlit(null)}
+          onListo={() => { setLlegadaFlit(null); cargar(); }}
+        />
       )}
       {despacharActa && facetas && (
         <DespacharModal mensajeros={facetas.mensajeros} busy={busy} onClose={() => setDespacharActa(null)}

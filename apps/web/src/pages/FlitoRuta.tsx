@@ -34,6 +34,9 @@ export default function FlitoRuta() {
   const { count, online, flushing, flush } = usePendingQueue();
   const { hasFuncion } = useAuth();
   const puedeConfirmar = hasFuncion('logistica.recogida.confirmar');
+  // Sin `firmar_flit` el viaje a FLIT no se lista: el único botón volvería a pedir cédula.
+  const puedeFirmarFlit = hasFuncion('logistica.actas.firmar_flit');
+  const entregasVisibles = (ruta?.entregas ?? []).filter((e) => e.destino !== 'flit' || puedeFirmarFlit);
   const [vista, setVista] = useState<'ruta' | 'recogidas'>('ruta');
 
   const cargar = () => {
@@ -90,12 +93,12 @@ export default function FlitoRuta() {
       ) : vista === 'ruta' ? (
         <section className="space-y-3" aria-labelledby="entregas-titulo">
           <h2 id="entregas-titulo" className="text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
-            Entregas{ruta ? ` (${ruta.entregas.length})` : ''}
+            Entregas{ruta ? ` (${entregasVisibles.length})` : ''}
           </h2>
           <BloqueEntregas
             carga={carga}
             error={errorCarga}
-            entregas={ruta?.entregas ?? []}
+            entregas={entregasVisibles}
             onReintentar={cargar}
             onEntregar={setPaso}
             onDevolver={setDevolver}
@@ -176,7 +179,9 @@ function TarjetaEntrega({ acta, onEntregar, onDevolver }: {
       {acta.direccionEntrega && <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{acta.direccionEntrega}</div>}
       {placas && <div className="mt-1 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{placas}</div>}
       <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" className={`${btn} flex-1`} style={btnPrimaryStyle} onClick={onEntregar}>Entregar</button>
+        <button type="button" className={`${btn} flex-1`} style={btnPrimaryStyle} onClick={onEntregar}>
+          {acta.destino === 'flit' ? 'Firmar llegada' : 'Entregar'}
+        </button>
         <button type="button"
           className="flit-focus rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
           style={{ color: 'var(--flit-danger-ink)', minHeight: 44 }}

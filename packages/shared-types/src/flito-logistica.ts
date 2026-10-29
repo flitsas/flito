@@ -260,7 +260,7 @@ export interface LtClasificadaCerrable {
 
 /**
  * Compañía con LTs listas para viaje a cliente (HU #14116). `disponibles === lts.length`.
- * `precioEntregaCliente` null = sin tarifa (nunca pintar $0); `0` es un precio configurado.
+ * `precioEntregaCliente` y `precioEntregaFlit` null = sin tarifa (nunca pintar $0); `0` es un precio configurado.
  * Sin `vigenciaId` en el DTO.
  */
 export interface CompaniaCerrableLogistica {
@@ -268,5 +268,7 @@ export interface CompaniaCerrableLogistica {
   nombre: string | null;
   disponibles: number;
   precioEntregaCliente: number | null;
+  /** Tarifa de entrega en instalaciones FLIT (HU #14123). Misma `ahora` que el precio a cliente. */
+  precioEntregaFlit: number | null;
   lts: LtClasificadaCerrable[];
 }

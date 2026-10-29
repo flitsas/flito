@@ -12,6 +12,7 @@ import { toastOk } from '../../flit/ToastFlito';
 import FlitModal from '../../flit/FlitModal';
 import { FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../../flit/flitPageKit';
 import FirmaCanvas from '../FirmaCanvas';
+import { LlegadaFlitForm } from './LlegadaFlit';
 
 export interface DocumentoEntrega { id: string; placa: string | null; idFlit: string; numeroLt: string | null }
 export interface ActaEntrega {
@@ -19,6 +20,9 @@ export interface ActaEntrega {
   companiaNombre: string | null;
   direccionEntrega: string | null;
   documentos: DocumentoEntrega[];
+  /** HU #14123. Ausente = entrega a cliente (el paso que ya pide cédula). */
+  destino?: 'cliente' | 'flit';
+  trasladoId?: string | null;
 }
 
 const btnCampo = 'w-full rounded-xl px-4 py-3.5 text-base font-semibold text-white disabled:opacity-50';
@@ -30,7 +34,23 @@ interface Props {
   onListo: () => void;
 }
 
-export default function PasoEntrega({ acta, onAtras, onListo }: Props) {
+export default function PasoEntrega(props: Props) {
+  if (props.acta.destino === 'flit') {
+    return (
+      <LlegadaFlitForm
+        companiaNombre={props.acta.companiaNombre}
+        documentos={props.acta.documentos}
+        trasladoId={props.acta.trasladoId ?? null}
+        onAtras={props.onAtras}
+        onCancelar={props.onAtras}
+        onListo={props.onListo}
+      />
+    );
+  }
+  return <PasoEntregaCliente {...props} />;
+}
+
+function PasoEntregaCliente({ acta, onAtras, onListo }: Props) {
   const [nombre, setNombre] = useState('');
   const [cedula, setCedula] = useState('');
   const [firma, setFirma] = useState<string | null>(null);

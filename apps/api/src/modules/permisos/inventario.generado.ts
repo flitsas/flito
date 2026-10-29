@@ -155,7 +155,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/actas/:id/devolucion", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/documentos/:id/reversar", roles: ["admin"], heredada: false },
   // HU #14119: catálogo de motivos de llegada a FLIT; la 0284 siembra SOLO a `admin`.
-  { modulo: "logistica", fichero: "flito-logistica/flito-logistica-motivos.routes.ts", metodo: "GET", ruta: "/", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica-motivos.routes.ts", metodo: "GET", ruta: "/", condicion: "listar", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-motivos.routes.ts", metodo: "POST", ruta: "/", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-motivos.routes.ts", metodo: "PATCH", ruta: "/:id", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-motivos.routes.ts", metodo: "PATCH", ruta: "/:id/estado", roles: ["admin"], heredada: false },

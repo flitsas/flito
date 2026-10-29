@@ -38,7 +38,7 @@ const FACETAS = {
   empresas: [{ nit: '900111', nombre: 'Concesionario Norte' }],
   organismos: [{ codigo: '05001', nombre: 'STT Medellín' }],
   companiasCerrables: [{
-    companiaId: 5, nombre: 'Concesionario Norte', disponibles: 1, precioEntregaCliente: 12000,
+    companiaId: 5, nombre: 'Concesionario Norte', disponibles: 1, precioEntregaCliente: 12000, precioEntregaFlit: 8000,
     lts: [{ documentoId: 'doc-2', placa: 'XYZ789', numeroLt: 'LT-77', idFlit: 'FLIT-2002' }],
   }],
   mensajeros: [{ id: 9, nombre: 'Mensajero E2E' }],
@@ -119,9 +119,9 @@ test.describe('FLITO — Logística', () => {
     });
 
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /Viajes a cliente/ }).click();
+    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
     await expect(page.getByText('Concesionario Norte · 1 LT')).toBeVisible();
-    await expect(page.getByText(/Se cobrará \$12\.000 por LT/)).toBeVisible();
+    await expect(page.getByText(/Cliente \$12\.000 por LT/)).toBeVisible();
     await page.getByRole('button', { name: 'Registrar viaje' }).click();
     const modal = page.getByRole('dialog', { name: /Registrar viaje a Concesionario Norte/ });
     await expect(modal.getByText(/Se cobrará \$12\.000 por cada LT/)).toBeVisible();
@@ -142,7 +142,7 @@ test.describe('FLITO — Logística', () => {
 
     await page.goto('/flito/logistica');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Viajes a cliente/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Viajes(?! adicionales)/ })).toHaveCount(0);
     await page.getByRole('button', { name: /^Actas/ }).click();
     await expect(page.getByRole('button', { name: 'Firmar y despachar' })).toHaveCount(0);
   });

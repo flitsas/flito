@@ -252,7 +252,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/actas/:id/devolucion', codigo: 'logistica.actas.devolver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/reversar', codigo: 'logistica.documento.reversar' },
   // HU #14119: catálogo de motivos de llegada a FLIT.
-  { fichero: 'flito-logistica/flito-logistica-motivos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'logistica.motivos.gestionar' },
+  { fichero: 'flito-logistica/flito-logistica-motivos.routes.ts', metodo: 'GET', ruta: '/', condicion: 'listar', codigo: 'logistica.motivos.gestionar' },
   { fichero: 'flito-logistica/flito-logistica-motivos.routes.ts', metodo: 'POST', ruta: '/', codigo: 'logistica.motivos.gestionar' },
   { fichero: 'flito-logistica/flito-logistica-motivos.routes.ts', metodo: 'PATCH', ruta: '/:id', codigo: 'logistica.motivos.gestionar' },
   { fichero: 'flito-logistica/flito-logistica-motivos.routes.ts', metodo: 'PATCH', ruta: '/:id/estado', codigo: 'logistica.motivos.gestionar' },

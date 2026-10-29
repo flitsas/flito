@@ -203,7 +203,7 @@ function agruparCerrables(rows: DocCerrableRow[]): CompaniaCerrableLogistica[] {
     if (r.companiaId == null) continue;
     let g = porCompania.get(r.companiaId);
     if (!g) {
-      g = { companiaId: r.companiaId, nombre: r.nombre, disponibles: 0, precioEntregaCliente: null, lts: [] };
+      g = { companiaId: r.companiaId, nombre: r.nombre, disponibles: 0, precioEntregaCliente: null, precioEntregaFlit: null, lts: [] };
       porCompania.set(r.companiaId, g);
     }
     g.lts.push({ documentoId: r.documentoId, placa: r.placa, numeroLt: r.numeroLt, idFlit: r.idFlit });
@@ -261,10 +261,16 @@ export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
   ]);
   const grupos = agruparCerrables(docsCerrables);
   const ahora = new Date();
-  const precios = await Promise.all(grupos.map((g) => precioTrasladoDe(g.companiaId, 'cliente', ahora)));
+  // Misma `ahora` para cliente y FLIT. Orden por compañía: cliente (i*2), luego flit (i*2+1).
+  const precios = await Promise.all(grupos.flatMap((g) => [
+    precioTrasladoDe(g.companiaId, 'cliente', ahora),
+    precioTrasladoDe(g.companiaId, 'flit', ahora),
+  ]));
   for (let i = 0; i < grupos.length; i++) {
-    const p = precios[i];
-    grupos[i]!.precioEntregaCliente = p == null ? null : p.valor;
+    const cliente = precios[i * 2];
+    const flit = precios[i * 2 + 1];
+    grupos[i]!.precioEntregaCliente = cliente == null ? null : cliente.valor;
+    grupos[i]!.precioEntregaFlit = flit == null ? null : flit.valor;
   }
   return {
     // Vocabulario SIMPLE (5 estados) para los filtros de la consola.
@@ -284,13 +290,17 @@ export interface ActaFila {
   id: string; companiaId: number | null; companiaNombre: string | null; estado: string; estadoLabel: string;
   mensajeroId: number | null; mensajeroNombre: string | null; documentos: number;
   receptorNombre: string | null; entregadoEn: string | null; creadoEn: string;
+  /** Destino del acta (`flito_logistica_actas.punto`). HU #14123. */
+  punto: 'organismo' | 'flit' | 'cliente';
+  /** Viaje que originó el acta. Null en actas anteriores al viaje. No se omite. */
+  trasladoId: string | null;
 }
 export async function listarActas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ActaFila[]> {
   const rows = await db.select({
     id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name,
     estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, mensajeroNombre: users.name,
     receptorNombre: flitoLogisticaActas.receptorNombre, entregadoEn: flitoLogisticaActas.entregadoEn,
-    creadoEn: flitoLogisticaActas.createdAt,
+    creadoEn: flitoLogisticaActas.createdAt, punto: flitoLogisticaActas.punto, trasladoId: flitoLogisticaActas.trasladoId,
     documentos: sql<number>`(select count(*)::int from flito_logistica_documentos d where d.acta_id = ${flitoLogisticaActas.id})`,
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
@@ -300,6 +310,8 @@ export async function listarActas(alcance: AlcanceResuelto = { enlace: 'ninguno'
     .orderBy(desc(flitoLogisticaActas.createdAt));
   return rows.map((r) => ({
     ...r,
+    punto: r.punto as ActaFila['punto'],
+    trasladoId: r.trasladoId ?? null,
     estadoLabel: ESTADO_ACTA_LOGISTICA_LABEL[r.estado as keyof typeof ESTADO_ACTA_LOGISTICA_LABEL] ?? r.estado,
     entregadoEn: r.entregadoEn ? r.entregadoEn.toISOString() : null,
     creadoEn: r.creadoEn.toISOString(),
@@ -312,6 +324,9 @@ export interface RutaDocumento { id: string; placa: string | null; idFlit: strin
 export interface RutaEntrega {
   actaId: string; companiaNombre: string | null; direccionEntrega: string | null;
   contactoNombre: string | null; documentos: RutaDocumento[];
+  /** El `punto` del acta, expuesto como destino. El WHERE ya excluye `organismo`. */
+  destino: 'cliente' | 'flit';
+  trasladoId: string | null;
 }
 export interface MiRuta { entregas: RutaEntrega[] }
 
@@ -328,6 +343,7 @@ export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
   const actas = await db.select({
     actaId: flitoLogisticaActas.id, companiaNombre: clients.name,
     direccionEntrega: flitoLogisticaActas.direccionEntrega, contactoNombre: flitoLogisticaActas.contactoNombre,
+    punto: flitoLogisticaActas.punto, trasladoId: flitoLogisticaActas.trasladoId,
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
     .where(actaCond);
@@ -340,7 +356,10 @@ export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
       .leftJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id)) // leftJoin: tramite_id NULLABLE (LT pendiente, ADR-0030 §17.5)
       .innerJoin(vehicles, eq(flitoLogisticaDocumentos.vehiculoId, vehicles.id))
       .where(eq(flitoLogisticaDocumentos.actaId, a.actaId));
-    entregas.push({ actaId: a.actaId, companiaNombre: a.companiaNombre, direccionEntrega: a.direccionEntrega, contactoNombre: a.contactoNombre, documentos: docs });
+    entregas.push({
+      actaId: a.actaId, companiaNombre: a.companiaNombre, direccionEntrega: a.direccionEntrega, contactoNombre: a.contactoNombre,
+      destino: a.punto as RutaEntrega['destino'], trasladoId: a.trasladoId ?? null, documentos: docs,
+    });
   }
   return { entregas };
 }
@@ -362,6 +381,7 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, mensajeroNombre: users.name,
     receptorNombre: flitoLogisticaActas.receptorNombre, entregadoEn: flitoLogisticaActas.entregadoEn,
     creadoEn: flitoLogisticaActas.createdAt, pdfStorageKey: flitoLogisticaActas.pdfStorageKey,
+    trasladoId: flitoLogisticaActas.trasladoId,
     firmaEntregaKey: flitoLogisticaActas.firmaEntregaStorageKey, entregaNombre: flitoLogisticaActas.entregaNombre,
     firmaRecibeKey: flitoLogisticaActas.firmaStorageKey, punto: flitoLogisticaActas.punto,
   }).from(flitoLogisticaActas)
@@ -399,6 +419,7 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     mensajeroId: cab.mensajeroId, mensajeroNombre: cab.mensajeroNombre, documentos: docs.length,
     receptorNombre: cab.receptorNombre, entregadoEn: cab.entregadoEn ? cab.entregadoEn.toISOString() : null,
     creadoEn: cab.creadoEn.toISOString(),
+    punto: cab.punto as ActaFila['punto'], trasladoId: cab.trasladoId ?? null,
   };
   return {
     ...(cab.punto ? { punto: cab.punto } : {}),

@@ -57,6 +57,8 @@ const LISTA_BLANCA = new Set([
   'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id',
   // HU #14122: entregar el viaje decide en línea (`firmar_flit` o `entregar`) después de leer el destino.
   'flito-logistica/flito-logistica.routes.ts POST /traslados/:id/entregar',
+  // HU #14123: el GET de motivos decide en el handler. `?soloActivos=true` también lo abre quien registra.
+  'flito-logistica/flito-logistica-motivos.routes.ts GET /',
 ]);
 
 /** En identidad no hay `router.use(authMiddleware)`: lo llevan estas 7 rutas, una a una. */
@@ -163,8 +165,8 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
     });
   }
 
-  it('la lista blanca son exactamente 7 rutas, y todas existen sin guarda de función', () => {
-    expect(LISTA_BLANCA.size).toBe(7);
+  it('la lista blanca son exactamente 8 rutas, y todas existen sin guarda de función', () => {
+    expect(LISTA_BLANCA.size).toBe(8);
     for (const llave of LISTA_BLANCA) {
       const [fichero, metodo, ruta] = llave.split(' ');
       const fuente = sinComentarios(leer(fichero!));
@@ -216,9 +218,9 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +1 por la HU #14127 (logística: `POST /viajes/masivo`, reutiliza `logistica.viajes.registrar`).
     // +10 de la cadena logística C: +1 de la HU #14114 (POST /traslados); +1 de la HU #14147 (recogidas/pendientes-firma); +3 de la HU #14143 (pendientes-tramite, candidatos-tramite y resolver-tramite); +4 de la HU #14110 (recogidas/confirmar, mias, :firmanteId y revelar el documento del firmante); +1 de la HU #14142 (consultar-vehiculo, `logistica.documento.escanear`).
     // +4 de la HU #14115 (despachar/entregar/devolucion/anular el viaje).
-    expect(GUARDAS_MEDIDAS).toHaveLength(660); // +1 HU #14122 (firmar_flit; entregar el viaje pasa a guarda en línea)
+    expect(GUARDAS_MEDIDAS).toHaveLength(660); // +1 HU #14122 (firmar_flit; entregar el viaje pasa a guarda en línea). HU #14123: GET motivos pasa de exigirFuncion de ruta a tieneFuncion en línea; el total no cambia.
     // +4 de la HU #14103 (proveedores de logística), +3 de la HU #14148 (impacto, baja y listado unificado)
-    expect(montajes).toHaveLength(660); // +1 HU #14122 (tieneFuncion firmar_flit; entregar del viaje deja de ser exigirFuncion de ruta)
+    expect(montajes).toHaveLength(660); // +1 HU #14122 (tieneFuncion firmar_flit; entregar del viaje deja de ser exigirFuncion de ruta). HU #14123 no suma: el GET de motivos cambia de forma, no de código.
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)
@@ -228,7 +230,7 @@ describe('el lector de montajes cubre la foto entera', () => {
     // + registrar credenciales de Siigo de pruebas y de producción (HU #13427)
     // + compañía por grupo (general, autogestión, sin trámite), clientes editar y fiscal, contraseña propia (HU #13428).
     // + las tres funciones de Dr. Flit, en línea en `dr-flit.funciones.ts` (HU #13941).
-    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(30); // +2 HU #14122: entregar y firmar_flit, en línea
+    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(31); // +2 HU #14122: entregar y firmar_flit, en línea; +1 HU #14123: GET motivos [listar]
   });
 
   it('un exigirFuncion sin literal hace que el lector LANCE en vez de adivinar', () => {

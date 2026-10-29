@@ -1,4 +1,5 @@
 // HU #14116 — GET /facetas: companiasCerrables con precioEntregaCliente + lts (null ≠ 0).
+// HU #14123 — el mismo DTO gana precioEntregaFlit, misma `ahora`, null ≠ 0, sin vigenciaId.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
@@ -63,29 +64,36 @@ function conDocs(rows: unknown[]) {
 }
 
 describe('facetas — companiasCerrables (HU #14116)', () => {
-  it('precioEntregaCliente: null (sin tarifa) vs 0 configurado, sin coerción', async () => {
+  it('precioEntregaCliente y precioEntregaFlit: null (sin tarifa) vs 0 configurado, sin coerción', async () => {
     conDocs([
       doc({ documentoId: D1, companiaId: 5, nombre: 'ACME' }),
       doc({ documentoId: D2, placa: 'XYZ789', numeroLt: 'LT-2', idFlit: 'FLIT-2', companiaId: 7, nombre: 'Beta' }),
     ]);
     precioTrasladoDeMock
       .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ valor: 0, vigenciaId: VIG })
       .mockResolvedValueOnce({ valor: 0, vigenciaId: VIG });
 
     const f = await facetas(ALCANCE);
     expect(f.companiasCerrables).toEqual([
       {
-        companiaId: 5, nombre: 'ACME', disponibles: 1, precioEntregaCliente: null,
+        companiaId: 5, nombre: 'ACME', disponibles: 1, precioEntregaCliente: null, precioEntregaFlit: null,
         lts: [{ documentoId: D1, placa: 'ABC123', numeroLt: 'LT-1', idFlit: 'FLIT-1' }],
       },
       {
-        companiaId: 7, nombre: 'Beta', disponibles: 1, precioEntregaCliente: 0,
+        companiaId: 7, nombre: 'Beta', disponibles: 1, precioEntregaCliente: 0, precioEntregaFlit: 0,
         lts: [{ documentoId: D2, placa: 'XYZ789', numeroLt: 'LT-2', idFlit: 'FLIT-2' }],
       },
     ]);
-    expect(precioTrasladoDeMock).toHaveBeenCalledTimes(2);
-    expect(precioTrasladoDeMock).toHaveBeenNthCalledWith(1, 5, 'cliente', expect.any(Date));
-    expect(precioTrasladoDeMock).toHaveBeenNthCalledWith(2, 7, 'cliente', expect.any(Date));
+    expect(JSON.stringify(f.companiasCerrables)).not.toMatch(/vigenciaId/);
+    expect(precioTrasladoDeMock).toHaveBeenCalledTimes(4);
+    const ahora = precioTrasladoDeMock.mock.calls[0]![2];
+    expect(ahora).toBeInstanceOf(Date);
+    expect(precioTrasladoDeMock).toHaveBeenNthCalledWith(1, 5, 'cliente', ahora);
+    expect(precioTrasladoDeMock).toHaveBeenNthCalledWith(2, 5, 'flit', ahora);
+    expect(precioTrasladoDeMock).toHaveBeenNthCalledWith(3, 7, 'cliente', ahora);
+    expect(precioTrasladoDeMock).toHaveBeenNthCalledWith(4, 7, 'flit', ahora);
   });
 
   it('LTs solo clasificado y agrupadas por esa compañía; disponibles === lts.length', async () => {
@@ -116,11 +124,11 @@ describe('facetas — companiasCerrables (HU #14116)', () => {
     const f = await facetas(ALCANCE);
     expect(JSON.stringify(f.companiasCerrables)).not.toMatch(/vigenciaId/);
     expect(f.companiasCerrables[0]).toEqual({
-      companiaId: 5, nombre: 'ACME', disponibles: 1, precioEntregaCliente: 12000,
+      companiaId: 5, nombre: 'ACME', disponibles: 1, precioEntregaCliente: 12000, precioEntregaFlit: 12000,
       lts: [{ documentoId: D1, placa: 'ABC123', numeroLt: 'LT-1', idFlit: 'FLIT-1' }],
     });
     expect(Object.keys(f.companiasCerrables[0]!)).toEqual([
-      'companiaId', 'nombre', 'disponibles', 'precioEntregaCliente', 'lts',
+      'companiaId', 'nombre', 'disponibles', 'precioEntregaCliente', 'precioEntregaFlit', 'lts',
     ]);
   });
 });

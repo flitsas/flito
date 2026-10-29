@@ -1,9 +1,11 @@
 // HU #14119 — Catálogo de motivos de llegada a FLIT: `/api/flito/logistica/motivos-llegada`.
-// CRUD sin DELETE (AC4). Todas las guardas: `logistica.motivos.gestionar`.
+// CRUD sin DELETE (AC4). POST y PATCH: `logistica.motivos.gestionar`.
+// GET (HU #14123): `?soloActivos=true` también lo abre `logistica.traslado.registrar`. Sin ese query
+// exacto sigue exigiendo `gestionar`, en el handler (`tieneFuncion`), no como middleware.
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
-import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { exigirFuncion, funcionesConcedidas, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   MotivoLlegadaDuplicadoError, MotivoLlegadaNoEncontradoError,
@@ -31,8 +33,22 @@ function responder422(res: Response, error: z.ZodError): void {
   res.status(422).json({ error: f.message, campo: String(f.path[0] ?? ''), details: error.flatten() });
 }
 
-router.get('/', exigirFuncion('logistica.motivos.gestionar'), async (req: Request, res: Response) => {
-  res.json((await listarMotivos({ soloActivos: req.query.soloActivos === 'true' })).map(motivoLlegadaDto));
+// Sin `exigirFuncion` de middleware: quien solo registra recibiría 403 antes del O.
+router.get('/', async (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: 'Token requerido' }); return; }
+  const soloActivos = req.query.soloActivos === 'true';
+  if (soloActivos && (await funcionesConcedidas(req, ['logistica.traslado.registrar', 'logistica.motivos.gestionar'])).size > 0) {
+    res.json((await listarMotivos({ soloActivos: true })).map(motivoLlegadaDto));
+    return;
+  }
+  if (!(await tieneFuncion(req, 'logistica.motivos.gestionar'))) {
+    res.status(403).json({
+      error: 'Su rol no tiene esa función («Gestionar motivos de llegada a FLIT»).',
+      funcion: 'logistica.motivos.gestionar',
+    });
+    return;
+  }
+  res.json((await listarMotivos({ soloActivos })).map(motivoLlegadaDto));
 });
 
 router.post('/', exigirFuncion('logistica.motivos.gestionar'), async (req: Request, res: Response, next: NextFunction) => {
