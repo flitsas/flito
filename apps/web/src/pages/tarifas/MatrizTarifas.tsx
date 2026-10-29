@@ -10,34 +10,22 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import toast from 'react-hot-toast';
+import { conceptoAlmacenado, esConceptoLogistica } from '@operaciones/shared-types';
 import { api, ApiError } from '../../lib/api';
 import {
   RUTA_TARIFAS, claveLlave, etiquetaLlave, fechaCorta, nombreUsuario, pesosTarifa, validarValorTarifa,
   type FilaVistaTarifa, type ResultadoCambioTarifa, type VistaTarifasCompania,
 } from '../../lib/tarifas';
 import FlitModal from '../../components/flit/FlitModal';
-import StatusChip from '../../components/flit/StatusChip';
+import { GrupoLogistica, SIN_CONFIGURAR, type Edicion, type PanelProps } from './PanelLogistica';
 import {
   flitInp, FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
   flitBtnSecondarySm,
 } from '../../components/flit/flitPageKit';
 
-const SIN_CONFIGURAR = 'Sin configurar';
 const NOTA_PIE = 'Un valor rige para los trámites que se aprueben desde su fecha. Lo ya liquidado no cambia.';
-const MSG_409 = 'Alguien cambió este valor hace un momento. La fila ya está actualizada: revísala y vuelve a intentarlo.';
+const MSG_409 = 'Alguien cambió este valor hace un momento. Ya está actualizado: revísalo y vuelve a intentarlo.';
 const MSG_FALLO = 'No se pudo guardar. El valor que escribiste sigue aquí; vuelve a intentarlo.';
-
-interface Edicion {
-  clave: string;
-  texto: string;
-  /** Mensaje de validación o del 400 del servidor; se pinta bajo el campo. */
-  error: string | null;
-  /** Fallo de red o 500: la fila queda en edición con lo escrito. */
-  fallo: string | null;
-  /** Solo se enseña el error de validación tras intentar guardar o perder el foco. */
-  tocado: boolean;
-  guardando: boolean;
-}
 
 interface Props {
   vista: VistaTarifasCompania;
@@ -60,7 +48,7 @@ export default function MatrizTarifas({ vista, refrescando, onGuardado, onHistor
   // El botón «Cambiar»/«Fijar valor» de cada fila, para devolverle el foco al salir de la edición;
   // y el `<th>` de cada fila, para el modal de dejar de cobrar (su botón desaparece al confirmar).
   const botones = useRef(new Map<string, HTMLButtonElement>());
-  const cabeceras = useRef(new Map<string, HTMLTableCellElement>());
+  const cabeceras = useRef(new Map<string, HTMLElement>());
   const input = useRef<HTMLInputElement>(null);
   const [focoPendiente, setFocoPendiente] = useState<string | null>(null);
 
@@ -110,7 +98,7 @@ export default function MatrizTarifas({ vista, refrescando, onGuardado, onHistor
         antes = pesosTarifa(r.valorAnterior);
         despues = r.valorNuevo === null ? SIN_CONFIGURAR : pesosTarifa(r.valorNuevo);
       } else {
-        const cuerpo: Record<string, unknown> = { companiaId: vista.companiaId, concepto: fila.concepto, valor };
+        const cuerpo: Record<string, unknown> = { companiaId: vista.companiaId, concepto: conceptoAlmacenado(fila.concepto), valor };
         // `tipoTramite` SOLO en trámite digital: en logística la clave se omite (RN-03).
         if (fila.concepto === 'tramite_digital') cuerpo.tipoTramite = fila.tipoTramite;
         if (confirmarCero) cuerpo.confirmarCero = true;
@@ -137,7 +125,7 @@ export default function MatrizTarifas({ vista, refrescando, onGuardado, onHistor
         setAlerta(MSG_409);
         onGuardado();
       } else {
-        setEdicion((x) => (x ? { ...x, guardando: false, fallo: `${MSG_FALLO} ${e?.message ?? ''}`.trim() } : x));
+        setEdicion((x) => (x ? { ...x, guardando: false, fallo: MSG_FALLO } : x));
       }
     }
   };
@@ -165,11 +153,36 @@ export default function MatrizTarifas({ vista, refrescando, onGuardado, onHistor
       const e = err instanceof ApiError ? err : null;
       setCerrarDe(null);
       if (e?.status === 409) { setAlerta(MSG_409); onGuardado(); return; }
-      toast.error(`No se pudo dejar de cobrar. ${e?.message ?? ''}`.trim());
+      toast.error('No se pudo dejar de cobrar. Vuelve a intentarlo en un momento.');
     }
   };
 
   const bloqueado = refrescando || edicion !== null;
+  const filasTramite = vista.tarifas.filter((f) => !esConceptoLogistica(f.concepto));
+  const panelesLogistica: PanelProps[] = vista.tarifas.filter((f) => esConceptoLogistica(f.concepto)).map((fila) => {
+    const clave = claveLlave(fila);
+    const enEdicion = edicion?.clave === clave;
+    return {
+      fila, sujeto: sujeto(fila), editar: capacidades.editar, verHistorial: capacidades.verHistorial,
+      enEdicion: enEdicion ? edicion : null,
+      validacion: enEdicion ? (edicion.tocado ? edicion.error : null) : null,
+      bloqueado, inputRef: input,
+      registrarBoton: (el) => { if (el) botones.current.set(clave, el); else botones.current.delete(clave); },
+      registrarCabecera: (el) => { if (el) cabeceras.current.set(clave, el); else cabeceras.current.delete(clave); },
+      onTexto: (texto) => setEdicion((e) => (e ? { ...e, texto, error: null, fallo: null } : e)),
+      onTocado: () => setEdicion((e) => {
+        if (!e) return e;
+        const v = validarValorTarifa(e.texto, fila.valor);
+        return { ...e, tocado: true, error: v.ok ? null : v.mensaje };
+      }),
+      onGuardar: () => intentarGuardar(fila),
+      onCancelar: cancelar,
+      onAbrir: () => abrir(fila),
+      onHistorial: () => onHistorial(fila),
+      onDejarDeCobrar: () => setCerrarDe(fila),
+    };
+  });
+  const gestionaFlito = vista.tarifas.find((f) => f.flitoGestionaLogistica !== undefined)?.flitoGestionaLogistica ?? false;
   const validacionVisible = edicion && edicion.tocado ? edicion.error : null;
 
   return (
@@ -188,11 +201,10 @@ export default function MatrizTarifas({ vista, refrescando, onGuardado, onHistor
           </FlitTr>
         </thead>
         <tbody>
-          {vista.tarifas.map((fila, i) => {
+          {filasTramite.map((fila, i) => {
             const clave = claveLlave(fila);
             const enEdicion = edicion?.clave === clave;
-            const esLogistica = fila.concepto === 'logistica';
-            const grupo = i === 0 ? 'Trámite digital' : esLogistica && vista.tarifas[i - 1]?.concepto !== 'logistica' ? 'Logística' : null;
+            const grupo = i === 0 ? 'Trámite digital' : null;
             return (
               <FilaTarifa
                 key={clave}
@@ -223,6 +235,7 @@ export default function MatrizTarifas({ vista, refrescando, onGuardado, onHistor
           })}
         </tbody>
       </FlitTable>
+      {panelesLogistica.length > 0 && <GrupoLogistica gestionaFlito={gestionaFlito} paneles={panelesLogistica} />}
       <p className="mt-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{NOTA_PIE}</p>
 
       {modalCero && (
@@ -232,7 +245,7 @@ export default function MatrizTarifas({ vista, refrescando, onGuardado, onHistor
         >
           <div className="space-y-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
             <p>
-              {companiaNombre} pasará a pagar $0 por cada {etiquetaLlave(modalCero.fila).toLowerCase()} que se apruebe desde ahora.
+              {companiaNombre} pasará a pagar $0 por «{etiquetaLlave(modalCero.fila)}» desde ahora.
             </p>
             <p style={{ color: 'var(--flit-text-secondary)' }}>
               Cero no es lo mismo que «Sin configurar»: con $0 el trámite se liquida y suma cero; sin configurar,
@@ -276,7 +289,7 @@ interface FilaProps {
   bloqueado: boolean;
   inputRef: RefObject<HTMLInputElement>;
   registrarBoton: (el: HTMLButtonElement | null) => void;
-  registrarCabecera: (el: HTMLTableCellElement | null) => void;
+  registrarCabecera: (el: HTMLElement | null) => void;
   onTexto: (t: string) => void;
   onTocado: () => void;
   onGuardar: () => void;
@@ -316,13 +329,6 @@ function FilaTarifa(p: FilaProps) {
         <th scope="row" tabIndex={-1} ref={p.registrarCabecera} data-vigencia={fila.vigenciaId ?? undefined}
           className={`${celdaTexto} flit-focus text-left font-medium`} style={{ color: 'var(--flit-text-primary)' }}>
           {etiqueta}
-          {fila.concepto === 'logistica' && (
-            <div className="mt-1">
-              <StatusChip tone={fila.flitoGestionaLogistica ? 'active' : 'neutral'}>
-                {fila.flitoGestionaLogistica ? 'Gestiona FLITO' : 'Autogestiona el cliente'}
-              </StatusChip>
-            </div>
-          )}
         </th>
         <td className={`${celdaTexto} tabular-nums`} style={{ color: tieneValor ? 'var(--flit-text-primary)' : 'var(--flit-text-muted)' }}>
           {enEdicion ? (
@@ -405,12 +411,12 @@ function ModalDejarDeCobrar({ fila, companiaNombre, restoreFocusRef, onClose, on
 }) {
   const [enviando, setEnviando] = useState(false);
   const etiqueta = etiquetaLlave(fila);
-  const esLogistica = fila.concepto === 'logistica';
+  const esLogistica = esConceptoLogistica(fila.concepto);
   return (
-    <FlitModal title={`Dejar de cobrar ${esLogistica ? 'la logística' : etiqueta}`} onClose={onClose} restoreFocusRef={restoreFocusRef}>
+    <FlitModal title={`Dejar de cobrar ${etiqueta}`} onClose={onClose} restoreFocusRef={restoreFocusRef}>
       <div className="space-y-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
         <p>
-          {companiaNombre} deja de tener valor de {etiqueta.toLowerCase()} desde ahora. La vigencia de {pesosTarifa(fila.valor ?? 0)} queda
+          {companiaNombre} deja de tener valor de «{etiqueta}» desde ahora. La vigencia de {pesosTarifa(fila.valor ?? 0)} queda
           cerrada en el historial, con tu nombre y la hora.
         </p>
         <p style={{ color: 'var(--flit-text-secondary)' }}>

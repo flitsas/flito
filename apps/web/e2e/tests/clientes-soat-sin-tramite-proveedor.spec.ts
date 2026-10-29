@@ -66,55 +66,56 @@ async function montar(page: Page, opciones: {
   return { patches, catalogos, arreglar: () => { modo = 'ok'; } };
 }
 
-const celda = (page: Page, nombre: string, texto: string) =>
-  page.getByRole('button', { name: `SOAT sin trámite de ${nombre}: ${texto}` });
+// HU #14105: el proveedor de SOAT sin trámite se elige en el modal «Editar» de la compañía; en la lista
+// es la parte «Proveedor SOAT sin trámite: X» del chip de SOAT (solo con la función).
+const fila = (page: Page, nombre: string) => page.getByRole('row', { name: new RegExp(nombre) });
+const abrir = (page: Page, nombre: string) => page.getByRole('button', { name: `Editar ${nombre}`, exact: true }).click();
 const modalDe = (page: Page, nombre: string) =>
-  page.getByRole('dialog', { name: `SOAT sin trámite · ${nombre}` });
+  page.getByRole('dialog', { name: `Editar · ${nombre}` });
 
-test.describe('HU #13968 · AC3 — la columna es neutra', () => {
+test.describe('HU #13968 · AC3 — la parte del chip es neutra', () => {
   test('nombre, «(inactivo)» o «Sin proveedor», sin «Abierto/Cerrado» ni color de aviso', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await montar(page);
-    await expect(celda(page, 'Transportes Sur', 'SURA')).toHaveText('SURA');
-    await expect(celda(page, 'Flota Occidente', 'MUNDIAL (inactivo)')).toHaveText('MUNDIAL (inactivo)');
-    await expect(celda(page, 'Concesionario Norte', 'Sin proveedor')).toHaveText('Sin proveedor');
+    await expect(fila(page, 'Transportes Sur')).toContainText('Proveedor SOAT sin trámite: SURA');
+    await expect(fila(page, 'Flota Occidente')).toContainText('Proveedor SOAT sin trámite: MUNDIAL (inactivo)');
+    await expect(fila(page, 'Concesionario Norte')).toContainText('Proveedor SOAT sin trámite: Sin proveedor');
     await expect(page.getByText(/Abierto ·|^Cerrado$/)).toHaveCount(0);
     // El indicador de permiso sin efecto NO se pinta en la fila.
     await expect(page.getByText(AVISO)).toHaveCount(0);
-    // Misma tinta en la fila inactiva que en la activa: sin color de aviso.
-    const tinta = await celda(page, 'Transportes Sur', 'SURA').evaluate((el) => getComputedStyle(el).color);
-    await expect(celda(page, 'Flota Occidente', 'MUNDIAL (inactivo)')).toHaveCSS('color', tinta);
   });
 });
 
 test.describe('HU #13968 · AC2 — el permiso propio gobierna la celda, el cuadro y la nota', () => {
-  test('sin la acción: solo lectura, sin cuadro y sin nota, aunque tenga desbloquear', async ({ page }) => {
+  test('sin la acción: sin selector ni parte del chip, aunque tenga desbloquear', async ({ page }) => {
     await loginAs(page, {
       ...OPERACIONES_USER,
       funciones: ['tramites.autogestion.desbloquear'],
     } as typeof OPERACIONES_USER);
     await montar(page);
-    await expect(page.getByText('SURA', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: /SOAT sin trámite de/ })).toHaveCount(0);
+    await expect(page.getByText('Transportes Sur')).toBeVisible();
+    // Sin la función no aparece ni la parte del chip ni el selector en el modal.
+    await expect(page.getByText(/Proveedor SOAT sin trámite/)).toHaveCount(0);
+    await abrir(page, 'Transportes Sur');
+    await expect(modalDe(page, 'Transportes Sur').getByLabel(ETIQUETA)).toHaveCount(0);
     await expect(page.getByText(/dice a qué proveedor salen las solicitudes/)).toHaveCount(0);
   });
 
-  test('financiera lee la columna sin botón', async ({ page }) => {
+  test('financiera no ve nada del proveedor de SOAT sin trámite', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
     await montar(page);
-    await expect(page.getByText('Sin proveedor').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: /SOAT sin trámite de/ })).toHaveCount(0);
+    await expect(page.getByText('Concesionario Norte')).toBeVisible();
+    await expect(page.getByText(/Proveedor SOAT sin trámite/)).toHaveCount(0);
   });
 
-  test('con la acción y SIN desbloquear: abre el cuadro y ve la nota', async ({ page }) => {
+  test('con la acción y SIN desbloquear: ve el selector del proveedor en el modal', async ({ page }) => {
     await loginAs(page, {
       ...OPERACIONES_USER,
       funciones: ['parametrizacion.companias.soat_sin_tramite'],
     } as typeof OPERACIONES_USER);
     await montar(page);
-    await expect(page.getByText(/«Sin proveedor» deja esa opción cerrada/)).toBeVisible();
-    await celda(page, 'Transportes Sur', 'SURA').click();
-    await expect(modalDe(page, 'Transportes Sur')).toBeVisible();
+    await abrir(page, 'Transportes Sur');
+    await expect(modalDe(page, 'Transportes Sur').getByLabel(ETIQUETA)).toBeVisible();
   });
 });
 
@@ -122,7 +123,7 @@ test.describe('HU #13968 · AC1 / AC4 — el cuadro: un solo control y el aviso'
   test('sin interruptor; «Sin proveedor» primero, activos, y se envía SOLO el proveedor', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const { patches } = await montar(page);
-    await celda(page, 'Rentadora Caribe', 'Sin proveedor').click();
+    await abrir(page, 'Rentadora Caribe');
     const modal = modalDe(page, 'Rentadora Caribe');
     await expect(modal.getByLabel('Canal abierto')).toHaveCount(0);
     const selector = modal.getByLabel(ETIQUETA);
@@ -134,7 +135,7 @@ test.describe('HU #13968 · AC1 / AC4 — el cuadro: un solo control y el aviso'
     await expect(modal.getByText(AVISO)).toHaveCount(0);
 
     await selector.selectOption(AXA);
-    await modal.getByRole('button', { name: 'Guardar' }).click();
+    await modal.getByRole('button', { name: 'Guardar cambios' }).click();
     await expect(page.getByText('Proveedor de SOAT sin trámite actualizado. Las solicitudes ya radicadas conservan el suyo.')).toBeVisible();
     expect(patches).toEqual([{ proveedorSoatSinTramiteId: AXA }]);
   });
@@ -142,10 +143,10 @@ test.describe('HU #13968 · AC1 / AC4 — el cuadro: un solo control y el aviso'
   test('«Sin proveedor» se envía como null y el toast lo dice', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const { patches } = await montar(page);
-    await celda(page, 'Transportes Sur', 'SURA').click();
+    await abrir(page, 'Transportes Sur');
     const modal = modalDe(page, 'Transportes Sur');
     await modal.getByLabel(ETIQUETA).selectOption('');
-    await modal.getByRole('button', { name: 'Guardar' }).click();
+    await modal.getByRole('button', { name: 'Guardar cambios' }).click();
     await expect(page.getByText('Transportes Sur queda sin proveedor: sus usuarios no pueden solicitar SOAT sin trámite.')).toBeVisible();
     expect(patches).toEqual([{ proveedorSoatSinTramiteId: null }]);
   });
@@ -153,12 +154,12 @@ test.describe('HU #13968 · AC1 / AC4 — el cuadro: un solo control y el aviso'
   test('el asignado inactivo se reinyecta marcado y guardar sin tocar no hace petición', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const { patches } = await montar(page);
-    await celda(page, 'Flota Occidente', 'MUNDIAL (inactivo)').click();
+    await abrir(page, 'Flota Occidente');
     const modal = modalDe(page, 'Flota Occidente');
     const selector = modal.getByLabel(ETIQUETA);
     await expect(selector).toHaveValue(MUNDIAL);
     await expect(selector.locator(`option[value="${MUNDIAL}"]`)).toContainText('(Inactivo)'); // HU #13963
-    await modal.getByRole('button', { name: 'Guardar' }).click();
+    await modal.getByRole('button', { name: 'Guardar cambios' }).click();
     await expect(modal).toHaveCount(0);
     expect(patches).toEqual([]);
   });
@@ -166,7 +167,7 @@ test.describe('HU #13968 · AC1 / AC4 — el cuadro: un solo control y el aviso'
   test('AC4: con el indicador, el aviso literal va arriba y el selector lo referencia', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await montar(page);
-    await celda(page, 'Concesionario Norte', 'Sin proveedor').click();
+    await abrir(page, 'Concesionario Norte');
     const modal = modalDe(page, 'Concesionario Norte');
     await expect(modal.getByText(AVISO)).toBeVisible();
     await expect(modal.getByLabel(ETIQUETA)).toHaveAccessibleDescription(new RegExp(AVISO.slice(0, 40)));
@@ -177,38 +178,36 @@ test.describe('HU #13968 · AC1 / AC4 — el cuadro: un solo control y el aviso'
 });
 
 test.describe('HU #13968 · AC8 — cuatro estados y error de guardado pulido', () => {
-  test('cargando: el selector lo dice y Guardar está deshabilitado', async ({ page }) => {
+  test('cargando: el selector lo dice y queda deshabilitado', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await montar(page, { catalogo: 'pendiente' });
-    await celda(page, 'Transportes Sur', 'SURA').click();
+    await abrir(page, 'Transportes Sur');
     const modal = modalDe(page, 'Transportes Sur');
-    await expect(modal.getByText('Cargando proveedores…')).toBeVisible();
-    await expect(modal.getByRole('button', { name: 'Guardar' })).toBeDisabled();
+    await expect(modal.getByText('Cargando proveedores…').first()).toBeVisible();
+    await expect(modal.getByLabel(ETIQUETA)).toBeDisabled();
   });
 
   test('error: mensaje y «Volver a cargar» pide el catálogo otra vez', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const { catalogos, arreglar } = await montar(page, { catalogo: 'error' });
-    await celda(page, 'Transportes Sur', 'SURA').click();
+    await abrir(page, 'Transportes Sur');
     const modal = modalDe(page, 'Transportes Sur');
-    await expect(modal.getByText('No se pudieron cargar los proveedores.')).toBeVisible();
-    await expect(modal.getByRole('button', { name: 'Guardar' })).toBeDisabled();
+    await expect(modal.getByText('No se pudieron cargar los proveedores.', { exact: true })).toBeVisible();
+    await expect(modal.getByLabel(ETIQUETA)).toBeDisabled();
     const antes = catalogos.length;
     arreglar();
-    await modal.getByRole('button', { name: 'Volver a cargar' }).click();
+    await modal.getByRole('button', { name: 'Volver a cargar' }).first().click();
     await expect.poll(() => catalogos.length).toBeGreaterThan(antes);
     await expect(modal.getByLabel(ETIQUETA)).toBeEnabled();
-    await expect(modal.getByRole('button', { name: 'Guardar' })).toBeEnabled();
   });
 
-  test('vacío: nombra la pestaña Proveedores, sin reintento y sin Guardar', async ({ page }) => {
+  test('vacío: nombra la pestaña Proveedores y deja el selector deshabilitado', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await montar(page, { catalogo: 'vacio' });
-    await celda(page, 'Rentadora Caribe', 'Sin proveedor').click();
+    await abrir(page, 'Rentadora Caribe');
     const modal = modalDe(page, 'Rentadora Caribe');
     await expect(modal.getByText('No hay proveedores de SOAT activos. Cree uno en la pestaña Proveedores.')).toBeVisible();
-    await expect(modal.getByRole('button', { name: 'Volver a cargar' })).toHaveCount(0);
-    await expect(modal.getByRole('button', { name: 'Guardar' })).toBeDisabled();
+    await expect(modal.getByLabel(ETIQUETA)).toBeDisabled();
   });
 
   for (const [status, copy] of [
@@ -221,10 +220,10 @@ test.describe('HU #13968 · AC8 — cuatro estados y error de guardado pulido', 
       await montar(page, {
         patch: { status, cuerpo: { error: 'x', details: { fieldErrors: { proveedorSoatSinTramiteId: ['inactivo'] } } } },
       });
-      await celda(page, 'Transportes Sur', 'SURA').click();
+      await abrir(page, 'Transportes Sur');
       const modal = modalDe(page, 'Transportes Sur');
       await modal.getByLabel(ETIQUETA).selectOption(AXA);
-      await modal.getByRole('button', { name: 'Guardar' }).click();
+      await modal.getByRole('button', { name: 'Guardar cambios' }).click();
       await expect(modal.getByRole('alert')).toHaveText(copy);
       await expect(modal.getByText(/proveedorSoatSinTramiteId/)).toHaveCount(0);
       await expect(modal.getByLabel(ETIQUETA)).toHaveValue(AXA);
@@ -235,16 +234,13 @@ test.describe('HU #13968 · AC8 — cuatro estados y error de guardado pulido', 
 // La ficha de ayuda in-app: los literales se LEEN del DOM y se le exigen a la ficha publicada, para
 // que el día que cambie la redacción la ficha se ponga roja sola.
 test.describe('HU #13968 · la ficha de ayuda de Clientes y proveedores', () => {
-  test('la ficha nombra los textos de la columna, la etiqueta del cuadro y el aviso', async ({ page }) => {
+  test('la ficha nombra los textos del chip, la etiqueta del selector y el aviso', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await montar(page);
-    const textos = [
-      (await celda(page, 'Concesionario Norte', 'Sin proveedor').innerText()).trim(),
-      (await celda(page, 'Flota Occidente', 'MUNDIAL (inactivo)').innerText()).trim().replace('MUNDIAL', '').trim(),
-    ];
-    await celda(page, 'Concesionario Norte', 'Sin proveedor').click();
+    await abrir(page, 'Concesionario Norte');
     const modal = modalDe(page, 'Concesionario Norte');
     await expect(modal.getByText(AVISO)).toBeVisible();
+    const textos = ['Sin proveedor'];
 
     await page.goto('/flito/ayuda/clients');
     const ficha = page.getByRole('article', { name: 'Clientes y proveedores' });
