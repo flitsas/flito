@@ -242,6 +242,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/recogidas/:firmanteId/documento', codigo: 'logistica.actas.ver_documento_firmante' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/novedad', codigo: 'logistica.documento.reportar_novedad' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados', codigo: 'logistica.traslado.registrar' },
+  // HU #14125: la pestaña Entregas lista viajes; la placa va en el cuerpo y reutiliza la lectura de la consola.
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados/buscar', codigo: 'logistica.consola.ver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados/:id/despachar', codigo: 'logistica.actas.despachar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados/:id/entregar', condicion: 'entregar', codigo: 'logistica.actas.entregar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados/:id/entregar', condicion: 'firmarFlit', codigo: 'logistica.actas.firmar_flit' },

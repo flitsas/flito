@@ -210,6 +210,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // sin función nueva ni siembra (el AC habla de «la función de gestión de proveedores»).
     // HU #14110: confirmar la recogida y sus dos consultas piden la misma `logistica.recogida.confirmar`. HU #14147: +1 (pendientes-firma), cuatro rutas con la misma función.
     // HU #14115: despachar/entregar/devolver el viaje reutilizan `logistica.actas.*` de las rutas de acta.
+    // HU #14125: `POST /traslados/buscar` reutiliza `logistica.consola.ver` del GET de la consola (la placa va en el cuerpo).
     expect(compartidosFlito.sort()).toEqual([
       ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
       ['bolsas.documentos.cargar', 3], ['bolsas.documentos.ver', 4],
@@ -217,6 +218,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['bolsas.transito.inactivar', 2],
       ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2],
       ['logistica.actas.despachar', 2], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2],
+      ['logistica.consola.ver', 2],
       ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],
       ['logistica.documento.ver', 3], // HU #14124: GET /:id y las dos líneas de tiempo
       ['logistica.motivos.gestionar', 4], // HU #14119: las 4 rutas del catálogo de motivos
