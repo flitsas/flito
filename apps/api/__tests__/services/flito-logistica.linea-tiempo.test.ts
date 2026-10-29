@@ -126,6 +126,7 @@ describe('HU #14124 — línea de tiempo', () => {
     const vacia = await get(`/documentos/${DOC}/linea-tiempo`, await ver());
     expect(vacia.status).toBe(200);
     expect(vacia.body).toEqual({ documentoId: DOC, tramiteId: TRAM, hitos: [] });
+    expect(sqlDe(wheres[1]).sql.toLowerCase()).not.toMatch(/reversa|anulacion|anulado/);
 
     encolar([[{ id: DOC, tramiteId: null }], [
       { id: 'e-pend', tipo: 'reversa', fecha: T2, actorNombre: null, destino: null, motivo: null, estadoNuevo: 'recogido' },
