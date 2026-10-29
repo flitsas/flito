@@ -333,3 +333,38 @@ describe('HU #12633 — los comprobantes aplicados aparecen en los soportes del 
       .toEqual(['comprobante', 'derecho', 'factura_electronica', 'impuesto', 'logistica', 'soat']);
   });
 });
+
+describe('HU #14109 (AC6) — el acta de organismo no sale en los soportes del trámite', () => {
+  // El mock keyed ignora el `on` del join: devolvería el acta aunque fuera de organismo. Por eso se captura el
+  // `ON` real del leftJoin de actas y se afirma sobre el SQL renderizado (única forma de que caiga el mutante
+  // que quita `punto = 'cliente'`).
+  it("el leftJoin de actas de `soportesDeTramite` exige punto = 'cliente' (el acta de organismo es multi-compañía)", async () => {
+    const uniones: unknown[] = [];
+    const base = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
+    kdb.select.mockImplementation((...args: unknown[]) => {
+      const chain = base(...args);
+      const leftJoin = chain.leftJoin as (t: unknown, on: unknown) => unknown;
+      let tabla = '';
+      const from = chain.from as (t: unknown) => unknown;
+      chain.from = (t: unknown) => { tabla = getTableName(t as never); return from(t); };
+      chain.leftJoin = (t: unknown, on: unknown) => {
+        if (tabla === 'flito_logistica_documentos' && getTableName(t as never) === 'flito_logistica_actas') uniones.push(on);
+        return leftJoin(t, on);
+      };
+      return chain;
+    });
+    kdb.when.scenario({
+      flito_tramites: [{ soatId: null, impuestoId: null, derechoId: null }],
+      flito_logistica_documentos: [],
+      siigo_factura_tramites: [],
+    });
+
+    await soportesDeTramite('t1');
+
+    expect(uniones).toHaveLength(1);
+    const q = new PgDialect().sqlToQuery(uniones[0] as never);
+    expect(q.sql).toContain('"flito_logistica_documentos"."acta_id" = "flito_logistica_actas"."id"');
+    expect(q.sql).toContain('"flito_logistica_actas"."punto" = $');
+    expect(q.params).toContain('cliente');
+  });
+});

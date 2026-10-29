@@ -172,3 +172,24 @@ export const ESTRATEGIA_PROVEEDOR_LOGISTICA_LABEL: Record<EstrategiaProveedorLog
   pwa_propia: 'Mensajería propia (PWA)',
   integracion_tercero: 'Integración con tercero',
 };
+
+/** LT `clasificado` de una compañía cerrable (GET /facetas). Placa = identificador del documento; no VIN. */
+export interface LtClasificadaCerrable {
+  documentoId: string;
+  placa: string | null;
+  numeroLt: string | null;
+  idFlit: string | null;
+}
+
+/**
+ * Compañía con LTs listas para viaje a cliente (HU #14116). `disponibles === lts.length`.
+ * `precioEntregaCliente` null = sin tarifa (nunca pintar $0); `0` es un precio configurado.
+ * Sin `vigenciaId` en el DTO.
+ */
+export interface CompaniaCerrableLogistica {
+  companiaId: number;
+  nombre: string | null;
+  disponibles: number;
+  precioEntregaCliente: number | null;
+  lts: LtClasificadaCerrable[];
+}
