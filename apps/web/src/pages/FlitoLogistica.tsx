@@ -8,7 +8,7 @@
 // La firma del RECEPTOR se captura en campo (PWA). El acta combina ambas firmas en su PDF.
 
 import { useEffect, useState } from 'react';
-import { ESTADO_LOGISTICA_SIMPLE_LABEL, type CompaniaCerrableLogistica, type EstadoLogisticaSimple } from '@operaciones/shared-types';
+import { ESTADO_LOGISTICA_SIMPLE_LABEL, simplificarEstadoLogistica, type CompaniaCerrableLogistica, type EstadoLogisticaSimple } from '@operaciones/shared-types';
 import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { vacioConEnlace } from '../lib/copyEnlace';
@@ -54,10 +54,10 @@ interface Listado { items: TramiteFila[]; total: number; page: number; pageSize:
 
 // Estados SIMPLE → tono del chip (mismos tonos del kit).
 const TONO_SIMPLE: Record<EstadoLogisticaSimple, ChipTone> = {
-  pendiente: 'neutral', registrada: 'active', despachada: 'warning', entregada: 'success', novedad: 'danger',
+  pendiente: 'neutral', registrada: 'active', en_flit: 'active', despachada: 'warning', entregada: 'success', novedad: 'danger',
 };
 const TONO_ACTA: Record<string, ChipTone> = { generada: 'neutral', despachada: 'warning', entregada: 'success', devuelta: 'danger' };
-const ESTADOS_SIMPLE: EstadoLogisticaSimple[] = ['pendiente', 'registrada', 'despachada', 'entregada', 'novedad'];
+const ESTADOS_SIMPLE: EstadoLogisticaSimple[] = ['pendiente', 'registrada', 'en_flit', 'despachada', 'entregada', 'novedad'];
 
 const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
@@ -200,7 +200,11 @@ export default function FlitoLogistica() {
             <div className="mt-3">
               <FlitPillGroup>
                 {ESTADOS_SIMPLE.map((e) => (
-                  <FlitPillButton key={e} active={estadosSel.includes(e)} onClick={() => toggleEstado(e)}>{ESTADO_LOGISTICA_SIMPLE_LABEL[e]}</FlitPillButton>
+                  <FlitPillButton key={e} active={estadosSel.includes(e)} onClick={() => toggleEstado(e)}>
+                    {e === 'en_flit'
+                      ? <span className="normal-case">{ESTADO_LOGISTICA_SIMPLE_LABEL[e]}</span>
+                      : ESTADO_LOGISTICA_SIMPLE_LABEL[e]}
+                  </FlitPillButton>
                 ))}
               </FlitPillGroup>
             </div>
@@ -372,13 +376,7 @@ function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: () => vo
 
 // Colapsa un estado interno de evento al vocabulario simple para la bitácora del detalle.
 function simple(estadoInterno: string): EstadoLogisticaSimple {
-  switch (estadoInterno) {
-    case 'recogido': case 'clasificado': case 'en_acta': return 'registrada';
-    case 'despachado': return 'despachada';
-    case 'entregado': return 'entregada';
-    case 'novedad': case 'devuelto': return 'novedad';
-    default: return 'pendiente';
-  }
+  return simplificarEstadoLogistica(estadoInterno);
 }
 
 function ActaDetalleModal({ detalle, onClose, onPdf }: { detalle: ActaDetalle; onClose: () => void; onPdf: () => void }) {

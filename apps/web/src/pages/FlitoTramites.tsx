@@ -1086,6 +1086,7 @@ function CeldaImpuesto({ fila, onSolicitar }: { fila: TramiteFila; onSolicitar?:
 const PASOS_LOG = ESTADOS_LOGISTICA_SIMPLE_ORDEN.map((key) => ({ key, label: ESTADO_LOGISTICA_SIMPLE_LABEL[key] }));
 const IDX_SIMPLE: Record<EstadoLogisticaSimple, { idx: number; danger: boolean }> = {
   pendiente: { idx: 0, danger: false }, registrada: { idx: 1, danger: false },
+  en_flit: { idx: 1, danger: false },
   despachada: { idx: 2, danger: false }, entregada: { idx: 3, danger: false },
   novedad: { idx: 1, danger: true }, // se pinta en rojo sobre el paso de recogida
 };

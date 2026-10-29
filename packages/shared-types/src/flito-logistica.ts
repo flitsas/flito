@@ -28,6 +28,7 @@ export const EstadoDocumentoLogistica = {
   GENERADO: 'generado',
   RECOGIDO: 'recogido',
   CLASIFICADO: 'clasificado',
+  EN_FLIT: 'en_flit',
   EN_ACTA: 'en_acta',
   DESPACHADO: 'despachado',
   ENTREGADO: 'entregado',
@@ -41,6 +42,7 @@ export const ESTADO_DOCUMENTO_LOGISTICA_LABEL: Record<EstadoDocumentoLogistica, 
   generado: 'Generado',
   recogido: 'Recogido',
   clasificado: 'Clasificado',
+  en_flit: 'En FLIT',
   en_acta: 'En acta',
   despachado: 'Despachado',
   entregado: 'Entregado',
@@ -68,19 +70,22 @@ export const ESTADOS_LOGISTICA_BLOQUEAN_ACTA: readonly EstadoDocumentoLogistica[
 
 // ── Estado SIMPLIFICADO (vista de negocio) ───────────────────────────────────
 // El ciclo interno tiene más matices (recogido/clasificado/en_acta…), pero la operación y el cliente
-// razonan con 5 estados. Este es el vocabulario que se muestra en la consola, el tracking y la ruta.
+// razonan con 6 estados de vocabulario. Este es el que se muestra en la consola, el tracking y la ruta.
 // El estado interno del documento sigue siendo el de arriba; aquí solo se COLAPSA para presentar.
 //
-//   Pendiente de recogida → Registrada → Despachada → Entregada         (Con novedad = lateral)
+//   Pendiente de recogida → Registrada → Despachada → Entregada
+//        (Con novedad y En FLIT viven fuera de esa línea de 4 pasos)
 //
 // - Pendiente de recogida: el trámite está aprobado pero el mensajero aún no escaneó la LT.
 // - Registrada:  el mensajero la recogió y quedó clasificada a su trámite. Lista para armar el acta.
+// - En FLIT:     el documento está en FLIT. No es un paso que todo trámite cruce.
 // - Despachada:  se generó el acta y el mensajero salió a entregarla (ya lleva la firma de Operaciones).
 // - Entregada:   el mensajero la entregó y el receptor firmó. Estado TERMINAL.
 // - Con novedad: hubo una novedad (o devolución) en cualquier punto del ciclo.
 export const EstadoLogisticaSimple = {
   PENDIENTE: 'pendiente',
   REGISTRADA: 'registrada',
+  EN_FLIT: 'en_flit',
   DESPACHADA: 'despachada',
   ENTREGADA: 'entregada',
   NOVEDAD: 'novedad',
@@ -91,6 +96,7 @@ export type EstadoLogisticaSimple = (typeof EstadoLogisticaSimple)[keyof typeof 
 export const ESTADO_LOGISTICA_SIMPLE_LABEL: Record<EstadoLogisticaSimple, string> = {
   pendiente: 'Pendiente de recogida',
   registrada: 'Registrada',
+  en_flit: 'En FLIT',
   despachada: 'Despachada',
   entregada: 'Entregada',
   novedad: 'Con novedad',
@@ -102,9 +108,10 @@ export const ESTADOS_LOGISTICA_SIMPLE_ORDEN: readonly EstadoLogisticaSimple[] = 
 ];
 
 /**
- * Colapsa el estado INTERNO del documento (o null = LT aún no escaneada) al vocabulario de 5 estados.
+ * Colapsa el estado INTERNO del documento (o null = LT aún no escaneada) al vocabulario de 6 estados.
  * `generado` y ausencia de documento = «Pendiente de recogida»; `recogido`/`clasificado`/`en_acta` =
- * «Registrada»; `despachado` = «Despachada»; `entregado` = «Entregada»; `novedad`/`devuelto` = «Con novedad».
+ * «Registrada»; `en_flit` se conserva como «En FLIT» (no se colapsa en Registrada); `despachado` =
+ * «Despachada»; `entregado` = «Entregada»; `novedad`/`devuelto` = «Con novedad».
  */
 export function simplificarEstadoLogistica(interno: string | null | undefined): EstadoLogisticaSimple {
   switch (interno) {
@@ -112,6 +119,8 @@ export function simplificarEstadoLogistica(interno: string | null | undefined): 
     case 'clasificado':
     case 'en_acta':
       return 'registrada';
+    case 'en_flit':
+      return 'en_flit';
     case 'despachado':
       return 'despachada';
     case 'entregado':

@@ -25,6 +25,7 @@ const ESTADO_PENDIENTE = 'pendiente'; // trámite aprobado aún sin LT escaneada
 const ESTADOS_INTERNOS_POR_SIMPLE: Record<TEstadoSimple, TEstadoDoc[]> = {
   pendiente: [EstadoDocumentoLogistica.GENERADO],
   registrada: [EstadoDocumentoLogistica.RECOGIDO, EstadoDocumentoLogistica.CLASIFICADO, EstadoDocumentoLogistica.EN_ACTA],
+  en_flit: [EstadoDocumentoLogistica.EN_FLIT],
   despachada: [EstadoDocumentoLogistica.DESPACHADO],
   entregada: [EstadoDocumentoLogistica.ENTREGADO],
   novedad: [EstadoDocumentoLogistica.NOVEDAD, EstadoDocumentoLogistica.DEVUELTO],

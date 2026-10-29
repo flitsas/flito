@@ -23,9 +23,6 @@ import {
   TrasladoNoEncontradoError,
 } from './flito-logistica-traslados.errors.js';
 
-/** El enum TS aún no declara `en_flit`; el de BD sí (0274). */
-const EN_FLIT = 'en_flit' as TEstadoDoc;
-
 export interface DespachoTrasladoInput { mensajeroId: number; firmaEntrega?: string | null; entregaNombre?: string | null }
 
 export interface EntregaTrasladoInput {
@@ -50,7 +47,7 @@ interface ActaMin { id: string; estado: string; mensajeroId: number | null }
 interface LineaMin { id: string; documentoId: string; estado: string; precio: string | null }
 
 function estadoTrasRegreso(origen: string): TEstadoDoc {
-  return origen === 'flit' ? EN_FLIT : EstadoDocumentoLogistica.CLASIFICADO;
+  return origen === 'flit' ? EstadoDocumentoLogistica.EN_FLIT : EstadoDocumentoLogistica.CLASIFICADO;
 }
 
 async function cargarTraslado(exec: DbOrTx, id: string): Promise<TrasladoMin> {
