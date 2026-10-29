@@ -38,6 +38,13 @@ interface Props {
   onClose: () => void;
   /** Se llama tras guardar para que el listado refresque su señal de «no facturable». */
   onGuardado: () => void;
+  /** HU #14105: dentro de la pestaña «Datos fiscales» del modal del cliente (sin marco de modal propio). */
+  embebido?: boolean;
+}
+
+/** El marco de la ficha: modal propio, o el cuerpo a secas cuando va dentro de otro modal. */
+function Marco({ embebido, title, onClose, children }: { embebido?: boolean; title: string; onClose: () => void; children: React.ReactNode }) {
+  return embebido ? <div>{children}</div> : <FlitModal title={title} onClose={onClose}>{children}</FlitModal>;
 }
 
 type Formulario = {
@@ -97,7 +104,7 @@ function erroresDeFormato(f: Formulario): Record<string, string> {
   return e;
 }
 
-export default function FichaFiscal({ clienteId, clienteNombre, editable, onClose, onGuardado }: Props) {
+export default function FichaFiscal({ clienteId, clienteNombre, editable, onClose, onGuardado, embebido }: Props) {
   const [form, setForm] = useState<Formulario | null>(null);
   const [veredicto, setVeredicto] = useState<VeredictoCliente | null>(null);
   const [ciudadTexto, setCiudadTexto] = useState<string | null>(null);
@@ -175,7 +182,7 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
   const esPersona = form?.personType === 'Person';
 
   return (
-    <FlitModal title={`Datos fiscales · ${clienteNombre}`} onClose={onClose}>
+    <Marco embebido={embebido} title={`Datos fiscales · ${clienteNombre}`} onClose={onClose}>
       {error && (
         <div className="px-2 py-6 text-center">
           <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
@@ -443,7 +450,7 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
           </div>
         </div>
       )}
-    </FlitModal>
+    </Marco>
   );
 }
 
