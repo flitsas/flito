@@ -12,7 +12,7 @@
 //     texto lo que puede traer letras, un signo o tres decimales.
 
 import {
-  LLAVES_TARIFA, TARIFA_VALOR_MAX, TIPO_TRAMITE_TARIFA_LABEL,
+  LLAVES_TARIFA, TARIFA_VALOR_MAX, TIPO_TRAMITE_TARIFA_LABEL, conceptoAlmacenado, esConceptoLogistica,
   type ConceptoTarifa, type TipoTramiteTarifa,
 } from '@operaciones/shared-types';
 
@@ -64,14 +64,44 @@ export const RUTA_TARIFAS = '/flito/parametrizacion/tarifas';
 
 export type LlaveTarifa = (typeof LLAVES_TARIFA)[number];
 
+/**
+ * Las llaves que la pantalla pinta (HU #14107): las de trámite digital más los DOS precios de logística.
+ * Se arma aquí y no se toca `LLAVES_TARIFA` de shared-types, que también arma la vista del API.
+ */
+export const LLAVES_VISTA: ReadonlyArray<LlaveTarifa> = [
+  ...LLAVES_TARIFA.filter((k) => !esConceptoLogistica(k.concepto)),
+  { concepto: 'logistica_cliente', tipoTramite: null },
+  { concepto: 'logistica_flit', tipoTramite: null },
+];
+
+/**
+ * La vista del API a la forma de la pantalla: `logistica` (alias de lectura) pasa a `logistica_cliente`
+ * y, si el API aún no devuelve la fila de `logistica_flit`, se completa vacía («Sin configurar»).
+ * El chip «Gestiona FLITO» vive en la fila del cliente.
+ */
+export function normalizarVista(v: VistaTarifasCompania): VistaTarifasCompania {
+  const filas = v.tarifas.map((f) => ({ ...f, concepto: conceptoAlmacenado(f.concepto) }));
+  const gestiona = filas.find((f) => f.flitoGestionaLogistica !== undefined)?.flitoGestionaLogistica;
+  const tarifas = LLAVES_VISTA.map((k): FilaVistaTarifa => {
+    const f = filas.find((x) => claveLlave(x) === claveLlave(k));
+    const base: FilaVistaTarifa = f ?? {
+      concepto: k.concepto, tipoTramite: k.tipoTramite, vigenciaId: null, valor: null, vigenteDesde: null, fijadoPor: null,
+    };
+    return k.concepto === 'logistica_cliente' && gestiona !== undefined ? { ...base, flitoGestionaLogistica: gestiona } : base;
+  });
+  return { ...v, tarifas };
+}
+
 /** «Matrícula», «Traspaso», «Otros», «Logística»: de los catálogos, nunca escrito a mano. */
 export function etiquetaLlave(k: { concepto: ConceptoTarifa; tipoTramite: TipoTramiteTarifa | null }): string {
-  return k.concepto === 'logistica' ? 'Logística' : TIPO_TRAMITE_TARIFA_LABEL[k.tipoTramite ?? 'OTROS'];
+  if (k.concepto === 'logistica_flit') return 'Entrega a FLIT';
+  if (esConceptoLogistica(k.concepto)) return 'Entrega a cliente';
+  return TIPO_TRAMITE_TARIFA_LABEL[k.tipoTramite ?? 'OTROS'];
 }
 
 /** Clave estable de una llave para `key` y para comparar pills. */
 export const claveLlave = (k: { concepto: ConceptoTarifa; tipoTramite: TipoTramiteTarifa | null }): string =>
-  `${k.concepto}:${k.tipoTramite ?? ''}`;
+  `${conceptoAlmacenado(k.concepto)}:${k.tipoTramite ?? ''}`;
 
 const FORMATO_PESOS = new Intl.NumberFormat('es-CO', {
   style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 2,
@@ -132,18 +162,18 @@ export function validarValorTarifa(texto: string, vigente: number | null): Valid
   return { ok: true, valor };
 }
 
-/** «Faltan n» por cliente = las cuatro llaves menos las vigencias abiertas que tiene. */
+/** «Faltan n» por cliente = las cinco llaves menos las vigencias abiertas que tiene. */
 export function faltantesPorCompania(abiertas: TarifaAbierta[]): Map<number, number> {
   const cuenta = new Map<number, number>();
   for (const t of abiertas) cuenta.set(t.companiaId, (cuenta.get(t.companiaId) ?? 0) + 1);
   const faltan = new Map<number, number>();
-  for (const [id, n] of cuenta) faltan.set(id, Math.max(0, LLAVES_TARIFA.length - n));
+  for (const [id, n] of cuenta) faltan.set(id, Math.max(0, LLAVES_VISTA.length - n));
   return faltan;
 }
 
-/** Cuántos valores le faltan a un cliente; sin entrada en el mapa, le faltan los cuatro. */
+/** Cuántos valores le faltan a un cliente; sin entrada en el mapa, le faltan los cinco. */
 export const faltantesDe = (faltan: Map<number, number>, companiaId: number): number =>
-  faltan.get(companiaId) ?? LLAVES_TARIFA.length;
+  faltan.get(companiaId) ?? LLAVES_VISTA.length;
 
 /** Compara nombres sin tildes ni mayúsculas, para la búsqueda en cliente. */
 export const normalizaTexto = (s: string): string =>

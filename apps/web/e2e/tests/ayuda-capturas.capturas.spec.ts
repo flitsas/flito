@@ -874,13 +874,13 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await entrarComoAdminDemo(page);
 
     await page.goto('/flito/tarifas/901');
-    await expect(page.getByRole('button', { name: /Fijar valor · / })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Fijar valor · Entrega a FLIT de / })).toBeVisible();
 
     // Paso 1 — Elegir la compañía: la lista marca las que tienen valores sin configurar.
     await capturar(page, dir, '01-elegir-compania');
 
-    // Paso 2 — Fijar valor en la fila Sin configurar.
-    await page.getByRole('button', { name: /Fijar valor · / }).click();
+    // Paso 2 — Fijar valor en el panel «Entrega a FLIT», Sin configurar.
+    await page.getByRole('button', { name: /Fijar valor · Entrega a FLIT de / }).click();
     await page.getByRole('textbox').last().fill('45000');
     await capturar(page, dir, '02-fijar-valor');
     await page.getByRole('button', { name: /Cancelar · / }).click();
@@ -1149,8 +1149,18 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
   test('clients @capturas', async ({ page }) => {
     const dir = prepararCarpeta('clients');
     const api = await interceptarApiDemo(page, [
-      [/\/api\/clients$/, () => ({ body: CLIENTES_FICHA_DEMO })],
+      // HU #14162: `GET /clients` ya trae el proveedor de logística (id y nombre).
+      [/\/api\/clients$/, () => ({
+        body: (CLIENTES_FICHA_DEMO as any[]).map((c) => (c.logisticaAutogestionable
+          ? { ...c, proveedorLogisticaId: null, proveedorLogisticaNombre: null }
+          : { ...c, proveedorLogisticaId: '11111111-aaaa-4aaa-8aaa-111111111111', proveedorLogisticaNombre: 'Logística Demo' })),
+      })],
       [/\/api\/flito\/parametrizacion\/proveedores-soat$/, () => ({ body: PROVEEDORES_SOAT_DEMO })],
+      [/\/api\/flito\/parametrizacion\/proveedores-logistica$/, () => ({ body: [] })],
+      // HU #14162: la pestaña Proveedores lee el listado unificado del servidor.
+      [/\/api\/flito\/parametrizacion\/proveedores$/, () => ({
+        body: (PROVEEDORES_SOAT_DEMO as any[]).map((p) => ({ tipo: 'soat', id: p.id, nombre: p.nombre, nit: null, contacto: null, telefono: null, activo: p.activo, companiasAsignadas: 0 })),
+      })],
       [/\/api\/siigo\/clientes\/validacion\/detalle$/, () => ({ body: SIIGO_VALIDACION_DETALLE_DEMO })],
     ]);
     await entrarComoAdminDemo(page);
@@ -1162,7 +1172,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '01-clientes');
 
     // Paso 4 — SOAT sin trámite: el proveedor de la compañía, con el aviso del permiso sin efecto.
-    await page.getByRole('button', { name: new RegExp(`^SOAT sin trámite de ${EMPRESAS_DEMO[2]}`) }).click();
+    // Desde HU #14105 el proveedor se edita en el modal «Editar» de la compañía (el chip ya no es un botón).
+    await page.getByRole('button', { name: `Editar ${EMPRESAS_DEMO[2]}`, exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await capturar(page, dir, '02-soat-sin-tramite', page.getByRole('dialog'));
     await page.keyboard.press('Escape');
