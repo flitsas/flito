@@ -125,7 +125,7 @@ describe('0279 — reglas del archivo (estático)', () => {
 
   it('sin control de transacción, DO etiquetado, CHECK idempotentes (DROP IF EXISTS antes de ADD)', () => {
     expect(scanForTxControl(ARCHIVO, SQL_0275)).toEqual([]);
-    expect(limpio).toMatch(/DO \$logisticacliente0275\$/);
+    expect(limpio).toMatch(/DO \$logisticacliente0279\$/);
     expect(limpio).not.toMatch(/\$\$/);
     expect(limpio.match(/DROP CONSTRAINT IF EXISTS/g)).toHaveLength(2);
     expect(limpio).toMatch(/concepto IN \('tramite_digital', 'logistica', 'logistica_cliente', 'logistica_flit'\)/);
