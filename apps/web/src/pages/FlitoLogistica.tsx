@@ -25,6 +25,7 @@ import ViajesACliente from '../components/flito/logistica/ViajesACliente';
 import { LlegadaFlitModal } from '../components/flito/ruta/LlegadaFlit';
 import ViajesMasivo from '../components/flito/logistica/ViajesMasivo';
 import ViajesLogistica from '../components/flito/logistica/ViajesLogistica';
+import LineaTiempoDetalle from '../components/flito/logistica/LineaTiempoDetalle';
 import TabMotivosLlegada from '../components/flito/logistica/TabMotivosLlegada';
 import TabEntregas from '../components/flito/logistica/TabEntregas';
 import BandejaLtPendientes from '../components/flito/logistica/bandeja/BandejaLtPendientes';
@@ -387,22 +388,9 @@ function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: () => vo
         <ViajesLogistica tramiteId={doc.tramiteId} idFlit={doc.idFlit} fecha={fecha}
           puedeRegistrar={hasFuncion('logistica.viajes.registrar')} puedeQuitar={hasFuncion('logistica.viajes.quitar')} />
       )}
-      {doc.docId ? (
-        <>
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Bitácora</h3>
-          <ol className="space-y-2">
-            {doc.eventos.map((e) => (
-              <li key={e.id} className="text-sm">
-                <span className="font-medium">{ESTADO_LOGISTICA_SIMPLE_LABEL[simple(e.estadoNuevo)]}</span>
-                <span style={{ color: 'var(--flit-text-muted)' }}> · {fecha(e.creadoEn)} · {e.actorNombre ?? (e.origen === 'api' ? 'sistema' : '—')}</span>
-                {e.motivo && <div className="text-xs" style={{ color: 'var(--flit-danger)' }}>{e.motivo}</div>}
-                {(e.lat && e.lng) && <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>📍 {e.lat}, {e.lng}</div>}
-              </li>
-            ))}
-          </ol>
-        </>
-      ) : (
-        <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>La licencia aún no se ha recogido. El mensajero la escaneará en el organismo.</p>
+      {/* HU #14126: sin `logistica.documento.ver` la sección no existe ni pide nada al API. */}
+      {hasFuncion('logistica.documento.ver') && (
+        <LineaTiempoDetalle tramiteId={doc.tramiteId} fecha={fecha} />
       )}
     </FlitModal>
   );

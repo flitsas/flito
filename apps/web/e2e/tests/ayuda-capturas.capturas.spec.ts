@@ -348,6 +348,14 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       [/\/api\/flito\/logistica\/facetas$/, () => ({ body: LOGISTICA_FACETAS_DEMO })],
       [/\/api\/flito\/logistica\/actas$/, () => ({ body: LOGISTICA_ACTAS_DEMO })],
       [/\/api\/flito\/logistica\/tramites\/tram-log-demo-2\/viajes$/, () => ({ body: LOGISTICA_VIAJES_DEMO })],
+      [/\/api\/flito\/logistica\/tramites\/[^/]+\/linea-tiempo$/, () => ({ body: {
+        documentoId: 'doc-log-demo-2',
+        tramiteId: 'tram-log-demo-2',
+        hitos: [
+          { id: 'h-log-demo-2', tipo: null, fecha: '2026-10-21T15:10:00.000Z', actorNombre: null, destino: null, motivo: null, estadoNuevo: 'clasificado' },
+          { id: 'h-log-demo-1', tipo: 'recogida', fecha: '2026-10-21T14:00:00.000Z', actorNombre: null, destino: null, motivo: null, estadoNuevo: 'recogido' },
+        ],
+      } })],
       [/\/api\/flito\/logistica\/tram-log-demo-2$/, () => ({ body: LOGISTICA_DETALLE_DEMO })],
       [/\/api\/flito\/logistica\/traslados\/buscar$/, () => ({ body: {
         viajes: [
@@ -378,10 +386,12 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '01-tramites');
     await mostrarBarra();
 
-    // Paso 2 — Detalle de la licencia Registrada: datos, Viajes adicionales y Bitácora.
+    // Paso 2 — Detalle de la licencia Registrada: datos, Viajes adicionales y Línea de tiempo.
     await page.getByRole('row', { name: /FLIT-DEMO-302/ }).getByRole('button', { name: 'Detalle' }).click();
     const detalle = page.getByRole('dialog', { name: /^Licencia · / });
     await expect(detalle.getByText('Viajes: 2 (incluye el viaje 1)')).toBeVisible();
+    await expect(detalle.getByRole('heading', { name: 'Línea de tiempo' })).toBeVisible();
+    await expect(detalle.getByText('Clasificado', { exact: true })).toBeVisible();
     await sinFoco(page);
     await capturar(page, dir, '02-detalle', detalle);
 
