@@ -230,7 +230,10 @@ describe('AC2 — Zod valida el mapa contra los campos del comprador y los tres 
     // de primer nivel, que es lo que este router ya devuelve para todo lo demás. Lo que el formulario
     // necesita —y lo que se comprueba— es que el mensaje diga cuáles son los valores admitidos.
     expect(Object.keys(r.body.details.fieldErrors)).toContain('procedencia');
-    expect(JSON.stringify(r.body.details)).toContain("'factura' | 'runt' | 'manual'");
+    // El texto es el de zod por defecto (zod 4: `Invalid option: expected one of "factura"|…`; zod 3
+    // decía `Expected 'factura' | …`, Bug #13928): se comprueba que nombre los tres, no su formato.
+    const [mensaje] = r.body.details.fieldErrors.procedencia as string[];
+    for (const valor of ['factura', 'runt', 'manual']) expect(mensaje).toContain(`"${valor}"`);
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
   });
 

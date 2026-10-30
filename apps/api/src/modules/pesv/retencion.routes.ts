@@ -32,7 +32,7 @@ router.get('/politicas', requirePage('pesv_retencion'), async (_req, res) => {
 
 router.post('/politicas', requirePage('pesv_retencion'), exigirFuncion('pesv.retencion_edicion.administrar'), async (req: Request, res: Response) => {
   const parsed = polSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   try {
     const [row] = await db.insert(pesvRetencionPoliticas).values({
@@ -49,7 +49,7 @@ router.post('/politicas', requirePage('pesv_retencion'), exigirFuncion('pesv.ret
 router.patch('/politicas/:id(\\d+)', requirePage('pesv_retencion'), exigirFuncion('pesv.retencion_edicion.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const parsed = polSchema.partial().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const d = parsed.data;
   const expectedV = Number(req.body?.optimisticV);
   if (!Number.isFinite(expectedV)) return res.status(400).json({ error: 'optimisticV requerido' });
@@ -95,7 +95,7 @@ const runSchema = z.object({
 });
 router.post('/run', requirePage('pesv_retencion'), exigirFuncion('pesv.retencion.administrar'), async (req: Request, res: Response) => {
   const parsed = runSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' });
   const { tipoDocumento, confirm } = parsed.data;
   const [pol] = await db.select().from(pesvRetencionPoliticas)
     .where(eq(pesvRetencionPoliticas.tipoDocumento, tipoDocumento)).limit(1);

@@ -383,6 +383,16 @@ describe('AC7 — POST /:id/aplicar', () => {
     expect(espia.inserts).toEqual([]);
   });
 
+  it('Bug #13928 (zod 4) — tramiteId fuera del RFC (sin versión/variante) NO es 400 por formato: `.guid()` acepta lo que aceptaba el `.uuid()` de zod 3', async () => {
+    const app = await buildApp();
+    const NO_RFC = 'a0000000-0000-0000-0000-000000000001';
+    armarAplicar({ tramiteId: NO_RFC });
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(body({ tramiteId: NO_RFC }));
+    expect(res.status, JSON.stringify(res.body)).not.toBe(400);
+    expect(res.status).toBe(200);
+    expect(res.body.resultado).toBe('aplicado');
+  });
+
   it('esPago=false, archivo entero (paginas null): tx con FOR UPDATE sobre el trámite; soporte original reescrito (documento_tramite + soat_id); fila aplicado con es_pago=false y VALOR NULL; audit; 200 { resultado, comprobante }', async () => {
     const app = await buildApp();
     armarAplicar();
@@ -960,6 +970,16 @@ describe('HU #12631 — POST /:id/aplicar con esPago=true: fila documental de tr
     const tipo = espia.condicionesLeidas().map((c) => renderizar(c as never)).filter((q) => q.sql.includes('"flito_servicios_adicionales_tipos"."id"'));
     expect(tipo.length).toBeGreaterThanOrEqual(3); // antes de S3, bajo el bloqueo, y la tarifa
     for (const q of tipo) expect(ligadoA(q, '"flito_servicios_adicionales_tipos"."id"')).toBe(TIPO);
+  });
+
+  it('Bug #13928 (zod 4) — pago SA con servicioTipoId fuera del RFC NO es 400 por formato: `.guid()` acepta lo que aceptaba el `.uuid()` de zod 3', async () => {
+    const app = await buildApp();
+    const NO_RFC = 'a0000000-0000-0000-0000-000000000001';
+    armarSa({ tipo: [{ ...TIPO_CATALOGO, id: NO_RFC }] });
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pagoSa({ servicioTipoId: NO_RFC }));
+    expect(res.status, JSON.stringify(res.body)).not.toBe(400);
+    expect(res.status).toBe(200);
+    expect(cierre()).toMatchObject({ concepto: 'servicios_adicionales', esPago: true, servicioTipoId: NO_RFC });
   });
 
   it('Bug #12913 — igual al catálogo (comprobante 100 = catálogo 100): diferencia 0, NO marcado', async () => {
