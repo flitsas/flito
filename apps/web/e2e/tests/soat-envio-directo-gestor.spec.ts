@@ -131,15 +131,16 @@ const celda = (page: Page, nombre: string, texto: string) =>
 // ═══════════════════════ S1 · AC0 — el gestor se configura donde se abre el canal ═════════════════
 
 test.describe('HU #12079 · AC0 — la celda de la ficha de la compañía', () => {
-  test('la tabla NO engorda: 12 columnas, un solo control por fila y ninguna casilla del canal', async ({ page }) => {
+  test('la tabla NO engorda: 11 columnas, un solo control por fila y ninguna casilla del canal', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await montarFicha(page);
     await page.goto('/clients');
 
-    // El mutante que este aserto mata es la disposición descartada: una 13.ª columna con un
+    // 11 desde la HU #13936, que retiró la columna «Parcial». El mutante que este aserto mata es
+    // la disposición descartada: una columna más con un
     // `FlitSelect` por fila — cientos de regiones `role="status"` vivas y una parada de tabulador
     // más por compañía.
-    await expect(page.getByRole('columnheader')).toHaveCount(12);
+    await expect(page.getByRole('columnheader')).toHaveCount(11);
     await expect(page.getByRole('checkbox', { name: /SOAT sin trámite de/ })).toHaveCount(0);
   });
 
