@@ -25,4 +25,11 @@ export const EXEMPTIONS = new Map([
   // `npm run check:exemptions`).
   ['https://github.com/advisories/GHSA-86w9-cpqp-85rv',
     'node-forge: falla en la verificación de firmas PKCS#1 v1.5; FLITO solo firma (pdf-signer.ts, @signpdf/signer-p12), no verifica. Sin fix upstream (2026-10-02).'],
+  // Aprobada por el Líder Técnico (David Chica) el 2026-10-30. `decode-uri-component` ≤0.5.0
+  // llega vía minio → query-string (GHSA-qr28-fpjm-wq7f, DoS por percent-encoding). El bump
+  // limpio a 0.5.1 no entra con overrides npm (query-string pide ^0.2.2); `npm audit fix --force`
+  // bajaría minio a 7.1.3 (breaking). FLITO usa MinIO con URLs/control interno, no decodifica
+  // entrada pública con ese paquete. Retirar cuando minio/query-string suban el fix.
+  ['https://github.com/advisories/GHSA-qr28-fpjm-wq7f',
+    'decode-uri-component (vía minio→query-string): DoS por percent-encoding; FLITO no expone ese decoder a entrada pública. Sin bump no-breaking de minio (2026-10-30).'],
 ]);
