@@ -6,20 +6,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CampoImpuesto, CAMPO_IMPUESTO_LABEL } from '@operaciones/shared-types';
 
-// Aísla el test de los flags de demo del .env (dotenv los carga vía env.ts): estos tests ejercitan la
-// ruta de Anthropic (mockeada), no el stub ni el fallback local. Sin esto, OCR_STUB/OCR_LOCAL del .env
-// desviarían la extracción y romperían el contrato que aquí se valida.
+// Aísla el test de los flags de demo del .env (dotenv los carga vía env.ts): OCR_STUB=0 evita el stub.
+// OCR_LOCAL ya no gobierna el fallback (Bug #14229); se deja en 0 para no confundir lecturas viejas.
+// Key de prueba: sin ella extraer() iría siempre al local (Bug #14229) y no ejercitaría Anthropic.
 process.env.OCR_STUB = '0';
 process.env.OCR_LOCAL = '0';
+if (!process.env.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
 
 const anthropicMock = vi.fn();
+const textoDocumentoMock = vi.fn();
+const camposDesdeTextoMock = vi.fn();
 vi.mock('../../src/modules/tramites/anthropic.js', () => ({ anthropicMessages: anthropicMock }));
+vi.mock('../../src/modules/flito-ocr/flito-ocr-local.js', () => ({
+  textoDocumento: (...args: unknown[]) => textoDocumentoMock(...args),
+  camposDesdeTexto: (...args: unknown[]) => camposDesdeTextoMock(...args),
+}));
 
 const {
   extraerFacturaSoat, extraerReciboImpuesto,
   placaDesdeNombre, normalizarPesos, normalizarFecha, OcrNoDisponibleError,
 } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
+const { env } = await import('../../src/config/env.js');
 const { PROMPT_RECIBO_IMPUESTO, PROMPT_RECIBO_CAJA } = await import('../../src/modules/flito-ocr/flito-ocr.prompts.js');
+
+// Si el .env del worktree no trae key, forzamos una de prueba (mismo objeto que usa el service).
+if (!env.ANTHROPIC_API_KEY) {
+  (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
+}
 
 /** Encola una respuesta OK de Anthropic con el JSON dado como texto del content. */
 function respuesta(obj: Record<string, unknown>) {
@@ -33,7 +46,29 @@ const doc = (extra?: Partial<{ nombreArchivo: string; contentType: string; umbra
   umbral: extra?.umbral ?? 0.85,
 });
 
-beforeEach(() => anthropicMock.mockReset());
+/** Key de prueba: beforeEach la restaura por si un caso la borró (ruta «sin API key»). */
+const API_KEY_TEST = env.ANTHROPIC_API_KEY!;
+
+beforeEach(() => {
+  anthropicMock.mockReset();
+  textoDocumentoMock.mockReset();
+  camposDesdeTextoMock.mockReset();
+  (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = API_KEY_TEST;
+});
+
+/** Campos mínimos del fallback local para una factura SOAT (solo lo que el aserto mira). */
+function crudoLocalSoat(placa = 'QTQ100', valorTotal = '634900') {
+  return {
+    placa: { valor: placa, confianza: 'media' as const },
+    vin: { valor: null, confianza: null },
+    numeroPoliza: { valor: 'P-LOCAL', confianza: 'baja' as const },
+    valorTotal: { valor: valorTotal, confianza: 'media' as const },
+    aseguradora: { valor: 'SURA', confianza: 'baja' as const },
+    fechaExpedicion: { valor: null, confianza: null },
+    vigenciaDesde: { valor: null, confianza: null },
+    vigenciaHasta: { valor: null, confianza: null },
+  };
+}
 
 describe('flito-ocr — mapeo de confianza y umbral', () => {
   it('todos alta → una sola pasada (Haiku), campos confiables y normalizados', async () => {
@@ -136,12 +171,69 @@ describe('flito-ocr — doble pasada (escalación a Sonnet)', () => {
   });
 });
 
-describe('flito-ocr — degradación y robustez', () => {
-  it('anthropicMessages no disponible (sin key) → OcrNoDisponibleError', async () => {
-    anthropicMock.mockResolvedValueOnce({ ok: false, status: 503, message: 'Servicio de IA no configurado' });
-    await expect(extraerFacturaSoat(doc())).rejects.toBeInstanceOf(OcrNoDisponibleError);
+describe('flito-ocr — fallback local (Bug #14229)', () => {
+  it('Anthropic 503 → cae al local sin OCR_LOCAL=1 y no lanza OcrNoDisponibleError', async () => {
+    process.env.OCR_LOCAL = '0';
+    anthropicMock.mockResolvedValueOnce({ ok: false, status: 503, message: 'upstream down' });
+    textoDocumentoMock.mockResolvedValueOnce('texto local sin PII en el log');
+    camposDesdeTextoMock.mockReturnValueOnce(crudoLocalSoat());
+
+    const r = await extraerFacturaSoat(doc());
+
+    expect(textoDocumentoMock).toHaveBeenCalledTimes(1);
+    expect(camposDesdeTextoMock).toHaveBeenCalledTimes(1);
+    expect(r.placa!.valor).toBe('QTQ100');
+    expect(r.valorTotal!.valor).toBe('634900');
   });
 
+  it('sin API key → usa local sin exigir OCR_LOCAL=1 (no llama a Anthropic)', async () => {
+    const prev = env.ANTHROPIC_API_KEY;
+    (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = undefined;
+    process.env.OCR_LOCAL = '0';
+    try {
+      textoDocumentoMock.mockResolvedValueOnce('texto local');
+      camposDesdeTextoMock.mockReturnValueOnce(crudoLocalSoat('ABC123', '100000'));
+
+      const r = await extraerFacturaSoat(doc());
+
+      expect(anthropicMock).not.toHaveBeenCalled();
+      expect(textoDocumentoMock).toHaveBeenCalledTimes(1);
+      expect(r.placa!.valor).toBe('ABC123');
+      expect(r.valorTotal!.valor).toBe('100000');
+    } finally {
+      (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = prev;
+    }
+  });
+
+  it('Anthropic falla y el local también → propaga el error del local', async () => {
+    anthropicMock.mockResolvedValueOnce({ ok: false, status: 503, message: 'quota' });
+    textoDocumentoMock.mockRejectedValueOnce(new Error('pdftotext exit 1: broken'));
+
+    await expect(extraerFacturaSoat(doc())).rejects.toThrow(/pdftotext/);
+    expect(textoDocumentoMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('Anthropic OK → no llama al local', async () => {
+    anthropicMock.mockResolvedValueOnce(respuesta({
+      placa: { valor: 'QTQ100', confianza: 'alta' },
+      vin: { valor: null, confianza: null },
+      numeroPoliza: { valor: 'P1', confianza: 'alta' },
+      valorTotal: { valor: '250000', confianza: 'alta' },
+      aseguradora: { valor: 'SURA', confianza: 'alta' },
+      fechaExpedicion: { valor: null, confianza: null },
+      vigenciaDesde: { valor: null, confianza: null },
+      vigenciaHasta: { valor: null, confianza: null },
+    }));
+
+    const r = await extraerFacturaSoat(doc());
+
+    expect(textoDocumentoMock).not.toHaveBeenCalled();
+    expect(camposDesdeTextoMock).not.toHaveBeenCalled();
+    expect(r.valorTotal!.valor).toBe('250000');
+  });
+});
+
+describe('flito-ocr — degradación y robustez', () => {
   it('respuesta no parseable → extracción vacía (todo null, va a revisión)', async () => {
     anthropicMock.mockResolvedValue({ ok: true, data: { content: [{ text: 'lo siento, no puedo' }] } });
     const r = await extraerFacturaSoat(doc());

@@ -1,5 +1,6 @@
 // FLITO OCR — FALLBACK LOCAL (sin Anthropic). Reconstruye el enfoque pre-migración: pdftotext/pdftoppm
-// (poppler) + Tesseract + patrones. Se usa cuando no hay ANTHROPIC_API_KEY (ver extraer() en el service).
+// (poppler) + Tesseract + patrones. Siempre disponible vía extraer() en el service: sin API key o
+// cuando Anthropic falla (cuota/timeout/5xx). Sin interruptor OCR_LOCAL (Bug #14229).
 //
 // Capas, de la más fiable a la de respaldo:
 //   1) PDF con capa de texto → `pdftotext -layout` (NO es OCR: lee el texto embebido → exacto).
@@ -47,8 +48,8 @@ let workerP: Promise<Worker> | null = null;
 async function getWorker(): Promise<Worker> {
   if (!workerP) {
     // Import DINÁMICO: `tesseract.js` solo se carga si el fallback local se ejecuta de verdad (sin
-    // ANTHROPIC_API_KEY + OCR_LOCAL=1). Así el servidor arranca aunque el paquete no esté instalado
-    // en el deploy (p. ej. cuando se usa el OCR de Anthropic y no hace falta el fallback).
+    // API key o tras fallo de Anthropic). Así el servidor arranca aunque el paquete no esté instalado
+    // en el deploy (p. ej. cuando Anthropic responde bien y no hace falta el fallback).
     workerP = import('tesseract.js')
       .then(({ createWorker }) => createWorker('eng', 1, { langPath: LANG_DIR, cachePath: os.tmpdir(), gzip: true }))
       .catch((e) => { workerP = null; throw e; });
