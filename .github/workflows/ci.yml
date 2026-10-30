@@ -276,7 +276,8 @@ jobs:
   # escuchando en el 3005 al que apunta el proxy de Vite).
   e2e-visor-pdf:
     name: e2e · visor PDF real
-    runs-on: ubuntu-latest
+    # ubuntu-latest ya resuelve a 26.04; Playwright 1.59 no instala Chromium ahí.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:
