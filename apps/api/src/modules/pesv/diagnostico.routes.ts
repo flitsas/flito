@@ -166,7 +166,7 @@ function inferMime(name: string): string {
 // ============================================================================
 router.post('/', requirePage('pesv_diagnostico'), exigirFuncion('pesv.diagnostico.administrar'), async (req: Request, res: Response) => {
   const parsed = diagnosticoCreateSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' }); return; }
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' }); return; }
   const data = parsed.data;
   const userId = req.user!.sub;
   const rank = NIVEL_RANK[data.nivelEmpresa];
@@ -235,7 +235,7 @@ router.patch('/:id/items/:estandarId', requirePage('pesv_diagnostico'), exigirFu
   }
 
   const parsed = itemPatchSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' }); return; }
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message || 'datos inválidos' }); return; }
 
   const [diag] = await db.select().from(pesvDiagnosticos).where(eq(pesvDiagnosticos.id, id)).limit(1);
   if (!diag) { res.status(404).json({ error: 'diagnóstico no encontrado' }); return; }

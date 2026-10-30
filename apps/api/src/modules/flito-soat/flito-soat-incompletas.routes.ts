@@ -65,7 +65,7 @@ router.post('/cliente/incompletas/buscar', exigirFuncion('soat.incompletas.busca
   res.json(r);
 });
 
-const idSchema = z.string().uuid();
+const idSchema = z.string().guid();
 
 router.get('/cliente/incompletas/:id', exigirFuncion('soat.incompleta.ver'), async (req: Request, res: Response) => {
   if (!idSchema.safeParse(req.params.id).success) { res.status(404).json({ error: 'La solicitud no existe' }); return; }

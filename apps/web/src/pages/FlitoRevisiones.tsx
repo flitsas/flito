@@ -44,11 +44,19 @@ const labelCampo = (modulo: FlujoRevision, clave: string): string => {
 const norm = (v: string | null | undefined) => (v ?? '').toUpperCase().replace(/[\s-]/g, '');
 const fechaHora = (iso: string) => new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
+/** Las colas SOAT/impuestos responden paginado `{ items }`; defensivo si algún día vuelve el array plano. */
+function itemsDeLista<T>(r: T[] | { items?: T[] } | null | undefined): T[] {
+  if (Array.isArray(r)) return r;
+  return Array.isArray(r?.items) ? r.items : [];
+}
+
 function useRevisiones(modulo: FlujoRevision, incluirResueltas: boolean, nonce: number) {
   const [data, setData] = useState<RevisionItem[]>([]);
   useEffect(() => {
     const q = new URLSearchParams({ modulo, incluirResueltas: String(incluirResueltas) });
-    api.get<RevisionItem[]>(`/flito/revisiones?${q}`).then(setData).catch(() => setData([]));
+    api.get<RevisionItem[]>(`/flito/revisiones?${q}`)
+      .then((r) => setData(Array.isArray(r) ? r : []))
+      .catch(() => setData([]));
   }, [modulo, incluirResueltas, nonce]);
   return data;
 }
@@ -92,19 +100,32 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
     setRegistroId(revision.registroId ?? '');
     setMotivo(''); setModo('idle'); setError(null);
     api.get<string[]>(`/flito/revisiones/campos/${modulo}`).then(setClaves).catch(() => setClaves([]));
-    if (modulo === 'soat') api.get<SoatItem[]>('/flito/soat').then(setSoats).catch(() => setSoats([]));
-    else if (modulo === 'derechos') {
+    // SOAT e impuestos ya no son arrays planos: traen `{ items, page, … }`. Tomar `.items` evita el
+    // crash `*.map is not a function` que tumba toda la vista (ErrorBoundary) al abrir una revisión.
+    if (modulo === 'soat') {
+      api.get<{ items: SoatItem[] }>('/flito/soat?estado=solicitado&pageSize=200')
+        .then((r) => setSoats(itemsDeLista(r)))
+        .catch(() => setSoats([]));
+    } else if (modulo === 'derechos') {
       // Sin placa leída no hay a quién ofrecer: la revisión será de tipo "sin llave de cruce" y el
       // operador tendrá que resolverla desde el trámite, no desde aquí.
       const placa = revision.placaSugerida;
       if (placa) api.get<DerechoCandidato[]>(`/flito/derechos/candidatos/${encodeURIComponent(placa)}`).then(setDerechos).catch(() => setDerechos([]));
       else setDerechos([]);
+    } else {
+      api.get<{ items: ImpItem[] }>('/flito/impuestos?pageSize=200')
+        .then((r) => setImpuestos(itemsDeLista(r)))
+        .catch(() => setImpuestos([]));
     }
-    else api.get<ImpItem[]>('/flito/impuestos').then(setImpuestos).catch(() => setImpuestos([]));
   }, [revision, modulo]);
 
   const candidatos = useMemo(() => {
-    if (modulo === 'soat') return soats.map((s) => ({ id: s.id, placa: s.placa, vin: s.vin, etiqueta: `${s.placa} · ${s.marca ?? ''} ${s.linea ?? ''}`.trim() }));
+    if (modulo === 'soat') {
+      return soats.map((s) => ({
+        id: s.id, placa: s.placa, vin: s.vin,
+        etiqueta: `${s.placa} · ${s.marca ?? ''} ${s.linea ?? ''}`.trim(),
+      }));
+    }
     if (modulo === 'derechos') {
       // Los que ya tienen su derecho se excluyen: el registro es uno por trámite y ofrecerlos solo
       // llevaría a un error al guardar.
@@ -114,7 +135,9 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
       }));
     }
     const estado = modulo === 'factura_venta' ? EstadoImpuesto.PENDIENTE : EstadoImpuesto.SOLICITADO;
-    return impuestos.filter((i) => i.estado === estado).map((i) => ({ id: i.id, placa: i.placa, vin: i.vin, etiqueta: `${i.placa} · ${i.idFlit}` }));
+    return impuestos.filter((i) => i.estado === estado).map((i) => ({
+      id: i.id, placa: i.placa, vin: i.vin, etiqueta: `${i.placa} · ${i.idFlit}`,
+    }));
   }, [modulo, soats, impuestos, derechos, revision.placaSugerida]);
 
   const seleccionado = candidatos.find((c) => c.id === registroId);

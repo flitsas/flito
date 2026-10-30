@@ -13,6 +13,7 @@
 import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
+import { mensajesDeTipo } from '../../shared/utils/zod-mensajes.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -45,12 +46,12 @@ const FALTA_SECRET = 'Falta la contraseña del usuario de servicio (clientSecret
 
 /** `.strict()`: una clave de más es un error de dedo, no un campo que se ignora en silencio. */
 const accesoSchema = z.object({
-  clientId: z.string({ required_error: FALTA_CLIENT_ID, invalid_type_error: FALTA_CLIENT_ID })
+  clientId: z.string({ error: mensajesDeTipo({ requerido: FALTA_CLIENT_ID, tipo: FALTA_CLIENT_ID }) })
     .trim()
     .min(1, FALTA_CLIENT_ID)
     .max(120, 'El usuario de servicio admite como máximo 120 caracteres.'),
   // Sin `.trim()`: la contraseña se guarda tal cual la entrega FLIT 2. Solo se rechaza la vacía o en blanco.
-  clientSecret: z.string({ required_error: FALTA_SECRET, invalid_type_error: FALTA_SECRET })
+  clientSecret: z.string({ error: mensajesDeTipo({ requerido: FALTA_SECRET, tipo: FALTA_SECRET }) })
     .max(512, 'La contraseña admite como máximo 512 caracteres.')
     .refine((v) => v.trim().length > 0, FALTA_SECRET),
 }).strict();
