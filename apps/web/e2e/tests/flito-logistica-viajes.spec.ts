@@ -29,7 +29,11 @@ const ACTAS = [
 const ACTA_DETALLE = {
   acta: ACTAS[0], tienePdf: true, firmaEntrega: false, firmaRecibe: false, entregaNombre: null,
   documentos: [{ id: 'doc-2', placa: 'XYZ789', secretaria: 'STT Medellín', propietario: 'Ana Ruiz', numeroLicencia: '100381', numeroLt: 'LT-77', estado: 'en_acta', estadoLabel: 'En acta', idFlit: 'FLIT-2002' }],
-  bitacora: [{ id: 'ev-9', documentoId: 'doc-2', placa: 'XYZ789', estadoAnterior: 'recogido', estadoNuevo: 'en_acta', actorNombre: 'Operaciones E2E', motivo: null, origen: 'web', creadoEn: '2026-07-21T08:00:00Z' }],
+  bitacora: [
+    { id: 'ev-9', documentoId: 'doc-2', placa: 'XYZ789', tipo: 'acta_organismo', estadoAnterior: 'recogido', estadoNuevo: 'en_acta', actorNombre: 'Operaciones E2E', motivo: null, origen: 'web', creadoEn: '2026-07-21T08:00:00Z' },
+    { id: 'ev-8', documentoId: 'doc-2', placa: 'XYZ789', tipo: 'destino_registrado', estadoAnterior: 'en_acta', estadoNuevo: 'en_acta', actorNombre: 'Operaciones E2E', motivo: 'Dirección por confirmar', origen: 'web', creadoEn: '2026-07-21T07:50:00Z' },
+    { id: 'ev-7', documentoId: 'doc-2', placa: 'XYZ789', tipo: 'acta_cliente', estadoAnterior: 'en_acta', estadoNuevo: 'en_acta', actorNombre: 'Operaciones E2E', motivo: null, origen: 'web', creadoEn: '2026-07-21T07:40:00Z' },
+  ],
 };
 
 const FACETAS = {
@@ -219,7 +223,7 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     await expect(s.getByText('Viajes: 2 (incluye el viaje 1)')).toBeVisible();
     await expect(s.getByText('Adicionales: $ 45.000')).toBeVisible();
     // Sigue abierto el detalle: quitar no cierra nada.
-    await expect(page.getByRole('dialog')).toContainText('Bitácora');
+    await expect(page.getByRole('dialog')).toContainText('Línea de tiempo');
   });
 
   test('sin logistica.viajes.ver la sección no existe ni se pide al API', async ({ page }) => {
@@ -230,7 +234,7 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     await page.route(RUTA_VIAJES, (route) => { peticiones += 1; return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); });
     await abrirDetalle(page);
 
-    await expect(page.getByRole('dialog')).toContainText('Bitácora');
+    await expect(page.getByRole('dialog')).toContainText('Línea de tiempo');
     await expect(page.getByRole('region', { name: 'Viajes adicionales' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Registrar viaje' })).toHaveCount(0);
     expect(peticiones).toBe(0);
@@ -321,7 +325,7 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
 
     const s = seccion(page);
     await expect(s.getByRole('alert')).toContainText('No se pudieron cargar los viajes de este trámite.');
-    await expect(page.getByRole('dialog')).toContainText('Bitácora');
+    await expect(page.getByRole('dialog')).toContainText('Línea de tiempo');
     fase = 'ok';
     await s.getByRole('button', { name: 'Reintentar' }).click();
     // Totales NO derivables del único item (1 viaje de 45.000): si la sección los pintara sumando
@@ -336,7 +340,7 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     await expect(seccion(page).getByText('No tienes permiso para ver los viajes.')).toBeVisible();
     await expect(seccion(page).getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
     await expect(page.getByRole('dialog')).toContainText('Trámite FLIT');
-    await expect(page.getByRole('dialog')).toContainText('Bitácora');
+    await expect(page.getByRole('dialog')).toContainText('Línea de tiempo');
   });
 
   test('un 409 TRAMITE_LIQUIDADO al registrar: mensaje del servidor, la sección pasa a solo lectura', async ({ page }) => {
@@ -376,5 +380,25 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     expect(texto).not.toContain('viaje');
     expect(texto).not.toContain('tarifa');
     expect(texto).not.toContain('total');
+  });
+
+  test('la bitácora del acta rotula por tipo de evento: sin líneas «Registrada» repetidas', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockConsola(page);
+    await mockViajes(page);
+    await page.goto('/flito/logistica');
+    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('row', { name: /Concesionario Norte/ }).getByRole('button', { name: 'Ver' }).click();
+    const lineas = page.getByRole('dialog').getByRole('listitem');
+    await expect(lineas).toHaveCount(3);
+    await expect(lineas.nth(0)).toContainText('Acta de organismo firmada');
+    await expect(lineas.nth(1)).toContainText('Destino registrado');
+    await expect(lineas.nth(1)).toContainText('Dirección por confirmar');
+    await expect(lineas.nth(2)).toContainText('Acta a cliente generada');
+    for (const i of [0, 1, 2]) {
+      await expect(lineas.nth(i)).toContainText('XYZ789');
+      await expect(lineas.nth(i)).toContainText('Operaciones E2E');
+    }
+    await expect(lineas.filter({ hasText: 'Registrada' })).toHaveCount(0);
   });
 });

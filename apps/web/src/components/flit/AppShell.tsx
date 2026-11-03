@@ -18,7 +18,7 @@ interface AppShellProps {
 export default function AppShell({ onOpenPalette, children }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const location = useLocation();
-  // HU #13764: en <lg el último bloque de la página debe poder subir por encima del botón de Dr. Flit.
+  // HU #13764: en <lg (80 px del botón + safe-area + barra fija) el último bloque de la página debe poder subir por encima del botón de Dr. Flit.
   const reservaDrFlit = useDrFlitVisible();
 
   // Cerrar drawer al navegar.
@@ -38,7 +38,7 @@ export default function AppShell({ onOpenPalette, children }: AppShellProps) {
 
       <FlitTopbar onOpenPalette={onOpenPalette} onOpenSidebar={() => setDrawerOpen(true)} />
       <FlitNavBar />
-      <main className={`min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 ${reservaDrFlit ? 'max-lg:pb-20' : ''}`}>
+      <main className={`min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 ${reservaDrFlit ? 'max-lg:pb-[calc(6.5rem+env(safe-area-inset-bottom)+var(--flit-fab-offset,0px))]' : ''}`}>
         {children}
       </main>
 

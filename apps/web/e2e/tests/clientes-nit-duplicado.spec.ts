@@ -144,7 +144,8 @@ test.describe('HU #13955 · alta — NIT duplicado', () => {
 
 test.describe('HU #13955 · edición (ficha fiscal) — NIT duplicado', () => {
   async function abrirFicha(page: Page) {
-    await page.getByRole('button', { name: `Datos fiscales de ${CLIENTE.name}` }).click();
+    await page.getByRole('button', { name: `Editar ${CLIENTE.name}`, exact: true }).click();
+    await page.getByRole('button', { name: 'Datos fiscales', exact: true }).click();
     await expect(page.getByLabel('Identificación', { exact: true })).toHaveValue('800999111');
     await page.getByLabel('Identificación', { exact: true }).fill('900123456');
   }

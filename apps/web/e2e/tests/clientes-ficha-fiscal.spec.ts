@@ -94,7 +94,8 @@ async function mock(page: Page, o: Opciones = {}) {
 /** Abre la ficha fiscal de un cliente por su nombre. */
 async function abrirFicha(page: Page, nombre: string) {
   await page.goto('/clients');
-  await page.getByRole('button', { name: `Datos fiscales de ${nombre}` }).click();
+  await page.getByRole('button', { name: `Editar ${nombre}`, exact: true }).click();
+  await page.getByRole('button', { name: 'Datos fiscales', exact: true }).click();
 }
 
 test.describe('AC1 — acceso y permisos', () => {

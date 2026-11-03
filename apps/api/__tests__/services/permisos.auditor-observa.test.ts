@@ -107,11 +107,13 @@ const EXPORTACIONES_POR_POST = ['finanzas.reporte_costos.ver'] as const;
  * guarda `GET /` de flito-tramites y `POST /novedades/buscar` (¿hay trámites nuevos o actualizados?).
  * HU #13837: `soat.cola.ver` guarda `GET /` de flito-soat y `POST /buscar` (consulta de gestión de Dr. Flit).
  * HU #13838: `impuestos.cola.ver` y `derechos.cola.ver`, igual: `GET /` de su módulo y `POST /buscar`.
+ * HU #14125: `logistica.consola.ver` guarda `GET /` de logística y `POST /traslados/buscar` (la placa va en el cuerpo).
  * El aserto exige al menos una guarda GET y que TODAS sus guardas no-GET sean `POST …/buscar` sin
  * condición y con `auditor`; cualquier otro código no-GET del auditor sigue fallando en (2).
  */
 const LECTURAS_GET_CON_BUSCAR_POR_POST = [
   'tramites.cola.ver', 'soat.cola.ver', 'impuestos.cola.ver', 'derechos.cola.ver',
+  'logistica.consola.ver',
 ] as const;
 
 const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
@@ -219,7 +221,10 @@ describe('AC6 — rol por rol: lo sembrado es lo que la foto concedía', () => {
       // HU #13945: las operaciones absorbidas por una acción EXCLUSIVA del Administrador nacen en el árbol (su acción
       // la siembra la 0255, no el seed plano ≤ 0231) y no tienen partida: no son del mundo que mide este archivo.
       const desdeFoto = [...new Set(GUARDAS_MEDIDAS.filter((g) => g.roles.includes(rol)).map(codigoDe)
-        .filter((c) => !c.startsWith('pagina.') && !DE_EXCLUSIVAS.has(c)))].sort();
+        .filter((c) => !c.startsWith('pagina.') && !DE_EXCLUSIVAS.has(c)
+          // HU #14114 (migración 0283, decisión de David: «solo Operaciones/admin»): el mensajero ya no registra
+          // viajes; la foto aún le da POST /traslados. Excepción estrecha: solo ese rol y esa función.
+          && !(rol === 'mensajero' && c === 'logistica.traslado.registrar')))].sort();
       expect(operacionesDe(rol)).toEqual(desdeFoto);
     });
   }

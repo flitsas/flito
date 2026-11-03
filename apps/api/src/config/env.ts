@@ -319,6 +319,10 @@ const envSchema = z.object({
   // DESCARTADAS (30 días tras el descarte, Ley 1581). Puerta POSITIVA como las de arriba: un job que
   // BORRA no se enciende por desplegarse; sin el '1' explícito no arranca y lo dice en el log.
   SOAT_RETENCION_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // HU #14113 — purga por retención de la cédula de las firmas de logística (10 años desde
+  // `firmado_en`, Ley 1581). Puerta POSITIVA como las de arriba: un job que BORRA no se enciende
+  // por desplegarse; sin el '1' explícito no arranca y lo dice en el log.
+  LOGISTICA_RETENCION_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
   // HU #14132 (ADR-0032, enmienda 2026-10-28): worker de la carga masiva de SOAT. Puerta NEGATIVA: defecto
   // ENCENDIDO (ausente o cualquier valor != '0'); solo '0' lo apaga. Apagado explícito no corre ni el worker ni el
   // vigilante, y el alta del lote responde 503 `carga_masiva_no_disponible`.

@@ -6,10 +6,9 @@
 // «dejar de cobrar» dentro del rango cierra sin abrir y no aparece (R2 de la ficha).
 
 import { useEffect, useState, type RefObject } from 'react';
-import { LLAVES_TARIFA } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import {
-  RUTA_TARIFAS, claveLlave, diaCorto, etiquetaLlave, fechaHoraCorta, nombreUsuario, pesosTarifa,
+  LLAVES_VISTA, RUTA_TARIFAS, claveLlave, diaCorto, etiquetaLlave, fechaHoraCorta, nombreUsuario, pesosTarifa,
   type LlaveTarifa, type VigenciaHistorial,
 } from '../../lib/tarifas';
 import FlitAcordeon from '../../components/flit/FlitAcordeon';
@@ -85,7 +84,7 @@ export default function HistorialTarifas({ companiaId, companiaNombre, abierto, 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <FlitPillGroup label="Trámite del historial">
               <FlitPillButton active={conTodos} pressed={conTodos} onClick={() => onFiltro('todos')}>Todos</FlitPillButton>
-              {LLAVES_TARIFA.map((k) => {
+              {LLAVES_VISTA.map((k) => {
                 const puesta = !conTodos && claveLlave(filtro) === claveLlave(k);
                 return (
                   <FlitPillButton key={claveLlave(k)} active={puesta} pressed={puesta} onClick={() => onFiltro(k)}>
