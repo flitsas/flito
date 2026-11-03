@@ -8,7 +8,7 @@ import FlitModal from '../../flit/FlitModal';
 import { MenuFila } from '../../flit/MenuFila';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitField, flitInp,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+  flitBtnDanger, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
   flitBtnSecondarySm, flitBtnIconoSm,
 } from '../../flit/flitPageKit';
 import {
@@ -437,8 +437,8 @@ export default function TabMotivosLlegada() {
             </button>
             <button
               type="button"
-              className={flitBtnPrimary}
-              style={dialogo.activo ? flitBtnPrimaryStyle : { ...flitBtnPrimaryStyle, color: 'var(--flit-danger-ink)' }}
+              className={dialogo.activo ? flitBtnPrimary : flitBtnDanger}
+              style={dialogo.activo ? flitBtnPrimaryStyle : undefined}
               disabled={guardando}
               onClick={() => void confirmarEstado()}
             >

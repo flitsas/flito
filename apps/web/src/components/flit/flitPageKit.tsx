@@ -192,6 +192,11 @@ export const flitBtnSecondary = `flit-focus inline-flex h-10 items-center gap-2 
 /** Vacío desde la HU #12819: el borde y la tinta van en `flitBtnSecondary` (ver arriba). */
 export const flitBtnSecondaryStyle = {} as const;
 /**
+ * Variante destructiva (anular, desactivar). Fondo de tarjeta, borde y tinta `--flit-danger-text`
+ * (el par con tema oscuro; `-ink` no lo tiene), sin degradado: contraste ≥ 4,5:1 en los dos temas.
+ */
+export const flitBtnDanger = `flit-focus inline-flex h-10 items-center justify-center gap-2 rounded-[999px] border border-[color:var(--flit-danger-text)] bg-flit-card px-5 text-sm font-semibold text-[color:var(--flit-danger-text)] transition-colors hover:bg-[var(--flit-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-flit-card`;
+/**
  * Variante compacta del secundario, para acciones que viven DENTRO de una celda junto a datos.
  *
  * Comparte estilo con `flitBtnSecondary` —mismo borde, mismo color, mismo hover— y solo baja alto,
