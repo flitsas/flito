@@ -238,6 +238,15 @@ export async function vistaPorCompania(companiaId: number): Promise<VistaTarifas
     if (k.concepto === 'logistica') fila.flitoGestionaLogistica = !c.logisticaAutogestionable;
     return fila;
   });
+  // `logistica` de arriba es el alias de `logistica_cliente`. El precio FLIT es otra vigencia:
+  // si no viaja, la pantalla completa la fila vacía y un precio ya guardado parece sin configurar.
+  const flit = abiertas.find((f) => f.concepto === 'logistica_flit' && (f.tipoTramite ?? null) === null);
+  tarifas.push({
+    concepto: 'logistica_flit', tipoTramite: null,
+    vigenciaId: flit?.id ?? null, valor: flit ? Number(flit.valor) : null,
+    vigenteDesde: flit ? flit.vigenteDesde.toISOString() : null,
+    fijadoPor: flit?.fijadoPorId != null ? { id: flit.fijadoPorId, nombre: flit.fijadoPorNombre ?? null } : null,
+  });
   return { companiaId: c.id, companiaNombre: c.name, tarifas };
 }
 

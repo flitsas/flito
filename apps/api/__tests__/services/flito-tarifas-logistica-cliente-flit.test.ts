@@ -21,7 +21,7 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
-const { tarifaDe, fijarTarifa, tipoDeLlave, TarifaError } =
+const { tarifaDe, fijarTarifa, tipoDeLlave, vistaPorCompania, TarifaError } =
   await import('../../src/modules/flito-parametrizacion/flito-tarifas.service.js');
 
 /** select() que graba el where/orderBy y responde `rows`. */
@@ -90,6 +90,28 @@ describe('tarifaDe — AC2 entrega a FLIT vacía, AC3 alias, AC4 vigenciaId', ()
   it('un cero configurado a propósito es precio (no «sin precio») y trae su vigenciaId', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 'v-0', valor: '0' }]));
     expect(await tarifaDe(7, 'logistica_flit', null)).toEqual({ valor: 0, origen: 'generica', vigenciaId: 'v-0' });
+  });
+});
+
+describe('vistaPorCompania — el precio FLIT viaja en su fila', () => {
+  const abierta = (concepto: string, valor: string) => ({
+    id: `v-${concepto}`, concepto, tipoTramite: null, valor, vigenteDesde: new Date('2026-01-01T00:00:00.000Z'),
+    fijadoPorId: 1, fijadoPorNombre: 'Ana',
+  });
+
+  it('devuelve logistica (cliente) y logistica_flit con el precio guardado', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 7, name: 'ACME', logisticaAutogestionable: false, deletedAt: null }]));
+    selectMock.mockReturnValueOnce(chain([abierta('logistica_cliente', '85000.00'), abierta('logistica_flit', '45000.00')]));
+    const v = await vistaPorCompania(7);
+    expect(v.tarifas.find((t) => t.concepto === 'logistica')?.valor).toBe(85000);
+    expect(v.tarifas.find((t) => t.concepto === 'logistica_flit')?.valor).toBe(45000);
+  });
+
+  it('sin vigencia FLIT la fila existe y el valor es null (no se omite)', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 7, name: 'ACME', logisticaAutogestionable: false, deletedAt: null }]));
+    selectMock.mockReturnValueOnce(chain([abierta('logistica_cliente', '85000.00')]));
+    const v = await vistaPorCompania(7);
+    expect(v.tarifas.find((t) => t.concepto === 'logistica_flit')).toMatchObject({ valor: null, vigenciaId: null });
   });
 });
 
