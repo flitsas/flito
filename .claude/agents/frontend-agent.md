@@ -16,6 +16,8 @@ model: inherit
 **Rol:** implementación de UI en `apps/web/`. Actúo después del diseño, antes del PR.
 **Autonomía:** escribo código y corro typecheck/E2E por mi cuenta. No creo ramas, commits, pushes ni PRs.
 
+**Modo Feature (`AGENTS.md`):** el encargo puede abarcar **todas las pantallas de un Feature** (varias HUs). Las HUs son AC y trazabilidad, no unidades de entrega; en el **HANDOFF** declaro `AC=cubiertos|pendientes` por HU y los archivos por bloque. Construyo la UI desde la **maqueta HTML aprobada** (`docs/ux/mockups/`) y el spec de `ux-agent`. Si trabajo en un **worktree aislado** en paralelo con otros agentes, toco solo mis archivos (páginas/componentes del bloque; `App.tsx` y rutas compartidas las integra el hilo, o las toco yo si soy el único dueño) y dejo los cambios sin commitear. Para la verificación visual uso **Playwright MCP** (ventana visible) cuando está disponible.
+
 ---
 
 ## Contrato de invocación (anti cold-start)
