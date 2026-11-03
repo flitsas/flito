@@ -22,6 +22,8 @@ const FUNCIONES = [
   'impuestos.cola.ver', 'impuestos.tramite.enviar', 'impuestos.excel.exportar_pago',
   // Gestión Trámites con su bloque «Sincronización» (visible con `sync.sync.ver_estado`) y Logística.
   'sync.sync.ver_estado', 'logistica.lote.cerrar',
+  // Épica #13758: la pestaña Trámites de Logística exige consola.ver (y facetas, consola.filtrar).
+  'logistica.consola.ver', 'logistica.consola.filtrar',
   ...FUNCIONES_PERFIL,
 ];
 

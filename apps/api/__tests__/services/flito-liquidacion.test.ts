@@ -101,18 +101,18 @@ beforeEach(() => {
 });
 
 /**
- * El `select` del `tx` (HU #12546, HU #12626, HU #12654). Dentro de la transacción, `liquidar()`
- * consulta CUATRO veces y en este orden: el `FOR UPDATE` sobre el trámite y, con el bloqueo tomado,
- * las filas documentales de comprobantes, la puente de servicios y los viajes adicionales de
- * logística. Invertir el orden dejaría de serializar contra aplicar/asignar/quitar/registrar, y es
- * lo que este doble fija.
+ * El `select` del `tx` (HU #12546, HU #12626, HU #12654, HU #14118). Dentro de la transacción,
+ * `liquidar()` consulta, en este orden: el `FOR UPDATE` sobre el trámite y, con el bloqueo tomado,
+ * las filas documentales, la puente de servicios, los viajes adicionales y las líneas de traslado.
+ * Lo que sigue (el corte de bolsas está mockeado) responde `[]`.
  */
 function txSelect(servicios: unknown[], viajes: unknown[] = [], documental: unknown[] = []) {
   return vi.fn()
     .mockReturnValueOnce(chain([{ id: 't1', idFlit: 'FLIT-1' }]))
     .mockReturnValueOnce(chain(documental))
     .mockReturnValueOnce(chain(servicios))
-    .mockReturnValue(chain(viajes));
+    .mockReturnValueOnce(chain(viajes))
+    .mockReturnValue(chain([]));
 }
 
 // ───────── HU #12374: la tarifa que se congela es la vigente en la FECHA DE APROBACIÓN ─────────
@@ -179,6 +179,7 @@ describe('liquidar — sellar con un faltante se bloquea SIN crear liquidación 
       .mockReturnValueOnce(chain([filaCompleta({ fechaAprobacion: FECHA })]))               // calcular
       .mockReturnValueOnce(chain([]))                                                        // serviciosAsignadosDe (previsualización)
       .mockReturnValueOnce(chain([]))                                                        // viajesDe (previsualización, HU #12626)
+      .mockReturnValueOnce(chain([]))                                                        // trasladosDe (previsualización, HU #14118)
       .mockReturnValueOnce(chain([{ companiaId: null, soatId: null, soatOrganismo: null, impuestoId: null, impuestoOrganismo: null, derechoId: null, derechoOrganismo: null }])); // identificadoresDe: sin bolsa
 
     // Espía del insert DENTRO de la transacción (patrón de flito-bolsas-transito.test.ts): tabla + values.
@@ -486,9 +487,12 @@ describe('calcular — los servicios adicionales suman a la base y nunca bloquea
 /**
  * Espía del sellado: devuelve el `tx`, lo escrito y el orden de las consultas de dentro. Los
  * `select` se distinguen por POSICIÓN: 1.º el bloqueo, 2.º las filas documentales (HU #12654),
- * 3.º la puente de servicios, 4.º los viajes de logística (HU #12626). Un 5.º select respondería `[]`.
+ * 3.º la puente de servicios, 4.º los viajes de logística (HU #12626), 5.º las líneas de traslado
+ * (HU #14118). Un 6.º select respondería `[]`.
  */
-function espiarSellado(serviciosEnTx: unknown[], viajesEnTx: unknown[] = [], documentalEnTx: unknown[] = []) {
+function espiarSellado(
+  serviciosEnTx: unknown[], viajesEnTx: unknown[] = [], documentalEnTx: unknown[] = [], trasladosEnTx: unknown[] = [],
+) {
   const escritas: Array<{ tabla: string; datos: Record<string, unknown> }> = [];
   const orden: string[] = [];
   const filaSellada = {
@@ -503,7 +507,8 @@ function espiarSellado(serviciosEnTx: unknown[], viajesEnTx: unknown[] = [], doc
     return c;
   });
   const respuestas: Array<[string, unknown[]]> = [
-    ['bloqueo', [{ id: 't1', idFlit: 'FLIT-1' }]], ['documental', documentalEnTx], ['servicios', serviciosEnTx], ['viajes', viajesEnTx],
+    ['bloqueo', [{ id: 't1', idFlit: 'FLIT-1' }]], ['documental', documentalEnTx], ['servicios', serviciosEnTx],
+    ['viajes', viajesEnTx], ['traslados', trasladosEnTx],
   ];
   let n = 0;
   const select = vi.fn(() => {
@@ -526,6 +531,7 @@ describe('liquidar — sella los servicios adicionales leyéndolos DENTRO de la 
       .mockReturnValueOnce(chain([filaCompleta()]))              // calcular
       .mockReturnValueOnce(chain(serviciosPrevios))              // serviciosAsignadosDe (previsualización)
       .mockReturnValueOnce(chain(viajesPrevios))                 // viajesDe (previsualización, HU #12626)
+      .mockReturnValueOnce(chain([]))                            // trasladosDe (previsualización, HU #14118)
       .mockReturnValueOnce(chain([sinBolsa]));                   // identificadoresDe
   }
 
@@ -561,8 +567,8 @@ describe('liquidar — sella los servicios adicionales leyéndolos DENTRO de la 
 
     await liquidar('t1', 1);
 
-    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes']);
-    expect(espia.tx.select).toHaveBeenCalledTimes(4);
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes', 'traslados']);
+    expect(espia.tx.select).toHaveBeenCalledTimes(5);
   });
 
   it('sin servicios, la columna va NULL y la clave del detalle se escribe igual, con items vacío (M-SA5)', async () => {
@@ -781,7 +787,7 @@ describe('calcular — la logística suma la tarifa (viaje 1) y los viajes adici
     const c = await calcular('t1');
 
     expect(c.logistica).toEqual({
-      valor: 90000, bloquea: false, tarifa: 35000, totalViajes: 3, origenValor: 'tarifa', diferencia: null,
+      valor: 90000, bloquea: false, tarifa: 35000, totalViajes: 3, traslados: [], origenValor: 'tarifa', diferencia: null,
       origen: 'Tarifa genérica + 2 viajes adicionales',
       viajes: [
         {
@@ -818,7 +824,7 @@ describe('calcular — la logística suma la tarifa (viaje 1) y los viajes adici
     const c = await calcular('t1');
     expect(c.logistica).toEqual({
       valor: 35000, origen: 'Tarifa genérica', bloquea: false, tarifa: 35000, viajes: [], totalViajes: 1,
-      origenValor: 'tarifa', diferencia: null,
+      traslados: [], origenValor: 'tarifa', diferencia: null,
     });
     expect(c.baseGmf).toBe(885000);
   });
@@ -856,7 +862,7 @@ describe('calcular — la logística suma la tarifa (viaje 1) y los viajes adici
     const c = await calcular('t1');
     expect(c.logistica).toEqual({
       valor: null, origen: 'La compañía autogestiona su logística', bloquea: false,
-      tarifa: null, viajes: [], totalViajes: 0, origenValor: null, diferencia: null,
+      tarifa: null, viajes: [], totalViajes: 0, traslados: [], origenValor: null, diferencia: null,
     });
     // Sin logística en la base: 450.000 + 120.000 + 80.000 + 200.000.
     expect(c.baseGmf).toBe(850000);
@@ -898,8 +904,8 @@ describe('calcular — la logística suma la tarifa (viaje 1) y los viajes adici
     const c = await calcular('t1');
     expect(c.logistica.valor).toBe(75000);
     expect(c.logistica.viajes!.map((v) => v.numero)).toEqual([2, 4]);
-    // Tres selects de `db`: trámite, servicios y viajes. La tabla de viajes se consulta en cada cálculo.
-    expect(selectMock).toHaveBeenCalledTimes(3);
+    // Cuatro selects de `db`: trámite, servicios, viajes y traslados.
+    expect(selectMock).toHaveBeenCalledTimes(4);
   });
 });
 
@@ -924,6 +930,7 @@ describe('liquidar — sella la logística con los viajes leídos DENTRO de la t
       .mockReturnValueOnce(chain([filaCompleta()]))   // calcular
       .mockReturnValueOnce(chain([]))                 // serviciosAsignadosDe (previsualización)
       .mockReturnValueOnce(chain(viajesPrevios))      // viajesDe (previsualización)
+      .mockReturnValueOnce(chain([]))                 // trasladosDe (previsualización, HU #14118)
       .mockReturnValueOnce(chain([sinBolsa]));        // identificadoresDe
   }
 
@@ -951,7 +958,7 @@ describe('liquidar — sella la logística con los viajes leídos DENTRO de la t
           motivoDetalle: 'Recogida en otra sede', registradoPorNombre: 'Marta', registradoEn: '2026-09-11T09:30:00.000Z',
         },
       ],
-      totalViajes: 3,
+      totalViajes: 3, traslados: [],
     });
     // 865.000 + 55.000 = 920.000 de base; × 0,004 = 3.680. Con la previsualización (un viaje) serían
     // 900.000 / 3.600 / 903.600.
@@ -973,10 +980,10 @@ describe('liquidar — sella la logística con los viajes leídos DENTRO de la t
 
     await liquidar('t1', 1);
 
-    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes']);
-    // Los CINCO selects de `db` son los de fuera de la tx (liquidación, cálculo, servicios, viajes,
-    // identificadores). Un sexto sería la relectura de viajes con `db`, que es justo el mutante.
-    expect(selectMock).toHaveBeenCalledTimes(5);
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes', 'traslados']);
+    // Los SEIS selects de `db` son los de fuera de la tx (liquidación, cálculo, servicios, viajes,
+    // traslados, identificadores). Un séptimo sería la relectura de viajes con `db`, que es el mutante.
+    expect(selectMock).toHaveBeenCalledTimes(6);
     // Y lo sellado es lo leído bajo bloqueo (un viaje), no lo de la previsualización (ninguno).
     const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
     expect(liquidacion.datos.valorLogistica).toBe('50000');
@@ -993,7 +1000,7 @@ describe('liquidar — sella la logística con los viajes leídos DENTRO de la t
     expect(liquidacion.datos.valorLogistica).toBe('15000');
     expect((liquidacion.datos.detalle as Record<string, unknown>).logistica).toEqual({
       valor: 15000, origen: 'Tarifa genérica', bloquea: false, tarifa: 15000, viajes: [], totalViajes: 1,
-      origenValor: 'tarifa', diferencia: null,
+      traslados: [], origenValor: 'tarifa', diferencia: null,
     });
   });
 });
@@ -1032,7 +1039,7 @@ describe('leer una liquidación sellada — la logística sale del detalle y nun
     const dto = await liquidacionDe('t1');
     expect(dto!.logistica).toEqual({
       valor: 35000, origen: 'Tarifa genérica', bloquea: false, tarifa: null, viajes: null, totalViajes: null,
-      origenValor: null, diferencia: null,
+      traslados: null, origenValor: null, diferencia: null,
     });
   });
 
@@ -1043,7 +1050,7 @@ describe('leer una liquidación sellada — la logística sale del detalle y nun
     const dto = await liquidacionDe('t1');
     expect(dto!.logistica).toEqual({
       valor: 35000, origen: 'Sellado', bloquea: false, tarifa: null, viajes: null, totalViajes: null,
-      origenValor: null, diferencia: null,
+      traslados: null, origenValor: null, diferencia: null,
     });
   });
 
@@ -1057,7 +1064,7 @@ describe('leer una liquidación sellada — la logística sale del detalle y nun
     const dto = await liquidacionDe('t1');
     expect(dto!.logistica).toEqual({
       valor: 35000, origen: 'Tarifa genérica', bloquea: false, tarifa: 35000, viajes: [], totalViajes: 1,
-      origenValor: null, diferencia: null,
+      traslados: null, origenValor: null, diferencia: null,
     });
   });
 
@@ -1143,6 +1150,7 @@ describe('AC1 — trámite digital se sella con el documental y deja origen y di
       .mockReturnValueOnce(chain([filaCompleta(doc('Td', '85000', '5000'))]))
       .mockReturnValueOnce(chain([]))
       .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([]))                                                        // trasladosDe (previsualización, HU #14118)
       .mockReturnValueOnce(chain([SIN_BOLSA]));
     const espia = espiarSellado([], [], [doc('Td', '85000', '5000')]);
     transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
@@ -1205,6 +1213,7 @@ describe('AC2 — logística: el documental es el viaje 1 dentro de baseLogistic
       .mockReturnValueOnce(chain([filaCompleta(doc('Lg', '100000', '-20000'))]))
       .mockReturnValueOnce(chain([]))
       .mockReturnValueOnce(chain(VIAJES))
+      .mockReturnValueOnce(chain([]))                                                        // trasladosDe (previsualización, HU #14118)
       .mockReturnValueOnce(chain([SIN_BOLSA]));
     const espia = espiarSellado([], VIAJES, [doc('Lg', '100000', '-20000')]);
     transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
@@ -1221,7 +1230,7 @@ describe('AC2 — logística: el documental es el viaje 1 dentro de baseLogistic
     const c = await calcular('t1');
     expect(c.logistica).toEqual({
       valor: null, origen: 'La compañía autogestiona su logística', tarifa: null, viajes: [], totalViajes: 0,
-      bloquea: false, origenValor: null, diferencia: null,
+      traslados: [], bloquea: false, origenValor: null, diferencia: null,
     });
     expect(c.baseGmf).toBe(730000);
   });
@@ -1243,6 +1252,7 @@ describe('AC3 — servicios adicionales se sellan con el catálogo; el comproban
       .mockReturnValueOnce(chain([filaCompleta(doc('Sa', '55000', '5000'))]))
       .mockReturnValueOnce(chain(DOS))
       .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([]))                                                        // trasladosDe (previsualización, HU #14118)
       .mockReturnValueOnce(chain([SIN_BOLSA]));
     const espia = espiarSellado(DOS, [], [doc('Sa', '55000', '5000')]);
     transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
@@ -1287,6 +1297,7 @@ describe('AC4 — una diferencia no aceptada no bloquea; el sello la conserva co
       .mockReturnValueOnce(chain([filaCompleta(doc('Td', '85000', '5000'))]))
       .mockReturnValueOnce(chain([]))
       .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([]))                                                        // trasladosDe (previsualización, HU #14118)
       .mockReturnValueOnce(chain([SIN_BOLSA]));
     const espia = espiarSellado([], [], [doc('Td', '85000', '5000')]);
     transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
@@ -1315,7 +1326,7 @@ describe('AC4 — una diferencia no aceptada no bloquea; el sello la conserva co
       .mockReturnValueOnce(chain([{ idFlit: 'FLIT-1' }]));
     const dto = await liquidacionDe('t1');
     expect(dto!.tramiteDigital).toEqual(detalle.tramiteDigital);
-    expect(dto!.logistica).toEqual(detalle.logistica);
+    expect(dto!.logistica).toEqual({ ...detalle.logistica, traslados: null });
     expect(dto!.serviciosAdicionales).toEqual(detalle.serviciosAdicionales);
     expect(selectMock).toHaveBeenCalledTimes(2);
   });
@@ -1331,16 +1342,17 @@ describe('AC5 — el documental se relee bajo el bloqueo del trámite (lo sellad
       .mockReturnValueOnce(chain([filaCompleta()]))
       .mockReturnValueOnce(chain([]))
       .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([]))                                                        // trasladosDe (previsualización, HU #14118)
       .mockReturnValueOnce(chain([SIN_BOLSA]));
     const espia = espiarSellado([], [], [doc('Td', '85000', '5000')]);
     transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
 
     await liquidar('t1', 1);
 
-    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes']);
-    expect(espia.tx.select).toHaveBeenCalledTimes(4);
-    // Los CINCO selects de `db` son los de fuera de la tx: ninguna relectura documental con `db`.
-    expect(selectMock).toHaveBeenCalledTimes(5);
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes', 'traslados']);
+    expect(espia.tx.select).toHaveBeenCalledTimes(5);
+    // Los SEIS selects de `db` son los de fuera de la tx: ninguna relectura documental con `db`.
+    expect(selectMock).toHaveBeenCalledTimes(6);
     const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
     expect(liquidacion.datos.valorTramiteDigital).toBe('85000');
     expect((liquidacion.datos.detalle as Record<string, unknown>).tramiteDigital).toMatchObject({ origenValor: 'documental', diferencia: { comprobanteId: 'c-td' } });
@@ -1353,6 +1365,7 @@ describe('AC5 — el documental se relee bajo el bloqueo del trámite (lo sellad
       .mockReturnValueOnce(chain([filaCompleta()]))
       .mockReturnValueOnce(chain([]))
       .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([]))                                                        // trasladosDe (previsualización, HU #14118)
       .mockReturnValueOnce(chain([SIN_BOLSA]));
     const espia = espiarSellado([], [viaje({ valor: '30000' })], [doc('Lg', '100000', '-20000')]);
     transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));

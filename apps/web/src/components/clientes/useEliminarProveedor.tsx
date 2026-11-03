@@ -29,7 +29,25 @@ type EstadoComprobacion =
   | { fase: 'error'; sinPermiso: boolean }
   | { fase: 'listo'; puede: boolean; motivo: string | null };
 
-interface ProveedorFila { id: string; nombre: string; activo: boolean }
+interface ProveedorFila { id: string; nombre: string; activo: boolean; tipo?: 'SOAT' | 'LOGISTICA' }
+
+const RUTA = '/flito/parametrizacion';
+
+/**
+ * 409 del DELETE de logística (HU #14162): con `companias` → tiene compañías vigentes; sin ellas → aún
+ * lo referencia una compañía eliminada o un acta. Copy propio, nunca el texto del API.
+ */
+export function textoErrorEliminarLogistica(e: unknown): string | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null;
+  const cuerpo = e.rawDetails as { companias?: unknown } | null | undefined;
+  if (Array.isArray(cuerpo?.companias) && cuerpo.companias.length > 0) {
+    const n = cuerpo.companias.length;
+    const nombres = (cuerpo.companias as unknown[]).map(String);
+    const ver = nombres.slice(0, 3).join(', ');
+    return `No se puede eliminar: está asignado a ${n} ${n === 1 ? 'compañía' : 'compañías'} (${n > 3 ? `${ver} y ${n - 3} más` : ver}). Asigne otro proveedor a esas compañías y vuelva a intentarlo.`;
+  }
+  return 'No se puede eliminar: todavía figura en compañías dadas de baja o en actas de entrega. Puede desactivarlo para que deje de ofrecerse.';
+}
 
 interface Opciones<P extends ProveedorFila> {
   /** Tras el 2xx: la pestaña quita la fila y recarga en silencio. */
@@ -51,7 +69,7 @@ export function useEliminarProveedor<P extends ProveedorFila>({ onEliminado, onD
     setComprobaciones((prev) => new Map(prev).set(id, e));
 
   const comprobar = (p: P) => {
-    if (!habilitado || p.activo) return;
+    if (!habilitado || p.activo || p.tipo === 'LOGISTICA') return;
     const n = (turno.current.get(p.id) ?? 0) + 1;
     turno.current.set(p.id, n);
     fijar(p.id, { fase: 'cargando' });
@@ -67,6 +85,8 @@ export function useEliminarProveedor<P extends ProveedorFila>({ onEliminado, onD
   const opciones = (p: P): OpcionMenuFila[] => {
     if (!habilitado) return [];
     const base = { id: 'eliminar', texto: 'Eliminar', tono: 'peligro' as const };
+    // Logística: sin comprobación previa; el DELETE responde con los motivos (409) y se dicen en el diálogo.
+    if (p.tipo === 'LOGISTICA') return [{ ...base, onElegir: () => setEliminarDe(p) }];
     if (p.activo) return [{ ...base, deshabilitada: true, motivo: MOTIVO_PROVEEDOR_ACTIVO, onElegir: () => {} }];
     const e = comprobaciones.get(p.id) ?? { fase: 'cargando' as const };
     if (e.fase === 'cargando') return [{ ...base, deshabilitada: true, motivo: 'Comprobando…', onElegir: () => {} }];
@@ -85,7 +105,8 @@ export function useEliminarProveedor<P extends ProveedorFila>({ onEliminado, onD
     <DialogoEliminarRegistro
       nombre={eliminarDe.nombre}
       sustantivo="proveedor"
-      confirmar={async () => { await api.delete(`/flito/parametrizacion/proveedores-soat/${eliminarDe.id}`); }}
+      confirmar={async () => { await api.delete(`${RUTA}/${eliminarDe.tipo === 'LOGISTICA' ? 'proveedores-logistica' : 'proveedores-soat'}/${eliminarDe.id}`); }}
+      textoError={eliminarDe.tipo === 'LOGISTICA' ? textoErrorEliminarLogistica : undefined}
       onHecho={() => {
         const p = eliminarDe;
         setEliminarDe(null);

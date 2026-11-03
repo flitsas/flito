@@ -229,77 +229,108 @@ const MARCAS_GESTOR = [
 test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
   test('flito_logistica_ruta @capturas', async ({ page, context }) => {
     const dir = prepararCarpeta('flito_logistica_ruta');
+    const candidato = {
+      tramiteId: 't-demo-1', idFlit: 'FLIT-DEMO-1', companiaNombre: EMPRESAS_DEMO[0],
+      organismoCodigo: '11001', gestionable: true, vin: DATOS_DEMO.vins[0],
+      organismoNombre: 'STT Bogotá', vehiculo: { marca: 'Renault', linea: 'Duster', modelo: 2024 },
+    };
     const api = await interceptarApiDemo(page, [
       [/\/api\/flito\/logistica\/mi-ruta$/, () => ({ body: MI_RUTA_DEMO })],
-      [/\/api\/flito\/logistica\/validar-lt$/, (route) => {
-        const { rawValue } = route.request().postDataJSON() as { rawValue: string };
-        return rawValue === LT_DEMO.relacionada.raw
-          ? { body: { resultado: 'relacionada' } }
-          : { body: { resultado: 'sin_match', motivo: 'No hay ningún trámite aprobado con esta placa.' } };
+      [/\/api\/flito\/logistica\/consultar-vehiculo$/, (route) => {
+        const { placa } = route.request().postDataJSON() as { placa: string };
+        const hit = Object.values(LT_DEMO).some((lt) => lt.placa === placa);
+        return hit
+          ? { body: { encontrado: true, candidatos: [candidato] } }
+          : { body: { encontrado: false } };
       }],
       [/\/api\/flito\/logistica\/escanear$/, (route) => {
-        const { rawValue } = route.request().postDataJSON() as { rawValue: string };
-        const placa = Object.values(LT_DEMO).find((lt) => lt.raw === rawValue)?.placa;
-        return { body: { resultado: 'recogido', placa } };
+        const { placa } = route.request().postDataJSON() as { placa: string };
+        return {
+          body: {
+            resultado: 'recogido', placa, documentoId: `doc-scan-${placa}`,
+            organismoCodigo: '11001', companiaNombre: EMPRESAS_DEMO[0],
+            vin: DATOS_DEMO.vins[0], numeroLicencia: '10038156339',
+            propietarioNombre: NOMBRES_DEMO[0],
+          },
+        };
       }],
+      [/\/api\/flito\/logistica\/recogidas\/confirmar$/, () => ({
+        body: { firmanteId: 'f-demo', actas: [{ actaId: 'a-demo-1', companiaId: 901, documentos: 1 }], pendientesTramite: 0 },
+      })],
     ]);
-    await entrarComoDemo(page, { ...MENSAJERO_USER, username: 'mensajero_demo', name: NOMBRE_USUARIO_DEMO });
+    await entrarComoDemo(page, {
+      ...MENSAJERO_USER, username: 'mensajero_demo', name: NOMBRE_USUARIO_DEMO,
+      funciones: [...FUNCIONES_POR_ROL.mensajero, 'logistica.documento.escanear', 'logistica.recogida.confirmar'],
+    });
 
     await page.goto('/flito/ruta');
     await expect(page.getByRole('heading', { name: 'Mi ruta' })).toBeVisible();
     await expect(page.getByText('Entregas (1)')).toBeVisible();
 
-    // Paso 1 — Recoger licencias: respaldo «Pega el contenido del código» con una LT demo.
-    await page.getByText('Pega el contenido del código').click();
-    await page.getByPlaceholder(/10038156339/).fill(LT_DEMO.relacionada.raw);
-    await page.getByPlaceholder(/N.º de LT/).fill(LT_DEMO.relacionada.numeroLt);
-    await expect(page.getByRole('button', { name: 'Agregar' })).toBeEnabled();
-    await capturar(page, dir, '01-recoger-licencias');
-
-    // Paso 2 — Resultado de la validación en cada tarjeta.
-    await page.getByRole('button', { name: 'Agregar' }).click();
-    await expect(page.getByText('✓ Relacionada')).toBeVisible();
-    await page.getByPlaceholder(/10038156339/).fill(LT_DEMO.sinTramite.raw);
-    await page.getByRole('button', { name: 'Agregar' }).click();
-    await expect(page.getByText('Sin trámite')).toBeVisible();
-    await page.getByText('Pega el contenido del código').click(); // cierra el respaldo: se ven las tarjetas
-    await capturar(page, dir, '02-resultado-validacion');
-
-    // Paso 3 — Confirmar recogida: la LT relacionada pasa a Registrada.
-    await page.getByRole('button', { name: /Confirmar recogida/ }).click();
-    await expect(page.getByText('✓ Registrada')).toBeVisible();
-    await capturar(page, dir, '03-confirmar-recogida');
-
-    // Paso 4 — Entregar: receptor y firma (sin confirmar: la confirmación pide ubicación).
+    // Paso 4 primero (HU #14116): el listado de entregas sigue visible; sin confirmar (pide ubicación).
     await page.getByRole('button', { name: 'Entregar', exact: true }).click();
-    await page.getByPlaceholder('Nombre del receptor').fill(RECEPTOR_DEMO.nombre);
-    await page.getByPlaceholder('Documento del receptor').fill(RECEPTOR_DEMO.documento);
-    await page.getByLabel('Firma del receptor').evaluate((el: HTMLCanvasElement) => {
+    await expect(page.getByText('LT de este viaje')).toBeVisible();
+    await page.getByLabel('Nombre de quien recibe').fill(RECEPTOR_DEMO.nombre);
+    await page.getByLabel('Cédula de quien recibe').fill(RECEPTOR_DEMO.documento);
+    await page.getByRole('img', { name: 'Firma de quien recibe, vacía' }).evaluate((el: HTMLCanvasElement) => {
       const r = el.getBoundingClientRect();
       const pe = (type: string, x: number, y: number) =>
         el.dispatchEvent(new PointerEvent(type, { clientX: r.left + x, clientY: r.top + y, bubbles: true, pointerId: 1 }));
       pe('pointerdown', 20, 40); pe('pointermove', 70, 15); pe('pointermove', 120, 55); pe('pointermove', 170, 20); pe('pointerup', 170, 20);
     });
     await expect(page.getByRole('button', { name: 'Confirmar entrega' })).toBeEnabled();
-    // Centrada: la cabecera translúcida no deja ver contenido borroso detrás.
-    await page.getByPlaceholder('Nombre del receptor').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.getByLabel('Nombre de quien recibe').evaluate((el) => el.scrollIntoView({ block: 'center' }));
     await capturar(page, dir, '04-entregar');
-
-    // Paso 5 — Sin red: la recogida se encola y se avisa de los cambios sin sincronizar.
     await page.getByRole('button', { name: 'Cancelar' }).click();
+    await expect(page.getByRole('button', { name: 'Entregar', exact: true })).toBeVisible();
+
+    const agregarAMano = async (lt: typeof LT_DEMO.relacionada) => {
+      await page.getByRole('button', { name: 'Ingresar a mano' }).click();
+      await page.getByLabel('Placa', { exact: true }).fill(lt.placa);
+      await expect(page.getByText('Confirma que es el vehículo')).toBeVisible();
+      await page.getByLabel(/licencia de tránsito/).fill('10038156339');
+      await page.getByLabel(/sustrato/).fill(lt.numeroLt);
+      await page.getByRole('button', { name: 'Agregar LT' }).click();
+      await expect(page.getByRole('dialog', { name: 'Ingresar a mano' })).toBeHidden();
+    };
+
+    // Paso 1 — Recoger licencias: formulario Ingresar a mano (HU #14111; el pegado del código ya no existe).
+    await page.getByRole('button', { name: 'Ingresar a mano' }).click();
+    await page.getByLabel('Placa', { exact: true }).fill(LT_DEMO.relacionada.placa);
+    await expect(page.getByText('Confirma que es el vehículo')).toBeVisible();
+    await page.getByLabel(/licencia de tránsito/).fill('10038156339');
+    await page.getByLabel(/sustrato/).fill(LT_DEMO.relacionada.numeroLt);
+    await capturar(page, dir, '01-recoger-licencias');
+    await page.getByRole('button', { name: 'Agregar LT' }).click();
+    await expect(page.getByRole('dialog', { name: 'Ingresar a mano' })).toBeHidden();
+
+    // Paso 2 — Tarjeta de la LT ingresada.
+    await expect(page.getByRole('article', { name: `LT ${LT_DEMO.relacionada.placa}` })).toBeVisible();
+    await capturar(page, dir, '02-resultado-validacion');
+
+    // Paso 3 — Confirmar recogida: firma del funcionario (sin cédula en URL).
+    await page.getByRole('button', { name: /Continuar a la firma/ }).click();
+    await page.getByLabel('Nombre', { exact: true }).fill(NOMBRES_DEMO[4]);
+    await page.getByLabel('Cédula', { exact: true }).fill(DATOS_DEMO.cedulas[0]);
+    await page.getByRole('img', { name: /Firma del funcionario, vacía/ }).evaluate((el: HTMLCanvasElement) => {
+      const r = el.getBoundingClientRect();
+      const pe = (type: string, x: number, y: number) =>
+        el.dispatchEvent(new PointerEvent(type, { clientX: r.left + x, clientY: r.top + y, bubbles: true, pointerId: 1 }));
+      pe('pointerdown', 20, 20); pe('pointermove', 90, 60); pe('pointermove', 140, 30); pe('pointerup', 140, 30);
+    });
+    await page.getByRole('button', { name: 'Confirmar recogida' }).click();
+    await expect(page.getByRole('heading', { name: /Recogida confirmada/ })).toBeVisible();
+    await capturar(page, dir, '03-confirmar-recogida');
+    await page.getByRole('button', { name: 'Listo' }).click();
+
+    // Paso 5 — Sin red: Ingresar a mano encola la LT.
     await context.setOffline(true);
-    await page.getByText('Pega el contenido del código').click();
-    await page.getByPlaceholder(/10038156339/).fill(LT_DEMO.offline.raw);
-    await page.getByRole('button', { name: 'Agregar' }).click();
-    await expect(page.getByText('Sin validar (offline)')).toBeVisible();
-    await page.getByRole('button', { name: /Confirmar recogida/ }).click();
-    await expect(page.getByText(/1 cambio\(s\) sin sincronizar/)).toBeVisible();
-    await page.getByText('Pega el contenido del código').click(); // cierra el respaldo (su ejemplo no es demo)
+    await agregarAMano(LT_DEMO.offline);
+    await expect(page.getByText('Sin conexión · 1 cambio(s) sin sincronizar')).toBeVisible();
     await page.evaluate(() => window.scrollTo(0, 0));
     await capturar(page, dir, '05-sin-conexion');
     await context.setOffline(false);
 
-    // AC2 (todo /api con fixture) y AC1 (nombres estables: exactamente estos archivos).
     comprobarCierre(api, dir, [
       '01-recoger-licencias.png',
       '02-resultado-validacion.png',
@@ -317,7 +348,32 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       [/\/api\/flito\/logistica\/facetas$/, () => ({ body: LOGISTICA_FACETAS_DEMO })],
       [/\/api\/flito\/logistica\/actas$/, () => ({ body: LOGISTICA_ACTAS_DEMO })],
       [/\/api\/flito\/logistica\/tramites\/tram-log-demo-2\/viajes$/, () => ({ body: LOGISTICA_VIAJES_DEMO })],
+      [/\/api\/flito\/logistica\/tramites\/[^/]+\/linea-tiempo$/, () => ({ body: {
+        documentoId: 'doc-log-demo-2',
+        tramiteId: 'tram-log-demo-2',
+        hitos: [
+          { id: 'h-log-demo-2', tipo: null, fecha: '2026-10-21T15:10:00.000Z', actorNombre: null, destino: null, motivo: null, estadoNuevo: 'clasificado' },
+          { id: 'h-log-demo-1', tipo: 'recogida', fecha: '2026-10-21T14:00:00.000Z', actorNombre: null, destino: null, motivo: null, estadoNuevo: 'recogido' },
+        ],
+      } })],
       [/\/api\/flito\/logistica\/tram-log-demo-2$/, () => ({ body: LOGISTICA_DETALLE_DEMO })],
+      [/\/api\/flito\/logistica\/traslados\/buscar$/, () => ({ body: {
+        viajes: [
+          { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', companiaId: 1, companiaNombre: 'Concesionario Demo Norte', destino: 'cliente', estado: 'en_ruta', cantidadLt: 2, registradoEn: '2026-10-28T14:40:00.000Z' },
+          { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', companiaId: 2, companiaNombre: 'Concesionario Demo Sur', destino: 'flit', estado: 'registrado', cantidadLt: 1, registradoEn: '2026-10-27T13:15:00.000Z' },
+        ],
+        companias: [
+          { companiaId: 1, nombre: 'Concesionario Demo Norte' },
+          { companiaId: 2, nombre: 'Concesionario Demo Sur' },
+        ],
+        truncado: false,
+      } })],
+      [/\/api\/flito\/logistica\/motivos-llegada$/, () => ({ body: [
+        { id: 'motivo-demo-1', nombre: 'Sin dirección de entrega al recoger', activo: true, orden: 10 },
+        { id: 'motivo-demo-2', nombre: 'Destino lejano (transportadora externa)', activo: true, orden: 20 },
+        { id: 'motivo-demo-3', nombre: 'Otro', activo: true, orden: 30 },
+        { id: 'motivo-demo-4', nombre: 'Documentos incompletos en el organismo', activo: true, orden: 40 },
+      ] })],
     ]);
     await entrarComoAdminDemo(page);
 
@@ -330,10 +386,12 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '01-tramites');
     await mostrarBarra();
 
-    // Paso 2 — Detalle de la licencia Registrada: datos, Viajes adicionales y Bitácora.
+    // Paso 2 — Detalle de la licencia Registrada: datos, Viajes adicionales y Línea de tiempo.
     await page.getByRole('row', { name: /FLIT-DEMO-302/ }).getByRole('button', { name: 'Detalle' }).click();
     const detalle = page.getByRole('dialog', { name: /^Licencia · / });
     await expect(detalle.getByText('Viajes: 2 (incluye el viaje 1)')).toBeVisible();
+    await expect(detalle.getByRole('heading', { name: 'Línea de tiempo' })).toBeVisible();
+    await expect(detalle.getByText('Clasificado', { exact: true })).toBeVisible();
     await sinFoco(page);
     await capturar(page, dir, '02-detalle', detalle);
 
@@ -348,11 +406,19 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await page.keyboard.press('Escape');
     await expect(detalle).toBeHidden();
 
-    // Paso 5 — Generación de actas: empresas con LT registradas y Generar acta.
-    await page.getByRole('button', { name: /^Generación de actas/ }).click();
-    await expect(page.getByText('2 LT registrada(s)')).toBeVisible();
+    // Paso 6 — Viajes: precio de Cliente y de FLIT (HU #14123).
+    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await expect(page.getByText(/Cliente \$12\.000 por LT/)).toBeVisible();
+    await expect(page.getByText(/FLIT \$8\.000 por LT/)).toBeVisible();
     await sinFoco(page);
-    await capturar(page, dir, '04-generacion-de-actas');
+    await capturar(page, dir, '04-viajes-a-cliente');
+
+    // Paso 7 — Entregas (HU #14125): tabla de seguimiento, sin acciones de destino.
+    await page.getByRole('button', { name: 'Entregas' }).click();
+    await expect(page.getByRole('columnheader', { name: 'Compañía' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'Concesionario Demo Norte' })).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '08-entregas');
 
     // Paso 6 — Actas: Generada, Despachada y Entregada con sus acciones.
     await page.getByRole('button', { name: /^Actas/ }).click();
@@ -375,8 +441,17 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '06-firmar-y-despachar', despachar);
     await page.keyboard.press('Escape');
 
+    // Paso 11 — Motivos de llegada (HU #14120): catálogo en orden, sin badge.
+    await page.getByRole('button', { name: 'Motivos de llegada' }).click();
+    await expect(page.getByText('Sin dirección de entrega al recoger')).toBeVisible();
+    const mostrarBarraMotivos = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '07-motivos-de-llegada');
+    await mostrarBarraMotivos();
+
     comprobarCierre(api, dir, [
-      '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-generacion-de-actas.png', '05-actas.png', '06-firmar-y-despachar.png',
+      '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-viajes-a-cliente.png',
+      '05-actas.png', '06-firmar-y-despachar.png', '07-motivos-de-llegada.png', '08-entregas.png',
     ]);
   });
 
@@ -874,13 +949,13 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await entrarComoAdminDemo(page);
 
     await page.goto('/flito/tarifas/901');
-    await expect(page.getByRole('button', { name: /Fijar valor · / })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Fijar valor · Entrega a FLIT de / })).toBeVisible();
 
     // Paso 1 — Elegir la compañía: la lista marca las que tienen valores sin configurar.
     await capturar(page, dir, '01-elegir-compania');
 
-    // Paso 2 — Fijar valor en la fila Sin configurar.
-    await page.getByRole('button', { name: /Fijar valor · / }).click();
+    // Paso 2 — Fijar valor en el panel «Entrega a FLIT», Sin configurar.
+    await page.getByRole('button', { name: /Fijar valor · Entrega a FLIT de / }).click();
     await page.getByRole('textbox').last().fill('45000');
     await capturar(page, dir, '02-fijar-valor');
     await page.getByRole('button', { name: /Cancelar · / }).click();
@@ -1149,8 +1224,18 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
   test('clients @capturas', async ({ page }) => {
     const dir = prepararCarpeta('clients');
     const api = await interceptarApiDemo(page, [
-      [/\/api\/clients$/, () => ({ body: CLIENTES_FICHA_DEMO })],
+      // HU #14162: `GET /clients` ya trae el proveedor de logística (id y nombre).
+      [/\/api\/clients$/, () => ({
+        body: (CLIENTES_FICHA_DEMO as any[]).map((c) => (c.logisticaAutogestionable
+          ? { ...c, proveedorLogisticaId: null, proveedorLogisticaNombre: null }
+          : { ...c, proveedorLogisticaId: '11111111-aaaa-4aaa-8aaa-111111111111', proveedorLogisticaNombre: 'Logística Demo' })),
+      })],
       [/\/api\/flito\/parametrizacion\/proveedores-soat$/, () => ({ body: PROVEEDORES_SOAT_DEMO })],
+      [/\/api\/flito\/parametrizacion\/proveedores-logistica$/, () => ({ body: [] })],
+      // HU #14162: la pestaña Proveedores lee el listado unificado del servidor.
+      [/\/api\/flito\/parametrizacion\/proveedores$/, () => ({
+        body: (PROVEEDORES_SOAT_DEMO as any[]).map((p) => ({ tipo: 'soat', id: p.id, nombre: p.nombre, nit: null, contacto: null, telefono: null, activo: p.activo, companiasAsignadas: 0 })),
+      })],
       [/\/api\/siigo\/clientes\/validacion\/detalle$/, () => ({ body: SIIGO_VALIDACION_DETALLE_DEMO })],
     ]);
     await entrarComoAdminDemo(page);
@@ -1162,7 +1247,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '01-clientes');
 
     // Paso 4 — SOAT sin trámite: el proveedor de la compañía, con el aviso del permiso sin efecto.
-    await page.getByRole('button', { name: new RegExp(`^SOAT sin trámite de ${EMPRESAS_DEMO[2]}`) }).click();
+    // Desde HU #14105 el proveedor se edita en el modal «Editar» de la compañía (el chip ya no es un botón).
+    await page.getByRole('button', { name: `Editar ${EMPRESAS_DEMO[2]}`, exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await capturar(page, dir, '02-soat-sin-tramite', page.getByRole('dialog'));
     await page.keyboard.press('Escape');
