@@ -37,7 +37,7 @@ const aSql = (c: unknown) => dialecto.sqlToQuery(c as SQL);
 function doc(over: Record<string, unknown> = {}) {
   return {
     documentoId: D1, placa: 'ABC123', numeroLt: 'LT-1', idFlit: 'FLIT-1',
-    companiaId: 5, nombre: 'ACME', ...over,
+    companiaId: 5, nombre: 'ACME', estado: 'clasificado', ...over,
   };
 }
 
@@ -79,11 +79,11 @@ describe('facetas — companiasCerrables (HU #14116)', () => {
     expect(f.companiasCerrables).toEqual([
       {
         companiaId: 5, nombre: 'ACME', disponibles: 1, precioEntregaCliente: null, precioEntregaFlit: null,
-        lts: [{ documentoId: D1, placa: 'ABC123', numeroLt: 'LT-1', idFlit: 'FLIT-1' }],
+        lts: [{ documentoId: D1, placa: 'ABC123', numeroLt: 'LT-1', idFlit: 'FLIT-1', origen: 'organismo' }],
       },
       {
         companiaId: 7, nombre: 'Beta', disponibles: 1, precioEntregaCliente: 0, precioEntregaFlit: 0,
-        lts: [{ documentoId: D2, placa: 'XYZ789', numeroLt: 'LT-2', idFlit: 'FLIT-2' }],
+        lts: [{ documentoId: D2, placa: 'XYZ789', numeroLt: 'LT-2', idFlit: 'FLIT-2', origen: 'organismo' }],
       },
     ]);
     expect(JSON.stringify(f.companiasCerrables)).not.toMatch(/vigenciaId/);
@@ -96,7 +96,7 @@ describe('facetas — companiasCerrables (HU #14116)', () => {
     expect(precioTrasladoDeMock).toHaveBeenNthCalledWith(4, 7, 'flit', ahora);
   });
 
-  it('LTs solo clasificado y agrupadas por esa compañía; disponibles === lts.length', async () => {
+  it('LTs clasificado y en_flit agrupadas por esa compañía; disponibles === lts.length', async () => {
     conDocs([
       doc({ documentoId: D1, placa: 'ABC123', numeroLt: 'LT-1', idFlit: 'FLIT-1', companiaId: 5, nombre: 'ACME' }),
       doc({ documentoId: D2, placa: 'DEF456', numeroLt: 'LT-2', idFlit: 'FLIT-2', companiaId: 5, nombre: 'ACME' }),
@@ -106,7 +106,8 @@ describe('facetas — companiasCerrables (HU #14116)', () => {
 
     const f = await facetas(ALCANCE);
     const sql = aSql(whereCerrables);
-    expect(sql.params).toContain('clasificado');
+    expect(sql.params).toEqual(expect.arrayContaining(['clasificado', 'en_flit']));
+    expect(sql.params).not.toContain('registrado');
     expect(f.companiasCerrables).toHaveLength(2);
     const acme = f.companiasCerrables.find((c) => c.companiaId === 5)!;
     const beta = f.companiasCerrables.find((c) => c.companiaId === 7)!;
@@ -117,6 +118,21 @@ describe('facetas — companiasCerrables (HU #14116)', () => {
     expect(acme.lts.every((l) => !('companiaId' in l))).toBe(true);
   });
 
+  it('las LT en_flit llegan con origen flit y las clasificadas con origen organismo, en la misma compañía', async () => {
+    conDocs([
+      doc({ documentoId: D1, estado: 'clasificado' }),
+      doc({ documentoId: D2, estado: 'en_flit', placa: 'DEF456' }),
+    ]);
+    precioTrasladoDeMock.mockResolvedValue({ valor: 12000, vigenciaId: VIG });
+
+    const f = await facetas(ALCANCE);
+    expect(f.companiasCerrables).toHaveLength(1);
+    expect(f.companiasCerrables[0]!.lts.map((l) => [l.documentoId, l.origen])).toEqual([[D1, 'organismo'], [D2, 'flit']]);
+    expect(f.companiasCerrables[0]!.disponibles).toBe(2);
+    // El alcance de la compañía sigue en el WHERE: una LT de otra compañía no entra.
+    expect(aSql(whereCerrables).params).toContain(5);
+  });
+
   it('el DTO no expone vigenciaId', async () => {
     conDocs([doc()]);
     precioTrasladoDeMock.mockResolvedValue({ valor: 12000, vigenciaId: VIG });
@@ -125,7 +141,7 @@ describe('facetas — companiasCerrables (HU #14116)', () => {
     expect(JSON.stringify(f.companiasCerrables)).not.toMatch(/vigenciaId/);
     expect(f.companiasCerrables[0]).toEqual({
       companiaId: 5, nombre: 'ACME', disponibles: 1, precioEntregaCliente: 12000, precioEntregaFlit: 12000,
-      lts: [{ documentoId: D1, placa: 'ABC123', numeroLt: 'LT-1', idFlit: 'FLIT-1' }],
+      lts: [{ documentoId: D1, placa: 'ABC123', numeroLt: 'LT-1', idFlit: 'FLIT-1', origen: 'organismo' }],
     });
     expect(Object.keys(f.companiasCerrables[0]!)).toEqual([
       'companiaId', 'nombre', 'disponibles', 'precioEntregaCliente', 'precioEntregaFlit', 'lts',
