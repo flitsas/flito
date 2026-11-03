@@ -6,7 +6,7 @@ description: |
   Verificación default: Vitest de los archivos de este WI (P1 de AGENTS.md); suite del módulo o mutantes prohibidos en este agente.
   PROHIBIDO que el hilo «codee de paso» una HU o la corrección de un Bug. Excepción: fix ≤~20 líneas o pedido explícito.
   Triggers — backend, API, endpoint, Drizzle, migración, HU BACKEND, bug de API, flito-*, modo auto paso 3.
-tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__ado__wit_work_item, mcp__ado__search_workitem, mcp__ado__wit_work_item_comment_write
+tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__ado__wit_work_item, mcp__ado__search_workitem, mcp__ado__wit_work_item_comment_write, mcp__azure-devops__wit_work_item, mcp__azure-devops__search_workitem, mcp__azure-devops__wit_work_item_comment_write
 model: inherit
 ---
 
