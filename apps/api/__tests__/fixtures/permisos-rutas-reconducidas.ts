@@ -185,6 +185,16 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // HU #12833: sub-router propio de la corrección de dirección.
   { fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts', metodo: 'PATCH', ruta: '/:id/direccion', codigo: 'impuestos.tramite.corregir_direccion' },
   { fichero: 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts', metodo: 'POST', ruta: '/:id/recibos/reemplazar-pago', codigo: 'impuestos.recibos.reemplazar' },
+  // Certificar sin trámite (épica #14163): sub-router propio, una sola operación `gestionar`.
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa/catalogo', codigo: 'impuestos.certificacion_directa.gestionar' },
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'POST', ruta: '/certificacion-directa/extraer', codigo: 'impuestos.certificacion_directa.gestionar' },
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa', codigo: 'impuestos.certificacion_directa.gestionar' },
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'POST', ruta: '/certificacion-directa', codigo: 'impuestos.certificacion_directa.gestionar' },
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa/:id/factura', codigo: 'impuestos.certificacion_directa.gestionar' },
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa/:id/certificado', codigo: 'impuestos.certificacion_directa.gestionar' },
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'POST', ruta: '/certificacion-directa/:id/consultar', codigo: 'impuestos.certificacion_directa.gestionar' },
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa/:id', codigo: 'impuestos.certificacion_directa.gestionar' },
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'PATCH', ruta: '/certificacion-directa/:id', codigo: 'impuestos.certificacion_directa.gestionar' },
   // flito-derechos/flito-derechos.routes.ts
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'POST', ruta: '/cargar', codigo: 'derechos.recibos.cargar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'derechos.cola.ver' },

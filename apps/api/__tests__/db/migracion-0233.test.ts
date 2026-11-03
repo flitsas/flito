@@ -16,9 +16,11 @@ import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import { sqlRepartoArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
 import { ACCIONES_LECTURA, ACCIONES_POR_AREA, predecesoresDe } from '../../src/modules/permisos/arbol/expansion.js';
 import { ACCIONES_GESTION, CONJUNCIONES_GESTION } from '../../src/modules/permisos/arbol/acciones-gestion.js';
+import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA } from '../../src/modules/permisos/arbol/acciones-finanzas.js';
 
 // HU #13427: el árbol ya tiene Finanzas (0234/0235); la 0233 es SOLO Gestión y Tránsito.
-const GESTION = ACCIONES_POR_AREA.gestion;
+// Una acción nacida después de esa siembra no está en el archivo congelado.
+const GESTION = ACCIONES_POR_AREA.gestion.filter((a) => !ACCIONES_NACIDAS_TRAS_LA_SIEMBRA.has(a));
 const ABSORBIDOS_GESTION = new Set([...Object.values(ACCIONES_GESTION).flatMap((a) => a.operaciones), ...CONJUNCIONES_GESTION.map((c) => c.operacion)]);
 import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 import {

@@ -84,6 +84,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0283_flito_logistica_permiso_traslado_anular.sql', // HU #14115: anular viaje registrado; solo admin
   '0284_flito_logistica_motivos_permiso.sql', // HU #14119: catálogo de motivos de llegada a FLIT; solo admin
   '0285_flito_logistica_permiso_firmar_flit.sql', // HU #14122: firmar la llegada a FLIT; solo admin
+  '0274_flito_impuesto_certificacion_directa.sql', // Certificar impuesto sin trámite: acción solo a admin
 ] as const;
 
 /**

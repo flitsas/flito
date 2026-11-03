@@ -112,6 +112,7 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts' },
   // HU #13269: reemplazo del comprobante de pago; sub-router propio de impuestos (solo esta ruta).
   { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts' },
+  { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts' },
   // HU #12997: lectura de las solicitudes SOAT incompletas (RUNT caído); fichero hermano de soat.
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-incompletas.routes.ts' },
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-documentos.routes.ts' }, // HU #13362
