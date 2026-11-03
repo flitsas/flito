@@ -463,6 +463,9 @@ const envSchema = z.object({
   DRFLIT_IA_MAX_TOKENS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(100).max(2000).default(600)),
   // Puerta POSITIVA de la purga de intentos a 12 meses (RN-DRF3): solo con =1.
   DRFLIT_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // HU #13989 (ADR-0033): conteo de uso de rutas legacy. Defecto encendido (una puerta positiva olvidada
+  // perdería la ventana de 4 semanas); solo '0' no monta las capas.
+  USO_LEGACY_CONTEO_ENABLED: z.string().optional().transform((v) => v !== '0'),
 }).superRefine((data, ctx) => {
   // HU #13803 (P9-1): el cliente simulado de FLIT - SOPORTE no puede arrancar en PDN. Desde HU #13913
   // una producción sin DEPLOY_ENVIRONMENT se asume PDN, así que tampoco admite el simulado.

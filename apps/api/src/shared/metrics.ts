@@ -140,3 +140,18 @@ for (const column of ['foto_rostro', 'foto_cedula_frontal', 'foto_cedula_reverso
   piiDecryptFailuresTotal.inc({ table: 'tramites_validaciones', column }, 0);
   piiLegacyPlaintextTotal.inc({ table: 'tramites_validaciones', column }, 0);
 }
+
+// HU #13989 (ADR-0033 §7) — la pérdida del conteo de uso legacy, lo único que su tabla no puede contar.
+// Sin rutas ni roles en las etiquetas.
+export const usoLegacyFlushTotal = new Counter({
+  name: 'uso_legacy_flush_total',
+  help: 'Flushes del conteo de uso legacy a la tabla de agregados, por resultado.',
+  labelNames: ['resultado'] as const,
+  registers: [registry],
+});
+
+export const usoLegacyConteosDescartadosTotal = new Counter({
+  name: 'uso_legacy_conteos_descartados_total',
+  help: 'Conteos de uso legacy descartados por superar el tope de claves del buffer.',
+  registers: [registry],
+});

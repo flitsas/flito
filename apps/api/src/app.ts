@@ -112,6 +112,8 @@ import maintPreOrdersRoutes from './modules/maintenance/preorders.routes.js';
 import maintWorkOrdersRoutes from './modules/maintenance/workorders.routes.js';
 import maintIndicatorsRoutes from './modules/maintenance/indicators.routes.js';
 import liquidacionRoutes from './modules/liquidacion/liquidacion.routes.js';
+import { montarConteoUsoLegacy } from './modules/uso-legacy/uso-legacy.middleware.js';
+import usoLegacyRoutes from './modules/uso-legacy/uso-legacy.routes.js';
 import driversRoutes from './modules/drivers/drivers.routes.js';
 import driverDocumentsRoutes from './modules/drivers/documents.routes.js';
 import driverTrainingsRoutes from './modules/drivers/trainings.routes.js';
@@ -247,6 +249,9 @@ export function createApp() {
   // envuelto en `conAlcance('<modulo>', router)` queda abierto a los enlaces que `FRONTERA_POR_ENLACE`
   // (shared-types) le asigna a ese módulo. Un montaje sin `conAlcance` nace CERRADO para todo usuario
   // con enlace (compañía, proveedor, organismos); el enlace `ninguno` lo decide el permiso.
+
+  // HU #13989 (ADR-0033): conteo de uso de los prefijos legacy, una capa por prefijo.
+  montarConteoUsoLegacy(app);
 
   // Routes
   app.use('/api/rum', rumRoutes); // RUM Web Vitals — público (se reporta pre-login)
@@ -385,6 +390,7 @@ export function createApp() {
   app.use('/api/maintenance/work-orders', maintWorkOrdersRoutes);
   app.use('/api/maintenance/indicators', maintIndicatorsRoutes);
   app.use('/api/liquidaciones', liquidacionRoutes); // TRAM-INNOV-B5-MVP: liquidación/pago manual
+  app.use('/api/uso-legacy', usoLegacyRoutes); // HU #13989 (ADR-0033): sin `conAlcance`, nace cerrado para todo enlace
   app.use('/api/drivers/documents', driverDocumentsRoutes);
   app.use('/api/drivers/trainings', driverTrainingsRoutes);
   app.use('/api/drivers/incidents', driverIncidentsRoutes);
