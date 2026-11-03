@@ -223,12 +223,35 @@ describe('AC5 — anular en registrado: línea anulado, LT clasificado, precio i
   });
 });
 
+describe('AC5b — anular cierra el acta del viaje como devuelta', () => {
+  it('acta generada → devuelta con motivo "Anulado: <motivo>", solo la de este traslado', async () => {
+    txCiclo();
+    await anularTraslado(TR, 'viaje cancelado', ctxAdmin);
+    const actaSets = sets.filter((s) => s.tabla === flitoLogisticaActas);
+    expect(actaSets).toHaveLength(1);
+    expect(actaSets[0].valores).toMatchObject({ estado: 'devuelta', motivoDevolucion: 'Anulado: viaje cancelado' });
+  });
+
+  it('sin acta asociada no falla y no toca actas', async () => {
+    selectMock.mockReturnValueOnce(chain([{
+      id: TR, destino: 'cliente', origen: 'organismo', estado: 'registrado', mensajeroId: 9,
+    }]));
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([linea(D1)]));
+    selectMock.mockReturnValueOnce(chain([{ id: D1, estado: 'en_acta' }]));
+    const r = await anularTraslado(TR, 'sin acta', ctxAdmin);
+    expect(r).toMatchObject({ estado: 'anulado', documentos: 1 });
+    expect(sets.filter((s) => s.tabla === flitoLogisticaActas)).toHaveLength(0);
+  });
+});
+
 describe('AC6 — anular tras despachar → 409', () => {
   it('estado en_ruta no se anula', async () => {
     txCiclo({ traslado: { estado: 'en_ruta' } });
     await expect(anularTraslado(TR, 'tarde', ctxAdmin))
       .rejects.toMatchObject({ status: 409, codigo: 'TRASLADO_ESTADO_NO_ADMISIBLE' });
     expect(sets.filter((s) => s.tabla === flitoLogisticaTrasladoLts)).toHaveLength(0);
+    expect(sets.filter((s) => s.tabla === flitoLogisticaActas)).toHaveLength(0);
   });
 });
 

@@ -72,6 +72,14 @@ async function actaDeTraslado(exec: DbOrTx, trasladoId: string): Promise<ActaMin
   return a;
 }
 
+/** Variante tolerante: un viaje sin acta asociada devuelve null en vez de lanzar. */
+async function actaOpcionalDeTraslado(exec: DbOrTx, trasladoId: string): Promise<ActaMin | null> {
+  const [a] = await exec.select({
+    id: flitoLogisticaActas.id, estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId,
+  }).from(flitoLogisticaActas).where(eq(flitoLogisticaActas.trasladoId, trasladoId)).limit(1);
+  return a ?? null;
+}
+
 async function lineasDe(exec: DbOrTx, trasladoId: string): Promise<LineaMin[]> {
   return exec.select({
     id: flitoLogisticaTrasladoLts.id, documentoId: flitoLogisticaTrasladoLts.documentoId,
@@ -307,7 +315,7 @@ export async function anularTraslado(
   return db.transaction(async (tx) => {
     const t = await cargarTraslado(tx, trasladoId);
     if (t.estado !== 'registrado') throw new TrasladoEstadoNoAdmisibleError(t.estado, 'anular');
-    const acta = await actaDeTraslado(tx, t.id);
+    const acta = await actaOpcionalDeTraslado(tx, t.id);
     const lineas = await lineasDe(tx, t.id);
     const docs = await docsDe(tx, lineas.map((l) => l.documentoId));
     const ahora = new Date();
@@ -317,12 +325,18 @@ export async function anularTraslado(
       await tx.update(flitoLogisticaTrasladoLts).set({ estado: 'anulado' })
         .where(eq(flitoLogisticaTrasladoLts.trasladoId, t.id));
     }
+    // El acta del viaje anulado se cierra como devuelta (el enum no tiene `anulada`), con el motivo.
+    if (acta) {
+      await tx.update(flitoLogisticaActas).set({
+        estado: EstadoActaLogistica.DEVUELTA, motivoDevolucion: `Anulado: ${m}`, updatedAt: ahora,
+      }).where(eq(flitoLogisticaActas.id, acta.id));
+    }
     await desvincularActa(tx, docs.map((d) => d.id));
     const dest = estadoTrasRegreso(t.origen);
     for (const d of docs) {
       await transicionar(tx, d, dest, ctx, {
-        tipo: 'anulado', motivo: m, trasladoId: t.id, actaId: acta.id, destino: t.destino,
-        payload: { trasladoId: t.id, actaId: acta.id },
+        tipo: 'anulado', motivo: m, trasladoId: t.id, actaId: acta?.id, destino: t.destino,
+        payload: { trasladoId: t.id, actaId: acta?.id },
       });
     }
     return { documentos: docs.length, trasladoId: t.id, estado: 'anulado' };
