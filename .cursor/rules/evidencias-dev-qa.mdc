@@ -11,8 +11,8 @@ evidencias de la sesión conjunta en DEV.
 ## Tras Deploy DEV (o antes de QA)
 
 Tras `flit-integration-ado` Modo B (`DeployDEV`) + `devops-agent` M1, el hilo **carga**
-la skill `flit-evidencias-dev` y prueba el flujo **con el humano** (Claude in Chrome +
-Playwright, capturas). Las evidencias van al **Feature** (`Custom.Evidences` + adjuntos),
+la skill `flit-evidencias-dev` y prueba el flujo **con el humano** (Playwright MCP con
+navegador visible, capturas). Las evidencias van al **Feature** (`Custom.Evidences` + adjuntos),
 no a Discussion ni solo a la HU.
 
 **Hard-stop:** no crear ni mergear el PR `develop → staging` si el Feature no está

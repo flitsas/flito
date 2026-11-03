@@ -4,7 +4,7 @@ description: |
   Sesión conjunta (humano + hilo) de pruebas del Feature en DEV y carga de evidencias
   (capturas del flujo) en el Feature de Azure DevOps. Se dispara tras DeployDEV + M1
   o como hard-stop antes de flit-release. Sin evidencias completas del Feature NO se
-  promueve a QA. Herramientas: Claude in Chrome + Playwright.
+  promueve a QA. Herramienta: Playwright MCP (mcp__playwright__*), navegador visible.
   Triggers — evidencias DEV, pruebas en DEV, capturas Feature, adjuntar screenshots,
   flit-evidencias-dev, post-DeployDEV, antes de promover a QA.
 ---
@@ -63,9 +63,14 @@ aún no se sentó a probar. **No** se puede abrir el PR de promoción.
 | Qué | Valor |
 |---|---|
 | Ambiente | **DEV** — `https://dev.operaciones.flitsas.online` (API `https://api.dev.operaciones.flitsas.online`) |
-| Herramienta 1 | **Claude in Chrome** (o el browser del runtime): recorrer el flujo como un operador, con el humano en la sesión |
-| Herramienta 2 | **Playwright**: capturas (`page.screenshot` / `toHaveScreenshot`) de cada paso del flujo en DEV. Specs de `e2e/tests/` si ya existen; si no, script puntual **sin** commitearlo salvo que el humano lo pida |
+| Herramienta única | **Playwright MCP** (`mcp__playwright__browser_navigate`, `_snapshot`, `_click`, `_fill_form`, `_take_screenshot`, `_console_messages`, `_network_requests`…). **Claude in Chrome ya no se usa para evidencias.** Si faltan las herramientas, cargarlas con `ToolSearch` (`select:mcp__playwright__browser_navigate,…`) |
+| Navegador | **Siempre visible** (`--headed`): el humano ve lo que el agente hace. Si el MCP corre headless, declararlo y pedir al humano reconfigurarlo/relanzarlo antes de seguir |
+| Asistencia | El agente **puede pedir ayuda** al humano (login/MFA, datos, un paso dudoso, confirmar un resultado) y espera; no adivina ni inventa datos |
+| Local y DEV | Misma herramienta: primero local para ensayar y hallar defectos (`http://localhost:…`), luego DEV para la evidencia que se sube |
+| Specs | Si ya existe un spec en `e2e/tests/` se reutiliza; si no, el MCP basta. Scripts puntuales **no** se commitean salvo que el humano lo pida |
 | Destino ADO | Feature `Custom.Evidences` (HTML) + adjuntos PNG/WebP en el **Feature** |
+
+**Modo Feature:** la sesión cubre **el Feature entero** — en Modo Feature, **todos los Features de la Épica en una sola sesión, ya con la Épica completa en DEV** (una fila por HU, una subida a cada Feature, nunca una sesión por Feature) (todas sus HUs) en una pasada y una sola subida al Feature; un hallazgo se corrige con el agente dueño en la rama del Feature y se repite solo el flujo afectado. Capturas fuera del repo (carpeta de scratch o `.playwright-mcp/`, ya ignorada), nunca en la raíz.
 
 Prohibido probar el flujo de esta skill en `staging` / PDN. Prohibido commitear capturas
 al repo (`test-results/` y `playwright-report/` ya están en `.gitignore`).
@@ -85,7 +90,7 @@ al repo (`test-results/` y `playwright-report/` ya están en `.gitignore`).
 Para **cada** HU/Bug pendiente, en DEV:
 
 1. El humano guía o confirma cada paso (login, pantalla, acción, resultado esperado).
-2. El hilo conduce Claude in Chrome y/o Playwright sobre la URL de DEV.
+2. El hilo conduce Playwright MCP (ventana visible) sobre la URL de DEV; ante login/MFA o datos que no tiene, pide ayuda al humano y espera.
 3. **Captura obligatoria** de: estado inicial → acción → resultado (mínimo 1 por AC
    visible; en BACKEND-only, 1 captura de la respuesta/contrato en DEV).
 4. El humano declara **pass / fail** de ese flujo. Fail → no se marca la HU como
@@ -132,7 +137,7 @@ Tablas con `style="border:1px solid #cccccc;padding:6px 8px"` en **cada** `<th>`
 <p><strong>Ambiente:</strong> DEV (<code>dev.operaciones.flitsas.online</code>)</p>
 <p><strong>SHA develop:</strong> <code>{sha}</code> · <strong>M1:</strong> {VERDE|VERDE-PARCIAL|SIN-ACCESO}</p>
 <p><strong>Sesión:</strong> conjunto con <a href="mailto:{USER_REAL_EMAIL}">@{USER_REAL_NAME}</a>
-· herramientas: Claude in Chrome + Playwright</p>
+· herramienta: Playwright MCP (navegador visible)</p>
 <table style="border-collapse:collapse;width:100%">
   <tr>
     <th style="border:1px solid #cccccc;padding:6px 8px">HU/Bug</th>

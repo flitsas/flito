@@ -1,7 +1,7 @@
 ---
 name: flit-modo-desarrollo-auto
 description: |
-  Modo auto por Feature (FLIT - FLITO): cadena apilada. Cargar ESTA Skill al arrancar el Feature — no improvisar el ciclo.
+  Modo auto por Feature (FLIT - FLITO). DESDE 2026-11-03 el defecto es el MODO FEATURE: activación de ADO en lote, implementación del Feature entero sin interrupciones, gates una vez, UN PR `FEATURE/<ID>` con todas las HUs, ADO de cierre en lote (ver `AGENTS.md`). El ciclo por HU de abajo queda para Bugs/HUs sueltas. Cadena apilada. Cargar ESTA Skill al arrancar el Feature — no improvisar el ciclo.
   Paso 0 (al arrancar el Feature/lote, antes de la primera rama): Skill flit-flujo-local — decidir con el humano flujo local (merge retenido) vs directo a DEV.
   Por CADA HU **o Bug** (mismo ciclo — paridad de AGENTS.md): Skill flit-gestion-hu (Active; Épica y Feature padres Active primero) → architecture/ux slim|full si aplica → Agent backend/frontend (prompt denso; NUNCA codear la HU/Bug en el hilo) → verificación P1 (archivos de este WI, no glob del módulo; impl no muta) → Agent qa-agent B + Skill flit-code-review + Skill flit-ayuda-flito (si aplica) ANTES del PR (+ security diff-scoped ∥ db-review si disparan) → PR → Skill flit-integration-ado Modo A → Agent pr-monitor-agent en background **y la siguiente HU arranca YA** → al MERGED: Modo B (DeployDEV; el WI sigue Active) → devops M1 una vez al tip.
   `Resolved` NO se pone al mergear a develop: llega con la promoción a staging (flit-release → flit-gestion-hu Paso 3 + cascada Feature/Épica). Tras DeployDEV + M1: Skill flit-evidencias-dev (sesión conjunta; capturas en el Feature). Sin Feature COMPLETO no hay flit-release. Si un check del PR anterior cae (CI-ROJO CODIGO): pausa momentánea de la HU en curso, corregir el eslabón anterior, relanzar monitor, rebasar y seguir.
@@ -9,6 +9,23 @@ description: |
 ---
 
 # Modo de desarrollo auto
+
+> ## ⚡ MODO FEATURE (defecto desde 2026-11-03) — manda sobre el ciclo «por HU» de abajo
+>
+> Para un **Feature o Épica**, la unidad de entrega es el **Feature**, no la HU. Regla completa:
+> `AGENTS.md` «Modo Feature». Resumen operativo:
+>
+> 1. **Activación en lote** (`flit-gestion-hu` «Modo lote», un solo «sí»): Épica → Feature → todas las HUs `Active`. Luego ADO en silencio.
+> 2. **Diseño previo una vez por Feature** (`architecture-agent` / `ux-agent`, slim|full según la matriz, cubriendo todas las HUs). UI nueva → maqueta con el kit `flit` + captura Playwright (ver `ux-agent`).
+> 3. **Una rama** `FEATURE/<ID>-<dev>-<desc>` desde `develop`. **Implementación del Feature entero** vía `backend-agent` y/o `frontend-agent` con prompt denso: **todas** las HUs con sus AC, orden libre (lo que una HU necesite de otra se construye ahí mismo), P1 = tests del Feature, sin mutantes. Se puede lanzar backend y frontend en paralelo cuando el contrato (shared-types) ya está fijado. No se baja del tren a cada HU a comprobar gates ni a escribir en ADO.
+> 4. **Gates pre-PR una sola vez** sobre `git diff origin/develop...HEAD` (paso 4b): `qa-agent` B con matriz AC→TC de todas las HUs, `flit-code-review`, `flit-ayuda-flito`, y security / db-review si el diff dispara. Si el Feature es muy grande se parte en 2 PRs máx. (ver `AGENTS.md`).
+> 5. **Un PR** `FEATURE <ID>: …` (cuerpo: HUs `AB#…` y AC cubiertos por cada una) → `Skill flit-integration-ado` Modo A en lote → `pr-monitor-agent` en background → **el siguiente Feature arranca YA**.
+> 6. `MERGED` → Modo B en lote (`DeployDEV` en todas las HUs) → **una** M1 → `flit-evidencias-dev` del Feature entero con **Playwright MCP** (ventana visible, asistencia del humano) → correcciones en la rama del Feature si algo falla → promoción humana.
+> 7. **Fin de Feature = sin preguntas:** ledger y siguiente Feature de la Épica. La autorización (ADO en lote + merge a `develop` + avanzar) se pide **una vez al arrancar la Épica**, no por Feature (`AGENTS.md` «Modo Feature» 9). La sesión `flit-evidencias-dev` es **una sola, con la Épica completa en DEV** (nunca por Feature); las correcciones que salgan van a ramas `FEATURE/` del Feature afectado y se repite solo el flujo tocado.
+> 8. **Paralelo** (`AGENTS.md` «Modo Feature» 10): contract-first serial (esquema + shared-types) → `backend-agent` ∥ `frontend-agent` ∥ bloques de HUs sin archivos compartidos, cada uno en su worktree (`isolation: "worktree"`), integrados por el hilo en orden; ≥5 simultáneos (sin techo duro). Features en paralelo solo con `orchestrator-agent` `DUEÑOS` y sin archivos compartidos.
+> 9. **Ledger:** una línea por Feature + `HU #id AC=…` por cada HU.
+>
+> Lo que sigue en este archivo describe el ciclo por WI. **Se aplica tal cual a Bugs sueltos y HUs sueltas**; para un Feature, las secciones «Modo continuo (cadena apilada)», «2. Rama nueva» y «7. Siguiente HU» se leen con «HU» = «Feature» y «eslabón» = «Feature de la Épica». «Pausa por CI rojo» aplica por Feature. La cadena apilada por HU solo se usa si el humano la pide.
 
 Ciclo cerrado por work item, repetido hasta que **todos** los del lote quedan entregados.
 
@@ -121,7 +138,7 @@ Cuando la entrada es un **Feature** (o la petición es "feature completo", "sin 
 "modo auto"), **no se pausa entre HUs esperando el merge**. Tras abrir el PR y CI en verde, el
 agente **mergea a `develop`** (regla de `AGENTS.md`) y rebasea la pila antes de seguir.
 
-**Autorización (nivel B):** al arrancar el Feature, pedir **una vez** autorización explícita del
+**Autorización (nivel B):** en Modo Feature se pide **una vez al arrancar la Épica** (ver cabecera); en un Feature/lote suelto, al arrancar el Feature, pedir **una vez** autorización explícita del
 humano para mergear a `develop` durante ese Feature (p. ej. "puedes mergear a develop este
 Feature"). Sin esa autorización, los PRs quedan abiertos y se sigue en cadena apilada sin merge
 (comportamiento anterior). Un "sí" por PR también basta, pero no es el defecto.
@@ -340,7 +357,7 @@ verde y no hay conflictos. No hay un segundo «sí». Opt-out: el humano dijo «
 5. Rebasar las ramas pendientes de la pila sobre `origin/develop` y
    `git push --force-with-lease` solo de la rama propia.
 6. **Tras M1 al tip del Feature (o de una HU suelta):** **`Skill flit-evidencias-dev`** —
-   sesión conjunta en DEV con el humano (Claude in Chrome + Playwright). Capturas al
+   sesión conjunta en DEV con el humano (Playwright MCP, ventana visible). Capturas al
    Feature. Sin esto el Feature no es promovible. Se puede seguir codeando la siguiente
    HU; **no** se puede `flit-release`.
 
