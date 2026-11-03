@@ -103,6 +103,21 @@ padres, y que **`Closed` es del PO/QA** — nunca de un agente.
 - [ ] Cascada: hermanos consultados; Feature → `Resolved` si todos resueltos; Épica → `Resolved` si todos los Features resueltos
 - [ ] Reactivación (si el QA reabre): HU/Bug, Feature y Épica de vuelta a `Active` con comentario
 
+## Modo lote (Modo Feature — defecto para un Feature/Épica)
+
+Con el desarrollo por Feature (`AGENTS.md` «Modo Feature») los Pasos 1 y 3 se ejecutan **en lote**,
+una sola vez por Feature y con un solo «sí» humano que lista los WIs:
+
+- **Inicio (escritura a):** Épica → Feature → **todas** las HUs/Bugs hijos a `Active`, con el comentario de inicio de la plantilla en cada uno (en el Feature, la lista de HUs y la rama `FEATURE/<ID>-…`). Después **no se vuelve a tocar ADO** hasta el cierre de ráfaga.
+- **Cierre de ráfaga (escritura b):** lo hace `flit-integration-ado` en lote (`Custom.Commits` + `DeployDEV`); esta skill añade a cada HU un comentario con **los AC verificados** (matriz AC→TC del `qa-agent`). El WI sigue `Active`.
+- **Promoción a `staging` (Paso 3) y cascada (Paso 4):** también en lote, por cada WI promovido.
+- Si durante el desarrollo una HU se bloquea, se comenta **solo esa** HU; el resto no se mueve.
+
+**Autorización:** si el humano ya dio el «sí» único de la Épica (`AGENTS.md` «Modo Feature» 9), las escrituras en lote de todos sus Features se ejecutan sin volver a preguntar; se cita ese «sí» en el comentario. Sin él, se pide uno por lote.
+
+Los pasos de abajo describen la operación por WI; en lote se repiten sobre la lista sin recargar el
+resto del ciclo. Un Bug suelto o una HU suelta siguen el flujo individual.
+
 ## Paso 1 — Activación
 
 1. **Padres primero** (regla de `AGENTS.md`), de arriba hacia abajo:
