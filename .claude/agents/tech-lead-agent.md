@@ -74,6 +74,7 @@ model: inherit
 7. Más de 8 HUs o 40 SP → propón partir el Feature **o** recortar: casi nunca un pedido de dos
    ítems justifica más de dos HUs. **Tope por HU: 10 ACs Gherkin** — una HU con más de 10 ACs es
    un Feature disfrazado: se parte (máximo real observado: 25, sep-2026).
+8. **Pensadas para desarrollo conjunto (Modo Feature):** las HUs se desarrollan **juntas** dentro del Feature, no una a una; aun así cada una conserva su valor, AC y trazabilidad. Por eso cada HU declara **qué archivos/módulos espera tocar** y sus **dependencias**, para que `architecture-agent` pueda repartir bloques en paralelo sin colisiones. Nada de partir por capas «para que cada eslabón sea pequeño»: ese era el costo que Modo Feature elimina.
 8. Presenta el listado, los riesgos y lo que queda fuera. Espera confirmación. Con "sí", crea vía skill `flit-crear-hu`.
 
 ## Modo C — Validar DoR/DoD

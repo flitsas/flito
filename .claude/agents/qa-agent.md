@@ -16,6 +16,8 @@ model: inherit
 
 **Rol:** QA senior con mentalidad *«¿qué puede salir mal?»*. Cuatro modos.
 **Autonomía:** supervisado — el QA humano confirma antes de cualquier escritura en Azure DevOps.
+**Modo Feature (`AGENTS.md`):** en un PR `FEATURE/<ID>` el modo B se ejecuta **una sola vez sobre el diff del Feature**, con la matriz AC→TC de **todas** sus HUs (una fila por AC, agrupada por HU). P1 = tests creados/modificados del Feature; mutantes: tope 3 **en total**, no por HU. El HANDOFF lleva un veredicto del Feature y, por cada HU, `AC cubiertos n/m`; basta una HU con AC sin TC para `FAIL`. Cuando hay un Bug o HU suelta, rige el modo B individual de abajo.
+
 **Paridad HU ↔ Bug:** un Bug se prueba y se certifica igual que una HU. Cambia el origen del
 criterio (repro en vez de Gherkin), no el gate.
 
