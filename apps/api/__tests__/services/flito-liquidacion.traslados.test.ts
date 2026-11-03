@@ -116,21 +116,21 @@ describe('calcular — solo suma líneas entregadas, no legado, de este trámite
       dto({ id: 'lt-flit', precio: 10000 }),
       dto({ id: 'lt-cli', destino: 'cliente', conceptoPrecio: 'logistica_cliente', precio: 8000 }),
     ]);
-    // 35.000 + 0 + 10.000 + 8.000. Ni el viaje 1 dos veces ni solo las líneas.
-    expect(c.logistica.valor).toBe(53000);
+    // 0 + 10.000 + 8.000: con líneas que cobran la tarifa base (35.000) NO se suma (regla de cobro).
+    expect(c.logistica.valor).toBe(18000);
     expect(c.logistica.tarifa).toBe(35000);
     expect(c.logistica.viajes).toEqual([]);
     expect(c.logistica.totalViajes).toBe(1);
     expect(c.logistica.origen).toBe('Tarifa genérica');
     expect(tarifaDeMock).toHaveBeenCalledTimes(2);
     // 450.000 + 120.000 + 80.000 + 200.000 + 53.000.
-    expect(c.baseGmf).toBe(903000);
+    expect(c.baseGmf).toBe(868000);
     expect(c.valorGmf).toBe(3612);
     const logistica = salidasDe(c, {
       companiaId: 7, soatId: 's1', soatOrganismo: 'ORG', impuestoId: 'i1', impuestoOrganismo: 'ORG',
       derechoId: 'd1', derechoOrganismo: 'ORG',
     }).filter((s) => s.concepto === 'logistica');
-    expect(logistica).toEqual([{ concepto: 'logistica', valor: 53000, organismoCodigo: null, llave: 'tramite:t1:logistica' }]);
+    expect(logistica).toEqual([{ concepto: 'logistica', valor: 18000, organismoCodigo: null, llave: 'tramite:t1:logistica' }]);
   });
 
   it('entrega parcial: la línea en ruta del mismo traslado no entra', async () => {
@@ -140,7 +140,7 @@ describe('calcular — solo suma líneas entregadas, no legado, de este trámite
     ]);
     const c = await calcular('t1');
     expect(c.logistica.traslados).toEqual([dto({ id: 'lt-ok', precio: 10000 })]);
-    expect(c.logistica.valor).toBe(45000);
+    expect(c.logistica.valor).toBe(10000); // solo la línea entregada; sin tarifa base
   });
 
   it('legado, concepto legado, estados que no cobran, sin trámite y otro trámite suman 0', async () => {
@@ -166,7 +166,7 @@ describe('calcular — los adicionales siguen en viajes; autogestión y tarifa f
   it('el adicional queda en `viajes` y no alarga el sufijo ni `totalViajes` por las líneas (AC5)', async () => {
     encolar([linea({ precio: '5000' })], [viaje()]);
     const c = await calcular('t1');
-    expect(c.logistica.valor).toBe(50000);
+    expect(c.logistica.valor).toBe(15000); // línea 5.000 + adicional 10.000; sin tarifa base
     expect(c.logistica.totalViajes).toBe(2);
     expect(c.logistica.viajes).toHaveLength(1);
     expect(c.logistica.viajes![0]!.valor).toBe(10000);
@@ -308,12 +308,12 @@ describe('sello — entregar después no reescribe; el reverso recalcula; factur
 
     expect(orden.slice(0, 5)).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes', 'traslados']);
     const liquidacion = escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
-    // 35.000 + adicional 10.000 + línea nueva 20.000. La línea vieja está devuelta y no cobra.
-    // Un delta «50.000 + 20.000» daría 70.000 y seguiría trayendo lt-a.
-    expect(liquidacion.datos.valorLogistica).toBe('65000');
+    // adicional 10.000 + línea nueva 20.000 (la tarifa base 35.000 no se suma con líneas). La línea
+    // vieja está devuelta y no cobra. Un delta sobre el sello viejo seguiría trayendo lt-a.
+    expect(liquidacion.datos.valorLogistica).toBe('30000');
     expect(liquidacion.datos.detalle).toMatchObject({
       logistica: {
-        valor: 65000, tarifa: 35000, totalViajes: 2, traslados: [dto({ id: 'lt-b', documentoId: 'doc-2', precio: 20000, tarifaVigenciaId: null })],
+        valor: 30000, tarifa: 35000, totalViajes: 2, traslados: [dto({ id: 'lt-b', documentoId: 'doc-2', precio: 20000, tarifaVigenciaId: null })],
       },
     });
     const sellada = (liquidacion.datos.detalle as { logistica: { traslados: LineaTrasladoLogistica[] } }).logistica;
