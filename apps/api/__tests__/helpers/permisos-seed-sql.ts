@@ -78,6 +78,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0261_permisos_proveedores_soat_estado.sql', // HU #13958: «Activar o desactivar proveedores», exclusiva de `admin`
   '0263_permisos_proveedores_eliminar.sql', // HU #13960: «Eliminar proveedores», exclusiva de `admin`
   '0262_flito_soat_canal_por_proveedor.sql', // HU #13967: renombre de `accion.clientes.soat_sin_tramite`
+  '0274_flito_impuesto_certificacion_directa.sql', // Certificar impuesto sin trámite: acción solo a admin
 ] as const;
 
 /**

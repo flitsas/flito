@@ -45,7 +45,7 @@ export { flitoSoatIncompletas };
 // HU #13410: `flito_storage_borrados_pendientes` vive en `./schema/flito-storage-borrados-pendientes.ts`.
 export { flitoStorageBorradosPendientes } from './schema/flito-storage-borrados-pendientes.js';
 // HU #13268: `flito_impuesto_envios_flit2` (outbox del envío a FLIT 2) vive en `./schema/` por el mismo techo.
-export { flitoImpuestoEnviosFlit2 } from './schema/flito-impuesto-envios-flit2.js'; // en una línea: techo de max-lines (HU #13889)
+export { flitoImpuestoEnviosFlit2 } from './schema/flito-impuesto-envios-flit2.js'; export { flitoImpuestoCertificacionDirecta } from './schema/flito-impuesto-certificacion-directa.js';
 // HU #12619: `flito_tramite_viajes_logistica` vive en `./schema/flito-logistica-viajes.ts` por el mismo techo.
 import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js';
 export { flitoTramiteViajesLogistica };

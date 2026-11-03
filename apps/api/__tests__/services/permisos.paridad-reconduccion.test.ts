@@ -37,6 +37,7 @@ import {
   ACCIONES_ARBOL, ACCIONES_UNIVERSALES, expandirSinCadena, operacionesDe, PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA,
 } from '../../src/modules/permisos/arbol/expansion.js';
 import { FUNCIONES_EXCLUSIVAS_ADMIN } from '../../src/modules/permisos/catalogo-operaciones.js';
+import { OPERACIONES_NACIDAS_EN_EL_ARBOL } from '../../src/modules/permisos/arbol/acciones-finanzas.js';
 
 /**
  * HU #13427: en el mundo PLANO (seed ≤ 0231) una operación nueva que parte una guarda vieja se decide con su código de
@@ -56,7 +57,11 @@ const DE_TODOS = new Set(ACCIONES_UNIVERSALES.flatMap((u) => operacionesDe(u.acc
  * nacen en el árbol, sin partida en el mundo plano: la siembra de su acción es posterior (0255) y el plano no puede
  * decidirlas (solo el grupo `operaciones`: el `apoyo` de lectura sí es del plano). Se excluyen SOLO de la matriz plana; la de la base real sí las mide (admin SÍ, el resto NO).
  */
-const DE_EXCLUSIVAS = new Set(FUNCIONES_EXCLUSIVAS_ADMIN.flatMap((a) => ACCIONES_ARBOL[a]?.operaciones ?? []));
+const DE_EXCLUSIVAS = new Set([
+  ...FUNCIONES_EXCLUSIVAS_ADMIN.flatMap((a) => ACCIONES_ARBOL[a]?.operaciones ?? []),
+  // Épica #14163: nace en el árbol (0274), sin partida en el mundo plano; la concede `apoyo` de su acción.
+  ...OPERACIONES_NACIDAS_EN_EL_ARBOL,
+]);
 import {
   fijarFuenteDePermisos, invalidarPermisosDe, resolverPermisos, type FilasPermisos,
 } from '../../src/shared/permisos-efectivos.js';
@@ -166,6 +171,16 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       // HU #13893 (ADR-0028 §5 E6): el estado del lote reutiliza `bolsas.documentos.ver`, sin reparto de partida.
       'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts POST /estado-lote',
       'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago',
+      // Épica #14163: `impuestos.certificacion_directa.gestionar` nace en el árbol (0274; `accion.impuestos.certificar_sin_tramite`, solo `admin`); no se siembra.
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa/catalogo',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa/extraer',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa/:id/factura',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa/:id/certificado',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa/:id/consultar',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa/:id',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts PATCH /certificacion-directa/:id',
       // HU #13945: `clients.clientes.estado` nace absorbida por la acción exclusiva del Administrador
       // `accion.clientes.activar_desactivar`; la siembra la 0255 (solo `admin`), no el seed plano.
       'clients/clients.routes.ts GET /:id/impacto',
