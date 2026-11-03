@@ -42,3 +42,6 @@ process.env.AUTH_SKIP_LAFT_BLOCK_CHECK = '1';
 // la suite; `permisos-exigir-funcion.test.ts` y el aserto de plantilla de `flito-derechos.test.ts`
 // la encienden a propósito.
 process.env.PERMISOS_SKIP_BITACORA_INTENTOS = '1';
+// HU #13989 (ADR-0033): el conteo de uso legacy se apaga en toda la suite para no interferir con sus mocks.
+// Los tests del módulo lo encienden antes de importar la app (`env` es una foto tomada en el import).
+process.env.USO_LEGACY_CONTEO_ENABLED = '0';
