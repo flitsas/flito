@@ -1,5 +1,8 @@
 // HU #13989 (ADR-0033 §2) — buffer en memoria + UPSERT por lotes. S1–S7 de la lista del ADR.
+// Más abajo, la query de `consultarUso` (AC3): asertos sobre lo que se envía, para que corran sin BD en CI.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 vi.hoisted(() => { process.env.USO_LEGACY_CONTEO_ENABLED = '1'; });
 
@@ -8,16 +11,21 @@ vi.mock('../../src/shared/logger.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/shared/logger.js')>()),
   loggerFor: () => ({ warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
-vi.mock('../../src/db/client.js', () => ({ db: { insert: vi.fn() }, getPoolStats: vi.fn() }));
+vi.mock('../../src/db/client.js', () => ({ db: { insert: vi.fn(), select: vi.fn() }, getPoolStats: vi.fn() }));
 
 const { db } = await import('../../src/db/client.js');
 const metrics = await import('../../src/shared/metrics.js');
 const {
-  acumular, flushUsoLegacy, cerrarUsoLegacy, _bufferUsoLegacy, _reiniciarUsoLegacy,
-  INTERVALO_FLUSH_MS, TIMEOUT_CIERRE_MS, TIMEOUT_FLUSH_MS, TOPE_CLAVES,
+  acumular, flushUsoLegacy, cerrarUsoLegacy, consultarUso, _bufferUsoLegacy, _reiniciarUsoLegacy,
+  INTERVALO_FLUSH_MS, TIMEOUT_CIERRE_MS, TIMEOUT_FLUSH_MS, TOPE_CLAVES, TOPE_FILAS_CONSULTA,
 } = await import('../../src/modules/uso-legacy/uso-legacy.service.js');
 
 type Fila = { dia: string; modulo: string; ruta: string; metodo: string; consumidor: string; total: number };
+type Columna = { name: string };
+type Conflicto = { target: Columna[]; set: { total: SQL } };
+
+const dialecto = new PgDialect();
+const conflictos: Conflicto[] = [];
 
 /** `db.insert(...).values(filas).onConflictDoUpdate(...)`: guarda lo enviado y responde lo que diga `resultado`. */
 function insertQue(resultado: () => Promise<unknown>) {
@@ -25,10 +33,29 @@ function insertQue(resultado: () => Promise<unknown>) {
   vi.mocked(db.insert).mockImplementation((() => ({
     values: (filas: Fila[]) => {
       lotes.push(filas);
-      return { onConflictDoUpdate: () => resultado() };
+      return {
+        onConflictDoUpdate: (conflicto: Conflicto) => {
+          conflictos.push(conflicto);
+          return resultado();
+        },
+      };
     },
   })) as never);
   return lotes;
+}
+
+/** `db.select(...).from(...).where(...).groupBy(...).orderBy(...).limit(...)`: guarda lo enviado y responde `filas`. */
+function selectQue(filas: unknown[]) {
+  const enviado: { where?: SQL; groupBy: Columna[]; limit?: number } = { groupBy: [] };
+  const consulta = {
+    from: () => consulta,
+    where: (w: SQL) => { enviado.where = w; return consulta; },
+    groupBy: (...columnas: Columna[]) => { enviado.groupBy = columnas; return consulta; },
+    orderBy: () => consulta,
+    limit: (n: number) => { enviado.limit = n; return Promise.resolve(filas); },
+  };
+  vi.mocked(db.select).mockImplementation((() => consulta) as never);
+  return enviado;
 }
 
 const conteo = (extra: Partial<Parameters<typeof acumular>[0]> = {}) => ({
@@ -41,6 +68,8 @@ const valorMetrica = async (c: { get(): Promise<{ values: { value: number; label
 beforeEach(() => {
   _reiniciarUsoLegacy();
   vi.mocked(db.insert).mockReset();
+  vi.mocked(db.select).mockReset();
+  conflictos.length = 0;
   warn.mockReset();
 });
 afterEach(() => {
@@ -81,6 +110,16 @@ describe('S2 — flush', () => {
       { dia: '2026-11-03', modulo: 'soat', ruta: '/api/soat/zeta', metodo: 'GET', consumidor: 'admin', total: 1 },
     ]);
     expect(_bufferUsoLegacy().size).toBe(0);
+  });
+
+  it('el conflicto va sobre la clave de 5 columnas y `total` acumula lo existente + lo nuevo', async () => {
+    insertQue(() => Promise.resolve([]));
+    acumular(conteo());
+    await flushUsoLegacy();
+    expect(conflictos).toHaveLength(1);
+    expect(conflictos[0]!.target.map((c) => c.name)).toEqual(['dia', 'modulo', 'ruta', 'metodo', 'consumidor']);
+    expect(Object.keys(conflictos[0]!.set)).toEqual(['total']);
+    expect(dialecto.sqlToQuery(conflictos[0]!.set.total).sql).toBe('"uso_legacy_diario"."total" + excluded.total');
   });
 
   it('con el buffer vacío no consulta', async () => {
@@ -216,5 +255,40 @@ describe('S7 — normalización de la clave', () => {
   it('`/` no se añade al prefijo, y sin rol el consumidor es `publico`', () => {
     acumular(conteo({ patron: '/', consumidor: undefined }));
     expect(claves()[0]).toMatch(/\t\/api\/soat\tGET\tpublico$/);
+  });
+});
+
+describe('consultarUso — lo que se envía a la BD (AC3)', () => {
+  const RANGO = { desde: '2026-10-01', hasta: '2026-10-20' };
+
+  it('sin módulo: filtra el periodo con gte/lte y parámetros, y no filtra por módulo', async () => {
+    const enviado = selectQue([]);
+    await consultarUso(RANGO);
+    const where = dialecto.sqlToQuery(enviado.where!);
+    expect(where.sql).toBe('("uso_legacy_diario"."dia" >= $1 and "uso_legacy_diario"."dia" <= $2)');
+    expect(where.params).toEqual(['2026-10-01', '2026-10-20']);
+  });
+
+  it('con módulo: lo añade al filtro del periodo, como parámetro', async () => {
+    const enviado = selectQue([]);
+    await consultarUso({ ...RANGO, modulo: 'tramites' });
+    const where = dialecto.sqlToQuery(enviado.where!);
+    expect(where.sql).toBe('("uso_legacy_diario"."dia" >= $1 and "uso_legacy_diario"."dia" <= $2 and "uso_legacy_diario"."modulo" = $3)');
+    expect(where.params).toEqual(['2026-10-01', '2026-10-20', 'tramites']);
+  });
+
+  it('agrupa por módulo, ruta, método y consumidor', async () => {
+    const enviado = selectQue([]);
+    await consultarUso(RANGO);
+    expect(enviado.groupBy.map((c) => c.name)).toEqual(['modulo', 'ruta', 'metodo', 'consumidor']);
+  });
+
+  it('pide una fila de más que el tope: con 2001 filas devuelve 2000 y `truncado`', async () => {
+    const filas = Array.from({ length: TOPE_FILAS_CONSULTA + 1 }, (_, i) => ({ ruta: `/r${i}` }));
+    const enviado = selectQue(filas);
+    const r = await consultarUso(RANGO);
+    expect(enviado.limit).toBe(2001);
+    expect(r.filas).toHaveLength(2000);
+    expect(r.truncado).toBe(true);
   });
 });
