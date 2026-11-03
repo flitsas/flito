@@ -33,7 +33,7 @@ const FinanzasGastosDiarios = lazy(() => import('./pages/FinanzasGastosDiarios')
 const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
 const FlitoSoatSolicitud = lazy(() => import('./pages/FlitoSoatSolicitud'));
-const FlitoImpuestos = lazy(() => import('./pages/FlitoImpuestos'));
+const FlitoImpuestosShell = lazy(() => import('./pages/FlitoImpuestosShell'));
 const FlitoComprobantes = lazy(() => import('./pages/FlitoComprobantes'));
 const FlitoDerechos = lazy(() => import('./pages/FlitoDerechos'));
 const Users = lazy(() => import('./pages/Users'));
@@ -255,7 +255,8 @@ function AppRoutes() {
             router no distinguiría «no tienes el permiso» de «tu compañía no tiene el canal», que es
             justo lo que el AC5 pide separar. */}
         <Route path="/flito/soat/solicitud" element={<ProtectedRoute page="flito_soat"><Lazy><FlitoSoatSolicitud /></Lazy></ProtectedRoute>} />
-        <Route path="/flito/impuestos" element={<ProtectedRoute page="flito_impuestos"><Lazy><FlitoImpuestos /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/impuestos" element={<ProtectedRoute page="flito_impuestos"><Lazy><FlitoImpuestosShell vista="cola" /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/impuestos/certificar" element={<ProtectedRoute page="flito_impuestos"><FuncionGate funcion="impuestos.certificacion_directa.gestionar" page="flito_impuestos"><Lazy><FlitoImpuestosShell vista="certificar" /></Lazy></FuncionGate></ProtectedRoute>} />
         <Route path="/flito/comprobantes" element={<ProtectedRoute page="flito_comprobantes"><Lazy><FlitoComprobantes /></Lazy></ProtectedRoute>} />
         <Route path="/flito/derechos" element={<ProtectedRoute page="flito_derechos"><Lazy><FlitoDerechos /></Lazy></ProtectedRoute>} />
         <Route path="/flito/revisiones" element={<ProtectedRoute page="flito_revisiones"><Lazy><FlitoRevisiones /></Lazy></ProtectedRoute>} />
