@@ -123,11 +123,17 @@ router.get('/actas/:id', exigirFuncion('logistica.actas.ver'), async (req: Reque
   if (r !== undefined) res.json(esProyeccionCliente(alcance) ? { ...r, bitacora: sinActor(r.bitacora) } : r);
 });
 
-// GET /actas/:id/pdf — URL prefirmada del PDF base del acta (se genera si falta).
+// GET /actas/:id/pdf — URL prefirmada (AC4). `logPiiAccess` en generación (acta-pdf) y en esta descarga (NQ4).
 router.get('/actas/:id/pdf', exigirFuncion('logistica.actas.descargar'), async (req: Request, res: Response) => {
   if (!await enAlcanceLogistica('acta', req.params.id, await alcanceDe(req))) { res.status(404).json({ error: 'El acta no existe' }); return; }
-  const url = await ejecutar(res, () => urlActaPdf(req.params.id));
-  if (url !== undefined) res.json({ url });
+  const url = await ejecutar(res, () => urlActaPdf(req.params.id, req));
+  if (url === undefined) return;
+  await logPiiAccess(req, {
+    resourceTipo: 'flito_logistica_acta_pdf', accion: 'read', camposAccedidos: ['documento'],
+    motivo: `descargar:${req.params.id}`,
+  });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ url });
 });
 
 // ── LT pendientes de trámite (HU #14143, ADR-0030 §17.3) ─────────────────────
