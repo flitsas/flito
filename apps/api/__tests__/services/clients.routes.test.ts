@@ -184,6 +184,28 @@ describe('POST /', () => {
       .send({ name: 'Mínimo' });
     expect(r.status).toBe(201);
   });
+
+  it('sin banderas de autogestión no fija ninguna: hereda el DEFAULT true de la BD (HU #13937 AC1)', async () => {
+    let valores: Record<string, unknown> = {};
+    insertMock.mockReturnValueOnce({
+      values: (v: Record<string, unknown>) => {
+        valores = v;
+        return { returning: () => Promise.resolve([{ id: 102, name: 'Nueva' }]) };
+      },
+    });
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Nueva' });
+    expect(r.status).toBe(201);
+    for (const k of ['soatAutogestionable', 'impuestosAutogestionable', 'logisticaAutogestionable']) {
+      expect(valores).not.toHaveProperty(k);
+    }
+    const { clients } = await import('../../src/db/schema.js');
+    expect(clients.soatAutogestionable.default).toBe(true);
+    expect(clients.impuestosAutogestionable.default).toBe(true);
+    expect(clients.logisticaAutogestionable.default).toBe(true);
+  });
 });
 
 // ── AC6 — enumeraciones cerradas ───────────────────────────────────────────

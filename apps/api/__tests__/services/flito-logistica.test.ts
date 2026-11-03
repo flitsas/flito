@@ -1,6 +1,6 @@
 // FLITO Logística. Verifica el dominio del modelo v2: la LT nace del ESCANEO del PDF417 (match
 // placa+VIN contra un trámite aprobado → recogida/novedad/sin_match), novedad con motivo (RN-04),
-// cierre de lote parcial vs completo (CA-08/09), firma del receptor obligatoria (RN-03) y las
+// cierre de lote siempre parcial (HU #13936), firma del receptor obligatoria (RN-03) y las
 // fronteras de rol de las rutas. Las funciones transaccionales corren sobre un `tx` mockeado.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -108,45 +108,59 @@ describe('registrarNovedad — motivo obligatorio', () => {
   });
 });
 
-// ───────────────────────── cerrarLote — parcial vs completo (CA-08/09) ─────
+// ───────────────────────── cerrarLote — entregas parciales siempre (HU #13936) ─────
 
-describe('cerrarLote — respeta la parametrización de entregas parciales', () => {
+describe('cerrarLote — entregas parciales siempre (sin regla "Solo completo")', () => {
+  // `permiteParcial` ya no se selecciona; se deja en el mock de clients para demostrar que un
+  // valor `false` heredado de la parametrización no tiene efecto.
   const compania = (permiteParcial: boolean) => ({
     id: 5, nombre: 'ACME', permiteParcial, autogestionable: false, direccion: 'Calle 1', contactoNombre: 'ACME', contactoDoc: '900',
   });
   const docs = [
     { id: 'd1', estado: EstadoDocumentoLogistica.CLASIFICADO },
-    { id: 'd2', estado: EstadoDocumentoLogistica.NOVEDAD },
+    { id: 'd2', estado: EstadoDocumentoLogistica.CLASIFICADO },
+    { id: 'd3', estado: EstadoDocumentoLogistica.CLASIFICADO },
+    { id: 'd4', estado: EstadoDocumentoLogistica.NOVEDAD },
+    { id: 'd5', estado: EstadoDocumentoLogistica.NOVEDAD },
   ];
 
-  it('CA-09: "Solo completo" con pendientes → 409 e informa faltantes', async () => {
+  it('AC1: compañía antes "Solo completo" con 3 clasificadas y 2 en novedad → acta con las 3, sin 409', async () => {
     selectMock
       .mockReturnValueOnce(chain([compania(false)]))
-      .mockReturnValueOnce(chain(docs));
-    await expect(svc.cerrarLote(5, ctx)).rejects.toMatchObject({ status: 409 });
+      .mockReturnValueOnce(chain(docs))
+      .mockReturnValueOnce(chain([{ id: 'prov1' }])); // proveedor logístico por defecto
+    const valuesActa: unknown[] = [];
+    const actaInsert = chain([{ id: 'acta1' }]);
+    const origValues = actaInsert.values;
+    actaInsert.values = ((v: unknown) => { valuesActa.push(v); return origValues(); }) as typeof actaInsert.values;
+    insertMock.mockReturnValueOnce(actaInsert);
+    const setsUpdate: unknown[] = [];
+    updateMock.mockImplementation(() => {
+      const c = chain([]);
+      const origSet = c.set;
+      c.set = ((v: unknown) => { setsUpdate.push(v); return origSet(); }) as typeof c.set;
+      return c;
+    });
+    const r = await svc.cerrarLote(5, ctx);
+    expect(r).toEqual({ actaId: 'acta1', documentos: 3 });
+    // El acta registra permiteParcial=true aunque la compañía tenga el flag heredado en false.
+    expect(valuesActa[0]).toMatchObject({ companiaId: 5, permiteParcial: true });
+    // Solo las 3 clasificadas se amarran al acta; las 2 en novedad siguen pendientes.
+    expect(setsUpdate.filter((v) => (v as { actaId?: string }).actaId === 'acta1')).toHaveLength(3);
+  });
+
+  it('AC3: compañía autogestionada → 409 (FLITO no gestiona su logística)', async () => {
+    selectMock.mockReturnValueOnce(chain([{ ...compania(true), autogestionable: true }]));
+    await expect(svc.cerrarLote(5, ctx)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/autogestionada/i) });
     expect(insertMock).not.toHaveBeenCalled();
   });
 
-  it('CA-08: "Permite parcial" genera el acta con las clasificadas y deja el resto', async () => {
+  it('AC2: sin LT clasificadas y con pendientes → 400 "No hay LT clasificadas para esta empresa"', async () => {
     selectMock
-      .mockReturnValueOnce(chain([compania(true)]))
-      .mockReturnValueOnce(chain(docs))
-      .mockReturnValueOnce(chain([{ id: 'prov1' }])); // proveedor logístico por defecto
-    insertMock.mockReturnValueOnce(chain([{ id: 'acta1' }]));
-    const r = await svc.cerrarLote(5, ctx);
-    expect(r).toMatchObject({ actaId: 'acta1', documentos: 1 });
-  });
-
-  it('RN-05: compañía autogestionada → 409 (FLITO no gestiona su logística)', async () => {
-    selectMock.mockReturnValueOnce(chain([{ ...compania(true), autogestionable: true }]));
-    await expect(svc.cerrarLote(5, ctx)).rejects.toMatchObject({ status: 409 });
-  });
-
-  it('sin LT clasificadas → error (nada que cerrar)', async () => {
-    selectMock
-      .mockReturnValueOnce(chain([compania(true)]))
-      .mockReturnValueOnce(chain([{ id: 'd2', estado: EstadoDocumentoLogistica.NOVEDAD }]));
-    await expect(svc.cerrarLote(5, ctx)).rejects.toThrow(/clasificad/i);
+      .mockReturnValueOnce(chain([compania(false)]))
+      .mockReturnValueOnce(chain([{ id: 'd4', estado: EstadoDocumentoLogistica.NOVEDAD }]));
+    await expect(svc.cerrarLote(5, ctx)).rejects.toMatchObject({ status: 400, message: 'No hay LT clasificadas para esta empresa' });
+    expect(insertMock).not.toHaveBeenCalled();
   });
 });
 

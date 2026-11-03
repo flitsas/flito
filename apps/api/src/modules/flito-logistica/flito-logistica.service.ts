@@ -399,13 +399,15 @@ export interface ResultadoCerrarLote { actaId: string; documentos: number }
 
 /**
  * Cierra el lote de una empresa y genera un acta con sus LT 'clasificado' (CA-04, una por empresa).
- * Respeta la parametrización de entregas parciales (CA-08/09): si la compañía es "Solo completo" y
- * quedan LT pendientes (recogidas con novedad/sin clasificar), no genera y se informa qué falta.
+ * Entregas parciales SIEMPRE (HU #13936, retira la regla "Solo completo" de CA-08/09): el acta
+ * lleva las LT listas y las pendientes (novedad/sin clasificar) siguen en la bandeja para un lote
+ * posterior. `clients.logistica_permite_parcial` ya no se lee (columna conservada, sin efecto) y
+ * el acta registra `permiteParcial = true`. Sin LT listas → 400; compañía autogestionada → 409.
  */
 export async function cerrarLote(companiaId: number, ctx: LogisticaCtx): Promise<ResultadoCerrarLote> {
   const res = await db.transaction(async (tx) => {
     const [compania] = await tx.select({
-      id: clients.id, nombre: clients.name, permiteParcial: clients.logisticaPermiteParcial,
+      id: clients.id, nombre: clients.name,
       autogestionable: clients.logisticaAutogestionable,
       direccion: clients.address, contactoNombre: clients.name, contactoDoc: clients.document,
     }).from(clients).where(eq(clients.id, companiaId)).limit(1);
@@ -426,13 +428,10 @@ export async function cerrarLote(companiaId: number, ctx: LogisticaCtx): Promise
     const listos = docs.filter((d) => puedeEntrarEnActa(d.estado as TEstadoDoc));
     const pendientes = docs.filter((d) => !puedeEntrarEnActa(d.estado as TEstadoDoc));
     if (listos.length === 0) throw new LogisticaError('No hay LT clasificadas para esta empresa', 400, { pendientes: pendientes.length });
-    if (!compania.permiteParcial && pendientes.length > 0) {
-      throw new LogisticaError(`La compañía es "Solo completo": faltan ${pendientes.length} LT por resolver`, 409, { faltantes: pendientes.length, disponibles: listos.length });
-    }
 
     const proveedorId = await proveedorPorDefecto(tx);
     const [acta] = await tx.insert(flitoLogisticaActas).values({
-      companiaId, estado: EstadoActaLogistica.GENERADA, permiteParcial: compania.permiteParcial,
+      companiaId, estado: EstadoActaLogistica.GENERADA, permiteParcial: true,
       proveedorLogisticaId: proveedorId,
       direccionEntrega: compania.direccion, contactoNombre: compania.contactoNombre, contactoDocumento: compania.contactoDoc,
     }).returning({ id: flitoLogisticaActas.id });
