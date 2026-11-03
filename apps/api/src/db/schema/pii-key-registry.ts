@@ -1,4 +1,4 @@
-// Feature #13978 (ADR-0033 D2, D6) — registro de llaves PII, migración 0287. Vive aparte de `schema.ts`
+// Feature #13978 (ADR-0034 D2, D6) — registro de llaves PII, migración 0288. Vive aparte de `schema.ts`
 // por el techo de max-lines; `schema.ts` la re-exporta.
 import { pgTable, smallint, text, timestamp } from 'drizzle-orm/pg-core';
 

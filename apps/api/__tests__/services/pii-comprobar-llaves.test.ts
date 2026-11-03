@@ -1,4 +1,4 @@
-// Feature #13978, HU #14100 AC3 (ADR-0033 D2, D4) — comprobación de llaves al arrancar. La BD es un
+// Feature #13978, HU #14100 AC3 (ADR-0034 D2, D4) — comprobación de llaves al arrancar. La BD es un
 // doble en memoria que lee el filtro por versión que Drizzle genera; la primitiva de cifrado no se dobla.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -176,8 +176,8 @@ describe('AC3: una llave mal configurada no arranca', () => {
   });
 
   it('un canario con el prefijo de otra versión no vale, aunque la llave exista', async () => {
-    m.registro.set(1, 'v2:000102030405060708090a0b:ce723ccfea49aa8a8584b2ed166558e9:AAAA');
     process.env.PII_ENC_KEY_V2 = LLAVE_B;
+    m.registro.set(1, encryptPiiTextConVersion('flito-pii-canario', { table: 'pii_key_registry', column: 'canario', id: 1 }, 2));
     expect(await motivoDe()).toBe('canario_no_descifra');
   });
 

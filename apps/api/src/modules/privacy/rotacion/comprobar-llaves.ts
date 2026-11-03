@@ -1,4 +1,4 @@
-// Feature #13978, HU #14100 (ADR-0033 D2, D4) — etapa de arranque de las llaves PII.
+// Feature #13978, HU #14100 (ADR-0034 D2, D4) — etapa de arranque de las llaves PII.
 //
 // RN-LL1  Una llave bien formada pero equivocada no se detecta sin datos: cifrar y descifrar con ella
 //         siempre cuadra. Por eso cada versión ancla un canario en `pii_key_registry`.

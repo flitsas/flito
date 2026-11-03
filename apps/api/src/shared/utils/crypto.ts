@@ -23,7 +23,7 @@ function loadKey(version: number): Buffer {
       if (env.NODE_ENV === 'production') {
         throw new Error('RNDC_ENC_KEY es requerido en producción (32 bytes hex)');
       }
-      // `PII_ENC_KEY` es opcional desde ADR-0033: concatenar `undefined` daría una llave fija y pública.
+      // `PII_ENC_KEY` es opcional desde ADR-0034: concatenar `undefined` daría una llave fija y pública.
       if (!env.PII_ENC_KEY) throw new Error('RNDC_ENC_KEY no está configurada y falta PII_ENC_KEY para derivar el respaldo de desarrollo');
       return crypto.createHash('sha256').update(env.PII_ENC_KEY + 'rndc:dev').digest();
     }
@@ -145,7 +145,7 @@ export function generateNewKey(): string {
 // Justificación de keyspace separado: principio de mínimo privilegio (ISO A.9.4).
 // Si PII_ENC_KEY se compromete, RNDC sigue protegido y viceversa.
 
-/** Versión con la que se escribe (ADR-0033 D1). El `?? 1` cubre las suites que mockean `env` entero. */
+/** Versión con la que se escribe (ADR-0034 D1). El `?? 1` cubre las suites que mockean `env` entero. */
 export function versionVigentePii(): number {
   return env.PII_ENC_KEY_CURRENT_VERSION ?? 1;
 }
@@ -264,7 +264,7 @@ function base64Estricto(cola: string): Buffer {
 
 /**
  * Cifra texto con una versión elegida por quien llama. Solo para el canario del registro de llaves
- * (ADR-0033 D2), que ancla cada versión aunque no sea la vigente. Los datos van por `encryptPiiText`.
+ * (ADR-0034 D2), que ancla cada versión aunque no sea la vigente. Los datos van por `encryptPiiText`.
  */
 export function encryptPiiTextConVersion(plain: string, ctx: PiiTextContext, version: number): string {
   const key = loadPiiKey(version);

@@ -1,4 +1,4 @@
-# ADR-0033 — Rotación de `PII_ENC_KEY`: llaves por versión, registro de llaves en BD y recifrado por catálogo de columnas
+# ADR-0034 — Rotación de `PII_ENC_KEY`: llaves por versión, registro de llaves en BD y recifrado por catálogo de columnas
 
 - **Estado:** Aceptado (aprobado por el Líder Técnico humano, David Chica, el 2026-11-03; se entrega en 2 PRs del Feature #13978; `PII_HMAC_KEY` no se rota; métrica de fallos en los `catch` de drivers, manifiestos, LAFT y `acta-pdf` sin cambiar la respuesta)
 - **Fecha:** 2026-11-03

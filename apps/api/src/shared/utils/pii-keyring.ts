@@ -1,4 +1,4 @@
-// Feature #13978, HU #14100 (ADR-0033 D1, D2, D8) — llaves de `PII_ENC_KEY` por versión.
+// Feature #13978, HU #14100 (ADR-0034 D1, D2, D8) — llaves de `PII_ENC_KEY` por versión.
 //
 // `PII_ENC_KEY` es la versión 1 para siempre; `PII_ENC_KEY_V<n>` son las versiones n ≥ 2. Se lee cada
 // valor con la llave de su versión y se escribe con la vigente (`PII_ENC_KEY_CURRENT_VERSION`).
@@ -84,7 +84,7 @@ export interface ProblemaLlavePii {
 }
 
 /**
- * Etapa estática (ADR-0033 D2): sin BD y sin derivar, para que corra en todo lo que importe `env`.
+ * Etapa estática (ADR-0034 D2): sin BD y sin derivar, para que corra en todo lo que importe `env`.
  * Los mensajes nombran variables y nunca llevan valores.
  *
  * La versión 1 solo pasa por el `min(32)` de su esquema: una regla de entropía nueva podría tumbar un
