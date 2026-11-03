@@ -55,7 +55,7 @@ import { loggerFor } from './shared/logger.js';
 
 const log = loggerFor('server');
 
-// Feature #13978 (ADR-0033 D2, AC3 de #14100): con una llave PII equivocada este proceso no llega a
+// Feature #13978 (ADR-0034 D2, AC3 de #14100): con una llave PII equivocada este proceso no llega a
 // aceptar peticiones ni a arrancar crons. Va aquí y no en `crypto.ts` ni en `app.ts` para que tests y
 // scripts que los importan no la ejecuten.
 await comprobarLlavesPiiAlArrancar();

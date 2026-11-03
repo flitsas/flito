@@ -59,7 +59,7 @@ const envSchema = z.object({
   FASECOLDA_USER: z.string().optional(),
   FASECOLDA_PASS: z.string().optional(),
   // Versión 1 de la llave PII, para siempre. Sin default. Opcional solo para poder retirarla tras una
-  // rotación (ADR-0033 D1): el superRefine exige la llave de la versión vigente, que por defecto es esta.
+  // rotación (ADR-0034 D1): el superRefine exige la llave de la versión vigente, que por defecto es esta.
   // Las versiones n ≥ 2 son `PII_ENC_KEY_V<n>` y se leen por patrón en `shared/utils/pii-keyring.ts`.
   PII_ENC_KEY: z.preprocess(vacioComoAusente, z.string().min(32, 'PII_ENC_KEY es requerido (mín 32 chars)').optional()),
   // Versión con la que se escribe. Variable y no constante para que agregar una llave y empezar a
@@ -473,7 +473,7 @@ const envSchema = z.object({
   // perdería la ventana de 4 semanas); solo '0' no monta las capas.
   USO_LEGACY_CONTEO_ENABLED: z.string().optional().transform((v) => v !== '0'),
 }).superRefine((data, ctx) => {
-  // Feature #13978 (ADR-0033 D2): etapa estática de las llaves PII. La de arranque, con BD, está en
+  // Feature #13978 (ADR-0034 D2): etapa estática de las llaves PII. La de arranque, con BD, está en
   // `modules/privacy/rotacion/comprobar-llaves.ts`. `process.env` porque el esquema descarta `PII_ENC_KEY_V<n>`.
   for (const problema of validarLlavesPii(data.PII_ENC_KEY, data.PII_ENC_KEY_CURRENT_VERSION)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [problema.variable], message: problema.mensaje });

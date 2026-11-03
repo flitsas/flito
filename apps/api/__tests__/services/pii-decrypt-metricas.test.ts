@@ -1,4 +1,4 @@
-// Feature #13978, decisión del humano (ADR-0033, hallazgo 2) — los `catch` de descifrado incrementan
+// Feature #13978, decisión del humano (ADR-0034, hallazgo 2) — los `catch` de descifrado incrementan
 // `pii_decrypt_failures_total` y la respuesta no cambia: `null` con 200.
 import crypto from 'node:crypto';
 import express from 'express';

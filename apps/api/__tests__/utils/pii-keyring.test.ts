@@ -1,4 +1,4 @@
-// Feature #13978, HU #14100 (ADR-0033 D1, D2) — llaves PII por versión. Sin dobles de la primitiva: la
+// Feature #13978, HU #14100 (ADR-0034 D1, D2) — llaves PII por versión. Sin dobles de la primitiva: la
 // llave se cambia de verdad vía `env` y `process.env`, y `scryptSync` solo se espía.
 import crypto from 'crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -152,7 +152,7 @@ describe('AC2: lo cifrado antes del cambio descifra idéntico', () => {
   });
 });
 
-describe('validación estática (ADR-0033 D2)', () => {
+describe('validación estática (ADR-0034 D2)', () => {
   const variables = (p: { variable: string }[]) => p.map((x) => x.variable);
 
   it('configuración de hoy: solo PII_ENC_KEY y vigente 1, sin problemas', () => {
