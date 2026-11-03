@@ -195,7 +195,7 @@ export interface FacetasLogistica {
 
 type DocCerrableRow = {
   documentoId: string; placa: string | null; numeroLt: string | null; idFlit: string | null;
-  companiaId: number | null; nombre: string | null;
+  companiaId: number | null; nombre: string | null; estado: string;
 };
 
 function agruparCerrables(rows: DocCerrableRow[]): CompaniaCerrableLogistica[] {
@@ -207,7 +207,11 @@ function agruparCerrables(rows: DocCerrableRow[]): CompaniaCerrableLogistica[] {
       g = { companiaId: r.companiaId, nombre: r.nombre, disponibles: 0, precioEntregaCliente: null, precioEntregaFlit: null, lts: [] };
       porCompania.set(r.companiaId, g);
     }
-    g.lts.push({ documentoId: r.documentoId, placa: r.placa, numeroLt: r.numeroLt, idFlit: r.idFlit });
+    // `en_flit` ya está en las instalaciones: solo admite destino cliente (salida de FLIT).
+    g.lts.push({
+      documentoId: r.documentoId, placa: r.placa, numeroLt: r.numeroLt, idFlit: r.idFlit,
+      origen: r.estado === 'en_flit' ? 'flit' : 'organismo',
+    });
     g.disponibles = g.lts.length;
   }
   return [...porCompania.values()];
@@ -248,11 +252,13 @@ export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
       idFlit: flitoTramites.idFlit,
       companiaId: flitoLogisticaDocumentos.companiaId,
       nombre: clients.name,
+      estado: flitoLogisticaDocumentos.estado,
     }).from(flitoLogisticaDocumentos)
       .leftJoin(clients, eq(flitoLogisticaDocumentos.companiaId, clients.id))
       .leftJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id))
       .where(and(
-        eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.CLASIFICADO),
+        // Candidatos de «Enviar a cliente»: clasificadas (salida directa) y en_flit (salida de FLIT).
+        inArray(flitoLogisticaDocumentos.estado, [EstadoDocumentoLogistica.CLASIFICADO, 'en_flit']),
         gestionableDocs,
         sql`${flitoLogisticaDocumentos.companiaId} is not null`,
       )),

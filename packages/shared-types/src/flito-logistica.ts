@@ -250,9 +250,14 @@ export const ESTRATEGIA_PROVEEDOR_LOGISTICA_LABEL: Record<EstrategiaProveedorLog
   integracion_tercero: 'Integración con tercero',
 };
 
-/** LT `clasificado` de una compañía cerrable (GET /facetas). Placa = identificador del documento; no VIN. */
+/**
+ * LT candidata a viaje a cliente (GET /facetas): `clasificado` (origen `organismo`, admite destino
+ * cliente o FLIT) o `en_flit` (origen `flit`, solo destino cliente). Placa = identificador del documento; no VIN.
+ */
 export interface LtClasificadaCerrable {
   documentoId: string;
+  /** De dónde sale el viaje: el organismo (clasificada) o las instalaciones de FLIT (`en_flit`). */
+  origen: 'organismo' | 'flit';
   placa: string | null;
   numeroLt: string | null;
   idFlit: string | null;
