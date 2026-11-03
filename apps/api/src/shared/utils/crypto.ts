@@ -145,11 +145,21 @@ export function generateNewKey(): string {
 const PII_KEY_VERSION_CURRENT = 1;
 const PII_SCRYPT_SALT = 'kyverum-pii-2026';
 
+// Memo por versión Y passphrase: scrypt cuesta decenas de ms y una fila de biometría pide tres
+// descifrados por petición. Guardar la passphrase junto a la llave es lo que hace que un cambio de
+// `env.PII_ENC_KEY` re-derive en vez de seguir descifrando con la llave anterior.
+const piiKeyCache = new Map<number, { passphrase: string; key: Buffer }>();
+
 function loadPiiKey(version: number): Buffer {
   if (version === 1) {
-    if (!env.PII_ENC_KEY) throw new Error('PII_ENC_KEY es requerido');
+    const passphrase = env.PII_ENC_KEY;
+    if (!passphrase) throw new Error('PII_ENC_KEY es requerido');
+    const memo = piiKeyCache.get(version);
+    if (memo && memo.passphrase === passphrase) return memo.key;
     // scryptSync deriva 32 bytes determinísticamente de la passphrase.
-    return crypto.scryptSync(env.PII_ENC_KEY, PII_SCRYPT_SALT, 32);
+    const key = crypto.scryptSync(passphrase, PII_SCRYPT_SALT, 32);
+    piiKeyCache.set(version, { passphrase, key });
+    return key;
   }
   throw new Error(`PII_ENC_KEY versión ${version} no configurada`);
 }
@@ -206,6 +216,110 @@ export function decryptPiiBuffer(bundle: CipherBundle, aadParts: AadParts): Buff
   decipher.setAAD(buildAad(aadParts, bundle.keyVersion));
   decipher.setAuthTag(bundle.authTag);
   return Buffer.concat([decipher.update(bundle.cipher), decipher.final()]);
+}
+
+// ============================================================================
+// PII en una sola columna de texto (Feature #14097, HU #14098 y #14099)
+// ============================================================================
+// Para columnas `text` donde no caben iv/tag/keyVersion por separado. Formato:
+//   v<keyVersion>:<iv 24 hex>:<tag 32 hex>:<data base64>
+// AAD exacta `tabla|columna|id`: un valor copiado a otra fila o a otra columna no descifra.
+
+/** Contexto que liga el valor a su celda. Es la AAD y, si falla, lo único que dice el error. */
+export interface PiiTextContext {
+  table: string;
+  column: string;
+  id: string | number;
+}
+
+/** Prefijo del formato vigente. Es el contrato con el clasificador de fotos: una sola definición. */
+export const PII_TEXT_PREFIJO = /^v(\d+):([0-9a-f]{24}):([0-9a-f]{32}):/;
+
+/** Prefijo del formato anterior `iv:tag:data` (iv de 16 bytes, sal `kyverum-pii-salt`). */
+export const PII_BIOMETRICO_VIEJO_PREFIJO = /^([0-9a-fA-F]{32}):([0-9a-fA-F]{32}):/;
+
+/**
+ * Fallo al descifrar. El mensaje es constante y no lleva `cause` a propósito: lo que se serializa
+ * de este error termina en logs y el detalle de la primitiva no aporta nada que justifique el riesgo.
+ */
+export class PiiDecryptError extends Error {
+  readonly table: string;
+  readonly column: string;
+  readonly id: string | number;
+
+  constructor(ctx: PiiTextContext) {
+    super('No se pudo descifrar el dato protegido');
+    this.name = 'PiiDecryptError';
+    this.table = ctx.table;
+    this.column = ctx.column;
+    this.id = ctx.id;
+  }
+}
+
+function aadPiiText(ctx: PiiTextContext): Buffer {
+  return Buffer.from(`${ctx.table}|${ctx.column}|${ctx.id}`, 'utf8');
+}
+
+/**
+ * `Buffer.from(x, 'base64')` ignora en silencio lo que no entiende, y una cola corrupta llegaría a
+ * GCM como otro texto. Se exige la forma canónica; sin regex porque la cola puede medir varios MB.
+ */
+function base64Estricto(cola: string): Buffer {
+  const datos = Buffer.from(cola, 'base64');
+  if (datos.toString('base64') !== cola) throw new Error('base64 inválido');
+  return datos;
+}
+
+/** Cifra texto ligado a su celda. Lo escribe el script de recifrado, no las rutas. */
+export function encryptPiiText(plain: string, ctx: PiiTextContext): string {
+  const key = loadPiiKey(PII_KEY_VERSION_CURRENT);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  cipher.setAAD(aadPiiText(ctx));
+  const data = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  return `v${PII_KEY_VERSION_CURRENT}:${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${data.toString('base64')}`;
+}
+
+/** Inversa de `encryptPiiText`. Cualquier fallo sale como `PiiDecryptError`, nunca con el valor. */
+export function decryptPiiText(value: string, ctx: PiiTextContext): string {
+  try {
+    const m = PII_TEXT_PREFIJO.exec(value);
+    if (!m) throw new Error('formato');
+    const key = loadPiiKey(Number(m[1]));
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(m[2], 'hex'), { authTagLength: 16 });
+    decipher.setAAD(aadPiiText(ctx));
+    decipher.setAuthTag(Buffer.from(m[3], 'hex'));
+    const data = base64Estricto(value.slice(m[0].length));
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+  } catch {
+    throw new PiiDecryptError(ctx);
+  }
+}
+
+const PII_BIOMETRICO_VIEJO_SAL = 'kyverum-pii-salt';
+let biometricoViejoKey: { passphrase: string; key: Buffer } | null = null;
+
+/**
+ * Lee el formato anterior de biometría, sin AAD y con su propia sal.
+ *
+ * @deprecated Solo existe mientras queden filas sin recifrar (`flito-recifrar-biometria`). Se retira
+ * en el PR posterior al recifrado en PDN, junto con la sal: este es el único sitio que la conoce.
+ */
+export function decryptLegacyBiometric(value: string, ctx: PiiTextContext): string {
+  try {
+    const m = PII_BIOMETRICO_VIEJO_PREFIJO.exec(value);
+    if (!m) throw new Error('formato');
+    const passphrase = env.PII_ENC_KEY;
+    if (biometricoViejoKey?.passphrase !== passphrase) {
+      biometricoViejoKey = { passphrase, key: crypto.scryptSync(passphrase, PII_BIOMETRICO_VIEJO_SAL, 32) };
+    }
+    const decipher = crypto.createDecipheriv('aes-256-gcm', biometricoViejoKey.key, Buffer.from(m[1], 'hex'), { authTagLength: 16 });
+    decipher.setAuthTag(Buffer.from(m[2], 'hex'));
+    const data = base64Estricto(value.slice(m[0].length));
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+  } catch {
+    throw new PiiDecryptError(ctx);
+  }
 }
 
 // ============================================================================

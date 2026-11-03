@@ -20,37 +20,17 @@ import { db } from '../db/client.js';
 import { tramitesValidaciones } from '../db/schema.js';
 import { uploadPhoto, ensureBucket } from '../services/storage.js';
 import { isNotNull, or, eq } from 'drizzle-orm';
-import crypto from 'crypto';
-import { env } from '../config/env.js';
+import { clasificarFoto, TABLA_FOTOS, type ColumnaFoto } from '../modules/tramites/identidad.fotos.js';
+import { decryptLegacyBiometric, PiiDecryptError } from '../shared/utils/crypto.js';
 
 const COMMIT = process.argv.includes('--commit');
 const DRY = !COMMIT;
 
-type Kind = 's3' | 'legacy_enc' | 'plain_b64' | 'data_uri' | 'empty' | 'unknown';
-
-function classify(val: string | null): Kind {
-  if (!val) return 'empty';
-  if (val.startsWith('validaciones/')) return 's3';
-  if (val.startsWith('data:image/')) return 'data_uri';
-  // Formato legacy de identidad.routes.ts encryptPII: <ivHex>:<tagHex>:<b64>.
-  if (/^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}:/.test(val)) return 'legacy_enc';
-  // Heurística base64: >100 chars y solo caracteres del alfabeto base64.
-  if (val.length > 100 && /^[A-Za-z0-9+/=]+$/.test(val.slice(0, 200))) return 'plain_b64';
-  return 'unknown';
-}
-
-function decryptLegacy(ct: string): string | null {
-  try {
-    const [ivHex, tagHex, data] = ct.split(':');
-    if (!ivHex || !tagHex || !data) return null;
-    const key = crypto.scryptSync(env.PII_ENC_KEY, 'kyverum-pii-salt', 32);
-    const dec = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
-    dec.setAuthTag(Buffer.from(tagHex, 'hex'));
-    return dec.update(data, 'base64', 'utf8') + dec.final('utf8');
-  } catch {
-    return null;
-  }
-}
+const COLUMNA_POR_TIPO: Record<'rostro' | 'frontal' | 'reverso', ColumnaFoto> = {
+  rostro: 'foto_rostro',
+  frontal: 'foto_cedula_frontal',
+  reverso: 'foto_cedula_reverso',
+};
 
 async function migrateField(
   rowId: number,
@@ -58,25 +38,32 @@ async function migrateField(
   tipo: 'rostro' | 'frontal' | 'reverso',
   val: string | null,
 ): Promise<string | null> {
-  const kind = classify(val);
-  if (kind === 'empty') return null;
-  if (kind === 's3') {
+  const kind = clasificarFoto(val);
+  if (kind === 'vacio') return null;
+  if (kind === 'storage_key') {
     console.log(`[skip] row=${rowId} tramite=${tramiteId} tipo=${tipo}: already S3 (${val!.slice(0, 40)})`);
     return val;
   }
-  if (kind === 'unknown') {
-    console.warn(`[warn] row=${rowId} tramite=${tramiteId} tipo=${tipo}: format unknown (len=${val!.length}, prefix=${val!.slice(0, 30)})`);
+  if (kind === 'nuevo') {
+    // Ya recifrado por flito-recifrar-biometria: este backfill no lo mueve a S3.
+    console.log(`[skip] row=${rowId} tramite=${tramiteId} tipo=${tipo}: formato nuevo`);
     return val;
   }
-  let b64: string | null = null;
-  if (kind === 'legacy_enc') {
-    b64 = decryptLegacy(val!);
-    if (!b64) {
-      console.warn(`[warn] row=${rowId} tramite=${tramiteId} tipo=${tipo}: legacy_enc decrypt failed`);
+  if (kind === 'desconocido') {
+    console.warn(`[warn] row=${rowId} tramite=${tramiteId} tipo=${tipo}: format unknown (len=${val!.length})`);
+    return val;
+  }
+  let b64: string;
+  if (kind === 'viejo') {
+    try {
+      b64 = decryptLegacyBiometric(val!, { table: TABLA_FOTOS, column: COLUMNA_POR_TIPO[tipo], id: rowId });
+    } catch (e) {
+      if (!(e instanceof PiiDecryptError)) throw e;
+      console.warn(`[warn] row=${rowId} tramite=${tramiteId} tipo=${tipo}: legacy decrypt failed`);
       return val;
     }
   } else {
-    // data_uri o plain_b64: subir tal cual (uploadPhoto strip el prefijo data: si existe)
+    // data_uri o base64_plano: subir tal cual (uploadPhoto strip el prefijo data: si existe)
     b64 = val!;
   }
   if (DRY) {
