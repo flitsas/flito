@@ -80,7 +80,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0262_flito_soat_canal_por_proveedor.sql', // HU #13967: renombre de `accion.clientes.soat_sin_tramite`
   '0280_flito_logistica_permiso_ver_documento_firmante.sql', // HU #14110: operación nueva de logística (PII), solo a `admin`
   '0281_flito_logistica_permiso_resolver_tramite.sql', // HU #14143: resolver el trámite de una LT pendiente, solo a `admin`
-  '0282_flito_logistica_permiso_traslado_registrar.sql', // HU #14114: registrar viaje a cliente; admin + mensajero
+  '0282_flito_logistica_permiso_traslado_registrar.sql', // HU #14114: registrar viaje a cliente; solo admin
   '0283_flito_logistica_permiso_traslado_anular.sql', // HU #14115: anular viaje registrado; solo admin
   '0284_flito_logistica_motivos_permiso.sql', // HU #14119: catálogo de motivos de llegada a FLIT; solo admin
   '0285_flito_logistica_permiso_firmar_flit.sql', // HU #14122: firmar la llegada a FLIT; solo admin
