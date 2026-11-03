@@ -22,6 +22,7 @@
     "comparendos:purga:dry": "tsx src/scripts/flito-comparendos-purga-dry.ts",
     "laft:backfill-pii": "tsx src/scripts/laft-encrypt-pii-backfill.ts",
     "logistica:cifrar-cedulas": "tsx src/scripts/flito-logistica-cifrar-cedulas-historicas.ts",
+    "tramites:recifrar-biometria": "tsx src/scripts/flito-recifrar-biometria.ts",
     "traspaso:reconcile-paso": "tsx src/scripts/reconcile-traspaso-paso.ts"
   },
   "dependencies": {

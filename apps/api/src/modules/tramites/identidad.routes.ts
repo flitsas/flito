@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { maskName } from '../../shared/utils/pii.js';
 import nodemailer from 'nodemailer';
-import { uploadPhoto, getPhoto, ensureBucket } from '../../services/storage.js';
+import { uploadPhoto, ensureBucket } from '../../services/storage.js';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { tramitesDigitales, tramitesValidaciones } from '../../db/schema.js';
@@ -15,6 +15,8 @@ import { loggerFor } from '../../shared/logger.js';
 import { anthropicMessages } from './anthropic.js';
 import { extractAnthropicText, parseBiometricJson } from './biometric-json.js';
 import { recoverStaleByToken } from './validacion-recovery.js';
+import { resolverFotoBiometrica } from './identidad.fotos.js';
+import { PiiDecryptError } from '../../shared/utils/crypto.js';
 import {
   extractPartesTraspasoFromTramite,
   mensajePartesTraspasoDuplicadas,
@@ -29,27 +31,6 @@ const router = Router();
 
 // #13: SSE — conexiones activas de admins esperando notificaciones de validación
 const sseClients = new Set<any>();
-
-// VUL-03: Cifrado AES-256-GCM para datos biométricos
-function encryptPII(plaintext: string): string {
-  const key = crypto.scryptSync(env.PII_ENC_KEY, 'kyverum-pii-salt', 32);
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return iv.toString('hex') + ':' + tag.toString('hex') + ':' + encrypted.toString('base64');
-}
-
-function decryptPII(ciphertext: string): string {
-  try {
-    const [ivHex, tagHex, data] = ciphertext.split(':');
-    if (!ivHex || !tagHex || !data) return ciphertext; // legacy sin cifrar
-    const key = crypto.scryptSync(env.PII_ENC_KEY, 'kyverum-pii-salt', 32);
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
-    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
-    return decipher.update(data, 'base64', 'utf8') + decipher.final('utf8');
-  } catch { return ciphertext; } // fallback para datos legacy
-}
 
 function genToken(): string { return crypto.randomBytes(32).toString('hex'); }
 
@@ -592,7 +573,7 @@ router.post('/completar/:token', completarLimiter, async (req: Request, res: Res
     const score = aprobado ? (bio.resultado_general?.score_total || 0) : scoreMin;
 
     // Subir fotos a S3 (MinIO). Sin fallback BD — si MinIO falla retornamos 503 y revertimos.
-    // El fallback `encryptPII` legacy fragmentaba el formato de la columna y enmascaraba
+    // El fallback legacy de cifrar en BD fragmentaba el formato de la columna y enmascaraba
     // outages reales. Con MinIO en SLA, fail-fast es la opción correcta (Ola C-2).
     let rostroKey = '', frontalKey = '', reversoKey = '';
     try {
@@ -677,19 +658,12 @@ router.get('/documentos/:tramiteId', authMiddleware, exigirFuncion('tramite.iden
   if (!Number.isFinite(tramiteId)) { res.status(400).json({ ok: false }); return; }
   const records = await db.select().from(tramitesValidaciones).where(eq(tramitesValidaciones.tramiteId, tramiteId));
 
-  // Resolver foto: key S3 (validaciones/...) o legacy cifrado en BD
-  const resolvePhoto = async (val: string | null): Promise<string | null> => {
-    if (!val) return null;
-    if (val.startsWith('data:') || val.includes(':')) return decryptPII(val); // legacy cifrado o base64
-    try { return await getPhoto(val); } catch { return null; } // key S3
-  };
-
   const documentos = await Promise.all(records.map(async (r) => ({
     id: r.id, contexto: 'COMPRADOR', nombre: r.nombre, tipoDoc: r.tipoDoc,
     documento: r.documento, estado: r.estado, score: r.score,
-    fotoRostro: await resolvePhoto(r.fotoRostro),
-    fotoCedulaFrontal: await resolvePhoto(r.fotoCedulaFrontal),
-    fotoCedulaReverso: await resolvePhoto(r.fotoCedulaReverso),
+    fotoRostro: await resolverFotoBiometrica(r.fotoRostro, { column: 'foto_rostro', id: r.id }),
+    fotoCedulaFrontal: await resolverFotoBiometrica(r.fotoCedulaFrontal, { column: 'foto_cedula_frontal', id: r.id }),
+    fotoCedulaReverso: await resolverFotoBiometrica(r.fotoCedulaReverso, { column: 'foto_cedula_reverso', id: r.id }),
     detalle: r.detalle, validadoAt: r.validadoAt, ipAddress: r.ipAddress,
     ciudadGeo: r.ciudadGeo, lat: r.lat, lng: r.lng,
     intentos: r.intentos, enviadoAt: r.enviadoAt,
@@ -919,13 +893,6 @@ router.post('/certificado/:tramiteId', authMiddleware, exigirFuncion('tramite.id
       } catch (e: any) { log.warn({ label: label || 'img', err: e.message }, 'falla cargando imagen'); return null; }
     };
 
-    // Resolver foto para PDF: key S3 o legacy cifrado en BD
-    const resolvePhotoCert = async (val: string | null): Promise<string | null> => {
-      if (!val) return null;
-      if (val.startsWith('data:') || val.includes(':')) return decryptPII(val);
-      try { return await getPhoto(val); } catch { return null; }
-    };
-
     let pageIdx = 0;
     for (const v of rows) {
       let page = pdfDoc.addPage([612, 792]);
@@ -1008,9 +975,9 @@ router.post('/certificado/:tramiteId', authMiddleware, exigirFuncion('tramite.id
       const labels = ['SELFIE', 'DOC. FRONTAL', 'DOC. REVERSO'];
       log.info({ tramiteId, validacionId: v.id, nombre: maskName(v.nombre), rostro: !!v.fotoRostro, frontal: !!v.fotoCedulaFrontal, reverso: !!v.fotoCedulaReverso }, 'cert-vid: contexto validacion');
       const fotos = [
-        await embedImg(await resolvePhotoCert(v.fotoRostro), 'rostro'),
-        await embedImg(await resolvePhotoCert(v.fotoCedulaFrontal), 'frontal'),
-        await embedImg(await resolvePhotoCert(v.fotoCedulaReverso), 'reverso')
+        await embedImg(await resolverFotoBiometrica(v.fotoRostro, { column: 'foto_rostro', id: v.id }), 'rostro'),
+        await embedImg(await resolverFotoBiometrica(v.fotoCedulaFrontal, { column: 'foto_cedula_frontal', id: v.id }), 'frontal'),
+        await embedImg(await resolverFotoBiometrica(v.fotoCedulaReverso, { column: 'foto_cedula_reverso', id: v.id }), 'reverso')
       ];
       for (let i = 0; i < 3; i++) {
         const xf = M + i * (fotoW + 10);
@@ -1119,6 +1086,8 @@ router.post('/certificado/:tramiteId', authMiddleware, exigirFuncion('tramite.id
     res.send(Buffer.from(pdfBytes));
     audit(req, { action: 'export', resource: 'certificado_identidad', resourceId: String(tramiteId), detail: `Placa: ${placa}` }).catch(() => {});
   } catch (e: any) {
+    // Lo responde errorHandler: el 500 de abajo concatena e.message y este log va sin requestId.
+    if (e instanceof PiiDecryptError) throw e;
     log.error({ err: e }, 'cert-vid fallo');
     res.status(500).json({ error: 'Error generando certificado: ' + e.message });
   }
