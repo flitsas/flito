@@ -38,7 +38,8 @@ export interface TransOpts { motivo?: string | null; lat?: string | null; lng?: 
 
 export async function transicionar(exec: DbOrTx, doc: DocMin, estadoNuevo: TEstadoDoc, ctx: LogisticaCtx, opts: TransOpts = {}): Promise<void> {
   const set: Record<string, unknown> = { estado: estadoNuevo, updatedAt: new Date() };
-  if (opts.motivo !== undefined) set.motivo = opts.motivo;
+  // El motivo del documento es el de ESTA transición (o NULL): no se arrastra a estados posteriores. El historial vive en eventos.
+  set.motivo = opts.motivo ?? null;
   await exec.update(flitoLogisticaDocumentos).set(set).where(eq(flitoLogisticaDocumentos.id, doc.id));
   await exec.insert(flitoLogisticaEventos).values({
     documentoId: doc.id, estadoAnterior: doc.estado, estadoNuevo, actorId: ctx.userId,
