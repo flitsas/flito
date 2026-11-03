@@ -1,7 +1,7 @@
 // FLITO Logística — pestaña Entregas (HU #14125).
 // Lectura de viajes ya registrados. El POST sale solo mientras la pestaña está montada.
 // La placa vive en el body, nunca en la URL. Sin acciones de destino ni clic de fila.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   DESTINO_TRASLADO_LOGISTICA_LABEL,
   ESTADO_TRASLADO_LOGISTICA_LABEL,
@@ -12,7 +12,9 @@ import {
   type ListadoEntregasLogistica,
 } from '@operaciones/shared-types';
 import { api, ApiError } from '../../../lib/api';
+import { useAuth } from '../../../lib/auth';
 import { nombreCompania } from '../../../lib/viajesCliente';
+import ModalAnularViaje from './ModalAnularViaje';
 import StatusChip, { type ChipTone } from '../../flit/StatusChip';
 import {
   FlitCard, FlitEmpty, FlitField, FlitTable, FlitTh, FlitTr, flitBtnSecondary, flitBtnSecondaryStyle, flitInp,
@@ -52,7 +54,17 @@ function cuerpoDe(placa: string, estado: string, destino: string, companiaId: st
   return body;
 }
 
-export default function TabEntregas() {
+interface TabEntregasProps {
+  /** Tras anular (o un 409) se refresca también la pestaña Viajes. */
+  onViajeAnulado?: () => void;
+}
+
+export default function TabEntregas({ onViajeAnulado }: TabEntregasProps = {}) {
+  const { hasFuncion } = useAuth();
+  const [sinPermisoAnular, setSinPermisoAnular] = useState(false);
+  const puedeAnular = hasFuncion('logistica.traslado.anular') && !sinPermisoAnular;
+  const [anulando, setAnulando] = useState<FilaEntregaLogistica | null>(null);
+  const disparador = useRef<HTMLButtonElement | null>(null);
   const [placa, setPlaca] = useState('');
   const [placaDebounced, setPlacaDebounced] = useState('');
   const [estado, setEstado] = useState('');
@@ -210,6 +222,7 @@ export default function TabEntregas() {
                 <FlitTh>Estado</FlitTh>
                 <FlitTh>LT</FlitTh>
                 <FlitTh>Registrado</FlitTh>
+                {puedeAnular && <FlitTh>Acciones</FlitTh>}
               </FlitTr>
             </thead>
             <tbody>
@@ -222,11 +235,40 @@ export default function TabEntregas() {
                   </td>
                   <td className="px-4 py-2 text-sm tabular-nums">{v.cantidadLt}</td>
                   <td className="px-4 py-2 text-sm">{fecha(v.registradoEn)}</td>
+                  {puedeAnular && (
+                    <td className="px-4 py-2">
+                      {v.estado === 'registrado' && (
+                        <button
+                          type="button"
+                          aria-label={`Anular viaje de ${nombreCompania(v.companiaNombre, v.companiaId)}, ${v.cantidadLt} LT`}
+                          className="flit-focus rounded-lg px-2 py-1 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
+                          style={{ color: 'var(--flit-danger-text)' }}
+                          onClick={(e) => { disparador.current = e.currentTarget; setAnulando(v); }}
+                        >
+                          Anular viaje
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </FlitTr>
               ))}
             </tbody>
           </FlitTable>
         </div>
+      )}
+
+      {anulando && (
+        <ModalAnularViaje
+          viaje={anulando}
+          fechaTexto={fecha(anulando.registradoEn)}
+          onClose={() => setAnulando(null)}
+          onTermino={({ anulado, recargar, sinPermiso }) => {
+            setAnulando(null);
+            if (sinPermiso) setSinPermisoAnular(true);
+            if (recargar) { setIntento((n) => n + 1); onViajeAnulado?.(); }
+            if (!anulado) disparador.current?.focus();
+          }}
+        />
       )}
     </FlitCard>
   );
