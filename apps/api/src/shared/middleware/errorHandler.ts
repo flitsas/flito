@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { loggerFor } from '../logger.js';
 import { AlcanceAjenoError } from '../alcance-filas.js';
+import { PiiDecryptError } from '../utils/crypto.js';
 
 const log = loggerFor('http');
 
@@ -17,6 +18,18 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
   // HU #13426: escritura fuera del alcance del enlace → 403 con el cuerpo de la frontera.
   if (err instanceof AlcanceAjenoError) {
     if (!res.headersSent) res.status(403).json({ error: 'Sin permisos' });
+    return;
+  }
+
+  // Feature #14097 (HU #14099): solo el dónde; el valor, cifrado o no, nunca llega al log.
+  if (err instanceof PiiDecryptError) {
+    log.error({
+      requestId: req.headers['x-request-id'],
+      table: err.table,
+      column: err.column,
+      id: err.id,
+    }, 'descifrado de PII fallido');
+    if (!res.headersSent) res.status(500).json({ error: 'Error interno del servidor' });
     return;
   }
 

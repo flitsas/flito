@@ -10,7 +10,7 @@ const FROZEN_CEILINGS = {
   'apps/api/src/db/schema.ts': 3291, // HU #13911: −109 al retirar los libros viejos de bolsas
   'apps/web/src/pages/TramiteTraspaso.tsx': 1250,
   'apps/web/src/pages/FlitoTramites.tsx': 1190,
-  'apps/api/src/modules/tramites/identidad.routes.ts': 1130,
+  'apps/api/src/modules/tramites/identidad.routes.ts': 901, // Feature #14097: bajó al sacar el cifrado local
   'apps/api/src/modules/flito-soat/flito-soat.service.ts': 1090,
   'apps/api/src/modules/tramites/tramites.service.ts': 880,
   'apps/web/src/pages/FlitoImpuestos.tsx': 870,
