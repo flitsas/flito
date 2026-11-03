@@ -1,11 +1,15 @@
 // FLITO Logística — tarjeta de una LT en la lista de «Recoger licencias» (HU #14111). Siempre visibles:
 // placa, N.º de LT y estado. VIN, licencia, combustible y propietario quedan tras «Ver datos».
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import StatusChip from '../../flit/StatusChip';
 import { flitInp } from '../../flit/flitPageKit';
 import { CHIP, TEXTO_ESTADO, textoSinTramite, type FilaLt } from './recogidaTipos';
+
+const LT_DIGITOS = 11;
+// El N.º de LT es siempre «LT» + 11 dígitos. El prefijo se muestra fijo; el operario teclea solo los dígitos.
+const soloDigitosLt = (v: string) => v.replace(/^\s*LT/i, '').replace(/\D/g, '').slice(0, LT_DIGITOS);
 
 interface Props {
   fila: FilaLt; onChangeLt: (v: string) => void; onBorrar: () => void; onReintentar: () => void; onElegir: () => void;
@@ -13,6 +17,9 @@ interface Props {
 
 export default function TarjetaLtRecogida({ fila, onChangeLt, onBorrar, onReintentar, onElegir }: Props) {
   const [datos, setDatos] = useState(false);
+  const ayudaId = useId();
+  const digitos = soloDigitosLt(fila.numeroLt);
+  const faltan = digitos.length > 0 ? LT_DIGITOS - digitos.length : 0;
   const chip = fila.registro === 'registrando' ? { tono: 'neutral' as const, texto: 'Registrando…' } : fila.registro === 'encolada' ? { tono: 'neutral' as const, texto: 'En cola' } : CHIP[fila.estado];
   const editable = !fila.manual && fila.registro === 'no';
   const bloqueado = fila.registro === 'registrando' || fila.firmada;
@@ -38,11 +45,20 @@ export default function TarjetaLtRecogida({ fila, onChangeLt, onBorrar, onReinte
 
       <div className="mt-2">
         {editable ? (
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>N.º de LT</span>
-            <input className={`${flitInp} tabular-nums`} inputMode="numeric" value={fila.numeroLt} placeholder="—" disabled={bloqueado}
-              onChange={(ev) => onChangeLt(ev.target.value)} />
-          </label>
+          <div>
+            <label htmlFor={`${ayudaId}-lt`} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>N.º de LT</label>
+            <div className="flex items-stretch">
+              <span aria-hidden="true" className="inline-flex select-none items-center rounded-l-[10px] border border-r-0 px-3 text-sm font-semibold tabular-nums"
+                style={{ borderColor: 'var(--flit-border-input)', background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>LT</span>
+              <input id={`${ayudaId}-lt`} className={`${flitInp} min-w-0 !rounded-l-none tabular-nums`} inputMode="numeric" autoComplete="off" maxLength={LT_DIGITOS + 4}
+                value={digitos} placeholder="11 dígitos" disabled={bloqueado} aria-describedby={`${ayudaId}-lt-ayuda`}
+                onChange={(ev) => { const d = soloDigitosLt(ev.target.value); onChangeLt(d ? `LT${d}` : ''); }} />
+            </div>
+            <p id={`${ayudaId}-lt-ayuda`} className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+              {faltan > 0 ? <span className="font-semibold">Faltan {faltan} {faltan === 1 ? 'dígito' : 'dígitos'}. </span> : null}
+              Escribe solo los {LT_DIGITOS} dígitos que van después de «LT».
+            </p>
+          </div>
         ) : (
           <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
             N.º de LT <span className="font-semibold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{fila.numeroLt || '—'}</span>
