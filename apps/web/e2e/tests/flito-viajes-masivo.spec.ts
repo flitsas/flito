@@ -93,12 +93,12 @@ test.describe('FLITO — Logística · registro masivo de viajes adicionales', (
     const primaria = page.getByRole('button', { name: /^Registrar/ });
     await expect(primaria).toBeDisabled();
     await expect(page.getByText('Falta el valor en 2 placas seleccionadas.')).toBeVisible();
-    await expect(page.getByText('Escribe el valor.').first()).toBeVisible();
+    await expect(page.getByText('Escriba el valor.').first()).toBeVisible();
     await page.getByLabel('Valor (COP) de AAA111').fill('1000');
     await page.getByLabel('Valor (COP) de AAA111').press('Enter');
     await expect(page.getByLabel('Valor (COP) de BBB222')).toBeFocused();
     await page.getByLabel('Valor (COP) de BBB222').fill('0');
-    await expect(page.getByText('Elige el motivo del viaje.')).toBeVisible();
+    await expect(page.getByText('Elija el motivo del viaje.')).toBeVisible();
     await elegirMotivo(page);
     await expect(page.getByRole('button', { name: 'Registrar 2 viajes' })).toBeEnabled();
   });
@@ -226,7 +226,7 @@ test.describe('FLITO — Logística · registro masivo de viajes adicionales', (
     await pegar(page, 'AAA111 5');
     await elegirMotivo(page);
     await page.getByRole('button', { name: 'Registrar 1 viaje' }).click();
-    await expect(page.getByRole('alert')).toContainText('No tienes permiso para registrar viajes.');
+    await expect(page.getByRole('alert')).toContainText('No tiene permiso para registrar viajes.');
     await expect(page.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
   });
 

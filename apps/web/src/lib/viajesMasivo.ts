@@ -62,7 +62,7 @@ export const textoDeSobrantes = (s: readonly PlacaPegada[]): string =>
 /** null = válido. Entero ≥ 0 en pesos (0 se permite); el servidor es la fuente de verdad del máximo. */
 export function errorDeValor(valor: string): string | null {
   const v = valor.trim();
-  if (v === '') return 'Escribe el valor.';
+  if (v === '') return 'Escriba el valor.';
   if (!/^\d+$/.test(v) || !Number.isSafeInteger(Number(v))) return 'Usa solo números, sin decimales.';
   return null;
 }
@@ -72,20 +72,20 @@ export const plural = (n: number, uno: string, varios: string): string => `${n} 
 /** Rechazos que se arreglan editando la lista (el resto queda solo en el resumen). */
 export const CODIGOS_CORREGIBLES: readonly string[] = ['NO_ENCONTRADO', 'PLACA_INVALIDA', 'VALOR_INVALIDO'];
 
-/** Copy por código (tuteo). Nunca se pinta el `motivo` crudo del servidor. */
+/** Copy por código (trato de usted). Nunca se pinta el `motivo` crudo del servidor. */
 export function textoDeRechazo(r: Pick<RechazoMasivo, 'codigo' | 'candidatos'>): string {
   switch (r.codigo) {
-    case 'NO_ENCONTRADO': return 'No encontramos un trámite aprobado para esta placa. Revisa que esté bien escrita.';
+    case 'NO_ENCONTRADO': return 'No encontramos un trámite aprobado para esta placa. Revise que esté bien escrita.';
     case 'VARIOS_TRAMITES_APROBADOS': {
       const ids = (r.candidatos ?? []).map((c) => c.idFlit).join(', ');
-      return `Esta placa tiene varios trámites aprobados${ids ? ` (${ids})` : ''}. Regístrale el viaje desde el detalle de uno de ellos.`;
+      return `Esta placa tiene varios trámites aprobados${ids ? ` (${ids})` : ''}. Registre el viaje desde el detalle de uno de ellos.`;
     }
-    case 'PLACA_INVALIDA': return 'La placa no tiene un formato válido. Corrígela y reintenta.';
+    case 'PLACA_INVALIDA': return 'La placa no tiene un formato válido. Corríjala y reintente.';
     case 'PLACA_REPETIDA': return 'La placa estaba más de una vez en la lista; solo se tomó una.';
-    case 'VALOR_INVALIDO': return 'El valor no es válido. Escribe un valor en pesos, sin decimales, desde $0.';
-    case 'TRAMITE_LIQUIDADO': return 'El trámite ya está liquidado. Reversa la liquidación para registrar el viaje.';
+    case 'VALOR_INVALIDO': return 'El valor no es válido. Escriba un valor en pesos, sin decimales, desde $0.';
+    case 'TRAMITE_LIQUIDADO': return 'El trámite ya está liquidado. Reverse la liquidación para registrar el viaje.';
     case 'LOGISTICA_AUTOGESTIONADA': return 'La logística de esta compañía la gestiona el cliente.';
-    default: return 'No se pudo registrar este viaje. Inténtalo de nuevo más tarde.';
+    default: return 'No se pudo registrar este viaje. Inténtelo de nuevo más tarde.';
   }
 }
 
@@ -93,9 +93,9 @@ export interface FalloSolicitud { mensaje: string; reintentable: boolean }
 
 /** Error de TODA la solicitud (red, 5xx, 403, 400/422): copy por causa, nunca `e.message`. */
 export function falloDeSolicitud(status: number): FalloSolicitud {
-  if (status === 403) return { mensaje: 'No tienes permiso para registrar viajes.', reintentable: false };
+  if (status === 403) return { mensaje: 'No tiene permiso para registrar viajes.', reintentable: false };
   if (status === 400 || status === 422) {
-    return { mensaje: 'No pudimos registrar los viajes. Revisa la lista; tus placas siguen ahí.', reintentable: false };
+    return { mensaje: 'No pudimos registrar los viajes. Revise la lista; sus placas siguen ahí.', reintentable: false };
   }
-  return { mensaje: 'No pudimos registrar los viajes. Tus placas siguen en la lista; vuelve a intentarlo.', reintentable: true };
+  return { mensaje: 'No pudimos registrar los viajes. Tus placas siguen en la lista; vuelva a intentarlo.', reintentable: true };
 }

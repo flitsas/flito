@@ -173,9 +173,9 @@ export default function ViajesMasivo() {
 
   const motivoFalta = useMemo(() => {
     if (sinValor > 0) return `Falta el valor en ${plural(sinValor, 'placa seleccionada', 'placas seleccionadas')}.`;
-    if (seleccionadas.length === 0) return 'Selecciona al menos una placa.';
-    if (motivo === '') return 'Elige el motivo del viaje.';
-    if (detalleFalta) return 'Escribe el detalle del motivo.';
+    if (seleccionadas.length === 0) return 'Seleccione al menos una placa.';
+    if (motivo === '') return 'Elija el motivo del viaje.';
+    if (detalleFalta) return 'Escriba el detalle del motivo.';
     return null;
   }, [sinValor, seleccionadas.length, motivo, detalleFalta]);
 
@@ -192,7 +192,7 @@ export default function ViajesMasivo() {
           <span className="text-xs tabular-nums" style={llena ? PELIGRO : MUTED} aria-live="polite">{filas.length} / {MAX_PLACAS_MASIVO}</span>
         </div>
         <textarea id={idTexto} ref={textoRef} className={flitInp} rows={filas.length ? 2 : 5} value={texto} disabled={enviando}
-          placeholder="Pega una placa por línea. Si copias desde Excel, puedes incluir el valor en la segunda columna."
+          placeholder="Pegue una placa por línea. Si copia desde Excel, puede incluir el valor en la segunda columna."
           onChange={(e) => setTexto(e.target.value)} />
         <div className="mt-3">
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
@@ -207,7 +207,7 @@ export default function ViajesMasivo() {
       )}
 
       {filas.length === 0 ? (
-        <FlitEmpty>Aún no hay placas en la lista. Pega o escribe las placas arriba y pulsa «Agregar a la lista».</FlitEmpty>
+        <FlitEmpty>Aún no hay placas en la lista. Pegue o escriba las placas arriba y pulse «Agregar a la lista».</FlitEmpty>
       ) : (
         <FlitCard>
           <div aria-busy={enviando} className="space-y-4">
@@ -301,7 +301,7 @@ export default function ViajesMasivo() {
             )}
             {enviando && (
               <p role="status" className="text-sm" style={MUTED}>
-                Registrando {plural(listas.length, 'viaje', 'viajes')}. No cierres ni recargues esta página.
+                Registrando {plural(listas.length, 'viaje', 'viajes')}. No cierre ni recargue esta página.
               </p>
             )}
 
