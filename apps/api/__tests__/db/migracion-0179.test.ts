@@ -129,7 +129,9 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     const funcionesSembradas = leerFuncionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL);
     expect([...funcionesSembradas.keys()].sort()).toEqual([...funcionesGeneradas.keys()].sort());
     for (const [codigo, f] of funcionesSembradas) expect(f, codigo).toEqual(funcionesGeneradas.get(codigo));
-    expect(aPares(leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL))).toEqual(aPares(repartoGenerado));
+    // La 0283 retiró `mensajero logistica.traslado.registrar` a propósito (solo admin): el generador aún lo reparte.
+    const sinRetiro0283 = (pares: string[]) => pares.filter((p) => p !== 'mensajero logistica.traslado.registrar');
+    expect(sinRetiro0283(aPares(leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL)))).toEqual(sinRetiro0283(aPares(repartoGenerado)));
 
     // Y cada fila de la 0179 SOLA sigue en lo generado, o la retiró una migración posterior con nombre,
     // o le cambió el MÓDULO una migración posterior con nombre (la 0205, HU #12716): nadie reescribió
