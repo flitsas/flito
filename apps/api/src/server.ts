@@ -49,6 +49,7 @@ import {
 } from './modules/flito-soat/flito-soat-borrados-pendientes.cron.js';
 import { verificarCatalogoAlArrancar } from './modules/permisos/permisos.service.js';
 import { closeRedis } from './shared/redis.js';
+import { cerrarUsoLegacy, flushUsoLegacy } from './modules/uso-legacy/uso-legacy.service.js';
 import { loggerFor } from './shared/logger.js';
 
 const log = loggerFor('server');
@@ -160,6 +161,10 @@ function shutdown(signal: string) {
   shuttingDown = true;
   log.info({ signal, graceMs: GRACE_MS }, 'shutdown signal recibido');
 
+  // HU #13989 (ADR-0033 §2): flush inmediato, porque un SSE abierto puede impedir que `server.close`
+  // termine a tiempo y entonces se sale por `forceExitTimer`. El temporizador sigue vivo en el drenado.
+  void flushUsoLegacy();
+
   stopReconciler();
   stopPurger();
   stopReviewCron();
@@ -210,6 +215,7 @@ function shutdown(signal: string) {
       process.exit(1);
     }
     log.info('HTTP cerrado');
+    await cerrarUsoLegacy();
     try { await closeRedis(); } catch (e) { log.warn({ err: (e as Error).message }, 'redis close error'); }
     log.info('saliendo');
     process.exit(0);
