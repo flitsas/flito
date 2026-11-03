@@ -58,7 +58,8 @@ export async function insertarEvento(
 
 export async function transicionar(exec: DbOrTx, doc: DocMin, estadoNuevo: TEstadoDoc, ctx: LogisticaCtx, opts: TransOpts = {}): Promise<void> {
   const set: Record<string, unknown> = { estado: estadoNuevo, updatedAt: new Date() };
-  if (opts.motivo !== undefined) set.motivo = opts.motivo;
+  // El motivo del documento es el de ESTA transición (o NULL): no se arrastra a estados posteriores. El historial vive en eventos.
+  set.motivo = opts.motivo ?? null;
   if (opts.actaId) set.actaId = opts.actaId;
   await exec.update(flitoLogisticaDocumentos).set(set).where(eq(flitoLogisticaDocumentos.id, doc.id));
   await insertarEvento(exec, doc, estadoNuevo, ctx, opts);
