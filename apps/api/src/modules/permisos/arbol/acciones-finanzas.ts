@@ -178,6 +178,8 @@ export const PARTIDA_DE_OPERACION_NUEVA: Readonly<Record<string, string>> = {
 // HU #13941: las de General · Dr. Flit nacen igual (la 0254 siembra su ítem y sus acciones).
 export const OPERACIONES_NACIDAS_EN_EL_ARBOL: ReadonlySet<string> = new Set([
   'bolsas.documentos.cargar', 'bolsas.documentos.ver', ...OPERACIONES_NACIDAS_EN_EL_ARBOL_ADMINISTRACION, ...OPERACIONES_DR_FLIT,
+  // Certificación de impuesto sin trámite: la absorbe `accion.impuestos.certificar_sin_tramite` (0274); no se siembra.
+  'impuestos.certificacion_directa.gestionar',
 ]);
 export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA: ReadonlySet<string> = new Set([
   'accion.bolsas.cargar_documentos', 'accion.bolsas.ver_documentos', ...ACCIONES_NACIDAS_TRAS_LA_SIEMBRA_ADMINISTRACION,

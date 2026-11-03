@@ -108,11 +108,12 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
     operaciones: ['impuestos.tramite.enviar', 'impuestos.tramite.asumir', 'impuestos.tramite.devolver', 'impuestos.tramite.reactivar', 'impuestos.tramite.reversar', 'impuestos.tramite.rechazar'],
   },
   'accion.impuestos.certificar_runt': { operaciones: ['impuestos.tramite.certificar', 'impuestos.tramite.certificar_lote'] },
-  // Nace después de la siembra del árbol: la operación va en predecesores (queda absorbida) y en apoyo
-  // (la acción la concede). No entra en `operaciones` para no mover el grupo histórico de la 0233.
+  // Nace después de la siembra del árbol (0274): la operación nace absorbida (ver `OPERACIONES_NACIDAS_EN_EL_ARBOL`,
+  // no se siembra), la acción la concede por `apoyo` y no hay predecesores (nadie la tenía): solo `admin` la recibe.
+  // No entra en `operaciones` para no mover el grupo histórico de la 0233.
   'accion.impuestos.certificar_sin_tramite': {
     operaciones: [],
-    predecesores: ['impuestos.certificacion_directa.gestionar'],
+    predecesores: [],
     apoyo: ['impuestos.certificacion_directa.gestionar'],
   },
   'accion.impuestos.cargar_recibo_caja': { operaciones: ['impuestos.recibos.cargar_caja'] },
