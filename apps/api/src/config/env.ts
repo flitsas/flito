@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { mensajesDeTipo } from '../shared/utils/zod-mensajes.js';
+import { validarLlavesPii } from '../shared/utils/pii-keyring.js';
 import dotenv from 'dotenv';
 import {
   COMPARENDOS_EXPORT_MAX_FILAS, CONCILIACION_MAX_FILAS, FLITO_COLA_EXPORT_MAX_FILAS,
@@ -57,8 +58,13 @@ const envSchema = z.object({
   INTEGRACIONES_MODE: z.enum(['direct', 'cea-proxy', 'auto']).default('auto'),
   FASECOLDA_USER: z.string().optional(),
   FASECOLDA_PASS: z.string().optional(),
-  // Sin default: en producción debe venir del .env. Si falta, el boot falla con error claro.
-  PII_ENC_KEY: z.string().min(32, 'PII_ENC_KEY es requerido (mín 32 chars)'),
+  // Versión 1 de la llave PII, para siempre. Sin default. Opcional solo para poder retirarla tras una
+  // rotación (ADR-0033 D1): el superRefine exige la llave de la versión vigente, que por defecto es esta.
+  // Las versiones n ≥ 2 son `PII_ENC_KEY_V<n>` y se leen por patrón en `shared/utils/pii-keyring.ts`.
+  PII_ENC_KEY: z.preprocess(vacioComoAusente, z.string().min(32, 'PII_ENC_KEY es requerido (mín 32 chars)').optional()),
+  // Versión con la que se escribe. Variable y no constante para que agregar una llave y empezar a
+  // escribir con ella sean dos rollouts: ninguna réplica escribe con una llave que otra aún no lee.
+  PII_ENC_KEY_CURRENT_VERSION: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(32767).default(1)),
   // Clave HMAC dedicada para búsqueda determinística de cédula (32 bytes hex = 64 chars).
   // Separada de PII_ENC_KEY por principio de mínimo privilegio (ISO A.9.4):
   // si HMAC_KEY se compromete, no compromete la confidencialidad del cifrado.
@@ -467,6 +473,11 @@ const envSchema = z.object({
   // perdería la ventana de 4 semanas); solo '0' no monta las capas.
   USO_LEGACY_CONTEO_ENABLED: z.string().optional().transform((v) => v !== '0'),
 }).superRefine((data, ctx) => {
+  // Feature #13978 (ADR-0033 D2): etapa estática de las llaves PII. La de arranque, con BD, está en
+  // `modules/privacy/rotacion/comprobar-llaves.ts`. `process.env` porque el esquema descarta `PII_ENC_KEY_V<n>`.
+  for (const problema of validarLlavesPii(data.PII_ENC_KEY, data.PII_ENC_KEY_CURRENT_VERSION)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [problema.variable], message: problema.mensaje });
+  }
   // HU #13803 (P9-1): el cliente simulado de FLIT - SOPORTE no puede arrancar en PDN. Desde HU #13913
   // una producción sin DEPLOY_ENVIRONMENT se asume PDN, así que tampoco admite el simulado.
   if (data.DRFLIT_ADO_MODO === 'simulado' && data.DEPLOY_ENVIRONMENT === 'PDN') {

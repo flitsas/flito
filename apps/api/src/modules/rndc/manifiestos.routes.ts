@@ -14,6 +14,7 @@ import { audit } from '../../shared/middleware/audit.js';
 import { listOperaciones } from './operaciones.repo.js';
 import { encolarManifiesto, procesarManifiesto } from './envio.service.js';
 import { encryptPii, decryptPii, newUuid, normalizeDocument } from '../../shared/utils/crypto.js';
+import { piiDecryptFailuresTotal } from '../../shared/metrics.js';
 
 const router = Router();
 
@@ -133,7 +134,10 @@ router.get('/:id', async (req: Request, res: Response) => {
         { cipher: r.titularPagoCuentaCipher, iv: r.titularPagoCuentaIv, authTag: r.titularPagoCuentaAuthTag, keyVersion: r.titularPagoCuentaKeyVersion ?? 1 },
         { table: 'manifiestos', column: 'titular_pago_cuenta', empresaNit: r.numero, aadNonce: r.titularPagoCuentaAadNonce },
       );
-    } catch { titularPagoCuenta = null; }
+    } catch {
+      piiDecryptFailuresTotal.inc({ table: 'manifiestos', column: 'titular_pago_cuenta' });
+      titularPagoCuenta = null;
+    }
   } else if (r.titularPagoCuentaLegacyPlain) {
     titularPagoCuenta = r.titularPagoCuentaLegacyPlain;
   }

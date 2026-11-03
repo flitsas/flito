@@ -8,6 +8,7 @@ import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { encryptPii, decryptPii, hmacCedula, newUuid, normalizeDocument } from '../../shared/utils/crypto.js';
+import { piiDecryptFailuresTotal } from '../../shared/metrics.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -52,6 +53,7 @@ function decryptField(row: any, field: 'cedula' | 'licenciaNumero' | 'runtPayloa
         { table: 'driver_profile', column, empresaNit: String(userId), aadNonce: row[`${field}AadNonce`] },
       );
     } catch {
+      piiDecryptFailuresTotal.inc({ table: 'driver_profile', column });
       return null;
     }
   }

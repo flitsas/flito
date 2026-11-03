@@ -117,20 +117,6 @@ export const rateLimitBloqueadoTotal = new Counter({
   labelNames: ['limitador'] as const,
   registers: [registry],
 });
-// HU #13989 (ADR-0033 §7) — la pérdida del conteo de uso legacy, lo único que su tabla no puede contar.
-// Sin rutas ni roles en las etiquetas.
-export const usoLegacyFlushTotal = new Counter({
-  name: 'uso_legacy_flush_total',
-  help: 'Flushes del conteo de uso legacy a la tabla de agregados, por resultado.',
-  labelNames: ['resultado'] as const,
-  registers: [registry],
-});
-
-export const usoLegacyConteosDescartadosTotal = new Counter({
-  name: 'uso_legacy_conteos_descartados_total',
-  help: 'Conteos de uso legacy descartados por superar el tope de claves del buffer.',
-  registers: [registry],
-});
 
 // Feature #14097 (HU #14099) — un valor con formato cifrado que no descifra es un incidente (llave
 // equivocada, dato alterado): de esta serie sale la alerta. El legado sin cifrar va en otra serie
@@ -153,4 +139,35 @@ export const piiLegacyPlaintextTotal = new Counter({
 for (const column of ['foto_rostro', 'foto_cedula_frontal', 'foto_cedula_reverso']) {
   piiDecryptFailuresTotal.inc({ table: 'tramites_validaciones', column }, 0);
   piiLegacyPlaintextTotal.inc({ table: 'tramites_validaciones', column }, 0);
+}
+
+// HU #13989 (ADR-0033 §7) — la pérdida del conteo de uso legacy, lo único que su tabla no puede contar.
+// Sin rutas ni roles en las etiquetas.
+export const usoLegacyFlushTotal = new Counter({
+  name: 'uso_legacy_flush_total',
+  help: 'Flushes del conteo de uso legacy a la tabla de agregados, por resultado.',
+  labelNames: ['resultado'] as const,
+  registers: [registry],
+});
+
+export const usoLegacyConteosDescartadosTotal = new Counter({
+  name: 'uso_legacy_conteos_descartados_total',
+  help: 'Conteos de uso legacy descartados por superar el tope de claves del buffer.',
+  registers: [registry],
+});
+
+// Feature #13978: lecturas que devuelven `null` con 200 si no descifran. Sin esta serie, una llave
+// ausente se vería como «sin dato» y la métrica seguiría en 0.
+for (const [table, column] of [
+  ['driver_profile', 'cedula'],
+  ['driver_profile', 'licencia_numero'],
+  ['driver_profile', 'runt_payload'],
+  ['manifiestos', 'titular_pago_cuenta'],
+  ['laft_counterparties', 'doc_number'],
+  ['laft_counterparties', 'email'],
+  ['laft_counterparties', 'phone'],
+  ['flito_logistica_acta_firmas', 'documento_cifrado'],
+  ['flito_logistica_recogida_firmantes', 'documento_cifrado'],
+] as const) {
+  piiDecryptFailuresTotal.inc({ table, column }, 0);
 }
