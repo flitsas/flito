@@ -3,14 +3,8 @@
 // Sin ruta ni PageSlug. El padre no la monta sin `logistica.documento.ver`; un 403 la oculta.
 
 import { useEffect, useState } from 'react';
-import {
-  ESTADO_DOCUMENTO_LOGISTICA_LABEL,
-  ESTADO_LOGISTICA_SIMPLE_LABEL,
-  simplificarEstadoLogistica,
-  type EstadoDocumentoLogistica,
-  type HitoLineaTiempoLogistica,
-  type LineaTiempoLogistica,
-} from '@operaciones/shared-types';
+import type { HitoLineaTiempoLogistica, LineaTiempoLogistica } from '@operaciones/shared-types';
+import { rotuloEvento } from './rotuloEvento';
 import { api, ApiError } from '../../../lib/api';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 
@@ -29,24 +23,6 @@ function esLinea(v: unknown): v is LineaTiempoLogistica {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
   const o = v as { documentoId?: unknown; hitos?: unknown };
   return (o.documentoId === null || typeof o.documentoId === 'string') && Array.isArray(o.hitos);
-}
-
-function etiquetaDocumento(estado: string): string | null {
-  if (!Object.prototype.hasOwnProperty.call(ESTADO_DOCUMENTO_LOGISTICA_LABEL, estado)) return null;
-  return ESTADO_DOCUMENTO_LOGISTICA_LABEL[estado as EstadoDocumentoLogistica];
-}
-
-/** Nunca la clave cruda (`en_acta`, `recogida`). Llegada y anulación ganan al estado. */
-function rotuloHito(hito: HitoLineaTiempoLogistica): string {
-  if (hito.tipo === 'llegada') return 'Llegada a FLIT';
-  // El alta del viaje escribe dos eventos con estado `en_acta`: el cambio y el acta, que no
-  // cambia el estado. Rotular los dos con el estado los muestra iguales.
-  if (hito.tipo === 'acta_organismo') return 'Acta de organismo firmada';
-  if (hito.tipo === 'acta_flit') return 'Acta hacia FLIT';
-  if (hito.tipo === 'acta_cliente') return 'Acta a cliente generada';
-  if (hito.estadoNuevo === 'anulado' || hito.tipo === 'anulacion') return 'Anulado';
-  return etiquetaDocumento(hito.estadoNuevo)
-    ?? ESTADO_LOGISTICA_SIMPLE_LABEL[simplificarEstadoLogistica(hito.estadoNuevo)];
 }
 
 function textoMotivo(motivo: string | null): string | null {
@@ -103,12 +79,12 @@ function FilaHito({ hito, reciente, unirArriba, ultimo, fecha }: {
         <div className={reciente ? 'rounded-lg px-3 py-2' : undefined} style={reciente ? FRANJA : undefined}>
           {reciente ? (
             <div className="flex items-baseline justify-between gap-3">
-              <span className="min-w-0 flex-1 text-sm font-bold">{rotuloHito(hito)}</span>
+              <span className="min-w-0 flex-1 text-sm font-bold">{rotuloEvento(hito)}</span>
               <time dateTime={hito.fecha} className="shrink-0 text-xs tabular-nums" style={MUTED}>{fecha(hito.fecha)}</time>
             </div>
           ) : (
             <>
-              <p className="text-sm">{rotuloHito(hito)}</p>
+              <p className="text-sm">{rotuloEvento(hito)}</p>
               <time dateTime={hito.fecha} className="text-xs tabular-nums" style={MUTED}>{fecha(hito.fecha)}</time>
             </>
           )}

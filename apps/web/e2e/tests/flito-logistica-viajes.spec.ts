@@ -29,7 +29,11 @@ const ACTAS = [
 const ACTA_DETALLE = {
   acta: ACTAS[0], tienePdf: true, firmaEntrega: false, firmaRecibe: false, entregaNombre: null,
   documentos: [{ id: 'doc-2', placa: 'XYZ789', secretaria: 'STT Medellín', propietario: 'Ana Ruiz', numeroLicencia: '100381', numeroLt: 'LT-77', estado: 'en_acta', estadoLabel: 'En acta', idFlit: 'FLIT-2002' }],
-  bitacora: [{ id: 'ev-9', documentoId: 'doc-2', placa: 'XYZ789', estadoAnterior: 'recogido', estadoNuevo: 'en_acta', actorNombre: 'Operaciones E2E', motivo: null, origen: 'web', creadoEn: '2026-07-21T08:00:00Z' }],
+  bitacora: [
+    { id: 'ev-9', documentoId: 'doc-2', placa: 'XYZ789', tipo: 'acta_organismo', estadoAnterior: 'recogido', estadoNuevo: 'en_acta', actorNombre: 'Operaciones E2E', motivo: null, origen: 'web', creadoEn: '2026-07-21T08:00:00Z' },
+    { id: 'ev-8', documentoId: 'doc-2', placa: 'XYZ789', tipo: 'destino_registrado', estadoAnterior: 'en_acta', estadoNuevo: 'en_acta', actorNombre: 'Operaciones E2E', motivo: 'Dirección por confirmar', origen: 'web', creadoEn: '2026-07-21T07:50:00Z' },
+    { id: 'ev-7', documentoId: 'doc-2', placa: 'XYZ789', tipo: 'acta_cliente', estadoAnterior: 'en_acta', estadoNuevo: 'en_acta', actorNombre: 'Operaciones E2E', motivo: null, origen: 'web', creadoEn: '2026-07-21T07:40:00Z' },
+  ],
 };
 
 const FACETAS = {
@@ -376,5 +380,25 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     expect(texto).not.toContain('viaje');
     expect(texto).not.toContain('tarifa');
     expect(texto).not.toContain('total');
+  });
+
+  test('la bitácora del acta rotula por tipo de evento: sin líneas «Registrada» repetidas', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockConsola(page);
+    await mockViajes(page);
+    await page.goto('/flito/logistica');
+    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('row', { name: /Concesionario Norte/ }).getByRole('button', { name: 'Ver' }).click();
+    const lineas = page.getByRole('dialog').getByRole('listitem');
+    await expect(lineas).toHaveCount(3);
+    await expect(lineas.nth(0)).toContainText('Acta de organismo firmada');
+    await expect(lineas.nth(1)).toContainText('Destino registrado');
+    await expect(lineas.nth(1)).toContainText('Dirección por confirmar');
+    await expect(lineas.nth(2)).toContainText('Acta a cliente generada');
+    for (const i of [0, 1, 2]) {
+      await expect(lineas.nth(i)).toContainText('XYZ789');
+      await expect(lineas.nth(i)).toContainText('Operaciones E2E');
+    }
+    await expect(lineas.filter({ hasText: 'Registrada' })).toHaveCount(0);
   });
 });

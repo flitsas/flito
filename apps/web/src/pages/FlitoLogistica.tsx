@@ -26,6 +26,7 @@ import ViajesACliente from '../components/flito/logistica/ViajesACliente';
 import { LlegadaFlitModal } from '../components/flito/ruta/LlegadaFlit';
 import ViajesMasivo from '../components/flito/logistica/ViajesMasivo';
 import ViajesLogistica from '../components/flito/logistica/ViajesLogistica';
+import { rotuloEvento } from '../components/flito/logistica/rotuloEvento';
 import LineaTiempoDetalle from '../components/flito/logistica/LineaTiempoDetalle';
 import TabMotivosLlegada from '../components/flito/logistica/TabMotivosLlegada';
 import TabEntregas from '../components/flito/logistica/TabEntregas';
@@ -42,7 +43,7 @@ interface TramiteFila {
   numeroLicencia: string | null; numeroLt: string | null;
   actaId: string | null; motivo: string | null; actualizadoEn: string | null;
 }
-interface EventoDocumento { id: string; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; lat: string | null; lng: string | null; motivo: string | null; origen: string; creadoEn: string }
+interface EventoDocumento { id: string; tipo: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; lat: string | null; lng: string | null; motivo: string | null; origen: string; creadoEn: string }
 interface TramiteDetalle extends TramiteFila { propietarioDocumento: string | null; combustible: string | null; tieneFoto: boolean; eventos: EventoDocumento[] }
 interface ActaFila {
   id: string; companiaId: number | null; companiaNombre: string | null; estado: string; estadoLabel: string;
@@ -52,7 +53,7 @@ interface ActaFila {
   trasladoId?: string | null;
 }
 interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string }
-interface ActaEvento { id: string; documentoId: string; placa: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string }
+interface ActaEvento { id: string; documentoId: string; placa: string | null; tipo: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string }
 interface ActaDetalle { acta: ActaFila; tienePdf: boolean; firmaEntrega: boolean; firmaRecibe: boolean; entregaNombre: string | null; documentos: ActaLinea[]; bitacora: ActaEvento[] }
 interface Facetas {
   estados: string[]; empresas: Array<{ nit: string; nombre: string | null }>;
@@ -512,7 +513,7 @@ function ActaDetalleModal({ detalle, onClose, onPdf }: { detalle: ActaDetalle; o
         {bitacora.map((e) => (
           <li key={e.id} className="text-sm">
             <span className="tabular-nums">{e.placa ?? '—'}</span>
-            <span className="ml-1 font-medium">{ESTADO_LOGISTICA_SIMPLE_LABEL[simple(e.estadoNuevo)]}</span>
+            <span className="ml-1 font-medium">{rotuloEvento(e)}</span>
             <span style={{ color: 'var(--flit-text-muted)' }}> · {fecha(e.creadoEn)} · {e.actorNombre ?? (e.origen === 'api' ? 'sistema' : '—')}</span>
             {e.motivo && <div className="text-xs" style={{ color: 'var(--flit-danger)' }}>{e.motivo}</div>}
           </li>
