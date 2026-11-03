@@ -17,6 +17,7 @@ import { alias, type PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
   clients, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos, flitoLiquidaciones,
+  flitoLogisticaDocumentos, flitoLogisticaTrasladoLts, flitoLogisticaTraslados,
   flitoOrganismoVigencias, flitoSoat, flitoTarifasVigencias, flitoTramiteServiciosAdicionales,
   flitoTramites, flitoTramiteViajesLogistica, organismosTransitoConfig, vehicles,
 } from '../../db/schema.js';
@@ -240,19 +241,32 @@ export const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones
 
 /** `flito_tramite_viajes_logistica`: los viajes ADICIONALES (numero >= 2) del trámite (HU #12619). */
 const VL = flitoTramiteViajesLogistica;
+const LTS = flitoLogisticaTrasladoLts;
+const DOC_LOG = flitoLogisticaDocumentos;
+const TRS = flitoLogisticaTraslados;
 
-// Logística = el viaje 1 (documental o tarifa) MÁS los viajes adicionales registrados (HU #12627),
-// cada uno con el precio con que se registró. Subconsulta correlacionada y no `leftJoin`, por lo
-// mismo que los servicios adicionales de abajo: la tabla tiene N filas por trámite. Viaje 1 NULL
-// (ni comprobante ni tarifa) sigue dando NULL —«no configurado»— aunque haya viajes: NULL + x es
-// NULL, y `BLOQUEA_LOGISTICA` mira el mismo COALESCE.
+/**
+ * Σ de las líneas de traslado que cobran (HU #14118), el mismo predicado que `trasladosDe`:
+ * entregada, destino flit o cliente, concepto con precio, precio no nulo, viaje no legado.
+ * Subconsulta correlacionada: un join multiplicaría la fila del trámite. Literales en el SQL,
+ * sin `$n` (Bug #12058). SIN `COALESCE` por dentro: sin líneas da NULL, y eso es lo que decide
+ * la regla de cobro de abajo (un tramo FLIT→cliente con precio 0 sí cuenta como línea).
+ */
+const SUMA_TRASLADOS_QUE_COBRAN = sql`(SELECT SUM(${LTS.precio}) FROM ${LTS} INNER JOIN ${DOC_LOG} ON ${DOC_LOG.id} = ${LTS.documentoId} INNER JOIN ${TRS} ON ${TRS.id} = ${LTS.trasladoId} WHERE ${DOC_LOG.tramiteId} = ${flitoTramites.id} AND ${LTS.estado} = 'entregado' AND ${LTS.destino} IN ('flit', 'cliente') AND ${LTS.conceptoPrecio} IN ('logistica_cliente', 'logistica_flit') AND ${LTS.precio} IS NOT NULL AND ${TRS.legado} = false)`;
+
+// Logística = la misma regla de `conceptoLogistica` (HU #14118): con líneas de traslado que cobran,
+// `Σ líneas + Σ adicionales` y la tarifa base (viaje 1) NO se suma; sin líneas, el legado
+// (viaje 1 documental o tarifa + Σ adicionales). Viaje 1 NULL (ni comprobante ni tarifa) sigue
+// dando NULL —«no configurado»— con o sin líneas, igual que la liquidación (`base.bloquea`), y
+// `BLOQUEA_LOGISTICA` mira el mismo COALESCE. Subconsulta correlacionada y no `leftJoin`: la tabla
+// tiene N filas por trámite. Cada precio es el CON QUE SE REGISTRÓ.
 //
 // La rama SIN sellar de la logística, UNA instancia compartida por `EXPR_LOGISTICA` (reporte) y
-// `EXPR_LOGISTICA_ESTIMADA` (gastos diarios, HU #12623, RN-02). Saltos de línea del CASE original.
-// La suma de viajes (HU #12627) entra en la instancia compartida a propósito: gastos diarios y
-// reporte deben estimar exactamente lo mismo (tarifa + Σ viajes, regla D5 de la Épica #12244).
+// `EXPR_LOGISTICA_ESTIMADA` (gastos diarios, HU #12623, RN-02): ambos estiman exactamente lo que
+// sellaría `liquidar()`. Los sellos ya hechos no se tocan (la primera rama de `EXPR_LOGISTICA`).
 const RAMAS_LOGISTICA_ESTIMADA = sql`WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
-  ELSE ${LOGISTICA_VIAJE_1_ESTIMADO} + COALESCE((SELECT SUM(${VL.valor}) FROM ${VL} WHERE ${VL.tramiteId} = ${flitoTramites.id}), 0)`;
+  ELSE CASE WHEN ${LOGISTICA_VIAJE_1_ESTIMADO} IS NULL THEN NULL
+    ELSE COALESCE(${SUMA_TRASLADOS_QUE_COBRAN}, ${LOGISTICA_VIAJE_1_ESTIMADO}) END + COALESCE((SELECT SUM(${VL.valor}) FROM ${VL} WHERE ${VL.tramiteId} = ${flitoTramites.id}), 0)`;
 export const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorLogistica}
   ${RAMAS_LOGISTICA_ESTIMADA} END`;
 /** La logística estimada a secas (sin mirar la liquidación): exige los joins `clients`, `JOIN_EXC_LOGISTICA` y `JOIN_LG`. */

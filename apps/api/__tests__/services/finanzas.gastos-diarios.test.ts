@@ -278,9 +278,11 @@ describe('AC5 — EXPR_LOGISTICA_ESTIMADA compartida con el reporte (RN-02)', ()
   // instancia compartida hace que gastos diarios también estime con el comprobante de pago aplicado.
   // El COALESCE envuelve SOLO el viaje 1; la Σ de viajes adicionales queda fuera. Render exacto.
   const DOC_LG = `(select "flito_comprobantes"."valor" from "flito_comprobantes" where "flito_comprobantes"."tramite_id" = "flito_tramites"."id" and "flito_comprobantes"."concepto" = 'logistica' and "flito_comprobantes"."estado" = 'aplicado' and "flito_comprobantes"."es_pago" = true limit 1)`;
+  const SUMA_TRASLADOS = '(SELECT SUM("flito_logistica_traslado_lts"."precio") FROM "flito_logistica_traslado_lts" INNER JOIN "flito_logistica_documentos" ON "flito_logistica_documentos"."id" = "flito_logistica_traslado_lts"."documento_id" INNER JOIN "flito_logistica_traslados" ON "flito_logistica_traslados"."id" = "flito_logistica_traslado_lts"."traslado_id" WHERE "flito_logistica_documentos"."tramite_id" = "flito_tramites"."id" AND "flito_logistica_traslado_lts"."estado" = \'entregado\' AND "flito_logistica_traslado_lts"."destino" IN (\'flit\', \'cliente\') AND "flito_logistica_traslado_lts"."concepto_precio" IN (\'logistica_cliente\', \'logistica_flit\') AND "flito_logistica_traslado_lts"."precio" IS NOT NULL AND "flito_logistica_traslados"."legado" = false)';
   const EXPR_LOGISTICA_BASE = `select CASE WHEN "flito_liquidaciones"."id" IS NOT NULL THEN "flito_liquidaciones"."valor_logistica"
   WHEN NOT (NOT COALESCE("clients"."logistica_autogestionable", false) OR ("flito_excepciones_autogestion"."id" IS NOT NULL)) THEN NULL
-  ELSE COALESCE(${DOC_LG}, "lg"."valor") + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`;
+  ELSE CASE WHEN COALESCE(${DOC_LG}, "lg"."valor") IS NULL THEN NULL
+    ELSE COALESCE(${SUMA_TRASLADOS}, COALESCE(${DOC_LG}, "lg"."valor")) END + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`;
 
   it('EXPR_LOGISTICA renderiza EXACTAMENTE igual que antes del refactor en el contexto del reporte (no regresión)', () => {
     const sql = conJoins(abrir({ x: EXPR_LOGISTICA }, flitoTramites)).toSQL().sql;
@@ -291,7 +293,8 @@ describe('AC5 — EXPR_LOGISTICA_ESTIMADA compartida con el reporte (RN-02)', ()
   it('EXPR_LOGISTICA_ESTIMADA es la rama sin sellar: CASE WHEN NOT gestiona THEN NULL ELSE COALESCE(documental, lg.valor) + Σ viajes END (HU #12653: la estimada hereda el COALESCE del viaje 1)', () => {
     expect(render(EXPR_LOGISTICA_ESTIMADA)).toBe(
       `CASE WHEN NOT (NOT COALESCE("clients"."logistica_autogestionable", false) OR ("flito_excepciones_autogestion"."id" IS NOT NULL)) THEN NULL
-  ELSE COALESCE(${DOC_LG}, "lg"."valor") + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`,
+  ELSE CASE WHEN COALESCE(${DOC_LG}, "lg"."valor") IS NULL THEN NULL
+    ELSE COALESCE(${SUMA_TRASLADOS}, COALESCE(${DOC_LG}, "lg"."valor")) END + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`,
     );
     // Mutante «COALESCE(documental, tarifa + Σ viajes)» o «sin Σ viajes tras el COALESCE»: cae arriba byte a byte.
     expect(render(EXPR_LOGISTICA_ESTIMADA)).not.toContain('flito_liquidaciones');
