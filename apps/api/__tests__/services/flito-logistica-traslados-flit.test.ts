@@ -268,16 +268,16 @@ describe('AC5 — firmar_flit, no entregar', () => {
 });
 
 describe('AC6 — salida de FLIT vs viaje directo', () => {
-  it('origen flit + LT en_flit congela logistica_cliente', async () => {
+  it('origen flit + LT en_flit: el tramo FLIT→cliente no cobra (precio 0, sin consultar la tarifa de cliente)', async () => {
     colaCliente([lt(1, 'en_flit')]);
     const r = await registrarTraslado({
       companiaId: 5, destino: 'cliente', origen: 'flit', lts: [{ documentoId: id(1) }],
     }, ctxAdmin);
     expect(r).toMatchObject({ origen: 'flit', destino: 'cliente' });
     expect(r.lts[0]).toMatchObject({ motivoLlegadaId: null, motivoPorId: null, motivoEn: null });
-    expect(lineasInsertadas()[0]).toMatchObject({ conceptoPrecio: 'logistica_cliente' });
+    expect(lineasInsertadas()[0]).toMatchObject({ conceptoPrecio: 'logistica_cliente', precio: '0.00', tarifaVigenciaId: null });
     expect(lineasInsertadas()[0]).not.toHaveProperty('motivoLlegadaId');
-    expect(tarifaDeMock).toHaveBeenCalledWith(5, 'logistica_cliente', null, expect.any(Date));
+    expect(tarifaDeMock).not.toHaveBeenCalled();
   });
 
   it('origen flit + LT clasificado → 409 LT_NO_EN_FLIT y cero filas', async () => {
@@ -294,7 +294,7 @@ describe('AC6 — salida de FLIT vs viaje directo', () => {
       companiaId: 5, destino: 'cliente', lts: [{ documentoId: id(1) }],
     }, ctxAdmin);
     expect(r).toMatchObject({ origen: 'organismo', destino: 'cliente' });
-    expect(lineasInsertadas()[0]).toMatchObject({ conceptoPrecio: 'logistica_cliente' });
+    expect(lineasInsertadas()[0]).toMatchObject({ conceptoPrecio: 'logistica_cliente', precio: '18500.00' });
   });
 });
 

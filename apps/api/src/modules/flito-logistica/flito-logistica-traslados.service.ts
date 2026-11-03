@@ -197,7 +197,12 @@ export async function registrarTraslado(input: RegistrarTrasladoInput, ctx: Logi
         }
       }
 
-      const precio = await precioTrasladoDe(input.companiaId, destino, ahora);
+      // Regla de cobro: si la LT ya llegó a FLIT (se cobró la tarifa de FLIT), el tramo FLIT→cliente
+      // no cobra. La línea queda con precio 0 (cuenta como línea que cobra, suma 0).
+      const salidaDeFlit = destino === 'cliente' && origen === 'flit';
+      const precio = salidaDeFlit
+        ? { valor: 0, vigenciaId: null }
+        : await precioTrasladoDe(input.companiaId, destino, ahora);
       if (precio == null) throw new PrecioTrasladoNoConfiguradoError(destino);
 
       const proveedorId = await proveedorDeCompania(tx, input.companiaId);
