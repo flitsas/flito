@@ -80,7 +80,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0262_flito_soat_canal_por_proveedor.sql', // HU #13967: renombre de `accion.clientes.soat_sin_tramite`
   '0280_flito_logistica_permiso_ver_documento_firmante.sql', // HU #14110: operación nueva de logística (PII), solo a `admin`
   '0281_flito_logistica_permiso_resolver_tramite.sql', // HU #14143: resolver el trámite de una LT pendiente, solo a `admin`
-  '0282_flito_logistica_permiso_traslado_registrar.sql', // HU #14114: registrar viaje a cliente; admin + mensajero
+  '0282_flito_logistica_permiso_traslado_registrar.sql', // HU #14114: registrar viaje a cliente; solo admin
 ] as const;
 
 /**
