@@ -12,7 +12,7 @@ Viaje a cliente ya entregado (HUs #14114–#14116):
 - Ciclo: `flito-logistica-traslados-ciclo.service.ts`. `despachar` → `entregar` / `devolver`; `anular` en `registrado`. `estadoTrasRegreso` ya devuelve `en_flit` cuando `origen = 'flit'`.
 - Precio: `flito-logistica-precios.ts`. `destino 'flit'` → concepto `logistica_flit`; `destino 'cliente'` → `logistica_cliente`. Un `0` configurado es precio válido; `null` es «no hay vigencia».
 - Motivos: `flito-logistica-motivos.service.ts` + `GET` ya montado en `/api/flito/logistica/motivos-llegada` (HU #14119). Esta HU no abre otro GET. `listarMotivosActivos()` ya está para validar en servidor.
-- Esquema (0274 + 0275, no se editan): enum `en_flit`; `flito_logistica_traslados.destino/origen` con `ck_flito_log_traslados_ruta` (`destino = 'flit'` ⇒ `origen = 'organismo'`); `traslado_lts.motivo_llegada_id`, `motivo_por_id`, `motivo_en`, `motivo_nota` y `ck_flito_log_traslado_lts_motivo`; índice único parcial `uq_flito_log_traslado_lt_vivo` sobre `(documento_id, destino)` donde `estado NOT IN ('devuelto','anulado')` — `entregado` cuenta como vivo; `acta_firmas.usuario_id` nullable y `documento_cifrado` nullable, único `(acta_id, rol)`.
+- Esquema (0275 + 0276, no se editan): enum `en_flit`; `flito_logistica_traslados.destino/origen` con `ck_flito_log_traslados_ruta` (`destino = 'flit'` ⇒ `origen = 'organismo'`); `traslado_lts.motivo_llegada_id`, `motivo_por_id`, `motivo_en`, `motivo_nota` y `ck_flito_log_traslado_lts_motivo`; índice único parcial `uq_flito_log_traslado_lt_vivo` sobre `(documento_id, destino)` donde `estado NOT IN ('devuelto','anulado')` — `entregado` cuenta como vivo; `acta_firmas.usuario_id` nullable y `documento_cifrado` nullable, único `(acta_id, rol)`.
 
 Lo que hoy corta el destino FLIT, y esta HU retira:
 
@@ -65,7 +65,7 @@ DTO de respuesta: el `TrasladoDetalle` actual más, en cada LT, `motivoLlegadaId
 
 No se depende del `CHECK` de ruta para el HTTP: un `origen = 'flit'` con `destino = 'flit'` lo rechaza el servicio antes del `INSERT` (si llegara a la BD sería un 500).
 
-**AC9.** El nombre «Destino lejano (transportadora externa)» es una fila del catálogo (0275 / 0284). El registro no lee el nombre para decidir nada: no hay columna de guía, no hay proveedor distinto de `proveedorDeCompania`, no hay precio distinto de `logistica_flit`. La línea queda igual que con «Otro».
+**AC9.** El nombre «Destino lejano (transportadora externa)» es una fila del catálogo (0276 / 0285). El registro no lee el nombre para decidir nada: no hay columna de guía, no hay proveedor distinto de `proveedorDeCompania`, no hay precio distinto de `logistica_flit`. La línea queda igual que con «Otro».
 
 **Destino `cliente`.** Precio siempre `precioTrasladoDe(companiaId, 'cliente', ahora)` (`logistica_cliente`). El motivo se ignora y no se persiste. `cerrar-lote` no cambia: sigue armando el viaje directo con las LT `clasificado` (`idsClasificadosDe`).
 
@@ -134,13 +134,13 @@ La ruta `POST /traslados/:id/entregar` hoy lleva `exigirFuncion('logistica.actas
 2. `flit` → `tieneFuncion(req, 'logistica.actas.firmar_flit')`; si no, 403. Schema `{ firma, lat?, lng? }`.
 3. `cliente` → `tieneFuncion(req, 'logistica.actas.entregar')`; si no, 403. Schema de receptor actual, intacto.
 
-Calco del pliegue de `logistica.motivos.gestionar` (0284), no de su padre:
+Calco del pliegue de `logistica.motivos.gestionar` (0285), no de su padre:
 
 | Pieza | Qué |
 |---|---|
 | Padre en el árbol | `accion.logistica.despachar_entregar_devolver`, en `opcionales` (junto a `despachar` y `operar_ajenas`). El mensajero recibe las operaciones de esa acción (`entregar`, `devolver`) y no los opcionales. El padre de motivos es `ver_consola` porque eso es el catálogo; la firma es del ciclo del acta. |
-| `NACIDOS_DESPUES_DE_0239` | alta del código, comentario HU #14122 / migración 0285 |
-| Migración | `0285_flito_logistica_permiso_firmar_flit.sql`. Solo `INSERT` de función (`padre_codigo` = esa acción) y `permisos_rol_funcion` **solo `admin`**. `ON CONFLICT DO NOTHING`. Sin `BEGIN/COMMIT`. Sin `ALTER`. |
+| `NACIDOS_DESPUES_DE_0239` | alta del código, comentario HU #14122 / migración 0286 |
+| Migración | `0286_flito_logistica_permiso_firmar_flit.sql`. Solo `INSERT` de función (`padre_codigo` = esa acción) y `permisos_rol_funcion` **solo `admin`**. `ON CONFLICT DO NOTHING`. Sin `BEGIN/COMMIT`. Sin `ALTER`. |
 | `permisos-seed-sql.ts` | el archivo entra en `MIGRACIONES_CON_REPARTO` y en `RETIROS_DEL_MUNDO_PLANO` |
 | `catalogo-operaciones.ts` | `op` de la guarda en línea: `POST /traslados/:id/entregar [firmarFlit]` |
 
@@ -156,7 +156,7 @@ No hay un endpoint que parta el lote. Diez LT de una compañía, cinco a FLIT y 
 
 ### Esquema
 
-No falta columna. **No hay migración de tablas y no se editan 0274 ni 0275.** 0285 es solo la siembra del permiso. Sin `drizzle-kit`.
+No falta columna. **No hay migración de tablas y no se editan 0275 ni 0276.** 0286 es solo la siembra del permiso. Sin `drizzle-kit`.
 
 ## Archivos a crear/modificar
 
@@ -175,8 +175,8 @@ No falta columna. **No hay migración de tablas y no se editan 0274 ni 0275.** 0
 
 **Crear**
 
-- `apps/api/src/db/migrations/0285_flito_logistica_permiso_firmar_flit.sql`
-- `apps/api/__tests__/db/migracion-0285.test.ts` (calco de `migracion-0284.test.ts`)
+- `apps/api/src/db/migrations/0286_flito_logistica_permiso_firmar_flit.sql`
+- `apps/api/__tests__/db/migracion-0286.test.ts` (calco de `migracion-0285.test.ts`)
 - `apps/api/__tests__/services/flito-logistica-traslados-flit.test.ts`
 
 No se crean servicio, ruta ni página nuevos. `flito-logistica-motivos.service.ts` y `flito-logistica-precios.ts` se usan y no se reescriben. Web: esta HU no tiene pantalla; el grep de `EventoDocumentoLogisticaTipo` en `apps/web` no tiene consumidores (solo el test de API fija la lista del catálogo).
@@ -194,7 +194,7 @@ No hay ADR nuevo. ADR-0030 ya fijó el recorrido, el precio por destino, el moti
 - `cerrar-lote` y el viaje directo sin campo `origen` tienen que seguir verdes.
 - Archivos de servicio lejos del techo de 800 líneas; la llegada cabe en el ciclo. No partir el módulo.
 - Tras tocar shared-types: `npm run build -w packages/shared-types`. Grep de `EventoDocumentoLogisticaTipo` por si apareció un `Record` exhaustivo.
-- `security-agent`: el diff escribe una firma y añade una función; no hay cédula nueva ni ruta nueva. `db-review-agent`: dispara porque 0285 vive en `migrations/`; el SQL es siembra idempotente, sin DDL y sin tocar 0274/0275.
+- `security-agent`: el diff escribe una firma y añade una función; no hay cédula nueva ni ruta nueva. `db-review-agent`: dispara porque 0286 vive en `migrations/`; el SQL es siembra idempotente, sin DDL y sin tocar 0275/0276.
 
 ### Tests P1 (archivos, no el directorio del módulo)
 
@@ -204,7 +204,7 @@ npm test -w apps/api -- \
   __tests__/services/flito-logistica-traslados-registrar.test.ts \
   __tests__/services/flito-logistica-traslados-ciclo.test.ts \
   __tests__/services/flito-logistica.eventos-tipo.test.ts \
-  __tests__/db/migracion-0285.test.ts
+  __tests__/db/migracion-0286.test.ts
 ```
 
 | Archivo | Qué afirma |
@@ -213,7 +213,7 @@ npm test -w apps/api -- \
 | `flito-logistica-traslados-registrar.test.ts` | Se reemplaza el caso `DESTINO_FLIT_NO_DISPONIBLE`. El viaje directo (`clasificado`, sin `origen`, precio cliente) sigue en verde. |
 | `flito-logistica-traslados-ciclo.test.ts` | Se reemplaza «despachar un viaje a FLIT → 422». Despachar un viaje a FLIT pasa a `en_ruta`. Entregar un viaje a **cliente** sigue pidiendo cédula y `logistica.actas.entregar`, y no pide `firmar_flit`. |
 | `flito-logistica.eventos-tipo.test.ts` | La lista del catálogo incluye `llegada` y `acta_flit`. `tipoEventoEfectivo(null, 'en_flit')` es `null`. `tipoEventoEfectivo('llegada_flit', 'en_flit')` es `llegada`. |
-| `migracion-0285.test.ts` | Paridad del pliegue (el archivo está en las dos listas; reparto solo `admin`; segunda lectura idempotente). |
+| `migracion-0286.test.ts` | Paridad del pliegue (el archivo está en las dos listas; reparto solo `admin`; segunda lectura idempotente). |
 
 Mutantes: no en este diseño (los nombra `qa-agent` B, tope 3, sobre lógica condicional: motivo ausente/inactivo, precio null, `origen: 'flit'` con LT fuera de `en_flit`).
 

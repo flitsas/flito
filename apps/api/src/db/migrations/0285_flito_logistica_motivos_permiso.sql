@@ -1,10 +1,10 @@
--- 0284_flito_logistica_motivos_permiso.sql
+-- 0285_flito_logistica_motivos_permiso.sql
 -- HU #14119 (Feature C3.1 #14093, Épica #13758, ADR-0030) — catálogo de motivos de llegada a FLIT.
 -- La tabla `flito_logistica_motivos_llegada` + índice unique lower(nombre) + seed de 3 nombres
--- YA existen en 0275. Esta migración NO crea tabla. Solo:
+-- YA existen en 0276. Esta migración NO crea tabla. Solo:
 --   1. Re-siembra idempotente de los tres nombres (AC5). ON CONFLICT no pisa orden/activo
 --      si un admin los cambió; si falta el nombre, lo inserta.
---   2. Función `logistica.motivos.gestionar` (calco 0283): opcional de
+--   2. Función `logistica.motivos.gestionar` (calco 0284): opcional de
 --      `accion.logistica.ver_consola`. Reparto: solo `admin`.
 -- Sin BEGIN/COMMIT. Idempotente.
 

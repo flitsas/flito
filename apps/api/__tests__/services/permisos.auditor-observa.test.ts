@@ -222,7 +222,7 @@ describe('AC6 — rol por rol: lo sembrado es lo que la foto concedía', () => {
       // la siembra la 0255, no el seed plano ≤ 0231) y no tienen partida: no son del mundo que mide este archivo.
       const desdeFoto = [...new Set(GUARDAS_MEDIDAS.filter((g) => g.roles.includes(rol)).map(codigoDe)
         .filter((c) => !c.startsWith('pagina.') && !DE_EXCLUSIVAS.has(c)
-          // HU #14114 (migración 0282, decisión de David: «solo Operaciones/admin»): el mensajero ya no registra
+          // HU #14114 (migración 0283, decisión de David: «solo Operaciones/admin»): el mensajero ya no registra
           // viajes; la foto aún le da POST /traslados. Excepción estrecha: solo ese rol y esa función.
           && !(rol === 'mensajero' && c === 'logistica.traslado.registrar')))].sort();
       expect(operacionesDe(rol)).toEqual(desdeFoto);

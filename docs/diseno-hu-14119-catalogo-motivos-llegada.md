@@ -5,17 +5,17 @@ Salida del `architecture-agent` en modo slim. **No UI. No viaje a FLIT** (HU #14
 
 ## Patrón reutilizado
 
-- **Tabla, índices y seed (ya existen, no recrear):** `apps/api/src/db/migrations/0275_flito_logistica_traslados.sql` §1
+- **Tabla, índices y seed (ya existen, no recrear):** `apps/api/src/db/migrations/0276_flito_logistica_traslados.sql` §1
   y Drizzle `flitoLogisticaMotivosLlegada` en `apps/api/src/db/schema/flito-logistica-traslados.ts`.
   Único por `lower(nombre)` (`uq_flito_log_motivos_llegada_nombre`); listado por `(activo, orden)`.
   Seed de los tres nombres con `ON CONFLICT DO NOTHING`. FK de líneas `motivo_llegada_id … ON DELETE RESTRICT`.
 - **HTTP de catálogo (CRUD sin DELETE):** `apps/api/src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.ts`
   + `.service.ts` — Zod en la ruta, errores de dominio → 409/404, `audit` en escrituras, `exigirFuncion`.
   Montaje **antes** del router que tiene `GET /:id`, sin `conAlcance` (catálogo interno; enlace cerrado).
-- **Función nueva de logística:** calco 0283 (`logistica.traslado.anular`): operación **opcional** (no se gana con la
+- **Función nueva de logística:** calco 0284 (`logistica.traslado.anular`): operación **opcional** (no se gana con la
   acción padre), siembra idempotente, `padre_codigo`, `NACIDOS_DESPUES_DE_0239`, `catalogo-operaciones.ts`.
 
-La 0275 **ya está aplicada** (rama apilada sobre #14117). No se enmienda: AGENTS.md regla 6.
+La 0276 **ya está aplicada** (rama apilada sobre #14117). No se enmienda: AGENTS.md regla 6.
 
 ## Contrato delta
 
@@ -34,11 +34,11 @@ Query `soloActivos` no es PII: GET+query está bien (AGENTS.md §14). DTO sin PI
 
 **Transportadora externa:** es SOLO el motivo sembrado «Destino lejano (transportadora externa)». Cero columnas de precio, guía o proveedor. El viaje a FLIT (#14122) importa `listarMotivosActivos()` del servicio; no consume este HTTP.
 
-## Migración `0284_flito_logistica_motivos_permiso.sql`
+## Migración `0285_flito_logistica_motivos_permiso.sql`
 
-Siguiente número tras 0283 (14117 no creó migración). Sin `BEGIN/COMMIT`. Idempotente. **No** `CREATE TABLE`.
+Siguiente número tras 0284 (14117 no creó migración). Sin `BEGIN/COMMIT`. Idempotente. **No** `CREATE TABLE`.
 
-1. Re-seed de los tres nombres (AC5 de **esta** HU; P6 = aplicar **0284** dos veces). `ON CONFLICT (lower(nombre)) DO NOTHING` — no pisa `orden`/`activo` si un admin los cambió; si falta el nombre, lo inserta.
+1. Re-seed de los tres nombres (AC5 de **esta** HU; P6 = aplicar **0285** dos veces). `ON CONFLICT (lower(nombre)) DO NOTHING` — no pisa `orden`/`activo` si un admin los cambió; si falta el nombre, lo inserta.
 
 ```
 'Sin dirección de entrega al recoger'  orden 10
@@ -46,7 +46,7 @@ Siguiente número tras 0283 (14117 no creó migración). Sin `BEGIN/COMMIT`. Ide
 'Otro'  orden 30
 ```
 
-2. Función, calco 0283: `logistica.motivos.gestionar` tipo `operacion`, módulo `logistica`,
+2. Función, calco 0284: `logistica.motivos.gestionar` tipo `operacion`, módulo `logistica`,
    `padre_codigo = 'accion.logistica.ver_consola'`. Reparto: **solo `admin`**. Resto, desde el panel.
 
 Padre `ver_consola`: los opcionales **no se expanden** (auditor con «Ver la consola» sigue en 403). No se crea
@@ -56,11 +56,11 @@ acción nueva del árbol (las 55 de Gestión quedan; el epic C1–C2 sembró opc
 
 **Crear**
 
-- `apps/api/src/db/migrations/0284_flito_logistica_motivos_permiso.sql`
+- `apps/api/src/db/migrations/0285_flito_logistica_motivos_permiso.sql`
 - `apps/api/src/modules/flito-logistica/flito-logistica-motivos.routes.ts`
 - `apps/api/src/modules/flito-logistica/flito-logistica-motivos.service.ts`
 - `apps/api/__tests__/services/flito-logistica-motivos.routes.test.ts` (P1 HTTP: AC1–AC4, AC6)
-- `apps/api/__tests__/db/migracion-0284.test.ts` (P1: estática + AC5 dos pasadas / seed)
+- `apps/api/__tests__/db/migracion-0285.test.ts` (P1: estática + AC5 dos pasadas / seed)
 
 **Modificar**
 
@@ -73,11 +73,11 @@ acción nueva del árbol (las 55 de Gestión quedan; el epic C1–C2 sembró opc
 - `apps/api/__tests__/fixtures/permisos-rutas-reconducidas.ts` — las 4 rutas.
 - `apps/api/__tests__/services/permisos-arbol-gestion.test.ts` — lista literal de opcionales.
 
-**No tocar:** `schema.ts` / `flito-logistica-traslados.ts` (tabla ya está), `0275`, `apps/web`, `shared-types`, viaje a FLIT.
+**No tocar:** `schema.ts` / `flito-logistica-traslados.ts` (tabla ya está), `0276`, `apps/web`, `shared-types`, viaje a FLIT.
 
 ## ADR: no aplica
 
-Extensión del catálogo 0275 + patrón HTTP de proveedores-logística + siembra opcional 0283. Sin tabla/contrato nuevos ni tradeoff de PII/auth/integración.
+Extensión del catálogo 0276 + patrón HTTP de proveedores-logística + siembra opcional 0284. Sin tabla/contrato nuevos ni tradeoff de PII/auth/integración.
 
 ## Notas operativas (backend)
 
@@ -90,7 +90,7 @@ Extensión del catálogo 0275 + patrón HTTP de proveedores-logística + siembra
 ```
 npm test -w apps/api -- \
   __tests__/services/flito-logistica-motivos.routes.test.ts \
-  __tests__/db/migracion-0284.test.ts
+  __tests__/db/migracion-0285.test.ts
 ```
 
 Mutantes: 0 en impl. QA B: hasta 3 solo si el gate los nombra (duplicado / filtro activos / 403).
@@ -98,7 +98,7 @@ Mutantes: 0 en impl. QA B: hasta 3 solo si el gate los nombra (duplicado / filtr
 ## Gates al PR (no en este slim)
 
 - `security-agent`: **sí** (rutas nuevas). Sin PII en DTO/query/logs.
-- `db-review-agent`: **sí** (migración 0284; tabla 0275 es contexto, no se rediseña).
+- `db-review-agent`: **sí** (migración 0285; tabla 0276 es contexto, no se rediseña).
 - `flit-code-review` + `qa-agent` B: sí. Flujo LOCAL: no abrir PR ni mergear aquí.
 
 ## P1 — qué aserta cada test
@@ -111,9 +111,9 @@ Mutantes: 0 en impl. QA B: hasta 3 solo si el gate los nombra (duplicado / filtr
 - AC4: `router.stack` sin `DELETE`; `request.delete` → 404.
 - AC6: sin token 401; con token sin la función 403 en GET/POST/PATCH.
 
-`migracion-0284.test.ts`:
+`migracion-0285.test.ts`:
 
-- AC5: SQL con los tres literales + `ON CONFLICT`; `scanForTxControl` vacío; contra PG si `TEST_DATABASE_URL`: aplicar 0284 dos veces, count de los tres nombres estable.
+- AC5: SQL con los tres literales + `ON CONFLICT`; `scanForTxControl` vacío; contra PG si `TEST_DATABASE_URL`: aplicar 0285 dos veces, count de los tres nombres estable.
 
 ## Fuera de alcance (declarado)
 

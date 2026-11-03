@@ -400,7 +400,7 @@ router.post('/traslados/:id/devolucion', soloSinEnlace(), exigirFuncion('logisti
   }, 'traslados-devolucion');
 });
 
-// POST /traslados/:id/anular — solo `registrado`. Permiso propio; siembra admin (0283).
+// POST /traslados/:id/anular — solo `registrado`. Permiso propio; siembra admin (0284).
 router.post('/traslados/:id/anular', soloSinEnlace(), exigirFuncion('logistica.traslado.anular'), trasladoCicloLimiter, async (req: Request, res: Response) => {
   const id = uuidParam(req.params.id);
   if (!id.success) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }

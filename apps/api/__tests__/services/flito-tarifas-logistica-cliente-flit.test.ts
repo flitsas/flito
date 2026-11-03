@@ -1,6 +1,6 @@
 // HU #14106 (Feature B #14090) — conceptos `logistica_cliente` y `logistica_flit`, alias `logistica`,
-// `vigenciaId` en `ValorTarifa` y migración 0279 (análisis estático; la mitad contra PostgreSQL
-// vive en __tests__/db/migracion-0279.test.ts).
+// `vigenciaId` en `ValorTarifa` y migración 0280 (análisis estático; la mitad contra PostgreSQL
+// vive en __tests__/db/migracion-0280.test.ts).
 process.env.TZ = 'UTC';
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -140,15 +140,15 @@ describe('escritura — la llave de logística no lleva tipo y logistica se pers
   });
 });
 
-describe('0279 — reglas del archivo (estático)', () => {
+describe('0280 — reglas del archivo (estático)', () => {
   const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/db/migrations');
-  const ARCHIVO = '0279_flito_tarifas_logistica_cliente_flit.sql';
-  const SQL_0275 = readFileSync(path.join(dir, ARCHIVO), 'utf8');
-  const limpio = SQL_0275.replace(/--[^\n]*/g, '');
+  const ARCHIVO = '0280_flito_tarifas_logistica_cliente_flit.sql';
+  const SQL_0276 = readFileSync(path.join(dir, ARCHIVO), 'utf8');
+  const limpio = SQL_0276.replace(/--[^\n]*/g, '');
 
   it('sin control de transacción, DO etiquetado, CHECK idempotentes (DROP IF EXISTS antes de ADD)', () => {
-    expect(scanForTxControl(ARCHIVO, SQL_0275)).toEqual([]);
-    expect(limpio).toMatch(/DO \$logisticacliente0279\$/);
+    expect(scanForTxControl(ARCHIVO, SQL_0276)).toEqual([]);
+    expect(limpio).toMatch(/DO \$logisticacliente0280\$/);
     expect(limpio).not.toMatch(/\$\$/);
     expect(limpio.match(/DROP CONSTRAINT IF EXISTS/g)).toHaveLength(2);
     expect(limpio).toMatch(/concepto IN \('tramite_digital', 'logistica', 'logistica_cliente', 'logistica_flit'\)/);

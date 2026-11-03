@@ -31,19 +31,19 @@ export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set([
   // #13941 las de Dr. Flit, que siembra la 0254 junto con su ítem.
   ...ACCIONES_NACIDAS_TRAS_LA_SIEMBRA,
   ITEM_DR_FLIT,
-  // HU #14110: opcional de `accion.logistica.ver_actas`; su `padre_codigo` lo siembra la 0280 (la 0238 ya está aplicada).
+  // HU #14110: opcional de `accion.logistica.ver_actas`; su `padre_codigo` lo siembra la 0281 (la 0238 ya está aplicada).
   'logistica.actas.ver_documento_firmante',
-  // HU #14110: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra también la 0280.
+  // HU #14110: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra también la 0281.
   'logistica.recogida.confirmar',
-  // HU #14143: opcional de `accion.logistica.reversar_paso`; su `padre_codigo` lo siembra la 0281.
+  // HU #14143: opcional de `accion.logistica.reversar_paso`; su `padre_codigo` lo siembra la 0282.
   'logistica.documento.resolver_tramite',
-  // HU #14114: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra la 0282.
+  // HU #14114: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra la 0283.
   'logistica.traslado.registrar',
-  // HU #14115: opcional de `accion.logistica.reversar_paso`; su `padre_codigo` lo siembra la 0283.
+  // HU #14115: opcional de `accion.logistica.reversar_paso`; su `padre_codigo` lo siembra la 0284.
   'logistica.traslado.anular',
-  // HU #14119: opcional de `accion.logistica.ver_consola`; su `padre_codigo` lo siembra la 0284.
+  // HU #14119: opcional de `accion.logistica.ver_consola`; su `padre_codigo` lo siembra la 0285.
   'logistica.motivos.gestionar',
-  // HU #14122: opcional de `accion.logistica.despachar_entregar_devolver`; su `padre_codigo` lo siembra la 0285.
+  // HU #14122: opcional de `accion.logistica.despachar_entregar_devolver`; su `padre_codigo` lo siembra la 0286.
   'logistica.actas.firmar_flit',
 ]);
 

@@ -1,7 +1,7 @@
--- 0283_flito_logistica_permiso_traslado_anular.sql
+-- 0284_flito_logistica_permiso_traslado_anular.sql
 -- HU #14115 (Feature C2 #14092, Épica #13758, ADR-0030 C2.2) — la función `logistica.traslado.anular`:
 --   anular un viaje a cliente aún `registrado` (líneas a `anulado`, precio congelado intacto).
--- Calco de la 0282: solo siembra de datos, idempotente, sin BEGIN/COMMIT.
+-- Calco de la 0283: solo siembra de datos, idempotente, sin BEGIN/COMMIT.
 -- Es un OPCIONAL de `accion.logistica.reversar_paso` (acciones-gestion.ts): nace con su `padre_codigo`.
 -- Reparto: solo `admin`. Otros roles/usuarios, desde el panel.
 

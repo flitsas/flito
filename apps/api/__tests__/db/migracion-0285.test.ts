@@ -1,41 +1,44 @@
-// HU #14122 — la 0285 siembra `logistica.actas.firmar_flit` (solo admin) y entra al pliegue del seed.
+// HU #14119 AC5 — la 0285 re-siembra los tres motivos y la función `logistica.motivos.gestionar`.
 // Estática (siempre) + contra PostgreSQL solo con TEST_DATABASE_URL (en tx con ROLLBACK).
 process.env.TZ = 'UTC';
 
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import { abrirBase, enTx, leerMigracion, URL_BASE } from '../helpers/base-en-tx.js';
-import { MIGRACIONES_ANTES_DEL_ARBOL, MIGRACIONES_CON_REPARTO } from '../helpers/permisos-seed-sql.js';
 
 vi.mock('../../src/db/client.js', () => ({
   db: { select: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn(), transaction: vi.fn(), execute: vi.fn() },
   getPoolStats: vi.fn(),
 }));
 
-const ARCHIVO = '0285_flito_logistica_permiso_firmar_flit.sql';
+const ARCHIVO = '0285_flito_logistica_motivos_permiso.sql';
 const SQL = leerMigracion(ARCHIVO);
 const sinComentarios = (s: string) => s.replace(/--[^\n]*/g, '');
-const CODIGO = 'logistica.actas.firmar_flit';
+const NOMBRES = [
+  'Sin dirección de entrega al recoger',
+  'Destino lejano (transportadora externa)',
+  'Otro',
+] as const;
 
 describe('0285 — reglas del archivo (estática)', () => {
-  it('sin control de transacción propio y sin DDL', () => {
+  it('sin control de transacción propio', () => {
     expect(scanForTxControl(ARCHIVO, SQL)).toEqual([]);
-    const s = sinComentarios(SQL);
-    expect(s).not.toMatch(/\b(BEGIN|COMMIT|ALTER|CREATE)\b/i);
   });
 
-  it('siembra la función como opcional de despachar_entregar_devolver, solo admin', () => {
+  it('AC5: los tres literales con ON CONFLICT (lower(nombre)); no CREATE TABLE', () => {
     const s = sinComentarios(SQL);
-    expect(s).toMatch(/'logistica\.actas\.firmar_flit'/);
-    expect(s).toMatch(/'accion\.logistica\.despachar_entregar_devolver'/);
-    expect(s).toMatch(/'admin',\s*'logistica\.actas\.firmar_flit'/);
-    expect(s).not.toMatch(/'mensajero'/);
-    expect(s).not.toMatch(/'operaciones'/);
+    for (const n of NOMBRES) expect(SQL).toContain(`'${n}'`);
+    expect(s).toMatch(/ON CONFLICT \(lower\(nombre\)\) DO NOTHING/);
+    expect(s).not.toMatch(/CREATE TABLE/i);
+    expect(s).not.toMatch(/\bprecio\b/i);
+    expect(s).not.toMatch(/\bgu[ií]a\b/i);
   });
 
-  it('el archivo está en el pliegue: reparto y mundo plano', () => {
-    expect(MIGRACIONES_CON_REPARTO).toContain(ARCHIVO);
-    expect(MIGRACIONES_ANTES_DEL_ARBOL).toContain(ARCHIVO);
+  it('siembra logistica.motivos.gestionar como opcional de ver_consola, solo admin', () => {
+    const s = sinComentarios(SQL);
+    expect(s).toMatch(/'logistica\.motivos\.gestionar'/);
+    expect(s).toMatch(/'accion\.logistica\.ver_consola'/);
+    expect(s).toMatch(/'admin',\s*'logistica\.motivos\.gestionar'/);
   });
 });
 
@@ -44,30 +47,26 @@ describe.skipIf(!URL_BASE)('0285 — contra la base real', () => {
   beforeAll(() => { sql = abrirBase(); });
   afterAll(async () => { await sql?.end(); });
 
-  it('aplicar 0285 dos veces deja estable el count de la función y el reparto admin', async () => {
+  it('AC5: aplicar 0285 dos veces deja estable el count de los tres nombres y de la función', async () => {
     await enTx(sql, async (tx) => {
+      const contarNombres = async () => {
+        const [n] = await tx`SELECT count(*)::int AS n FROM flito_logistica_motivos_llegada
+          WHERE nombre IN ${tx(NOMBRES)}`;
+        return n!.n as number;
+      };
       const contarFn = async () => {
-        const [n] = await tx`SELECT count(*)::int AS n FROM permisos_funciones WHERE codigo = ${CODIGO}`;
-        return n!.n as number;
-      };
-      const contarAdmin = async () => {
-        const [n] = await tx`SELECT count(*)::int AS n FROM permisos_rol_funcion
-          WHERE funcion_codigo = ${CODIGO} AND rol_codigo = 'admin'`;
-        return n!.n as number;
-      };
-      const contarOtros = async () => {
-        const [n] = await tx`SELECT count(*)::int AS n FROM permisos_rol_funcion
-          WHERE funcion_codigo = ${CODIGO} AND rol_codigo <> 'admin'`;
+        const [n] = await tx`SELECT count(*)::int AS n FROM permisos_funciones
+          WHERE codigo = 'logistica.motivos.gestionar'`;
         return n!.n as number;
       };
       await tx.unsafe(SQL);
-      expect(await contarFn()).toBe(1);
-      expect(await contarAdmin()).toBe(1);
-      expect(await contarOtros()).toBe(0);
+      const nombres = await contarNombres();
+      const fns = await contarFn();
+      expect(nombres).toBe(3);
+      expect(fns).toBe(1);
       await tx.unsafe(SQL);
-      expect(await contarFn()).toBe(1);
-      expect(await contarAdmin()).toBe(1);
-      expect(await contarOtros()).toBe(0);
+      expect(await contarNombres()).toBe(nombres);
+      expect(await contarFn()).toBe(fns);
     });
   }, 60_000);
 });

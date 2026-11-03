@@ -147,7 +147,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/mias", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/pendientes-firma", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/recogidas/:firmanteId", roles: ["admin","mensajero"], heredada: false },
-  // HU #14143: resolver el trámite de una LT pendiente; la 0281 la siembra SOLO a `admin`.
+  // HU #14143: resolver el trámite de una LT pendiente; la 0282 la siembra SOLO a `admin`.
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/pendientes-tramite", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "GET", ruta: "/documentos/:id/candidatos-tramite", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/documentos/:id/resolver-tramite", roles: ["admin"], heredada: false },
@@ -168,7 +168,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/actas/:id/entregar", condicion: "operarAjenas", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/actas/:id/devolucion", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/documentos/:id/reversar", roles: ["admin"], heredada: false },
-  // HU #14119: catálogo de motivos de llegada a FLIT; la 0284 siembra SOLO a `admin`.
+  // HU #14119: catálogo de motivos de llegada a FLIT; la 0285 siembra SOLO a `admin`.
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-motivos.routes.ts", metodo: "GET", ruta: "/", condicion: "listar", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-motivos.routes.ts", metodo: "POST", ruta: "/", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-motivos.routes.ts", metodo: "PATCH", ruta: "/:id", roles: ["admin"], heredada: false },

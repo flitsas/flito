@@ -1,6 +1,6 @@
--- 0285_flito_logistica_permiso_firmar_flit.sql
+-- 0286_flito_logistica_permiso_firmar_flit.sql
 -- HU #14122 (Feature C3 #14093, Épica #13758, ADR-0030) — firma de la llegada a FLIT.
--- No crea tabla ni altera 0274/0275. Solo:
+-- No crea tabla ni altera 0275/0276. Solo:
 --   1. Función `logistica.actas.firmar_flit`, opcional de
 --      `accion.logistica.despachar_entregar_devolver` (el mensajero recibe entregar/devolver
 --      y no este opcional).

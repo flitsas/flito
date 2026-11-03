@@ -1,5 +1,5 @@
 // HU #14119 (Feature C3.1 #14093, Épica #13758, ADR-0030) — Catálogo de motivos de llegada a FLIT.
-// Tabla `flito_logistica_motivos_llegada` (0275). HTTP en `flito-logistica-motivos.routes.ts`.
+// Tabla `flito_logistica_motivos_llegada` (0276). HTTP en `flito-logistica-motivos.routes.ts`.
 // Sin DELETE: inactivar conserva el id para el histórico (`flito_logistica_traslado_lts.motivo_llegada_id`).
 // «Destino lejano (transportadora externa)» es SOLO un nombre del catálogo: sin precio, guía ni proveedor.
 import { asc, eq, ne, sql } from 'drizzle-orm';

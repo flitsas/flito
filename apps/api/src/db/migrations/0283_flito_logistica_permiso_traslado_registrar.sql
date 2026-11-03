@@ -1,6 +1,6 @@
--- 0282_flito_logistica_permiso_traslado_registrar.sql
+-- 0283_flito_logistica_permiso_traslado_registrar.sql
 -- HU #14114 (Feature C2 #14092, Épica #13758, ADR-0030 §5) — la función `logistica.traslado.registrar`:
---   registrar el viaje a cliente de las LT de una compañía (precio congelado). Calco de la 0280:
+--   registrar el viaje a cliente de las LT de una compañía (precio congelado). Calco de la 0281:
 --   solo siembra de datos, idempotente, sin BEGIN/COMMIT.
 -- Es un OPCIONAL de `accion.mi_ruta.escanear` (acciones-gestion.ts): nace con su `padre_codigo`.
 -- Reparto: SOLO `admin` (decisión de producto: registrar el viaje a cliente es de Operaciones/admin; el
