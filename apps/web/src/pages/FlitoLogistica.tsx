@@ -7,10 +7,11 @@
 //      hace seguimiento hasta la entrega firmada por el receptor.
 // La firma del RECEPTOR se captura en campo (PWA). El acta combina ambas firmas en su PDF.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ESTADO_LOGISTICA_SIMPLE_LABEL, simplificarEstadoLogistica, type CompaniaCerrableLogistica, type EstadoLogisticaSimple } from '@operaciones/shared-types';
 import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import NoAccess from '../components/NoAccess';
 import { vacioConEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import {
@@ -82,7 +83,7 @@ function vacioLogistica(tipoEnlace: Parameters<typeof vacioConEnlace>[1]): strin
 }
 
 export default function FlitoLogistica() {
-  const { hasFuncion, tipoEnlace } = useAuth();
+  const { hasFuncion, tipoEnlace, funciones } = useAuth();
   // HU #12170 — despachar / novedad / devolver en Actas (no gobierna Viajes).
   const esOperaciones = hasFuncion('logistica.lote.cerrar');
   // HU #14116 / #14123: pestaña Viajes. Sin la función no se pinta.
@@ -95,8 +96,20 @@ export default function FlitoLogistica() {
   const puedeGestionarMotivos = hasFuncion('logistica.motivos.gestionar');
   // HU #14125: pestaña Entregas. POST solo al entrar (el tab lo pide). Sin badge.
   const puedeVerEntregas = hasFuncion('logistica.consola.ver');
+  // Pestañas por función (Épica #13758): cada pestaña y cada carga inicial exige la función que la sirve.
+  const puedeVerTramites = hasFuncion('logistica.consola.ver');
+  const puedeListarActas = hasFuncion('logistica.actas.listar');
+  const puedeFiltrar = hasFuncion('logistica.consola.filtrar');
 
-  const [tab, setTab] = useState<Tab>('tramites');
+  const [tabSel, setTab] = useState<Tab | null>(null);
+  // Pestañas cuyo endpoint respondió 403 con la página abierta: se quitan de la barra.
+  const [perdidas, setPerdidas] = useState<ReadonlySet<Tab>>(() => new Set());
+  const [avisoPerdida, setAvisoPerdida] = useState(false);
+  const [viajesDesactualizados, setViajesDesactualizados] = useState(false);
+  const perder = (...tabs: Tab[]) => {
+    setPerdidas((prev) => new Set([...prev, ...tabs]));
+    setAvisoPerdida(true);
+  };
   const [data, setData] = useState<Listado | null>(null);
   const [actas, setActas] = useState<ActaFila[] | null>(null);
   const [facetas, setFacetas] = useState<Facetas | null>(null);
@@ -120,20 +133,37 @@ export default function FlitoLogistica() {
     if (buscar.trim()) params.set('buscar', buscar.trim());
     if (estadosSel.length) params.set('estados', estadosSel.join(','));
     if (empresaSel) params.set('empresas', empresaSel);
-    api.get<Listado>(`/flito/logistica?${params.toString()}`).then(setData).catch((e) => setError(errorMessage(e)));
-    api.get<ActaFila[]>('/flito/logistica/actas').then(setActas).catch(() => setActas([]));
+    if (puedeVerTramites) {
+      api.get<Listado>(`/flito/logistica?${params.toString()}`).then(setData).catch((e) => {
+        if (e instanceof ApiError && e.status === 403) perder('tramites', 'entregas');
+        else setError(errorMessage(e));
+      });
+    }
+    if (puedeListarActas) {
+      api.get<ActaFila[]>('/flito/logistica/actas').then(setActas).catch((e) => {
+        if (e instanceof ApiError && e.status === 403) perder('actas');
+        setActas([]);
+      });
+    }
   };
-  useEffect(cargar, [buscar, estadosSel, empresaSel]);
-  const recargarFacetas = () => {
-    setFacetasCarga('cargando');
+  useEffect(cargar, [buscar, estadosSel, empresaSel, puedeVerTramites, puedeListarActas]);
+  const hayFacetas = useRef(false);
+  const recargarFacetas = (silencioso = false) => {
+    // `/facetas` exige `consola.filtrar`; sin ella ni se pide (no hay 403 en red).
+    if (!puedeFiltrar) { setFacetas(null); setFacetasCarga(puedeRegistrarViaje ? 'error403' : 'ok'); return Promise.resolve(); }
+    if (!silencioso) setFacetasCarga('cargando');
     return api.get<Facetas>('/flito/logistica/facetas')
-      .then((f) => { setFacetas(f); setFacetasCarga('ok'); })
+      .then((f) => { hayFacetas.current = true; setFacetas(f); setFacetasCarga('ok'); setViajesDesactualizados(false); })
       .catch((e) => {
+        if (e instanceof ApiError && e.status === 403) perder('viajes-cliente');
+        // Refresco silencioso fallido: lo que se ve no se borra; aviso en la pestaña.
+        if (silencioso && hayFacetas.current && !(e instanceof ApiError && e.status === 403)) { setViajesDesactualizados(true); return; }
+        hayFacetas.current = false;
         setFacetas(null);
         setFacetasCarga(e instanceof ApiError && e.status === 403 ? 'error403' : 'error');
       });
   };
-  useEffect(() => { recargarFacetas(); }, []);
+  useEffect(() => { void recargarFacetas(); }, [puedeFiltrar, puedeRegistrarViaje]);
 
   const accion = async (fn: () => Promise<unknown>) => {
     setBusy(true); setError(null);
@@ -155,15 +185,31 @@ export default function FlitoLogistica() {
   const registradas = cerrables.reduce((n, c) => n + c.disponibles, 0);
   const actasPendientes = (actas ?? []).filter((a) => a.estado === 'generada').length;
 
-  const TABS: Array<{ key: Tab; label: string; badge?: number }> = [
-    { key: 'tramites', label: 'Trámites', badge: data?.total },
+  const TABS_TODAS: Array<{ key: Tab; label: string; badge?: number }> = [
+    ...(puedeVerTramites ? [{ key: 'tramites' as const, label: 'Trámites', badge: data?.total }] : []),
     ...(puedeRegistrarViaje ? [{ key: 'viajes-cliente' as const, label: 'Viajes', badge: registradas || undefined }] : []),
     ...(puedeVerEntregas ? [{ key: 'entregas' as const, label: 'Entregas' }] : []),
-    { key: 'actas', label: 'Actas', badge: actasPendientes || undefined },
+    ...(puedeListarActas ? [{ key: 'actas' as const, label: 'Actas', badge: actasPendientes || undefined }] : []),
     ...(hasFuncion('logistica.viajes.registrar') ? [{ key: 'viajes' as const, label: 'Viajes adicionales' }] : []),
     ...(puedeResolverLt ? [{ key: 'pendientes' as Tab, label: 'LT pendientes', badge: ltPend.error ? undefined : (ltPend.items?.length || undefined) }] : []),
     ...(puedeGestionarMotivos ? [{ key: 'motivos-llegada' as const, label: 'Motivos de llegada' }] : []),
   ];
+  const TABS = TABS_TODAS.filter((t) => !perdidas.has(t.key));
+  // Pestaña inicial = la primera visible; si la elegida desaparece (403), pasa a la primera visible.
+  const tab: Tab | null = TABS.some((t) => t.key === tabSel) ? tabSel : (TABS[0]?.key ?? null);
+
+  // Refresco silencioso al volver a Viajes o Trámites (sin esqueleto; no se borra lo ya visto).
+  const montado = useRef(false);
+  useEffect(() => {
+    if (!montado.current) { montado.current = true; return; }
+    if (tab === 'viajes-cliente') void recargarFacetas(true);
+    if (tab === 'tramites') cargar();
+  }, [tab]);
+
+  if (funciones === null) {
+    return <div role="status" aria-busy="true" aria-label="Cargando Logística…" className="h-24 rounded-xl" style={{ background: 'var(--flit-border-soft)' }} />;
+  }
+  if (TABS.length === 0) return <NoAccess page="flito_logistica" />;
 
   return (
     <div className="space-y-4">
@@ -195,6 +241,14 @@ export default function FlitoLogistica() {
           );
         })}
       </div>
+
+      {avisoPerdida && (
+        <FlitCard>
+          <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+            Ya no tiene acceso a esta sección. Vuelva a iniciar sesión si cree que es un error.
+          </p>
+        </FlitCard>
+      )}
 
       {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
 
@@ -272,6 +326,14 @@ export default function FlitoLogistica() {
         </>
       )}
 
+      {tab === 'viajes-cliente' && puedeRegistrarViaje && viajesDesactualizados && (
+        <FlitCard>
+          <div role="status" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="flex-1">No se pudo actualizar.</p>
+            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => { void recargarFacetas(true); }}>Reintentar</button>
+          </div>
+        </FlitCard>
+      )}
       {tab === 'viajes-cliente' && puedeRegistrarViaje && (
         <ViajesACliente
           grupos={cerrables}
@@ -283,7 +345,7 @@ export default function FlitoLogistica() {
       )}
 
       {/* ── Pestaña Entregas (HU #14125). POST solo con la pestaña activa. ── */}
-      {tab === 'entregas' && puedeVerEntregas && <TabEntregas />}
+      {tab === 'entregas' && puedeVerEntregas && <TabEntregas onViajeAnulado={() => { void recargarFacetas(true); }} />}
 
       {/* ── Pestaña 3: Actas ── */}
       {tab === 'actas' && (

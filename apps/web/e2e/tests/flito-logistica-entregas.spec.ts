@@ -80,8 +80,10 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
     await mockConsola(page);
     const st = await mockEntregas(page);
     await page.goto('/flito/logistica');
-    await expect(page.getByRole('button', { name: /Trámites/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Entregas', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Actas/ })).toBeVisible();
+    // Épica #13758: Trámites y Entregas cuelgan de la misma función (consola.ver).
+    await expect(page.getByRole('button', { name: /Trámites/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Entregas', exact: true }).first()).toHaveCount(0);
     expect(st.posts).toBe(0);
   });
 

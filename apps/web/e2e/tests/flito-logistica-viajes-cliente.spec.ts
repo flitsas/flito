@@ -12,20 +12,20 @@ const FACETAS = {
     {
       companiaId: 5, nombre: 'Transportes Andes', disponibles: 2, precioEntregaCliente: 12000, precioEntregaFlit: 8000,
       lts: [
-        { documentoId: 'doc-a', placa: 'QOX858', numeroLt: '10038156339', idFlit: 'FLIT-1' },
-        { documentoId: 'doc-b', placa: 'ABC123', numeroLt: '10038156340', idFlit: 'FLIT-2' },
+        { documentoId: 'doc-a', origen: 'organismo', placa: 'QOX858', numeroLt: '10038156339', idFlit: 'FLIT-1' },
+        { documentoId: 'doc-b', origen: 'organismo', placa: 'ABC123', numeroLt: '10038156340', idFlit: 'FLIT-2' },
       ],
     },
     {
       companiaId: 6, nombre: 'Rápido del Valle', disponibles: 1, precioEntregaCliente: null, precioEntregaFlit: null,
       lts: [
-        { documentoId: 'doc-c', placa: 'DEF456', numeroLt: '10038156341', idFlit: 'FLIT-3' },
+        { documentoId: 'doc-c', origen: 'organismo', placa: 'DEF456', numeroLt: '10038156341', idFlit: 'FLIT-3' },
       ],
     },
     {
       companiaId: 7, nombre: 'Cero Pesos', disponibles: 1, precioEntregaCliente: 0, precioEntregaFlit: 0,
       lts: [
-        { documentoId: 'doc-d', placa: 'GHI789', numeroLt: '10038156342', idFlit: 'FLIT-4' },
+        { documentoId: 'doc-d', origen: 'organismo', placa: 'GHI789', numeroLt: '10038156342', idFlit: 'FLIT-4' },
       ],
     },
   ],
@@ -133,7 +133,7 @@ test.describe('FLITO — Viajes (HU #14116)', () => {
     await mockConsola(page, VACIAS);
     await page.goto('/flito/logistica');
     await page.getByRole('button', { name: /^Viajes$/ }).click();
-    await expect(page.getByText(/No hay LT clasificadas listas para un viaje/)).toBeVisible();
+    await expect(page.getByText(/No hay LT listas para un viaje/)).toBeVisible();
 
     await page.route(/\/api\/flito\/logistica\/facetas/, (route) =>
       route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'boom' }) }));
@@ -145,8 +145,9 @@ test.describe('FLITO — Viajes (HU #14116)', () => {
     await page.route(/\/api\/flito\/logistica\/facetas/, (route) =>
       route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'no' }) }));
     await page.reload();
-    await page.getByRole('button', { name: /^Viajes$/ }).click();
-    await expect(page.getByText('No tiene permiso para registrar viajes.')).toBeVisible();
+    // Épica #13758: un 403 con la página abierta quita la pestaña y deja un aviso persistente.
+    await expect(page.getByText('Ya no tiene acceso a esta sección. Vuelva a iniciar sesión si cree que es un error.')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Viajes$/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
   });
 

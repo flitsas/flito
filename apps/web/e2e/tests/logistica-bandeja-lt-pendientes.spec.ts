@@ -50,10 +50,11 @@ const irABandeja = async (page: Page) => {
 
 test.describe('FLITO — Logística · bandeja de LT pendientes', () => {
   test('sin la función: ni pestaña ni llamada al API', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER, { funciones: BASE });
+    // Épica #13758: sin consola.ver/actas.listar la consola no tendría pestañas; se deja Actas como ancla.
+    await loginAs(page, OPERACIONES_USER, { funciones: [...BASE, 'logistica.actas.listar'] });
     const st = await mockBandeja(page);
     await page.goto('/flito/logistica');
-    await expect(page.getByRole('button', { name: /Trámites/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Actas/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /LT pendientes/ })).toHaveCount(0);
     expect(st.listaGets).toBe(0);
   });

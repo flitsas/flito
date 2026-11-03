@@ -1062,14 +1062,14 @@ export const LOGISTICA_FACETAS_DEMO = {
     {
       companiaId: 901, nombre: EMPRESAS_DEMO[0], disponibles: 2, precioEntregaCliente: 12000, precioEntregaFlit: 8000,
       lts: [
-        { documentoId: 'doc-log-demo-1', placa: DATOS_DEMO.placas[0], numeroLt: 'LT90000000101', idFlit: 'FLIT-DEMO-1' },
-        { documentoId: 'doc-log-demo-2', placa: DATOS_DEMO.placas[1], numeroLt: 'LT90000000202', idFlit: 'FLIT-DEMO-2' },
+        { documentoId: 'doc-log-demo-1', origen: 'organismo', placa: DATOS_DEMO.placas[0], numeroLt: 'LT90000000101', idFlit: 'FLIT-DEMO-1' },
+        { documentoId: 'doc-log-demo-2', origen: 'organismo', placa: DATOS_DEMO.placas[1], numeroLt: 'LT90000000202', idFlit: 'FLIT-DEMO-2' },
       ],
     },
     {
       companiaId: 902, nombre: EMPRESAS_DEMO[1], disponibles: 1, precioEntregaCliente: null, precioEntregaFlit: null,
       lts: [
-        { documentoId: 'doc-log-demo-3', placa: DATOS_DEMO.placas[2], numeroLt: 'LT90000000303', idFlit: 'FLIT-DEMO-3' },
+        { documentoId: 'doc-log-demo-3', origen: 'organismo', placa: DATOS_DEMO.placas[2], numeroLt: 'LT90000000303', idFlit: 'FLIT-DEMO-3' },
       ],
     },
   ],

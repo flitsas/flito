@@ -39,7 +39,7 @@ const FACETAS = {
   organismos: [{ codigo: '05001', nombre: 'STT Medellín' }],
   companiasCerrables: [{
     companiaId: 5, nombre: 'Concesionario Norte', disponibles: 1, precioEntregaCliente: 12000, precioEntregaFlit: 8000,
-    lts: [{ documentoId: 'doc-2', placa: 'XYZ789', numeroLt: 'LT-77', idFlit: 'FLIT-2002' }],
+    lts: [{ documentoId: 'doc-2', origen: 'organismo', placa: 'XYZ789', numeroLt: 'LT-77', idFlit: 'FLIT-2002' }],
   }],
   mensajeros: [{ id: 9, nombre: 'Mensajero E2E' }],
 };
