@@ -58,9 +58,18 @@ export function desgloseDe(
       traslados, totalTraslados,
     };
   }
+  // Regla de cobro: con líneas de traslado que cobran, la tarifa base no se cobra (el viaje a cliente
+  // o a FLIT es una línea) y el «viaje 1» deja de ser la tarifa: `tarifa` null y `totalViajes` solo
+  // cuenta los adicionales. Un sello anterior a la regla (valor = tarifa + líneas) conserva su forma.
+  const lineas = logistica.traslados ?? [];
+  const adicionales = (logistica.viajes ?? []).reduce((a, v) => a + v.valor, 0);
+  const sumaNueva = lineas.reduce((a, t) => a + t.precio, 0) + adicionales;
+  const sinTarifaBase = lineas.length > 0 && logistica.valor !== null && Math.abs(logistica.valor - sumaNueva) < 0.01;
   return {
     ...base, gestionaLogistica: true, liquidado, liquidadoEn, origen: liquidado ? 'sellado' : 'vigente',
-    tarifa: logistica.tarifa, totalViajes: logistica.totalViajes, totalLogistica: logistica.valor,
+    tarifa: sinTarifaBase ? null : logistica.tarifa,
+    totalViajes: sinTarifaBase ? (logistica.viajes ?? []).length : logistica.totalViajes,
+    totalLogistica: logistica.valor,
     items: logistica.viajes ?? [],
     traslados, totalTraslados,
   };
