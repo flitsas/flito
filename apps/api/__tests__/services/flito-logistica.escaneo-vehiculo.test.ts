@@ -65,6 +65,7 @@ describe('escanearLt por vehículo (HU #14142)', () => {
     const r = await svc.escanearLt(RAW, null, {}, ctx);
     expect(r.resultado).toBe('recogido');
     expect(insertados[0]).toMatchObject({ tramiteId: 't1', companiaId: 5, vehiculoId: 9 });
+    expect(insertados[1]).toMatchObject({ tipo: 'recogida' });
   });
 
   it('AC2: varios aprobados sin LT → elegir_tramite con candidatos, NO crea nada', async () => {
@@ -108,7 +109,7 @@ describe('escanearLt por vehículo (HU #14142)', () => {
     expect(r.resultado).toBe('recogido');
     expect(r.pendienteTramite).toBe(true);
     expect(insertados[0]).toMatchObject({ tramiteId: null, companiaId: null, companiaNit: null, vehiculoId: 9, organismoCodigo: '05001', estado: 'recogido' });
-    expect(insertados[1]).toMatchObject({ tipo: 'recogida_organismo', payload: { pendienteTramite: true } });
+    expect(insertados[1]).toMatchObject({ tipo: 'recogida', payload: { pendienteTramite: true } });
     expect(insertados).toHaveLength(2); // documento + evento de recogida; sin evento de clasificación (no hay compañía)
   });
 
@@ -216,7 +217,7 @@ describe('ingreso manual (placa + n.º de licencia + sustrato LT) — HU #14142'
     const r = await svc.escanearLt(MANUAL, null, {}, ctx);
     expect(r).toMatchObject({ resultado: 'recogido', placa: 'QOX858', vin: 'LRWYGCFJ0TC496126', numeroLicencia: '10038156339' });
     expect(insertados[0]).toMatchObject({ tramiteId: 't1', numeroLt: 'LT0012345', numeroLicencia: '10038156339', estado: 'recogido' });
-    expect(insertados[1]).toMatchObject({ tipo: 'recogida_organismo', payload: { origen: 'manual' } });
+    expect(insertados[1]).toMatchObject({ tipo: 'recogida', payload: { origen: 'manual' } });
   });
 
   it('manual con varios trámites → elegir_tramite; con tramiteId elegido se crea con ese', async () => {
@@ -321,6 +322,7 @@ describe('HU #14147 — organismo y compañía en la respuesta del escaneo y la 
     insertMock.mockReturnValueOnce(insertCapturando([{ id: 'd1' }]));
     const r = await svc.escanearLt(RAW, null, {}, ctx);
     expect(r).toMatchObject({ resultado: 'novedad', organismoCodigo: '05001', companiaNombre: 'ACME' });
+    expect(insertados[1]).toMatchObject({ tipo: 'recogida' });
   });
   it('escanear duplicado por trámite con LT: los trae del trámite', async () => {
     lecturas([], [fila({ docId: 'dX' })]);

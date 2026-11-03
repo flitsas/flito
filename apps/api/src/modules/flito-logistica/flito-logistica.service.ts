@@ -9,16 +9,21 @@
 // en consola, al despachar) y recibe (receptor, en campo). El PDF del acta combina ambas.
 // Ojo (§9.7): el 'entregado' de logística ≠ EstadoTramiteFlito.ENTREGADO (compuerta SOAT+Impuestos).
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import {
-  EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL, puedeEntrarEnActa,
+  EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL,
   type EstadoDocumentoLogistica as TEstadoDoc,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { clients, flitoLogisticaActas, flitoLogisticaDocumentos, flitoProveedoresLogistica } from '../../db/schema.js';
+import { flitoLogisticaActas, flitoLogisticaDocumentos } from '../../db/schema.js';
 import { uploadEntityDocument } from '../../services/storage.js';
-import { LogisticaError, bufDesdeDataUrl, exigirTramiteResuelto, log, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
+import { LogisticaError, bufDesdeDataUrl, log, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
 import { generarActaPdf } from './flito-logistica.acta-pdf.js';
+import { exigirCompaniaRegistrable, idsClasificadosDe, registrarTraslado } from './flito-logistica-traslados.service.js';
+import { SinLtClasificadasError } from './flito-logistica-traslados.errors.js';
+import {
+  anularLineaEntregadaSiHay, devolverTraslado, despacharTraslado, entregarTraslado, trasladoIdDeActaCliente,
+} from './flito-logistica-traslados-ciclo.service.js';
 
 // HU #14108 (ADR-0030 §11): barrel. Los importadores (rutas, soportes, tests) siguen importando este archivo.
 export * from './flito-logistica.base.js';
@@ -26,6 +31,11 @@ export * from './flito-logistica.escaneo.js';
 export * from './flito-logistica.consulta.js';
 export * from './flito-logistica.acta-pdf.js';
 export * from './flito-logistica.idempotencia.js';
+export * from './flito-logistica-traslados.service.js';
+export * from './flito-logistica-traslados.errors.js';
+export * from './flito-logistica-traslados-ciclo.service.js';
+export * from './flito-logistica-precios.js';
+export * from './flito-logistica.entregas.js';
 
 // ── Novedad sobre una LT ya escaneada ────────────────────────────────────────
 
@@ -46,67 +56,26 @@ export async function registrarNovedad(documentoId: string, motivo: string, ctx:
   });
 }
 
-// ── Actas (cerrar lote, despachar con firma de Operaciones, entregar, devolver) ──
-
-/** Proveedor logístico por defecto (la primera mensajería propia activa), o null. */
-async function proveedorPorDefecto(exec: DbOrTx): Promise<string | null> {
-  const [prov] = await exec.select({ id: flitoProveedoresLogistica.id }).from(flitoProveedoresLogistica)
-    .where(and(eq(flitoProveedoresLogistica.activo, true), eq(flitoProveedoresLogistica.estrategia, 'pwa_propia')))
-    .limit(1);
-  return prov?.id ?? null;
-}
+// ── Actas (cerrar lote → adaptador de registrarTraslado, despachar, entregar, devolver) ──
 
 export interface ResultadoCerrarLote { actaId: string; documentos: number }
 
 /**
- * Cierra el lote de una empresa y genera un acta con sus LT 'clasificado' (CA-04, una por empresa).
- * Entregas parciales SIEMPRE (HU #13936, retira la regla "Solo completo" de CA-08/09): el acta
- * lleva las LT listas y las pendientes (novedad/sin clasificar) siguen en la bandeja para un lote
- * posterior. `clients.logistica_permite_parcial` ya no se lee (columna conservada, sin efecto) y
- * el acta registra `permiteParcial = true`. Sin LT listas → 400; compañía autogestionada → 409.
+ * @deprecated HU #14114: adaptador de `registrarTraslado` con destino `cliente` sobre las LT
+ * `clasificado` de la compañía. Conserva el contrato `{ actaId, documentos }` para no romper la web
+ * actual (se retira en C2.3). Sin LT listas → 400; compañía autogestionada → 409; sin precio o
+ * sin proveedor → 422 (ya no se inserta un acta con proveedor nulo).
  */
 export async function cerrarLote(companiaId: number, ctx: LogisticaCtx): Promise<ResultadoCerrarLote> {
-  const res = await db.transaction(async (tx) => {
-    const [compania] = await tx.select({
-      id: clients.id, nombre: clients.name,
-      autogestionable: clients.logisticaAutogestionable,
-      direccion: clients.address, contactoNombre: clients.name, contactoDoc: clients.document,
-    }).from(clients).where(eq(clients.id, companiaId)).limit(1);
-    if (!compania) throw new LogisticaError('Compañía no encontrada', 404);
-    // Parametrización por compañía (RN-05): FLITO no gestiona la logística de compañías autogestionadas.
-    if (compania.autogestionable) throw new LogisticaError('La logística de esta compañía es autogestionada por el cliente; FLITO no la gestiona', 409);
-
-    const docs = await tx.select({ id: flitoLogisticaDocumentos.id, estado: flitoLogisticaDocumentos.estado })
-      .from(flitoLogisticaDocumentos)
-      .where(and(
-        eq(flitoLogisticaDocumentos.companiaId, companiaId),
-        inArray(flitoLogisticaDocumentos.estado, [
-          EstadoDocumentoLogistica.RECOGIDO, EstadoDocumentoLogistica.CLASIFICADO,
-          EstadoDocumentoLogistica.NOVEDAD, EstadoDocumentoLogistica.DEVUELTO,
-        ] as TEstadoDoc[]),
-      ));
-
-    const listos = docs.filter((d) => puedeEntrarEnActa(d.estado as TEstadoDoc));
-    await exigirTramiteResuelto(tx, listos.map((d) => d.id)); // ADR-0030 §17.2: nunca una LT pendiente en un acta de compañía
-    const pendientes = docs.filter((d) => !puedeEntrarEnActa(d.estado as TEstadoDoc));
-    if (listos.length === 0) throw new LogisticaError('No hay LT clasificadas para esta empresa', 400, { pendientes: pendientes.length });
-
-    const proveedorId = await proveedorPorDefecto(tx);
-    const [acta] = await tx.insert(flitoLogisticaActas).values({
-      companiaId, estado: EstadoActaLogistica.GENERADA, permiteParcial: true,
-      proveedorLogisticaId: proveedorId,
-      direccionEntrega: compania.direccion, contactoNombre: compania.contactoNombre, contactoDocumento: compania.contactoDoc,
-    }).returning({ id: flitoLogisticaActas.id });
-
-    for (const d of listos) {
-      await tx.update(flitoLogisticaDocumentos).set({ actaId: acta.id, updatedAt: new Date() }).where(eq(flitoLogisticaDocumentos.id, d.id));
-      await transicionar(tx, d, EstadoDocumentoLogistica.EN_ACTA, ctx);
-    }
-    return { actaId: acta.id, documentos: listos.length };
-  });
-  try { await generarActaPdf(res.actaId); }
-  catch (e) { log.warn({ actaId: res.actaId, err: (e as Error).message }, 'no se pudo generar el PDF base del acta'); }
-  return res;
+  const ids = await idsClasificadosDe(companiaId);
+  if (ids.length === 0) {
+    await exigirCompaniaRegistrable(companiaId);
+    throw new SinLtClasificadasError();
+  }
+  const r = await registrarTraslado({
+    companiaId, destino: 'cliente', lts: ids.map((documentoId) => ({ documentoId })),
+  }, ctx);
+  return { actaId: r.actaId, documentos: r.documentos };
 }
 
 async function docsDeActa(exec: DbOrTx, actaId: string): Promise<Array<{ id: string; estado: string }>> {
@@ -121,19 +90,22 @@ async function cargarActa(exec: DbOrTx, actaId: string): Promise<{ id: string; e
   return acta;
 }
 
-export interface DespachoInput { mensajeroId: number; firmaEntrega: string; entregaNombre?: string | null }
+export interface DespachoInput { mensajeroId: number; firmaEntrega?: string | null; entregaNombre?: string | null }
 
 /**
- * Despacha el acta a un mensajero. Aquí Operaciones firma en consola la ENTREGA (primera de las dos
- * firmas del acta): se guarda su firma + nombre. Las LT pasan a 'despachado' y aparecen en la ruta
- * del mensajero, que en campo recogerá la firma del RECEPTOR (CA-05).
+ * Adaptador HU #14115: si el acta es de cliente con traslado, despacha el viaje. Firma de Operaciones
+ * opcional (sin cédula, N4). El resto (actas sin traslado) conserva el camino legado.
  */
 export async function despachar(actaId: string, datos: DespachoInput, ctx: LogisticaCtx): Promise<{ documentos: number }> {
-  if (!datos.firmaEntrega?.trim()) throw new LogisticaError('El despacho requiere la firma de quien entrega (Operaciones)');
+  const trasladoId = await trasladoIdDeActaCliente(db, actaId);
+  if (trasladoId) return despacharTraslado(trasladoId, datos, ctx);
+
   const acta0 = await cargarActa(db, actaId);
   if (acta0.estado !== EstadoActaLogistica.GENERADA) throw new LogisticaError(`El acta no se puede despachar en estado "${acta0.estado}"`);
-
-  const firmaKey = await uploadEntityDocument('flito-logistica-firmas-entrega', actaId, 'firma-entrega.png', bufDesdeDataUrl(datos.firmaEntrega), 'image/png');
+  const firma = datos.firmaEntrega?.trim();
+  const firmaKey = firma
+    ? await uploadEntityDocument('flito-logistica-firmas-entrega', actaId, 'firma-entrega.png', bufDesdeDataUrl(firma), 'image/png')
+    : null;
 
   const res = await db.transaction(async (tx) => {
     const acta = await cargarActa(tx, actaId);
@@ -152,17 +124,22 @@ export async function despachar(actaId: string, datos: DespachoInput, ctx: Logis
   return res;
 }
 
-export interface EntregaInput { receptorNombre: string; receptorDocumento: string; firma?: string; foto?: string | null; lat?: string | null; lng?: string | null }
+export interface EntregaInput {
+  receptorNombre: string; receptorDocumento: string; firma?: string;
+  foto?: string | null; lat?: string | null; lng?: string | null;
+  ltsDevueltas?: string[]; ltsEntregadas?: string[];
+}
 
 /**
- * Entrega con firma del RECEPTOR (segunda firma del acta). RN-03: ninguna LT pasa a 'entregado' sin
- * firma. El acta queda sellada con firma, nombre/documento del receptor, hora y ubicación (§9.5); el
- * GPS es best-effort (RN-07). CA-11: un mensajero solo entrega sus propias actas. El PDF se regenera
- * con ambas firmas embebidas (entrega + recibe).
+ * Adaptador HU #14115: acta de cliente → `entregarTraslado` (firma del receptor cifrada; parcial vía
+ * `ltsDevueltas`). Camino legado: no escribe cédula en claro tampoco.
  */
-export async function entregar(actaId: string, datos: EntregaInput, ctx: LogisticaCtx): Promise<{ documentos: number }> {
+export async function entregar(actaId: string, datos: EntregaInput, ctx: LogisticaCtx): Promise<{ documentos: number; firmaId?: string }> {
   if (!datos.receptorNombre?.trim() || !datos.receptorDocumento?.trim()) throw new LogisticaError('La entrega requiere nombre y documento del receptor (RN-03)');
   if (!datos.firma?.trim()) throw new LogisticaError('La entrega requiere la firma del receptor (RN-03)');
+
+  const trasladoId = await trasladoIdDeActaCliente(db, actaId);
+  if (trasladoId) return entregarTraslado(trasladoId, datos, ctx);
 
   const acta0 = await cargarActa(db, actaId);
   if (acta0.estado !== EstadoActaLogistica.DESPACHADA) throw new LogisticaError(`El acta no se puede entregar en estado "${acta0.estado}"`);
@@ -176,7 +153,7 @@ export async function entregar(actaId: string, datos: EntregaInput, ctx: Logisti
     if (acta.estado !== EstadoActaLogistica.DESPACHADA) throw new LogisticaError(`El acta no se puede entregar en estado "${acta.estado}"`);
     await tx.update(flitoLogisticaActas).set({
       estado: EstadoActaLogistica.ENTREGADA, receptorNombre: datos.receptorNombre.trim(),
-      receptorDocumento: datos.receptorDocumento.trim(), firmaStorageKey: firmaKey, fotoStorageKey: fotoKey,
+      firmaStorageKey: firmaKey, fotoStorageKey: fotoKey,
       entregadoLat: datos.lat ?? null, entregadoLng: datos.lng ?? null, entregadoEn: new Date(), updatedAt: new Date(),
     }).where(eq(flitoLogisticaActas.id, actaId));
     const docs = await docsDeActa(tx, actaId);
@@ -188,10 +165,12 @@ export async function entregar(actaId: string, datos: EntregaInput, ctx: Logisti
   return res;
 }
 
-/** Devolución: el receptor no estaba o rechazó (CA-10). Motivo obligatorio; se reprograma. */
+/** Adaptador HU #14115: acta de cliente → devolver el viaje. Motivo obligatorio (CA-10). */
 export async function registrarDevolucion(actaId: string, motivo: string, ctx: LogisticaCtx): Promise<{ documentos: number }> {
   const m = motivo?.trim();
   if (!m) throw new LogisticaError('La devolución requiere motivo (RN-04)');
+  const trasladoId = await trasladoIdDeActaCliente(db, actaId);
+  if (trasladoId) return devolverTraslado(trasladoId, m, ctx);
   return db.transaction(async (tx) => {
     const acta = await cargarActa(tx, actaId);
     if (acta.estado !== EstadoActaLogistica.DESPACHADA) throw new LogisticaError(`El acta no se puede devolver en estado "${acta.estado}"`);
@@ -203,7 +182,7 @@ export async function registrarDevolucion(actaId: string, motivo: string, ctx: L
   });
 }
 
-/** Reversa un estado avanzado con justificación (RN-08). Solo Operaciones; desvincula del acta. */
+/** Reversa (RN-08). Si la LT tiene línea entregada, la anula (precio intacto) y tipifica el evento. */
 export async function reversar(documentoId: string, estadoDestino: TEstadoDoc, motivo: string, ctx: LogisticaCtx): Promise<void> {
   const m = motivo?.trim();
   if (!m) throw new LogisticaError('La reversa requiere justificación (RN-08)');
@@ -211,7 +190,8 @@ export async function reversar(documentoId: string, estadoDestino: TEstadoDoc, m
     const d = await cargarDocumento(tx, documentoId);
     if (!d) throw new LogisticaError('Documento no encontrado', 404);
     await tx.update(flitoLogisticaDocumentos).set({ actaId: null, updatedAt: new Date() }).where(eq(flitoLogisticaDocumentos.id, documentoId));
-    await transicionar(tx, d, estadoDestino, ctx, { motivo: m, origen: 'usuario' });
+    const anulo = await anularLineaEntregadaSiHay(tx, documentoId, ctx, m, estadoDestino);
+    if (!anulo) await transicionar(tx, d, estadoDestino, ctx, { motivo: m, origen: 'usuario', tipo: 'reversa' });
   });
 }
 

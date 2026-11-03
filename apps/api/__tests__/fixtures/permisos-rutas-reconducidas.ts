@@ -224,6 +224,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/actas/:id', codigo: 'logistica.actas.ver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/actas/:id/pdf', codigo: 'logistica.actas.descargar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'logistica.documento.ver' },
+  // HU #14124: línea de tiempo, la misma función que el detalle.
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/documentos/:id/linea-tiempo', codigo: 'logistica.documento.ver' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/tramites/:tramiteId/linea-tiempo', codigo: 'logistica.documento.ver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/validar-lt', codigo: 'logistica.lt.validar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/consultar-vehiculo', codigo: 'logistica.documento.escanear' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/escanear', codigo: 'logistica.documento.escanear' },
@@ -238,6 +241,14 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/resolver-tramite', codigo: 'logistica.documento.resolver_tramite' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/recogidas/:firmanteId/documento', codigo: 'logistica.actas.ver_documento_firmante' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/novedad', codigo: 'logistica.documento.reportar_novedad' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados', codigo: 'logistica.traslado.registrar' },
+  // HU #14125: la pestaña Entregas lista viajes; la placa va en el cuerpo y reutiliza la lectura de la consola.
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados/buscar', codigo: 'logistica.consola.ver' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados/:id/despachar', codigo: 'logistica.actas.despachar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados/:id/entregar', condicion: 'entregar', codigo: 'logistica.actas.entregar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados/:id/entregar', condicion: 'firmarFlit', codigo: 'logistica.actas.firmar_flit' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados/:id/devolucion', codigo: 'logistica.actas.devolver' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/traslados/:id/anular', codigo: 'logistica.traslado.anular' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/cerrar-lote', codigo: 'logistica.lote.cerrar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/actas/:id/despachar', codigo: 'logistica.actas.despachar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/actas/:id/entregar', codigo: 'logistica.actas.entregar' },
@@ -245,6 +256,11 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/actas/:id/entregar', condicion: 'operarAjenas', codigo: 'logistica.actas.operar_ajenas' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/actas/:id/devolucion', codigo: 'logistica.actas.devolver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/reversar', codigo: 'logistica.documento.reversar' },
+  // HU #14119: catálogo de motivos de llegada a FLIT.
+  { fichero: 'flito-logistica/flito-logistica-motivos.routes.ts', metodo: 'GET', ruta: '/', condicion: 'listar', codigo: 'logistica.motivos.gestionar' },
+  { fichero: 'flito-logistica/flito-logistica-motivos.routes.ts', metodo: 'POST', ruta: '/', codigo: 'logistica.motivos.gestionar' },
+  { fichero: 'flito-logistica/flito-logistica-motivos.routes.ts', metodo: 'PATCH', ruta: '/:id', codigo: 'logistica.motivos.gestionar' },
+  { fichero: 'flito-logistica/flito-logistica-motivos.routes.ts', metodo: 'PATCH', ruta: '/:id/estado', codigo: 'logistica.motivos.gestionar' },
   // flito-conciliacion/flito-conciliacion.routes.ts
   { fichero: 'flito-conciliacion/flito-conciliacion.routes.ts', metodo: 'POST', ruta: '/boletas', codigo: 'conciliacion.boleta.cargar' },
   { fichero: 'flito-conciliacion/flito-conciliacion.routes.ts', metodo: 'GET', ruta: '/boletas', codigo: 'conciliacion.boletas.listar' },

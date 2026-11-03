@@ -50,6 +50,7 @@ const TRA = 'flito-tramites/flito-tramites.routes.ts';
 const TAB = 'flito-tablero/flito-tablero.routes.ts';
 const BIT = 'flito-bitacora/flito-bitacora.routes.ts';
 const LOG = 'flito-logistica/flito-logistica.routes.ts';
+const LOGM = 'flito-logistica/flito-logistica-motivos.routes.ts'; // HU #14119
 const BOL = 'flito-bolsas/flito-bolsas.routes.ts';
 const BCAT = 'flito-bolsas/flito-bolsas.catalogo.routes.ts'; // HU #13900
 const BCTR = 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts'; // HU #13907
@@ -203,6 +204,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} GET /`, 'logistica.consola.ver', 'Ver la consola de logística', 'Abrir la trazabilidad de documentos en tránsito.'),
   op(`${LOG} GET /facetas`, 'logistica.consola.filtrar', 'Filtrar la consola de logística', 'Leer los contadores y las facetas de la consola.'),
   op(`${LOG} GET /:id`, 'logistica.documento.ver', 'Ver un documento en logística', 'Consultar el detalle y el recorrido de un documento.'),
+  // HU #14124: las dos lecturas de la línea de tiempo reutilizan la misma función (sin función nueva ni siembra).
+  op(`${LOG} GET /documentos/:id/linea-tiempo`, 'logistica.documento.ver', 'Ver un documento en logística', 'Consultar el detalle y el recorrido de un documento.'),
+  op(`${LOG} GET /tramites/:tramiteId/linea-tiempo`, 'logistica.documento.ver', 'Ver un documento en logística', 'Consultar el detalle y el recorrido de un documento.'),
   op(`${LOG} GET /mi-ruta`, 'logistica.ruta.ver', 'Ver mi ruta de mensajería', 'Consultar las recogidas y entregas asignadas al mensajero.'),
   op(`${LOG} GET /actas`, 'logistica.actas.listar', 'Ver las actas de logística', 'Listar las actas de despacho y entrega.'),
   op(`${LOG} GET /actas/:id`, 'logistica.actas.ver', 'Ver un acta de logística', 'Abrir el detalle de un acta y sus documentos.'),
@@ -222,6 +226,15 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} POST /documentos/:id/resolver-tramite`, 'logistica.documento.resolver_tramite', 'Resolver el trámite de una LT pendiente', 'Elegir a qué trámite corresponde una LT escaneada sin trámite y consultar la bandeja de pendientes.'),
   op(`${LOG} POST /recogidas/:firmanteId/documento`, 'logistica.actas.ver_documento_firmante', 'Ver la cédula del firmante de un acta', 'Consultar la cédula completa del funcionario que firmó el acta de organismo, cada consulta queda registrada.'),
   op(`${LOG} POST /documentos/:id/novedad`, 'logistica.documento.reportar_novedad', 'Reportar una novedad de entrega', 'Dejar constancia de que la entrega no se pudo completar y por qué.'),
+  op(`${LOG} POST /traslados`, 'logistica.traslado.registrar', 'Registrar un viaje de logística', 'Registrar el viaje a cliente de las LT de una compañía, con el precio congelado.'),
+  // HU #14125: pestaña Entregas. Misma función que GET /; nombre y descripción byte a byte (sin función nueva ni siembra).
+  op(`${LOG} POST /traslados/buscar`, 'logistica.consola.ver', 'Ver la consola de logística', 'Abrir la trazabilidad de documentos en tránsito.'),
+  op(`${LOG} POST /traslados/:id/despachar`, 'logistica.actas.despachar', 'Despachar un acta', 'Poner en ruta el acta y sus documentos.'),
+  // HU #14122: la guarda es en línea según el destino del viaje. Cliente sigue en `entregar`; FLIT pide `firmar_flit`.
+  op(`${LOG} POST /traslados/:id/entregar [entregar]`, 'logistica.actas.entregar', 'Entregar un acta', 'Registrar la entrega del acta en destino.'),
+  op(`${LOG} POST /traslados/:id/entregar [firmarFlit]`, 'logistica.actas.firmar_flit', 'Firmar la llegada a FLIT', 'Registrar la firma de quien recibe el viaje en las instalaciones de FLIT. No lleva cédula: el nombre y el usuario salen de la sesión.'),
+  op(`${LOG} POST /traslados/:id/devolucion`, 'logistica.actas.devolver', 'Devolver un acta', 'Registrar que el acta vuelve sin haberse entregado.'),
+  op(`${LOG} POST /traslados/:id/anular`, 'logistica.traslado.anular', 'Anular un viaje de logística', 'Anular un viaje a cliente que aún no se ha despachado. El precio congelado se conserva.'),
   op(`${LOG} POST /cerrar-lote`, 'logistica.lote.cerrar', 'Cerrar un lote de logística', 'Dar por armado el lote de documentos que va a despacharse.'),
   op(`${LOG} POST /actas/:id/despachar`, 'logistica.actas.despachar', 'Despachar un acta', 'Poner en ruta el acta y sus documentos.'),
   op(`${LOG} POST /actas/:id/entregar`, 'logistica.actas.entregar', 'Entregar un acta', 'Registrar la entrega del acta en destino.'),
@@ -229,6 +242,11 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} POST /actas/:id/entregar [operarAjenas]`, 'logistica.actas.operar_ajenas', 'Operar actas asignadas a otro mensajero', 'Entregar, devolver y ver en la ruta las actas asignadas a otros usuarios, no solo las propias.'),
   op(`${LOG} POST /actas/:id/devolucion`, 'logistica.actas.devolver', 'Devolver un acta', 'Registrar que el acta vuelve sin haberse entregado.'),
   op(`${LOG} POST /documentos/:id/reversar`, 'logistica.documento.reversar', 'Reversar un paso de logística', 'Deshacer el último movimiento registrado sobre el documento.'),
+  // HU #14119: catálogo de motivos de llegada a FLIT (las 4 rutas, misma función).
+  op(`${LOGM} GET / [listar]`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
+  op(`${LOGM} POST /`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
+  op(`${LOGM} PATCH /:id`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
+  op(`${LOGM} PATCH /:id/estado`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
 
   // ── Bolsas prepago ────────────────────────────────────────────────────────────────────────────
   op(`${BOL} GET /consolidado`, 'bolsas.consolidado.ver', 'Ver el consolidado de bolsas', 'Consultar el saldo agregado de todas las bolsas prepago.'),

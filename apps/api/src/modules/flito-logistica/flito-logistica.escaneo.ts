@@ -3,9 +3,9 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { EstadoDocumentoLogistica, parseLicenciaTransito } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { clients, flitoLogisticaDocumentos, flitoLogisticaEventos, flitoTramites, organismosTransitoConfig, vehicles } from '../../db/schema.js';
+import { clients, flitoLogisticaDocumentos, flitoTramites, organismosTransitoConfig, vehicles } from '../../db/schema.js';
 import { uploadEntityDocument } from '../../services/storage.js';
-import { LT, LogisticaError, aprobadoSql, log, normPlaca, transicionar, type LogisticaCtx } from './flito-logistica.base.js';
+import { LT, LogisticaError, aprobadoSql, insertarEvento, log, normPlaca, transicionar, type LogisticaCtx } from './flito-logistica.base.js';
 
 // ── Escaneo de la LT (mensajero en el organismo) ─────────────────────────────
 // HU #14142 (ADR-0030 §17.2): la LT pertenece al VEHÍCULO; el trámite se identifica al escanear. Se buscan
@@ -187,10 +187,14 @@ export async function escanearLt(entrada: string | EntradaManual, numeroLt: stri
         return { documentoId: existente?.id, duplicado: true };
       }
 
-      await tx.insert(flitoLogisticaEventos).values({
-        documentoId: creado.id, estadoAnterior: null, estadoNuevo: estado, actorId: ctx.userId,
+      const payloadRecogida: Record<string, unknown> | null = pendiente && p.manual
+        ? { pendienteTramite: true, origen: 'manual' }
+        : pendiente ? { pendienteTramite: true }
+        : p.manual ? { origen: 'manual' }
+        : null;
+      await insertarEvento(tx, { id: creado.id, estado: null }, estado, ctx, {
         lat: evidencia.lat ?? null, lng: evidencia.lng ?? null, motivo, origen: 'usuario',
-        ...(pendiente || p.manual ? { tipo: 'recogida_organismo', payload: { ...(pendiente ? { pendienteTramite: true } : {}), ...(p.manual ? { origen: 'manual' } : {}) } } : {}),
+        tipo: 'recogida', payload: payloadRecogida,
       });
       // Clasificación automática: la empresa destino ya vive en el trámite (CA-03), si el VIN cuadra. Un pendiente no la tiene.
       if (vinCoincide && t) {

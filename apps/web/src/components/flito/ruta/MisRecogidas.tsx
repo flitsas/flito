@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ESTADO_DOCUMENTO_LOGISTICA_LABEL, EstadoDocumentoLogistica } from '@operaciones/shared-types';
 import { api } from '../../../lib/api';
 import StatusChip from '../../flit/StatusChip';
 import { FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary } from '../../flit/flitPageKit';
@@ -91,24 +92,30 @@ export default function MisRecogidas({ onVolver, onEscanear, puedeConfirmar }: {
             </h3>
           </div>
           <ul className="space-y-2">
-            {pendientes.map((p) => (
-              <li key={p.documentoId}>
-                <label className="flex cursor-pointer items-start gap-3 rounded-xl border bg-flit-card px-4 py-3 transition-colors hover:bg-[var(--flit-bg-hover)]"
-                  style={{ borderColor: 'var(--flit-border-soft)', minHeight: 64 }}>
-                  {puedeConfirmar && (
-                    <input type="checkbox" className="flit-focus mt-1 size-5 shrink-0" checked={elegidas.has(p.documentoId)} onChange={() => alternar(p.documentoId)}
-                      aria-label={`Firmar la LT ${p.numeroLt ?? ''} de la placa ${p.placa ?? ''}`.replace(/\s+/g, ' ').trim()} />
-                  )}
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{p.placa ?? 'Sin placa'} · {p.numeroLt ?? 'Sin N.º LT'}</span>
-                    <span className="block text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-                      {p.pendienteTramite ? 'Pendiente de trámite' : (p.companiaNombre ?? 'Compañía sin nombre')} · Org. {p.organismoCodigo} · {fecha(p.fecha)}
+            {pendientes.map((p) => {
+              const enFlit = p.estado === EstadoDocumentoLogistica.EN_FLIT ? ESTADO_DOCUMENTO_LOGISTICA_LABEL.en_flit : null;
+              return (
+                <li key={p.documentoId}>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border bg-flit-card px-4 py-3 transition-colors hover:bg-[var(--flit-bg-hover)]"
+                    style={{ borderColor: 'var(--flit-border-soft)', minHeight: 64 }}>
+                    {puedeConfirmar && (
+                      <input type="checkbox" className="flit-focus mt-1 size-5 shrink-0" checked={elegidas.has(p.documentoId)} onChange={() => alternar(p.documentoId)}
+                        aria-label={`Firmar la LT ${p.numeroLt ?? ''} de la placa ${p.placa ?? ''}`.replace(/\s+/g, ' ').trim()} />
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{p.placa ?? 'Sin placa'} · {p.numeroLt ?? 'Sin N.º LT'}</span>
+                      <span className="block text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                        {p.pendienteTramite ? 'Pendiente de trámite' : (p.companiaNombre ?? 'Compañía sin nombre')} · Org. {p.organismoCodigo} · {fecha(p.fecha)}
+                      </span>
                     </span>
-                  </span>
-                  <StatusChip tone="warning">{p.pendienteTramite ? 'Pendiente de trámite' : 'Falta firma'}</StatusChip>
-                </label>
-              </li>
-            ))}
+                    <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                      {enFlit && <StatusChip tone="active">{enFlit}</StatusChip>}
+                      <StatusChip tone="warning">{p.pendienteTramite ? 'Pendiente de trámite' : 'Falta firma'}</StatusChip>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
           </ul>
           {puedeConfirmar ? (
             <button type="button" className={`${flitBtnPrimary} w-full justify-center`} style={{ ...flitBtnPrimaryStyle, minHeight: 48 }}

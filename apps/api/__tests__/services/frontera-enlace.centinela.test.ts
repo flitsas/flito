@@ -321,11 +321,19 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/logistica/pendientes-tramite',                                 'soloSinEnlace'], // HU #14143
   ['GET /api/flito/logistica/documentos/:id/candidatos-tramite',                  'soloSinEnlace'], // HU #14143
   ['POST /api/flito/logistica/documentos/:id/resolver-tramite',                   'soloSinEnlace'], // HU #14143
+  ['GET /api/flito/logistica/documentos/:id/linea-tiempo',                     'soloSinEnlace'], // HU #14124
+  ['GET /api/flito/logistica/tramites/:tramiteId/linea-tiempo',                'soloSinEnlace'], // HU #14124
   ['GET /api/flito/logistica/:id',                                             'filtra'],
   ['POST /api/flito/logistica/validar-lt',                                     'soloSinEnlace'],
   ['POST /api/flito/logistica/consultar-vehiculo',                             'soloSinEnlace'],
   ['POST /api/flito/logistica/escanear',                                       'soloSinEnlace'],
   ['POST /api/flito/logistica/documentos/:id/novedad',                         'filtra'],
+  ['POST /api/flito/logistica/traslados',                                      'soloSinEnlace'], // HU #14114
+  ['POST /api/flito/logistica/traslados/buscar',                               'soloSinEnlace'], // HU #14125
+  ['POST /api/flito/logistica/traslados/:id/despachar',                        'soloSinEnlace'], // HU #14115
+  ['POST /api/flito/logistica/traslados/:id/entregar',                         'soloSinEnlace'], // HU #14115
+  ['POST /api/flito/logistica/traslados/:id/devolucion',                       'soloSinEnlace'], // HU #14115
+  ['POST /api/flito/logistica/traslados/:id/anular',                           'soloSinEnlace'], // HU #14115
   ['POST /api/flito/logistica/cerrar-lote',                                    'filtra'],
   ['POST /api/flito/logistica/actas/:id/despachar',                            'filtra'],
   ['POST /api/flito/logistica/actas/:id/entregar',                             'filtra'],

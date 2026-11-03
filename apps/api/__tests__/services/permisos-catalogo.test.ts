@@ -209,12 +209,19 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #14103: las rutas de proveedores de LOGÍSTICA reutilizan las funciones de gestión de proveedores (listar/crear/editar/estado),
     // sin función nueva ni siembra (el AC habla de «la función de gestión de proveedores»).
     // HU #14110: confirmar la recogida y sus dos consultas piden la misma `logistica.recogida.confirmar`. HU #14147: +1 (pendientes-firma), cuatro rutas con la misma función.
+    // HU #14115: despachar/entregar/devolver el viaje reutilizan `logistica.actas.*` de las rutas de acta.
+    // HU #14125: `POST /traslados/buscar` reutiliza `logistica.consola.ver` del GET de la consola (la placa va en el cuerpo).
     expect(compartidosFlito.sort()).toEqual([
       ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
       ['bolsas.documentos.cargar', 3], ['bolsas.documentos.ver', 4],
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.inactivar', 2],
-      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2], ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],
+      ['derechos.cola.ver', 2], ['impuestos.cola.ver', 2],
+      ['logistica.actas.despachar', 2], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2],
+      ['logistica.consola.ver', 2],
+      ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],
+      ['logistica.documento.ver', 3], // HU #14124: GET /:id y las dos líneas de tiempo
+      ['logistica.motivos.gestionar', 4], // HU #14119: las 4 rutas del catálogo de motivos
       ['logistica.recogida.confirmar', 4], ['logistica.viajes.registrar', 2],
       // HU #14148: +impacto de logística (estado 4), +baja de logística (eliminar 2) y +listado unificado (listar 3).
       ['parametrizacion.proveedores.crear', 2], ['parametrizacion.proveedores.editar', 2],
@@ -281,7 +288,10 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'flito-dr-flit/dr-flit.funciones.ts POST * [radicar_soporte]',
       'flito-dr-flit/dr-flit.funciones.ts POST * [usar_ia]',
       'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
+      'flito-logistica/flito-logistica-motivos.routes.ts GET / [listar]',
       'flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar [operarAjenas]',
+      'flito-logistica/flito-logistica.routes.ts POST /traslados/:id/entregar [entregar]',
+      'flito-logistica/flito-logistica.routes.ts POST /traslados/:id/entregar [firmarFlit]',
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [autogestion]',
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [general]',
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [sinTramite]',

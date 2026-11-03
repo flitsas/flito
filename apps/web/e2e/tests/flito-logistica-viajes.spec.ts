@@ -219,7 +219,7 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     await expect(s.getByText('Viajes: 2 (incluye el viaje 1)')).toBeVisible();
     await expect(s.getByText('Adicionales: $ 45.000')).toBeVisible();
     // Sigue abierto el detalle: quitar no cierra nada.
-    await expect(page.getByRole('dialog')).toContainText('Bitácora');
+    await expect(page.getByRole('dialog')).toContainText('Línea de tiempo');
   });
 
   test('sin logistica.viajes.ver la sección no existe ni se pide al API', async ({ page }) => {
@@ -230,7 +230,7 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     await page.route(RUTA_VIAJES, (route) => { peticiones += 1; return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); });
     await abrirDetalle(page);
 
-    await expect(page.getByRole('dialog')).toContainText('Bitácora');
+    await expect(page.getByRole('dialog')).toContainText('Línea de tiempo');
     await expect(page.getByRole('region', { name: 'Viajes adicionales' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Registrar viaje' })).toHaveCount(0);
     expect(peticiones).toBe(0);
@@ -321,7 +321,7 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
 
     const s = seccion(page);
     await expect(s.getByRole('alert')).toContainText('No se pudieron cargar los viajes de este trámite.');
-    await expect(page.getByRole('dialog')).toContainText('Bitácora');
+    await expect(page.getByRole('dialog')).toContainText('Línea de tiempo');
     fase = 'ok';
     await s.getByRole('button', { name: 'Reintentar' }).click();
     // Totales NO derivables del único item (1 viaje de 45.000): si la sección los pintara sumando
@@ -336,7 +336,7 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     await expect(seccion(page).getByText('No tienes permiso para ver los viajes.')).toBeVisible();
     await expect(seccion(page).getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
     await expect(page.getByRole('dialog')).toContainText('Trámite FLIT');
-    await expect(page.getByRole('dialog')).toContainText('Bitácora');
+    await expect(page.getByRole('dialog')).toContainText('Línea de tiempo');
   });
 
   test('un 409 TRAMITE_LIQUIDADO al registrar: mensaje del servidor, la sección pasa a solo lectura', async ({ page }) => {

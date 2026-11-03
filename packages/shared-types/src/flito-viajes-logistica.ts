@@ -74,6 +74,23 @@ export type CodigoViajeLogistica = (typeof CODIGO_VIAJE_LOGISTICA)[keyof typeof 
 export type ViajeLogisticaSellado = Omit<ViajeLogistica, 'registradoPorId'>;
 
 /**
+ * Línea de traslado cobrada en la liquidación (HU #14118). El precio es el congelado al
+ * registrar la línea; no se recalcula. Sin PII: ni cédula, ni nombre, ni placa.
+ */
+export interface LineaTrasladoLogistica {
+  /** Id de la línea (`flito_logistica_traslado_lts`). */
+  id: string;
+  documentoId: string;
+  trasladoId: string;
+  /** 'flit' | 'cliente'. Las dos de un mismo documento, si están entregadas, entran las dos. */
+  destino: 'flit' | 'cliente';
+  conceptoPrecio: 'logistica_cliente' | 'logistica_flit';
+  /** Precio congelado. 0 cuenta y suma 0. */
+  precio: number;
+  tarifaVigenciaId: string | null;
+}
+
+/**
  * Respuesta de `GET /api/finanzas/tramites/:id/viajes-logistica` (HU #12627): el desglose de solo
  * lectura de la logística que el reporte de costos enseña por trámite.
  *
@@ -98,8 +115,19 @@ export interface DesgloseViajesLogistica {
   tarifa: number | null;
   /** 1 (el incluido) + adicionales; 0 si no gestiona; null si no se sabe (`sin_desglose`). */
   totalViajes: number | null;
-  /** tarifa + Σ viajes: lo que el reporte enseña en «Logística». null si no gestiona o falta la tarifa. */
+  /**
+   * Lo que el reporte enseña en «Logística»: `logistica.valor` tal cual.
+   * null si no gestiona o falta la tarifa. No se vuelve a sumar tarifa, viajes ni traslados.
+   */
   totalLogistica: number | null;
   /** ORDER BY numero. `[]` si no gestiona o no hay adicionales; null si no se sabe (`sin_desglose`). */
   items: ViajeLogisticaSellado[] | null;
+  /**
+   * Líneas de traslado que cobran (HU #14118), en el orden del sello (`created_at`, `id`).
+   * `[]` si no hay o no se cobra logística; `null` si el sello es anterior y no trae la clave
+   * (no se sabe: nunca `[]` inventado ni relleno desde la tabla viva).
+   */
+  traslados: LineaTrasladoLogistica[] | null;
+  /** Σ `precio` de `traslados`. null cuando `traslados` es null. No es un conteo de líneas. */
+  totalTraslados: number | null;
 }

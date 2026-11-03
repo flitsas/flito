@@ -2,7 +2,7 @@
 // transacción, constantes y helpers que usan los demás archivos del módulo. Sin dependencias de ellos.
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { type EstadoDocumentoLogistica as TEstadoDoc } from '@operaciones/shared-types';
+import { tipoEventoEfectivo, type EstadoDocumentoLogistica as TEstadoDoc } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoLogisticaDocumentos, flitoLogisticaEventos } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -33,16 +33,35 @@ export class LogisticaError extends Error {
 // ── Transición genérica (deja evento; sostiene CA-07/RN-04/RN-07) ────────────
 
 export interface DocMin { id: string; estado: string }
-export interface TransOpts { motivo?: string | null; lat?: string | null; lng?: string | null; origen?: 'api' | 'usuario' }
+export interface TransOpts {
+  motivo?: string | null; lat?: string | null; lng?: string | null; origen?: 'api' | 'usuario';
+  /** HU #14114: evento tipificado (ADR-0030). Payload solo ids/códigos, nunca PII. */
+  tipo?: string | null; trasladoId?: string | null; actaId?: string | null; destino?: string | null;
+  payload?: Record<string, unknown> | null;
+}
+
+/**
+ * Inserta un evento de bitácora. Auto-fill 1:1 de `tipo` desde estadoNuevo si `opts.tipo` no viene
+ * (HU #14117). No adivina clasificado/en_flit/generado. Payload tal cual (el caller arma el literal).
+ */
+export async function insertarEvento(
+  exec: DbOrTx, doc: { id: string; estado: string | null }, estadoNuevo: string, ctx: LogisticaCtx, opts: TransOpts = {},
+): Promise<void> {
+  await exec.insert(flitoLogisticaEventos).values({
+    documentoId: doc.id, estadoAnterior: doc.estado, estadoNuevo, actorId: ctx.userId,
+    lat: opts.lat ?? null, lng: opts.lng ?? null, motivo: opts.motivo ?? null, origen: opts.origen ?? 'usuario',
+    tipo: tipoEventoEfectivo(opts.tipo ?? null, estadoNuevo),
+    trasladoId: opts.trasladoId ?? null, actaId: opts.actaId ?? null,
+    destino: opts.destino ?? null, payload: opts.payload ?? null,
+  });
+}
 
 export async function transicionar(exec: DbOrTx, doc: DocMin, estadoNuevo: TEstadoDoc, ctx: LogisticaCtx, opts: TransOpts = {}): Promise<void> {
   const set: Record<string, unknown> = { estado: estadoNuevo, updatedAt: new Date() };
   if (opts.motivo !== undefined) set.motivo = opts.motivo;
+  if (opts.actaId) set.actaId = opts.actaId;
   await exec.update(flitoLogisticaDocumentos).set(set).where(eq(flitoLogisticaDocumentos.id, doc.id));
-  await exec.insert(flitoLogisticaEventos).values({
-    documentoId: doc.id, estadoAnterior: doc.estado, estadoNuevo, actorId: ctx.userId,
-    lat: opts.lat ?? null, lng: opts.lng ?? null, motivo: opts.motivo ?? null, origen: opts.origen ?? 'usuario',
-  });
+  await insertarEvento(exec, doc, estadoNuevo, ctx, opts);
 }
 
 /** Decodifica un dataURL (o base64 pelado) a Buffer. */

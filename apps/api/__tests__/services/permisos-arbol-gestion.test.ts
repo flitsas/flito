@@ -378,6 +378,10 @@ describe('Opcionales (PO, 2026-10-13): ni grupo, ni expansión, ni retiro', () =
       'logistica.actas.ver_documento_firmante', // HU #14110: cédula del firmante del acta de organismo (PII, se concede aparte)
       'logistica.recogida.confirmar', // HU #14110: opcional de accion.mi_ruta.escanear (firma del organismo)
       'logistica.documento.resolver_tramite', // HU #14143: opcional de accion.logistica.reversar_paso (resolver el trámite de una LT pendiente)
+      'logistica.traslado.registrar', // HU #14114: opcional de accion.mi_ruta.escanear (registrar viaje a cliente)
+      'logistica.traslado.anular', // HU #14115: opcional de accion.logistica.reversar_paso (anular viaje registrado)
+      'logistica.motivos.gestionar', // HU #14119: opcional de accion.logistica.ver_consola (catálogo de motivos de llegada)
+      'logistica.actas.firmar_flit', // HU #14122: opcional de accion.logistica.despachar_entregar_devolver (firma de llegada a FLIT)
     ].sort());
   });
 

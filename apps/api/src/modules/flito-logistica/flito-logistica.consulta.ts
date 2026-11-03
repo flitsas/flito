@@ -4,13 +4,16 @@ import { and, desc, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-o
 import {
   EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL,
   ESTADO_DOCUMENTO_LOGISTICA_LABEL, ESTADO_LOGISTICA_SIMPLE_LABEL, EstadoLogisticaSimple,
-  simplificarEstadoLogistica,
-  type EstadoDocumentoLogistica as TEstadoDoc, type EstadoLogisticaSimple as TEstadoSimple,
+  simplificarEstadoLogistica, tipoEventoEfectivo,
+  type CompaniaCerrableLogistica, type EstadoDocumentoLogistica as TEstadoDoc,
+  type EstadoLogisticaSimple as TEstadoSimple,
+  type HitoLineaTiempoLogistica, type LineaTiempoLogistica,
 } from '@operaciones/shared-types';
+import { precioTrasladoDe } from './flito-logistica-precios.js';
 import { db } from '../../db/client.js';
 import {
   clients, flitoCompradores, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos,
-  flitoTramites, organismosTransitoConfig, users, vehicles,
+  flitoLogisticaMotivosLlegada, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { usuariosConFuncion } from '../../shared/permisos-efectivos.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
@@ -23,6 +26,7 @@ const ESTADO_PENDIENTE = 'pendiente'; // trámite aprobado aún sin LT escaneada
 const ESTADOS_INTERNOS_POR_SIMPLE: Record<TEstadoSimple, TEstadoDoc[]> = {
   pendiente: [EstadoDocumentoLogistica.GENERADO],
   registrada: [EstadoDocumentoLogistica.RECOGIDO, EstadoDocumentoLogistica.CLASIFICADO, EstadoDocumentoLogistica.EN_ACTA],
+  en_flit: [EstadoDocumentoLogistica.EN_FLIT],
   despachada: [EstadoDocumentoLogistica.DESPACHADO],
   entregada: [EstadoDocumentoLogistica.ENTREGADO],
   novedad: [EstadoDocumentoLogistica.NOVEDAD, EstadoDocumentoLogistica.DEVUELTO],
@@ -141,6 +145,7 @@ export async function listar(filtros: FiltrosLogistica = {}, alcance: AlcanceRes
 export interface EventoDocumento {
   id: string; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null;
   lat: string | null; lng: string | null; motivo: string | null; origen: string; creadoEn: string;
+  tipo: string | null;
 }
 /** Bitácora de la LT (CA-07): cada transición con actor, hora y ubicación. */
 export async function eventos(documentoId: string): Promise<EventoDocumento[]> {
@@ -149,11 +154,12 @@ export async function eventos(documentoId: string): Promise<EventoDocumento[]> {
     estadoNuevo: flitoLogisticaEventos.estadoNuevo, actorNombre: users.name,
     lat: flitoLogisticaEventos.lat, lng: flitoLogisticaEventos.lng, motivo: flitoLogisticaEventos.motivo,
     origen: flitoLogisticaEventos.origen, creadoEn: flitoLogisticaEventos.createdAt,
+    tipo: flitoLogisticaEventos.tipo,
   }).from(flitoLogisticaEventos)
     .leftJoin(users, eq(flitoLogisticaEventos.actorId, users.id))
     .where(eq(flitoLogisticaEventos.documentoId, documentoId))
     .orderBy(desc(flitoLogisticaEventos.createdAt));
-  return rows.map((r) => ({ ...r, creadoEn: r.creadoEn.toISOString() }));
+  return rows.map((r) => ({ ...r, tipo: tipoEventoEfectivo(r.tipo, r.estadoNuevo), creadoEn: r.creadoEn.toISOString() }));
 }
 
 export interface TramiteDetalle extends TramiteFila {
@@ -183,9 +189,30 @@ export interface FacetasLogistica {
   estados: string[];
   empresas: Array<{ nit: string; nombre: string | null }>;
   organismos: Array<{ codigo: string; nombre: string | null }>;
-  companiasCerrables: Array<{ companiaId: number; nombre: string | null; disponibles: number }>;
+  companiasCerrables: CompaniaCerrableLogistica[];
   mensajeros: Array<{ id: number; nombre: string }>;
 }
+
+type DocCerrableRow = {
+  documentoId: string; placa: string | null; numeroLt: string | null; idFlit: string | null;
+  companiaId: number | null; nombre: string | null;
+};
+
+function agruparCerrables(rows: DocCerrableRow[]): CompaniaCerrableLogistica[] {
+  const porCompania = new Map<number, CompaniaCerrableLogistica>();
+  for (const r of rows) {
+    if (r.companiaId == null) continue;
+    let g = porCompania.get(r.companiaId);
+    if (!g) {
+      g = { companiaId: r.companiaId, nombre: r.nombre, disponibles: 0, precioEntregaCliente: null, precioEntregaFlit: null, lts: [] };
+      porCompania.set(r.companiaId, g);
+    }
+    g.lts.push({ documentoId: r.documentoId, placa: r.placa, numeroLt: r.numeroLt, idFlit: r.idFlit });
+    g.disponibles = g.lts.length;
+  }
+  return [...porCompania.values()];
+}
+
 /** Función que deja operar actas de otros (HU #13425). Sin ella, cada usuario solo opera las suyas. */
 export const FUNCION_OPERAR_AJENAS = 'logistica.actas.operar_ajenas';
 
@@ -205,7 +232,7 @@ export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
   // HU #13426 (AC7): y al alcance del enlace; los mensajeros (personal de FLITO) no se listan a una compañía.
   const gestionable = and(eq(clients.logisticaAutogestionable, false), condicionTramitesLogistica(alcance))!;
   const gestionableDocs = and(eq(clients.logisticaAutogestionable, false), condicionDocumentosLogistica(alcance))!;
-  const [empresas, organismos, cerrables, mensajeros] = await Promise.all([
+  const [empresas, organismos, docsCerrables, mensajeros] = await Promise.all([
     db.selectDistinct({ nit: flitoTramites.companiaNit, nombre: clients.name })
       .from(flitoTramites).leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
       .where(and(aprobadoSql, gestionable, sql`${flitoTramites.companiaNit} is not null`)),
@@ -214,21 +241,45 @@ export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
       .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
       .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
       .where(and(aprobadoSql, gestionable, sql`${flitoTramites.organismoCodigo} is not null`)),
-    db.select({ companiaId: flitoLogisticaDocumentos.companiaId, nombre: clients.name, disponibles: sql<number>`count(*)::int` })
-      .from(flitoLogisticaDocumentos).leftJoin(clients, eq(flitoLogisticaDocumentos.companiaId, clients.id))
-      .where(and(eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.CLASIFICADO), gestionableDocs, sql`${flitoLogisticaDocumentos.companiaId} is not null`))
-      .groupBy(flitoLogisticaDocumentos.companiaId, clients.name),
+    db.select({
+      documentoId: flitoLogisticaDocumentos.id,
+      placa: flitoLogisticaDocumentos.identificador,
+      numeroLt: flitoLogisticaDocumentos.numeroLt,
+      idFlit: flitoTramites.idFlit,
+      companiaId: flitoLogisticaDocumentos.companiaId,
+      nombre: clients.name,
+    }).from(flitoLogisticaDocumentos)
+      .leftJoin(clients, eq(flitoLogisticaDocumentos.companiaId, clients.id))
+      .leftJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id))
+      .where(and(
+        eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.CLASIFICADO),
+        gestionableDocs,
+        sql`${flitoLogisticaDocumentos.companiaId} is not null`,
+      )),
     // HU #13425: asignable = quien entrega actas y NO opera las ajenas (hoy: el rol mensajero), leído
     // de sus funciones efectivas y no del nombre del rol.
     alcance.enlace === 'ninguno' ? mensajerosAsignables() : Promise.resolve([]),
   ]);
+  const grupos = agruparCerrables(docsCerrables);
+  const ahora = new Date();
+  // Misma `ahora` para cliente y FLIT. Orden por compañía: cliente (i*2), luego flit (i*2+1).
+  const precios = await Promise.all(grupos.flatMap((g) => [
+    precioTrasladoDe(g.companiaId, 'cliente', ahora),
+    precioTrasladoDe(g.companiaId, 'flit', ahora),
+  ]));
+  for (let i = 0; i < grupos.length; i++) {
+    const cliente = precios[i * 2];
+    const flit = precios[i * 2 + 1];
+    grupos[i]!.precioEntregaCliente = cliente == null ? null : cliente.valor;
+    grupos[i]!.precioEntregaFlit = flit == null ? null : flit.valor;
+  }
   return {
     // Vocabulario SIMPLE (5 estados) para los filtros de la consola.
     estados: [EstadoLogisticaSimple.PENDIENTE, EstadoLogisticaSimple.REGISTRADA,
       EstadoLogisticaSimple.DESPACHADA, EstadoLogisticaSimple.ENTREGADA, EstadoLogisticaSimple.NOVEDAD],
     empresas: empresas.filter((e): e is { nit: string; nombre: string | null } => !!e.nit),
     organismos: organismos.filter((o): o is { codigo: string; nombre: string | null } => !!o.codigo),
-    companiasCerrables: cerrables.filter((c): c is { companiaId: number; nombre: string | null; disponibles: number } => c.companiaId !== null),
+    companiasCerrables: grupos,
     mensajeros,
   };
 }
@@ -240,13 +291,17 @@ export interface ActaFila {
   id: string; companiaId: number | null; companiaNombre: string | null; estado: string; estadoLabel: string;
   mensajeroId: number | null; mensajeroNombre: string | null; documentos: number;
   receptorNombre: string | null; entregadoEn: string | null; creadoEn: string;
+  /** Destino del acta (`flito_logistica_actas.punto`). HU #14123. */
+  punto: 'organismo' | 'flit' | 'cliente';
+  /** Viaje que originó el acta. Null en actas anteriores al viaje. No se omite. */
+  trasladoId: string | null;
 }
 export async function listarActas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ActaFila[]> {
   const rows = await db.select({
     id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name,
     estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, mensajeroNombre: users.name,
     receptorNombre: flitoLogisticaActas.receptorNombre, entregadoEn: flitoLogisticaActas.entregadoEn,
-    creadoEn: flitoLogisticaActas.createdAt,
+    creadoEn: flitoLogisticaActas.createdAt, punto: flitoLogisticaActas.punto, trasladoId: flitoLogisticaActas.trasladoId,
     documentos: sql<number>`(select count(*)::int from flito_logistica_documentos d where d.acta_id = ${flitoLogisticaActas.id})`,
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
@@ -256,6 +311,8 @@ export async function listarActas(alcance: AlcanceResuelto = { enlace: 'ninguno'
     .orderBy(desc(flitoLogisticaActas.createdAt));
   return rows.map((r) => ({
     ...r,
+    punto: r.punto as ActaFila['punto'],
+    trasladoId: r.trasladoId ?? null,
     estadoLabel: ESTADO_ACTA_LOGISTICA_LABEL[r.estado as keyof typeof ESTADO_ACTA_LOGISTICA_LABEL] ?? r.estado,
     entregadoEn: r.entregadoEn ? r.entregadoEn.toISOString() : null,
     creadoEn: r.creadoEn.toISOString(),
@@ -268,6 +325,9 @@ export interface RutaDocumento { id: string; placa: string | null; idFlit: strin
 export interface RutaEntrega {
   actaId: string; companiaNombre: string | null; direccionEntrega: string | null;
   contactoNombre: string | null; documentos: RutaDocumento[];
+  /** El `punto` del acta, expuesto como destino. El WHERE ya excluye `organismo`. */
+  destino: 'cliente' | 'flit';
+  trasladoId: string | null;
 }
 export interface MiRuta { entregas: RutaEntrega[] }
 
@@ -284,6 +344,7 @@ export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
   const actas = await db.select({
     actaId: flitoLogisticaActas.id, companiaNombre: clients.name,
     direccionEntrega: flitoLogisticaActas.direccionEntrega, contactoNombre: flitoLogisticaActas.contactoNombre,
+    punto: flitoLogisticaActas.punto, trasladoId: flitoLogisticaActas.trasladoId,
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
     .where(actaCond);
@@ -296,7 +357,10 @@ export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
       .leftJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id)) // leftJoin: tramite_id NULLABLE (LT pendiente, ADR-0030 §17.5)
       .innerJoin(vehicles, eq(flitoLogisticaDocumentos.vehiculoId, vehicles.id))
       .where(eq(flitoLogisticaDocumentos.actaId, a.actaId));
-    entregas.push({ actaId: a.actaId, companiaNombre: a.companiaNombre, direccionEntrega: a.direccionEntrega, contactoNombre: a.contactoNombre, documentos: docs });
+    entregas.push({
+      actaId: a.actaId, companiaNombre: a.companiaNombre, direccionEntrega: a.direccionEntrega, contactoNombre: a.contactoNombre,
+      destino: a.punto as RutaEntrega['destino'], trasladoId: a.trasladoId ?? null, documentos: docs,
+    });
   }
   return { entregas };
 }
@@ -304,7 +368,7 @@ export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
 // ── Detalle del acta (CA-13: filas del acta + bitácora + firmas) ─────────────
 
 export interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string | null }
-export interface ActaEvento { id: string; documentoId: string; placa: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string }
+export interface ActaEvento { id: string; documentoId: string; placa: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string; tipo: string | null }
 export interface ActaDetalle {
   /** 'organismo' | 'flit' | 'cliente' (HU #14110: el acta de organismo se completa con firmas y líneas en la ruta). */
   punto?: string;
@@ -318,6 +382,7 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, mensajeroNombre: users.name,
     receptorNombre: flitoLogisticaActas.receptorNombre, entregadoEn: flitoLogisticaActas.entregadoEn,
     creadoEn: flitoLogisticaActas.createdAt, pdfStorageKey: flitoLogisticaActas.pdfStorageKey,
+    trasladoId: flitoLogisticaActas.trasladoId,
     firmaEntregaKey: flitoLogisticaActas.firmaEntregaStorageKey, entregaNombre: flitoLogisticaActas.entregaNombre,
     firmaRecibeKey: flitoLogisticaActas.firmaStorageKey, punto: flitoLogisticaActas.punto,
   }).from(flitoLogisticaActas)
@@ -341,7 +406,7 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     id: flitoLogisticaEventos.id, documentoId: flitoLogisticaEventos.documentoId, placa: vehicles.plate,
     estadoAnterior: flitoLogisticaEventos.estadoAnterior, estadoNuevo: flitoLogisticaEventos.estadoNuevo,
     actorNombre: users.name, motivo: flitoLogisticaEventos.motivo, origen: flitoLogisticaEventos.origen,
-    creadoEn: flitoLogisticaEventos.createdAt,
+    creadoEn: flitoLogisticaEventos.createdAt, tipo: flitoLogisticaEventos.tipo,
   }).from(flitoLogisticaEventos)
     .innerJoin(flitoLogisticaDocumentos, eq(flitoLogisticaEventos.documentoId, flitoLogisticaDocumentos.id))
     .innerJoin(vehicles, eq(flitoLogisticaDocumentos.vehiculoId, vehicles.id))
@@ -355,6 +420,7 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     mensajeroId: cab.mensajeroId, mensajeroNombre: cab.mensajeroNombre, documentos: docs.length,
     receptorNombre: cab.receptorNombre, entregadoEn: cab.entregadoEn ? cab.entregadoEn.toISOString() : null,
     creadoEn: cab.creadoEn.toISOString(),
+    punto: cab.punto as ActaFila['punto'], trasladoId: cab.trasladoId ?? null,
   };
   return {
     ...(cab.punto ? { punto: cab.punto } : {}),
@@ -365,6 +431,84 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
       numeroLicencia: d.numeroLicencia, numeroLt: d.numeroLt,
       estado: d.estado, estadoLabel: ESTADO_DOCUMENTO_LOGISTICA_LABEL[d.estado as TEstadoDoc] ?? d.estado, idFlit: d.idFlit,
     })),
-    bitacora: bitacora.map((e) => ({ ...e, creadoEn: e.creadoEn.toISOString() })),
+    bitacora: bitacora.map((e) => ({ ...e, tipo: tipoEventoEfectivo(e.tipo, e.estadoNuevo), creadoEn: e.creadoEn.toISOString() })),
   };
+}
+
+// ── Línea de tiempo (HU #14124) ──────────────────────────────────────────────
+// Lectura del recorrido de UNA LT. No toca `tipoEventoEfectivo` ni el mapa de estados.
+// El payload solo se lee aquí, para resolver `motivoLlegadaId`; no sale en el DTO.
+
+const UUID_TEXTO = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+
+/**
+ * Motivo del hito: la columna `motivo` si trae texto. Si viene vacía y `payload.motivoLlegadaId`
+ * es un uuid del catálogo, el nombre (aunque el motivo esté inactivo). Id que no resuelve → null.
+ * El cast va detrás del formato: un jsonb sucio no puede convertirse en 22P02. La nota libre no sale.
+ */
+function motivoDeHito(): SQL<string | null> {
+  const idTexto = sql`${flitoLogisticaEventos.payload}->>'motivoLlegadaId'`;
+  const idUuid = sql`CASE WHEN (${idTexto}) ~ ${UUID_TEXTO} THEN (${idTexto})::uuid ELSE NULL END`;
+  return sql<string | null>`CASE
+    WHEN btrim(coalesce(${flitoLogisticaEventos.motivo}, '')) <> '' THEN ${flitoLogisticaEventos.motivo}
+    ELSE (
+      SELECT ${flitoLogisticaMotivosLlegada.nombre}
+      FROM ${flitoLogisticaMotivosLlegada}
+      WHERE ${flitoLogisticaMotivosLlegada.id} = (${idUuid})
+      LIMIT 1
+    )
+  END`;
+}
+
+async function hitosDe(documentoId: string): Promise<HitoLineaTiempoLogistica[]> {
+  const rows = await db.select({
+    id: flitoLogisticaEventos.id,
+    tipo: flitoLogisticaEventos.tipo,
+    fecha: flitoLogisticaEventos.createdAt,
+    actorNombre: users.name,
+    destino: flitoLogisticaEventos.destino,
+    motivo: motivoDeHito(),
+    estadoNuevo: flitoLogisticaEventos.estadoNuevo,
+  }).from(flitoLogisticaEventos)
+    .leftJoin(users, eq(flitoLogisticaEventos.actorId, users.id))
+    .where(eq(flitoLogisticaEventos.documentoId, documentoId))
+    .orderBy(desc(flitoLogisticaEventos.createdAt));
+  return rows.map((r) => ({
+    id: r.id,
+    tipo: tipoEventoEfectivo(r.tipo, r.estadoNuevo),
+    fecha: r.fecha.toISOString(),
+    actorNombre: r.actorNombre,
+    destino: r.destino,
+    motivo: r.motivo,
+    estadoNuevo: r.estadoNuevo,
+  }));
+}
+
+/** Eventos de esa LT, también si sigue pendiente de trámite (`tramiteId` null). */
+export async function lineaTiempoDocumento(documentoId: string): Promise<LineaTiempoLogistica> {
+  const [doc] = await db.select({
+    id: flitoLogisticaDocumentos.id,
+    tramiteId: flitoLogisticaDocumentos.tramiteId,
+  }).from(flitoLogisticaDocumentos)
+    .where(and(eq(flitoLogisticaDocumentos.id, documentoId), eq(flitoLogisticaDocumentos.tipo, LT)))
+    .limit(1);
+  if (!doc) throw new LogisticaError('La LT no existe', 404);
+  return { documentoId: doc.id, tramiteId: doc.tramiteId, hitos: await hitosDe(doc.id) };
+}
+
+/** La LT `licencia_transito` de ese trámite. Sin LT todavía: 200 con hitos vacíos. */
+export async function lineaTiempoTramite(tramiteId: string): Promise<LineaTiempoLogistica> {
+  const [row] = await db.select({
+    tramiteId: flitoTramites.id,
+    documentoId: flitoLogisticaDocumentos.id,
+  }).from(flitoTramites)
+    .leftJoin(flitoLogisticaDocumentos, and(
+      eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id),
+      eq(flitoLogisticaDocumentos.tipo, LT),
+    ))
+    .where(eq(flitoTramites.id, tramiteId))
+    .limit(1);
+  if (!row) throw new LogisticaError('El trámite no existe', 404);
+  if (!row.documentoId) return { documentoId: null, tramiteId: row.tramiteId, hitos: [] };
+  return { documentoId: row.documentoId, tramiteId: row.tramiteId, hitos: await hitosDe(row.documentoId) };
 }

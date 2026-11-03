@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { QueryBuilder } from 'drizzle-orm/pg-core';
-import type { DesgloseViajesLogistica, ViajeLogisticaSellado } from '@operaciones/shared-types';
+import type { DesgloseViajesLogistica, LineaTrasladoLogistica, ViajeLogisticaSellado } from '@operaciones/shared-types';
 import { chain } from '../helpers/db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
 
@@ -65,8 +65,14 @@ const viaje = (numero: number, valor: number): ViajeLogisticaSellado => ({
 const VIAJES = [viaje(2, 35000), viaje(3, 20000)];
 
 /** `.logistica` como lo devuelve `calcular` (vigente) o `liquidacionDe` (sellado). */
-const logistica = (o: Partial<{ valor: number | null; tarifa: number | null; viajes: ViajeLogisticaSellado[] | null; totalViajes: number | null }> = {}) => ({
-  valor: 90000, origen: 'Tarifa', bloquea: false, tarifa: 35000, viajes: VIAJES, totalViajes: 3, ...o,
+const logistica = (o: Partial<{
+  valor: number | null; origen: string; bloquea: boolean; tarifa: number | null;
+  viajes: ViajeLogisticaSellado[] | null; totalViajes: number | null;
+  traslados: LineaTrasladoLogistica[] | null;
+}> = {}) => ({
+  valor: 90000, origen: 'Tarifa', bloquea: false, tarifa: 35000, viajes: VIAJES, totalViajes: 3,
+  traslados: [] as LineaTrasladoLogistica[] | null,
+  ...o,
 });
 const calculo = (l = logistica()) => ({ tramiteId: TRAMITE, idFlit: 'FLIT-0001', logistica: l });
 const sello = (l = logistica()) => ({ ...calculo(l), liquidadoEn: T0 });
@@ -84,7 +90,7 @@ describe('desgloseDe — de `.logistica` de la liquidación al desglose (AC7)', 
     const d = desgloseDe(BASE, logistica(), null);
     expect(d).toEqual<DesgloseViajesLogistica>({
       ...BASE, gestionaLogistica: true, liquidado: false, liquidadoEn: null, origen: 'vigente',
-      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES,
+      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES, traslados: [], totalTraslados: 0,
     });
     // El orden es el de la liquidación (ORDER BY numero): no se reordena ni se filtra.
     expect(d.items!.map((v) => v.numero)).toEqual([2, 3]);
@@ -104,7 +110,7 @@ describe('desgloseDe — de `.logistica` de la liquidación al desglose (AC7)', 
     const d = desgloseDe(BASE, logistica(), T0);
     expect(d).toEqual<DesgloseViajesLogistica>({
       ...BASE, gestionaLogistica: true, liquidado: true, liquidadoEn: T0, origen: 'sellado',
-      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES,
+      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES, traslados: [], totalTraslados: 0,
     });
   });
 
@@ -120,7 +126,7 @@ describe('desgloseDe — de `.logistica` de la liquidación al desglose (AC7)', 
     const d = desgloseDe(BASE, logistica({ valor: 35000, tarifa: null, viajes: null, totalViajes: null }), T0);
     expect(d).toEqual<DesgloseViajesLogistica>({
       ...BASE, gestionaLogistica: true, liquidado: true, liquidadoEn: T0, origen: 'sin_desglose',
-      tarifa: null, totalViajes: null, totalLogistica: 35000, items: null,
+      tarifa: null, totalViajes: null, totalLogistica: 35000, items: null, traslados: null, totalTraslados: null,
     });
   });
 
@@ -131,10 +137,10 @@ describe('desgloseDe — de `.logistica` de la liquidación al desglose (AC7)', 
   });
 
   it('no gestiona (vigente: totalViajes 0): gestionaLogistica false, items [], 0 viajes, total null', () => {
-    const d = desgloseDe(BASE, { valor: null, origen: 'La compañía autogestiona', bloquea: false, tarifa: null, viajes: [], totalViajes: 0 }, null);
+    const d = desgloseDe(BASE, { valor: null, origen: 'La compañía autogestiona', bloquea: false, tarifa: null, viajes: [], totalViajes: 0, traslados: [] }, null);
     expect(d).toEqual<DesgloseViajesLogistica>({
       ...BASE, gestionaLogistica: false, liquidado: false, liquidadoEn: null, origen: 'vigente',
-      tarifa: null, totalViajes: 0, totalLogistica: null, items: [],
+      tarifa: null, totalViajes: 0, totalLogistica: null, items: [], traslados: [], totalTraslados: 0,
     });
   });
 
@@ -150,6 +156,27 @@ describe('desgloseDe — de `.logistica` de la liquidación al desglose (AC7)', 
     const viejo = desgloseDe(BASE, logistica({ valor: null, tarifa: null, viajes: null, totalViajes: null }), T0);
     expect(viejo.gestionaLogistica).toBe(false);
     expect(viejo.origen).toBe('sin_desglose');
+  });
+
+  it('clave ausente (sello con viajes y sin `traslados`): null, no [], y totalLogistica sigue siendo el valor', () => {
+    const d = desgloseDe(BASE, logistica({ traslados: null }), T0);
+    expect(d.origen).toBe('sellado');
+    expect(d.traslados).toBeNull();
+    expect(d.totalTraslados).toBeNull();
+    expect(d.totalLogistica).toBe(90000);
+    expect(d.items).toEqual(VIAJES);
+  });
+
+  it('array presente se proyecta; totalTraslados es la suma de precios y totalLogistica no se recalcula', () => {
+    const lineas: LineaTrasladoLogistica[] = [
+      { id: 'l1', documentoId: 'd1', trasladoId: 'tr1', destino: 'flit', conceptoPrecio: 'logistica_flit', precio: 10000, tarifaVigenciaId: null },
+      { id: 'l2', documentoId: 'd1', trasladoId: 'tr1', destino: 'cliente', conceptoPrecio: 'logistica_cliente', precio: 0, tarifaVigenciaId: 'vig-1' },
+    ];
+    // 90.000 es el valor sellado. Sumar otra vez las líneas lo dejaría en 100.000.
+    const d = desgloseDe(BASE, logistica({ traslados: lineas }), T0);
+    expect(d.traslados).toEqual(lineas);
+    expect(d.totalTraslados).toBe(10000);
+    expect(d.totalLogistica).toBe(90000);
   });
 });
 
@@ -257,7 +284,7 @@ describe('GET /api/finanzas/tramites/:id/viajes-logistica — la MISMA guarda LE
     expect(r.headers['cache-control']).toBe('no-store');
     expect(r.body).toEqual<DesgloseViajesLogistica>({
       ...BASE, gestionaLogistica: true, liquidado: false, liquidadoEn: null, origen: 'vigente',
-      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES,
+      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES, traslados: [], totalTraslados: 0,
     });
   });
 
