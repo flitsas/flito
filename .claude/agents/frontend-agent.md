@@ -7,7 +7,7 @@ description: |
   smoke completo solo shell/router/login o pedido explícito. Prompt denso anti cold-start.
   No API/esquema (backend-agent), no ADR (architecture), no wireframes (ux-agent), no PRs.
   Triggers — frontend, UI, React, Playwright, apps/web, HU FRONTEND, bug de UI.
-tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__ado__wit_work_item, mcp__ado__search_workitem, mcp__ado__wit_work_item_comment_write
+tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__ado__wit_work_item, mcp__ado__search_workitem, mcp__ado__wit_work_item_comment_write, mcp__azure-devops__wit_work_item, mcp__azure-devops__search_workitem, mcp__azure-devops__wit_work_item_comment_write
 model: inherit
 ---
 

@@ -7,8 +7,15 @@ description: Integración con Azure DevOps Boards para el proyecto FLIT - FLITO.
 
 Todas las skills que toquen Azure DevOps **deben** seguir este contrato. Entorno real: **Linux + bash**, monorepo Node/TypeScript. Hay **Azure CLI** (`az`, con la extensión `azure-devops` y sesión `az login` del humano): úsalo **solo** para subir adjuntos (ver «Adjuntos»), no como vía general de work items. No hay PowerShell.
 
-**Fuente de verdad del servidor MCP en Cursor:** id **`ado`** (regla `.cursor/rules/mcp-github-primero.mdc`).  
-**Prohibido** invocar un servidor llamado `azure-devops` o tools `mcp__azure-devops__*` — ese nombre es legado y **no existe** en este runtime.
+**El servidor MCP es el mismo; su nombre depende del runtime.** Las herramientas (`wit_work_item`, `wit_work_item_write`, `wit_work_item_comment_write`, `search_workitem`, `core_list_projects`…) y sus argumentos son idénticos; solo cambia cómo se nombran y se invocan:
+
+| Runtime | Servidor | Cómo se llaman las herramientas |
+|---|---|---|
+| **Cursor** | `ado` | `CallMcpTool` con `server: "ado"` y `toolName: "<tool>"` (schema con `GetMcpTools`) |
+| **Claude Code** | `azure-devops` | Herramienta directa `mcp__azure-devops__<tool>` (p. ej. `mcp__azure-devops__wit_work_item`); si está diferida, cargar el schema con `ToolSearch` (`select:mcp__azure-devops__wit_work_item,…`) |
+
+**Cuál usar:** el que exista en tu runtime. Si ves herramientas `mcp__azure-devops__*`, estás en Claude Code; si ves `CallMcpTool`/`GetMcpTools`, estás en Cursor. **No** inventes el otro nombre ni lo uses como fallback: llamar a un servidor que no existe en el runtime falla. En el resto de esta skill y de las skills hijas, «MCP `ado`» significa **«el servidor MCP de Azure DevOps de tu runtime»**.
+(Regla de Cursor: `.cursor/rules/mcp-github-primero.mdc`.)
 
 ## Contexto del proyecto
 
@@ -17,7 +24,7 @@ Todas las skills que toquen Azure DevOps **deben** seguir este contrato. Entorno
 | Proyecto ADO (`System.TeamProject`) | `FLIT - FLITO` |
 | Area Path | `FLIT - FLITO` |
 | Iteration Path | `FLIT - FLITO\<Sprint>` |
-| Servidor MCP (Cursor) | **`ado`** |
+| Servidor MCP | **`ado`** (Cursor) · **`azure-devops`** (Claude Code) — ver arriba |
 | Repo de código | GitHub `flitsas/flito` (`origin`) |
 
 El nombre del proyecto lleva espacios: en URLs REST **codificarlo** (`encodeURIComponent` en Node, `--data-urlencode`/`jq -rR @uri` en bash).
@@ -53,12 +60,12 @@ salvo pedido explícito del humano en la sesión actual. Una llamada MCP que no 
 
 Antes de operar:
 
-1. Descubrir schema: herramienta del runtime `GetMcpTools` con `server: "ado"` (o tool concreto).
-2. Llamada de bajo impacto: `CallMcpTool` → `server: "ado"`, `toolName: "core_list_projects"`.
+1. Descubrir schema: en Cursor, `GetMcpTools` con `server: "ado"`; en Claude Code, `ToolSearch` con `select:mcp__azure-devops__core_list_projects,…` (si no está diferida, ya es invocable).
+2. Llamada de bajo impacto: `core_list_projects` (Cursor: `CallMcpTool` → `server: "ado"`; Claude Code: `mcp__azure-devops__core_list_projects`).
 
 - **Devuelve la lista de proyectos** → MCP disponible; usar MCP en todos los pasos.
 - **Error / timeout / llamada colgada (>2-3 min)** → detener, reintentar UNA vez a los pocos segundos; si persiste → detener e informar el error al humano. No pasar a REST ni a borrador salvo pedido explícito (política 2026-08-21).
-- Si `GetMcpTools` lista el servidor como `needsAuth` → pedir al humano autenticar MCP `ado` en Cursor; no inventar PAT.
+- Si `GetMcpTools` lista el servidor como `needsAuth` → pedir al humano autenticar el MCP de Azure DevOps en su runtime; no inventar PAT.
 
 ### Cookbook MCP `ado` (nombres reales)
 
@@ -119,9 +126,9 @@ existan en el Bug: `Custom.Commits` y `Custom.DeployDEV` están poblados en los 
 lista; si un `Custom.*` concreto sí lo rechaza, registrar el contenido en Discussion y **declarar**
 la limitación en el reporte — nunca descartarlo en silencio.
 
-**Aliases legacy (NO usar como toolName):** `wit_create_work_item`, `wit_update_work_item`, `wit_get_work_item`, `wit_query_by_wiql`, `wit_add_work_item_comment`, `wit_work_items_link`, `mcp__azure-devops__*`.
+**Aliases legacy (NO usar como toolName):** `wit_create_work_item`, `wit_update_work_item`, `wit_get_work_item`, `wit_query_by_wiql`, `wit_add_work_item_comment`, `wit_work_items_link`. (Los nombres `mcp__azure-devops__<tool>` **no** son legado: son la forma correcta en Claude Code.)
 
-> Con MCP activo, usar **siempre** `CallMcpTool` con `server: "ado"`; no mezclar MCP y REST en la misma operación.
+> Con MCP activo, usar **siempre** la herramienta MCP de tu runtime (`CallMcpTool` con `server: "ado"` en Cursor; `mcp__azure-devops__<tool>` en Claude Code); no mezclar MCP y REST en la misma operación.
 
 ### Ejemplo — leer HU
 
