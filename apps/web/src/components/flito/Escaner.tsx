@@ -182,8 +182,7 @@ export default function Escaner({ onScan, onClose }: { onScan: (code: string, nu
       </div>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-4" style={{ paddingBottom: 'max(2rem, calc(env(safe-area-inset-bottom) + 1rem))' }}>
         <p className="max-w-md rounded-xl bg-black/70 px-4 py-2.5 text-center text-sm font-medium text-white">
-          Ubica el código de la LT (PDF417) dentro del recuadro marcado.
-          <span className="mt-0.5 block text-white/90">El N.º de LT (LT + 11 dígitos) debe verse debajo del código.</span>
+          Ubica el código de barras y el N.º de LT (debajo del código) dentro del recuadro blanco.
         </p>
       </div>
     </div>,
