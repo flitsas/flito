@@ -17,16 +17,24 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Igual que `flito-ocr.service.test.ts`: aísla del `.env` de demo. Estos tests ejercitan la ruta de
-// Anthropic (mockeada), no el stub ni el fallback local.
+// Igual que `flito-ocr.service.test.ts`: aísla del `.env` de demo. Key de prueba: sin ella
+// `extraer()` iría siempre al local (Bug #14229) y el mock de Anthropic no se invocaría.
 process.env.OCR_STUB = '0';
 process.env.OCR_LOCAL = '0';
+if (!process.env.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
 
 const anthropicMock = vi.fn();
+const textoDocumentoMock = vi.fn();
+const camposDesdeTextoMock = vi.fn();
 vi.mock('../../src/modules/tramites/anthropic.js', () => ({ anthropicMessages: anthropicMock }));
+vi.mock('../../src/modules/flito-ocr/flito-ocr-local.js', () => ({
+  textoDocumento: (...args: unknown[]) => textoDocumentoMock(...args),
+  camposDesdeTexto: (...args: unknown[]) => camposDesdeTextoMock(...args),
+}));
 
-const { extraerFacturaVenta, OcrNoDisponibleError } =
+const { extraerFacturaVenta } =
   await import('../../src/modules/flito-ocr/flito-ocr.service.js');
+const { env } = await import('../../src/config/env.js');
 const {
   PROMPT_FACTURA_VENTA, PROMPT_FACTURA_SOAT, PROMPT_RECIBO_IMPUESTO, PROMPT_DERECHO_TRAMITE,
 } = await import('../../src/modules/flito-ocr/flito-ocr.prompts.js');
@@ -34,6 +42,11 @@ const {
   CampoFacturaVenta, CAMPO_FACTURA_VENTA_LABEL, CAMPOS_COMPRADOR_FACTURA,
   CAMPOS_REVISION_FACTURA_VENTA, TIPOS_DOCUMENTO_RUNT,
 } = await import('@operaciones/shared-types');
+
+if (!env.ANTHROPIC_API_KEY) {
+  (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
+}
+const API_KEY_TEST = env.ANTHROPIC_API_KEY!;
 
 /** Encola una respuesta OK de Anthropic con el JSON dado como texto del content. */
 const respuesta = (obj: Record<string, unknown>) =>
@@ -55,7 +68,12 @@ function modeloDice(over: Record<string, unknown> = {}) {
   return respuesta({ ...base, ...over });
 }
 
-beforeEach(() => anthropicMock.mockReset());
+beforeEach(() => {
+  anthropicMock.mockReset();
+  textoDocumentoMock.mockReset();
+  camposDesdeTextoMock.mockReset();
+  (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = API_KEY_TEST;
+});
 
 // ───────────────────────────── AC1 — la plantilla se amplía ──────────────────
 
@@ -310,12 +328,18 @@ describe('AC5 — normalización de los campos del comprador', () => {
 
 // ───────────────────────────── El motor caído ────────────────────────────────
 
-describe('el OCR no disponible se propaga como `OcrNoDisponibleError` 503', () => {
-  it('el 503 de `anthropicMessages` llega TIPADO al llamador, no como un 500 anónimo', async () => {
+describe('Anthropic caído → fallback local (Bug #14229)', () => {
+  it('ok:false de Anthropic cae al local: campos vacíos, sin lanzar (503 solo si local también falla)', async () => {
     anthropicMock.mockResolvedValue({ ok: false, status: 503, message: 'OCR no disponible' });
+    textoDocumentoMock.mockResolvedValue('');
+    camposDesdeTextoMock.mockReturnValue({});
 
-    await expect(extraerFacturaVenta(doc())).rejects.toBeInstanceOf(OcrNoDisponibleError);
-    await expect(extraerFacturaVenta(doc())).rejects.toMatchObject({ status: 503 });
+    const r = await extraerFacturaVenta(doc());
+
+    expect(anthropicMock).toHaveBeenCalled();
+    expect(textoDocumentoMock).toHaveBeenCalled();
+    expect(r.placa).toEqual({ valor: null, confianza: 0, confiable: false });
+    expect(r.nombres).toEqual({ valor: null, confianza: 0, confiable: false });
   });
 });
 

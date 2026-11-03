@@ -9,11 +9,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { CampoComprobante, CampoImpuesto, CampoSoat, TipoDocumentoComprobante } from '@operaciones/shared-types';
 
+// Key de prueba: sin ella `extraer()` iría siempre al local (Bug #14229) y el mock de Anthropic
+// no se invocaría. OCR_LOCAL ya no gobierna el fallback.
 process.env.OCR_STUB = '0';
 process.env.OCR_LOCAL = '0';
+if (!process.env.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
 
 const anthropicMock = vi.fn();
+const textoDocumentoMock = vi.fn();
+const camposDesdeTextoMock = vi.fn();
 vi.mock('../../src/modules/tramites/anthropic.js', () => ({ anthropicMessages: anthropicMock }));
+vi.mock('../../src/modules/flito-ocr/flito-ocr-local.js', () => ({
+  textoDocumento: (...args: unknown[]) => textoDocumentoMock(...args),
+  camposDesdeTexto: (...args: unknown[]) => camposDesdeTextoMock(...args),
+}));
 vi.mock('../../src/db/client.js', () => ({
   db: { select: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn(), transaction: vi.fn(), execute: vi.fn() },
   getPoolStats: vi.fn(),
@@ -30,7 +39,6 @@ vi.mock('../../src/shared/logger.js', () => ({ loggerFor: () => logMock, logger:
 
 const { particionar, leerSubDocumento, gruposDeParticion, fusionarConDestino, MAX_PAGINAS_PARTICION_MODELO } =
   await import('../../src/modules/flito-comprobantes/flito-comprobantes.ocr.js');
-const { OcrNoDisponibleError } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
 const {
   PROMPT_COMPROBANTE_UNIVERSAL, PROMPT_PARTICION_CONSOLIDADO, PROMPT_FACTURA_SOAT, PROMPT_RECIBO_IMPUESTO,
   PROMPT_RECIBO_CAJA, PROMPT_DERECHO_TRAMITE,
@@ -39,6 +47,11 @@ const { MAX_PAGINAS, PdfDemasiadoGrandeError } = await import('../../src/shared/
 const { conConcurrencia } = await import('../../src/shared/utils/con-concurrencia.js');
 const { umbralPara } = await import('../../src/modules/flito-parametrizacion/flito-parametrizacion.service.js');
 const { env } = await import('../../src/config/env.js');
+
+if (!env.ANTHROPIC_API_KEY) {
+  (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
+}
+const API_KEY_TEST = env.ANTHROPIC_API_KEY!;
 
 // ─────────────────────────── Fixtures y helpers ──────────────────────────────
 
@@ -82,7 +95,13 @@ const DESTINO_SOAT_NITIDO = {
 const DESTINO_SOAT = { ...DESTINO_SOAT_NITIDO, placa: c('ABC124', 'media') };
 const sub = (buffer = Buffer.from('%PDF-x'), contentType = 'application/pdf') => ({ buffer, contentType, paginas: null, nombre: 'doc.pdf' });
 
-beforeEach(() => { anthropicMock.mockReset(); logLineas.length = 0; });
+beforeEach(() => {
+  anthropicMock.mockReset();
+  textoDocumentoMock.mockReset();
+  camposDesdeTextoMock.mockReset();
+  (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = API_KEY_TEST;
+  logLineas.length = 0;
+});
 
 // ─────────────────────────── AC4 — partición ─────────────────────────────────
 
@@ -358,32 +377,54 @@ describe('AC3 — leerSubDocumento: etapa especializada solo con tipo confiable 
 // ─────────────────────────── AC5 — OCR caído ─────────────────────────────────
 
 describe('AC5 — el OCR caído no rompe la lectura', () => {
+  /** Local vacío: Anthropic no-OK cae aquí (Bug #14229); 503 solo si este mock también falla. */
+  function mockLocalVacio() {
+    textoDocumentoMock.mockResolvedValue('');
+    camposDesdeTextoMock.mockReturnValue({});
+  }
+
   it.each([[503, 'Servicio de IA no configurado'], [429, 'rate limit']])(
-    'anthropicMessages no-200 (%s) → leerSubDocumento lanza OcrNoDisponibleError con ese status',
+    'anthropicMessages no-200 (%s) → leerSubDocumento resuelve con campos vacíos (fallback local)',
     async (status, message) => {
       anthropicMock.mockResolvedValue({ ok: false, status, message });
+      mockLocalVacio();
 
-      const error = await leerSubDocumento(sub()).catch((e: unknown) => e);
+      const r = await leerSubDocumento(sub());
 
-      expect(error).toBeInstanceOf(OcrNoDisponibleError);
-      expect((error as InstanceType<typeof OcrNoDisponibleError>).status).toBe(status);
+      expect(anthropicMock).toHaveBeenCalled();
+      expect(textoDocumentoMock).toHaveBeenCalled();
+      expect(r.tipoDestino).toBeNull();
+      expect(r.extraccionDestino).toBeNull();
+      expect(r.extraccion[CampoComprobante.PLACA]).toEqual({ valor: null, confianza: 0, confiable: false });
+      expect(r.extraccion[CampoComprobante.VALOR_TOTAL]).toEqual({ valor: null, confianza: 0, confiable: false });
     },
   );
 
-  it('dentro de conConcurrencia el error sale como OcrNoDisponibleError y no deja la promesa colgada', async () => {
+  it('dentro de conConcurrencia Anthropic caído → resuelve el array (no reject; Bug #14229)', async () => {
     anthropicMock.mockResolvedValue({ ok: false, status: 503, message: 'caído' });
+    mockLocalVacio();
 
-    await expect(conConcurrencia([sub(), sub(), sub()], 2, (s) => leerSubDocumento(s))).rejects.toBeInstanceOf(OcrNoDisponibleError);
+    const lecturas = await conConcurrencia([sub(), sub(), sub()], 2, (s) => leerSubDocumento(s));
+
+    expect(lecturas).toHaveLength(3);
+    expect(lecturas.every((l) => l.tipoDestino === null)).toBe(true);
+    expect(lecturas[0]!.extraccion[CampoComprobante.PLACA]).toEqual({ valor: null, confianza: 0, confiable: false });
   });
 
-  it('la especializada caída también sale como OcrNoDisponibleError (no se devuelve una lectura a medias)', async () => {
+  it('especializada caída (universal OK + Anthropic fail) → resuelve con universal + destino vacío local', async () => {
     anthropicMock.mockResolvedValueOnce(respuesta(UNIVERSAL_SOAT)).mockResolvedValueOnce({ ok: false, status: 503, message: 'caído' });
+    mockLocalVacio();
 
-    await expect(leerSubDocumento(sub())).rejects.toBeInstanceOf(OcrNoDisponibleError);
+    const r = await leerSubDocumento(sub());
+
+    expect(r.tipoDestino).toBe('factura_soat');
+    expect(r.extraccion[CampoComprobante.PLACA]).toEqual({ valor: 'ABC123', confianza: 0.95, confiable: true });
+    expect(r.extraccionDestino).not.toBeNull();
+    expect(r.extraccionDestino![CampoSoat.PLACA]).toEqual({ valor: null, confianza: 0, confiable: false });
   });
 
-  // Mutante: propagar el error de `particionConsolidado` en vez de caer → esto rechazaría con
-  // OcrNoDisponibleError; se exigen 3 sub-documentos.
+  // Mutante: propagar el error de `particionConsolidado` en vez de caer → esto rechazaría;
+  // se exigen 3 sub-documentos (partición sigue sin lanzar aunque Anthropic falle).
   it('la partición con OCR caído NO lanza: cae a una página por documento', async () => {
     anthropicMock.mockResolvedValueOnce({ ok: false, status: 503, message: 'caído' });
 

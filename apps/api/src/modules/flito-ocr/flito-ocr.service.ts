@@ -183,10 +183,35 @@ export async function particionConsolidado(doc: Omit<DocumentoAAnalizar, 'umbral
 }
 
 /**
+ * Fallback local (pdftotext/Tesseract + patrones). Solo la LECTURA es local; el cruce placa/VIN,
+ * el umbral y el veredicto siguen siendo la lógica de quien llama. Siempre disponible (Bug #14229):
+ * sin API key o cuando Anthropic falla en la 1.ª pasada — sin interruptor `OCR_LOCAL`.
+ */
+async function extraerLocal(
+  doc: DocumentoAAnalizar,
+  campos: readonly string[],
+  normalizadores: Record<string, (v: string) => string | null>,
+  motivo: 'sin_api_key' | 'anthropic_fallo',
+): Promise<Record<string, CampoExtraido>> {
+  const texto = await textoDocumento(doc);
+  const crudoLocal = camposDesdeTexto(texto, campos) ?? {};
+  const salidaLocal: Record<string, CampoExtraido> = {};
+  for (const campo of campos) {
+    salidaLocal[campo] = aCampoExtraido(crudoLocal[campo] ?? { valor: null, confianza: null }, doc.umbral, normalizadores[campo]);
+  }
+  log.info({ motivo, campos: campos.length, chars: texto.length }, 'OCR local (fallback)');
+  return salidaLocal;
+}
+
+/**
  * Extrae los campos pedidos. Doble pasada como el pipeline del grande: primero Haiku (barato); si
  * algún campo de `camposEscalacion` no salió 'alta', reintenta con Sonnet y se queda, por campo, con
  * la lectura de mayor confianza. Así lo dudoso se verifica con el modelo más capaz antes de decidir
  * revisión, y lo nítido no gasta una segunda llamada.
+ *
+ * Si no hay API key, o la 1.ª pasada (Haiku) lanza `OcrNoDisponibleError` (cuota, 429, timeout, 5xx),
+ * cae al fallback local. Si el local también falla, el error se propaga. Sonnet caído no dispara
+ * fallback: se conserva Haiku (Bug #14229).
  */
 async function extraer(
   doc: DocumentoAAnalizar,
@@ -195,22 +220,20 @@ async function extraer(
   camposEscalacion: readonly string[],
   normalizadores: Record<string, (v: string) => string | null>,
 ): Promise<Record<string, CampoExtraido>> {
-  // FALLBACK LOCAL (sin Anthropic): pdftotext/Tesseract + patrones (reconstruye el OCR pre-migración).
-  // Se activa cuando no hay API key; desactivable con OCR_LOCAL=0. Solo la LECTURA es local; el cruce
-  // placa/VIN, el umbral y el veredicto siguen siendo la lógica real de quien llama.
-  if (!env.ANTHROPIC_API_KEY && process.env.OCR_LOCAL === '1') {
-    const texto = await textoDocumento(doc);
-    const crudoLocal = camposDesdeTexto(texto, campos);
-    const salidaLocal: Record<string, CampoExtraido> = {};
-    for (const campo of campos) {
-      salidaLocal[campo] = aCampoExtraido(crudoLocal[campo] ?? { valor: null, confianza: null }, doc.umbral, normalizadores[campo]);
-    }
-    log.info({ campos: campos.length, chars: texto.length }, 'OCR local (fallback sin Anthropic)');
-    return salidaLocal;
+  if (!env.ANTHROPIC_API_KEY) {
+    return extraerLocal(doc, campos, normalizadores, 'sin_api_key');
   }
 
-  const p1 = await pasada(doc, env.ANTHROPIC_MODEL_HAIKU, prompt, '');
-  let crudo = p1 ?? {};
+  let crudo: Record<string, CampoCrudo>;
+  try {
+    const p1 = await pasada(doc, env.ANTHROPIC_MODEL_HAIKU, prompt, '');
+    crudo = p1 ?? {};
+  } catch (e) {
+    if (!(e instanceof OcrNoDisponibleError)) throw e;
+    // Sin PII del documento: solo status/mensaje del upstream.
+    log.warn({ status: e.status, err: e.message }, 'OCR: Anthropic no disponible; se usa fallback local');
+    return extraerLocal(doc, campos, normalizadores, 'anthropic_fallo');
+  }
 
   const necesitaEscalar = camposEscalacion.some((c) => crudo[c]?.confianza !== 'alta');
   if (necesitaEscalar) {
@@ -220,7 +243,7 @@ async function extraer(
       if (p2) crudo = fusionar(crudo, p2, campos);
     } catch (e) {
       // Sonnet caído no invalida la primera pasada: seguimos con Haiku (mejor que nada). Un fallo
-      // total (ambas pasadas) ya habría lanzado en la primera.
+      // total (ambas pasadas) ya habría lanzado en la primera → fallback local arriba.
       log.warn({ err: (e as Error).message }, 'OCR: segunda pasada (Sonnet) falló; se usa Haiku');
     }
   }

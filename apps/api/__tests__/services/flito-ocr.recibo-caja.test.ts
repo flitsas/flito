@@ -10,12 +10,25 @@ import { CampoImpuesto } from '@operaciones/shared-types';
 
 process.env.OCR_STUB = '0';
 process.env.OCR_LOCAL = '0';
+if (!process.env.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
 
 const anthropicMock = vi.fn();
+const textoDocumentoMock = vi.fn();
+const camposDesdeTextoMock = vi.fn();
 vi.mock('../../src/modules/tramites/anthropic.js', () => ({ anthropicMessages: anthropicMock }));
+vi.mock('../../src/modules/flito-ocr/flito-ocr-local.js', () => ({
+  textoDocumento: (...args: unknown[]) => textoDocumentoMock(...args),
+  camposDesdeTexto: (...args: unknown[]) => camposDesdeTextoMock(...args),
+}));
 
-const { extraerReciboCaja, OcrNoDisponibleError } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
+const { extraerReciboCaja } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
+const { env } = await import('../../src/config/env.js');
 const { PROMPT_RECIBO_CAJA, PROMPT_RECIBO_IMPUESTO } = await import('../../src/modules/flito-ocr/flito-ocr.prompts.js');
+
+if (!env.ANTHROPIC_API_KEY) {
+  (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
+}
+const API_KEY_TEST = env.ANTHROPIC_API_KEY!;
 
 function respuesta(obj: Record<string, unknown>) {
   return { ok: true as const, data: { content: [{ text: JSON.stringify(obj) }] } };
@@ -28,7 +41,12 @@ function promptDeLlamada(n: number): string {
   return payload.messages[0]!.content.find((c) => c.type === 'text')!.text!;
 }
 
-beforeEach(() => anthropicMock.mockReset());
+beforeEach(() => {
+  anthropicMock.mockReset();
+  textoDocumentoMock.mockReset();
+  camposDesdeTextoMock.mockReset();
+  (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = API_KEY_TEST;
+});
 
 describe('extraerReciboCaja — prompt propio y tres campos', () => {
   it('usa PROMPT_RECIBO_CAJA (no el de la declaración) y pide exactamente valorTotal, fechaPago y numeroRecibo, sin placa', async () => {
@@ -98,11 +116,18 @@ describe('extraerReciboCaja — prompt propio y tres campos', () => {
     }
   });
 
-  it('upstream caído (ok:false) → OcrNoDisponibleError con el status del cliente', async () => {
+  it('upstream caído (ok:false) → fallback local: campos vacíos (Bug #14229; 503 solo si local también falla)', async () => {
     anthropicMock.mockResolvedValueOnce({ ok: false, status: 503, message: 'El servicio de OCR no está disponible' });
-    await expect(extraerReciboCaja(doc())).rejects.toBeInstanceOf(OcrNoDisponibleError);
-    anthropicMock.mockResolvedValueOnce({ ok: false, status: 503, message: 'x' });
-    await expect(extraerReciboCaja(doc())).rejects.toMatchObject({ status: 503, message: 'x' });
+    textoDocumentoMock.mockResolvedValueOnce('');
+    camposDesdeTextoMock.mockReturnValueOnce({});
+
+    const r = await extraerReciboCaja(doc());
+
+    expect(anthropicMock).toHaveBeenCalled();
+    expect(textoDocumentoMock).toHaveBeenCalled();
+    for (const c of [CampoImpuesto.VALOR_TOTAL, CampoImpuesto.FECHA_PAGO, CampoImpuesto.NUMERO_RECIBO]) {
+      expect(r[c]).toEqual({ valor: null, confianza: 0, confiable: false });
+    }
   });
 
   it('este spec no muta el reloj (AC8)', () => {

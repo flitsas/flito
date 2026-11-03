@@ -11,13 +11,25 @@ import {
 
 process.env.OCR_STUB = '0';
 process.env.OCR_LOCAL = '0';
+if (!process.env.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
 
 const anthropicMock = vi.fn();
+const textoDocumentoMock = vi.fn();
+const camposDesdeTextoMock = vi.fn();
 vi.mock('../../src/modules/tramites/anthropic.js', () => ({ anthropicMessages: anthropicMock }));
+vi.mock('../../src/modules/flito-ocr/flito-ocr-local.js', () => ({
+  textoDocumento: (...args: unknown[]) => textoDocumentoMock(...args),
+  camposDesdeTexto: (...args: unknown[]) => camposDesdeTextoMock(...args),
+}));
 
-const { extraerComprobanteUniversal, OcrNoDisponibleError } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
+const { extraerComprobanteUniversal } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
 const { PROMPT_COMPROBANTE_UNIVERSAL, PROMPT_PARTICION_CONSOLIDADO, SISTEMA_OCR } = await import('../../src/modules/flito-ocr/flito-ocr.prompts.js');
 const { env } = await import('../../src/config/env.js');
+
+if (!env.ANTHROPIC_API_KEY) {
+  (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
+}
+const API_KEY_TEST = env.ANTHROPIC_API_KEY!;
 
 type Crudo = { valor: string | null; confianza: 'alta' | 'media' | 'baja' | null };
 function respuesta(obj: Record<string, Crudo | unknown>) {
@@ -37,7 +49,12 @@ const TODO_ALTA = {
   valorTotal: c('$ 1.234.567'), fechaPago: c('10/09/2026'), numeroDocumento: c('po-123'), emisor: c('  Seguros del Estado '),
 };
 
-beforeEach(() => anthropicMock.mockReset());
+beforeEach(() => {
+  anthropicMock.mockReset();
+  textoDocumentoMock.mockReset();
+  camposDesdeTextoMock.mockReset();
+  (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = API_KEY_TEST;
+});
 
 // ─────────────────────────── AC1 — forma y normalización ─────────────────────
 
@@ -178,10 +195,17 @@ describe('AC1 — una sola lectura con PROMPT_COMPROBANTE_UNIVERSAL', () => {
     expect(r[CampoComprobante.TIPO_DOCUMENTO]).toEqual({ valor: 'factura_soat', confianza: 0.6, confiable: false });
   });
 
-  it('OCR caído (no-200) → OcrNoDisponibleError, no TypeError', async () => {
+  it('OCR caído (no-200) → fallback local: campos vacíos, no TypeError (Bug #14229)', async () => {
     anthropicMock.mockResolvedValueOnce({ ok: false, status: 503, message: 'Servicio de IA no configurado' });
+    textoDocumentoMock.mockResolvedValueOnce('');
+    camposDesdeTextoMock.mockReturnValueOnce({});
 
-    await expect(extraerComprobanteUniversal(doc())).rejects.toBeInstanceOf(OcrNoDisponibleError);
+    const r = await extraerComprobanteUniversal(doc());
+
+    expect(anthropicMock).toHaveBeenCalled();
+    expect(textoDocumentoMock).toHaveBeenCalled();
+    expect(r[CampoComprobante.PLACA]).toEqual({ valor: null, confianza: 0, confiable: false });
+    expect(r[CampoComprobante.VALOR_TOTAL]).toEqual({ valor: null, confianza: 0, confiable: false });
   });
 });
 

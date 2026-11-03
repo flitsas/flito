@@ -262,8 +262,10 @@ export function fusionarConDestino(
  * extractor. `umbral` marca `confiable`; por defecto el global (`umbralPara(null)`), porque al leer
  * todavía no se sabe de qué organismo es el documento — quien cruce lo re-marca.
  *
- * Lanza `OcrNoDisponibleError` cuando el OCR está caído (sin API key, 429, 503): la carga lo
- * persiste como pendiente `ocr_no_disponible` y «Releer» vuelve a entrar por aquí.
+ * Ante fallo de Anthropic (sin API key, 429, 503) `extraer*()` cae al OCR local (Bug #14229) y
+ * esta función resuelve con campos vacíos / fusión parcial. Solo lanza `OcrNoDisponibleError` si
+ * el local también falla: entonces la carga lo persiste como pendiente `ocr_no_disponible` y
+ * «Releer» vuelve a entrar por aquí.
  */
 export async function leerSubDocumento(sub: SubDocumentoApi, umbral: number = umbralPara(null)): Promise<LecturaSubDocumento> {
   const doc: DocumentoAAnalizar = { nombreArchivo: sub.nombre, contentType: sub.contentType, contenido: sub.buffer, umbral };
