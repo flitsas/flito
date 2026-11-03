@@ -12,6 +12,8 @@ import {
 } from '../../../lib/viajesCliente';
 import { toastOk } from '../../flit/ToastFlito';
 import FlitModal from '../../flit/FlitModal';
+import StatusChip from '../../flit/StatusChip';
+import ModalEnviarACliente from './ModalEnviarACliente';
 import {
   FlitCard, FlitEmpty, FlitField, FlitPillButton, FlitPillGroup, flitBtnPrimary, flitBtnPrimaryStyle,
   flitBtnSecondary, flitBtnSecondaryStyle, flitInp,
@@ -31,6 +33,8 @@ interface Props {
 
 export default function ViajesACliente({ grupos, estado, onReintentar, onRegistrado, onIrMotivos }: Props) {
   const [confirmar, setConfirmar] = useState<CompaniaCerrableLogistica | null>(null);
+  const [enviar, setEnviar] = useState<CompaniaCerrableLogistica | null>(null);
+  const botonEnviar = useRef<HTMLButtonElement | null>(null);
   const [abiertas, setAbiertas] = useState<Set<number>>(() => new Set());
 
   const toggleMas = (id: number) => {
@@ -80,7 +84,7 @@ export default function ViajesACliente({ grupos, estado, onReintentar, onRegistr
 
       {grupos.length === 0 ? (
         <FlitEmpty>
-          No hay LT clasificadas listas para un viaje. Primero deben recogerse y clasificarse en el organismo.
+          No hay LT listas para un viaje. Las clasificadas y las que ya llegaron a FLIT aparecen aquí.
         </FlitEmpty>
       ) : (
         <ul className="space-y-3">
@@ -90,7 +94,8 @@ export default function ViajesACliente({ grupos, estado, onReintentar, onRegistr
                 grupo={g}
                 expandida={abiertas.has(g.companiaId)}
                 onToggle={() => toggleMas(g.companiaId)}
-                onRegistrar={() => setConfirmar(g)}
+                onRegistrar={() => setConfirmar({ ...g, lts: g.lts.filter((l) => l.origen !== 'flit'), disponibles: g.lts.filter((l) => l.origen !== 'flit').length })}
+                onEnviar={(el) => { botonEnviar.current = el; setEnviar(g); }}
               />
             </li>
           ))}
@@ -105,46 +110,56 @@ export default function ViajesACliente({ grupos, estado, onReintentar, onRegistr
           onRegistrado={() => { setConfirmar(null); onRegistrado(); }}
         />
       )}
+
+      {enviar && (
+        <ModalEnviarACliente
+          grupo={enviar}
+          onClose={() => { setEnviar(null); botonEnviar.current?.focus(); }}
+          onRegistrado={() => { setEnviar(null); onRegistrado(); }}
+        />
+      )}
     </div>
   );
 }
 
-function TarjetaGrupo({ grupo, expandida, onToggle, onRegistrar }: {
+function TarjetaGrupo({ grupo, expandida, onToggle, onRegistrar, onEnviar }: {
   grupo: CompaniaCerrableLogistica;
   expandida: boolean;
   onToggle: () => void;
   onRegistrar: () => void;
+  onEnviar: (el: HTMLButtonElement) => void;
 }) {
   const nombre = nombreCompania(grupo.nombre, grupo.companiaId);
+  const ltsOrg = grupo.lts.filter((l) => l.origen !== 'flit');
+  const ltsFlit = grupo.lts.filter((l) => l.origen === 'flit');
+  const hayOrg = ltsOrg.length > 0;
+  const hayFlit = ltsFlit.length > 0;
   const precioC = grupo.precioEntregaCliente;
   const precioF = grupo.precioEntregaFlit;
   const alguno = precioC != null || precioF != null;
-  const visibles = grupo.lts.slice(0, 3);
-  const resto = grupo.lts.slice(3);
 
   return (
     <article className="rounded-xl border p-4" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' }}>
       <h3 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
         {nombre} · {grupo.disponibles} LT
       </h3>
-      <p className="mt-1 flex flex-wrap gap-x-1 text-sm">
-        <span style={{ color: precioC == null ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}>
-          {textoPrecioDestino('Cliente', precioC)}
-        </span>
-        <span style={{ color: 'var(--flit-text-muted)' }} aria-hidden="true">·</span>
-        <span style={{ color: precioF == null ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}>
-          {textoPrecioDestino('FLIT', precioF)}
-        </span>
-      </p>
+      {hayOrg && (
+        <p className="mt-1 flex flex-wrap gap-x-1 text-sm">
+          <span style={{ color: precioC == null ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}>
+            {textoPrecioDestino('Cliente', precioC)}
+          </span>
+          <span style={{ color: 'var(--flit-text-muted)' }} aria-hidden="true">·</span>
+          <span style={{ color: precioF == null ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}>
+            {textoPrecioDestino('FLIT', precioF)}
+          </span>
+        </p>
+      )}
 
-      {!alguno && <AvisoSinTarifa companiaId={grupo.companiaId} />}
+      {hayOrg && !alguno && <AvisoSinTarifa companiaId={grupo.companiaId} />}
 
-      <ul className="mt-3 space-y-0.5 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>
-        {(expandida ? grupo.lts : visibles).map((lt) => (
-          <li key={lt.documentoId}>{lineaLt(lt)}</li>
-        ))}
-      </ul>
-      {resto.length > 0 && (
+      <BloqueLts titulo="Clasificadas" lts={ltsOrg} expandida={expandida} />
+      <BloqueLts titulo="En FLIT" lts={ltsFlit} expandida={expandida} chip />
+      {grupo.lts.length > 6 || ltsOrg.length > 3 || ltsFlit.length > 3 ? (
         <button
           type="button"
           onClick={onToggle}
@@ -152,18 +167,47 @@ function TarjetaGrupo({ grupo, expandida, onToggle, onRegistrar }: {
           className="flit-focus mt-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
           style={{ color: 'var(--flit-blue-text)', minHeight: 40 }}
         >
-          {expandida ? 'Ver menos' : `+ ${resto.length} más`}
+          {expandida ? 'Ver menos' : `+ ${Math.max(0, ltsOrg.length - 3) + Math.max(0, ltsFlit.length - 3)} más`}
         </button>
-      )}
+      ) : null}
 
-      {alguno && (
-        <div className="mt-4 flex lg:justify-end">
-          <button type="button" className={`${flitBtnPrimary} w-full justify-center lg:w-auto`} style={flitBtnPrimaryStyle} onClick={onRegistrar}>
-            Registrar viaje
-          </button>
+      {(hayFlit || (hayOrg && alguno)) && (
+        <div className="mt-4 flex flex-col gap-2 lg:flex-row-reverse lg:justify-start">
+          {hayOrg && alguno && (
+            <button type="button" className={`${flitBtnPrimary} w-full justify-center lg:w-auto`} style={flitBtnPrimaryStyle} onClick={onRegistrar}>
+              Registrar viaje
+            </button>
+          )}
+          {hayFlit && (
+            <button
+              type="button"
+              className={hayOrg && alguno ? `${flitBtnSecondary} w-full justify-center lg:w-auto` : `${flitBtnPrimary} w-full justify-center lg:w-auto`}
+              style={hayOrg && alguno ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
+              onClick={(e) => onEnviar(e.currentTarget)}
+            >
+              Enviar a cliente
+            </button>
+          )}
         </div>
       )}
     </article>
+  );
+}
+
+function BloqueLts({ titulo, lts, expandida, chip }: { titulo: string; lts: LtClasificadaCerrable[]; expandida: boolean; chip?: boolean }) {
+  if (lts.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{titulo} ({lts.length})</p>
+      <ul className="mt-1 space-y-0.5 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>
+        {(expandida ? lts : lts.slice(0, 3)).map((lt) => (
+          <li key={lt.documentoId} className="flex flex-wrap items-center gap-2">
+            <span>{lineaLt(lt)}</span>
+            {chip && <StatusChip tone="active">En FLIT</StatusChip>}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
