@@ -126,6 +126,15 @@ Entregables (`docs/ux/<modulo>-<flujo>.md`):
 
 ---
 
+## Mockups visuales (sustituyen a Claude Design)
+
+Claude Design **no** es dependencia del flujo: solo existe en Claude y no tiene integración documentada con otros agentes. En **full** (y en slim si la pantalla cambia de forma notable) el wireframe ASCII se complementa con una **maqueta HTML estática**:
+
+1. El `ux-agent` escribe `docs/ux/mockups/<slug>.html`: un solo archivo autocontenido, con las **clases Tailwind y patrones de `components/flit/` y `components/shell/`** ya usados en la app (nada de HEX sueltos; regla 13 de `AGENTS.md`), datos de ejemplo realistas y los **4 estados** conmutables (`?estado=cargando|error|vacio|lleno` o secciones apiladas). Sin JS de negocio ni llamadas de red.
+2. El **hilo** (no este agente, que no tiene navegador) abre el archivo con **Playwright MCP** (`file://…`, ventana visible), captura cada estado en `docs/ux/mockups/<slug>-<estado>.png` y se lo muestra al humano para ajustar. Itera ahí mismo.
+3. El `frontend-agent` construye la UI real **desde esa maqueta y el spec**, no al revés. La maqueta no se importa a `apps/web`.
+4. Opcional y solo con el humano: explorar ideas con Stitch (Google) o Figma MCP; su salida es inspiración, nunca contrato.
+
 ## Estructura full
 
 ```markdown

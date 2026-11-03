@@ -1,6 +1,6 @@
 <!--
   Título del PR (obligatorio, lo valida el check «naming»):
-    HU <ID>: <descripción>     ·  BUG <ID>: <descripción>
+    HU <ID>: <descripción>     ·  BUG <ID>: <descripción>  ·  FEATURE <ID>: <descripción> (Modo Feature)
     CHORE: / DOCS: <descripción>  (solo sin work item y sin tocar apps/ ni packages/)
   Máx. 100 caracteres, descriptivo, sin punto final, mismo ID que la rama HU/<ID>-<dev>-<desc>.
   Detalle: .cursor/rules/convenciones-rama-pr.mdc

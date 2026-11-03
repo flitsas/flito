@@ -4,7 +4,7 @@
 // Los gates pre-PR (skill flit-code-review, qa-agent modo B, security-agent,
 // db-review-agent) son disciplina del hilo: ningún otro check de CI puede saber si
 // corrieron de verdad. Este check es el enforcement parcial: un PR de producto
-// (HU/BUG) debe declarar los cuatro veredictos en su cuerpo, en verde o N/A con
+// (HU/BUG/FEATURE) debe declarar los cuatro veredictos en su cuerpo, en verde o N/A con
 // motivo. CHORE/DOCS/RELEASE quedan exentos (no son producto).
 //
 // Lo usan dos consumidores:
@@ -23,7 +23,7 @@
 //
 // Exit 1 si falta un veredicto o viene en estado no verde.
 
-const TITLE_WORK_ITEM = /^(HU|BUG) \d{1,7}: /;
+const TITLE_WORK_ITEM = /^(HU|BUG|FEATURE) \d{1,7}: /;
 
 // Cada gate: etiqueta para mensajes, regex de la línea, valores verdes y
 // sufijo de observaciones que NO cuenta como verde sin waiver.
@@ -76,7 +76,7 @@ if (!title) {
 }
 
 if (!TITLE_WORK_ITEM.test(title)) {
-  console.log(`[pr-gates] N/A — «${title}» no es un PR de producto (HU/BUG); CHORE/DOCS/RELEASE no declaran veredictos.`);
+  console.log(`[pr-gates] N/A — «${title}» no es un PR de producto (HU/BUG/FEATURE); CHORE/DOCS/RELEASE no declaran veredictos.`);
   process.exit(0);
 }
 
