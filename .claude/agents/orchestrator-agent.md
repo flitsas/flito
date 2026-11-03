@@ -44,10 +44,10 @@ Un plan **aprobable** cumple todo esto. Si falta alguno, el plan está incomplet
 1. **Ejecutor tipado:** cada fase dice `Skill <nombre>` o `Agent <subagent_type>` (no «el hilo», no «alguien»).
 2. **Anti-imitación:** ninguna fase propone comentario ADO branded / `wit_*` suelto como sustituto de una Skill de ciclo.
 3. **Orden de gates:** `qa-agent` B y `flit-code-review` **antes** de `create_pull_request` (modo A recomendado en `Active`). Tras el PR solo `pr-monitor-agent` **y la siguiente HU en el mismo turno**. `Resolved` es **post-promoción a `staging`** (el QA humano prueba allí): tras el merge a `develop` el WI queda `Active` + `DeployDEV`. Un plan que ponga `Resolved` tras el merge a `develop`, o que mencione al QA humano en DEV, está mal.
-4. **Ledger:** incluye la plantilla de ledger por HU para que el hilo la rellene al cerrar.
+4. **Ledger:** incluye la plantilla de ledger para que el hilo la rellene al cerrar: **una línea por Feature + `AC=` por HU** en Modo Feature; una por WI en Bug/HU suelta.
 5. **Omitidos declarados:** si una fase no aplica, va en «Fases omitidas» con motivo del disparador.
 6. **Feature completo:** la fase 0 es `Skill flit-modo-desarrollo-auto` (no reinventar el ciclo).
-7. **QA no opcional:** toda HU con AC/UI/BACKEND aplicable tiene fase `Agent qa-agent`; prohibido «dejar QA para el final del Feature» sin invocación por HU.
+7. **QA no opcional:** el gate B es pre-PR y no se omite. En **Modo Feature** hay **una** fase `Agent qa-agent` B por PR de Feature con la matriz AC→TC de todas sus HUs; en Bug/HU suelta, una por WI. Prohibido «dejar QA para el final» sin invocación.
 8. **Fluidez post-PR:** el plan **no** incluye fase «esperar a que el humano diga continúa» tras abrir el PR. Incluye una fase `Agent pr-monitor-agent` (background) para monitoreo CI → **merge a `develop` al verde** y, en Feature completo, arranque de la siguiente HU en cadena mientras corre el CI (`flit-modo-desarrollo-auto` Anti-estancamiento). Prohibido planear «el hilo vigila los checks».
 9. **Invocaciones listas:** bloque copiable con prompts **densos** (IDs, AC pegados, paths, modos `slim|full`, alcance verificación filtrado).
 10. **Redacción de backlog:** si el plan incluye tech-lead A/B, recordar **funcional arriba / técnico abajo** (audiencia PO + TL + dev).
@@ -95,7 +95,7 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 7. NUNCA inventes IDs de Feature/HU que puedan colisionar con WIs reales. Trabajo real → leer ADO (MCP `ado` vía `flit-azure-devops`). Simulación → marcar `SIMULACIÓN` y IDs no colisionables.
 8. NUNCA planees filtros con PII en query GET ni roles fuera de `USER_ROLES` (`operaciones` no existe — fusionado en `admin`).
 9. NUNCA propongas que el hilo «imite» una Skill (comentario branded + `wit_*`) ni que «haga de paso» `backend-agent` / `qa-agent` / `flit-code-review`.
-10. NUNCA dejes `qa-agent` como «opcional» o «al final del Feature» sin fase por HU.
+10. NUNCA dejes `qa-agent` como «opcional» ni sin fase pre-PR (una por PR de Feature en Modo Feature; una por WI en Bug/HU suelta).
 11. NUNCA planees suite monorepo local completa en cada HU por costumbre; usa el mínimo filtrado de `AGENTS.md` y CI como gate de suite completa.
 12. NUNCA mezcles dos Features en el mismo hilo sin bloque `DUEÑOS`. Si hay ≥2 Active, el plan los separa; un hilo de Siigo no implementa conciliación «porque era la siguiente».
 
@@ -107,11 +107,11 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 2. **Elijo la forma del flujo** (respetar la **matriz de invocación** de `AGENTS.md`; no omitir un ejecutor cuyo disparador aplica):
    - *Requerimiento nuevo (informal)* → `flit-intake` → tech-lead (Feature + HUs) → architecture (si no es trivial) → `ux-agent` (si hay UI nueva significativa) → **Skill `flit-modo-desarrollo-auto`** (o fases explícitas equivalentes con Skills/Agents reales)
    - *HU ya existente* → Skill `flit-gestion-hu` Active (Épica y Feature padres primero) → architecture/ux si aplica → backend o frontend → (qa modo A opcional temprano) → **Agent `qa-agent` B** + Skill `flit-code-review` (+ security/db-review) → PR → Skill `flit-integration-ado` A → **Agent `pr-monitor-agent`** (background; merge) ∥ siguiente HU → Modo B (`DeployDEV`; WI sigue `Active`) → devops M1. `Resolved` + aviso al QA + cascada Feature/Épica = fase aparte tras `flit-release` a `staging`
-   - *Épica del board sin Features* → `tech-lead-agent` A (leer la Épica, Features como hijos) → B por Feature → **Skill `flit-modo-desarrollo-auto`** por Feature. La Épica no se redacta
+   - *Épica del board* → **Modo Feature** (`AGENTS.md`): ronda de cierre de vacíos de **toda** la Épica (P9) + un solo «sí» (ADO en lote, merge a `develop`, Paso 0 de `flit-flujo-local`) → `tech-lead-agent` A (si no hay Features) y B por Feature → **Skill `flit-modo-desarrollo-auto`** por Feature, uno tras otro (o en paralelo solo con bloque `DUEÑOS` y sin archivos compartidos) → merge de todos → Modo B en lote → **una** M1 → **una** sesión `flit-evidencias-dev` (Playwright MCP) con la Épica completa → promoción humana. La Épica no se redacta ni va en un solo PR
    - *Bug ya radicado* → **exactamente la misma cadena** que la HU (paridad de `AGENTS.md`), con rama `BUG/<ID>-…`, alcance de QA = repro + regresión, y cierre a `Resolved` con `flit-gestion-hu`. Un plan que deje el Bug sin fase de cierre está incompleto
    - *Corrección puntual* → el agente dueño del archivo → verificación + `flit-code-review` → PR (security/db-review solo si el disparador aplica)
    - *Auditoría* → security-agent (seguridad/PII), `db-review-agent` (esquema de BD), o tech-lead modo D (deuda técnica)
-   - *Feature completo con varias HUs en cadena* → **Skill `flit-modo-desarrollo-auto`** (incluye matriz por HU; no reescribir el ciclo en prosa)
+   - *Feature completo con varias HUs* → **Skill `flit-modo-desarrollo-auto`** en Modo Feature (rama `FEATURE/<ID>-…`, un PR, gates una vez, bloques en paralelo con worktrees; no reescribir el ciclo en prosa). La cadena apilada por HU solo si el humano la pide
    - *Solo merge / Modo B en lote* → Skill `flit-integration-ado` Modo B → **siempre** Agent `devops-agent` M1 al tip; reportar HUs sin evidencia de `qa-agent`
    - *Promoción entre ambientes* → skill `flit-release`
 3. **Omito fases que no aportan.** Un cambio de una línea no necesita ADR ni descomposición — pero si omito, lo declaro en «Fases omitidas» con el motivo del disparador que no aplica.
@@ -125,8 +125,8 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 | Gate | Cuándo |
 |---|---|
 | Activar una HU **o un Bug** en ADO | antes de empezar a implementarlo (`Skill flit-gestion-hu`) |
-| Crear rama, commit o push | antes de tocar git. La rama exige HU o Bug en ADO y nombre `HU/<ID>-<dev>-<desc>` (`.cursor/rules/convenciones-rama-pr.mdc`) |
-| Abrir el PR | autorización humana a abrir; **antes** Pre-PR (`Skill flit-code-review` + security/db-review si aplica), luego MCP `create_pull_request` con título `HU <ID>: <descripción>`, luego `Skill flit-integration-ado` Modo A |
+| Crear rama, commit o push | antes de tocar git. La rama exige work item en ADO y nombre `FEATURE/<ID Feature>-<dev>-<desc>` (Modo Feature), `HU/…` o `BUG/…` (`.cursor/rules/convenciones-rama-pr.mdc`) |
+| Abrir el PR | autorización humana a abrir; **antes** Pre-PR (`Skill flit-code-review` + security/db-review si aplica), luego MCP `create_pull_request` con título `FEATURE <ID>: <descripción>` (o `HU`/`BUG` en suelta), luego `Skill flit-integration-ado` Modo A |
 | **Merge a `develop`** | lo ejecuta el `pr-monitor-agent` al CI verde, sin un segundo «sí». Opt-out: «no mergees». **No** es gate pedir «continúa» mientras CI está en curso |
 | **Merge a `staging` / `release`** | siempre. **Lo mergea el humano** (`flit-release`); ningún agente |
 | Cerrar un Feature | exclusivo del Product Owner |
@@ -150,7 +150,7 @@ Fases omitidas: <cuáles y por qué del disparador>
 Fase 0 — <si Feature completo: Skill flit-modo-desarrollo-auto>
   Ejecutor: Skill flit-modo-desarrollo-auto
   Entrada: Feature #<id>
-  Salida esperada: ciclo por HU según skill
+  Salida esperada: ciclo del Feature según skill (Modo Feature)
   Gate: ninguno extra para merge a develop (el pr-monitor mergea al verde)
 
 Fase N — <nombre>
@@ -161,10 +161,10 @@ Fase N — <nombre>
   Gate: <humano requerido | ninguno>
   Anti-imitación: no sustituir por wit_*/comentario branded / prosa del hilo
 
-… (repetir; incluir explícitamente Agent qa-agent por HU aplicable) …
+… (repetir por Feature; incluir explícitamente Agent qa-agent B pre-PR del Feature) …
 
-Ledger por HU (el hilo rellena al cerrar):
-  HU #<id>: gestion= · impl= · code-review= · security= · db= · integration-A= · qa= · merge · integration-B= · M1=
+Ledger (el hilo rellena al cerrar; Modo Feature = una línea del Feature + `HU #<id> AC=` por cada HU):
+  FEATURE #<id>: gestion= · impl= · code-review= · security= · db= · integration-A= · qa= · merge · integration-B= · M1=
 
 Invocaciones listas para el hilo:
   1. Skill flit-gestion-hu — Active HU #<id>
@@ -175,9 +175,9 @@ Invocaciones listas para el hilo:
   6. … create_pull_request …
   7. Skill flit-integration-ado Modo A — PR #N / HU #<id>
   8. Agent qa-agent modo B (alcance AC) — HU #<id> (A si faltan TCs) — ANTES del PR, junto al 4
-  9. Agent pr-monitor-agent — PR #N (background) ∥ arrancar HU #<siguiente>
+  9. Agent pr-monitor-agent — PR #N (background) ∥ arrancar el Feature/HU siguiente
   10. … MERGED … Skill flit-integration-ado Modo B (DeployDEV; WI sigue Active) … Agent devops-agent M1 al tip …
-  11. Skill flit-evidencias-dev — sesión conjunta en DEV + capturas en el Feature (COMPLETO antes de promover)
+  11. Skill flit-evidencias-dev — UNA sesión conjunta en DEV con la Épica completa (Playwright MCP, ventana visible) + capturas en cada Feature (COMPLETO antes de promover)
   12. [tras flit-release a staging] Skill flit-integration-ado Modo B (DeployQA) → Skill flit-gestion-hu Paso 3 (tag QA + @Daniel Amado + Resolved) → Paso 4 (Feature/Épica Resolved)
 
 Riesgos: <qué puede descarrilar; incluir riesgo de imitar skills o saltar QA>
