@@ -45,7 +45,7 @@ describe.skipIf(!URL_BASE)('0287 — contra la base real', () => {
   beforeAll(() => { sql = abrirBase(); });
   afterAll(async () => { await sql?.end(); });
 
-  it('aplicar dos veces no falla; el UPSERT suma y los CHECK rechazan lo inválido', async () => {
+  it('aplicar dos veces no falla; la PK sostiene un ON CONFLICT de la clave (INSERT del test, no la sentencia del producto) y los CHECK rechazan lo inválido', async () => {
     await enTx(sql, async (tx) => {
       await tx.unsafe(SQL);
       await tx.unsafe(SQL);

@@ -45,7 +45,7 @@ beforeEach(() => {
 });
 
 describe('R1 — admin consulta el uso agregado', () => {
-  it('200 con filas, primerDia y ultimoDia, y con el rango pedido', async () => {
+  it('200 con las filas que entrega el servicio y el eco del rango pedido en la respuesta (la query: uso-legacy.service.test)', async () => {
     vi.mocked(db.select).mockImplementation((() => chain([fila(1)])) as never);
     const r = await request(app).get('/api/uso-legacy?desde=2026-10-01&hasta=2026-10-20&modulo=soat').set('Authorization', admin);
     expect(r.status).toBe(200);
