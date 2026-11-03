@@ -231,7 +231,8 @@ describe('fijarTarifa — abre la PRIMERA vigencia de una llave (AC4, AC9, AC10,
     expect(insertMock).not.toHaveBeenCalled();
 
     const grabado: { values?: { valor?: string } } = {};
-    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([FILA_TARIFA({ valor: '0.00' })]));
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([{ ultimoCierre: null }]))
+      .mockReturnValueOnce(chain([FILA_TARIFA({ valor: '0.00' })]));
     insertMock.mockReturnValueOnce(grabando([{ id: 'v-2' }], grabado));
     const t = await fijarTarifa({ companiaId: 7, concepto: 'logistica', valor: 0, confirmarCero: true }, 1);
     expect(grabado.values?.valor).toBe('0');
@@ -245,9 +246,8 @@ describe('fijarTarifa — abre la PRIMERA vigencia de una llave (AC4, AC9, AC10,
 
   it('primera fijación: vigente_desde = epoch «desde siempre» (NO now()); fijado_en = ahora; tipo normalizado', async () => {
     const grabado: { values?: Record<string, unknown> } = {};
-    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([
-      FILA_TARIFA({ vigenteDesde: DESDE_SIEMPRE, fijadoEn: AHORA }),
-    ]));
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([{ ultimoCierre: null }]))
+      .mockReturnValueOnce(chain([FILA_TARIFA({ vigenteDesde: DESDE_SIEMPRE, fijadoEn: AHORA })]));
     insertMock.mockReturnValueOnce(grabando([{ id: 'v-2' }], grabado));
     const t = await fijarTarifa({ companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'matrícula', valor: 320000 }, 9);
     expect(grabado.values).toMatchObject({ companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'MATRICULA', valor: '320000', fijadoPorId: 9 });
@@ -262,12 +262,54 @@ describe('fijarTarifa — abre la PRIMERA vigencia de una llave (AC4, AC9, AC10,
   });
 
   it('si la llave ya tiene vigencia abierta (23505 del índice parcial) → conflicto con el id de la abierta', async () => {
-    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([{ id: 'v-abierta' }]));
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([{ ultimoCierre: null }]))
+      .mockReturnValueOnce(chain([{ id: 'v-abierta' }]));
     insertMock.mockReturnValueOnce(chainReject(Object.assign(new Error('dup'), { code: '23505' })));
     const e = await fijarTarifa({ companiaId: 7, concepto: 'logistica', valor: 1000 }, 1).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(TarifaConflictoError);
     expect((e as InstanceType<typeof TarifaConflictoError>).vigenciaId).toBe('v-abierta');
     expect((e as Error).message).toMatch(/Editar/);
+  });
+
+  it('llave con vigencia CERRADA (Dejar de cobrar): la nueva abre desde el cierre/ahora, NO desde «siempre» (no se solapa)', async () => {
+    const cierre = new Date('2026-09-01T10:00:00.000Z');
+    const grabado: { values?: Record<string, unknown> } = {};
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([{ ultimoCierre: cierre.toISOString() }]))
+      .mockReturnValueOnce(chain([FILA_TARIFA({ vigenteDesde: AHORA })]));
+    insertMock.mockReturnValueOnce(grabando([{ id: 'v-3' }], grabado));
+    await fijarTarifa({ companiaId: 1, concepto: 'logistica_cliente', valor: 85000 }, 1);
+    const desde = (grabado.values?.vigenteDesde as Date).getTime();
+    expect(desde).toBeGreaterThanOrEqual(cierre.getTime());
+    expect(desde).not.toBe(new Date(VIGENCIA_DESDE_SIEMPRE).getTime());
+    expect(desde).toBe(AHORA.getTime()); // ahora > cierre
+  });
+
+  it('nunca abre antes del cierre más reciente (cierre posterior a ahora → desde = cierre)', async () => {
+    const cierre = new Date('2026-09-10T15:00:01.000Z');
+    const grabado: { values?: Record<string, unknown> } = {};
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([{ ultimoCierre: cierre }]))
+      .mockReturnValueOnce(chain([FILA_TARIFA()]));
+    insertMock.mockReturnValueOnce(grabando([{ id: 'v-3' }], grabado));
+    await fijarTarifa({ companiaId: 1, concepto: 'logistica', valor: 85000 }, 1);
+    expect((grabado.values?.vigenteDesde as Date).getTime()).toBe(cierre.getTime());
+  });
+
+  it('un choque real con el code en `cause` (drizzle envuelve el error de postgres) → 409, no 500', async () => {
+    for (const code of ['23P01', '23505']) {
+      selectMock.mockReset();
+      selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([{ ultimoCierre: null }]))
+        .mockReturnValueOnce(chain([{ id: 'v-abierta' }]));
+      insertMock.mockReturnValueOnce(chainReject(Object.assign(new Error('Failed query: insert'), { cause: Object.assign(new Error('pg'), { code }) })));
+      const e = await fijarTarifa({ companiaId: 7, concepto: 'logistica', valor: 1000 }, 1).catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(TarifaConflictoError);
+    }
+  });
+
+  it('un error que no es choque (sin code de choque) se re-lanza tal cual', async () => {
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([{ ultimoCierre: null }]));
+    const boom = Object.assign(new Error('boom'), { cause: { code: '08006' } });
+    insertMock.mockReturnValueOnce(chainReject(boom));
+    await expect(fijarTarifa({ companiaId: 7, concepto: 'logistica', valor: 1000 }, 1)).rejects.toBe(boom);
   });
 });
 

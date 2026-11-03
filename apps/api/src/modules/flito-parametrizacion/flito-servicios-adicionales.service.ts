@@ -56,7 +56,13 @@ export function aDto(f: FilaTipo): ServicioAdicionalTipo {
   };
 }
 
-const esChoqueDeLlave = (e: unknown): boolean => (e as { code?: string }).code === '23505';
+// Drizzle envuelve el error de postgres: el `code` puede venir en `e.cause`.
+const esChoqueDeLlave = (e: unknown): boolean => {
+  for (let x: unknown = e, i = 0; x && typeof x === 'object' && i < 5; x = (x as { cause?: unknown }).cause, i++) {
+    if ((x as { code?: string }).code === '23505') return true;
+  }
+  return false;
+};
 
 /** El tipo ACTIVO que ya lleva ese nombre plegado (para el 409), o null si no se encuentra. */
 async function activoConNombre(nombre: string): Promise<{ id: string; nombre: string } | null> {

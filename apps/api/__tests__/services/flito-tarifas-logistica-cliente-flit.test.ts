@@ -125,6 +125,7 @@ describe('escritura — la llave de logística no lleva tipo y logistica se pers
 
   it('fijarTarifa(logistica) inserta concepto logistica_cliente', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 7, name: 'ACME', logisticaAutogestionable: true, deletedAt: null }]));
+    selectMock.mockReturnValueOnce(chain([{ ultimoCierre: null }])); // max(vigente_hasta) de la llave
     const grabado: { values?: unknown } = {};
     const ins = chain([{ id: 'nueva' }]) as unknown as Record<string, (a: unknown) => unknown>;
     ins.values = (a: unknown) => { grabado.values = a; return ins; };
