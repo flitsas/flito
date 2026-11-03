@@ -35,29 +35,62 @@ el cifrado crudo con 200. Por tanto:
 QA primero; PDN solo con QA terminado y verificado.
 
 1. Comprobar que el rollout de la imagen con este Feature terminó en el ambiente.
-2. **Solo PDN:** `pg_dump` previo de la tabla. **Ese dump contiene biometría:** se custodia con el mismo
-   control de acceso que la BD, no se copia a equipos personales y se **borra de forma explícita** al
-   cerrar la ventana de rollback, dejando constancia de quién y cuándo.
+2. **QA y PDN:** `pg_dump` previo de la tabla. Sin dump, esas filas no se pueden recuperar: el recifrado
+   sobrescribe la columna. **Ese dump contiene biometría:** se custodia con el mismo control de acceso
+   que la BD, no se copia a equipos personales y se **borra de forma explícita** al cerrar la ventana de
+   rollback, dejando constancia de quién y cuándo.
 
    ```bash
    pg_dump "$DATABASE_URL" -t tramites_validaciones -Fc -f tramites_validaciones-pre-14097.dump
    ```
-3. Job con `--dry-run`. Revisar conteos. `viejo_indescifrable` mayor que 0 **con muchas filas** apunta
-   a una llave equivocada: parar y no pasar al paso 4.
+
+   **Campos obligatorios: infraestructura los rellena por ambiente antes de ejecutar.** Sin ellos el
+   Job no corre.
+
+   | Dato | QA | PDN |
+   |---|---|---|
+   | Plazo de la ventana de rollback (fecha y hora de cierre) | _pendiente_ | _pendiente_ |
+   | Ubicación del dump | _pendiente_ | _pendiente_ |
+   | Cifrado del dump | _pendiente_ | _pendiente_ |
+   | Responsable del borrado | _pendiente_ | _pendiente_ |
+
+3. Job con `--dry-run`. **`--commit` no corre sin un dry-run con `"canario": "ok"` y salida 0 en esa
+   misma imagen y `envFrom`.** Salida 1 o `"canario"` distinto de `ok`: parar, no pasar al paso 4 y
+   revisar `PII_ENC_KEY` (ver «Canario de llave»). Revisar también los conteos: con el canario en `ok`,
+   `viejo_indescifrable` mayor que 0 son celdas corruptas sueltas, listadas en `idsFallidos`.
 4. Job con `--commit`.
 5. Job con `--commit` otra vez: `escrito` debe ser 0 en las tres columnas. Si la salida fue 2, revisar
    `idsFallidos` y `omitido_concurrente`; este último se resuelve solo al volver a correr.
 6. Recorrer en la aplicación un trámite con fotos en BD (documentos y certificado) y comprobar que
    `pii_decrypt_failures_total` sigue en 0.
 
-Códigos de salida: `0` sin pendientes o dry-run · `2` quedan pendientes (se puede volver a correr) ·
-`1` abortó (sin bandera, o error). La salida solo lleva conteos por columna y clase, e ids de fallos.
+Códigos de salida: `0` sin pendientes, o dry-run con el canario superado · `2` quedan pendientes (se
+puede volver a correr) · `1` abortó (sin bandera, error o canario no superado; también en dry-run, con
+cero escrituras). La salida solo lleva conteos por columna y clase, ids de fallos, y el estado y la
+fuente del canario.
+
+## Canario de llave
+
+Una foto en claro no tiene nada contra qué comprobar la llave: se cifra y se verifica con la misma, así
+que sin esta fase una llave equivocada la sobrescribiría con un cifrado que la correcta no puede leer.
+Antes de la primera escritura, y en los dos modos, el script intenta descifrar hasta 5 valores ya
+cifrados y publica el resultado en `canario`:
+
+| `canario` | Cuándo | Efecto |
+|---|---|---|
+| `ok` | Al menos uno descifra. Una celda corrupta suelta no frena: cuenta como `viejo_indescifrable` | La corrida sigue |
+| `fallo` | Hay candidatos y ninguno descifra | Aborta: salida 1, cero escrituras |
+| `sin_canario` | No hay ninguno y hay fotos que cifrar | Aborta: salida 1, cero escrituras |
+| `sin_canario` | No hay ninguno y nada que cifrar | Termina normal: salida 0, cero cambios |
+
+Fuente (`canarioFuente`): primero `tramites_validaciones`, en las clases `nuevo` y `viejo`. Solo si no
+tiene ninguno, `driver_profile.cedula`, cifrada con la misma `PII_ENC_KEY`.
 
 ## Job de una sola vez
 
 Lo lanza infraestructura con `kubectl`. **Va fuera de la kustomization de Argo CD**: es una ejecución
 puntual, no estado deseado. Debe usar la **misma imagen por digest** y el **mismo `envFrom`** que el
-Deployment de la api, porque una llave distinta es justo lo que el dry-run tiene que poder detectar.
+Deployment de la api: el canario comprueba la llave de ese Job, y solo protege si es la que usa la api.
 
 Sacar ambos valores del Deployment vivo, no copiarlos de otro ambiente:
 
