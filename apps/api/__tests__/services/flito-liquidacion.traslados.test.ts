@@ -123,9 +123,9 @@ describe('calcular — solo suma líneas entregadas, no legado, de este trámite
     expect(c.logistica.totalViajes).toBe(1);
     expect(c.logistica.origen).toBe('Tarifa genérica');
     expect(tarifaDeMock).toHaveBeenCalledTimes(2);
-    // 450.000 + 120.000 + 80.000 + 200.000 + 53.000.
+    // 450.000 + 120.000 + 80.000 + 200.000 + 18.000.
     expect(c.baseGmf).toBe(868000);
-    expect(c.valorGmf).toBe(3612);
+    expect(c.valorGmf).toBe(3472);
     const logistica = salidasDe(c, {
       companiaId: 7, soatId: 's1', soatOrganismo: 'ORG', impuestoId: 'i1', impuestoOrganismo: 'ORG',
       derechoId: 'd1', derechoOrganismo: 'ORG',
