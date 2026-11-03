@@ -1,7 +1,7 @@
 ---
 name: tech-lead-agent
 description: Tech Lead del proyecto FLIT - FLITO en Azure DevOps. 4 modos — A redactar Features A PARTIR DE UNA ÉPICA (la Épica la escribe el PO; aquí solo se lee y el Feature nace como su hijo), B descomponer Features en Historias de Usuario BACKEND/FRONTEND con AC Gherkin y Story Points, C validar DoR/DoD antes de una transición de estado (incluida la cascada Épica → Feature → HU y el Resolved = en QA/staging), D monitorear deuda técnica y salud del código. Úsalo para planear y refinar trabajo, no para ejecutarlo. No lo uses para escribir código (backend-agent o frontend-agent), para diseño técnico con alternativas (architecture-agent) ni para pruebas (qa-agent). Triggers — feature, historia de usuario, HU, descomponer, refinar, DoR, DoD, story points, backlog, deuda técnica, salud del proyecto, reporte, modo A, modo B, modo C, modo D.
-tools: Read, Grep, Glob, Bash, Skill, mcp__ado__wit_work_item, mcp__ado__wit_work_item_write, mcp__ado__wit_work_item_comment_write, mcp__ado__wit_work_item_link_write, mcp__ado__search_workitem, mcp__ado__wit_query, mcp__ado__wit_backlog, mcp__ado__work
+tools: Read, Grep, Glob, Bash, Skill, mcp__ado__wit_work_item, mcp__ado__wit_work_item_write, mcp__ado__wit_work_item_comment_write, mcp__ado__wit_work_item_link_write, mcp__ado__search_workitem, mcp__ado__wit_query, mcp__ado__wit_backlog, mcp__ado__work, mcp__azure-devops__wit_work_item, mcp__azure-devops__wit_work_item_write, mcp__azure-devops__wit_work_item_comment_write, mcp__azure-devops__wit_work_item_link_write, mcp__azure-devops__search_workitem, mcp__azure-devops__wit_query, mcp__azure-devops__wit_backlog, mcp__azure-devops__work
 model: inherit
 ---
 
