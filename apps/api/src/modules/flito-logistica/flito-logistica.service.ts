@@ -22,7 +22,7 @@ import { generarActaPdf } from './flito-logistica.acta-pdf.js';
 import { exigirCompaniaRegistrable, idsClasificadosDe, registrarTraslado } from './flito-logistica-traslados.service.js';
 import { SinLtClasificadasError } from './flito-logistica-traslados.errors.js';
 import {
-  anularLineaEntregadaSiHay, devolverTraslado, despacharTraslado, entregarTraslado, trasladoIdDeActaCliente,
+  anularLineaEntregadaSiHay, devolverTraslado, despacharTraslado, entregarTraslado, trasladoIdDeActaCliente, trasladoIdDeActaViaje,
 } from './flito-logistica-traslados-ciclo.service.js';
 
 // HU #14108 (ADR-0030 §11): barrel. Los importadores (rutas, soportes, tests) siguen importando este archivo.
@@ -93,11 +93,11 @@ async function cargarActa(exec: DbOrTx, actaId: string): Promise<{ id: string; e
 export interface DespachoInput { mensajeroId: number; firmaEntrega?: string | null; entregaNombre?: string | null }
 
 /**
- * Adaptador HU #14115: si el acta es de cliente con traslado, despacha el viaje. Firma de Operaciones
+ * Adaptador HU #14115: si el acta es de viaje (cliente o FLIT) con traslado, despacha el viaje. Firma de Operaciones
  * opcional (sin cédula, N4). El resto (actas sin traslado) conserva el camino legado.
  */
 export async function despachar(actaId: string, datos: DespachoInput, ctx: LogisticaCtx): Promise<{ documentos: number }> {
-  const trasladoId = await trasladoIdDeActaCliente(db, actaId);
+  const trasladoId = await trasladoIdDeActaViaje(db, actaId);
   if (trasladoId) return despacharTraslado(trasladoId, datos, ctx);
 
   const acta0 = await cargarActa(db, actaId);

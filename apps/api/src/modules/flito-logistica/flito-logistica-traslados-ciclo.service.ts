@@ -460,3 +460,16 @@ export async function trasladoIdDeActaCliente(exec: DbOrTx, actaId: string): Pro
   if (!a) throw new LogisticaError('Acta no encontrada', 404);
   return a.punto === 'cliente' && a.trasladoId ? a.trasladoId : null;
 }
+
+/**
+ * Resolución del despacho: acta de viaje (cliente **o FLIT**) con `trasladoId` → el ciclo corre sobre el
+ * traslado (registrado → en_ruta, LT en_ruta). Solo para `despachar`: entregar/devolver siguen usando
+ * `trasladoIdDeActaCliente` (el viaje a FLIT cierra con `firmarLlegadaFlit`). Organismo/legado → null.
+ */
+export async function trasladoIdDeActaViaje(exec: DbOrTx, actaId: string): Promise<string | null> {
+  const [a] = await exec.select({
+    id: flitoLogisticaActas.id, punto: flitoLogisticaActas.punto, trasladoId: flitoLogisticaActas.trasladoId,
+  }).from(flitoLogisticaActas).where(eq(flitoLogisticaActas.id, actaId)).limit(1);
+  if (!a) throw new LogisticaError('Acta no encontrada', 404);
+  return (a.punto === 'cliente' || a.punto === 'flit') && a.trasladoId ? a.trasladoId : null;
+}
