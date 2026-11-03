@@ -106,7 +106,10 @@ function matriz(
         const desacuerdos: string[] = [];
         for (const rol of ROLES) {
           const motor = expandirSinCadena(reparto().get(rol) ?? []).has(codigoDe(fila.codigo));
-          const previo = antes.includes(rol);
+          // HU #14114 (migración 0282, decisión de David: «solo Operaciones/admin»): el mensajero ya no registra viajes.
+          // La foto estática aún le da POST /traslados; EXCEPCIÓN estrecha: solo ese rol + esa función. Para el
+          // mensajero el motor debe decir NO; cualquier otro rol o función sigue medido contra la foto.
+          const previo = antes.includes(rol) && !(rol === 'mensajero' && fila.codigo === 'logistica.traslado.registrar');
           if (motor !== previo) {
             desacuerdos.push(`${etiqueta(fila)} · rol ${rol}: antes ${previo ? 'SÍ' : 'NO'}, motor ${motor ? 'SÍ' : 'NO'}`);
           }
