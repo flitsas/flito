@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { env } from '../../config/env.js';
+import { llavePiiMemoizada, pasadaPii } from './pii-keyring.js';
 
 // ============================================================================
 // AES-256-GCM para credenciales sensibles (RNDC, futuros: Mintransporte, RUNT)
@@ -22,6 +23,8 @@ function loadKey(version: number): Buffer {
       if (env.NODE_ENV === 'production') {
         throw new Error('RNDC_ENC_KEY es requerido en producción (32 bytes hex)');
       }
+      // `PII_ENC_KEY` es opcional desde ADR-0033: concatenar `undefined` daría una llave fija y pública.
+      if (!env.PII_ENC_KEY) throw new Error('RNDC_ENC_KEY no está configurada y falta PII_ENC_KEY para derivar el respaldo de desarrollo');
       return crypto.createHash('sha256').update(env.PII_ENC_KEY + 'rndc:dev').digest();
     }
     if (!/^[0-9a-fA-F]{64}$/.test(keyHex)) {
@@ -138,30 +141,19 @@ export function generateNewKey(): string {
 // PII (Personally Identifiable Information) — keyspace separado de RNDC
 // ============================================================================
 // Cifra cédula de conductores, licencia, runtPayload, cuentas bancarias.
-// Clave maestra: env.PII_ENC_KEY (passphrase, derivada con scrypt).
+// Clave maestra: env.PII_ENC_KEY y `PII_ENC_KEY_V<n>` (passphrases, derivadas con scrypt en `pii-keyring.ts`).
 // Justificación de keyspace separado: principio de mínimo privilegio (ISO A.9.4).
 // Si PII_ENC_KEY se compromete, RNDC sigue protegido y viceversa.
 
-const PII_KEY_VERSION_CURRENT = 1;
-const PII_SCRYPT_SALT = 'kyverum-pii-2026';
-
-// Memo por versión Y passphrase: scrypt cuesta decenas de ms y una fila de biometría pide tres
-// descifrados por petición. Guardar la passphrase junto a la llave es lo que hace que un cambio de
-// `env.PII_ENC_KEY` re-derive en vez de seguir descifrando con la llave anterior.
-const piiKeyCache = new Map<number, { passphrase: string; key: Buffer }>();
+/** Versión con la que se escribe (ADR-0033 D1). El `?? 1` cubre las suites que mockean `env` entero. */
+export function versionVigentePii(): number {
+  return env.PII_ENC_KEY_CURRENT_VERSION ?? 1;
+}
 
 function loadPiiKey(version: number): Buffer {
-  if (version === 1) {
-    const passphrase = env.PII_ENC_KEY;
-    if (!passphrase) throw new Error('PII_ENC_KEY es requerido');
-    const memo = piiKeyCache.get(version);
-    if (memo && memo.passphrase === passphrase) return memo.key;
-    // scryptSync deriva 32 bytes determinísticamente de la passphrase.
-    const key = crypto.scryptSync(passphrase, PII_SCRYPT_SALT, 32);
-    piiKeyCache.set(version, { passphrase, key });
-    return key;
-  }
-  throw new Error(`PII_ENC_KEY versión ${version} no configurada`);
+  const pasada = pasadaPii(version, env.PII_ENC_KEY);
+  if (!pasada) throw new Error(`PII_ENC_KEY versión ${version} no configurada`);
+  return llavePiiMemoizada(version, pasada);
 }
 
 /**
@@ -171,7 +163,7 @@ function loadPiiKey(version: number): Buffer {
  * Esto previene swap entre filas (un cipher de fila A no descifra en fila B).
  */
 export function encryptPii(plaintext: string, aadParts: AadParts): CipherBundle {
-  const keyVersion = PII_KEY_VERSION_CURRENT;
+  const keyVersion = versionVigentePii();
   const key = loadPiiKey(keyVersion);
   const iv = crypto.randomBytes(12);
   const aad = buildAad(aadParts, keyVersion);
@@ -200,7 +192,7 @@ export function decryptPii(bundle: CipherBundle, aadParts: AadParts): string {
  * cambia que el texto en claro es un `Buffer` y no una cadena utf8.
  */
 export function encryptPiiBuffer(plain: Buffer, aadParts: AadParts): CipherBundle {
-  const keyVersion = PII_KEY_VERSION_CURRENT;
+  const keyVersion = versionVigentePii();
   const key = loadPiiKey(keyVersion);
   const iv = crypto.randomBytes(12);
   const cipherObj = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -270,22 +262,30 @@ function base64Estricto(cola: string): Buffer {
   return datos;
 }
 
-/** Cifra texto ligado a su celda. Lo escribe el script de recifrado, no las rutas. */
-export function encryptPiiText(plain: string, ctx: PiiTextContext): string {
-  const key = loadPiiKey(PII_KEY_VERSION_CURRENT);
+/**
+ * Cifra texto con una versión elegida por quien llama. Solo para el canario del registro de llaves
+ * (ADR-0033 D2), que ancla cada versión aunque no sea la vigente. Los datos van por `encryptPiiText`.
+ */
+export function encryptPiiTextConVersion(plain: string, ctx: PiiTextContext, version: number): string {
+  const key = loadPiiKey(version);
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   cipher.setAAD(aadPiiText(ctx));
   const data = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
-  return `v${PII_KEY_VERSION_CURRENT}:${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${data.toString('base64')}`;
+  return `v${version}:${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${data.toString('base64')}`;
 }
 
-/** Inversa de `encryptPiiText`. Cualquier fallo sale como `PiiDecryptError`, nunca con el valor. */
-export function decryptPiiText(value: string, ctx: PiiTextContext): string {
+/** Cifra texto ligado a su celda con la versión vigente. Lo escribe el script de recifrado, no las rutas. */
+export function encryptPiiText(plain: string, ctx: PiiTextContext): string {
+  return encryptPiiTextConVersion(plain, ctx, versionVigentePii());
+}
+
+/** Cualquier fallo sale como `PiiDecryptError`, nunca con el valor. */
+function abrirPiiText(value: string, ctx: PiiTextContext, llaveDe: (version: number) => Buffer): string {
   try {
     const m = PII_TEXT_PREFIJO.exec(value);
     if (!m) throw new Error('formato');
-    const key = loadPiiKey(Number(m[1]));
+    const key = llaveDe(Number(m[1]));
     const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(m[2], 'hex'), { authTagLength: 16 });
     decipher.setAAD(aadPiiText(ctx));
     decipher.setAuthTag(Buffer.from(m[3], 'hex'));
@@ -294,6 +294,16 @@ export function decryptPiiText(value: string, ctx: PiiTextContext): string {
   } catch {
     throw new PiiDecryptError(ctx);
   }
+}
+
+/** Inversa de `encryptPiiText`. */
+export function decryptPiiText(value: string, ctx: PiiTextContext): string {
+  return abrirPiiText(value, ctx, loadPiiKey);
+}
+
+/** Descifra con una llave dada y no con la de la versión del valor: detecta una llave retirada reutilizada. */
+export function decryptPiiTextConLlave(value: string, ctx: PiiTextContext, llave: Buffer): string {
+  return abrirPiiText(value, ctx, () => llave);
 }
 
 const PII_BIOMETRICO_VIEJO_SAL = 'kyverum-pii-salt';
@@ -310,6 +320,7 @@ export function decryptLegacyBiometric(value: string, ctx: PiiTextContext): stri
     const m = PII_BIOMETRICO_VIEJO_PREFIJO.exec(value);
     if (!m) throw new Error('formato');
     const passphrase = env.PII_ENC_KEY;
+    if (!passphrase) throw new Error('sin llave');
     if (biometricoViejoKey?.passphrase !== passphrase) {
       biometricoViejoKey = { passphrase, key: crypto.scryptSync(passphrase, PII_BIOMETRICO_VIEJO_SAL, 32) };
     }

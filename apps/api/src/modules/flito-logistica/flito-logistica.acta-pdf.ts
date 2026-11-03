@@ -11,6 +11,7 @@ import {
   flitoLogisticaRecogidaFirmantes, organismosTransitoConfig, vehicles,
 } from '../../db/schema.js';
 import { getEntityDocumentStream, presignedGetEntityDocument, uploadEntityDocument } from '../../services/storage.js';
+import { piiDecryptFailuresTotal } from '../../shared/metrics.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { revelarDocumento } from './flito-logistica.cifrado.js';
 import { LogisticaError } from './flito-logistica.base.js';
@@ -23,8 +24,16 @@ async function embeberFirma(pdf: PDFDocument, key: string): Promise<Awaited<Retu
   } catch { return null; }
 }
 
-function revelarONulo(cifrado: string, firmaId: string): string | null {
-  try { return revelarDocumento(cifrado, firmaId); } catch { return null; }
+type TablaCedula = 'flito_logistica_acta_firmas' | 'flito_logistica_recogida_firmantes';
+
+/** `table` es la tabla real de la fila, para la métrica. La AAD siempre nombra `flito_logistica_acta_firmas`. */
+export function revelarONulo(cifrado: string, firmaId: string, table: TablaCedula): string | null {
+  try {
+    return revelarDocumento(cifrado, firmaId);
+  } catch {
+    piiDecryptFailuresTotal.inc({ table, column: 'documento_cifrado' });
+    return null;
+  }
 }
 
 /** Cédula completa del firmante: cifrado de `recibe` / firmante de organismo; fallback al legado en claro. */
@@ -37,11 +46,11 @@ async function cedulaDelFirmante(cab: {
       id: flitoLogisticaRecogidaFirmantes.id, cifrado: flitoLogisticaRecogidaFirmantes.documentoCifrado,
       nombre: flitoLogisticaRecogidaFirmantes.nombre,
     }).from(flitoLogisticaRecogidaFirmantes).where(eq(flitoLogisticaRecogidaFirmantes.id, cab.firmanteId)).limit(1);
-    if (f?.cifrado) return { documento: revelarONulo(f.cifrado, f.id), nombreOrganismo: f.nombre };
+    if (f?.cifrado) return { documento: revelarONulo(f.cifrado, f.id, 'flito_logistica_recogida_firmantes'), nombreOrganismo: f.nombre };
     return { documento: null, nombreOrganismo: f?.nombre ?? null };
   }
   if (cab.recibeCifrado && cab.recibeFirmaId) {
-    return { documento: revelarONulo(cab.recibeCifrado, cab.recibeFirmaId), nombreOrganismo: null };
+    return { documento: revelarONulo(cab.recibeCifrado, cab.recibeFirmaId, 'flito_logistica_acta_firmas'), nombreOrganismo: null };
   }
   const claro = cab.receptorDocumento?.trim();
   return { documento: claro || null, nombreOrganismo: null };

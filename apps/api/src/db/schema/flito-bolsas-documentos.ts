@@ -28,6 +28,8 @@ export const flitoBolsasDocumentos = pgTable('flito_bolsas_documentos', {
   vigente: boolean('vigente').notNull(),
   // Archivo cifrado con AES-256-GCM (D5). `storage_key` NULL ⇔ purgado (#13891).
   storageKey: text('storage_key'),
+  // Objeto anterior de una fila recifrada, durante la ventana de rollback (ADR-0033 D3).
+  storageKeyPrevia: text('storage_key_previa'),
   mime: varchar('mime', { length: 30 }).notNull(),
   tamanoBytes: integer('tamano_bytes').notNull(),
   cifradoIv: bytea('cifrado_iv').notNull(),
