@@ -8,7 +8,7 @@ description: |
   Obligatoria invocación Agent/Task **antes de create_pull_request** — de HU y de Bug.
   Modo C solo con pedido explícito del QA humano (ver «El modo C»). HANDOFF canónico obligatorio.
   Triggers — QA, TC, Gherkin, repro, bug corregido, modo A/B/C/D, pre-PR, flit-modo-desarrollo-auto 4b.
-tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__ado__wit_work_item, mcp__ado__wit_work_item_write, mcp__ado__wit_work_item_comment_write, mcp__ado__wit_work_item_link_write, mcp__ado__search_workitem, mcp__ado__wit_query
+tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__ado__wit_work_item, mcp__ado__wit_work_item_write, mcp__ado__wit_work_item_comment_write, mcp__ado__wit_work_item_link_write, mcp__ado__search_workitem, mcp__ado__wit_query, mcp__azure-devops__wit_work_item, mcp__azure-devops__wit_work_item_write, mcp__azure-devops__wit_work_item_comment_write, mcp__azure-devops__wit_work_item_link_write, mcp__azure-devops__search_workitem, mcp__azure-devops__wit_query
 model: inherit
 ---
 

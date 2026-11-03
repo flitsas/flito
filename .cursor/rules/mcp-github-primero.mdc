@@ -20,10 +20,10 @@ Antes de invocar una herramienta MCP, leer su schema (`GetMcpTools` con `server`
 
 ### Azure DevOps — ids canónicos (hard-stop)
 
-- Servidor: **`ado`**. **No existe** `azure-devops` en este runtime.
+- Servidor: **`ado`** en Cursor. En **Claude Code** el mismo servidor se llama **`azure-devops`** (tools `mcp__azure-devops__*`); mismas herramientas y argumentos. Usar el que exista en el runtime (ver `flit-azure-devops`).
 - Tools son **action-based** (`wit_work_item` + `action: get|update…`), no `wit_get_work_item` / `wit_create_work_item`.
 - Cookbook completo: skill `flit-azure-devops`. Skills hijas (`flit-crear-hu`, `flit-gestion-hu`, `flit-integration-ado`) **deben** usar esos nombres.
-- Si una skill o prompt menciona `mcp__azure-devops__*` o `wit_update_work_item` suelto → traducir al cookbook `ado` antes de llamar; no fallar en silencio inventando el server id.
+- Si una skill o prompt menciona `wit_update_work_item` suelto → traducir al cookbook (`wit_work_item_write`…) antes de llamar. `mcp__azure-devops__*` es válido solo en Claude Code; no inventar el id del servidor.
 
 ## `gh` CLI
 
