@@ -38,6 +38,7 @@ import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 import {
   ACCIONES_ARBOL, PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA,
 } from '../../src/modules/permisos/arbol/expansion.js';
+import { OPERACIONES_NACIDAS_EN_EL_ARBOL } from '../../src/modules/permisos/arbol/acciones-finanzas.js';
 
 /** Los 43 códigos de lectura del auditor, fijados a mano desde la foto y agrupados por módulo. */
 export const LECTURAS_DEL_AUDITOR = {
@@ -122,7 +123,11 @@ const codigoDe = (g: (typeof GUARDAS_MEDIDAS)[number]) => {
 };
 const sembrado = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
 // Solo el grupo `operaciones` de la acción exclusiva (su `apoyo`, `clients.clientes.ver`, sí es del mundo plano).
-const DE_EXCLUSIVAS = new Set(FUNCIONES_EXCLUSIVAS_ADMIN.flatMap((a) => ACCIONES_ARBOL[a]?.operaciones ?? []));
+const DE_EXCLUSIVAS = new Set([
+  ...FUNCIONES_EXCLUSIVAS_ADMIN.flatMap((a) => ACCIONES_ARBOL[a]?.operaciones ?? []),
+  // Épica #14163: nace en el árbol (0274), sin partida en el mundo plano; la concede `apoyo` de su acción.
+  ...OPERACIONES_NACIDAS_EN_EL_ARBOL,
+]);
 const operacionesDe = (rol: string) => [...(sembrado.get(rol) ?? [])].filter((c) => !c.startsWith('pagina.')).sort();
 
 describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', () => {

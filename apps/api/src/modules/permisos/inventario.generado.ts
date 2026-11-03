@@ -80,6 +80,15 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.direccion.routes.ts", metodo: "PATCH", ruta: "/:id/direccion", roles: ["admin"], heredada: false },
   // HU #13269: la 0220 la siembra SIN reparto (AC7): ningún rol de partida.
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts", metodo: "POST", ruta: "/:id/recibos/reemplazar-pago", roles: [], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "GET", ruta: "/certificacion-directa/catalogo", roles: ["admin"], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "POST", ruta: "/certificacion-directa/extraer", roles: ["admin"], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "GET", ruta: "/certificacion-directa", roles: ["admin"], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "POST", ruta: "/certificacion-directa", roles: ["admin"], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "GET", ruta: "/certificacion-directa/:id/factura", roles: ["admin"], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "GET", ruta: "/certificacion-directa/:id/certificado", roles: ["admin"], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "POST", ruta: "/certificacion-directa/:id/consultar", roles: ["admin"], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "GET", ruta: "/certificacion-directa/:id", roles: ["admin"], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "PATCH", ruta: "/certificacion-directa/:id", roles: ["admin"], heredada: false },
   // HU #12083: las dos rutas del `for` con template literal que el lector de la #12081 no vio.
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/:id/asumir-operaciones", roles: ["admin"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/:id/devolver-gestor", roles: ["admin"], heredada: false },

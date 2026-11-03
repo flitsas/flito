@@ -16,15 +16,9 @@
 // —`isEvalSupported: false` en los 5 getDocument()— se retiró en la misma HU: esa opción NO EXISTE
 // en v6 y el gate que la vigilaba habría seguido en verde sobre una opción que la librería ya no
 // lee. El suelo de navegador que impone el salto está en `docs/adr/ADR-0007`.
+// Retirada (2026-11-03): GHSA-86w9-cpqp-85rv sobre node-forge <=1.4.0. Dejó de necesitar exención
+// porque node-forge subió a 1.4.2, que es el fix upstream: el advisory ya no aparece en el audit.
 export const EXEMPTIONS = new Map([
-  // Aprobada por el Líder Técnico (David Chica) el 2026-10-02. node-forge (dependencia directa de
-  // apps/api y también vía @signpdf/signer-p12) acepta en la VERIFICACIÓN de firmas RSA PKCS#1 v1.5 elementos DigestAlgorithm anidados de más.
-  // FLITO no verifica firmas con node-forge: solo FIRMA (apps/api/src/modules/tramites/docs/
-  // pdf-signer.ts genera llave, certificado y .p12; @signpdf/signer-p12 firma el PDF). Sin fix
-  // upstream al aprobarla; retirar en cuanto el advisory desaparezca del audit (lo exige
-  // `npm run check:exemptions`).
-  ['https://github.com/advisories/GHSA-86w9-cpqp-85rv',
-    'node-forge: falla en la verificación de firmas PKCS#1 v1.5; FLITO solo firma (pdf-signer.ts, @signpdf/signer-p12), no verifica. Sin fix upstream (2026-10-02).'],
   // Aprobada por el Líder Técnico (David Chica) el 2026-10-30. `decode-uri-component` ≤0.5.0
   // llega vía minio → query-string (GHSA-qr28-fpjm-wq7f, DoS por percent-encoding). El bump
   // limpio a 0.5.1 no entra con overrides npm (query-string pide ^0.2.2); `npm audit fix --force`

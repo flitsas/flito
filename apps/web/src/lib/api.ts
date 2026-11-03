@@ -418,6 +418,13 @@ export const api = {
     if (fields) for (const [k, v] of Object.entries(fields)) form.append(k, v);
     return request<T>('POST', path, form);
   },
+  /** Igual que `upload`, en PATCH. El archivo es opcional: la corrección puede conservar el PDF. */
+  patchForm: <T>(path: string, fields: Record<string, string>, file?: File | null, fieldName = 'file') => {
+    const form = new FormData();
+    if (file) form.append(fieldName, file);
+    for (const [k, v] of Object.entries(fields)) form.append(k, v);
+    return request<T>('PATCH', path, form);
+  },
   /** Carga varios archivos bajo el MISMO campo (multer `upload.array`), p.ej. un lote de recibos. */
   uploadMany: <T>(path: string, files: File[], fieldName = 'archivos', fields?: Record<string, string>) => {
     const form = new FormData();

@@ -56,6 +56,7 @@ export const ITEMS_GESTION: readonly ItemDef[] = [
     a('reemplazar_comprobante', 'Reemplazar comprobante', 'Reemplazar el recibo de pago de un trámite.'),
     a('corregir_direccion', 'Corregir dirección', 'Corregir la dirección del trámite.'),
     a('descargar_certificado', 'Descargar certificado', 'Descargar el certificado del trámite.'),
+    a('certificar_sin_tramite', 'Certificar sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
   ] },
   { slug: 'flito_derechos', clave: 'derechos', nombre: 'Derechos', elemento: 'gestion', orden: 40, acciones: [
     a('ver_listado', 'Ver el listado', 'Consultar la cola de derechos y filtrarla.'),
