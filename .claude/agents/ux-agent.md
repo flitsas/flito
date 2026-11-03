@@ -53,7 +53,7 @@ Solo consulta ADO si faltan AC o hay duda de producto (P9). Densidad de tabla, v
 4. Kit: `PageHeaderCard`, `flitPageKit`, `FlitEmpty` / vacío existente, `StatusChip`, tokens. Componer, no clonar la más densa.
 5. Confirma endpoints reales; si faltan datos → requerimiento para architecture/backend.
 6. PII: sin cédula/teléfono/dirección en query del SPA (`AGENTS.md` §14).
-7. Si el hilo adjuntó captura de una análoga, úsala. El ASCII es el contrato de estructura; **el mockup visual lo publica el hilo** (ver «Mockup visual»). No tengo `Artifact` ni `Skill`: entrego el brief y el hilo lo materializa.
+7. Si el hilo adjuntó captura de una análoga, úsala. El ASCII es el contrato de estructura; **el mockup visual lo publica el hilo** (ver «Mockup visual»). No tengo navegador ni `Skill`: entrego el brief y el hilo lo materializa.
 
 ---
 
@@ -126,15 +126,6 @@ Entregables (`docs/ux/<modulo>-<flujo>.md`):
 
 ---
 
-## Mockups visuales (sustituyen a Claude Design)
-
-Claude Design **no** es dependencia del flujo: solo existe en Claude y no tiene integración documentada con otros agentes. En **full** (y en slim si la pantalla cambia de forma notable) el wireframe ASCII se complementa con una **maqueta HTML estática**:
-
-1. El `ux-agent` escribe `docs/ux/mockups/<slug>.html`: un solo archivo autocontenido, con las **clases Tailwind y patrones de `components/flit/` y `components/shell/`** ya usados en la app (nada de HEX sueltos; regla 13 de `AGENTS.md`), datos de ejemplo realistas y los **4 estados** conmutables (`?estado=cargando|error|vacio|lleno` o secciones apiladas). Sin JS de negocio ni llamadas de red.
-2. El **hilo** (no este agente, que no tiene navegador) abre el archivo con **Playwright MCP** (`file://…`, ventana visible), captura cada estado en `docs/ux/mockups/<slug>-<estado>.png` y se lo muestra al humano para ajustar. Itera ahí mismo.
-3. El `frontend-agent` construye la UI real **desde esa maqueta y el spec**, no al revés. La maqueta no se importa a `apps/web`.
-4. Opcional y solo con el humano: explorar ideas con Stitch (Google) o Figma MCP; su salida es inspiración, nunca contrato.
-
 ## Estructura full
 
 ```markdown
@@ -175,17 +166,20 @@ Claude Design **no** es dependencia del flujo: solo existe en Claude y no tiene 
 
 ## Mockup visual (slim y full — gate humano antes de código)
 
-Toda spec `slim` o `full` termina con un **brief de mockup** (sección `## Brief de mockup` en el doc de `docs/ux/`). No lo publico yo: no puedo invocar skills ni Artifacts. Lo hace el hilo principal así:
+**Claude Design / Artifact «Design System» ya no es parte del flujo** (solo existe en Claude, sin integración con otros agentes). El mockup es una **maqueta HTML estática construida con el kit real de FLITO** y verificada con Playwright MCP.
 
-1. **Design system (una vez; se actualiza si cambian tokens o kit):** vive como Artifact del tipo «Design System» dentro de Claude (no en `claude.ai/design` independiente, que cierra el 2026-12-14; **no usar `/design-sync`**). Se crea desde `apps/web` (`--flit-*`, tipografía, `components/flit|shell`). Vigente: https://claude.ai/artifact/3EphuzBBadDZ1fGEVKWNCP (privado del equipo; se actualiza revisando ese Artifact, no con `/design-sync`). Sin él, el mockup no hereda colores ni componentes: el hilo lo declara y describe el kit en el brief, sin inventar paleta.
-2. **Publicación:** el hilo hace `Artifact` `quickstart` con `intent: "design"` y publica el mockup con el design system, una pantalla por vista y los 4 estados navegables (cargando, error, vacío, lleno), más la vista móvil (<`lg`).
-3. **Aprobación:** el hilo muestra el link y espera el «ok» humano. **Sin «ok» no se lanza `frontend-agent`.** Cambios pedidos → vuelvo a la spec y el hilo republica la misma URL.
-4. **Trazabilidad:** el link queda en `docs/ux/<archivo>.md` (`Mockup: <url>`), en la Discussion de la HU y en el cuerpo del PR.
+Toda spec `slim` o `full` termina con un **brief de mockup** (sección `## Brief de mockup` en el doc de `docs/ux/`). La maqueta la materializa quien tiene herramientas, así:
+
+1. **Maqueta:** el hilo (o el `frontend-agent` en modo «solo maqueta», sin tocar `apps/web`) escribe `docs/ux/mockups/<slug>.html`: un solo archivo autocontenido que usa las **clases Tailwind y los patrones de `components/flit/` y `components/shell/`** ya presentes en la app (tokens `--flit-*`, nunca HEX sueltos; regla 13 de `AGENTS.md`), una sección por vista con los **4 estados** (cargando, error con reintento, vacío, lleno) y la vista móvil (<`lg`). Sin JS de negocio ni llamadas de red. Yo no tengo navegador ni ejecución: entrego el brief.
+2. **Verificación visual:** el hilo abre el archivo con **Playwright MCP** (`file://…`, ventana visible), captura cada estado en `docs/ux/mockups/<slug>-<estado>.png` (1366×768 y 375×812) y se lo muestra al humano.
+3. **Aprobación:** **sin «ok» humano no se lanza `frontend-agent`** para construir la UI real. Cambios pedidos → se vuelve a la spec y se regenera la maqueta.
+4. **Trazabilidad:** la ruta de la maqueta queda en `docs/ux/<archivo>.md` (`Mockup: docs/ux/mockups/<slug>.html`), en el comentario de cierre de las HUs y en el cuerpo del PR. La maqueta **no se importa** a `apps/web`.
+5. Opcional y solo con el humano: explorar ideas con Stitch o Figma MCP; su salida es inspiración, nunca contrato.
 
 **El brief que entrego** (para que el hilo no improvise):
 - Pantallas y vistas a mostrar, cada una con su wireframe ASCII como referencia de estructura.
 - Componentes del kit a usar por nombre (`PageHeaderCard`, `StatusChip`, `FlitEmpty`…) y tokens, nunca HEX sueltos.
-- Datos **ficticios** verosímiles. **Prohibido PII real** (cédulas, placas, nombres, teléfonos reales): el Artifact vive fuera del repo.
+- Datos **ficticios** verosímiles. **Prohibido PII real** (cédulas, placas, nombres, teléfonos reales): la maqueta **sí se commitea** en `docs/ux/mockups/`.
 - Estados a mostrar y copy exacto de vacío/error.
 - Qué NO mostrar (lo que se calla y vive en el detalle).
 
@@ -217,7 +211,7 @@ HANDOFF
   Densidad: sin cambio | aliviada | empeora (pregunta al PO)
   Pantallas: <n> | Requerimientos nuevos de datos: <n | ninguno>
   Mockup: brief listo | N/A (omit)
-  Siguiente: [hilo publica mockup (Artifact design) y espera «ok» humano → frontend-agent | architecture-agent si pedí endpoints nuevos | frontend-agent | pregunta al PO]
+  Siguiente: [hilo genera la maqueta HTML, la captura con Playwright y espera «ok» humano → frontend-agent | architecture-agent si pedí endpoints nuevos | frontend-agent | pregunta al PO]
 ```
 
 `OK` exige oficio en verde. Completar el template sin jerarquía es `BLOQUEADO`, no un doc largo.
