@@ -168,7 +168,7 @@ describe('AC1 — resolver con firma de organismo ya capturada', () => {
 });
 
 describe('AC1 — al resolver, la LT recogida queda clasificada (puede tener viaje y cobro)', () => {
-  const transiciones = () => inserciones.filter((i) => i.tabla === flitoLogisticaEventos && i.valores.tipo === undefined);
+  const transiciones = () => inserciones.filter((i) => i.tabla === flitoLogisticaEventos && i.valores.tipo !== 'tramite_resuelto');
   it('con firma: pasa de recogido a clasificado en la misma tx y deja su evento de transición (origen api)', async () => {
     tx();
     const r = await llamar('post', RUTA, await operador(), { tramiteId: TRAM });
