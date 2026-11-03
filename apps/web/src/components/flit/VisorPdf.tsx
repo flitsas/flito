@@ -93,7 +93,7 @@ export default function VisorPdf({ url, nombre, paginaInicial }: {
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-sm">
-        <p className="text-red-600">{error}</p>
+        <p className="text-red-600">No pudimos mostrar la vista previa.</p>
         {/* Salida de emergencia: si pdf.js no puede con el fichero, que al menos se pueda descargar. */}
         <a href={url} target="_blank" rel="noreferrer" className="underline" style={{ color: 'var(--flit-blue-text)' }}>
           Abrir en una pestaña nueva

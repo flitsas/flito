@@ -182,6 +182,7 @@ export const OPERACIONES_NACIDAS_EN_EL_ARBOL: ReadonlySet<string> = new Set([
 export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA: ReadonlySet<string> = new Set([
   'accion.bolsas.cargar_documentos', 'accion.bolsas.ver_documentos', ...ACCIONES_NACIDAS_TRAS_LA_SIEMBRA_ADMINISTRACION,
   ...Object.keys(ACCIONES_DR_FLIT),
+  'accion.impuestos.certificar_sin_tramite',
 ]);
 
 /** El área de esta HU sobre `OPERACIONES_DECLARADAS` (AC6 de cobertura), por prefijo del código. */

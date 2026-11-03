@@ -200,7 +200,9 @@ export function informeArbol(
   const rolesConTodo = [...rolesAntes].sort(([a], [b]) => a.localeCompare(b))
     .map(([rol, c]) => ({ rol, faltabanAntes: absorbidos.filter((x) => !c.has(x)).sort() }))
     .filter((r) => r.faltabanAntes.length <= 3)
-    .map((r) => ({ ...r, faltan: [...acciones].filter((x) => !rolesDespues.get(r.rol)?.has(x)).sort() }));
+    // Una acción nacida después de la siembra no forma parte de ese «todas»: el paso no se la da
+    // a quien tenía el mundo absorbido. La recibe `admin` en el paso 2b.
+    .map((r) => ({ ...r, faltan: [...acciones].filter((x) => !ACCIONES_NACIDAS_TRAS_LA_SIEMBRA.has(x) && !rolesDespues.get(r.rol)?.has(x)).sort() }));
   return { acciones: filasAccion, cambios, rolesConTodo };
 }
 
