@@ -39,6 +39,11 @@ function etiquetaDocumento(estado: string): string | null {
 /** Nunca la clave cruda (`en_acta`, `recogida`). Llegada y anulación ganan al estado. */
 function rotuloHito(hito: HitoLineaTiempoLogistica): string {
   if (hito.tipo === 'llegada') return 'Llegada a FLIT';
+  // El alta del viaje escribe dos eventos con estado `en_acta`: el cambio y el acta, que no
+  // cambia el estado. Rotular los dos con el estado los muestra iguales.
+  if (hito.tipo === 'acta_organismo') return 'Acta de organismo firmada';
+  if (hito.tipo === 'acta_flit') return 'Acta hacia FLIT';
+  if (hito.tipo === 'acta_cliente') return 'Acta a cliente generada';
   if (hito.estadoNuevo === 'anulado' || hito.tipo === 'anulacion') return 'Anulado';
   return etiquetaDocumento(hito.estadoNuevo)
     ?? ESTADO_LOGISTICA_SIMPLE_LABEL[simplificarEstadoLogistica(hito.estadoNuevo)];
