@@ -329,9 +329,17 @@ export function tipoDeLlave(concepto: ConceptoTarifa, tipoTramite: string | null
   return tipo;
 }
 
+/**
+ * ¿Es un choque de la llave (índice parcial 23505 o exclusion constraint 23P01)? Drizzle envuelve el
+ * error de postgres: el `code` viaja en `e.cause`, no en `e` (por eso se mira en toda la cadena).
+ */
 const esChoqueDeLlave = (e: unknown): boolean => {
-  const code = (e as { code?: string }).code;
-  return code === '23505' || code === '23P01';
+  for (let err: unknown = e, i = 0; err && typeof err === 'object' && i < 5; i++) {
+    const { code, cause } = err as { code?: string; cause?: unknown };
+    if (code === '23505' || code === '23P01') return true;
+    err = cause;
+  }
+  return false;
 };
 
 /**
@@ -339,6 +347,8 @@ const esChoqueDeLlave = (e: unknown): boolean => {
  * el id de la abierta: se cambia con `cambiarOCerrar`, no se crea otra (lo impide el índice parcial).
  * `vigenteDesde` = {@link VIGENCIA_DESDE_SIEMPRE} (rige para trámites ya aprobados); `fijadoEn` = ahora
  * (Bug #12682). Los cambios posteriores siguen abriendo en `now()` vía `cambiarOCerrar`.
+ * Si la llave ya tuvo vigencias (cerradas con «Dejar de cobrar»), la nueva abre en `max(cierre, ahora)`:
+ * abrir en 2000-01-01 se solaparía con la cerrada (23P01) y reescribiría lo ya liquidado en el hueco.
  */
 export async function fijarTarifa(d: DatosFijar, usuarioId: number | null): Promise<Tarifa> {
   validarValor(d.valor);
@@ -351,8 +361,12 @@ export async function fijarTarifa(d: DatosFijar, usuarioId: number | null): Prom
   });
 
   const ahora = new Date();
-  const vigenteDesde = new Date(VIGENCIA_DESDE_SIEMPRE);
   try {
+    const [previa] = await db.select({ ultimoCierre: sql<Date | string | null>`max(${v.vigenteHasta})` }).from(v)
+      .where(and(eq(v.companiaId, d.companiaId), llave(concepto, tipo)));
+    const ultimoCierre = previa?.ultimoCierre ? new Date(previa.ultimoCierre) : null;
+    const vigenteDesde = ultimoCierre === null ? new Date(VIGENCIA_DESDE_SIEMPRE)
+      : new Date(Math.max(ultimoCierre.getTime(), ahora.getTime()));
     const [fila] = await db.insert(v).values({
       companiaId: d.companiaId, concepto, tipoTramite: tipo, valor: String(d.valor),
       vigenteDesde, fijadoPorId: usuarioId, fijadoEn: ahora,
