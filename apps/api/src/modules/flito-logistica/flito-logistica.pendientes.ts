@@ -7,13 +7,14 @@
 // (se crea o se reutiliza por `UNIQUE (firmante_id, compania_id)`) y se apaga `acta_organismo_pendiente`.
 // Nunca se loguea placa, VIN ni cédula: solo ids y conteos.
 
+import { EstadoDocumentoLogistica } from '@operaciones/shared-types';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   clients, flitoLogisticaActaLineas, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos,
   flitoLogisticaRecogidaFirmantes, flitoTramites, users, vehicles,
 } from '../../db/schema.js';
-import { LT, LogisticaError, aprobadoSql, log, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
+import { LT, LogisticaError, aprobadoSql, log, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
 
 export interface CandidatoPendiente {
   tramiteId: string; idFlit: string; companiaId: number; companiaNombre: string | null; organismoCodigo: string | null;
@@ -147,6 +148,11 @@ export async function resolverTramite(documentoId: string, tramiteId: string, ct
         documentoId: doc.id, estadoAnterior: doc.estado, estadoNuevo: doc.estado, actorId: ctx.userId, origen: 'usuario',
         tipo: 'tramite_resuelto', actaId, payload: { tramiteId, companiaId, ...(actaId ? { actaId } : {}) },
       });
+      // Clasificación automática diferida: el escaneo clasifica al crear si el trámite se conoce; el pendiente no lo tenía,
+      // así que al resolverlo pasa de `recogido` a `clasificado` (sin esto jamás entraría a un viaje). Misma tx; solo desde `recogido`.
+      if (doc.estado === EstadoDocumentoLogistica.RECOGIDO) {
+        await transicionar(tx, { id: doc.id, estado: doc.estado }, EstadoDocumentoLogistica.CLASIFICADO, ctx, { origen: 'api' });
+      }
       log.info({ documentoId: doc.id, tramiteId, companiaId, conActa: actaId !== null }, 'trámite de LT pendiente resuelto');
       return { documentoId: doc.id, tramiteId, companiaId, actaId };
     });

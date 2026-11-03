@@ -167,6 +167,43 @@ describe('AC1 — resolver con firma de organismo ya capturada', () => {
   });
 });
 
+describe('AC1 — al resolver, la LT recogida queda clasificada (puede tener viaje y cobro)', () => {
+  const transiciones = () => inserciones.filter((i) => i.tabla === flitoLogisticaEventos && i.valores.tipo === undefined);
+  it('con firma: pasa de recogido a clasificado en la misma tx y deja su evento de transición (origen api)', async () => {
+    tx();
+    const r = await llamar('post', RUTA, await operador(), { tramiteId: TRAM });
+    expect(r.status).toBe(200);
+    expect(sets.some((v) => v.estado === 'clasificado')).toBe(true);
+    expect(transiciones().map((i) => i.valores)).toEqual([
+      expect.objectContaining({ documentoId: DOC, estadoAnterior: 'recogido', estadoNuevo: 'clasificado', origen: 'api' }),
+    ]);
+    expect(inserciones.filter((i) => i.valores.tipo === 'tramite_resuelto')).toHaveLength(1);
+  });
+
+  it('sin firma: también queda clasificada (la clasificación no depende de la firma)', async () => {
+    tx({ doc: docPendiente({ firmanteId: null }) });
+    const r = await llamar('post', RUTA, await operador(), { tramiteId: TRAM });
+    expect(r.status).toBe(200);
+    expect(sets.some((v) => v.estado === 'clasificado')).toBe(true);
+    expect(transiciones()).toHaveLength(1);
+  });
+
+  it('si el documento ya no está en recogido (p.ej. clasificado) no genera transición doble', async () => {
+    tx({ doc: docPendiente({ estado: 'clasificado' }) });
+    const r = await llamar('post', RUTA, await operador(), { tramiteId: TRAM });
+    expect(r.status).toBe(200);
+    expect(sets.some((v) => 'estado' in v)).toBe(false);
+    expect(transiciones()).toHaveLength(0);
+  });
+
+  it('un rechazo (trámite ajeno) no clasifica', async () => {
+    tx({ tramite: tramiteOk({ vehiculoId: 99 }) });
+    const r = await llamar('post', RUTA, await operador(), { tramiteId: TRAM });
+    expect(r.status).toBe(422);
+    expect(sets).toEqual([]);
+  });
+});
+
 describe('AC2 y AC6 — quién puede', () => {
   it('el mensajero (sin la función) → 403 en resolver, candidatos y bandeja, sin tocar la BD', async () => {
     const t = await mensajero();
