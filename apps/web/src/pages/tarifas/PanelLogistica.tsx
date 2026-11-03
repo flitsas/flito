@@ -3,7 +3,7 @@
 // trámite. La edición en sitio y el guardado viven en `MatrizTarifas`; aquí solo se pinta.
 
 import { useId, type KeyboardEvent, type RefObject } from 'react';
-import { etiquetaLlave, fechaCorta, nombreUsuario, pesosTarifa, validarValorTarifa, type FilaVistaTarifa } from '../../lib/tarifas';
+import { etiquetaLlave, nombreUsuario, pesosTarifa, frasePrecioDesde, validarValorTarifa, type FilaVistaTarifa } from '../../lib/tarifas';
 import StatusChip from '../../components/flit/StatusChip';
 import {
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitBtnSecondarySm,
@@ -122,7 +122,7 @@ function PanelPrecio(p: PanelProps) {
         <div>
           <p className="text-xl font-semibold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{pesosTarifa(fila.valor as number)}</p>
           <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-            Desde {fechaCorta(fila.vigenteDesde)} · {nombreUsuario(fila.fijadoPor)}
+            {frasePrecioDesde(fila.vigenteDesde)} · {nombreUsuario(fila.fijadoPor)}
           </p>
         </div>
       ) : (

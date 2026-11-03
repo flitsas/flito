@@ -12,7 +12,8 @@
 //     texto lo que puede traer letras, un signo o tres decimales.
 
 import {
-  LLAVES_TARIFA, TARIFA_VALOR_MAX, TIPO_TRAMITE_TARIFA_LABEL, conceptoAlmacenado, esConceptoLogistica,
+  LLAVES_TARIFA, TARIFA_VALOR_MAX, TIPO_TRAMITE_TARIFA_LABEL, VIGENCIA_DESDE_SIEMPRE,
+  conceptoAlmacenado, esConceptoLogistica,
   type ConceptoTarifa, type TipoTramiteTarifa,
 } from '@operaciones/shared-types';
 
@@ -118,6 +119,28 @@ export function fechaCorta(iso: string | null): string {
   const f = new Date(iso);
   if (Number.isNaN(f.getTime())) return '—';
   return `${f.getDate()} ${MESES_CORTOS[f.getMonth()]} ${f.getFullYear()}`;
+}
+
+/** La vigencia inicial es medianoche UTC del 2000-01-01: en Bogotá se leería «31 dic 1999». */
+export function esVigenciaDesdeSiempre(iso: string): boolean {
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) && t === new Date(VIGENCIA_DESDE_SIEMPRE).getTime();
+}
+
+/**
+ * Texto de la columna «Desde». La vigencia que cubre lo ya aprobado no es una fecha de calendario:
+ * se lee «Desde el inicio» (comparada en UTC, sin caer al 31 dic 1999 por la zona horaria).
+ */
+export function textoColumnaDesde(iso: string | null): string {
+  if (!iso) return '—';
+  if (esVigenciaDesdeSiempre(iso)) return 'Desde el inicio';
+  return fechaCorta(iso);
+}
+
+/** Frase completa para el panel de precio: «Desde el inicio» o «Desde 1 ago 2026». */
+export function frasePrecioDesde(iso: string | null): string {
+  if (iso && esVigenciaDesdeSiempre(iso)) return 'Desde el inicio';
+  return `Desde ${fechaCorta(iso)}`;
 }
 
 /** Día 'yyyy-mm-dd' → «1 ago 2026», sin pasar por `Date` (medianoche UTC retrocede un día en Colombia). */

@@ -13,7 +13,7 @@ import toast from 'react-hot-toast';
 import { conceptoAlmacenado, esConceptoLogistica } from '@operaciones/shared-types';
 import { api, ApiError } from '../../lib/api';
 import {
-  RUTA_TARIFAS, claveLlave, etiquetaLlave, fechaCorta, nombreUsuario, pesosTarifa, validarValorTarifa,
+  RUTA_TARIFAS, claveLlave, etiquetaLlave, nombreUsuario, pesosTarifa, textoColumnaDesde, validarValorTarifa,
   type FilaVistaTarifa, type ResultadoCambioTarifa, type VistaTarifasCompania,
 } from '../../lib/tarifas';
 import FlitModal from '../../components/flit/FlitModal';
@@ -361,7 +361,7 @@ function FilaTarifa(p: FilaProps) {
             </div>
           ) : tieneValor ? pesosTarifa(fila.valor as number) : SIN_CONFIGURAR}
         </td>
-        <td className={celdaTexto} style={{ color: 'var(--flit-text-secondary)' }}>{tieneValor ? fechaCorta(fila.vigenteDesde) : '—'}</td>
+        <td className={celdaTexto} style={{ color: 'var(--flit-text-secondary)' }}>{tieneValor ? textoColumnaDesde(fila.vigenteDesde) : '—'}</td>
         <td className={celdaTexto} style={{ color: 'var(--flit-text-secondary)' }}>{tieneValor ? nombreUsuario(fila.fijadoPor) : '—'}</td>
         <td className={celdaTexto}>
           <div className="flex flex-wrap justify-end gap-2">
