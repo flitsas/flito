@@ -29,6 +29,7 @@ propósito: las dependencias son superficie de `security-agent`.
 ```
 HU/<ID>-<desarrollador>-<descripcion-breve>
 BUG/<ID>-<desarrollador>-<descripcion-breve>
+FEATURE/<ID del Feature>-<desarrollador>-<descripcion-breve>   # Modo Feature: un PR con todas las HUs; título `FEATURE <ID>: <descripción>`
 CHORE/<desarrollador>-<descripcion-breve>     # sin work item, fuera de apps/ y packages/
 DOCS/<desarrollador>-<descripcion-breve>      # idem
 ```

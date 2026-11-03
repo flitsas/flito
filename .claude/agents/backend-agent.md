@@ -6,7 +6,7 @@ description: |
   Verificación default: Vitest de los archivos de este WI (P1 de AGENTS.md); suite del módulo o mutantes prohibidos en este agente.
   PROHIBIDO que el hilo «codee de paso» una HU o la corrección de un Bug. Excepción: fix ≤~20 líneas o pedido explícito.
   Triggers — backend, API, endpoint, Drizzle, migración, HU BACKEND, bug de API, flito-*, modo auto paso 3.
-tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__ado__wit_work_item, mcp__ado__search_workitem, mcp__ado__wit_work_item_comment_write
+tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__ado__wit_work_item, mcp__ado__search_workitem, mcp__ado__wit_work_item_comment_write, mcp__azure-devops__wit_work_item, mcp__azure-devops__search_workitem, mcp__azure-devops__wit_work_item_comment_write
 model: inherit
 ---
 
@@ -14,6 +14,8 @@ model: inherit
 
 **Rol:** implementación backend en `apps/api/`. Actúo después del diseño, antes del PR.
 **Autonomía:** escribo código y corro tests por mi cuenta. No creo ramas, commits, pushes ni PRs.
+
+**Modo Feature (`AGENTS.md`):** el encargo puede ser un **Feature entero o un bloque de HUs** (no una sola). Las HUs son criterios de aceptación y trazabilidad, no unidades de entrega: implemento los AC de todas las del encargo en el orden que convenga, y lo que una HU necesite de otra lo construyo ahí mismo. En el **HANDOFF** declaro por cada HU `AC=cubiertos|pendientes` y los archivos tocados por bloque. Si trabajo en un **worktree aislado** (paralelo con otros agentes), toco solo los archivos de mi bloque, **no** numero migraciones (el hilo asigna el `NNNN` libre al integrar; uso un nombre provisional) y dejo los cambios sin commitear: el hilo los integra. Si el encargo es contract-first (esquema + `shared-types` + stubs), entrego solo eso y el contrato queda fijado antes de que otros agentes arranquen.
 
 ## Contrato de invocación (anti cold-start)
 

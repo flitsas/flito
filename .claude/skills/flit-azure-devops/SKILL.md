@@ -1,14 +1,21 @@
 ---
 name: flit-azure-devops
-description: Integración con Azure DevOps Boards para el proyecto FLIT - FLITO. Conexión: MCP (servidor `ado`); ante fallo de MCP → detener, reintentar una vez a los pocos segundos y, si persiste, detener e informar el error (fallback REST/borrador SUSPENDIDOS desde 2026-08-21 salvo pedido explícito del humano; excepción: upload de capturas en flit-evidencias-dev). Invocar antes de crear, actualizar o consultar work items en ADO desde cualquier skill (flit-crear-hu, flit-gestion-hu, flit-integration-ado, flit-evidencias-dev).
+description: Integración con Azure DevOps Boards para el proyecto FLIT - FLITO. Conexión: MCP (servidor `ado`); ante fallo de MCP → detener, reintentar una vez a los pocos segundos y, si persiste, detener e informar el error (fallback REST/borrador SUSPENDIDOS desde 2026-08-21 salvo pedido explícito del humano). Subida de capturas/adjuntos: `az` CLI (token de la sesión `az login`) + REST `--data-binary` desde el archivo, con verificación sha256; el upload del MCP exige el base64 inline y solo sirve para archivos diminutos. Invocar antes de crear, actualizar o consultar work items en ADO desde cualquier skill (flit-crear-hu, flit-gestion-hu, flit-integration-ado, flit-evidencias-dev).
 ---
 
 # Azure DevOps — MCP primero, REST después
 
-Todas las skills que toquen Azure DevOps **deben** seguir este contrato. Entorno real: **Linux + bash**, monorepo Node/TypeScript. No hay Azure CLI ni PowerShell aquí; no los uses.
+Todas las skills que toquen Azure DevOps **deben** seguir este contrato. Entorno real: **Linux + bash**, monorepo Node/TypeScript. Hay **Azure CLI** (`az`, con la extensión `azure-devops` y sesión `az login` del humano): úsalo **solo** para subir adjuntos (ver «Adjuntos»), no como vía general de work items. No hay PowerShell.
 
-**Fuente de verdad del servidor MCP en Cursor:** id **`ado`** (regla `.cursor/rules/mcp-github-primero.mdc`).  
-**Prohibido** invocar un servidor llamado `azure-devops` o tools `mcp__azure-devops__*` — ese nombre es legado y **no existe** en este runtime.
+**El servidor MCP es el mismo; su nombre depende del runtime.** Las herramientas (`wit_work_item`, `wit_work_item_write`, `wit_work_item_comment_write`, `search_workitem`, `core_list_projects`…) y sus argumentos son idénticos; solo cambia cómo se nombran y se invocan:
+
+| Runtime | Servidor | Cómo se llaman las herramientas |
+|---|---|---|
+| **Cursor** | `ado` | `CallMcpTool` con `server: "ado"` y `toolName: "<tool>"` (schema con `GetMcpTools`) |
+| **Claude Code** | `azure-devops` | Herramienta directa `mcp__azure-devops__<tool>` (p. ej. `mcp__azure-devops__wit_work_item`); si está diferida, cargar el schema con `ToolSearch` (`select:mcp__azure-devops__wit_work_item,…`) |
+
+**Cuál usar:** el que exista en tu runtime. Si ves herramientas `mcp__azure-devops__*`, estás en Claude Code; si ves `CallMcpTool`/`GetMcpTools`, estás en Cursor. **No** inventes el otro nombre ni lo uses como fallback: llamar a un servidor que no existe en el runtime falla. En el resto de esta skill y de las skills hijas, «MCP `ado`» significa **«el servidor MCP de Azure DevOps de tu runtime»**.
+(Regla de Cursor: `.cursor/rules/mcp-github-primero.mdc`.)
 
 ## Contexto del proyecto
 
@@ -17,7 +24,7 @@ Todas las skills que toquen Azure DevOps **deben** seguir este contrato. Entorno
 | Proyecto ADO (`System.TeamProject`) | `FLIT - FLITO` |
 | Area Path | `FLIT - FLITO` |
 | Iteration Path | `FLIT - FLITO\<Sprint>` |
-| Servidor MCP (Cursor) | **`ado`** |
+| Servidor MCP | **`ado`** (Cursor) · **`azure-devops`** (Claude Code) — ver arriba |
 | Repo de código | GitHub `flitsas/flito` (`origin`) |
 
 El nombre del proyecto lleva espacios: en URLs REST **codificarlo** (`encodeURIComponent` en Node, `--data-urlencode`/`jq -rR @uri` en bash).
@@ -53,12 +60,12 @@ salvo pedido explícito del humano en la sesión actual. Una llamada MCP que no 
 
 Antes de operar:
 
-1. Descubrir schema: herramienta del runtime `GetMcpTools` con `server: "ado"` (o tool concreto).
-2. Llamada de bajo impacto: `CallMcpTool` → `server: "ado"`, `toolName: "core_list_projects"`.
+1. Descubrir schema: en Cursor, `GetMcpTools` con `server: "ado"`; en Claude Code, `ToolSearch` con `select:mcp__azure-devops__core_list_projects,…` (si no está diferida, ya es invocable).
+2. Llamada de bajo impacto: `core_list_projects` (Cursor: `CallMcpTool` → `server: "ado"`; Claude Code: `mcp__azure-devops__core_list_projects`).
 
 - **Devuelve la lista de proyectos** → MCP disponible; usar MCP en todos los pasos.
 - **Error / timeout / llamada colgada (>2-3 min)** → detener, reintentar UNA vez a los pocos segundos; si persiste → detener e informar el error al humano. No pasar a REST ni a borrador salvo pedido explícito (política 2026-08-21).
-- Si `GetMcpTools` lista el servidor como `needsAuth` → pedir al humano autenticar MCP `ado` en Cursor; no inventar PAT.
+- Si `GetMcpTools` lista el servidor como `needsAuth` → pedir al humano autenticar el MCP de Azure DevOps en su runtime; no inventar PAT.
 
 ### Cookbook MCP `ado` (nombres reales)
 
@@ -79,7 +86,26 @@ Las tools son **action-based** (un tool + `action`), no un tool por verbo. Antes
 | Hijo bajo padre | `wit_work_item_write` | `action: "add_child"`, `parentId`, `items[]` | create + link |
 | Comentario | `wit_work_item_comment_write` | `action: "add"`, `workItemId`, `text`, `format` | Comments API |
 | Descargar adjunto | `wit_work_item_attachment` | `attachmentId` | GET attachment |
-| Subir captura (solo `flit-evidencias-dev`) | REST Attachments + relación `AttachedFile` | con `AZURE_PAT` de sesión, o el humano en la UI | `POST …/wit/attachments` |
+| Subir adjunto (capturas) | `wit_work_item_attachment_upload` | `fileName`, `content` (**base64**) | `POST …/wit/attachments` |
+| Vincular adjunto al WI | `wit_work_item_attachment_link` | `workItemId`, `attachmentUrl` (la que devuelve el upload), `comment` opcional | PATCH relación `AttachedFile` |
+
+**Adjuntos (verificado 2026-10-26):** el MCP `wit_work_item_attachment_upload` existe, pero recibe el
+archivo como **base64 dentro del parámetro `content`**: el modelo tiene que copiar la cadena, y con
+capturas reales (10–60 KB → 15–80 K caracteres) la copia se corrompe sin aviso (probado: 10.353 B
+subidos como 8.352 B, sha distinto). **Vía canónica para capturas:** `az` CLI + REST, que envía el
+archivo intacto desde disco:
+
+```bash
+TOKEN=$(az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)  # nunca imprimirlo
+url=$(curl -sS -X POST "$ORG/$PROJ/_apis/wit/attachments?fileName=$n&api-version=7.1" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/octet-stream" --data-binary @"$f" | jq -r .url)
+curl -sS -L "$url" -H "Authorization: Bearer $TOKEN" -o verif.jpg   # verificar sha256 contra el local ANTES de vincular
+# PATCH al WI: [{"op":"add","path":"/relations/-","value":{"rel":"AttachedFile","url":"<url>","attributes":{"comment":"…"}}}]
+```
+
+Sin `az login` en la sesión → el humano las sube en la UI (Feature → Attachments). El upload por MCP
+solo para archivos diminutos, y siempre verificando con `wit_work_item_attachment` (`savePath`) + sha256
+antes del `link`.
 | Vincular WIs | `wit_work_item_link_write` | `action: "link"`, `updates[]` | relations PATCH |
 | Link a PR | `wit_work_item_link_write` | `action: "link_to_pull_request"` | artifact link |
 
@@ -100,9 +126,9 @@ existan en el Bug: `Custom.Commits` y `Custom.DeployDEV` están poblados en los 
 lista; si un `Custom.*` concreto sí lo rechaza, registrar el contenido en Discussion y **declarar**
 la limitación en el reporte — nunca descartarlo en silencio.
 
-**Aliases legacy (NO usar como toolName):** `wit_create_work_item`, `wit_update_work_item`, `wit_get_work_item`, `wit_query_by_wiql`, `wit_add_work_item_comment`, `wit_work_items_link`, `mcp__azure-devops__*`.
+**Aliases legacy (NO usar como toolName):** `wit_create_work_item`, `wit_update_work_item`, `wit_get_work_item`, `wit_query_by_wiql`, `wit_add_work_item_comment`, `wit_work_items_link`. (Los nombres `mcp__azure-devops__<tool>` **no** son legado: son la forma correcta en Claude Code.)
 
-> Con MCP activo, usar **siempre** `CallMcpTool` con `server: "ado"`; no mezclar MCP y REST en la misma operación.
+> Con MCP activo, usar **siempre** la herramienta MCP de tu runtime (`CallMcpTool` con `server: "ado"` en Cursor; `mcp__azure-devops__<tool>` en Claude Code); no mezclar MCP y REST en la misma operación.
 
 ### Ejemplo — leer HU
 
@@ -245,8 +271,7 @@ Un tag **nuevo** en `System.Tags` va en **petición aparte** — mezclarlo con o
   { "op": "add", "path": "/fields/System.Title", "value": "[BACKEND] – Módulo – Verbo sustantivo" },
   { "op": "add", "path": "/fields/System.Description", "value": "<p>...</p>" },
   { "op": "add", "path": "/fields/System.AreaPath", "value": "FLIT - FLITO" },
-  { "op": "add", "path": "/fields/System.AssignedTo", "value": "usuario@flitsas.io" },
-  { "op": "add", "path": "/fields/System.Tags", "value": "DOR; adopcion-ia" }
+  { "op": "add", "path": "/fields/System.AssignedTo", "value": "usuario@flitsas.io" }
 ]
 ```
 
@@ -303,14 +328,28 @@ await fetch(`${org}/${projectEncoded}/_apis/wit/workitems/$User%20Story?api-vers
 
 ## Fallback nivel 3 — borrador local `.md` — **SUSPENDIDO 2026-08-21 salvo pedido explícito del humano**
 
-Si MCP falla y no hay PAT: la política vigente es detener e informar (ver «Estrategia de ejecución»). Solo si el humano lo pide explícitamente: entregar un `.md` con el work item redactado (título, campos, HTML) para que un humano lo cargue. **No** intentar Azure CLI.
+Si MCP falla y no hay PAT: la política vigente es detener e informar (ver «Estrategia de ejecución»). Solo si el humano lo pide explícitamente: entregar un `.md` con el work item redactado (título, campos, HTML) para que un humano lo cargue. **No** usar Azure CLI para esto (`az` solo para adjuntos).
 
-## Tags FLIT por defecto
+## Tags del proyecto — catálogo real (verificado 2026-10-26 vía API `_apis/wit/tags`)
 
-- Features: `DOR; adopcion-ia; fase-1-diseño`
-- User Stories: `DOR; adopcion-ia`
-- **Tag `QA`:** lo pone `flit-gestion-hu` Paso 3 al promover a `staging`, en petición **aparte**,
-  en cada HU/Bug **y** en el Feature. No mezclar con otros campos (`TF401289`).
+**Ningún tag por defecto al crear** — Feature, HU y Bug se crean **sin** `System.Tags`.
+El catálogo del proyecto `FLIT - FLITO` tiene **exactamente** estos 7 tags:
+
+| Tag | Uso del flujo |
+|---|---|
+| `QA` | Lo pone `flit-gestion-hu` Paso 3 al promover a `staging` (petición **aparte**, en cada HU/Bug **y** en el Feature) |
+| `QA_PDN` | Ciclo de QA en producción |
+| `PDN` | Marca de producción |
+| `QA_NOVEDAD` | Reservado al **QA humano** (hallazgos) — los agentes no lo ponen |
+| `QA_MEJORA` | Mejora detectada en QA |
+| `NO_QA` | Ítem que no requiere validación de QA |
+| `APROBADO PDN PO` | Aprobación de producción por el PO |
+
+**La identidad del MCP no puede crear tags nuevos** (`TF401289` «sin permiso para crear tags»):
+se usan **únicamente** los de esta tabla, cuando el flujo lo defina. Los antiguos
+`DOR` / `adopcion-ia` / `fase-1-diseño` **no existen** en el proyecto — no se escriben nunca
+(era la causa del fallo repetido al crear Features/HUs). Tag en **petición aparte** — mezclarlo
+con otros campos también tumba el patch (`TF401289`).
 
 ## QA canónico
 
