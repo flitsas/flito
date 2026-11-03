@@ -14,7 +14,7 @@ import {
   type SiigoIdTipo,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { clients, flitoProveedoresSoat } from '../../db/schema.js';
+import { clients, flitoProveedoresLogistica, flitoProveedoresSoat } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { companiasConUsuarioConFuncion } from '../../shared/permisos-efectivos.js';
@@ -231,6 +231,9 @@ router.get('/', exigirFuncion('clients.clientes.ver'), async (req: Request, res:
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const result = await db.select(COLUMNAS_LISTADO_CON_GESTOR).from(clients)
     .leftJoin(flitoProveedoresSoat, eq(flitoProveedoresSoat.id, clients.flitoProveedorSoatSinTramiteId))
+    // HU #14148: proveedor de logística de la compañía (solo id y nombre; ver `COLUMNAS_PROVEEDOR_LOGISTICA`). Lo ve
+    // quien ya ve Clientes (`clients.clientes.ver`), sin exigir funciones de Parametrización.
+    .leftJoin(flitoProveedoresLogistica, eq(flitoProveedoresLogistica.id, clients.flitoProveedorLogisticaId))
     // RN-CLI-9 (HU #13953, AC1): el padrón solo lista clientes vigentes; el eliminado no vuelve a aparecer.
     .where(clienteVigente())
     .orderBy(clients.name).limit(limit).offset(offset);

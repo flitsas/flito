@@ -220,7 +220,7 @@ describe('conJoins — la tarifa estimada es la vigencia que CONTIENE la fecha d
     const { sql } = q().toSQL();
     expect(sql).toMatch(/"td"\."concepto" = 'tramite_digital'/);
     expect(sql).toMatch(/"td"\."tipo_tramite" = UPPER\(TRIM\(COALESCE\("flito_tramites"\."tipo_tramite", ''\)\)\)/);
-    expect(sql).toMatch(/"lg"\."concepto" = 'logistica'/);
+    expect(sql).toMatch(/"lg"\."concepto" IN \('logistica_cliente', 'logistica'\)/);
     expect(sql).toMatch(/"lg"\."tipo_tramite" IS NULL/);
   });
 
@@ -246,6 +246,7 @@ describe('HU #12653 — COALESCE(documental, tarifa) en las expresiones comparti
   const DOC = (concepto: string) =>
     `(select "flito_comprobantes"."valor" from "flito_comprobantes" where "flito_comprobantes"."tramite_id" = "flito_tramites"."id" and "flito_comprobantes"."concepto" = '${concepto}' and "flito_comprobantes"."estado" = 'aplicado' and "flito_comprobantes"."es_pago" = true limit 1)`;
   const VIAJES = 'COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0)';
+  const TRASLADOS = '(SELECT SUM("flito_logistica_traslado_lts"."precio") FROM "flito_logistica_traslado_lts" INNER JOIN "flito_logistica_documentos" ON "flito_logistica_documentos"."id" = "flito_logistica_traslado_lts"."documento_id" INNER JOIN "flito_logistica_traslados" ON "flito_logistica_traslados"."id" = "flito_logistica_traslado_lts"."traslado_id" WHERE "flito_logistica_documentos"."tramite_id" = "flito_tramites"."id" AND "flito_logistica_traslado_lts"."estado" = \'entregado\' AND "flito_logistica_traslado_lts"."destino" IN (\'flit\', \'cliente\') AND "flito_logistica_traslado_lts"."concepto_precio" IN (\'logistica_cliente\', \'logistica_flit\') AND "flito_logistica_traslado_lts"."precio" IS NOT NULL AND "flito_logistica_traslados"."legado" = false)';
 
   it('AC1 (mutante 4): EXPR_DIGITAL = sellada, si no COALESCE(documental, "td"."valor") — el documental PRIMERO', () => {
     expect(enReporte(EXPR_DIGITAL)).toBe(`CASE WHEN "flito_liquidaciones"."id" IS NOT NULL THEN "flito_liquidaciones"."valor_tramite_digital"
@@ -256,7 +257,8 @@ describe('HU #12653 — COALESCE(documental, tarifa) en las expresiones comparti
 
   it('AC2/AC3 (mutante 9): RAMAS_LOGISTICA_ESTIMADA = WHEN NOT gestiona THEN NULL, y DESPUÉS ELSE COALESCE(documental, "lg"."valor") + Σ viajes; compartida con gastos diarios', () => {
     const rama = `WHEN NOT (NOT COALESCE("clients"."logistica_autogestionable", false) OR ("flito_excepciones_autogestion"."id" IS NOT NULL)) THEN NULL
-  ELSE COALESCE(${DOC('logistica')}, "lg"."valor") + ${VIAJES} END`;
+  ELSE CASE WHEN COALESCE(${DOC('logistica')}, "lg"."valor") IS NULL THEN NULL
+    ELSE COALESCE(${TRASLADOS}, COALESCE(${DOC('logistica')}, "lg"."valor")) END + ${VIAJES} END`;
     expect(enReporte(EXPR_LOGISTICA)).toBe(`CASE WHEN "flito_liquidaciones"."id" IS NOT NULL THEN "flito_liquidaciones"."valor_logistica"
   ${rama}`);
     expect(enReporte(EXPR_LOGISTICA_ESTIMADA)).toBe(`CASE ${rama}`);

@@ -10,6 +10,7 @@ const loginAdmin = (page: Page) =>
   loginAs(page, ADMIN_USER, { funciones: [...funcionesDe(ADMIN_USER), 'parametrizacion.proveedores.estado'] });
 
 const UUID = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+const RE_UNIFICADA = /\/api\/flito\/parametrizacion\/proveedores$/;
 const RE_LISTA = /\/api\/flito\/parametrizacion\/proveedores-soat$/;
 const RE_IMPACTO = /\/api\/flito\/parametrizacion\/proveedores-soat\/([0-9a-f-]+)\/impacto$/;
 const RE_ESTADO = /\/api\/flito\/parametrizacion\/proveedores-soat\/([0-9a-f-]+)\/estado$/;
@@ -50,10 +51,13 @@ async function montar(page: Page, m: Montaje = {}) {
   let listados = 0;
   await page.route(/\/api\/clients(\?|$)/, (route) => json(route, 200, []));
   await page.route(/\/api\/siigo\/clientes\/validacion\/detalle/, (route) => json(route, 200, { data: [] }));
-  await page.route(RE_LISTA, (route) => {
+  // HU #14162: la pestaña lee el listado unificado; `proveedores-soat` solo completa editar/detalle.
+  await page.route(RE_UNIFICADA, (route) => {
     listados += 1;
-    return m.listaFalla?.() ? json(route, 500, { error: 'boom interno' }) : json(route, 200, lista);
+    return m.listaFalla?.() ? json(route, 500, { error: 'boom interno' })
+      : json(route, 200, lista.map((p) => ({ tipo: 'soat', id: p.id, nombre: p.nombre, nit: null, contacto: null, telefono: null, activo: p.activo, companiasAsignadas: 0 })));
   });
+  await page.route(RE_LISTA, (route) => json(route, 200, lista));
   await page.route(RE_IMPACTO, (route) => {
     const r = m.impacto?.() ?? { status: 200, body: impacto(4, ['Acme S.A.S.', 'Beta Ltda.'], 2) };
     return r === 'abort' ? route.abort('failed') : json(route, r.status, r.body);
@@ -79,7 +83,8 @@ async function montar(page: Page, m: Montaje = {}) {
 
 const filas = (page: Page) => page.getByRole('table').locator('tbody tr');
 const fila = (page: Page, nombre: string) => filas(page).filter({ hasText: nombre });
-const chip = (page: Page, nombre: string) => fila(page, nombre).locator('td').nth(1);
+// HU #14105: Estado es la 6.ª columna (Nombre, Tipo, NIT, Contacto y teléfono, Compañías asignadas, Estado).
+const chip = (page: Page, nombre: string) => fila(page, nombre).locator('td').nth(5);
 const kebab = (page: Page, nombre: string) => page.getByRole('button', { name: `Acciones de ${nombre}` });
 const menu = (page: Page) => page.getByRole('menu');
 const dialogo = (page: Page) => page.getByRole('dialog');

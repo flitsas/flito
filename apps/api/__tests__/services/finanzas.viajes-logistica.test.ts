@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { QueryBuilder } from 'drizzle-orm/pg-core';
-import type { DesgloseViajesLogistica, ViajeLogisticaSellado } from '@operaciones/shared-types';
+import type { DesgloseViajesLogistica, LineaTrasladoLogistica, ViajeLogisticaSellado } from '@operaciones/shared-types';
 import { chain } from '../helpers/db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
 
@@ -48,7 +48,7 @@ const { desgloseDe, desgloseViajesLogistica, TramiteNoEncontradoError } =
   await import('../../src/modules/finanzas/finanzas.viajes-logistica.js');
 const { LiquidacionError } = await import('../../src/modules/flito-liquidacion/flito-liquidacion.service.js');
 const {
-  conJoins, EXPR_LOGISTICA, EXPR_LOGISTICA_VIAJES_CANTIDAD, SELECT_FILA, SELECT_TOTALES,
+  conJoins, EXPR_LOGISTICA, EXPR_LOGISTICA_ESTIMADA, EXPR_LOGISTICA_VIAJES_CANTIDAD, SELECT_FILA, SELECT_TOTALES,
 } = await import('../../src/modules/finanzas/finanzas.service.js');
 const { flitoTramites } = await import('../../src/db/schema.js');
 const { renderizar } = await import('../helpers/sql-ligado.js');
@@ -65,8 +65,14 @@ const viaje = (numero: number, valor: number): ViajeLogisticaSellado => ({
 const VIAJES = [viaje(2, 35000), viaje(3, 20000)];
 
 /** `.logistica` como lo devuelve `calcular` (vigente) o `liquidacionDe` (sellado). */
-const logistica = (o: Partial<{ valor: number | null; tarifa: number | null; viajes: ViajeLogisticaSellado[] | null; totalViajes: number | null }> = {}) => ({
-  valor: 90000, origen: 'Tarifa', bloquea: false, tarifa: 35000, viajes: VIAJES, totalViajes: 3, ...o,
+const logistica = (o: Partial<{
+  valor: number | null; origen: string; bloquea: boolean; tarifa: number | null;
+  viajes: ViajeLogisticaSellado[] | null; totalViajes: number | null;
+  traslados: LineaTrasladoLogistica[] | null;
+}> = {}) => ({
+  valor: 90000, origen: 'Tarifa', bloquea: false, tarifa: 35000, viajes: VIAJES, totalViajes: 3,
+  traslados: [] as LineaTrasladoLogistica[] | null,
+  ...o,
 });
 const calculo = (l = logistica()) => ({ tramiteId: TRAMITE, idFlit: 'FLIT-0001', logistica: l });
 const sello = (l = logistica()) => ({ ...calculo(l), liquidadoEn: T0 });
@@ -84,7 +90,7 @@ describe('desgloseDe — de `.logistica` de la liquidación al desglose (AC7)', 
     const d = desgloseDe(BASE, logistica(), null);
     expect(d).toEqual<DesgloseViajesLogistica>({
       ...BASE, gestionaLogistica: true, liquidado: false, liquidadoEn: null, origen: 'vigente',
-      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES,
+      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES, traslados: [], totalTraslados: 0,
     });
     // El orden es el de la liquidación (ORDER BY numero): no se reordena ni se filtra.
     expect(d.items!.map((v) => v.numero)).toEqual([2, 3]);
@@ -104,7 +110,7 @@ describe('desgloseDe — de `.logistica` de la liquidación al desglose (AC7)', 
     const d = desgloseDe(BASE, logistica(), T0);
     expect(d).toEqual<DesgloseViajesLogistica>({
       ...BASE, gestionaLogistica: true, liquidado: true, liquidadoEn: T0, origen: 'sellado',
-      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES,
+      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES, traslados: [], totalTraslados: 0,
     });
   });
 
@@ -120,7 +126,7 @@ describe('desgloseDe — de `.logistica` de la liquidación al desglose (AC7)', 
     const d = desgloseDe(BASE, logistica({ valor: 35000, tarifa: null, viajes: null, totalViajes: null }), T0);
     expect(d).toEqual<DesgloseViajesLogistica>({
       ...BASE, gestionaLogistica: true, liquidado: true, liquidadoEn: T0, origen: 'sin_desglose',
-      tarifa: null, totalViajes: null, totalLogistica: 35000, items: null,
+      tarifa: null, totalViajes: null, totalLogistica: 35000, items: null, traslados: null, totalTraslados: null,
     });
   });
 
@@ -131,10 +137,10 @@ describe('desgloseDe — de `.logistica` de la liquidación al desglose (AC7)', 
   });
 
   it('no gestiona (vigente: totalViajes 0): gestionaLogistica false, items [], 0 viajes, total null', () => {
-    const d = desgloseDe(BASE, { valor: null, origen: 'La compañía autogestiona', bloquea: false, tarifa: null, viajes: [], totalViajes: 0 }, null);
+    const d = desgloseDe(BASE, { valor: null, origen: 'La compañía autogestiona', bloquea: false, tarifa: null, viajes: [], totalViajes: 0, traslados: [] }, null);
     expect(d).toEqual<DesgloseViajesLogistica>({
       ...BASE, gestionaLogistica: false, liquidado: false, liquidadoEn: null, origen: 'vigente',
-      tarifa: null, totalViajes: 0, totalLogistica: null, items: [],
+      tarifa: null, totalViajes: 0, totalLogistica: null, items: [], traslados: [], totalTraslados: 0,
     });
   });
 
@@ -150,6 +156,27 @@ describe('desgloseDe — de `.logistica` de la liquidación al desglose (AC7)', 
     const viejo = desgloseDe(BASE, logistica({ valor: null, tarifa: null, viajes: null, totalViajes: null }), T0);
     expect(viejo.gestionaLogistica).toBe(false);
     expect(viejo.origen).toBe('sin_desglose');
+  });
+
+  it('clave ausente (sello con viajes y sin `traslados`): null, no [], y totalLogistica sigue siendo el valor', () => {
+    const d = desgloseDe(BASE, logistica({ traslados: null }), T0);
+    expect(d.origen).toBe('sellado');
+    expect(d.traslados).toBeNull();
+    expect(d.totalTraslados).toBeNull();
+    expect(d.totalLogistica).toBe(90000);
+    expect(d.items).toEqual(VIAJES);
+  });
+
+  it('array presente se proyecta; totalTraslados es la suma de precios y totalLogistica no se recalcula', () => {
+    const lineas: LineaTrasladoLogistica[] = [
+      { id: 'l1', documentoId: 'd1', trasladoId: 'tr1', destino: 'flit', conceptoPrecio: 'logistica_flit', precio: 10000, tarifaVigenciaId: null },
+      { id: 'l2', documentoId: 'd1', trasladoId: 'tr1', destino: 'cliente', conceptoPrecio: 'logistica_cliente', precio: 0, tarifaVigenciaId: 'vig-1' },
+    ];
+    // 90.000 es el valor sellado. Sumar otra vez las líneas lo dejaría en 100.000.
+    const d = desgloseDe(BASE, logistica({ traslados: lineas }), T0);
+    expect(d.traslados).toEqual(lineas);
+    expect(d.totalTraslados).toBe(10000);
+    expect(d.totalLogistica).toBe(90000);
   });
 });
 
@@ -257,7 +284,7 @@ describe('GET /api/finanzas/tramites/:id/viajes-logistica — la MISMA guarda LE
     expect(r.headers['cache-control']).toBe('no-store');
     expect(r.body).toEqual<DesgloseViajesLogistica>({
       ...BASE, gestionaLogistica: true, liquidado: false, liquidadoEn: null, origen: 'vigente',
-      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES,
+      tarifa: 35000, totalViajes: 3, totalLogistica: 90000, items: VIAJES, traslados: [], totalTraslados: 0,
     });
   });
 
@@ -309,11 +336,26 @@ describe('GET /api/finanzas/tramites/:id/viajes-logistica — la MISMA guarda LE
 
 const SUBCONSULTA_SUMA = '(SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" '
   + 'WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id")';
+/** HU #14118: mismas líneas que cobra `trasladosDe`. Sin líneas da NULL (decide la regla de cobro). */
+const SUMA_TRASLADOS = '(SELECT SUM("flito_logistica_traslado_lts"."precio") FROM "flito_logistica_traslado_lts" '
+  + 'INNER JOIN "flito_logistica_documentos" ON "flito_logistica_documentos"."id" = "flito_logistica_traslado_lts"."documento_id" '
+  + 'INNER JOIN "flito_logistica_traslados" ON "flito_logistica_traslados"."id" = "flito_logistica_traslado_lts"."traslado_id" '
+  + 'WHERE "flito_logistica_documentos"."tramite_id" = "flito_tramites"."id" '
+  + 'AND "flito_logistica_traslado_lts"."estado" = \'entregado\' '
+  + 'AND "flito_logistica_traslado_lts"."destino" IN (\'flit\', \'cliente\') '
+  + 'AND "flito_logistica_traslado_lts"."concepto_precio" IN (\'logistica_cliente\', \'logistica_flit\') '
+  + 'AND "flito_logistica_traslado_lts"."precio" IS NOT NULL '
+  + 'AND "flito_logistica_traslados"."legado" = false)';
 const SUBCONSULTA_CUENTA = '(SELECT COUNT(*)::int FROM "flito_tramite_viajes_logistica" '
   + 'WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id")';
 /** HU #12653: el viaje 1 es COALESCE(comprobante de pago aplicado, tarifa); la Σ de viajes sigue FUERA. */
 const VIAJE_1 = 'COALESCE((select "flito_comprobantes"."valor" from "flito_comprobantes" where "flito_comprobantes"."tramite_id" = "flito_tramites"."id" '
   + 'and "flito_comprobantes"."concepto" = \'logistica\' and "flito_comprobantes"."estado" = \'aplicado\' and "flito_comprobantes"."es_pago" = true limit 1), "lg"."valor")';
+
+/** HU #14118: con líneas que cobran, Σ líneas (sin la tarifa); sin líneas, el viaje 1 (legado); viaje 1 NULL → NULL. */
+const REGLA_V1 = `CASE WHEN ${VIAJE_1} IS NULL THEN NULL\n    ELSE COALESCE(${SUMA_TRASLADOS}, ${VIAJE_1}) END`;
+/** Los viajes adicionales se suman aparte, siempre. */
+const APARTE_ADICIONALES = ` + COALESCE(${SUBCONSULTA_SUMA}, 0)`;
 
 describe('EXPR_LOGISTICA — tarifa + Σ viajes por subconsulta correlacionada (AC1, AC2, AC4)', () => {
   it('la rama estimada es COALESCE(documental, lg.valor) + COALESCE(Σ viajes, 0): sin COALESCE(lg.valor, 0) y sin parámetros', () => {
@@ -321,7 +363,10 @@ describe('EXPR_LOGISTICA — tarifa + Σ viajes por subconsulta correlacionada (
     // Mutante «solo Σ viajes» (55.000): faltaría la tarifa; «COALESCE(lg.valor, 0) + Σ»: sin tarifa
     // daría un valor en vez de «no configurado» (AC2). Desde la HU #12653 el viaje 1 lee primero el
     // comprobante de pago aplicado y la Σ de viajes se suma FUERA de ese COALESCE.
-    expect(sql).toContain(`ELSE ${VIAJE_1} + COALESCE(${SUBCONSULTA_SUMA}, 0) END`);
+    expect(sql).toContain(`ELSE ${REGLA_V1}${APARTE_ADICIONALES}`);
+    // Regla de cobro (HU #14118): la tarifa NO se suma a las líneas (mutante «V1 + Σ líneas» = el
+    // bug de $97.388 en la fila contra $97.000 del panel).
+    expect(sql).not.toContain(`${VIAJE_1} + `);
     expect(sql).not.toContain('COALESCE("lg"."valor"');
     // Sellada manda y no se suma la tabla viva (AC4): la primera rama es la columna, a secas.
     expect(sql).toMatch(/^CASE WHEN "flito_liquidaciones"\."id" IS NOT NULL THEN "flito_liquidaciones"\."valor_logistica"\s+WHEN NOT/);
@@ -334,9 +379,9 @@ describe('EXPR_LOGISTICA — tarifa + Σ viajes por subconsulta correlacionada (
   it('no se suma antes del WHEN NOT gestiona: un autogestionable con filas sigue en NULL (AC3)', () => {
     const { sql } = renderizar(EXPR_LOGISTICA);
     // Tres ramas y en este orden: sellada → no gestiona (NULL, sin sumar nada) → estimada con viajes.
-    expect(sql.match(/WHEN /g)).toHaveLength(2);
+    expect(sql.match(/WHEN /g)).toHaveLength(3); // sellada, no gestiona, y el CASE interno del «viaje 1 sin configurar»
     expect(sql).toMatch(
-      /"valor_logistica"\s+WHEN NOT \(NOT COALESCE\("clients"\."logistica_autogestionable", false\) OR \("flito_excepciones_autogestion"\."id" IS NOT NULL\)\) THEN NULL\s+ELSE COALESCE\(\(select "flito_comprobantes"\."valor"/,
+      /"valor_logistica"\s+WHEN NOT \(NOT COALESCE\("clients"\."logistica_autogestionable", false\) OR \("flito_excepciones_autogestion"\."id" IS NOT NULL\)\) THEN NULL\s+ELSE CASE WHEN COALESCE\(\(select "flito_comprobantes"\."valor"/,
     );
   });
 
@@ -385,5 +430,42 @@ describe('SELECT_TOTALES.logistica — la MISMA expresión que la celda (AC6)', 
     expect(sql.match(/SUM\("flito_tramite_viajes_logistica"\."valor"\)/g)).toHaveLength(2);
     // Y el servicio no la lleva: la logística es reintegro, no servicio.
     expect(renderizar(SELECT_TOTALES.totalServicio).sql).not.toContain('flito_tramite_viajes_logistica');
+  });
+});
+
+describe('EXPR_LOGISTICA / EXPR_LOGISTICA_ESTIMADA — la fila del reporte aplica la regla de cobro del panel (HU #14118)', () => {
+  const estimada = () => renderizar(EXPR_LOGISTICA_ESTIMADA).sql;
+  const reporte = () => renderizar(EXPR_LOGISTICA).sql;
+
+  it('directo a cliente $85.000 + adicional $12.000 = $97.000: la fila suma las líneas y NO la tarifa base', () => {
+    // 85.000 sale de la línea (COALESCE la elige antes que el viaje 1) y 12.000 de los adicionales,
+    // fuera del CASE. El viaje 1 solo aparece como respaldo sin líneas.
+    expect(estimada()).toContain(`COALESCE(${SUMA_TRASLADOS}, ${VIAJE_1}) END${APARTE_ADICIONALES}`);
+    expect(estimada()).not.toMatch(/END\s*\+\s*COALESCE\(\(SELECT SUM\("flito_logistica_traslado_lts"/);
+  });
+
+  it('FLIT + tramo FLIT→cliente en 0 + adicional: el 0 es una línea (precio no nulo), no cae a la tarifa base', () => {
+    // El predicado exige `precio IS NOT NULL`, no `> 0`: SUM da 0 (no NULL) y COALESCE no usa el viaje 1.
+    expect(estimada()).toContain('"flito_logistica_traslado_lts"."precio" IS NOT NULL');
+    expect(estimada()).not.toContain('"flito_logistica_traslado_lts"."precio" > 0');
+    expect(estimada()).toContain(`COALESCE(${SUMA_TRASLADOS}, ${VIAJE_1})`);
+  });
+
+  it('solo cobran las entregadas, de destino flit/cliente, con concepto de precio y viaje no legado (= trasladosDe)', () => {
+    for (const trozo of [
+      `"flito_logistica_traslado_lts"."estado" = 'entregado'`, `IN ('flit', 'cliente')`,
+      `IN ('logistica_cliente', 'logistica_flit')`, '"flito_logistica_traslados"."legado" = false',
+    ]) expect(estimada()).toContain(trozo);
+  });
+
+  it('sin líneas = legado: el respaldo del COALESCE es el viaje 1 + adicionales; viaje 1 NULL sigue NULL', () => {
+    expect(estimada()).toContain(`CASE WHEN ${VIAJE_1} IS NULL THEN NULL`);
+    expect(estimada()).toContain(`, ${VIAJE_1}) END`);
+  });
+
+  it('fila sellada intacta: la primera rama es la columna y las líneas solo viven en la rama sin sellar', () => {
+    expect(reporte()).toMatch(/^CASE WHEN "flito_liquidaciones"\."id" IS NOT NULL THEN "flito_liquidaciones"\."valor_logistica"\s+WHEN NOT/);
+    expect(reporte().indexOf('flito_logistica_traslado_lts')).toBeGreaterThan(reporte().indexOf('THEN NULL'));
+    expect(renderizar(EXPR_LOGISTICA).params).toEqual([]);
   });
 });

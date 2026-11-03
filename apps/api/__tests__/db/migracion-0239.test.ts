@@ -112,7 +112,8 @@ describe('AC9 / AC10 / TC-23 — el mundo de hoy (0001..0239 plegadas) = el cat�
   it('el reparto plegado es el reparto de partida del código; `menu.perfil` llega a los 12 roles', () => {
     const plegado = leerRepartoSembrado();
     const aPares = (m: Map<string, Set<string>>) => [...m.entries()].flatMap(([r, cs]) => [...cs].map((c) => `${r} ${c}`)).sort();
-    expect(aPares(plegado)).toEqual(repartoDePartida().map(([r, c]) => `${r} ${c}`).sort());
+    // La 0283 retiró `mensajero logistica.traslado.registrar` a propósito (solo admin): el código aún lo reparte de partida.
+    expect(aPares(plegado)).toEqual(repartoDePartida().filter(([r, c]) => !(r === 'mensajero' && c === 'logistica.traslado.registrar')).map(([r, c]) => `${r} ${c}`).sort());
     for (const rol of USER_ROLES) expect(plegado.get(rol)?.has('menu.perfil'), rol).toBe(true);
   });
 });

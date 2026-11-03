@@ -46,10 +46,12 @@ interface Props {
   onDesactualizado: (motivo: 'cambiado' | 'no-existe') => void;
   onCerrar: () => void;
   restoreFocusRef: RefObject<HTMLElement | null>;
+  /** Copy propio para un error del DELETE (p. ej. 409 de logística); `null` = clasificación estándar. */
+  textoError?: (e: unknown) => string | null;
 }
 
 export function DialogoEliminarRegistro({
-  nombre, sustantivo, confirmar, onHecho, onDesactualizado, onCerrar, restoreFocusRef,
+  nombre, sustantivo, confirmar, onHecho, onDesactualizado, onCerrar, restoreFocusRef, textoError,
 }: Props) {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<ErrorConfirmar | null>(null);
@@ -68,6 +70,8 @@ export function DialogoEliminarRegistro({
       if (vivo.current) onHecho();
     } catch (e) {
       if (!vivo.current) return;
+      const propio = textoError?.(e);
+      if (propio) { setError({ texto: propio, reintentable: false }); return; }
       const status = e instanceof ApiError ? e.status : 0;
       const mensaje = e instanceof ApiError ? e.message.trim() : '';
       if (status === 409 && mensaje.replace(/\.$/, '') === CONCURRENCIA) { onDesactualizado('cambiado'); return; }
