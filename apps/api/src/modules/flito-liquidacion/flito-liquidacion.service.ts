@@ -490,8 +490,10 @@ function sufijoViajes(n: number): string {
  *  - no gestiona (valor null sin bloquear): se IGNORAN. `viajes: []`, `traslados: []`, 0 viajes.
  *  - bloquea (sin tarifa vigente en la fecha de aprobación): `valor` null; el desglose de viajes y
  *    de líneas se conserva para previsualizar y no entra en el total ni en el GMF.
- *  - normal: `valor = tarifa + Σ valor de cada viaje + Σ precio de cada línea`, con el precio
- *    CON QUE SE REGISTRÓ cada uno (nunca `tarifaVigente`, `precioTrasladoDe` ni la tarifa de hoy).
+ *  - normal: con líneas de traslado que cobran, `valor = Σ precio de cada línea + Σ valor de cada
+ *    viaje adicional` (la tarifa base NO se suma: el viaje a cliente o a FLIT ya es una línea). Sin
+ *    líneas (modelo antiguo), `valor = tarifa + Σ viajes adicionales`. Siempre con el precio CON QUE
+ *    SE REGISTRÓ cada uno (nunca `tarifaVigente`, `precioTrasladoDe` ni la tarifa de hoy).
  *
  * `sufijoViajes` solo cuenta adicionales. Es pura; `totalizar` la vuelve a aplicar al sellar.
  */
@@ -509,8 +511,12 @@ export function conceptoLogistica(
   if (base.bloquea) return { ...base, valor: null, tarifa: null, viajes, totalViajes, traslados };
   const tarifa = base.valor as number;
   const sumaLineas = traslados.reduce((a, t) => a + t.precio, 0);
+  const sumaAdicionales = viajes.reduce((a, v) => a + v.valor, 0);
+  // Regla de cobro: con líneas de traslado que cobran, la tarifa base (viaje 1 del modelo antiguo)
+  // NO se suma —ya está en el precio de cada línea—; sin líneas, se mantiene el legado.
+  const valor = traslados.length > 0 ? sumaLineas + sumaAdicionales : tarifa + sumaAdicionales;
   return {
-    valor: redondear(viajes.reduce((a, v) => a + v.valor, tarifa) + sumaLineas),
+    valor: redondear(valor),
     origen: `${base.origen}${sufijoViajes(viajes.length)}`,
     bloquea: false, tarifa, viajes, totalViajes, traslados,
     // El viaje 1 puede ser el documental (HU #12654): el origen y la diferencia son los de la base.
