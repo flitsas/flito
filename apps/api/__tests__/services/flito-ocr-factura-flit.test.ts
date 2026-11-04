@@ -227,7 +227,8 @@ describe('avaluoComercial (AC4, AC5, AC6)', () => {
 
   it('un avalúo en 0 es 0 y confiable; sin subtotal queda ausente, sin relleno', () => {
     const conCero = PLANTILLA_A.replace('Subtotal Base gravable (=) $ 1,234,567.89', 'Subtotal Base gravable (=) $ 0.00');
-    expect(avaluoDesdeFactura(conCero, RAW_A, VIN_A)).toEqual({ valor: '0.00', confianza: 1, confiable: true });
+    const filaEnCero = RAW_A.replaceAll('1,234,567.89', '0.00');
+    expect(avaluoDesdeFactura(conCero, filaEnCero, VIN_A)).toEqual({ valor: '0.00', confianza: 1, confiable: true });
     const sinSubtotal = PLANTILLA_A.replace('Subtotal Base gravable (=) $ 1,234,567.89\n', '');
     expect(avaluoDesdeFactura(sinSubtotal, RAW_A, VIN_A)).toEqual(AUSENTE_ESPERADO);
   });
@@ -239,7 +240,47 @@ describe('avaluoComercial (AC4, AC5, AC6)', () => {
 
   it('un importe ambiguo es dudoso', () => {
     const ambiguo = PLANTILLA_A.replace('Subtotal Base gravable (=) $ 1,234,567.89', 'Subtotal Base gravable (=) $ 123,456');
-    expect(avaluoDesdeFactura(ambiguo, RAW_A, VIN_A)).toMatchObject({ confiable: false, confianza: 0.5 });
+    const filaAmbigua = RAW_A.replaceAll('1,234,567.89', '123,456');
+    expect(avaluoDesdeFactura(ambiguo, filaAmbigua, VIN_A)).toMatchObject({ valor: '$ 123,456', confiable: false, confianza: 0.5 });
+    // El subtotal se evalúa antes que la fila: ambiguo sigue dudoso aunque la fila no coincida.
+    expect(avaluoDesdeFactura(ambiguo, RAW_A, VIN_A)).toMatchObject({ valor: '$ 123,456', confiable: false, confianza: 0.5 });
+  });
+
+  it('otro producto con la descripción partida no se ve como fila: el subtotal no coincide y queda ausente', () => {
+    const raw = [
+      '1 ABC000000001 Modelox Turbo Unid 1 $ 1,134,567.89 $ 0.00 $ 0.00 $ 1,134,567.89',
+      '2 ACC0001 Tapetes de caucho',
+      'para el vehiculo',
+      'Unid 1 $ 100,000.00 $ 0.00 $ 0.00 $ 100,000.00',
+    ].join('\n');
+    expect(filasProducto(raw)).toHaveLength(1);
+    expect(avaluoDesdeFactura(PLANTILLA_A, raw, VIN_A)).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('un descuento o cargo global que separa fila y subtotal deja el avalúo ausente, no adivina', () => {
+    const conDescuento = '1 ABC000000001 Modelox Unid 1 $ 1,300,000.00 $ 65,432.11 $ 0.00 $ 1,300,000.00';
+    expect(avaluoDesdeFactura(PLANTILLA_A, conDescuento, VIN_A)).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('una fila cuyo valor de venta ya trae el descuento y coincide con el subtotal sí vale', () => {
+    const neto = '1 ABC000000001 Modelox Unid 1 $ 1,300,000.00 $ 65,432.11 $ 0.00 $ 1,234,567.89';
+    expect(avaluoDesdeFactura(PLANTILLA_A, neto, VIN_A)).toEqual({ valor: '1234567.89', confianza: 1, confiable: true });
+  });
+
+  it('la comparación es exacta al centavo y no depende del formato ni de los ceros decimales', () => {
+    const conSubtotal = (v: string) => PLANTILLA_A.replace('Subtotal Base gravable (=) $ 1,234,567.89', `Subtotal Base gravable (=) $ ${v}`);
+    const fila = (v: string) => `1 ABC000000001 Modelox Unid 1 $ ${v} $ 0.00 $ 0.00 $ ${v}`;
+    expect(avaluoDesdeFactura(conSubtotal('1,234,567.90'), fila('1234567.9'), VIN_A)).toMatchObject({ valor: '1234567.90', confiable: true });
+    expect(avaluoDesdeFactura(conSubtotal('1,234,567.89'), fila('1.234.567,89'), VIN_A)).toMatchObject({ valor: '1234567.89', confiable: true });
+    expect(avaluoDesdeFactura(conSubtotal('1,000,000'), fila('1000000.00'), VIN_A)).toMatchObject({ valor: '1000000', confiable: true });
+    expect(avaluoDesdeFactura(conSubtotal('1,234,567.89'), fila('1,234,567.88'), VIN_A)).toEqual(AUSENTE_ESPERADO);
+    // Al tope de 13 dígitos enteros, un centavo sigue contando.
+    expect(avaluoDesdeFactura(conSubtotal('9,007,199,254,740.99'), fila('9,007,199,254,741.00'), VIN_A)).toEqual(AUSENTE_ESPERADO);
+    expect(avaluoDesdeFactura(conSubtotal('100'), fila('1,000.00'), VIN_A)).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('una fila con valor de venta ambiguo no se puede comparar: ausente', () => {
+    expect(avaluoDesdeFactura(PLANTILLA_A, '1 ABC000000001 Modelox Unid 1 $ 123,456 $ 0.00 $ 0.00 $ 123,456', VIN_A)).toEqual(AUSENTE_ESPERADO);
   });
 
   it('varios productos y la descripción trae el VIN confiable: sale de esa fila', () => {
