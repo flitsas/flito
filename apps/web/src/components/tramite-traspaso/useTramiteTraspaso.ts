@@ -54,6 +54,10 @@ export function useTramiteTraspaso() {
   const [preflightLoading, setPreflightLoading] = useState(false);
   const [preflightError, setPreflightError] = useState<string | null>(null);
   const preflightBooted = useRef<number | null>(null);
+  // Ejecución vigente: solo ella aplica su resultado y libera la carga. Automática y manual comparten
+  // este turno; lo invalidan una ejecución nueva, el cambio de trámite y el desmontaje.
+  const preflightRun = useRef(0);
+  const hydrateRun = useRef(0);
   // Paso 3/4 — partes
   const [vendedor, setVendedor] = useState<Parte>({ ...PARTE_VACIA });
   const [comprador, setComprador] = useState<Parte>({ ...PARTE_VACIA });
@@ -69,8 +73,11 @@ export function useTramiteTraspaso() {
   const [impuestoConsulta, setImpuestoConsulta] = useState<{ fuente: string; datos: Record<string, unknown>; advertencia?: string | null } | null>(null);
 
   const hydrate = useCallback(async (id: number) => {
+    hydrateRun.current += 1;
+    const run = hydrateRun.current;
     try {
       const t = await api.get<any>(`/tramites/${id}`);
+      if (run !== hydrateRun.current) return;
       setTramiteId(id); setRadicado(t.numeroRadicado ?? null); setEstado(t.estado);
       setWorkflow(Array.isArray(t.workflow) ? (t.workflow as TramiteWorkflowEvent[]) : []);
       setFurGenerado(Boolean(t.furGenerado));
@@ -103,11 +110,14 @@ export function useTramiteTraspaso() {
         let pf: { overall: string; checks: PreflightCheck[] } | null = null;
         try {
           const cached = await api.get<{ preflight: { overall: string; checks: PreflightCheck[] } | null }>(`/tramites/${id}/preflight`);
+          if (run !== hydrateRun.current) return;
           if (cached.preflight?.checks?.length) {
-            pf = { overall: cached.preflight.overall, checks: cached.preflight.checks };
-            setPreflight(pf);
+            const guardado = { overall: cached.preflight.overall, checks: cached.preflight.checks };
+            pf = guardado;
+            setPreflight((actual) => actual ?? guardado); // Lo guardado no pisa una ejecución más nueva.
           }
         } catch { /* sin pre-vuelo cacheado */ }
+        if (run !== hydrateRun.current) return;
         const pasoActivoCalc = maxPasoTraspasoAlcanzable({
           tramiteId: id,
           vehiculo: veh,
@@ -173,6 +183,9 @@ export function useTramiteTraspaso() {
   // ---- Paso 2 ----
   const ejecutarPreflight = useCallback(async () => {
     if (!tramiteId) return;
+    preflightBooted.current = tramiteId; // El arranque automático ya no consulta por su cuenta.
+    preflightRun.current += 1;
+    const run = preflightRun.current;
     setPreflightLoading(true);
     setPreflightError(null);
     setBusy(true);
@@ -181,28 +194,42 @@ export function useTramiteTraspaso() {
         tramiteId, vin: (vehiculo?.vin as string) || undefined, placa: placa.trim().toUpperCase() || undefined,
         vendedorDoc: docPropietario.trim() || vendedor.documento || undefined,
       });
-      setPreflight(snap);
+      if (run === preflightRun.current) setPreflight(snap);
     } catch (e) {
-      const msg = errorMessage(e);
-      setPreflightError(msg);
-      toast.error(msg);
+      if (run === preflightRun.current) {
+        const msg = errorMessage(e);
+        setPreflightError(msg);
+        toast.error(msg);
+      }
     } finally {
-      setPreflightLoading(false);
+      if (run === preflightRun.current) setPreflightLoading(false);
       setBusy(false);
     }
   }, [tramiteId, vehiculo, placa, docPropietario, vendedor.documento]);
 
+  // Al cambiar de trámite o desmontar: lo que siga en vuelo se descarta y no queda estado del anterior.
+  useEffect(() => () => {
+    preflightRun.current += 1;
+    setPreflight(null);
+    setPreflightError(null);
+    setPreflightLoading(false);
+  }, [tramiteId]);
+
+  // Arranque automático, una vez por trámite. Sin limpieza a propósito: sus dependencias cambian con la
+  // petición en vuelo (la propia carga, hydrate, el PATCH del organismo) y `preflightBooted` no deja
+  // repetirla, así que cancelar aquí dejaría el paso colgado.
   useEffect(() => {
     if (step !== 2 || !tramiteId || preflight || preflightLoading) return;
     if (preflightBooted.current === tramiteId) return;
     preflightBooted.current = tramiteId;
-    let cancelled = false;
+    preflightRun.current += 1;
+    const run = preflightRun.current;
     (async () => {
       setPreflightLoading(true);
       setPreflightError(null);
       try {
         const cached = await api.get<{ preflight: { overall: string; checks: PreflightCheck[] } | null }>(`/tramites/${tramiteId}/preflight`);
-        if (cancelled) return;
+        if (run !== preflightRun.current) return;
         if (cached.preflight?.checks?.length) {
           setPreflight({ overall: cached.preflight.overall, checks: cached.preflight.checks });
           return;
@@ -211,18 +238,17 @@ export function useTramiteTraspaso() {
           tramiteId, vin: (vehiculo?.vin as string) || undefined, placa: placa.trim().toUpperCase() || undefined,
           vendedorDoc: docPropietario.trim() || vendedor.documento || undefined,
         });
-        if (!cancelled) setPreflight(snap);
+        if (run === preflightRun.current) setPreflight(snap);
       } catch (e) {
-        if (!cancelled) {
+        if (run === preflightRun.current) {
           const msg = errorMessage(e);
           setPreflightError(msg);
           toast.error(msg);
         }
       } finally {
-        if (!cancelled) setPreflightLoading(false);
+        if (run === preflightRun.current) setPreflightLoading(false);
       }
     })();
-    return () => { cancelled = true; };
   }, [step, tramiteId, preflight, preflightLoading, vehiculo, placa, docPropietario, vendedor.documento]);
 
   const preflightBloquea = preflight?.overall === 'red';
@@ -455,7 +481,7 @@ export function useTramiteTraspaso() {
   };
 
   // Paso 2 — «Reintentar pre-vuelo».
-  const reintentarPreflight = () => { preflightBooted.current = null; void ejecutarPreflight(); };
+  const reintentarPreflight = () => { void ejecutarPreflight(); };
 
   // Paso 6 — callbacks del organismo y de los documentos.
   const cambiarOrganismo = (org: OrgTransito) => { guardarOrganismo(org).catch((e) => toast.error(errorMessage(e))); };
