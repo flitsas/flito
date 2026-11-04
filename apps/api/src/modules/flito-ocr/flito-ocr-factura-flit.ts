@@ -415,16 +415,36 @@ export function filasProducto(textoRaw: string): FilaProductoFactura[] {
   return filas;
 }
 
+/** Compara dos importes canónicos como cadenas, sin coma flotante: `1234567.9` = `1234567.90`, `0` = `0.00`. */
+function importesIguales(a: string, b: string): boolean {
+  const sinCerosDecimales = (s: string) => (s.includes('.') ? s.replace(/\.?0+$/, '') : s);
+  return sinCerosDecimales(a) === sinCerosDecimales(b);
+}
+
+/**
+ * Una sola fila VISIBLE no prueba que haya un solo producto: otra con la descripción partida en varias
+ * líneas no casa con `FILA_PRODUCTO`. El subtotal solo vale si coincide con el «Valor de Venta» de esa
+ * fila; si difieren (otro producto oculto, descuento o cargo global) no se sabe qué cubre: ausente.
+ * Un subtotal ya ausente o dudoso se devuelve tal cual: la fila no lo cambia.
+ */
+function avaluoDeFilaUnica(texto: string, fila: FilaProductoFactura): CampoExtraido {
+  const subtotal = parsearSubtotalBaseGravable(texto);
+  if (!subtotal.confiable || subtotal.valor === null) return subtotal;
+  const valorFila = importeFacturaN(fila.valorVenta);
+  return valorFila !== null && importesIguales(valorFila, subtotal.valor) ? subtotal : ausente();
+}
+
 /**
  * Avalúo (AC4–AC6): el valor del vehículo antes de impuestos. Una fila de producto → el subtotal
- * gravable. Varias → solo la fila cuya descripción trae el VIN confiable de Notas Finales, porque es lo
- * único que la identifica con certeza; si no hay una y solo una, ausente. Sin filas reconocibles no se
- * sabe si el subtotal es solo del vehículo: ausente también.
+ * gravable, si coincide con esa fila ({@link avaluoDeFilaUnica}). Varias → solo la fila cuya descripción
+ * trae el VIN confiable de Notas Finales, porque es lo único que la identifica con certeza; si no hay
+ * una y solo una, ausente. Sin filas reconocibles no se sabe si el subtotal es solo del vehículo:
+ * ausente también.
  */
 export function avaluoDesdeFactura(texto: string, textoRaw: string, vin: string | null): CampoExtraido {
   const filas = filasProducto(textoRaw);
   if (filas.length === 0) return ausente();
-  if (filas.length === 1) return parsearSubtotalBaseGravable(texto);
+  if (filas.length === 1) return avaluoDeFilaUnica(texto, filas[0]);
   if (!vin) return ausente();
   const delVehiculo = filas.filter((f) => f.descripcion.replace(/\s/g, '').toUpperCase().includes(vin));
   return delVehiculo.length === 1 ? campoDesdeCrudos([delVehiculo[0].valorVenta], importeFacturaN) : ausente();
