@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { env } from '../../config/env.js';
+import type { ParAadPii } from './pii-columnas.js';
 import { llavePiiMemoizada, pasadaPii } from './pii-keyring.js';
 
 // ============================================================================
@@ -70,6 +71,9 @@ export interface AadParts {
   empresaNit: string;
   aadNonce: string; // UUID
 }
+
+/** AAD de los `encrypt*` de PII: tabla y columna del catálogo (ADR-0034 D5, capa 4). */
+export type AadPii = Omit<AadParts, 'table' | 'column'> & ParAadPii;
 
 function buildAad(parts: AadParts, keyVersion: number): Buffer {
   return Buffer.from(`${parts.table}|${parts.column}|${parts.empresaNit}|${parts.aadNonce}|${keyVersion}`, 'utf8');
@@ -159,10 +163,10 @@ function loadPiiKey(version: number): Buffer {
 /**
  * Cifra una cadena PII corta o larga con AES-256-GCM.
  * `aadParts.empresaNit` se reutiliza como `rowKey` (identificador de la fila):
- * para drivers usar `String(userId)`, para manifiestos usar `String(manifiestoId)`.
+ * para drivers usar `String(userId)`, para manifiestos usar `numero`.
  * Esto previene swap entre filas (un cipher de fila A no descifra en fila B).
  */
-export function encryptPii(plaintext: string, aadParts: AadParts): CipherBundle {
+export function encryptPii(plaintext: string, aadParts: AadPii): CipherBundle {
   const keyVersion = versionVigentePii();
   const key = loadPiiKey(keyVersion);
   const iv = crypto.randomBytes(12);
@@ -191,7 +195,7 @@ export function decryptPii(bundle: CipherBundle, aadParts: AadParts): string {
  * de la compañía). Misma clave (`PII_ENC_KEY`), misma AAD ligada a la fila y mismo AES-256-GCM; solo
  * cambia que el texto en claro es un `Buffer` y no una cadena utf8.
  */
-export function encryptPiiBuffer(plain: Buffer, aadParts: AadParts): CipherBundle {
+export function encryptPiiBuffer(plain: Buffer, aadParts: AadPii): CipherBundle {
   const keyVersion = versionVigentePii();
   const key = loadPiiKey(keyVersion);
   const iv = crypto.randomBytes(12);
@@ -276,7 +280,7 @@ export function encryptPiiTextConVersion(plain: string, ctx: PiiTextContext, ver
 }
 
 /** Cifra texto ligado a su celda con la versión vigente. Lo escribe el script de recifrado, no las rutas. */
-export function encryptPiiText(plain: string, ctx: PiiTextContext): string {
+export function encryptPiiText(plain: string, ctx: Omit<PiiTextContext, 'table' | 'column'> & ParAadPii): string {
   return encryptPiiTextConVersion(plain, ctx, versionVigentePii());
 }
 
