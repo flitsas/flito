@@ -1,6 +1,6 @@
 # ADR-0037 — Propiedad de tablas y reglas entre módulos legacy y `flito-*`
 
-- **Estado:** Propuesto. Lo acepta David Chica. **No requiere aprobación de Jorman Copete**, por decisión de David del 2026-11-04, aunque el plan P3-05 la nombre
+- **Estado:** Aceptado (aprobado por David Chica el 2026-11-04). **No requiere aprobación de Jorman Copete**, por decisión de David del 2026-11-04, aunque el plan P3-05 la nombre
 - **Fecha:** 2026-11-04
 - **Contexto de trabajo:** Épica #14272, Feature #13980, HU #14279. Alimenta a la HU #13990 (destino por módulo), de la que depende la #13991
 - **Supersedes:** ninguno. Solo documenta y no cambia ninguna decisión. Localicé por `grep` los ADR que nombran legacy, pero no releí los anteriores uno por uno: la ausencia de contradicción no está demostrada
@@ -152,7 +152,7 @@ Un módulo puede escribir una tabla sin nombrarla, a través del helper de otro.
 | `audit_logs` (ya en §1.2) | Los 6: `soat/soat.routes.ts:13`, `soat/batch.routes.ts:10`, `tramites/tramites.routes.ts:11`, `liquidacion/liquidacion.routes.ts:7`, `flito-soat/flito-soat.routes.ts:12`, `flito-tramites/flito-tramites.routes.ts:16`, `flito-liquidacion/flito-liquidacion.routes.ts:10` | `shared/middleware/audit.ts:41` |
 | `vehiculo_historial` | `soat/soat.routes.ts:9`, `tramites/lote.ts:15`, `tramites/tramites.routes.ts:30`, `tramites/transito.routes.ts:11` | `vehicles/vehiculo-historial.ts:84` |
 | `system_locks` | Ambas generaciones: `soat/purge.ts:4`, `soat/reconciler.ts:5`, `tramites/portal-reminder.cron.ts:18`, `flito-soat/flito-soat-vigencia.cron.ts:78`, `flito-soat/flito-soat-retencion.cron.ts:49` | `shared/utils/lock.ts` |
-| `pii_access_log` | Solo `flito-*`: `flito-soat/flito-soat.pii.ts:32`, `flito-soat/flito-soat-masivo.pii.ts:10`, `flito-tramites/flito-tramites.routes.ts:36` | `shared/pii-audit.ts` |
+| `pii_access_log` | De los 6 módulos, solo `flito-soat` y `flito-tramites`; fuera de ellos también `clients`, `drivers`, `siigo`, `pesv` y `finanzas`, entre otros, así que no es un rasgo de generación: `flito-soat/flito-soat.pii.ts:32`, `flito-soat/flito-soat-masivo.pii.ts:10`, `flito-tramites/flito-tramites.routes.ts:36` | `shared/pii-audit.ts` |
 | `flito_estado_historial` | `flito-soat/flito-soat.service.ts:30`, `flito-soat/flito-soat-cliente.service.ts:128` | `shared/historial/estado-historial.ts` |
 | `flito_bolsas_unicas_movimientos` | `flito-liquidacion/flito-liquidacion.service.ts:43`, `:46`, `:49` | `flito-bolsas/flito-bolsas-transito.service.ts:289`, `flito-bolsas/flito-bolsas.descuento.ts:373` |
 | `flito_soat`, `flito_impuestos`, `flito_tramites` (ya en §1.2) | `flito-tramites/flito-tramites.service.ts:28-30` | `flito-soat`, `flito-impuestos` y `flito-compuerta`: delega a propósito (cabecera de `flito-tramites/flito-tramites.service.ts`) |
@@ -222,7 +222,7 @@ No afirmo qué respuesta es la correcta: eso lo decide el negocio. Tampoco compr
 | Póliza «placeholder» (`Pendiente…`) | Solo legacy. Aun así está repetida **dentro** de legacy | `soat/refresh.service.ts:19`, `soat/soat.routes.ts:20`, `soat/reconciler.ts:66-68` |
 | Propagar a `vehicles.stage` y `tramites_digitales.estado` | Solo legacy | §1.3 |
 | Retención | Objetos distintos: bitácora de intentos frente a incompletas y soportes | `soat/purge.ts:21`; `flito-soat/flito-soat-retencion.service.ts:142` |
-| Registro de acceso PII con `logPiiAccess` | Solo `flito-*`. Ver «Pendiente humano» | §1.4 |
+| Registro de acceso PII con `logPiiAccess` | De los 6 módulos, solo `flito-soat` y `flito-tramites`. No es una diferencia de generación: fuera de ellos también lo usan `clients`, `drivers`, `siigo`, `pesv` y `finanzas`, entre otros. Ver «Pendiente humano» | §1.4 |
 
 #### 2.3 Insumo para la HU futura de extracción a `shared/`
 
@@ -320,9 +320,9 @@ Se aplica en orden. Se detiene en la primera regla que resuelve.
 
 ## Pendiente humano
 
-1. **David Chica:** aceptar este ADR y las rutas objetivo. Las de `vehicles` y de la consolidación de `organismos_transito_config` quedan en `pendiente de #13990`, porque no se pueden inferir del código.
+1. **David Chica:** aceptó este ADR y las rutas objetivo el 2026-11-04. Las de `vehicles` y de la consolidación de `organismos_transito_config` quedan en `pendiente de #13990`, porque no se pueden inferir del código.
 2. **Negocio (R1):** qué respuesta es la correcta en las filas de §2.1 que difieren, antes de la HU de extracción.
-3. **Hallazgo fuera del pedido (P9), se pregunta y no se radica:** `soat`, `tramites`, `liquidacion` y `firma` no contienen ninguna referencia a `logPiiAccess` ni a `pii_access_log`, aunque manejan datos personales (`tramites_validaciones`). No concluyo incumplimiento: puede haber otros controles, y no los audité. ¿Se revisa en otra HU con `security-agent`?
+3. **Registro de acceso a PII, resuelto fuera de este ADR:** `soat`, `tramites`, `liquidacion` y `firma` no contienen ninguna referencia a `logPiiAccess` ni a `pii_access_log`. `security-agent` lo auditó el 2026-11-04 y no encontró un control transversal que lo cubra; la corrección va en el Feature #14284 (HUs #14285 y #14286).
 4. **Plan P3-05:** su criterio de aceptación decía «aprobado por Jorman Copete» y «reglas extraídas a `shared/`». El primero queda sustituido por la decisión de David del 2026-11-04. El segundo queda para una HU futura que aún no existe.
 
 ## Notas operativas
