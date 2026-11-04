@@ -603,6 +603,7 @@ describe('GET /estado/:tramiteId', () => {
     ]));
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
+    insertMock.mockReturnValueOnce({ values: () => Promise.resolve(undefined) });
     const r = await request(app).get('/api/tramites/identidad/estado/5')
       .set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
@@ -631,6 +632,7 @@ describe('GET /documentos/:tramiteId — fotos resueltas (S3 vs legacy)', () => 
     getPhotoMock.mockResolvedValueOnce('data:image/jpeg;base64,abc');
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
+    insertMock.mockReturnValueOnce({ values: () => Promise.resolve(undefined) });
     const r = await request(app).get('/api/tramites/identidad/documentos/5')
       .set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
@@ -649,6 +651,7 @@ describe('GET /documentos/:tramiteId — fotos resueltas (S3 vs legacy)', () => 
     getPhotoMock.mockRejectedValueOnce(new Error('S3 404'));
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
+    insertMock.mockReturnValueOnce({ values: () => Promise.resolve(undefined) });
     const r = await request(app).get('/api/tramites/identidad/documentos/5')
       .set('Authorization', `Bearer ${token}`);
     expect(r.body.documentos[0].fotoRostro).toBeNull();
@@ -663,6 +666,7 @@ describe('GET /documentos/:tramiteId — fotos resueltas (S3 vs legacy)', () => 
     }]));
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
+    insertMock.mockReturnValueOnce({ values: () => Promise.resolve(undefined) });
     const r = await request(app).get('/api/tramites/identidad/documentos/5')
       .set('Authorization', `Bearer ${token}`);
     expect(r.body.documentos[0].fotoRostro).toBeNull();

@@ -17,6 +17,9 @@ import { extractAnthropicText, parseBiometricJson } from './biometric-json.js';
 import { recoverStaleByToken } from './validacion-recovery.js';
 import { resolverFotoBiometrica } from './identidad.fotos.js';
 import { PiiDecryptError } from '../../shared/utils/crypto.js';
+import { PiiAccessLogError } from '../../shared/pii-audit.js';
+import { generarSelloFirma } from './identidad.sello-firma.js';
+import { registrarLecturaCertificado, registrarLecturaDocumentos, registrarLecturaEstado } from './identidad.pii.js';
 import {
   extractPartesTraspasoFromTramite,
   mensajePartesTraspasoDuplicadas,
@@ -33,30 +36,6 @@ const router = Router();
 const sseClients = new Set<any>();
 
 function genToken(): string { return crypto.randomBytes(32).toString('hex'); }
-
-// TRAM-F3 — Firma electrónica avanzada (Ley 527/1999) generada al aprobar la
-// biométrica. Espejo de CEA: documento canónico → SHA-256 → serie KYV-FEA-...
-// El sello (serie+hash) viaja luego al contrato/FUR (proxy CEA con override).
-function generarSelloFirma(input: { tramiteId: number; parte: string | null; nombre: string; tipoDoc: string; documento: string; email: string; placa: string; vehiculo: string; score: number; bio: any }) {
-  try {
-    const ts = new Date().toISOString();
-    const canonico = JSON.stringify({
-      tipoDocumento: 'FIRMA_ELECTRONICA_AVANZADA_TRASPASO_VEHICULO',
-      ley: 'Ley 527 de 1999 / Decreto 2364 de 2012',
-      tramiteId: input.tramiteId,
-      rolFirmante: (input.parte || '').toUpperCase(),
-      firmante: { nombre: input.nombre, tipoDocumento: input.tipoDoc, numeroDocumento: input.documento, email: input.email },
-      objeto: { placa: input.placa, vehiculo: input.vehiculo },
-      identidadBiometrica: { scoreFacial: input.score, documentoOficial: input.bio?.documento_ocr?.es_documento_oficial === true, livenessOk: input.bio?.liveness?.es_persona_real === true },
-      firmadoEn: ts,
-    });
-    const hash = crypto.createHash('sha256').update(canonico).digest('hex');
-    const serie = 'KYV-FEA-' + ts.replace(/[-:T.Z]/g, '').slice(0, 14) + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
-    return { firmaSerie: serie, firmaHash: hash, firmaTimestamp: new Date(ts) };
-  } catch {
-    return { firmaSerie: null, firmaHash: null, firmaTimestamp: null };
-  }
-}
 
 // SMTP singleton optimizado para Office 365 / Hotmail
 let smtpTransport: any = null;
@@ -626,7 +605,7 @@ router.post('/completar/:token', completarLimiter, async (req: Request, res: Res
 
     // #13: Notificar via SSE a admins conectados
     sseClients.forEach((client: any) => {
-      try { client.write(`data: ${JSON.stringify({ tipo: 'validacion_completada', tramiteId: record.tramiteId, estado: aprobado ? 'aprobado' : 'rechazado', nombre: record.nombre })}\n\n`); } catch {}
+      try { client.write(`data: ${JSON.stringify({ tipo: 'validacion_completada', tramiteId: record.tramiteId, estado: aprobado ? 'aprobado' : 'rechazado' })}\n\n`); } catch {}
     });
 
     res.json({ ok: true, aprobado, score, motivo: bio.resultado_general?.motivo });
@@ -650,6 +629,7 @@ router.get('/estado/:tramiteId', authMiddleware, exigirFuncion('tramite.identida
     validadoAt: tramitesValidaciones.validadoAt, expiraAt: tramitesValidaciones.expiraAt,
   }).from(tramitesValidaciones).where(eq(tramitesValidaciones.tramiteId, tramiteId))
     .orderBy(desc(tramitesValidaciones.id));
+  if (records.length > 0) await registrarLecturaEstado(req, tramiteId, records.length);
   res.json({ ok: true, validaciones: records });
 });
 
@@ -670,6 +650,7 @@ router.get('/documentos/:tramiteId', authMiddleware, exigirFuncion('tramite.iden
     intentos: r.intentos, enviadoAt: r.enviadoAt,
   })));
 
+  if (records.length > 0) await registrarLecturaDocumentos(req, tramiteId, records.length);
   res.json({ ok: true, documentos });
 });
 
@@ -1082,13 +1063,14 @@ router.post('/certificado/:tramiteId', authMiddleware, exigirFuncion('tramite.id
     }
 
     const pdfBytes = await pdfDoc.save();
+    await registrarLecturaCertificado(req, tramiteId, rows.length);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Certificacion_Identidad_${placa}.pdf"`);
     res.send(Buffer.from(pdfBytes));
     audit(req, { action: 'export', resource: 'certificado_identidad', resourceId: String(tramiteId), detail: `Placa: ${placa}` }).catch(() => {});
   } catch (e: any) {
     // Lo responde errorHandler: el 500 de abajo concatena e.message y este log va sin requestId.
-    if (e instanceof PiiDecryptError) throw e;
+    if (e instanceof PiiDecryptError || e instanceof PiiAccessLogError) throw e;
     log.error({ err: e }, 'cert-vid fallo');
     res.status(500).json({ error: 'Error generando certificado: ' + e.message });
   }
