@@ -14,7 +14,8 @@
 //                                     ya corrió manualmente con psql). No reescribe
 //                                     el sha de las ya registradas.
 //   npm run db:apply -- --check-drift → solo lectura: reporta deriva y huérfanas.
-//                                     Salida: 0 limpio, 3 con hallazgos, 1 error.
+//                                     Salida: 0 limpio, 3 con hallazgos (también un
+//                                     archivo ilegible), 1 error.
 //   npm run db:apply -- --allow-drift=<motivo> → continúa pese a los hallazgos y
 //                                     registra archivo y motivo por cada uno.
 //
@@ -182,6 +183,9 @@ export type Pista =
   | { caso: 3; tipo: 'nombre'; nombres: string[] }
   | { caso: 4; tipo: 'ninguna'; nombres: [] };
 
+// null = no se pudo leer: existe en disco, pero sin hash que comparar.
+export type DiscoHasheado = Map<string, string | null>;
+
 export type Deriva = { archivo: string; shaLedger: string; shaDisco: string };
 export type Huerfana = { archivo: string; shaLedger: string; pista: Pista };
 
@@ -191,6 +195,8 @@ export type ReporteDeriva = {
   derivas: Deriva[];
   huerfanas: Huerfana[];
   pendientes: string[];
+  // Sin hash, registrados o no. Un pendiente figura además en `pendientes`: hay que aplicarlo.
+  ilegibles: string[];
   errorManifiesto?: string;
 };
 
@@ -268,7 +274,7 @@ function clasificarHuerfana(
   archivo: string,
   shaLedger: string,
   ledger: Map<string, string>,
-  disco: Map<string, string>,
+  disco: DiscoHasheado,
   pendientes: string[],
 ): Pista {
   const mismoSha = pendientes.filter((p) => disco.get(p) === shaLedger);
@@ -284,17 +290,19 @@ function clasificarHuerfana(
 }
 
 export function detectarDeriva(
-  disco: Map<string, string>,
+  disco: DiscoHasheado,
   ledger: Map<string, string>,
   aceptadas: DerivaAceptada[],
 ): ReporteDeriva {
   const estaAceptada = (archivo: string, shaLedger: string, shaDisco: string | null): boolean =>
     aceptadas.some((a) => a.archivo === archivo && a.shaLedger === shaLedger && a.shaDisco === shaDisco);
   const pendientes = [...disco.keys()].filter((f) => !ledger.has(f)).sort();
-  const reporte: ReporteDeriva = { intactas: [], aceptadas: [], derivas: [], huerfanas: [], pendientes };
+  const ilegibles = [...disco.keys()].filter((f) => disco.get(f) === null).sort();
+  const reporte: ReporteDeriva = { intactas: [], aceptadas: [], derivas: [], huerfanas: [], pendientes, ilegibles };
 
   for (const [archivo, shaLedger] of [...ledger.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const shaDisco = disco.get(archivo);
+    if (shaDisco === null) continue; // no es intacta, ni deriva, ni huérfana: está en `ilegibles`
     if (shaDisco === shaLedger) {
       reporte.intactas.push(archivo);
     } else if (shaDisco !== undefined) {
@@ -318,6 +326,7 @@ function pistaEnLog({ tipo, nombres }: Pista): string {
 export function lineasReporte(reporte: ReporteDeriva): string[] {
   const lineas: string[] = [];
   if (reporte.errorManifiesto) lineas.push(`[drift] manifiesto-invalido ${reporte.errorManifiesto}`);
+  for (const archivo of reporte.ilegibles) lineas.push(`[drift] ilegible archivo=${archivo}`);
   for (const d of reporte.derivas) {
     lineas.push(`[drift] deriva archivo=${d.archivo} ledger=${d.shaLedger} disco=${d.shaDisco}`);
   }
@@ -347,7 +356,10 @@ export function lineasAccion(reporte: ReporteDeriva): string[] {
     (h) => `[drift] accion archivo=${h.archivo} ${ACCION_HUERFANA[h.pista.caso]} (ADR-0035)`,
   );
   const manifiesto = reporte.errorManifiesto ? ['[drift] accion corregir derivas-aceptadas.json (ADR-0035)'] : [];
-  return [...manifiesto, ...derivas, ...huerfanas];
+  const ilegibles = reporte.ilegibles.map(
+    (archivo) => `[drift] accion archivo=${archivo} revisar que el proceso pueda leer el archivo (ADR-0035)`,
+  );
+  return [...manifiesto, ...ilegibles, ...derivas, ...huerfanas];
 }
 
 // Casos 1 y 3: la huérfana no impide que su renombrado corra como pendiente (H2 del ADR).
@@ -364,7 +376,10 @@ function esHuerfana(h: Deriva | Huerfana): h is Huerfana {
 }
 
 function hayHallazgos(reporte: ReporteDeriva): boolean {
-  return reporte.derivas.length > 0 || reporte.huerfanas.length > 0 || reporte.errorManifiesto !== undefined;
+  return reporte.derivas.length > 0
+    || reporte.huerfanas.length > 0
+    || reporte.ilegibles.length > 0
+    || reporte.errorManifiesto !== undefined;
 }
 
 // Decisión del control, sin BD y sin la constante: lo que el arranque hará tras PR 2.
@@ -374,7 +389,7 @@ export const decidir: Decidir = (reporte, motivoAllowDrift) => {
   if (!motivoAllowDrift) {
     return { accion: 'abortar', codigo: EXIT_DERIVA, razones: lineasAccion(reporte) };
   }
-  const archivos = [...reporte.derivas, ...reporte.huerfanas].map((h) => h.archivo);
+  const archivos = [...reporte.derivas, ...reporte.huerfanas].map((h) => h.archivo).concat(reporte.ilegibles);
   return {
     accion: 'continuar',
     registros: [
@@ -403,7 +418,7 @@ export const decidirArranque: Decidir = (reporte, motivoAllowDrift) => {
 };
 
 export type DepsControl = {
-  leerDisco: () => Map<string, string>;
+  leerDisco: () => DiscoHasheado;
   leerManifiesto: () => DerivaAceptada[];
   log: (linea: string) => void;
   error: (linea: string) => void;
@@ -475,8 +490,20 @@ export async function comprobarDeriva(deps: DepsCheck): Promise<number> {
   return EXIT_DERIVA;
 }
 
-function leerDiscoReal(): Map<string, string> {
-  return new Map(listMigrationFiles().map((f) => [f, fileHash(path.join(MIGRATIONS_DIR, f))]));
+// El error de lectura no sale de aquí: su mensaje trae rutas y `[drift]` solo nombra el archivo.
+// Un pendiente ilegible falla después en `applyOne`, al aplicarlo en su turno, como siempre.
+export function hashearDisco(archivos: string[], leer: (archivo: string) => Buffer): DiscoHasheado {
+  return new Map(archivos.map((f): [string, string | null] => {
+    try {
+      return [f, sha256De(leer(f))];
+    } catch {
+      return [f, null];
+    }
+  }));
+}
+
+function leerDiscoReal(): DiscoHasheado {
+  return hashearDisco(listMigrationFiles(), (f) => readFileSync(path.join(MIGRATIONS_DIR, f)));
 }
 
 function leerManifiestoReal(): DerivaAceptada[] {
