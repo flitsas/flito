@@ -40,6 +40,7 @@ import { consultarImpuestoVehicular } from './impuesto-vehicular.js';
 import QRCode from 'qrcode';
 import { env } from '../../config/env.js';
 import { useLocalPdf } from './docs/mode.js';
+import { registrarLecturaArchivo, registrarLecturaCola, registrarLecturaTramite } from './tramites.pii.js';
 
 // TRAM-12a: la lógica de negocio (CRUD, transiciones, FUR) vive en
 // `tramites.service.ts`. Aquí solo: auth, parseo Zod, llamada al servicio y
@@ -315,6 +316,7 @@ router.get('/', exigirFuncion('tramite.cola.ver'), async (req: Request, res: Res
     modalidadEntrada,
     limit, offset,
   });
+  await registrarLecturaCola(req, items.length);
   res.json({ items, total, limit, offset });
 });
 
@@ -324,6 +326,7 @@ router.get('/:id', exigirFuncion('tramite.tramite.ver'), async (req: Request, re
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const t = await getTramiteWithDocs(id);
   if (!t) { res.status(404).json({ error: 'Trámite no encontrado' }); return; }
+  await registrarLecturaTramite(req, id);
   res.json(t);
 });
 
@@ -738,6 +741,7 @@ router.get('/:tramiteId/documentos/:docId/archivo', exigirFuncion('tramite.docum
   const uploadsDir = path.join(process.cwd(), 'uploads');
   if (!filePath.startsWith(uploadsDir)) { res.status(403).json({ error: 'Acceso denegado' }); return; }
   try { await access(filePath); } catch { res.status(404).json({ error: 'Archivo no encontrado en disco' }); return; }
+  await registrarLecturaArchivo(req, { tramiteId, docId, tipo: doc.tipo });
   res.setHeader('Content-Type', doc.mimetype || 'application/octet-stream');
   res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(doc.originalName || 'documento')}`);
   res.sendFile(filePath);
