@@ -59,6 +59,31 @@ async function radicar(page: Page) {
   await expect(page.getByText('2. Validación legal (RUNT/SIMIT)')).toBeVisible();
 }
 
+// Cambia de trámite sin desmontar el asistente, como un enlace interno.
+async function cambiarUrl(page: Page, id: number) {
+  await page.evaluate((destino) => {
+    history.pushState(null, '', `/tramite/traspaso?id=${destino}`);
+    dispatchEvent(new PopStateEvent('popstate'));
+  }, id);
+}
+
+// Al retomar, el paso 2 solo se ve un instante: sin vendedor, el paso activo se recalcula al 3. El radicado
+// y ese primer paso llegan juntos, así que el aviso «Paso 3 editable —» prueba que ya se recalculó. Luego vuelve al 2.
+async function esperarRetomado(page: Page, id: number) {
+  await expect(page.getByText(`TD-2026-000${id}`).first()).toBeVisible();
+  await expect(page.getByText('Paso 3 editable —')).toBeVisible();
+}
+async function volverAlPaso2(page: Page, id: number) {
+  await esperarRetomado(page, id);
+  await page.getByRole('button', { name: /Validación legal/ }).first().click();
+}
+
+// Un trámite guardado en el paso 4 no pasa por el paso 2 al retomarse, así que no arranca su pre-vuelo.
+// Es lo que deja `preflightBooted` apuntando aún al trámite anterior.
+async function retomaEnPaso4(page: Page, id: number) {
+  await page.route(new RegExp(`/api/tramites/${id}$`), (r) => json(r, tramite(id, 4)));
+}
+
 // El SPA corre en <StrictMode> (efectos dobles en dev); sin él, cada efecto corre una sola vez.
 // Se prueban los dos: quitar la limpieza del efecto no puede depender de uno de ellos.
 async function sinStrictMode(page: Page) {
@@ -156,6 +181,89 @@ for (const modo of ['con StrictMode', 'sin StrictMode'] as const) {
       await expect(page.getByText('SOAT del 89')).toBeVisible();
       await expect(page.getByText('SOAT del 88')).toHaveCount(0);
       expect(c.post).toBe(2);
+    });
+
+    test('volver a un trámite con error (A → B → A) ofrece el reintento', async ({ page }) => {
+      let fallar88 = true;
+      const consultados: number[] = [];
+      await mockBackend(page, {
+        post: (_n, r, req) => {
+          const { tramiteId } = req.postDataJSON() as { tramiteId: number };
+          consultados.push(tramiteId);
+          if (tramiteId === 88 && fallar88) return json(r, { error: 'RUNT no responde' }, 500);
+          return json(r, snap(`SOAT del ${tramiteId}`));
+        },
+      });
+      await retomaEnPaso4(page, 89);
+      await page.goto('/tramite/traspaso?id=88');
+      await volverAlPaso2(page, 88);
+      await expect(page.getByText('No se pudo completar el pre-vuelo')).toBeVisible();
+
+      await cambiarUrl(page, 89);
+      await esperarRetomado(page, 89);
+      expect(consultados).not.toContain(89);
+
+      await cambiarUrl(page, 88);
+      await volverAlPaso2(page, 88);
+      const reintentar = page.getByRole('button', { name: 'Reintentar pre-vuelo' });
+      await expect(reintentar).toBeEnabled();
+      await expect(page.getByText(CONSULTANDO)).toHaveCount(0);
+
+      fallar88 = false;
+      await reintentar.click();
+      await expect(page.getByText('SOAT del 88')).toBeVisible();
+    });
+
+    test('volver a un trámite con su POST en vuelo (A → B → A) termina en su resultado', async ({ page }) => {
+      let soltarPrimero: () => void = () => {};
+      const consultados: number[] = [];
+      await mockBackend(page, {
+        post: async (_n, r, req) => {
+          const { tramiteId } = req.postDataJSON() as { tramiteId: number };
+          consultados.push(tramiteId);
+          if (consultados.length === 1) await new Promise<void>((ok) => { soltarPrimero = ok; });
+          return json(r, snap(`SOAT del ${tramiteId}`));
+        },
+      });
+      await retomaEnPaso4(page, 89);
+      await page.goto('/tramite/traspaso?id=88');
+      await expect.poll(() => consultados).toEqual([88]);
+      await esperarRetomado(page, 88);
+
+      await cambiarUrl(page, 89);
+      await esperarRetomado(page, 89);
+      expect(consultados).toEqual([88]);
+
+      await cambiarUrl(page, 88);
+      await volverAlPaso2(page, 88);
+      await expect(page.getByText('SOAT del 88')).toBeVisible();
+      await expect(page.getByText(CONSULTANDO)).toHaveCount(0);
+
+      soltarPrimero(); // La respuesta descartada no cambia lo que ya se ve.
+      await page.waitForTimeout(300);
+      await expect(page.getByText('SOAT del 88')).toBeVisible();
+    });
+
+    test('la respuesta tardía del trámite anterior no pisa al de la URL', async ({ page }) => {
+      await mockBackend(page);
+      let soltar88: () => void = () => {};
+      const retenido = new Promise<void>((ok) => { soltar88 = ok; });
+      let gets88 = 0;
+      await page.route(/\/api\/tramites\/88$/, async (r) => {
+        gets88 += 1;
+        await retenido;
+        return json(r, tramite(88, 2));
+      });
+      await page.goto('/tramite/traspaso?id=88');
+      await expect.poll(() => gets88).toBeGreaterThan(0);
+
+      await cambiarUrl(page, 89);
+      await expect(page.getByText('TD-2026-00089').first()).toBeVisible();
+
+      soltar88();
+      await page.waitForTimeout(300);
+      await expect(page.getByText('TD-2026-00089').first()).toBeVisible();
+      await expect(page.getByText('TD-2026-00088')).toHaveCount(0);
     });
   });
 }
