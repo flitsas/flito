@@ -421,6 +421,20 @@ describe('calcular — redondeo', () => {
     expect(c.baseGmf).toBe(548334);
     expect(c.valorGmf).toBe(2193.34);
   });
+
+  // HU #14291 (R9): valores de frontera fijados con la fórmula original, ejecutada antes de extraerla a
+  // `shared/utils/redondeo.ts`. `conceptoServicios` es la vía pura hasta ella.
+  it.each([
+    [['1.005'], 1],
+    [['100.005'], 100.01],
+    [['-1.005'], -1],
+    [['-1.555'], -1.55],
+    [['0'], 0],
+    [['0.1', '0.2'], 0.3],
+  ])('los servicios %j redondean a %s', (valores, esperado) => {
+    const filas = valores.map((valor) => servicio({ valor }));
+    expect(conceptoServicios(filas as never).valor).toBe(esperado);
+  });
 });
 
 

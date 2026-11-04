@@ -66,6 +66,64 @@ describe('confirmarPago', () => {
   });
 });
 
+// HU #14291 (R9): valores de frontera fijados con la fórmula original, ejecutada antes de extraerla a
+// `shared/utils/redondeo.ts`. Se afirma lo que llega a la BD, que es donde el redondeo importa.
+describe('redondeo a dos decimales — lo que se persiste no cambia (HU #14291)', () => {
+  /** Encola un INSERT que guarda sus `values` y responde `filas`. */
+  function capturarInsert(filas: unknown[] = []) {
+    const values = vi.fn(() => Object.assign(Promise.resolve(filas), { returning: async () => filas }));
+    kdb.insert.mockReturnValueOnce({ values } as never);
+    return values;
+  }
+
+  it('crearLiquidacion redondea cada subtotal y el total', async () => {
+    const cabecera = capturarInsert([{ id: 1 }]);
+    const lineas = capturarInsert();
+
+    await crearLiquidacion({
+      items: [
+        { descripcion: 'flotante por debajo de .005', cantidad: 1, valorUnitario: 1.005 },
+        { descripcion: 'negativo', cantidad: 1, valorUnitario: -1.555 },
+        { descripcion: 'cero', cantidad: 0, valorUnitario: 5 },
+      ],
+      userId: 1,
+    });
+
+    const subtotales = (lineas.mock.calls[0] as unknown as [Array<{ subtotal: string }>])[0].map((l) => l.subtotal);
+    expect(subtotales).toEqual(['1', '-1.55', '0']);
+    expect((cabecera.mock.calls[0] as unknown as [{ total: string }])[0].total).toBe('-0.55');
+  });
+
+  it('crearLiquidacion limpia el ruido de flotante de la suma', async () => {
+    const cabecera = capturarInsert([{ id: 1 }]);
+    capturarInsert();
+
+    await crearLiquidacion({
+      items: [
+        { descripcion: 'a', cantidad: 1, valorUnitario: 0.1 },
+        { descripcion: 'b', cantidad: 1, valorUnitario: 0.2 },
+      ],
+      userId: 1,
+    });
+
+    expect((cabecera.mock.calls[0] as unknown as [{ total: string }])[0].total).toBe('0.3');
+  });
+
+  it.each([
+    [1.005, '1'],
+    [100.005, '100.01'],
+    [-1.005, '-1'],
+    [0, '0'],
+  ])('confirmarPago guarda el monto %s como %s', async (monto, esperado) => {
+    kdb.when.select('liquidaciones', [{ id: 1, estado: 'borrador', total: '0', createdAt: now, confirmadaAt: null }]);
+    const pago = capturarInsert();
+
+    await confirmarPago({ liquidacionId: 1, monto, userId: 1 });
+
+    expect((pago.mock.calls[0] as unknown as [{ monto: string }])[0].monto).toBe(esperado);
+  });
+});
+
 describe('getLiquidacion', () => {
   it('mapea numerics a number', async () => {
     kdb.when

@@ -59,6 +59,17 @@ describe('B1 · hash chain (puro)', () => {
     expect(normalizeVin('abc-123/xyz')).toBe('ABC123XYZ');
     expect(normalizeVin('a'.repeat(30))).toHaveLength(17);
   });
+
+  // HU #14291 (R3): la función vive en `shared/utils/vin.ts`; los importadores de este módulo la siguen
+  // recibiendo de aquí y con el mismo resultado.
+  it.each([
+    ['', ''],
+    ['---', ''],
+    ['wba 3a5c5 0df 123456', 'WBA3A5C50DF123456'],
+    ['abcdefghij1234567XYZ', 'ABCDEFGHIJ1234567'],
+  ])('normalizeVin(%j) devuelve %j', (entrada, esperado) => {
+    expect(normalizeVin(entrada)).toBe(esperado);
+  });
 });
 
 describe('B1 · appendEvento encadena hash_prev = hash_self anterior', () => {
