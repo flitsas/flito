@@ -13,6 +13,7 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { logPiiAccess } from '../../shared/pii-audit.js';
 import { purgarDestinatariosDeClientes } from '../siigo/siigo.envio-correo.service.js';
 import { purgarDestinatariosDeLotes } from '../siigo/facturacion.lote.repo.js';
 import { anonimizarTercerosDeClientes } from '../siigo/siigo.terceros.service.js';
@@ -451,11 +452,11 @@ router.post('/forget', exigirFuncion('privacy.olvido.administrar'), forgetLimite
   });
 });
 
-// Endpoint de consulta previa: ¿qué se afectaría si se anonimiza este documento?
-router.get('/preview/:docNumber', exigirFuncion('privacy.titulares.operar'), previewLimiter, async (req: Request, res: Response) => {
-  const docUpper = req.params.docNumber.toUpperCase().trim();
-  if (docUpper.length < 3 || docUpper.length > 20) { res.status(400).json({ error: 'Documento inválido' }); return; }
+// Consulta previa: ¿qué se afectaría si se anonimiza este documento? HU #14282: el documento viaja en
+// el cuerpo, nunca en la URL (AGENTS.md §14). `.strict()` para que un campo de más sea un 400.
+const previewSchema = z.object({ docNumber: z.string().trim().min(3).max(20) }).strict();
 
+async function contarAfectados(docUpper: string) {
   const docNormalized = normalizeDocument(docUpper);
   const docHashHmac = hmacCedula(docNormalized);
 
@@ -501,25 +502,49 @@ router.get('/preview/:docNumber', exigirFuncion('privacy.titulares.operar'), pre
     }
   }
 
-  res.json({
-    docNumber: docUpper,
-    affected: {
-      clients: cli[0]?.c ?? 0,
-      vehicles: veh[0]?.c ?? 0,
-      soat_requests: soatRow?.c ?? 0,
-      tramites_digitales: tramRow?.c ?? 0,
-      laft_counterparties: cp[0]?.c ?? 0,
-      laft_beneficial_owners: bo[0]?.c ?? 0,
-      driver_profile: drv[0]?.c ?? 0,
-      tramites_validaciones: trv[0]?.c ?? 0,
-      alcohol_tests: alcoholCount,
-      road_incidents: incidentsCount,
-      manifiestos: man[0]?.c ?? 0,
-      tenedores: ten[0]?.c ?? 0,
-      propietarios_carga: prop[0]?.c ?? 0,
-      destinatarios_carga: dest[0]?.c ?? 0,
-    },
+  return {
+    clients: cli[0]?.c ?? 0,
+    vehicles: veh[0]?.c ?? 0,
+    soat_requests: soatRow?.c ?? 0,
+    tramites_digitales: tramRow?.c ?? 0,
+    laft_counterparties: cp[0]?.c ?? 0,
+    laft_beneficial_owners: bo[0]?.c ?? 0,
+    driver_profile: drv[0]?.c ?? 0,
+    tramites_validaciones: trv[0]?.c ?? 0,
+    alcohol_tests: alcoholCount,
+    road_incidents: incidentsCount,
+    manifiestos: man[0]?.c ?? 0,
+    tenedores: ten[0]?.c ?? 0,
+    propietarios_carga: prop[0]?.c ?? 0,
+    destinatarios_carga: dest[0]?.c ?? 0,
+  };
+}
+
+router.post('/preview', exigirFuncion('privacy.titulares.operar'), previewLimiter, async (req: Request, res: Response) => {
+  const parsed = previewSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Documento inválido' }); return; }
+  const docUpper = parsed.data.docNumber.toUpperCase();
+
+  let affected: Awaited<ReturnType<typeof contarAfectados>>;
+  try {
+    affected = await contarAfectados(docUpper);
+  } catch (e) {
+    // El mensaje de un fallo de Drizzle cita los parámetros de la consulta, y aquí son el documento.
+    log.error({ codigo: (e as { code?: string })?.code ?? (e as { cause?: { code?: string } })?.cause?.code ?? null }, 'preview: fallo contando afectados');
+    res.status(500).json({ error: 'Error interno del servidor' });
+    return;
+  }
+
+  // `await`: el rastro queda escrito antes de responder, también con todos los conteos en cero. Sin
+  // el documento en `motivo`: esta tabla la consultan quienes auditan, no quienes operan el olvido.
+  await logPiiAccess(req, {
+    resourceTipo: 'privacy_titular',
+    accion: 'search',
+    camposAccedidos: ['conteos_por_tabla'],
+    motivo: 'Consulta previa de olvido',
   });
+
+  res.json({ docNumber: docUpper, affected });
 });
 
 export default router;

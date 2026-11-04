@@ -155,3 +155,5 @@ export * from './flito-dr-flit-gestion.js';
 export * from './flito-dr-flit-mascara.js';
 // Expediente documental de la compañía en bolsas (HU #13889, Feature #13888, ADR-0028).
 export * from './flito-bolsas-documentos.js';
+// RUM: la ruta que se guarda en la telemetría, sin tokens (HU #14281, ADR-0036).
+export * from './rum.js';

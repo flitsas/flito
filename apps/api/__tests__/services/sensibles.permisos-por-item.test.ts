@@ -174,9 +174,10 @@ describe('AC4 — un 403 no deja la cédula ni el documento en la bitácora ni e
     expect(rastro()).not.toContain(CEDULA);
   });
 
-  it('privacy: la previsualización de un titular con la cédula en el PATH → 403 y la cédula no queda en ningún rastro', async () => {
+  it('privacy: la previsualización de un titular con la cédula en el cuerpo → 403 y la cédula no queda en ningún rastro', async () => {
     const sin = await usuario(9481, 'compliance', ['privacy.accesos_pii.ver']);
-    const r = await request(app).get(`/api/privacy/preview/${CEDULA}`).set('Authorization', sin);
+    const r = await request(app).post('/api/privacy/preview').set('Authorization', sin)
+      .send({ docNumber: CEDULA });
     expect(r.status).toBe(403);
     expect(r.body).toMatchObject({ funcion: 'privacy.titulares.operar' });
     expect(rastro()).not.toContain(CEDULA);

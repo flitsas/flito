@@ -53,7 +53,7 @@ import {
   COMPLIANCE_PRIVACY_USER, VISTAS_PRIVACY, DOC_SINTETICO, PII_QUE_NO_DEBE_PINTARSE,
   CAMPOS_NO_PINTADOS, HUELLA_FILA_READ,
   entrar, espiarApiPrivacy, espiarChunks, chunkDe, huellas, mockLogPii, mockPreview, reposo,
-  RUTA_LOG, RUTA_STATS, type VistaPrivacy,
+  RUTA_LOG, RUTA_PREVIEW, RUTA_STATS, type VistaPrivacy,
 } from '../helpers/privacy-fixtures';
 
 const LOG_PII = VISTAS_PRIVACY.find((v) => v.ruta === '/privacy/log-pii')!;
@@ -182,6 +182,7 @@ test.describe('Privacy — la guarda de permisos aguanta (HU #11276, AC3)', () =
     await entrar(page, COMPLIANCE_PRIVACY_USER);
     const peticiones = espiarApiPrivacy(page);
     const chunks = espiarChunks(page);
+    const consola = vigilarConsola(page);
     await servirTodoConDatos(page);
 
     await page.goto(OLVIDO.ruta);
@@ -191,16 +192,43 @@ test.describe('Privacy — la guarda de permisos aguanta (HU #11276, AC3)', () =
     // `/privacy` no consulta nada al montar: su única llamada nace del formulario. Hay que
     // dispararla para que el positivo pruebe algo sobre el API.
     await page.getByLabel('Número de documento').fill(DOC_SINTETICO);
+    const salida = page.waitForRequest((r) => new URL(r.url()).pathname === RUTA_PREVIEW);
     await page.getByRole('button', { name: 'Previsualizar' }).click();
+    const consulta = await salida;
     // Señal de CUERPO, no de plantilla: «6» es la suma de los conteos del fixture (3+2+1).
     await expect(page.getByText(/6 registros afectados/)).toBeVisible();
 
-    // El documento viaja EN LA RUTA (`Privacy.tsx:46`); el espía lo redacta antes de guardarlo.
-    expect(huellas(peticiones)).toContain('GET /api/privacy/preview/:doc');
+    // HU #14282, AC7: el documento viaja en el cuerpo y ni en la URL de la petición ni en la consola.
+    expect(huellas(peticiones)).toEqual([`POST ${RUTA_PREVIEW}`]);
+    expect(consulta.postDataJSON()).toEqual({ docNumber: DOC_SINTETICO });
+    expect(consulta.url()).not.toContain(DOC_SINTETICO);
+    expect(consola.join('|')).not.toContain(DOC_SINTETICO);
     // Y la URL del SPA sigue sin llevarlo: el documento no se convirtió en estado de navegación.
     expect(page.url()).not.toContain(DOC_SINTETICO);
     expect(new URL(page.url()).search).toBe('');
   });
+
+  // HU #14282, AC7: el cambio de transporte no toca los avisos, y lo que muestra el toast es el
+  // mensaje del contrato, sin el resto del cuerpo de error (`funcion`, `motivo`).
+  for (const { status, cuerpo } of [
+    { status: 400, cuerpo: { error: 'Documento inválido' } },
+    { status: 403, cuerpo: { error: 'No tiene permiso para esta función', funcion: 'privacy.olvido.consultar', motivo: 'motivo-e2e-interno' } },
+    { status: 429, cuerpo: { error: 'Demasiadas consultas de preview, espere 1 minuto' } },
+  ]) {
+    test(`AC7 — un ${status} de la consulta pinta su mensaje y permite reintentar`, async ({ page }) => {
+      await entrar(page, COMPLIANCE_PRIVACY_USER);
+      await mockPreview(page, { status, cuerpo });
+
+      await page.goto(OLVIDO.ruta);
+      await page.getByLabel('Número de documento').fill(DOC_SINTETICO);
+      await page.getByRole('button', { name: 'Previsualizar' }).click();
+
+      await expect(page.getByText(cuerpo.error, { exact: true })).toBeVisible();
+      expect(await page.content()).not.toContain('motivo-e2e-interno');
+      await expect(page.getByText(/registros afectados/)).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Previsualizar' })).toBeEnabled();
+    });
+  }
 
   // ── El slug compartido, afirmado ──────────────────────────────────────────────────────────────
   //

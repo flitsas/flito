@@ -715,7 +715,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'laft/officer/officer.routes.ts', metodo: 'POST', ruta: '/', codigo: 'laft.oficial.administrar' },
   { fichero: 'laft/officer/officer.routes.ts', metodo: 'POST', ruta: '/:id/revocar', codigo: 'laft.oficial.administrar' },
   { fichero: 'privacy/privacy.routes.ts', metodo: 'POST', ruta: '/forget', codigo: 'privacy.olvido.administrar' },
-  { fichero: 'privacy/privacy.routes.ts', metodo: 'GET', ruta: '/preview/:docNumber', codigo: 'privacy.titulares.operar' },
+  { fichero: 'privacy/privacy.routes.ts', metodo: 'POST', ruta: '/preview', codigo: 'privacy.titulares.operar' },
   { fichero: 'privacy/pii-access.routes.ts', metodo: 'GET', ruta: '/', codigo: 'privacy.accesos_pii.ver' },
   { fichero: 'privacy/pii-access.routes.ts', metodo: 'GET', ruta: '/stats', codigo: 'privacy.accesos_pii.ver' },
   { fichero: 'firma/firma.routes.ts', metodo: 'POST', ruta: '/:id/firma/solicitar', codigo: 'firma.solicitud.administrar' },

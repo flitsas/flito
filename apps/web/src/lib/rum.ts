@@ -9,6 +9,7 @@
 // - Best-effort: cualquier fallo de telemetría es silencioso, nunca afecta al usuario.
 
 import { onLCP, onINP, onCLS, onFCP, onTTFB, type Metric } from 'web-vitals';
+import { normalizarRutaRum } from '@operaciones/shared-types';
 
 const SAMPLE_RATE = 0.2;
 const ENDPOINT = '/api/rum';
@@ -50,7 +51,7 @@ function report(m: Metric): void {
     metric: m.name,
     value: m.value,
     rating: m.rating,
-    route: location.pathname,
+    route: normalizarRutaRum(location.pathname),
     navType: m.navigationType,
     device: deviceClass(),
     conn: effectiveConn(),
