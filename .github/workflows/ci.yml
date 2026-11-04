@@ -229,7 +229,7 @@ jobs:
   # Gate de lint — ESLint flat config (eslint.config.mjs). Son ERROR (= check
   # rojo) max-lines (800 global; techos congelados por archivo legacy) y
   # react-hooks/rules-of-hooks. La deuda preexistente reporta como warnings
-  # sin bloquear; endurecimiento gradual documentado en AGENTS.md.
+  # sin bloquear, con ratchet por regla (scripts/check-lint-baseline.mjs); detalle en AGENTS.md.
   lint:
     name: lint
     runs-on: ubuntu-latest
@@ -246,8 +246,20 @@ jobs:
       - name: Install (workspaces)
         run: npm ci
 
+      - name: Tests del ratchet de warnings
+        run: node --test scripts/check-lint-baseline.test.mjs
+
       - name: ESLint
         run: npm run lint
+
+      # El checkout de un PR solo trae el merge commit; el ratchet compara su línea base con la de
+      # develop (AC3 de HU #13985). En promociones no aplica: un hotfix en la base no es una subida.
+      - name: Traer la línea base de develop
+        if: github.base_ref == 'develop'
+        run: git fetch --no-tags --depth=1 origin +refs/heads/develop:refs/remotes/origin/develop
+
+      - name: Ratchet de warnings por regla
+        run: node scripts/check-lint-baseline.mjs
 
   # Gate de seguridad SCA — precondición de merge #6 de flit-integration-ado.
   # Falla con cualquier vulnerabilidad High o Critical en dependencias de
