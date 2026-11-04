@@ -38,7 +38,6 @@ const RUTAS_DE_PRODUCTO = ['apps/', 'packages/'];
 // las dependencias son superficie de security-agent y no son un ajuste neutro.
 const TOOLING_DE_APP = new Set([
   'apps/api/Dockerfile',
-  'apps/api/drizzle.config.ts',
   'apps/api/tsconfig.json',
   'apps/api/vitest.config.ts',
   'apps/web/Dockerfile',
