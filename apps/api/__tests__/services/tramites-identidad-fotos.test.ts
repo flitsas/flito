@@ -13,7 +13,7 @@ const m = vi.hoisted(() => {
   const rec = (...a: unknown[]) => { logs.push(a); };
   const logger: Record<string, unknown> = { trace: rec, debug: rec, info: rec, warn: rec, error: rec, fatal: rec };
   logger.child = () => logger;
-  return { logs, logger, selectMock: vi.fn(), getPhotoMock: vi.fn() };
+  return { logs, logger, selectMock: vi.fn(), insertMock: vi.fn(), getPhotoMock: vi.fn() };
 });
 
 vi.mock('../../src/shared/logger.js', () => ({
@@ -22,7 +22,7 @@ vi.mock('../../src/shared/logger.js', () => ({
 }));
 
 vi.mock('../../src/db/client.js', () => ({
-  db: { select: m.selectMock, insert: vi.fn(), update: vi.fn(), delete: vi.fn(), execute: vi.fn() },
+  db: { select: m.selectMock, insert: m.insertMock, update: vi.fn(), delete: vi.fn(), execute: vi.fn() },
   getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }),
 }));
 
@@ -95,6 +95,8 @@ beforeEach(() => {
   m.logs.length = 0;
   m.selectMock.mockReset();
   m.getPhotoMock.mockReset();
+  m.insertMock.mockReset();
+  m.insertMock.mockImplementation(() => ({ values: () => Promise.resolve(undefined) }));
 });
 
 describe('clasificarFoto — las 7 clases, primer acierto gana', () => {
@@ -250,5 +252,43 @@ describe('GET /documentos con formatos legibles', () => {
 
     expect(r.status).toBe(500);
     expect(JSON.stringify(r.body)).not.toContain('U0VDUkVUT19CSU9NRVRSSUNP');
+  });
+});
+
+// Feature #14284 (HU #14285 AC2 y AC3) — sin fila en `pii_access_log` no salen los datos, y lo
+// responde `errorHandler`, igual que el fallo de descifrado.
+describe('fallo cerrado de pii_access_log', () => {
+  const VALOR_DEL_INSERT = 'detalle-interno-del-insert';
+
+  beforeEach(() => {
+    m.insertMock.mockImplementation(() => ({ values: () => Promise.reject(new Error(VALOR_DEL_INSERT)) }));
+  });
+
+  it('GET /documentos → 500 genérico, sin fotos ni nombre', async () => {
+    m.selectMock.mockReturnValueOnce(chain([filaValidacion(FOTO)]));
+    const token = await testToken({ sub: 1, role: 'admin' });
+
+    const r = await request(buildApp()).get('/api/tramites/identidad/documentos/5')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(r.status).toBe(500);
+    expect(r.body).toEqual({ error: 'Error interno del servidor' });
+    expect(r.text).not.toContain('Persona Prueba');
+    expect(r.text).not.toContain('U0VDUkVUT19CSU9NRVRSSUNP');
+    expect(JSON.stringify(m.logs)).toContain('fallo escribiendo pii_access_log');
+  });
+
+  it('POST /certificado → 500 genérico, sin PDF ni el mensaje concatenado', async () => {
+    m.selectMock.mockReturnValue(chain([filaValidacion(null)]));
+    const token = await testToken({ sub: 1, role: 'admin' });
+
+    const r = await request(buildApp()).post('/api/tramites/identidad/certificado/5')
+      .set('Authorization', `Bearer ${token}`).send({});
+
+    expect(r.status).toBe(500);
+    expect(r.headers['content-type']).not.toContain('application/pdf');
+    expect(r.body).toEqual({ error: 'Error interno del servidor' });
+    expect(r.text).not.toContain('Error generando certificado');
+    expect(r.text).not.toContain(VALOR_DEL_INSERT);
   });
 });
