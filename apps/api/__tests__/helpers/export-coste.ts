@@ -248,7 +248,7 @@ export function filasCola(n: number): Record<string, unknown>[] {
  * Una fila del archivo AMPLIADO del SOAT (Bug #12642): las 27 de `filaCola` más las 13 celdas de
  * pago y trazabilidad de `COLUMNAS_PAGO_SOAT_EXPORT`, tal como las deja `celdasPagoSoat`.
  *
- * Es la hoja MÁS ANCHA de las dos colas (Impuestos suma 11) y por eso es la que se mide. Las fechas
+ * Las fechas
  * van como el texto `YYYY-MM-DD HH:mm` que produce `celdaInstante` —distinto por fila, porque
  * `exceljs` deduplica cadenas iguales—, `valorPagado` como NÚMERO (que es lo que la celda lleva de
  * verdad y ocupa distinto que un texto) y un tercio de las filas sin pago, con sus celdas vacías,
@@ -276,6 +276,43 @@ export function filaColaPago(i: number): Record<string, unknown> {
     fechaCreacion: `2026-${mes}-${dia} ${hora}`,
     fechaCargaComprobante: pagado ? `2026-${mes}-${dia} ${hora}` : null,
   };
+}
+
+/**
+ * Una fila del archivo AMPLIADO de Impuestos (HU #14294): las 27 de `filaCola`, las 3 de factura y las
+ * 12 de pago, tal como las dejan `celdasFacturaImpuestos` y `celdasPagoImpuestos`. Es la hoja MÁS ANCHA
+ * de las dos colas. `columnasFaltantes(columnasColaExport('impuestos', true), …)` la mantiene al día.
+ * Número y avalúo distintos por fila y una de cada diez sin lectura fiable, con sus tres celdas vacías.
+ */
+export function filaColaPagoImpuestos(i: number): Record<string, unknown> {
+  const pagado = i % 3 !== 0;
+  const dia = String(1 + (i % 28)).padStart(2, '0');
+  const mes = String(1 + (i % 12)).padStart(2, '0');
+  const hora = `${String(i % 24).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}`;
+  const leida = i % 10 !== 0;
+  return {
+    ...filaCola(i),
+    numeroFactura: leida ? `ZZ${String(i * 7).padStart(9, '0')}` : null,
+    fechaFactura: leida ? `2026-${mes}-${dia}` : null,
+    avaluoComercial: leida ? 60000000 + i * 1000 + 0.25 : null,
+    estado: pagado ? 'Pagado' : (i % 2 === 0 ? 'Pendiente' : 'Con novedad'),
+    fechaSolicitud: `2026-${mes}-${dia} ${hora}`,
+    fechaLiquidacion: `2026-${mes}-${dia} ${hora}`,
+    valorLiquidado: 300000 + (i % 700) * 100 + 0.5,
+    valorPagado: pagado ? 300000 + (i % 700) * 100 + 0.5 : null,
+    fechaPago: pagado ? `2026-${mes}-${dia} ${hora}` : null,
+    marcadoPorDiferencia: i % 7 === 0 ? 'Sí' : 'No',
+    modalidad: i % 2 === 0 ? 'presencial' : 'virtual',
+    gestor: i % 5 === 0 ? 'Operaciones' : 'Organismo',
+    motivoNovedad: !pagado && i % 2 === 1 ? `Documento ilegible en la solicitud ${i}, se requiere reenvío` : null,
+    fechaCreacion: `2026-${mes}-${dia} ${hora}`,
+    direccionSinConfirmar: i % 9 === 0 ? 'Sí' : null,
+  };
+}
+
+/** `n` filas del archivo ampliado de Impuestos, todas distinguibles. */
+export function filasColaPagoImpuestos(n: number): Record<string, unknown>[] {
+  return Array.from({ length: n }, (_, i) => filaColaPagoImpuestos(i));
 }
 
 /** `n` filas del archivo ampliado del SOAT, todas distinguibles. */
