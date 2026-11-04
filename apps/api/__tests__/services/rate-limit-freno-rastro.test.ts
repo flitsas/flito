@@ -110,7 +110,7 @@ describe('el 429 deja rastro', () => {
       limitador: 'prueba-llave',
       llave: 'prueba-llave-4242',
       metodo: 'GET',
-      ruta: '/api/clientes/41',
+      ruta: '/api/clientes/*',
       limite: MAX,
       intentos: MAX + 1,
     });
@@ -126,7 +126,7 @@ describe('el 429 deja rastro', () => {
     }
 
     const { campos } = ultimoWarn();
-    expect(campos.ruta).toBe('/api/clientes/41');
+    expect(campos.ruta).toBe('/api/clientes/*');
     expect(JSON.stringify(campos)).not.toContain('79345612');
     expect(JSON.stringify(campos)).not.toContain('WGY123');
   });

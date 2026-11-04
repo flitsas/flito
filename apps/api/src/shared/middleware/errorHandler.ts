@@ -2,13 +2,14 @@ import { Request, Response, NextFunction } from 'express';
 import { loggerFor } from '../logger.js';
 import { AlcanceAjenoError } from '../alcance-filas.js';
 import { PiiDecryptError } from '../utils/crypto.js';
+import { rutaSinDato, textoSinDatoDeUrl } from './ruta-segura.js';
 
 const log = loggerFor('http');
 
 export function errorHandler(err: any, req: Request, res: Response, _next: NextFunction) {
   // Body-parser: payload demasiado grande (p. ej. 3 fotos base64 en validación identidad).
   if (err?.type === 'entity.too.large' || err?.status === 413) {
-    log.warn({ method: req.method, path: req.path }, 'payload too large → 413');
+    log.warn({ method: req.method, path: rutaSinDato(req) }, 'payload too large → 413');
     if (!res.headersSent) {
       res.status(413).json({ ok: false, message: 'Las fotos superan el tamaño permitido. Reduce la resolución o acércate más al documento.' });
     }
@@ -43,24 +44,38 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
 
   // WORM: diagnóstico cerrado/inexistente → RAISE EXCEPTION ... ERRCODE='P0001', mensaje 'WORM:...'
   if (pgCode === 'P0001' && /^WORM:/.test(pgMsg)) {
-    log.warn({ method: req.method, path: req.path, pgMsg }, 'WORM guard → 409');
+    log.warn({ method: req.method, path: rutaSinDato(req), pgMsg: textoSinDatoDeUrl(req, pgMsg) }, 'WORM guard → 409');
     if (!res.headersSent) res.status(409).json({ error: 'diagnóstico cerrado (WORM)' });
     return;
   }
 
   // Rúbrica: score_pct fuera de {0,50,75,100} → RAISE EXCEPTION ... ERRCODE='23514', mensaje 'rubrica:...'
   if (pgCode === '23514' && /rubrica/i.test(pgMsg)) {
-    log.warn({ method: req.method, path: req.path, pgMsg }, 'rúbrica guard → 422');
+    log.warn({ method: req.method, path: rutaSinDato(req), pgMsg: textoSinDatoDeUrl(req, pgMsg) }, 'rúbrica guard → 422');
     if (!res.headersSent) res.status(422).json({ error: 'scorePct fuera de rúbrica (valores válidos: 0, 50, 75, 100)' });
     return;
   }
 
+  // HU #14280: el error del body-parser cita un trozo del cuerpo recibido (`"123…" is not valid JSON`).
+  // Basta con decir qué pasó: su stack es de la librería y no aporta al diagnóstico.
+  if (err?.type === 'entity.parse.failed') {
+    log.error({
+      err: 'cuerpo JSON inválido',
+      method: req.method,
+      path: rutaSinDato(req),
+      requestId: req.headers['x-request-id'],
+    }, 'unhandled error');
+    if (!res.headersSent) res.status(500).json({ error: 'Error interno del servidor' });
+    return;
+  }
+
+  // HU #14280: el mensaje y el stack se conservan para diagnosticar, sin los valores que traía la URL.
   log.error({
-    err: err.message || String(err),
+    err: textoSinDatoDeUrl(req, err.message || String(err)),
     method: req.method,
-    path: req.path,
+    path: rutaSinDato(req),
     requestId: req.headers['x-request-id'],
-    stack: err.stack,
+    stack: typeof err.stack === 'string' ? textoSinDatoDeUrl(req, err.stack) : err.stack,
   }, 'unhandled error');
   if (!res.headersSent) res.status(500).json({ error: 'Error interno del servidor' });
 }

@@ -302,10 +302,11 @@ router.post('/iniciar', authMiddleware, exigirFuncion('tramite.identidad.iniciar
   // el comprador puede validar aunque el correo no salga. Si el SMTP no está
   // configurado o el envío falla, NO bloqueamos el trámite: devolvemos el enlace al
   // admin (autenticado, dueño del trámite) para que lo envíe manualmente (WhatsApp,
-  // etc.) y lo registramos en logs. Controlable con TRAMITES_EMAIL_FALLBACK=false.
+  // etc.). Controlable con TRAMITES_EMAIL_FALLBACK=false.
+  // HU #14280: el enlace lleva el token portador y solo viaja en la respuesta; el log no lo copia.
   const fallbackHabilitado = env.TRAMITES_EMAIL_FALLBACK !== false;
   const responderConEnlaceManual = (motivo: string) => {
-    log.warn({ tramiteId, motivo, link }, 'email de validación no enviado — modo enlace manual');
+    log.warn({ tramiteId, motivo }, 'email de validación no enviado — modo enlace manual');
     res.json({
       ok: true, email: comp.email, expiraAt: expiraAt.toISOString(),
       emailEnviado: false, fallback: true, motivo, link,

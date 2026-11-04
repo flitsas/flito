@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 import { loggerFor } from '../logger.js';
 import { rateLimitBloqueadoTotal } from '../metrics.js';
 import { env } from '../../config/env.js';
+import { rutaSinDato } from './ruta-segura.js';
 
 // Helper: keyGenerator que prefiere userId si está autenticado, sino normaliza IP (IPv6 /64).
 // Sin esta normalización, atacantes con IPv6 pueden bypassear los límites cambiando los bits bajos.
@@ -56,7 +57,7 @@ const logFreno = loggerFor('rate-limit');
  *
  * **Nada de datos personales**, y no por costumbre: `logger` no redacta lo que no reconoce, y aquí
  * el 429 puede venir de una petición cuya query trae un documento o una placa. Por eso se escribe
- * la llave y NO el correo, y por eso la ruta va sin query string. Un log de frenos que copiara la
+ * la llave y NO el correo, y por eso la ruta va sin query string ni dato de path (HU #14280). Un log de frenos que copiara la
  * consulta sería una copia sin control de aquello que el resto de esta HU se ha dedicado a acotar.
  *
  * Responde igual que el handler por defecto —mismo estado y mismo cuerpo, tomados de `options`—
@@ -73,8 +74,8 @@ export function frenoConRastro(limitador: string): Options['handler'] {
       // La llave, no el usuario: lleva el `sub` y nunca el correo ni el nombre.
       llave: info?.key ?? null,
       metodo: req.method,
-      // Sin query string: ahí es donde viajan el documento y la placa.
-      ruta: (req.originalUrl || req.url || '').split('?')[0]!.slice(0, 300),
+      // Sin query ni parámetros de path: ahí es donde viajan el documento, la placa y el token.
+      ruta: rutaSinDato(req),
       limite: info?.limit ?? null,
       intentos: info?.used ?? null,
     }, 'Limitador activado: peticion rechazada con 429');
