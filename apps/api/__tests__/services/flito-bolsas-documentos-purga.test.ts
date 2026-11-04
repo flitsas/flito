@@ -172,7 +172,7 @@ describe('AC1 — versión reemplazada hace más de N años', () => {
     expect(r).toEqual({ consideradas: 2, purgadas: 2, companias: 1, bytes: 2000, objetosBorrados: 2, objetosPendientes: 0 });
     expect(f.transacciones).toBe(1);
     const marca = f.updates.find((u) => u.tabla === 'flito_bolsas_documentos')!;
-    expect(marca.datos).toEqual({ storageKey: null, purgadoEn: AHORA, motivoRetiro: null });
+    expect(marca.datos).toEqual({ storageKey: null, storageKeyPrevia: null, purgadoEn: AHORA, motivoRetiro: null });
     const { sql, params } = render(marca.cond);
     expect(sql).toContain('"flito_bolsas_documentos"."vigente" = $');
     expect(sql).toContain('"flito_bolsas_documentos"."purgado_en" is null');
@@ -220,10 +220,49 @@ describe('HU #13964 AC9 — versión RETIRADA hace más de N años', () => {
     expect(render(f.selects[0].cond).sql).toContain('"flito_bolsas_documentos"."reemplazado_en" <= $1');
     const marca = f.updates.find((u) => u.tabla === 'flito_bolsas_documentos')!;
     // Solo se anulan clave y motivo: `retirado_en` y `retirado_por` no se tocan (constancia).
-    expect(marca.datos).toEqual({ storageKey: null, purgadoEn: AHORA, motivoRetiro: null });
+    expect(marca.datos).toEqual({ storageKey: null, storageKeyPrevia: null, purgadoEn: AHORA, motivoRetiro: null });
     expect(marca.datos).not.toHaveProperty('retiradoEn');
     expect(marca.datos).not.toHaveProperty('retiradoPor');
     sinPii();
+  });
+});
+
+describe('HU #13987 (ADR-0034 D3) — versión recifrada, con objeto anterior en storage_key_previa', () => {
+  const PREVIA = 'bolsas/objeto-anterior';
+
+  it('encola y borra también el objeto anterior, anula la columna y cuenta una sola versión', async () => {
+    f.candidatas = [version('v-1', { storageKeyPrevia: PREVIA })];
+    const r = await ejecutarPurgaVersiones({ ahora: AHORA });
+    expect(r).toEqual({ consideradas: 1, purgadas: 1, companias: 1, bytes: 1000, objetosBorrados: 2, objetosPendientes: 0 });
+    expect(f.updates[0].datos).toMatchObject({ storageKey: null, storageKeyPrevia: null });
+    const encoladas = f.inserts.filter((i) => i.tabla === 'flito_storage_borrados_pendientes').map((i) => i.datos?.storageKey);
+    expect(encoladas).toEqual([clave(1), PREVIA]);
+    expect(storage.remove.mock.calls.map((c) => c[0])).toEqual([clave(1), PREVIA]);
+    sinPii();
+  });
+
+  it('si falla el borrado del anterior, queda pendiente: el documento no sobrevive sin rastro', async () => {
+    f.candidatas = [version('v-1', { storageKeyPrevia: PREVIA })];
+    storage.remove.mockImplementation(async (k: string) => {
+      if (k === PREVIA) throw Object.assign(new Error('caído'), { name: 'S3Error' });
+    });
+    const r = await ejecutarPurgaVersiones({ ahora: AHORA });
+    expect(r).toMatchObject({ purgadas: 1, objetosBorrados: 1, objetosPendientes: 1 });
+    expect(f.inserts.filter((i) => i.tabla === 'flito_storage_borrados_pendientes')).toHaveLength(2);
+  });
+
+  it('sin objeto anterior encola solo el actual', async () => {
+    f.candidatas = [version('v-1', { storageKeyPrevia: null })];
+    await ejecutarPurgaVersiones({ ahora: AHORA });
+    expect(f.inserts.filter((i) => i.tabla === 'flito_storage_borrados_pendientes')).toHaveLength(1);
+  });
+
+  it('la marca exige que storage_key siga siendo la leída: si el Job recifró, la fila no se toca', async () => {
+    f.candidatas = [version('v-1')];
+    await ejecutarPurgaVersiones({ ahora: AHORA });
+    const { sql, params } = render(f.updates[0].cond);
+    expect(sql).toMatch(/"storage_key" in \(/);
+    expect(params).toContain(clave(1));
   });
 });
 
@@ -265,7 +304,7 @@ describe('AC4 — falla el borrado en storage', () => {
 
     expect(r).toMatchObject({ purgadas: 1, objetosBorrados: 0, objetosPendientes: 1 });
     // La fila sigue (solo se marcó; nunca DELETE) y el pendiente queda ABIERTO con el error.
-    expect(f.updates.find((u) => u.tabla === 'flito_bolsas_documentos')!.datos).toEqual({ storageKey: null, purgadoEn: AHORA, motivoRetiro: null });
+    expect(f.updates.find((u) => u.tabla === 'flito_bolsas_documentos')!.datos).toEqual({ storageKey: null, storageKeyPrevia: null, purgadoEn: AHORA, motivoRetiro: null });
     const fallo = f.updates.find((u) => u.tabla === 'flito_storage_borrados_pendientes')!;
     expect(fallo.datos).toEqual({ intentos: 1, ultimoIntentoEn: AHORA, ultimoError: 'AccessDenied' });
     expect(fallo.datos).not.toHaveProperty('resueltoEn');

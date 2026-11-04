@@ -105,7 +105,7 @@ TOTP: no existe en el código. Los cuatro keyspaces de credenciales tampoco pued
 3. **Primer registro de la versión 1:** antes de registrar, una muestra de hasta 5 valores por columna (sin objetos de MinIO) debe tener al menos un éxito. Sin datos, registra.
 4. **Primer registro de n ≥ 2:** con esa pasada y la sal de cada versión ya registrada, se intenta descifrar el canario de esa versión. Si descifra, es una llave retirada reutilizada y se rechaza.
 5. El registro usa `INSERT … ON CONFLICT DO NOTHING` y **relee y verifica**: de dos réplicas con B distintas, la segunda no arranca.
-6. Fallo: `log.fatal` sin detalle de la llave y `process.exit(1)`. Es deliberadamente distinto de `verificarCatalogoAlArrancar`, que solo registra el error: arrancar con una llave equivocada corrompe datos. El rolling update se detiene y los pods anteriores siguen sirviendo.
+6. Fallo: `log.fatal` sin detalle de la llave y `process.exit(1)`. Es deliberadamente distinto de `verificarCatalogoAlArrancar`, que solo registra el error: arrancar con una llave equivocada corrompe datos. **Corrección (2026-11-04, leído de `flit-gitops`):** la api corre con `replicas: 1` y `strategy: Recreate` en DEV, QA y PDN, así que el pod anterior ya cayó cuando el nuevo falla: una llave equivocada deja la API **sin servicio** hasta revertir, y no hay pods anteriores sirviendo.
 7. Al terminar, una línea de log con la versión vigente y las configuradas, nunca las llaves. Con ella se comprueba cada fase del runbook pod por pod.
 
 ### D3. Script `flito-rotar-llave-pii`
@@ -135,10 +135,12 @@ Cuatro formas comparten el motor: bundle bytea, jsonb, texto serializado y objet
 - **AAD:** se conserva `aad_nonce`, y los descriptores usan los constructores de AAD de cada módulo, sin copiarlos.
 - **Lotes y reanudación:** por clave primaria (keyset). No guarda estado: lo pendiente es lo que no está en la versión objetivo, así que reanudar es volver a correr.
 - **Guarda de concurrencia:** un solo `UPDATE` con cipher, iv, tag y versión, condicionado a `iv` y versión leídos (texto: valor completo leído). Si la API escribió o anonimizó mientras tanto, cuenta `omitido_concurrente` y no pisa nada.
-- **Biometría:** `viejo`, `data_uri`, `base64_plano` y `desconocido` **no se tocan**. Se cuentan como `formato_legado`. Si hay `viejo` o texto en claro de biometría, `--verificar` no pasa. Se resuelven con el script de #14097, que al escribir usa la versión vigente.
+- **Biometría:** `viejo`, `data_uri`, `base64_plano` y `desconocido` **no se tocan**. Los tres primeros se cuentan como `formato_legado` y `desconocido` como `formato_desconocido`. Si hay `viejo` o texto en claro de biometría, `--verificar` no pasa; `desconocido` no lo impide, pero se revisa antes de destruir la llave anterior. Se resuelven con el script de #14097, que al escribir usa la versión vigente.
 - **Salida:** conteos e ids de fila. Nunca `numero` de manifiesto, valores ni causas. Códigos 0, 2 y 1 como en biometría.
 
 **Objetos de bolsas:** 1) descargar y descifrar; 2) cifrar y subir a una clave **nueva**; 3) releer el objeto y descifrarlo; 4) `UPDATE` de `storage_key`, `storage_key_previa`, `cifrado_iv`, `cifrado_tag` y `cifrado_key_version`, con guarda. Si la guarda falla, se borra el objeto recién subido. El objeto anterior se conserva: los lectores en vuelo siguen funcionando y restaurar el dump sigue siendo posible. `--limpiar-objetos` lo borra al cerrar la ventana. Una purga ocurrida durante la ventana deja el objeto anterior hasta esa limpieza, y por eso el runbook pone plazo a la ventana. Si una fila se recifra otra vez con previa ocupada, se conserva solo la inmediatamente anterior.
+
+**Ajuste al implementar (HU #13987; cierra la Nota 3 del PR #719):** un documento purgado no sobrevive hasta `--limpiar-objetos`: `flito-bolsas-documentos-purga.service.ts`, al purgar una fila con `storage_key_previa`, encola también ese objeto y anula la columna. Esto sustituye a la frase de arriba sobre la purga durante la ventana.
 
 ### D4. Llave equivocada con dos llaves
 
@@ -190,7 +192,7 @@ Sin índices nuevos: la corrida es por clave primaria y puntual. `db-apply` corr
 
 No hay índice por VIN: el VIN solo existe como token en `motivo`.
 
-**Motivo:** rotar exige cambio de código con su ADR (ADR-0012 §4), búsqueda con dos llaves y recálculo de dos índices. Además obliga a conservar la llave vieja seis años o a perder la correlación histórica del registro del art. 17. Y comprometer esta llave no expone datos cifrados. El runbook documenta la decisión y el procedimiento de contingencia si se llegara a comprometer. **Pendiente de confirmación humana.**
+**Motivo:** rotar exige cambio de código con su ADR (ADR-0012 §4), búsqueda con dos llaves y recálculo de dos índices. Además obliga a conservar la llave vieja seis años o a perder la correlación histórica del registro del art. 17. Y comprometer esta llave no expone datos cifrados. El runbook documenta la decisión y el procedimiento de contingencia si se llegara a comprometer. **Confirmado por David Chica el 2026-11-03: no se rota.**
 
 ### D8. `crypto.ts` no se parte; se extrae solo lo nuevo
 
@@ -246,5 +248,5 @@ Separar F1 de F2 es lo que garantiza que ninguna réplica escriba con una llave 
 ## Riesgos abiertos
 
 1. Rendimiento en `tramites_validaciones` y bolsas: el Job baja objetos de hasta 15 MB y fotos de varios MB. Sin datos de volumen de PDN no se puede estimar la duración.
-2. `logPiiAccess` exige un `Request`: el Job no encaja en la auditoría actual. Debe decidirlo `security-agent`.
+2. `logPiiAccess` exige un `Request`: el Job no encaja en la auditoría actual. Decidido por `security-agent` en la HU #13987: el Job no escribe en `pii_access_log`; antes de correr en PDN, el rastro de cada corrida se guarda en el registro del cambio (ver runbook).
 3. Hallazgo 1 (LAFT en claro) y 2 (fallos silenciosos): fuera del pedido, sujetos a confirmación humana.

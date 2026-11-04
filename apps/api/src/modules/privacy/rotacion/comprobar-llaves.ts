@@ -9,7 +9,7 @@
 // RN-LL5  De dos réplicas con llaves distintas para la misma versión, la segunda no arranca
 //         (`ON CONFLICT DO NOTHING` y relectura).
 // RN-LL6  Fallo = `log.fatal` + salida 1, a diferencia de `verificarCatalogoAlArrancar`: arrancar con la
-//         llave equivocada corrompe datos. El rollout se detiene y los pods anteriores siguen sirviendo.
+//         llave equivocada corrompe datos. Con `replicas: 1` y `Recreate`, la API queda sin servicio hasta revertir.
 //
 // Ningún log, error o métrica de este archivo lleva llaves ni valores descifrados.
 
@@ -242,6 +242,22 @@ export async function verificarLlavesPii(): Promise<ResumenLlavesPii> {
     versionesConfiguradas: versiones,
     versionesRegistradas: [...registro.keys()].sort((a, b) => a - b),
   };
+}
+
+export type EstadoLlaveRegistro = 'ok' | 'sin_registro' | 'no_coincide';
+
+/**
+ * Lo que usa el Job de rotación (RN-LL2): compara cada llave configurada con el registro y NUNCA escribe.
+ * Una versión sin fila es `sin_registro`: el Job corrió antes de que la API la anclara.
+ */
+export async function comprobarLlavesSoloLectura(): Promise<{ version: number; estado: EstadoLlaveRegistro }[]> {
+  const registro = new Map((await db.select({ version: piiKeyRegistry.version, canario: piiKeyRegistry.canario })
+    .from(piiKeyRegistry)).map((f) => [f.version, f.canario]));
+  return versionesPiiConfiguradas(env.PII_ENC_KEY).map((version) => {
+    const canario = registro.get(version);
+    if (canario === undefined) return { version, estado: 'sin_registro' as const };
+    return { version, estado: canarioValido(version, canario) ? 'ok' as const : 'no_coincide' as const };
+  });
 }
 
 /** Punto de entrada de `server.ts`. No va en `crypto.ts` ni en `app.ts`: tests y scripts no la ejecutan. */
