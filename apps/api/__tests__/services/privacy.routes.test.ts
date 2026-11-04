@@ -703,7 +703,7 @@ describe('POST /preview', () => {
 
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
-    const r = await request(app).post('/api/privacy/preview').send({ docNumber: '1036640908' }).set('Authorization', `Bearer ${token}`);
+    const r = await request(app).post('/api/privacy/preview').send({ docNumber: 'DOC-SINT-0001' }).set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
     expect(r.body.affected.driver_profile).toBe(1);
     expect(r.body.affected.alcohol_tests).toBe(5);
@@ -803,7 +803,7 @@ describe('Bug #11776 — el SQL que forget/preview mandan de verdad', () => {
 
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
-    const r = await request(app).post('/api/privacy/preview').send({ docNumber: '1036640908' })
+    const r = await request(app).post('/api/privacy/preview').send({ docNumber: 'DOC-SINT-0001' })
       .set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
 

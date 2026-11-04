@@ -81,7 +81,16 @@ describe('HU #14280: la plantilla no escribe datos de la URL', () => {
   });
 
   it('Referrer-Policy vive en `location /`, sin otro add_header que la pise', () => {
-    const paginas = PLANTILLA.slice(PLANTILLA.indexOf('location / {'));
-    expect(paginas).toContain('add_header Referrer-Policy "strict-origin" always;');
+    const desde = PLANTILLA.slice(PLANTILLA.indexOf('location / {'));
+    let profundidad = 0;
+    let fin = 0;
+    for (let i = 0; i < desde.length; i += 1) {
+      if (desde[i] === '{') profundidad += 1;
+      if (desde[i] === '}' && (profundidad -= 1) === 0) { fin = i; break; }
+    }
+    const directivas = desde.slice(0, fin).split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('add_header'));
+    expect(directivas).toEqual(['add_header Referrer-Policy "strict-origin" always;']);
   });
 });

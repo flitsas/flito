@@ -93,6 +93,18 @@ describe('AC7: 500 de una ruta con dato en el path', () => {
 
     expect(escrito()).not.toContain(TOKEN_16);
     expect((errorMock.mock.calls[0]![0] as { path: string }).path).toBe('/api/modulo/portal/:token/firma');
+
+    errorMock.mockClear();
+    const app = express();
+    app.get('/api/p/:token/firma', (req: Request) => { throw new Error(`token ${req.params.token} vencido`); });
+    app.use(errorHandler);
+    await request(app).get('/api/p/abc%20def%2Bghi/firma');
+
+    const campos = errorMock.mock.calls[0]![0] as { err: string; path: string };
+    expect(campos.err).toBe('token * vencido');
+    expect(campos.path).toBe('/api/p/:token/firma');
+    expect(escrito()).not.toContain('abc def+ghi');
+    expect(escrito()).not.toContain('abc%20def');
   });
 
   it('un valor de la query citado en el mensaje tampoco queda', async () => {
@@ -106,11 +118,11 @@ describe('AC7: 500 de una ruta con dato en el path', () => {
     const r = await request(appConErrores())
       .post('/api/modulo/eco')
       .set('Content-Type', 'application/json')
-      .send('1036640908x');
+      .send('SINTETICO-0001x');
 
     expect(r.status).toBe(500);
     expect(r.body).toEqual(CUERPO_500);
-    expect(escrito()).not.toContain('1036640908');
+    expect(escrito()).not.toContain('SINTETICO');
     expect((errorMock.mock.calls[0]![0] as { err: string }).err).toBe('cuerpo JSON inválido');
   });
 
@@ -122,6 +134,72 @@ describe('AC7: 500 de una ruta con dato en el path', () => {
     await request(app).get('/api/x/12');
 
     expect((errorMock.mock.calls[0]![0] as { stack: string }).stack).toMatch(/:\d+:\d+/);
+  });
+});
+
+describe('AC7: la redacción no puede tumbar el handler', () => {
+  const URL_CON_VALORES = '/api/m/VALOR99?x=OTROVALOR';
+
+  function errorCon(campos: Record<string, unknown>): Error {
+    return Object.assign(new Error('base'), campos);
+  }
+
+  const CASOS: Array<[string, () => unknown, string]> = [
+    ['message objeto', () => errorCon({ message: { detalle: 'VALOR99' } }), '(mensaje no textual: object)'],
+    ['message número', () => errorCon({ message: 42 }), '(mensaje no textual: number)'],
+    ['message array', () => errorCon({ message: ['VALOR99'] }), '(mensaje no textual: object)'],
+    ['message Symbol', () => errorCon({ message: Symbol('VALOR99') }), '(mensaje no textual: symbol)'],
+    ['objeto sin prototipo y sin message', () => Object.create(null), '(texto omitido)'],
+    ['un string lanzado', () => 'fallo con VALOR99', 'fallo con *'],
+  ];
+
+  it.each(CASOS)('%s, con plantilla: 500 JSON y línea de log', async (_caso, crear, esperado) => {
+    const app = express();
+    app.get('/api/m/:v', (_req, _res, next) => { next(crear()); });
+    app.use(errorHandler);
+
+    const r = await request(app).get(URL_CON_VALORES);
+
+    expect(r.status).toBe(500);
+    expect(r.type).toBe('application/json');
+    expect(r.body).toEqual(CUERPO_500);
+    expect(errorMock).toHaveBeenCalledTimes(1);
+    expect((errorMock.mock.calls[0]![0] as { err: string }).err).toBe(esperado);
+    expect(escrito()).not.toContain('VALOR99');
+    expect(escrito()).not.toContain('OTROVALOR');
+  });
+
+  it.each(CASOS)('%s, sin plantilla: 500 JSON y línea de log', async (_caso, crear) => {
+    const app = express();
+    app.use((_req, _res, next) => { next(crear()); });
+    app.use(errorHandler);
+
+    const r = await request(app).get(URL_CON_VALORES);
+
+    expect(r.status).toBe(500);
+    expect(r.body).toEqual(CUERPO_500);
+    expect(errorMock).toHaveBeenCalledTimes(1);
+    expect(escrito()).not.toContain('VALOR99');
+    expect(escrito()).not.toContain('OTROVALOR');
+  });
+
+  it.each([
+    ['número', 123],
+    ['objeto', { detalle: 'VALOR99' }],
+    ['Symbol', Symbol('VALOR99')],
+  ])('stack %s: 500 JSON, línea de log y sin stack', async (_caso, stack) => {
+    const app = express();
+    app.get('/api/m/:v', (_req, _res, next) => { next(errorCon({ stack, message: 'fallo VALOR99' })); });
+    app.use(errorHandler);
+
+    const r = await request(app).get(URL_CON_VALORES);
+
+    expect(r.status).toBe(500);
+    expect(r.body).toEqual(CUERPO_500);
+    const campos = errorMock.mock.calls[0]![0] as { err: string; stack?: unknown };
+    expect(campos.err).toBe('fallo *');
+    expect(campos.stack).toBeUndefined();
+    expect(escrito()).not.toContain('VALOR99');
   });
 });
 
