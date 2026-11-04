@@ -10,6 +10,8 @@ concurrency:
   group: e2e-smoke-nightly
   cancel-in-progress: true
 
+# runs-on: la variable de repo RUNNER (p. ej. flit-ci = runners propios de la 177) mueve estos jobs fuera de GitHub;
+# sin ella siguen en GitHub. --with-deps (sudo apt) solo en GitHub.
 jobs:
   e2e-smoke:
     # El número va a mano: nada lo valida. Al añadir o quitar un spec de `test:e2e:smoke`
@@ -21,7 +23,7 @@ jobs:
     # sitio lo ocupa soat-envio-directo-gestor.spec.ts, que cubre lo que ahora decide a qué gestor
     # sale una solicitud del canal y qué ve de ella la empresa externa.
     name: playwright smoke (20 specs)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     defaults:
       run:
@@ -39,7 +41,7 @@ jobs:
         working-directory: .
 
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install ${{ vars.RUNNER == '' && '--with-deps' || '' }} chromium
 
       - name: Run smoke suite
         run: npm run test:e2e:smoke

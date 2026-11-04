@@ -15,10 +15,12 @@ concurrency:
   group: prod-smoke
   cancel-in-progress: true
 
+# runs-on: la variable de repo RUNNER (p. ej. flit-ci = runners propios de la 177) mueve estos jobs fuera de GitHub;
+# sin ella siguen en GitHub.
 jobs:
   smoke:
     name: smoke prod (HTTP)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4

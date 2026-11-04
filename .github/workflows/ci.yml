@@ -7,12 +7,20 @@ on:
     branches: [main, develop, staging, release]
   pull_request:
     branches: [main, develop, staging, release]
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Etiqueta de runner para validar (p. ej. flit-ci); vacío = vars.RUNNER o GitHub'
+        required: false
+        default: ''
 
 # Cancela runs viejos del mismo branch/PR cuando llega un push nuevo.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# runs-on: la variable de repo RUNNER (p. ej. flit-ci = runners propios de la 177) mueve estos jobs fuera de GitHub;
+# sin ella siguen en GitHub. El input `runner` del workflow_dispatch sirve para validar sin tocar la variable.
 jobs:
   # 2026-10-26 — el antiguo job monolítico `build-test` (~12 min y creciendo) se partió en
   # cuatro caminos paralelos: `checks` (guardas de solo-fuentes), `test-api` (suite API en
@@ -22,7 +30,7 @@ jobs:
   # de rama y vigila `pr-monitor-agent`: falla si cualquiera de los cuatro falla.
   checks:
     name: checks
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     env:
       # @playwright/test está en devDeps de apps/web; ESTE job no corre e2e, así que evitamos
@@ -109,7 +117,7 @@ jobs:
   # `fail-fast: false`: si un shard se rompe, los demás terminan y el diagnóstico es completo.
   test-api:
     name: test api (shard ${{ matrix.shard }}/4)
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -139,14 +147,15 @@ jobs:
 
       # HU #13207: los tests de compresión de comprobantes usan pdftotext/pdftoppm reales (poppler).
       - name: Instalar poppler-utils
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+        # En el runner propio ya viene instalado (sin sudo allí).
+        run: command -v pdftotext >/dev/null && command -v pdftoppm >/dev/null || { sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils; }
 
       - name: Test API (vitest, shard ${{ matrix.shard }}/4)
         run: npm run test -w apps/api -- --shard=${{ matrix.shard }}/4
 
   build-api:
     name: build api
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -171,7 +180,7 @@ jobs:
 
   build-web:
     name: build web
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -211,7 +220,7 @@ jobs:
     name: build + test
     needs: [checks, test-api, build-api, build-web]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - name: Veredicto agregado de checks / test-api / builds
@@ -232,7 +241,7 @@ jobs:
   # sin bloquear, con ratchet por regla (scripts/check-lint-baseline.mjs); detalle en AGENTS.md.
   lint:
     name: lint
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || vars.RUNNER || 'ubuntu-latest' }}
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
@@ -268,7 +277,7 @@ jobs:
   # scripts/dependency-audit.mjs).
   dependency-audit:
     name: dependency-audit
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || vars.RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -299,7 +308,7 @@ jobs:
   naming:
     name: naming
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || vars.RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -347,7 +356,7 @@ jobs:
   pr-gates:
     name: pr-gates
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || vars.RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -368,7 +377,7 @@ jobs:
   # merge bloqueado + rotación del secreto.
   secret-scan:
     name: secret-scan
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || vars.RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -416,7 +425,7 @@ jobs:
     # Fijado a 24.04: ubuntu-latest pasó a 26.04 y Playwright 1.59.1 no publica Chromium para esa
     # versión («Playwright does not support chromium on ubuntu26.04-x64»). Volver a ubuntu-latest
     # cuando se suba Playwright a una versión que lo soporte.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner || vars.RUNNER || 'ubuntu-24.04' }}   # la 177 es Ubuntu 24.04
     timeout-minutes: 15
     defaults:
       run:
@@ -434,7 +443,8 @@ jobs:
         working-directory: .
 
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        # --with-deps usa sudo apt: solo en GitHub (la 177 ya tiene las librerías de Chromium).
+        run: npx playwright install ${{ (inputs.runner || vars.RUNNER) == '' && '--with-deps' || '' }} chromium
 
       # CI='1' → `reuseExistingServer: false`, así que Playwright levanta su propio `npm run dev`
       # en el 5175 y no hereda ningún server ajeno.
