@@ -11,6 +11,7 @@ import { encryptPii, decryptPii, hmacCedula, newUuid, normalizeDocument } from '
 import type { ColumnaAadConductor } from '../../shared/utils/pii-columnas.js';
 import { aadConductor } from './drivers.aad.js';
 import { piiDecryptFailuresTotal } from '../../shared/metrics.js';
+import { logPiiAccess } from '../../shared/pii-audit.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -130,6 +131,18 @@ router.get('/', requirePage('pesv_conductores'), async (req: Request, res: Respo
         (r.examenPsicoVigencia && (r.examenPsicoVigencia as string) <= today),
       )
     : data;
+
+  // HU #14283: Ley 1581 art. 17. `await` y siempre, también sin campos descifrados: el listado entrega
+  // nombre y correo aunque no haya cédula ni licencia. El valor de `?q=` nunca entra en `motivo`.
+  await logPiiAccess(req, {
+    resourceTipo: 'driver_profile',
+    accion: 'read',
+    camposAccedidos: [
+      filtered.some((r) => r.cedula) ? 'cedula' : null,
+      filtered.some((r) => r.licenciaNumero) ? 'licencia_numero' : null,
+    ].filter((c): c is string => c !== null),
+    motivo: `Listado de conductores: filas=${filtered.length}`,
+  });
 
   res.json({ data: filtered });
 });

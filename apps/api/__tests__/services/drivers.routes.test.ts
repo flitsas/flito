@@ -3,6 +3,7 @@ import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
+import { piiAccessLog } from '../../src/db/schema.js';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -157,6 +158,124 @@ describe('GET / — listado conductores', () => {
     const r = await request(app).get('/api/drivers').set('Authorization', `Bearer ${token}`);
     expect(r.body.data[0].cedula).toBeNull();
     expect(r.body.data[0].licenciaNumero).toBeNull();
+  });
+});
+
+describe('HU #14283: GET / deja rastro en pii_access_log', () => {
+  const CON_CIFRADOS = {
+    id: 1, name: 'Juan', username: 'juan', email: 'j@x.com', userId: 1,
+    cedulaCipher: Buffer.from('x'), cedulaKeyVersion: 1, cedulaAadNonce: 'n',
+    licenciaNumeroCipher: Buffer.from('y'), licenciaNumeroKeyVersion: 1, licenciaNumeroAadNonce: 'n',
+    categorias: ['B1'], licenciaVigencia: '2020-01-01', examenPsicoVigencia: '2030-01-01', contratoTipo: 'directo',
+  };
+  const SIN_CIFRADOS = {
+    id: 2, name: 'Ana', username: 'ana', email: 'a@x.com', userId: null,
+    categorias: null, licenciaVigencia: null, examenPsicoVigencia: null, contratoTipo: null,
+  };
+  const CAMPOS_DE_HOY = [
+    'categorias', 'cedula', 'contratoTipo', 'email', 'examenPsicoVigencia', 'id',
+    'licenciaNumero', 'licenciaVigencia', 'name', 'username',
+  ];
+  let filas: Array<Record<string, unknown>>;
+  let orden: string[];
+
+  async function appConOrden() {
+    const app = express();
+    app.use((_req, res, next) => {
+      const json = res.json.bind(res);
+      res.json = (b: unknown) => { orden.push('respuesta'); return json(b); };
+      next();
+    });
+    const { default: router } = await import('../../src/modules/drivers/drivers.routes.js');
+    app.use('/api/drivers', router);
+    return app;
+  }
+
+  beforeEach(() => {
+    filas = [];
+    orden = [];
+    insertMock.mockImplementation((tabla: unknown) => ({
+      values: async (v: Record<string, unknown>) => {
+        if (tabla !== piiAccessLog) return;
+        await new Promise((r) => setTimeout(r, 5));
+        orden.push('rastro');
+        filas.push(v);
+      },
+    }));
+  });
+
+  it('AC1: declara los campos descifrados y las filas en motivo, antes de responder', async () => {
+    selectMock.mockReturnValueOnce(chain([CON_CIFRADOS, SIN_CIFRADOS]));
+    const r = await request(await appConOrden()).get('/api/drivers').set('Authorization', `Bearer ${await adminToken()}`);
+
+    expect(r.status).toBe(200);
+    expect(filas).toHaveLength(1);
+    expect(filas[0]).toMatchObject({
+      resourceTipo: 'driver_profile',
+      accion: 'read',
+      camposAccedidos: ['cedula', 'licencia_numero'],
+      motivo: 'Listado de conductores: filas=2',
+    });
+    expect(orden).toEqual(['rastro', 'respuesta']);
+  });
+
+  it('AC2: motivo no copia el valor de ?q=', async () => {
+    selectMock.mockReturnValueOnce(chain([CON_CIFRADOS]));
+    await request(await appConOrden()).get('/api/drivers?q=VALORBUSCADO').set('Authorization', `Bearer ${await adminToken()}`);
+
+    expect(filas).toHaveLength(1);
+    expect(JSON.stringify(filas[0])).not.toContain('VALORBUSCADO');
+  });
+
+  it('AC3: sin cédula ni licencia cifradas, sigue quedando fila, con la lista vacía', async () => {
+    selectMock.mockReturnValueOnce(chain([SIN_CIFRADOS]));
+    const r = await request(await appConOrden()).get('/api/drivers').set('Authorization', `Bearer ${await adminToken()}`);
+
+    expect(r.status).toBe(200);
+    expect(filas).toHaveLength(1);
+    expect(filas[0]!.camposAccedidos).toEqual([]);
+    expect(filas[0]!.motivo).toBe('Listado de conductores: filas=1');
+  });
+
+  it('AC3: solo declara el campo que de verdad se entregó', async () => {
+    const { licenciaNumeroCipher: _quitada, ...soloCedula } = CON_CIFRADOS;
+    selectMock.mockReturnValueOnce(chain([soloCedula]));
+    await request(await appConOrden()).get('/api/drivers').set('Authorization', `Bearer ${await adminToken()}`);
+
+    expect(filas[0]!.camposAccedidos).toEqual(['cedula']);
+  });
+
+  it('listado vacío: 200 y fila con filas=0', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    await request(await appConOrden()).get('/api/drivers').set('Authorization', `Bearer ${await adminToken()}`);
+
+    expect(filas).toHaveLength(1);
+    expect(filas[0]!.motivo).toBe('Listado de conductores: filas=0');
+  });
+
+  it('AC4: sin permiso → 403 y sin fila', async () => {
+    const token = await testToken({ sub: 1, role: 'proveedor' });
+    const r = await request(await appConOrden()).get('/api/drivers').set('Authorization', `Bearer ${token}`);
+
+    expect(r.status).toBe(403);
+    expect(filas).toHaveLength(0);
+  });
+
+  it('AC5: con o sin vencidos, mismos campos; filas cuenta lo entregado', async () => {
+    const token = await adminToken();
+    const NO_VENCIDO = { ...CON_CIFRADOS, id: 3, licenciaVigencia: '2099-01-01', examenPsicoVigencia: '2099-01-01' };
+
+    selectMock.mockReturnValueOnce(chain([CON_CIFRADOS, NO_VENCIDO]));
+    const todos = await request(await appConOrden()).get('/api/drivers').set('Authorization', `Bearer ${token}`);
+    selectMock.mockReturnValueOnce(chain([CON_CIFRADOS, NO_VENCIDO]));
+    const vencidos = await request(await appConOrden()).get('/api/drivers?vencidos=true').set('Authorization', `Bearer ${token}`);
+
+    expect(Object.keys(todos.body.data[0]).sort()).toEqual(CAMPOS_DE_HOY);
+    expect(Object.keys(vencidos.body.data[0]).sort()).toEqual(CAMPOS_DE_HOY);
+    expect(todos.body.data).toHaveLength(2);
+    expect(vencidos.body.data).toHaveLength(1);
+    expect(filas[0]!.motivo).toBe('Listado de conductores: filas=2');
+    expect(filas[1]!.motivo).toBe('Listado de conductores: filas=1');
   });
 });
 
