@@ -1,8 +1,12 @@
-// Helper para registrar accesos a PII en pii_access_log (Ley 1581 art. 17).
-// Append-only por trigger SQL. Best-effort: no aborta la operación principal.
+// Helper para registrar accesos a PII en pii_access_log (Ley 1581 art. 17). Append-only por trigger SQL.
 //
-// Llamar desde endpoints que LEAN datos cifrados (cedula, licencia, runt_payload,
-// titular_pago_cuenta, etc.). El handler decide qué campos lista en `camposAccedidos`.
+// Se registra en `pii_access_log` toda lectura que proyecte columnas personales del titular, cifradas
+// o no. No se registran las mutaciones, que van por `audit()`, ni las rutas sin datos del titular.
+// Biométricos y certificado fallan cerrado; documentos, colas y bandejas fallan abierto, con el fallo
+// en el log.
+//
+// `logPiiAccess` es la vía abierta y `logPiiAccessOrThrow` la cerrada. El handler decide qué campos
+// lista en `camposAccedidos` y hace el `await` como última instrucción antes de responder.
 
 import net from 'node:net';
 import type { Request } from 'express';
@@ -39,105 +43,114 @@ function primeraIpValida(cabecera: unknown): string | null {
   return ipValida(String(cabecera ?? '').split(',')[0]?.trim());
 }
 
+async function insertarRegistro(req: Request, opts: PiiAuditOpts): Promise<void> {
+  // Bug #11622 (2.º hallazgo) — `ip_origen` es `varchar(45)` en la DDL real (mig. 0059), y aquí se
+  // leía la cabecera CRUDA sin acotar ni validar. Es la misma cadena que el `request_id`, dos
+  // líneas más arriba y con el mismo final: un `X-Forwarded-For` de 46 caracteres o más deja un
+  // primer elemento de 46, el INSERT usa cast de ASIGNACIÓN —que a diferencia del cast explícito
+  // NO trunca—, PostgreSQL responde 22001 y el `catch` de abajo se lo traga. Otra vez la fila
+  // entera perdida, otra vez desde una cabecera que el cliente elige.
+  //
+  // `trust proxy = 1` no cubría nada de esto: lo que se leía era el header, no `req.ip`. Y con el
+  // `$proxy_add_x_forwarded_for` habitual, nginx ANTEPONE lo que mandó el cliente, así que el
+  // primer elemento es exactamente el valor bajo su control.
+  //
+  // ── De ahí el ORDEN, que es una corrección aparte y de otra naturaleza ──────────────────────
+  //
+  // Ese mismo hecho tiene una segunda consecuencia que el código anterior no sacaba: si el XFF es
+  // `<lo que mandó el cliente>, <IP que añadió el proxy>`, entonces preferir `XFF[0]` es preferir
+  // el único elemento falsificable de la lista. `X-Forwarded-For: 8.8.8.8` bastaba para que la
+  // columna del art. 17 dijera `8.8.8.8` teniendo la IP real a mano. Eso no es perder la fila: es
+  // FALSIFICARLA, y un registro de acceso que miente sobre desde dónde se consultó es peor que
+  // uno que falta, porque nadie sabe que hay que desconfiar de él.
+  //
+  // Por eso se prefiere `req.ip`, que con `trust proxy = 1` es el ÚLTIMO elemento del XFF —el que
+  // puso el proxy— y no el primero. Medido: `XFF: "8.8.8.8, 203.0.113.7"` → `req.ip` es
+  // `203.0.113.7`.
+  //
+  // **`req.ip` no es inviolable, y no se promete que lo sea.** Sin un proxy real delante,
+  // `trust proxy = 1` hace que Express se crea el XFF que mandó el cliente y `req.ip` acaba
+  // siendo su valor (medido: `XFF: "8.8.8.8"` → `req.ip` es `8.8.8.8`). Lo que se afirma es más
+  // modesto: detrás de nginx —el despliegue real— `req.ip` es fidedigno y `XFF[0]` no lo es
+  // nunca, así que la inversión mejora ese caso y no empeora el otro, donde los dos candidatos
+  // son igual de falsificables y los dos pasan por `ipValida`.
+  //
+  // Se VALIDA la forma en vez de recortar a 45. Un `.slice(0, 45)` también cierra el 22001, pero
+  // dejaría entrar 45 caracteres de texto arbitrario del cliente en una columna de auditoría
+  // legal, que es un problema peor que el que resuelve: `ip_origen` respondería «desde dónde se
+  // consultó» con lo que al consultante le apeteciera escribir. La cota de longitud se conserva
+  // ADEMÁS de la forma, y no por redundancia: el porqué está medido cuatro párrafos más abajo.
+  //
+  // `req.ip` se valida también, y no por simetría: con `trust proxy` activo Express lo deriva del
+  // propio XFF y el paquete `forwarded` no comprueba que cada elemento sea una IP, así que un
+  // cliente que llegue sin proxy delante puede colocar basura ahí igual. En producción, detrás de
+  // nginx, `req.ip` es el `remote_addr` que añadió el proxy y sobrevive a esta validación.
+  //
+  // **La cota de 45 no es redundante con `net.isIP`, y comprobarlo importaba.** En Node 24
+  // `net.isIP('fe80::1%eth0')` devuelve 6, no 0: acepta IPv6 con zona, y el identificador de zona
+  // NO tiene límite de longitud —`fe80::1%` + 60 caracteres también da 6, medido aquí—. Validar
+  // solo la forma habría dejado el 22001 abierto exactamente por donde se cerraba, con una
+  // cabecera igual de fácil de mandar. La zona sí está acotada en charset (Node rechaza espacios,
+  // comillas y `<`), así que con la cota de longitud lo que entra es IP-forme y cabe.
+  //
+  // Se comprueba la longitud ANTES que la forma: es lo barato y acota lo que se le pasa a `isIP`.
+  const xff = ipValida(req.ip) ?? primeraIpValida(req.headers['x-forwarded-for']) ?? null;
+  const ua = String(req.headers['user-agent'] ?? '').slice(0, 500);
+  // Bug #11622 — `request_id` es una columna `uuid`: lo que no lo sea entra como NULL.
+  //
+  // La causa se corrige en el middleware de `app.ts`, que ya descarta la cabecera que no sea un
+  // UUID. Esto es el cinturón sobre los tirantes y se queda aquí a propósito: `logPiiAccess` es
+  // el único punto por el que se escribe la tabla que sostiene el art. 17 de la Ley 1581, lo
+  // llaman tres módulos desde 15 sitios, y `req` puede no venir de la cadena de `createApp` (un
+  // router montado aparte, un cron que fabrica una petición, un test). Sin este saneo, cualquiera
+  // de esos caminos vuelve a provocar el 22P02 que borraba la fila entera en silencio.
+  //
+  // El guarda anterior era `typeof requestId === 'string'`, y **filtraba menos de lo que parecía**.
+  // La versión anterior de este comentario decía que atajaba el `string[]` de una cabecera
+  // repetida; es falso, y conviene dejarlo escrito porque la conclusión cambia: Node NO entrega
+  // arrays para cabeceras repetidas —une los valores con `", "`— y solo `set-cookie` es la
+  // excepción. Medido por socket crudo: `X-Request-Id: a` + `X-Request-Id: b` llega como el
+  // string `"a, b"`, que pasaba `typeof === 'string'` tan campante y aterrizaba en una columna
+  // `uuid`. Es decir, la cabecera repetida era un 22P02 vivo más, no un caso ya cubierto.
+  //
+  // `esUuid` lo cierra por la forma, no por el tipo (aunque comprueba el tipo primero, que es lo
+  // que mantiene a salvo el `string[]` de una petición fabricada a mano). Perder el id de
+  // correlación es una molestia; perder la fila es un incumplimiento.
+  const requestIdCrudo = req.headers['x-request-id'] || (req as any).id || null;
+  const requestId = esUuid(requestIdCrudo) ? requestIdCrudo : null;
+  if (requestIdCrudo !== null && requestId === null) {
+    // Sin volcar el valor: es texto que controla el cliente y este log no es sitio para él.
+    log.warn({ resource: opts.resourceTipo }, 'x-request-id no es UUID — se registra el acceso con request_id NULL');
+  }
+  await db.insert(piiAccessLog).values({
+    userId: req.user?.sub ?? null,
+    userRole: req.user?.role ?? null,
+    resourceTipo: opts.resourceTipo,
+    resourceId: opts.resourceId ?? null,
+    accion: opts.accion,
+    camposAccedidos: opts.camposAccedidos,
+    motivo: opts.motivo ?? null,
+    ipOrigen: xff,
+    userAgent: ua,
+    requestId,
+  });
+}
+
+/**
+ * El rastro no se pudo escribir en una lectura que falla cerrado. Su mensaje es fijo y sin valores:
+ * el detalle viaja en `cause`, y lo que llega al cliente lo decide `errorHandler`.
+ */
+export class PiiAccessLogError extends Error {}
+
 export async function logPiiAccess(req: Request, opts: PiiAuditOpts): Promise<void> {
   try {
-    // Bug #11622 (2.º hallazgo) — `ip_origen` es `varchar(45)` en la DDL real (mig. 0059), y aquí se
-    // leía la cabecera CRUDA sin acotar ni validar. Es la misma cadena que el `request_id`, dos
-    // líneas más arriba y con el mismo final: un `X-Forwarded-For` de 46 caracteres o más deja un
-    // primer elemento de 46, el INSERT usa cast de ASIGNACIÓN —que a diferencia del cast explícito
-    // NO trunca—, PostgreSQL responde 22001 y el `catch` de abajo se lo traga. Otra vez la fila
-    // entera perdida, otra vez desde una cabecera que el cliente elige.
-    //
-    // `trust proxy = 1` no cubría nada de esto: lo que se leía era el header, no `req.ip`. Y con el
-    // `$proxy_add_x_forwarded_for` habitual, nginx ANTEPONE lo que mandó el cliente, así que el
-    // primer elemento es exactamente el valor bajo su control.
-    //
-    // ── De ahí el ORDEN, que es una corrección aparte y de otra naturaleza ──────────────────────
-    //
-    // Ese mismo hecho tiene una segunda consecuencia que el código anterior no sacaba: si el XFF es
-    // `<lo que mandó el cliente>, <IP que añadió el proxy>`, entonces preferir `XFF[0]` es preferir
-    // el único elemento falsificable de la lista. `X-Forwarded-For: 8.8.8.8` bastaba para que la
-    // columna del art. 17 dijera `8.8.8.8` teniendo la IP real a mano. Eso no es perder la fila: es
-    // FALSIFICARLA, y un registro de acceso que miente sobre desde dónde se consultó es peor que
-    // uno que falta, porque nadie sabe que hay que desconfiar de él.
-    //
-    // Por eso se prefiere `req.ip`, que con `trust proxy = 1` es el ÚLTIMO elemento del XFF —el que
-    // puso el proxy— y no el primero. Medido: `XFF: "8.8.8.8, 203.0.113.7"` → `req.ip` es
-    // `203.0.113.7`.
-    //
-    // **`req.ip` no es inviolable, y no se promete que lo sea.** Sin un proxy real delante,
-    // `trust proxy = 1` hace que Express se crea el XFF que mandó el cliente y `req.ip` acaba
-    // siendo su valor (medido: `XFF: "8.8.8.8"` → `req.ip` es `8.8.8.8`). Lo que se afirma es más
-    // modesto: detrás de nginx —el despliegue real— `req.ip` es fidedigno y `XFF[0]` no lo es
-    // nunca, así que la inversión mejora ese caso y no empeora el otro, donde los dos candidatos
-    // son igual de falsificables y los dos pasan por `ipValida`.
-    //
-    // Se VALIDA la forma en vez de recortar a 45. Un `.slice(0, 45)` también cierra el 22001, pero
-    // dejaría entrar 45 caracteres de texto arbitrario del cliente en una columna de auditoría
-    // legal, que es un problema peor que el que resuelve: `ip_origen` respondería «desde dónde se
-    // consultó» con lo que al consultante le apeteciera escribir. La cota de longitud se conserva
-    // ADEMÁS de la forma, y no por redundancia: el porqué está medido cuatro párrafos más abajo.
-    //
-    // `req.ip` se valida también, y no por simetría: con `trust proxy` activo Express lo deriva del
-    // propio XFF y el paquete `forwarded` no comprueba que cada elemento sea una IP, así que un
-    // cliente que llegue sin proxy delante puede colocar basura ahí igual. En producción, detrás de
-    // nginx, `req.ip` es el `remote_addr` que añadió el proxy y sobrevive a esta validación.
-    //
-    // **La cota de 45 no es redundante con `net.isIP`, y comprobarlo importaba.** En Node 24
-    // `net.isIP('fe80::1%eth0')` devuelve 6, no 0: acepta IPv6 con zona, y el identificador de zona
-    // NO tiene límite de longitud —`fe80::1%` + 60 caracteres también da 6, medido aquí—. Validar
-    // solo la forma habría dejado el 22001 abierto exactamente por donde se cerraba, con una
-    // cabecera igual de fácil de mandar. La zona sí está acotada en charset (Node rechaza espacios,
-    // comillas y `<`), así que con la cota de longitud lo que entra es IP-forme y cabe.
-    //
-    // Se comprueba la longitud ANTES que la forma: es lo barato y acota lo que se le pasa a `isIP`.
-    const xff = ipValida(req.ip) ?? primeraIpValida(req.headers['x-forwarded-for']) ?? null;
-    const ua = String(req.headers['user-agent'] ?? '').slice(0, 500);
-    // Bug #11622 — `request_id` es una columna `uuid`: lo que no lo sea entra como NULL.
-    //
-    // La causa se corrige en el middleware de `app.ts`, que ya descarta la cabecera que no sea un
-    // UUID. Esto es el cinturón sobre los tirantes y se queda aquí a propósito: `logPiiAccess` es
-    // el único punto por el que se escribe la tabla que sostiene el art. 17 de la Ley 1581, lo
-    // llaman tres módulos desde 15 sitios, y `req` puede no venir de la cadena de `createApp` (un
-    // router montado aparte, un cron que fabrica una petición, un test). Sin este saneo, cualquiera
-    // de esos caminos vuelve a provocar el 22P02 que borraba la fila entera en silencio.
-    //
-    // El guarda anterior era `typeof requestId === 'string'`, y **filtraba menos de lo que parecía**.
-    // La versión anterior de este comentario decía que atajaba el `string[]` de una cabecera
-    // repetida; es falso, y conviene dejarlo escrito porque la conclusión cambia: Node NO entrega
-    // arrays para cabeceras repetidas —une los valores con `", "`— y solo `set-cookie` es la
-    // excepción. Medido por socket crudo: `X-Request-Id: a` + `X-Request-Id: b` llega como el
-    // string `"a, b"`, que pasaba `typeof === 'string'` tan campante y aterrizaba en una columna
-    // `uuid`. Es decir, la cabecera repetida era un 22P02 vivo más, no un caso ya cubierto.
-    //
-    // `esUuid` lo cierra por la forma, no por el tipo (aunque comprueba el tipo primero, que es lo
-    // que mantiene a salvo el `string[]` de una petición fabricada a mano). Perder el id de
-    // correlación es una molestia; perder la fila es un incumplimiento.
-    const requestIdCrudo = req.headers['x-request-id'] || (req as any).id || null;
-    const requestId = esUuid(requestIdCrudo) ? requestIdCrudo : null;
-    if (requestIdCrudo !== null && requestId === null) {
-      // Sin volcar el valor: es texto que controla el cliente y este log no es sitio para él.
-      log.warn({ resource: opts.resourceTipo }, 'x-request-id no es UUID — se registra el acceso con request_id NULL');
-    }
-    await db.insert(piiAccessLog).values({
-      userId: req.user?.sub ?? null,
-      userRole: req.user?.role ?? null,
-      resourceTipo: opts.resourceTipo,
-      resourceId: opts.resourceId ?? null,
-      accion: opts.accion,
-      camposAccedidos: opts.camposAccedidos,
-      motivo: opts.motivo ?? null,
-      ipOrigen: xff,
-      userAgent: ua,
-      requestId,
-    });
+    await insertarRegistro(req, opts);
   } catch (e: any) {
-    // PENDIENTE DE DECISIÓN (negocio/legal, no técnica) — hoy esto FALLA ABIERTO: si el registro de
-    // acceso no se puede escribir, la operación principal continúa y los datos personales se
-    // entregan igual, con una línea de log como toda constancia. La alternativa —negarse a entregar
-    // PII cuando el rastro no se puede escribir— es una decisión de David y no se toma aquí.
+    // Vía abierta: si el registro de acceso no se puede escribir, la operación principal continúa y
+    // el fallo queda en esta línea de log (regla de la cabecera). Lo biométrico y el certificado usan
+    // `logPiiAccessOrThrow`.
     //
-    // Para que esa decisión se tome sobre datos ciertos, lo que este bug cerró y lo que NO:
+    // Lo que se sabe de las causas de ese fallo:
     //
     //   · CERRADO — las tres vías por las que un usuario autenticado podía provocar el fallo a
     //     voluntad, y por tanto suprimir su propio rastro, todas por cabecera: `X-Request-Id`
@@ -169,5 +182,15 @@ export async function logPiiAccess(req: Request, opts: PiiAuditOpts): Promise<vo
     // pero «no se conoce ninguna» no es «no la hay» —el 23503 de arriba es un ejemplo de algo que
     // sigue vivo por otra puerta—, y la diferencia importa para elegir entre abierto y cerrado.
     log.error({ err: e?.message, resource: opts.resourceTipo }, 'fallo escribiendo pii_access_log');
+  }
+}
+
+/** Como `logPiiAccess`, pero lanza si la fila no se escribió: quien llama no entrega los datos. */
+export async function logPiiAccessOrThrow(req: Request, opts: PiiAuditOpts): Promise<void> {
+  try {
+    await insertarRegistro(req, opts);
+  } catch (e) {
+    log.error({ err: e instanceof Error ? e.message : undefined, resource: opts.resourceTipo }, 'fallo escribiendo pii_access_log');
+    throw new PiiAccessLogError('no se pudo registrar el acceso a datos personales', { cause: e });
   }
 }
