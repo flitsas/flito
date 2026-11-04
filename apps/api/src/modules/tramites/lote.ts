@@ -15,6 +15,7 @@ import { emitEvento } from './eventos.js';
 import { appendEventoSafe } from '../vehicles/vehiculo-historial.js';
 import { docLast4 } from './laft-screening.js';
 import { loggerFor } from '../../shared/logger.js';
+import { normalizeVin } from '../../shared/utils/vin.js';
 
 const log = loggerFor('tramite.lote');
 
@@ -42,9 +43,6 @@ export function computeCsvSha256(text: string): string {
   return createHash('sha256').update(normalizeCsvForHash(text), 'utf8').digest('hex');
 }
 
-function normalizeVin(v: string): string {
-  return (v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17);
-}
 // LOTE-PLUS-02: documento solo dígitos, máx 15 (no exponer/loguear completo).
 function normalizeDoc(v: string): string {
   return (v || '').replace(/\D/g, '').slice(0, 15);

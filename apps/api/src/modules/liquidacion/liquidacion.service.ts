@@ -3,10 +3,10 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { liquidaciones, liquidacionItems, pagos } from '../../db/schema.js';
+import { redondear } from '../../shared/utils/redondeo.js';
 
 export interface ItemInput { descripcion: string; cantidad: number; valorUnitario: number }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
 const num = (v: unknown) => Number(v ?? 0);
 
 export interface LiquidacionDto {
@@ -52,8 +52,8 @@ export async function listLiquidaciones(filtro: { woId?: number; tramiteId?: num
 export async function crearLiquidacion(opts: {
   woId?: number | null; tramiteId?: number | null; items: ItemInput[]; nota?: string | null; userId: number | null;
 }): Promise<LiquidacionDto> {
-  const itemsCalc = opts.items.map((i) => ({ ...i, subtotal: round2(num(i.cantidad) * num(i.valorUnitario)) }));
-  const total = round2(itemsCalc.reduce((s, i) => s + i.subtotal, 0));
+  const itemsCalc = opts.items.map((i) => ({ ...i, subtotal: redondear(num(i.cantidad) * num(i.valorUnitario)) }));
+  const total = redondear(itemsCalc.reduce((s, i) => s + i.subtotal, 0));
 
   const [liq] = await db.insert(liquidaciones).values({
     woId: opts.woId ?? null, tramiteId: opts.tramiteId ?? null, estado: 'borrador',
@@ -83,7 +83,7 @@ export async function confirmarPago(opts: {
 
   await db.insert(pagos).values({
     liquidacionId: opts.liquidacionId, metodo: opts.metodo || 'manual', estado: 'manual_confirmado',
-    monto: String(round2(num(opts.monto))), referencia: opts.referencia ?? null, nota: opts.nota ?? null, createdBy: opts.userId,
+    monto: String(redondear(num(opts.monto))), referencia: opts.referencia ?? null, nota: opts.nota ?? null, createdBy: opts.userId,
   });
   await db.update(liquidaciones).set({ estado: 'confirmada', confirmadaAt: new Date() })
     .where(eq(liquidaciones.id, opts.liquidacionId));
