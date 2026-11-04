@@ -23,6 +23,11 @@ export const CAMPOS_DIRECCION_FACTURA = ['direccion', 'municipio', 'departamento
 export type CampoDireccionFactura = (typeof CAMPOS_DIRECCION_FACTURA)[number];
 export type DireccionAdquiriente = Record<CampoDireccionFactura, CampoExtraido>;
 
+/** Los 3 datos del documento (HU #14293). Lista propia: no alimenta ni el semáforo ni la comparación. */
+export const CAMPOS_DOCUMENTO_FACTURA = ['numeroFactura', 'fechaFactura', 'avaluoComercial'] as const;
+export type CampoDocumentoFactura = (typeof CAMPOS_DOCUMENTO_FACTURA)[number];
+export type DatosDocumentoFactura = Record<CampoDocumentoFactura, CampoExtraido>;
+
 export const AUSENTE: CampoExtraido = Object.freeze({ valor: null, confianza: 0, confiable: false }) as CampoExtraido;
 const ausente = (): CampoExtraido => ({ ...AUSENTE });
 const valido = (valor: string, confianza = 1): CampoExtraido => ({ valor, confianza, confiable: true });
@@ -236,12 +241,212 @@ export function parsearAdquiriente(texto: string): DireccionAdquiriente {
   return salida;
 }
 
-/** Las 10 claves que persiste el análisis, en el orden del jsonb. */
+// ─────────────────────────────── Datos del documento (HU #14293) ───────────────────────────────
+//
+// Número, fecha de emisión y avalúo, para el Excel de la cola. Se muestran, no deciden: cada uno lleva
+// su propio `confiable` y ninguno entra en `CAMPOS_VEHICULO_FACTURA`/`CAMPOS_DIRECCION_FACTURA`, que
+// son las listas de `confiables()`, `facturaIlegible` y el semáforo.
+
+const HASH_HEX = /^[0-9a-f]{24,}$/i;
+const NUMERO_FACTURA = /^(?=.*\d)[A-Z0-9][A-Z0-9-]{1,28}[A-Z0-9]$/;
+
+/**
+ * Número de factura: 3–30 caracteres `[A-Z0-9-]` con algún dígito y que no sea un hash hexadecimal.
+ * Quita los espacios: el OCR puede devolver prefijo y consecutivo separados (`FV99 1234`). No pasa a
+ * mayúsculas: lo que no está impreso así no es un número de factura (la continuación de un CUFE).
+ */
+export function numeroFacturaN(v: string): string | null {
+  const s = v.replace(/\s+/g, '');
+  return NUMERO_FACTURA.test(s) && !HASH_HEX.test(s) ? s : null;
+}
+
+/** `AAAA-MM-DD` si el día existe en ese mes. Sin `Date`: nada de husos que puedan mover el día. */
+function fechaCalendario(anio: string, mes: string, dia: string): string | null {
+  const a = Number(anio); const m = Number(mes); const d = Number(dia);
+  if (a < 1900 || m < 1 || m > 12 || d < 1) return null;
+  const bisiesto = (a % 4 === 0 && a % 100 !== 0) || a % 400 === 0;
+  const dias = [31, bisiesto ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+  return d <= dias ? `${anio}-${mes}-${dia}` : null;
+}
+
+/**
+ * Fecha de factura: acepta `aaaa-mm-dd` y `dd/mm/aaaa[ hh:mm[:ss]]`, con la hora separada por espacio o
+ * por coma (`31/01/2030, 15:48`); devuelve `AAAA-MM-DD`, sin la hora.
+ */
+export function fechaFacturaN(v: string): string | null {
+  const s = v.trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (iso) return fechaCalendario(iso[1], iso[2], iso[3]);
+  const dmy = /^(\d{2})\/(\d{2})\/(\d{4})(?:(?:\s+|,\s*)(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)?$/.exec(s);
+  return dmy ? fechaCalendario(dmy[3], dmy[2], dmy[1]) : null;
+}
+
+/** Tope de la parte entera: el importe acaba en un número de Excel y ahí no puede perder centavos. */
+const MAX_DIGITOS_ENTEROS = 13;
+
+/** Las formas sin ambigüedad: [regex, separador de miles que se quita, separador decimal]. */
+const FORMAS_IMPORTE: ReadonlyArray<[RegExp, RegExp | null, string | null]> = [
+  [/^\d+$/, null, null],
+  [/^\d+\.\d{1,2}$/, null, '.'],
+  [/^\d+,\d{1,2}$/, null, ','],
+  [/^\d{1,3}(?:,\d{3})+\.\d{1,2}$/, /,/g, '.'],
+  [/^\d{1,3}(?:\.\d{3})+,\d{1,2}$/, /\./g, ','],
+  [/^\d{1,3}(?:,\d{3}){2,}$/, /,/g, null],
+  [/^\d{1,3}(?:\.\d{3}){2,}$/, /\./g, null],
+];
+
+/**
+ * Importe a cadena canónica `1234567.89`, con los decimales tal como están impresos. Se decide el
+ * formato ANTES de convertir nada (ni `parseFloat`, ni `normalizarPesos`, que descarta los centavos).
+ * `0` y `0.00` son válidos. Rechaza lo ambiguo —un solo separador con exactamente tres dígitos detrás,
+ * `123,456` o `1.234`—, los negativos, las letras y los formatos mezclados.
+ */
+export function importeFacturaN(v: string): string | null {
+  const s = v.trim().replace(/^\$\s*/, '');
+  for (const [forma, miles, decimal] of FORMAS_IMPORTE) {
+    if (!forma.test(s)) continue;
+    const sinMiles = miles ? s.replace(miles, '') : s;
+    const [entero, centavos] = decimal ? sinMiles.split(decimal) : [sinMiles, undefined];
+    const canonico = entero.replace(/^0+(?=\d)/, '');
+    if (canonico.length > MAX_DIGITOS_ENTEROS) return null;
+    return centavos === undefined ? canonico : `${canonico}.${centavos}`;
+  }
+  return null;
+}
+
+/** Ausente sin crudos; válido si todos normalizan al mismo valor; dudoso si no (misma regla que Notas Finales). */
+function campoDesdeCrudos(crudos: string[], normalizar: (v: string) => string | null): CampoExtraido {
+  if (crudos.length === 0) return ausente();
+  const normalizados = crudos.map(normalizar);
+  const unico = normalizados[0];
+  return unico !== null && normalizados.every((n) => n === unico) ? valido(unico) : dudoso(crudos[0]);
+}
+
+const ETIQUETA_NUMERO = /N[uú]mero\s*de\s*Factura\s*:?/i;
+const ETIQUETA_CUFE = /C[oó]digo\s*[UÚ]nico|CUFE/i;
+const ETIQUETA_EMISION = /Fecha\s*de\s*Emisi[oó]n\s*:?/i;
+const ETIQUETA_SUBTOTAL = /Subtotal\s*Base\s*gravable\s*(?:\(\s*=\s*\))?/i;
+
+const primerTokenSinHash = (s: string): string | null =>
+  s.trim().split(/\s+/).find((t) => t !== '' && !HASH_HEX.test(t)) ?? null;
+
+/**
+ * El valor va en la línea SIGUIENTE a la cabecera, en la columna que comparte con la continuación del
+ * CUFE. Una línea con `:` ya es otra etiqueta: hasta ahí se busca (el valor está ausente).
+ */
+function crudoNumeroFactura(lineas: string[], i: number, resto: string): string | null {
+  const mismaLinea = primerTokenSinHash(resto.split(ETIQUETA_CUFE)[0]);
+  if (mismaLinea) return mismaLinea;
+  for (const l of lineas.slice(i + 1, i + 4)) {
+    if (l.includes(':')) return null;
+    const token = primerTokenSinHash(l);
+    if (token) return token;
+  }
+  return null;
+}
+
+/** «Número de Factura:» de la plantilla A. El valor ya trae el prefijo: `Prefijo:` no se concatena. */
+export function parsearNumeroFactura(texto: string): CampoExtraido {
+  const lineas = texto.split(/\r?\n/);
+  const crudos: string[] = [];
+  lineas.forEach((l, i) => {
+    const m = ETIQUETA_NUMERO.exec(l);
+    if (!m) return;
+    const crudo = crudoNumeroFactura(lineas, i, l.slice(m.index + m[0].length));
+    if (crudo) crudos.push(crudo);
+  });
+  return campoDesdeCrudos(crudos, numeroFacturaN);
+}
+
+/**
+ * «Fecha de Emisión:» de la plantilla A. Comparte línea con «Fecha de Vencimiento:», por eso el valor
+ * se corta en la siguiente etiqueta: sin emisión queda ausente, nunca toma el vencimiento.
+ */
+export function parsearFechaEmision(texto: string): CampoExtraido {
+  const crudos: string[] = [];
+  for (const l of texto.split(/\r?\n/)) {
+    const m = ETIQUETA_EMISION.exec(l);
+    if (!m) continue;
+    const resto = l.slice(m.index + m[0].length).trim();
+    if (resto === '' || /^Fecha\b/i.test(resto)) continue;
+    crudos.push(resto.split(/\s{2,}|\s+Fecha\b/i)[0]);
+  }
+  return campoDesdeCrudos(crudos, fechaFacturaN);
+}
+
+/** «Subtotal Base gravable» de la plantilla A: nunca «Totalmás impuestos» ni «Valor total…». */
+export function parsearSubtotalBaseGravable(texto: string): CampoExtraido {
+  const crudos: string[] = [];
+  for (const l of texto.split(/\r?\n/)) {
+    const m = ETIQUETA_SUBTOTAL.exec(l);
+    if (!m) continue;
+    const valor = l.slice(m.index + m[0].length).trim();
+    if (valor) crudos.push(valor);
+  }
+  return campoDesdeCrudos(crudos, importeFacturaN);
+}
+
+export interface FilaProductoFactura {
+  descripcion: string;
+  /** Columna «Valor de Venta por Artículo», la última de la fila, tal como está impresa. */
+  valorVenta: string;
+}
+
+const TOKEN_IMPORTE = /^\$?\d[\d.,]*$/;
+
+/**
+ * Las filas de producto del texto `-raw`. Una fila de la tabla de impuestos también casa con
+ * `FILA_PRODUCTO` (`1 IVA 01 IVA 19 $1.900.000,00`) y contarla convertiría cada factura de un producto
+ * en una de varios: de un producto salen la cantidad y al menos dos importes; de un impuesto, el
+ * porcentaje y uno solo.
+ */
+export function filasProducto(textoRaw: string): FilaProductoFactura[] {
+  const filas: FilaProductoFactura[] = [];
+  for (const crudo of textoRaw.split(/\r?\n/)) {
+    const l = crudo.trim().replace(/\$\s+/g, '$');
+    const m = FILA_PRODUCTO.exec(l);
+    if (!m) continue;
+    const tokens = l.split(/\s+/);
+    let numericosFinales = 0;
+    while (numericosFinales < tokens.length && TOKEN_IMPORTE.test(tokens[tokens.length - 1 - numericosFinales])) numericosFinales++;
+    if (numericosFinales < 3) continue;
+    filas.push({ descripcion: m[2].replace(/\s+/g, ' ').trim(), valorVenta: tokens[tokens.length - 1] });
+  }
+  return filas;
+}
+
+/**
+ * Avalúo (AC4–AC6): el valor del vehículo antes de impuestos. Una fila de producto → el subtotal
+ * gravable. Varias → solo la fila cuya descripción trae el VIN confiable de Notas Finales, porque es lo
+ * único que la identifica con certeza; si no hay una y solo una, ausente. Sin filas reconocibles no se
+ * sabe si el subtotal es solo del vehículo: ausente también.
+ */
+export function avaluoDesdeFactura(texto: string, textoRaw: string, vin: string | null): CampoExtraido {
+  const filas = filasProducto(textoRaw);
+  if (filas.length === 0) return ausente();
+  if (filas.length === 1) return parsearSubtotalBaseGravable(texto);
+  if (!vin) return ausente();
+  const delVehiculo = filas.filter((f) => f.descripcion.replace(/\s/g, '').toUpperCase().includes(vin));
+  return delVehiculo.length === 1 ? campoDesdeCrudos([delVehiculo[0].valorVenta], importeFacturaN) : ausente();
+}
+
+/** Los 3 datos del documento de una factura con Notas Finales. Cada uno se evalúa por separado (AC7). */
+export function parsearDatosDocumento(texto: string, textoRaw: string, vin: string | null): DatosDocumentoFactura {
+  return {
+    numeroFactura: parsearNumeroFactura(texto),
+    fechaFactura: parsearFechaEmision(texto),
+    avaluoComercial: avaluoDesdeFactura(texto, textoRaw, vin),
+  };
+}
+
+/** Las 13 claves que persiste el análisis, en el orden del jsonb. */
 export function extraccionCompleta(
   vehiculo: Partial<ExtraccionVehiculoFactura>, direccion: Partial<DireccionAdquiriente>,
+  documento: Partial<DatosDocumentoFactura> = {},
 ): ExtraccionFacturaVentaImpuestoCampos {
   const salida: ExtraccionFacturaVentaImpuestoCampos = {};
   for (const c of CAMPOS_VEHICULO_FACTURA) salida[c] = vehiculo[c] ?? ausente();
   for (const c of CAMPOS_DIRECCION_FACTURA) salida[c] = direccion[c] ?? ausente();
+  for (const c of CAMPOS_DOCUMENTO_FACTURA) salida[c] = documento[c] ?? ausente();
   return salida;
 }

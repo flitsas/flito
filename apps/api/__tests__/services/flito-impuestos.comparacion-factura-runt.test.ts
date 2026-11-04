@@ -190,3 +190,27 @@ describe('extraerColorCilindrajeRunt', () => {
     expect(extraerColorCilindrajeRunt(null)).toEqual({ color: null, cilindraje: null });
   });
 });
+
+describe('HU #14293 AC8 — número, fecha y avalúo no cambian el resultado', () => {
+  const datos = (c: CampoExtraido) => ({ numeroFactura: c, fechaFactura: c, avaluoComercial: c });
+  const nulo: CampoExtraido = { valor: null, confianza: 0, confiable: false };
+
+  it.each([
+    ['verde', runt()],
+    ['naranja', runt({ color: 'NEGRO' })],
+  ])('semáforo %s: el mismo resultado sin los datos, con ellos fiables y con ellos ausentes', (esperado, vehiculo) => {
+    const base = compararFacturaConRunt(factura(), vehiculo, AHORA);
+    expect(base.semaforo).toBe(esperado);
+    for (const extra of [datos(ok('ZZ1234')), datos(dudoso('x')), datos(nulo)]) {
+      expect(compararFacturaConRunt(factura(extra), vehiculo, AHORA)).toEqual(base);
+    }
+  });
+
+  it('facturaIlegible no se salva por estos datos ni cae por ellos', () => {
+    const ilegible = {
+      vin: dudoso('X'), marca: dudoso(null), linea: dudoso(null), anioVehiculo: dudoso(null), color: dudoso(null), cilindrada: dudoso(null),
+    };
+    expect(facturaIlegible(factura({ ...ilegible, ...datos(ok('ZZ1234')) }))).toBe(true);
+    expect(facturaIlegible(factura(datos(nulo)))).toBe(false);
+  });
+});
