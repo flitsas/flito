@@ -1,5 +1,6 @@
 import { encryptPii, decryptPii, newUuid, hmacCedula, normalizeDocument } from '../../../shared/utils/crypto.js';
 import type { CipherBundle } from '../../../shared/utils/crypto.js';
+import { piiDecryptFailuresTotal } from '../../../shared/metrics.js';
 
 // Helpers para cifrar/descifrar columnas PII de laft_counterparties (mig 0063).
 // Convención: las columnas *_enc almacenan un JSONB con la siguiente forma:
@@ -55,6 +56,20 @@ export function encryptCounterpartyField(
   return bundleToJsonb(bundle, aadNonce);
 }
 
+/** Lanza si no descifra. La lectura de las rutas va por `decryptCounterpartyField`. */
+export function descifrarCounterpartyEstricto(
+  enc: EncBundleJsonb,
+  column: CounterpartyEncColumn,
+  rowId: number,
+): string {
+  return decryptPii(jsonbToBundle(enc), {
+    table: 'laft_counterparties',
+    column,
+    empresaNit: String(rowId),
+    aadNonce: enc.aadNonce,
+  });
+}
+
 export function decryptCounterpartyField(
   enc: EncBundleJsonb | null | undefined,
   column: CounterpartyEncColumn,
@@ -62,13 +77,9 @@ export function decryptCounterpartyField(
 ): string | null {
   if (!enc) return null;
   try {
-    return decryptPii(jsonbToBundle(enc), {
-      table: 'laft_counterparties',
-      column,
-      empresaNit: String(rowId),
-      aadNonce: enc.aadNonce,
-    });
+    return descifrarCounterpartyEstricto(enc, column, rowId);
   } catch {
+    piiDecryptFailuresTotal.inc({ table: 'laft_counterparties', column });
     return null;
   }
 }

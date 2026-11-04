@@ -50,7 +50,7 @@ export { flitoImpuestoEnviosFlit2 } from './schema/flito-impuesto-envios-flit2.j
 import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js';
 export { flitoTramiteViajesLogistica };
 // HU #14109: traslados, líneas, motivos, líneas y firmas de acta viven en `./schema/flito-logistica-traslados.ts`.
-export * from './schema/flito-logistica-traslados.js';
+export * from './schema/flito-logistica-traslados.js'; export * from './schema/pii-key-registry.js'; // Feature #13978: registro de llaves PII
 // HU #13061: `flito_sync_flit2_acceso` vive en `./schema/flito-sync.ts` por el mismo techo.
 export { flitoSyncFlit2Acceso, flitoSyncFlit2Lectura, flitoSyncInterruptor, flitoSyncFlit1Lectura } from './schema/flito-sync.js';
 // HU #13803: `flito_drflit_autorizaciones` (Dr. Flit, Ley 1581) vive en `./schema/flito-drflit.ts` y NO se

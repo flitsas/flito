@@ -155,3 +155,19 @@ export const usoLegacyConteosDescartadosTotal = new Counter({
   help: 'Conteos de uso legacy descartados por superar el tope de claves del buffer.',
   registers: [registry],
 });
+
+// Feature #13978: lecturas que devuelven `null` con 200 si no descifran. Sin esta serie, una llave
+// ausente se vería como «sin dato» y la métrica seguiría en 0.
+for (const [table, column] of [
+  ['driver_profile', 'cedula'],
+  ['driver_profile', 'licencia_numero'],
+  ['driver_profile', 'runt_payload'],
+  ['manifiestos', 'titular_pago_cuenta'],
+  ['laft_counterparties', 'doc_number'],
+  ['laft_counterparties', 'email'],
+  ['laft_counterparties', 'phone'],
+  ['flito_logistica_acta_firmas', 'documento_cifrado'],
+  ['flito_logistica_recogida_firmantes', 'documento_cifrado'],
+] as const) {
+  piiDecryptFailuresTotal.inc({ table, column }, 0);
+}

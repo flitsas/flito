@@ -48,11 +48,18 @@ import {
   startSoatBorradosPendientesCron, stopSoatBorradosPendientesCron,
 } from './modules/flito-soat/flito-soat-borrados-pendientes.cron.js';
 import { verificarCatalogoAlArrancar } from './modules/permisos/permisos.service.js';
+import { comprobarLlavesPiiAlArrancar } from './modules/privacy/rotacion/comprobar-llaves.js';
 import { closeRedis } from './shared/redis.js';
 import { cerrarUsoLegacy, flushUsoLegacy } from './modules/uso-legacy/uso-legacy.service.js';
 import { loggerFor } from './shared/logger.js';
 
 const log = loggerFor('server');
+
+// Feature #13978 (ADR-0034 D2, AC3 de #14100): con una llave PII equivocada este proceso no llega a
+// aceptar peticiones ni a arrancar crons. Va aquí y no en `crypto.ts` ni en `app.ts` para que tests y
+// scripts que los importan no la ejecuten.
+await comprobarLlavesPiiAlArrancar();
+
 const app = createApp();
 
 // HU #12081 (AC6) — El catálogo lo declara el PRODUCTO, no el administrador. Aquí se comprueba que
