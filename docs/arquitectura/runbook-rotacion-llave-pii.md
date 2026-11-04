@@ -102,7 +102,7 @@ En local: `npm run privacy:rotar-llave-pii -w apps/api -- --dry-run --target-ver
 | `--solo-llaves` | Compara las llaves del Job con el registro |
 | `--limpiar-objetos` | Borra los objetos anteriores de MinIO |
 
-**Salidas:** `0` terminada · `2` quedan pendientes, revisar y volver a correr · `1` abortó con cero escrituras. La salida solo lleva conteos e ids de fila.
+**Salidas:** `0` terminada · `2` quedan pendientes, revisar y volver a correr · `1` abortó: por llave o argumentos, con cero escrituras; por una excepción inesperada a mitad de `--commit`, puede haber filas ya escritas y no se imprimen conteos (volver a correr es seguro). La salida solo lleva conteos e ids de fila.
 
 `--target-version` es una afirmación tuya: si no coincide con `PII_ENC_KEY_CURRENT_VERSION` del Job, aborta. El script no tiene origen ni destino: todo lo que no esté en la vigente se recifra a la vigente.
 
@@ -171,7 +171,7 @@ Rendimiento: sin datos de volumen de PDN no hay estimación. Medir la duración 
 
 **V1 se retira solo tras `--verificar --target-version=2` en 0**, corrido justo antes de este paso, no el de días atrás: es la última comprobación de que nada quedó dependiendo de V1.
 
-1. `--verificar --target-version=2`, salida 0.
+1. `--verificar --target-version=2`, salida 0. `formato_desconocido` mayor que 0 no bloquea el retiro, porque ningún lector descifra esa clase, pero **hay que revisar esas filas antes de destruir la llave anterior en la bóveda**.
 2. Al cerrar la ventana: `--limpiar-objetos`, salida 0. Solo borra la previa de filas ya en la vigente; las demás salen en `omitido_otra_version` y dan salida 2. **Después de esto, restaurar un dump anterior no recupera los documentos de bolsa.**
 3. Quitar `PII_ENC_KEY` del secreto. Forzar el rollout, en ventana. Comprobar en el pod `versionesConfiguradas: [2]`.
 4. `--verificar --target-version=2` una vez más, ahora sin V1 en el Job.
@@ -234,4 +234,6 @@ El riesgo es que quien tenga la llave y una copia de la BD compruebe por fuerza 
 
 ## Auditoría PII del Job
 
-`logPiiAccess` exige un `Request` y el Job no lo tiene. Hoy el script **no** escribe en `pii_access_log`: no expone datos a ninguna persona, y su rastro es la salida del Job y este procedimiento. **Pendiente de decisión de `security-agent`** (ADR-0034, riesgo abierto 2). Guardar la salida de cada corrida en el registro del cambio.
+`logPiiAccess` exige un `Request` y el Job no lo tiene. Hoy el script **no** escribe en `pii_access_log`: no expone datos a ninguna persona, y su rastro es la salida del Job y este procedimiento. `security-agent` lo aceptó en la HU #13987 (ADR-0034, riesgo abierto 2): fabricar un `Request` falsearía un registro append-only.
+
+**Condición antes de correr en PDN:** el Job se borra a las 24 h, así que el rastro de cada corrida debe guardarse en el registro del cambio, con acceso restringido: quién autorizó y ejecutó, ambiente, digest de imagen, modo, inicio y fin, código de salida y el JSON de salida.
