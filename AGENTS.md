@@ -68,7 +68,7 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
 ### Calidad y tamaño (gate `npm run lint`)
 
 19. Archivos de producto ≤ **800 líneas** (sin contar blanks ni comentarios) — es `error` en ESLint y bloquea CI. Los 11 archivos legacy que hoy lo superan tienen **techo congelado** en `eslint.config.mjs` (ratchet: pueden bajar, no subir; al bajar de 800 se retira la entrada). Tests, specs y assets vendor no tienen límite.
-20. `npm run lint` sin errores antes de abrir PR. Los warnings heredados son deuda visible: no sumes nuevos; al limpiar una categoría se sube de `warn` a `error` en `eslint.config.mjs` (ruta de endurecimiento gradual).
+20. `npm run lint` sin errores antes de abrir PR. Los warnings heredados son deuda visible con **ratchet por regla** (job `lint`, `scripts/check-lint-baseline.mjs`): el conteo de cada regla no puede superar su línea base (`scripts/lint-baseline.json`), y en un PR a `develop` que lo reduce la línea base baja en el mismo PR con `node scripts/check-lint-baseline.mjs --update`, que nunca sube. Con 0 warnings la regla se sella: se sube de `warn` a `error` en `eslint.config.mjs` y el mismo comando la saca de la línea base; apagar o reabrir una regla del ratchet falla el gate.
 
 ## Git flow
 

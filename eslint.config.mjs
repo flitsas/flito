@@ -62,37 +62,40 @@ export default tseslint.config(
   {
     rules: {
       'no-unused-vars': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],
       'max-lines': ['error', { max: 800, skipBlankLines: true, skipComments: true }],
 
-      // Deuda preexistente → 'warn' en el rollout inicial (el gate no puede
-      // nacer en rojo). Subir a 'error' a medida que se limpie cada regla.
+      // Selladas (HU #13985): llegaron a 0 warnings y no se reabren. scripts/lint-baseline.json
+      // las lista y el job `lint` falla si alguna deja de estar en 'error'.
+      '@typescript-eslint/no-require-imports': 'error',
+      '@typescript-eslint/no-this-alias': 'error',
+      'getter-return': 'error',
+      'no-case-declarations': 'error',
+      'no-cond-assign': 'error',
+      'no-constant-binary-expression': 'error',
+      'no-fallthrough': 'error',
+      'no-func-assign': 'error',
+      'no-prototype-builtins': 'error',
+      'no-sparse-arrays': 'error',
+      'no-unassigned-vars': 'error',
+      'no-unsafe-finally': 'error',
+
+      // Deuda preexistente con ratchet por regla (HU #13985): cada 'warn' tiene su conteo en
+      // scripts/lint-baseline.json, que solo baja. Con 0 warnings se sube a 'error' y se sella.
+      '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
       '@typescript-eslint/no-unused-expressions': 'warn',
-      'no-case-declarations': 'warn',
       'no-useless-assignment': 'warn',
-      'no-fallthrough': 'warn',
-      'no-prototype-builtins': 'warn',
-      '@typescript-eslint/no-this-alias': 'warn',
-      'no-cond-assign': 'warn',
-      'no-func-assign': 'warn',
       'no-useless-escape': 'warn',
       'prefer-const': 'warn',
       'no-irregular-whitespace': 'warn',
-      'getter-return': 'warn',
       'no-control-regex': 'warn',
       'no-useless-catch': 'warn',
       'preserve-caught-error': 'warn',
-      'no-unassigned-vars': 'warn',
-      '@typescript-eslint/no-require-imports': 'warn',
-      'no-unsafe-finally': 'warn',
       '@typescript-eslint/no-namespace': 'warn',
-      'no-sparse-arrays': 'warn',
-      'no-constant-binary-expression': 'warn',
     },
   },
   {
