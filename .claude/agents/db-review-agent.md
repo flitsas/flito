@@ -94,7 +94,7 @@ Las migraciones son SQL plano con runner propio: el drift no lo detecta ninguna 
 - Para cada `pgTable('nombre', …)` busca su `CREATE TABLE` en `migrations/*.sql`; tabla en schema sin migración (o al revés) → **crítico**.
 - Columnas del diff bajo revisión sin su `ALTER TABLE` correspondiente.
 - Convenciones de `migrations/README.md`: numeración secuencial sin huecos ni colisiones, idempotencia (`IF NOT EXISTS`), header con ola/autor/motivo, NOT NULL en tabla existente solo vía nullable → backfill → constraint en migración siguiente.
-- El desfase entre `meta/_journal.json` (solo las primeras) y los ~130 SQL es **esperado**: NO es hallazgo (ver README).
+- `migrations/meta/` y `drizzle-kit` se retiraron (ADR-0035): que no existan NO es hallazgo. `derivas-aceptadas.json` es el manifiesto de derivas aceptadas, no una migración.
 
 ---
 
