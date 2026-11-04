@@ -2,13 +2,15 @@
 
 - **Estado:** Aceptado (aprobado por David Chica el 2026-11-03, con `permisos.catalogo.ver` como guarda; responde por el retiro, registrado en la Discussion de #13990)
 - **Fecha:** 2026-11-03
-- **Contexto de trabajo:** Épica #14272, Feature #13980, HU #13989. El dato alimenta la HU #13990 (ADR de destino)
+- **Contexto de trabajo:** Épica #14272, Feature #13980, HU #13989. El dato es evidencia para la revisión futura de ADR-0038 o para un retiro (ajustado el 2026-11-04; ver nota de §5)
 - **Supersedes:** ninguno. **No contradice** ningún ADR aceptado
 - **Módulos:** habla con los legacy `soat`, `tramites` (incluye `firma` bajo su prefijo) y `liquidacion`. No toca `flito-*` ni `apps/web`
 
 ## Contexto
 
-Antes de decidir el destino de los módulos legacy hay que saber qué rutas se usan y quién las usa, durante 4 semanas en PDN, sin procesar logs a mano y sin PII.
+Hay que saber qué rutas legacy se usan y quién las usa, durante 4 semanas en PDN, sin procesar logs a mano y sin PII.
+
+> **Nota 2026-11-04 (HU #13990, ADR-0038):** este párrafo decía «Antes de decidir el destino de los módulos legacy». La ventana **ya no condiciona el destino**: David Chica decidió ese día no esperarla, y el destino lo fija ADR-0038 con evidencia de código y uso desde `apps/web`. El conteo sigue siendo la evidencia para la revisión futura o para un retiro. Las demás menciones a #13990 como lectora del dato (§1, §2, §5 y «Riesgos y límites») se leen como esa revisión: el cruce con el inventario de rutas queda para ella.
 
 **Decisiones del humano (fuera de discusión aquí):** todos los routers de los tres módulos; se registra el patrón de ruta, nunca la URL; tabla Postgres de agregados por día más GET restringido a admin; escritura no bloqueante por lotes, válida con varias réplicas; consumidor = rol o `publico`.
 
@@ -193,6 +195,8 @@ La tabla no guarda PII. Con 93 rutas contadas por `grep` (aproximado), 12 roles 
 | `DELETE` oportunista en el flush | Sin cron | Escritura extra en cada réplica, sin necesidad |
 
 **Política declarada (regla 16):** se conserva hasta aceptar el ADR de la HU #13990, con un **máximo de 6 meses** desde el primer despliegue en PDN. Al retirarla: se borra `modules/uso-legacy/`, sus líneas en `app.ts`, `server.ts`, `metrics.ts` y `env.ts`, y una migración nueva hace `DROP TABLE`. El SQL de la 0287 lleva esta política en su cabecera.
+
+> **Nota 2026-11-04 (HU #13990, ADR-0038 §5 y §7, aceptado ese día):** el retiro **ya no se dispara al aceptar el ADR de #13990**. Queda solo el **máximo de 6 meses** desde el primer despliegue en PDN, y David Chica sigue respondiendo por el retiro. La instrumentación sigue su camino a PDN sin bloquear la Épica. La cabecera de la 0287 conserva el texto anterior porque una migración aplicada no se edita (`AGENTS.md`, regla 6): prevalece esta nota. Si #13989 nunca llega a PDN, el reloj no arranca; ver ADR-0038 §5.
 
 Si la retirada se olvida, el daño está acotado: ~640 000 filas de agregados por año en el peor caso teórico.
 
