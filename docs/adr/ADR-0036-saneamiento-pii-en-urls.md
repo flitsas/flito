@@ -94,7 +94,7 @@ Se reutiliza lo que ya existe, sin patrón nuevo:
 
 El ADR sigue en estado Propuesto: lo firma él. Estas decisiones se registran para que las HUs puedan radicarse.
 
-- **Se radican ya HU-A, HU-B, HU-C y HU-L.** Las otras 8 (HU-D a HU-K) quedan nombradas aquí, sin radicar, hasta decidir legacy y QR.
+- **Se radican ya HU-A, HU-B, HU-C y HU-L.** Las otras 8 (HU-D a HU-K) quedan nombradas aquí, sin radicar. La opción que eligió David las deja «hasta decidir legacy y QR»; QR ya se decidió abajo, así que la condición que sigue abierta es legacy (ver «Decisiones pendientes»).
 - **QR (G9, HU-K):** formato nuevo con el token en el fragmento `#`. Los impresos siguen funcionando, como deuda declarada. §14 no cambia.
 - **LAFT, `GET /api/laft/counterparties`:** sin work item; se anota junto a la revisión de LAFT que David hace aparte. La respuesta incluye `email`, `phone`, `address`, `fund_origin`, `is_pep`, `block_reason`, los `*_enc` y `doc_number_hash` (`db/schema.ts:820-856`, `counterparties.routes.ts:95`).
 
