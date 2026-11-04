@@ -445,6 +445,19 @@ describe('archivo ilegible (ADR-0035 §A)', () => {
   const bytes = Buffer.from('SELECT 1;');
   const shaBytes = sha256De(bytes);
 
+  it('hashearDisco: un archivo ilegible queda en null y la causa no sale por consola', () => {
+    const espias = (['log', 'info', 'warn', 'error'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+    try {
+      const disco = hashearDisco(['0001_a.sql', '0002_b.sql'], leerSalvo('0001_a.sql', { '0002_b.sql': bytes }));
+
+      expect(disco.get('0001_a.sql')).toBeNull();
+      expect(disco.get('0002_b.sql')).toBe(shaBytes);
+      expect(espias.flatMap((e) => e.mock.calls).flat().join('\n')).not.toMatch(/EACCES|\/ruta\/sensible/);
+    } finally {
+      espias.forEach((e) => e.mockRestore());
+    }
+  });
+
   it('arranque: un registrado ilegible se informa sin causa, no aborta y aplica las pendientes', async () => {
     const disco = hashearDisco(
       ['0001_a.sql', '0002_b.sql', '0003_c.sql'],
