@@ -204,7 +204,7 @@ async function hayCeldasPorCifrar(): Promise<boolean> {
 
 /** Cifrado comprobado de vuelta. Lanza si algo no cuadra; el texto en claro no sale de aquí. */
 function recifrar(valor: string, clase: ClaseFoto, columna: ColumnaFoto, id: number): string {
-  const ctx = { table: TABLA_FOTOS, column: columna, id };
+  const ctx = { table: TABLA_FOTOS, column: columna, id } as const;
   const plano = clase === 'viejo' ? decryptLegacyBiometric(valor, ctx) : valor;
   const cifrado = encryptPiiText(plano, ctx);
   if (decryptPiiText(cifrado, ctx) !== plano) throw new Error('verificación fallida');
