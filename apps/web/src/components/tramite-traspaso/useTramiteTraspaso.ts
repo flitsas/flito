@@ -210,12 +210,13 @@ export function useTramiteTraspaso() {
   // Al cambiar de trámite o desmontar: lo que siga en vuelo se descarta y no queda estado del anterior.
   useEffect(() => () => {
     preflightRun.current += 1;
+    preflightBooted.current = null; // Al volver a este trámite, su arranque debe correr de nuevo.
     setPreflight(null);
     setPreflightError(null);
     setPreflightLoading(false);
   }, [tramiteId]);
 
-  // Arranque automático, una vez por trámite. Sin limpieza a propósito: sus dependencias cambian con la
+  // Arranque automático, una vez por visita al trámite. Sin limpieza a propósito: sus dependencias cambian con la
   // petición en vuelo (la propia carga, hydrate, el PATCH del organismo) y `preflightBooted` no deja
   // repetirla, así que cancelar aquí dejaría el paso colgado.
   useEffect(() => {
