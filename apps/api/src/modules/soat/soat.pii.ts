@@ -10,9 +10,9 @@ import { logPiiAccess } from '../../shared/pii-audit.js';
 const RECURSO = 'soat_request';
 
 /** Lo que entrega `GET /api/soat`, con el nombre de la columna en la base. */
-export const CAMPOS_PII_LISTADO_SOAT = ['owner_name', 'owner_document', 'plate', 'vin', 'soat_holder'] as const;
+export const CAMPOS_PII_LISTADO_SOAT = ['owner_name', 'owner_document', 'plate', 'vin', 'soat_holder', 'notes'] as const;
 
-/** Lo que entrega `GET /api/soat/export`: el archivo no lleva `soat_holder`. */
+/** Lo que entrega `GET /api/soat/export`: el archivo no lleva `soat_holder` ni `notes`. */
 export const CAMPOS_PII_EXPORT_SOAT = ['owner_name', 'owner_document', 'plate', 'vin'] as const;
 
 /** `pii_access_log.motivo` es `varchar(200)`: pasarse sería un 22001 en vez de un rastro. */

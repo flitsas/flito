@@ -61,7 +61,7 @@ const tramite = {
   id: 9, vin: 'VIN00000000000001', placa: 'ABC123', estado: 'enviado_transito', modalidadEntrada: 'traspaso',
   organismoCodigo: '11001', vehiculo: { _vendedor: { nombre: 'Vendedora Prueba' } }, comprador: { nombre: 'Persona Prueba' },
 };
-const FILA = ['vin', 'placa', 'vehiculo', 'comprador', 'validacion_identidad', 'notas', 'workflow'];
+const FILA = ['vin', 'placa', 'vehiculo', 'comprador', 'documentos', 'validacion_identidad', 'notas', 'workflow'];
 const TRASPASOS = ['vin', 'placa', 'vehiculo', 'comprador'];
 
 const adminAuth = async () => `Bearer ${await testToken({ sub: 77, role: 'admin' })}`;
@@ -150,7 +150,12 @@ const CASOS: Caso[] = [
   },
 ];
 
-describe.each(CASOS)('$nombre', ({ url, preparar, fila }) => {
+// `retry: 0` en los describe de orden: el reintento del config global vería entrar en `eventos` y `filas`
+// el INSERT pendiente del intento que acaba de fallar, y una ruta que responde antes de registrar
+// quedaría en verde.
+const SIN_REINTENTO = { retry: 0 };
+
+describe.each(CASOS)('$nombre', SIN_REINTENTO, ({ url, preparar, fila }) => {
   it('escribe la fila esperada, sin valores, antes de responder', async () => {
     preparar();
 

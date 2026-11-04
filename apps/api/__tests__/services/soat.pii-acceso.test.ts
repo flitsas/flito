@@ -44,7 +44,7 @@ const solicitud = {
   id: 3, vin: 'VIN00000000000001', plate: 'ABC123', ownerName: 'Persona Prueba', ownerDocument: '998877',
   soatHolder: 'Persona Prueba', status: 'pendiente',
 };
-const LISTADO = ['owner_name', 'owner_document', 'plate', 'vin', 'soat_holder'];
+const LISTADO = ['owner_name', 'owner_document', 'plate', 'vin', 'soat_holder', 'notes'];
 const EXPORT = ['owner_name', 'owner_document', 'plate', 'vin'];
 
 const adminAuth = async () => `Bearer ${await testToken({ sub: 77, role: 'admin' })}`;
@@ -69,7 +69,12 @@ beforeEach(() => {
   }));
 });
 
-describe('GET /api/soat', () => {
+// `retry: 0` en los describe de orden: el reintento del config global vería entrar en `eventos` y `filas`
+// el INSERT pendiente del intento que acaba de fallar, y una ruta que responde antes de registrar
+// quedaría en verde.
+const SIN_REINTENTO = { retry: 0 };
+
+describe('GET /api/soat', SIN_REINTENTO, () => {
   it('escribe la fila, sin valores, antes de responder', async () => {
     m.selectMock.mockReturnValueOnce(chain([solicitud]));
 
@@ -116,7 +121,7 @@ describe('GET /api/soat', () => {
   });
 });
 
-describe('GET /api/soat/export', () => {
+describe('GET /api/soat/export', SIN_REINTENTO, () => {
   it('escribe la fila, sin valores, antes de responder', async () => {
     m.selectMock.mockReturnValueOnce(chain([solicitud]));
 

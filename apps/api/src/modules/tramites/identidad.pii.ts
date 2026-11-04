@@ -11,16 +11,16 @@ import { logPiiAccess, logPiiAccessOrThrow } from '../../shared/pii-audit.js';
 /** Las tres capturas de `tramites_validaciones`: son los datos biométricos del titular. */
 const FOTOS = ['foto_rostro', 'foto_cedula_frontal', 'foto_cedula_reverso'] as const;
 
-/** Lo que entrega `GET /documentos/:tramiteId`, con el nombre de la columna en la base. */
+/** Lo que entrega `GET /documentos/:tramiteId`, con el nombre de la columna en la base. `score` es el puntaje biométrico. */
 export const CAMPOS_PII_DOCUMENTOS = [
-  ...FOTOS, 'nombre', 'tipo_doc', 'documento', 'detalle', 'ip_address', 'ciudad_geo', 'lat', 'lng',
+  ...FOTOS, 'nombre', 'tipo_doc', 'documento', 'score', 'detalle', 'ip_address', 'ciudad_geo', 'lat', 'lng',
 ] as const;
 
 /** Lo que imprime el certificado: lo anterior más el correo, la placa y el dispositivo de la sesión. */
 export const CAMPOS_PII_CERTIFICADO = [...CAMPOS_PII_DOCUMENTOS, 'email', 'placa', 'user_agent'] as const;
 
-/** Lo que entrega `GET /estado/:tramiteId`. */
-export const CAMPOS_PII_ESTADO = ['nombre', 'documento', 'email'] as const;
+/** Lo que entrega `GET /estado/:tramiteId`, también con el puntaje biométrico. */
+export const CAMPOS_PII_ESTADO = ['nombre', 'documento', 'email', 'score'] as const;
 
 /** `pii_access_log.motivo` es `varchar(200)`: pasarse sería un 22001 en vez de un rastro. */
 const MOTIVO_MAX = 200;
