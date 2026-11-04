@@ -135,7 +135,7 @@ Cuatro formas comparten el motor: bundle bytea, jsonb, texto serializado y objet
 - **AAD:** se conserva `aad_nonce`, y los descriptores usan los constructores de AAD de cada módulo, sin copiarlos.
 - **Lotes y reanudación:** por clave primaria (keyset). No guarda estado: lo pendiente es lo que no está en la versión objetivo, así que reanudar es volver a correr.
 - **Guarda de concurrencia:** un solo `UPDATE` con cipher, iv, tag y versión, condicionado a `iv` y versión leídos (texto: valor completo leído). Si la API escribió o anonimizó mientras tanto, cuenta `omitido_concurrente` y no pisa nada.
-- **Biometría:** `viejo`, `data_uri`, `base64_plano` y `desconocido` **no se tocan**. Se cuentan como `formato_legado`. Si hay `viejo` o texto en claro de biometría, `--verificar` no pasa. Se resuelven con el script de #14097, que al escribir usa la versión vigente.
+- **Biometría:** `viejo`, `data_uri`, `base64_plano` y `desconocido` **no se tocan**. Los tres primeros se cuentan como `formato_legado` y `desconocido` como `formato_desconocido`. Si hay `viejo` o texto en claro de biometría, `--verificar` no pasa; `desconocido` no lo impide, pero se revisa antes de destruir la llave anterior. Se resuelven con el script de #14097, que al escribir usa la versión vigente.
 - **Salida:** conteos e ids de fila. Nunca `numero` de manifiesto, valores ni causas. Códigos 0, 2 y 1 como en biometría.
 
 **Objetos de bolsas:** 1) descargar y descifrar; 2) cifrar y subir a una clave **nueva**; 3) releer el objeto y descifrarlo; 4) `UPDATE` de `storage_key`, `storage_key_previa`, `cifrado_iv`, `cifrado_tag` y `cifrado_key_version`, con guarda. Si la guarda falla, se borra el objeto recién subido. El objeto anterior se conserva: los lectores en vuelo siguen funcionando y restaurar el dump sigue siendo posible. `--limpiar-objetos` lo borra al cerrar la ventana. Una purga ocurrida durante la ventana deja el objeto anterior hasta esa limpieza, y por eso el runbook pone plazo a la ventana. Si una fila se recifra otra vez con previa ocupada, se conserva solo la inmediatamente anterior.
@@ -248,5 +248,5 @@ Separar F1 de F2 es lo que garantiza que ninguna réplica escriba con una llave 
 ## Riesgos abiertos
 
 1. Rendimiento en `tramites_validaciones` y bolsas: el Job baja objetos de hasta 15 MB y fotos de varios MB. Sin datos de volumen de PDN no se puede estimar la duración.
-2. `logPiiAccess` exige un `Request`: el Job no encaja en la auditoría actual. Debe decidirlo `security-agent`.
+2. `logPiiAccess` exige un `Request`: el Job no encaja en la auditoría actual. Decidido por `security-agent` en la HU #13987: el Job no escribe en `pii_access_log`; antes de correr en PDN, el rastro de cada corrida se guarda en el registro del cambio (ver runbook).
 3. Hallazgo 1 (LAFT en claro) y 2 (fallos silenciosos): fuera del pedido, sujetos a confirmación humana.

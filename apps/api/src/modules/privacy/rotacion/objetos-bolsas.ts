@@ -72,7 +72,7 @@ const valoresPendiente = (storageKey: string) => ({
   storageKey, claveHash: huellaClave(storageKey), origen: ORIGEN_ROTACION_PII,
 });
 
-/** Un objeto recién subido que no quedó enlazado no puede quedar huérfano: lleva PII. */
+/** Encola y borra un objeto subido que no quedó enlazado: lleva PII. Si el Job o la BD caen antes, queda huérfano. */
 async function descartarSubido(storageKey: string): Promise<void> {
   const [p] = await db.insert(flitoStorageBorradosPendientes).values(valoresPendiente(storageKey))
     .returning({ id: flitoStorageBorradosPendientes.id });

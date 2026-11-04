@@ -10,7 +10,7 @@
  *   --solo-llaves                   compara las llaves con el registro. Para la prueba de custodia
  *   --limpiar-objetos               borra los objetos anteriores de MinIO, al cerrar la ventana de rollback
  *
- * Salida: 0 terminada; 2 quedan pendientes, se puede volver a correr; 1 abortó con cero escrituras.
+ * Salida: 0 terminada; 2 quedan pendientes, se puede volver a correr; 1 abortó (cero escrituras salvo excepción a mitad de --commit).
  * Imprime conteos e ids de fila. Nunca valores, causas, llaves, claves de objeto ni `numero` de manifiesto.
  */
 
