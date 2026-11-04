@@ -10,7 +10,7 @@
 
 **42 rutas de las 856 del API llevan PII, cuasi-PII o un token portador en la URL:** 19 de severidad Alta, 22 Media y 1 Baja. Las otras 814 quedan clasificadas sin hallazgo y no hay residuo.
 
-**Ninguna ruta puede quedar hoy como excepción.** La mitigación 4 falla en todas, por el hallazgo T1: el nginx del contenedor web registra cada URL completa, con su query. Por eso los 10 grupos quedan con plan de retiro.
+**Ninguna ruta puede quedar hoy como excepción.** La mitigación 4 falla en todas, por el hallazgo T1: el nginx del contenedor web registra cada URL completa, con su query. Por eso los 10 grupos quedan con plan: 9 retiran el dato de la URL, y G10 conserva su ruta y solo retira su rastro del log.
 
 | Severidad | Rutas | Grupos |
 |---|---:|---|
@@ -30,18 +30,22 @@ Además hay cuatro hallazgos en `apps/web` (tabla W) y un token persistido en ba
 | La plantilla no declara `access_log` ni `log_format` | `apps/web/nginx.conf.template`, archivo completo |
 | Por eso hereda el formato `main`, que incluye `"$request"`: método, path y query | `/etc/nginx/nginx.conf:18` y `:22` de la imagen, leído de la imagen local con `docker run --network none` |
 | Ese log va a stdout, y de ahí al log del pod | `/var/log/nginx/access.log -> /dev/stdout` en la misma imagen |
-| Todo `/api/` pasa por ese nginx | `apps/web/nginx.conf.template:23` |
+| El `/api/` del dominio web pasa por ese nginx, y es la vía de la propia web (`BASE = '/api'`). El dominio `api.*` lo salta y llega directo del proxy del host | `apps/web/nginx.conf.template:23` y `:46`; `.github/workflows/cd.yml:57-73` |
 | Las páginas también: la SPA y `validar-identidad.html` | `apps/web/nginx.conf.template:100` |
+| `main` también incluye `$http_referer`. Una petición hecha desde `validar-identidad.html?t=…` registró esa URL con el token en ese campo: ni las páginas ni la plantilla declaran `Referrer-Policy` | Probado por `security-agent` con `nginx:1.27-alpine` y la plantilla real |
+| `error_log` no usa `log_format`: un 502 escribió `request: "GET /api/flito/soat?buscar=…"` | Probado por `security-agent` con la misma imagen y plantilla |
 
-Consecuencia: cada `?buscar=`, `?q=`, `/privacy/preview/<documento>` y `/tramite/portal/<token>` que entra por el dominio web queda en claro en el stdout de ese contenedor. Una configuración de `flit-gitops` podría sustituir la plantilla: no se revisó (ver «No cubierto»).
+Consecuencia: cada `?buscar=`, `?q=`, `/privacy/preview/<documento>` y `/tramite/portal/<token>` que entra por el dominio web queda en claro en el stdout de ese contenedor. **Hay tres vías de escritura, no una:** `$request`, `$http_referer` y `error_log`, así que cambiar solo el formato no basta. Lo que entra por `api.*` no pasa por aquí: depende del proxy del host, que no está en este repo. Una configuración de `flit-gitops` podría sustituir la plantilla: no se revisó (ver «No cubierto»).
 
-### T2. El API no tiene access log, pero sí registra el path en los errores
+### T2. El API no tiene access log, pero sí registra el path en los errores y un enlace con token
 
 | Punto | Qué registra | Efecto |
 |---|---|---|
 | `pino-http`, `morgan`, Sentry | No existen en `apps/api` ni en `apps/web` (búsqueda en código y `package.json`) | Bien: el proceso no escribe una línea por petición |
 | `shared/logger.ts:11` | `REDACT_PATHS` solo cubre credenciales | No redacta `path` ni `ruta` |
-| `shared/middleware/errorHandler.ts:61` (y `:11`, `:46`, `:53`) | `req.path`: sin query, con los parámetros de path | **Una ruta con PII en el path que falle con 500 deja el valor en el log** |
+| `shared/middleware/errorHandler.ts:61` (y `:11`, `:46`, `:53`) | `req.path`: sin query, con los parámetros de path | **Una ruta con PII en el path deja el valor en el log si falla con 500 o si responde 413** (`:11`, antes de llegar a la ruta). Ejemplo: `POST /api/validacion-identidad/completar/<token>` por encima de 15 MB (`app.ts:205`). `:46` y `:53` son guardas de PESV, sin PII en el path |
+| `modules/tramites/identidad.routes.ts:308` | `log.warn({ tramiteId, motivo, link }, …)`: `link` es `validar-identidad.html?t=<token>`, y no está en `REDACT_PATHS` | **Si el correo no sale, el token queda en el log en claro.** Con él se obtienen nombre, documento y placa (`:463`) durante 24 h, y se puede intentar `completar` hasta 5 veces (`:470`, tope en `:482`). Pasar el token al fragmento (HU-I) no lo resuelve si se sigue registrando |
+| `modules/tramites/validacion-recovery.ts:35` | Los primeros 8 caracteres del token, en la raíz del log | Nota: no abre nada |
 | `shared/middleware/rateLimiter.ts:77` | `originalUrl` sin query, con parámetros de path | Mismo riesgo en cada limitador con `frenoConRastro`. Ninguno de los que protegen rutas de esta tabla lo usa hoy (`previewLimiter`, `qrPublicLimiter`, `publicLimiter`, `completarLimiter`, `downloadLimiter`) |
 | `shared/middleware/exigir-funcion.ts:137` | Plantilla de la ruta o path enmascarado | Correcto: es el patrón a reutilizar |
 | `modules/siigo/siigo.permisos.ts:85` | `originalUrl` sin query, con parámetros de path, en la bitácora de permisos | Sin efecto hoy: las rutas Siigo no llevan PII en el path |
@@ -52,7 +56,12 @@ Consecuencia: cada `?buscar=`, `?q=`, `/privacy/preview/<documento>` y `/tramite
 
 `apps/web/src/lib/rum.ts:53` envía `route: location.pathname`, se inicia en todas las páginas (`apps/web/src/main.tsx:14`) y `modules/rum/rum.routes.ts` lo guarda en `rum_web_vitals.route` sin normalizar. En `/tramite/portal/<token>` y `/m/<token>` el token queda en claro en esa tabla, y `GET /api/rum/summary` lo devuelve agrupado por ruta.
 
-El portal guarda el token solo como hash a propósito (`modules/tramites/portal.ts:74-79`). RUM anula esa protección, aunque con un TTL de 24 h las filas viejas ya no abren nada. Se deduce del código: la tabla no se consultó.
+El portal guarda el token solo como hash a propósito (`modules/tramites/portal.ts:74-79`). RUM anula esa protección. El alcance depende del token:
+
+- **Portal:** dura 24 h, así que las filas de más de un día ya no abren nada.
+- **`/m/<token>`:** el TTL de 24 h no aplica: `modules/rndc/qr.routes.ts` no comprueba ninguna expiración.
+
+Cada fila lleva además IP y agente de usuario (`rum.routes.ts`), se conserva 90 días (`modules/rum/purge.cron.ts:12`, activo en `server.ts:103`), y solo se reporta el 20 % de las sesiones (`lib/rum.ts:13`). Se deduce del código: la tabla no se consultó.
 
 ## Severidad: criterio
 
@@ -71,9 +80,9 @@ Dos reglas de aplicación:
 
 **Cómo leer la columna 1.** El repo sustituyó `requireRole` por `exigirFuncion` y `requirePage` (ADR-0023), así que se toman como su equivalente. `:N` es la línea en el mismo archivo.
 
-**Columna 4.** «nginx» es T1 y «`errorHandler`» es T2. El registro de `errorHandler` solo aplica si la petición termina en 500.
+**Columna 4.** «nginx» es T1 y «`errorHandler`» es T2. El registro de `errorHandler` se da si la petición termina en 500 o en 413.
 
-**Las filas POST son la ampliación** pedida en el AC4: no son GET, pero su URL llega igual al log.
+**Las filas POST son una ampliación** pedida en el encargo de esta auditoría, no en el AC: no son GET, pero su URL llega igual al log.
 
 ### G1. Cédula en el path (Alta)
 
@@ -117,7 +126,10 @@ Dos reglas de aplicación:
 | `GET /api/users/export` | legacy `users` | `q`: usuario, nombre, correo; descarga por GET | Alta | Sí: auth `modules/users/users.routes.ts:210`; `usuarios.usuario.exportar` `:221` | No | Sí: filas de `userSelect` | No: nginx |
 | `GET /api/users/resumen` | legacy `users` | `q`: usuario, nombre, correo | Alta | Sí: auth `modules/users/users.routes.ts:210`; `usuarios.usuario.ver_resumen` `:263` | No | Sí: solo conteos | No: nginx |
 
-**Decisión:** retiro, HU-F. Solo `/api/drivers` descifra datos en este grupo, y `logPiiAccess` se llama en su detalle (`drivers.routes.ts:169`), no en este listado.
+**Decisión:** retiro de los filtros de la URL, HU-F. Dos puntos van aparte, por decisión de David Chica:
+
+- **`GET /api/drivers`:** descifra cédula y licencia de hasta 500 filas sin `logPiiAccess`, que solo se llama en el detalle (`drivers.routes.ts:169`). Tiene HU propia, HU-L. `?q=` sigue en HU-F.
+- **`GET /api/laft/counterparties`:** sin work item; se anota junto a la revisión de LAFT que David hace aparte. La respuesta incluye `email`, `phone`, `address`, `fund_origin`, `is_pep`, `block_reason`, los `*_enc` y `doc_number_hash` (`db/schema.ts:820-856`, `counterparties.routes.ts:95`).
 
 ### G5. Búsquedas legacy con cuasi-PII (Media)
 
@@ -130,7 +142,7 @@ Dos reglas de aplicación:
 | `GET /api/rndc/destinatarios-carga` | legacy `rndc` | `q`: nombre | Media | Sí: auth `modules/rndc/maestros.routes.ts:19`; `rndc` `:19` | No | No: `db.select()` de la fila, con documento | No: nginx |
 | `GET /api/drive/search` | legacy `drive` | `q`: nombre de archivo, texto libre (el nombre suele llevar placa) | Media | Sí: auth `modules/drive/drive.routes.ts:8`; `drive.archivos.administrar` `:30` | No | Sí: metadatos de archivo | No: nginx |
 
-**Decisión:** retiro, HU-G. Para `/api/tramites`, antes hay que decidir si se migra o se retira el prefijo (pregunta 5).
+**Decisión:** retiro, HU-G. Migrar o retirar las rutas legacy sigue pendiente (ADR-0036, «Decisiones pendientes»).
 
 ### G6. Placa o VIN en el path (Media)
 
@@ -139,7 +151,7 @@ Dos reglas de aplicación:
 | `GET /api/vehicles/:vin/historial` | legacy `vehicles` | VIN en el path | Media | Sí: auth `modules/vehicles/vehicles.routes.ts:94`; `vehicles.vehiculos.consultar` `:442` | No | Parcial: fila completa de `vehiculo_historial` (`vehiculo-historial.ts:199`); contenido no evaluado | No: nginx y `errorHandler` |
 | `GET /api/vehicles/:vin/certificado` | legacy `vehicles` | VIN en el path y en `Content-Disposition` | Media | Sí: auth `modules/vehicles/vehicles.routes.ts:94`; `vehicles.vehiculos.consultar` `:456` | No | Sin verificar: PDF generado, no se leyó | No: nginx y `errorHandler` |
 | `POST /api/vehicles/:vin/historial/sync` | legacy `vehicles` | VIN en el path (ampliación: no GET) | Media | Sí: auth `modules/vehicles/vehicles.routes.ts:94`; `vehicles.vehiculos.consultar` `:448` | No | Parcial: fila completa de `vehiculo_historial` (`vehiculo-historial.ts:199`); contenido no evaluado | No: nginx y `errorHandler` |
-| `GET /api/flito/derechos/candidatos/:placa` | `flito-derechos` | Placa en el path | Media | Sí: auth `modules/flito-derechos/flito-derechos.routes.ts:31`; `` `:204` | No | Sí: candidatos, sin payload | No: nginx y `errorHandler` |
+| `GET /api/flito/derechos/candidatos/:placa` | `flito-derechos` | Placa en el path | Media | Sí: auth `modules/flito-derechos/flito-derechos.routes.ts:31`; `derechos.candidatos.ver` `:204` | No | Sí: candidatos, sin payload | No: nginx y `errorHandler` |
 
 **Decisión:** retiro, HU-H. El código ya reconoce el caso de la placa en `flito-derechos.routes.ts:115`.
 
@@ -150,7 +162,7 @@ Dos reglas de aplicación:
 | `GET /api/public/drive/cuentas-archivo/:dir/:token/:filename` | legacy `drive` | Token HMAC sin expiración; `:filename` = `<placa>.pdf`; `?dl=` con placa, organismo y marca. El PDF es una cuenta de cobro, cuyo registro lleva propietario y cédula (`procesador.service.ts:29`) | Alta | No: pública | No | N/A: archivo binario, y ese es el problema | No: nginx y `errorHandler` |
 | `GET /api/drive/cuentas-archivo/:dir/:filename` | legacy `drive` | `:filename` = `<placa>.pdf`; `?dl=` con placa | Media | Sí: auth `modules/drive/procesador.routes.ts:54`; `drive.archivos.administrar` `:293` | No | N/A: archivo binario | No: nginx y `errorHandler` |
 
-**Decisión:** retiro, HU-J. Los enlaces públicos se escriben en un Excel (`procesador.routes.ts:222`) y ya circulan: ver pregunta 7.
+**Decisión:** retiro, HU-J. Los enlaces públicos se escriben en un Excel (`procesador.routes.ts:222`) y ya circulan, así que la expiración sigue pendiente (ADR-0036, «Decisiones pendientes»).
 
 ### G8. Enlaces con token portador (Alta)
 
@@ -165,7 +177,7 @@ Dos reglas de aplicación:
 | `POST /api/tramite-portal/:token/finalizar` | legacy `tramites` | Token portador en el path (ampliación) | Alta | No: pública | No | No aplica: es una escritura | No: nginx y `errorHandler` |
 | `POST /api/tramite-portal/:token/firma-simulada` | legacy `tramites` | Token portador en el path (ampliación) | Alta | No: pública | No | No aplica: es una escritura | No: nginx y `errorHandler` |
 
-**Decisión:** retiro, HU-I. No cabe excepción: son rutas públicas, y §14 prohíbe siempre los tokens en URLs de página. Ninguna llama a `logPiiAccess`; el portal solo emite un evento `acceso_portal` (`portal.ts:100`).
+**Decisión:** retiro, HU-I. No cabe excepción: son rutas públicas, y §14 prohíbe siempre los tokens en URLs de página. Ninguna llama a `logPiiAccess`; el portal solo emite un evento `acceso_portal` (`portal.ts:100`). Además, a diferencia del portal, `tramites_validaciones.token` se guarda en claro (`db/schema.ts:588`, preexistente).
 
 ### G9. QR públicos (Media)
 
@@ -177,7 +189,7 @@ Dos reglas de aplicación:
 | `GET /api/rndc/public/manifiestos/qr-png/:token` | legacy `rndc` | Token en el path | Media | No: pública | No | Sí: PNG del QR | No: nginx y `errorHandler` |
 | `GET /api/drivers/checklists/qr/:token` | legacy `drivers` | Token en el path que devuelve placa y nombre del conductor (`checklists.routes.ts:27`) | Media | No: pública | No | Sí: decisión, fecha, placa, nombre | No: nginx y `errorHandler` |
 
-**Decisión:** retiro, HU-K, con la forma sujeta a la pregunta 4. Un QR impreso no puede cambiar, y estas rutas tampoco cumplen la mitigación 1 por diseño.
+**Decisión (David Chica):** HU-K. Formato nuevo con el token en el fragmento `#`. Los QR impresos siguen funcionando, como deuda declarada. §14 no cambia.
 
 ### G10. Descarga con firma de vida corta (Baja)
 
@@ -185,7 +197,7 @@ Dos reglas de aplicación:
 |---|---|---|---|---|---|---|---|
 | `GET /api/files` | legacy `files` | `key`, `exp`, `sig`: firma HMAC de 300 s (`services/storage.ts:265`) | Baja | No: pública | No | N/A: archivo binario | No: nginx |
 
-**Decisión:** retiro del log por HU-A; la ruta se mantiene. Quitar la query del log cubre `sig` y `key`. La clave de objeto sigue el formato `prefijo/entidad/fecha_sufijo` (`services/storage.ts:223`). No se revisó cada uno de los 12 llamadores de `firmarDescargaEntidad`, ni las claves antiguas.
+**Decisión:** se retira su rastro del log por HU-A; la ruta se mantiene. Quitar la query del log cubre `sig` y `key`. La clave de objeto sigue el formato `prefijo/entidad/fecha_sufijo` (`services/storage.ts:223`). No se revisó cada uno de los 12 llamadores de `firmarDescargaEntidad`, ni las claves antiguas.
 
 ### Rutas y páginas de `apps/web`
 
@@ -217,31 +229,37 @@ No se encontró cédula, teléfono, dirección ni correo en rutas o query del ro
 
 ## Plan de retiro: HUs derivadas propuestas
 
-**No están creadas en ADO: se radican solo con «sí» humano.** Los títulos son propuestas y las letras son etiquetas de este documento, no ids.
+**David Chica decidió radicar ya HU-A, HU-B, HU-C y HU-L;** sus AC Gherkin están en ADR-0036. Las otras 8 quedan nombradas y sin radicar. Las letras son etiquetas de este documento, no ids.
 
 | Etiqueta | Título propuesto | Alcance | Cubre | Módulo |
 |---|---|---|---|---|
-| HU-A | Sacar query y datos de path del access log y de los logs del API | Formato de log propio en `nginx.conf.template` y `errorHandler` / `frenoConRastro` con la plantilla de ruta (`rutaDe`). Revisión del proxy del host con Daniel Mejía | T1, T2, G10 | Transversal |
-| HU-B | No persistir tokens en la telemetría RUM | Normalizar `route` en `lib/rum.ts` y en `rum.routes.ts`; decidir la limpieza de filas existentes | T3 | Legacy `rum` |
-| HU-C | Consulta previa de olvido con el documento en el cuerpo | `POST` con cuerpo en `privacy` y `pages/Privacy.tsx`; `logPiiAccess`; retirar el GET | G1 | Legacy `privacy` |
+| HU-A | Sacar query y datos de path del access log y de los logs del API | **Radicar ya.** En `nginx.conf.template`: formato sin query ni `$http_referer`, `Referrer-Policy` en páginas y nivel de `error_log`. En el API: `errorHandler` y `frenoConRastro` sin dato en la ruta, y quitar `link` de `identidad.routes.ts:308` | T1, T2, G10 | Transversal |
+| HU-B | No persistir tokens en la telemetría RUM | **Radicar ya.** Normalizar `route` en `lib/rum.ts` y en `rum.routes.ts`. La limpieza de filas existentes sigue pendiente | T3 | Legacy `rum` |
+| HU-C | Consulta previa de olvido con el documento en el cuerpo | **Radicar ya.** `POST` con cuerpo en `privacy` y `pages/Privacy.tsx`; `logPiiAccess`; retirar el GET | G1 | Legacy `privacy` |
 | HU-D | Búsqueda de colas SOAT, Impuestos y Trámites por cuerpo | `POST …/buscar`, retirar `buscar` y `empresas` del GET, `logPiiAccess` en Trámites, quitar `?placa=` y `?buscar=` de la página | G2, W1 | `flito-*` |
 | HU-E | Filtros de Derechos, Logística y Finanzas por cuerpo | Igual para `buscar` y `empresas`; quitar `?empresas=` de la página de gastos | G3, W2 | `flito-*` y legacy `finanzas` |
-| HU-F | Búsquedas de vehículos, conductores, LAFT y usuarios por cuerpo | `POST …/buscar`, `logPiiAccess` donde falta, DTO en LAFT, export de usuarios por POST | G4 | Legacy |
-| HU-G | Búsquedas legacy con cuasi-PII por cuerpo | Fleet, RNDC, Drive y, según la pregunta 5, `/api/tramites` | G5 | Legacy |
+| HU-F | Búsquedas de vehículos, conductores, LAFT y usuarios por cuerpo | `POST …/buscar`, `logPiiAccess` donde falta salvo el listado de conductores (HU-L), export de usuarios por POST. El DTO de LAFT queda fuera: va con la revisión de LAFT | G4 | Legacy |
+| HU-G | Búsquedas legacy con cuasi-PII por cuerpo | Fleet, RNDC, Drive y `/api/tramites`, si no se decide retirar ese prefijo | G5 | Legacy |
 | HU-H | Retirar placa y VIN del path | `candidatos` y pasaporte por POST o por id opaco | G6 | `flito-derechos` y legacy `vehicles` |
 | HU-I | Enlaces de portal e identidad sin token en la URL | Token en el fragmento (`#`) de la página, y hacia el API en cabecera o cuerpo; `logPiiAccess` en `/info` | G8, W3 | Legacy `tramites` |
 | HU-J | Cuentas de cobro: descarga con expiración y sin placa en la URL | Nombre opaco en disco, token con expiración, `dl` sin placa | G7 | Legacy `drive` |
-| HU-K | QR públicos sin token en la URL de log | Según la pregunta 4 | G9, W4 | Legacy `tramites`, `rndc` y `drivers` |
+| HU-K | QR nuevos con el token en el fragmento | Formato nuevo con el token en el fragmento `#`, y hacia el API en cabecera o cuerpo. Los impresos siguen funcionando, como deuda declarada | G9, W4 | Legacy `tramites`, `rndc` y `drivers` |
+| HU-L | Registrar el acceso a PII en el listado de conductores | **Radicar ya.** `logPiiAccess` en `GET /api/drivers` | G4 (`/api/drivers`) | Legacy `drivers` |
 
-**Orden sugerido:** HU-A y HU-B primero, porque son pequeñas y cortan la escritura para todas las rutas. Después por severidad: HU-C, HU-I, HU-J, HU-D y HU-F. Por último HU-E, HU-G, HU-H y HU-K.
+**Orden recomendado:**
 
-**HU-A no sustituye a las demás:** el dato seguiría en el historial del navegador y en el proxy del host.
+1. **Ya decididas:** HU-A y HU-B, que son pequeñas y reducen la escritura en log y en base para todas las rutas web; luego HU-C y HU-L.
+2. **Sin radicar, por severidad:** HU-J, HU-I, HU-D y HU-F. HU-E, HU-G, HU-H y HU-K al final.
+
+Recomiendo HU-J antes que HU-I, como sugirió `security-agent`: su enlace público no expira, de modo que una URL ya escrita en un log sigue abriendo el archivo, mientras que los tokens de HU-I caducan en 24 h. Depende de la decisión pendiente sobre la expiración: la decide David.
+
+**HU-A no sustituye a las demás:** el dato seguiría en el historial del navegador, en el proxy del host y en lo que entra por `api.*`.
 
 **Patrón a copiar para los POST:** `POST /api/flito/comparendos/registros/buscar` (`flito-comparendos.routes.ts:1061`), con `.strict()`, y `POST /api/flito/soat/buscar` (`flito-soat.routes.ts:189`).
 
 ## Para `security-agent`
 
-**No hay endpoints marcados como excepción, así que no hay nada que aceptar hoy.** Las tablas de arriba dejan archivo:línea de cada mitigación por si, una vez cerrada HU-A, se propone alguna. Los candidatos naturales son los que ya cumplen 1, 2 y 3: `GET /api/flito/soat`, `GET /api/flito/impuestos` y `GET /api/finanzas/reporte-costos`. El ADR no los propone como excepción.
+**No hay endpoints marcados como excepción, así que no hay nada que aceptar hoy.** Las tablas de arriba dejan archivo:línea de cada mitigación por si, una vez cerrada HU-A, se propone alguna en un ADR nuevo. Los candidatos naturales son los que ya cumplen 1, 2 y 3: `GET /api/flito/soat`, `GET /api/flito/impuestos` y `GET /api/finanzas/reporte-costos`. El ADR no los propone como excepción.
 
 ## Método
 
@@ -271,7 +289,7 @@ Deja `rutas.json`, con cada ruta y su grupo, y escribe los conteos en stdout.
 
 **Contraprueba independiente:** una regex multilínea sobre el texto da 859 registros. Son las 856 rutas más 3 menciones en comentarios (`inventario-guardas.ts:231`, `users.routes.ts:213`, `exigir-funcion.ts:128`), y no hay ninguna ruta del AST que la regex no vea.
 
-### Qué cubre (AC4)
+### Qué cubre (AC4 y ampliación del encargo)
 
 | Superficie | Cómo |
 |---|---|
@@ -280,7 +298,7 @@ Deja `rutas.json`, con cada ruta y su grupo, y escribe los conteos en stdout.
 | Desestructuración y alias de `req.query` | `const { a } = req.query`, `const q = req.query` |
 | `schema.parse` / `safeParse` | Se resuelven las llaves de `z.object`, `.extend`, `.merge` y `.omit` (la base), también entre archivos |
 | Helpers y middleware | Se sigue `req` o `req.query` a funciones del repo, hasta 5 niveles, incluidos `router.use(fn)` y fábricas de middleware |
-| Otros métodos | POST, PUT, PATCH y DELETE, marcados como ampliación si tienen hallazgo |
+| Otros métodos | POST, PUT, PATCH y DELETE, marcados como ampliación si tienen hallazgo (pedida en el encargo, no en el AC) |
 | Routers no llamados `*.routes.ts` | Se reconoce el router por `Router()` o por su tipo, no por el nombre del archivo; fábricas como `analisisRouter(ctx)` incluidas |
 | `src/app.ts` | Grafo de montajes desde `createApp`, con `conAlcance`, y sus rutas directas (`/api/health*`, `/metrics`) |
 | `apps/web/src` | `App.tsx`, `useSearchParams`, `URLSearchParams`, navegación y plantillas de URL con nombres sensibles, y `public/*.html` |
@@ -293,10 +311,11 @@ Deja `rutas.json`, con cada ruta y su grupo, y escribe los conteos en stdout.
 
 ## No cubierto
 
-- **Logs reales de infraestructura: no se revisaron. Pendiente para Daniel Mejía.** Incluye el proxy TLS del host, el ingress del k3s, lo que `flit-gitops` pueda sobrescribir de nginx, el dominio `api.*` (llega directo del proxy del host, según `nginx.conf.template:46`) y la retención y los destinos de esos logs.
+- **Logs reales de infraestructura: no se revisaron. Pendiente para Daniel Mejía.** Las comprobaciones que se le piden están en ADR-0036, «Logs ya escritos». Incluye el proxy TLS del host, el ingress del k3s, lo que `flit-gitops` pueda sobrescribir de nginx, el dominio `api.*` (llega directo del proxy del host, según `nginx.conf.template:46`) y la retención y los destinos de esos logs.
 - **Si hay PII real en logs o en `rum_web_vitals`:** no se consultó ningún log, base de datos ni ambiente. T1 y T3 se deducen del código y de la imagen.
 - **`:id` no comprobado uno a uno.** De 331 rutas con `:id`, 268 muestran conversión o validación cerca de la ruta. Para las otras 63 hubo una comprobación indirecta: se leyó una muestra, y ningún llamador web interpola una variable con nombre sensible en ellas. Un `:id` que reciba otro dato bajo un nombre neutro no se detectaría.
 - **Web por nombre de variable:** una URL armada con una variable de nombre neutro se escaparía de esa búsqueda. Lo mitiga que los parámetros de la API sí se enumeraron todos.
-- **Fuera del alcance pactado:** cuerpos de petición, URLs salientes hacia terceros (RUNT, SIMIT, UTS, Nominatim desde `validar-identidad.html`), PII en `log.*` por campos ajenos a la URL, y cabeceras `Content-Disposition`.
+- **Fuera del alcance pactado:** cuerpos de petición, URLs salientes hacia terceros (RUNT, SIMIT, UTS, Nominatim desde `validar-identidad.html`), PII en `log.*` por campos ajenos a la URL, y cabeceras `Content-Disposition`. Tras el hallazgo de `identidad.routes.ts:308` se buscaron en `log.*` y `console.*` los campos `link`, `url`, `href`, `enlace` y `token`: el resto son URLs fijas de listas LAFT y el prefijo de `validacion-recovery.ts:35`. Esa búsqueda es por nombre de campo: una URL bajo otro nombre no se detectaría.
+- **Forma no detectada por el barrido:** `new URL(req.originalUrl).searchParams` no deja señal en el AST. Hoy tiene 0 usos: los `searchParams` del API son de clientes salientes (búsqueda de texto en `apps/api/src`).
 - **Mitigación 3:** se verificó por lectura de la consulta y por búsqueda de campos `payload`, no con respuestas reales. Quedan marcados «Parcial» los casos sin evaluar a fondo.
-- **Sin ejecución:** no se probó ninguna ruta.
+- **Sin ejecución:** esta auditoría no probó ninguna ruta. Las pruebas de `$http_referer` y `error_log` de T1 son de `security-agent`.
