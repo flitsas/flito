@@ -12,6 +12,7 @@ import { and, eq, asc, desc, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { vehiculoHistorial, tramitesDigitales, vehicles, soatRequests } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
+import { normalizeVin } from '../../shared/utils/vin.js';
 
 const log = loggerFor('vehiculo.historial');
 
@@ -30,9 +31,8 @@ const ESTADOS_PLACA = new Set([
   'placa_preasignada', 'solicitud_soat', 'soat_comprado', 'soat_verificado', 'completado',
 ]);
 
-export function normalizeVin(vin: string): string {
-  return (vin || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17);
-}
+// Re-exportada: `vehicles.routes`, `tramites.service` y `tramites.vin-policy` la importan de aquí.
+export { normalizeVin };
 
 /** JSON con claves ordenadas recursivamente → hash determinístico. */
 function stableStringify(v: unknown): string {
