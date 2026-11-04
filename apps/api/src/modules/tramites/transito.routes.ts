@@ -11,6 +11,7 @@ import { notifyEstado } from './notificaciones.js';
 import { appendEventoSafe } from '../vehicles/vehiculo-historial.js';
 import { resolveTransitoScope, organismoEnAlcance, secretariasAsignadas } from './transito-scope.js';
 import { soatVigenteDeRunt } from './soat-vigencia.js';
+import { registrarLecturaBandejaTransito, registrarLecturaTraspaso, registrarLecturaTraspasos } from './tramites.pii.js';
 
 /**
  * TRAM-13 + TRAM-MT-01 — Bandeja de tránsito multitenant por organismo.
@@ -49,6 +50,7 @@ router.get('/pendientes', exigirFuncion('transito.bandeja.ver_pendientes'), asyn
     const result = await db.select().from(tramitesDigitales)
       .where(and(...conditions))
       .orderBy(sql`${tramitesDigitales.updatedAt} DESC`);
+    await registrarLecturaBandejaTransito(req, 'pendientes', result.length);
     res.json(result);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -69,6 +71,7 @@ router.get('/mis-tramites', exigirFuncion('transito.bandeja.ver_propios'), async
     const result = await db.select().from(tramitesDigitales)
       .where(and(...conditions))
       .orderBy(sql`${tramitesDigitales.updatedAt} DESC`);
+    await registrarLecturaBandejaTransito(req, 'mis-tramites', result.length);
     res.json(result);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -104,6 +107,7 @@ router.get('/traspasos', exigirFuncion('transito.traspasos.listar'), async (req:
     }).from(tramitesDigitales)
       .where(and(...conditions))
       .orderBy(sql`${tramitesDigitales.updatedAt} DESC`);
+    await registrarLecturaTraspasos(req, result.length);
     res.json(result);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -140,6 +144,7 @@ router.get('/traspasos/:id', exigirFuncion('transito.traspasos.ver'), async (req
       res.status(404).json({ error: 'Traspaso no encontrado' });
       return;
     }
+    await registrarLecturaTraspaso(req, id);
     res.json(row);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });

@@ -14,6 +14,7 @@ import { audit } from '../../shared/middleware/audit.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
 import { refreshSoatFromRunt, refreshResultToHttp } from './refresh.service.js';
 import { loggerFor } from '../../shared/logger.js';
+import { registrarExportSolicitudesSoat, registrarListadoSolicitudesSoat } from './soat.pii.js';
 
 const log = loggerFor('soat-routes');
 
@@ -188,6 +189,7 @@ router.get('/', exigirFuncion('soat.antiguo.operar'), async (req: Request, res: 
     .orderBy(sql`${soatRequests.createdAt} DESC`)
     .limit(limit).offset(offset);
 
+  await registrarListadoSolicitudesSoat(req, result.length);
   res.json(result);
 });
 
@@ -492,6 +494,7 @@ router.get('/export', exigirFuncion('soat.antiguo.administrar'), async (req: Req
     .innerJoin(vehicles, eq(soatRequests.vehicleId, vehicles.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined);
 
+  await registrarExportSolicitudesSoat(req, result.length);
   await sendExcel(res, 'soat_requests.xlsx', [
     { header: 'VIN', key: 'vin', width: 20 },
     { header: 'Placa', key: 'plate', width: 12 },
