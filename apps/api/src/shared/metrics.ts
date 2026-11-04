@@ -117,3 +117,17 @@ export const rateLimitBloqueadoTotal = new Counter({
   labelNames: ['limitador'] as const,
   registers: [registry],
 });
+// HU #13989 (ADR-0033 §7) — la pérdida del conteo de uso legacy, lo único que su tabla no puede contar.
+// Sin rutas ni roles en las etiquetas.
+export const usoLegacyFlushTotal = new Counter({
+  name: 'uso_legacy_flush_total',
+  help: 'Flushes del conteo de uso legacy a la tabla de agregados, por resultado.',
+  labelNames: ['resultado'] as const,
+  registers: [registry],
+});
+
+export const usoLegacyConteosDescartadosTotal = new Counter({
+  name: 'uso_legacy_conteos_descartados_total',
+  help: 'Conteos de uso legacy descartados por superar el tope de claves del buffer.',
+  registers: [registry],
+});
