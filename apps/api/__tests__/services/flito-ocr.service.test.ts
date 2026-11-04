@@ -23,11 +23,11 @@ vi.mock('../../src/modules/flito-ocr/flito-ocr-local.js', () => ({
 }));
 
 const {
-  extraerFacturaSoat, extraerReciboImpuesto,
+  extraerFacturaSoat, extraerReciboImpuesto, extraerVehiculoFacturaVenta,
   placaDesdeNombre, normalizarPesos, normalizarFecha, OcrNoDisponibleError,
 } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
 const { env } = await import('../../src/config/env.js');
-const { PROMPT_RECIBO_IMPUESTO, PROMPT_RECIBO_CAJA } = await import('../../src/modules/flito-ocr/flito-ocr.prompts.js');
+const { PROMPT_RECIBO_IMPUESTO, PROMPT_RECIBO_CAJA, PROMPT_FACTURA_VENTA_VEHICULO } = await import('../../src/modules/flito-ocr/flito-ocr.prompts.js');
 
 // Si el .env del worktree no trae key, forzamos una de prueba (mismo objeto que usa el service).
 if (!env.ANTHROPIC_API_KEY) {
@@ -329,5 +329,99 @@ describe('extraerReciboImpuesto — selloPagado (HU #12614, AC1)', () => {
 
   it('el recibo de caja NO pide el sello (su prompt y su extractor no cambian)', () => {
     expect(PROMPT_RECIBO_CAJA).not.toMatch(/selloPagado/);
+  });
+});
+
+describe('extraerVehiculoFacturaVenta — número, fecha y avalúo (HU #14293)', () => {
+  const vacios = Object.fromEntries(
+    ['vin', 'marca', 'linea', 'anioVehiculo', 'color', 'cilindrada', 'clase', 'direccion', 'municipio', 'departamento']
+      .map((c) => [c, { valor: null, confianza: null }]),
+  );
+  /** VIN, año y marca en alta: sin escalación, una sola pasada. */
+  const conDatos = (datos: Record<string, unknown>) => respuesta({
+    ...vacios,
+    vin: { valor: '9ABCD1234EF567890', confianza: 'alta' }, anioVehiculo: { valor: '2026', confianza: 'alta' },
+    marca: { valor: 'MARCAX', confianza: 'alta' }, ...datos,
+  });
+  const alta = (valor: unknown) => ({ valor, confianza: 'alta' });
+
+  it.each([
+    ['plantilla B', 'FV99 1234', '2030-01-31', '$ 1,234,567.89', 'FV991234', '2030-01-31', '1234567.89'],
+    ['plantilla C', 'FC991234', '31/01/2030 14:05:00', '1.234.567,89', 'FC991234', '2030-01-31', '1234567.89'],
+    ['plantilla D', 'ZZ 1234', '31/01/2030, 15:48', '1,000,000.00', 'ZZ1234', '2030-01-31', '1000000.00'],
+    ['otro emisor con 0', 'ZZ-77', '31/01/2030', '0', 'ZZ-77', '2030-01-31', '0'],
+  ])('%s: normaliza los tres con los normalizadores del parser', async (_n, numero, fecha, avaluo, eNumero, eFecha, eAvaluo) => {
+    anthropicMock.mockResolvedValueOnce(conDatos({ numeroFactura: alta(numero), fechaFactura: alta(fecha), avaluoComercial: alta(avaluo) }));
+    const r = await extraerVehiculoFacturaVenta(doc());
+    expect(r.numeroFactura).toMatchObject({ valor: eNumero, confiable: true });
+    expect(r.fechaFactura).toMatchObject({ valor: eFecha, confiable: true });
+    expect(r.avaluoComercial).toMatchObject({ valor: eAvaluo, confiable: true });
+  });
+
+  it('cada campo por separado: ambiguo, imposible o en confianza media no son fiables', async () => {
+    anthropicMock.mockResolvedValueOnce(conDatos({
+      numeroFactura: { valor: 'FV991234', confianza: 'media' }, fechaFactura: alta('31/02/2030'), avaluoComercial: alta('123,456'),
+    }));
+    const r = await extraerVehiculoFacturaVenta(doc());
+    expect(r.numeroFactura).toMatchObject({ valor: 'FV991234', confiable: false });
+    expect(r.fechaFactura).toEqual({ valor: null, confianza: 0, confiable: false });
+    expect(r.avaluoComercial).toEqual({ valor: null, confianza: 0, confiable: false });
+    expect(r.vin).toMatchObject({ confiable: true });
+  });
+
+  it('sin el avalúo no se rellena con 0', async () => {
+    anthropicMock.mockResolvedValueOnce(conDatos({}));
+    const r = await extraerVehiculoFacturaVenta(doc());
+    expect(r.avaluoComercial).toEqual({ valor: null, confianza: 0, confiable: false });
+  });
+
+  it('los tres datos dudosos NO escalan a Sonnet', async () => {
+    anthropicMock.mockResolvedValueOnce(conDatos({ numeroFactura: { valor: 'X1', confianza: 'baja' } }));
+    await extraerVehiculoFacturaVenta(doc());
+    expect(anthropicMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fallback local: no se le piden, quedan ausentes aunque el documento los traiga, y el resto sigue', async () => {
+    anthropicMock.mockResolvedValueOnce({ ok: false, status: 503, message: 'upstream down' });
+    textoDocumentoMock.mockResolvedValueOnce('FACTURA ZZ1234 FECHA DE VENTA 02/03/2030');
+    camposDesdeTextoMock.mockReturnValueOnce({ vin: { valor: '9ABCD1234EF567890', confianza: 'alta' } });
+    const r = await extraerVehiculoFacturaVenta(doc());
+    const pedidos = camposDesdeTextoMock.mock.calls[0][1] as string[];
+    for (const c of ['numeroFactura', 'fechaFactura', 'avaluoComercial']) {
+      expect(pedidos, c).not.toContain(c);
+      expect(r[c as 'numeroFactura'], c).toEqual({ valor: null, confianza: 0, confiable: false });
+    }
+    expect(pedidos).toContain('vin');
+    expect(r.vin).toMatchObject({ valor: '9ABCD1234EF567890', confiable: true });
+  });
+
+  it('el fallback de los demás canales sigue pidiendo sus campos (SOAT no cambia)', async () => {
+    anthropicMock.mockResolvedValueOnce({ ok: false, status: 503, message: 'upstream down' });
+    textoDocumentoMock.mockResolvedValueOnce('texto');
+    camposDesdeTextoMock.mockReturnValueOnce(crudoLocalSoat());
+    await extraerFacturaSoat(doc());
+    expect(camposDesdeTextoMock.mock.calls[0][1]).toContain('numeroPoliza');
+  });
+
+  it('el prompt lleva las definiciones de emisión y de valor antes de impuestos (AC2, AC3, AC4, AC9)', () => {
+    const p = PROMPT_FACTURA_VENTA_VEHICULO;
+    expect(p).toContain('"FV99 1234" → "FV991234"');
+    expect(p).toMatch(/numeroFactura:[^\n]*NUNCA el número de resolución, la autorización DIAN ni la orden de compra/);
+    expect(p).toMatch(/fechaFactura:[^\n]*EMISIÓN/);
+    expect(p).toMatch(/fechaFactura:[^\n]*NUNCA la fecha de vencimiento, validación DIAN, recepción, generación, levante, declaración ni orden de compra/);
+    expect(p).toMatch(/avaluoComercial:[^\n]*Subtotal Base gravable[^\n]*SUB TOTAL[^\n]*VALOR ANTES DE IMPUESTOS/);
+    expect(p).toMatch(/avaluoComercial:[^\n]*NUNCA el total de la factura, NUNCA un valor con IVA/);
+    expect(p).toMatch(/avaluoComercial:[^\n]*si no identificas esa fila con seguridad, devuelve null/);
+    // Plantilla D: número con prefijo separado, `Expedición` y `Total Bruto` por encima de `Subtotal`.
+    expect(p).toContain('"No. ZZ 1234" → "ZZ1234"');
+    expect(p).toMatch(/numeroFactura:[^\n]*NUNCA del nombre del archivo/);
+    expect(p).toMatch(/fechaFactura:[^\n]*"Expedición"/);
+    expect(p).toMatch(/avaluoComercial:[^\n]*"Total Bruto", ese valor manda sobre "Subtotal" y "SUB TOTAL", tenga o no "Descuentos"/);
+    expect(p).toMatch(/avaluoComercial:[^\n]*"Total Bruto" NO es el total de la factura/);
+    expect(p).toMatch(/avaluoComercial:[^\n]*impuesto al consumo/);
+    expect(p).toMatch(/avaluoComercial:[^\n]*NUNCA "Total a Pagar" ni la columna "Total" de la fila del producto/);
+    expect(p).toContain('"avaluoComercial":{"valor":null,"confianza":null}');
+    expect(p).toContain('NO extraigas nombre, documento, correo ni teléfono');
+    expect(p).not.toContain('valorVehiculo');
   });
 });

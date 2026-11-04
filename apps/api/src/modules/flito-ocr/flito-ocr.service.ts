@@ -12,7 +12,7 @@ import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
 import { anthropicMessages } from '../tramites/anthropic.js';
 import {
-  CampoSoat, CampoImpuesto, CampoFacturaVenta, CampoVehiculoFacturaVenta, CampoDerechoTramite, CampoComprobante,
+  CampoSoat, CampoImpuesto, CampoFacturaVenta, CampoVehiculoFacturaVenta, CampoDocumentoFacturaImpuesto, CampoDerechoTramite, CampoComprobante,
   CAMPOS_COMPRADOR_FACTURA, TIPOS_DOCUMENTO_RUNT, TIPOS_DOCUMENTO_COMPROBANTE, CONCEPTOS_COSTO,
   type CampoExtraido, type ExtraccionSoat, type ExtraccionImpuesto, type ExtraccionFacturaVenta,
   type ExtraccionDerechoTramite, type ExtraccionComprobante, type ExtraccionFacturaVentaImpuestoCampos,
@@ -23,7 +23,9 @@ import {
   type CampoCrudo, type ConfianzaCategorica,
 } from './flito-ocr.prompts.js';
 import { textoDocumento, camposDesdeTexto } from './flito-ocr-local.js';
-import { anioVehiculoN, cilindradaN, lineaN, vinFacturaN } from './flito-ocr-factura-flit.js';
+import {
+  anioVehiculoN, CAMPOS_DOCUMENTO_FACTURA, cilindradaN, fechaFacturaN, importeFacturaN, lineaN, numeroFacturaN, vinFacturaN,
+} from './flito-ocr-factura-flit.js';
 
 const log = loggerFor('flito-ocr');
 
@@ -192,9 +194,10 @@ async function extraerLocal(
   campos: readonly string[],
   normalizadores: Record<string, (v: string) => string | null>,
   motivo: 'sin_api_key' | 'anthropic_fallo',
+  camposSinLecturaLocal: readonly string[],
 ): Promise<Record<string, CampoExtraido>> {
   const texto = await textoDocumento(doc);
-  const crudoLocal = camposDesdeTexto(texto, campos) ?? {};
+  const crudoLocal = camposDesdeTexto(texto, campos.filter((c) => !camposSinLecturaLocal.includes(c))) ?? {};
   const salidaLocal: Record<string, CampoExtraido> = {};
   for (const campo of campos) {
     salidaLocal[campo] = aCampoExtraido(crudoLocal[campo] ?? { valor: null, confianza: null }, doc.umbral, normalizadores[campo]);
@@ -219,9 +222,10 @@ async function extraer(
   campos: readonly string[],
   camposEscalacion: readonly string[],
   normalizadores: Record<string, (v: string) => string | null>,
+  camposSinLecturaLocal: readonly string[] = [],
 ): Promise<Record<string, CampoExtraido>> {
   if (!env.ANTHROPIC_API_KEY) {
-    return extraerLocal(doc, campos, normalizadores, 'sin_api_key');
+    return extraerLocal(doc, campos, normalizadores, 'sin_api_key', camposSinLecturaLocal);
   }
 
   let crudo: Record<string, CampoCrudo>;
@@ -232,7 +236,7 @@ async function extraer(
     if (!(e instanceof OcrNoDisponibleError)) throw e;
     // Sin PII del documento: solo status/mensaje del upstream.
     log.warn({ status: e.status, err: e.message }, 'OCR: Anthropic no disponible; se usa fallback local');
-    return extraerLocal(doc, campos, normalizadores, 'anthropic_fallo');
+    return extraerLocal(doc, campos, normalizadores, 'anthropic_fallo', camposSinLecturaLocal);
   }
 
   const necesitaEscalar = camposEscalacion.some((c) => crudo[c]?.confianza !== 'alta');
@@ -491,15 +495,24 @@ export async function extraerFacturaVenta(doc: DocumentoAAnalizar): Promise<Extr
  * escalan VIN, año y marca, que son las llaves del cruce con el RUNT (HU 12827). Los normalizadores
  * de VIN/año/cilindrada/línea son los del parser determinístico, para que las dos fuentes
  * persistan la misma forma.
+ *
+ * HU #14293: número, fecha de emisión y avalúo tienen también los normalizadores del parser, y no
+ * escalan: se muestran, no deciden. El fallback local NO los lee: sus patrones de `numeroFactura` y
+ * `fechaFactura` son los del canal SOAT, dan confianza alta y no distinguen la fecha de emisión de las
+ * demás. Sin motor quedan ausentes.
  */
 export async function extraerVehiculoFacturaVenta(doc: DocumentoAAnalizar): Promise<ExtraccionFacturaVentaImpuestoCampos> {
   const campos = [
     CampoVehiculoFacturaVenta.VIN, CampoVehiculoFacturaVenta.MARCA, CampoVehiculoFacturaVenta.LINEA, CampoVehiculoFacturaVenta.ANIO_VEHICULO,
     CampoVehiculoFacturaVenta.COLOR, CampoVehiculoFacturaVenta.CILINDRADA, CampoVehiculoFacturaVenta.CLASE,
     CampoFacturaVenta.DIRECCION, CampoFacturaVenta.MUNICIPIO, CampoFacturaVenta.DEPARTAMENTO,
+    ...CAMPOS_DOCUMENTO_FACTURA,
   ] as const;
   const escalacion = [CampoVehiculoFacturaVenta.VIN, CampoVehiculoFacturaVenta.ANIO_VEHICULO, CampoVehiculoFacturaVenta.MARCA];
   const r = await extraer(doc, PROMPT_FACTURA_VENTA_VEHICULO, campos, escalacion, {
+    [CampoDocumentoFacturaImpuesto.NUMERO_FACTURA]: numeroFacturaN,
+    [CampoDocumentoFacturaImpuesto.FECHA_FACTURA]: fechaFacturaN,
+    [CampoDocumentoFacturaImpuesto.AVALUO_COMERCIAL]: importeFacturaN,
     [CampoVehiculoFacturaVenta.VIN]: vinFacturaN,
     [CampoVehiculoFacturaVenta.MARCA]: textoTitularN(60),
     [CampoVehiculoFacturaVenta.LINEA]: lineaN,
@@ -510,7 +523,7 @@ export async function extraerVehiculoFacturaVenta(doc: DocumentoAAnalizar): Prom
     [CampoFacturaVenta.DIRECCION]: textoTitularN(300),
     [CampoFacturaVenta.MUNICIPIO]: textoTitularN(100),
     [CampoFacturaVenta.DEPARTAMENTO]: textoTitularN(100),
-  });
+  }, CAMPOS_DOCUMENTO_FACTURA);
   return r as ExtraccionFacturaVentaImpuestoCampos;
 }
 

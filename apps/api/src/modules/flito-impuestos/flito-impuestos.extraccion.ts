@@ -10,6 +10,8 @@
 //        departamento del bloque Adquiriente. Cada campo `{ valor, confianza, confiable }`.
 //   AC2  Sin Notas Finales reconocibles (PDF escaneado, imagen, otra plantilla) → motor OCR existente
 //        con el prompt `PROMPT_FACTURA_VENTA_VEHICULO`. `OcrNoDisponibleError` se relanza.
+//   HU #14293  Además número, fecha de emisión y avalúo, de las dos fuentes. Se muestran en el Excel
+//        y no deciden nada: no entran en `confiables()` ni en el semáforo.
 //
 // Desenlace (lo decide la cola, este paso solo lanza o no): sin factura, descarga fallida o OCR caído
 // → el paso LANZA → `error_analisis`, sin escribir nada. Parser u OCR respondieron (aunque haya
@@ -46,7 +48,7 @@ import { textoPdf } from '../flito-ocr/flito-ocr-local.js';
 import { extraerVehiculoFacturaVenta } from '../flito-ocr/flito-ocr.service.js';
 import {
   CAMPOS_DIRECCION_FACTURA, CAMPOS_VEHICULO_FACTURA, descripcionProducto, extraccionCompleta,
-  lineaDesdeDescripcion, parsearAdquiriente, parsearNotasFinales,
+  lineaDesdeDescripcion, parsearAdquiriente, parsearDatosDocumento, parsearNotasFinales,
 } from '../flito-ocr/flito-ocr-factura-flit.js';
 import { umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { RECURSO_IMPUESTO } from './flito-impuestos.pii.js';
@@ -211,21 +213,25 @@ export async function extraerDeFactura(
     const texto = await textoPdf(factura.bytes, '-layout');
     const notas = parsearNotasFinales(texto);
     if (notas) {
+      // HU #14293: el avalúo necesita contar las filas de producto, así que `-raw` se lee una vez
+      // con o sin línea confiable. `textoPdf` no lanza: si falla da `''` y el avalúo queda ausente.
+      const textoRaw = await textoPdf(factura.bytes, '-raw');
       // La línea NO está en Notas Finales en las facturas FLIT: sale de la «Descripción» del
       // producto. Una etiqueta `Linea:` en Notas Finales, si FLIT la añade, tiene prioridad.
       if (!notas.linea.confiable) {
-        const producto = descripcionProducto(await textoPdf(factura.bytes, '-raw'));
+        const producto = descripcionProducto(textoRaw);
         const linea = lineaDesdeDescripcion(producto, notas.marca.confiable ? notas.marca.valor : null);
         if (linea.confiable || notas.linea.valor === null) notas.linea = linea;
       }
-      return { ...extraccionCompleta(notas, parsearAdquiriente(texto)), fuente: 'notas_finales' };
+      const documento = parsearDatosDocumento(texto, textoRaw, notas.vin.confiable ? notas.vin.valor : null);
+      return { ...extraccionCompleta(notas, parsearAdquiriente(texto), documento), fuente: 'notas_finales' };
     }
   }
   const ocr = await extraerVehiculoFacturaVenta({
     // Nombre genérico: el motor no lo necesita para leer y así no viaja el id de FLIT.
     nombreArchivo: 'factura-venta', contenido: factura.bytes, contentType: factura.contentType, umbral: umbralPara(null),
   });
-  return { ...extraccionCompleta(ocr, ocr), fuente: 'ocr' };
+  return { ...extraccionCompleta(ocr, ocr, ocr), fuente: 'ocr' };
 }
 
 /**

@@ -223,15 +223,32 @@ export const CAMPO_VEHICULO_FACTURA_VENTA_LABEL: Record<CampoVehiculoFacturaVent
 export type CampoDireccionFacturaVenta =
   | typeof CampoFacturaVenta.DIRECCION | typeof CampoFacturaVenta.MUNICIPIO | typeof CampoFacturaVenta.DEPARTAMENTO;
 
-/** Las 10 claves de la extracción de Impuestos: 7 del vehículo + 3 de dirección. */
-export type CampoExtraccionFacturaImpuesto = CampoVehiculoFacturaVenta | CampoDireccionFacturaVenta;
+/**
+ * Datos del DOCUMENTO que la lectura de Impuestos guarda para el Excel de la cola (HU #14293). Se
+ * muestran, no deciden: fuera del semáforo, de la comparación con el RUNT y de la bandeja.
+ *
+ * `avaluoComercial` es el valor del vehículo ANTES de impuestos, en cadena canónica `1234567.89`. No es
+ * `valorVehiculo` del canal SOAT, que pide entero y admite el total con confianza media.
+ */
+export const CampoDocumentoFacturaImpuesto = {
+  NUMERO_FACTURA: 'numeroFactura',
+  FECHA_FACTURA: 'fechaFactura',
+  AVALUO_COMERCIAL: 'avaluoComercial',
+} as const;
+
+export type CampoDocumentoFacturaImpuesto = (typeof CampoDocumentoFacturaImpuesto)[keyof typeof CampoDocumentoFacturaImpuesto];
+
+/** Las 13 claves de la extracción de Impuestos: 7 del vehículo + 3 de dirección + 3 del documento. */
+export type CampoExtraccionFacturaImpuesto =
+  | CampoVehiculoFacturaVenta | CampoDireccionFacturaVenta | CampoDocumentoFacturaImpuesto;
 
 /** De dónde salió la extracción de la factura en el análisis post-envío de Impuestos (HU #12826). */
 export type FuenteExtraccionFactura = 'notas_finales' | 'ocr';
 
 /**
- * Lo que persiste `flito_impuestos.extraccion_factura_venta` (HU #12826): los 7 campos vehiculares
- * y los 3 de dirección del adquiriente, siempre las 10 claves, más `fuente`.
+ * Lo que persiste `flito_impuestos.extraccion_factura_venta` (HU #12826): los 7 campos vehiculares,
+ * los 3 de dirección del adquiriente y, desde la HU #14293, los 3 del documento: siempre las 13 claves
+ * en una lectura nueva, más `fuente`. Una lectura anterior a esa HU trae solo las 10 primeras.
  *
  * Tipo APARTE de `ExtraccionFacturaVenta` (canal SOAT): ninguno de los dos ve las claves del otro.
  * Quien lea el jsonb itera una lista de campos, nunca `Object.values`.

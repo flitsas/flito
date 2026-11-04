@@ -15,7 +15,7 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoImpuesto, EstadoTramiteFlito, ESTADOS_TRAMITE_FLITO_TERMINADOS,
-  ANS_OPERATIVO, type AlertaOperativa,
+  ANS_OPERATIVO, CampoDocumentoFacturaImpuesto, type AlertaOperativa,
 } from '@operaciones/shared-types';
 import type { FuenteTramite } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -380,9 +380,14 @@ function estancadoPorAns(estado: string | null, enviadoEn: Date | null): boolean
   return (Date.now() - enviadoEn.getTime()) / 3_600_000 > ANS_OPERATIVO.SIN_GESTION_HORAS;
 }
 
-function coincidenciaDe(extraccion: unknown): number | null {
+/** HU #14293: número, fecha y avalúo se muestran en el Excel y no deciden: no entran en la coincidencia. */
+const CLAVES_DOCUMENTO_FACTURA: ReadonlySet<string> = new Set(Object.values(CampoDocumentoFacturaImpuesto));
+
+export function coincidenciaDe(extraccion: unknown): number | null {
   if (!extraccion || typeof extraccion !== 'object') return null;
-  const confianzas = Object.values(extraccion as Record<string, { confianza?: number } | undefined>)
+  const confianzas = Object.entries(extraccion as Record<string, { confianza?: number } | undefined>)
+    .filter(([clave]) => !CLAVES_DOCUMENTO_FACTURA.has(clave))
+    .map(([, c]) => c)
     .filter((c): c is { confianza: number } => Boolean(c) && typeof c!.confianza === 'number')
     .map((c) => c.confianza);
   return confianzas.length ? Math.min(...confianzas) : null;
