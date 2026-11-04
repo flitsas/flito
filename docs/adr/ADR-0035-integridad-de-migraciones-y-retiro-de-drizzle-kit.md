@@ -29,11 +29,26 @@
 
 - **DEV:** logs del initContainer tras el rollout de PR 1: `kubectl -n flito-dev logs <pod> -c db-apply | grep '\[drift\]'`.
 - **QA y PDN, sin promover:** un pod efímero con la imagen de `develop`, que además responde lo correcto: qué pasará cuando *ese* código llegue allí.
-  `kubectl -n flito-<env> run drift-check --rm -i --restart=Never --image=<digest de develop> ... -- node dist/scripts/db-apply.js --check-drift`, con `DATABASE_URL` tomada del mismo secreto que usa el initContainer. El nombre del secreto no se verificó: `flit-gitops` no está disponible para este diseño.
+  `kubectl -n flito-<env> run drift-check --rm -i --restart=Never --image=<digest de develop> ... -- node dist/scripts/db-apply.js --check-drift`, con `DATABASE_URL` tomada del mismo secreto que usa el initContainer. El nombre del secreto no se verificó: `flit-gitops` no está disponible para este diseño. Si el ambiente conecta por un pooler, puede rechazar el parámetro de solo lectura de `--check-drift`.
+
+En los tres ambientes, además, para ver filas sin hash:
+
+```sql
+SELECT is_nullable FROM information_schema.columns
+ WHERE table_name='_kyverum_applied_migrations' AND column_name='sha256';
+SELECT count(*) FROM _kyverum_applied_migrations
+ WHERE sha256 IS NULL OR sha256 !~ '^[0-9a-f]{64}$';
+```
 
 Promover PR 1 no es necesario: exigiría evidencias DEV `COMPLETAS` del Feature, que aún no está terminado.
 
 **PR 2 (aborto).** Se abre **solo** con los tres resultados en la HU #13981. Contiene el retiro de `DRIFT_ABORTA` (el aborto queda incondicional), las entradas del manifiesto que resuelven lo hallado y un test que fija el comportamiento. Manifiesto y aborto viajan en la misma imagen, así que un ambiente nunca recibe uno sin el otro. Su cuerpo declara `drift-check: DEV=<resultado> QA=<resultado> PDN=<resultado>`.
+
+**Por decidir o revisar al preparar PR 2 (hallazgos de los gates de PR 1):**
+
+- **Filas con `sha256` NULL, vacío o fuera de formato.** Hoy se reportan como deriva, y el manifiesto no las admite porque exige `shaLedger` de 64 hexadecimales; `--mark-all` tampoco las rellena. Si la medición encuentra alguna, PR 2 necesita una categoría propia con su vía de resolución.
+- **Control sobre el manifiesto (security-agent).** Con el aborto activo, `derivas-aceptadas.json` decide si la API arranca, y hoy `pr-monitor-agent` mergea a `develop` con CI verde. Decisión humana: exigir revisión de code owner en `develop`, o que el monitor no mergee sin «sí» si el diff toca ese archivo. En ambos casos, añadir `/scripts/check-migraciones-inmutables*` y `/.github/CODEOWNERS` a `CODEOWNERS`.
+- **Archivo ilegible.** PR 1 añade la línea `[drift] ilegible archivo=<nombre>`, que no suma en `[drift] resumen`. Con el aborto activo, un pendiente ilegible saldrá con 3 antes de aplicar nada, en lugar de con 1 en su turno.
 
 **Qué es mecánico y qué no.** PR 1 es seguro por construcción. El gate de PR 2 es procedimental: los datos de su manifiesto solo los tiene quien corrió la medición. Si aun así se mergeara antes de tiempo, el daño se limita a DEV, porque QA y PDN exigen merge humano. Rollback en cualquier ambiente: revertir el commit de digest en `flit-gitops`. Con `replicas: 1` y `Recreate`, un aborto deja la API caída hasta entonces.
 
@@ -120,7 +135,7 @@ Tras PR 2, cambiar de rama con una migración aplicada deja una huérfana local,
 
 **Por qué quitar la dependencia y no solo los scripts.** Hoy `npx drizzle-kit migrate` falla por casualidad: `Cannot find module 'drizzle-orm/casing'`, porque `drizzle-orm` no está elevado a la raíz. Un cambio en el lockfile podría «arreglarlo» y revivir el peligro.
 
-**Comprobado con la 0.26.2 contra una BD inalcanzable:** sin config, `migrate`, `generate` y `push` terminan con exit 1 sin conectar (`drizzle.config.json file does not exist`). **No comprobado:** sin la dependencia, `npx` ofrece descargar la última versión. `backend-agent` lo corre una vez en un directorio temporal vacío y pega la salida para el AC2. Si se pasan flags explícitos (`push --url …`) es un acto deliberado que ningún retiro impide; queda fuera del AC.
+**Comprobado con la 0.26.2 contra una BD inalcanzable:** sin config, `migrate`, `generate` y `push` terminan con exit 1 sin conectar (`drizzle.config.json file does not exist`). **Comprobado al implementar, sin la dependencia:** sin TTY, `npx` descarga y ejecuta la última versión sin preguntar (0.31.11); sin config termina con exit 1 sin conectar, en un directorio vacío y con `DATABASE_URL` apuntando a una base temporal. Hace falta teclearlo a propósito y ningún proceso automatizado lo invoca. Si se pasan flags explícitos (`push --url …`) es un acto deliberado que ningún retiro impide; queda fuera del AC.
 
 **AC3:** `build:api` con el árbol frío y `db:apply -- --dry`, antes y después, con `sha256sum` de los `.sql` idéntico.
 
