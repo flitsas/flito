@@ -5,7 +5,7 @@ import { loginAs, ADMIN_USER } from '../helpers/auth';
 
 const VEH = { ok: true, data: { vehiculo: { marca: 'Mazda', linea: 'CX-30', modelo: '2024', placa: 'ABC123', vin: 'VIN88' } } };
 const PERSONA_VENDEDOR = { ok: true, persona: { nombres: 'Carlos', apellidos: 'Vendedor' } };
-const PERSONA_COMPRADOR = { ok: true, persona: { nombres: 'Ana', apellidos: 'Compradora', estadoPersona: 'ACTIVA' } };
+const PERSONA_COMPRADOR = { ok: true, persona: { nombres: 'Ana', apellidos: 'Compradora', estadoPersona: 'ACTIVA' }, multas: [] };
 
 function tramite88(paso: number, extra: Record<string, unknown> = {}) {
   return {
@@ -23,6 +23,8 @@ async function mockBackend(page: import('@playwright/test').Page, preflightOvera
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
   });
   await page.route('**/api/tramites/preflight', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ overall: preflightOverall, checks: [{ key: 'soat', label: 'SOAT vigente', status: preflightOverall === 'red' ? 'fail' : 'ok', message: 'SOAT' }] }) }));
+  // Trámite sin pre-vuelo guardado: el paso 2 tiene que consultarlo.
+  await page.route('**/api/tramites/88/preflight', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ preflight: null }) }));
   await page.route('**/api/tramites/88/firma', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ firmas: [] }) }));
   await page.route('**/api/tramites/88', (r) => {
     if (r.request().method() === 'PATCH') return r.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
@@ -52,7 +54,8 @@ test.describe('Trámite · Traspaso wizard 6 pasos (F1.5)', () => {
     // Paso 2 — validación legal (pre-vuelo).
     await expect(page.getByText('2. Validación legal (RUNT/SIMIT)')).toBeVisible();
     await expect(page.getByText('SOAT vigente')).toBeVisible();
-    await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+    // Con pre-vuelo correcto se avanza por los pasos del lateral: «Continuar» no se pinta (decisión 2026-11-04, HU #13988).
+    await page.getByRole('navigation', { name: 'Pasos del traspaso' }).getByRole('button', { name: /Vendedor/ }).click();
 
     // Paso 3 — vendedor (prellenado RUNT). F3: email obligatorio para la firma.
     await expect(page.getByText('3. Vendedor (titular saliente)')).toBeVisible();
@@ -85,7 +88,7 @@ test.describe('Trámite · Traspaso wizard 6 pasos (F1.5)', () => {
     await loginAs(page, ADMIN_USER);
     await mockBackend(page);
     await page.goto('/tramite/traspaso?id=88');
-    // Hidrata en el paso guardado (3 = vendedor), nunca el wizard VIN.
+    // Retoma en el primer paso incompleto (3 = vendedor, sin email), nunca el wizard VIN.
     await expect(page.getByText('3. Vendedor (titular saliente)')).toBeVisible();
     await expect(page.getByPlaceholder('Numero VIN...')).toHaveCount(0);
   });
