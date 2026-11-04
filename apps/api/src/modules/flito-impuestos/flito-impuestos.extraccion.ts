@@ -266,7 +266,8 @@ export const pasoExtraccion: PasoAnalisis = async ({ impuestoId }) => {
   await db.update(flitoImpuestos).set({ extraccionFacturaVenta: extraccion })
     .where(and(eq(flitoImpuestos.id, impuestoId), eq(flitoImpuestos.analisisEstado, AnalisisEstadoImpuesto.EN_CURSO)));
   await registrarAccesoSistema(
-    impuestoId, ['direccion', 'municipio', 'departamento', 'vin'], `extracción factura de venta · fuente=${extraccion.fuente!}`,
+    impuestoId, ['direccion', 'municipio', 'departamento', 'vin', 'numero_factura', 'fecha_factura', 'avaluo_comercial'],
+    `extracción factura de venta · fuente=${extraccion.fuente!}`,
   );
   log.info({ impuestoId, fuente: extraccion.fuente, camposConfiables: confiables(extraccion) }, 'extraccion: factura analizada');
 };

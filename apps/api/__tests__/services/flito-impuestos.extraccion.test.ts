@@ -114,7 +114,7 @@ describe('AC1 — factura con Notas Finales', () => {
     expect(logPiiAccess).toHaveBeenCalledTimes(1);
     const [req, opts] = logPiiAccess.mock.calls[0];
     expect(req.user).toBeUndefined(); // actor sistema: user_id/user_role NULL, no un usuario inventado
-    expect(opts).toMatchObject({ resourceTipo: 'flito_impuesto', accion: 'read', camposAccedidos: ['direccion', 'municipio', 'departamento', 'vin'] });
+    expect(opts).toMatchObject({ resourceTipo: 'flito_impuesto', accion: 'read', camposAccedidos: ['direccion', 'municipio', 'departamento', 'vin', 'numero_factura', 'fecha_factura', 'avaluo_comercial'] });
     expect(JSON.stringify(opts)).not.toMatch(/9ABCD1234EF567890|CL 1 # 2-3|CIUDADX|X-Amz-Signature/);
   });
 });
@@ -248,7 +248,8 @@ describe('HU #14293 — cada campo por separado (AC7)', () => {
     const acceso = logPiiAccess.mock.calls[0][1] as { motivo: string; camposAccedidos: string[] };
     expect(acceso.motivo).not.toContain('ZZ000012345');
     expect(acceso.motivo).not.toContain('1234567.89');
-    expect(acceso.camposAccedidos).toEqual(['direccion', 'municipio', 'departamento', 'vin']);
+    expect(acceso.camposAccedidos).toEqual(['direccion', 'municipio', 'departamento', 'vin', 'numero_factura', 'fecha_factura', 'avaluo_comercial']);
+    expect(acceso.motivo).not.toContain('2030-01-31');
   });
 });
 
