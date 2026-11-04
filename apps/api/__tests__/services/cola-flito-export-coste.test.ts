@@ -30,7 +30,8 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import {
-  columnasFaltantes, filaCola, filaColaPago, filasCola, filasColaPago, medirExports, PRESUPUESTO_MB, reportar,
+  columnasFaltantes, filaCola, filaColaPago, filaColaPagoImpuestos, filasCola, filasColaPago, filasColaPagoImpuestos,
+  medirExports, PRESUPUESTO_MB, reportar,
 } from '../helpers/export-coste.js';
 import { COLUMNAS_COLA_EXPORT, columnasColaExport } from '../../src/shared/export/cola-flito-excel.js';
 
@@ -142,9 +143,9 @@ describe('la hoja de 27 columnas cabe en el presupuesto de heap (ADR-0004 §Cost
 });
 
 /**
- * Bug #12642 — el archivo AMPLIADO del SOAT: 27 + 13 columnas de pago y trazabilidad. Es la hoja más
- * ancha que este endpoint puede producir (Impuestos suma 11) y, como la de 27, se mide en vez de
- * estimarse: trece columnas más son 1,48 veces la hoja con la que se recalibró el margen en la
+ * Bug #12642 — el archivo AMPLIADO del SOAT: 27 + 13 columnas de pago y trazabilidad. Fue la hoja más
+ * ancha hasta la HU #14294, que lleva la de Impuestos a 42 (medida abajo). Como la de 27, se mide en vez
+ * de estimarse: trece columnas más son 1,48 veces la hoja con la que se recalibró el margen en la
  * #12403, y cuatro de ellas son fechas distintas por fila que la tabla de cadenas no deduplica.
  *
  * Mismo criterio que arriba: umbrales de orden de magnitud contra el PRESUPUESTO, y el número real
@@ -195,6 +196,57 @@ describe('la hoja AMPLIADA de 40 columnas (Bug #12642) cabe en el presupuesto de
     const lotes = Array.from({ length: SIMULTANEOS }, () => filasColaPago(FILAS));
     const m = await medirExports(lotes, COLUMNAS_AMPLIADAS);
     reportar('cola FLITO · 40 columnas (ampliado, Bug #12642) · 5 simultáneos', FILAS, m);
+
+    expect(m.bytesPorExport).toHaveLength(SIMULTANEOS);
+    for (const bytes of m.bytesPorExport) expect(bytes).toBeGreaterThan(0);
+    expect(m.rssDeltaMB).toBeLessThan(PRESUPUESTO_MB);
+    expect(m.ms).toBeLessThan(120_000);
+    expect(m.atencion).toBeGreaterThan(ATENCION_MINIMA);
+  });
+});
+
+/**
+ * HU #14294 — el archivo AMPLIADO de Impuestos: 27 + 3 de factura + 12 de pago = 42, desde esta HU la
+ * hoja más ancha de este endpoint. Las tres nuevas pesan por fila: dos cadenas distintas que la tabla
+ * de cadenas no deduplica y un número.
+ *
+ * ── LO MEDIDO (2026-11-04, HU #14294: 42 columnas) ──────────────────────────────────────────────
+ *
+ *   · Este `describe` corrido SOLO, tres veces, el mismo protocolo con el que el Bug #12642 midió las 40:
+ *     UN export +88,7 · +88,8 · +89,2 MB, heap pico ~132 MB, ~780 ms, archivo 0,4 MB.
+ *     CINCO simultáneos (proceso calentado por el caso anterior) **+252,7 · +229,1 · +241,0 MB** sobre el
+ *     presupuesto de 262, heap pico hasta 267 MB, lag máximo ~2,9 s. **Margen: ~9 MB**, frente a ~14 de la de 40.
+ *   · El archivo completo (nueve casos seguidos): +48,6 y +95,5 MB. No es el que se cita.
+ *   · **CINCO simultáneos en FRÍO, solos, NO caben**: +289,5 · +405,5 · +403,8 MB. Tampoco lo hace la hoja de
+ *     40 de SOAT ya en producción (+385,3 · +385,1 · +299,9); la de 39 de Impuestos antes de esta HU daba
+ *     +257,5 · +269,7 · +257,1 y la de 27 +241,1 · +233,6 · +249,4. Los asertos usan el proceso calentado,
+ *     como los de la hoja de 40: no cubren este caso, que es el dato para reabrir ADR-0004 §Coste.
+ */
+describe('la hoja AMPLIADA de 42 columnas de Impuestos (HU #14294) cabe en el presupuesto de heap', () => {
+  const COLUMNAS_IMPUESTOS = columnasColaExport('impuestos', true);
+
+  it('el generador produce **todas** las columnas del archivo real, y es la hoja más ancha', () => {
+    expect(columnasFaltantes(COLUMNAS_IMPUESTOS, filaColaPagoImpuestos(0))).toEqual([]);
+    expect(COLUMNAS_IMPUESTOS).toHaveLength(42);
+    expect(COLUMNAS_IMPUESTOS.length).toBeGreaterThan(columnasColaExport('soat', true).length);
+  });
+
+  it('UN export ampliado al tope: duración, memoria y lag', { timeout: 120_000, retry: 0 }, async () => {
+    const m = await medirExports([filasColaPagoImpuestos(FILAS)], COLUMNAS_IMPUESTOS);
+    reportar('cola FLITO · 42 columnas (Impuestos ampliado, HU #14294) · 1 export', FILAS, m);
+
+    expect(m.bytesPorExport[0]).toBeGreaterThan(0);
+    expect(m.rssDeltaMB).toBeLessThan(SENAL_REAPERTURA_MB);
+    expect(m.rssDeltaMB).toBeLessThan(PRESUPUESTO_MB);
+    expect(m.ms).toBeLessThan(30_000);
+    expect(m.lagMaxMs).toBeLessThan(5_000);
+    expect(m.atencion).toBeGreaterThan(ATENCION_MINIMA);
+  });
+
+  it('los CINCO simultáneos ampliados caben en el presupuesto', { timeout: 180_000, retry: 0 }, async () => {
+    const lotes = Array.from({ length: SIMULTANEOS }, () => filasColaPagoImpuestos(FILAS));
+    const m = await medirExports(lotes, COLUMNAS_IMPUESTOS);
+    reportar('cola FLITO · 42 columnas (Impuestos ampliado, HU #14294) · 5 simultáneos', FILAS, m);
 
     expect(m.bytesPorExport).toHaveLength(SIMULTANEOS);
     for (const bytes of m.bytesPorExport) expect(bytes).toBeGreaterThan(0);
