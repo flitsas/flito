@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { loggerFor } from '../logger.js';
 import { AlcanceAjenoError } from '../alcance-filas.js';
 import { PiiDecryptError } from '../utils/crypto.js';
-import { rutaSinDato, textoSinDatoDeUrl } from './ruta-segura.js';
+import { mensajeDeErrorParaLog, rutaSinDato, stackDeErrorParaLog, textoSinDatoDeUrl } from './ruta-segura.js';
 
 const log = loggerFor('http');
 
@@ -71,11 +71,11 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
 
   // HU #14280: el mensaje y el stack se conservan para diagnosticar, sin los valores que traía la URL.
   log.error({
-    err: textoSinDatoDeUrl(req, err.message || String(err)),
+    err: mensajeDeErrorParaLog(req, err),
     method: req.method,
     path: rutaSinDato(req),
     requestId: req.headers['x-request-id'],
-    stack: typeof err.stack === 'string' ? textoSinDatoDeUrl(req, err.stack) : err.stack,
+    stack: stackDeErrorParaLog(req, err),
   }, 'unhandled error');
   if (!res.headersSent) res.status(500).json({ error: 'Error interno del servidor' });
 }

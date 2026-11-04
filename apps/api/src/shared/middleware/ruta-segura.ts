@@ -16,6 +16,11 @@ const MIN_VALOR_NUMERICO = 5;
 
 const LARGO_MAX = 300;
 
+// Esto corre dentro de `errorHandler`: si lanzara, el cliente recibiría el 500 HTML de Express y el
+// error se quedaría sin línea de log. Ante cualquier fallo se omite el texto, nunca se escribe crudo.
+const RUTA_NO_DISPONIBLE = '(ruta no disponible)';
+const TEXTO_OMITIDO = '(texto omitido)';
+
 function segmentosDe(req: Request): string[] {
   const crudo = req.originalUrl || req.url || req.path || '';
   return crudo.split('?')[0]!.split('/').filter(Boolean);
@@ -46,6 +51,14 @@ function largoPrefijoModulo(segmentos: string[]): number {
  * plantilla fiable, el prefijo del módulo y `*` (`/api/validacion-identidad/*`). Nunca la query.
  */
 export function rutaSinDato(req: Request): string {
+  try {
+    return calcularRuta(req);
+  } catch {
+    return RUTA_NO_DISPONIBLE;
+  }
+}
+
+function calcularRuta(req: Request): string {
   const segmentos = segmentosDe(req);
   const partes = plantillaQueEncaja(req, segmentos);
   if (partes) {
@@ -95,8 +108,36 @@ function valoresDeUrl(req: Request): string[] {
 
 /** Quita de un texto (mensaje o stack) los valores de la URL, sin distinguir mayúsculas. */
 export function textoSinDatoDeUrl(req: Request, texto: string): string {
-  return valoresDeUrl(req).reduce((acc, valor) => {
-    const escapado = valor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return acc.replace(new RegExp(escapado, 'gi'), '*');
-  }, texto);
+  try {
+    return valoresDeUrl(req).reduce((acc, valor) => {
+      const escapado = valor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return acc.replace(new RegExp(escapado, 'gi'), '*');
+    }, texto);
+  } catch {
+    return TEXTO_OMITIDO;
+  }
+}
+
+/**
+ * El mensaje de un error para el log. Se puede lanzar cualquier cosa: un `message` que no es texto no
+ * se escribe (podría contener el valor y aquí no se sabe redactar) y solo se dice de qué tipo era.
+ */
+export function mensajeDeErrorParaLog(req: Request, err: unknown): string {
+  try {
+    const mensaje: unknown = (err as { message?: unknown } | null | undefined)?.message || String(err);
+    if (typeof mensaje !== 'string') return `(mensaje no textual: ${typeof mensaje})`;
+    return textoSinDatoDeUrl(req, mensaje);
+  } catch {
+    return TEXTO_OMITIDO;
+  }
+}
+
+/** El stack de un error para el log, si es texto. */
+export function stackDeErrorParaLog(req: Request, err: unknown): string | undefined {
+  try {
+    const stack: unknown = (err as { stack?: unknown } | null | undefined)?.stack;
+    return typeof stack === 'string' ? textoSinDatoDeUrl(req, stack) : undefined;
+  } catch {
+    return undefined;
+  }
 }

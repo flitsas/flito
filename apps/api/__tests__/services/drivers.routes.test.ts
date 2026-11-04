@@ -161,7 +161,7 @@ describe('GET / — listado conductores', () => {
   });
 });
 
-describe('HU #14283: GET / deja rastro en pii_access_log', () => {
+describe('HU #14283: GET / deja rastro en pii_access_log', { retry: 0 }, () => {
   const CON_CIFRADOS = {
     id: 1, name: 'Juan', username: 'juan', email: 'j@x.com', userId: 1,
     cedulaCipher: Buffer.from('x'), cedulaKeyVersion: 1, cedulaAadNonce: 'n',
@@ -181,9 +181,10 @@ describe('HU #14283: GET / deja rastro en pii_access_log', () => {
 
   async function appConOrden() {
     const app = express();
+    const ordenDeEstaPrueba = orden;
     app.use((_req, res, next) => {
       const json = res.json.bind(res);
-      res.json = (b: unknown) => { orden.push('respuesta'); return json(b); };
+      res.json = (b: unknown) => { ordenDeEstaPrueba.push('respuesta'); return json(b); };
       next();
     });
     const { default: router } = await import('../../src/modules/drivers/drivers.routes.js');
@@ -192,14 +193,17 @@ describe('HU #14283: GET / deja rastro en pii_access_log', () => {
   }
 
   beforeEach(() => {
-    filas = [];
-    orden = [];
+    // Arreglos propios de cada prueba: una escritura tardía no puede caer en los de la siguiente.
+    const filasDeEstaPrueba: Array<Record<string, unknown>> = [];
+    const ordenDeEstaPrueba: string[] = [];
+    filas = filasDeEstaPrueba;
+    orden = ordenDeEstaPrueba;
     insertMock.mockImplementation((tabla: unknown) => ({
       values: async (v: Record<string, unknown>) => {
         if (tabla !== piiAccessLog) return;
         await new Promise((r) => setTimeout(r, 5));
-        orden.push('rastro');
-        filas.push(v);
+        ordenDeEstaPrueba.push('rastro');
+        filasDeEstaPrueba.push(v);
       },
     }));
   });

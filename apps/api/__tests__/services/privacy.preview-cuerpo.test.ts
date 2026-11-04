@@ -10,7 +10,7 @@ import { piiAccessLog } from '../../src/db/schema.js';
 const selectMock = vi.fn();
 const executeMock = vi.fn();
 const insertMock = vi.fn();
-const orden: string[] = [];
+let orden: string[] = [];
 
 vi.mock('../../src/db/client.js', () => ({
   db: {
@@ -37,15 +37,16 @@ vi.mock('../../src/shared/logger.js', () => {
   return { logger: falso, loggerFor: () => falso };
 });
 
-const DOC = '1036640908';
+const DOC = 'DOC-SINT-0001';
 let filasPii: Array<Record<string, unknown>> = [];
 
 async function buildApp() {
   const app = express();
   app.use(express.json());
+  const ordenDeEstaPrueba = orden;
   app.use((_req: Request, res: Response, next: NextFunction) => {
     const json = res.json.bind(res);
-    res.json = (b: unknown) => { orden.push('respuesta'); return json(b); };
+    res.json = (b: unknown) => { ordenDeEstaPrueba.push('respuesta'); return json(b); };
     next();
   });
   const { default: router } = await import('../../src/modules/privacy/privacy.routes.js');
@@ -62,31 +63,34 @@ async function consultar(cuerpo: unknown, rol = 'admin', quien = (sub += 1)) {
 
 beforeEach(() => {
   lineas.length = 0;
-  orden.length = 0;
-  filasPii = [];
+  // Arreglos propios de cada prueba: una escritura tardía no puede caer en los de la siguiente.
+  const ordenDeEstaPrueba: string[] = [];
+  const filasDeEstaPrueba: Array<Record<string, unknown>> = [];
+  orden = ordenDeEstaPrueba;
+  filasPii = filasDeEstaPrueba;
   selectMock.mockReset().mockImplementation(() => chain([{ c: 0 }]));
   executeMock.mockReset().mockResolvedValue([{ c: 0 }]);
   insertMock.mockReset().mockImplementation((tabla: unknown) => ({
     values: async (v: Record<string, unknown>) => {
       if (tabla === piiAccessLog) {
         await new Promise((r) => setTimeout(r, 5));
-        orden.push('rastro');
-        filasPii.push(v);
+        ordenDeEstaPrueba.push('rastro');
+        filasDeEstaPrueba.push(v);
       }
     },
   }));
 });
 
-describe('AC1: documento en el cuerpo', () => {
+describe('AC1: documento en el cuerpo', { retry: 0 }, () => {
   it('devuelve los conteos por tabla y el documento normalizado; la URL no lo lleva', async () => {
     selectMock.mockImplementation(() => chain([{ c: 3 }]));
     executeMock.mockResolvedValue([{ c: 7 }]);
 
-    const r = await consultar({ docNumber: ' ab1036640908 ' });
+    const r = await consultar({ docNumber: ' ab-sint-0001 ' });
 
     expect(r.status).toBe(200);
-    expect(r.request.url).not.toContain('1036640908');
-    expect(r.body.docNumber).toBe('AB1036640908');
+    expect(r.request.url).not.toContain('sint-0001');
+    expect(r.body.docNumber).toBe('AB-SINT-0001');
     expect(Object.keys(r.body.affected).sort()).toEqual([
       'alcohol_tests', 'clients', 'destinatarios_carga', 'driver_profile', 'laft_beneficial_owners',
       'laft_counterparties', 'manifiestos', 'propietarios_carga', 'road_incidents', 'soat_requests',
@@ -97,7 +101,7 @@ describe('AC1: documento en el cuerpo', () => {
   });
 });
 
-describe('AC2: rastro', () => {
+describe('AC2: rastro', { retry: 0 }, () => {
   it('con todos los conteos en cero queda una fila, antes de responder y sin el documento', async () => {
     const r = await consultar({ docNumber: DOC }, 'admin', 9001);
 
@@ -128,7 +132,7 @@ describe('AC2: rastro', () => {
   });
 });
 
-describe('AC3: la ruta antigua', () => {
+describe('AC3: la ruta antigua', { retry: 0 }, () => {
   it('GET /preview/:doc → 404 sin ninguna consulta de conteo', async () => {
     const token = await testToken({ sub: 2001, role: 'admin' });
     const r = await request(await buildApp()).get(`/api/privacy/preview/${DOC}`).set('Authorization', `Bearer ${token}`);
@@ -140,7 +144,7 @@ describe('AC3: la ruta antigua', () => {
   });
 });
 
-describe('AC4: validación', () => {
+describe('AC4: validación', { retry: 0 }, () => {
   it.each([
     ['ausente', {}],
     ['de 2 caracteres', { docNumber: 'AB' }],
@@ -163,7 +167,7 @@ describe('AC4: validación', () => {
   });
 });
 
-describe('AC5: autorización', () => {
+describe('AC5: autorización', { retry: 0 }, () => {
   it('sin la función → 403, sin rastro ni conteos', async () => {
     const r = await consultar({ docNumber: DOC }, 'proveedor');
 
@@ -179,13 +183,13 @@ describe('AC5: autorización', () => {
   });
 });
 
-describe('AC6: límite', () => {
+describe('AC6: límite', { retry: 0 }, () => {
   it('la consulta 21 del minuto → 429 y no deja rastro', async () => {
     const quien = 7777;
     for (let i = 0; i < 20; i += 1) {
       expect((await consultar({ docNumber: DOC }, 'admin', quien)).status).toBe(200);
     }
-    filasPii = [];
+    filasPii.length = 0;
 
     const r = await consultar({ docNumber: DOC }, 'admin', quien);
 
