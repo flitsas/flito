@@ -1,5 +1,6 @@
 // FLITO Impuestos — export a Excel de la cola filtrada (Feature #11908, HU #11909, #11934, #12403;
-// Bug #12642: variante AMPLIADA con datos de pago, ver `flito-impuestos.export-pago.ts`).
+// Bug #12642: variante AMPLIADA con datos de pago, ver `flito-impuestos.export-pago.ts`; HU #14294: las
+// tres columnas de la factura de venta, ver `flito-impuestos.export-factura.ts`).
 //
 // Gemelo de `flito-soat.export.service.ts` y con las mismas reglas (RN-E1 lista blanca, RN-E2 tope
 // duro, RN-E3 `tope + 1`, RN-E4 el 422 antes de la primera fila). Lo que comparten de verdad —las
@@ -28,8 +29,9 @@ import { flitoCompradores, flitoImpuestos, flitoTramites, vehicles } from '../..
 import { env } from '../../config/env.js';
 import {
   celdaTexto, CONSTANTES_COLA_EXPORT, ExportColaDemasiadoGrandeError, nombreArchivoColaExport,
-  type FilaColaExport, type FilaColaExportPagoImpuestos,
+  type FilaColaExportImpuestos, type FilaColaExportPagoImpuestos,
 } from '../../shared/export/cola-flito-excel.js';
+import { celdasFacturaImpuestos, COLUMNAS_FACTURA_IMPUESTOS } from './flito-impuestos.export-factura.js';
 import { celdasPagoImpuestos, COLUMNAS_PAGO_IMPUESTOS } from './flito-impuestos.export-pago.js';
 import { direccionEfectiva } from './flito-impuestos.direccion.js';
 import {
@@ -91,6 +93,8 @@ const COLUMNAS_CONSULTA = {
   direccionFactura: flitoImpuestos.direccionFactura,
   municipioFactura: flitoImpuestos.municipioFactura,
   departamentoFactura: flitoImpuestos.departamentoFactura,
+  // HU #14294: valor y `confiable` de las tres claves de la lectura; nunca el jsonb entero (RN-E1).
+  ...COLUMNAS_FACTURA_IMPUESTOS,
 } as const;
 
 /**
@@ -179,7 +183,7 @@ function acotar<Q extends PgSelect>(q: Q, conds: SQL[], tope: number) {
     .limit(tope + 1);
 }
 
-/** La lectura del archivo del gestor: la proyección de HOY, sin una columna más. */
+/** La lectura del archivo del gestor: sin ninguna columna de pago. */
 function consultaBase(conds: SQL[], tope: number) {
   return acotar(db.select(COLUMNAS_CONSULTA).from(flitoImpuestos).$dynamic(), conds, tope);
 }
@@ -189,7 +193,7 @@ function consultaConPago(conds: SQL[], tope: number) {
   return acotar(db.select({ ...COLUMNAS_CONSULTA, ...COLUMNAS_PAGO_IMPUESTOS }).from(flitoImpuestos).$dynamic(), conds, tope);
 }
 
-/** Una fila de la lectura principal, con lo que las 27 celdas del gestor necesitan. */
+/** Una fila de la lectura principal, con lo que las celdas del gestor y las de factura necesitan. */
 type FilaConsulta = Awaited<ReturnType<typeof consultaBase>>[number];
 
 /** Lo que el llamador puede pedir además del filtro (Bug #12642). */
@@ -204,25 +208,25 @@ export interface OpcionesExportImpuestos {
  * @param ctx El contexto REAL del actor (`contextoImpuesto`, que lee el organismo de la BD y no del
  *            JWT). Es lo que aplica las dos fronteras dentro de `condicionesColaImpuestos`.
  * @param opciones `incluirPago` (Bug #12642): con `true`, la proyección SUMA las columnas de pago y
- *            cada fila lleva además las 12 celdas de `celdasPagoImpuestos`. Sin él, la lectura es
- *            EXACTAMENTE la de siempre — hay un test que afirma que la consulta no pide más.
+ *            cada fila lleva además las 12 celdas de `celdasPagoImpuestos`. Sin él, la lectura no pide
+ *            ninguna de ellas — hay un test que afirma que la consulta no pide más.
  * @throws ExportColaDemasiadoGrandeError si el filtro devuelve más del tope. Se lanza ANTES de
  *         construir una sola fila: no hay valor de retorno que escribir cuando el tope se pasa.
  */
 export async function construirFilasExportImpuestos(
   ctx: ImpuestoCtx, filtros?: FiltrosExportImpuestos, opciones?: { incluirPago?: false },
-): Promise<FilaColaExport[]>;
+): Promise<FilaColaExportImpuestos[]>;
 export async function construirFilasExportImpuestos(
   ctx: ImpuestoCtx, filtros: FiltrosExportImpuestos, opciones: { incluirPago: true },
 ): Promise<FilaColaExportPagoImpuestos[]>;
 export async function construirFilasExportImpuestos(
   ctx: ImpuestoCtx, filtros: FiltrosExportImpuestos, opciones: OpcionesExportImpuestos,
-): Promise<FilaColaExport[] | FilaColaExportPagoImpuestos[]>;
+): Promise<FilaColaExportImpuestos[] | FilaColaExportPagoImpuestos[]>;
 export async function construirFilasExportImpuestos(
   ctx: ImpuestoCtx,
   filtros: FiltrosExportImpuestos = {},
   opciones: OpcionesExportImpuestos = {},
-): Promise<FilaColaExport[] | FilaColaExportPagoImpuestos[]> {
+): Promise<FilaColaExportImpuestos[] | FilaColaExportPagoImpuestos[]> {
   const tope = env.FLITO_COLA_EXPORT_MAX_FILAS;
 
   const conds = condicionesColaImpuestos(ctx, filtros);
@@ -236,17 +240,17 @@ export async function construirFilasExportImpuestos(
 
   const filas = await consultaConPago(conds, tope);
   if (filas.length > tope) throw new ExportColaDemasiadoGrandeError(tope);
-  // Las 27 del gestor se construyen con EL MISMO código que el archivo de hoy; la variante ampliada
-  // solo le pega doce celdas a la derecha.
+  // Las del gestor y las de factura se construyen con EL MISMO código que el archivo sin pago; la
+  // variante ampliada solo le pega doce celdas a la derecha.
   const base = await ensamblarFilas(filas);
   return filas.map((f, i) => ({ ...base[i]!, ...celdasPagoImpuestos(f) }));
 }
 
 /**
- * Las 27 celdas del gestor para cada fila de la lectura principal, en el MISMO orden de entrada.
- * Es el cuerpo que `construirFilasExportImpuestos` tenía antes del Bug #12642, sin un cambio de celda.
+ * Las 27 celdas del gestor y las 3 de factura para cada fila de la lectura principal, en el MISMO orden
+ * de entrada.
  */
-async function ensamblarFilas(filas: FilaConsulta[]): Promise<FilaColaExport[]> {
+async function ensamblarFilas(filas: FilaConsulta[]): Promise<FilaColaExportImpuestos[]> {
   const propietarios = await propietariosDe([...new Set(filas.map((f) => f.tramiteId))]);
 
   return filas.map((f) => {
@@ -292,6 +296,8 @@ async function ensamblarFilas(filas: FilaConsulta[]): Promise<FilaColaExport[]> 
       // HU #12403: de `vehicles`, como `carroceria`. Sin dato, la celda va vacía (AC4).
       numeroMotor: celdaTexto(f.numMotor),
       numeroSerie: celdaTexto(f.numSerie),
+      // HU #14294: las tres de la factura, cada una solo si su lectura es fiable.
+      ...celdasFacturaImpuestos(f),
     };
   });
 }

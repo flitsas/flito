@@ -1,8 +1,10 @@
 // FLITO — el archivo `.xlsx` de las colas de SOAT e Impuestos (Feature #11908, HU #11909, #11934;
-// Bug #12642: la variante AMPLIADA con datos de pago y trazabilidad).
+// Bug #12642: la variante AMPLIADA con datos de pago y trazabilidad; HU #14294: las columnas de factura
+// de Impuestos).
 //
-// Las dos colas exportan LA MISMA hoja: veintisiete columnas del vehículo y de su titular. Vive aquí
-// y no duplicado en cada módulo por el motivo que la HU deja escrito y que ya se ha cumplido antes
+// Las dos colas comparten la MISMA base: veintisiete columnas del vehículo y de su titular, y SOAT
+// exporta exactamente esas. Impuestos añade después de `NumeroSerie` tres datos de la factura de venta
+// que SOAT no lleva (HU #14294, `COLUMNAS_FACTURA_IMPUESTOS_EXPORT`). La base vive aquí y no duplicado en cada módulo por el motivo que la HU deja escrito y que ya se ha cumplido antes
 // en este repo: dos listas de columnas copiadas divergen en el cambio siguiente —alguien añade una
 // columna donde está trabajando y no en la otra— y a partir de ahí el mismo botón produce dos
 // archivos distintos según la pantalla. El precedente de directorio compartido es
@@ -87,6 +89,17 @@ export const COLUMNAS_COLA_EXPORT: { header: string; key: string; width: number 
   { header: 'OrganismoDettoCiudad', key: 'organismoDettoCiudad', width: 22 },
   { header: 'NumeroMotor', key: 'numeroMotor', width: 18 },
   { header: 'NumeroSerie', key: 'numeroSerie', width: 22 },
+];
+
+/**
+ * Las TRES columnas de la factura de venta, solo de Impuestos y en este orden, después de `NumeroSerie`
+ * (HU #14294). Lista aparte: `COLUMNAS_COLA_EXPORT` es también la hoja de SOAT y sigue midiendo 27.
+ * Las celdas son {@link CeldasFacturaImpuestos}; los textos son la plantilla del cliente, como arriba.
+ */
+export const COLUMNAS_FACTURA_IMPUESTOS_EXPORT: { header: string; key: string; width: number }[] = [
+  { header: 'NumeroFactura', key: 'numeroFactura', width: 20 },
+  { header: 'FechaFactura', key: 'fechaFactura', width: 14 },
+  { header: 'AvaluoComercial', key: 'avaluoComercial', width: 18 },
 ];
 
 /**
@@ -242,10 +255,10 @@ export const CAMPOS_PII_COLA_EXPORT = [
 // cuándo se cargó el comprobante). No se añaden a `COLUMNAS_COLA_EXPORT` —esa lista es la plantilla
 // del cliente y su frontera («el archivo describe el vehículo y a su titular») sigue en pie— sino que
 // van en listas blancas APARTE que la ruta concatena solo cuando el cuerpo trae `incluirPago: true` y
-// el actor tiene la función `<modulo>.excel.exportar_pago`. Sin el parámetro, el archivo es byte a
-// byte el de hoy: misma proyección, mismas 27 columnas, mismo rastro.
+// el actor tiene la función `<modulo>.excel.exportar_pago`. Sin el parámetro, el archivo no las lleva
+// ni las lee.
 //
-// Van AL FINAL, después de `NumeroSerie`, por el mismo motivo por el que motor y serie fueron al
+// Van AL FINAL, a la derecha de `NumeroSerie` (en Impuestos, de las tres de factura), por el mismo motivo por el que motor y serie fueron al
 // final en la HU #12403: el cliente empareja por texto y ya tiene las 27 cargadas; añadir por la
 // derecha es lo que menos le cuesta. Y son dos listas —una por cola— porque las dos colas NO pagan lo
 // mismo: el SOAT tiene póliza, proveedor y vigencia del RUNT; el impuesto tiene liquidación, modalidad
@@ -268,7 +281,7 @@ export const COLUMNAS_PAGO_SOAT_EXPORT: { header: string; key: string; width: nu
   { header: 'FechaCargaComprobante', key: 'fechaCargaComprobante', width: 22 },
 ];
 
-/** Las DOCE columnas de pago y trazabilidad de Impuestos (la última, HU #12833), en su orden exacto, después de `NumeroSerie`. */
+/** Las DOCE columnas de pago y trazabilidad de Impuestos (la última, HU #12833), en su orden exacto, después de `AvaluoComercial`. */
 export const COLUMNAS_PAGO_IMPUESTOS_EXPORT: { header: string; key: string; width: number }[] = [
   { header: 'Estado', key: 'estado', width: 14 },
   { header: 'FechaSolicitud', key: 'fechaSolicitud', width: 18 },
@@ -286,16 +299,29 @@ export const COLUMNAS_PAGO_IMPUESTOS_EXPORT: { header: string; key: string; widt
 ];
 
 /**
- * Las columnas del archivo según lo que se pidió: las 27 solas, o las 27 seguidas de las de pago de
- * ESA cola. Devuelve un arreglo NUEVO en el caso ampliado: `COLUMNAS_COLA_EXPORT` no se muta nunca
- * (los tests exigen que siga midiendo 27).
+ * Las columnas del archivo según la cola y lo que se pidió. SOAT: las 27, más las 13 de pago si se
+ * piden. Impuestos: las 27 y las 3 de factura, más las 12 de pago si se piden. Devuelve un arreglo NUEVO
+ * salvo en SOAT sin pago: `COLUMNAS_COLA_EXPORT` no se muta nunca (los tests exigen que siga midiendo 27).
  */
 export function columnasColaExport(
   modulo: 'soat' | 'impuestos',
   incluirPago: boolean,
 ): { header: string; key: string; width: number }[] {
-  if (!incluirPago) return COLUMNAS_COLA_EXPORT;
-  return [...COLUMNAS_COLA_EXPORT, ...(modulo === 'soat' ? COLUMNAS_PAGO_SOAT_EXPORT : COLUMNAS_PAGO_IMPUESTOS_EXPORT)];
+  if (modulo === 'impuestos') {
+    return [...COLUMNAS_COLA_EXPORT, ...COLUMNAS_FACTURA_IMPUESTOS_EXPORT, ...(incluirPago ? COLUMNAS_PAGO_IMPUESTOS_EXPORT : [])];
+  }
+  return incluirPago ? [...COLUMNAS_COLA_EXPORT, ...COLUMNAS_PAGO_SOAT_EXPORT] : COLUMNAS_COLA_EXPORT;
+}
+
+/**
+ * Las celdas de la factura de venta de Impuestos (HU #14294). `avaluoComercial` es NÚMERO, con sus
+ * decimales, por lo mismo que {@link CeldasPagoSoat}: en texto no suma. `null` si el dato no es fiable.
+ */
+export interface CeldasFacturaImpuestos {
+  numeroFactura: string | null;
+  /** Texto `YYYY-MM-DD`, no una fecha nativa de Excel. */
+  fechaFactura: string | null;
+  avaluoComercial: number | null;
 }
 
 /**
@@ -346,8 +372,11 @@ export interface CeldasPagoImpuestos {
 /** Una fila del archivo AMPLIADO del SOAT: las 27 del gestor más las 13 de pago. */
 export interface FilaColaExportPagoSoat extends Record<string, string | number | null>, CeldasColaExport, CeldasPagoSoat {}
 
-/** Una fila del archivo AMPLIADO de Impuestos: las 27 del gestor más las 12 de pago. */
-export interface FilaColaExportPagoImpuestos extends Record<string, string | number | null>, CeldasColaExport, CeldasPagoImpuestos {}
+/** Una fila del archivo de Impuestos: las 27 del gestor más las 3 de factura. */
+export interface FilaColaExportImpuestos extends Record<string, string | number | null>, CeldasColaExport, CeldasFacturaImpuestos {}
+
+/** Una fila del archivo AMPLIADO de Impuestos: las 27 del gestor, las 3 de factura y las 12 de pago. */
+export interface FilaColaExportPagoImpuestos extends Record<string, string | number | null>, CeldasColaExport, CeldasFacturaImpuestos, CeldasPagoImpuestos {}
 
 /**
  * Columnas de la BASE que el archivo AMPLIADO del SOAT entrega ADEMÁS de {@link CAMPOS_PII_COLA_EXPORT}.

@@ -77,11 +77,13 @@ export const CAMPOS_PII_IMPUESTO = ['nombre_completo', 'numero_documento', 'tipo
  * lo publica en `NombrePila`/`Apellidos`/`RazonSocial`. Aquí no hay nada que editar porque la lista
  * compartida ya lo trae, y eso es exactamente lo que se buscaba al derivarla de ella.
  *
- * Sale de `CAMPOS_PII_COLA_EXPORT`, que es la lista de la hoja compartida por las dos colas: el
- * archivo es EL MISMO en SOAT y en Impuestos, así que su declaración de campos también tiene que
- * serlo o el `pii_access_log` diría dos cosas del mismo documento.
+ * Sale de `CAMPOS_PII_COLA_EXPORT`, la lista de las 27 columnas que comparten las dos colas, más lo
+ * que solo el archivo de Impuestos entrega desde la HU #14294: los tres datos de la factura de venta,
+ * con los nombres de vocabulario del `pii_access_log`. SOAT no los lleva y su lista no cambia.
  */
-export const CAMPOS_PII_IMPUESTO_EXPORT = CAMPOS_PII_COLA_EXPORT;
+export const CAMPOS_PII_IMPUESTO_EXPORT = [
+  ...CAMPOS_PII_COLA_EXPORT, 'numero_factura', 'fecha_factura', 'avaluo_comercial',
+] as const;
 
 /**
  * Columnas personales que entrega el CERTIFICADO RUNT en PDF (HU #13204).

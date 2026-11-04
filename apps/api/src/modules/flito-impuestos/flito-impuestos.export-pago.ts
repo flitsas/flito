@@ -1,7 +1,7 @@
 // FLITO Impuestos — las DOCE celdas de pago y trazabilidad del archivo AMPLIADO (Bug #12642).
 //
-// Gemelo de `flito-soat.export-pago.ts` y con la misma frontera: la proyección de las 27 columnas del
-// gestor (`COLUMNAS_CONSULTA` del servicio) NO cambia, y lo que aquí se declara solo entra en la
+// Gemelo de `flito-soat.export-pago.ts` y con la misma frontera: la proyección del archivo del gestor
+// (`COLUMNAS_CONSULTA` del servicio) no lleva nada de esto, y lo que aquí se declara solo entra en la
 // consulta cuando la ruta pidió `incluirPago: true` y el actor tiene `impuestos.excel.exportar_pago`.
 //
 // Lo que cambia respecto al SOAT es lo que un impuesto PAGA: hay liquidación (valor y fecha) antes del
