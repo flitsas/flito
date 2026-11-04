@@ -11,16 +11,25 @@ function tramite88(extra: Record<string, unknown> = {}) {
     checklistEstado: {},
     vehiculo: {
       marca: 'Mazda', linea: 'CX-30', vin: 'VIN88',
-      _vendedor: { nombre: 'Carlos Vendedor', documento: '111', ciudad: 'Medellín' },
-      _comprador: { nombre: 'Ana Compradora', documento: '222', ciudad: 'Medellín' },
+      // El wizard retoma en el primer paso incompleto (traspaso-gates): para abrir el 6, los pasos
+      // 3 a 5 tienen que estar completos, con email, consulta RUNT y SIMIT del comprador.
+      _vendedor: { nombre: 'Carlos Vendedor', documento: '111', email: 'ven@x.co', ciudad: 'Medellín' },
+      _runtVendedor: { documento: '111', tipoDoc: 'CC', consultado: true, consultadoAt: '2026-01-01T00:00:00.000Z' },
+      _comprador: { nombre: 'Ana Compradora', documento: '222', email: 'comp@x.co', ciudad: 'Medellín' },
+      _runtComprador: { documento: '222', tipoDoc: 'CC', consultado: true, consultadoAt: '2026-01-01T00:00:00.000Z' },
+      _simitComprador: { documento: '222', consultado: true, total: 0, totalMonto: 0 },
       _comercial: { valorVenta: 20000000, causal: 'COMPRAVENTA' },
+      // Sin organismo destino el contrato no se genera («Selecciona el organismo de tránsito…»).
+      _orgTransito: { nombre: 'Secretaría de Movilidad de Medellín', ciudad: 'Medellín', codigo: '05001' },
     },
-    comprador: { nombre: 'Ana Compradora', documento: '222' },
+    comprador: { nombre: 'Ana Compradora', documento: '222', email: 'comp@x.co' },
     ...extra,
   };
 }
 
 async function mockPaso6(page: import('@playwright/test').Page) {
+  await page.route('**/api/tramites/88/preflight', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ preflight: { overall: 'green', checks: [{ key: 'soat', label: 'SOAT vigente', status: 'ok', message: 'SOAT' }] } }) }));
   await page.route('**/api/tramites/88/documentos', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.route('**/api/tramites/88/firma', (r) =>

@@ -8,7 +8,6 @@ import globals from 'globals';
 // registrada en el reporte modo D. Al bajar de 800, quitar la entrada.
 const FROZEN_CEILINGS = {
   'apps/api/src/db/schema.ts': 3291, // HU #13911: −109 al retirar los libros viejos de bolsas
-  'apps/web/src/pages/TramiteTraspaso.tsx': 1250,
   'apps/web/src/pages/FlitoTramites.tsx': 1190,
   'apps/api/src/modules/tramites/identidad.routes.ts': 901, // Feature #14097: bajó al sacar el cifrado local
   'apps/api/src/modules/flito-soat/flito-soat.service.ts': 1090,

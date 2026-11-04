@@ -185,7 +185,7 @@ function InicioGate() {
 
 // TRAM-TRASPASO-F5 — gate del wizard de traspaso: el operador STT no usa el wizard del gestor CEA;
 // se le redirige a su expediente STT (/transito/traspaso?id=N) o a la bandeja si entra sin id.
-// HU #12872: «operador STT» = la misma regla por función que `TramiteTraspaso.tsx` (`isTransito`),
+// HU #12872: «operador STT» = la misma regla por función que `useTramiteTraspaso.ts` (`isTransito`),
 // no el nombre del rol.
 function TramiteTraspasoGate() {
   const { user, hasFuncion } = useAuth();
