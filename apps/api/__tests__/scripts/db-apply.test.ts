@@ -16,6 +16,7 @@ import {
   decidir,
   decidirArranque,
   detectarDeriva,
+  hashearDisco,
   lineasReporte,
   marcarTodas,
   opcionesConexion,
@@ -423,6 +424,84 @@ describe('garantía del PR 1: el arranque normal no aborta (ADR-0035 §A)', () =
     const fuente = readFileSync(fileURLToPath(new URL('../../src/scripts/db-apply.ts', import.meta.url)), 'utf8');
     expect(fuente).toContain('return arrancar(deps, { motivoAllowDrift: opciones.motivoAllowDrift });');
     expect(fuente.match(/arrancar\(/g)).toHaveLength(2); // la definición y la llamada de main
+  });
+
+  it('main atiende --check-drift antes de crear el ledger: ese modo no escribe', () => {
+    const fuente = readFileSync(fileURLToPath(new URL('../../src/scripts/db-apply.ts', import.meta.url)), 'utf8');
+    const cuerpoMain = fuente.slice(fuente.indexOf('async function main('));
+    const crearLedger = cuerpoMain.search(/ensureTrackingTable\(\)/);
+    expect(crearLedger).toBeGreaterThan(-1);
+    expect(cuerpoMain.indexOf('return comprobarDeriva(')).toBeGreaterThan(-1);
+    expect(crearLedger).toBeGreaterThan(cuerpoMain.indexOf('return comprobarDeriva('));
+  });
+});
+
+describe('archivo ilegible (ADR-0035 §A)', () => {
+  const eacces = () => new Error('EACCES: permission denied, open /ruta/sensible/archivo.sql');
+  const leerSalvo = (ilegible: string, contenido: Record<string, Buffer>) => (f: string): Buffer => {
+    if (f === ilegible) throw eacces();
+    return contenido[f];
+  };
+  const bytes = Buffer.from('SELECT 1;');
+  const shaBytes = sha256De(bytes);
+
+  it('arranque: un registrado ilegible se informa sin causa, no aborta y aplica las pendientes', async () => {
+    const disco = hashearDisco(
+      ['0001_a.sql', '0002_b.sql', '0003_c.sql'],
+      leerSalvo('0001_a.sql', { '0002_b.sql': bytes, '0003_c.sql': bytes }),
+    );
+    const { d, logs, errores, aplicar } = deps({}, { '0001_a.sql': A, '0002_b.sql': shaBytes });
+    d.leerDisco = () => disco;
+
+    expect(await arrancar(d, {})).toBe(0);
+
+    expect(errores).toEqual([]);
+    expect(aplicar.mock.calls.map(([f]) => f)).toEqual(['0003_c.sql']);
+    expect(logs).toContain('[drift] ilegible archivo=0001_a.sql');
+    const salida = logs.join('\n');
+    expect(salida).not.toMatch(/EACCES|\/ruta\/sensible/);
+    expect(salida).not.toMatch(/\[drift\] (deriva|huerfana) archivo=0001_a\.sql/);
+  });
+
+  it('arranque: un pendiente ilegible falla al aplicarlo, en su turno, como hasta hoy', async () => {
+    const disco = hashearDisco(
+      ['0001_a.sql', '0002_b.sql', '0003_c.sql'],
+      leerSalvo('0002_b.sql', { '0001_a.sql': bytes, '0003_c.sql': bytes }),
+    );
+    const { d, logs } = deps({}, {});
+    d.leerDisco = () => disco;
+    const aplicadas: string[] = [];
+    d.aplicar = async (f) => {
+      if (disco.get(f) === null) throw eacces();
+      aplicadas.push(f);
+    };
+
+    await expect(arrancar(d, {})).rejects.toThrow('EACCES');
+
+    expect(aplicadas).toEqual(['0001_a.sql']);
+    expect(logs).toContain('[drift] ilegible archivo=0002_b.sql');
+  });
+
+  it.each([
+    ['registrado', { '0001_a.sql': A }],
+    ['pendiente', {}],
+  ])('--check-drift: un %s ilegible es hallazgo y sale 3', async (_caso, ledger: Record<string, string>) => {
+    const { d, logs } = deps({}, ledger);
+    d.leerDisco = () => hashearDisco(['0001_a.sql'], leerSalvo('0001_a.sql', {}));
+
+    expect(await comprobarDeriva(d)).toBe(EXIT_DERIVA);
+
+    expect(logs).toContain('[drift] ilegible archivo=0001_a.sql');
+    expect(logs.join('\n')).toMatch(/\[drift\] accion archivo=0001_a\.sql/);
+    expect(logs.join('\n')).not.toMatch(/EACCES|\/ruta\/sensible/);
+  });
+
+  it('activar el aborto (PR 2) basta para que el registrado ilegible aborte: decidir ya lo trata como hallazgo', async () => {
+    const { d, aplicar } = deps({}, { '0001_a.sql': A });
+    d.leerDisco = () => hashearDisco(['0001_a.sql', '0002_b.sql'], leerSalvo('0001_a.sql', { '0002_b.sql': bytes }));
+
+    expect(await arrancar(d, {}, decidir)).toBe(EXIT_DERIVA);
+    expect(aplicar).not.toHaveBeenCalled();
   });
 });
 
