@@ -43,7 +43,7 @@ export default function Privacy() {
     setLoadingPreview(true);
     setPreview(null);
     try {
-      const res = await api.get<PreviewResponse>(`/privacy/preview/${encodeURIComponent(docNumber.trim())}`);
+      const res = await api.post<PreviewResponse>('/privacy/preview', { docNumber: docNumber.trim() });
       setPreview(res);
       const total = Object.values(res.affected).reduce((a, b) => a + b, 0);
       if (total === 0) toast(`No hay registros con ese documento`, { icon: 'i' });
