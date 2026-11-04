@@ -315,6 +315,15 @@ jobs:
             --title "$PR_TITLE" \
             --files-from /tmp/naming-changed.txt
 
+      # ADR-0035 §C: entrar a develop equivale a aplicarse en DEV. Va en este job porque ya es
+      # check obligatorio, corre solo en PRs y hace fetch-depth: 0. En promociones no aplica.
+      - name: Tests del check de migraciones inmutables
+        run: node --test scripts/check-migraciones-inmutables.test.mjs
+
+      - name: Migraciones existentes en develop inmutables
+        if: github.base_ref == 'develop'
+        run: node scripts/check-migraciones-inmutables.mjs --base origin/develop
+
   # Gate de veredictos pre-PR — enforcement parcial de la disciplina de
   # .cursor/rules/pre-pr-gates.mdc. Los gates (flit-code-review, qa-agent B,
   # security-agent, db-review-agent) los ejecuta el hilo antes de abrir el PR y
