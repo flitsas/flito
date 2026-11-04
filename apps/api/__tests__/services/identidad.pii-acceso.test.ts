@@ -68,7 +68,7 @@ const adminAuth = async () => `Bearer ${await testToken({ sub: 77, role: 'admin'
 // `tipoEnlace: 'ninguno'`: se mide la función requerida, no la frontera, que cierra este módulo al enlace de fábrica de `proveedor`.
 const proveedorAuth = async () => `Bearer ${await testToken({ sub: 78, role: 'proveedor', tipoEnlace: 'ninguno' })}`;
 const FOTOS = ['foto_rostro', 'foto_cedula_frontal', 'foto_cedula_reverso'];
-const DOCUMENTOS = [...FOTOS, 'nombre', 'tipo_doc', 'documento', 'detalle', 'ip_address', 'ciudad_geo', 'lat', 'lng'];
+const DOCUMENTOS = [...FOTOS, 'nombre', 'tipo_doc', 'documento', 'score', 'detalle', 'ip_address', 'ciudad_geo', 'lat', 'lng'];
 
 function sinValoresPersonales(fila: Fila) {
   const volcado = JSON.stringify(fila);
@@ -94,7 +94,12 @@ beforeEach(() => {
   }));
 });
 
-describe('GET /documentos/:tramiteId', () => {
+// `retry: 0` en los describe de orden: el reintento del config global vería entrar en `eventos` y `filas`
+// el INSERT pendiente del intento que acaba de fallar, y una ruta que responde antes de registrar
+// quedaría en verde.
+const SIN_REINTENTO = { retry: 0 };
+
+describe('GET /documentos/:tramiteId', SIN_REINTENTO, () => {
   it('escribe la fila con usuario, recurso y campos, sin valores, antes de responder', async () => {
     m.selectMock.mockReturnValueOnce(chain([validacion]));
 
@@ -130,7 +135,7 @@ describe('GET /documentos/:tramiteId', () => {
   });
 });
 
-describe('POST /certificado/:tramiteId', () => {
+describe('POST /certificado/:tramiteId', SIN_REINTENTO, () => {
   it('escribe la fila antes de responder y entrega el PDF', async () => {
     m.selectMock.mockReturnValue(chain([validacion]));
 
@@ -155,7 +160,7 @@ describe('POST /certificado/:tramiteId', () => {
   });
 });
 
-describe('GET /estado/:tramiteId', () => {
+describe('GET /estado/:tramiteId', SIN_REINTENTO, () => {
   it('escribe una fila por lectura, antes de responder', async () => {
     m.selectMock.mockReturnValue(chain([validacion, { ...validacion, id: 42 }]));
     const auth = await adminAuth();
@@ -168,7 +173,7 @@ describe('GET /estado/:tramiteId', () => {
     expect(filas).toHaveLength(2);
     expect(filas[0]).toMatchObject({
       resourceTipo: 'validacion_identidad', resourceId: 5, accion: 'read',
-      camposAccedidos: ['nombre', 'documento', 'email'], motivo: 'filas=2',
+      camposAccedidos: ['nombre', 'documento', 'email', 'score'], motivo: 'filas=2',
     });
     sinValoresPersonales(filas[0]);
   });

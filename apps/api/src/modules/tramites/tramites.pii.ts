@@ -14,15 +14,16 @@ const RECURSO_TRAMITE = 'tramite';
  * Columnas personales de `tramites_digitales` que salen en un `select *`.
  *
  * `vehiculo` es personal porque lleva `_vendedor`, y `comprador` y `validacion_identidad` identifican
- * al titular. `documentos` (jsonb) no está: ningún flujo del repo escribe esa columna con datos del
- * titular, los archivos van en `tramites_documentos` y se declaran como `original_name`.
+ * al titular. `documentos` (jsonb) se declara porque `PATCH /api/tramites/:id` la acepta con contenido
+ * libre y sale en el `select *`, sin saber aún si en PDN lleva datos del titular. Los archivos van en
+ * `tramites_documentos` y se declaran como `original_name`.
  */
-export const CAMPOS_PII_TRAMITE = ['vin', 'placa', 'vehiculo', 'comprador', 'validacion_identidad', 'notas', 'workflow'] as const;
+export const CAMPOS_PII_TRAMITE = ['vin', 'placa', 'vehiculo', 'comprador', 'documentos', 'validacion_identidad', 'notas', 'workflow'] as const;
 
 /** `GET /api/tramites/:id` añade los archivos del trámite, con su nombre original. */
 export const CAMPOS_PII_TRAMITE_DETALLE = [...CAMPOS_PII_TRAMITE, 'original_name'] as const;
 
-/** Lo que proyecta `GET /api/transito/traspasos`. */
+/** Lo que proyecta `GET /api/transito/traspasos`: sin `documentos`, como su detalle. */
 export const CAMPOS_PII_TRASPASOS = ['vin', 'placa', 'vehiculo', 'comprador'] as const;
 
 /** Lo que proyecta `GET /api/transito/traspasos/:id`. */
