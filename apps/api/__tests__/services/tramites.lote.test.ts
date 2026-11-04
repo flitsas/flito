@@ -64,6 +64,19 @@ describe('B4 · parseCsv', () => {
     expect(r.filas[1].valido).toBe(true);
   });
 
+  // HU #14291 (R3): valores fijados con la copia local que tenía `lote.ts` antes de extraerla a
+  // `shared/utils/vin.ts`.
+  it.each([
+    ['abc-123/xyz', 'ABC123XYZ', true],
+    ['abcdefghij1234567XYZ', 'ABCDEFGHIJ1234567', true],
+    ['---', '', false],
+    ['', '', false],
+  ])('normaliza el VIN %j a %j (válido: %s)', (entrada, vin, valido) => {
+    const r = parseCsv(`vin,placa\n${entrada},ABC123`);
+    expect(r.filas[0].vin).toBe(vin);
+    expect(r.filas[0].valido).toBe(valido);
+  });
+
   it('más de MAX_FILAS → error', () => {
     const body = Array.from({ length: MAX_FILAS + 1 }, (_, i) => `VIN${i}000000000000`).join('\n');
     const r = parseCsv('vin\n' + body);

@@ -48,6 +48,7 @@ import {
 } from '../flito-bolsas/flito-bolsas-transito.service.js';
 import { cubiertoPorCorte, redescontarTrasReverso } from '../flito-bolsas/flito-bolsas.descuento.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
+import { redondear } from '../../shared/utils/redondeo.js';
 // AC5 de la HU #11343: qué se puede hacer con la factura de un trámite que alguien intenta reversar.
 import { viaDeCorreccionDeTramite } from '../siigo/correcciones.service.js';
 // HU #12546 — los servicios adicionales del trámite se LEEN de su módulo, no se reconsultan aquí:
@@ -217,7 +218,6 @@ export interface LiquidacionDto extends CalculoLiquidacion {
 }
 
 const num = (v: string | null): number | null => (v === null ? null : Number(v));
-const redondear = (n: number): number => Math.round(n * 100) / 100;
 
 /** Suma tratando null como ausencia, no como cero. Solo cuenta lo que sí aplica. */
 const sumar = (...vs: Array<number | null>): number =>

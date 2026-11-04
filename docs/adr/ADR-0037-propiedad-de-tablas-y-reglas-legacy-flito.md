@@ -228,6 +228,8 @@ No afirmo qué respuesta es la correcta: eso lo decide el negocio. Tampoco compr
 
 **Aquí no se extrae nada.** Por lo tanto, la parte del criterio de aceptación de P3-05 que pide «reglas duplicadas extraídas a `shared/` con pruebas» **queda pendiente** de esa HU futura.
 
+> **Nota 2026-11-04 (HU #13990):** la HU de extracción ya existe: es la **#14291**. Solo extrae **R9** y la **copia idéntica de `normalizeVin` (R3)**. Quedan fuera **R1, R2, el resto de R3, R4, R7 y R8**. **R5 y R6 no se extraen.** Por eso **P3-05 queda parcial**.
+
 | Regla | Tamaño | Motivo |
 |---|---|---|
 | R1 Vigencia | **Mediano** | Son funciones puras, pero unificar **cambia resultados** (§2.1). Primero hay que decidir la respuesta correcta, y hay consumidores en 3 módulos y 2 crons |
@@ -263,6 +265,8 @@ Se aplica en orden. Se detiene en la primera regla que resuelve.
 ### 4. Fuera de alcance (AC4)
 
 **Este ADR no retira ni redirige ningún módulo.** El destino de cada módulo legacy, con datos de tráfico, lo fija la **HU #13990**, y la **HU #13991** depende de ello. Una ruta objetivo de §1.2 no es una decisión de retiro.
+
+> **Nota 2026-11-04 (HU #13990):** el destino lo fija **ADR-0038 con evidencia de código y uso desde `apps/web`, no «con datos de tráfico»**, por decisión de David Chica de ese día. ADR-0038 quedó aceptado ese mismo día. También responde a las filas `pendiente de #13990` de §1.2. El conteo de #13989 no se cruzó: queda para su revisión futura.
 
 - **Medición:** el conteo de la HU #13989 (ADR-0033) sigue corriendo. Este ADR no consultó sus datos.
 - **Regla del plan P3-05:** no retirar nada mientras la web lo use.
@@ -324,6 +328,7 @@ Se aplica en orden. Se detiene en la primera regla que resuelve.
 2. **Negocio (R1):** qué respuesta es la correcta en las filas de §2.1 que difieren, antes de la HU de extracción.
 3. **Registro de acceso a PII, resuelto fuera de este ADR:** `soat`, `tramites`, `liquidacion` y `firma` no contienen ninguna referencia a `logPiiAccess` ni a `pii_access_log`. `security-agent` lo auditó el 2026-11-04 y no encontró un control transversal que lo cubra; la corrección va en el Feature #14284 (HUs #14285 y #14286).
 4. **Plan P3-05:** su criterio de aceptación decía «aprobado por Jorman Copete» y «reglas extraídas a `shared/`». El primero queda sustituido por la decisión de David del 2026-11-04. El segundo queda para una HU futura que aún no existe.
+   - **Nota 2026-11-04 (HU #13990):** esa HU ya existe, es la #14291, y **P3-05 queda parcial**: solo extrae R9 y la copia idéntica de `normalizeVin` (R3), según la nota de §2.3. El destino de `vehicles` y la consolidación de `organismos_transito_config` del punto 1 los trata ADR-0038 §3, que declara `vehicles` indeterminable y deja `organismos_transito_config` sin consolidar.
 
 ## Notas operativas
 
