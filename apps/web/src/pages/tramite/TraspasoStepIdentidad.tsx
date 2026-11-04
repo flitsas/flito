@@ -1,6 +1,6 @@
 // TRAM-TRASPASO-F2.1 — validación biométrica vendedor + comprador (paridad CEA paso 6).
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../../lib/api';
 import { mensajePartesTraspasoDuplicadas, partesTraspasoDuplicadas, parteTraspasoRequiereReenvio, resolverValidacionTraspasoParte, type ValidacionTraspasoRow } from '@operaciones/shared-types';
@@ -30,11 +30,27 @@ const ESTADO_LABEL: Record<string, { label: string; color: string }> = {
   expirado: { label: 'Expirado', color: 'var(--flit-text-muted)' },
 };
 
+// Debe coincidir con el tope de `intentos` de POST /validacion-identidad/completar/:token (identidad.routes.ts).
+const MAX_INTENTOS_BIOMETRICA = 5;
+
+/**
+ * ¿Esta parte ya no puede cambiar de estado sin una acción de esta pantalla?
+ * `rechazado` NO basta: mientras el enlace siga vigente y queden intentos, el participante
+ * reintenta desde el mismo correo y puede pasar a `aprobado` sin que aquí se pulse nada.
+ * Ante la duda (parte por iniciar, datos incompletos) se sigue consultando.
+ */
+function parteTerminada(val: Validacion | undefined): boolean {
+  if (val?.estado === 'aprobado' || val?.estado === 'expirado') return true;
+  if (val?.estado !== 'rechazado') return false;
+  const sinIntentos = (val.intentos ?? 0) >= MAX_INTENTOS_BIOMETRICA;
+  const enlaceVencido = Boolean(val.expiraAt) && Date.now() > new Date(val.expiraAt as string).getTime();
+  return sinIntentos || enlaceVencido;
+}
+
 export default function TraspasoStepIdentidad({ tramiteId, vendedor, comprador, onEstadoChange }: Props) {
   const [validaciones, setValidaciones] = useState<Validacion[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [links, setLinks] = useState<{ parte: string; email: string; link?: string }[]>([]);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const cargarEstado = useCallback(async () => {
     try {
@@ -43,11 +59,7 @@ export default function TraspasoStepIdentidad({ tramiteId, vendedor, comprador, 
     } catch { setValidaciones([]); }
   }, [tramiteId]);
 
-  useEffect(() => {
-    cargarEstado();
-    pollRef.current = setInterval(cargarEstado, 5000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [cargarEstado]);
+  useEffect(() => { cargarEstado(); }, [cargarEstado]);
 
   const iniciar = async () => {
     setEnviando(true);
@@ -68,8 +80,18 @@ export default function TraspasoStepIdentidad({ tramiteId, vendedor, comprador, 
     finally { setEnviando(false); }
   };
 
-  const valVendedor = resolverValidacionTraspasoParte(validaciones, { parte: 'vendedor', documento: vendedor.documento });
-  const valComprador = resolverValidacionTraspasoParte(validaciones, { parte: 'comprador', documento: comprador.documento });
+  const valVendedor: Validacion | undefined = resolverValidacionTraspasoParte(validaciones, { parte: 'vendedor', documento: vendedor.documento });
+  const valComprador: Validacion | undefined = resolverValidacionTraspasoParte(validaciones, { parte: 'comprador', documento: comprador.documento });
+
+  // Cada consulta deja una fila de auditoría: con las dos partes terminadas no se sondea. Es estado
+  // derivado, así que cualquier cambio (reenvío, otro documento, otro trámite) reanuda el sondeo solo.
+  const todasTerminadas = parteTerminada(valVendedor) && parteTerminada(valComprador);
+  useEffect(() => {
+    if (todasTerminadas) return undefined;
+    const id = setInterval(cargarEstado, 5000);
+    return () => clearInterval(id);
+  }, [cargarEstado, todasTerminadas]);
+
   // Email efectivo: dato del wizard (pasos 3/4) o, si el JSONB vehiculo lo perdió,
   // el registrado en la última validación biométrica (mismo fallback del backend).
   const emailVendedor = vendedor.email?.trim() || valVendedor?.email?.trim() || '';
