@@ -11,7 +11,7 @@ import express from 'express';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '../../src/db/schema.js';
-import { abrirBase, enTx, URL_BASE } from '../helpers/base-en-tx.js';
+import { abrirBase, borrarAdminDePrueba, enTx, sembrarAdminActivo, URL_BASE } from '../helpers/base-en-tx.js';
 import { testToken } from '../helpers/auth.js';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
@@ -97,6 +97,7 @@ async function conBase(fn: (tx: postgres.TransactionSql, f: Awaited<ReturnType<t
   const sql = abrirBase();
   try {
     await enTx(sql, async (tx) => {
+      await sembrarAdminActivo(tx);
       actual.tx = tx;
       actual.db = drizzle(Object.assign(tx, { options: sql.options }) as unknown as postgres.Sql, { schema });
       await fn(tx, await sembrar(tx));
@@ -202,6 +203,7 @@ describe.skipIf(!URL_BASE)('eliminarProveedor — AC9: dos DELETE concurrentes (
     const nombre = `HU13960 concurrencia ${Date.now()}`;
     const [fila] = await sql`INSERT INTO flito_proveedores_soat (nombre, activo) VALUES (${nombre}, false) RETURNING id`;
     const id = fila!.id as string;
+    await sembrarAdminActivo(sql);
     try {
       actual.real = drizzle(sql, { schema });
       const resultados = await Promise.allSettled([eliminarProveedor(id, ACTOR), eliminarProveedor(id, ACTOR)]);
@@ -216,6 +218,7 @@ describe.skipIf(!URL_BASE)('eliminarProveedor — AC9: dos DELETE concurrentes (
       await sql`DELETE FROM flito_proveedores_auditoria WHERE proveedor_id = ${id}`;
       await sql`DELETE FROM flito_proveedores_soat WHERE id = ${id}`;
       await sql`DELETE FROM flito_proveedores WHERE id = ${id}`;
+      await borrarAdminDePrueba(sql);
       await sql.end();
     }
   });

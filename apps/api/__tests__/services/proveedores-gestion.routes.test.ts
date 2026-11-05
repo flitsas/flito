@@ -395,6 +395,26 @@ describe('HU #14334 — motivo de no inactivar', () => {
   });
 });
 
+describe('HU #14335 AC4 — el detalle de audit() solo lleva identificador y nombre', () => {
+  const SIN_PII = /3001234567|a@empresa|Calle 1|Ana Ruiz|900\.?123/;
+  it('PATCH /:id', async () => {
+    m.editar.mockResolvedValue(ITEM);
+    const r = await request(await app()).patch(`${BASE}/${ID}`).set('Authorization', await con(EDITAR)).send({ versionEsperada: 1, generales: GENERALES });
+    expect(r.status).toBe(200);
+    const entrada = m.audit.mock.calls[0]![1];
+    expect(entrada).toMatchObject({ action: 'update', resource: 'flito_proveedor', resourceId: ID, detail: `Proveedor Mensajería Uno (${ID})` });
+    expect(JSON.stringify(entrada)).not.toMatch(SIN_PII);
+  });
+  it('PATCH /:id/estado', async () => {
+    m.estado.mockResolvedValue({ item: ITEM, usuariosInvalidados: [] });
+    const r = await request(await app()).patch(`${BASE}/${ID}/estado`).set('Authorization', await con(ESTADO)).send({ activo: false, versionEsperada: 1 });
+    expect(r.status).toBe(200);
+    const entrada = m.audit.mock.calls[0]![1];
+    expect(entrada).toMatchObject({ action: 'update', resource: 'flito_proveedor', resourceId: ID, detail: `Proveedor Mensajería Uno (${ID})` });
+    expect(JSON.stringify(entrada)).not.toMatch(SIN_PII);
+  });
+});
+
 describe('HU #14335 — historial y máscaras', () => {
   it('AC6: con la función, 200 y no-store', async () => {
     m.historial.mockResolvedValue([{ id: 'a', accion: 'crear' }]);
@@ -423,5 +443,6 @@ describe('HU #14335 — historial y máscaras', () => {
     expect(valorAuditable('correo', 'persona.real@empresa.co')).not.toContain('persona.real');
     expect(valorAuditable('ciudad', 'Cali')).toBe('Cali');
     expect(valorAuditable('telefono', null)).toBeNull();
+    expect(valorAuditable('telefono', '4441234')).toBe('*****34');
   });
 });

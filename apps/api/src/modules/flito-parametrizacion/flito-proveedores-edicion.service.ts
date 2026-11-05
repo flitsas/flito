@@ -87,8 +87,10 @@ export async function editarProveedor(id: string, datos: EditarProveedorBody, ac
       .where(eq(flitoProveedores.id, id)).returning();
     if (padre === undefined) throw new ProveedorNoEncontradoError();
 
-    for (const s of quitados) await retirarPerfil(tx, id, s, actor.userId, ahora);
+    // Primero se da y después se retira: si el proveedor se quedara sin perfil vigente aunque sea un instante, el trigger
+    // `perfil_a_padre` lo daría de baja. `padre` es la fila ya guardada: el perfil entrante no copia datos obsoletos.
     for (const s of agregados) await darPerfil(tx, padre, s, s === 'soat' ? soatNuevo : undefined);
+    for (const s of quitados) await retirarPerfil(tx, id, s, actor.userId, ahora);
     if (Object.keys(setSoat).length > 0) {
       await tx.update(flitoProveedoresSoat).set(setSoat).where(eq(flitoProveedoresSoat.id, id));
     }

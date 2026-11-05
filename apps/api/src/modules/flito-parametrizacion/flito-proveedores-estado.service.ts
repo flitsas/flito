@@ -23,7 +23,7 @@ import {
   SERVICIO_PROVEEDOR_LABEL, type ImpactoProveedorDto, type ProveedorListaItemDto, type ServicioProveedor,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { clients, flitoProveedores, flitoProveedoresSoat, flitoSoat, users } from '../../db/schema.js';
+import { clients, flitoProveedores, flitoProveedoresLogistica, flitoProveedoresSoat, flitoSoat, users } from '../../db/schema.js';
 import type { ActorAuditoria } from '../../shared/historial/permisos-auditoria.js';
 import { clienteVigente } from '../clients/cliente-operable.js';
 import { ProveedorLogisticaAsignadoError, companiasConProveedorLogistica } from './flito-logistica-proveedor-compania.service.js';
@@ -156,6 +156,10 @@ export async function cambiarEstadoProveedor(
     exigirVersion(actual, versionEsperada);
     if (actual.activo === activo) return { item: await itemDeProveedor(tx, actual), usuariosInvalidados: [] };
     if (!activo) {
+      // RN-PLOGC-3: la asignación toma `FOR SHARE` sobre el perfil, no sobre el padre. Sin este bloqueo, una asignación en
+      // curso no se vería aquí y quedaría un proveedor inactivo con compañías.
+      await tx.select({ id: flitoProveedoresLogistica.id }).from(flitoProveedoresLogistica)
+        .where(eq(flitoProveedoresLogistica.id, id)).for('update');
       const companias = await companiasConProveedorLogistica(tx, id);
       if (companias.length > 0) throw new ProveedorLogisticaAsignadoError(companias);
     }

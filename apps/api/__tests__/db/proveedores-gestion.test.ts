@@ -7,10 +7,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '../../src/db/schema.js';
-import { abrirBase, enTx, leerMigracion, URL_BASE } from '../helpers/base-en-tx.js';
+import { abrirBase, borrarAdminDePrueba, enTx, leerMigracion, sembrarAdminActivo, URL_BASE } from '../helpers/base-en-tx.js';
 import { testToken } from '../helpers/auth.js';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
@@ -76,6 +77,7 @@ async function conBase(fn: (tx: Tx) => Promise<void>) {
     await enTx(sql, async (tx) => {
       await tx.unsafe(leerMigracion('0289_flito_proveedores_padre.sql'));
       await tx.unsafe(leerMigracion('0290_flito_proveedores_logistica_unicidad_viva.sql'));
+      await sembrarAdminActivo(tx);
       actual.tx = tx;
       actual.db = drizzle(Object.assign(tx, { options: sql.options }) as unknown as postgres.Sql, { schema });
       await fn(tx);
@@ -240,7 +242,7 @@ describe.skipIf(!URL_BASE)('HU #14332 — crear, editar y listar', () => {
     });
   });
 
-  it('AC6: un proveedor migrado edita solo SOAT sin datos generales; al editar el bloque se exige completo', async () => {
+  it('AC6: un proveedor migrado edita solo SOAT sin que se le exijan datos generales (el bloque completo se mide en routes)', async () => {
     await conBase(async (tx) => {
       const [fila] = await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES ('Migrado HU14324') RETURNING id`;
       const id = fila!.id as string;
@@ -390,6 +392,72 @@ describe.skipIf(!URL_BASE)('HU #14333 — agregar y quitar servicios', () => {
       const r = await editarProveedor(id, { versionEsperada: version, generales: g, servicios: ['soat', 'logistica'] }, ACTOR);
       expect(r.servicios).toEqual(['soat', 'logistica']);
       expect(await perfilLog(tx, id)).toMatchObject({ nit: g.nit, telefono: g.telefono });
+    });
+  });
+
+  describe('cambiar el único servicio', () => {
+    const SENTIDOS: readonly ['soat' | 'logistica', 'soat' | 'logistica'][] = [['soat', 'logistica'], ['logistica', 'soat']];
+
+    it.each(SENTIDOS)('%s → %s: padre vigente, datos intactos, versión +1 y ningún perfil huérfano', async (de, a) => {
+      await conBase(async (tx) => {
+        const p = await crearCon([de]);
+        const antes = await padre(tx, p.id);
+        const r = await editarProveedor(p.id, { versionEsperada: p.version, servicios: [a] }, ACTOR);
+        expect(r).toMatchObject({ id: p.id, servicios: [a], version: p.version + 1 });
+
+        const despues = await padre(tx, p.id);
+        expect(despues.deleted_at).toBeNull();
+        for (const c of ['nombre', 'nit', 'telefono', 'correo', 'direccion', 'ciudad', 'contacto', 'activo']) expect(despues[c]).toEqual(antes[c]);
+        expect(despues.version).toBe(p.version + 1);
+        const vista = await tx`SELECT servicio FROM flito_proveedor_servicios_v WHERE proveedor_id = ${p.id}`;
+        expect(vista.map((v) => v.servicio)).toEqual([a]);
+
+        const log = await perfilLog(tx, p.id);
+        const soat = await perfilSoat(tx, p.id);
+        if (a === 'logistica') {
+          expect(log).toMatchObject({ deleted_at: null, nit: p.nit, telefono: '3001234567', contacto: 'Ana Ruiz', nombre: p.nombre });
+          expect(soat!.deleted_at).not.toBeNull();
+        } else {
+          expect(soat).toMatchObject({ deleted_at: null, nombre: p.nombre });
+          expect(log).toMatchObject({ nit: null, telefono: null, contacto: null });
+          expect(log!.deleted_at).not.toBeNull();
+        }
+        const aud = await tx`SELECT accion, valor_antes, valor_despues FROM flito_proveedores_auditoria WHERE proveedor_id = ${p.id} AND campo = 'servicio' AND accion <> 'crear' ORDER BY created_at, accion`;
+        expect(aud).toEqual(expect.arrayContaining([
+          { accion: 'servicio_quitado', valor_antes: de, valor_despues: null },
+          { accion: 'servicio_agregado', valor_antes: null, valor_despues: a },
+        ]));
+      });
+    });
+
+    it.each(SENTIDOS)('%s → %s: los bloqueos del servicio saliente siguen aplicando y no cambia nada', async (de, a) => {
+      await conBase(async (tx) => {
+        const p = await crearCon([de]);
+        await compania(tx, `Cia cambio ${++n}`, de === 'soat' ? { soat: p.id } : { logistica: p.id });
+        const e = await rechazo(editarProveedor(p.id, { versionEsperada: p.version, servicios: [a] }, ACTOR));
+        expect(e).toBeInstanceOf(ServicioNoQuitableError);
+        expect((await padre(tx, p.id)).version).toBe(p.version);
+        const vista = await tx`SELECT servicio FROM flito_proveedor_servicios_v WHERE proveedor_id = ${p.id}`;
+        expect(vista.map((v) => v.servicio)).toEqual([de]);
+      });
+    });
+
+    it('el perfil entrante toma los datos ya guardados: los de la misma petición y no una copia obsoleta del perfil retirado', async () => {
+      await conBase(async (tx) => {
+        const p = await crearCon(['soat', 'logistica']);
+        const sinLog = await quitarServicio(p.id, 'logistica', ACTOR);
+        const g = generales({ nombre: `Renombrado ${++n}`, telefono: '3119998877', contacto: 'Otra Persona' });
+        const r = await editarProveedor(p.id, { versionEsperada: sinLog.version, generales: g, servicios: ['logistica'] }, ACTOR);
+        expect(r.servicios).toEqual(['logistica']);
+        expect(await perfilLog(tx, p.id)).toMatchObject({ deleted_at: null, nombre: g.nombre, nit: g.nit, telefono: '3119998877', contacto: 'Otra Persona' });
+
+        const q = await padre(tx, p.id);
+        const g2 = generales({ nombre: `Renombrado ${++n}`, nit: g.nit, telefono: '3220001122' });
+        await editarProveedor(p.id, { versionEsperada: q.version as number, generales: g2, servicios: ['soat'] }, ACTOR);
+        expect(await perfilSoat(tx, p.id)).toMatchObject({ deleted_at: null, nombre: g2.nombre, estrategia: 'portal', sla_horas: 24 });
+        expect(await perfilLog(tx, p.id)).toMatchObject({ nit: null, telefono: null, contacto: null });
+        expect(await padre(tx, p.id)).toMatchObject({ deleted_at: null, telefono: '3220001122', nit: g.nit });
+      });
     });
   });
 
@@ -689,17 +757,35 @@ describe.skipIf(!URL_BASE)('HU #14335 — auditoría', () => {
     });
   });
 
-  it('AC2: servicios, estado y baja dejan su acción', async () => {
+  it('AC2: servicios, estado y baja dejan su acción, con el actor real', async () => {
     await conBase(async (tx) => {
-      const a = await crearCon(['soat', 'logistica']);
-      const q = await quitarServicio(a.id, 'soat', ACTOR);
-      const r = await editarProveedor(a.id, { versionEsperada: q.version, servicios: ['soat', 'logistica'], soat: SOAT }, ACTOR);
-      const des = await cambiarEstadoProveedor(a.id, { activo: false, versionEsperada: r.version }, ACTOR);
-      const act = await cambiarEstadoProveedor(a.id, { activo: true, versionEsperada: des.item.version }, ACTOR);
-      await cambiarEstadoProveedor(a.id, { activo: false, versionEsperada: act.item.version }, ACTOR);
-      await eliminarProveedor(a.id, ACTOR);
-      const acciones = (await tx`SELECT DISTINCT accion FROM flito_proveedores_auditoria WHERE proveedor_id = ${a.id}`).map((f) => f.accion).sort();
-      expect(acciones).toEqual(['activar', 'crear', 'desactivar', 'eliminar', 'servicio_agregado', 'servicio_quitado']);
+      const [rol] = await tx`SELECT codigo FROM permisos_roles WHERE tipo_enlace = 'ninguno' ORDER BY codigo LIMIT 1`;
+      const actorId = (await tx`INSERT INTO users (username, name, password_hash, role) VALUES ('hu14324_actor_ac2', 'Actor', 'h', ${rol!.codigo}) RETURNING id`)[0]!.id as number;
+      const actor = { userId: actorId, email: null, rol: null };
+      const a = await crearProveedor({ generales: generales(), servicios: ['soat', 'logistica'], soat: SOAT }, actor);
+      const q = await quitarServicio(a.id, 'soat', actor);
+      const r = await editarProveedor(a.id, { versionEsperada: q.version, servicios: ['soat', 'logistica'], soat: SOAT }, actor);
+      const des = await cambiarEstadoProveedor(a.id, { activo: false, versionEsperada: r.version }, actor);
+      const act = await cambiarEstadoProveedor(a.id, { activo: true, versionEsperada: des.item.version }, actor);
+      await cambiarEstadoProveedor(a.id, { activo: false, versionEsperada: act.item.version }, actor);
+      await eliminarProveedor(a.id, actor);
+      const filas = await tx`SELECT DISTINCT accion, actor_id, created_at IS NOT NULL AS con_fecha FROM flito_proveedores_auditoria WHERE proveedor_id = ${a.id} ORDER BY accion`;
+      expect(filas).toEqual(['activar', 'crear', 'desactivar', 'eliminar', 'servicio_agregado', 'servicio_quitado']
+        .map((accion) => ({ accion, actor_id: actorId, con_fecha: true })));
+    });
+  });
+
+  it('AC3: un teléfono migrado de cualquier longitud no queda en claro en `valor_antes`', async () => {
+    await conBase(async (tx) => {
+      for (const [telefono, mascara] of [['4441234', '*****34'], ['31055512', '******12'], ['12345', '***45'], ['Tel. 444 12 34', '*****34'], ['sin numero', '']] as const) {
+        const nombre = `Migrado tel HU14324 ${++n}`;
+        const [fila] = await tx`INSERT INTO flito_proveedores_logistica (nombre, telefono) VALUES (${nombre}, ${telefono}) RETURNING id`;
+        const id = fila!.id as string;
+        const { version } = await padre(tx, id);
+        await editarProveedor(id, { versionEsperada: version as number, generales: generales({ nombre }) }, ACTOR);
+        const [f] = await tx`SELECT valor_antes, valor_despues FROM flito_proveedores_auditoria WHERE proveedor_id = ${id} AND campo = 'telefono'`;
+        expect(f).toEqual({ valor_antes: mascara, valor_despues: '300***4567' });
+      }
     });
   });
 
@@ -758,11 +844,13 @@ async function conConexionesReales(fn: (sql: postgres.Sql) => Promise<void>, lim
     const [f] = await sql`SELECT to_regclass('flito_proveedores') IS NOT NULL AS hay,
       EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'uq_flito_proveedores_logistica_nombre_vivo') AS tiene_0290`;
     if (!f!.hay || !f!.tiene_0290) { ctx.skip(); return; }
+    await sembrarAdminActivo(sql);
     actual.real = drizzle(sql, { schema });
     await fn(sql);
   } finally {
     actual.real = null;
     await limpiar(sql);
+    await borrarAdminDePrueba(sql);
     await sql.end();
   }
 }
@@ -821,5 +909,73 @@ describe.skipIf(!URL_BASE)('carreras (conexiones reales)', () => {
       const [f] = await sql`SELECT deleted_at IS NOT NULL AS baja, nit, telefono FROM flito_proveedores WHERE id = ${p.id}`;
       expect(f).toEqual({ baja: true, nit: null, telefono: null });
     }, (sql) => borrarProveedores(sql, ids), ctx);
+  });
+
+  describe('RN-PLOGC-3: inactivar contra una asignación en curso', () => {
+    const preparar = async (sql: postgres.Sql, ids: string[], companias: number[]) => {
+      const p = await crearCon(['logistica']);
+      ids.push(p.id);
+      const [c] = await sql`INSERT INTO clients (name) VALUES (${`Cia carrera HU14324 ${++n}`}) RETURNING id`;
+      companias.push(c!.id as number);
+      return { p, compania: c!.id as number };
+    };
+    const limpiar = async (sql: postgres.Sql, ids: string[], companias: number[]) => {
+      if (companias.length > 0) await sql`DELETE FROM clients WHERE id IN ${sql(companias)}`;
+      await borrarProveedores(sql, ids);
+    };
+
+    it('la asignación toma el perfil primero: inactivar espera, ve la compañía y responde 409', async (ctx) => {
+      const ids: string[] = []; const companias: number[] = [];
+      await conConexionesReales(async (sql) => {
+        const { p, compania: c } = await preparar(sql, ids, companias);
+        let soltar!: () => void;
+        const liberar = new Promise<void>((r) => { soltar = r; });
+        let tomado!: () => void;
+        const asignacionTomada = new Promise<void>((r) => { tomado = r; });
+        const asignar = sql.begin(async (tx) => {
+          await tx`SELECT activo FROM flito_proveedores_logistica WHERE id = ${p.id} AND deleted_at IS NULL FOR SHARE`;
+          await tx`UPDATE clients SET flito_proveedor_logistica_id = ${p.id} WHERE id = ${c}`;
+          tomado();
+          await liberar;
+        });
+        await asignacionTomada;
+        const inactivar = cambiarEstadoProveedor(p.id, { activo: false, versionEsperada: p.version }, ACTOR);
+        await new Promise((r) => { setTimeout(r, 300); });
+        soltar();
+        await asignar;
+        expect(await rechazo(inactivar)).toBeInstanceOf(ProveedorLogisticaAsignadoError);
+        const [f] = await sql`SELECT activo FROM flito_proveedores WHERE id = ${p.id}`;
+        expect(f!.activo).toBe(true);
+      }, (sql) => limpiar(sql, ids, companias), ctx);
+    });
+
+    it('la inactivación toma el perfil primero: la asignación espera, relee y se rechaza', async (ctx) => {
+      const { exigirProveedorLogisticaUsable, ProveedorLogisticaNoUsableError } = await import(`${P}/flito-logistica-proveedor-compania.service.js`);
+      const ids: string[] = []; const companias: number[] = [];
+      await conConexionesReales(async (sql) => {
+        const { p, compania: c } = await preparar(sql, ids, companias);
+        let soltar!: () => void;
+        const liberar = new Promise<void>((r) => { soltar = r; });
+        let tomado!: () => void;
+        const inactivacionTomada = new Promise<void>((r) => { tomado = r; });
+        const inactivar = sql.begin(async (tx) => {
+          await tx`SELECT id FROM flito_proveedores_logistica WHERE id = ${p.id} FOR UPDATE`;
+          await tx`UPDATE flito_proveedores SET activo = false WHERE id = ${p.id}`;
+          tomado();
+          await liberar;
+        });
+        await inactivacionTomada;
+        const asignar = actual.real!.transaction(async (tx) => {
+          await exigirProveedorLogisticaUsable(tx, p.id);
+          await tx.update(schema.clients).set({ flitoProveedorLogisticaId: p.id }).where(eq(schema.clients.id, c));
+        });
+        await new Promise((r) => { setTimeout(r, 300); });
+        soltar();
+        await inactivar;
+        expect(await rechazo(asignar)).toBeInstanceOf(ProveedorLogisticaNoUsableError);
+        const [f] = await sql`SELECT flito_proveedor_logistica_id AS proveedor FROM clients WHERE id = ${c}`;
+        expect(f!.proveedor).toBeNull();
+      }, (sql) => limpiar(sql, ids, companias), ctx);
+    });
   });
 });

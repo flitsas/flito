@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type postgres from 'postgres';
 import * as schema from '../../src/db/schema.js';
-import { abrirBase, enTx, leerMigracion, URL_BASE } from '../helpers/base-en-tx.js';
+import { abrirBase, enTx, leerMigracion, sembrarAdminActivo, URL_BASE } from '../helpers/base-en-tx.js';
 
 const actual: { db: ReturnType<typeof drizzle<typeof schema>> | null } = { db: null };
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn() }));
@@ -38,6 +38,7 @@ async function conBase(fn: (tx: Tx) => Promise<void>) {
     await enTx(sql, async (tx) => {
       await tx.unsafe(leerMigracion('0278_flito_proveedores_logistica_nit_contacto.sql'));
       await tx.unsafe(leerMigracion('0279_flito_clients_proveedor_logistica.sql'));
+      await sembrarAdminActivo(tx);
       actual.db = drizzle(Object.assign(tx, { options: sql.options }) as unknown as postgres.Sql, { schema });
       await fn(tx);
     });
