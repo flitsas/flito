@@ -33,7 +33,7 @@ const NO_EXISTE = 'El gestor seleccionado no existe o fue eliminado.';
 
 const auth = async () => `Bearer ${await testToken({ sub: 7, username: 'ops@flitsas.com', role: 'admin' })}`;
 
-/** La tx: la 1.ª lectura es el proveedor `FOR SHARE`; las demás, las filas bloqueadas del envío. */
+/** La tx: la 1.ª lectura es el padre `FOR SHARE`, la 2.ª su perfil vivo (R11); las demás, las filas bloqueadas del envío. */
 function montarTx(proveedor: unknown[]) {
   const txSelect = vi.fn().mockReturnValue(chain([{ id: SOAT_ID }]));
   txSelect.mockReturnValueOnce(chain(proveedor));
@@ -86,7 +86,7 @@ describe('POST /flito/soat/enviar — proveedor no utilizable (HU #13959)', () =
     const r = await enviar(P);
     expect(r.status).toBe(200);
     expect(r.body.enviados).toEqual([SOAT_ID]);
-    expect(txSelect).toHaveBeenCalledTimes(2); // proveedor FOR SHARE + filas FOR UPDATE SKIP LOCKED
+    expect(txSelect).toHaveBeenCalledTimes(3); // padre y perfil FOR SHARE + filas FOR UPDATE SKIP LOCKED
     expect(txUpdate).toHaveBeenCalledTimes(1);
   });
 
@@ -113,7 +113,9 @@ async function appParam() {
 /** `previo` = la fila de la compañía antes del PATCH; `proveedor` = lo que devuelve el `FOR SHARE` dentro de la tx. */
 function montarCompania(previo: { proveedorSinTramiteId: string | null; soatSinTramite?: boolean }, proveedor: unknown[]) {
   selectMock.mockReturnValueOnce(chain([{ id: 1, soatSinTramite: false, ...previo }]));
-  const txSelect = vi.fn().mockReturnValueOnce(chain(proveedor));
+  // La 2.ª lectura es el perfil vivo, también `FOR SHARE` (R11): existe mientras el spec no diga otra cosa.
+  const txSelect = vi.fn().mockReturnValue(chain([{ id: P }]));
+  txSelect.mockReturnValueOnce(chain(proveedor));
   const sets: Record<string, unknown>[] = [];
   const txUpdate = vi.fn(() => ({
     set: (v: Record<string, unknown>) => {
@@ -166,7 +168,7 @@ describe('PATCH /flito/parametrizacion/companias/:id — gestor por defecto (HU 
       [{ nombre: 'Gestora Andina', activo: true, deletedAt: null }]);
     const r = await patchCompania({ proveedorSoatSinTramiteId: P });
     expect(r.status).toBe(200);
-    expect(txSelect).toHaveBeenCalledTimes(1);
+    expect(txSelect).toHaveBeenCalledTimes(2); // padre y perfil, los dos FOR SHARE
     expect(sets[0]).toEqual({ flitoProveedorSoatSinTramiteId: P });
   });
 });

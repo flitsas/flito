@@ -209,7 +209,7 @@ const ORG_B = '11001';
 const FILAS: Fila[] = [
   { id: 1, username: 'admin_juan', name: 'Juan Admin', email: 'juan@flit.io', role: 'admin', active: true, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: null, createdAt: new Date('2026-01-02T10:00:00Z'), deletedAt: null, deletedBy: null },
   { id: 2, username: 'gestora', name: 'Gestora Perez', email: 'gestora@flit.io', role: 'gestor_impuestos', active: true, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: null, createdAt: new Date('2026-02-03T10:00:00Z'), deletedAt: null, deletedBy: null },
-  { id: 3, username: 'prov_ana', name: 'Ana Proveedora', email: 'ana@x.com', role: 'proveedor', active: false, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: PROVEEDOR, createdAt: new Date('2026-03-04T10:00:00Z'), deletedAt: null, deletedBy: null },
+  { id: 3, username: 'prov_ana', name: 'Ana Proveedora', email: 'ana@x.com', role: 'proveedor', active: false, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: PROVEEDOR, flitoProveedorId: PROVEEDOR, createdAt: new Date('2026-03-04T10:00:00Z'), deletedAt: null, deletedBy: null },
   { id: 4, username: 'cliente_zeta', name: 'Zeta Cliente', email: 'zeta@x.com', role: 'cliente', active: true, allowedPages: [], transitoCodigo: null, companiaId: 7, flitoProveedorSoatId: null, createdAt: new Date('2026-04-05T10:00:00Z'), deletedAt: null, deletedBy: null },
 ];
 
@@ -364,9 +364,9 @@ describe('GET /api/users — paginación y X-Total-Count (HU #12172)', () => {
     // Ni una consulta de más sobre el camino que usan los consumidores de siempre.
     expect(espia.conteos).toBe(0);
     expect(r.headers['x-total-count']).toBe('4');
-    // El listado + organismos + funciones (HU #12087) de TODA la página: dos consultas de lote, no
-    // una por fila.
-    expect(espia.llamadas).toBe(3);
+    // El listado + organismos + funciones (HU #12087) + nombres de proveedor (HU #14341) de TODA la
+    // página: tres consultas de lote, no una por fila.
+    expect(espia.llamadas).toBe(4);
   });
 });
 
