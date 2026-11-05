@@ -38,7 +38,7 @@ export { flitoImpuestoEnviosFlit2 } from './schema/flito-impuesto-envios-flit2.j
 import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js';
 export { flitoTramiteViajesLogistica };
 // HU #14109: traslados, líneas, motivos, líneas y firmas de acta viven en `./schema/flito-logistica-traslados.ts`.
-export * from './schema/flito-logistica-traslados.js'; export * from './schema/pii-key-registry.js'; // Feature #13978: registro de llaves PII
+export * from './schema/flito-logistica-traslados.js'; export * from './schema/pii-key-registry.js'; export * from './schema/flito-proveedores.js'; // Feature #13978: registro de llaves PII / Feature #14323 (ADR-0039): identidad única de proveedor
 // HU #13061: `flito_sync_flit2_acceso` vive en `./schema/flito-sync.ts` por el mismo techo.
 export { flitoSyncFlit2Acceso, flitoSyncFlit2Lectura, flitoSyncInterruptor, flitoSyncFlit1Lectura } from './schema/flito-sync.js';
 // HU #13803: `flito_drflit_autorizaciones` (Dr. Flit, Ley 1581) vive en `./schema/flito-drflit.ts` y NO se
@@ -49,7 +49,7 @@ import { bytea, flitoModalidadEnum } from './schema/_comunes.js';
 export { flitoModalidadEnum };
 import { tramitesDigitales, organismosTransitoConfig, flitoTramites } from './schema/tramites.js';
 export * from './schema/tramites.js';
-import { flitoProveedoresSoat, flitoSoportes } from './schema/soat.js';
+import { flitoProveedoresSoat, flitoSoportes } from './schema/soat.js'; import { flitoProveedores } from './schema/flito-proveedores.js';
 export * from './schema/soat.js';
 export * from './schema/comparendos.js';
 export * from './schema/siigo.js';
@@ -116,7 +116,7 @@ export const users = pgTable('users', {
   // `flito_gestor_organismos`, porque son VARIOS organismos y `transito_codigo` solo guardaba uno
   // —y además es del rol `transito`—. Para un `gestor_impuestos`, `transito_codigo` queda NULL
   // desde la migración 0173: fuente única, sin segundo inquilino.
-  flitoProveedorSoatId: uuid('flito_proveedor_soat_id').references((): any => flitoProveedoresSoat.id),
+  flitoProveedorSoatId: uuid('flito_proveedor_soat_id').references((): any => flitoProveedoresSoat.id), flitoProveedorId: uuid('flito_proveedor_id').references(() => flitoProveedores.id, { onDelete: 'restrict' }), // HU #14330: la nueva es la identidad; la vieja se sincroniza por trigger y se retira en F5.
   /**
    * FLITO — Cliente (Feature #11912): la compañía de la que es este usuario. Es la atadura de
    * visibilidad del rol `cliente`, igual que `flitoProveedorSoatId` lo es del gestor: `contextoSoat()`
@@ -159,7 +159,7 @@ export const users = pgTable('users', {
   // Sin él, borrar un rol escanea `users` entera. También sirve al conteo por rol (CF-22).
   roleIdx: index('idx_users_role').on(t.role),
   // HU #13971 (0264): impacto/desactivación/eliminación de un proveedor SOAT. Completo, no parcial (ver cabecera 0264).
-  proveedorSoatIdx: index('idx_users_flito_proveedor_soat').on(t.flitoProveedorSoatId),
+  proveedorSoatIdx: index('idx_users_flito_proveedor_soat').on(t.flitoProveedorSoatId), proveedorIdx: index('idx_users_flito_proveedor').on(t.flitoProveedorId),
 }));
 
 export const clients = pgTable('clients', {
@@ -2587,7 +2587,7 @@ export const flitoProveedoresLogistica = pgTable('flito_proveedores_logistica', 
   estrategia: varchar('estrategia', { length: 40 }).notNull().default('pwa_propia'),
   activo: boolean('activo').notNull().default(true),
   // HU #14103 (0278): nit (único parcial `uq_flito_proveedores_logistica_nit` en la migración; NULL en filas previas), contacto y teléfono, en la misma línea: el techo congelado de schema.ts no admite crecer.
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), nit: varchar('nit', { length: 20 }), contacto: varchar('contacto', { length: 150 }), telefono: varchar('telefono', { length: 30 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), nit: varchar('nit', { length: 20 }), contacto: varchar('contacto', { length: 150 }), telefono: varchar('telefono', { length: 30 }), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }), // HU #14329 (0289): sin lectores hasta F2.
 });
 
 // Acta: agrupación por empresa para despacho/entrega (CA-04, una por empresa por lote). El acta

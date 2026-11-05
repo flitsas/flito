@@ -9,7 +9,7 @@
 // Ejecutar: npx tsx src/scripts/flito-seed.ts   (idempotente: no re-siembra si ya hay datos)
 
 import argon2 from 'argon2';
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import {
   clients,
@@ -86,9 +86,13 @@ async function main(): Promise<void> {
   const sura = proveedores.find((p) => p.nombre === 'SURA')!;
 
   // ── Proveedor logístico por defecto (Fase 1: mensajería propia de FLIT) ──────
-  await db.insert(flitoProveedoresLogistica).values([
-    { nombre: 'Mensajería FLIT', estrategia: 'pwa_propia', activo: true },
-  ]).onConflictDoNothing();
+  // Se consulta antes de insertar: `perfil_crea_padre` (0289) escribe el padre antes de que un ON CONFLICT del
+  // perfil pueda actuar, y un nombre ya sembrado por una migración chocaría con el índice único del padre.
+  const [mensajeria] = await db.select({ id: flitoProveedoresLogistica.id }).from(flitoProveedoresLogistica)
+    .where(eq(flitoProveedoresLogistica.nombre, 'Mensajería FLIT')).limit(1);
+  if (!mensajeria) {
+    await db.insert(flitoProveedoresLogistica).values({ nombre: 'Mensajería FLIT', estrategia: 'pwa_propia', activo: true });
+  }
 
   // ── Reglas de enrutamiento ───────────────────────────────────────────────────
   await db.insert(flitoReglasProveedorSoat).values([
