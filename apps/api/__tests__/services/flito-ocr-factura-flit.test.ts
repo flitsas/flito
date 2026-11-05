@@ -6,7 +6,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  anioVehiculoN, cilindradaN, descripcionProducto, lineaDesdeDescripcion, parsearAdquiriente, parsearNotasFinales,
+  anioVehiculoN, avaluoDesdeFactura, CAMPOS_DIRECCION_FACTURA, CAMPOS_DOCUMENTO_FACTURA, CAMPOS_VEHICULO_FACTURA,
+  cilindradaN, descripcionProducto, extraccionCompleta, fechaFacturaN, filasProducto, importeFacturaN,
+  lineaDesdeDescripcion, numeroFacturaN, parsearAdquiriente, parsearDatosDocumento, parsearFechaEmision,
+  parsearNotasFinales, parsearNumeroFactura, parsearSubtotalBaseGravable,
 } from '../../src/modules/flito-ocr/flito-ocr-factura-flit.js';
 
 const FIXTURE = readFileSync(fileURLToPath(new URL('../fixtures/factura-flit-notas-finales.txt', import.meta.url)), 'utf8');
@@ -115,5 +118,216 @@ describe('línea desde la «Descripción» del producto (decisión del humano 20
     expect(lineaDesdeDescripcion({ descripcion: 'AUTOMOVIL MODELO 2026', unica: true })).toEqual(vacio);
     expect(lineaDesdeDescripcion({ descripcion: '2026', unica: true })).toEqual(vacio);
     expect(lineaDesdeDescripcion(descripcionProducto('sin tabla de productos'))).toEqual(vacio);
+  });
+});
+
+// ─────────────────────────────── HU #14293 — datos del documento ───────────────────────────────
+
+const PLANTILLA_A = readFileSync(fileURLToPath(new URL('../fixtures/factura-flit-plantilla-a.txt', import.meta.url)), 'utf8');
+const AUSENTE_ESPERADO = { valor: null, confianza: 0, confiable: false };
+const VIN_A = '9ABCD1234EF567890';
+/** `-raw`: una fila de producto y la de su IVA, que también casa con `FILA_PRODUCTO` y no es un producto. */
+const RAW_A = [
+  'Detalles de Productos',
+  '1 ABC000000001 Modelox Turbo Unid 1 $ 1,234,567.89 $ 0.00 $ 0.00 $ 1,234,567.89',
+  'Nro. Tipo Código Descripción % Monto',
+  '1 IVA 01 IVA 5 $ 61,728.39',
+].join('\n');
+const FILA_ACCESORIO = '2 ACC0001 Tapetes Unid 1 $ 100,000.00 $ 0.00 $ 0.00 $ 100,000.00';
+const FILA_VEHICULO_CON_VIN = `1 ABC000000001 Modelox VIN ${VIN_A} Unid 1 $ 1,134,567.89 $ 0.00 $ 0.00 $ 1,134,567.89`;
+
+describe('numeroFactura (AC1, plantilla A)', () => {
+  it('toma el token de la línea siguiente a la cabecera, sin concatenar `Prefijo:` y sin el CUFE', () => {
+    expect(parsearNumeroFactura(PLANTILLA_A)).toEqual({ valor: 'ZZ000012345', confianza: 1, confiable: true });
+  });
+
+  it('el hash puede ir primero en la línea: gana el primer token que no es hash', () => {
+    const hash = 'abcdef0123456789'.repeat(4);
+    expect(parsearNumeroFactura(`Número de Factura:   CUFE: ${hash}\n  ${hash}   ZZ991234\n`).valor).toBe('ZZ991234');
+  });
+
+  it('con el valor en la misma línea, y con otros espacios, también', () => {
+    expect(parsearNumeroFactura('Numero  de   Factura: ZZ991234').valor).toBe('ZZ991234');
+  });
+
+  it('sin la cabecera, o sin valor antes de la siguiente etiqueta, queda ausente', () => {
+    expect(parsearNumeroFactura('FACTURA ELECTRÓNICA DE VENTA No. ZZ-0001')).toEqual(AUSENTE_ESPERADO);
+    expect(parsearNumeroFactura('Número de Factura:\n\nTipo de Operación: Estándar\n')).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('un token inválido, o dos valores distintos, es dudoso', () => {
+    expect(parsearNumeroFactura('Número de Factura:\n  abc123\n')).toMatchObject({ confiable: false, confianza: 0.5 });
+    expect(parsearNumeroFactura('Número de Factura: ZZ1234\nNúmero de Factura: ZZ9999\n')).toMatchObject({ confiable: false });
+  });
+
+  it('numeroFacturaN une prefijo y consecutivo separados y rechaza lo que no es un número', () => {
+    expect(numeroFacturaN('FV99 1234')).toBe('FV991234');
+    expect(numeroFacturaN('FC991234')).toBe('FC991234');
+    expect(numeroFacturaN('ZZ-0001')).toBe('ZZ-0001');
+    for (const malo of ['abcd1234', 'FACTURA', 'A1', 'ZZ_12', 'A'.repeat(29) + '12', 'ABCDEF0123456789ABCDEF0123', '-ZZ12']) {
+      expect(numeroFacturaN(malo), malo).toBeNull();
+    }
+  });
+});
+
+describe('fechaFactura (AC2, AC3)', () => {
+  it('plantilla A: la emisión, en AAAA-MM-DD, aunque comparta línea con el vencimiento', () => {
+    expect(parsearFechaEmision(PLANTILLA_A)).toEqual({ valor: '2030-01-31', confianza: 1, confiable: true });
+  });
+
+  it('sin emisión no toma el vencimiento, la recepción ni la generación: ausente', () => {
+    const sinEmision = PLANTILLA_A.replace('Fecha de Emisión: 31/01/2030', '');
+    expect(parsearFechaEmision(sinEmision)).toEqual(AUSENTE_ESPERADO);
+    expect(parsearFechaEmision('Fecha de Emisión:      Fecha de Vencimiento: 02/03/2030')).toEqual(AUSENTE_ESPERADO);
+    expect(parsearFechaEmision('Fecha de Emisión: Fecha de Vencimiento: 02/03/2030')).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('una fecha imposible es dudosa, no se corrige', () => {
+    expect(parsearFechaEmision('Fecha de Emisión: 31/02/2030')).toMatchObject({ confiable: false, confianza: 0.5 });
+  });
+
+  it('fechaFacturaN: los dos formatos, sin la hora, con el calendario real y sin mover el día', () => {
+    expect(fechaFacturaN('2030-01-31')).toBe('2030-01-31');
+    expect(fechaFacturaN('31/01/2030')).toBe('2030-01-31');
+    expect(fechaFacturaN('31/01/2030 14:05:00')).toBe('2030-01-31');
+    expect(fechaFacturaN('01/01/2030 00:00:00')).toBe('2030-01-01');
+    expect(fechaFacturaN('29/02/2028')).toBe('2028-02-29');
+    expect(fechaFacturaN('31/01/2030, 15:48')).toBe('2030-01-31');
+    expect(fechaFacturaN('31/01/2030,15:48')).toBe('2030-01-31');
+    for (const malo of ['29/02/2030', '31/02/2030', '31/04/2030', '2030-13-01', '00/01/2030', '01/31/2030', '31/01/2030 25:00', 'hoy', '2030-01-31T10:00:00', '31/01/2030,', '31/02/2030, 15:48', '31/01/2030, 25:00']) {
+      expect(fechaFacturaN(malo), malo).toBeNull();
+    }
+  });
+});
+
+describe('avalúo: normalizador de importe (AC5)', () => {
+  it.each([
+    ['1,234,567.89', '1234567.89'], ['1.234.567,89', '1234567.89'], ['68496063', '68496063'],
+    ['1234567.89', '1234567.89'], ['0', '0'], ['0.00', '0.00'], ['$ 1,234,567.89', '1234567.89'],
+    ['  $1.234.567,89 ', '1234567.89'], ['1234,5', '1234.5'], ['1,234,567', '1234567'], ['1.234.567', '1234567'], ['123,456.78', '123456.78'],
+  ])('%s → %s', (crudo, esperado) => {
+    expect(importeFacturaN(crudo)).toBe(esperado);
+  });
+
+  it.each(['123,456', '1.234', '1234.567', '1,234.567', '1.234,567', '-100', '-1,234.50', '12a', 'COP 100', '1,234,56', '1.234,567.89', '1 234', '', '$', '12345678901234'])(
+    'rechaza %s', (crudo) => {
+      expect(importeFacturaN(crudo)).toBeNull();
+    },
+  );
+
+  it('conserva los centavos sin pasar por coma flotante', () => {
+    expect(importeFacturaN('9,999,999,999,999.99')).toBe('9999999999999.99');
+  });
+});
+
+describe('avaluoComercial (AC4, AC5, AC6)', () => {
+  it('una fila de producto (la del IVA no cuenta): el Subtotal Base gravable, nunca el total', () => {
+    expect(avaluoDesdeFactura(PLANTILLA_A, RAW_A, VIN_A)).toEqual({ valor: '1234567.89', confianza: 1, confiable: true });
+  });
+
+  it('un avalúo en 0 es 0 y confiable; sin subtotal queda ausente, sin relleno', () => {
+    const conCero = PLANTILLA_A.replace('Subtotal Base gravable (=) $ 1,234,567.89', 'Subtotal Base gravable (=) $ 0.00');
+    const filaEnCero = RAW_A.replaceAll('1,234,567.89', '0.00');
+    expect(avaluoDesdeFactura(conCero, filaEnCero, VIN_A)).toEqual({ valor: '0.00', confianza: 1, confiable: true });
+    const sinSubtotal = PLANTILLA_A.replace('Subtotal Base gravable (=) $ 1,234,567.89\n', '');
+    expect(avaluoDesdeFactura(sinSubtotal, RAW_A, VIN_A)).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('sin subtotal no cae a «Totalmás impuestos» ni a «Valor total»', () => {
+    const sinSubtotal = PLANTILLA_A.replace('Subtotal Base gravable (=) $ 1,234,567.89\n', '');
+    expect(JSON.stringify(parsearSubtotalBaseGravable(sinSubtotal))).not.toContain('1296296');
+  });
+
+  it('un importe ambiguo es dudoso', () => {
+    const ambiguo = PLANTILLA_A.replace('Subtotal Base gravable (=) $ 1,234,567.89', 'Subtotal Base gravable (=) $ 123,456');
+    const filaAmbigua = RAW_A.replaceAll('1,234,567.89', '123,456');
+    expect(avaluoDesdeFactura(ambiguo, filaAmbigua, VIN_A)).toMatchObject({ valor: '$ 123,456', confiable: false, confianza: 0.5 });
+    // El subtotal se evalúa antes que la fila: ambiguo sigue dudoso aunque la fila no coincida.
+    expect(avaluoDesdeFactura(ambiguo, RAW_A, VIN_A)).toMatchObject({ valor: '$ 123,456', confiable: false, confianza: 0.5 });
+  });
+
+  it('otro producto con la descripción partida no se ve como fila: el subtotal no coincide y queda ausente', () => {
+    const raw = [
+      '1 ABC000000001 Modelox Turbo Unid 1 $ 1,134,567.89 $ 0.00 $ 0.00 $ 1,134,567.89',
+      '2 ACC0001 Tapetes de caucho',
+      'para el vehiculo',
+      'Unid 1 $ 100,000.00 $ 0.00 $ 0.00 $ 100,000.00',
+    ].join('\n');
+    expect(filasProducto(raw)).toHaveLength(1);
+    expect(avaluoDesdeFactura(PLANTILLA_A, raw, VIN_A)).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('un descuento o cargo global que separa fila y subtotal deja el avalúo ausente, no adivina', () => {
+    const conDescuento = '1 ABC000000001 Modelox Unid 1 $ 1,300,000.00 $ 65,432.11 $ 0.00 $ 1,300,000.00';
+    expect(avaluoDesdeFactura(PLANTILLA_A, conDescuento, VIN_A)).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('una fila cuyo valor de venta ya trae el descuento y coincide con el subtotal sí vale', () => {
+    const neto = '1 ABC000000001 Modelox Unid 1 $ 1,300,000.00 $ 65,432.11 $ 0.00 $ 1,234,567.89';
+    expect(avaluoDesdeFactura(PLANTILLA_A, neto, VIN_A)).toEqual({ valor: '1234567.89', confianza: 1, confiable: true });
+  });
+
+  it('la comparación es exacta al centavo y no depende del formato ni de los ceros decimales', () => {
+    const conSubtotal = (v: string) => PLANTILLA_A.replace('Subtotal Base gravable (=) $ 1,234,567.89', `Subtotal Base gravable (=) $ ${v}`);
+    const fila = (v: string) => `1 ABC000000001 Modelox Unid 1 $ ${v} $ 0.00 $ 0.00 $ ${v}`;
+    expect(avaluoDesdeFactura(conSubtotal('1,234,567.90'), fila('1234567.9'), VIN_A)).toMatchObject({ valor: '1234567.90', confiable: true });
+    expect(avaluoDesdeFactura(conSubtotal('1,234,567.89'), fila('1.234.567,89'), VIN_A)).toMatchObject({ valor: '1234567.89', confiable: true });
+    expect(avaluoDesdeFactura(conSubtotal('1,000,000'), fila('1000000.00'), VIN_A)).toMatchObject({ valor: '1000000', confiable: true });
+    expect(avaluoDesdeFactura(conSubtotal('1,234,567.89'), fila('1,234,567.88'), VIN_A)).toEqual(AUSENTE_ESPERADO);
+    // Al tope de 13 dígitos enteros, un centavo sigue contando.
+    expect(avaluoDesdeFactura(conSubtotal('9,007,199,254,740.99'), fila('9,007,199,254,741.00'), VIN_A)).toEqual(AUSENTE_ESPERADO);
+    expect(avaluoDesdeFactura(conSubtotal('100'), fila('1,000.00'), VIN_A)).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('una fila con valor de venta ambiguo no se puede comparar: ausente', () => {
+    expect(avaluoDesdeFactura(PLANTILLA_A, '1 ABC000000001 Modelox Unid 1 $ 123,456 $ 0.00 $ 0.00 $ 123,456', VIN_A)).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('varios productos y la descripción trae el VIN confiable: sale de esa fila', () => {
+    const raw = `${FILA_VEHICULO_CON_VIN}\n1 IVA 01 IVA 5 $ 56,728.39\n${FILA_ACCESORIO}\n1 IVA 01 IVA 5 $ 5,000.00`;
+    expect(filasProducto(raw)).toHaveLength(2);
+    expect(avaluoDesdeFactura(PLANTILLA_A, raw, VIN_A)).toEqual({ valor: '1134567.89', confianza: 1, confiable: true });
+  });
+
+  it('varios productos sin certeza de la fila del vehículo: ausente, nunca el subtotal', () => {
+    const sinVin = `${RAW_A}\n${FILA_ACCESORIO}`;
+    expect(avaluoDesdeFactura(PLANTILLA_A, sinVin, VIN_A)).toEqual(AUSENTE_ESPERADO);
+    expect(avaluoDesdeFactura(PLANTILLA_A, `${FILA_VEHICULO_CON_VIN}\n${FILA_ACCESORIO}`, null)).toEqual(AUSENTE_ESPERADO);
+    const dosConVin = `${FILA_VEHICULO_CON_VIN}\n${FILA_VEHICULO_CON_VIN.replace(/^1/, '2')}`;
+    expect(avaluoDesdeFactura(PLANTILLA_A, dosConVin, VIN_A)).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('sin filas de producto reconocibles no se sabe qué cubre el subtotal: ausente', () => {
+    expect(avaluoDesdeFactura(PLANTILLA_A, '', VIN_A)).toEqual(AUSENTE_ESPERADO);
+    expect(avaluoDesdeFactura(PLANTILLA_A, '1 IVA 01 IVA 5 $ 61,728.39', VIN_A)).toEqual(AUSENTE_ESPERADO);
+  });
+});
+
+describe('cada dato por separado y minimización (AC7, AC10)', () => {
+  it('parsearDatosDocumento: uno dudoso y otro ausente no tocan al tercero', () => {
+    const texto = PLANTILLA_A
+      .replace('Fecha de Emisión: 31/01/2030', 'Fecha de Emisión: 31/02/2030')
+      .replace('Subtotal Base gravable (=) $ 1,234,567.89\n', '');
+    const r = parsearDatosDocumento(texto, RAW_A, VIN_A);
+    expect(r.numeroFactura).toEqual({ valor: 'ZZ000012345', confianza: 1, confiable: true });
+    expect(r.fechaFactura).toMatchObject({ confiable: false, confianza: 0.5 });
+    expect(r.avaluoComercial).toEqual(AUSENTE_ESPERADO);
+  });
+
+  it('parsearNotasFinales sigue con su tabla cerrada: ni estas claves ni el teléfono', () => {
+    const r = parsearNotasFinales(PLANTILLA_A)!;
+    expect(Object.keys(r).sort()).toEqual(['anioVehiculo', 'cilindrada', 'clase', 'color', 'linea', 'marca', 'vin']);
+    expect(JSON.stringify(r)).not.toContain('3000000000');
+  });
+
+  it('los 3 datos no entran en las listas del vehículo ni de la dirección', () => {
+    const decisorias: readonly string[] = [...CAMPOS_VEHICULO_FACTURA, ...CAMPOS_DIRECCION_FACTURA];
+    for (const c of CAMPOS_DOCUMENTO_FACTURA) expect(decisorias).not.toContain(c);
+  });
+
+  it('extraccionCompleta da las 10 claves de siempre más las 3, ausentes si no llegan', () => {
+    const r = extraccionCompleta({}, {});
+    expect(Object.keys(r)).toEqual([...CAMPOS_VEHICULO_FACTURA, ...CAMPOS_DIRECCION_FACTURA, ...CAMPOS_DOCUMENTO_FACTURA]);
+    expect(r.avaluoComercial).toEqual(AUSENTE_ESPERADO);
   });
 });

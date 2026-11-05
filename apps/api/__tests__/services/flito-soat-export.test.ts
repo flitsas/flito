@@ -961,7 +961,8 @@ describe('los DOS archivos salen de la MISMA lista de columnas', () => {
 
       expect(deSoat.indexOf(CENTINELA_COLUMNA), 'SOAT no trajo la columna compartida').toBe(27);
       expect(deImpuestos.indexOf(CENTINELA_COLUMNA), 'Impuestos no trajo la columna compartida').toBe(27);
-      expect(deSoat).toEqual(deImpuestos);
+      // HU #14294: Impuestos es esa misma hoja y añade por la derecha sus tres columnas de factura.
+      expect(deImpuestos).toEqual([...deSoat, 'NumeroFactura', 'FechaFactura', 'AvaluoComercial']);
     } finally {
       // Restaurar en un `finally` y no en un `afterEach`: si un aserto falla a media prueba, el
       // `afterEach` corre igual pero el resto del archivo ya habría visto la lista contaminada en

@@ -36,6 +36,8 @@ const { registrarPasosAnalisisImpuestos } = await import('../../src/modules/flit
 const { __resetColaAnalisis, ejecutarAnalisis } = await import('../../src/modules/flito-impuestos/flito-impuestos.analisis.service.js');
 const { limitadorRunt } = await import('../../src/modules/flito-impuestos/runt-limitador.js');
 
+const PLANTILLA_A = readFileSync(fileURLToPath(new URL('../fixtures/factura-flit-plantilla-a.txt', import.meta.url)), 'utf8');
+const RAW_A = '1 ABC000000001 Modelox Turbo Unid 1 $1,234,567.89 $0.00 $0.00 $1,234,567.89';
 const FIXTURE = readFileSync(fileURLToPath(new URL('../fixtures/factura-flit-notas-finales.txt', import.meta.url)), 'utf8');
 const RAW = '1 ABC000000001 Modelox Turbo Unid 1 $10.000.000,00 $0,00 $0,00 $10.000.000,00';
 const PDF = Buffer.from('%PDF-1.7 inventado');
@@ -78,7 +80,7 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('AC1 — factura con Notas Finales', () => {
-  it('persiste los 10 campos con fuente notas_finales y NO llama al OCR', async () => {
+  it('persiste las 13 claves con fuente notas_finales y NO llama al OCR', async () => {
     conFactura();
     const g = updates();
     await pasoExtraccion({ impuestoId: A, runt: limitadorRunt });
@@ -91,7 +93,8 @@ describe('AC1 — factura con Notas Finales', () => {
     expect(e.linea).toMatchObject({ valor: 'Modelox Turbo', confiable: true });
     expect(e.direccion).toMatchObject({ valor: 'CL 1 # 2-3 OF 4', confiable: true });
     expect(Object.keys(e).sort()).toEqual([
-      'anioVehiculo', 'cilindrada', 'clase', 'color', 'departamento', 'direccion', 'fuente', 'linea', 'marca', 'municipio', 'vin',
+      'anioVehiculo', 'avaluoComercial', 'cilindrada', 'clase', 'color', 'departamento', 'direccion', 'fechaFactura', 'fuente',
+      'linea', 'marca', 'municipio', 'numeroFactura', 'vin',
     ]);
   });
 
@@ -111,7 +114,7 @@ describe('AC1 — factura con Notas Finales', () => {
     expect(logPiiAccess).toHaveBeenCalledTimes(1);
     const [req, opts] = logPiiAccess.mock.calls[0];
     expect(req.user).toBeUndefined(); // actor sistema: user_id/user_role NULL, no un usuario inventado
-    expect(opts).toMatchObject({ resourceTipo: 'flito_impuesto', accion: 'read', camposAccedidos: ['direccion', 'municipio', 'departamento', 'vin'] });
+    expect(opts).toMatchObject({ resourceTipo: 'flito_impuesto', accion: 'read', camposAccedidos: ['direccion', 'municipio', 'departamento', 'vin', 'numero_factura', 'fecha_factura', 'avaluo_comercial'] });
     expect(JSON.stringify(opts)).not.toMatch(/9ABCD1234EF567890|CL 1 # 2-3|CIUDADX|X-Amz-Signature/);
   });
 });
@@ -177,5 +180,101 @@ describe('factura no disponible → lanza (error_analisis)', () => {
     expect(await ejecutarAnalisis(A)).toBe('error_analisis');
     expect(g).toHaveLength(1);
     expect(g[0].set).toMatchObject({ analisisEstado: 'error_analisis' });
+  });
+});
+
+// ─────────────────────────────── HU #14293 — número, fecha y avalúo ───────────────────────────────
+
+const conPlantillaA = (layout = PLANTILLA_A, raw = RAW_A) =>
+  textoPdf.mockImplementation(async (_b: Buffer, modo = '-layout') => (modo === '-raw' ? raw : layout));
+const documentoDe = async () => {
+  conFactura();
+  const g = updates();
+  await pasoExtraccion({ impuestoId: A, runt: limitadorRunt });
+  return g[0].set!.extraccionFacturaVenta as Record<string, { valor: string | null; confiable: boolean }> & { fuente: string };
+};
+
+describe('HU #14293 — persistencia en la misma lectura (AC1, AC2, AC4, AC10)', () => {
+  it('plantilla A: los tres datos junto a los campos actuales, que no cambian, y sin OCR', async () => {
+    conPlantillaA();
+    const e = await documentoDe();
+    expect(extraerVehiculoFacturaVenta).not.toHaveBeenCalled();
+    expect(e.numeroFactura).toEqual({ valor: 'ZZ000012345', confianza: 1, confiable: true });
+    expect(e.fechaFactura).toEqual({ valor: '2030-01-31', confianza: 1, confiable: true });
+    expect(e.avaluoComercial).toEqual({ valor: '1234567.89', confianza: 1, confiable: true });
+    expect(e.fuente).toBe('notas_finales');
+    expect(e.vin).toMatchObject({ valor: '9ABCD1234EF567890', confiable: true });
+    expect(e.linea).toMatchObject({ valor: 'Modelox Turbo', confiable: true });
+    expect(e.direccion).toMatchObject({ valor: 'CL 1 # 2-3 OF 4', confiable: true });
+  });
+
+  it('`-raw` se lee una sola vez, también con línea confiable, y esa línea no cambia', async () => {
+    const conLinea = PLANTILLA_A.replace('Puertas:5', 'Linea:Otra Linea|Puertas:5');
+    conPlantillaA(conLinea);
+    const e = await documentoDe();
+    expect(textoPdf.mock.calls.filter((c) => c[1] === '-raw')).toHaveLength(1);
+    expect(e.linea).toMatchObject({ valor: 'Otra Linea', confiable: true });
+    expect(e.avaluoComercial).toMatchObject({ valor: '1234567.89', confiable: true });
+  });
+
+  it('una fila de IVA en `-raw` no convierte la factura en varios productos: el avalúo sale igual', async () => {
+    conPlantillaA(PLANTILLA_A, `${RAW_A}\n1 IVA 01 IVA 5 $ 61,728.39`);
+    const e = await documentoDe();
+    expect(e.avaluoComercial).toMatchObject({ valor: '1234567.89', confiable: true });
+  });
+
+  it('el `-raw` vacío (pdftotext falló) deja el avalúo ausente y el paso termina', async () => {
+    conPlantillaA(PLANTILLA_A, '');
+    const e = await documentoDe();
+    expect(e.avaluoComercial).toEqual({ valor: null, confianza: 0, confiable: false });
+    expect(e.numeroFactura).toMatchObject({ confiable: true });
+  });
+});
+
+describe('HU #14293 — cada campo por separado (AC7)', () => {
+  it('uno dudoso y otro ausente: el tercero conserva su valor y el análisis termina', async () => {
+    conPlantillaA(PLANTILLA_A
+      .replace('Fecha de Emisión: 31/01/2030', 'Fecha de Emisión: 31/02/2030')
+      .replace('Subtotal Base gravable (=) $ 1,234,567.89\n', ''));
+    const e = await documentoDe();
+    expect(e.numeroFactura).toMatchObject({ valor: 'ZZ000012345', confiable: true });
+    expect(e.fechaFactura).toMatchObject({ confiable: false });
+    expect(e.avaluoComercial).toMatchObject({ valor: null, confiable: false });
+  });
+
+  it('el log del paso sigue con solo conteos y los 3 datos no suman a `camposConfiables`', async () => {
+    conPlantillaA();
+    await documentoDe();
+    const acceso = logPiiAccess.mock.calls[0][1] as { motivo: string; camposAccedidos: string[] };
+    expect(acceso.motivo).not.toContain('ZZ000012345');
+    expect(acceso.motivo).not.toContain('1234567.89');
+    expect(acceso.camposAccedidos).toEqual(['direccion', 'municipio', 'departamento', 'vin', 'numero_factura', 'fecha_factura', 'avaluo_comercial']);
+    expect(acceso.motivo).not.toContain('2030-01-31');
+  });
+});
+
+describe('HU #14293 — otro emisor o plantillas B y C: OCR con su propio confiable (AC9)', () => {
+  it('sin Notas Finales los tres datos del OCR se guardan tal cual, junto a fuente ocr', async () => {
+    textoPdf.mockResolvedValue('PDF de otra plantilla sin Notas Finales');
+    extraerVehiculoFacturaVenta.mockResolvedValue({
+      ...ocrVacio(),
+      numeroFactura: { valor: 'FV991234', confianza: 0.95, confiable: true },
+      fechaFactura: { valor: '2030-01-31', confianza: 0.6, confiable: false },
+      avaluoComercial: { valor: null, confianza: 0, confiable: false },
+    });
+    const e = await documentoDe();
+    expect(e.fuente).toBe('ocr');
+    expect(e.numeroFactura).toMatchObject({ valor: 'FV991234', confiable: true });
+    expect(e.fechaFactura).toMatchObject({ valor: '2030-01-31', confiable: false });
+    expect(e.avaluoComercial).toMatchObject({ valor: null, confiable: false });
+  });
+
+  it('una respuesta del OCR sin estas claves deja los tres ausentes y no falla', async () => {
+    textoPdf.mockResolvedValue('PDF de otra plantilla sin Notas Finales');
+    extraerVehiculoFacturaVenta.mockResolvedValue(ocrVacio());
+    const e = await documentoDe();
+    for (const c of ['numeroFactura', 'fechaFactura', 'avaluoComercial']) {
+      expect(e[c], c).toEqual({ valor: null, confianza: 0, confiable: false });
+    }
   });
 });

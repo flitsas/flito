@@ -1,0 +1,38 @@
+                                   FACTURA ELECTRÓNICA DE VENTA
+Datos del Documento:      Número de Factura:      Código Único de Factura - CUFE: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                          ZZ000012345             abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+Tipo de Operación: Estándar     Prefijo: ZZ
+Fecha de Emisión: 31/01/2030    Fecha de Vencimiento: 02/03/2030
+Fecha de Recepción Bien: 15/02/2030   Fecha generación: 2030-01-30T10:00:00.000+00:00
+
+Datos del Emisor                        NIT Emisor  900000000                 Razón Social  CONCESIONARIO INVENTADO SAS
+Tipo de Contribuyente   Persona Jurídica            Dirección     AV EMISOR 99 # 99-99
+Régimen Fiscal          Responsable IVA             Ciudad        CIUDADEMISOR
+Correo                  emisor@example.invalid      Departamento  DPTOEMISOR
+
+Datos del Adquiriente                   No. Documento de Adquiriente  800000000     Razón Social EMPRESA EJEMPLO SAS
+Tipo de Documento       NIT                          Dirección     CL 1 # 2-3 OF 4
+Nombre Comercial        EMPRESA EJEMPLO SAS          Ciudad        CIUDADX
+Tipo de Contribuyente   Persona Jurídica             Departamento  DPX
+
+Detalles de Productos
+
+No.       Código          Descripción         U/M   Cantidad    Precio Unitario      Descuento    Recargo      Valor de Venta por Artículo
+ 1    ABC000000001      Mo delox Tu rbo       Unid        1     $ 1,234,567.89      $ 0.00       $ 0.00       $ 1,234,567.89
+
+       Nro.                Tipo                      Código                                  Descripción                    %                    Monto
+        1                  IVA                         01                                      IVA                         5                $ 61,728.39
+
+Notas Finales
+
+Responsables de IVA|Tarifa ICA Ciudad 9.9 /1000|Numerodecontacto1:3000000000|AñoVehículo:2026|Cilindrada:1598|Color:Blanco
+Perla|Marca:MarcaX|Potencia:90
+kW|Combustible:Gasolina|Tracción:Delantera|Clase:Automóvil|Transmisión:Manual|VIN:9ABCD1234EF56789
+0|Motor:XX000000|CIT:AB00
+00|Peso:1100 kg|Puertas:5|Asientos:5|Carga:400 kg|Cilindros:4|Servicio Particular
+Datos Totales
+Subtotal Precio Unitario (=) $ 1,234,567.89
+Subtotal Base gravable (=) $ 1,234,567.89
+Total impuesto detalle IVA(+) $ 61,728.39
+Totalmás impuestos (=) $ 1,296,296.28
+Valor totaldelaoperación (=) $ 1,296,296.28

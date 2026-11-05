@@ -120,6 +120,10 @@ const CENTINELA_RAZON = 'CENTINELA-RAZON-SOCIAL SAS';
  */
 const CENTINELA_CONCATENADO = 'CENTINELA CONCATENADO';
 const CENTINELA_MOTIVO = 'CENTINELA-MOTIVO-RECHAZO';
+const CENTINELA_NUMERO_FACTURA = 'ZZ991234';
+const CENTINELA_FECHA_FACTURA = '2030-01-31';
+/** En la lectura y fuera de la proyección: el mock devuelve la fila entera, así que viajaría igual. */
+const CENTINELA_DIRECCION_LECTURA = 'CENTINELA-DIRECCION-DE-LA-LECTURA';
 
 /**
  * Fila de `flito_impuestos` × joins, tal como la traería la base SIN proyectar.
@@ -154,6 +158,13 @@ const filaImpuesto = (over: Record<string, unknown> = {}) => ({
   nombres: CENTINELA_NOMBRE,
   apellidos: CENTINELA_APELLIDOS,
   tipo: 'cc',          // `flit_raw->>'tipo'` — QUÉ es el titular
+  // HU #14294: `valor` y `confiable` de cada clave de la lectura, como los entrega `->>`.
+  numeroFacturaValor: CENTINELA_NUMERO_FACTURA,
+  numeroFacturaConfiable: 'true',
+  fechaFacturaValor: CENTINELA_FECHA_FACTURA,
+  fechaFacturaConfiable: 'true',
+  avaluoComercialValor: '68496063.25',
+  avaluoComercialConfiable: 'true',
   // Lo que la proyección del export NO pide. El mock keyed devuelve la fila entera aunque el
   // `select` pidiera menos, así que estas viajan igual y sirven de centinela.
   valorLiquidado: '480000.00',
@@ -339,6 +350,10 @@ const CABECERAS = [
   'NumeroMotor', 'NumeroSerie',
 ];
 
+/** HU #14294: las tres de la factura, solo de Impuestos y después de `NumeroSerie`. */
+const CABECERAS_FACTURA = ['NumeroFactura', 'FechaFactura', 'AvaluoComercial'];
+const CABECERAS_IMPUESTOS = [...CABECERAS, ...CABECERAS_FACTURA];
+
 const cabecerasDe = (hoja: ExcelJS.Worksheet): string[] =>
   (hoja.getRow(1).values as unknown[]).slice(1).map(String);
 
@@ -380,18 +395,20 @@ beforeEach(() => {
 
 // ─────────────────────────── Las once columnas ───────────────────────────────────────────────────
 
-describe('el archivo tiene EXACTAMENTE veintisiete columnas, en su orden', () => {
-  it('las 27 cabeceras en CamelCase literal, y `columnCount === 27`', async () => {
+describe('el archivo tiene EXACTAMENTE treinta columnas, en su orden', () => {
+  it('las 30 cabeceras en CamelCase literal, y `columnCount === 30`', async () => {
     kdb.when.scenario({ flito_impuestos: filas(2), flito_compradores: [] });
 
     const r = await exportar(await sesion());
     expect(r.status).toBe(200);
     const hoja = await libro(r.body as Buffer);
 
-    expect(cabecerasDe(hoja)).toEqual(CABECERAS);
-    expect(hoja.columnCount).toBe(27);
-    // AC1 de la HU #12403: las dos nuevas van AL FINAL, por posición y no solo por presencia.
-    expect(cabecerasDe(hoja).slice(-2)).toEqual(['NumeroMotor', 'NumeroSerie']);
+    expect(cabecerasDe(hoja)).toEqual(CABECERAS_IMPUESTOS);
+    expect(hoja.columnCount).toBe(30);
+    // AC1 de la HU #12403: motor y serie cierran las 27 de siempre, por posición.
+    expect(cabecerasDe(hoja).slice(25, 27)).toEqual(['NumeroMotor', 'NumeroSerie']);
+    // AC1 de la HU #14294: las tres de la factura cierran el archivo, en este orden.
+    expect(cabecerasDe(hoja).slice(-3)).toEqual(['NumeroFactura', 'FechaFactura', 'AvaluoComercial']);
   });
 
   it('NO hay columna de fecha de creación, ni de valor pagado, ni de proveedor', async () => {
@@ -402,7 +419,8 @@ describe('el archivo tiene EXACTAMENTE veintisiete columnas, en su orden', () =>
     // Las tres tentaciones de la OPERACIÓN de FLITO que siguen vivas: una fecha porque el filtro
     // nuevo es por creación, el importe porque está en la fila, el proveedor porque está en la
     // pantalla. (`Municipio` y el nombre del titular SÍ existen ahora: la HU #11934 los añadió.)
-    expect(cabeceras.filter((h) => /Cread|Fecha/i.test(h))).toEqual([]);
+    // `FechaFactura` es la de emisión de la factura (HU #14294), no una de estas.
+    expect(cabeceras.filter((h) => /Cread|Fecha/i.test(h))).toEqual(['FechaFactura']);
     expect(cabeceras.filter((h) => /Valor|Pagad/i.test(h))).toEqual([]);
     expect(cabeceras.filter((h) => /Proveedor/i.test(h))).toEqual([]);
   });
@@ -1426,23 +1444,24 @@ const filaPagada = (over: Record<string, unknown> = {}) => filaImpuesto({
 const exportarAmpliado = async (cabecera: string, cuerpo: Record<string, unknown> = {}) =>
   exportar(cabecera, { incluirPago: true, ...cuerpo });
 
-describe('archivo ampliado (Bug #12642, HU #12833) — cabeceras 28..39 exactas, después de `NumeroSerie`', () => {
-  it('con `incluirPago: true` y la función: 39 columnas, las 27 de siempre y luego las 12 de pago en orden', async () => {
+describe('archivo ampliado (Bug #12642, HU #12833, HU #14294) — cabeceras 31..42 exactas, después de `AvaluoComercial`', () => {
+  it('con `incluirPago: true` y la función: 42 columnas, las 27 de siempre, las 3 de factura y luego las 12 de pago en orden', async () => {
     kdb.when.scenario({ flito_impuestos: [filaPagada()], flito_compradores: [comprador()] });
     const r = await exportarAmpliado(await sesion());
     expect(r.status).toBe(200);
     const hoja = await libro(r.body as Buffer);
-    expect(hoja.columnCount).toBe(39);
-    expect(cabecerasDe(hoja)).toEqual([...CABECERAS, ...CABECERAS_PAGO]);
+    expect(hoja.columnCount).toBe(42);
+    expect(cabecerasDe(hoja)).toEqual([...CABECERAS, ...CABECERAS_FACTURA, ...CABECERAS_PAGO]);
     expect(cabecerasDe(hoja)[26]).toBe('NumeroSerie');
-    expect(cabecerasDe(hoja)[27]).toBe('Estado');
+    expect(cabecerasDe(hoja).slice(27, 30)).toEqual(CABECERAS_FACTURA);
+    expect(cabecerasDe(hoja)[30]).toBe('Estado');
   });
 
-  it('SIN el parámetro (o con `false`) el archivo sigue siendo de 27 y la consulta NO pide las columnas de pago', async () => {
+  it('SIN el parámetro (o con `false`) el archivo es de 30 y la consulta NO pide las columnas de pago', async () => {
     kdb.when.scenario({ flito_impuestos: [filaPagada()], flito_compradores: [comprador()] });
     const hoja = await libro((await exportar(await sesion(), { incluirPago: false })).body as Buffer);
-    expect(hoja.columnCount).toBe(27);
-    expect(cabecerasDe(hoja)).toEqual(CABECERAS);
+    expect(hoja.columnCount).toBe(30);
+    expect(cabecerasDe(hoja)).toEqual(CABECERAS_IMPUESTOS);
     const proyeccion = lecturasDe(TABLA)[0].columnas;
     for (const prohibida of ['valorLiquidado', 'valorPagado', 'pagadoEn', 'liquidadoEn', 'enviadoEn', 'gestionOperaciones', 'marcadoPorDiferencia']) {
       expect(proyeccion).not.toContain(prohibida);
@@ -1537,11 +1556,11 @@ describe('archivo ampliado — la función decide, no el rol; y el 403 no deja r
     expect(logPiiAccessMock.mock.calls.filter((c) => (c[1] as { accion?: string }).accion === 'export')).toHaveLength(0);
   });
 
-  it('el mismo `gestor_impuestos` SÍ baja el archivo de 27 sin el flag: la ruta no se cerró', async () => {
+  it('el mismo `gestor_impuestos` SÍ baja el archivo de 30 sin el flag: la ruta no se cerró', async () => {
     kdb.when.scenario({ flito_impuestos: [filaPagada()], flito_compradores: [comprador()] });
     const r = await exportar(await sesion('gestor_impuestos'));
     expect(r.status).toBe(200);
-    expect((await libro(r.body as Buffer)).columnCount).toBe(27);
+    expect((await libro(r.body as Buffer)).columnCount).toBe(30);
   });
 
   it('un `gestor_impuestos` al que el admin le repartió la función baja el ampliado: decide la función', async () => {
@@ -1549,7 +1568,7 @@ describe('archivo ampliado — la función decide, no el rol; y el 403 no deja r
     const cabecera = `Bearer ${await testToken({ sub: siguienteSub++, username: 'gestor@flit.io', role: 'gestor_impuestos', funciones: ['impuestos.excel.exportar_pago'], tipoEnlace: 'ninguno' })}`;
     const r = await exportarAmpliado(cabecera);
     expect(r.status).toBe(200);
-    expect((await libro(r.body as Buffer)).columnCount).toBe(39);
+    expect((await libro(r.body as Buffer)).columnCount).toBe(42);
   });
 
   it('`incluirPago: "sí"` (no booleano) es 400 por el `.strict()`', async () => {
@@ -1630,7 +1649,7 @@ describe('HU #12833 — AC2: la dirección confirmada manda en las celdas del Ex
       flito_compradores: [comprador()],
     });
     const hoja = await libro((await exportar(await sesion())).body as Buffer);
-    expect(hoja.columnCount).toBe(27);
+    expect(hoja.columnCount).toBe(30);
     expect(celda(hoja, 2, 'Direccion')).toBe(DIR_FACTURA);
     expect(celda(hoja, 2, 'Municipio')).toBe(MUNICIPIO);
     expect(celda(hoja, 2, 'Departamento')).toBe('CUNDINAMARCA');
@@ -1734,5 +1753,139 @@ describe('HU #12833 — AC4/AC8: marca «Dirección sin confirmar» y conteo en 
     expect(marcaDireccionSinConfirmar({ analisisEstado: null, direccionPendienteRevision: true })).toBeNull();
     expect(marcaDireccionSinConfirmar({ analisisEstado: 'en_curso', direccionPendienteRevision: true })).toBeNull();
     expect(contarDireccionesSinConfirmar([{ direccionSinConfirmar: 'Sí' }, { direccionSinConfirmar: null }, {}])).toBe(1);
+  });
+});
+
+// ─────────────────────────── HU #14294 — número, fecha y avalúo de la factura ───────────────────
+
+describe('HU #14294 — las celdas de la factura', () => {
+  const exportarUna = async (over: Record<string, unknown> = {}, ampliado = false) => {
+    kdb.when.scenario({ flito_impuestos: [ampliado ? filaPagada(over) : filaImpuesto(over)], flito_compradores: [comprador()] });
+    const r = ampliado ? await exportarAmpliado(await sesion()) : await exportar(await sesion());
+    expect(r.status).toBe(200);
+    return libro(r.body as Buffer);
+  };
+  const vacias = (hoja: ExcelJS.Worksheet) => CABECERAS_FACTURA.map((h) => celda(hoja, 2, h) ?? null);
+
+  it('AC3: fiables → texto, `YYYY-MM-DD` como texto y número sumable con decimales, cada uno bajo su cabecera', async () => {
+    const hoja = await exportarUna();
+    expect(celda(hoja, 2, 'NumeroFactura')).toBe(CENTINELA_NUMERO_FACTURA);
+    expect(celda(hoja, 2, 'FechaFactura')).toBe(CENTINELA_FECHA_FACTURA);
+    expect(celda(hoja, 2, 'AvaluoComercial')).toBe(68496063.25);
+    expect(typeof celda(hoja, 2, 'AvaluoComercial')).toBe('number');
+    expect(celda(hoja, 2, 'NumeroSerie')).toBe('SER-I1');
+  });
+
+  it('AC2: con pago, los centinelas de factura y de pago conviven, cada uno en su columna', async () => {
+    const hoja = await exportarUna({}, true);
+    expect(celda(hoja, 2, 'NumeroFactura')).toBe(CENTINELA_NUMERO_FACTURA);
+    expect(celda(hoja, 2, 'AvaluoComercial')).toBe(68496063.25);
+    expect(celda(hoja, 2, 'Estado')).toBe('Pagado');
+    expect(celda(hoja, 2, 'ValorPagado')).toBe(479500.25);
+  });
+
+  it.each([
+    ['dudoso', { numeroFacturaConfiable: 'false' }, 'NumeroFactura'],
+    ['ausente', { fechaFacturaValor: null, fechaFacturaConfiable: 'false' }, 'FechaFactura'],
+    ['sin la marca', { avaluoComercialConfiable: null }, 'AvaluoComercial'],
+  ])('AC4: %s deja vacía SOLO esa celda, sin 0 de relleno, y la fila sale', async (_n, over, cabecera) => {
+    const hoja = await exportarUna(over);
+    expect(celda(hoja, 2, cabecera) ?? null).toBeNull();
+    for (const otra of CABECERAS_FACTURA.filter((h) => h !== cabecera)) expect(celda(hoja, 2, otra), otra).not.toBeNull();
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+  });
+
+  it('AC4: un valor dudoso con `confiable` en falso no aparece en ninguna parte del archivo', async () => {
+    const hoja = await exportarUna({ numeroFacturaValor: 'DUDOSO-1234', numeroFacturaConfiable: 'false' });
+    expect(textoDe(hoja)).not.toContain('DUDOSO-1234');
+  });
+
+  it('AC5/AC7: sin lectura, o con una lectura anterior sin estas claves: las tres vacías y la fila sale', async () => {
+    const hoja = await exportarUna({
+      numeroFacturaValor: null, numeroFacturaConfiable: null,
+      fechaFacturaValor: null, fechaFacturaConfiable: null,
+      avaluoComercialValor: null, avaluoComercialConfiable: null,
+    });
+    expect(vacias(hoja)).toEqual([null, null, null]);
+    expect(hoja.rowCount).toBe(2);
+    expect(celda(hoja, 2, 'NumeroSerie')).toBe('SER-I1');
+  });
+
+  it.each([['0'], ['0.00']])('AC6: un avalúo de %s fiable es el número 0, no una celda vacía', async (valor) => {
+    const hoja = await exportarUna({ avaluoComercialValor: valor });
+    expect(celda(hoja, 2, 'AvaluoComercial')).toBe(0);
+  });
+
+  it('AC10: la proyección lee `valor` y `confiable` de las tres claves, nunca el jsonb entero, y sin joins nuevos', async () => {
+    const hoja = await exportarUna({ extraccionFacturaVenta: { direccion: { valor: CENTINELA_DIRECCION_LECTURA, confiable: true } } });
+
+    const principal = lecturasDe(TABLA)[0];
+    expect(principal.columnas).not.toContain('extraccionFacturaVenta');
+    expect(principal.joins).toEqual(['flito_tramites', 'vehicles', 'clients', 'organismos_transito_config', 'users']);
+    const proy = Object.values(principal.proyeccion).map(origenDe);
+    expect(proy).not.toContain('col:flito_impuestos.extraccion_factura_venta');
+    expect(proy.filter((o) => o.includes('extraccion_factura_venta'))).toHaveLength(6);
+    for (const clave of ['numeroFactura', 'fechaFactura', 'avaluoComercial']) {
+      expect(proy).toContain(`sql:"flito_impuestos"."extraccion_factura_venta" -> $1 ->> 'valor'|${clave}`);
+      expect(proy).toContain(`sql:"flito_impuestos"."extraccion_factura_venta" -> $1 ->> 'confiable'|${clave}`);
+    }
+    expect(textoDe(hoja)).not.toContain(CENTINELA_DIRECCION_LECTURA);
+  });
+
+  it('AC10 con pago: la lectura ampliada tampoco proyecta el jsonb entero', async () => {
+    await exportarUna({ extraccionFacturaVenta: { direccion: { valor: CENTINELA_DIRECCION_LECTURA } } }, true);
+    const principal = lecturasDe(TABLA)[0];
+    expect(Object.values(principal.proyeccion).map(origenDe)).not.toContain('col:flito_impuestos.extraccion_factura_venta');
+    expect(principal.joins).toEqual(['flito_tramites', 'vehicles', 'clients', 'organismos_transito_config', 'users']);
+  });
+
+  it('AC9: filas y frontera sin cambio: todas las filas salen, con o sin datos de factura', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto(), filaImpuesto({ id: IMPUESTO_JUR, tramiteId: TRAMITE_JUR, numeroFacturaValor: null, numeroFacturaConfiable: null })],
+      flito_compradores: [],
+    });
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(hoja.rowCount).toBe(3);
+    expect(lecturasDe(TABLA)).toHaveLength(1);
+  });
+});
+
+describe('HU #14294 — listas: SOAT no cambia y el rastro declara los tres campos', () => {
+  it('AC8: SOAT con y sin pago no lleva estas columnas, y sigue en 27 y 40 con la lista compartida intacta', async () => {
+    const m = await import('../../src/shared/export/cola-flito-excel.js');
+    expect(m.COLUMNAS_COLA_EXPORT).toHaveLength(27);
+    expect(m.columnasColaExport('soat', false)).toBe(m.COLUMNAS_COLA_EXPORT);
+    expect(m.columnasColaExport('soat', true)).toHaveLength(40);
+    for (const incluirPago of [false, true]) {
+      const cabeceras = m.columnasColaExport('soat', incluirPago).map((c) => c.header);
+      for (const h of CABECERAS_FACTURA) expect(cabeceras, h).not.toContain(h);
+    }
+  });
+
+  it('AC8: `CAMPOS_PII_COLA_EXPORT` no cambia y Impuestos deja de ser un alias suyo', async () => {
+    const m = await import('../../src/shared/export/cola-flito-excel.js');
+    const { CAMPOS_PII_IMPUESTO_EXPORT } = await import('../../src/modules/flito-impuestos/flito-impuestos.pii.js');
+    expect(m.CAMPOS_PII_COLA_EXPORT).toEqual([
+      'nombre_completo', 'nombres', 'apellidos', 'razon_social',
+      'numero_documento', 'tipo_documento', 'correo', 'celular', 'direccion', 'placa',
+      'vin', 'ciudad', 'municipio', 'departamento', 'num_motor', 'num_serie',
+    ]);
+    expect(CAMPOS_PII_IMPUESTO_EXPORT).toEqual([...m.CAMPOS_PII_COLA_EXPORT, 'numero_factura', 'fecha_factura', 'avaluo_comercial']);
+  });
+
+  it('el rastro del export declara los tres, sin y con pago', async () => {
+    kdb.when.scenario({ flito_impuestos: [filaPagada()], flito_compradores: [comprador()] });
+    await exportar(await sesion());
+    for (const c of ['numero_factura', 'fecha_factura', 'avaluo_comercial']) expect(ultimoAcceso().camposAccedidos as string[], c).toContain(c);
+    await exportarAmpliado(await sesion());
+    for (const c of ['numero_factura', 'fecha_factura', 'avaluo_comercial', 'valor_pagado']) expect(ultimoAcceso().camposAccedidos as string[], c).toContain(c);
+  });
+
+  it('`columnasColaExport` de Impuestos mide 30 y 42 y no muta la lista compartida', async () => {
+    const m = await import('../../src/shared/export/cola-flito-excel.js');
+    expect(m.COLUMNAS_FACTURA_IMPUESTOS_EXPORT.map((c) => c.header)).toEqual(CABECERAS_FACTURA);
+    expect(m.columnasColaExport('impuestos', false)).toHaveLength(30);
+    expect(m.columnasColaExport('impuestos', true)).toHaveLength(42);
+    expect(m.COLUMNAS_COLA_EXPORT).toHaveLength(27);
   });
 });

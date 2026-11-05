@@ -149,6 +149,8 @@ Devuelve EXCLUSIVAMENTE este JSON:
 // reconocibles. Prompt APARTE del de SOAT (decisión P2 del diseño): el canal Cliente no cambia de
 // costo ni de escalación. Pide los 7 datos del vehículo y SOLO la dirección del comprador —nada de
 // nombre, documento ni teléfono (minimización, Ley 1581)— con las mismas reglas de «no inventar».
+// HU #14293: también número, fecha de emisión y avalúo. No reutiliza `valorVehiculo` del canal SOAT,
+// que pide entero y admite el total con confianza media.
 export const PROMPT_FACTURA_VENTA_VEHICULO = `Extrae los datos del VEHÍCULO de esta FACTURA DE VENTA de un vehículo (emitida por un concesionario) colombiana.
 
 Campos del VEHÍCULO:
@@ -166,11 +168,16 @@ Campos de ubicación del COMPRADOR / ADQUIRIENTE:
 - municipio: el municipio/ciudad del comprador.
 - departamento: el departamento del comprador.
 
+Campos del DOCUMENTO:
+- numeroFactura: el consecutivo de la factura de venta, tal cual y con su prefijo. Si el prefijo y el consecutivo están impresos separados por un espacio, únelos sin separador ("FV99 1234" → "FV991234"). Lo mismo tras la etiqueta "No." ("No. ZZ 1234" → "ZZ1234"). Si la cabecera dice "N°", es el valor impreso, sin guion. Léelo del contenido del documento, NUNCA del nombre del archivo. NUNCA el número de resolución, la autorización DIAN ni la orden de compra.
+- fechaFactura: la fecha de EMISIÓN de la factura. En algunas plantillas viene como "Expedición" o como "Fecha" junto a "Fecha Vencimiento:". NUNCA la fecha de vencimiento, validación DIAN, recepción, generación, levante, declaración ni orden de compra. Si no identificas con seguridad la de emisión, devuelve null.
+- avaluoComercial: el valor del vehículo ANTES de impuestos ("Subtotal Base gravable", "SUB TOTAL", "VALOR ANTES DE IMPUESTOS"), con sus decimales y tal como está impreso. Si la factura trae "Total Bruto", ese valor manda sobre "Subtotal" y "SUB TOTAL", tenga o no "Descuentos": "Total Bruto" NO es el total de la factura. NUNCA el total de la factura, NUNCA un valor con IVA, impuesto al consumo u otros cargos, NUNCA "Total a Pagar" ni la columna "Total" de la fila del producto. Si hay varios productos, es el de la fila del vehículo antes de impuestos y no "Total Bruto"; si no identificas esa fila con seguridad, devuelve null. Un valor impreso en 0 es "0"; si no aparece es null, no lo rellenes con 0.
+
 NO extraigas nombre, documento, correo ni teléfono de nadie.
 Si un dato no aparece o no es legible, devuelve null. NO lo inventes ni lo deduzcas.
 
 Devuelve EXCLUSIVAMENTE este JSON:
-{"vin":{"valor":null,"confianza":null},"marca":{"valor":null,"confianza":null},"linea":{"valor":null,"confianza":null},"anioVehiculo":{"valor":null,"confianza":null},"color":{"valor":null,"confianza":null},"cilindrada":{"valor":null,"confianza":null},"clase":{"valor":null,"confianza":null},"direccion":{"valor":null,"confianza":null},"municipio":{"valor":null,"confianza":null},"departamento":{"valor":null,"confianza":null}}`;
+{"vin":{"valor":null,"confianza":null},"marca":{"valor":null,"confianza":null},"linea":{"valor":null,"confianza":null},"anioVehiculo":{"valor":null,"confianza":null},"color":{"valor":null,"confianza":null},"cilindrada":{"valor":null,"confianza":null},"clase":{"valor":null,"confianza":null},"direccion":{"valor":null,"confianza":null},"municipio":{"valor":null,"confianza":null},"departamento":{"valor":null,"confianza":null},"numeroFactura":{"valor":null,"confianza":null},"fechaFactura":{"valor":null,"confianza":null},"avaluoComercial":{"valor":null,"confianza":null}}`;
 
 // ─────────────────────────── Derecho de tránsito (HU #10950) ─────────────────
 // Un solo prompt para TODOS los organismos. Funciona porque la extracción es semántica ("el total a
