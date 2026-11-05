@@ -84,11 +84,11 @@ describe('AC6 — cobertura: los 32 códigos del área + 7 nuevos, en los dos se
   const delArea = [...new Set(plano.filter((f) => f.tipo === 'operacion' && AREA_ADMINISTRACION.test(f.codigo)).map((f) => f.codigo))].sort();
   const cubiertas = new Set(AREA.flatMap((a) => [...operacionesDe(a), ...predecesoresDe(a), ...(ACCIONES_ADMINISTRACION[a]!.opcionales ?? [])]));
 
-  it('son 32 en la partida, y cada uno está en ≥1 acción (grupo, predecesor, apoyo u opcional); dos opcionales', () => {
-    expect(delArea).toHaveLength(32);
+  it('son 33 en la partida (+ historial de proveedores, HU #14335), y cada uno está en ≥1 acción (grupo, predecesor, apoyo u opcional); tres opcionales', () => {
+    expect(delArea).toHaveLength(33);
     expect(delArea.filter((c) => !cubiertas.has(c))).toEqual([]);
     // David, 2026-10-13: los catálogos de compañías y de proveedores SOAT son opcionales de «Ver clientes y proveedores».
-    expect(AREA.flatMap((a) => ACCIONES_ADMINISTRACION[a]!.opcionales ?? [])).toEqual(['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar']);
+    expect(AREA.flatMap((a) => ACCIONES_ADMINISTRACION[a]!.opcionales ?? [])).toEqual(['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar', 'parametrizacion.proveedores.historial']);
     expect(predecesoresDe('accion.clientes.ver')).toEqual(['clients.clientes.ver']);
     for (const op of ['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar']) {
       expect(CODIGOS_ABSORBIDOS.has(op), op).toBe(false);

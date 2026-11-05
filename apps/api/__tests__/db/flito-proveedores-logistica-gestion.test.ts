@@ -1,4 +1,4 @@
-// HU #14148 (Feature #14089) — listado unificado, impacto y baja de proveedores de logística, contra PostgreSQL de
+// HU #14148 (Feature #14089) — conteo, impacto y baja de proveedores de logística, contra PostgreSQL de
 // verdad dentro de una transacción con ROLLBACK (se SALTA sin TEST_DATABASE_URL). Las migraciones 0278/0279 se aplican
 // DENTRO de la transacción (idempotentes) porque la base local compartida puede no tenerlas.
 import { describe, it, expect, vi } from 'vitest';
@@ -21,10 +21,14 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn(),
 }));
 
-const { listarProveedoresUnificados, impactoProveedorLogistica, eliminarProveedorLogistica, ProveedorLogisticaEnUsoError } =
+const { impactoProveedorLogistica } =
   await import('../../src/modules/flito-parametrizacion/flito-proveedores-logistica-gestion.service.js');
+const { eliminarProveedor, ProveedorNoEliminableError } = await import('../../src/modules/flito-parametrizacion/flito-proveedores-eliminar.service.js');
+const { ProveedorNoEncontradoError, listarProveedores } = await import('../../src/modules/flito-parametrizacion/flito-proveedores.service.js');
+const { cambiarEstadoProveedor } = await import('../../src/modules/flito-parametrizacion/flito-proveedores-estado.service.js');
+const ACTOR = { userId: null, email: null, rol: null };
 const { ProveedorLogisticaAsignadoError } = await import('../../src/modules/flito-parametrizacion/flito-logistica-proveedor-compania.service.js');
-const { ProveedorLogisticaNoEncontradoError } = await import('../../src/modules/flito-parametrizacion/flito-proveedores-logistica.service.js');
+const { ProveedorLogisticaNoEncontradoError, listarProveedoresLogistica } = await import('../../src/modules/flito-parametrizacion/flito-proveedores-logistica.service.js');
 
 type Tx = postgres.TransactionSql;
 
@@ -53,31 +57,15 @@ async function rechazo(p: Promise<unknown>): Promise<Error> {
 }
 
 describe.skipIf(!URL_BASE)('proveedores de logística — gestión (PostgreSQL, tx con ROLLBACK)', () => {
-  it('listado unificado: tipo, campos y conteo; cuenta la compañía con logística apagada que conserva el proveedor; excluye eliminadas', async () => {
+  it('la lista cuenta la compañía con logística apagada que conserva el proveedor y excluye las eliminadas (antes RN-PROVU-1)', async () => {
     await conBase(async (tx) => {
       const pl = await provLog(tx, 'ZZ Logistica HU14148');
-      const ps = (await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES ('ZZ Soat HU14148') RETURNING id`)[0]!.id as string;
-      const psEliminado = (await tx`INSERT INTO flito_proveedores_soat (nombre, deleted_at) VALUES ('ZZ Soat borrado HU14148', now()) RETURNING id`)[0]!.id as string;
-      await cliente(tx, 'A1', { logistica: pl });
-      await cliente(tx, 'A2', { logistica: pl, autogestionable: true }); // apagada pero conserva el proveedor: CUENTA
-      await cliente(tx, 'A3', { logistica: pl, baja: true });            // eliminada: NO cuenta
-      await cliente(tx, 'S1', { soat: ps });
-      await cliente(tx, 'S2', { soat: ps, baja: true });                  // eliminada: NO cuenta
-      await cliente(tx, 'Z1', { logistica: pl, soat: ps });                // una compañía puede tener ambos tipos
-
-      const lista = await listarProveedoresUnificados();
-      const log = lista.find((p) => p.id === pl)!;
-      const soat = lista.find((p) => p.id === ps)!;
-      expect(log).toMatchObject({ tipo: 'logistica', nombre: 'ZZ Logistica HU14148', activo: true, contacto: 'Ana', telefono: '3001112233', companiasAsignadas: 3 });
-      expect(log.nit).toMatch(/^9\d+$/);
-      expect(soat).toMatchObject({ tipo: 'soat', nombre: 'ZZ Soat HU14148', nit: null, contacto: null, telefono: null, activo: true, companiasAsignadas: 2 });
-      expect(lista.find((p) => p.id === psEliminado)).toBeUndefined();
-      // Un proveedor sin compañías cuenta 0 (no undefined) y ambos tipos conviven en la misma lista, ordenada por nombre.
-      const sinCias = await provLog(tx, 'ZZ Sin companias HU14148', false);
-      const lista2 = await listarProveedoresUnificados();
-      expect(lista2.find((p) => p.id === sinCias)).toMatchObject({ companiasAsignadas: 0, activo: false });
-      const nombres = lista2.map((p) => p.nombre.toLowerCase());
-      expect(nombres).toEqual([...nombres].sort((a, b) => a.localeCompare(b)));
+      await cliente(tx, 'Cia encendida HU14148', { logistica: pl });
+      await cliente(tx, 'Cia apagada HU14148', { logistica: pl, autogestionable: true });
+      await cliente(tx, 'Cia baja HU14148', { logistica: pl, baja: true });
+      const fila = (await listarProveedores()).find((p: { id: string }) => p.id === pl);
+      expect(fila.companiasPorServicio).toEqual({ logistica: 2 });
+      expect(fila.servicios).toEqual(['logistica']);
     });
   });
 
@@ -98,37 +86,45 @@ describe.skipIf(!URL_BASE)('proveedores de logística — gestión (PostgreSQL, 
     });
   });
 
-  it('inactivar sigue bloqueado con compañías asignadas (409) — vía actualizarProveedorLogistica', async () => {
+  it('inactivar sigue bloqueado con compañías asignadas, también con la logística apagada (409)', async () => {
     await conBase(async (tx) => {
-      const { actualizarProveedorLogistica } = await import('../../src/modules/flito-parametrizacion/flito-proveedores-logistica.service.js');
       const pl = await provLog(tx, 'Inactivar HU14148');
       await cliente(tx, 'Cia inactivar HU14148', { logistica: pl, autogestionable: true });
-      expect(await rechazo(actualizarProveedorLogistica(pl, { activo: false }))).toBeInstanceOf(ProveedorLogisticaAsignadoError);
+      const [{ version }] = await tx`SELECT version FROM flito_proveedores WHERE id = ${pl}` as unknown as { version: number }[];
+      expect(await rechazo(cambiarEstadoProveedor(pl, { activo: false, versionEsperada: version }, ACTOR))).toBeInstanceOf(ProveedorLogisticaAsignadoError);
       expect((await tx`SELECT activo FROM flito_proveedores_logistica WHERE id = ${pl}`)[0]!.activo).toBe(true);
     });
   });
 
-  it('eliminar: con compañías vigentes → 409 y NO borra; sin compañías → borra; inexistente → no encontrado', async () => {
+  // HU #14334 (AC8): ya no hay borrado físico. La regla unificada exige además que esté inactivo.
+  it('eliminar: activo → 409; con compañías vigentes → 409 y no cambia; sin ellas → baja lógica y conserva la fila', async () => {
     await conBase(async (tx) => {
-      const pl = await provLog(tx, 'Eliminar HU14148');
-      await cliente(tx, 'Cia eliminar HU14148', { logistica: pl, autogestionable: true });
-      const e = await rechazo(eliminarProveedorLogistica(pl));
-      expect(e).toBeInstanceOf(ProveedorLogisticaAsignadoError);
-      expect(e.message).toContain('No se puede eliminar');
-      expect(await tx`SELECT 1 FROM flito_proveedores_logistica WHERE id = ${pl}`).toHaveLength(1);
+      const activo = await provLog(tx, 'Activo HU14148');
+      expect((await rechazo(eliminarProveedor(activo, ACTOR))).message).toBe('Primero debe desactivarlo.');
 
-      const libre = await provLog(tx, 'Libre HU14148');
-      expect(await eliminarProveedorLogistica(libre)).toEqual({ id: libre, nombre: 'Libre HU14148' });
-      expect(await tx`SELECT 1 FROM flito_proveedores_logistica WHERE id = ${libre}`).toHaveLength(0);
-      expect(await rechazo(eliminarProveedorLogistica(libre))).toBeInstanceOf(ProveedorLogisticaNoEncontradoError);
+      const pl = await provLog(tx, 'Eliminar HU14148', false);
+      await cliente(tx, 'Cia eliminar HU14148', { logistica: pl, autogestionable: true });
+      const e = await rechazo(eliminarProveedor(pl, ACTOR));
+      expect(e).toBeInstanceOf(ProveedorNoEliminableError);
+      expect(e.message).toContain('1 compañía asignada');
+      expect((await tx`SELECT deleted_at FROM flito_proveedores_logistica WHERE id = ${pl}`)[0]!.deleted_at).toBeNull();
+
+      const libre = await provLog(tx, 'Libre HU14148', false);
+      expect(await eliminarProveedor(libre, ACTOR)).toMatchObject({ id: libre, nombre: 'Libre HU14148' });
+      const [fila] = await tx`SELECT deleted_at IS NOT NULL AS baja, nit, contacto, telefono FROM flito_proveedores_logistica WHERE id = ${libre}`;
+      expect(fila).toEqual({ baja: true, nit: null, contacto: null, telefono: null });
+      expect(await rechazo(eliminarProveedor(libre, ACTOR))).toBeInstanceOf(ProveedorNoEncontradoError);
+      expect((await listarProveedoresLogistica()).map((p: { id: string }) => p.id)).not.toContain(libre);
+      expect(await rechazo(impactoProveedorLogistica(libre))).toBeInstanceOf(ProveedorLogisticaNoEncontradoError);
     });
   });
 
-  it('eliminar: una compañía ELIMINADA lógicamente que aún lo referencia → 409 en uso (FK), nunca 500', async () => {
+  it('eliminar: una compañía ELIMINADA lógicamente que aún lo referencia no bloquea; la fila se conserva con baja lógica', async () => {
     await conBase(async (tx) => {
-      const pl = await provLog(tx, 'EnUso HU14148');
+      const pl = await provLog(tx, 'EnUso HU14148', false);
       await cliente(tx, 'Baja HU14148', { logistica: pl, baja: true });
-      expect(await rechazo(eliminarProveedorLogistica(pl))).toBeInstanceOf(ProveedorLogisticaEnUsoError);
+      await eliminarProveedor(pl, ACTOR);
+      expect((await tx`SELECT deleted_at IS NOT NULL AS baja FROM flito_proveedores_logistica WHERE id = ${pl}`)[0]!.baja).toBe(true);
     });
   });
 });

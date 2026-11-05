@@ -92,8 +92,6 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/companias/:id', condicion: 'autogestion', codigo: 'parametrizacion.companias.autogestion' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/companias/:id', condicion: 'sinTramite', codigo: 'parametrizacion.companias.soat_sin_tramite' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/proveedores-soat', codigo: 'parametrizacion.proveedores.listar' },
-  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'POST', ruta: '/proveedores-soat', codigo: 'parametrizacion.proveedores.crear' },
-  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/proveedores-soat/:id', codigo: 'parametrizacion.proveedores.editar' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/organismos', codigo: 'parametrizacion.organismos.listar' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/organismos/:codigo/vigencias', codigo: 'parametrizacion.organismos.ver_vigencias' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'POST', ruta: '/organismos/:codigo/modalidad', codigo: 'parametrizacion.organismos.fijar_modalidad' },
@@ -640,19 +638,24 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // HU #13958: «Activar o desactivar proveedores» — `parametrizacion.proveedores.estado` nace absorbida por
   // `accion.clientes.activar_desactivar_proveedores` (0261).
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/proveedores-soat/:id/impacto', codigo: 'parametrizacion.proveedores.estado' },
-  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/proveedores-soat/:id/estado', codigo: 'parametrizacion.proveedores.estado' },
   // HU #14103: proveedores de logística (reutilizan las funciones de gestión de proveedores).
   { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'GET', ruta: '/', codigo: 'parametrizacion.proveedores.listar' },
-  { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'POST', ruta: '/', codigo: 'parametrizacion.proveedores.crear' },
-  { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'PATCH', ruta: '/:id', codigo: 'parametrizacion.proveedores.editar' },
-  { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'PATCH', ruta: '/:id/estado', codigo: 'parametrizacion.proveedores.estado' },
   // HU #14148: impacto y baja de proveedores de logística y listado unificado (mismas funciones que los de SOAT).
   { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'GET', ruta: '/:id/impacto', codigo: 'parametrizacion.proveedores.estado' },
-  { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'DELETE', ruta: '/:id', codigo: 'parametrizacion.proveedores.eliminar' },
-  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/proveedores', codigo: 'parametrizacion.proveedores.listar' },
+  // HU #14332–#14335: gestión unificada de proveedores (ADR-0039 §7.1).
+  { fichero: 'flito-parametrizacion/flito-proveedores.routes.ts', metodo: 'GET', ruta: '/', codigo: 'parametrizacion.proveedores.listar' },
+  { fichero: 'flito-parametrizacion/flito-proveedores.routes.ts', metodo: 'GET', ruta: '/selector', codigo: 'parametrizacion.proveedores.listar' },
+  { fichero: 'flito-parametrizacion/flito-proveedores.routes.ts', metodo: 'GET', ruta: '/asignables-usuario', codigo: 'parametrizacion.proveedores.listar' },
+  { fichero: 'flito-parametrizacion/flito-proveedores.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'parametrizacion.proveedores.listar' },
+  { fichero: 'flito-parametrizacion/flito-proveedores.routes.ts', metodo: 'POST', ruta: '/', codigo: 'parametrizacion.proveedores.crear' },
+  { fichero: 'flito-parametrizacion/flito-proveedores.routes.ts', metodo: 'PATCH', ruta: '/:id', codigo: 'parametrizacion.proveedores.editar' },
+  { fichero: 'flito-parametrizacion/flito-proveedores.routes.ts', metodo: 'DELETE', ruta: '/:id/servicios/:servicio', codigo: 'parametrizacion.proveedores.editar' },
+  { fichero: 'flito-parametrizacion/flito-proveedores.routes.ts', metodo: 'GET', ruta: '/:id/impacto', codigo: 'parametrizacion.proveedores.estado' },
+  { fichero: 'flito-parametrizacion/flito-proveedores.routes.ts', metodo: 'PATCH', ruta: '/:id/estado', codigo: 'parametrizacion.proveedores.estado' },
+  { fichero: 'flito-parametrizacion/flito-proveedores.routes.ts', metodo: 'DELETE', ruta: '/:id', codigo: 'parametrizacion.proveedores.eliminar' },
+  { fichero: 'flito-parametrizacion/flito-proveedores.routes.ts', metodo: 'GET', ruta: '/:id/historial', codigo: 'parametrizacion.proveedores.historial' },
   // HU #13960: «Eliminar proveedores» — `parametrizacion.proveedores.eliminar` nace absorbida por
   // `accion.clientes.eliminar_proveedores` (0263).
-  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'DELETE', ruta: '/proveedores-soat/:id', codigo: 'parametrizacion.proveedores.eliminar' },
   // ── HU #13423 (ADR-0023): laft/, privacy/, firma/, drive/, soat/ antiguo, siigo/ y las 4 de solo sesión ──
   { fichero: 'laft/lists.routes.ts', metodo: 'GET', ruta: '/', codigo: 'laft.listas.operar' },
   { fichero: 'laft/lists.routes.ts', metodo: 'POST', ruta: '/:code/sync', codigo: 'laft.listas.administrar' },
