@@ -1232,13 +1232,20 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       })],
       [/\/api\/flito\/parametrizacion\/proveedores-soat$/, () => ({ body: PROVEEDORES_SOAT_DEMO })],
       [/\/api\/flito\/parametrizacion\/proveedores-logistica$/, () => ({ body: [] })],
-      // HU #14162: la pestaña Proveedores lee el listado unificado del servidor.
+      // HU #14337: la pestaña Proveedores lee el listado de gestión (`ProveedorListaItemDto`).
       [/\/api\/flito\/parametrizacion\/proveedores$/, () => ({
-        body: (PROVEEDORES_SOAT_DEMO as any[]).map((p) => ({ tipo: 'soat', id: p.id, nombre: p.nombre, nit: null, contacto: null, telefono: null, activo: p.activo, companiasAsignadas: 0 })),
+        body: (PROVEEDORES_SOAT_DEMO as any[]).map((p, i) => ({
+          id: p.id, nombre: p.nombre, nit: i === 0 ? null : `99900000${i}-1`,
+          servicios: i === 1 ? ['soat', 'logistica'] : ['soat'], activo: p.activo,
+          companiasPorServicio: i === 1 ? { soat: 2, logistica: 3 } : { soat: 1 },
+          datosCompletos: i !== 0, umbralOcr: p.umbralOcr ?? null, slaHoras: p.slaHoras ?? null, version: 1,
+        })),
       })],
       [/\/api\/siigo\/clientes\/validacion\/detalle$/, () => ({ body: SIIGO_VALIDACION_DETALLE_DEMO })],
     ]);
-    await entrarComoAdminDemo(page);
+    // HU #14337: «Nuevo proveedor», «Editar» y ⋮ dependen de las funciones de proveedores.
+    await entrarComoAdminDemo(page, { ...ADMIN_DEMO, funciones: [...FUNCIONES_POR_ROL.admin,
+      ...['crear', 'editar', 'estado', 'eliminar'].map((f) => `parametrizacion.proveedores.${f}`)] });
 
     await page.goto('/clients');
     await expect(page.getByText(EMPRESAS_DEMO[0]).first()).toBeVisible();
