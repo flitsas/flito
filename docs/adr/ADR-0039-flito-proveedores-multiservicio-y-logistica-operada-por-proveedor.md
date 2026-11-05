@@ -763,13 +763,15 @@ Valores que **no** se preguntan porque salen de las reglas o se pueden cambiar e
 6. **Parada en cadena (§5.1):** un guarda que detiene en DEV frena los despliegues del equipo. Mitigado con el preflight.
 7. **Triggers de transición:** si F5 no se hace, quedan indefinidamente. Mitigado con F5 como Feature explícito.
 8. **Escrituras de la imagen anterior (reversa por digest o ambiente con rollout gradual):** no se auditan en `flito_proveedores_auditoria`. Un nombre repetido cruzado responde 409 porque la 0289 relanza el choque con el nombre de restricción que reconocen las rutas.
-9. **Pendientes de F1 para F2, hallados en sus gates:**
+8b. **Pendientes de F1 para F2, hallados en sus gates:**
    - La unicidad de Logística (`flito_proveedores_logistica_nombre_key` y `uq_flito_proveedores_logistica_nit`) no filtra por `deleted_at`: F2 necesita una migración para que dar de baja libere nombre y NIT (§3), y que el servicio reconozca `_key` además de `_unique`.
    - F2 debe escribir padre y perfiles en la misma transacción y dar de baja primero el padre. La primera rama de `perfil_a_padre` no mira `deleted_at`, así que un UPDATE sobre un perfil de baja podría volver a copiar datos al padre.
    - Debe traducir a 409 el 23505 de una escritura directa en el padre sin registrar el DETAIL, que trae el NIT.
    - Antes de exigir NIT a todos (R9), debe decidir el tratamiento del NIT de persona natural: cifrado con índice ciego o distinguir persona natural de jurídica. También debe enmascarar `nit` en auditoría.
    - La imagen anterior no filtra `deleted_at` en Logística: desde F2, un perfil de baja reaparecería al revertir el digest (matiza §5.5).
-   - Una baja con `activo=false` en el mismo UPDATE sube `version` en 2. Solo afecta al aviso de edición simultánea.
+   - Una baja que en el mismo UPDATE cambia `activo`, nombre, NIT, contacto o teléfono sube `version` en 2. Solo afecta al aviso de edición simultánea.
+   - Carrera entre las dos últimas bajas de un proveedor mixto: en READ COMMITTED, ninguna ve al otro perfil de baja y el padre queda vigente, sin perfiles y con sus datos. F2 debe bloquear el padre con `FOR UPDATE` antes de comprobar la vista.
+   - Retención: registrar en `privacy/` la finalidad y el plazo del registro de baja, cuyo `nombre` es dato personal si el proveedor es persona natural, junto con el punto 13 de §9. Antes de que F2 escriba `ciudad` o permita persona natural.
 9. **`pasarAlProveedorVigente` tiene varios puntos de llamada.** Si se olvida uno, una LT queda con el anterior. Se prueba por camino en QA.
 10. **`Mensajería FLIT` con usuarios de proveedor:** §6.3 protege las legadas, no las posteriores.
 11. **Inactivar con asimetría por servicio (§4.2):** R5 no la cambia y se conserva. Un proveedor mixto queda bajo la regla más estricta.

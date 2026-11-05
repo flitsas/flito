@@ -438,7 +438,7 @@ conBd('0289 — contra PostgreSQL, en transacción revertida', () => {
       });
     });
 
-    it('AC8: las altas del seed, con la migración aplicada, tienen padre con el mismo id y su servicio', async () => {
+    it('AC8 (trigger): un alta en un perfil, como las del seed, crea el padre con el mismo id y su servicio', async () => {
       await enTx(sql, async (tx) => {
         await aplicar(tx);
         const s = await soat(tx, 'HU14329 Seed SOAT');
