@@ -258,7 +258,7 @@ Sin `BEGIN`/`COMMIT` propio. Idempotente. **Orden:**
 | `perfil_crea_padre` | `BEFORE INSERT` en perfil | Si el padre no existe, lo crea: es el camino del pod viejo |
 | `perfil_a_padre` | `AFTER UPDATE` en perfil, con `pg_trigger_depth() < 2` | `nombre`, `activo`, `nit`, `contacto`, `telefono` suben al padre |
 | `padre_a_perfil` | `AFTER UPDATE` en padre, con `IS DISTINCT` | Baja a las columnas viejas: es lo que mantiene el rollback |
-| `perfil_borrado` | `AFTER DELETE` en logística | Si el pod viejo borra y no queda perfil vivo, baja lógica del padre |
+| `perfil_borrado` | `AFTER DELETE` en logística | Si el pod viejo borra y no queda perfil vivo, baja lógica del padre, que además vacía `nit`, `telefono`, `correo`, `direccion` y `contacto` (la baja lógica de SOAT sube al padre igual, desde `perfil_a_padre`) |
 
 **Paso 5 — Usuarios:** columna `flito_proveedor_id`; `UPDATE … WHERE flito_proveedor_soat_id IS NOT NULL AND flito_proveedor_id IS DISTINCT FROM …`; trigger `BEFORE` que sincroniza. La columna vieja solo se llena si el proveedor tiene perfil SOAT. Se reescribe `users_ambito_requerido` para exigir `flito_proveedor_id`.
 
@@ -301,7 +301,7 @@ sequenceDiagram
   alt el guarda detiene
     DB-->>I: EXCEPTION con la lista
     I-->>A: sin Ready, reintento con backoff
-    Note over V: sigue sirviendo con el esquema anterior
+    Note over V: en PDN (Recreate) ya está detenido: API caída hasta corregir o revertir (§5.1)
   else pasa
     I->>DB: padre, copia, triggers, users
     V->>DB: escribe en perfil
@@ -762,7 +762,14 @@ Valores que **no** se preguntan porque salen de las reglas o se pueden cambiar e
 
 6. **Parada en cadena (§5.1):** un guarda que detiene en DEV frena los despliegues del equipo. Mitigado con el preflight.
 7. **Triggers de transición:** si F5 no se hace, quedan indefinidamente. Mitigado con F5 como Feature explícito.
-8. **Escrituras del pod viejo durante el rollout:** no se auditan en `flito_proveedores_auditoria`, y un nombre repetido cruzado da 500 en lugar de 409. Ventana de minutos y acción administrativa poco frecuente. Aceptado.
+8. **Escrituras de la imagen anterior (reversa por digest o ambiente con rollout gradual):** no se auditan en `flito_proveedores_auditoria`. Un nombre repetido cruzado responde 409 porque la 0289 relanza el choque con el nombre de restricción que reconocen las rutas.
+9. **Pendientes de F1 para F2, hallados en sus gates:**
+   - La unicidad de Logística (`flito_proveedores_logistica_nombre_key` y `uq_flito_proveedores_logistica_nit`) no filtra por `deleted_at`: F2 necesita una migración para que dar de baja libere nombre y NIT (§3), y que el servicio reconozca `_key` además de `_unique`.
+   - F2 debe escribir padre y perfiles en la misma transacción y dar de baja primero el padre. La primera rama de `perfil_a_padre` no mira `deleted_at`, así que un UPDATE sobre un perfil de baja podría volver a copiar datos al padre.
+   - Debe traducir a 409 el 23505 de una escritura directa en el padre sin registrar el DETAIL, que trae el NIT.
+   - Antes de exigir NIT a todos (R9), debe decidir el tratamiento del NIT de persona natural: cifrado con índice ciego o distinguir persona natural de jurídica. También debe enmascarar `nit` en auditoría.
+   - La imagen anterior no filtra `deleted_at` en Logística: desde F2, un perfil de baja reaparecería al revertir el digest (matiza §5.5).
+   - Una baja con `activo=false` en el mismo UPDATE sube `version` en 2. Solo afecta al aviso de edición simultánea.
 9. **`pasarAlProveedorVigente` tiene varios puntos de llamada.** Si se olvida uno, una LT queda con el anterior. Se prueba por camino en QA.
 10. **`Mensajería FLIT` con usuarios de proveedor:** §6.3 protege las legadas, no las posteriores.
 11. **Inactivar con asimetría por servicio (§4.2):** R5 no la cambia y se conserva. Un proveedor mixto queda bajo la regla más estricta.

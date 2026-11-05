@@ -12,7 +12,9 @@
 
 -- ── Paso 0. Paradas (HU #14328) ─────────────────────────────────────────────────────────────────────────
 -- Se bloquean las escrituras en los perfiles hasta el final del archivo: una fila creada entre la parada y la
--- copia quedaría sin padre.
+-- copia quedaría sin padre. Con `strategy: Recreate` la API ya está caída durante esta migración: sin un límite,
+-- un lock ajeno la dejaría esperando sin ningún error en el log. Así falla a los 30 s y queda visible.
+SET LOCAL lock_timeout = '30s';
 LOCK TABLE flito_proveedores_soat, flito_proveedores_logistica IN SHARE ROW EXCLUSIVE MODE;
 
 DO $parada$
@@ -160,8 +162,10 @@ CREATE OR REPLACE VIEW flito_proveedor_servicios_v AS
 
 -- ── Paso 4. Triggers de transición: la imagen anterior escribe en los perfiles. Se retiran en F5 ─────────
 -- Un choque de unicidad en el padre se relanza sin el DETAIL de Postgres, que traería el NIT al log de la API, y
--- con el nombre de la restricción del perfil, que es el que reconocen las rutas actuales para responder 409 en
--- lugar de 500 (`esDuplicadoNombreProveedorSoat`, `escribir` de Logística).
+-- con el nombre que reconocen las rutas actuales para responder 409 en lugar de 500 (`esDuplicadoNombreProveedorSoat`,
+-- `escribir` de Logística). No siempre es el nombre real en BD: el de Logística se llama
+-- `flito_proveedores_logistica_nombre_key` (0102), y aquí se usa `_unique` porque es el que compara hoy
+-- flito-proveedores-logistica.service.ts.
 CREATE OR REPLACE FUNCTION flito_proveedor_restriccion_del_perfil(tabla text, restriccion text) RETURNS text
 LANGUAGE sql IMMUTABLE AS $fn$
   SELECT CASE
@@ -214,10 +218,15 @@ BEGIN
   END IF;
 
   -- La imagen anterior elimina un SOAT con baja lógica y eso libera el nombre (0259, RN-PROV-6). Si el padre lo
-  -- conservara, volver a crear ese nombre fallaría al revertir la imagen.
+  -- conservara, volver a crear ese nombre fallaría al revertir la imagen. Sin perfil vigente tampoco conserva los
+  -- datos personales: antes de la 0289 eliminar en Logística los borraba. Quedan el id y el nombre. Vaciar el NIT,
+  -- el contacto o el teléfono dispara padre_a_perfil, que vacía también el perfil de baja; su UPDATE se corta
+  -- arriba por profundidad, así que la versión sube una sola vez.
   IF OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
     UPDATE flito_proveedores p
-       SET deleted_at = NEW.deleted_at, deleted_by = NEW.deleted_by, updated_at = now(), version = p.version + 1
+       SET deleted_at = NEW.deleted_at, deleted_by = NEW.deleted_by,
+           nit = NULL, telefono = NULL, correo = NULL, direccion = NULL, contacto = NULL,
+           updated_at = now(), version = p.version + 1
      WHERE p.id = NEW.id AND p.deleted_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM flito_proveedor_servicios_v v WHERE v.proveedor_id = NEW.id);
   END IF;
@@ -247,8 +256,10 @@ $fn$;
 CREATE OR REPLACE FUNCTION flito_proveedor_perfil_borrado() RETURNS trigger
 LANGUAGE plpgsql AS $fn$
 BEGIN
+  -- Mismo vaciado de datos personales que en la baja lógica de flito_proveedor_perfil_a_padre.
   UPDATE flito_proveedores p
-     SET deleted_at = now(), updated_at = now(), version = p.version + 1
+     SET deleted_at = now(), nit = NULL, telefono = NULL, correo = NULL, direccion = NULL, contacto = NULL,
+         updated_at = now(), version = p.version + 1
    WHERE p.id = OLD.id AND p.deleted_at IS NULL
      AND NOT EXISTS (SELECT 1 FROM flito_proveedor_servicios_v v WHERE v.proveedor_id = OLD.id);
   RETURN NULL;

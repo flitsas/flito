@@ -50,7 +50,13 @@ describe('0289 — análisis estático', () => {
     for (const ddl of ['CREATE TABLE', 'CREATE UNIQUE INDEX', 'ALTER TABLE', 'CREATE OR REPLACE', 'CREATE TRIGGER', 'INSERT INTO', 'UPDATE users']) {
       expect(SIN_COMENTARIOS.indexOf(ddl), ddl).toBeGreaterThan(parada);
     }
-    expect(SIN_COMENTARIOS.slice(0, parada).trim()).toMatch(/^LOCK TABLE [^;]+;$/);
+    expect(SIN_COMENTARIOS.slice(0, parada).trim()).toMatch(/^SET LOCAL lock_timeout = '\d+s';\s+LOCK TABLE [^;]+;$/);
+  });
+
+  it('#14328: el SET LOCAL lock_timeout precede al LOCK TABLE, para no esperar sin límite con la API caída', () => {
+    const limite = SIN_COMENTARIOS.indexOf("SET LOCAL lock_timeout = '30s';");
+    expect(limite).toBeGreaterThanOrEqual(0);
+    expect(limite).toBeLessThan(SIN_COMENTARIOS.indexOf('LOCK TABLE'));
   });
 
   it('#14328 AC6: las consultas de las paradas son idénticas en la migración y en la comprobación previa', () => {
@@ -179,6 +185,7 @@ conBd('0289 — contra PostgreSQL, en transacción revertida', () => {
         const b = await logistica(tx, '  hu14328   CRUZADO ');
         const m = await parada(tx);
         expect(m).toContain('NOMBRE REPETIDO');
+        expect(m).toContain('HU14328 Cruzado');
         expect(m).toContain(a);
         expect(m).toContain(b);
         expect((await tx`SELECT to_regclass('flito_proveedores') IS NULL AS sin_padre,
@@ -505,6 +512,62 @@ conBd('0289 — contra PostgreSQL, en transacción revertida', () => {
       });
     });
 
+    it('AC4: sin otro perfil vigente, el borrado físico y la baja lógica vacían los datos personales y conservan id y nombre', async () => {
+      await enTx(sql, async (tx) => {
+        await aplicar(tx);
+        const conDatos = (id: string, nit: string) => tx`UPDATE flito_proveedores
+          SET nit = ${nit}, telefono = '3001234567', correo = 'p@hu14330.test', direccion = 'Calle 1', contacto = 'Ana' WHERE id = ${id}`;
+        const comprobar = async (id: string, nombre: string, version: number) => {
+          expect(await padre(tx, id)).toMatchObject({ id, nombre, nit: null, telefono: null, correo: null, direccion: null, contacto: null, version });
+          expect((await padre(tx, id))!.deleted_at).not.toBeNull();
+        };
+        const versionDe = async (id: string) => (await padre(tx, id))!.version as number;
+
+        const borrado = await logistica(tx, 'HU14330 PII borrado');
+        await conDatos(borrado, '910000001');
+        const vBorrado = await versionDe(borrado);
+        await tx`DELETE FROM flito_proveedores_logistica WHERE id = ${borrado}`;
+        await comprobar(borrado, 'HU14330 PII borrado', vBorrado + 1);
+
+        const soloSoat = await soat(tx, 'HU14330 PII SOAT');
+        await conDatos(soloSoat, '910000002');
+        const vSoat = await versionDe(soloSoat);
+        await tx`UPDATE flito_proveedores_soat SET deleted_at = now() WHERE id = ${soloSoat}`;
+        await comprobar(soloSoat, 'HU14330 PII SOAT', vSoat + 1);
+
+        // El perfil de baja se vacía también, por padre_a_perfil, sin subir la versión de más.
+        const baja = await logistica(tx, 'HU14330 PII baja');
+        await conDatos(baja, '910000003');
+        const vBaja = await versionDe(baja);
+        await tx`UPDATE flito_proveedores_logistica SET deleted_at = now() WHERE id = ${baja}`;
+        await comprobar(baja, 'HU14330 PII baja', vBaja + 1);
+        expect((await tx`SELECT nombre, nit, contacto, telefono FROM flito_proveedores_logistica WHERE id = ${baja}`)[0])
+          .toEqual({ nombre: 'HU14330 PII baja', nit: null, contacto: null, telefono: null });
+
+        // El último perfil vigente en irse es el que vacía: antes, el padre conserva sus datos.
+        const mixto = await logistica(tx, 'HU14330 PII mixto');
+        await tx`INSERT INTO flito_proveedores_soat (id, nombre) VALUES (${mixto}, 'HU14330 PII mixto')`;
+        await conDatos(mixto, '910000004');
+        await tx`DELETE FROM flito_proveedores_logistica WHERE id = ${mixto}`;
+        expect(await padre(tx, mixto)).toMatchObject({ nit: '910000004', telefono: '3001234567', correo: 'p@hu14330.test', direccion: 'Calle 1', contacto: 'Ana', deleted_at: null });
+        const vMixto = await versionDe(mixto);
+        await tx`UPDATE flito_proveedores_soat SET deleted_at = now() WHERE id = ${mixto}`;
+        await comprobar(mixto, 'HU14330 PII mixto', vMixto + 1);
+      });
+    });
+
+    it('AC4: la baja lógica de SOAT de un proveedor mixto deja al padre vigente, con sus datos y solo Logística', async () => {
+      await enTx(sql, async (tx) => {
+        await aplicar(tx);
+        const id = await logistica(tx, 'HU14330 Mixto baja', '911000111');
+        await tx`INSERT INTO flito_proveedores_soat (id, nombre) VALUES (${id}, 'HU14330 Mixto baja')`;
+        await tx`UPDATE flito_proveedores_soat SET deleted_at = now() WHERE id = ${id}`;
+        expect(await padre(tx, id)).toMatchObject({ nombre: 'HU14330 Mixto baja', nit: '911000111', deleted_at: null });
+        const servicios = await tx`SELECT servicio FROM flito_proveedor_servicios_v WHERE proveedor_id = ${id}`;
+        expect(servicios.map((f) => f.servicio)).toEqual(['logistica']);
+      });
+    });
+
     it('la baja lógica de SOAT de la imagen anterior libera el nombre: se puede volver a crear', async () => {
       await enTx(sql, async (tx) => {
         await aplicar(tx);
@@ -591,6 +654,17 @@ conBd('0289 — contra PostgreSQL, en transacción revertida', () => {
         // La imagen anterior reescribe la columna vieja con el mismo NULL al editar: no le quita el proveedor nuevo.
         await tx`UPDATE users SET flito_proveedor_soat_id = NULL WHERE id = ${u}`;
         expect(await columnasUsuario(tx, u)).toEqual({ nueva: l, vieja: null });
+      });
+    });
+
+    it('AC8: un proveedor mixto con el SOAT eliminado deja vacía la columna vieja y conserva la nueva', async () => {
+      await enTx(sql, async (tx) => {
+        await aplicar(tx);
+        const id = await logistica(tx, 'HU14330 Mixto SOAT eliminado');
+        await tx`INSERT INTO flito_proveedores_soat (id, nombre) VALUES (${id}, 'HU14330 Mixto SOAT eliminado')`;
+        await tx`UPDATE flito_proveedores_soat SET deleted_at = now() WHERE id = ${id}`;
+        const u = await nuevoUsuario(tx, 'ac8c', id);
+        expect(await columnasUsuario(tx, u)).toEqual({ nueva: id, vieja: null });
       });
     });
 

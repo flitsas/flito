@@ -5,6 +5,8 @@
 --
 -- Cómo: psql -f apps/api/src/db/manual/flito-proveedores-preflight.sql, o como script en DBeaver o pgAdmin. El
 -- reporte sale en los mensajes (NOTICE). No usa metacomandos de psql. Corre igual antes y después de la 0289.
+-- Córralo en autocommit o cierre la transacción al terminar (COMMIT o ROLLBACK): una transacción abierta retiene
+-- sus locks y haría esperar a la migración.
 --
 -- Lista lo mismo que las paradas de la 0289: el bloque marcado es idéntico en ambos archivos y el test
 -- flito-proveedores-migracion.test.ts lo exige. La transacción queda en solo lectura, así que Postgres rechaza
