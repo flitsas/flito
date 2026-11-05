@@ -49,6 +49,7 @@ export const AGRUPACION_DE_OPERACION: Readonly<Record<string, string>> = {
   // Compañías y proveedores: con la pantalla de clientes.
   'parametrizacion.companias.editar': 'clientes',
   'parametrizacion.proveedores.crear': 'clientes',
+  'parametrizacion.proveedores.historial': 'clientes', // HU #14335 (0291)
   'parametrizacion.proveedores.editar': 'clientes',
   // Tarifas: su propia pantalla.
   'parametrizacion.tarifas.crear': 'tarifas',

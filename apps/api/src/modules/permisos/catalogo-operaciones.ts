@@ -60,6 +60,7 @@ const CMP = 'flito-comparendos/flito-comparendos.routes.ts';
 const LIQ = 'flito-liquidacion/flito-liquidacion.routes.ts';
 const PAR = 'flito-parametrizacion/flito-parametrizacion.routes.ts';
 const PLOG = 'flito-parametrizacion/flito-proveedores-logistica.routes.ts'; // HU #14103
+const PROV = 'flito-parametrizacion/flito-proveedores.routes.ts'; // HU #14332
 const SYN = 'flito-sync/flito-sync.routes.ts';
 const FL2 = 'flito-sync/flit2.routes.ts';
 const SYI = 'flito-sync/flito-sync-interruptores.routes.ts';
@@ -358,21 +359,24 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${PAR} PATCH /companias/:id [autogestion]`, 'parametrizacion.companias.autogestion', 'Habilitar o revocar la autogestión de una compañía', 'Encender o apagar la autogestión de SOAT, impuestos y logística de la compañía.'),
   op(`${PAR} PATCH /companias/:id [sinTramite]`, 'parametrizacion.companias.soat_sin_tramite', 'Elegir proveedor de SOAT sin trámite de una compañía', 'Elegir el proveedor al que van los SOAT sin trámite de la compañía (Sin proveedor cierra el canal).'),
   op(`${PAR} GET /proveedores-soat`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
-  op(`${PAR} POST /proveedores-soat`, 'parametrizacion.proveedores.crear', 'Añadir un proveedor SOAT', 'Registrar un gestor SOAT nuevo.'),
-  op(`${PAR} PATCH /proveedores-soat/:id`, 'parametrizacion.proveedores.editar', 'Editar un proveedor SOAT', 'Cambiar los datos o el estado de un gestor SOAT.'),
   // HU #13958: nacen absorbidas por «Activar o desactivar proveedores» (exclusiva del Administrador, 0261).
   op(`${PAR} GET /proveedores-soat/:id/impacto`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
-  op(`${PAR} PATCH /proveedores-soat/:id/estado`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
   // HU #13960: nace absorbida por «Eliminar proveedores» (exclusiva del Administrador, 0263).
-  op(`${PAR} DELETE /proveedores-soat/:id`, 'parametrizacion.proveedores.eliminar', 'Eliminar proveedores', 'Eliminar (baja lógica) un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas.'),
   // HU #14103: proveedores de logística; reutilizan las funciones de proveedores SOAT (gestión de proveedores).
   op(`${PLOG} GET /`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
-  op(`${PLOG} POST /`, 'parametrizacion.proveedores.crear', 'Añadir un proveedor SOAT', 'Registrar un gestor SOAT nuevo.'),
-  op(`${PLOG} PATCH /:id`, 'parametrizacion.proveedores.editar', 'Editar un proveedor SOAT', 'Cambiar los datos o el estado de un gestor SOAT.'),
   op(`${PLOG} GET /:id/impacto`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
-  op(`${PLOG} DELETE /:id`, 'parametrizacion.proveedores.eliminar', 'Eliminar proveedores', 'Eliminar (baja lógica) un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas.'),
-  op(`${PAR} GET /proveedores`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
-  op(`${PLOG} PATCH /:id/estado`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
+  // HU #14332–#14335: gestión unificada de proveedores (ADR-0039 §7.1); `historial` es la única función nueva (0291).
+  op(`${PROV} GET /`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
+  op(`${PROV} GET /selector`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
+  op(`${PROV} GET /asignables-usuario`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
+  op(`${PROV} GET /:id`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
+  op(`${PROV} POST /`, 'parametrizacion.proveedores.crear', 'Añadir un proveedor SOAT', 'Registrar un gestor SOAT nuevo.'),
+  op(`${PROV} PATCH /:id`, 'parametrizacion.proveedores.editar', 'Editar un proveedor SOAT', 'Cambiar los datos o el estado de un gestor SOAT.'),
+  op(`${PROV} DELETE /:id/servicios/:servicio`, 'parametrizacion.proveedores.editar', 'Editar un proveedor SOAT', 'Cambiar los datos o el estado de un gestor SOAT.'),
+  op(`${PROV} GET /:id/impacto`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
+  op(`${PROV} PATCH /:id/estado`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
+  op(`${PROV} DELETE /:id`, 'parametrizacion.proveedores.eliminar', 'Eliminar proveedores', 'Eliminar (baja lógica) un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas.'),
+  op(`${PROV} GET /:id/historial`, 'parametrizacion.proveedores.historial', 'Ver el historial de un proveedor', 'Consultar quién cambió un proveedor, cuándo y qué valor tenía, con los datos personales enmascarados.'),
   op(`${PAR} GET /organismos`, 'parametrizacion.organismos.listar', 'Ver los organismos de tránsito', 'Consultar los organismos y su parametrización FLITO.'),
   op(`${PAR} GET /organismos/:codigo/vigencias`, 'parametrizacion.organismos.ver_vigencias', 'Ver las vigencias de un organismo', 'Consultar los periodos de tarifas y modalidades del organismo.'),
   op(`${PAR} POST /organismos/:codigo/modalidad`, 'parametrizacion.organismos.fijar_modalidad', 'Fijar la modalidad de un organismo', 'Definir cómo se paga a ese organismo a partir de una fecha.'),
