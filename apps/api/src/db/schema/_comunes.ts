@@ -15,3 +15,8 @@ export const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 
 // Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
 export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['requiere_gestion', 'autogestionado']);
+
+// Flota, mantenimiento y PESV (vehicleType, fuelType, docEstado): HU #13984.
+export const vehicleTypeEnum = pgEnum('vehicle_type', ['tractomula', 'camion', 'buseta', 'camioneta', 'automovil', 'motocicleta', 'otro']);
+export const fuelTypeEnum = pgEnum('fuel_type', ['acpm', 'gasolina', 'gas', 'electrico', 'hibrido']);
+export const docEstadoEnum = pgEnum('doc_estado', ['vigente', 'por_vencer', 'vencido', 'archivado']);

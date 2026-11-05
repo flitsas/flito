@@ -29,7 +29,7 @@ const ARCHIVO = '0196_flito_impuestos_liquidado_en.sql';
 const DIR = path.resolve(__dirname, '../../src/db/migrations');
 const SQL_0196 = readFileSync(path.join(DIR, ARCHIVO), 'utf8');
 const SIN_COMENTARIOS = SQL_0196.replace(/--[^\n]*/g, '');
-const SCHEMA_TS = readFileSync(path.resolve(__dirname, '../../src/db/schema.ts'), 'utf8');
+const SCHEMA_TS = readFileSync(path.resolve(__dirname, '../../src/db/schema/flito-impuestos.ts'), 'utf8'); // `flito_impuestos` vive ahí (HU #13984)
 const SOAT_TS = readFileSync(path.resolve(__dirname, '../../src/db/schema/soat.ts'), 'utf8'); // `flito_soportes` vive ahí (HU #13982)
 
 const LITERAL_VIEJO = 'recibo_impuesto_sin_marca';
