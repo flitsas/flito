@@ -25,7 +25,7 @@ import type { ActorAuditoria } from '../../shared/historial/permisos-auditoria.j
 import { clienteVigente } from '../clients/cliente-operable.js';
 import { registrarAuditoriaProveedor } from './flito-proveedores-auditoria.js';
 import {
-  ProveedorSinServicioError, bloquearProveedorVigente, columnasDeSoat, itemDeProveedor, serviciosDeProveedor,
+  ProveedorSinServicioError, bloquearPerfilesDeProveedor, bloquearProveedorVigente, columnasDeSoat, itemDeProveedor, serviciosDeProveedor,
   type EjecutorProveedor, type FilaProveedor, type TxProveedor,
 } from './flito-proveedores.service.js';
 
@@ -93,13 +93,12 @@ export const textoDeBloqueos = (lista: readonly BloqueoProveedorDto[]): string =
 export interface MotivoNoQuitable { texto: string; bloqueos: BloqueoProveedorDto[] }
 
 /**
- * RN-PSERV-2, ADR-0039 §4.3. Misma forma que `motivoNoEliminableProveedor`: el motivo, o `null` si se puede quitar. Toma
- * `FOR UPDATE` sobre padre y perfil: una asignación en curso (`FOR SHARE`, F3) espera y relee. Lanza 404 si no existe.
+ * RN-PSERV-2, ADR-0039 §4.3. Misma forma que `motivoNoEliminableProveedor`: el motivo, o `null` si se puede quitar. Bloquea el
+ * padre y los perfiles en el orden canónico: una asignación en curso (`FOR SHARE`, F3) espera y relee. Lanza 404 si no existe.
  */
 export async function motivoNoQuitableServicio(tx: TxProveedor, proveedorId: string, servicio: ServicioProveedor): Promise<MotivoNoQuitable | null> {
   await bloquearProveedorVigente(tx, proveedorId);
-  const perfil = servicio === 'soat' ? flitoProveedoresSoat : flitoProveedoresLogistica;
-  await tx.select({ id: perfil.id }).from(perfil).where(eq(perfil.id, proveedorId)).for('update');
+  await bloquearPerfilesDeProveedor(tx, proveedorId);
   const lista = await bloqueosDeServicio(tx, proveedorId, servicio);
   return lista.length === 0 ? null : { texto: textoDeBloqueos(lista), bloqueos: lista };
 }

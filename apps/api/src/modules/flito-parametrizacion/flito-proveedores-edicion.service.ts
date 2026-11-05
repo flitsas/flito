@@ -19,7 +19,7 @@ import { entradasDeCambios, registrarAuditoriaProveedor, type EntradaAuditoriaPr
 import { darPerfil, exigirServicioQuitable, retirarPerfil } from './flito-proveedores-servicios.service.js';
 import {
   DatosSoatInvalidosError, GeneralesIncompletosError, MENSAJE_SOAT_SIN_SERVICIO, ProveedorNoEncontradoError,
-  ProveedorSinServicioError, bloquearProveedorVigente, columnasDeSoat, conUnicidadTraducida, entradasDeSoat, exigirUnicos, exigirVersion, generalesDe,
+  ProveedorSinServicioError, bloquearPerfilesDeProveedor, bloquearProveedorVigente, columnasDeSoat, conUnicidadTraducida, entradasDeSoat, exigirUnicos, exigirVersion, generalesDe,
   generalesFaltantes, itemDeProveedor, serviciosDeProveedor, type FilaProveedor, type TxProveedor,
 } from './flito-proveedores.service.js';
 
@@ -34,7 +34,7 @@ const texto = (v: number | null | undefined) => (v == null ? null : String(v));
 /** Lee el perfil vigente y prepara el UPDATE y la auditoría de la configuración de SOAT. */
 async function cambiosDeSoat(tx: TxProveedor, id: string, soat: ProveedorSoatBody) {
   const [perfil] = await tx.select().from(flitoProveedoresSoat)
-    .where(and(eq(flitoProveedoresSoat.id, id), isNull(flitoProveedoresSoat.deletedAt))).for('update').limit(1);
+    .where(and(eq(flitoProveedoresSoat.id, id), isNull(flitoProveedoresSoat.deletedAt))).for('no key update').limit(1);
   if (perfil === undefined) throw new DatosSoatInvalidosError(MENSAJE_SOAT_SIN_SERVICIO);
   const set = columnasDeSoat(soat);
   const entradas = entradasDeCambios('editar',
@@ -59,6 +59,7 @@ export async function editarProveedor(id: string, datos: EditarProveedorBody, ac
     if (finales.length === 0) throw new ProveedorSinServicioError();
     const agregados: ServicioProveedor[] = finales.filter((s) => !previos.includes(s));
     const quitados: ServicioProveedor[] = previos.filter((s) => !finales.includes(s));
+    if (quitados.length > 0) await bloquearPerfilesDeProveedor(tx, id);
 
     if (soat !== undefined && !finales.includes('soat')) throw new DatosSoatInvalidosError(MENSAJE_SOAT_SIN_SERVICIO);
     if (agregados.length > 0) exigirGeneralesAlAgregarServicio(actual, g);

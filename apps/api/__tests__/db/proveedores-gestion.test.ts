@@ -954,28 +954,64 @@ describe.skipIf(!URL_BASE)('carreras (conexiones reales)', () => {
       const ids: string[] = []; const companias: number[] = [];
       await conConexionesReales(async (sql) => {
         const { p, compania: c } = await preparar(sql, ids, companias);
+        // La auditoría es lo último que escribe la inactivación: bloquear su tabla la retiene ya con los perfiles tomados.
         let soltar!: () => void;
         const liberar = new Promise<void>((r) => { soltar = r; });
         let tomado!: () => void;
-        const inactivacionTomada = new Promise<void>((r) => { tomado = r; });
-        const inactivar = sql.begin(async (tx) => {
-          await tx`SELECT id FROM flito_proveedores_logistica WHERE id = ${p.id} FOR UPDATE`;
-          await tx`UPDATE flito_proveedores SET activo = false WHERE id = ${p.id}`;
+        const auditoriaTomada = new Promise<void>((r) => { tomado = r; });
+        const retencion = sql.begin(async (tx) => {
+          await tx`LOCK TABLE flito_proveedores_auditoria IN ACCESS EXCLUSIVE MODE`;
           tomado();
           await liberar;
         });
-        await inactivacionTomada;
+        await auditoriaTomada;
+        const inactivar = cambiarEstadoProveedor(p.id, { activo: false, versionEsperada: p.version }, ACTOR);
+        await new Promise((r) => { setTimeout(r, 300); });
         const asignar = actual.real!.transaction(async (tx) => {
           await exigirProveedorLogisticaUsable(tx, p.id);
           await tx.update(schema.clients).set({ flitoProveedorLogisticaId: p.id }).where(eq(schema.clients.id, c));
         });
         await new Promise((r) => { setTimeout(r, 300); });
         soltar();
-        await inactivar;
+        await retencion;
+        expect((await inactivar).item.activo).toBe(false);
         expect(await rechazo(asignar)).toBeInstanceOf(ProveedorLogisticaNoUsableError);
         const [f] = await sql`SELECT flito_proveedor_logistica_id AS proveedor FROM clients WHERE id = ${c}`;
         expect(f!.proveedor).toBeNull();
       }, (sql) => limpiar(sql, ids, companias), ctx);
+    });
+  });
+
+  describe('orden canónico de bloqueos, con un proveedor con ambos servicios: sin 40P01', () => {
+    const CASOS: readonly [string, (p: { id: string; version: number }) => Promise<unknown>][] = [
+      ['inactivar', (p) => cambiarEstadoProveedor(p.id, { activo: false, versionEsperada: p.version }, ACTOR)],
+      ['quitar Logística por PATCH', (p) => editarProveedor(p.id, { versionEsperada: p.version, servicios: ['soat'] }, ACTOR)],
+      ['quitar Logística por DELETE', (p) => quitarServicio(p.id, 'logistica', ACTOR)],
+      ['quitar SOAT por PATCH', (p) => editarProveedor(p.id, { versionEsperada: p.version, servicios: ['logistica'] }, ACTOR)],
+    ];
+    it.for(CASOS)('%s, mientras una asignación retiene SOAT y luego pide Logística', async ([, escribir], ctx) => {
+      const ids: string[] = [];
+      await conConexionesReales(async (sql) => {
+        const p = await crearCon(['soat', 'logistica']);
+        ids.push(p.id);
+        let tomado!: () => void;
+        const soatTomado = new Promise<void>((r) => { tomado = r; });
+        let continuar!: () => void;
+        const seguir = new Promise<void>((r) => { continuar = r; });
+        const asignacion = sql.begin(async (tx) => {
+          await tx`SELECT activo FROM flito_proveedores_soat WHERE id = ${p.id} FOR SHARE`;
+          tomado();
+          await seguir;
+          await tx`SELECT activo FROM flito_proveedores_logistica WHERE id = ${p.id} FOR SHARE`;
+        });
+        await soatTomado;
+        const escritura = escribir(p);
+        await new Promise((r) => { setTimeout(r, 300); });
+        continuar();
+        const [a, b] = await Promise.allSettled([asignacion, escritura]);
+        expect(a.status === 'rejected' ? (a.reason as { code?: string }).code : 'ok').toBe('ok');
+        expect(b.status === 'rejected' ? String((b.reason as { cause?: { code?: string } }).cause?.code ?? b.reason) : 'ok').toBe('ok');
+      }, (sql) => borrarProveedores(sql, ids), ctx);
     });
   });
 });

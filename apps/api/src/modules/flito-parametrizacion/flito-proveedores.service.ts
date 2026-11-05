@@ -147,6 +147,19 @@ export async function bloquearProveedorVigente(tx: TxProveedor, id: string): Pro
   return p;
 }
 
+/**
+ * Orden canónico de bloqueos de los perfiles: SOAT y luego Logística. Es el de la asignación de compañía (`FOR SHARE` sobre
+ * uno y luego el otro) y el del trigger `padre_a_perfil`; bloquear al revés da `40P01` con un proveedor con ambos servicios.
+ * Se llama justo después de `bloquearProveedorVigente`. Para SOAT basta `FOR NO KEY UPDATE`: choca con `FOR SHARE` y no frena
+ * las FK de los inserts en `flito_soat`. Un perfil que no existe no bloquea nada.
+ */
+export async function bloquearPerfilesDeProveedor(tx: TxProveedor, id: string): Promise<void> {
+  await tx.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat)
+    .where(eq(flitoProveedoresSoat.id, id)).for('no key update');
+  await tx.select({ id: flitoProveedoresLogistica.id }).from(flitoProveedoresLogistica)
+    .where(eq(flitoProveedoresLogistica.id, id)).for('update');
+}
+
 export function exigirVersion(p: Pick<FilaProveedor, 'version'>, versionEsperada: number): void {
   if (p.version !== versionEsperada) throw new ProveedorEditadoPorOtroError();
 }
