@@ -871,4 +871,19 @@ test.describe('HU #14344 · usuarios en los dos temas', () => {
     await expect(page.getByRole('button', { name: 'Editar' })).toHaveCSS('color', 'rgb(79, 116, 201)');
     await expect(page.getByRole('button', { name: 'Desactivar' })).toHaveCSS('color', 'rgb(228, 61, 48)');
   });
+
+  test('oscuro: el aviso «sin permiso» del campo Proveedor se lee sobre el modal', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('aura-theme', 'dark'));
+    await loginAs(page, OPERACIONES_USER);
+    mockUsers(page, [FILA]);
+    await mockCatalogos(page);
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores\/asignables-usuario$/, (r) => r.fulfill(json({ error: 'x' }, 403)));
+    await page.goto('/users');
+    await page.getByRole('button', { name: 'Editar' }).click();
+    const aviso = page.getByText('No tienes permiso para ver los proveedores');
+    await aviso.scrollIntoViewIfNeeded();
+    const { color: fondo } = await fondoPintado(page, aviso);
+    const ratio = contraste(await tintaEfectiva(aviso, fondo), fondo);
+    expect(ratio, `contraste ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
+  });
 });
