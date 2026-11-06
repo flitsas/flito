@@ -1,5 +1,6 @@
 // Feature #13978, HU #14100 AC3 (ADR-0034 D2, D4) — comprobación de llaves al arrancar. La BD es un
 // doble en memoria que lee el filtro por versión que Drizzle genera; la primitiva de cifrado no se dobla.
+// HU #14273 AC3: un valor con forma del formato viejo no entra a la muestra ni tumba el arranque.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { PgDialect } from 'drizzle-orm/pg-core';
@@ -22,19 +23,23 @@ vi.mock('../../src/db/client.js', () => ({
     select: () => {
       let tabla = '';
       let version: number | null = null;
+      // El patrón de las fotos se evalúa de verdad: es el que deja fuera el formato retirado.
+      let patron: RegExp | null = null;
       const q = {
         from: (t: Table) => { tabla = getTableName(t); return q; },
         where: (cond: SQL) => {
           const { sql, params } = dialect.sqlToQuery(cond);
           (m.sqlPorTabla[tabla] ??= []).push(sql);
           if (tabla === 'pii_key_registry') version = Number(params[0]);
+          const literal = / ~ '([^']+)'/.exec(sql)?.[1];
+          if (literal) patron = new RegExp(literal);
           return q;
         },
         limit: () => q,
         then: (ok: (v: unknown) => unknown, fallo?: (e: unknown) => unknown) => {
           const filas = tabla === 'pii_key_registry'
             ? [...m.registro].filter(([v]) => version === null || v === version).map(([v, canario]) => ({ version: v, canario }))
-            : (m.datos[tabla] ?? []);
+            : (m.datos[tabla] ?? []).filter((f) => !patron || patron.test(String(f.valor)));
           return Promise.resolve(filas).then(ok, fallo);
         },
       };
@@ -71,6 +76,8 @@ const LLAVE_B = 'a7f3c91e5d20b84f6e13d7a9c0428fb5e16d3a7c94f08b2d';
 const LLAVE_OTRA = '5be2049fd1c76a38e9f04b1d7c62a85310de94fb76c1a2e8';
 const ctxCanario = (version: number) => ({ table: 'pii_key_registry', column: 'canario', id: version });
 const CANARIO = 'flito-pii-canario';
+/** Forma `iv:tag:data` del formato retirado, como la dejaría un dump restaurado. */
+const VALOR_VIEJO = '00112233445566778899aabbccddeeff:ffeeddccbbaa99887766554433221100:deadbeef';
 
 /** El canario que habría dejado otra llave: se cifra con ella y se vuelve a la configuración del caso. */
 function canarioDeOtraLlave(version: number, pasada: string): string {
@@ -256,6 +263,21 @@ describe('primer registro de la versión 1: muestra de datos reales', () => {
     }
   });
 
+  it('un valor viejo restaurado no entra a la muestra: sin más datos, registra la llave', async () => {
+    m.datos = { tramites_validaciones: [{ id: 9, valor: VALOR_VIEJO }] };
+
+    await expect(verificarLlavesPii()).resolves.toBeTruthy();
+
+    expect(m.inserciones).toBe(1);
+  });
+
+  it('el valor viejo no enmascara una llave equivocada: lo vigente de otra llave sigue fallando', async () => {
+    const deOtraLlave = conLlaveOtra(() => encryptPiiText('foto', { table: 'tramites_validaciones', column: 'foto_rostro', id: 9 }));
+    m.datos = { tramites_validaciones: [{ id: 8, valor: VALOR_VIEJO }, { id: 9, valor: deOtraLlave }] };
+
+    expect(await motivoDe()).toBe('muestra_no_descifra');
+  });
+
   it('solo muestrea valores de la versión 1 y nunca toca bolsas (MinIO)', async () => {
     await verificarLlavesPii();
     expect(m.sqlPorTabla.driver_profile?.[0]).toContain('"cedula_key_version" is null or "driver_profile"."cedula_key_version" = $1');
@@ -267,6 +289,16 @@ describe('primer registro de la versión 1: muestra de datos reales', () => {
 
 describe('punto de entrada de `server.ts`', () => {
   const espiarSalida = () => vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+
+  it('un valor viejo restaurado no tumba el arranque: ni `log.fatal` ni salida', async () => {
+    const salida = espiarSalida();
+    m.datos = { tramites_validaciones: [{ id: 9, valor: VALOR_VIEJO }] };
+
+    await comprobarLlavesPiiAlArrancar();
+
+    expect(salida).not.toHaveBeenCalled();
+    expect(m.log.fatal).not.toHaveBeenCalled();
+  });
 
   it('fallo: `log.fatal` sin valores y salida 1', async () => {
     const salida = espiarSalida();

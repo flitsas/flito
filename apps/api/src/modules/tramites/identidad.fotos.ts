@@ -6,12 +6,14 @@
 //
 // Regla que motiva el módulo: un valor que PARECE cifrado y no descifra es un error, no legado.
 // Devolverlo tal cual hacía que una llave equivocada respondiera 200 con el cifrado dentro.
+//
+// HU #14273: el cifrado viejo ya no se descifra. Se sigue reconociendo porque, sin la clase `viejo`, un
+// valor de un dump restaurado caería en `desconocido` y se devolvería como dato.
 
 import { getPhoto } from '../../services/storage.js';
 import { loggerFor } from '../../shared/logger.js';
 import { piiDecryptFailuresTotal, piiLegacyPlaintextTotal } from '../../shared/metrics.js';
 import {
-  decryptLegacyBiometric,
   decryptPiiText,
   PII_BIOMETRICO_VIEJO_PREFIJO,
   PII_TEXT_PREFIJO,
@@ -49,7 +51,8 @@ export function clasificarFoto(valor: string | null | undefined): ClaseFoto {
 /**
  * Devuelve la foto lista para mostrar, o null si no hay.
  *
- * @throws {PiiDecryptError} si el valor tiene formato cifrado y no descifra. La métrica se incrementa
+ * @throws {PiiDecryptError} si el valor tiene formato cifrado y no descifra, o tiene la forma del
+ * formato viejo, que ya nunca descifra. La métrica se incrementa
  * aquí y no en quien captura el error, para que cuente aunque la ruta lo maneje por su cuenta.
  */
 export async function resolverFotoBiometrica(
@@ -65,15 +68,15 @@ export async function resolverFotoBiometrica(
     case 'storage_key':
       try { return await getPhoto(valor as string); } catch { return null; }
     case 'nuevo':
-    case 'viejo':
       try {
-        return clase === 'nuevo'
-          ? decryptPiiText(valor as string, ctx)
-          : decryptLegacyBiometric(valor as string, ctx);
+        return decryptPiiText(valor as string, ctx);
       } catch (e) {
         if (e instanceof PiiDecryptError) piiDecryptFailuresTotal.inc({ table: TABLA_FOTOS, column });
         throw e;
       }
+    case 'viejo':
+      piiDecryptFailuresTotal.inc({ table: TABLA_FOTOS, column });
+      throw new PiiDecryptError(ctx);
     default:
       piiLegacyPlaintextTotal.inc({ table: TABLA_FOTOS, column });
       log.warn({ table: TABLA_FOTOS, column, id, clase }, 'foto sin formato cifrado: se devuelve tal cual');

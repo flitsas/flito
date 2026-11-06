@@ -2,13 +2,14 @@
  * Backfill PII fotos en `tramites_validaciones` a MinIO/S3.
  *
  * Las 3 columnas (foto_rostro, foto_cedula_frontal, foto_cedula_reverso) eran `text`
- * con base64 dentro o cifrado AES-GCM legacy. Este script:
- *   1) Detecta el formato de cada valor (S3 key | encrypted legacy | base64 plano).
- *   2) Si NO está en S3, descifra (si aplica) y sube a MinIO.
+ * con base64 dentro. Este script:
+ *   1) Detecta el formato de cada valor (S3 key | base64 plano | otro).
+ *   2) Si es base64 sin cifrar, lo sube a MinIO.
  *   3) Reemplaza el valor de la columna por la storage key.
  *
  * Idempotente: si ya está en S3 (prefijo `validaciones/`), salta. Si no se puede
  * decodear, salta (no pisa BD con basura). Sin --commit no escribe nada.
+ * El formato cifrado viejo ya no se descifra (HU #14273): se reporta y se salta.
  *
  * Uso:
  *   cd apps/api
@@ -20,17 +21,10 @@ import { db } from '../db/client.js';
 import { tramitesValidaciones } from '../db/schema.js';
 import { uploadPhoto, ensureBucket } from '../services/storage.js';
 import { isNotNull, or, eq } from 'drizzle-orm';
-import { clasificarFoto, TABLA_FOTOS, type ColumnaFoto } from '../modules/tramites/identidad.fotos.js';
-import { decryptLegacyBiometric, PiiDecryptError } from '../shared/utils/crypto.js';
+import { clasificarFoto } from '../modules/tramites/identidad.fotos.js';
 
 const COMMIT = process.argv.includes('--commit');
 const DRY = !COMMIT;
-
-const COLUMNA_POR_TIPO: Record<'rostro' | 'frontal' | 'reverso', ColumnaFoto> = {
-  rostro: 'foto_rostro',
-  frontal: 'foto_cedula_frontal',
-  reverso: 'foto_cedula_reverso',
-};
 
 async function migrateField(
   rowId: number,
@@ -53,19 +47,12 @@ async function migrateField(
     console.warn(`[warn] row=${rowId} tramite=${tramiteId} tipo=${tipo}: format unknown (len=${val!.length})`);
     return val;
   }
-  let b64: string;
   if (kind === 'viejo') {
-    try {
-      b64 = decryptLegacyBiometric(val!, { table: TABLA_FOTOS, column: COLUMNA_POR_TIPO[tipo], id: rowId });
-    } catch (e) {
-      if (!(e instanceof PiiDecryptError)) throw e;
-      console.warn(`[warn] row=${rowId} tramite=${tramiteId} tipo=${tipo}: legacy decrypt failed`);
-      return val;
-    }
-  } else {
-    // data_uri o base64_plano: subir tal cual (uploadPhoto strip el prefijo data: si existe)
-    b64 = val!;
+    console.warn(`[warn] row=${rowId} tramite=${tramiteId} tipo=${tipo}: formato viejo, no se puede descifrar; se salta`);
+    return val;
   }
+  // data_uri o base64_plano: subir tal cual (uploadPhoto strip el prefijo data: si existe)
+  const b64 = val!;
   if (DRY) {
     console.log(`[dry ] row=${rowId} tramite=${tramiteId} tipo=${tipo}: would upload (${kind}, ${b64.length}B)`);
     return val;

@@ -231,7 +231,10 @@ export interface PiiTextContext {
 /** Prefijo del formato vigente. Es el contrato con el clasificador de fotos: una sola definición. */
 export const PII_TEXT_PREFIJO = /^v(\d+):([0-9a-f]{24}):([0-9a-f]{32}):/;
 
-/** Prefijo del formato anterior `iv:tag:data` (iv de 16 bytes, sal `kyverum-pii-salt`). */
+/**
+ * Forma del formato anterior `iv:tag:data`, retirado en la HU #14273. Ya no hay con qué descifrarlo: se
+ * conserva solo para reconocer un valor restaurado de un dump y tratarlo como fallo, no como dato legado.
+ */
 export const PII_BIOMETRICO_VIEJO_PREFIJO = /^([0-9a-fA-F]{32}):([0-9a-fA-F]{32}):/;
 
 /**
@@ -308,33 +311,6 @@ export function decryptPiiText(value: string, ctx: PiiTextContext): string {
 /** Descifra con una llave dada y no con la de la versión del valor: detecta una llave retirada reutilizada. */
 export function decryptPiiTextConLlave(value: string, ctx: PiiTextContext, llave: Buffer): string {
   return abrirPiiText(value, ctx, () => llave);
-}
-
-const PII_BIOMETRICO_VIEJO_SAL = 'kyverum-pii-salt';
-let biometricoViejoKey: { passphrase: string; key: Buffer } | null = null;
-
-/**
- * Lee el formato anterior de biometría, sin AAD y con su propia sal.
- *
- * @deprecated Solo existe mientras queden filas sin recifrar (`flito-recifrar-biometria`). Se retira
- * en el PR posterior al recifrado en PDN, junto con la sal: este es el único sitio que la conoce.
- */
-export function decryptLegacyBiometric(value: string, ctx: PiiTextContext): string {
-  try {
-    const m = PII_BIOMETRICO_VIEJO_PREFIJO.exec(value);
-    if (!m) throw new Error('formato');
-    const passphrase = env.PII_ENC_KEY;
-    if (!passphrase) throw new Error('sin llave');
-    if (biometricoViejoKey?.passphrase !== passphrase) {
-      biometricoViejoKey = { passphrase, key: crypto.scryptSync(passphrase, PII_BIOMETRICO_VIEJO_SAL, 32) };
-    }
-    const decipher = crypto.createDecipheriv('aes-256-gcm', biometricoViejoKey.key, Buffer.from(m[1], 'hex'), { authTagLength: 16 });
-    decipher.setAuthTag(Buffer.from(m[2], 'hex'));
-    const data = base64Estricto(value.slice(m[0].length));
-    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
-  } catch {
-    throw new PiiDecryptError(ctx);
-  }
 }
 
 // ============================================================================
