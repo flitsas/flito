@@ -143,6 +143,50 @@ test.describe('HU #14342 · Enviar SOAT', () => {
     await expect(page.getByLabel('Enviar a').getByRole('option', { name: 'Gestionado por Operaciones' })).toHaveCount(1);
   });
 
+  test('AC6 · selector del detalle: cargando, error con reintento, vacío y lleno', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    let modo: 'colgado' | 'error' | 'vacio' | 'lleno' = 'colgado';
+    let soltar: () => void = () => {};
+    const colgada = new Promise<void>((resolve) => { soltar = resolve; });
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat$/, async (r) => {
+      if (modo === 'colgado') { await colgada; return json(r, 200, []); }
+      if (modo === 'error') return json(r, 500, { error: 'Catálogo caído' });
+      return json(r, 200, modo === 'lleno' ? POR_SERVICIO.soat : []);
+    });
+    await page.route(/\/api\/flito\/soat\/facetas/, (r) => json(r, 200, { companias: [], organismos: [], proveedores: [] }));
+    await page.route(/\/api\/flito\/soat\?/, (r) => json(r, 200, { items: [{ ...SOAT, estado: 'solicitado', gestionOperaciones: true, proveedorSoatNombre: 'Seguros Alfa' }], total: 1, page: 1, pageSize: 50 }));
+    const abrirSelector = async () => {
+      await page.goto('/flito/soat');
+      await page.getByRole('button', { name: 'Ver' }).first().click();
+      const dialogo = page.getByRole('dialog');
+      await dialogo.getByRole('button', { name: 'Devolver al proveedor' }).click();
+      return dialogo;
+    };
+
+    let dialogo = await abrirSelector();
+    const select = () => dialogo.getByLabel('Proveedor que lo retoma');
+    await expect(dialogo.getByText('Cargando proveedores…')).toBeVisible();
+    await expect(select()).toBeDisabled();
+
+    modo = 'error';
+    soltar();
+    dialogo = await abrirSelector();
+    await expect(dialogo.getByText('No se pudieron cargar los proveedores.')).toBeVisible();
+    await expect(dialogo.getByText(/Catálogo caído/)).toHaveCount(0);
+    await expect(select()).toBeDisabled();
+
+    modo = 'vacio';
+    await dialogo.getByRole('button', { name: 'Volver a cargar proveedores' }).click();
+    await expect(dialogo.getByText('No hay proveedores de SOAT activos.')).toBeVisible();
+    await expect(dialogo.getByRole('button', { name: 'Volver a cargar proveedores' })).toHaveCount(0);
+    await expect(select()).toBeDisabled();
+
+    modo = 'lleno';
+    dialogo = await abrirSelector();
+    await expect(select()).toBeEnabled();
+    await expect(select().locator('option')).toHaveText(['Selecciona…', 'Doble Servicio', 'Seguros Alfa']);
+  });
+
   const TRAMITE = {
     fechaCreacion: '2026-03-01T10:00:00Z', tramiteId: 'aaaaaaaa-0000-0000-0000-000000000001', idFlit: 'FLIT-1001', estado: 'Asignado', asignado: true,
     tipoTramite: 'Matricula', ciudad: 'Manizales', empresaExiste: true, empresaNit: '900111', secretariaEmparejada: true,
