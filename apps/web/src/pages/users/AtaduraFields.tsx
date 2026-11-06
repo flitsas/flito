@@ -296,7 +296,7 @@ export function OrganismosField({ organismos, seleccionados, onChange, error, ed
       {lista.length > 0 && (
         <div
           ref={refCaja}
-          className="max-h-48 space-y-1 overflow-y-auto rounded-xl bg-white p-3"
+          className="max-h-48 space-y-1 overflow-y-auto rounded-xl bg-flit-card p-3"
           style={{ border: '1px solid var(--flit-border-soft)' }}
         >
           {lista.map((o) => {
@@ -334,7 +334,7 @@ export function OrganismosField({ organismos, seleccionados, onChange, error, ed
         <span
           id={idMensaje}
           role="status"
-          style={{ color: mensaje && errorCarga ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}
+          style={{ color: mensaje && errorCarga ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}
         >
           {mensaje ?? ayuda}
         </span>
@@ -353,7 +353,7 @@ export function OrganismosField({ organismos, seleccionados, onChange, error, ed
       </div>
 
       {error && (
-        <p id={idError} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>
+        <p id={idError} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>
           {error}
         </p>
       )}

@@ -15,10 +15,11 @@
 //      en cola tiene que aparecer, así que el TC-06 comprueba además que la pantalla no pide nada a
 //      `/api/flito/impuestos`: si alguien poblara el campo con las facetas de la cola, el caso
 //      seguiría verde con un aserto que solo mirase la casilla.
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER } from '../helpers/auth';
 import { arbolRol, arbolUsuario, codigosDe, elemento, item, type NodoDef } from '../helpers/arbolPermisos';
+import { aHex, contraste, fondoPintado, luminancia, tintaEfectiva } from '../helpers/pixeles';
 
 // ─────────────────────────────────── Fixtures ────────────────────────────────────────────────────
 
@@ -820,5 +821,54 @@ test.describe('HU #14344 · proveedor de cualquier servicio al atar', () => {
     await page.getByRole('button', { name: 'Crear usuario' }).click();
     await expect(page.getByRole('alert')).toHaveText('Selecciona el proveedor para este rol.');
     expect(posts).toHaveLength(0);
+  });
+});
+
+// El píxel pintado, no la clase: `bg-white` con tinta `--flit-text-*` medía ~1,15:1 en oscuro. En claro el token vale blanco.
+test.describe('HU #14344 · usuarios en los dos temas', () => {
+  const FILA = usuario({ id: 11, username: 'gestor.sura', name: 'Gestor SURA', role: 'proveedor', flitoProveedorId: SURA, proveedorNombre: 'SURA' });
+
+  /** Fondo y contraste de cada superficie del listado y del formulario, midiendo con el modal abierto solo lo del modal. */
+  const medir = async (page: Page, tema: 'light' | 'dark') => {
+    await page.addInitScript((t) => localStorage.setItem('aura-theme', t), tema);
+    await loginAs(page, OPERACIONES_USER);
+    mockUsers(page, [FILA]);
+    await mockCatalogos(page);
+    const medidas: { nombre: string; fondo: [number, number, number]; ratio: number }[] = [];
+    const anotar = async (nombre: string, loc: Locator) => {
+      await loc.scrollIntoViewIfNeeded();
+      const { color: fondo } = await fondoPintado(page, loc);
+      medidas.push({ nombre, fondo, ratio: contraste(await tintaEfectiva(loc, fondo), fondo) });
+    };
+    await page.goto('/users');
+    await anotar('tabla', page.getByRole('cell', { name: 'gestor.sura' }));
+    await anotar('barra de filtros', page.locator('label[for="filtro-rol"]'));
+    await anotar('Editar', page.getByRole('button', { name: 'Editar' }));
+    await anotar('Desactivar', page.getByRole('button', { name: 'Desactivar' }));
+    await abrirAlta(page, 'gestor_impuestos');
+    const dialogo = page.getByRole('dialog');
+    await expect(grupoOrganismos(page)).toBeVisible();
+    await anotar('input', dialogo.getByLabel('Nombre completo'));
+    await anotar('select', dialogo.getByLabel('Rol base'));
+    await anotar('Cancelar', dialogo.getByRole('button', { name: 'Cancelar' }));
+    await anotar('lista de organismos', dialogo.getByText('Medellín'));
+    return medidas;
+  };
+
+  test('oscuro: cada superficie es oscura y su texto cumple 4,5:1', async ({ page }) => {
+    for (const { nombre, fondo, ratio } of await medir(page, 'dark')) {
+      expect(luminancia(fondo), `${nombre}: fondo ${aHex(fondo)} sigue siendo claro`).toBeLessThan(0.3);
+      expect(ratio, `${nombre}: contraste ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  test('claro: las mismas superficies siguen en blanco', async ({ page }) => {
+    for (const { nombre, fondo } of await medir(page, 'light')) {
+      expect(aHex(fondo).toLowerCase(), nombre).toBe('#ffffff');
+    }
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Editar' })).toHaveCSS('color', 'rgb(79, 116, 201)');
+    await expect(page.getByRole('button', { name: 'Desactivar' })).toHaveCSS('color', 'rgb(228, 61, 48)');
   });
 });

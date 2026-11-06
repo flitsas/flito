@@ -233,7 +233,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
           />
           {avisoBloqueo && (
             <div className="flex flex-wrap items-start gap-3">
-              <p ref={avisoRef} role="alert" tabIndex={-1} className="flit-focus min-w-0 flex-[1_1_16rem] rounded text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+              <p ref={avisoRef} role="alert" tabIndex={-1} className="flit-focus min-w-0 flex-[1_1_16rem] rounded text-sm" style={{ color: 'var(--flit-danger-text)' }}>
                 {avisoBloqueo.texto}
               </p>
               {avisoBloqueo.nodo && (

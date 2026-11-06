@@ -34,7 +34,7 @@ export default function UsersTable({ users, loading, error, onReintentar, vacioM
 }) {
   return (
     <div
-      className="overflow-hidden bg-white"
+      className="overflow-hidden bg-flit-card"
       style={{ borderRadius: 'var(--flit-radius-card)', boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' }}
     >
       <div className="overflow-x-auto">
@@ -90,7 +90,7 @@ export default function UsersTable({ users, loading, error, onReintentar, vacioM
                 <tr key={u.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
                   <td className="px-4 py-3 font-mono text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
                     {u.username}
-                    {isMe && <span className="ml-1.5 text-[9px] font-bold" style={{ color: 'var(--flit-blue)' }}>(tú)</span>}
+                    {isMe && <span className={`ml-1.5 text-[9px] font-bold ${TINTA_BOTON.active}`}>(tú)</span>}
                   </td>
                   <td className="px-4 py-3" style={{ color: 'var(--flit-text-primary)' }}>{u.name}</td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{u.email || '—'}</td>
@@ -150,24 +150,27 @@ function ThRight({ children }: { children: React.ReactNode }) {
   );
 }
 
+// `--flit-danger` y `--flit-blue` miden 3,2 y 3,0:1 sobre la tarjeta oscura: en oscuro van sus tintas de texto. En claro
+// se conservan tal cual; pasarlas a `*-text` cambiaría el tono de estos botones también allí.
+const TINTA_BOTON = {
+  danger: 'text-[color:var(--flit-danger)] [[data-theme=dark]_&]:text-[color:var(--flit-danger-text)]',
+  active: 'text-[color:var(--flit-blue)] [[data-theme=dark]_&]:text-[color:var(--flit-blue-text)]',
+  success: 'text-[color:var(--flit-success)]',
+  neutral: 'text-[color:var(--flit-text-secondary)]',
+} as const;
+
 function RowButton({ children, onClick, disabled, tone }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
   tone: 'active' | 'neutral' | 'danger' | 'success';
 }) {
-  const color =
-    tone === 'danger' ? 'var(--flit-danger)'
-      : tone === 'success' ? 'var(--flit-success)'
-        : tone === 'active' ? 'var(--flit-blue)'
-          : 'var(--flit-text-secondary)';
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flit-focus rounded px-2 py-1 text-xs font-semibold transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
-      style={{ color }}
+      className={`flit-focus rounded px-2 py-1 text-xs font-semibold transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40 ${TINTA_BOTON[tone]}`}
     >
       {children}
     </button>

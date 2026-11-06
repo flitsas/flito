@@ -64,7 +64,7 @@ export default function CambioRolExcepciones({
         <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{COPY_AYUDA}</p>
         {cargando && <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }} role="status">Cargando cuadro del rol nuevo…</p>}
         {error && (
-          <p className="text-xs" role="alert" style={{ color: 'var(--flit-danger-ink)' }}>
+          <p className="text-xs" role="alert" style={{ color: 'var(--flit-danger-text)' }}>
             No se pudo cargar el cuadro del rol. Cierra e inténtalo de nuevo.
           </p>
         )}
