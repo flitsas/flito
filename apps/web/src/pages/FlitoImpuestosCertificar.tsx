@@ -21,8 +21,8 @@ interface Fila {
   organismoCodigo: string;
   organismoNombre: string;
   placa: string;
-  documentoPropietario: string;
-  nombrePropietario: string;
+  documentoPropietario: string | null;
+  nombrePropietario: string | null;
   vin: string;
   marca: string;
   linea: string;
@@ -48,8 +48,20 @@ const ESTADO: Record<Estado, { texto: string; tono: ChipTone; aviso: string }> =
   certificado: { texto: 'Certificado', tono: 'success', aviso: 'Los datos coincidieron. Puedes descargar el certificado.' },
 };
 
+// Consulta por placa y documento: el aviso nombra esa modalidad y la salida de consultar por VIN.
+const AVISO_CON_DOCUMENTO: Partial<Record<Estado, string>> = {
+  sin_respuesta: 'El RUNT no respondió. El registro quedó guardado. Puedes consultar de nuevo o borrar el documento para consultar por VIN.',
+  sin_vehiculo: 'El RUNT no encontró el vehículo con esa placa y ese documento. Corrige el documento o bórralo para consultar por VIN.',
+};
+
+/** Editar devuelve el registro a `radicado`: el documento de la fila es el de su última consulta. */
+function avisoDeEstado(f: Fila): string {
+  return (f.documentoPropietario && AVISO_CON_DOCUMENTO[f.estado]) || ESTADO[f.estado].aviso;
+}
+
 const INFORMATIVO = new Set<string>([
   ...Object.values(ESTADO).map((e) => e.aviso),
+  ...Object.values(AVISO_CON_DOCUMENTO),
   'No se pudo leer la factura. Completa los datos del vehículo.',
   'Leímos la factura. Revisa los datos antes de guardar.',
 ]);
@@ -67,7 +79,7 @@ function avisoDe(e: unknown): string {
 function desdeFila(f: Fila): Borrador {
   return {
     organismoCodigo: f.organismoCodigo, placa: f.placa,
-    documentoPropietario: f.documentoPropietario, nombrePropietario: f.nombrePropietario,
+    documentoPropietario: f.documentoPropietario ?? '', nombrePropietario: f.nombrePropietario ?? '',
     vin: f.vin, marca: f.marca, linea: f.linea, anio: f.anio, color: f.color, cilindrada: f.cilindrada,
   };
 }
@@ -187,7 +199,7 @@ export default function FlitoImpuestosCertificar() {
     try {
       const guardada = await persistir(esNuevo);
       if (!guardada) return;
-      setAviso(ESTADO[guardada.estado].aviso);
+      setAviso(avisoDeEstado(guardada));
       void cargarLista();
     } catch (e) { setAviso(avisoDe(e)); }
     finally { setOcupado(false); }
@@ -204,7 +216,7 @@ export default function FlitoImpuestosCertificar() {
       const actual = await api.post<Fila>(`${BASE}/${base.id}/consultar`);
       setFila(actual);
       setBorrador(desdeFila(actual));
-      setAviso(ESTADO[actual.estado].aviso);
+      setAviso(avisoDeEstado(actual));
       void cargarLista();
     } catch (e) { setAviso(avisoDe(e)); }
     finally { setOcupado(false); }
@@ -224,7 +236,7 @@ export default function FlitoImpuestosCertificar() {
     <div className="flex flex-col gap-4">
       <PageHeaderCard
         title="Certificar sin trámite"
-        subtitle="Carga la factura de venta, completa los datos y consulta el RUNT por VIN. Quien tiene el permiso ve los registros de esta pantalla."
+        subtitle="Carga la factura de venta, completa los datos y consulta el RUNT. Quien tiene el permiso ve los registros de esta pantalla."
         actions={vista === 'lista' ? (
           <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => void abrirAlta()}>
             Nueva certificación
@@ -266,7 +278,7 @@ export default function FlitoImpuestosCertificar() {
                 <FlitTr key={f.id}>
                   <td className="px-4 py-2 text-sm">{f.placa}</td>
                   <td className="px-4 py-2 text-sm">{f.vin}</td>
-                  <td className="px-4 py-2 text-sm">{f.nombrePropietario}</td>
+                  <td className="px-4 py-2 text-sm">{f.nombrePropietario || '—'}</td>
                   <td className="px-4 py-2 text-sm"><StatusChip tone={ESTADO[f.estado].tono}>{ESTADO[f.estado].texto}</StatusChip></td>
                   <td className="px-4 py-2 text-sm">
                     <button type="button" className={flitBtnSecondary} onClick={() => abrirDetalle(f)}>Abrir</button>
