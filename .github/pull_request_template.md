@@ -21,7 +21,7 @@ AB#_____ <!-- ID de Azure DevOps — obligatorio: todo desarrollo va ligado a un
 - [ ] Lint sin errores nuevos (`npm run lint`)
 - [ ] Diff ≤ 800 líneas; si no, expliqué el motivo arriba
 - [ ] Rama y título en formato canónico (`node scripts/check-naming.mjs --branch … --title …` en verde)
-- [ ] **Backend**: patrón `routes`/`service`, guarda de permiso antes de la lógica, migración Drizzle incluida si cambié `schema.ts`
+- [ ] **Backend**: patrón `routes`/`service`, guarda de permiso antes de la lógica, migración Drizzle incluida si cambié `schema.ts` o `schema/`
 - [ ] **Frontend**: 4 estados (loading / error / empty / data), sin drift visual en módulos `flito-*`
 
 ## Seguridad
