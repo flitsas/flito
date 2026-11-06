@@ -438,7 +438,7 @@ export const OPERACIONES_DECLARADAS_LEGADO: OperacionDeclarada[] = [
   op('laft/officer/officer.routes.ts POST /', 'laft.oficial.administrar'),
   op('laft/officer/officer.routes.ts POST /:id/revocar', 'laft.oficial.administrar'),
   op('privacy/privacy.routes.ts POST /forget', 'privacy.olvido.administrar'),
-  op('privacy/privacy.routes.ts GET /preview/:docNumber', 'privacy.titulares.operar'),
+  op('privacy/privacy.routes.ts POST /preview', 'privacy.titulares.operar'),
   op('privacy/pii-access.routes.ts GET /', 'privacy.accesos_pii.ver'),
   op('privacy/pii-access.routes.ts GET /stats', 'privacy.accesos_pii.ver'),
   op('firma/firma.routes.ts POST /:id/firma/solicitar', 'firma.solicitud.administrar'),

@@ -254,7 +254,7 @@ describe('privacy — auth & roles', () => {
   it('proveedor → 403 (requireRole admin|compliance)', async () => {
     const token = await testToken({ sub: 1, role: 'proveedor' });
     const app = await buildApp();
-    const r = await request(app).get('/api/privacy/preview/123').set('Authorization', `Bearer ${token}`);
+    const r = await request(app).post('/api/privacy/preview').send({ docNumber: '123' }).set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(403);
   });
 
@@ -265,7 +265,7 @@ describe('privacy — auth & roles', () => {
     const token = await testToken({ sub: 1, role: 'compliance' });
     const app = await buildApp();
 
-    const rPreview = await request(app).get('/api/privacy/preview/123456').set('Authorization', `Bearer ${token}`);
+    const rPreview = await request(app).post('/api/privacy/preview').send({ docNumber: '123456' }).set('Authorization', `Bearer ${token}`);
     expect(rPreview.status).toBe(200);
 
     // Cuerpo inválido a propósito: el 400 de Zod prueba que la guarda dejó pasar sin tocar datos.
@@ -654,18 +654,18 @@ describe('POST /forget — el olvido alcanza las direcciones del módulo Siigo (
   });
 });
 
-describe('GET /preview/:docNumber', () => {
+describe('POST /preview', () => {
   it('docNumber < 3 chars → 400', async () => {
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
-    const r = await request(app).get('/api/privacy/preview/AB').set('Authorization', `Bearer ${token}`);
+    const r = await request(app).post('/api/privacy/preview').send({ docNumber: 'AB' }).set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(400);
   });
 
   it('docNumber > 20 chars → 400', async () => {
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
-    const r = await request(app).get(`/api/privacy/preview/${'1'.repeat(25)}`).set('Authorization', `Bearer ${token}`);
+    const r = await request(app).post('/api/privacy/preview').send({ docNumber: '1'.repeat(25) }).set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(400);
   });
 
@@ -676,7 +676,7 @@ describe('GET /preview/:docNumber', () => {
 
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
-    const r = await request(app).get('/api/privacy/preview/900123').set('Authorization', `Bearer ${token}`);
+    const r = await request(app).post('/api/privacy/preview').send({ docNumber: '900123' }).set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
     expect(r.body.docNumber).toBe('900123');
     expect(r.body.affected.clients).toBe(0);
@@ -703,7 +703,7 @@ describe('GET /preview/:docNumber', () => {
 
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
-    const r = await request(app).get('/api/privacy/preview/1036640908').set('Authorization', `Bearer ${token}`);
+    const r = await request(app).post('/api/privacy/preview').send({ docNumber: 'DOC-SINT-0001' }).set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
     expect(r.body.affected.driver_profile).toBe(1);
     expect(r.body.affected.alcohol_tests).toBe(5);
@@ -716,7 +716,7 @@ describe('GET /preview/:docNumber', () => {
 
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
-    const r = await request(app).get('/api/privacy/preview/900123').set('Authorization', `Bearer ${token}`);
+    const r = await request(app).post('/api/privacy/preview').send({ docNumber: '900123' }).set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
     const expectedKeys = [
       'clients', 'vehicles', 'soat_requests', 'tramites_digitales',
@@ -735,7 +735,7 @@ describe('GET /preview/:docNumber', () => {
 
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
-    await request(app).get('/api/privacy/preview/900123').set('Authorization', `Bearer ${token}`);
+    await request(app).post('/api/privacy/preview').send({ docNumber: '900123' }).set('Authorization', `Bearer ${token}`);
     expect(transactionMock).not.toHaveBeenCalled();
     expect(deletePhotoMock).not.toHaveBeenCalled();
     expect(auditMock).not.toHaveBeenCalled();
@@ -803,7 +803,7 @@ describe('Bug #11776 — el SQL que forget/preview mandan de verdad', () => {
 
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
-    const r = await request(app).get('/api/privacy/preview/1036640908')
+    const r = await request(app).post('/api/privacy/preview').send({ docNumber: 'DOC-SINT-0001' })
       .set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
 

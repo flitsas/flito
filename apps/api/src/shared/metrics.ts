@@ -117,6 +117,30 @@ export const rateLimitBloqueadoTotal = new Counter({
   labelNames: ['limitador'] as const,
   registers: [registry],
 });
+
+// Feature #14097 (HU #14099) — un valor con formato cifrado que no descifra es un incidente (llave
+// equivocada, dato alterado): de esta serie sale la alerta. El legado sin cifrar va en otra serie
+// para que su lectura, que es esperada hasta terminar el recifrado, no la dispare.
+export const piiDecryptFailuresTotal = new Counter({
+  name: 'pii_decrypt_failures_total',
+  help: 'Valores con formato cifrado que no se pudieron descifrar, por tabla y columna.',
+  labelNames: ['table', 'column'] as const,
+  registers: [registry],
+});
+
+export const piiLegacyPlaintextTotal = new Counter({
+  name: 'pii_legacy_plaintext_total',
+  help: 'Valores leídos sin formato cifrado y devueltos tal cual, por tabla y columna.',
+  labelNames: ['table', 'column'] as const,
+  registers: [registry],
+});
+
+// Series en 0 desde el arranque: `increase()` no ve el primer fallo de una serie que no existía.
+for (const column of ['foto_rostro', 'foto_cedula_frontal', 'foto_cedula_reverso']) {
+  piiDecryptFailuresTotal.inc({ table: 'tramites_validaciones', column }, 0);
+  piiLegacyPlaintextTotal.inc({ table: 'tramites_validaciones', column }, 0);
+}
+
 // HU #13989 (ADR-0033 §7) — la pérdida del conteo de uso legacy, lo único que su tabla no puede contar.
 // Sin rutas ni roles en las etiquetas.
 export const usoLegacyFlushTotal = new Counter({
@@ -131,3 +155,19 @@ export const usoLegacyConteosDescartadosTotal = new Counter({
   help: 'Conteos de uso legacy descartados por superar el tope de claves del buffer.',
   registers: [registry],
 });
+
+// Feature #13978: lecturas que devuelven `null` con 200 si no descifran. Sin esta serie, una llave
+// ausente se vería como «sin dato» y la métrica seguiría en 0.
+for (const [table, column] of [
+  ['driver_profile', 'cedula'],
+  ['driver_profile', 'licencia_numero'],
+  ['driver_profile', 'runt_payload'],
+  ['manifiestos', 'titular_pago_cuenta'],
+  ['laft_counterparties', 'doc_number'],
+  ['laft_counterparties', 'email'],
+  ['laft_counterparties', 'phone'],
+  ['flito_logistica_acta_firmas', 'documento_cifrado'],
+  ['flito_logistica_recogida_firmantes', 'documento_cifrado'],
+] as const) {
+  piiDecryptFailuresTotal.inc({ table, column }, 0);
+}

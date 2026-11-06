@@ -7,10 +7,9 @@ import globals from 'globals';
 // Solo pueden bajar; si crecen una línea, el gate falla. Reducirlos es deuda
 // registrada en el reporte modo D. Al bajar de 800, quitar la entrada.
 const FROZEN_CEILINGS = {
-  'apps/api/src/db/schema.ts': 3291, // HU #13911: −109 al retirar los libros viejos de bolsas
-  'apps/web/src/pages/TramiteTraspaso.tsx': 1250,
+  'apps/api/src/db/schema.ts': 2103, // Feature #13975 (HU #13982, #13983): trámites, SOAT, comparendos, Siigo y finanzas salieron a schema/
   'apps/web/src/pages/FlitoTramites.tsx': 1190,
-  'apps/api/src/modules/tramites/identidad.routes.ts': 1130,
+  'apps/api/src/modules/tramites/identidad.routes.ts': 901, // Feature #14097: bajó al sacar el cifrado local
   'apps/api/src/modules/flito-soat/flito-soat.service.ts': 1090,
   'apps/api/src/modules/tramites/tramites.service.ts': 880,
   'apps/web/src/pages/FlitoImpuestos.tsx': 870,
@@ -62,37 +61,40 @@ export default tseslint.config(
   {
     rules: {
       'no-unused-vars': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],
       'max-lines': ['error', { max: 800, skipBlankLines: true, skipComments: true }],
 
-      // Deuda preexistente → 'warn' en el rollout inicial (el gate no puede
-      // nacer en rojo). Subir a 'error' a medida que se limpie cada regla.
+      // Selladas (HU #13985): llegaron a 0 warnings y no se reabren. scripts/lint-baseline.json
+      // las lista y el job `lint` falla si alguna deja de estar en 'error'.
+      '@typescript-eslint/no-require-imports': 'error',
+      '@typescript-eslint/no-this-alias': 'error',
+      'getter-return': 'error',
+      'no-case-declarations': 'error',
+      'no-cond-assign': 'error',
+      'no-constant-binary-expression': 'error',
+      'no-fallthrough': 'error',
+      'no-func-assign': 'error',
+      'no-prototype-builtins': 'error',
+      'no-sparse-arrays': 'error',
+      'no-unassigned-vars': 'error',
+      'no-unsafe-finally': 'error',
+
+      // Deuda preexistente con ratchet por regla (HU #13985): cada 'warn' tiene su conteo en
+      // scripts/lint-baseline.json, que solo baja. Con 0 warnings se sube a 'error' y se sella.
+      '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
       '@typescript-eslint/no-unused-expressions': 'warn',
-      'no-case-declarations': 'warn',
       'no-useless-assignment': 'warn',
-      'no-fallthrough': 'warn',
-      'no-prototype-builtins': 'warn',
-      '@typescript-eslint/no-this-alias': 'warn',
-      'no-cond-assign': 'warn',
-      'no-func-assign': 'warn',
       'no-useless-escape': 'warn',
       'prefer-const': 'warn',
       'no-irregular-whitespace': 'warn',
-      'getter-return': 'warn',
       'no-control-regex': 'warn',
       'no-useless-catch': 'warn',
       'preserve-caught-error': 'warn',
-      'no-unassigned-vars': 'warn',
-      '@typescript-eslint/no-require-imports': 'warn',
-      'no-unsafe-finally': 'warn',
       '@typescript-eslint/no-namespace': 'warn',
-      'no-sparse-arrays': 'warn',
-      'no-constant-binary-expression': 'warn',
     },
   },
   {

@@ -1,6 +1,49 @@
 import { useState, useEffect, useCallback } from 'react';
 import { resolverValidacionVigentePorDocumento, validacionesVigentesPorDocumento } from '@operaciones/shared-types';
 import { PDF_WORKER_SRC } from '../lib/pdfWorker';
+import { flitBtnSecondary } from './flit/flitPageKit';
+
+/** Respuesta HTTP no exitosa. `message` conserva el texto que el FUR ya mostraba; el aviso usa `status`. */
+class ErrorHttpVisor extends Error {
+  constructor(readonly status: number) { super(`Error ${status}`); }
+}
+
+type RecursoVisor = 'documentos' | 'certificado';
+
+const COPY_ERROR_VISOR: Record<RecursoVisor, { generico: string; noEncontrado: string }> = {
+  documentos: {
+    generico: 'No pudimos abrir los documentos. Intenta de nuevo en unos minutos.',
+    noEncontrado: 'No encontramos los documentos de este trámite. Verifica que siga activo e intenta de nuevo.',
+  },
+  certificado: {
+    generico: 'No pudimos generar la certificación. Intenta de nuevo en unos minutos.',
+    noEncontrado: 'Este trámite aún no tiene validaciones de identidad. Cuando las tenga, intenta de nuevo.',
+  },
+};
+
+/** Copy del aviso: nunca el error crudo del API ni el código de estado. */
+function mensajeErrorVisor(recurso: RecursoVisor, err: unknown): string {
+  // `fetch` rechaza con TypeError cuando no hay red.
+  if (err instanceof TypeError) return 'No pudimos conectarnos. Revisa tu conexión e intenta de nuevo.';
+  const status = err instanceof ErrorHttpVisor ? err.status : undefined;
+  if (status === 401) return 'Tu sesión terminó. Inicia sesión de nuevo e intenta otra vez.';
+  if (status === 403) return 'No tienes permiso para ver esta información. Si la necesitas, pídele acceso a un administrador.';
+  if (status === 404) return COPY_ERROR_VISOR[recurso].noEncontrado;
+  return COPY_ERROR_VISOR[recurso].generico;
+}
+
+function AvisoErrorVisor({ mensaje, onReintentar }: { mensaje: string; onReintentar: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-start gap-3 rounded-xl border bg-flit-card p-3 sm:flex-row sm:items-center sm:justify-between"
+      style={{ borderColor: 'color-mix(in srgb, var(--flit-danger-text) 45%, transparent)' }}
+    >
+      <p className="text-xs font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{mensaje}</p>
+      <button type="button" onClick={onReintentar} className={`${flitBtnSecondary} shrink-0`}>Reintentar</button>
+    </div>
+  );
+}
 
 interface CedulaCropperProps {
   fotoCedulaFrontal: string | null;
@@ -143,6 +186,7 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
   const [certBlobUrl, setCertBlobUrl] = useState<string | null>(null);
   const [certLoading, setCertLoading] = useState(false);
   const [certError, setCertError] = useState('');
+  const [idDocsError, setIdDocsError] = useState('');
   const [selectedDoc, setSelectedDoc] = useState<number | null>(null);
   const [docPages, setDocPages] = useState<string[]>([]);
   const [docLoading, setDocLoading] = useState(false);
@@ -153,13 +197,15 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
   useEffect(() => () => { if (certBlobUrl) URL.revokeObjectURL(certBlobUrl); }, [certBlobUrl]);
 
   const loadIdDocs = async () => {
-    setIdDocsLoading(true);
+    setIdDocsLoading(true); setIdDocsError('');
     try {
       const token = localStorage.getItem('token');
       const r = await fetch(`/api/validacion-identidad/documentos/${tramiteId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!r.ok) throw new ErrorHttpVisor(r.status);
       const d = await r.json();
       if (d.ok) setIdDocs(d.documentos || []);
-    } catch { /* silent */ }
+      else setIdDocsError(mensajeErrorVisor('documentos', undefined));
+    } catch (e) { setIdDocsError(mensajeErrorVisor('documentos', e)); }
     finally { setIdDocsLoading(false); }
   };
 
@@ -200,7 +246,7 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
   const renderPdf = async (url: string, bodyData: Record<string, unknown>) => {
     const token = localStorage.getItem('token');
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(bodyData) });
-    if (!res.ok) throw new Error(`Error ${res.status}`);
+    if (!res.ok) throw new ErrorHttpVisor(res.status);
     const buf = await res.arrayBuffer(); const blob = new Blob([buf], { type: 'application/pdf' });
     const pdfjsLib = await import('pdfjs-dist'); pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
     // CVE-2024-4367 — lo corrige la propia v6; ver la nota del `getDocument` de arriba.
@@ -227,7 +273,7 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
     try {
       const r = await renderPdf(`/api/validacion-identidad/certificado/${tramiteId}`, { placa: placa || vin, vehiculo: `${v.marca || ''} ${v.linea || ''} ${v.modelo || ''}`.trim(), orgNombre: orgTransito?.nombre || '' });
       setCertBlobUrl(r.blobUrl); setCertPages(r.pages);
-    } catch (e) { setCertError(e instanceof Error ? e.message : 'Error'); }
+    } catch (e) { setCertError(mensajeErrorVisor('certificado', e)); }
     finally { setCertLoading(false); }
   };
   const download = (url: string, name: string) => { const a = document.createElement('a'); a.href = url; a.download = name; a.click(); };
@@ -429,7 +475,8 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
 
           {docTab === 'cedula' && (
             <div className="p-3 sm:p-4">
-              {!idDocs && !idDocsLoading ? <div className="text-center py-5"><button onClick={loadIdDocs} className="inline-flex items-center h-10 px-4 rounded-xl text-xs font-medium text-[color:var(--flit-blue)]-foreground bg-[color:var(--flit-blue)] hover:bg-[color:var(--flit-blue)]-hover transition-colors">Cargar documento de identidad</button></div>
+              {!idDocs && !idDocsLoading && idDocsError ? <AvisoErrorVisor mensaje={idDocsError} onReintentar={loadIdDocs} />
+                : !idDocs && !idDocsLoading ? <div className="text-center py-5"><button onClick={loadIdDocs} className="inline-flex items-center h-10 px-4 rounded-xl text-xs font-medium text-[color:var(--flit-blue)]-foreground bg-[color:var(--flit-blue)] hover:bg-[color:var(--flit-blue)]-hover transition-colors">Cargar documento de identidad</button></div>
                 : idDocsLoading ? <div className="text-center py-6"><div className="inline-block w-7 h-7 border-4 border-[color:var(--flit-border-soft)] border-t-[color:var(--flit-blue)] rounded-full animate-spin motion-reduce:animate-none" /></div>
                   : idDocs && idDocs.length === 0 ? <p className="text-xs flit-tone-muted text-center py-5">{emailSent ? 'Pendiente' : 'Sin validación'}</p>
                     : idDocs && idDocs.length > 0 ? (() => {
@@ -442,7 +489,8 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
 
           {docTab === 'identidad' && (
             <div className="p-3 sm:p-4">
-              {!idDocs && !idDocsLoading ? <div className="text-center py-5"><button onClick={loadIdDocs} className="inline-flex items-center h-10 px-4 rounded-xl text-xs font-medium text-[color:var(--flit-warning)]-foreground bg-warning hover:opacity-90 transition-opacity">Cargar validación</button></div>
+              {!idDocs && !idDocsLoading && idDocsError ? <AvisoErrorVisor mensaje={idDocsError} onReintentar={loadIdDocs} />
+                : !idDocs && !idDocsLoading ? <div className="text-center py-5"><button onClick={loadIdDocs} className="inline-flex items-center h-10 px-4 rounded-xl text-xs font-medium text-[color:var(--flit-warning)]-foreground bg-warning hover:opacity-90 transition-opacity">Cargar validación</button></div>
                 : idDocsLoading ? <div className="text-center py-6"><div className="inline-block w-7 h-7 border-4 border-[color:var(--flit-border-soft)] border-t-warning rounded-full animate-spin motion-reduce:animate-none" /></div>
                   : idDocs && idDocs.length === 0 ? <p className="text-xs flit-tone-muted text-center py-5">{emailSent ? 'Pendiente' : 'Sin validación'}</p>
                     : idDocs && idDocs.length > 0 ? (() => {
@@ -488,7 +536,9 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
           {docTab === 'certificacion' && (
             <div className="bg-text-primary rounded-b-xl sm:rounded-b-2xl overflow-hidden">
               <PdfToolbar loading={certLoading} pages={certPages} blobUrl={certBlobUrl} onLoad={cargarCert} onDownload={() => download(certBlobUrl!, `Cert_${placa || 'vehiculo'}.pdf`)} label="Generar" />
-              <PdfPages pages={certPages} loading={certLoading} error={certError} msg="Haz clic en Generar" />
+              {certError
+                ? <div className="p-2 sm:p-3 bg-[color:var(--flit-bg-app)]"><AvisoErrorVisor mensaje={certError} onReintentar={cargarCert} /></div>
+                : <PdfPages pages={certPages} loading={certLoading} msg="Haz clic en Generar" />}
             </div>
           )}
         </div>

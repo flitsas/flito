@@ -110,7 +110,7 @@ describe('GET /proveedores-logistica y PATCH', () => {
 
 describe('AC4: proveedores SOAT intactos', () => {
   it('el DTO de logística no existe en el de SOAT y viceversa: el router SOAT sigue sin nit/contacto', async () => {
-    const schema = readFileSync(resolve(__dirname, '../../src/db/schema.ts'), 'utf8');
+    const schema = readFileSync(resolve(__dirname, '../../src/db/schema/soat.ts'), 'utf8');
     const bloque = schema.slice(schema.indexOf("pgTable('flito_proveedores_soat'"), schema.indexOf("pgTable('flito_proveedores_soat'") + 1500);
     expect(bloque).not.toMatch(/\bnit:|contacto:|telefono:/);
   });

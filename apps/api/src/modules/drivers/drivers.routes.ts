@@ -8,6 +8,10 @@ import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { encryptPii, decryptPii, hmacCedula, newUuid, normalizeDocument } from '../../shared/utils/crypto.js';
+import type { ColumnaAadConductor } from '../../shared/utils/pii-columnas.js';
+import { aadConductor } from './drivers.aad.js';
+import { piiDecryptFailuresTotal } from '../../shared/metrics.js';
+import { logPiiAccess } from '../../shared/pii-audit.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -36,22 +40,23 @@ interface DriverFieldCipher {
   keyVersion: number;
 }
 
-function encryptField(plain: string | null | undefined, column: 'cedula' | 'licencia_numero' | 'runt_payload', userId: number): DriverFieldCipher | null {
+function encryptField(plain: string | null | undefined, column: ColumnaAadConductor, userId: number): DriverFieldCipher | null {
   if (plain == null || plain === '') return null;
   const aadNonce = newUuid();
-  const bundle = encryptPii(plain, { table: 'driver_profile', column, empresaNit: String(userId), aadNonce });
+  const bundle = encryptPii(plain, aadConductor(column, userId, aadNonce));
   return { cipher: bundle.cipher, iv: bundle.iv, authTag: bundle.authTag, aadNonce, keyVersion: bundle.keyVersion };
 }
 
-function decryptField(row: any, field: 'cedula' | 'licenciaNumero' | 'runtPayload', column: string, userId: number): string | null {
+function decryptField(row: any, field: 'cedula' | 'licenciaNumero' | 'runtPayload', column: ColumnaAadConductor, userId: number): string | null {
   const cipher = row[`${field}Cipher`];
   if (cipher) {
     try {
       return decryptPii(
         { cipher, iv: row[`${field}Iv`], authTag: row[`${field}AuthTag`], keyVersion: row[`${field}KeyVersion`] ?? 1 },
-        { table: 'driver_profile', column, empresaNit: String(userId), aadNonce: row[`${field}AadNonce`] },
+        aadConductor(column, userId, row[`${field}AadNonce`]),
       );
     } catch {
+      piiDecryptFailuresTotal.inc({ table: 'driver_profile', column });
       return null;
     }
   }
@@ -126,6 +131,18 @@ router.get('/', requirePage('pesv_conductores'), async (req: Request, res: Respo
         (r.examenPsicoVigencia && (r.examenPsicoVigencia as string) <= today),
       )
     : data;
+
+  // HU #14283: Ley 1581 art. 17. `await` y siempre, también sin campos descifrados: el listado entrega
+  // nombre y correo aunque no haya cédula ni licencia. El valor de `?q=` nunca entra en `motivo`.
+  await logPiiAccess(req, {
+    resourceTipo: 'driver_profile',
+    accion: 'read',
+    camposAccedidos: [
+      filtered.some((r) => r.cedula) ? 'cedula' : null,
+      filtered.some((r) => r.licenciaNumero) ? 'licencia_numero' : null,
+    ].filter((c): c is string => c !== null),
+    motivo: `Listado de conductores: filas=${filtered.length}`,
+  });
 
   res.json({ data: filtered });
 });

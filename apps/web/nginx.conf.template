@@ -4,9 +4,48 @@
 # Las variables propias de nginx ($host, $uri, ...) NO se tocan porque envsubst
 # solo reemplaza variables de entorno definidas.
 
+# HU #14280 (ADR-0036): la ruta que se escribe en el access log. Sale de `$uri` (sin query, y ya
+# decodificada y normalizada: `//` o `%2F` no esquivan estas reglas) y enmascara los segmentos con
+# token, documento, placa o VIN. `~*` porque Express no distingue mayúsculas. Gana la primera que
+# encaja. Una ruta nueva con dato en el path se añade aquí (la prueba en
+# apps/api/__tests__/services/nginx-template-pii.test.ts) mientras no se retire de la URL.
+# Las páginas de la SPA salen como `/index.html`: `try_files` cambia `$uri` antes de escribir la
+# línea; `/tramite/portal/` y `/m/` siguen aquí por si llegan a resolverse sin ese salto.
+map $uri $ruta_log {
+    default $uri;
+    ~*^(/api/privacy/preview)/ $1/*;
+    ~*^(/api/flito/derechos/candidatos)/ $1/*;
+    ~*^(/api/vehicles)/[^/?]+((?:/[^/?]*)*) $1/*$2;
+    ~*^(/api/public/drive/cuentas-archivo)/ $1/*;
+    ~*^(/api/drive/cuentas-archivo)/ $1/*;
+    ~*^(/api/validacion-identidad/(?:info|completar))/ $1/*;
+    ~*^(/api/tramite-portal)/[^/?]+((?:/[^/?]*)*) $1/*$2;
+    ~*^(/api/public/tramite-verificar/qr-png)/ $1/*;
+    ~*^(/api/rndc/public/manifiestos/(?:qr|qr-png))/ $1/*;
+    ~*^(/api/drivers/checklists/qr)/ $1/*;
+    ~*^(/tramite/portal)/ $1/*;
+    ~*^(/m)/ $1/*;
+    # Un `%3F` decodificado no es query, pero lo que le sigue tampoco se escribe.
+    ~^([^?]*)\? $1;
+}
+
+# Igual que `main` de la imagen, sin `$request` (query), `$http_referer` (URL de la página de origen)
+# ni `$remote_user`.
+log_format flito_saneado '$remote_addr - [$time_local] "$request_method $ruta_log" $status '
+                         '$body_bytes_sent $request_time "$http_user_agent" "$http_x_forwarded_for"';
+
 server {
     listen ${NGINX_PORT};
     server_name _;
+
+    # Dentro de `server` a propósito: este archivo se incluye en el bloque `http`, y un `access_log`
+    # allí se SUMARÍA al `main` de nginx.conf en vez de sustituirlo.
+    access_log /var/log/nginx/access.log flito_saneado;
+
+    # `error_log` no usa `log_format`: un 502 a nivel `error` escribe `request: "GET …?buscar=…"`. Los
+    # 502/504 se diagnostican por el estado del access log. Residuo declarado: lo que nginx emita a
+    # nivel `crit` en un contexto de petición puede citarla (fallos de sistema, no del tráfico normal).
+    error_log /var/log/nginx/error.log crit;
 
     root /usr/share/nginx/html;
     index index.html;
@@ -98,6 +137,12 @@ server {
 
     # SPA fallback (react-router).
     location / {
+        # HU #14280: la URL de la página puede llevar token o placa en la query. `strict-origin` deja
+        # solo el origen en el Referer, también hacia el mismo sitio. No `no-referrer`: un formulario
+        # POST pasaría a mandar `Origin: null`, y `validar-identidad.html` llama a Nominatim, que pide
+        # un Referer válido. Aquí y no en `server`: `/assets/` tiene su propio
+        # `add_header` (que anularía el heredado) y `/api/` ya la recibe de helmet.
+        add_header Referrer-Policy "strict-origin" always;
         try_files $uri $uri/ /index.html;
     }
 }

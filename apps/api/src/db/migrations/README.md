@@ -6,8 +6,11 @@ Las migrations en este proyecto son **SQL plano**, NO formato drizzle.
 Solo `0001-0004` fueron generadas por `drizzle-kit generate`. El resto (`0005+`)
 son SQL escritos a mano para tener control total del schema.
 
-`drizzle-kit migrate` aplicaría solo las 5 que aparecen en `meta/_journal.json`
-y dejaría la BD inconsistente. **NO usar.**
+`drizzle-kit` está **retirado** (dependencia, config, `meta/` y scripts; ver
+[ADR-0035](../../../../../docs/adr/ADR-0035-integridad-de-migraciones-y-retiro-de-drizzle-kit.md)):
+su journal se quedó en `0004`, así que `generate` emitiría una migración recreando ~120 tablas y
+`migrate` aplicaría solo 5 de 64. `npm run db:generate` y `npm run db:migrate` terminan con error.
+`push`, `check`, `introspect` y `studio` tampoco se usan: readoptarlos exige un ADR nuevo.
 
 ## Cómo aplicar pendientes
 
@@ -24,8 +27,66 @@ Modos:
 | Comando | Uso |
 |---|---|
 | `npm run db:apply` | Aplica las pendientes (idempotente) |
-| `npm run db:apply -- --dry` | Muestra qué aplicaría sin tocar BD |
-| `npm run db:apply -- --mark-all` | Marca todas como aplicadas SIN ejecutar (solo VPS donde el SQL ya corrió manualmente con `psql`) |
+| `npm run db:apply -- --dry` | Muestra qué aplicaría sin aplicar nada |
+| `npm run db:apply -- --mark-all` | Marca como aplicadas las que falten, SIN ejecutar (solo VPS donde el SQL ya corrió manualmente con `psql`). No reescribe el sha de las ya registradas |
+| `npm run db:apply -- --check-drift` | Solo lectura (lo impone Postgres): reporta deriva y huérfanas. Salida: `0` limpio, `3` con hallazgos, `1` error |
+| `npm run db:apply -- --allow-drift=<motivo>` | Continúa pese a los hallazgos y registra archivo y motivo. El motivo es obligatorio |
+
+## Integridad: deriva y huérfanas (ADR-0035)
+
+Antes de aplicar nada, el runner compara el ledger con el disco. El log es estable y se consulta
+con `grep '\[drift\]'`:
+
+```
+[drift] deriva archivo=… ledger=… disco=…
+[drift] huerfana archivo=… ledger=… pista=…
+[drift] resumen intactas=N aceptadas=N derivas=N huerfanas=N pendientes=N
+```
+
+**Estado actual: sin activar.** `DRIFT_ABORTA = false` en `db-apply.ts`: el arranque normal informa
+y sale con 0. El aborto se activa en un segundo PR, solo tras medir `--check-drift` en DEV, QA y PDN
+(ADR-0035 §A). Hasta entonces, una renombrada pendiente se aplica como hasta hoy, con
+`[drift] aviso-reejecucion`.
+
+| Pista de la huérfana | Significa | Qué hacer |
+|---|---|---|
+| `sha:<pendiente>` | Un pendiente tiene el mismo contenido: **se re-ejecutaría** | Restaurar el nombre registrado |
+| `registrada:<nombre>` | Ese contenido ya está registrado bajo otro nombre | Comprobar que el doble efecto fue inocuo; añadir al manifiesto con `shaDisco: null` |
+| `nombre:<pendiente>` | Un pendiente tiene el mismo nombre sin número y otro contenido: **se re-ejecutaría con cambios** | Restaurar el nombre registrado, revisando el diff |
+| `ninguna` | Sin rastro: migración retirada | Investigar; manifiesto si procede |
+
+Con `--allow-drift` en una pista `sha:` o `nombre:`, el pendiente **se ejecuta de nuevo** bajo su nuevo
+nombre, y el log lo avisa expresamente.
+
+### Manifiesto `derivas-aceptadas.json`
+
+Excepciones aprobadas y versionadas. Cada entrada acepta **el par exacto**: otra edición del archivo
+cambia `shaDisco` y vuelve a ser un hallazgo. El ledger no se toca. Un archivo puede tener varias
+entradas si los ambientes difieren. Para una huérfana, `shaDisco: null`.
+
+```json
+[{ "archivo": "0045_….sql", "shaLedger": "…", "shaDisco": "…", "motivo": "…", "wi": "#…" }]
+```
+
+### Check de CI
+
+Un PR a `develop` que modifica, borra o renombra un `.sql` de esta carpeta que ya existe en `develop`
+falla (`scripts/check-migraciones-inmutables.mjs`, en el job `naming`). Se arregla con una migración
+nueva. Solo si una migración nueva nunca llegaría a correr (la original falló o rompe la cadena en BD
+limpia), el mismo PR añade al manifiesto una entrada con motivo cuyo `shaDisco` coincide con el archivo
+editado (`null` si se borró). Renumerar un archivo que aún no está en `develop` pasa.
+
+### Fricción local tras activar el aborto
+
+Cambiar de rama con una migración ya aplicada deja una huérfana local, y el job `migrate` de
+`docker-compose.yml` abortará y dejará la API local abajo. Salida documentada, solo local, en
+`docker-compose.override.yml` (no versionado):
+
+```yaml
+services:
+  migrate:
+    command: ['node', 'dist/scripts/db-apply.js', '--allow-drift=local: cambio de rama']
+```
 
 ## Convenciones para nuevas migrations
 
@@ -40,13 +101,3 @@ Modos:
 
 64 migrations en disco, todas aplicadas en VPS Dev2 (`operaciones_db`). El runner
 fue introducido tras detectar que `drizzle-kit migrate` solo aplicaría 5 de 64.
-
-## Herramientas: drizzle-kit y el esquema partido
-
-El esquema Drizzle se reparte entre `src/db/schema.ts` y `src/db/schema/permisos.ts` (las tablas
-`permisos_*`, re-exportadas desde `schema.ts`; techo de `max-lines`). `drizzle-kit generate` y
-`drizzle-kit migrate` **siguen prohibidos** (arriba). Si alguien necesita `push`/`check` para revalidar
-la deriva de tipos, el cargador embebido de drizzle-kit (esbuild-register) no remapea el import
-`./schema/permisos.js` → `.ts` y falla con `MODULE_NOT_FOUND`: hay que invocarlo bajo `tsx`, p. ej.
-`npx tsx node_modules/drizzle-kit/bin.cjs check --config apps/api/drizzle.config.ts` desde la raíz
-(comprobar primero que arranca con el Node del repo: el CI no lo usa).

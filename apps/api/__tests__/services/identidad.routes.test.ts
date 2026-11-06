@@ -25,6 +25,17 @@ vi.mock('../../src/shared/middleware/audit.js', () => ({
   audit: auditMock,
 }));
 
+// HU #14280 (AC9): qué escribe el log en el modo de enlace manual.
+const warnMock = vi.fn();
+vi.mock('../../src/shared/logger.js', () => {
+  const falso = {
+    warn: (...a: unknown[]) => warnMock(...a),
+    info: vi.fn(), error: vi.fn(), debug: vi.fn(), fatal: vi.fn(), trace: vi.fn(),
+    child: () => falso,
+  };
+  return { logger: falso, loggerFor: () => falso };
+});
+
 // nodemailer mock
 const sendMailMock = vi.fn();
 const createTransportMock = vi.fn(() => ({ sendMail: sendMailMock }));
@@ -61,6 +72,7 @@ vi.mock('../../src/shared/redis.js', () => ({
 }));
 
 beforeEach(() => {
+  warnMock.mockClear();
   selectMock.mockReset();
   insertMock.mockReset();
   updateMock.mockReset();
@@ -187,6 +199,12 @@ describe('POST /iniciar — envío email validación', () => {
     expect(r.body.emailEnviado).toBe(false);
     expect(r.body.motivo).toMatch(/SMTP no configurado/);
     expect(r.body.link).toContain('/validar-identidad.html?t=');
+    // AC9: el log conserva trámite y motivo; el enlace y el token solo van en la respuesta.
+    const token14280 = String(r.body.link).split('t=')[1]!;
+    const linea = warnMock.mock.calls.find((c) => String(c[1]).includes('modo enlace manual'))!;
+    expect(linea[0]).toEqual({ tramiteId: 1, motivo: 'SMTP no configurado' });
+    expect(JSON.stringify(warnMock.mock.calls)).not.toContain(token14280);
+    expect(JSON.stringify(warnMock.mock.calls)).not.toContain('validar-identidad');
   });
 
   it('éxito: invalida tokens previos + insert + sendMail + audit con email enmascarado', async () => {
@@ -243,6 +261,11 @@ describe('POST /iniciar — envío email validación', () => {
     expect(r.body.fallback).toBe(true);
     expect(r.body.emailEnviado).toBe(false);
     expect(r.body.motivo).toContain('SMTP rejected');
+    // AC9: el administrador recibe el enlace; el log conserva trámite y motivo, sin enlace ni token.
+    expect(r.body.link).toContain('/validar-identidad.html?t=');
+    const linea = warnMock.mock.calls.find((c) => String(c[1]).includes('modo enlace manual'))!;
+    expect(linea[0]).toEqual({ tramiteId: 1, motivo: 'Error SMTP: SMTP rejected' });
+    expect(JSON.stringify(warnMock.mock.calls)).not.toContain(String(r.body.link).split('t=')[1]);
     expect(r.body.link).toContain('/validar-identidad.html?t=');
   });
 
@@ -580,6 +603,7 @@ describe('GET /estado/:tramiteId', () => {
     ]));
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
+    insertMock.mockReturnValueOnce({ values: () => Promise.resolve(undefined) });
     const r = await request(app).get('/api/tramites/identidad/estado/5')
       .set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
@@ -608,6 +632,7 @@ describe('GET /documentos/:tramiteId — fotos resueltas (S3 vs legacy)', () => 
     getPhotoMock.mockResolvedValueOnce('data:image/jpeg;base64,abc');
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
+    insertMock.mockReturnValueOnce({ values: () => Promise.resolve(undefined) });
     const r = await request(app).get('/api/tramites/identidad/documentos/5')
       .set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
@@ -626,6 +651,7 @@ describe('GET /documentos/:tramiteId — fotos resueltas (S3 vs legacy)', () => 
     getPhotoMock.mockRejectedValueOnce(new Error('S3 404'));
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
+    insertMock.mockReturnValueOnce({ values: () => Promise.resolve(undefined) });
     const r = await request(app).get('/api/tramites/identidad/documentos/5')
       .set('Authorization', `Bearer ${token}`);
     expect(r.body.documentos[0].fotoRostro).toBeNull();
@@ -640,6 +666,7 @@ describe('GET /documentos/:tramiteId — fotos resueltas (S3 vs legacy)', () => 
     }]));
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
+    insertMock.mockReturnValueOnce({ values: () => Promise.resolve(undefined) });
     const r = await request(app).get('/api/tramites/identidad/documentos/5')
       .set('Authorization', `Bearer ${token}`);
     expect(r.body.documentos[0].fotoRostro).toBeNull();

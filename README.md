@@ -36,7 +36,7 @@ cp apps/api/.env.example apps/api/.env
 #   Edita apps/api/.env y completa los valores (ver "Variables" abajo).
 
 # 3. Migrar la base de datos
-npm run db:migrate            # aplica las migraciones Drizzle
+npm run db:apply -w apps/api  # aplica las migraciones pendientes
 
 # 4. Levantar en desarrollo (dos terminales)
 npm run dev:api               # API  → http://localhost:3005

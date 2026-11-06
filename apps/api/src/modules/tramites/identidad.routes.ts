@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { maskName } from '../../shared/utils/pii.js';
 import nodemailer from 'nodemailer';
-import { uploadPhoto, getPhoto, ensureBucket } from '../../services/storage.js';
+import { uploadPhoto, ensureBucket } from '../../services/storage.js';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { tramitesDigitales, tramitesValidaciones } from '../../db/schema.js';
@@ -15,6 +15,11 @@ import { loggerFor } from '../../shared/logger.js';
 import { anthropicMessages } from './anthropic.js';
 import { extractAnthropicText, parseBiometricJson } from './biometric-json.js';
 import { recoverStaleByToken } from './validacion-recovery.js';
+import { resolverFotoBiometrica } from './identidad.fotos.js';
+import { PiiDecryptError } from '../../shared/utils/crypto.js';
+import { PiiAccessLogError } from '../../shared/pii-audit.js';
+import { generarSelloFirma } from './identidad.sello-firma.js';
+import { registrarLecturaCertificado, registrarLecturaDocumentos, registrarLecturaEstado } from './identidad.pii.js';
 import {
   extractPartesTraspasoFromTramite,
   mensajePartesTraspasoDuplicadas,
@@ -30,52 +35,7 @@ const router = Router();
 // #13: SSE — conexiones activas de admins esperando notificaciones de validación
 const sseClients = new Set<any>();
 
-// VUL-03: Cifrado AES-256-GCM para datos biométricos
-function encryptPII(plaintext: string): string {
-  const key = crypto.scryptSync(env.PII_ENC_KEY, 'kyverum-pii-salt', 32);
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return iv.toString('hex') + ':' + tag.toString('hex') + ':' + encrypted.toString('base64');
-}
-
-function decryptPII(ciphertext: string): string {
-  try {
-    const [ivHex, tagHex, data] = ciphertext.split(':');
-    if (!ivHex || !tagHex || !data) return ciphertext; // legacy sin cifrar
-    const key = crypto.scryptSync(env.PII_ENC_KEY, 'kyverum-pii-salt', 32);
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
-    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
-    return decipher.update(data, 'base64', 'utf8') + decipher.final('utf8');
-  } catch { return ciphertext; } // fallback para datos legacy
-}
-
 function genToken(): string { return crypto.randomBytes(32).toString('hex'); }
-
-// TRAM-F3 — Firma electrónica avanzada (Ley 527/1999) generada al aprobar la
-// biométrica. Espejo de CEA: documento canónico → SHA-256 → serie KYV-FEA-...
-// El sello (serie+hash) viaja luego al contrato/FUR (proxy CEA con override).
-function generarSelloFirma(input: { tramiteId: number; parte: string | null; nombre: string; tipoDoc: string; documento: string; email: string; placa: string; vehiculo: string; score: number; bio: any }) {
-  try {
-    const ts = new Date().toISOString();
-    const canonico = JSON.stringify({
-      tipoDocumento: 'FIRMA_ELECTRONICA_AVANZADA_TRASPASO_VEHICULO',
-      ley: 'Ley 527 de 1999 / Decreto 2364 de 2012',
-      tramiteId: input.tramiteId,
-      rolFirmante: (input.parte || '').toUpperCase(),
-      firmante: { nombre: input.nombre, tipoDocumento: input.tipoDoc, numeroDocumento: input.documento, email: input.email },
-      objeto: { placa: input.placa, vehiculo: input.vehiculo },
-      identidadBiometrica: { scoreFacial: input.score, documentoOficial: input.bio?.documento_ocr?.es_documento_oficial === true, livenessOk: input.bio?.liveness?.es_persona_real === true },
-      firmadoEn: ts,
-    });
-    const hash = crypto.createHash('sha256').update(canonico).digest('hex');
-    const serie = 'KYV-FEA-' + ts.replace(/[-:T.Z]/g, '').slice(0, 14) + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
-    return { firmaSerie: serie, firmaHash: hash, firmaTimestamp: new Date(ts) };
-  } catch {
-    return { firmaSerie: null, firmaHash: null, firmaTimestamp: null };
-  }
-}
 
 // SMTP singleton optimizado para Office 365 / Hotmail
 let smtpTransport: any = null;
@@ -321,10 +281,11 @@ router.post('/iniciar', authMiddleware, exigirFuncion('tramite.identidad.iniciar
   // el comprador puede validar aunque el correo no salga. Si el SMTP no está
   // configurado o el envío falla, NO bloqueamos el trámite: devolvemos el enlace al
   // admin (autenticado, dueño del trámite) para que lo envíe manualmente (WhatsApp,
-  // etc.) y lo registramos en logs. Controlable con TRAMITES_EMAIL_FALLBACK=false.
+  // etc.). Controlable con TRAMITES_EMAIL_FALLBACK=false.
+  // HU #14280: el enlace lleva el token portador y solo viaja en la respuesta; el log no lo copia.
   const fallbackHabilitado = env.TRAMITES_EMAIL_FALLBACK !== false;
   const responderConEnlaceManual = (motivo: string) => {
-    log.warn({ tramiteId, motivo, link }, 'email de validación no enviado — modo enlace manual');
+    log.warn({ tramiteId, motivo }, 'email de validación no enviado — modo enlace manual');
     res.json({
       ok: true, email: comp.email, expiraAt: expiraAt.toISOString(),
       emailEnviado: false, fallback: true, motivo, link,
@@ -592,7 +553,7 @@ router.post('/completar/:token', completarLimiter, async (req: Request, res: Res
     const score = aprobado ? (bio.resultado_general?.score_total || 0) : scoreMin;
 
     // Subir fotos a S3 (MinIO). Sin fallback BD — si MinIO falla retornamos 503 y revertimos.
-    // El fallback `encryptPII` legacy fragmentaba el formato de la columna y enmascaraba
+    // El fallback legacy de cifrar en BD fragmentaba el formato de la columna y enmascaraba
     // outages reales. Con MinIO en SLA, fail-fast es la opción correcta (Ola C-2).
     let rostroKey = '', frontalKey = '', reversoKey = '';
     try {
@@ -644,7 +605,7 @@ router.post('/completar/:token', completarLimiter, async (req: Request, res: Res
 
     // #13: Notificar via SSE a admins conectados
     sseClients.forEach((client: any) => {
-      try { client.write(`data: ${JSON.stringify({ tipo: 'validacion_completada', tramiteId: record.tramiteId, estado: aprobado ? 'aprobado' : 'rechazado', nombre: record.nombre })}\n\n`); } catch {}
+      try { client.write(`data: ${JSON.stringify({ tipo: 'validacion_completada', tramiteId: record.tramiteId, estado: aprobado ? 'aprobado' : 'rechazado' })}\n\n`); } catch {}
     });
 
     res.json({ ok: true, aprobado, score, motivo: bio.resultado_general?.motivo });
@@ -668,6 +629,7 @@ router.get('/estado/:tramiteId', authMiddleware, exigirFuncion('tramite.identida
     validadoAt: tramitesValidaciones.validadoAt, expiraAt: tramitesValidaciones.expiraAt,
   }).from(tramitesValidaciones).where(eq(tramitesValidaciones.tramiteId, tramiteId))
     .orderBy(desc(tramitesValidaciones.id));
+  if (records.length > 0) await registrarLecturaEstado(req, tramiteId, records.length);
   res.json({ ok: true, validaciones: records });
 });
 
@@ -677,24 +639,18 @@ router.get('/documentos/:tramiteId', authMiddleware, exigirFuncion('tramite.iden
   if (!Number.isFinite(tramiteId)) { res.status(400).json({ ok: false }); return; }
   const records = await db.select().from(tramitesValidaciones).where(eq(tramitesValidaciones.tramiteId, tramiteId));
 
-  // Resolver foto: key S3 (validaciones/...) o legacy cifrado en BD
-  const resolvePhoto = async (val: string | null): Promise<string | null> => {
-    if (!val) return null;
-    if (val.startsWith('data:') || val.includes(':')) return decryptPII(val); // legacy cifrado o base64
-    try { return await getPhoto(val); } catch { return null; } // key S3
-  };
-
   const documentos = await Promise.all(records.map(async (r) => ({
     id: r.id, contexto: 'COMPRADOR', nombre: r.nombre, tipoDoc: r.tipoDoc,
     documento: r.documento, estado: r.estado, score: r.score,
-    fotoRostro: await resolvePhoto(r.fotoRostro),
-    fotoCedulaFrontal: await resolvePhoto(r.fotoCedulaFrontal),
-    fotoCedulaReverso: await resolvePhoto(r.fotoCedulaReverso),
+    fotoRostro: await resolverFotoBiometrica(r.fotoRostro, { column: 'foto_rostro', id: r.id }),
+    fotoCedulaFrontal: await resolverFotoBiometrica(r.fotoCedulaFrontal, { column: 'foto_cedula_frontal', id: r.id }),
+    fotoCedulaReverso: await resolverFotoBiometrica(r.fotoCedulaReverso, { column: 'foto_cedula_reverso', id: r.id }),
     detalle: r.detalle, validadoAt: r.validadoAt, ipAddress: r.ipAddress,
     ciudadGeo: r.ciudadGeo, lat: r.lat, lng: r.lng,
     intentos: r.intentos, enviadoAt: r.enviadoAt,
   })));
 
+  if (records.length > 0) await registrarLecturaDocumentos(req, tramiteId, records.length);
   res.json({ ok: true, documentos });
 });
 
@@ -919,13 +875,6 @@ router.post('/certificado/:tramiteId', authMiddleware, exigirFuncion('tramite.id
       } catch (e: any) { log.warn({ label: label || 'img', err: e.message }, 'falla cargando imagen'); return null; }
     };
 
-    // Resolver foto para PDF: key S3 o legacy cifrado en BD
-    const resolvePhotoCert = async (val: string | null): Promise<string | null> => {
-      if (!val) return null;
-      if (val.startsWith('data:') || val.includes(':')) return decryptPII(val);
-      try { return await getPhoto(val); } catch { return null; }
-    };
-
     let pageIdx = 0;
     for (const v of rows) {
       let page = pdfDoc.addPage([612, 792]);
@@ -1008,9 +957,9 @@ router.post('/certificado/:tramiteId', authMiddleware, exigirFuncion('tramite.id
       const labels = ['SELFIE', 'DOC. FRONTAL', 'DOC. REVERSO'];
       log.info({ tramiteId, validacionId: v.id, nombre: maskName(v.nombre), rostro: !!v.fotoRostro, frontal: !!v.fotoCedulaFrontal, reverso: !!v.fotoCedulaReverso }, 'cert-vid: contexto validacion');
       const fotos = [
-        await embedImg(await resolvePhotoCert(v.fotoRostro), 'rostro'),
-        await embedImg(await resolvePhotoCert(v.fotoCedulaFrontal), 'frontal'),
-        await embedImg(await resolvePhotoCert(v.fotoCedulaReverso), 'reverso')
+        await embedImg(await resolverFotoBiometrica(v.fotoRostro, { column: 'foto_rostro', id: v.id }), 'rostro'),
+        await embedImg(await resolverFotoBiometrica(v.fotoCedulaFrontal, { column: 'foto_cedula_frontal', id: v.id }), 'frontal'),
+        await embedImg(await resolverFotoBiometrica(v.fotoCedulaReverso, { column: 'foto_cedula_reverso', id: v.id }), 'reverso')
       ];
       for (let i = 0; i < 3; i++) {
         const xf = M + i * (fotoW + 10);
@@ -1114,11 +1063,14 @@ router.post('/certificado/:tramiteId', authMiddleware, exigirFuncion('tramite.id
     }
 
     const pdfBytes = await pdfDoc.save();
+    await registrarLecturaCertificado(req, tramiteId, rows.length);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Certificacion_Identidad_${placa}.pdf"`);
     res.send(Buffer.from(pdfBytes));
     audit(req, { action: 'export', resource: 'certificado_identidad', resourceId: String(tramiteId), detail: `Placa: ${placa}` }).catch(() => {});
   } catch (e: any) {
+    // Lo responde errorHandler: el 500 de abajo concatena e.message y este log va sin requestId.
+    if (e instanceof PiiDecryptError || e instanceof PiiAccessLogError) throw e;
     log.error({ err: e }, 'cert-vid fallo');
     res.status(500).json({ error: 'Error generando certificado: ' + e.message });
   }

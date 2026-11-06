@@ -25,6 +25,12 @@
 //          `flito-soat-borrados-pendientes` (independiente del `origen`): la fila no se pierde y el
 //          objeto no queda huérfano (AC4). «El objeto no existe» cuenta como borrado.
 //
+// RN-BDP4  Feature #13978, HU #13987 (ADR-0034 D3): una versión recifrada puede tener `storage_key_previa`,
+//          el objeto anterior que se conserva durante la ventana de rollback. Al purgar la fila también se
+//          encola y se borra ese objeto, y se anula la columna: un documento purgado no sobrevive en
+//          MinIO hasta `--limpiar-objetos`. La marca exige que `storage_key` siga siendo la leída: si el
+//          Job recifró la fila entre la lectura y la marca, se salta y la corrida siguiente la ve bien.
+//
 // Logs: solo conteos, ids opacos (uuid de la versión), huella de la clave y nombre del error.
 
 import { and, asc, eq, inArray, isNotNull, isNull, lte, not } from 'drizzle-orm';
@@ -61,6 +67,7 @@ interface Candidata {
   id: string;
   companiaId: number;
   storageKey: string | null;
+  storageKeyPrevia: string | null;
   tamanoBytes: number;
   vigente: boolean;
   reemplazadoEn: Date | null;
@@ -91,17 +98,18 @@ interface Encolado { documentoId: string; storageKey: string; pendienteId: strin
 /** RN-BDP2: una compañía, una transacción. Devuelve lo marcado y encolado. */
 async function marcarCompania(companiaId: number, filas: Candidata[], ahora: Date): Promise<Encolado[]> {
   const claves = new Map(filas.map((f) => [f.id, f.storageKey as string]));
+  const previas = new Map(filas.map((f) => [f.id, f.storageKeyPrevia]));
   const bytesDe = new Map(filas.map((f) => [f.id, f.tamanoBytes]));
   return db.transaction(async (tx) => {
     // Primero se anula la clave y se marca la purga; después se encola el objeto (ADR-0028 §9).
     const marcadas = await tx.update(t)
-      .set({ storageKey: null, purgadoEn: ahora, motivoRetiro: null })
+      .set({ storageKey: null, storageKeyPrevia: null, purgadoEn: ahora, motivoRetiro: null })
       .where(and(
         inArray(t.id, [...claves.keys()]),
         eq(t.companiaId, companiaId),
         eq(t.vigente, false),
         isNull(t.purgadoEn),
-        isNotNull(t.storageKey),
+        inArray(t.storageKey, [...claves.values()]),
       ))
       .returning({ id: t.id });
     if (marcadas.length === 0) return [];
@@ -111,10 +119,13 @@ async function marcarCompania(companiaId: number, filas: Candidata[], ahora: Dat
       const storageKey = claves.get(id);
       if (!storageKey) continue;
       bytes += bytesDe.get(id) ?? 0;
-      const [p] = await tx.insert(flitoStorageBorradosPendientes).values({
-        storageKey, claveHash: huellaClave(storageKey), origen: ORIGEN_PURGA_BOLSAS_DOCUMENTOS,
-      }).returning({ id: flitoStorageBorradosPendientes.id });
-      encolados.push({ documentoId: id, storageKey, pendienteId: p?.id ?? null });
+      const previa = previas.get(id);
+      for (const clave of previa ? [storageKey, previa] : [storageKey]) {
+        const [p] = await tx.insert(flitoStorageBorradosPendientes).values({
+          storageKey: clave, claveHash: huellaClave(clave), origen: ORIGEN_PURGA_BOLSAS_DOCUMENTOS,
+        }).returning({ id: flitoStorageBorradosPendientes.id });
+        encolados.push({ documentoId: id, storageKey: clave, pendienteId: p?.id ?? null });
+      }
     }
     await tx.insert(auditLogs).values({
       userId: null,
@@ -155,7 +166,8 @@ export async function ejecutarPurgaVersiones(
     consideradas: 0, purgadas: 0, companias: 0, bytes: 0, objetosBorrados: 0, objetosPendientes: 0,
   };
   const candidatas: Candidata[] = await db.select({
-    id: t.id, companiaId: t.companiaId, storageKey: t.storageKey, tamanoBytes: t.tamanoBytes,
+    id: t.id, companiaId: t.companiaId, storageKey: t.storageKey, storageKeyPrevia: t.storageKeyPrevia,
+    tamanoBytes: t.tamanoBytes,
     vigente: t.vigente, reemplazadoEn: t.reemplazadoEn, purgadoEn: t.purgadoEn,
   }).from(t)
     .where(and(not(t.vigente), isNull(t.purgadoEn), isNotNull(t.storageKey), lte(t.reemplazadoEn, corte)))
@@ -183,8 +195,8 @@ export async function ejecutarPurgaVersiones(
     }
     if (encolados.length === 0) continue;
     r.companias += 1;
-    r.purgadas += encolados.length;
     const ids = new Set(encolados.map((x) => x.documentoId));
+    r.purgadas += ids.size;
     r.bytes += filas.filter((f) => ids.has(f.id)).reduce((s, f) => s + f.tamanoBytes, 0);
     for (const e of encolados) {
       const res = await borrarObjeto(e);

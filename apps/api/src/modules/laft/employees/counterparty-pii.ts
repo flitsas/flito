@@ -1,5 +1,6 @@
 import { encryptPii, decryptPii, newUuid, hmacCedula, normalizeDocument } from '../../../shared/utils/crypto.js';
-import type { CipherBundle } from '../../../shared/utils/crypto.js';
+import type { AadPii, CipherBundle } from '../../../shared/utils/crypto.js';
+import { piiDecryptFailuresTotal } from '../../../shared/metrics.js';
 
 // Helpers para cifrar/descifrar columnas PII de laft_counterparties (mig 0063).
 // Convención: las columnas *_enc almacenan un JSONB con la siguiente forma:
@@ -18,7 +19,7 @@ export interface EncBundleJsonb {
   keyVersion: number;
 }
 
-function bundleToJsonb(b: CipherBundle, aadNonce: string): EncBundleJsonb {
+export function bundleToJsonb(b: CipherBundle, aadNonce: string): EncBundleJsonb {
   return {
     cipher: b.cipher.toString('base64'),
     iv: b.iv.toString('base64'),
@@ -28,7 +29,7 @@ function bundleToJsonb(b: CipherBundle, aadNonce: string): EncBundleJsonb {
   };
 }
 
-function jsonbToBundle(j: EncBundleJsonb): CipherBundle {
+export function jsonbToBundle(j: EncBundleJsonb): CipherBundle {
   return {
     cipher: Buffer.from(j.cipher, 'base64'),
     iv: Buffer.from(j.iv, 'base64'),
@@ -39,6 +40,11 @@ function jsonbToBundle(j: EncBundleJsonb): CipherBundle {
 
 export type CounterpartyEncColumn = 'doc_number' | 'email' | 'phone';
 
+/** La columna de la AAD no lleva `_enc`. */
+export const aadCounterparty = (column: CounterpartyEncColumn, rowId: number, aadNonce: string): AadPii => (
+  { table: 'laft_counterparties', column, empresaNit: String(rowId), aadNonce }
+);
+
 export function encryptCounterpartyField(
   plain: string | null | undefined,
   column: CounterpartyEncColumn,
@@ -46,13 +52,17 @@ export function encryptCounterpartyField(
 ): EncBundleJsonb | null {
   if (plain == null || plain === '') return null;
   const aadNonce = newUuid();
-  const bundle = encryptPii(plain, {
-    table: 'laft_counterparties',
-    column,
-    empresaNit: String(rowId),
-    aadNonce,
-  });
+  const bundle = encryptPii(plain, aadCounterparty(column, rowId, aadNonce));
   return bundleToJsonb(bundle, aadNonce);
+}
+
+/** Lanza si no descifra. La lectura de las rutas va por `decryptCounterpartyField`. */
+export function descifrarCounterpartyEstricto(
+  enc: EncBundleJsonb,
+  column: CounterpartyEncColumn,
+  rowId: number,
+): string {
+  return decryptPii(jsonbToBundle(enc), aadCounterparty(column, rowId, enc.aadNonce));
 }
 
 export function decryptCounterpartyField(
@@ -62,13 +72,9 @@ export function decryptCounterpartyField(
 ): string | null {
   if (!enc) return null;
   try {
-    return decryptPii(jsonbToBundle(enc), {
-      table: 'laft_counterparties',
-      column,
-      empresaNit: String(rowId),
-      aadNonce: enc.aadNonce,
-    });
+    return descifrarCounterpartyEstricto(enc, column, rowId);
   } catch {
+    piiDecryptFailuresTotal.inc({ table: 'laft_counterparties', column });
     return null;
   }
 }

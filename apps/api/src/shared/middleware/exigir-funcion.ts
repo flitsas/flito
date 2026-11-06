@@ -121,13 +121,13 @@ function enmascarar(path: string): string {
  * La `ruta` de la bitácora: la PLANTILLA de la ruta cuando existe, y si no, el path enmascarado.
  * NUNCA el dato. `ruta` es varchar(300) y se corta; la query se descarta siempre.
  *
- * Hay rutas con cédula, NIT, placa, VIN, token o keyHash como parámetro de PATH (`/preview/:docNumber`
- * en privacy, `/candidatos/:placa` en flito-derechos, `/:vin/...` en vehicles, los `/:token` de los
+ * Hay rutas con cédula, NIT, placa, VIN, token o keyHash como parámetro de PATH (`/candidatos/:placa`
+ * en flito-derechos, `/:vin/...` en vehicles, los `/:token` de los
  * portales). Hoy ninguna pasa por aquí; cuando la #12083 monte la guarda, sí. Por eso:
  *
- *   · Guarda a nivel de RUTA (`router.get('/preview/:docNumber', exigirFuncion(...), h)`): Express ya
+ *   · Guarda a nivel de RUTA (`router.get('/candidatos/:placa', exigirFuncion(...), h)`): Express ya
  *     rellenó `req.route` al entrar a la cadena, y `req.baseUrl + req.route.path` es la plantilla
- *     (`/api/privacy/preview/:docNumber`), sin dato. El `baseUrl` se enmascara por si el router se
+ *     (`/api/flito/derechos/candidatos/:placa`), sin dato. El `baseUrl` se enmascara por si el router se
  *     montó con un parámetro en el prefijo.
  *   · Guarda a nivel de ROUTER (`router.use(exigirFuncion(...))`), o `req.route.path` que no es un
  *     string (array o RegExp): `originalUrl` sin query con cada segmento con pinta de dato → `*`.

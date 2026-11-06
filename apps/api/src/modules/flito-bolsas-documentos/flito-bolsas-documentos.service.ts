@@ -33,7 +33,7 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { clients, flitoBolsasDocumentos, users } from '../../db/schema.js';
-import { decryptPiiBuffer, encryptPiiBuffer, newUuid, type AadParts } from '../../shared/utils/crypto.js';
+import { decryptPiiBuffer, encryptPiiBuffer, newUuid, type AadPii } from '../../shared/utils/crypto.js';
 import { hoyColombia } from '../../shared/utils/fecha-rango.js';
 import { esCodigoPg } from '../../shared/utils/pg-error.js';
 import { deleteEntityDocument, getEntityDocumentStream, uploadEntityDocument } from '../../services/storage.js';
@@ -60,7 +60,7 @@ const retirador = alias(users, 'retirador');
 const CON_VIGENCIA = new Set<string>(TIPOS_DOCUMENTO_BOLSA_CON_VIGENCIA);
 
 /** La AAD de una fila: liga el texto cifrado a ESTE documento (un blob de otra fila no descifra aquí). */
-function aadDe(documentoId: string, aadNonce: string): AadParts {
+export function aadDe(documentoId: string, aadNonce: string): AadPii {
   return { table: 'flito_bolsas_documentos', column: 'archivo', empresaNit: documentoId, aadNonce };
 }
 
@@ -375,7 +375,7 @@ export interface ArchivoDocumento {
   contenido: Buffer;
 }
 
-async function leerTodo(stream: NodeJS.ReadableStream): Promise<Buffer> {
+export async function leerTodo(stream: NodeJS.ReadableStream): Promise<Buffer> {
   const partes: Buffer[] = [];
   for await (const p of stream) partes.push(Buffer.isBuffer(p) ? p : Buffer.from(p as string));
   return Buffer.concat(partes);

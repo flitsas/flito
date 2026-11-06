@@ -11,6 +11,7 @@
 import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { sql } from 'drizzle-orm';
+import { normalizarRutaRum } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { rumWebVitals } from '../../db/schema.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
@@ -92,7 +93,8 @@ router.post('/', rumLimiter, async (req: Request, res: Response) => {
       metric,
       value,
       rating: clip(b.rating, 20),
-      route: clip(b.route, 200),
+      // HU #14281: un cliente con una versión anterior de la página aún manda el token en la ruta.
+      route: clip(normalizarRutaRum(b.route), 200),
       navType: clip(b.navType, 24),
       device: clip(b.device, 12),
       conn: clip(b.conn, 12),

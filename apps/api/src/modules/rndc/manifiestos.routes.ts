@@ -14,6 +14,8 @@ import { audit } from '../../shared/middleware/audit.js';
 import { listOperaciones } from './operaciones.repo.js';
 import { encolarManifiesto, procesarManifiesto } from './envio.service.js';
 import { encryptPii, decryptPii, newUuid, normalizeDocument } from '../../shared/utils/crypto.js';
+import { aadTitularPago } from './manifiestos.aad.js';
+import { piiDecryptFailuresTotal } from '../../shared/metrics.js';
 
 const router = Router();
 
@@ -131,9 +133,12 @@ router.get('/:id', async (req: Request, res: Response) => {
     try {
       titularPagoCuenta = decryptPii(
         { cipher: r.titularPagoCuentaCipher, iv: r.titularPagoCuentaIv, authTag: r.titularPagoCuentaAuthTag, keyVersion: r.titularPagoCuentaKeyVersion ?? 1 },
-        { table: 'manifiestos', column: 'titular_pago_cuenta', empresaNit: r.numero, aadNonce: r.titularPagoCuentaAadNonce },
+        aadTitularPago(r.numero, r.titularPagoCuentaAadNonce),
       );
-    } catch { titularPagoCuenta = null; }
+    } catch {
+      piiDecryptFailuresTotal.inc({ table: 'manifiestos', column: 'titular_pago_cuenta' });
+      titularPagoCuenta = null;
+    }
   } else if (r.titularPagoCuentaLegacyPlain) {
     titularPagoCuenta = r.titularPagoCuentaLegacyPlain;
   }
@@ -236,7 +241,7 @@ router.post('/', async (req: Request, res: Response) => {
       const tpcInput = data.titularPagoCuenta ?? null;
       const tpcAad = tpcInput ? newUuid() : null;
       const tpcCipher = tpcInput
-        ? encryptPii(tpcInput, { table: 'manifiestos', column: 'titular_pago_cuenta', empresaNit: numero, aadNonce: tpcAad! })
+        ? encryptPii(tpcInput, aadTitularPago(numero, tpcAad!))
         : null;
       const [row] = await tx.insert(manifiestos).values({
         numero,
@@ -332,7 +337,7 @@ router.put('/:id', async (req: Request, res: Response) => {
   if (typeof d.titularPagoCuenta === 'string' || d.titularPagoCuenta === null) {
     if (d.titularPagoCuenta) {
       const aadNonce = newUuid();
-      const c = encryptPii(d.titularPagoCuenta, { table: 'manifiestos', column: 'titular_pago_cuenta', empresaNit: current.numero, aadNonce });
+      const c = encryptPii(d.titularPagoCuenta, aadTitularPago(current.numero, aadNonce));
       updates.titularPagoCuentaCipher = c.cipher;
       updates.titularPagoCuentaIv = c.iv;
       updates.titularPagoCuentaAuthTag = c.authTag;

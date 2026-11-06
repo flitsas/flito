@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import { env } from '../../config/env.js';
+import type { ParAadPii } from './pii-columnas.js';
+import { llavePiiMemoizada, pasadaPii } from './pii-keyring.js';
 
 // ============================================================================
 // AES-256-GCM para credenciales sensibles (RNDC, futuros: Mintransporte, RUNT)
@@ -22,6 +24,8 @@ function loadKey(version: number): Buffer {
       if (env.NODE_ENV === 'production') {
         throw new Error('RNDC_ENC_KEY es requerido en producción (32 bytes hex)');
       }
+      // `PII_ENC_KEY` es opcional desde ADR-0034: concatenar `undefined` daría una llave fija y pública.
+      if (!env.PII_ENC_KEY) throw new Error('RNDC_ENC_KEY no está configurada y falta PII_ENC_KEY para derivar el respaldo de desarrollo');
       return crypto.createHash('sha256').update(env.PII_ENC_KEY + 'rndc:dev').digest();
     }
     if (!/^[0-9a-fA-F]{64}$/.test(keyHex)) {
@@ -67,6 +71,9 @@ export interface AadParts {
   empresaNit: string;
   aadNonce: string; // UUID
 }
+
+/** AAD de los `encrypt*` de PII: tabla y columna del catálogo (ADR-0034 D5, capa 4). */
+export type AadPii = Omit<AadParts, 'table' | 'column'> & ParAadPii;
 
 function buildAad(parts: AadParts, keyVersion: number): Buffer {
   return Buffer.from(`${parts.table}|${parts.column}|${parts.empresaNit}|${parts.aadNonce}|${keyVersion}`, 'utf8');
@@ -138,30 +145,29 @@ export function generateNewKey(): string {
 // PII (Personally Identifiable Information) — keyspace separado de RNDC
 // ============================================================================
 // Cifra cédula de conductores, licencia, runtPayload, cuentas bancarias.
-// Clave maestra: env.PII_ENC_KEY (passphrase, derivada con scrypt).
+// Clave maestra: env.PII_ENC_KEY y `PII_ENC_KEY_V<n>` (passphrases, derivadas con scrypt en `pii-keyring.ts`).
 // Justificación de keyspace separado: principio de mínimo privilegio (ISO A.9.4).
 // Si PII_ENC_KEY se compromete, RNDC sigue protegido y viceversa.
 
-const PII_KEY_VERSION_CURRENT = 1;
-const PII_SCRYPT_SALT = 'kyverum-pii-2026';
+/** Versión con la que se escribe (ADR-0034 D1). El `?? 1` cubre las suites que mockean `env` entero. */
+export function versionVigentePii(): number {
+  return env.PII_ENC_KEY_CURRENT_VERSION ?? 1;
+}
 
 function loadPiiKey(version: number): Buffer {
-  if (version === 1) {
-    if (!env.PII_ENC_KEY) throw new Error('PII_ENC_KEY es requerido');
-    // scryptSync deriva 32 bytes determinísticamente de la passphrase.
-    return crypto.scryptSync(env.PII_ENC_KEY, PII_SCRYPT_SALT, 32);
-  }
-  throw new Error(`PII_ENC_KEY versión ${version} no configurada`);
+  const pasada = pasadaPii(version, env.PII_ENC_KEY);
+  if (!pasada) throw new Error(`PII_ENC_KEY versión ${version} no configurada`);
+  return llavePiiMemoizada(version, pasada);
 }
 
 /**
  * Cifra una cadena PII corta o larga con AES-256-GCM.
  * `aadParts.empresaNit` se reutiliza como `rowKey` (identificador de la fila):
- * para drivers usar `String(userId)`, para manifiestos usar `String(manifiestoId)`.
+ * para drivers usar `String(userId)`, para manifiestos usar `numero`.
  * Esto previene swap entre filas (un cipher de fila A no descifra en fila B).
  */
-export function encryptPii(plaintext: string, aadParts: AadParts): CipherBundle {
-  const keyVersion = PII_KEY_VERSION_CURRENT;
+export function encryptPii(plaintext: string, aadParts: AadPii): CipherBundle {
+  const keyVersion = versionVigentePii();
   const key = loadPiiKey(keyVersion);
   const iv = crypto.randomBytes(12);
   const aad = buildAad(aadParts, keyVersion);
@@ -189,8 +195,8 @@ export function decryptPii(bundle: CipherBundle, aadParts: AadParts): string {
  * de la compañía). Misma clave (`PII_ENC_KEY`), misma AAD ligada a la fila y mismo AES-256-GCM; solo
  * cambia que el texto en claro es un `Buffer` y no una cadena utf8.
  */
-export function encryptPiiBuffer(plain: Buffer, aadParts: AadParts): CipherBundle {
-  const keyVersion = PII_KEY_VERSION_CURRENT;
+export function encryptPiiBuffer(plain: Buffer, aadParts: AadPii): CipherBundle {
+  const keyVersion = versionVigentePii();
   const key = loadPiiKey(keyVersion);
   const iv = crypto.randomBytes(12);
   const cipherObj = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -206,6 +212,129 @@ export function decryptPiiBuffer(bundle: CipherBundle, aadParts: AadParts): Buff
   decipher.setAAD(buildAad(aadParts, bundle.keyVersion));
   decipher.setAuthTag(bundle.authTag);
   return Buffer.concat([decipher.update(bundle.cipher), decipher.final()]);
+}
+
+// ============================================================================
+// PII en una sola columna de texto (Feature #14097, HU #14098 y #14099)
+// ============================================================================
+// Para columnas `text` donde no caben iv/tag/keyVersion por separado. Formato:
+//   v<keyVersion>:<iv 24 hex>:<tag 32 hex>:<data base64>
+// AAD exacta `tabla|columna|id`: un valor copiado a otra fila o a otra columna no descifra.
+
+/** Contexto que liga el valor a su celda. Es la AAD y, si falla, lo único que dice el error. */
+export interface PiiTextContext {
+  table: string;
+  column: string;
+  id: string | number;
+}
+
+/** Prefijo del formato vigente. Es el contrato con el clasificador de fotos: una sola definición. */
+export const PII_TEXT_PREFIJO = /^v(\d+):([0-9a-f]{24}):([0-9a-f]{32}):/;
+
+/** Prefijo del formato anterior `iv:tag:data` (iv de 16 bytes, sal `kyverum-pii-salt`). */
+export const PII_BIOMETRICO_VIEJO_PREFIJO = /^([0-9a-fA-F]{32}):([0-9a-fA-F]{32}):/;
+
+/**
+ * Fallo al descifrar. El mensaje es constante y no lleva `cause` a propósito: lo que se serializa
+ * de este error termina en logs y el detalle de la primitiva no aporta nada que justifique el riesgo.
+ */
+export class PiiDecryptError extends Error {
+  readonly table: string;
+  readonly column: string;
+  readonly id: string | number;
+
+  constructor(ctx: PiiTextContext) {
+    super('No se pudo descifrar el dato protegido');
+    this.name = 'PiiDecryptError';
+    this.table = ctx.table;
+    this.column = ctx.column;
+    this.id = ctx.id;
+  }
+}
+
+function aadPiiText(ctx: PiiTextContext): Buffer {
+  return Buffer.from(`${ctx.table}|${ctx.column}|${ctx.id}`, 'utf8');
+}
+
+/**
+ * `Buffer.from(x, 'base64')` ignora en silencio lo que no entiende, y una cola corrupta llegaría a
+ * GCM como otro texto. Se exige la forma canónica; sin regex porque la cola puede medir varios MB.
+ */
+function base64Estricto(cola: string): Buffer {
+  const datos = Buffer.from(cola, 'base64');
+  if (datos.toString('base64') !== cola) throw new Error('base64 inválido');
+  return datos;
+}
+
+/**
+ * Cifra texto con una versión elegida por quien llama. Solo para el canario del registro de llaves
+ * (ADR-0034 D2), que ancla cada versión aunque no sea la vigente. Los datos van por `encryptPiiText`.
+ */
+export function encryptPiiTextConVersion(plain: string, ctx: PiiTextContext, version: number): string {
+  const key = loadPiiKey(version);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  cipher.setAAD(aadPiiText(ctx));
+  const data = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  return `v${version}:${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${data.toString('base64')}`;
+}
+
+/** Cifra texto ligado a su celda con la versión vigente. Lo escribe el script de recifrado, no las rutas. */
+export function encryptPiiText(plain: string, ctx: Omit<PiiTextContext, 'table' | 'column'> & ParAadPii): string {
+  return encryptPiiTextConVersion(plain, ctx, versionVigentePii());
+}
+
+/** Cualquier fallo sale como `PiiDecryptError`, nunca con el valor. */
+function abrirPiiText(value: string, ctx: PiiTextContext, llaveDe: (version: number) => Buffer): string {
+  try {
+    const m = PII_TEXT_PREFIJO.exec(value);
+    if (!m) throw new Error('formato');
+    const key = llaveDe(Number(m[1]));
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(m[2], 'hex'), { authTagLength: 16 });
+    decipher.setAAD(aadPiiText(ctx));
+    decipher.setAuthTag(Buffer.from(m[3], 'hex'));
+    const data = base64Estricto(value.slice(m[0].length));
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+  } catch {
+    throw new PiiDecryptError(ctx);
+  }
+}
+
+/** Inversa de `encryptPiiText`. */
+export function decryptPiiText(value: string, ctx: PiiTextContext): string {
+  return abrirPiiText(value, ctx, loadPiiKey);
+}
+
+/** Descifra con una llave dada y no con la de la versión del valor: detecta una llave retirada reutilizada. */
+export function decryptPiiTextConLlave(value: string, ctx: PiiTextContext, llave: Buffer): string {
+  return abrirPiiText(value, ctx, () => llave);
+}
+
+const PII_BIOMETRICO_VIEJO_SAL = 'kyverum-pii-salt';
+let biometricoViejoKey: { passphrase: string; key: Buffer } | null = null;
+
+/**
+ * Lee el formato anterior de biometría, sin AAD y con su propia sal.
+ *
+ * @deprecated Solo existe mientras queden filas sin recifrar (`flito-recifrar-biometria`). Se retira
+ * en el PR posterior al recifrado en PDN, junto con la sal: este es el único sitio que la conoce.
+ */
+export function decryptLegacyBiometric(value: string, ctx: PiiTextContext): string {
+  try {
+    const m = PII_BIOMETRICO_VIEJO_PREFIJO.exec(value);
+    if (!m) throw new Error('formato');
+    const passphrase = env.PII_ENC_KEY;
+    if (!passphrase) throw new Error('sin llave');
+    if (biometricoViejoKey?.passphrase !== passphrase) {
+      biometricoViejoKey = { passphrase, key: crypto.scryptSync(passphrase, PII_BIOMETRICO_VIEJO_SAL, 32) };
+    }
+    const decipher = crypto.createDecipheriv('aes-256-gcm', biometricoViejoKey.key, Buffer.from(m[1], 'hex'), { authTagLength: 16 });
+    decipher.setAuthTag(Buffer.from(m[2], 'hex'));
+    const data = base64Estricto(value.slice(m[0].length));
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+  } catch {
+    throw new PiiDecryptError(ctx);
+  }
 }
 
 // ============================================================================

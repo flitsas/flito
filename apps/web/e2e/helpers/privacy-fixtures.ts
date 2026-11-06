@@ -14,7 +14,7 @@
 //     IPs en 203.0.113.0/24 (TEST-NET-3, RFC 5737, no enrutable). Ni un dato personal real entra en
 //     un spec — AGENTS.md, Ley 1581.
 //   · Las formas de respuesta salen de las páginas y de las rutas del API, no de suposiciones:
-//     `/privacy/preview/:doc` devuelve `{docNumber, affected:{...6 tablas}}`,
+//     `POST /privacy/preview` devuelve `{docNumber, affected:{...6 tablas}}`,
 //     `/privacy/pii-access-log` devuelve `{rows,total,limit,offset}` y `/…/stats`
 //     `{desde, porUsuario, porRecurso}`.
 //
@@ -37,6 +37,8 @@ import { loginAs } from './auth';
 export const RUTA_LOG = '/api/privacy/pii-access-log';
 export const RUTA_STATS = '/api/privacy/pii-access-log/stats';
 export const PREFIJO_PRIVACY = '/api/privacy';
+/** La consulta previa del olvido: POST con el documento en el cuerpo (HU #14282). */
+export const RUTA_PREVIEW = '/api/privacy/preview';
 
 /**
  * El usuario positivo de la suite es `compliance` con `allowedPages` VACÍO, no un admin comodín.
@@ -234,22 +236,10 @@ export const PREVIEW_SIN_REGISTROS = {
 // ── Espías y mocks ─────────────────────────────────────────────────────────────────────────────
 
 export interface PeticionPrivacy {
-  /** `${método} ${pathname}` con el documento REDACTADO (ver `redactar`). */
+  /** `${método} ${pathname}`. El documento va en el cuerpo, que el espía no guarda. */
   huella: string;
   /** Solo los parámetros seguros de la query: fechas, paginación y filtros no identificables. */
   params: Record<string, string>;
-}
-
-/**
- * El pathname con el documento fuera.
- *
- * `Privacy.tsx:46` mete el número de documento EN LA RUTA (`/privacy/preview/1036640908`). Aunque el
- * de los fixtures es sintético, un espía que acumulara el pathname crudo lo escribiría en el reporte
- * del runner y de ahí a un artefacto de CI (AGENTS.md §14). Se sustituye por `:doc` antes de
- * guardarlo: los asertos ganan además estabilidad, porque afirman sobre la RUTA y no sobre el dato.
- */
-export function redactar(pathname: string): string {
-  return pathname.replace(/^\/api\/privacy\/preview\/.+$/, '/api/privacy/preview/:doc');
 }
 
 /**
@@ -269,7 +259,7 @@ export function espiarApiPrivacy(page: Page): PeticionPrivacy[] {
       const valor = url.searchParams.get(clave);
       if (valor !== null) params[clave] = valor;
     }
-    peticiones.push({ huella: `${req.method()} ${redactar(url.pathname)}`, params });
+    peticiones.push({ huella: `${req.method()} ${url.pathname}`, params });
   });
   return peticiones;
 }
@@ -330,11 +320,14 @@ export async function mockLogPii(page: Page, opciones: {
   await page.route((url) => url.pathname === RUTA_STATS, (route) => route.fulfill(json(stats)));
 }
 
-/** Mockea `/privacy/preview/:doc` por prefijo de pathname exacto (el documento va en la ruta). */
+/**
+ * Mockea `POST /privacy/preview` por pathname exacto. Otro método cae al catch-all y no pinta conteos:
+ * así un regreso al GET se pone rojo en vez de seguir sirviendo el fixture.
+ */
 export async function mockPreview(page: Page, respuesta: Respuesta = { cuerpo: PREVIEW_CON_REGISTROS }) {
   await page.route(
-    (url) => url.pathname.startsWith(`${PREFIJO_PRIVACY}/preview/`),
-    (route) => route.fulfill(json(respuesta)),
+    (url) => url.pathname === RUTA_PREVIEW,
+    (route) => (route.request().method() === 'POST' ? route.fulfill(json(respuesta)) : route.fallback()),
   );
 }
 

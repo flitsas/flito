@@ -1,0 +1,31 @@
+{
+  "lineaBase": {
+    "(sin-regla)": 18,
+    "@typescript-eslint/no-explicit-any": 1394,
+    "@typescript-eslint/no-namespace": 1,
+    "@typescript-eslint/no-unused-expressions": 3,
+    "@typescript-eslint/no-unused-vars": 157,
+    "no-control-regex": 4,
+    "no-irregular-whitespace": 5,
+    "no-useless-assignment": 10,
+    "no-useless-catch": 1,
+    "no-useless-escape": 3,
+    "prefer-const": 8,
+    "preserve-caught-error": 3,
+    "react-hooks/exhaustive-deps": 10
+  },
+  "selladas": [
+    "@typescript-eslint/no-require-imports",
+    "@typescript-eslint/no-this-alias",
+    "getter-return",
+    "no-case-declarations",
+    "no-cond-assign",
+    "no-constant-binary-expression",
+    "no-fallthrough",
+    "no-func-assign",
+    "no-prototype-builtins",
+    "no-sparse-arrays",
+    "no-unassigned-vars",
+    "no-unsafe-finally"
+  ]
+}

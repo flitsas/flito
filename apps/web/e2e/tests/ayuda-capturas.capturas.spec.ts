@@ -492,7 +492,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     // AC4 (HU #13774): solo la previsualización tiene fixture. La anonimización no se pulsa ni se mockea: si la
     // captura la disparara, `comprobarCierre` la vería como petición sin fixture.
     const api = await interceptarApiDemo(page, [
-      [/\/api\/privacy\/preview\/[^/]+$/, () => ({ body: PRIVACY_PREVIEW_DEMO })],
+      [/\/api\/privacy\/preview$/, () => ({ body: PRIVACY_PREVIEW_DEMO })],
     ]);
     await entrarComoAdminDemo(page);
     await page.goto('/privacy');

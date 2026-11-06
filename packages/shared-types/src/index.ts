@@ -155,3 +155,5 @@ export * from './flito-dr-flit-gestion.js';
 // Dr. Flit — enmascaramiento de PII antes de la IA (HU #13855, Feature #13696 IA-3). Fuente única de
 // los patrones de valor de gestión de F6.
 export * from './flito-dr-flit-mascara.js';
+// RUM: la ruta que se guarda en la telemetría, sin tokens (HU #14281, ADR-0036).
+export * from './rum.js';

@@ -30,6 +30,7 @@ const DIR = path.resolve(__dirname, '../../src/db/migrations');
 const SQL_0196 = readFileSync(path.join(DIR, ARCHIVO), 'utf8');
 const SIN_COMENTARIOS = SQL_0196.replace(/--[^\n]*/g, '');
 const SCHEMA_TS = readFileSync(path.resolve(__dirname, '../../src/db/schema.ts'), 'utf8');
+const SOAT_TS = readFileSync(path.resolve(__dirname, '../../src/db/schema/soat.ts'), 'utf8'); // `flito_soportes` vive ahí (HU #13982)
 
 const LITERAL_VIEJO = 'recibo_impuesto_sin_marca';
 const LITERAL_NUEVO: string = TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA;
@@ -96,7 +97,7 @@ describe('0196 — análisis estático', () => {
     expect(SIN_COMENTARIOS).toMatch(/indexname = 'idx_flito_soportes_impuesto_tipo';\s*IF n_idx <> 1 THEN\s*RAISE EXCEPTION/);
     expect(SIN_COMENTARIOS).toMatch(/RAISE NOTICE '0196:[^']*idx_flito_soportes_impuesto_tipo/);
     // Espejo en Drizzle: mismo nombre, mismas columnas y mismo predicado parcial.
-    expect(SCHEMA_TS).toMatch(/index\('idx_flito_soportes_impuesto_tipo'\)\.on\(t\.impuestoId, t\.tipo\)\s*\.where\(sql`\$\{t\.impuestoId\} IS NOT NULL AND \$\{t\.descartado\} = false`\)/);
+    expect(SOAT_TS).toMatch(/index\('idx_flito_soportes_impuesto_tipo'\)\.on\(t\.impuestoId, t\.tipo\)\s*\.where\(sql`\$\{t\.impuestoId\} IS NOT NULL AND \$\{t\.descartado\} = false`\)/);
   });
 
   it('no crea tablas ni toca otras', () => {
