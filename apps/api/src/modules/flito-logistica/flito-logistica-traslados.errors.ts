@@ -169,3 +169,10 @@ export class TrasladoLtsNoCoincidenError extends TrasladoLogisticaError {
     super('Las LT indicadas no coinciden con las líneas en ruta de este viaje', 422, 'TRASLADO_LTS_NO_COINCIDEN');
   }
 }
+
+/** HU #14346 (AC3): la LT no es del proveedor actual de su compañía. Sin nombres de proveedor en la respuesta. */
+export class LtDeOtroProveedorError extends LogisticaError {
+  constructor(documentoIds: string[]) {
+    super('Una o más LT no son del proveedor actual de la compañía', 409, { documentoIds }, 'LT_DE_OTRO_PROVEEDOR');
+  }
+}

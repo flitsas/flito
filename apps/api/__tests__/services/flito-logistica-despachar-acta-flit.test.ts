@@ -76,10 +76,12 @@ describe('despachar el acta de un viaje a FLIT', () => {
 
   it('después de despachar, la llegada a FLIT es admisible (traslado en_ruta)', async () => {
     cola(
-      [{ id: TR, destino: 'flit', origen: 'organismo', estado: 'en_ruta', mensajeroId: 7 }],
+      [{ id: TR, companiaId: 5, destino: 'flit', origen: 'organismo', estado: 'en_ruta', mensajeroId: 7 }],
+      [{ proveedorId: null }], // HU #14346: compañía antes que licencias
       [{ id: ACTA, estado: 'despachada', mensajeroId: 7 }],
       [{ id: 'lin-1', documentoId: DOC, estado: 'en_ruta', precio: '18500.00', motivoLlegadaId: 'm1' }],
       [{ id: DOC, estado: 'despachado' }],
+      [], // compañías de las licencias al pasar al proveedor vigente
     );
     const r = await firmarLlegadaFlit(TR, { firma: 'iVBORw0KGgo=' }, ctx);
     expect(r).toMatchObject({ estado: 'entregado', entregados: 1 });

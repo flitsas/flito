@@ -13,14 +13,13 @@ import {
   clients, flitoLogisticaActaLineas, flitoLogisticaActas, flitoLogisticaDocumentos,
   flitoLogisticaEventos, flitoLogisticaTrasladoLts, flitoLogisticaTraslados,
 } from '../../db/schema.js';
-import { proveedorDeCompania } from '../flito-parametrizacion/flito-logistica-proveedor-compania.service.js';
 import { exigirTramiteResuelto, insertarEvento, log, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
 import { listarMotivosActivos } from './flito-logistica-motivos.service.js';
 import { conceptoPrecioDe, precioTrasladoDe, type DestinoTraslado } from './flito-logistica-precios.js';
 import { generarActaPdf } from './flito-logistica.acta-pdf.js';
 import {
   CompaniaNoEncontradaTrasladoError, DatosInvalidosTrasladoError, LogisticaAutogestionadaTrasladoError,
-  LtAjenaTrasladoError, LtEstadoNoAdmisibleError, LtNoEnFlitError, LtNoEncontradaTrasladoError, LtYaEnTrasladoError,
+  LtAjenaTrasladoError, LtDeOtroProveedorError, LtEstadoNoAdmisibleError, LtNoEnFlitError, LtNoEncontradaTrasladoError, LtYaEnTrasladoError,
   MotivoLlegadaRequeridoError, PrecioTrasladoNoConfiguradoError, ProveedorLogisticaRequeridoError,
   TrasladoCompaniaMixtaError, TrasladoOrigenMixtoError,
 } from './flito-logistica-traslados.errors.js';
@@ -127,11 +126,22 @@ export async function registrarTraslado(input: RegistrarTrasladoInput, ctx: Logi
 
   try {
     const res = await db.transaction(async (tx) => {
+      // HU #14346: cliente antes que licencias, `FOR SHARE` (ADR-0039 §6.3). El dueño y el proveedor vigente se comparan con este bloqueo.
+      const [compania] = await tx.select({
+        id: clients.id,
+        nombre: clients.name,
+        autogestionable: clients.logisticaAutogestionable,
+        direccion: clients.address,
+        contactoDoc: clients.document,
+        proveedorId: clients.flitoProveedorLogisticaId,
+      }).from(clients).where(eq(clients.id, input.companiaId)).limit(1).for('share');
+
       const docs = await tx.select({
         id: flitoLogisticaDocumentos.id,
         estado: flitoLogisticaDocumentos.estado,
         companiaId: flitoLogisticaDocumentos.companiaId,
         actaOrganismoPendiente: flitoLogisticaDocumentos.actaOrganismoPendiente,
+        proveedorId: flitoLogisticaDocumentos.proveedorLogisticaId,
       }).from(flitoLogisticaDocumentos)
         .where(inArray(flitoLogisticaDocumentos.id, ids))
         .orderBy(flitoLogisticaDocumentos.id)
@@ -170,13 +180,6 @@ export async function registrarTraslado(input: RegistrarTrasladoInput, ctx: Logi
         if (ids.some((i) => !mias.has(i))) throw new LtAjenaTrasladoError();
       }
 
-      const [compania] = await tx.select({
-        id: clients.id,
-        nombre: clients.name,
-        autogestionable: clients.logisticaAutogestionable,
-        direccion: clients.address,
-        contactoDoc: clients.document,
-      }).from(clients).where(eq(clients.id, input.companiaId)).limit(1);
       if (!compania) throw new CompaniaNoEncontradaTrasladoError();
       if (compania.autogestionable) throw new LogisticaAutogestionadaTrasladoError();
 
@@ -205,8 +208,10 @@ export async function registrarTraslado(input: RegistrarTrasladoInput, ctx: Logi
         : await precioTrasladoDe(input.companiaId, destino, ahora);
       if (precio == null) throw new PrecioTrasladoNoConfiguradoError(destino);
 
-      const proveedorId = await proveedorDeCompania(tx, input.companiaId);
+      const proveedorId = compania.proveedorId;
       if (proveedorId == null) throw new ProveedorLogisticaRequeridoError();
+      const deOtro = docs.filter((d) => d.proveedorId !== proveedorId).map((d) => d.id);
+      if (deOtro.length) throw new LtDeOtroProveedorError(deOtro);
 
       const mensajeroId = input.mensajeroId ?? ctx.userId;
       const punto = destino === 'flit' ? 'flit' : 'cliente';

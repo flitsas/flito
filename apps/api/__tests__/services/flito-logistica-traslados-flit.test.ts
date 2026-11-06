@@ -10,7 +10,6 @@ const insertMock = vi.fn();
 const updateMock = vi.fn();
 const transactionMock = vi.fn();
 const tarifaDeMock = vi.fn();
-const proveedorDeCompaniaMock = vi.fn();
 
 vi.mock('../../src/db/client.js', () => ({
   db: { select: selectMock, insert: insertMock, update: updateMock, delete: vi.fn(), transaction: transactionMock, execute: vi.fn() },
@@ -24,9 +23,6 @@ vi.mock('../../src/services/storage.js', () => ({
 }));
 vi.mock('../../src/modules/flito-parametrizacion/flito-tarifas.service.js', () => ({
   tarifaDe: (...a: unknown[]) => tarifaDeMock(...a),
-}));
-vi.mock('../../src/modules/flito-parametrizacion/flito-logistica-proveedor-compania.service.js', () => ({
-  proveedorDeCompania: (...a: unknown[]) => proveedorDeCompaniaMock(...a),
 }));
 vi.mock('../../src/modules/flito-logistica/flito-logistica.acta-pdf.js', () => ({
   generarActaPdf: vi.fn().mockResolvedValue('pdf-key'),
@@ -50,7 +46,7 @@ const VIG = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const FIRMA = 'iVBORw0KGgo=';
 
 const ctxAdmin = { userId: 1, username: 'op.secreto', role: 'admin', operaAjenas: true };
-const compania = { id: 5, nombre: 'ACME', autogestionable: false, direccion: 'Calle 1', contactoDoc: '900' };
+const compania = { id: 5, nombre: 'ACME', autogestionable: false, direccion: 'Calle 1', contactoDoc: '900', proveedorId: 'prov-1' };
 
 type Insercion = { tabla: unknown; valores: unknown };
 type SetOp = { tabla: unknown; valores: Record<string, unknown> };
@@ -59,28 +55,28 @@ let sets: SetOp[];
 let nTras: number;
 
 function lt(n: number, estado = 'clasificado') {
-  return { id: id(n), estado, companiaId: 5, actaOrganismoPendiente: false };
+  return { id: id(n), estado, companiaId: 5, actaOrganismoPendiente: false, proveedorId: 'prov-1' };
 }
 
 function cola(...filas: unknown[][]) {
   for (const f of filas) selectMock.mockReturnValueOnce(chain(f));
 }
 
-/** Selects de un alta a FLIT (admin): docs, trámite, vivos, compañía, motivos activos. */
+/** Selects de un alta a FLIT (admin): compañía, docs, trámite, vivos, motivos activos. */
 function colaFlit(docs: unknown[], opts: { vivos?: unknown[]; motivos?: unknown[] } = {}) {
-  cola(docs, [], opts.vivos ?? [], [compania], opts.motivos ?? [{ id: MOT_OTRO, activo: true }, { id: MOT_EXT, activo: true }]);
+  cola([compania], docs, [], opts.vivos ?? [], opts.motivos ?? [{ id: MOT_OTRO, activo: true }, { id: MOT_EXT, activo: true }]);
 }
 
-/** Selects de un alta a cliente (admin): docs, trámite, compañía, vivos. */
+/** Selects de un alta a cliente (admin): compañía, docs, trámite, vivos. */
 function colaCliente(docs: unknown[], vivos: unknown[] = []) {
-  cola(docs, [], [compania], vivos);
+  cola([compania], docs, [], vivos);
 }
 
 beforeEach(() => {
   inserciones = [];
   sets = [];
   nTras = 0;
-  selectMock.mockReset();
+  selectMock.mockReset().mockReturnValue(chain([]));
   updateMock.mockReset().mockImplementation((tabla: unknown) => ({
     set: (valores: Record<string, unknown>) => {
       sets.push({ tabla, valores });
@@ -100,7 +96,6 @@ beforeEach(() => {
     },
   }));
   tarifaDeMock.mockReset().mockResolvedValue({ valor: 18500, origen: 'generica', vigenciaId: VIG });
-  proveedorDeCompaniaMock.mockReset().mockResolvedValue('prov-1');
   transactionMock.mockReset().mockImplementation(async (fn: (t: unknown) => unknown) => fn({
     select: selectMock, insert: insertMock, update: updateMock,
   }));
@@ -195,7 +190,8 @@ describe('AC4 — llegada firmada: LT en_flit, evento llegada, firma de la sesi�
   it('rol recibe, usuario de la sesión, documento_cifrado null, motivo de esa línea', async () => {
     const motivo = MOT_OTRO;
     cola(
-      [{ id: TR, destino: 'flit', origen: 'organismo', estado: 'en_ruta', mensajeroId: 1 }],
+      [{ id: TR, companiaId: 5, destino: 'flit', origen: 'organismo', estado: 'en_ruta', mensajeroId: 1 }],
+      [{ proveedorId: null }],
       [{ id: ACTA, estado: 'despachada', mensajeroId: 1 }],
       [{ id: 'lin-1', documentoId: id(1), estado: 'en_ruta', precio: '18500.00', motivoLlegadaId: motivo }],
       [{ id: id(1), estado: 'despachado' }],
@@ -247,7 +243,8 @@ describe('AC5 — firmar_flit, no entregar', () => {
     await registrarUsuarioDePrueba(42, { rol: 'auditor', tipoEnlace: 'ninguno', ...soloEstas(['logistica.actas.firmar_flit']) });
     cola(
       [{ destino: 'flit' }],
-      [{ id: TR, destino: 'flit', origen: 'organismo', estado: 'en_ruta', mensajeroId: 42 }],
+      [{ id: TR, companiaId: 5, destino: 'flit', origen: 'organismo', estado: 'en_ruta', mensajeroId: 42 }],
+      [{ proveedorId: null }],
       [{ id: ACTA, estado: 'despachada', mensajeroId: 42 }],
       [{ id: 'lin-1', documentoId: id(1), estado: 'en_ruta', precio: '18500.00', motivoLlegadaId: MOT_OTRO }],
       [{ id: id(1), estado: 'despachado' }],
@@ -281,7 +278,7 @@ describe('AC6 — salida de FLIT vs viaje directo', () => {
   });
 
   it('origen flit + LT clasificado → 409 LT_NO_EN_FLIT y cero filas', async () => {
-    cola([lt(1, 'clasificado')], []);
+    cola([compania], [lt(1, 'clasificado')], []);
     await expect(registrarTraslado({
       companiaId: 5, destino: 'cliente', origen: 'flit', lts: [{ documentoId: id(1) }],
     }, ctxAdmin)).rejects.toMatchObject({ status: 409, codigo: 'LT_NO_EN_FLIT' });
@@ -359,8 +356,5 @@ describe('AC9 — transportadora externa no agrega guía, proveedor ni precio', 
     expect(otro).toMatchObject({ conceptoPrecio: 'logistica_flit', precio: '18500.00', motivoLlegadaId: MOT_OTRO });
     expect(externa).not.toHaveProperty('guia');
     expect(otro).not.toHaveProperty('guia');
-    expect(proveedorDeCompaniaMock).toHaveBeenCalledTimes(2);
-    expect(proveedorDeCompaniaMock).toHaveBeenNthCalledWith(1, expect.anything(), 5);
-    expect(proveedorDeCompaniaMock).toHaveBeenNthCalledWith(2, expect.anything(), 5);
   });
 });

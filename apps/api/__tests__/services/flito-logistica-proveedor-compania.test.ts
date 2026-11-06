@@ -139,3 +139,41 @@ describe('AC3 — migración 0279 (forma del SQL; la ejecución real se valida e
     expect(sql).not.toMatch(/^\s*(UPDATE|INSERT)\b/im);
   });
 });
+
+describe('HU #14346 — el PATCH reasigna las licencias en su transacción', () => {
+  const NUEVO = OTRO;
+  const conNuevo = () => [{ id: NUEVO, nombre: 'Nuevo', activo: true }];
+  // El double devuelve la misma fila a toda lectura de `clients`: la columna del bloqueo es `proveedorId`.
+  const previa = (proveedorId: string | null) => ({ logisticaAutogestionable: false, proveedorLogisticaId: proveedorId, proveedorId });
+
+  it('AC5: cambiar de proveedor actualiza las licencias, con la compañía bloqueada, antes del UPDATE de la compañía; la auditoría cuenta las reasignadas', async () => {
+    escenario(previa(PROV), conNuevo());
+    kdb.when.update('flito_logistica_documentos', [{ id: 'd1' }, { id: 'd2' }]);
+    const r = await patch({ proveedorLogisticaId: NUEVO });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos').at(-1)?.datos).toMatchObject({ proveedorLogisticaId: NUEVO });
+    expect(auditMock.mock.calls[0]![1].detail).toContain('Licencias reasignadas: 2');
+    expect(JSON.stringify(auditMock.mock.calls[0]![1])).not.toMatch(/d1|d2/);
+  });
+
+  it('AC7: quitar el proveedor no toca las licencias', async () => {
+    escenario({ logisticaAutogestionable: true, proveedorLogisticaId: PROV });
+    const r = await patch({ proveedorLogisticaId: null });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(0);
+  });
+
+  it('un PATCH que no trae el proveedor no toca las licencias', async () => {
+    escenario(previa(PROV));
+    const r = await patch({ logisticaPermiteParcial: true });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(0);
+  });
+
+  it('si el proveedor nuevo no es usable, no se reasigna nada', async () => {
+    escenario(previa(PROV), [{ id: NUEVO, nombre: 'Nuevo', activo: false }]);
+    const r = await patch({ proveedorLogisticaId: NUEVO });
+    expect(r.status).toBe(422);
+    expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(0);
+  });
+});

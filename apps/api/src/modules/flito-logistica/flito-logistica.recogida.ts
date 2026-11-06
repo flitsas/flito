@@ -11,7 +11,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { flitoLogisticaActaLineas, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos, flitoLogisticaRecogidaFirmantes } from '../../db/schema.js';
 import { uploadEntityDocument } from '../../services/storage.js';
-import { LogisticaError, log, type LogisticaCtx } from './flito-logistica.base.js';
+import { LogisticaError, bloquearCompaniasDeDocumentos, log, type LogisticaCtx } from './flito-logistica.base.js';
 import { imagenDesdeDataUrl } from './flito-logistica.imagen.js';
 import { limpiarDocumento, protegerDocumento } from './flito-logistica.cifrado.js';
 
@@ -50,6 +50,12 @@ const esUnicaViolada = (e: unknown): boolean => {
   return err?.code === '23505' || err?.cause?.code === '23505';
 };
 
+/** HU #14346 (AC4): el dueño, si todas las LT son del mismo; si no, NULL (solo Operaciones). Una pendiente, sin dueño, cuenta como distinta. */
+function proveedorComun(docs: Array<{ proveedorId: string | null }>): string | null {
+  const distintos = new Set(docs.map((d) => d.proveedorId));
+  return distintos.size === 1 ? [...distintos][0]! : null;
+}
+
 export async function confirmarRecogida(input: ConfirmarRecogidaInput, ctx: LogisticaCtx): Promise<RecogidaConfirmada> {
   const nombre = input.firmante.nombre?.trim();
   const documento = limpiarDocumento(input.firmante.documento ?? '');
@@ -59,11 +65,14 @@ export async function confirmarRecogida(input: ConfirmarRecogidaInput, ctx: Logi
 
   try {
     return await db.transaction(async (tx) => {
+      // Cliente antes que licencias (ADR-0039 §6.3): el INSERT del acta pide el FK de la compañía, y el PATCH del proveedor la tiene en FOR UPDATE.
+      await bloquearCompaniasDeDocumentos(tx, ids);
       // Bloqueo ordenado por id y relectura del estado dentro de la tx (carrera → el perdedor ve la línea).
       const docs = await tx.select({
         id: flitoLogisticaDocumentos.id, estado: flitoLogisticaDocumentos.estado,
         organismoCodigo: flitoLogisticaDocumentos.organismoCodigo, companiaId: flitoLogisticaDocumentos.companiaId,
         tramiteId: flitoLogisticaDocumentos.tramiteId, firmanteId: flitoLogisticaDocumentos.recogidaFirmanteId,
+        proveedorId: flitoLogisticaDocumentos.proveedorLogisticaId,
       }).from(flitoLogisticaDocumentos).where(inArray(flitoLogisticaDocumentos.id, ids))
         .orderBy(flitoLogisticaDocumentos.id).for('update');
 
@@ -103,6 +112,7 @@ export async function confirmarRecogida(input: ConfirmarRecogidaInput, ctx: Logi
         id: firmanteId, organismoCodigo: input.organismoCodigo, nombre: nombre.slice(0, 150),
         documentoCifrado: prot.cifrado, documentoUltimos: prot.ultimos, firmaStorageKey: firmaKey,
         registradoPorId: ctx.userId, firmadoEn: ahora, lat: input.lat ?? null, lng: input.lng ?? null,
+        proveedorLogisticaId: proveedorComun(docs),
       });
 
       const porCompania = new Map<number, typeof conActa>();
@@ -111,7 +121,7 @@ export async function confirmarRecogida(input: ConfirmarRecogidaInput, ctx: Logi
       for (const companiaId of [...porCompania.keys()].sort((a, b) => a - b)) {
         const grupo = porCompania.get(companiaId)!;
         const [acta] = await tx.insert(flitoLogisticaActas).values({
-          companiaId, punto: 'organismo', organismoCodigo: input.organismoCodigo, firmanteId,
+          companiaId, punto: 'organismo', organismoCodigo: input.organismoCodigo, firmanteId, proveedorLogisticaId: proveedorComun(grupo),
           // Terminal desde el nacimiento: el acta de organismo es una constancia, no entra al despacho.
           estado: 'entregada', mensajeroId: ctx.userId, entregadoEn: ahora,
           entregadoLat: input.lat ?? null, entregadoLng: input.lng ?? null,

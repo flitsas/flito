@@ -49,7 +49,7 @@ const txObj = { select: selectMock, insert: insertMock, update: updateMock, dele
 const RAW = '10038156339 C.C. 1053786950 MUÑOZ GOMEZ EMMANUEL DAVID CLL 112 N 47A 08 MANIZALES 7 /9j/4AAQSkZJRgABAQEA QOX858 LRWYGCFJ0TC496126 LRWYGCFJ0TC496126 352026000097934 ELECTRICO';
 
 beforeEach(() => {
-  selectMock.mockReset();
+  selectMock.mockReset().mockReturnValue(chain([]));
   insertMock.mockReset().mockReturnValue(chain([]));
   updateMock.mockReset().mockReturnValue(chain([]));
   deleteMock.mockReset().mockReturnValue(chain([]));
@@ -125,16 +125,16 @@ describe('registrarNovedad — motivo obligatorio', () => {
 
 describe('cerrarLote — adaptador de registrarTraslado (HU #14114)', () => {
   const lt = (id: string) => ({
-    id, estado: EstadoDocumentoLogistica.CLASIFICADO, companiaId: 5, actaOrganismoPendiente: true,
+    id, estado: EstadoDocumentoLogistica.CLASIFICADO, companiaId: 5, actaOrganismoPendiente: true, proveedorId: 'prov-1',
   });
   const clasificados = [lt('d1'), lt('d2'), lt('d3')];
 
   function txOk() {
     selectMock
       .mockReturnValueOnce(chain(clasificados.map((d) => ({ id: d.id })))) // idsClasificadosDe
+      .mockReturnValueOnce(chain([{ id: 5, nombre: 'ACME', autogestionable: false, direccion: 'Calle 1', contactoDoc: '900', proveedorId: 'prov-1' }])) // cliente FOR SHARE
       .mockReturnValueOnce(chain(clasificados)) // FOR UPDATE
       .mockReturnValueOnce(chain([])) // exigirTramiteResuelto
-      .mockReturnValueOnce(chain([{ id: 5, nombre: 'ACME', autogestionable: false, direccion: 'Calle 1', contactoDoc: '900' }]))
       .mockReturnValueOnce(chain([])); // viajes vivos
     insertMock.mockImplementation((tabla: unknown) => ({
       values: (valores: unknown) => {
@@ -154,7 +154,6 @@ describe('cerrarLote — adaptador de registrarTraslado (HU #14114)', () => {
     const r = await svc.cerrarLote(5, ctx);
     expect(r).toEqual({ actaId: 'acta1', documentos: 3 });
     expect(tarifaDeMock).toHaveBeenCalled();
-    expect(proveedorDeCompaniaMock).toHaveBeenCalled();
   });
 
   it('compañía autogestionada sin LT clasificadas → 409 (FLITO no gestiona su logística)', async () => {
@@ -176,6 +175,7 @@ describe('cerrarLote — adaptador de registrarTraslado (HU #14114)', () => {
   it('HU #14143: una LT pendiente de trámite entre las listas → 409 LT_PENDIENTE_DE_TRAMITE y no se crea el acta', async () => {
     selectMock
       .mockReturnValueOnce(chain(clasificados.map((d) => ({ id: d.id }))))
+      .mockReturnValueOnce(chain([{ id: 5, autogestionable: false, proveedorId: 'prov-1' }]))
       .mockReturnValueOnce(chain(clasificados))
       .mockReturnValueOnce(chain([{ id: 'd2' }]));
     await expect(svc.cerrarLote(5, ctx)).rejects.toMatchObject({ status: 409, codigo: 'LT_PENDIENTE_DE_TRAMITE', extra: { documentoIds: ['d2'] } });

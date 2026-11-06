@@ -17,7 +17,7 @@ import {
 import { db } from '../../db/client.js';
 import { flitoLogisticaActas, flitoLogisticaDocumentos } from '../../db/schema.js';
 import { uploadEntityDocument } from '../../services/storage.js';
-import { LogisticaError, bufDesdeDataUrl, log, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
+import { LogisticaError, bloquearCompania, bufDesdeDataUrl, log, pasarAlProveedorVigente, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
 import { generarActaPdf } from './flito-logistica.acta-pdf.js';
 import { exigirCompaniaRegistrable, idsClasificadosDe, registrarTraslado } from './flito-logistica-traslados.service.js';
 import { SinLtClasificadasError } from './flito-logistica-traslados.errors.js';
@@ -39,8 +39,8 @@ export * from './flito-logistica.entregas.js';
 
 // ── Novedad sobre una LT ya escaneada ────────────────────────────────────────
 
-async function cargarDocumento(exec: DbOrTx, id: string): Promise<{ id: string; estado: string } | undefined> {
-  const [d] = await exec.select({ id: flitoLogisticaDocumentos.id, estado: flitoLogisticaDocumentos.estado })
+async function cargarDocumento(exec: DbOrTx, id: string): Promise<{ id: string; estado: string; companiaId: number | null } | undefined> {
+  const [d] = await exec.select({ id: flitoLogisticaDocumentos.id, estado: flitoLogisticaDocumentos.estado, companiaId: flitoLogisticaDocumentos.companiaId })
     .from(flitoLogisticaDocumentos).where(eq(flitoLogisticaDocumentos.id, id)).limit(1);
   return d;
 }
@@ -83,8 +83,8 @@ async function docsDeActa(exec: DbOrTx, actaId: string): Promise<Array<{ id: str
     .from(flitoLogisticaDocumentos).where(eq(flitoLogisticaDocumentos.actaId, actaId));
 }
 
-async function cargarActa(exec: DbOrTx, actaId: string): Promise<{ id: string; estado: string; mensajeroId: number | null }> {
-  const [acta] = await exec.select({ id: flitoLogisticaActas.id, estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId })
+async function cargarActa(exec: DbOrTx, actaId: string): Promise<{ id: string; companiaId: number; estado: string; mensajeroId: number | null }> {
+  const [acta] = await exec.select({ id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId })
     .from(flitoLogisticaActas).where(eq(flitoLogisticaActas.id, actaId)).limit(1);
   if (!acta) throw new LogisticaError('Acta no encontrada', 404);
   return acta;
@@ -151,6 +151,7 @@ export async function entregar(actaId: string, datos: EntregaInput, ctx: Logisti
   const res = await db.transaction(async (tx) => {
     const acta = await cargarActa(tx, actaId);
     if (acta.estado !== EstadoActaLogistica.DESPACHADA) throw new LogisticaError(`El acta no se puede entregar en estado "${acta.estado}"`);
+    await bloquearCompania(tx, acta.companiaId); // ADR-0039 §6.3: cliente antes que licencias
     await tx.update(flitoLogisticaActas).set({
       estado: EstadoActaLogistica.ENTREGADA, receptorNombre: datos.receptorNombre.trim(),
       firmaStorageKey: firmaKey, fotoStorageKey: fotoKey,
@@ -158,6 +159,7 @@ export async function entregar(actaId: string, datos: EntregaInput, ctx: Logisti
     }).where(eq(flitoLogisticaActas.id, actaId));
     const docs = await docsDeActa(tx, actaId);
     for (const d of docs) await transicionar(tx, d, EstadoDocumentoLogistica.ENTREGADO, ctx, { lat: datos.lat, lng: datos.lng });
+    await pasarAlProveedorVigente(tx, docs.map((d) => d.id));
     return { documentos: docs.length };
   });
   try { await generarActaPdf(actaId); }
@@ -175,9 +177,11 @@ export async function registrarDevolucion(actaId: string, motivo: string, ctx: L
     const acta = await cargarActa(tx, actaId);
     if (acta.estado !== EstadoActaLogistica.DESPACHADA) throw new LogisticaError(`El acta no se puede devolver en estado "${acta.estado}"`);
     if (!ctx.operaAjenas && acta.mensajeroId !== ctx.userId) throw new LogisticaError('Solo puedes registrar devoluciones de tus propias actas', 403);
+    await bloquearCompania(tx, acta.companiaId); // ADR-0039 §6.3: cliente antes que licencias
     await tx.update(flitoLogisticaActas).set({ estado: EstadoActaLogistica.DEVUELTA, motivoDevolucion: m, updatedAt: new Date() }).where(eq(flitoLogisticaActas.id, actaId));
     const docs = await docsDeActa(tx, actaId);
     for (const d of docs) await transicionar(tx, d, EstadoDocumentoLogistica.DEVUELTO, ctx, { motivo: m });
+    await pasarAlProveedorVigente(tx, docs.map((d) => d.id));
     return { documentos: docs.length };
   });
 }
@@ -189,9 +193,11 @@ export async function reversar(documentoId: string, estadoDestino: TEstadoDoc, m
   await db.transaction(async (tx) => {
     const d = await cargarDocumento(tx, documentoId);
     if (!d) throw new LogisticaError('Documento no encontrado', 404);
+    if (d.companiaId !== null) await bloquearCompania(tx, d.companiaId); // ADR-0039 §6.3: cliente antes que licencias
     await tx.update(flitoLogisticaDocumentos).set({ actaId: null, updatedAt: new Date() }).where(eq(flitoLogisticaDocumentos.id, documentoId));
     const anulo = await anularLineaEntregadaSiHay(tx, documentoId, ctx, m, estadoDestino);
     if (!anulo) await transicionar(tx, d, estadoDestino, ctx, { motivo: m, origen: 'usuario', tipo: 'reversa' });
+    await pasarAlProveedorVigente(tx, [documentoId]);
   });
 }
 

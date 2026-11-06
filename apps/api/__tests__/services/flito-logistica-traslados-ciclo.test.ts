@@ -63,11 +63,15 @@ function txCiclo(opts: {
   lineas?: Array<Record<string, unknown>>;
   docs?: Array<Record<string, unknown>>;
   extraSelects?: unknown[][];
+  /** Por defecto, según el estado del viaje: `en_ruta` se cierra; `registrado` se despacha, salvo `cierra: true` (anular). */
+  cierra?: boolean;
 } = {}) {
   const lineas = opts.lineas ?? [linea(D1), linea(D2), linea(D3)];
   selectMock.mockReturnValueOnce(chain([{
-    id: TR, destino: 'cliente', origen: 'organismo', estado: 'registrado', mensajeroId: 9, ...opts.traslado,
+    id: TR, companiaId: 5, destino: 'cliente', origen: 'organismo', estado: 'registrado', mensajeroId: 9, ...opts.traslado,
   }]));
+  // HU #14346: cerrar el viaje toma la compañía antes que líneas y licencias; despachar no.
+  if (opts.cierra ?? ['en_ruta'].includes(String(opts.traslado?.estado))) selectMock.mockReturnValueOnce(chain([{ proveedorId: null }]));
   selectMock.mockReturnValueOnce(chain([{ id: ACTA, estado: 'generada', mensajeroId: 9, ...opts.acta }]));
   selectMock.mockReturnValueOnce(chain(lineas));
   selectMock.mockReturnValueOnce(chain(opts.docs ?? lineas.map((l) => ({ id: l.documentoId as string, estado: 'en_acta' }))));
@@ -85,7 +89,7 @@ const admin = () => testToken({ role: 'admin', sub: 1 });
 const mensajero = () => testToken({ role: 'mensajero', sub: 9 });
 
 beforeEach(() => {
-  selectMock.mockReset();
+  selectMock.mockReset().mockReturnValue(chain([]));
   inserciones = [];
   sets = [];
   insertMock.mockReset().mockImplementation((tabla: unknown) => ({
@@ -211,7 +215,7 @@ describe('AC4 — LT devuelta: clasificado si origen organismo; en_flit si vení
 
 describe('AC5 — anular en registrado: línea anulado, LT clasificado, precio intacto', () => {
   it('no toca precio; LT a clasificado; traslado anulado', async () => {
-    txCiclo();
+    txCiclo({ cierra: true });
     const r = await anularTraslado(TR, 'viaje cancelado', ctxAdmin);
     expect(r).toMatchObject({ estado: 'anulado', documentos: 3 });
     const lineaSet = sets.find((s) => s.tabla === flitoLogisticaTrasladoLts)?.valores;
@@ -234,8 +238,9 @@ describe('AC5b — anular cierra el acta del viaje como devuelta', () => {
 
   it('sin acta asociada no falla y no toca actas', async () => {
     selectMock.mockReturnValueOnce(chain([{
-      id: TR, destino: 'cliente', origen: 'organismo', estado: 'registrado', mensajeroId: 9,
+      id: TR, companiaId: 5, destino: 'cliente', origen: 'organismo', estado: 'registrado', mensajeroId: 9,
     }]));
+    selectMock.mockReturnValueOnce(chain([{ proveedorId: null }]));
     selectMock.mockReturnValueOnce(chain([]));
     selectMock.mockReturnValueOnce(chain([linea(D1)]));
     selectMock.mockReturnValueOnce(chain([{ id: D1, estado: 'en_acta' }]));
@@ -257,7 +262,7 @@ describe('AC6 — anular tras despachar → 409', () => {
 
 describe('AC7 — reversa de LT entregada: línea anulado + evento tipificado', () => {
   it('marca la línea anulado, conserva precio y deja tipo reversa', async () => {
-    selectMock.mockReturnValueOnce(chain([{ id: D1, estado: 'entregado' }]));
+    selectMock.mockReturnValueOnce(chain([{ id: D1, estado: 'entregado', companiaId: null }]));
     selectMock.mockReturnValueOnce(chain([{ id: 'lin-1', trasladoId: TR, estado: 'entregado', precio: '18500.00' }]));
     selectMock.mockReturnValueOnce(chain([{ id: D1, estado: 'entregado' }]));
     await reversar(D1, 'clasificado', 'error de entrega', ctxAdmin);

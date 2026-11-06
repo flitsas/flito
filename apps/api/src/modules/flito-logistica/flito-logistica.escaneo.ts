@@ -5,7 +5,7 @@ import { EstadoDocumentoLogistica, parseLicenciaTransito } from '@operaciones/sh
 import { db } from '../../db/client.js';
 import { clients, flitoLogisticaDocumentos, flitoTramites, organismosTransitoConfig, vehicles } from '../../db/schema.js';
 import { uploadEntityDocument } from '../../services/storage.js';
-import { LT, LogisticaError, aprobadoSql, insertarEvento, log, normPlaca, transicionar, type LogisticaCtx } from './flito-logistica.base.js';
+import { LT, LogisticaError, aprobadoSql, bloquearCompania, insertarEvento, log, normPlaca, transicionar, type LogisticaCtx } from './flito-logistica.base.js';
 
 // ── Escaneo de la LT (mensajero en el organismo) ─────────────────────────────
 // HU #14142 (ADR-0030 §17.2): la LT pertenece al VEHÍCULO; el trámite se identifica al escanear. Se buscan
@@ -167,13 +167,15 @@ export async function escanearLt(entrada: string | EntradaManual, numeroLt: stri
   let salida: { documentoId?: string; duplicado: boolean };
   try {
     salida = await db.transaction(async (tx) => {
+      // HU #14346 (AC1 y AC2): el dueño se lee aquí, con el cliente `FOR SHARE`; la pendiente queda sin dueño.
+      const proveedorLogisticaId = t ? await bloquearCompania(tx, t.companiaId!) : null;
       const [creado] = await tx.insert(flitoLogisticaDocumentos).values({
         tramiteId: t?.tramiteId ?? null, tipo: LT, estado,
         organismoCodigo: organismoCodigo!, companiaId: t?.companiaId ?? null, companiaNit: t?.companiaNit ?? null,
         vehiculoId: fila0.vehiculoId, identificador: placa,
         numeroLicencia: p.numeroLicencia, numeroLt: p.numeroLt,
         propietarioNombre: p.propietarioNombre, propietarioDocumento: p.propietarioDocumento,
-        combustible: p.combustible, motivo, flitRaw: p.flitRaw,
+        combustible: p.combustible, motivo, flitRaw: p.flitRaw, proveedorLogisticaId,
       }).onConflictDoNothing({ target: [flitoLogisticaDocumentos.tramiteId, flitoLogisticaDocumentos.tipo] })
         .returning({ id: flitoLogisticaDocumentos.id });
 

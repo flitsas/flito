@@ -48,7 +48,7 @@ function insertCapturando(rows: unknown[]) {
 
 beforeEach(() => {
   insertados = [];
-  selectMock.mockReset();
+  selectMock.mockReset().mockReturnValue(chain([]));
   insertMock.mockReset().mockImplementation(() => insertCapturando([]));
   updateMock.mockReset().mockReturnValue(chain([]));
   transactionMock.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(txObj));
