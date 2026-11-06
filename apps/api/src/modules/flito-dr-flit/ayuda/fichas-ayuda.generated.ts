@@ -135,8 +135,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "clients",
     "etiqueta": "Clientes y proveedores",
     "resumen": "Empresas, servicios que gestiona FLITO y datos comerciales.",
-    "version": "3.1",
-    "fecha": "2026-11-05",
+    "version": "3.2",
+    "fecha": "2026-11-06",
     "palabrasClave": [
       "clientes",
       "proveedores",
@@ -582,8 +582,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_soat",
     "etiqueta": "SOAT",
     "resumen": "Cola de pólizas del proveedor.",
-    "version": "1.8",
-    "fecha": "2026-10-28",
+    "version": "1.9",
+    "fecha": "2026-11-06",
     "palabrasClave": [
       "SOAT",
       "pólizas",

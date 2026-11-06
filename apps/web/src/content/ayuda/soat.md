@@ -9,8 +9,8 @@ consultas:
   - cómo solicito un SOAT
   - cuándo pasa un SOAT a pagado
   - cómo cargo la factura del SOAT
-version: 1.8
-fecha: 2026-10-28
+version: 1.9
+fecha: 2026-11-06
 ---
 ## Qué es
 
