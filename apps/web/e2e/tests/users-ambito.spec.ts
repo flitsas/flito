@@ -798,7 +798,7 @@ test.describe('HU #14344 · proveedor de cualquier servicio al atar', () => {
     await expect(celdaAmbito(page, 'gestor.sura')).toHaveText('SURA');
     await page.getByRole('button', { name: 'Editar' }).first().click();
     const select = page.getByLabel('Proveedor', { exact: true });
-    await expect(page.getByText('No tienes permiso para ver los proveedores.', { exact: false })).toBeVisible();
+    await expect(page.getByText('No tienes permiso para ver los proveedores: pide a un administrador que te active «Ver los proveedores SOAT».', { exact: true })).toBeVisible();
     await expect(page.getByText(/Forbidden/)).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Volver a cargar proveedores' })).toHaveCount(0);
     await expect(select).toBeDisabled();
@@ -816,7 +816,7 @@ test.describe('HU #14344 · proveedor de cualquier servicio al atar', () => {
     await mockCatalogos(page);
     await page.route(/\/api\/flito\/parametrizacion\/proveedores\/asignables-usuario$/, (r) => r.fulfill(json({ error: 'x' }, 403)));
     await abrirAlta(page, 'proveedor');
-    await expect(page.getByText('No tienes permiso para ver los proveedores.', { exact: false })).toBeVisible();
+    await expect(page.getByText('No tienes permiso para ver los proveedores: pide a un administrador que te active «Ver los proveedores SOAT».', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Crear usuario' }).click();
     await expect(page.getByRole('alert')).toHaveText('Selecciona el proveedor para este rol.');
     expect(posts).toHaveLength(0);
