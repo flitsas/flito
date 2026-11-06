@@ -37,11 +37,11 @@ const entre = (texto: string, abre: string, cierra: string): string => {
 const COMPROBACION_FINAL = entre(MIGRACION, '-- >>> COMPROBACION FINAL', '-- <<< COMPROBACION FINAL');
 
 describe('0290 — análisis estático', () => {
-  it('número siguiente y sin control de transacción propio: el runner envuelve el archivo', () => {
+  it('número propio y sin control de transacción propio: el runner envuelve el archivo', () => {
     expect(scanForTxControl(ARCHIVO, MIGRACION)).toEqual([]);
     const sqls = readdirSync(DIR).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
-    expect(sqls.filter((f) => f.startsWith('0290_'))).toEqual([ARCHIVO]);
-    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^0288_/);
+    // Solo que nadie más lleve su número: no qué número tiene la anterior, que cambia con cada merge ajeno.
+    expect(sqls.filter((f) => f.startsWith(ARCHIVO.slice(0, 5)))).toEqual([ARCHIVO]);
   });
 
   it('#14328 AC2: la parada va antes de cualquier tabla, columna, índice, función o trigger', () => {
