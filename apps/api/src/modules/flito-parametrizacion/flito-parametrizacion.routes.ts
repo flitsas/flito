@@ -244,7 +244,7 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
     [updated] = await db.transaction(async (tx) => {
       if (cambiaGestor) await exigirProveedorSoatUsable(tx, cambios.proveedorSoatSinTramiteId!);
       if (cambiaProveedorLogistica) await exigirProveedorLogisticaUsable(tx, cambios.proveedorLogisticaId!);
-      // HU #14346 (AC5 a AC7): quitar el proveedor (null) no reasigna; con uno nuevo, sus LT pasan en esta transacción.
+      // HU #14346 (AC5 a AC7): quitar el proveedor (null) no reasigna; con uno, nuevo o reenviado (ADR-0039 §5.5), sus LT pasan en esta transacción.
       if (cambios.proveedorLogisticaId != null) licenciasReasignadas = await reasignarLicenciasDeCompania(tx, id, cambios.proveedorLogisticaId);
       return tx.update(clients).set(set).where(and(eq(clients.id, id), clienteVigente()))
         .returning(COLUMNAS_COMPANIA_DTO);

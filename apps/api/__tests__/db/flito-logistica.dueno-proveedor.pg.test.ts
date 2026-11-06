@@ -266,11 +266,38 @@ describe.skipIf(!URL_BASE)('dueño de la LT (PostgreSQL, tx con ROLLBACK)', () =
       });
     });
 
-    it('reenviar el mismo proveedor no reasigna nada', async () => {
+    it('reenviar el mismo proveedor: la LT sin dueño pasa a él, y la que ya es suya no cuenta', async () => {
       await conMundo(async (m) => {
-        const cia = await m.cia(m.A); const d = await m.doc(cia, { dueno: null });
+        const cia = await m.cia(m.A); const sinDueno = await m.doc(cia, { dueno: null }); const yaSuya = await m.doc(cia, { dueno: m.A });
+        expect(await reasignarLicenciasDeCompania(actual.db as never, cia, m.A)).toBe(1);
+        expect(await m.dueno(sinDueno)).toBe(m.A);
+        expect(await m.dueno(yaSuya)).toBe(m.A);
         expect(await reasignarLicenciasDeCompania(actual.db as never, cia, m.A)).toBe(0);
-        expect(await m.dueno(d)).toBeNull();
+      });
+    });
+
+    it('reenviar el mismo proveedor: la LT con dueño desfasado vuelve a él', async () => {
+      await conMundo(async (m) => {
+        const cia = await m.cia(m.A); const d = await m.doc(cia, { dueno: m.B });
+        expect(await reasignarLicenciasDeCompania(actual.db as never, cia, m.A)).toBe(1);
+        expect(await m.dueno(d)).toBe(m.A);
+      });
+    });
+
+    it('AC6 al reenviar el mismo proveedor: lo que está en acta abierta o entregado sigue igual', async () => {
+      await conMundo(async (m) => {
+        const cia = await m.cia(m.A);
+        const enGenerada = await m.doc(cia, { dueno: m.B, estado: 'en_acta' });
+        await m.viaje(cia, [enGenerada], { dueno: m.B, estado: 'registrado', acta: 'generada', linea: 'registrado' });
+        const enDespachada = await m.doc(cia, { dueno: m.B, estado: 'despachado' });
+        await m.viaje(cia, [enDespachada], { dueno: m.B, estado: 'en_ruta', acta: 'despachada', linea: 'en_ruta' });
+        const entregada = await m.doc(cia, { dueno: m.B, estado: 'entregado' });
+        const entregadaSinDueno = await m.doc(cia, { dueno: null, estado: 'entregado' });
+
+        expect(await reasignarLicenciasDeCompania(actual.db as never, cia, m.A)).toBe(0);
+
+        for (const d of [enGenerada, enDespachada, entregada]) expect(await m.dueno(d)).toBe(m.B);
+        expect(await m.dueno(entregadaSinDueno)).toBeNull();
       });
     });
 

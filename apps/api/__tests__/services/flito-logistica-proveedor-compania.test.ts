@@ -143,8 +143,7 @@ describe('AC3 — migración 0279 (forma del SQL; la ejecución real se valida e
 describe('HU #14346 — el PATCH reasigna las licencias en su transacción', () => {
   const NUEVO = OTRO;
   const conNuevo = () => [{ id: NUEVO, nombre: 'Nuevo', activo: true }];
-  // El double devuelve la misma fila a toda lectura de `clients`: la columna del bloqueo es `proveedorId`.
-  const previa = (proveedorId: string | null) => ({ logisticaAutogestionable: false, proveedorLogisticaId: proveedorId, proveedorId });
+  const previa = (proveedorId: string | null) => ({ logisticaAutogestionable: false, proveedorLogisticaId: proveedorId });
 
   it('AC5: cambiar de proveedor actualiza las licencias, con la compañía bloqueada, antes del UPDATE de la compañía; la auditoría cuenta las reasignadas', async () => {
     escenario(previa(PROV), conNuevo());
@@ -154,6 +153,24 @@ describe('HU #14346 — el PATCH reasigna las licencias en su transacción', () 
     expect(espia.updatesEn('flito_logistica_documentos').at(-1)?.datos).toMatchObject({ proveedorLogisticaId: NUEVO });
     expect(auditMock.mock.calls[0]![1].detail).toContain('Licencias reasignadas: 2');
     expect(JSON.stringify(auditMock.mock.calls[0]![1])).not.toMatch(/d1|d2/);
+  });
+
+  it('reenviar el mismo proveedor llega al UPDATE de licencias y la auditoría cuenta las reasignadas', async () => {
+    escenario(previa(PROV));
+    kdb.when.update('flito_logistica_documentos', [{ id: 'd1' }]);
+    const r = await patch({ proveedorLogisticaId: PROV });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos').at(-1)?.datos).toMatchObject({ proveedorLogisticaId: PROV });
+    expect(auditMock.mock.calls[0]![1].detail).toContain('Licencias reasignadas: 1');
+  });
+
+  it('reenviar el mismo proveedor sin nada que reasignar: la auditoría no menciona licencias', async () => {
+    escenario(previa(PROV));
+    kdb.when.update('flito_logistica_documentos', []);
+    const r = await patch({ proveedorLogisticaId: PROV });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(1);
+    expect(auditMock.mock.calls[0]![1].detail).not.toContain('Licencias reasignadas');
   });
 
   it('AC7: quitar el proveedor no toca las licencias', async () => {

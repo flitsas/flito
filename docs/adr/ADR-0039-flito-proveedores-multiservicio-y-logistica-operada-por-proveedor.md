@@ -316,8 +316,10 @@ sequenceDiagram
 | Entrega | Rollback (revertir el digest) |
 |---|---|
 | F1-F3 | Limpio. La imagen vieja lee perfiles sincronizados. Un usuario de un proveedor **solo de logística** queda con la columna vieja en NULL y falla cerrado |
-| F4 | Limpio. Las columnas nuevas se ignoran; la frontera vuelve a cerrar a `proveedor` en logística |
+| F4 | **Revertir es limpio, volver a avanzar no.** Al revertir, las columnas nuevas se ignoran y la frontera vuelve a cerrar a `proveedor` en logística. Pero la imagen vieja no estampa ni reasigna el dueño: las LT que toque quedan con dueño `NULL` o desfasado, y el backfill no se repite. Al avanzar otra vez, AC3 las rechaza con 409 y una sola hace fallar `cerrarLote` de su compañía. Exige el reavance descrito abajo |
 | **F5** | **No reversible sin restaurar.** Con `pg_dump` previo; solo cuando F4 lleve un tiempo estable en PDN |
+
+**Reavance de F4 tras una reversa:** por cada compañía afectada, reenviar su mismo proveedor (`PATCH /api/flito/parametrizacion/companias/:id` con `proveedorLogisticaId`), que aplica la regla de §6.3 y con datos consistentes no reasigna nada. La pantalla de clientes no reenvía un proveedor sin cambios (`ServiciosCliente.tsx`), así que es una llamada directa al API. Si son muchas compañías, una **migración nueva** con el mismo `UPDATE`; el backfill ya aplicado no se edita.
 
 **F5 (contract):** deja de leer las columnas viejas, migra los lectores, elimina triggers, `nombre`/`activo`/`nit`/`contacto`/`telefono` de los perfiles, `estrategia` de logística, `users.flito_proveedor_soat_id`. También actualiza `users_ambito_requerido` si aún la nombra y retira las rutas `proveedores-soat`/`proveedores-logistica` que queden.
 

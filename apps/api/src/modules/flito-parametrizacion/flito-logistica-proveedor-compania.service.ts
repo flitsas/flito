@@ -79,19 +79,19 @@ export async function exigirProveedorLogisticaUsable(tx: Tx, id: string): Promis
 
 /**
  * HU #14346 (ADR-0039 §6.3, R16). En la transacción del PATCH, antes del UPDATE de `clients`: toma la compañía
- * `FOR UPDATE` y pasa al proveedor nuevo sus LT no entregadas y sin acta abierta. Devuelve cuántas pasó. Va después de
- * `exigirProveedorLogisticaUsable`: padre → perfil → cliente → licencias. Nadie toma el padre o el perfil después
+ * `FOR UPDATE` y pasa al proveedor recibido sus LT no entregadas y sin acta abierta. Devuelve cuántas pasó. Si el proveedor
+ * cambia, va después de `exigirProveedorLogisticaUsable`: padre → perfil → cliente → licencias. Nadie toma el padre o el perfil después
  * del cliente: el escaneo y el registro de viaje, con el cliente `FOR SHARE`, solo piden `FOR KEY SHARE` por el FK, y
  * quien toma el perfil `FOR UPDATE` (inactivar, retirar el servicio, eliminar) lee `clients` sin bloqueo.
  *
- * El anterior se relee con el bloqueo: el `previo` de la ruta se leyó fuera de la transacción. El UPDATE toca todo
- * dueño distinto del nuevo, no solo el anterior o NULL (§6.3): con A → sin proveedor → B, el anterior es NULL y la LT
- * de A quedaría con A para siempre, sin poder entrar a ningún viaje.
+ * El UPDATE toca todo dueño distinto del recibido, no solo el anterior o NULL (§6.3): con A → sin proveedor → B, el
+ * anterior es NULL y la LT de A quedaría con A para siempre, sin poder entrar a ningún viaje. También corre al reenviar
+ * el mismo proveedor: es el procedimiento de reavance tras una reversa de imagen (§5.5). Con datos consistentes pasa 0.
  */
 export async function reasignarLicenciasDeCompania(tx: Tx, companiaId: number, nuevoId: string): Promise<number> {
-  const [c] = await tx.select({ proveedorId: clients.flitoProveedorLogisticaId }).from(clients)
+  const [c] = await tx.select({ id: clients.id }).from(clients)
     .where(and(eq(clients.id, companiaId), clienteVigente())).for('update');
-  if (!c || c.proveedorId === nuevoId) return 0;
+  if (!c) return 0;
   const D = flitoLogisticaDocumentos;
   const pasadas = await tx.update(D).set({ proveedorLogisticaId: nuevoId, updatedAt: new Date() }).where(and(
     eq(D.companiaId, companiaId), eq(D.tipo, 'licencia_transito'), ne(D.estado, 'entregado'), sinActaAbierta,
