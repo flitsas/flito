@@ -41,7 +41,7 @@ const FIRMA_CRUDA = 'iVBORw0KGgo=';
 const RECEPTOR = { receptorNombre: 'Recibe', receptorDocumento: '1036640908', firma: FIRMA_CRUDA };
 
 let consultas: string[] = [];
-const ctx = { userId: 0, username: 'op', role: 'admin', operaAjenas: true };
+const ctx = { userId: 0, username: 'op', role: 'admin', operaAjenas: true, alcance: { enlace: 'ninguno' } as const };
 let n = 0;
 const sello = () => `${String(Date.now()).slice(-6)}${n++}`;
 

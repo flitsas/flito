@@ -292,6 +292,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
       'flito-logistica/flito-logistica-motivos.routes.ts GET / [listar]',
       'flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar [operarAjenas]',
+      'flito-logistica/flito-logistica.routes.ts POST /escanear [dejarPendiente]', // HU #14348
       'flito-logistica/flito-logistica.routes.ts POST /traslados/:id/entregar [entregar]',
       'flito-logistica/flito-logistica.routes.ts POST /traslados/:id/entregar [firmarFlit]',
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [autogestion]',

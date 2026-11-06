@@ -1,6 +1,6 @@
 // FLITO Logística — consultas de la consola, actas y ruta del mensajero (HU #14108, ADR-0030 §11).
 
-import { and, desc, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL,
   ESTADO_DOCUMENTO_LOGISTICA_LABEL, ESTADO_LOGISTICA_SIMPLE_LABEL, EstadoLogisticaSimple,

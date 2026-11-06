@@ -41,8 +41,8 @@ const svc = await import('../../src/modules/flito-logistica/flito-logistica.serv
 const { default: logisticaRoutes } = await import('../../src/modules/flito-logistica/flito-logistica.routes.js');
 const { flitoLogisticaTraslados, flitoLogisticaTrasladoLts, flitoLogisticaActas } = await import('../../src/db/schema.js');
 
-const ctx = { userId: 1, username: 'op', role: 'admin', operaAjenas: true };
-const txObj = { select: selectMock, insert: insertMock, update: updateMock, delete: deleteMock };
+const ctx = { userId: 1, username: 'op', role: 'admin', operaAjenas: true, alcance: { enlace: 'ninguno' } as const };
+const txObj = { select: selectMock, insert: insertMock, update: updateMock, delete: deleteMock, execute: vi.fn().mockResolvedValue([]) };
 
 // PDF417 de ejemplo (rawValue real de BarcodeDetector): licencia, C.C., propietario, dirección,
 // foto JPEG (/9j/…), placa QOX858, VIN, chasis, motor, combustible.
@@ -63,7 +63,7 @@ beforeEach(() => {
 describe('escanearLt — recogida por escaneo del PDF417', () => {
   const tramite = (over: Record<string, unknown> = {}) => ({
     tramiteId: 't1', idFlit: 'F1', organismoCodigo: '05001', companiaId: 5, companiaNit: '900',
-    vehiculoId: 9, vin: 'LRWYGCFJ0TC496126', autogestionable: false, companiaNombre: 'ACME', docId: null, ...over,
+    vehiculoId: 9, vin: 'LRWYGCFJ0TC496126', companiaNombre: 'ACME', docId: null, ...over,
   });
 
   it('sin trámite aprobado con esa placa → sin_match, no persiste', async () => {
@@ -95,13 +95,6 @@ describe('escanearLt — recogida por escaneo del PDF417', () => {
   it('código ilegible → error de negocio', async () => {
     await expect(svc.escanearLt('texto que no es una LT', null, {}, ctx)).rejects.toThrow(/no se pudo leer/i);
     expect(selectMock).not.toHaveBeenCalled();
-  });
-
-  it('parametrización por compañía (RN-05): compañía autogestionada → no_gestionable, no persiste', async () => {
-    selectMock.mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([tramite({ autogestionable: true })])); // [numeroLicencia, trámites]
-    const r = await svc.escanearLt(RAW, 'LT-001', {}, ctx);
-    expect(r.resultado).toBe('no_gestionable');
-    expect(transactionMock).not.toHaveBeenCalled();
   });
 });
 
