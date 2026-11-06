@@ -73,6 +73,9 @@ describe('escanearLt por vehículo (HU #14142)', () => {
     lecturas([], [fila(), fila({ tramiteId: 't2', idFlit: 'F2', companiaId: 6, companiaNombre: 'OTRA' })]);
     const r = await svc.escanearLt(RAW, null, {}, ctx);
     expect(r.resultado).toBe('elegir_tramite');
+    // Este resultado se guarda en la tabla de idempotencia y no crea documento: no lleva lo leído del titular (Ley 1581).
+    expect(r).not.toHaveProperty('propietarioNombre');
+    expect(r).not.toHaveProperty('numeroLicencia');
     expect(r.candidatos).toEqual([
       { tramiteId: 't1', idFlit: 'F1', companiaNombre: 'ACME', organismoCodigo: '05001' },
       { tramiteId: 't2', idFlit: 'F2', companiaNombre: 'OTRA', organismoCodigo: '05001' },

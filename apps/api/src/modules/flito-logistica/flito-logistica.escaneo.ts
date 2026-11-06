@@ -199,7 +199,7 @@ export async function escanearLt(entrada: string | EntradaManual, numeroLt: stri
   }
   if (d.kind === 'fin') {
     if (d.r.resultado === 'duplicado' && d.r.documentoId) await completarNumeroLt(d.r.documentoId, p.numeroLt);
-    return { ...base(), ...d.r };
+    return { placa, vin, ...d.r }; // Sin el nombre leído: `elegir_tramite` y este `duplicado` se guardan en la tabla de idempotencia y no crean documento.
   }
   const pendiente = d.kind === 'pendiente';
   const t: FilaTramite | null = d.kind === 'tramite' ? d.t : null;
