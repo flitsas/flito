@@ -195,7 +195,9 @@ export default function FlitoLogistica() {
       cargar(); recargarFacetas();
     } catch (e) {
       setErrorDespacho(mensajeDespachar(e));
-      recargarFacetas(); // un mensajero que dejó de ser asignable sale de la lista
+      // Un mensajero que dejó de ser asignable sale de la lista. Silencioso: si este GET también falla,
+      // las facetas se conservan y el modal, que depende de ellas, no pierde la firma ni el aviso.
+      void recargarFacetas(true);
     } finally { setBusy(false); }
   };
 
@@ -570,10 +572,12 @@ function DespacharModal({ mensajeros, proveedorDelActa, busy, error, onClose, on
   const delProveedor = proveedorDelActa === null ? [] : mensajeros.filter((m) => m.proveedorId === proveedorDelActa);
   const opcion = (m: Facetas['mensajeros'][number]) => <option key={m.id} value={m.id}>{m.nombre}</option>;
   const sinOpciones = deFlito.length + delProveedor.length === 0;
+  // Derivado del catálogo: el mensajero que salió de la lista (422) deja de contar como elegido.
+  const elegido = [...deFlito, ...delProveedor].some((m) => String(m.id) === sel) ? sel : '';
   return (
     <FlitModal title="Firmar entrega y despachar" onClose={onClose}>
       <FlitField label="Mensajero">
-        <select className={flitInp} value={sel} onChange={(e) => setSel(e.target.value)}>
+        <select className={flitInp} value={elegido} onChange={(e) => setSel(e.target.value)}>
           <option value="">Selecciona…</option>
           {deFlito.length > 0 && <optgroup label="Mensajeros de FLITO">{deFlito.map(opcion)}</optgroup>}
           {delProveedor.length > 0 && <optgroup label="Mensajeros del proveedor">{delProveedor.map(opcion)}</optgroup>}
@@ -592,8 +596,8 @@ function DespacharModal({ mensajeros, proveedorDelActa, busy, error, onClose, on
       {error && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
       <div className="mt-4 flex justify-end gap-2">
         <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={busy || !sel || !firma}
-          onClick={() => onDespachar({ mensajeroId: Number(sel), firmaEntrega: firma!, entregaNombre: nombre.trim() || undefined })}>Firmar y despachar</button>
+        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={busy || !elegido || !firma}
+          onClick={() => onDespachar({ mensajeroId: Number(elegido), firmaEntrega: firma!, entregaNombre: nombre.trim() || undefined })}>Firmar y despachar</button>
       </div>
     </FlitModal>
   );
