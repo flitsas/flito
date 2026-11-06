@@ -33,7 +33,7 @@ rápida sin proceso.
 | **Siempre** | skill `flit-code-review` (herramienta `Skill` / leer y seguir `.claude/skills/flit-code-review/SKILL.md` hasta el veredicto canónico) | **Antes** de **cada** PR — nunca después; también en cadena apilada; `security-agent` **no** lo sustituye |
 | **Siempre** (HU/Bug de producto) | `qa-agent` modo B (re-run P1; mutantes condicionales: 0 por defecto, ≤3 solo con lógica condicional) | **Antes** del PR. FAIL = retrabajo, no se abre el PR. Tras el PR **no** se vuelve a invocar. `CHORE/`/`DOCS/` sin producto: N/A declarado |
 | Si el diff toca auth, PII, multer, rutas nuevas, `package*.json`, laft/, privacy | `security-agent` | Matriz `AGENTS.md` (complementa el code-review). Copy/CSS/tests-only **sin** esas superficies → **no aplica** (P5), no invocarlo |
-| Si el diff toca `apps/api/src/db/schema.ts` o `src/db/migrations/` | `db-review-agent` | Matriz `AGENTS.md`. Segunda pasada solo si el veredicto anterior no era `SANO` y el SQL cambió (P4) |
+| Si el diff toca `apps/api/src/db/schema.ts`, `apps/api/src/db/schema/*.ts` o `src/db/migrations/` | `db-review-agent` | Matriz `AGENTS.md`. Segunda pasada solo si el veredicto anterior no era `SANO` y el SQL cambió (P4) |
 
 Si un gate no aplica, **declararlo explícitamente** en el hilo y en el cuerpo del PR («superficie sensible: no aplica», «db-review: no aplica»). Nunca omitirlo en silencio.
 
