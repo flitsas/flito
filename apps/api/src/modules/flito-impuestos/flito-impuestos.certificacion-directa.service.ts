@@ -262,9 +262,10 @@ export async function actualizarCertificacionDirecta(
   }
 }
 
+/** `modalidad` es para la auditoría de la ruta: no sale al cliente. */
 export async function consultarRuntCertificacionDirecta(
   id: string, actor: { userId: number; username: string },
-): Promise<FilaCertificacionDirecta> {
+): Promise<{ fila: FilaCertificacionDirecta; modalidad: ModalidadConsultaRunt }> {
   const actual = await cargar(id);
   if (actual.estado === 'certificado') throw new ImpuestoError(409, 'Este registro ya está certificado');
   // Decide el documento. Placa y VIN nunca viajan juntos: el cliente RUNT descartaría el VIN.
@@ -282,7 +283,7 @@ export async function consultarRuntCertificacionDirecta(
       estado, comparacion: null, updatedAt: ahora,
     }).where(eq(flitoImpuestoCertificacionDirecta.id, id)).returning();
     log.info({ id, estado, modalidad }, 'consulta RUNT sin certificado');
-    return filaVisible(row!);
+    return { fila: await filaVisible(row!), modalidad };
   }
   const veh = extraerVehiculoRunt(consulta.data);
   const colorCc = extraerColorCilindrajeRunt(consulta.data);
@@ -297,7 +298,7 @@ export async function consultarRuntCertificacionDirecta(
     const [row] = await db.update(flitoImpuestoCertificacionDirecta).set({
       estado: 'sin_coincidencia', comparacion: comparado.comparacion.campos, updatedAt: ahora,
     }).where(eq(flitoImpuestoCertificacionDirecta.id, id)).returning();
-    return filaVisible(row!);
+    return { fila: await filaVisible(row!), modalidad };
   }
   const snapshot: SnapshotCertificacionDirecta = {
     campos: comparado.comparacion.campos,
@@ -310,7 +311,7 @@ export async function consultarRuntCertificacionDirecta(
       certificadoEn: ahora, certificadoPorId: actor.userId, certificadoPorNombre: actor.username,
       updatedAt: ahora,
     }).where(eq(flitoImpuestoCertificacionDirecta.id, id)).returning();
-    return filaVisible(row!);
+    return { fila: await filaVisible(row!), modalidad };
   } catch (e) {
     if (esUnico(e)) throw new ImpuestoError(409, 'Ya existe una certificación para este VIN o esta placa');
     throw e;

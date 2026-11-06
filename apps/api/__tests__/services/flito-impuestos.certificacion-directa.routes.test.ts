@@ -8,6 +8,7 @@ import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { testToken, neutralizarEnlaceDe } from '../helpers/auth.js';
 import { textoDelPdf } from '../helpers/texto-pdf.js';
+import { audit } from '../../src/shared/middleware/audit.js';
 
 neutralizarEnlaceDe('gestor_impuestos', 'conductor'); // mide la función, no el enlace
 
@@ -602,6 +603,49 @@ describe('POST /:id/consultar', () => {
     runt.consultar.mockResolvedValue(runtOk());
     const r = await consultar();
     expect(r.status).toBe(409);
+  });
+
+  describe('auditoría de la consulta (quién mandó datos del titular al RUNT)', () => {
+    const conDocumento = {};
+    const porVin = { documentoPropietario: null, nombrePropietario: null };
+    const timeout = { ok: false, message: 'timeout de la pasarela' };
+    const noEncontrado = { ok: false, message: 'No se encuentra información del vehículo' };
+
+    it.each<[string, Record<string, unknown>, unknown, string, string]>([
+      ['con documento que certifica', conDocumento, runtOk(), 'placa_documento', 'certificado'],
+      ['con documento sin coincidencia', conDocumento, runtOk({ marca: 'MAZDA' }), 'placa_documento', 'sin_coincidencia'],
+      ['con documento sin vehículo', conDocumento, noEncontrado, 'placa_documento', 'sin_vehiculo'],
+      ['con documento sin respuesta', conDocumento, timeout, 'placa_documento', 'sin_respuesta'],
+      ['por VIN que certifica', porVin, runtOk(), 'vin', 'certificado'],
+      ['por VIN sin respuesta', porVin, timeout, 'vin', 'sin_respuesta'],
+    ])('%s: audita modalidad y estado, sin datos del titular', async (_n, extra, respuestaRunt, modalidad, estado) => {
+      vi.mocked(audit).mockClear();
+      kdb.when.select(FILA, [filaBd(extra)]);
+      const sets = capturarSets(estado);
+      runt.consultar.mockResolvedValue(respuestaRunt);
+
+      const r = await consultar();
+
+      expect(r.status).toBe(200);
+      expect(sets[0]!.estado).toBe(estado); // el estado auditado es el que escribió el servicio
+      expect(r.body).not.toHaveProperty('modalidad');
+      expect(audit).toHaveBeenCalledTimes(1);
+      const [, entrada] = vi.mocked(audit).mock.calls[0]!;
+      expect(entrada).toMatchObject({ action: 'update', resource: 'flito_impuesto', resourceId: ID });
+      expect(entrada.detail).toContain(`modalidad ${modalidad}`);
+      expect(entrada.detail).toContain(`estado ${estado}`);
+      for (const dato of ['ABC123', '900123456', '9ZZTEST0000000001', 'Empresa Prueba SAS']) {
+        expect(entrada.detail).not.toContain(dato);
+      }
+    });
+
+    it('un registro ya certificado no llama al RUNT y no audita consulta', async () => {
+      vi.mocked(audit).mockClear();
+      kdb.when.select(FILA, [filaBd({ estado: 'certificado' })]);
+      const r = await consultar();
+      expect(r.status).toBe(409);
+      expect(audit).not.toHaveBeenCalled();
+    });
   });
 
   it('la consulta 11 en un minuto responde 429 «Demasiadas consultas al RUNT. Espera un minuto.»', async () => {

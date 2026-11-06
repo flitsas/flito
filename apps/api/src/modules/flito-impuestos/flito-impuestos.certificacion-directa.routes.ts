@@ -5,6 +5,7 @@ import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { CARGA_MASIVA_MAX_BYTES_ARCHIVO } from '@operaciones/shared-types';
+import { audit } from '../../shared/middleware/audit.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
@@ -150,8 +151,13 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
 
   router.post('/certificacion-directa/:id/consultar', exigirFuncion('impuestos.certificacion_directa.gestionar'), consultaLimiter, async (req, res) => {
     try {
-      const fila = await consultarRuntCertificacionDirecta(req.params.id, {
+      const { fila, modalidad } = await consultarRuntCertificacionDirecta(req.params.id, {
         userId: req.user!.sub, username: req.user!.username,
+      });
+      // Cada consulta manda datos del titular a un tercero: queda quién la ordenó. Sin placa, documento, nombre ni VIN.
+      await audit(req, {
+        action: 'update', resource: 'flito_impuesto', resourceId: req.params.id,
+        detail: `Consulta RUNT sin trámite (modalidad ${modalidad}, estado ${fila.estado})`,
       });
       res.json(fila);
     } catch (e) { fallar(res, e); }
