@@ -11,6 +11,7 @@ import type {
 import { loggerFor } from '../../shared/logger.js';
 import { getEntityDocumentStream, removeEntityDocument, uploadEntityDocument } from '../../services/storage.js';
 import { extraerVehiculoFacturaVenta, OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
+import { mapTipoDocUiToRunt } from '../runt/runt-tipo-doc.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
 import { ImpuestoError, type ArchivoSubido } from './flito-factura-venta.service.js';
 import { compararFacturaConRunt } from './flito-impuestos.comparacion-factura-runt.js';
@@ -27,11 +28,13 @@ const log = loggerFor('flito-impuestos.certificacion-directa');
 const UMBRAL_OCR = 0.85;
 const TOPE_LISTA = 100;
 const UNIQUE = '23505';
+export const FALTA_TIPO_DOCUMENTO = 'Falta el tipo de documento del propietario';
 
 export interface DatosAlta extends DatosVehiculoDiligenciados {
   organismoCodigo: string;
   placa: string;
   documentoPropietario: string | null;
+  tipoDocumentoPropietario: string | null;
   nombrePropietario: string | null;
 }
 
@@ -46,6 +49,7 @@ export interface FilaCertificacionDirecta {
   organismoNombre: string;
   placa: string;
   documentoPropietario: string | null;
+  tipoDocumentoPropietario: string | null;
   nombrePropietario: string | null;
   vin: string;
   marca: string;
@@ -81,7 +85,7 @@ function aFila(r: Fila, organismo: string): FilaCertificacionDirecta {
   return {
     id: r.id, organismoCodigo: r.organismoCodigo,
     organismoNombre: organismo, placa: r.placa, documentoPropietario: r.documentoPropietario,
-    nombrePropietario: r.nombrePropietario, vin: r.vin, marca: r.marca, linea: r.linea, anio: r.anio,
+    tipoDocumentoPropietario: r.tipoDocumentoPropietario, nombrePropietario: r.nombrePropietario, vin: r.vin, marca: r.marca, linea: r.linea, anio: r.anio,
     color: r.color, cilindrada: r.cilindrada, estado: r.estado, comparacion: r.comparacion ?? null,
     certificadoEn: aIso(r.certificadoEn), createdAt: r.createdAt.toISOString(),
   };
@@ -184,6 +188,7 @@ export async function crearCertificacionDirecta(datos: DatosAlta, archivo: Archi
       id, organismoCodigo: datos.organismoCodigo,
       placa: claves.placa, placaNorm: claves.placaNorm,
       documentoPropietario: datos.documentoPropietario?.trim() || null,
+      tipoDocumentoPropietario: datos.tipoDocumentoPropietario,
       nombrePropietario: datos.nombrePropietario?.trim() || null,
       vin: claves.vin, vinNorm: claves.vinNorm,
       marca: datos.marca.trim(), linea: datos.linea.trim(), anio: datos.anio.trim(),
@@ -244,6 +249,7 @@ export async function actualizarCertificacionDirecta(
       organismoCodigo: datos.organismoCodigo,
       placa: claves.placa, placaNorm: claves.placaNorm,
       documentoPropietario: datos.documentoPropietario?.trim() || null,
+      tipoDocumentoPropietario: datos.tipoDocumentoPropietario,
       nombrePropietario: datos.nombrePropietario?.trim() || null,
       vin: claves.vin, vinNorm: claves.vinNorm,
       marca: datos.marca.trim(), linea: datos.linea.trim(), anio: datos.anio.trim(),
@@ -262,6 +268,13 @@ export async function actualizarCertificacionDirecta(
   }
 }
 
+/** La pasarela exige el código RUNT. Lanza antes de salir: un registro anterior a Bug #14406 tiene documento y no tipo. */
+function codigoRuntDe(tipoDocumento: string | null): string {
+  const codigo = mapTipoDocUiToRunt(tipoDocumento);
+  if (!codigo) throw new ImpuestoError(400, FALTA_TIPO_DOCUMENTO);
+  return codigo;
+}
+
 /** `modalidad` es para la auditoría de la ruta: no sale al cliente. */
 export async function consultarRuntCertificacionDirecta(
   id: string, actor: { userId: number; username: string },
@@ -276,7 +289,7 @@ export async function consultarRuntCertificacionDirecta(
   const documento = actual.documentoPropietario?.trim() || null;
   const modalidad: ModalidadConsultaRunt = documento ? 'placa_documento' : 'vin';
   const consulta: { ok?: boolean; data?: unknown; message?: string; httpStatus?: number } = documento
-    ? await consultarVehiculoRunt(actual.placa, undefined, documento)
+    ? await consultarVehiculoRunt(actual.placa, undefined, documento, codigoRuntDe(actual.tipoDocumentoPropietario))
     : await consultarVehiculoRunt(undefined, actual.vin);
   const ahora = new Date();
   // Una placa que el RUNT no conoce responde ok:true con los campos en null: tampoco hay vehículo.
