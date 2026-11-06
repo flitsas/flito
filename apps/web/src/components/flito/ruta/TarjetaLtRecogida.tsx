@@ -24,7 +24,8 @@ export default function TarjetaLtRecogida({ fila, onChangeLt, onBorrar, onReinte
   const chip = fila.registro === 'registrando' ? { tono: 'neutral' as const, texto: 'Registrando…' } : fila.registro === 'encolada' ? { tono: 'neutral' as const, texto: 'En cola' } : CHIP[fila.estado];
   const editable = !fila.manual && fila.registro === 'no';
   const bloqueado = fila.registro === 'registrando' || fila.firmada;
-  const texto = fila.estado === 'sin_tramite' ? MENSAJE_LT_NO_ENCONTRADA : fila.estado === 'error' ? fila.motivo : TEXTO_ESTADO[fila.estado];
+  // El servidor decide qué motivo ve cada quien (mensaje único al proveedor, específico a Operaciones): la web lo pinta tal cual.
+  const texto = fila.estado === 'sin_tramite' ? fila.motivo || MENSAJE_LT_NO_ENCONTRADA : fila.estado === 'error' ? fila.motivo : TEXTO_ESTADO[fila.estado];
   const hayDatos = !!(fila.vin || fila.propietario || fila.numeroLicencia || fila.combustible);
 
   return (

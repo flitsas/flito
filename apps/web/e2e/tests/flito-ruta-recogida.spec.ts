@@ -25,7 +25,12 @@ const CANDIDATOS: Record<string, unknown[]> = {
     cand({ tramiteId: 't-m3', idFlit: 'FLIT-33', companiaNombre: 'Andina de Carga S.A.' })],
   // La consulta la encuentra, pero al registrar el servidor responde sin_match (autogestionada o sin trámite).
   NOC000: [cand({ tramiteId: 't-n', idFlit: 'FLIT-9', companiaNombre: 'Compañía Que No Debe Verse' })],
+  // Igual, pero el servidor no manda motivo: la tarjeta cae a la constante.
+  NOM000: [cand({ tramiteId: 't-v', idFlit: 'FLIT-10', companiaNombre: 'Compañía Que No Debe Verse' })],
+  // Igual, pero Operaciones recibe del servidor el motivo específico.
+  ESP000: [cand({ tramiteId: 't-e', idFlit: 'FLIT-11', companiaNombre: 'Compañía Que No Debe Verse' })],
 };
+const MOTIVO_ESPECIFICO = 'El trámite de esta placa aún no tiene compañía FLITO asignada.';
 
 interface Espias { escanear: Array<Record<string, unknown>>; confirmar: Array<Record<string, unknown>>; claves: Array<string | undefined>; consola: string[]; rechazarPendiente: boolean }
 
@@ -48,7 +53,13 @@ async function preparar(page: Page, funciones: readonly string[] = FUNCIONES): P
     const base = { placa: b.placa, organismoCodigo: c0?.organismoCodigo ?? null, companiaNombre: b.dejarPendiente ? null : (c0?.companiaNombre ?? null), vin: 'VIN0000000000001', numeroLicencia: b.numeroLicencia, propietarioNombre: 'Propietario de Prueba' };
     if (b.dejarPendiente && espias.rechazarPendiente) return r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'Sin permisos' }) });
     if (b.placa === 'NOC000') {
-      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultado: 'sin_match', motivo: MENSAJE_LT_NO_ENCONTRADA, placa: b.placa, vin: '', numeroLicencia: b.numeroLicencia, propietarioNombre: null }) });
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultado: 'sin_match', motivo: MENSAJE_LT_NO_ENCONTRADA, placa: b.placa, vin: '', numeroLicencia: b.numeroLicencia }) });
+    }
+    if (b.placa === 'NOM000') {
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultado: 'sin_match', placa: b.placa, vin: '', numeroLicencia: b.numeroLicencia }) });
+    }
+    if (b.placa === 'ESP000') {
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultado: 'sin_match', motivo: MOTIVO_ESPECIFICO, idFlit: 'FLIT-11', placa: b.placa, vin: '' }) });
     }
     const multiple = b.placa === 'MUL111' && !b.tramiteId && !b.dejarPendiente;
     const body = multiple
@@ -290,6 +301,22 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
     await expect(tarjeta.getByText(MENSAJE_LT_NO_ENCONTRADA, { exact: true })).toBeVisible();
     await expect(tarjeta.getByText('Compañía Que No Debe Verse')).toHaveCount(0);
     await expect(tarjeta.getByText(/No la recoge FLITO/)).toHaveCount(0);
+
+    // Si el servidor no manda motivo, la tarjeta cae a la constante en vez de quedar sin explicación.
+    await agregarManual(page, 'NOM000', '10038156342', 'LT10000848806');
+    const sinMotivo = page.getByRole('article', { name: 'LT NOM000' });
+    await expect(sinMotivo.getByText('Sin trámite')).toBeVisible();
+    await expect(sinMotivo.getByText(MENSAJE_LT_NO_ENCONTRADA, { exact: true })).toBeVisible();
+  });
+
+  test('AC1/AC2: con motivo específico del servidor pinta ese texto y no la constante', async ({ page }) => {
+    await preparar(page);
+    await agregarManual(page, 'ESP000', '10038156341', 'LT10000848805');
+    const tarjeta = page.getByRole('article', { name: 'LT ESP000' });
+    await expect(tarjeta.getByText('Sin trámite')).toBeVisible();
+    await expect(tarjeta.getByText(MOTIVO_ESPECIFICO, { exact: true })).toBeVisible();
+    await expect(tarjeta.getByText(MENSAJE_LT_NO_ENCONTRADA, { exact: true })).toHaveCount(0);
+    await expect(tarjeta.getByText('Compañía Que No Debe Verse')).toHaveCount(0);
   });
 
   test('AC4: sin la función no se ofrece dejar pendiente', async ({ page }) => {
