@@ -412,6 +412,11 @@ describe('POST /:id/consultar', () => {
   const consultar = async (s?: number) =>
     request(await buildApp()).post(`${BASE}/${ID}/consultar`).set('Authorization', await gestor(s));
 
+  /** 1.º select: cargar la fila; los siguientes: «sin duplicado» (la BD filtra por estado y excluye el propio id). */
+  const filaSinDuplicado = (extra: Record<string, unknown> = {}) => {
+    kdb.when.selectOnce(FILA, [filaBd(extra)]).select(FILA, []);
+  };
+
   /** El UPDATE que escribe el servicio, para comprobar lo que queda en la fila y no solo la respuesta. */
   const capturarSets = (estado: string) => {
     const sets: Record<string, unknown>[] = [];
@@ -426,7 +431,7 @@ describe('POST /:id/consultar', () => {
   };
 
   it('con documento consulta por placa y documento, sin VIN, y certifica cuando los seis campos coinciden', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     kdb.when.update(FILA, [filaBd({ estado: 'certificado', certificadoEn: new Date('2026-10-30T12:00:00Z'), certificadoPorNombre: 'gestor@flit.io' })]);
     runt.consultar.mockResolvedValue(runtOk());
     const r = await consultar();
@@ -439,7 +444,7 @@ describe('POST /:id/consultar', () => {
   });
 
   it('sin documento ni nombre consulta solo por VIN y certifica cuando los seis campos coinciden', async () => {
-    kdb.when.select(FILA, [filaBd({ documentoPropietario: null, nombrePropietario: null })]);
+    filaSinDuplicado({ documentoPropietario: null, nombrePropietario: null });
     const sets = capturarSets('certificado');
     runt.consultar.mockResolvedValue(runtOk());
     const r = await consultar();
@@ -450,7 +455,7 @@ describe('POST /:id/consultar', () => {
   });
 
   it('nombre sin documento consulta solo por VIN: decide el documento', async () => {
-    kdb.when.select(FILA, [filaBd({ documentoPropietario: null })]);
+    filaSinDuplicado({ documentoPropietario: null });
     capturarSets('certificado');
     runt.consultar.mockResolvedValue(runtOk());
     await consultar();
@@ -459,7 +464,7 @@ describe('POST /:id/consultar', () => {
   });
 
   it('documento sin nombre consulta por placa y documento: decide el documento', async () => {
-    kdb.when.select(FILA, [filaBd({ nombrePropietario: null })]);
+    filaSinDuplicado({ nombrePropietario: null });
     capturarSets('certificado');
     runt.consultar.mockResolvedValue(runtOk());
     await consultar();
@@ -467,20 +472,20 @@ describe('POST /:id/consultar', () => {
   });
 
   it('el snapshot congela la modalidad usada, porque el PDF se rearma al descargar', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     const conDoc = capturarSets('certificado');
     runt.consultar.mockResolvedValue(runtOk());
     await consultar();
     expect(conDoc[0]!.snapshot).toMatchObject({ modalidadConsulta: 'placa_documento' });
 
-    kdb.when.select(FILA, [filaBd({ documentoPropietario: null })]);
+    filaSinDuplicado({ documentoPropietario: null });
     const sinDoc = capturarSets('certificado');
     await consultar();
     expect(sinDoc[0]!.snapshot).toMatchObject({ modalidadConsulta: 'vin' });
   });
 
   it('rechazo del RUNT con documento: una sola llamada, no cae a VIN, queda sin_vehiculo y no certifica', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     const sets = capturarSets('sin_vehiculo');
     runt.consultar.mockResolvedValue({
       ok: false, message: 'Los datos no corresponden con los propietarios activos del vehículo', httpStatus: 200,
@@ -496,7 +501,7 @@ describe('POST /:id/consultar', () => {
   });
 
   it('el RUNT no responde con documento: una sola llamada, no cae a VIN, queda sin_respuesta y no certifica', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     const sets = capturarSets('sin_respuesta');
     runt.consultar.mockResolvedValue({ ok: false, message: 'Timeout 90s' });
     const r = await consultar();
@@ -506,7 +511,7 @@ describe('POST /:id/consultar', () => {
   });
 
   it('respuesta ok sin vehículo detrás (eco de la placa) con documento: sin_vehiculo, sin caer a VIN ni certificar', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     const sets = capturarSets('sin_vehiculo');
     runt.consultar.mockResolvedValue({ ok: true, data: { vehiculo: { placa: 'ABC123', marca: null, linea: null } } });
     const r = await consultar();
@@ -517,7 +522,7 @@ describe('POST /:id/consultar', () => {
   });
 
   it('con documento, un VIN del RUNT distinto al diligenciado no certifica (sin_coincidencia)', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     const sets = capturarSets('sin_coincidencia');
     runt.consultar.mockResolvedValue(runtOk({ vin: 'OTROVIN0000000099' }));
     const r = await consultar();
@@ -526,7 +531,7 @@ describe('POST /:id/consultar', () => {
   });
 
   it('el UPDATE de certificación guarda estado, fecha, snapshot y quién certificó', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     const sets: Record<string, unknown>[] = [];
     kdb.update.mockImplementation(() => {
       const t: Record<string, unknown> = {};
@@ -544,7 +549,7 @@ describe('POST /:id/consultar', () => {
   });
 
   it('sin_coincidencia cuando difieren datos: no deja certificado ni snapshot', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     const sets: Record<string, unknown>[] = [];
     kdb.update.mockImplementation(() => {
       const t: Record<string, unknown> = {};
@@ -563,7 +568,7 @@ describe('POST /:id/consultar', () => {
   });
 
   it('un dato que el RUNT no trae tampoco certifica (sin_coincidencia)', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     kdb.when.update(FILA, [filaBd({ estado: 'sin_coincidencia' })]);
     runt.consultar.mockResolvedValue({ ok: true, data: { vehiculo: { vin: datos.vin, marca: 'KIA', linea: 'K3', modelo: '2024', cilindraje: '1598' } } });
     const r = await consultar();
@@ -571,7 +576,7 @@ describe('POST /:id/consultar', () => {
   });
 
   it('sin_vehiculo cuando el RUNT dice que no encuentra el vehículo', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     kdb.when.update(FILA, [filaBd({ estado: 'sin_vehiculo' })]);
     runt.consultar.mockResolvedValue({ ok: false, message: 'No se encuentra información del vehículo' });
     const r = await consultar();
@@ -581,7 +586,7 @@ describe('POST /:id/consultar', () => {
   });
 
   it('sin_respuesta cuando el RUNT falla o no responde', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     kdb.when.update(FILA, [filaBd({ estado: 'sin_respuesta' })]);
     runt.consultar.mockResolvedValue({ ok: false, message: 'timeout de la pasarela' });
     const r = await consultar();
@@ -597,8 +602,28 @@ describe('POST /:id/consultar', () => {
     expect(runt.consultar).not.toHaveBeenCalled();
   });
 
+  describe('otro registro ya certificó ese VIN o esa placa', () => {
+    it.each<[string, Record<string, string>, string]>([
+      ['VIN', { vin: '9ZZTEST0000000001', placa: 'OTRA99' }, 'Ya existe una certificación para este VIN'],
+      ['placa', { vin: 'OTROVIN12345', placa: 'ABC123' }, 'Ya existe una certificación para esta placa'],
+    ])('duplicado por %s: 409 sin enviar nada al RUNT y sin auditar consulta', async (_n, duplicado, mensaje) => {
+      vi.mocked(audit).mockClear();
+      kdb.when.selectOnce(FILA, [filaBd()]).select(FILA, [duplicado]); // 1.º cargar; luego el duplicado
+      kdb.when.update(FILA, [filaBd({ estado: 'certificado' })]);
+      runt.consultar.mockResolvedValue(runtOk());
+
+      const r = await consultar();
+
+      expect(r.status).toBe(409);
+      expect(r.body.error).toBe(mensaje);
+      expect(runt.consultar).not.toHaveBeenCalled();
+      expect(kdb.update).not.toHaveBeenCalled();
+      expect(audit).not.toHaveBeenCalled();
+    });
+  });
+
   it('índice único al certificar: 409 y no certifica', async () => {
-    kdb.when.select(FILA, [filaBd()]);
+    filaSinDuplicado();
     kdb.when.update(FILA, () => { throw Object.assign(new Error('dup'), { code: '23505' }); });
     runt.consultar.mockResolvedValue(runtOk());
     const r = await consultar();
@@ -620,7 +645,7 @@ describe('POST /:id/consultar', () => {
       ['por VIN sin respuesta', porVin, timeout, 'vin', 'sin_respuesta'],
     ])('%s: audita modalidad y estado, sin datos del titular', async (_n, extra, respuestaRunt, modalidad, estado) => {
       vi.mocked(audit).mockClear();
-      kdb.when.select(FILA, [filaBd(extra)]);
+      filaSinDuplicado(extra);
       const sets = capturarSets(estado);
       runt.consultar.mockResolvedValue(respuestaRunt);
 

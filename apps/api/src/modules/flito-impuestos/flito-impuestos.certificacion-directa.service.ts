@@ -268,6 +268,9 @@ export async function consultarRuntCertificacionDirecta(
 ): Promise<{ fila: FilaCertificacionDirecta; modalidad: ModalidadConsultaRunt }> {
   const actual = await cargar(id);
   if (actual.estado === 'certificado') throw new ImpuestoError(409, 'Este registro ya está certificado');
+  // Dos registros pueden compartir VIN o placa mientras ninguno esté certificado: sin esto, el otro
+  // enviaría los datos del titular al RUNT en cada reintento para acabar chocando con el índice único.
+  await exigirLibre(actual.vinNorm, actual.placaNorm, id);
   // Decide el documento. Placa y VIN nunca viajan juntos: el cliente RUNT descartaría el VIN.
   // Sin reintento: si esta consulta falla no se prueba la otra modalidad. El gestor decide si borra el documento.
   const documento = actual.documentoPropietario?.trim() || null;
