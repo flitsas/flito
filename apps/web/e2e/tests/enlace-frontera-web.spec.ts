@@ -45,7 +45,7 @@ async function mockColas(page: Page) {
   await page.route(/\/api\/flito\/tramites\?/, (r) => r.fulfill(json({ items: [], total: 0, page: 1, pageSize: 50 })));
   await page.route(/\/api\/flito\/logistica\/facetas/, (r) => r.fulfill(json({ estados: [], empresas: [], organismos: [], companiasCerrables: [], mensajeros: [] })));
   await page.route(/\/api\/flito\/logistica\/actas$/, (r) => r.fulfill(json([])));
-  await page.route(/\/api\/flito\/logistica\?/, (r) => r.fulfill(json({ items: [], total: 0, page: 1, pageSize: 50 })));
+  await page.route(/\/api\/flito\/logistica\/buscar$/, (r) => r.fulfill(json({ items: [], total: 0, page: 1, pageSize: 50 })));
 }
 
 const nav = (page: Page) => page.getByRole('navigation', { name: 'Navegación principal' });

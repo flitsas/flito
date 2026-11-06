@@ -123,7 +123,7 @@ export default function MisRecogidas({ onVolver, onEscanear, puedeConfirmar }: {
               {aFirmar.length === 0 ? 'Elige LT para firmar' : `Firmar ${aFirmar.length} LT`}
             </button>
           ) : (
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Tu usuario no puede confirmar recogidas. Pide a Operaciones que las firme.</p>
+            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Tu usuario no puede confirmar recogidas. Pide a Operaciones de FLITO que las firme.</p>
           )}
         </div>
       )}
@@ -184,7 +184,7 @@ function DetalleRecogida({ id, onVolver }: { id: string; onVolver: () => void })
           ))}
           {d.pendientesTramite.length > 0 && (
             <p className="rounded-xl border p-3.5 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-secondary)' }}>
-              Pendientes de trámite: {d.pendientesTramite.length}. Quedaron firmadas, sin acta, hasta que Operaciones elija el trámite.
+              Pendientes de trámite: {d.pendientesTramite.length}. Quedaron firmadas, sin acta, hasta que Operaciones de FLITO elija el trámite.
             </p>
           )}
         </div>

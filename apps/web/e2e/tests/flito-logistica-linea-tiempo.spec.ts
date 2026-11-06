@@ -63,7 +63,7 @@ function json(body: unknown, status = 200) {
 async function mockConsola(page: Page) {
   await page.route(/\/api\/flito\/logistica\/facetas/, (route) => route.fulfill(json(FACETAS)));
   await page.route(/\/api\/flito\/logistica\/actas$/, (route) => route.fulfill(json([])));
-  await page.route(/\/api\/flito\/logistica\?/, (route) =>
+  await page.route(/\/api\/flito\/logistica\/buscar$/, (route) =>
     route.fulfill(json({ items: [TRAMITE], total: 1, page: 1, pageSize: 50 })));
   await page.route(/\/api\/flito\/logistica\/tr-2$/, (route) => route.fulfill(json(DETALLE)));
   await page.route(RUTA_VIAJES, (route) => route.fulfill(json({
@@ -234,7 +234,8 @@ test.describe('FLITO — Logística · línea de tiempo (HU #14126)', () => {
     await expect(s.getByRole('alert')).toHaveCount(0);
   });
 
-  test('sin logistica.documento.ver no hay sección ni petición a linea-tiempo', async ({ page }) => {
+  // HU #14353: `GET /:id` exige la misma función, así que sin ella tampoco se ofrece el Detalle.
+  test('sin logistica.documento.ver no hay Detalle ni petición a linea-tiempo', async ({ page }) => {
     const sinVer = funcionesDe(OPERACIONES_USER).filter((f) => f !== FUNCION);
     await loginAs(page, OPERACIONES_USER, { funciones: sinVer });
     await mockConsola(page);
@@ -243,11 +244,9 @@ test.describe('FLITO — Logística · línea de tiempo (HU #14126)', () => {
       peticiones += 1;
       return route.fulfill(json(LINEA_LLENA));
     });
-    await abrirDetalle(page);
-
-    await expect(page.getByRole('heading', { name: 'Línea de tiempo' })).toHaveCount(0);
-    await expect(page.getByRole('dialog')).toContainText('Trámite FLIT');
-    await expect(page.getByRole('heading', { name: 'Viajes adicionales' })).toBeVisible();
+    await page.goto('/flito/logistica');
+    await expect(page.getByRole('row', { name: /XYZ789/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Detalle/ })).toHaveCount(0);
     expect(peticiones).toBe(0);
   });
 

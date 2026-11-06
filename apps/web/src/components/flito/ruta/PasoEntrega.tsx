@@ -4,11 +4,12 @@ import { useRef, useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { api, ApiError } from '../../../lib/api';
 import { obtenerUbicacion } from '../../../lib/geo';
+import { esRechazoDeAlcance } from '../../../lib/mensajesLogisticaHttp';
 import { submitCampo } from '../../../lib/offlineQueue';
 import {
   CEDULA_RECEPTOR_OK, MAX_FIRMA, NOMBRE_RECEPTOR_OK, mensajeDevolverViaje, mensajeEntregar, nuevaKey,
 } from '../../../lib/viajesCliente';
-import { toastOk } from '../../flit/ToastFlito';
+import { toastError, toastOk } from '../../flit/ToastFlito';
 import FlitModal from '../../flit/FlitModal';
 import { FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../../flit/flitPageKit';
 import FirmaCanvas from '../FirmaCanvas';
@@ -128,6 +129,8 @@ function PasoEntregaCliente({ acta, onAtras, onListo }: Props) {
         const { queued } = await submitCampo(path, body, 'Entrega');
         if (queued) { setCedula(''); onListo(); return; }
       }
+      // 403 y 404 son el mismo caso para quien va en la calle: el viaje ya no es suyo. Vuelve a la lista recargada.
+      if (esRechazoDeAlcance(e)) { setCedula(''); toastError(mensajeEntregar(e), undefined, { id: 'ruta-viaje' }); onListo(); return; }
       setError(mensajeEntregar(e));
     } finally {
       setEnviando(false);
@@ -192,19 +195,19 @@ function PasoEntregaCliente({ acta, onAtras, onListo }: Props) {
             aria-describedby={errNombre ? 'err-nombre-recibe' : undefined}
             onChange={(e) => setNombre(e.target.value)} />
         </FlitField>
-        {errNombre && <p id="err-nombre-recibe" className="text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errNombre}</p>}
+        {errNombre && <p id="err-nombre-recibe" className="text-xs" style={{ color: 'var(--flit-danger-text)' }}>{errNombre}</p>}
         <FlitField label="Cédula de quien recibe">
           <input className={`${flitInp} tabular-nums`} value={cedula} inputMode="numeric" autoComplete="off"
             aria-invalid={!!errCedula} aria-describedby={errCedula ? 'err-cedula-recibe' : undefined}
             onChange={(e) => setCedula(e.target.value.replace(/\D/g, '').slice(0, 12))} />
         </FlitField>
-        {errCedula && <p id="err-cedula-recibe" className="text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errCedula}</p>}
+        {errCedula && <p id="err-cedula-recibe" className="text-xs" style={{ color: 'var(--flit-danger-text)' }}>{errCedula}</p>}
         <div>
           <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Firma de quien recibe</span>
           <div className={enviando ? 'pointer-events-none opacity-60' : ''}>
             <FirmaCanvas onChange={setFirma} label={firma ? 'Firma de quien recibe, capturada' : 'Firma de quien recibe, vacía'} />
           </div>
-          {errFirma && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errFirma}</p>}
+          {errFirma && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{errFirma}</p>}
         </div>
         <label className="block text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>
           {foto ? 'Foto adjuntada (cambiar)' : 'Adjuntar foto (opcional)'}
@@ -214,7 +217,7 @@ function PasoEntregaCliente({ acta, onAtras, onListo }: Props) {
 
       <div className="sticky bottom-3 z-10 lg:bottom-24 space-y-2 rounded-xl p-1" style={{ background: 'var(--flit-bg-app)' }}>
         {error && (
-          <div role="alert" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-ink)', background: 'var(--flit-bg-card)' }}>
+          <div role="alert" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-text)', background: 'var(--flit-bg-card)' }}>
             {error}
           </div>
         )}
@@ -247,24 +250,27 @@ function PasoEntregaCliente({ acta, onAtras, onListo }: Props) {
   );
 }
 
-export function DevolverViajeModal({ nombre, actaId, onClose, onListo }: {
+export function DevolverViajeModal({ nombre, actaId, trasladoId, onClose, onListo }: {
   nombre: string | null;
   actaId: string;
+  /** H1 de HU #14353: el mensajero de proveedor devuelve el viaje a FLIT por su traslado; `/actas/:id/devolucion` se lo rechaza. */
+  trasladoId?: string | null;
   onClose: () => void;
   onListo: () => void;
 }) {
   const [motivo, setMotivo] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const llave = useRef(nuevaKey());
 
   const confirmar = async () => {
     if (!motivo.trim()) return;
     setBusy(true); setError(null);
-    const path = `/flito/logistica/actas/${actaId}/devolucion`;
+    const path = trasladoId ? `/flito/logistica/traslados/${trasladoId}/devolucion` : `/flito/logistica/actas/${actaId}/devolucion`;
     const body = { motivo: motivo.trim() };
     try {
       if (navigator.onLine) {
-        await api.post(path, body);
+        await api.post(path, body, trasladoId ? { 'Idempotency-Key': llave.current } : undefined);
       } else {
         const { queued } = await submitCampo(path, body, 'Devolución');
         if (queued) { onListo(); return; }
@@ -276,6 +282,7 @@ export function DevolverViajeModal({ nombre, actaId, onClose, onListo }: {
         const { queued } = await submitCampo(path, body, 'Devolución');
         if (queued) { onListo(); return; }
       }
+      if (esRechazoDeAlcance(e)) { toastError(mensajeDevolverViaje(e), undefined, { id: 'ruta-viaje' }); onListo(); return; }
       setError(mensajeDevolverViaje(e));
     } finally {
       setBusy(false);
@@ -289,7 +296,7 @@ export function DevolverViajeModal({ nombre, actaId, onClose, onListo }: {
           placeholder="Receptor ausente / rechazó / …" />
       </FlitField>
       {error && (
-        <p role="alert" className="mt-2 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>
+        <p role="alert" className="mt-2 text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>
       )}
       <div className="mt-4 flex flex-wrap justify-end gap-2">
         <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={busy} onClick={onClose}>Cancelar</button>

@@ -105,7 +105,7 @@ export default function PasoFirma({ filas, onAtras, onConfirmado, onSinFirma }: 
         ))}
         {pendientes.length > 0 && (
           <GrupoLt titulo="Pendientes de trámite" detalle={`${pendientes.length} LT (sin acta)`} filas={pendientes}
-            nota="Quedan con la firma, sin acta, hasta que Operaciones elija el trámite." />
+            nota="Quedan con la firma, sin acta, hasta que Operaciones de FLITO elija el trámite." />
         )}
       </div>
       {sinOrganismo.length > 0 && (
