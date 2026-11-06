@@ -74,6 +74,28 @@ test.describe('HU #14342 · Compañías', () => {
     expect(patches).toEqual([]);
   });
 
+  test('AC6 · selector de Logística: cargando bloquea el selector y al responder se libera', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await montarClientes(page, [compania(1, 'Compañía Uno')]);
+    // Se pide al abrir el modal, así que esta ruta (la última registrada, la que manda) entra antes de abrirlo.
+    let soltar: () => void = () => {};
+    const colgada = new Promise<void>((resolve) => { soltar = resolve; });
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=logistica$/, async (r) => {
+      await colgada;
+      return json(r, 200, POR_SERVICIO.logistica);
+    });
+    const modal = await abrir(page, 'Compañía Uno');
+    const selector = modal.getByLabel(/Proveedor de logística/);
+    await expect(modal.getByLabel('Proveedor de SOAT sin trámite')).toBeEnabled();
+    await expect(modal.getByText('Cargando proveedores…')).toBeVisible();
+    await expect(selector).toBeDisabled();
+
+    soltar();
+    await expect(selector).toBeEnabled();
+    await expect(modal.getByText('Cargando proveedores…')).toHaveCount(0);
+    await expect(selector.locator('option')).toHaveText(['Elija un proveedor', 'Doble Servicio', 'Rutas del Norte']);
+  });
+
   test('AC5 · rechazo de Logística: copy pulido, vuelve el asignado y se pide la lista de nuevo', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const { pedidos } = await montarClientes(page,
@@ -108,6 +130,18 @@ test.describe('HU #14342 · Enviar SOAT', () => {
     await page.route(/\/api\/flito\/soat\?/, (r) => json(r, 200, { items: [SOAT], total: 1, page: 1, pageSize: 50 }));
     await page.goto('/flito/soat');
     await page.getByLabel('Seleccionar ABC123').check();
+  }
+
+  /** Abre el detalle de la fila y el formulario de `boton`, con el catálogo que diga `responder`. */
+  async function montarDetalle(page: Page, boton: string, fila: typeof SOAT, responder: (r: Route) => unknown) {
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat$/, responder as (r: Route) => void);
+    await page.route(/\/api\/flito\/soat\/facetas/, (r) => json(r, 200, { companias: [], organismos: [], proveedores: [] }));
+    await page.route(/\/api\/flito\/soat\?/, (r) => json(r, 200, { items: [fila], total: 1, page: 1, pageSize: 50 }));
+    await page.goto('/flito/soat');
+    await page.getByRole('button', { name: 'Ver' }).first().click();
+    const dialogo = page.getByRole('dialog');
+    await dialogo.getByRole('button', { name: boton }).click();
+    return dialogo;
   }
 
   test('AC3 · FlitoSoat ofrece lo del selector de SOAT', async ({ page }) => {
@@ -187,6 +221,95 @@ test.describe('HU #14342 · Enviar SOAT', () => {
     await expect(select().locator('option')).toHaveText(['Selecciona…', 'Doble Servicio', 'Seguros Alfa']);
   });
 
+  test('AC6 · selector «Nuevo proveedor» del detalle: cargando, error con reintento y lleno', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    let cae = true;
+    let soltar: () => void = () => {};
+    const colgada = new Promise<void>((resolve) => { soltar = resolve; });
+    const dialogo = await montarDetalle(page, 'Cambiar proveedor', SOAT, async (r) => {
+      await colgada;
+      return cae ? json(r, 500, { error: 'Catálogo caído' }) : json(r, 200, POR_SERVICIO.soat);
+    });
+    const select = dialogo.getByLabel('Nuevo proveedor');
+    await expect(dialogo.getByText('Cargando proveedores…')).toBeVisible();
+    await expect(select).toBeDisabled();
+
+    soltar();
+    await expect(dialogo.getByText('No se pudieron cargar los proveedores.')).toBeVisible();
+    await expect(dialogo.getByText(/Catálogo caído/)).toHaveCount(0);
+    await expect(select).toBeDisabled();
+
+    cae = false;
+    await dialogo.getByRole('button', { name: 'Volver a cargar proveedores' }).click();
+    await expect(select).toBeEnabled();
+    await expect(select.locator('option')).toHaveText(['Selecciona…', 'Doble Servicio', 'Seguros Alfa']);
+  });
+
+  // 409 del API (F3): proveedor no utilizable o inexistente. Copy de negocio del servidor, sin nada colgado.
+  const RECHAZO_INEXISTENTE = 'El gestor seleccionado no existe o fue eliminado.';
+  const EN_GESTION = { ...SOAT, estado: 'solicitado', gestionOperaciones: true, proveedorSoatId: SOLO_SOAT, proveedorSoatNombre: 'Seguros Alfa' };
+  for (const caso of [
+    { etiqueta: 'Nuevo proveedor', boton: 'Cambiar proveedor', ruta: 'proveedor', fila: SOAT, motivo: 'Motivo del cambio' },
+    { etiqueta: 'Proveedor que lo retoma', boton: 'Devolver al proveedor', ruta: 'devolver-gestor', fila: EN_GESTION, motivo: 'Motivo de la devolución (mín. 5 caracteres)' },
+  ]) {
+    test(`409 · DetalleSoat «${caso.etiqueta}»: mensaje de negocio a la vista, el formulario sigue vivo y se puede corregir`, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      const envios: unknown[] = [];
+      let rechaza = true;
+      await page.route(new RegExp(`/api/flito/soat/${caso.fila.id}/${caso.ruta}$`), (r) => {
+        envios.push(r.request().postDataJSON());
+        return rechaza ? json(r, 409, { error: RECHAZO_INEXISTENTE }) : json(r, 200, { ok: true });
+      });
+      const dialogo = await montarDetalle(page, caso.boton, caso.fila, (r) => json(r, 200, POR_SERVICIO.soat));
+      await dialogo.getByLabel(caso.etiqueta).selectOption(AMBOS);
+      await dialogo.getByLabel(caso.motivo).fill('Cambio de aseguradora');
+      await dialogo.getByRole('button', { name: 'Confirmar' }).click();
+
+      const aviso = dialogo.getByRole('alert');
+      await expect(aviso).toHaveText(RECHAZO_INEXISTENTE);
+      await expect(aviso).toBeInViewport();
+      await expect(dialogo.getByRole('button', { name: 'Confirmar' })).toBeEnabled();
+      await expect(dialogo.getByLabel(caso.motivo)).toHaveValue('Cambio de aseguradora');
+
+      rechaza = false;
+      await dialogo.getByLabel(caso.etiqueta).selectOption(SOLO_SOAT);
+      await dialogo.getByRole('button', { name: 'Confirmar' }).click();
+      await expect(dialogo.getByRole('alert')).toHaveCount(0);
+      expect(envios).toEqual([
+        { proveedorSoatId: AMBOS, motivo: 'Cambio de aseguradora' },
+        { proveedorSoatId: SOLO_SOAT, motivo: 'Cambio de aseguradora' },
+      ]);
+    });
+  }
+
+  test('DetalleSoat: el asignado que ya no se ofrece no se reenvía en silencio; hay que elegir otro', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const fila = { ...EN_GESTION, proveedorSoatId: APAGADO, proveedorSoatNombre: 'Antigua Aseguradora' };
+    const dialogo = await montarDetalle(page, 'Devolver al proveedor', fila, (r) => json(r, 200, POR_SERVICIO.soat));
+    const select = dialogo.getByLabel('Proveedor que lo retoma');
+    await expect(select).toBeEnabled();
+    await expect(select).toHaveValue('');
+    await dialogo.getByLabel('Motivo de la devolución (mín. 5 caracteres)').fill('Cambio de aseguradora');
+    await expect(dialogo.getByRole('button', { name: 'Confirmar' })).toBeDisabled();
+    await select.selectOption(SOLO_SOAT);
+    await expect(dialogo.getByRole('button', { name: 'Confirmar' })).toBeEnabled();
+  });
+
+  test('409 · FlitoSoat, barra de envío: toast con el mensaje de negocio y la selección sigue para reintentar', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await page.route(/\/api\/flito\/soat\/enviar$/, (r) => json(r, 409, { error: RECHAZO_INEXISTENTE }));
+    await montarCola(page, (r) => json(r, 200, POR_SERVICIO.soat));
+    await page.getByLabel('Enviar a').selectOption(SOLO_SOAT);
+    const enviar = page.getByRole('button', { name: 'Enviar al gestor (1)' });
+    await enviar.click();
+    await expect(page.getByText(RECHAZO_INEXISTENTE)).toBeInViewport();
+    await expect(page.getByLabel('Seleccionar ABC123')).toBeChecked();
+    await expect(enviar).toBeEnabled();
+    await expect(page.getByLabel('Enviar a')).toBeEnabled();
+    await page.getByRole('button', { name: /^(Cerrar|Descartar)/ }).first().click();
+    await expect(page.getByText(RECHAZO_INEXISTENTE)).toHaveCount(0);
+  });
+
   const TRAMITE = {
     fechaCreacion: '2026-03-01T10:00:00Z', tramiteId: 'aaaaaaaa-0000-0000-0000-000000000001', idFlit: 'FLIT-1001', estado: 'Asignado', asignado: true,
     tipoTramite: 'Matricula', ciudad: 'Manizales', empresaExiste: true, empresaNit: '900111', secretariaEmparejada: true,
@@ -214,6 +337,20 @@ test.describe('HU #14342 · Enviar SOAT', () => {
     await expect(dialogo.getByLabel('Aseguradora').locator('option')).toHaveText(['Elige una aseguradora…', 'Doble Servicio', 'Seguros Alfa']);
   });
 
+  test('AC6 · FlitoTramites: cargando bloquea el selector y la confirmación', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    let soltar: () => void = () => {};
+    const colgada = new Promise<void>((resolve) => { soltar = resolve; });
+    const dialogo = await montarTramites(page, async (r) => { await colgada; return json(r, 200, POR_SERVICIO.soat); });
+    await expect(dialogo.getByText('Cargando proveedores…')).toBeVisible();
+    await expect(dialogo.getByLabel('Aseguradora')).toBeDisabled();
+    await expect(dialogo.getByRole('button', { name: 'Solicitar SOAT', exact: true })).toBeDisabled();
+
+    soltar();
+    await expect(dialogo.getByLabel('Aseguradora')).toBeEnabled();
+    await expect(dialogo.getByText('Cargando proveedores…')).toHaveCount(0);
+  });
+
   test('AC6 · FlitoTramites: error con reintento y vacío', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     let modo: 'error' | 'vacio' = 'error';
@@ -225,5 +362,51 @@ test.describe('HU #14342 · Enviar SOAT', () => {
     await expect(dialogo.getByText('No hay proveedores de SOAT activos.')).toBeVisible();
     await expect(dialogo.getByLabel('Aseguradora')).toBeDisabled();
     await expect(dialogo.getByRole('button', { name: 'Solicitar SOAT', exact: true })).toBeDisabled();
+  });
+
+  for (const caso of [
+    { boton: 'Solicitar SOAT (1)', dialogo: 'Solicitar SOAT', confirma: 'Solicitar SOAT', ruta: 'solicitar-soat' },
+    { boton: 'Solicitar ambos (1)', dialogo: 'Solicitar SOAT e impuestos', confirma: 'Solicitar ambos', ruta: 'solicitar-ambos' },
+  ]) {
+    test(`409 · FlitoTramites «${caso.confirma}»: mensaje de negocio, sin resultado falso y se puede volver a pedir`, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await page.route(new RegExp(`/api/flito/tramites/${caso.ruta}$`), (r) => json(r, 409, { error: RECHAZO_INEXISTENTE }));
+      const inicial = await montarTramites(page, (r) => json(r, 200, POR_SERVICIO.soat));
+      await inicial.getByRole('button', { name: 'Cancelar' }).click();
+      const boton = page.getByRole('button', { name: caso.boton, exact: true });
+      await boton.click();
+      const dialogo = page.getByRole('dialog', { name: caso.dialogo, exact: true });
+      await dialogo.getByLabel('Aseguradora').selectOption(AMBOS);
+      await dialogo.getByRole('button', { name: caso.confirma, exact: true }).click();
+
+      await expect(page.getByText(RECHAZO_INEXISTENTE)).toBeInViewport();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByText(/^Resultado de solicitar/)).toHaveCount(0);
+      await expect(page.getByLabel('Seleccionar ABC123')).toBeChecked();
+      await expect(boton).toBeEnabled();
+    });
+  }
+
+  test('409 · FlitoTramites, «Solicitar» de una fila lejana: el mensaje se ve sin volver arriba', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await page.route(/\/api\/flito\/tramites\/solicitar-soat$/, (r) => json(r, 409, { error: RECHAZO_INEXISTENTE }));
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat$/, (r) => json(r, 200, POR_SERVICIO.soat));
+    await page.route(/\/api\/flito\/tramites\/facetas/, (r) => json(r, 200, { estados: [], tramites: [], ciudades: [], transitos: [] }));
+    const filas = Array.from({ length: 30 }, (_, i) => ({
+      ...TRAMITE, tramiteId: `aaaaaaaa-0000-0000-0000-${String(i).padStart(12, '0')}`, idFlit: `FLIT-${2000 + i}`,
+      vehiculo: { ...TRAMITE.vehiculo, placa: `ABC${String(i).padStart(3, '0')}` },
+      soat: { id: `s${i}`, estado: 'pendiente', valorPagado: null, enviadoEn: null, estancado: false, motivoRechazo: null },
+    }));
+    await page.route(/\/api\/flito\/tramites\?/, (r) => json(r, 200, { items: filas, total: filas.length, page: 1, pageSize: 50 }));
+    await page.goto('/flito/tramites');
+    // Cada fila trae dos «Solicitar», SOAT e impuestos, en ese orden: 58 es el de SOAT de la última.
+    const ultima = page.getByRole('button', { name: 'Solicitar', exact: true }).nth(58);
+    await ultima.scrollIntoViewIfNeeded();
+    await ultima.click();
+    const dialogo = page.getByRole('dialog', { name: 'Solicitar SOAT' });
+    await dialogo.getByLabel('Aseguradora').selectOption(AMBOS);
+    await dialogo.getByRole('button', { name: 'Solicitar SOAT', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByText(RECHAZO_INEXISTENTE)).toBeInViewport();
   });
 });

@@ -356,7 +356,7 @@ export default function FlitoTramites() {
       {/* HU #13452: sincronizar con FLIT 1/FLIT 2 es operación interna: con enlace el bloque no se pinta. */}
       {sinEnlace && <SincronizacionTramites />}
 
-      {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
+      {error && <div className="sticky top-[calc(var(--flit-topbar-height)+0.5rem)] z-20"><FlitCard><p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p></FlitCard></div>}
 
       {esOperaciones && n > 0 && (
         <FlitCard>

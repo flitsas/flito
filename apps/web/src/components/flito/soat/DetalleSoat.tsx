@@ -1,7 +1,7 @@
 // Detalle del SOAT (modal). HU #12819, §7 de `docs/ux/flito-soat-rediseno-experiencia.md`.
 //
 // Orden de arriba abajo, por lo que se viene a hacer y no por cómo llegó el dato:
-//   1 · estado  2 · aviso contextual (motivo de la novedad / solo lectura / error de la acción)
+//   1 · estado  2 · aviso contextual (motivo de la novedad / solo lectura / error de la factura)
 //   3 · la acción del estado (una primaria)  4 · comprobante (ver y descargar, la misma intención)
 //   5 · datos  6 · compradores  7 · «Corregir el caso» (Operaciones)  8 · historial
 // Antes las acciones iban al final, detrás del historial, y el motivo de la novedad —lo más
@@ -9,7 +9,7 @@
 // grupo que los abrió: rechazar/reactivar sustituyen la zona 3; los de corrección, la 7.
 //
 // Notificación (§8): la acción correcta cierra el modal Y deja un toast; la fallida se queda aquí, en
-// línea y con `role="alert"`, nunca con el mensaje crudo del API.
+// línea y con `role="alert"` (junto al «Confirmar» de su formulario), nunca con el mensaje crudo del API.
 
 import FlitSelect from '../../flit/FlitSelect';
 import { opcionesConEstado } from '../../flit/opcionesConEstado';
@@ -105,6 +105,9 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
   const corrDevolver = traspasable && !!soat.gestionOperaciones && puede.devolver;
   const hayCorreccion = corrReversar || corrProveedor || corrAsumir || corrDevolver;
 
+  // El asignado que ya no se ofrece no queda elegido en silencio: el selector diría «Selecciona…» y el API lo rechazaría con 409.
+  const proveedorElegido = proveedores.data?.some((p) => p.id === proveedorSoatId) ? proveedorSoatId : '';
+
   const cancelar = () => { setAccion('idle'); setMotivo(''); setError(null); };
   const ejecutar = async (fn: () => Promise<unknown>, queSeIntento: string, exito: string) => {
     setEnviando(true); setError(null);
@@ -120,13 +123,13 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
 
   const formMotivo = (etiqueta: string, ruta: string, cuerpo: Record<string, unknown>, queSeIntento: string, exito: string,
     opciones: { minLen?: number; deshabilitado?: boolean } = {}) => (
-    <FormMotivo etiqueta={etiqueta} motivo={motivo} setMotivo={setMotivo} enviando={enviando}
+    <FormMotivo etiqueta={etiqueta} motivo={motivo} setMotivo={setMotivo} enviando={enviando} error={error}
       minLen={opciones.minLen} deshabilitado={opciones.deshabilitado} onCancelar={cancelar}
       onConfirmar={() => ejecutar(() => api.post(`/flito/soat/${soat.id}/${ruta}`, { ...cuerpo, motivo }), queSeIntento, exito)} />
   );
 
   const selectProveedor = (etiqueta: string) => (
-    <FlitSelect label={etiqueta} value={proveedorSoatId} onChange={setProveedorSoatId}
+    <FlitSelect label={etiqueta} value={proveedorElegido} onChange={setProveedorSoatId}
       opciones={opcionesConEstado(proveedores.data ?? [], '', { placeholder: 'Selecciona…' })}
       mensaje={mensajeSelectorSoat(proveedores)} fallo={proveedores.error} disabled={!proveedores.data?.length}
       onReintentar={proveedores.error ? proveedores.recargar : undefined} textoReintento={SOAT_REINTENTO} />
@@ -164,7 +167,9 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
             Solo lectura · Auditoría observa, no ejecuta acciones.
           </div>
         )}
-        {error && <p role="alert" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
+        {/* Con un formulario abierto el error va junto a su «Confirmar» (ver `FormMotivo`): aquí arriba
+            quedaba fuera de la vista del modal, que ya está desplazado hasta «Corregir el caso». */}
+        {error && accion === 'idle' && <p role="alert" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
 
         {/* 3 · la acción del estado: UNA primaria («Cargar factura»). En `con_novedad`, «Reactivar»
             va secundaria: la decisión entre reactivar, devolver o reversar la toma la persona. */}
@@ -285,15 +290,15 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
                 {accion === 'devolver' && (
                   <>
                     {selectProveedor('Proveedor que lo retoma')}
-                    {formMotivo('Motivo de la devolución (mín. 5 caracteres)', 'devolver-gestor', { proveedorSoatId },
-                      'devolver el SOAT al proveedor', `${placa} volvió al proveedor.`, { minLen: 5, deshabilitado: !proveedorSoatId })}
+                    {formMotivo('Motivo de la devolución (mín. 5 caracteres)', 'devolver-gestor', { proveedorSoatId: proveedorElegido },
+                      'devolver el SOAT al proveedor', `${placa} volvió al proveedor.`, { minLen: 5, deshabilitado: !proveedorElegido })}
                   </>
                 )}
                 {accion === 'proveedor' && (
                   <>
                     {selectProveedor('Nuevo proveedor')}
-                    {formMotivo('Motivo del cambio', 'proveedor', { proveedorSoatId }, 'cambiar el proveedor',
-                      `Proveedor cambiado para ${placa}.`, { deshabilitado: !proveedorSoatId })}
+                    {formMotivo('Motivo del cambio', 'proveedor', { proveedorSoatId: proveedorElegido }, 'cambiar el proveedor',
+                      `Proveedor cambiado para ${placa}.`, { deshabilitado: !proveedorElegido })}
                   </>
                 )}
               </div>
@@ -327,8 +332,8 @@ function Dato({ k, v }: { k: string; v: string }) {
   );
 }
 
-function FormMotivo({ etiqueta, motivo, setMotivo, enviando, minLen = 1, deshabilitado = false, onConfirmar, onCancelar }: {
-  etiqueta: string; motivo: string; setMotivo: (v: string) => void; enviando: boolean; minLen?: number;
+function FormMotivo({ etiqueta, motivo, setMotivo, enviando, error, minLen = 1, deshabilitado = false, onConfirmar, onCancelar }: {
+  etiqueta: string; motivo: string; setMotivo: (v: string) => void; enviando: boolean; error: string | null; minLen?: number;
   deshabilitado?: boolean; onConfirmar: () => void; onCancelar: () => void;
 }) {
   return (
@@ -336,6 +341,7 @@ function FormMotivo({ etiqueta, motivo, setMotivo, enviando, minLen = 1, deshabi
       <FlitField label={etiqueta}>
         <textarea className={`${flitInp} min-h-[64px]`} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
       </FlitField>
+      {error && <p role="alert" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
       <div className="flex flex-wrap gap-2">
         <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
           disabled={enviando || deshabilitado || motivo.trim().length < minLen} onClick={onConfirmar}>
