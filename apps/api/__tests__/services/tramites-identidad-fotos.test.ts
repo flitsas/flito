@@ -1,7 +1,7 @@
 // Feature #14097 (HU #14099 AC1-AC4) — clasificador de fotos y comportamiento de la ruta cuando un
 // valor con formato cifrado no descifra. Antes del arreglo la ruta respondía 200 con el cifrado.
+// HU #14273 AC3: un valor con la forma del formato viejo sigue ese mismo camino de fallo.
 import 'express-async-errors';
-import crypto from 'node:crypto';
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -49,13 +49,8 @@ const FOTO = 'data:image/jpeg;base64,U0VDUkVUT19CSU9NRVRSSUNP';
 const BASE64_LARGO = 'QUJD'.repeat(40);
 const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
 
-function cifrarViejo(plano: string, passphrase: string): string {
-  const key = crypto.scryptSync(passphrase, 'kyverum-pii-salt', 32);
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const data = Buffer.concat([cipher.update(plano, 'utf8'), cipher.final()]);
-  return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${data.toString('base64')}`;
-}
+/** Forma `iv:tag:data` del formato retirado (HU #14273), como la dejaría un dump restaurado. */
+const VALOR_VIEJO = '00112233445566778899aabbccddeeff:ffeeddccbbaa99887766554433221100:deadbeef';
 
 /** Cifra con la llave de otro ambiente, que es el escenario real de una llave mal desplegada. */
 function cifrarNuevoConOtraLlave(plano: string, id: number, column = 'foto_rostro'): string {
@@ -139,10 +134,6 @@ describe('resolverFotoBiometrica', () => {
     expect(await resolverFotoBiometrica(valor, CTX)).toBe(FOTO);
   });
 
-  it('viejo → descifra', async () => {
-    expect(await resolverFotoBiometrica(cifrarViejo(FOTO, env.PII_ENC_KEY), CTX)).toBe(FOTO);
-  });
-
   it.each([
     ['data_uri', FOTO],
     ['base64_plano', BASE64_LARGO],
@@ -162,8 +153,8 @@ describe('resolverFotoBiometrica', () => {
 
   it.each([
     ['nuevo', () => cifrarNuevoConOtraLlave(FOTO, 9)],
-    ['viejo', () => cifrarViejo(FOTO, OTRA_LLAVE)],
-  ])('%s con otra llave → PiiDecryptError y métrica de fallo, no de legado', async (_clase, valor) => {
+    ['viejo', () => VALOR_VIEJO],
+  ])('%s que no descifra → PiiDecryptError y métrica de fallo, no de legado', async (_clase, valor) => {
     const legadoAntes = await valorMetrica(piiLegacyPlaintextTotal, 'foto_rostro');
     const fallosAntes = await valorMetrica(piiDecryptFailuresTotal, 'foto_rostro');
 
@@ -186,8 +177,8 @@ describe('métricas expuestas', () => {
 
 describe.each([
   ['nuevo', () => cifrarNuevoConOtraLlave(FOTO, 41)],
-  ['viejo', () => cifrarViejo(FOTO, OTRA_LLAVE)],
-])('rutas con un valor %s de otra llave', (_clase, valor) => {
+  ['viejo', () => VALOR_VIEJO],
+])('rutas con un valor %s que no descifra', (_clase, valor) => {
   async function compruebaFallo(r: request.Response, cifrado: string, fallosAntes: number) {
     expect(r.status).toBe(500);
     expect(r.body).toEqual({ error: 'Error interno del servidor' });

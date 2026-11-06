@@ -52,16 +52,39 @@ describe('fallo del RUNT', () => {
     expect(clasificarFalloRunt('no existe registro')).toBe('sin_vehiculo');
     expect(clasificarFalloRunt('tiempo de espera agotado')).toBe('sin_respuesta');
   });
+
+  it('el rechazo por propietario (documento que no corresponde) no se reporta como «el RUNT no responde»', () => {
+    expect(clasificarFalloRunt('Los datos no corresponden con los propietarios activos del vehículo')).toBe('sin_vehiculo');
+  });
+
+  it('un rechazo con HTTP 200 es que el RUNT respondió, aunque el texto no lo diga', () => {
+    expect(clasificarFalloRunt('Consulta rechazada', 200)).toBe('sin_vehiculo');
+  });
+
+  it('sin HTTP 200 y con un texto desconocido sigue siendo falta de respuesta', () => {
+    expect(clasificarFalloRunt('Error comunicando con servicio RUNT', 502)).toBe('sin_respuesta');
+    expect(clasificarFalloRunt('Timeout 90s')).toBe('sin_respuesta');
+  });
 });
 
 describe('PDF', () => {
   it('el documento del propietario queda como dato de FLITO', () => {
-    const lineas = lineasDatoFlito({
-      nombrePropietario: 'Ana Prueba', documento: '100', vin: '9ZZTEST0000000001',
-      placa: 'TST001', organismo: '11001',
-    });
-    const texto = lineas.map((l) => l.join(' ')).join('\n');
-    expect(texto).toContain('Documento (dato de FLITO)');
-    expect(texto.toLowerCase()).not.toContain('validado');
+    for (const modalidadConsulta of ['vin', 'placa_documento'] as const) {
+      const lineas = lineasDatoFlito({
+        nombrePropietario: 'Ana Prueba', documento: '100', vin: '9ZZTEST0000000001',
+        placa: 'TST001', organismo: '11001', modalidadConsulta,
+      });
+      const texto = lineas.map((l) => l.join(' ')).join('\n');
+      expect(texto).toContain('Documento (dato de FLITO)');
+      expect(texto.toLowerCase()).not.toContain('validado');
+    }
+  });
+
+  it('solo una línea dice qué se consultó, y es la de la modalidad usada', () => {
+    const rotulos = (modalidadConsulta: 'vin' | 'placa_documento') => lineasDatoFlito({
+      nombrePropietario: null, documento: null, vin: 'V', placa: 'P', organismo: 'O', modalidadConsulta,
+    }).map(([k]) => k);
+    expect(rotulos('vin')).toEqual(['VIN consultado', 'Placa (dato de FLITO)', 'Organismo (dato de FLITO)']);
+    expect(rotulos('placa_documento')).toEqual(['VIN (dato de FLITO)', 'Placa consultada', 'Organismo (dato de FLITO)']);
   });
 });

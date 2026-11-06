@@ -3,7 +3,7 @@
 Lleva las fotos de `tramites_validaciones` guardadas en BD al formato común `encryptPiiText`
 (`v1:<iv>:<tag>:<data>`, AAD `tabla|columna|id`). Módulo legacy `tramites`, no `flito-tramites`.
 
-HUs: #14098 (helper y recifrado), #14099 (fallo visible al descifrar).
+HUs: #14098 (helper y recifrado), #14099 (fallo visible al descifrar), #14273 (retiro del formato viejo).
 
 ## Qué hace el script por clase
 
@@ -12,13 +12,19 @@ HUs: #14098 (helper y recifrado), #14099 (fallo visible al descifrar).
 | `vacio` | null o `''` | no toca | `null` |
 | `storage_key` | empieza por `validaciones/` | no toca | `getPhoto` |
 | `nuevo` | `^v\d+:[0-9a-f]{24}:[0-9a-f]{32}:` | salta | `decryptPiiText` |
-| `viejo` | `^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}:` | **descifra y cifra** | `decryptLegacyBiometric` (`@deprecated`) |
+| `viejo` | `^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}:` | **cuenta y reporta, no toca**; salida 3 | error: 500 genérico + `pii_decrypt_failures_total` |
 | `data_uri` | empieza por `data:image/` | **cifra** | tal cual + aviso + `pii_legacy_plaintext_total` |
 | `base64_plano` | más de 100 caracteres y alfabeto base64 | **cifra** | tal cual + aviso + `pii_legacy_plaintext_total` |
 | `desconocido` | el resto | **nunca toca** | tal cual + aviso + `pii_legacy_plaintext_total` |
 
-Un valor `nuevo` o `viejo` que no descifra es **error, no legado**: 500 genérico y
+Un valor `nuevo` que no descifra es **error, no legado**: 500 genérico y
 `pii_decrypt_failures_total`.
+
+**HU #14273:** el código ya no puede descifrar el formato viejo, sin recifrado previo porque se declararon
+0 registros en todos los ambientes. Un valor `viejo` que reaparezca (por ejemplo, de un dump restaurado)
+es siempre ese mismo error en la lectura. No sirve de canario y la comprobación de llaves del arranque lo
+excluye de su muestra, así que no impide que la API arranque. Para detectarlo, correr el script en
+`--dry-run`: salida 3, con los conteos en `viejos` y las filas en `idsViejos`.
 
 ## Rollback asimétrico: leer antes de ejecutar
 
@@ -28,7 +34,7 @@ el cifrado crudo con 200. Por tanto:
 - El Job solo corre con la promoción **ya estabilizada**: todos los pods de la api con la imagen nueva.
 - Revertir la imagen en GitOps **después** de recifrar no basta: volver atrás exige además **restaurar
   el dump** de las filas afectadas.
-- Antes de recifrar, el rollback de imagen es el normal: el formato viejo se sigue leyendo en ambas.
+- Antes de recifrar, el rollback de imagen es el normal.
 
 ## Orden de ejecución
 
@@ -56,8 +62,9 @@ QA primero; PDN solo con QA terminado y verificado.
 
 3. Job con `--dry-run`. **`--commit` no corre sin un dry-run con `"canario": "ok"` y salida 0 en esa
    misma imagen y `envFrom`.** Salida 1 o `"canario"` distinto de `ok`: parar, no pasar al paso 4 y
-   revisar `PII_ENC_KEY` (ver «Canario de llave»). Revisar también los conteos: con el canario en `ok`,
-   `viejo_indescifrable` mayor que 0 son celdas corruptas sueltas, listadas en `idsFallidos`.
+   revisar `PII_ENC_KEY` (ver «Canario de llave»). Salida 3: hay valores en formato viejo, parar y revisar
+   `idsViejos` con el dueño de los datos. Revisar también los conteos: `fallo_verificacion` mayor que 0
+   son celdas que no se pudieron cifrar y comprobar, listadas en `idsFallidos`.
 4. Job con `--commit`.
 5. Job con `--commit` otra vez: `escrito` debe ser 0 en las tres columnas. Si la salida fue 2, revisar
    `idsFallidos` y `omitido_concurrente`; este último se resuelve solo al volver a correr.
@@ -66,7 +73,8 @@ QA primero; PDN solo con QA terminado y verificado.
 
 Códigos de salida: `0` sin pendientes, o dry-run con el canario superado · `2` quedan pendientes (se
 puede volver a correr) · `1` abortó (sin bandera, error o canario no superado; también en dry-run, con
-cero escrituras). La salida solo lleva conteos por columna y clase, ids de fallos, y el estado y la
+cero escrituras) · `3` hay valores en formato viejo, también en dry-run; volver a correr no lo arregla.
+La salida solo lleva conteos por columna y clase, ids de fallos, y el estado y la
 fuente del canario.
 
 ## Canario de llave
@@ -78,12 +86,12 @@ cifrados y publica el resultado en `canario`:
 
 | `canario` | Cuándo | Efecto |
 |---|---|---|
-| `ok` | Al menos uno descifra. Una celda corrupta suelta no frena: cuenta como `viejo_indescifrable` | La corrida sigue |
+| `ok` | Al menos uno descifra. Una celda corrupta suelta no frena | La corrida sigue |
 | `fallo` | Hay candidatos y ninguno descifra | Aborta: salida 1, cero escrituras |
 | `sin_canario` | No hay ninguno y hay fotos que cifrar | Aborta: salida 1, cero escrituras |
-| `sin_canario` | No hay ninguno y nada que cifrar | Termina normal: salida 0, cero cambios |
+| `sin_canario` | No hay ninguno y nada que cifrar | Termina normal: salida 0 (3 si hay valores `viejo`), cero cambios |
 
-Fuente (`canarioFuente`): primero `tramites_validaciones`, en las clases `nuevo` y `viejo`. Solo si no
+Fuente (`canarioFuente`): primero `tramites_validaciones`, solo en la clase `nuevo`. Si no
 tiene ninguno, `driver_profile.cedula`, cifrada con la misma `PII_ENC_KEY`.
 
 ## Job de una sola vez
@@ -146,11 +154,6 @@ Decisión del humano en este Feature: **las capturas nuevas siguen sin cifrado d
 `uploadPhoto` y `getPhoto` no cambian; el valor `validaciones/…` es una clave y el objeto queda con la
 protección que dé el bucket.
 
-## Trabajo posterior
-
-Tras el recifrado en PDN, un PR aparte retira `decryptLegacyBiometric` y la sal `kyverum-pii-salt`.
-No antes: mientras exista una fila `viejo` esa lógica es la única forma de leerla.
-
 ## Inventario AC4 (#14098)
 
 Columnas de `tramites_validaciones`: `foto_rostro`, `foto_cedula_frontal`, `foto_cedula_reverso`.
@@ -160,7 +163,7 @@ Columnas de `tramites_validaciones`: `foto_rostro`, `foto_cedula_frontal`, `foto
 | `apps/api/src/modules/tramites/identidad.routes.ts` | `GET /documentos`, `POST /certificado` leían con `decryptPII` | Migrado a `resolverFotoBiometrica`; `encryptPII` y `decryptPII` eliminados |
 | `apps/api/src/modules/tramites/identidad.routes.ts` | Captura nueva: escribe la clave de `uploadPhoto` | Sin cambio (brecha declarada) |
 | `apps/api/src/modules/tramites/identidad.fotos.ts` | Clasificador y lectura | Nuevo |
-| `apps/api/src/scripts/backfill-fotos-s3.ts` | Tenía su propio clasificador y descifrado, y registraba un prefijo del valor | Usa los compartidos; salta `nuevo`; ya no registra el prefijo |
+| `apps/api/src/scripts/backfill-fotos-s3.ts` | Tenía su propio clasificador y descifrado, y registraba un prefijo del valor | Usa los compartidos; salta `nuevo`; reporta y salta `viejo` (HU #14273); ya no registra el prefijo |
 | `apps/api/src/scripts/flito-recifrar-biometria.ts` | Único escritor del formato nuevo | Nuevo |
 | `apps/api/src/modules/privacy/privacy.routes.ts` | Olvido: pasa los valores a `deletePhoto` | Sin cambio: su filtro `/^[a-z]+\//` y sin `:` ya excluye `v1:…` |
 | `apps/api/src/modules/privacy/retention.cron.ts` | Retención: borra objetos y anula columnas | Sin cambio: filtra por `validaciones/` |

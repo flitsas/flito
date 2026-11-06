@@ -2,8 +2,9 @@
  * Feature #14097 (HU #14098) — lleva las fotos de `tramites_validaciones` que siguen en BD al formato
  * `encryptPiiText` (`v1:…`, AAD `tabla|columna|id`).
  *
- *   Cifra:     viejo, data_uri, base64_plano.
- *   No toca:   nuevo (ya migrado), storage_key (vive en MinIO), desconocido (no se sabe qué es).
+ *   Cifra:     data_uri, base64_plano.
+ *   No toca:   nuevo (ya migrado), storage_key (vive en MinIO), desconocido (no se sabe qué es),
+ *              viejo (HU #14273: ya no se puede descifrar; se cuenta y se reporta como detector).
  *
  * Reanudable e idempotente por clase: lo ya escrito clasifica como `nuevo` y la siguiente corrida lo
  * salta. Lotes de 50 porque una sola fila puede traer tres fotos de varios MB.
@@ -20,7 +21,8 @@
  *   npm run tramites:recifrar-biometria -w apps/api -- --commit    # escribe
  *
  * Salida: 0 si no quedan pendientes o es dry-run; 2 si quedan (se puede volver a correr); 1 si aborta
- * (también en dry-run cuando el canario no pasa).
+ * (también en dry-run cuando el canario no pasa); 3 si hay algún valor `viejo`, también en dry-run:
+ * volver a correr no lo arregla, lo tiene que revisar una persona.
  */
 
 import { and, asc, eq, gt, isNotNull, or, sql } from 'drizzle-orm';
@@ -28,20 +30,17 @@ import { db } from '../db/client.js';
 import { driverProfile, tramitesValidaciones } from '../db/schema.js';
 import { clasificarFoto, TABLA_FOTOS, type ClaseFoto, type ColumnaFoto } from '../modules/tramites/identidad.fotos.js';
 import {
-  decryptLegacyBiometric,
   decryptPii,
   decryptPiiText,
   encryptPiiText,
-  PII_BIOMETRICO_VIEJO_PREFIJO,
   PII_TEXT_PREFIJO,
 } from '../shared/utils/crypto.js';
 
 export const LOTE = 50;
 export const MAX_CANARIOS = 5;
 
-/** Basta para los dos prefijos: filtrar sobre esto evita pasar por el regex fotos de varios MB. */
+/** Basta para el prefijo: filtrar sobre esto evita pasar por el regex fotos de varios MB. */
 const LARGO_PREFIJO = 100;
-const PATRON_CIFRADO = `${PII_TEXT_PREFIJO.source}|${PII_BIOMETRICO_VIEJO_PREFIJO.source}`;
 
 const COLUMNAS = [
   { columna: 'foto_rostro', prop: 'fotoRostro', col: tramitesValidaciones.fotoRostro },
@@ -59,8 +58,8 @@ export interface ConteoColumna extends Record<ClaseFoto, number> {
   escrito: number;
   /** La fila cambió entre la lectura y la escritura (p. ej. el cron de retención la anonimizó). */
   omitido_concurrente: number;
-  /** No se pudo descifrar o no pasó la verificación de vuelta: no se escribió. */
-  viejo_indescifrable: number;
+  /** No pasó la verificación de vuelta: no se escribió. */
+  fallo_verificacion: number;
 }
 
 export type EstadoCanario = 'ok' | 'fallo' | 'sin_canario';
@@ -78,12 +77,16 @@ export interface Resultado {
   idsFallidos: number[];
   /** Celdas que una corrida real tendría que volver a intentar. */
   pendientes: number;
+  /** Celdas con forma del formato viejo. No se tocan y no son pendientes: reintentar no las arregla. */
+  viejos: number;
+  /** Ids de las filas con alguna de esas celdas. */
+  idsViejos: number[];
 }
 
 function conteoVacio(): ConteoColumna {
   return {
     vacio: 0, storage_key: 0, nuevo: 0, viejo: 0, data_uri: 0, base64_plano: 0, desconocido: 0,
-    recifrable: 0, escrito: 0, omitido_concurrente: 0, viejo_indescifrable: 0,
+    recifrable: 0, escrito: 0, omitido_concurrente: 0, fallo_verificacion: 0,
   };
 }
 
@@ -107,10 +110,13 @@ function leerLote(despuesDeId: number): Promise<FilaFotos[]> {
 }
 
 function esRecifrable(clase: ClaseFoto): boolean {
-  return clase === 'viejo' || clase === 'data_uri' || clase === 'base64_plano';
+  return clase === 'data_uri' || clase === 'base64_plano';
 }
 
-/** Hasta `MAX_CANARIOS` celdas ya cifradas de la tabla, en cualquiera de las tres columnas. */
+/**
+ * Hasta `MAX_CANARIOS` celdas en formato vigente, en cualquiera de las tres columnas. Un valor viejo no
+ * cuenta: ninguna llave lo descifra, así que no dice nada de la llave.
+ */
 async function canariosDeLaTabla(): Promise<{ id: number; columna: ColumnaFoto; valor: string }[]> {
   const candidatos: { id: number; columna: ColumnaFoto; valor: string }[] = [];
   for (const { columna, col } of COLUMNAS) {
@@ -118,7 +124,7 @@ async function canariosDeLaTabla(): Promise<{ id: number; columna: ColumnaFoto; 
     if (faltan === 0) break;
     const filas = await db.select({ id: tramitesValidaciones.id, valor: col })
       .from(tramitesValidaciones)
-      .where(sql`left(${col}, ${LARGO_PREFIJO}) ~ ${PATRON_CIFRADO}`)
+      .where(sql`left(${col}, ${LARGO_PREFIJO}) ~ ${PII_TEXT_PREFIJO.source}`)
       .orderBy(asc(tramitesValidaciones.id))
       .limit(faltan);
     for (const { id, valor } of filas) if (valor) candidatos.push({ id, columna, valor });
@@ -129,8 +135,7 @@ async function canariosDeLaTabla(): Promise<{ id: number; columna: ColumnaFoto; 
 function descifraCeldaDeFoto({ id, columna, valor }: { id: number; columna: ColumnaFoto; valor: string }): boolean {
   const ctx = { table: TABLA_FOTOS, column: columna, id };
   try {
-    if (clasificarFoto(valor) === 'nuevo') decryptPiiText(valor, ctx);
-    else decryptLegacyBiometric(valor, ctx);
+    decryptPiiText(valor, ctx);
     return true;
   } catch {
     return false;
@@ -173,8 +178,7 @@ async function canariosDeConductores(): Promise<boolean[]> {
 }
 
 /**
- * Pasa si al menos un canario descifra: una fila corrupta suelta no frena la corrida (sigue contando
- * como `viejo_indescifrable`). Si la tabla tiene candidatos no se mira otra: lo que importa es la
+ * Pasa si al menos un canario descifra: una fila corrupta suelta no frena la corrida. Si la tabla tiene candidatos no se mira otra: lo que importa es la
  * llave con la que se cifró esta tabla. Lo descifrado se descarta aquí mismo.
  */
 async function comprobarCanario(): Promise<{ estado: EstadoCanario; fuente: string | null }> {
@@ -203,9 +207,8 @@ async function hayCeldasPorCifrar(): Promise<boolean> {
 }
 
 /** Cifrado comprobado de vuelta. Lanza si algo no cuadra; el texto en claro no sale de aquí. */
-function recifrar(valor: string, clase: ClaseFoto, columna: ColumnaFoto, id: number): string {
+function recifrar(plano: string, columna: ColumnaFoto, id: number): string {
   const ctx = { table: TABLA_FOTOS, column: columna, id } as const;
-  const plano = clase === 'viejo' ? decryptLegacyBiometric(valor, ctx) : valor;
   const cifrado = encryptPiiText(plano, ctx);
   if (decryptPiiText(cifrado, ctx) !== plano) throw new Error('verificación fallida');
   return cifrado;
@@ -239,8 +242,11 @@ export async function run({ commit }: { commit: boolean }): Promise<Resultado> {
     },
     idsFallidos: [],
     pendientes: 0,
+    viejos: 0,
+    idsViejos: [],
   };
   const fallidos = new Set<number>();
+  const conViejo = new Set<number>();
 
   const canario = await comprobarCanario();
   res.canario = canario.estado;
@@ -262,14 +268,19 @@ export async function run({ commit }: { commit: boolean }): Promise<Resultado> {
         const clase = clasificarFoto(valor);
         const conteo = res.columnas[def.columna];
         conteo[clase]++;
+        if (clase === 'viejo') {
+          res.viejos++;
+          conViejo.add(fila.id);
+          continue;
+        }
         if (!esRecifrable(clase)) continue;
 
         let cifrado: string;
         try {
-          cifrado = recifrar(valor as string, clase, def.columna, fila.id);
+          cifrado = recifrar(valor as string, def.columna, fila.id);
         } catch {
           // Sin el error en el reporte: la causa no aporta y así nada del dato puede colarse.
-          conteo.viejo_indescifrable++;
+          conteo.fallo_verificacion++;
           fallidos.add(fila.id);
           res.pendientes++;
           continue;
@@ -294,6 +305,7 @@ export async function run({ commit }: { commit: boolean }): Promise<Resultado> {
   }
 
   res.idsFallidos = [...fallidos].sort((a, b) => a - b);
+  res.idsViejos = [...conViejo].sort((a, b) => a - b);
   return res;
 }
 
@@ -307,6 +319,7 @@ export function modoDesdeArgs(args: string[]): { commit: boolean } | null {
 
 export function codigoSalida(r: Resultado): number {
   if (r.abortado) return 1;
+  if (r.viejos > 0) return 3;
   return r.modo === 'dry-run' || r.pendientes === 0 ? 0 : 2;
 }
 
@@ -326,6 +339,7 @@ if (isDirectRun) {
   run(modo).then((r) => {
     console.log(JSON.stringify(r, null, 2));
     if (r.abortado) console.error(`[abort] canario: ${r.canario}; no se escribió nada`);
+    if (r.viejos > 0) console.error(`[alerta] ${r.viejos} celdas en formato viejo: no se tocaron; ver idsViejos`);
     process.exit(codigoSalida(r));
   }).catch((e) => {
     console.error('[error]', e instanceof Error ? e.name : 'fallo');
