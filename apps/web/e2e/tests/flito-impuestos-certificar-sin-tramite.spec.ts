@@ -16,7 +16,7 @@ const LECTURA = { vin: '9BGEB69K0TG118228', marca: 'Chevrolet', linea: 'Onix', a
 
 const fila = (extra: Record<string, unknown> = {}) => ({
   id: 'c1', organismoCodigo: 'STT-MZL', organismoNombre: 'STT Manizales', placa: 'ABC123',
-  documentoPropietario: '10101010', nombrePropietario: 'Ana Pérez', ...LECTURA, aviso: undefined,
+  tipoDocumentoPropietario: 'CC', documentoPropietario: '10101010', nombrePropietario: 'Ana Pérez', ...LECTURA, aviso: undefined,
   estado: 'radicado', comparacion: null, certificadoEn: null, createdAt: '2026-10-01T12:00:00Z', ...extra,
 });
 
@@ -124,6 +124,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
     await page.getByLabel('Placa', { exact: true }).fill('ABC123');
     await page.getByLabel('Documento del propietario (opcional)').fill('10101010');
+    await page.getByLabel('Tipo de documento', { exact: true }).selectOption('CC');
     await page.getByLabel('Nombre del propietario (opcional)').fill('Ana Pérez');
     await expect(page.getByText('Listo para guardar.')).toBeVisible();
     await expect(guardar(page)).toBeEnabled();
@@ -235,7 +236,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
       const metodo = r.request().method();
       if (metodo === 'POST' && /certificacion-directa$/.test(url)) {
         cuerpo = r.request().postDataBuffer()?.toString('latin1') ?? '';
-        return r.fulfill(json(fila({ documentoPropietario: null, nombrePropietario: null })));
+        return r.fulfill(json(fila({ tipoDocumentoPropietario: null, documentoPropietario: null, nombrePropietario: null })));
       }
       if (metodo === 'GET' && /certificacion-directa$/.test(url)) return r.fulfill(json([]));
       if (/\/c1\/factura$/.test(url)) return r.fulfill({ status: 200, contentType: 'application/pdf', body: PDF_VALIDO });
@@ -259,6 +260,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await guardar(page).click();
     await expect(page.getByText('El registro quedó guardado. Consulta el RUNT cuando quieras.')).toBeVisible();
     expect(cuerpo).toMatch(/name="documentoPropietario"\r\n\r\n\r\n/);
+    expect(cuerpo).toMatch(/name="tipoDocumentoPropietario"\r\n\r\n\r\n/);
     expect(cuerpo).toMatch(/name="nombrePropietario"\r\n\r\n\r\n/);
     // El null del API llega al formulario como campo vacío, sin «null» ni aviso de obligatorio.
     await expect(page.getByLabel('Documento del propietario (opcional)')).toHaveValue('');
@@ -271,9 +273,10 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await page.route(/\/certificacion-directa\/extraer$/, (r) => r.fulfill(json(LECTURA)));
     await nueva(page);
     await page.locator('input[type="file"]').setInputFiles(FACTURA);
-    const ayuda = 'Con documento, el RUNT se consulta por placa y documento; sin él, por VIN.';
+    const ayuda = 'Con documento, elige el tipo: el RUNT se consulta por placa y documento. Sin documento, por VIN.';
     await expect(page.getByText(ayuda)).toBeVisible();
     await expect(page.getByLabel('Documento del propietario (opcional)')).toHaveAccessibleDescription(ayuda);
+    await expect(page.getByLabel('Tipo de documento', { exact: true })).toHaveAccessibleDescription(ayuda);
     await expect(page.getByText('El RUNT se consulta por VIN.')).toHaveCount(0);
     await expect(page.getByText(/consulta el RUNT por VIN/)).toHaveCount(0);
   });
@@ -290,6 +293,153 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     const celdas = page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('cell');
     await expect(celdas.nth(2)).toHaveText('—');
     await expect(page.getByText('null')).toHaveCount(0);
+  });
+
+  const FALTA_TIPO = 'Falta el tipo de documento del propietario';
+  const tipoDoc = (page: Page) => page.getByLabel('Tipo de documento', { exact: true });
+  const documento = (page: Page) => page.getByLabel('Documento del propietario (opcional)');
+
+  /** Alta con la factura leída y lo obligatorio diligenciado; el propietario queda para cada caso. */
+  async function altaCompleta(page: Page) {
+    await nueva(page);
+    await page.locator('input[type="file"]').setInputFiles(FACTURA);
+    await expect(page.getByLabel('VIN', { exact: true })).toHaveValue(LECTURA.vin);
+    await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
+    await page.getByLabel('Placa', { exact: true }).fill('ABC123');
+    await expect(page.getByText('Listo para guardar.')).toBeVisible();
+  }
+
+  /** Listado con una fila, su factura y, opcionalmente, una respuesta para consultar. */
+  async function conFila(page: Page, base: ReturnType<typeof fila>, alConsultar?: () => { status: number; contentType: string; body: string }) {
+    await page.route(API, (r) => {
+      const url = r.request().url();
+      const metodo = r.request().method();
+      if (/\/c1\/factura$/.test(url)) return r.fulfill({ status: 200, contentType: 'application/pdf', body: PDF_VALIDO });
+      if (/\/c1\/consultar$/.test(url) && metodo === 'POST' && alConsultar) return r.fulfill(alConsultar());
+      if (metodo === 'GET' && /certificacion-directa$/.test(url)) return r.fulfill(json([base]));
+      return r.fallback();
+    });
+    await page.goto('/flito/impuestos/certificar');
+    await page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Abrir' }).click();
+  }
+
+  test('12 · con documento y sin tipo no se guarda: el tipo cuenta como dato faltante', async ({ page }) => {
+    await irACertificar(page);
+    await page.route(/\/certificacion-directa\/extraer$/, (r) => r.fulfill(json(LECTURA)));
+    await page.route(API, (r) => (r.request().method() === 'GET' && /certificacion-directa$/.test(r.request().url()) ? r.fulfill(json([])) : r.fallback()));
+    await altaCompleta(page);
+
+    // Sin documento el tipo es opcional y no se marca como obligatorio vacío.
+    await expect(tipoDoc(page)).not.toHaveAttribute('required');
+    await expect(guardar(page)).toBeEnabled();
+
+    await documento(page).fill('10101010');
+    await expect(page.getByText('Faltan 1 dato para guardar.')).toBeVisible();
+    await expect(tipoDoc(page)).toHaveAttribute('required');
+    await expect(guardar(page)).toBeDisabled();
+
+    await tipoDoc(page).selectOption('CC');
+    await expect(page.getByText('Listo para guardar.')).toBeVisible();
+    await expect(guardar(page)).toBeEnabled();
+  });
+
+  test('13 · el tipo elegido viaja en el POST con su valor de UI, no con el código RUNT', async ({ page }) => {
+    await irACertificar(page);
+    await page.route(/\/certificacion-directa\/extraer$/, (r) => r.fulfill(json(LECTURA)));
+    let cuerpo = '';
+    await page.route(API, (r) => {
+      const url = r.request().url();
+      const metodo = r.request().method();
+      if (metodo === 'POST' && /certificacion-directa$/.test(url)) {
+        cuerpo = r.request().postDataBuffer()?.toString('latin1') ?? '';
+        return r.fulfill(json(fila({ tipoDocumentoPropietario: 'CE' })));
+      }
+      if (metodo === 'GET' && /certificacion-directa$/.test(url)) return r.fulfill(json([]));
+      if (/\/c1\/factura$/.test(url)) return r.fulfill({ status: 200, contentType: 'application/pdf', body: PDF_VALIDO });
+      return r.fallback();
+    });
+    await altaCompleta(page);
+    await documento(page).fill('10101010');
+    await tipoDoc(page).selectOption('CE');
+    await guardar(page).click();
+
+    await expect(page.getByText('El registro quedó guardado. Consulta el RUNT cuando quieras.')).toBeVisible();
+    expect(cuerpo).toMatch(/name="tipoDocumentoPropietario"\r\n\r\nCE\r\n/);
+    await expect(tipoDoc(page)).toHaveValue('CE');
+  });
+
+  test('14 · borrar el documento limpia el tipo, y sin documento se puede guardar', async ({ page }) => {
+    await irACertificar(page);
+    await page.route(/\/certificacion-directa\/extraer$/, (r) => r.fulfill(json(LECTURA)));
+    await page.route(API, (r) => (r.request().method() === 'GET' && /certificacion-directa$/.test(r.request().url()) ? r.fulfill(json([])) : r.fallback()));
+    await altaCompleta(page);
+    await documento(page).fill('10101010');
+    await tipoDoc(page).selectOption('NIT');
+    await expect(tipoDoc(page)).toHaveValue('NIT');
+
+    await documento(page).fill('');
+    await expect(tipoDoc(page)).toHaveValue('');
+    await expect(page.getByText('Listo para guardar.')).toBeVisible();
+    await expect(guardar(page)).toBeEnabled();
+  });
+
+  test('15 · registro antiguo con documento y sin tipo: pide el tipo y no deja consultar hasta elegirlo', async ({ page }) => {
+    await irACertificar(page);
+    let consultas = 0;
+    await conFila(page, fila({ tipoDocumentoPropietario: null }), () => { consultas += 1; return json(fila()); });
+
+    await expect(page.getByText('Faltan 1 dato para guardar.')).toBeVisible();
+    await expect(tipoDoc(page)).toHaveValue('');
+    const consultarRunt = page.getByRole('button', { name: 'Consultar RUNT' });
+    await expect(consultarRunt).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled();
+    expect(consultas).toBe(0);
+
+    await tipoDoc(page).selectOption('CC');
+    await expect(page.getByText('Listo para guardar.')).toBeVisible();
+    await expect(consultarRunt).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Guardar cambios' })).toBeEnabled();
+  });
+
+  test('16 · el 400 por falta de tipo se muestra tal cual y el registro sigue editable', async ({ page }) => {
+    await irACertificar(page);
+    // El API aún lo ve sin tipo aunque la fila diga otra cosa (otra pestaña, otro usuario).
+    await conFila(page, fila(), () => json({ error: FALTA_TIPO }, 400));
+    await page.getByRole('button', { name: 'Consultar RUNT' }).click();
+    await expect(page.getByRole('alert').filter({ hasText: FALTA_TIPO })).toHaveText(FALTA_TIPO);
+    await expect(tipoDoc(page)).toBeEnabled();
+  });
+
+  test('17 · un certificado antiguo sin tipo no pide nada: el selector está deshabilitado y sin marcar', async ({ page }) => {
+    await irACertificar(page);
+    await conFila(page, fila({ tipoDocumentoPropietario: null, estado: 'certificado', certificadoEn: '2026-10-02T12:00:00Z' }));
+    await expect(page.getByRole('button', { name: 'Descargar certificado' })).toBeVisible();
+    await expect(tipoDoc(page)).toBeDisabled();
+    await expect(tipoDoc(page).locator('option:checked')).toHaveText('—');
+    await expect(page.getByText(/para guardar\.$/)).toHaveCount(0);
+  });
+
+  test('18 · nueva certificación tras volver de un certificado: el formulario queda editable y con Guardar', async ({ page }) => {
+    await irACertificar(page);
+    await page.route(/\/certificacion-directa\/extraer$/, (r) => r.fulfill(json(LECTURA)));
+    await conFila(page, fila({ estado: 'certificado', certificadoEn: '2026-10-02T12:00:00Z' }));
+    await expect(page.getByLabel('Placa', { exact: true })).toBeDisabled();
+
+    await page.getByRole('button', { name: 'Volver al listado' }).click();
+    await page.getByRole('button', { name: 'Nueva certificación' }).click();
+    await page.locator('input[type="file"]').setInputFiles(FACTURA);
+    await expect(page.getByLabel('VIN', { exact: true })).toHaveValue(LECTURA.vin);
+
+    // Nada del certificado anterior: campos vacíos, habilitados y sin su estado ni su descarga.
+    await expect(page.getByLabel('Placa', { exact: true })).toBeEnabled();
+    await expect(page.getByLabel('Placa', { exact: true })).toHaveValue('');
+    await expect(documento(page)).toBeEnabled();
+    await expect(documento(page)).toHaveValue('');
+    await expect(tipoDoc(page)).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Descargar certificado' })).toHaveCount(0);
+    await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
+    await page.getByLabel('Placa', { exact: true }).fill('XYZ987');
+    await expect(guardar(page)).toBeEnabled();
   });
 
   for (const caso of [
@@ -320,7 +470,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
   ]) {
     test(`11 · aviso tras consultar: ${caso.nombre}`, async ({ page }) => {
       await irACertificar(page);
-      const base = fila({ documentoPropietario: caso.documentoPropietario });
+      const base = fila({ documentoPropietario: caso.documentoPropietario, tipoDocumentoPropietario: caso.documentoPropietario ? 'CC' : null });
       await page.route(API, (r) => {
         const url = r.request().url();
         const metodo = r.request().method();

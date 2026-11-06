@@ -47,6 +47,8 @@ export const flitoImpuestoCertificacionDirecta = pgTable('flito_impuesto_certifi
   placa: varchar('placa', { length: 10 }).notNull(),
   placaNorm: varchar('placa_norm', { length: 10 }).notNull(),
   documentoPropietario: varchar('documento_propietario', { length: 30 }),
+  /** Valor del formulario (`TIPOS_DOCUMENTO_RUNT`), no el código RUNT. Null sin documento y en registros anteriores al Bug #14406. */
+  tipoDocumentoPropietario: varchar('tipo_documento_propietario', { length: 5 }),
   nombrePropietario: varchar('nombre_propietario', { length: 200 }),
   vin: varchar('vin', { length: 17 }).notNull(),
   vinNorm: varchar('vin_norm', { length: 17 }).notNull(),
