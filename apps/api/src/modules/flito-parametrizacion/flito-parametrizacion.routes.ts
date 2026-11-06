@@ -237,6 +237,12 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
   const cambiaProveedorLogistica = cambios.proveedorLogisticaId != null
     && cambios.proveedorLogisticaId !== previo.proveedorLogisticaId;
 
+  // Autogestionada = sin proveedor en sus licencias (decisión del agente en F4.2, declarada al humano): no se le reasigna
+  // ninguna. Al encender la logística, las suyas pasan al proveedor que conservaba.
+  const autogestionadaFinal = cambios.logisticaAutogestionable ?? previo.logisticaAutogestionable;
+  const destinoLicencias = autogestionadaFinal
+    ? null : (cambios.proveedorLogisticaId ?? (previo.logisticaAutogestionable ? proveedorLogisticaFinal : null));
+
   let updated: FilaCompania | undefined;
   let licenciasReasignadas = 0;
   try {
@@ -245,7 +251,7 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
       if (cambiaGestor) await exigirProveedorSoatUsable(tx, cambios.proveedorSoatSinTramiteId!);
       if (cambiaProveedorLogistica) await exigirProveedorLogisticaUsable(tx, cambios.proveedorLogisticaId!);
       // HU #14346 (AC5 a AC7): quitar el proveedor (null) no reasigna; con uno, nuevo o reenviado (ADR-0039 §5.5), sus LT pasan en esta transacción.
-      if (cambios.proveedorLogisticaId != null) licenciasReasignadas = await reasignarLicenciasDeCompania(tx, id, cambios.proveedorLogisticaId);
+      if (destinoLicencias != null) licenciasReasignadas = await reasignarLicenciasDeCompania(tx, id, destinoLicencias);
       return tx.update(clients).set(set).where(and(eq(clients.id, id), clienteVigente()))
         .returning(COLUMNAS_COMPANIA_DTO);
     });

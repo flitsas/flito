@@ -1,5 +1,5 @@
 // F4.2 (Feature #14326, HU #14351, #14353, ADR-0039 §6.4 y §6.5) — el contrato que fija el paso contract-first: la guarda
-// `soloSinEnlaceOProveedor`, `esPropio` por proveedor y los dos stubs. Quien llene un stub cambia aquí su 501 por el 200.
+// `soloSinEnlaceOProveedor`, `esPropio` por proveedor y las dos rutas nuevas, ya llenas (el detalle: flito-logistica.alcance-proveedor.test.ts).
 import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import express, { type Request, type Response } from 'express';
@@ -90,9 +90,10 @@ describe('POST /buscar (R3)', () => {
   it.each([[{ estados: 'pendiente' }], [{ empresas: '900' }], [{ page: 0 }], [{ pageSize: 201 }]])('rechaza %j', async (cuerpo) => {
     expect((await buscar(cuerpo)).status).toBe(400);
   });
-  it('stub: con cuerpo válido responde 501', async () => {
+  it('con cuerpo válido responde la misma forma que `GET /`', async () => {
     const r = await buscar({ buscar: 'ZZA101', estados: ['pendiente'], empresas: ['900'], page: 1, pageSize: 50 });
-    expect(r.status).toBe(501);
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ items: [], total: 0, page: 1, pageSize: 50 });
   });
 });
 
@@ -106,7 +107,7 @@ describe('GET /actas/:id/mensajeros (R1)', () => {
   it('un id que no es uuid se responde como un acta inexistente', async () => {
     expect((await mensajeros('no-es-uuid')).status).toBe(404);
   });
-  it('stub: responde 501', async () => {
-    expect((await mensajeros(ACTA)).status).toBe(501);
+  it('un acta inexistente responde 404', async () => {
+    expect((await mensajeros(ACTA)).status).toBe(404);
   });
 });

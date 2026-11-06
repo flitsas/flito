@@ -7,7 +7,7 @@ import {
   simplificarEstadoLogistica, tipoEventoEfectivo,
   type ActaFilaLogistica, type CompaniaCerrableLogistica, type EstadoDocumentoLogistica as TEstadoDoc,
   type EstadoLogisticaSimple as TEstadoSimple,
-  type HitoLineaTiempoLogistica, type LineaTiempoLogistica, type ListadoTramitesLogistica, type TramiteFilaLogistica,
+  type HitoLineaTiempoLogistica, type LineaTiempoLogistica, type ListadoTramitesLogistica, type MensajeroDeActa, type TramiteFilaLogistica,
 } from '@operaciones/shared-types';
 import { precioTrasladoDe } from './flito-logistica-precios.js';
 import { db } from '../../db/client.js';
@@ -18,7 +18,16 @@ import {
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import { condicionActasLogistica, condicionDocumentosLogistica, condicionTramitesLogistica } from './flito-logistica.alcance.js';
 import { LT, LogisticaError, aprobadoSql, type LogisticaCtx } from './flito-logistica.base.js';
-import { mensajerosAsignables, type MensajeroAsignable } from './flito-logistica.mensajeros.js';
+import { mensajerosAsignables, mensajerosParaActa, type MensajeroAsignable } from './flito-logistica.mensajeros.js';
+
+const SIN_ENLACE: AlcanceResuelto = { enlace: 'ninguno' };
+
+/**
+ * ADR-0039 §7.2: el nombre de un actor ajeno al proveedor llega nulo, con la misma forma. El que tiene su proveedor sí sale.
+ * Operaciones y compañía, sin cambio: `sinActor` de la ruta sigue cubriendo a la compañía.
+ */
+const ajenoAlProveedor = (a: AlcanceResuelto, actorProveedorId: string | null | undefined): boolean =>
+  a.enlace === 'proveedor' && (a.proveedorId === null || actorProveedorId !== a.proveedorId);
 
 const ESTADO_PENDIENTE = 'pendiente'; // trámite aprobado aún sin LT escaneada (estado sintético de la consola)
 // Estados internos que agrupa cada estado SIMPLE (para traducir filtros de la consola). 'pendiente' se
@@ -113,7 +122,26 @@ function aFila(f: FilaCruda): TramiteFila {
   };
 }
 
-export async function listar(filtros: FiltrosLogistica = {}, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ListadoLogistica> {
+/** R5: los `actaId` que el proveedor puede ver. Un acta anterior al corte se responde como si no existiera. */
+async function actasVisiblesDe(rows: FilaCruda[], alcance: AlcanceResuelto): Promise<Set<string>> {
+  const ids = [...new Set(rows.flatMap((r) => (r.actaId ? [r.actaId] : [])))];
+  if (!ids.length) return new Set();
+  const filas = await db.select({ id: flitoLogisticaActas.id }).from(flitoLogisticaActas)
+    .where(and(inArray(flitoLogisticaActas.id, ids), condicionActasLogistica(alcance)));
+  return new Set(filas.map((f) => f.id));
+}
+
+/** Filas de una lista (§7.2). Al proveedor: sin `propietario` (H2) y `actaId` solo si alcanza esa acta (R5). */
+async function filasPara(rows: FilaCruda[], alcance: AlcanceResuelto): Promise<TramiteFila[]> {
+  if (alcance.enlace !== 'proveedor') return rows.map(aFila);
+  const visibles = await actasVisiblesDe(rows, alcance);
+  return rows.map((r) => {
+    const { propietario: _propietario, ...fila } = aFila(r);
+    return { ...fila, actaId: r.actaId && visibles.has(r.actaId) ? r.actaId : null };
+  });
+}
+
+export async function listar(filtros: FiltrosLogistica = {}, alcance: AlcanceResuelto = SIN_ENLACE): Promise<ListadoLogistica> {
   const page = Math.max(1, Math.floor(filtros.page ?? 1));
   const pageSize = Math.min(200, Math.max(1, Math.floor(filtros.pageSize ?? 50)));
   const conds = construirCondiciones(filtros);
@@ -130,7 +158,7 @@ export async function listar(filtros: FiltrosLogistica = {}, alcance: AlcanceRes
 
   const rows = await proyeccionTramites().where(and(...conds))
     .orderBy(desc(flitoTramites.fechaAprobacion), desc(flitoTramites.createdAt)).limit(pageSize).offset((page - 1) * pageSize);
-  return { items: rows.map(aFila), total, page, pageSize };
+  return { items: await filasPara(rows, alcance), total, page, pageSize };
 }
 
 export interface EventoDocumento {
@@ -138,9 +166,10 @@ export interface EventoDocumento {
   lat: string | null; lng: string | null; motivo: string | null; origen: string; creadoEn: string;
   tipo: string | null;
 }
-/** Bitácora de la LT (CA-07): cada transición con actor, hora y ubicación. */
-export async function eventos(documentoId: string): Promise<EventoDocumento[]> {
+/** Bitácora de la LT (CA-07): cada transición con actor, hora y ubicación. De un actor ajeno al proveedor, sin nombre ni ubicación. */
+export async function eventos(documentoId: string, alcance: AlcanceResuelto = SIN_ENLACE): Promise<EventoDocumento[]> {
   const rows = await db.select({
+    actorProveedorId: users.flitoProveedorId,
     id: flitoLogisticaEventos.id, estadoAnterior: flitoLogisticaEventos.estadoAnterior,
     estadoNuevo: flitoLogisticaEventos.estadoNuevo, actorNombre: users.name,
     lat: flitoLogisticaEventos.lat, lng: flitoLogisticaEventos.lng, motivo: flitoLogisticaEventos.motivo,
@@ -150,7 +179,10 @@ export async function eventos(documentoId: string): Promise<EventoDocumento[]> {
     .leftJoin(users, eq(flitoLogisticaEventos.actorId, users.id))
     .where(eq(flitoLogisticaEventos.documentoId, documentoId))
     .orderBy(desc(flitoLogisticaEventos.createdAt));
-  return rows.map((r) => ({ ...r, tipo: tipoEventoEfectivo(r.tipo, r.estadoNuevo), creadoEn: r.creadoEn.toISOString() }));
+  return rows.map(({ actorProveedorId, ...r }) => ({
+    ...r, tipo: tipoEventoEfectivo(r.tipo, r.estadoNuevo), creadoEn: r.creadoEn.toISOString(),
+    ...(ajenoAlProveedor(alcance, actorProveedorId) ? { actorNombre: null, lat: null, lng: null } : {}),
+  }));
 }
 
 export interface TramiteDetalle extends TramiteFila {
@@ -159,7 +191,7 @@ export interface TramiteDetalle extends TramiteFila {
   eventos: EventoDocumento[];
 }
 /** Detalle de un trámite aprobado + su LT (si ya fue escaneada) + bitácora (CA-07). */
-export async function tramiteDetalle(tramiteId: string): Promise<TramiteDetalle> {
+export async function tramiteDetalle(tramiteId: string, alcance: AlcanceResuelto = SIN_ENLACE): Promise<TramiteDetalle> {
   const [row] = await proyeccionTramites().where(eq(flitoTramites.id, tramiteId)).limit(1);
   if (!row) throw new LogisticaError('Trámite no encontrado', 404);
   let extra: { propietarioDocumento: string | null; combustible: string | null; fotoStorageKey: string | null } = { propietarioDocumento: null, combustible: null, fotoStorageKey: null };
@@ -170,7 +202,12 @@ export async function tramiteDetalle(tramiteId: string): Promise<TramiteDetalle>
       combustible: flitoLogisticaDocumentos.combustible, fotoStorageKey: flitoLogisticaDocumentos.fotoStorageKey,
     }).from(flitoLogisticaDocumentos).where(eq(flitoLogisticaDocumentos.id, row.docId)).limit(1);
     if (d) extra = d;
-    bitacora = await eventos(row.docId);
+    bitacora = await eventos(row.docId, alcance);
+  }
+  if (alcance.enlace === 'proveedor') {
+    // §7.2: conserva el nombre del propietario; sin su documento ni su foto. `actaId`, como en la lista (R5).
+    const visibles = await actasVisiblesDe([row], alcance);
+    return { ...aFila(row), actaId: row.actaId && visibles.has(row.actaId) ? row.actaId : null, combustible: extra.combustible, eventos: bitacora };
   }
   return { ...aFila(row), propietarioDocumento: extra.propietarioDocumento, combustible: extra.combustible, tieneFoto: extra.fotoStorageKey !== null, eventos: bitacora };
 }
@@ -182,8 +219,8 @@ export interface FacetasLogistica {
   empresas: Array<{ nit: string; nombre: string | null }>;
   organismos: Array<{ codigo: string; nombre: string | null }>;
   companiasCerrables: CompaniaCerrableLogistica[];
-  /** HU #14347: `proveedorId` null = de FLITO. Para un acta, la pantalla ofrece los de FLITO y los de su `proveedorLogisticaId`; la API lo exige igual. */
-  mensajeros: MensajeroAsignable[];
+  /** HU #14347: `proveedorId` null = de FLITO. Al proveedor, solo los suyos y sin ese campo (HU #14351). Para un acta: `GET /actas/:id/mensajeros`. */
+  mensajeros: Array<Omit<MensajeroAsignable, 'proveedorId'> & Partial<Pick<MensajeroAsignable, 'proveedorId'>>>;
 }
 
 type DocCerrableRow = {
@@ -213,7 +250,16 @@ function agruparCerrables(rows: DocCerrableRow[]): CompaniaCerrableLogistica[] {
 /** Función que deja operar actas de otros (HU #13425). Sin ella, cada usuario solo opera las suyas. */
 export { FUNCION_OPERAR_AJENAS } from './flito-logistica.mensajeros.js';
 
-export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<FacetasLogistica> {
+/** A Operaciones, las cifras. Al proveedor, solo si cada destino está disponible (D4, R2): sin precio ni vigencia. */
+function conTarifas(g: CompaniaCerrableLogistica, cliente: { valor: number } | null, flit: { valor: number } | null, alcance: AlcanceResuelto): CompaniaCerrableLogistica {
+  if (alcance.enlace === 'proveedor') {
+    const { precioEntregaCliente: _c, precioEntregaFlit: _f, ...sinPrecios } = g;
+    return { ...sinPrecios, destinos: { cliente: cliente !== null, flit: flit !== null } };
+  }
+  return { ...g, precioEntregaCliente: cliente === null ? null : cliente.valor, precioEntregaFlit: flit === null ? null : flit.valor };
+}
+
+export async function facetas(alcance: AlcanceResuelto = SIN_ENLACE): Promise<FacetasLogistica> {
   // Todas las facetas se restringen a compañías gestionadas por FLITO (logisticaAutogestionable = false).
   // HU #13426 (AC7): y al alcance del enlace; los mensajeros (personal de FLITO) no se listan a una compañía.
   const gestionable = and(eq(clients.logisticaAutogestionable, false), condicionTramitesLogistica(alcance))!;
@@ -246,7 +292,8 @@ export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
       )),
     // HU #13425: asignable = quien entrega actas y NO opera las ajenas (hoy: el rol mensajero), leído
     // de sus funciones efectivas y no del nombre del rol.
-    alcance.enlace === 'ninguno' ? mensajerosAsignables(alcance) : Promise.resolve([]),
+    // HU #14351: al proveedor, solo los suyos (`esAsignable`), y sin su id de proveedor.
+    alcance.enlace === 'ninguno' || alcance.enlace === 'proveedor' ? mensajerosAsignables(alcance) : Promise.resolve([]),
   ]);
   const grupos = agruparCerrables(docsCerrables);
   const ahora = new Date();
@@ -255,41 +302,45 @@ export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
     precioTrasladoDe(g.companiaId, 'cliente', ahora),
     precioTrasladoDe(g.companiaId, 'flit', ahora),
   ]));
-  for (let i = 0; i < grupos.length; i++) {
-    const cliente = precios[i * 2];
-    const flit = precios[i * 2 + 1];
-    grupos[i]!.precioEntregaCliente = cliente == null ? null : cliente.valor;
-    grupos[i]!.precioEntregaFlit = flit == null ? null : flit.valor;
-  }
+  const companiasCerrables = grupos.map((g, i) => conTarifas(g, precios[i * 2] ?? null, precios[i * 2 + 1] ?? null, alcance));
   return {
     // Vocabulario SIMPLE (5 estados) para los filtros de la consola.
     estados: [EstadoLogisticaSimple.PENDIENTE, EstadoLogisticaSimple.REGISTRADA,
       EstadoLogisticaSimple.DESPACHADA, EstadoLogisticaSimple.ENTREGADA, EstadoLogisticaSimple.NOVEDAD],
     empresas: empresas.filter((e): e is { nit: string; nombre: string | null } => !!e.nit),
     organismos: organismos.filter((o): o is { codigo: string; nombre: string | null } => !!o.codigo),
-    companiasCerrables: grupos,
-    mensajeros,
+    companiasCerrables,
+    mensajeros: alcance.enlace === 'proveedor' ? mensajeros.map(({ id, nombre }) => ({ id, nombre })) : mensajeros,
   };
 }
 
 // ── Listado de actas (panel de despacho/entrega) ─────────────────────────────
 
 export type ActaFila = ActaFilaLogistica;
-export async function listarActas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ActaFila[]> {
+export async function listarActas(alcance: AlcanceResuelto = SIN_ENLACE): Promise<ActaFila[]> {
+  // HU #14351: al proveedor no se le cuentan las licencias de otro dueño, aunque estén en su acta.
+  const soloSuyas = alcance.enlace === 'proveedor' ? sql` and d.proveedor_logistica_id = ${alcance.proveedorId}` : sql``;
   const rows = await db.select({
     id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name, proveedorLogisticaId: flitoLogisticaActas.proveedorLogisticaId,
     estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, mensajeroNombre: users.name,
     receptorNombre: flitoLogisticaActas.receptorNombre, entregadoEn: flitoLogisticaActas.entregadoEn,
     creadoEn: flitoLogisticaActas.createdAt, punto: flitoLogisticaActas.punto, trasladoId: flitoLogisticaActas.trasladoId,
-    documentos: sql<number>`(select count(*)::int from flito_logistica_documentos d where d.acta_id = ${flitoLogisticaActas.id})`,
+    documentos: sql<number>`(select count(*)::int from flito_logistica_documentos d where d.acta_id = ${flitoLogisticaActas.id}${soloSuyas})`,
+    mensajeroProveedorId: users.flitoProveedorId,
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
     .leftJoin(users, eq(flitoLogisticaActas.mensajeroId, users.id))
     // HU #13426 (alcance) + HU #14110 (ADR-0030 §17.1): el acta de organismo se consulta aparte (GET /recogidas/…).
-    .where(condicionActasLogistica(alcance) ?? ne(flitoLogisticaActas.punto, 'organismo')) // con enlace la condición ya excluye 'organismo'
+    // Con enlace compañía la condición ya excluye 'organismo'; la del proveedor la alcanza por id y aquí se excluye.
+    .where(alcance.enlace === 'proveedor'
+      ? and(ne(flitoLogisticaActas.punto, 'organismo'), condicionActasLogistica(alcance))
+      : condicionActasLogistica(alcance) ?? ne(flitoLogisticaActas.punto, 'organismo'))
     .orderBy(desc(flitoLogisticaActas.createdAt));
-  return rows.map((r) => ({
+  // Sin `...spread` hacia el proveedor: `proveedorLogisticaId` y el dueño del mensajero no pueden colarse (§7.2).
+  return rows.map(({ mensajeroProveedorId, proveedorLogisticaId, ...r }) => ({
     ...r,
+    ...(alcance.enlace === 'proveedor' ? {} : { proveedorLogisticaId }),
+    mensajeroNombre: ajenoAlProveedor(alcance, mensajeroProveedorId) ? null : r.mensajeroNombre,
     punto: r.punto as ActaFila['punto'],
     trasladoId: r.trasladoId ?? null,
     estadoLabel: ESTADO_ACTA_LOGISTICA_LABEL[r.estado as keyof typeof ESTADO_ACTA_LOGISTICA_LABEL] ?? r.estado,
@@ -317,9 +368,13 @@ export interface MiRuta { entregas: RutaEntrega[] }
  */
 export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
   const soloMias = !ctx.operaAjenas;
-  const actaCond = soloMias
-    ? and(eq(flitoLogisticaActas.estado, EstadoActaLogistica.DESPACHADA), ne(flitoLogisticaActas.punto, 'organismo'), eq(flitoLogisticaActas.mensajeroId, ctx.userId))
-    : and(eq(flitoLogisticaActas.estado, EstadoActaLogistica.DESPACHADA), ne(flitoLogisticaActas.punto, 'organismo'));
+  const deProveedor = ctx.alcance?.enlace === 'proveedor';
+  // HU #14351: `operaAjenas` = todas las de su alcance (AC7). Incluye los viajes a FLIT (R4): `destino` dice cuáles son.
+  const actaCond = and(
+    eq(flitoLogisticaActas.estado, EstadoActaLogistica.DESPACHADA), ne(flitoLogisticaActas.punto, 'organismo'),
+    soloMias ? eq(flitoLogisticaActas.mensajeroId, ctx.userId) : undefined,
+    deProveedor ? condicionActasLogistica(ctx.alcance) : undefined,
+  );
   const actas = await db.select({
     actaId: flitoLogisticaActas.id, companiaNombre: clients.name,
     direccionEntrega: flitoLogisticaActas.direccionEntrega, contactoNombre: flitoLogisticaActas.contactoNombre,
@@ -335,7 +390,7 @@ export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
     }).from(flitoLogisticaDocumentos)
       .leftJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id)) // leftJoin: tramite_id NULLABLE (LT pendiente, ADR-0030 §17.5)
       .innerJoin(vehicles, eq(flitoLogisticaDocumentos.vehiculoId, vehicles.id))
-      .where(eq(flitoLogisticaDocumentos.actaId, a.actaId));
+      .where(and(eq(flitoLogisticaDocumentos.actaId, a.actaId), deProveedor ? condicionDocumentosLogistica(ctx.alcance) : undefined));
     entregas.push({
       actaId: a.actaId, companiaNombre: a.companiaNombre, direccionEntrega: a.direccionEntrega, contactoNombre: a.contactoNombre,
       destino: a.punto as RutaEntrega['destino'], trasladoId: a.trasladoId ?? null, documentos: docs,
@@ -346,7 +401,8 @@ export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
 
 // ── Detalle del acta (CA-13: filas del acta + bitácora + firmas) ─────────────
 
-export interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string | null }
+/** `propietario`: ausente al proveedor (H2): sale de las listas. */
+export interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario?: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string | null }
 export interface ActaEvento { id: string; documentoId: string; placa: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string; tipo: string | null }
 export interface ActaDetalle {
   /** 'organismo' | 'flit' | 'cliente' (HU #14110: el acta de organismo se completa con firmas y líneas en la ruta). */
@@ -355,8 +411,11 @@ export interface ActaDetalle {
   documentos: ActaLinea[]; bitacora: ActaEvento[];
 }
 
-export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
+export async function actaDetalle(actaId: string, alcance: AlcanceResuelto = SIN_ENLACE): Promise<ActaDetalle> {
+  const proveedor = alcance.enlace === 'proveedor';
+  const delAlcance = proveedor ? condicionDocumentosLogistica(alcance) : undefined; // un acta de A con una LT de B no se la muestra a A
   const [cab] = await db.select({
+    mensajeroProveedorId: users.flitoProveedorId,
     id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name, proveedorLogisticaId: flitoLogisticaActas.proveedorLogisticaId,
     estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, mensajeroNombre: users.name,
     receptorNombre: flitoLogisticaActas.receptorNombre, entregadoEn: flitoLogisticaActas.entregadoEn,
@@ -367,7 +426,7 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
     .leftJoin(users, eq(flitoLogisticaActas.mensajeroId, users.id))
-    .where(eq(flitoLogisticaActas.id, actaId)).limit(1);
+    .where(and(eq(flitoLogisticaActas.id, actaId), proveedor ? condicionActasLogistica(alcance) : undefined)).limit(1);
   if (!cab) throw new LogisticaError('Acta no encontrada', 404);
 
   const docs = await db.select({
@@ -379,9 +438,10 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     .leftJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id)) // leftJoin: tramite_id NULLABLE (LT pendiente, ADR-0030 §17.5)
     .innerJoin(vehicles, eq(flitoLogisticaDocumentos.vehiculoId, vehicles.id))
     .leftJoin(organismosTransitoConfig, eq(flitoLogisticaDocumentos.organismoCodigo, organismosTransitoConfig.codigo))
-    .where(eq(flitoLogisticaDocumentos.actaId, actaId));
+    .where(and(eq(flitoLogisticaDocumentos.actaId, actaId), delAlcance));
 
   const bitacora = await db.select({
+    actorProveedorId: users.flitoProveedorId,
     id: flitoLogisticaEventos.id, documentoId: flitoLogisticaEventos.documentoId, placa: vehicles.plate,
     estadoAnterior: flitoLogisticaEventos.estadoAnterior, estadoNuevo: flitoLogisticaEventos.estadoNuevo,
     actorNombre: users.name, motivo: flitoLogisticaEventos.motivo, origen: flitoLogisticaEventos.origen,
@@ -390,13 +450,17 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
     .innerJoin(flitoLogisticaDocumentos, eq(flitoLogisticaEventos.documentoId, flitoLogisticaDocumentos.id))
     .innerJoin(vehicles, eq(flitoLogisticaDocumentos.vehiculoId, vehicles.id))
     .leftJoin(users, eq(flitoLogisticaEventos.actorId, users.id))
-    .where(eq(flitoLogisticaDocumentos.actaId, actaId))
+    .where(and(eq(flitoLogisticaDocumentos.actaId, actaId), delAlcance))
     .orderBy(desc(flitoLogisticaEventos.createdAt));
+
+  // El nombre de quien entrega no tiene columna de usuario: al proveedor solo le sale si la salida la hizo alguien suyo.
+  const salidaAjena = bitacora.some((e) => e.estadoNuevo === EstadoDocumentoLogistica.DESPACHADO && ajenoAlProveedor(alcance, e.actorProveedorId));
+  const salidaPropia = bitacora.some((e) => e.estadoNuevo === EstadoDocumentoLogistica.DESPACHADO && !ajenoAlProveedor(alcance, e.actorProveedorId));
 
   const acta: ActaFila = {
     id: cab.id, companiaId: cab.companiaId, companiaNombre: cab.companiaNombre,
     estado: cab.estado, estadoLabel: ESTADO_ACTA_LOGISTICA_LABEL[cab.estado as keyof typeof ESTADO_ACTA_LOGISTICA_LABEL] ?? cab.estado,
-    mensajeroId: cab.mensajeroId, mensajeroNombre: cab.mensajeroNombre, documentos: docs.length,
+    mensajeroId: cab.mensajeroId, mensajeroNombre: ajenoAlProveedor(alcance, cab.mensajeroProveedorId) ? null : cab.mensajeroNombre, documentos: docs.length,
     receptorNombre: cab.receptorNombre, entregadoEn: cab.entregadoEn ? cab.entregadoEn.toISOString() : null,
     creadoEn: cab.creadoEn.toISOString(),
     punto: cab.punto as ActaFila['punto'], trasladoId: cab.trasladoId ?? null,
@@ -404,14 +468,26 @@ export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
   return {
     ...(cab.punto ? { punto: cab.punto } : {}),
     acta, tienePdf: cab.pdfStorageKey !== null,
-    firmaEntrega: cab.firmaEntregaKey !== null, firmaRecibe: cab.firmaRecibeKey !== null, entregaNombre: cab.entregaNombre,
+    firmaEntrega: cab.firmaEntregaKey !== null, firmaRecibe: cab.firmaRecibeKey !== null,
+    entregaNombre: proveedor && (salidaAjena || !salidaPropia) ? null : cab.entregaNombre,
     documentos: docs.map((d) => ({
-      id: d.id, placa: d.placa, secretaria: d.secretaria, propietario: d.propietario,
+      id: d.id, placa: d.placa, secretaria: d.secretaria, ...(proveedor ? {} : { propietario: d.propietario }),
       numeroLicencia: d.numeroLicencia, numeroLt: d.numeroLt,
       estado: d.estado, estadoLabel: ESTADO_DOCUMENTO_LOGISTICA_LABEL[d.estado as TEstadoDoc] ?? d.estado, idFlit: d.idFlit,
     })),
-    bitacora: bitacora.map((e) => ({ ...e, tipo: tipoEventoEfectivo(e.tipo, e.estadoNuevo), creadoEn: e.creadoEn.toISOString() })),
+    bitacora: bitacora.map(({ actorProveedorId, ...e }) => ({
+      ...e, tipo: tipoEventoEfectivo(e.tipo, e.estadoNuevo), creadoEn: e.creadoEn.toISOString(),
+      actorNombre: ajenoAlProveedor(alcance, actorProveedorId) ? null : e.actorNombre,
+    })),
   };
+}
+
+/** A quién se puede despachar esta acta (R1). La ruta ya comprobó el alcance; 404 si no existe. */
+export async function mensajerosDeActa(actaId: string, alcance: AlcanceResuelto): Promise<MensajeroDeActa[]> {
+  const [a] = await db.select({ proveedorId: flitoLogisticaActas.proveedorLogisticaId }).from(flitoLogisticaActas)
+    .where(eq(flitoLogisticaActas.id, actaId)).limit(1);
+  if (!a) throw new LogisticaError('El acta no existe', 404);
+  return mensajerosParaActa(alcance, a.proveedorId);
 }
 
 // ── Línea de tiempo (HU #14124) ──────────────────────────────────────────────
@@ -439,8 +515,9 @@ function motivoDeHito(): SQL<string | null> {
   END`;
 }
 
-async function hitosDe(documentoId: string): Promise<HitoLineaTiempoLogistica[]> {
+async function hitosDe(documentoId: string, alcance: AlcanceResuelto): Promise<HitoLineaTiempoLogistica[]> {
   const rows = await db.select({
+    actorProveedorId: users.flitoProveedorId,
     id: flitoLogisticaEventos.id,
     tipo: flitoLogisticaEventos.tipo,
     fecha: flitoLogisticaEventos.createdAt,
@@ -456,7 +533,7 @@ async function hitosDe(documentoId: string): Promise<HitoLineaTiempoLogistica[]>
     id: r.id,
     tipo: tipoEventoEfectivo(r.tipo, r.estadoNuevo),
     fecha: r.fecha.toISOString(),
-    actorNombre: r.actorNombre,
+    actorNombre: ajenoAlProveedor(alcance, r.actorProveedorId) ? null : r.actorNombre, // §6.5: solo si el actor es de P
     destino: r.destino,
     motivo: r.motivo,
     estadoNuevo: r.estadoNuevo,
@@ -464,7 +541,7 @@ async function hitosDe(documentoId: string): Promise<HitoLineaTiempoLogistica[]>
 }
 
 /** Eventos de esa LT, también si sigue pendiente de trámite (`tramiteId` null). */
-export async function lineaTiempoDocumento(documentoId: string): Promise<LineaTiempoLogistica> {
+export async function lineaTiempoDocumento(documentoId: string, alcance: AlcanceResuelto = SIN_ENLACE): Promise<LineaTiempoLogistica> {
   const [doc] = await db.select({
     id: flitoLogisticaDocumentos.id,
     tramiteId: flitoLogisticaDocumentos.tramiteId,
@@ -472,11 +549,11 @@ export async function lineaTiempoDocumento(documentoId: string): Promise<LineaTi
     .where(and(eq(flitoLogisticaDocumentos.id, documentoId), eq(flitoLogisticaDocumentos.tipo, LT)))
     .limit(1);
   if (!doc) throw new LogisticaError('La LT no existe', 404);
-  return { documentoId: doc.id, tramiteId: doc.tramiteId, hitos: await hitosDe(doc.id) };
+  return { documentoId: doc.id, tramiteId: doc.tramiteId, hitos: await hitosDe(doc.id, alcance) };
 }
 
 /** La LT `licencia_transito` de ese trámite. Sin LT todavía: 200 con hitos vacíos. */
-export async function lineaTiempoTramite(tramiteId: string): Promise<LineaTiempoLogistica> {
+export async function lineaTiempoTramite(tramiteId: string, alcance: AlcanceResuelto = SIN_ENLACE): Promise<LineaTiempoLogistica> {
   const [row] = await db.select({
     tramiteId: flitoTramites.id,
     documentoId: flitoLogisticaDocumentos.id,
@@ -489,5 +566,5 @@ export async function lineaTiempoTramite(tramiteId: string): Promise<LineaTiempo
     .limit(1);
   if (!row) throw new LogisticaError('El trámite no existe', 404);
   if (!row.documentoId) return { documentoId: null, tramiteId: row.tramiteId, hitos: [] };
-  return { documentoId: row.documentoId, tramiteId: row.tramiteId, hitos: await hitosDe(row.documentoId) };
+  return { documentoId: row.documentoId, tramiteId: row.tramiteId, hitos: await hitosDe(row.documentoId, alcance) };
 }

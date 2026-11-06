@@ -250,6 +250,20 @@ export function soloSinEnlaceOProveedor(): RequestHandler {
   return guarda;
 }
 
+/**
+ * HU #14351 (ADR-0039 §6.5) — La inversa: una ruta de un módulo abierto que sigue abierta a la compañía y cerrada al proveedor,
+ * aunque tenga la función (reversar, cierre de lote, viajes adicionales). Falla cerrado.
+ */
+export function cerradaAlProveedor(): RequestHandler {
+  const guarda: RequestHandler = (req, res, next) => {
+    const enlace = req.frontera?.enlace;
+    if (enlace !== undefined && enlace !== 'proveedor') { next(); return; }
+    res.status(403).json({ error: 'Sin permisos' });
+  };
+  Object.defineProperty(guarda, 'fronteraCerradaAlProveedor', { value: true, enumerable: true });
+  return guarda;
+}
+
 /** El id del enlace de un usuario, leído de la base. Un id ausente → el módulo devuelve CERO filas. */
 export async function alcanceDeUsuario(userId: number, enlace: TipoEnlace | null): Promise<AlcanceResuelto> {
   switch (enlace) {

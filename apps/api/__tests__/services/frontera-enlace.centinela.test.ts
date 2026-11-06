@@ -144,6 +144,7 @@ describe('AC3 — snapshot de lo declarado: montajes con `conAlcance` y rutas de
       { prefijo: '/api/flito/derechos', modulo: 'derechos' },
       { prefijo: '/api/flito/tramites', modulo: 'tramites' },
       { prefijo: '/api/flito/tablero', modulo: 'tablero' },
+      { prefijo: '/api/flito/logistica/motivos-llegada', modulo: 'logistica' }, // HU #14351
       { prefijo: '/api/flito/logistica', modulo: 'logistica' },
       { prefijo: '/api/flito/logistica', modulo: 'logistica' },
       { prefijo: '/api/flito/bolsas', modulo: 'bolsas' },
@@ -157,9 +158,9 @@ describe('AC3 — snapshot de lo declarado: montajes con `conAlcance` y rutas de
     expect(rutasAbiertas().map((r) => r.ruta)).toEqual([...RUTAS_SOAT_ABIERTAS, ...RUTAS_13426.map(([r]) => r)]);
   });
 
-  it('HU #13426 — la decisión escrita de cada ruta es la del código: `soloSinEnlace` ⇔ la ruta lleva su guarda', () => {
+  it('HU #13426 y #14351 — la decisión escrita de cada ruta es la del código: la guarda de la pila ⇔ su fila', () => {
     const enCodigo = rutasAbiertas().filter((r) => !r.ruta.includes('/api/flito/soat'))
-      .map((r) => [r.ruta, r.cerrada ? 'soloSinEnlace' : 'filtra']);
+      .map((r) => [r.ruta, r.decision]);
     expect(enCodigo).toEqual(RUTAS_13426);
     // SOAT acota todas por `contextoSoat` (#12875): ninguna lleva la guarda.
     expect(rutasAbiertas().filter((r) => r.ruta.includes('/api/flito/soat') && r.cerrada)).toEqual([]);
@@ -233,24 +234,32 @@ describe('TC-06d — el tipo interno/externo retirado no tiene lectores ni escri
   });
 });
 
+type Decision = 'filtra' | 'soloSinEnlace' | 'soloSinEnlaceOProveedor' | 'cerradaAlProveedor';
 type CapaPila = {
-  route?: { path: string; methods: Record<string, boolean>; stack: { handle: { fronteraSoloSinEnlace?: boolean } }[] };
+  route?: {
+    path: string; methods: Record<string, boolean>;
+    stack: { handle: { fronteraSoloSinEnlace?: boolean; fronteraSoloSinEnlaceOProveedor?: boolean; fronteraCerradaAlProveedor?: boolean } }[];
+  };
   handle: { stack?: CapaPila[] };
 };
 /** Rutas de una pila de Express, entrando en los sub-routers (`router.use(subRouter)`). */
-function rutasDePila(pila: CapaPila[]): { verbo: string; path: string; cerrada: boolean }[] {
+function rutasDePila(pila: CapaPila[]): { verbo: string; path: string; cerrada: boolean; decision: Decision }[] {
   return pila.flatMap((c) => {
     if (c.route) {
-      const cerrada = c.route.stack.some((l) => l.handle.fronteraSoloSinEnlace === true);
-      return Object.keys(c.route.methods).map((v) => ({ verbo: v.toUpperCase(), path: c.route!.path, cerrada }));
+      const lleva = (m: 'fronteraSoloSinEnlace' | 'fronteraSoloSinEnlaceOProveedor' | 'fronteraCerradaAlProveedor') => c.route!.stack.some((l) => l.handle[m] === true);
+      const cerrada = lleva('fronteraSoloSinEnlace');
+      const decision: Decision = cerrada ? 'soloSinEnlace'
+        : lleva('fronteraSoloSinEnlaceOProveedor') ? 'soloSinEnlaceOProveedor'
+          : lleva('fronteraCerradaAlProveedor') ? 'cerradaAlProveedor' : 'filtra';
+      return Object.keys(c.route.methods).map((v) => ({ verbo: v.toUpperCase(), path: c.route!.path, cerrada, decision }));
     }
     return c.handle.stack ? rutasDePila(c.handle.stack) : [];
   });
 }
-function rutasAbiertas(): { ruta: string; cerrada: boolean }[] {
+function rutasAbiertas(): { ruta: string; cerrada: boolean; decision: Decision }[] {
   return montajes().filter((m) => m.capa.handle.fronteraModulo).flatMap((m) =>
     rutasDePila(m.capa.handle.fronteraRouter!.stack as unknown as CapaPila[]).map((r) => ({
-      ruta: `${r.verbo} ${m.prefijo}${r.path === '/' ? '' : r.path}`, cerrada: r.cerrada,
+      ruta: `${r.verbo} ${m.prefijo}${r.path === '/' ? '' : r.path}`, cerrada: r.cerrada, decision: r.decision,
     })));
 }
 
@@ -259,9 +268,11 @@ function rutasAbiertas(): { ruta: string; cerrada: boolean }[] {
  *   · `filtra`        → acota por el enlace en el servicio (lectura: solo su alcance, detalle ajeno 404;
  *                       escritura sobre lo ajeno 403 sin comprobar existencia).
  *   · `soloSinEnlace` → catálogo, configuración u operación interna de FLIT: 403 a todo enlace.
+ *   · `soloSinEnlaceOProveedor` → HU #14351 (ADR-0039 §6.5): cerrada a la compañía; el proveedor entra y filtra por su dueño.
+ *   · `cerradaAlProveedor` → HU #14351: la compañía la conserva con su filtro; el proveedor, 403 aunque tenga la función.
  * Revisada una a una al abrir cada módulo; NO se regenera a ciegas. Una ruta nueva exige su fila.
  */
-const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
+const RUTAS_13426: [string, Decision][] = [
   ['POST /api/flito/impuestos/:id/reanalizar',                                 'filtra'],
   ['PATCH /api/flito/impuestos/:id/direccion',                                 'filtra'],
   ['POST /api/flito/impuestos/certificados/zip',                               'filtra'],
@@ -321,44 +332,49 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/tramites/:id/desbloquear-autogestion',                     'filtra'],
   ['POST /api/flito/tramites/:id/revocar-autogestion',                         'filtra'],
   ['GET /api/flito/tablero',                                                   'filtra'],
+  // HU #14351: catálogo de motivos, montado con `conAlcance` antes del router general. El GET no lleva PII.
+  ['GET /api/flito/logistica/motivos-llegada',                                 'soloSinEnlaceOProveedor'],
+  ['POST /api/flito/logistica/motivos-llegada',                                'soloSinEnlace'],
+  ['PATCH /api/flito/logistica/motivos-llegada/:id/estado',                    'soloSinEnlace'],
+  ['PATCH /api/flito/logistica/motivos-llegada/:id',                           'soloSinEnlace'],
   ['GET /api/flito/logistica',                                                 'filtra'],
   ['POST /api/flito/logistica/buscar',                                         'filtra'], // HU #14351
   ['GET /api/flito/logistica/facetas',                                         'filtra'],
-  ['GET /api/flito/logistica/mi-ruta',                                         'soloSinEnlace'],
+  ['GET /api/flito/logistica/mi-ruta',                                         'soloSinEnlaceOProveedor'],
   ['GET /api/flito/logistica/actas',                                           'filtra'],
   ['GET /api/flito/logistica/actas/:id',                                       'filtra'],
-  ['GET /api/flito/logistica/actas/:id/mensajeros',                            'filtra'], // HU #14353
+  ['GET /api/flito/logistica/actas/:id/mensajeros',                            'soloSinEnlaceOProveedor'], // HU #14353
   ['GET /api/flito/logistica/actas/:id/pdf',                                   'filtra'],
   ['GET /api/flito/logistica/pendientes-tramite',                                 'soloSinEnlace'], // HU #14143
   ['GET /api/flito/logistica/documentos/:id/candidatos-tramite',                  'soloSinEnlace'], // HU #14143
   ['POST /api/flito/logistica/documentos/:id/resolver-tramite',                   'soloSinEnlace'], // HU #14143
-  ['GET /api/flito/logistica/documentos/:id/linea-tiempo',                     'soloSinEnlace'], // HU #14124
-  ['GET /api/flito/logistica/tramites/:tramiteId/linea-tiempo',                'soloSinEnlace'], // HU #14124
+  ['GET /api/flito/logistica/documentos/:id/linea-tiempo',                     'soloSinEnlaceOProveedor'], // HU #14124
+  ['GET /api/flito/logistica/tramites/:tramiteId/linea-tiempo',                'soloSinEnlaceOProveedor'], // HU #14124
   ['GET /api/flito/logistica/:id',                                             'filtra'],
-  ['POST /api/flito/logistica/validar-lt',                                     'soloSinEnlace'],
-  ['POST /api/flito/logistica/consultar-vehiculo',                             'soloSinEnlace'],
-  ['POST /api/flito/logistica/escanear',                                       'soloSinEnlace'],
+  ['POST /api/flito/logistica/validar-lt',                                     'soloSinEnlaceOProveedor'],
+  ['POST /api/flito/logistica/consultar-vehiculo',                             'soloSinEnlaceOProveedor'],
+  ['POST /api/flito/logistica/escanear',                                       'soloSinEnlaceOProveedor'],
   ['POST /api/flito/logistica/documentos/:id/novedad',                         'filtra'],
-  ['POST /api/flito/logistica/traslados',                                      'soloSinEnlace'], // HU #14114
-  ['POST /api/flito/logistica/traslados/buscar',                               'soloSinEnlace'], // HU #14125
-  ['POST /api/flito/logistica/traslados/:id/despachar',                        'soloSinEnlace'], // HU #14115
-  ['POST /api/flito/logistica/traslados/:id/entregar',                         'soloSinEnlace'], // HU #14115
-  ['POST /api/flito/logistica/traslados/:id/devolucion',                       'soloSinEnlace'], // HU #14115
-  ['POST /api/flito/logistica/traslados/:id/anular',                           'soloSinEnlace'], // HU #14115
-  ['POST /api/flito/logistica/cerrar-lote',                                    'filtra'],
-  ['POST /api/flito/logistica/actas/:id/despachar',                            'filtra'],
+  ['POST /api/flito/logistica/traslados',                                      'soloSinEnlaceOProveedor'], // HU #14114
+  ['POST /api/flito/logistica/traslados/buscar',                               'soloSinEnlaceOProveedor'], // HU #14125
+  ['POST /api/flito/logistica/traslados/:id/despachar',                        'soloSinEnlaceOProveedor'], // HU #14115
+  ['POST /api/flito/logistica/traslados/:id/entregar',                         'soloSinEnlaceOProveedor'], // HU #14115: destino FLIT cerrado al proveedor en el handler (N4)
+  ['POST /api/flito/logistica/traslados/:id/devolucion',                       'soloSinEnlaceOProveedor'], // HU #14115
+  ['POST /api/flito/logistica/traslados/:id/anular',                           'soloSinEnlaceOProveedor'], // HU #14115
+  ['POST /api/flito/logistica/cerrar-lote',                                    'cerradaAlProveedor'],
+  ['POST /api/flito/logistica/actas/:id/despachar',                            'soloSinEnlaceOProveedor'], // D7: la compañía, 403
   ['POST /api/flito/logistica/actas/:id/entregar',                             'filtra'],
   ['POST /api/flito/logistica/actas/:id/devolucion',                           'filtra'],
-  ['POST /api/flito/logistica/documentos/:id/reversar',                        'filtra'],
-  ['POST /api/flito/logistica/recogidas/confirmar',                            'soloSinEnlace'], // HU #14110
-  ['GET /api/flito/logistica/recogidas/mias',                                  'soloSinEnlace'], // HU #14110
-  ['GET /api/flito/logistica/recogidas/pendientes-firma',                       'soloSinEnlace'], // HU #14147
-  ['GET /api/flito/logistica/recogidas/:firmanteId',                           'soloSinEnlace'], // HU #14110
-  ['POST /api/flito/logistica/recogidas/:firmanteId/documento',                'soloSinEnlace'], // HU #14110
-  ['GET /api/flito/logistica/tramites/:tramiteId/viajes',                      'filtra'],
-  ['POST /api/flito/logistica/tramites/:tramiteId/viajes',                     'filtra'],
-  ['POST /api/flito/logistica/viajes/masivo',                                  'filtra'],
-  ['DELETE /api/flito/logistica/tramites/:tramiteId/viajes/:viajeId',          'filtra'],
+  ['POST /api/flito/logistica/documentos/:id/reversar',                        'cerradaAlProveedor'],
+  ['POST /api/flito/logistica/recogidas/confirmar',                            'soloSinEnlaceOProveedor'], // HU #14110
+  ['GET /api/flito/logistica/recogidas/mias',                                  'soloSinEnlaceOProveedor'], // HU #14110
+  ['GET /api/flito/logistica/recogidas/pendientes-firma',                       'soloSinEnlaceOProveedor'], // HU #14147
+  ['GET /api/flito/logistica/recogidas/:firmanteId',                           'soloSinEnlaceOProveedor'], // HU #14110
+  ['POST /api/flito/logistica/recogidas/:firmanteId/documento',                'soloSinEnlaceOProveedor'], // HU #14110: la función no se siembra (§6.5, H5)
+  ['GET /api/flito/logistica/tramites/:tramiteId/viajes',                      'cerradaAlProveedor'], // D3
+  ['POST /api/flito/logistica/tramites/:tramiteId/viajes',                     'cerradaAlProveedor'], // D3
+  ['POST /api/flito/logistica/viajes/masivo',                                  'cerradaAlProveedor'], // D3
+  ['DELETE /api/flito/logistica/tramites/:tramiteId/viajes/:viajeId',          'cerradaAlProveedor'], // D3
   ['GET /api/flito/bolsas/consolidado',                                        'filtra'],
   ['GET /api/flito/bolsas/riesgo',                                             'filtra'],
   ['GET /api/flito/bolsas/alertas',                                            'filtra'],
