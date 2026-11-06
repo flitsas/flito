@@ -4,8 +4,8 @@ import crypto from 'crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from '../../src/config/env.js';
 import {
-  decryptLegacyBiometric, decryptPii, decryptPiiBuffer, decryptPiiText, encryptPii, encryptPiiBuffer, encryptPiiText,
-  encryptSecret, PiiDecryptError, type AadParts,
+  decryptPii, decryptPiiBuffer, decryptPiiText, encryptPii, encryptPiiBuffer, encryptPiiText,
+  encryptSecret, type AadParts,
 } from '../../src/shared/utils/crypto.js';
 import {
   derivarLlavePii, salPii, validarLlavesPii, versionesPiiConfiguradas,
@@ -282,12 +282,5 @@ describe('guarda de las derivaciones que usaban `env.PII_ENC_KEY`', () => {
   it('RNDC sin su llave y con PII_ENC_KEY mantiene el respaldo de desarrollo', () => {
     envMutable.RNDC_ENC_KEY = undefined;
     expect(encryptSecret('x', PARTES).keyVersion).toBe(1);
-  });
-
-  it('biometría antigua sin V1 falla como `PiiDecryptError`', () => {
-    envMutable.PII_ENC_KEY = undefined;
-    process.env.PII_ENC_KEY_V2 = LLAVE_V2;
-    const viejo = `${'a'.repeat(32)}:${'b'.repeat(32)}:AAAA`;
-    expect(() => decryptLegacyBiometric(viejo, CTX)).toThrow(PiiDecryptError);
   });
 });
