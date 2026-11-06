@@ -275,9 +275,16 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       const vigente = await nuevoProveedor(['soat']);
       const inactivo = await nuevoProveedor(['soat']);
       await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${inactivo.id}`;
+      const eliminado = await nuevoProveedor(['soat']);
+      await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${eliminado.id}`;
+      await sql`UPDATE flito_proveedores SET deleted_at = now() WHERE id = ${eliminado.id}`;
       const db = real.db as unknown as { transaction: <T>(f: (tx: never) => Promise<T>) => Promise<T> };
       await expect(db.transaction((tx) => exigirProveedorSoatUsable(tx, soloL.id))).rejects.toBeInstanceOf(ProveedorSoatNoUsableError);
       await expect(db.transaction((tx) => exigirProveedorSoatUsable(tx, inactivo.id))).rejects.toBeInstanceOf(ProveedorSoatNoUsableError);
+      const rechazoEliminado = db.transaction((tx) => exigirProveedorSoatUsable(tx, eliminado.id));
+      await expect(rechazoEliminado).rejects.toBeInstanceOf(ProveedorSoatNoUsableError);
+      // Se rechaza por eliminado, no por estar inactivo: el motivo distingue qué rama lo paró.
+      await expect(rechazoEliminado).rejects.toMatchObject({ motivo: 'no_existe' });
       await expect(db.transaction((tx) => exigirProveedorSoatUsable(tx, vigente.id))).resolves.toBeUndefined();
     });
 
