@@ -268,9 +268,9 @@ describe('flito-soat — asumir y devolver la gestión (HU #11153)', () => {
 
   it('AC2 — devolver limpia las marcas y asigna el proveedor de destino', async () => {
     selectMock.mockReturnValueOnce(chain([soatEn({ gestionOperaciones: true, proveedorSoatId: PROVEEDOR_ID })]));
-    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR_DESTINO }])); // el proveedor existe
     selectMock.mockReturnValue(chain([]));
-    const { sets, inserts } = montarTx();
+    const { sets, inserts, txSelect } = montarTx();
+    txSelect.mockReturnValue(chain([{ nombre: 'Destino', activo: true, deletedAt: null }])); // padre y perfil FOR SHARE
 
     const r = await devolver('admin', { proveedorSoatId: PROVEEDOR_DESTINO, motivo: 'el proveedor ya puede retomarlo' });
 
@@ -334,7 +334,7 @@ describe('flito-soat — asumir y devolver la gestión (HU #11153)', () => {
   });
 
   it('AC6 — asumir dos veces, devolver lo que no gestiona Operaciones, y proveedor inexistente', async () => {
-    const { txUpdate } = montarTx();
+    const { txUpdate, txSelect } = montarTx();
 
     selectMock.mockReturnValueOnce(chain([soatEn({ gestionOperaciones: true })]));
     const yaAsumido = await asumir('admin', { motivo: 'otra vez por si acaso' });
@@ -347,9 +347,10 @@ describe('flito-soat — asumir y devolver la gestión (HU #11153)', () => {
     expect(noAsumido.body.error).toMatch(/no lo gestiona Operaciones/i);
 
     selectMock.mockReturnValueOnce(chain([soatEn({ gestionOperaciones: true })]));
-    selectMock.mockReturnValueOnce(chain([])); // el proveedor no existe
+    txSelect.mockReturnValueOnce(chain([])); // el proveedor no existe: RN-PROV-5, dentro de la tx
     const sinProveedor = await devolver('admin', { proveedorSoatId: PROVEEDOR_DESTINO, motivo: 'a un proveedor fantasma' });
-    expect(sinProveedor.status).toBe(404);
+    expect(sinProveedor.status).toBe(409);
+    expect(sinProveedor.body).toEqual({ error: 'El gestor seleccionado no existe o fue eliminado.' });
 
     expect(txUpdate).not.toHaveBeenCalled();
   });

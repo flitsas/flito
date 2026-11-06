@@ -281,6 +281,45 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       await expect(db.transaction((tx) => exigirProveedorSoatUsable(tx, vigente.id))).resolves.toBeUndefined();
     });
 
+    it('AC5: cambiar y devolver rechazan al inactivo, al eliminado y al que no da SOAT con 409, sin tocar la asignación; el vigente pasa', async () => {
+      const admin = await bearer(adminId);
+      const cia = await compania();
+      const actual = await nuevoProveedor(['soat']);
+      const vigente = await nuevoProveedor(['soat']);
+      const soloL = await nuevoProveedor(['logistica']);
+      const inactivo = await nuevoProveedor(['soat']);
+      await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${inactivo.id}`;
+      const eliminado = await nuevoProveedor(['soat']);
+      await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${eliminado.id}`;
+      await sql`UPDATE flito_proveedores SET deleted_at = now() WHERE id = ${eliminado.id}`;
+      const soat = async (letra: string, estado: string, gestionOperaciones: boolean) => {
+        const veh = (await sql`INSERT INTO vehicles DEFAULT VALUES RETURNING id`)[0]!.id as number;
+        return (await sql`INSERT INTO flito_soat (compania_id, vehiculo_id, vin, estado, proveedor_soat_id, gestion_operaciones)
+          VALUES (${cia}, ${veh}, ${`VIN${CORRIDA}${letra}${n}`}, ${estado}, ${actual.id}, ${gestionOperaciones}) RETURNING id`)[0]!.id as string;
+      };
+      const operaciones = [
+        { ruta: 'proveedor', id: await soat('F', 'pendiente', false), motivo: 'cambio de convenio' },
+        { ruta: 'devolver-gestor', id: await soat('G', 'solicitado', true), motivo: 'ya puede retomarlo' },
+      ];
+      for (const { ruta, id, motivo } of operaciones) {
+        const operar = (proveedorSoatId: string) => request(app).post(`/api/flito/soat/${id}/${ruta}`)
+          .set('Authorization', admin).send({ proveedorSoatId, motivo });
+        const asignado = async () => (await sql`SELECT proveedor_soat_id AS p FROM flito_soat WHERE id = ${id}`)[0]!.p as string;
+        for (const [caso, proveedor, error] of [
+          ['inactivo', inactivo, `El gestor ${inactivo.nombre} está inactivo: elige otro gestor.`],
+          ['eliminado', eliminado, 'El gestor seleccionado no existe o fue eliminado.'],
+          ['solo Logística', soloL, 'El gestor seleccionado no existe o fue eliminado.'],
+        ] as const) {
+          const r = await operar(proveedor.id);
+          expect(r.status, `${ruta} ${caso}`).toBe(409);
+          expect(r.body, `${ruta} ${caso}`).toEqual({ error });
+          expect(await asignado(), `${ruta} ${caso}`).toBe(actual.id);
+        }
+        expect((await operar(vigente.id)).status, ruta).toBe(200);
+        expect(await asignado(), ruta).toBe(vigente.id);
+      }
+    }, 30_000);
+
     it('AC6: asignado solo en Logística de una compañía con SOAT apagado → no ve ni gestiona sus SOAT', async () => {
       const p = await nuevoProveedor(['soat', 'logistica']);
       const apagado = await compania();

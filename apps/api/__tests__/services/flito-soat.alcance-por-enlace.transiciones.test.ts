@@ -74,6 +74,7 @@ describe('Bug #12869 — transiciones por id: fuera del alcance del enlace = 404
 
     it(`${c.nombre}: admin (alcance todo) sobre el mismo SOAT → procede y emite el UPDATE`, async () => {
       kdb.when.select('flito_soat', [fila(c.estado, c.gestion)])
+        .select('flito_proveedores', [{ nombre: 'P', activo: true, deletedAt: null }]) // RN-PROV-5: el padre FOR SHARE
         .select('flito_proveedores_soat', [{ id: PROV }])
         .update('flito_soat', [fila(c.estado, c.gestion)]);
       await expect(c.correr(ctxAdmin)).resolves.toBeTruthy();
@@ -91,8 +92,11 @@ describe('Bug #12869 — transiciones por id: fuera del alcance del enlace = 404
 
 describe('Bug #12869 — enviarAlGestor (lote): el bloqueo lleva la frontera del enlace', () => {
   const pendiente = { id: SOAT_ID };
-  // HU #13959 (RN-PROV-5): el envío relee el proveedor `FOR SHARE` dentro de su tx; aquí es activo y vigente.
-  beforeEach(() => { kdb.when.select('flito_proveedores_soat', [{ nombre: 'P', activo: true, deletedAt: null }]); });
+  // HU #13959 (RN-PROV-5): el envío relee padre y perfil `FOR SHARE` dentro de su tx; aquí es activo y vigente.
+  beforeEach(() => {
+    kdb.when.select('flito_proveedores', [{ nombre: 'P', activo: true, deletedAt: null }])
+      .select('flito_proveedores_soat', [{ id: PROV }]);
+  });
 
   it('rol con enlace compañía → el SELECT … FOR UPDATE lleva SU compania_id', async () => {
     kdb.when.select('flito_soat', [pendiente]).update('flito_soat', []);

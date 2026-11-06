@@ -102,8 +102,8 @@ const comoGestor = (fila: Record<string, unknown>) => {
  * PLANA con `db.select().from(flitoSoat)`. Y para un `admin`, `contextoSoat` no consulta nada, así
  * que la primera lectura de la petición ya es la del SOAT.
  *
- * El `mockReturnValue` de cola devuelve el PROVEEDOR: es la segunda consulta de `devolverAlGestor`
- * («¿existe el proveedor al que se devuelve?»), y sin ella esa ruta da 404 antes de escribir.
+ * El `mockReturnValue` de cola atiende las lecturas posteriores (el detalle de la respuesta). El proveedor de
+ * `devolverAlGestor` se valida dentro de la tx: lo sirve el `txSelect` de `montarTx`.
  */
 const comoOperaciones = (fila: Record<string, unknown>) => {
   selectMock.mockReturnValueOnce(chain([fila]));
@@ -113,7 +113,8 @@ const comoOperaciones = (fila: Record<string, unknown>) => {
 /** La transacción de la mutación: devuelve los payloads de `update().set()`. Calcado de la #11153. */
 function montarTx(filaActualizada: unknown = { id: SOAT_ID, estado: 'solicitado' }) {
   const sets: Record<string, unknown>[] = [];
-  const txSelect = vi.fn().mockReturnValue(chain([{ id: SOAT_ID }]));
+  // También responde al `FOR SHARE` de RN-PROV-5 en `devolverAlGestor`: un proveedor activo y vigente.
+  const txSelect = vi.fn().mockReturnValue(chain([{ id: SOAT_ID, nombre: 'Gestora', activo: true, deletedAt: null }]));
   const txUpdate = vi.fn(() => {
     const c = chain([filaActualizada]);
     return { ...c, set: (v: Record<string, unknown>) => { sets.push(v); return c; } };
