@@ -1,9 +1,7 @@
 // Feature #14097 (HU #14098 AC1/AC2, #14099 AC1) — helper común de PII en columna de texto.
-import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { env } from '../../src/config/env.js';
 import {
-  decryptLegacyBiometric,
   decryptPiiText,
   encryptPiiText,
   PiiDecryptError,
@@ -13,15 +11,6 @@ const CTX = { table: 'tramites_validaciones', column: 'foto_rostro', id: 7 };
 const FOTO = 'data:image/jpeg;base64,QUJDREVGRw==';
 const envMutable = env as { PII_ENC_KEY: string };
 const LLAVE_ORIGINAL = env.PII_ENC_KEY;
-
-/** Réplica del `encryptPII` retirado de identidad.routes: el formato que sigue en las filas viejas. */
-function cifrarFormatoViejo(plano: string, passphrase: string): string {
-  const key = crypto.scryptSync(passphrase, 'kyverum-pii-salt', 32);
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const data = Buffer.concat([cipher.update(plano, 'utf8'), cipher.final()]);
-  return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${data.toString('base64')}`;
-}
 
 function errorDe(fn: () => unknown): unknown {
   try { fn(); } catch (e) { return e; }
@@ -76,6 +65,10 @@ describe('encryptPiiText / decryptPiiText', () => {
   it('valor sin el formato → PiiDecryptError', () => {
     expect(() => decryptPiiText('v1: hola', CTX)).toThrow(PiiDecryptError);
   });
+
+  it('valor con la forma del formato retirado iv:tag:data → PiiDecryptError', () => {
+    expect(() => decryptPiiText('00112233445566778899aabbccddeeff:ffeeddccbbaa99887766554433221100:deadbeef', CTX)).toThrow(PiiDecryptError);
+  });
 });
 
 describe('PiiDecryptError no expone el dato', () => {
@@ -91,22 +84,5 @@ describe('PiiDecryptError no expone el dato', () => {
     expect(a.stack).not.toContain(cifrado);
     expect({ table: a.table, column: a.column, id: a.id }).toEqual({ ...CTX, id: 8 });
     expect(JSON.stringify(a)).not.toContain(cifrado);
-  });
-});
-
-describe('decryptLegacyBiometric (formato viejo, @deprecated)', () => {
-  it('sigue leyendo iv:tag:data con la sal kyverum-pii-salt', () => {
-    expect(decryptLegacyBiometric(cifrarFormatoViejo(FOTO, LLAVE_ORIGINAL), CTX)).toBe(FOTO);
-  });
-
-  it('con otra llave → PiiDecryptError que no contiene el valor', () => {
-    const viejo = cifrarFormatoViejo(FOTO, 'otra-llave-otra-llave-otra-llave-otra-1234');
-    const e = errorDe(() => decryptLegacyBiometric(viejo, CTX)) as PiiDecryptError;
-    expect(e).toBeInstanceOf(PiiDecryptError);
-    expect(e.message).not.toContain(viejo);
-  });
-
-  it('un valor del formato nuevo no se lee como viejo', () => {
-    expect(() => decryptLegacyBiometric(encryptPiiText(FOTO, CTX), CTX)).toThrow(PiiDecryptError);
   });
 });

@@ -1,8 +1,7 @@
-// Feature #14097 (HU #14098 AC1, AC3) — script de recifrado. La BD es un doble en memoria que evalúa
+// Feature #14097 (HU #14098 AC1, AC3; HU #14273 AC3) — script de recifrado. La BD es un doble en memoria que evalúa
 // los parámetros que Drizzle genera de verdad (paginación y guarda `AND columna = valor leído`), para
 // que el guardado condicional se pruebe y no se dé por hecho. El canario de llave se prueba con la
 // llave cambiada de verdad vía `env.PII_ENC_KEY`: la primitiva de cifrado no se dobla.
-import crypto from 'node:crypto';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { getTableName, type SQL, type Table } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -122,19 +121,13 @@ const { clasificarFoto } = await import('../../src/modules/tramites/identidad.fo
 const { run, modoDesdeArgs, codigoSalida, LOTE } = await import('../../src/scripts/flito-recifrar-biometria.js');
 
 const TABLA = 'tramites_validaciones';
-const PLANO_VIEJO = 'data:image/jpeg;base64,RkFDRV9WSUVKTw==';
+const FOTO_PLANA = 'data:image/jpeg;base64,RkFDRV9WSUVKTw==';
+/** Forma `iv:tag:data` del formato retirado (HU #14273). Nada lo descifra: basta con que lo parezca. */
+const VALOR_VIEJO = '00112233445566778899aabbccddeeff:ffeeddccbbaa99887766554433221100:deadbeef';
 const DATA_URI = 'data:image/png;base64,RkFDRV9VUkk=';
 const BASE64 = 'RkFDRUJBU0U2NA'.repeat(10);
 const DESCONOCIDO = 'valor raro sin formato';
 const CLAVE = 'validaciones/1/rostro_abc.jpg';
-
-function cifrarViejo(plano: string, passphrase: string = env.PII_ENC_KEY): string {
-  const key = crypto.scryptSync(passphrase, 'kyverum-pii-salt', 32);
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const data = Buffer.concat([cipher.update(plano, 'utf8'), cipher.final()]);
-  return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${data.toString('base64')}`;
-}
 
 function fila(id: number, p: Partial<Omit<Fila, 'id'>> = {}): Fila {
   return { id, fotoRostro: null, fotoCedulaFrontal: null, fotoCedulaReverso: null, ...p };
@@ -147,7 +140,7 @@ const LLAVE_BUENA = env.PII_ENC_KEY;
 const CEDULA = '1020304050';
 
 /** `foto_rostro` en formato vigente, cifrada con la llave activa al llamar. */
-function cifrarNuevo(id: number, plano: string = PLANO_VIEJO): string {
+function cifrarNuevo(id: number, plano: string = FOTO_PLANA): string {
   return encryptPiiText(plano, { table: TABLA, column: 'foto_rostro', id });
 }
 
@@ -174,11 +167,11 @@ beforeEach(() => {
 
 describe('--dry-run', () => {
   it('no escribe, cuenta por columna y clase, y el resultado no lleva valores', async () => {
-    const viejo = cifrarViejo(PLANO_VIEJO);
     m.filas.push(
-      fila(1, { fotoRostro: viejo, fotoCedulaFrontal: DATA_URI, fotoCedulaReverso: BASE64 }),
+      fila(1, { fotoRostro: VALOR_VIEJO, fotoCedulaFrontal: DATA_URI, fotoCedulaReverso: BASE64 }),
       fila(2, { fotoRostro: CLAVE, fotoCedulaFrontal: DESCONOCIDO }),
     );
+    m.conductores.push(conductor(1));
     const antes = instantanea();
 
     const r = await run({ commit: false });
@@ -187,31 +180,33 @@ describe('--dry-run', () => {
     expect(m.escrituras).toEqual([]);
     expect(r.modo).toBe('dry-run');
     expect(r.filas).toBe(2);
-    expect(r.columnas.foto_rostro).toMatchObject({ viejo: 1, storage_key: 1, recifrable: 1, escrito: 0 });
+    expect(r.columnas.foto_rostro).toMatchObject({ viejo: 1, storage_key: 1, recifrable: 0, escrito: 0 });
     expect(r.columnas.foto_cedula_frontal).toMatchObject({ data_uri: 1, desconocido: 1, recifrable: 1, escrito: 0 });
     expect(r.columnas.foto_cedula_reverso).toMatchObject({ base64_plano: 1, vacio: 1, recifrable: 1, escrito: 0 });
 
     const salida = JSON.stringify(r);
-    for (const secreto of [viejo, 'RkFDRV9WSUVKTw', DATA_URI, 'RkFDRUJBU0U2NA', DESCONOCIDO, CLAVE]) {
+    for (const secreto of [VALOR_VIEJO, DATA_URI, 'RkFDRUJBU0U2NA', DESCONOCIDO, CLAVE]) {
       expect(salida).not.toContain(secreto);
     }
   });
 
-  it('una celda indescifrable junto a un canario bueno se cuenta y sale 0', async () => {
-    m.filas.push(fila(2, { fotoRostro: cifrarNuevo(2) }), fila(3, { fotoRostro: cifrarViejo(PLANO_VIEJO, LLAVE_OTRA) }));
+  it('una celda que no pasa la verificación se cuenta, no se escribe y en dry-run sale 0', async () => {
+    m.filas.push(fila(2, { fotoRostro: cifrarNuevo(2) }), fila(3, { fotoRostro: DATA_URI }));
+    m.antesDeLeerLote = () => { (env as { PII_ENC_KEY?: string }).PII_ENC_KEY = undefined; };
 
     const r = await run({ commit: false });
 
     expect(r.canario).toBe('ok');
-    expect(r.columnas.foto_rostro.viejo_indescifrable).toBe(1);
+    expect(r.columnas.foto_rostro.fallo_verificacion).toBe(1);
     expect(r.idsFallidos).toEqual([3]);
     expect(codigoSalida(r)).toBe(0);
   });
 });
 
 describe('--commit', () => {
-  it('recifra viejo, data_uri y base64_plano al formato nuevo con el AAD de su celda', async () => {
-    m.filas.push(fila(5, { fotoRostro: cifrarViejo(PLANO_VIEJO), fotoCedulaFrontal: DATA_URI, fotoCedulaReverso: BASE64 }));
+  it('cifra data_uri y base64_plano al formato nuevo con el AAD de su celda', async () => {
+    m.filas.push(fila(5, { fotoRostro: FOTO_PLANA, fotoCedulaFrontal: DATA_URI, fotoCedulaReverso: BASE64 }));
+    m.conductores.push(conductor(1));
 
     const r = await run({ commit: true });
 
@@ -219,7 +214,7 @@ describe('--commit', () => {
     expect(clasificarFoto(f.fotoRostro)).toBe('nuevo');
     expect(clasificarFoto(f.fotoCedulaFrontal)).toBe('nuevo');
     expect(clasificarFoto(f.fotoCedulaReverso)).toBe('nuevo');
-    expect(decryptPiiText(f.fotoRostro!, { table: TABLA, column: 'foto_rostro', id: 5 })).toBe(PLANO_VIEJO);
+    expect(decryptPiiText(f.fotoRostro!, { table: TABLA, column: 'foto_rostro', id: 5 })).toBe(FOTO_PLANA);
     expect(decryptPiiText(f.fotoCedulaFrontal!, { table: TABLA, column: 'foto_cedula_frontal', id: 5 })).toBe(DATA_URI);
     expect(decryptPiiText(f.fotoCedulaReverso!, { table: TABLA, column: 'foto_cedula_reverso', id: 5 })).toBe(BASE64);
     expect(r.columnas.foto_rostro.escrito).toBe(1);
@@ -230,7 +225,8 @@ describe('--commit', () => {
   });
 
   it('la segunda corrida no cambia nada: 0 escrituras y los mismos bytes', async () => {
-    m.filas.push(fila(5, { fotoRostro: cifrarViejo(PLANO_VIEJO), fotoCedulaFrontal: DATA_URI, fotoCedulaReverso: BASE64 }));
+    m.filas.push(fila(5, { fotoRostro: FOTO_PLANA, fotoCedulaFrontal: DATA_URI, fotoCedulaReverso: BASE64 }));
+    m.conductores.push(conductor(1));
     await run({ commit: true });
     const despuesDeLaPrimera = instantanea();
     m.escrituras.length = 0;
@@ -255,19 +251,17 @@ describe('--commit', () => {
     expect(r.pendientes).toBe(0);
   });
 
-  it('fila indescifrable: contada, no escrita, y las demás siguen; sale 2', async () => {
-    const roto = cifrarViejo(PLANO_VIEJO, LLAVE_OTRA);
-    m.filas.push(fila(7, { fotoRostro: roto }), fila(8, { fotoRostro: DATA_URI }), fila(10, { fotoRostro: cifrarNuevo(10) }));
+  it('una celda que no pasa la verificación no se escribe, queda pendiente y sale 2', async () => {
+    m.filas.push(fila(2, { fotoRostro: cifrarNuevo(2) }), fila(3, { fotoRostro: DATA_URI }));
+    m.antesDeLeerLote = () => { (env as { PII_ENC_KEY?: string }).PII_ENC_KEY = undefined; };
 
     const r = await run({ commit: true });
 
-    expect(m.filas[0].fotoRostro).toBe(roto);
-    expect(clasificarFoto(m.filas[1].fotoRostro)).toBe('nuevo');
-    expect(r.columnas.foto_rostro.viejo_indescifrable).toBe(1);
-    expect(r.idsFallidos).toEqual([7]);
+    expect(m.filas[1].fotoRostro).toBe(DATA_URI);
+    expect(r.columnas.foto_rostro.fallo_verificacion).toBe(1);
+    expect(r.idsFallidos).toEqual([3]);
     expect(r.pendientes).toBe(1);
     expect(codigoSalida(r)).toBe(2);
-    expect(JSON.stringify(r)).not.toContain(roto);
   });
 
   it('no pisa un anonimizado concurrente: la guarda sobre el valor leído no escribe', async () => {
@@ -297,11 +291,8 @@ describe('--commit', () => {
 });
 
 describe('canario de llave', () => {
-  it.each([
-    ['nuevo', () => cifrarNuevo(1)],
-    ['viejo', () => cifrarViejo(PLANO_VIEJO)],
-  ])('--commit con llave errónea y canario %s: 0 escrituras, código 1, valores intactos', async (_clase, canario) => {
-    m.filas.push(fila(1, { fotoRostro: canario() }), fila(2, { fotoCedulaFrontal: DATA_URI, fotoCedulaReverso: BASE64 }));
+  it('--commit con llave errónea: 0 escrituras, código 1, valores intactos', async () => {
+    m.filas.push(fila(1, { fotoRostro: cifrarNuevo(1) }), fila(2, { fotoCedulaFrontal: DATA_URI, fotoCedulaReverso: BASE64 }));
     const antes = instantanea();
     env.PII_ENC_KEY = LLAVE_OTRA;
 
@@ -328,7 +319,7 @@ describe('canario de llave', () => {
   });
 
   it('el canario se busca en las tres columnas y prueba con el AAD de su columna', async () => {
-    const valor = encryptPiiText(PLANO_VIEJO, { table: TABLA, column: 'foto_cedula_reverso', id: 4 });
+    const valor = encryptPiiText(FOTO_PLANA, { table: TABLA, column: 'foto_cedula_reverso', id: 4 });
     m.filas.push(fila(4, { fotoCedulaReverso: valor }), fila(5, { fotoRostro: DATA_URI }));
 
     const r = await run({ commit: true });
@@ -360,24 +351,6 @@ describe('canario de llave', () => {
     expect((await run({ commit: false })).canario).toBe('fallo');
   });
 
-  it('un viejo corrupto junto a un nuevo bueno: ok, sigue y cuenta el corrupto', async () => {
-    const corrupto = cifrarViejo(PLANO_VIEJO, LLAVE_OTRA);
-    m.filas.push(
-      fila(1, { fotoRostro: corrupto }),
-      fila(2, { fotoRostro: cifrarNuevo(2) }),
-      fila(3, { fotoRostro: DATA_URI }),
-    );
-
-    const r = await run({ commit: true });
-
-    expect(r.canario).toBe('ok');
-    expect(r.columnas.foto_rostro.viejo_indescifrable).toBe(1);
-    expect(r.columnas.foto_rostro.escrito).toBe(1);
-    expect(r.idsFallidos).toEqual([1]);
-    expect(m.filas[0].fotoRostro).toBe(corrupto);
-    expect(codigoSalida(r)).toBe(2);
-  });
-
   it('sin canario en la tabla, driver_profile con llave buena: escribe', async () => {
     m.filas.push(fila(1, { fotoRostro: DATA_URI }));
     m.conductores.push(conductor(7));
@@ -405,7 +378,7 @@ describe('canario de llave', () => {
   });
 
   it('la tabla manda: con candidatos que fallan, un conductor bueno no la rescata', async () => {
-    m.filas.push(fila(1, { fotoRostro: cifrarViejo(PLANO_VIEJO, LLAVE_OTRA), fotoCedulaFrontal: DATA_URI }));
+    m.filas.push(fila(1, { fotoRostro: cifrarNuevo(99), fotoCedulaFrontal: DATA_URI }));
     m.conductores.push(conductor(7));
 
     const r = await run({ commit: true });
@@ -453,11 +426,10 @@ describe('canario de llave', () => {
 
   it('ninguna salida contiene los valores', async () => {
     const nuevo = cifrarNuevo(1);
-    const viejo = cifrarViejo(PLANO_VIEJO);
-    m.filas.push(fila(1, { fotoRostro: nuevo, fotoCedulaFrontal: viejo, fotoCedulaReverso: DATA_URI }), fila(2, { fotoRostro: BASE64 }));
+    m.filas.push(fila(1, { fotoRostro: nuevo, fotoCedulaFrontal: VALOR_VIEJO, fotoCedulaReverso: DATA_URI }), fila(2, { fotoRostro: BASE64 }));
     const c = conductor(7);
     m.conductores.push(c);
-    const secretos = [nuevo, viejo, 'RkFDRV9WSUVKTw', DATA_URI, 'RkFDRV9VUkk', 'RkFDRUJBU0U2NA', CEDULA, c.aadNonce, c.cipher.toString('base64')];
+    const secretos = [nuevo, VALOR_VIEJO, 'RkFDRV9WSUVKTw', DATA_URI, 'RkFDRV9VUkk', 'RkFDRUJBU0U2NA', CEDULA, c.aadNonce, c.cipher.toString('base64')];
 
     const salidas = [JSON.stringify(await run({ commit: false }))];
     env.PII_ENC_KEY = LLAVE_OTRA;
@@ -469,6 +441,60 @@ describe('canario de llave', () => {
     for (const salida of salidas) {
       for (const secreto of secretos) expect(salida).not.toContain(secreto);
     }
+  });
+});
+
+// HU #14273 AC3: el script no descifra el formato viejo, pero sigue señalándolo.
+describe('detector de formato viejo', () => {
+  it.each([[false], [true]])('commit=%s: lo cuenta y lo reporta sin tocar la celda, y sale 3', async (commit) => {
+    m.filas.push(fila(1, { fotoRostro: VALOR_VIEJO }), fila(2, { fotoCedulaReverso: VALOR_VIEJO }), fila(3, { fotoRostro: CLAVE }));
+    const antes = instantanea();
+
+    const r = await run({ commit });
+
+    expect(m.escrituras).toEqual([]);
+    expect(instantanea()).toBe(antes);
+    expect(r.abortado).toBe(false);
+    expect(r.columnas.foto_rostro.viejo).toBe(1);
+    expect(r.columnas.foto_cedula_reverso.viejo).toBe(1);
+    expect(r.viejos).toBe(2);
+    expect(r.idsViejos).toEqual([1, 2]);
+    expect(r.pendientes).toBe(0);
+    expect(codigoSalida(r)).toBe(3);
+    expect(JSON.stringify(r)).not.toContain(VALOR_VIEJO);
+  });
+
+  it('no frena el resto: cifra lo que sí puede y la salida sigue siendo 3', async () => {
+    m.filas.push(fila(1, { fotoRostro: VALOR_VIEJO }), fila(2, { fotoRostro: DATA_URI }), fila(3, { fotoRostro: cifrarNuevo(3) }));
+
+    const r = await run({ commit: true });
+
+    expect(m.filas[0].fotoRostro).toBe(VALOR_VIEJO);
+    expect(clasificarFoto(m.filas[1].fotoRostro)).toBe('nuevo');
+    expect(r.columnas.foto_rostro.escrito).toBe(1);
+    expect(codigoSalida(r)).toBe(3);
+  });
+
+  it('no sirve de canario: junto a una foto en claro y sin otra fuente, aborta sin escribir', async () => {
+    m.filas.push(fila(1, { fotoRostro: VALOR_VIEJO }), fila(2, { fotoRostro: DATA_URI }));
+
+    const r = await run({ commit: true });
+
+    expect(r.canario).toBe('sin_canario');
+    expect(r.abortado).toBe(true);
+    expect(m.escrituras).toEqual([]);
+    expect(codigoSalida(r)).toBe(1);
+  });
+
+  it('no cuenta como candidato de la tabla: el canario sale de driver_profile', async () => {
+    m.filas.push(fila(1, { fotoRostro: VALOR_VIEJO }));
+    m.conductores.push(conductor(7));
+
+    const r = await run({ commit: false });
+
+    expect(r.canario).toBe('ok');
+    expect(r.canarioFuente).toBe('driver_profile.cedula');
+    expect(codigoSalida(r)).toBe(3);
   });
 });
 
