@@ -31,7 +31,7 @@ async function montar(page: Page, respuesta: () => { status: number; body: unkno
   let pedidos = 0;
   await page.route(RE_CLIENTES, (route) => { pedidos += 1; const r = respuesta(); return json(route, r.status, r.body); });
   await page.route(/\/api\/siigo\/clientes\/validacion\/detalle/, (route) => json(route, 200, { data: [] }));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (route) => json(route, 200, []));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat$/, (route) => json(route, 200, []));
   await page.goto('/clients');
   return { pedidos: () => pedidos };
 }

@@ -11,8 +11,8 @@ import GradientButton from '../../components/flit/GradientButton';
 
 export const PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*]).{8,}$';
 export const PASSWORD_TITLE = 'Mín 8 caracteres con minúscula, mayúscula, número y un especial (!@#$%^&*)';
-// Input FLIT: blanco, borde `--flit-border-input`, foco azul (.flit-focus bajo .flit-app).
-export const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
+// Input FLIT: fondo de tarjeta (blanco en claro, par oscuro en oscuro), borde `--flit-border-input`, foco azul (.flit-focus bajo .flit-app).
+export const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-flit-card px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-[box-shadow,border-color] hover:border-[color:var(--flit-text-muted)]';
 
 export const formatErrors = errorMessage;
 
@@ -31,7 +31,7 @@ export function Footer({ onClose, submitting, label }: { onClose: () => void; su
       <button
         type="button"
         onClick={onClose}
-        className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium transition-colors"
+        className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-flit-card px-5 text-sm font-medium transition-colors hover:bg-[var(--flit-bg-hover)]"
         style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
       >
         Cancelar

@@ -313,7 +313,7 @@ test.describe('HU #11913 · AC3 — «SOAT sin trámite» en Clientes', () => {
     await page.route(/\/api\/clients(\?|$)/, (route) => route.fulfill({
       status: 200, contentType: 'application/json', body: JSON.stringify(CLIENTES),
     }));
-    await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (route) => route.fulfill({
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat$/, (route) => route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify([{ id: GESTOR_SURA, nombre: 'SURA', activo: true }]),

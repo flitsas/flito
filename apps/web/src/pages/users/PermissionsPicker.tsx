@@ -142,7 +142,7 @@ export default function PermissionsPicker({
   if (estado === 'error' || !datos || !rolSet) {
     return (
       <div role="alert" className="flex flex-wrap items-start gap-3 rounded-xl p-3" style={{ border: '1px solid var(--flit-border-soft)' }}>
-        <p className="min-w-0 flex-[1_1_14rem] text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{COPY_ERROR_PERMISOS}</p>
+        <p className="min-w-0 flex-[1_1_14rem] text-sm" style={{ color: 'var(--flit-danger-text)' }}>{COPY_ERROR_PERMISOS}</p>
         <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => setIntento((n) => n + 1)}>Reintentar</button>
       </div>
     );

@@ -4,7 +4,7 @@
 //   usuario», pestañas [Usuarios] [Historial], la lista, sus modales y el historial.
 // - El auditor (HU #12171, Feature #12072) entra por `pagina.users` y ve SOLO el historial: sin
 //   pestañas, sin primaria, sin listado. Y sin montar los hooks de la gestión: `useCompanias`,
-//   `useProveedoresSoat`, `useOrganismosParametrizados` y la carga de `/users` le responderían
+//   `useProveedoresAsignables`, `useOrganismosParametrizados` y la carga de `/users` le responderían
 //   403, y un 403 en un `useEffect` es un error que nadie ve. Por eso lo de admin bajó a un
 //   componente aparte —los hooks no pueden ser condicionales— y esta página quedó en lo que se ve.
 //

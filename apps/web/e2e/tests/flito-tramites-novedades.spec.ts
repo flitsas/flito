@@ -195,7 +195,7 @@ test.describe('HU #13684 — aviso de trámites nuevos o actualizados', () => {
 
   test('AC4: con un diálogo abierto no consulta', async ({ page }) => {
     const esc = await montar(page, { items: [A], total: 1, marca: MARCA }, [{ status: 200, body: { nuevos: 1, actualizados: 0 } }]);
-    await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
     await page.getByLabel('Seleccionar ABC123').check();
     await page.getByRole('button', { name: 'Solicitar SOAT (1)', exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();

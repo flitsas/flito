@@ -45,6 +45,8 @@ export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set([
   'logistica.motivos.gestionar',
   // HU #14122: opcional de `accion.logistica.despachar_entregar_devolver`; su `padre_codigo` lo siembra la 0286.
   'logistica.actas.firmar_flit',
+  // HU #14335: opcional de `accion.clientes.ver`; su `padre_codigo` lo siembra la 0293.
+  'parametrizacion.proveedores.historial',
 ]);
 
 /** Operación de ítem antiguo → ítem, ordenado (lo que lee la 0239 y el pliegue del test). */

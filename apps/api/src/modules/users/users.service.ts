@@ -32,7 +32,7 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoGestorOrganismos, flitoProveedoresSoat, organismosTransitoConfig, permisosRoles,
+  clients, flitoGestorOrganismos, flitoProveedores, organismosTransitoConfig, permisosRoles,
   permisosUsuarioFuncion, users,
 } from '../../db/schema.js';
 import {
@@ -65,6 +65,8 @@ export const userSelect = {
   // Ídem para el proveedor SOAT del rol `proveedor` (AC5 de la #12053): la celda «Ámbito» de la
   // tabla lo pinta sin abrir el formulario.
   flitoProveedorSoatId: users.flitoProveedorSoatId,
+  // HU #14341: la pertenencia real, con cualquier servicio. La columna vieja la llena el trigger y se retira en F5.
+  flitoProveedorId: users.flitoProveedorId,
   createdAt: users.createdAt,
   // HU #12089: baja lógica. El listado y el DTO la exponen; el chip UI distingue «Dado de baja».
   deletedAt: users.deletedAt,
@@ -84,6 +86,7 @@ export interface UsuarioConAmbito {
   transitoCodigo: string | null;
   companiaId: number | null;
   flitoProveedorSoatId: string | null;
+  flitoProveedorId: string | null;
   createdAt: Date;
   /** HU #12089: ISO de la baja, o null si está en alta. */
   deletedAt: Date | null;
@@ -99,28 +102,32 @@ export interface UsuarioConAmbito {
 // Sin estas dos comprobaciones, un id inventado sale como un 23503 servido en un 500 sin mensaje
 // útil. Es el mismo motivo por el que `companiaExiste()` vive en la ruta desde la HU #11913.
 
+/** HU #14341 (AC4): el proveedor no existe, se eliminó o está inactivo. La ruta responde 400 y no se guarda. */
+export class ProveedorNoAtableError extends Error {
+  constructor() { super('El proveedor no existe o está inactivo'); this.name = 'ProveedorNoAtableError'; }
+}
+
 /**
- * ¿Existe ese proveedor SOAT? **No se exige `activo`**, y es deliberado (UX decisión 9): el front
- * filtra por activo al OFRECER, el backend acepta lo que existe. Si aquí se rechazara un proveedor
- * desactivado, editarle el nombre a un usuario atado a él fallaría con un mensaje sobre un campo que
- * el admin no tocó, y guardar le desharía la atadura.
+ * HU #14341 (AC4, R21): con cualquier servicio, y padre activo y vigente. Se exige solo al CAMBIAR de proveedor: editarle el nombre a
+ * un usuario de un proveedor ya inactivo no falla por un campo que nadie tocó (UX decisión 9). `FOR SHARE` como primera sentencia
+ * de la transacción, antes del seguro anti-bloqueo y de `users`: es el orden de quien inactiva o elimina (padre, luego usuarios).
  */
-export async function proveedorSoatExiste(id: string): Promise<boolean> {
-  const [p] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat)
-    .where(eq(flitoProveedoresSoat.id, id)).limit(1);
-  return !!p;
+async function exigirProveedorAtable(tx: Tx, id: string): Promise<void> {
+  const [p] = await tx.select({ activo: flitoProveedores.activo }).from(flitoProveedores)
+    .where(and(eq(flitoProveedores.id, id), isNull(flitoProveedores.deletedAt))).for('share').limit(1);
+  if (!p?.activo) throw new ProveedorNoAtableError();
 }
 
 /**
  * La fila del rol si es ASIGNABLE —existe en el catálogo y está `activo`—; `null` si no (HU #12169,
- * AC6 + CF-03). Es la hermana de `companiaExiste()` y `proveedorSoatExiste()`, y está aquí por el
+ * AC6 + CF-03). Es la hermana de `companiaExiste()`, y está aquí por el
  * mismo motivo: sin ella, un código de rol inventado sería un 23503 de la FK servido en un 500.
  *
  * Sustituye a `z.enum(ALL_ROLES)`: el catálogo es DATO y un esquema de Zod es una constante
  * compilada. Con esto, un rol que el administrador acaba de crear se puede asignar de inmediato, sin
  * publicar una versión (CF-03).
  *
- * **Sí exige `activo`**, a diferencia de `proveedorSoatExiste()` (que a propósito no lo exige). No es
+ * **Sí exige `activo`**, a diferencia del proveedor ya atado (`exigirProveedorAtable` solo mira al cambiar). No es
  * incoherencia: allí el ámbito inactivo ya está asignado y rechazarlo rompería una edición ajena al
  * campo; aquí `activo = false` significa «no ofrecer más este rol» y su único efecto útil es impedir
  * ASIGNACIONES NUEVAS. Un usuario que ya tiene un rol desactivado sigue entrando y trabajando:
@@ -285,7 +292,8 @@ export interface CrearUsuarioInput {
    */
   transitoCodigo: string | null;
   companiaId: number | null;
-  flitoProveedorSoatId: string | null;
+  /** HU #14341: se escribe solo esta; el trigger `users_proveedor_sync` llena la vieja si presta SOAT. Se exige atable en la transacción. */
+  flitoProveedorId: string | null;
   /** Conjunto de organismos para tipo_enlace=organismos_transito; `[]` para el resto. */
   organismosCodigos: string[];
   /** HU #12087: las excepciones iniciales; `[]` si no vienen. Los códigos ya pasaron `funcionesInexistentes`. */
@@ -303,6 +311,7 @@ export interface CrearUsuarioInput {
 export async function crearUsuario(input: CrearUsuarioInput, actor: ActorAuditoria): Promise<UsuarioConAmbito> {
   const { organismosCodigos, funciones, ...fila } = input;
   return db.transaction(async (tx) => {
+    if (input.flitoProveedorId !== null) await exigirProveedorAtable(tx, input.flitoProveedorId);
     const [user] = await tx.insert(users).values(fila).returning(userSelect);
     if (organismosCodigos.length > 0) await escribirOrganismos(tx, user.id, organismosCodigos);
     if (funciones.length > 0) await escribirFunciones(tx, user.id, funciones);
@@ -327,7 +336,7 @@ function cambiosDelAlta(id: number, input: CrearUsuarioInput): CambioAuditable[]
   const cambios: CambioAuditable[] = [fila('role', input.role)];
   if (input.transitoCodigo !== null) cambios.push(fila('transito_codigo', input.transitoCodigo));
   if (input.companiaId !== null) cambios.push(fila('compania_id', input.companiaId));
-  if (input.flitoProveedorSoatId !== null) cambios.push(fila('flito_proveedor_soat_id', input.flitoProveedorSoatId));
+  if (input.flitoProveedorId !== null) cambios.push(fila('flito_proveedor_id', input.flitoProveedorId));
   if (input.organismosCodigos.length > 0) cambios.push(fila('organismos_codigos', diffConjunto([], input.organismosCodigos).despues));
   if (input.funciones.length > 0) {
     cambios.push({
@@ -351,6 +360,8 @@ export interface ActualizarUsuarioInput {
   funcionesDestino: FuncionDeUsuario[] | null;
   /** ¿Hay que invalidar sesiones por lo que cambia en `users` (rol, ámbitos)? */
   invalidarPorCampos: boolean;
+  /** HU #14341: el proveedor NUEVO, que se exige atable al abrir la transacción. `null` si no cambia. */
+  proveedorAExigir?: string | null;
 }
 
 export type ResultadoActualizar =
@@ -365,13 +376,14 @@ export type ResultadoActualizar =
  * `invalidateSessionCacheFor()` NO se llama aquí: va DESPUÉS del commit, en la ruta, como ya se hacía.
  */
 export async function actualizarUsuario(
-  id: number, { updates, organismosDestino, funcionesDestino, invalidarPorCampos }: ActualizarUsuarioInput,
+  id: number, { updates, organismosDestino, funcionesDestino, invalidarPorCampos, proveedorAExigir }: ActualizarUsuarioInput,
   actor: ActorAuditoria,
 ): Promise<ResultadoActualizar> {
   return db.transaction(async (tx): Promise<ResultadoActualizar> => {
     if (Object.keys(updates).length === 0 && organismosDestino === null && funcionesDestino === null) {
       return { estado: 'sin_cambios' };
     }
+    if (proveedorAExigir) await exigirProveedorAtable(tx, proveedorAExigir);
 
     // HU #12084 (AC4): cambiar el ROL es uno de los cinco caminos que pueden dejar el sistema sin
     // administradores. El invariante envuelve el cuerpo entero y va PRIMERO en la transacción: bloquea
@@ -456,11 +468,11 @@ const estadoAuditable = {
   active: users.active,
   transitoCodigo: users.transitoCodigo,
   companiaId: users.companiaId,
-  flitoProveedorSoatId: users.flitoProveedorSoatId,
+  flitoProveedorId: users.flitoProveedorId,
 };
 type EstadoAuditable = {
   id: number; role: string; active: boolean;
-  transitoCodigo: string | null; companiaId: number | null; flitoProveedorSoatId: string | null;
+  transitoCodigo: string | null; companiaId: number | null; flitoProveedorId: string | null;
 };
 
 /** Las excepciones del PATCH, ya codificadas: el «antes», el destino (o null) y su diff (o null). */
@@ -508,7 +520,7 @@ function cambiosDeLaEdicion(
   }
   if ('transitoCodigo' in updates) par('transito_codigo', anterior.transitoCodigo, updates.transitoCodigo as string | null);
   if ('companiaId' in updates) par('compania_id', anterior.companiaId, updates.companiaId as number | null);
-  if ('flitoProveedorSoatId' in updates) par('flito_proveedor_soat_id', anterior.flitoProveedorSoatId, updates.flitoProveedorSoatId as string | null);
+  if ('flitoProveedorId' in updates) par('flito_proveedor_id', anterior.flitoProveedorId, updates.flitoProveedorId as string | null);
   if (organismos.destino !== null) {
     const d = diffConjunto(organismos.anteriores, organismos.destino);
     cambios.push({ entidad: 'usuario', accion: 'editar', campo: 'organismos_codigos', valorAntes: d.antes, valorDespues: d.despues, usuarioAfectado: titular });
@@ -532,20 +544,21 @@ function cambiosDeLaEdicion(
  * que el valor anterior es, exactamente, la negación del que vuelve. Sin `FOR UPDATE` y sin
  * ventana entre lectura y escritura.
  */
-// ── HU #13960 — RN-PROV-8: un usuario huérfano (su proveedor SOAT fue eliminado) no se activa sin reasignarlo ───────
+// ── HU #13960 — RN-PROV-8: un usuario huérfano (su proveedor fue eliminado) no se activa sin reasignarlo ───────
 // Activar (`PATCH /api/users/:id/toggle`) o reactivar tras baja (`POST /api/users/:id/reactivar`) dejaría un usuario
 // activo atado a un proveedor eliminado: 409 hasta que el administrador le asigne uno vigente (`PATCH /api/users/:id`).
+// HU #14341: se mira el PADRE. Un perfil de SOAT de baja con el proveedor vigente es quitarle un servicio, no eliminarlo.
 export const MENSAJE_PROVEEDOR_SOAT_ELIMINADO =
-  'El proveedor SOAT de este usuario fue eliminado; asígnale otro antes de activarlo.';
+  'El proveedor de este usuario fue eliminado; asígnale otro antes de activarlo.';
 
 export class ProveedorSoatDelUsuarioEliminadoError extends Error {
   constructor() { super(MENSAJE_PROVEEDOR_SOAT_ELIMINADO); this.name = 'ProveedorSoatDelUsuarioEliminadoError'; }
 }
 
 /** RN-PROV-8. Dentro de la transacción que activa: lanza `ProveedorSoatDelUsuarioEliminadoError` si es huérfano. */
-async function exigirProveedorSoatNoEliminado(tx: Tx, userId: number): Promise<void> {
-  const [fila] = await tx.select({ eliminado: flitoProveedoresSoat.deletedAt }).from(users)
-    .innerJoin(flitoProveedoresSoat, eq(flitoProveedoresSoat.id, users.flitoProveedorSoatId))
+async function exigirProveedorNoEliminado(tx: Tx, userId: number): Promise<void> {
+  const [fila] = await tx.select({ eliminado: flitoProveedores.deletedAt }).from(users)
+    .innerJoin(flitoProveedores, eq(flitoProveedores.id, users.flitoProveedorId))
     .where(eq(users.id, userId)).limit(1);
   if (fila?.eliminado != null) throw new ProveedorSoatDelUsuarioEliminadoError();
 }
@@ -559,8 +572,8 @@ export async function cambiarActivo(id: number, actor: ActorAuditoria): Promise<
       .where(eq(users.id, id))
       .returning(userSelect));
     if (!updated) return null;
-    // HU #13960 (AC7): activar a un usuario cuyo proveedor SOAT fue eliminado → 409; la transacción revierte.
-    if (updated.active && updated.flitoProveedorSoatId != null) await exigirProveedorSoatNoEliminado(tx, id);
+    // HU #13960 (AC7): activar a un usuario cuyo proveedor fue eliminado → 409; la transacción revierte.
+    if (updated.active && updated.flitoProveedorId != null) await exigirProveedorNoEliminado(tx, id);
     await registrarCambioPermisos(tx, actor, {
       entidad: 'usuario',
       accion: updated.active ? 'activar' : 'desactivar',
@@ -662,8 +675,8 @@ export async function reactivarUsuario(id: number, actor: ActorAuditoria): Promi
       .where(eq(users.id, id))
       .returning(userSelect);
     if (!updated) return null;
-    // HU #13960 (AC7): quedaría activo con un proveedor SOAT eliminado → 409; la transacción revierte.
-    if (updated.active && updated.flitoProveedorSoatId != null) await exigirProveedorSoatNoEliminado(tx, id);
+    // HU #13960 (AC7): quedaría activo con un proveedor eliminado → 409; la transacción revierte.
+    if (updated.active && updated.flitoProveedorId != null) await exigirProveedorNoEliminado(tx, id);
 
     await registrarCambioPermisos(tx, actor, {
       entidad: 'usuario',
@@ -847,8 +860,8 @@ export async function resumenUsuarios(f: Pick<FiltrosUsuarios, 'incluirBajas' | 
 }
 
 /**
- * Los NOMBRES de las dos ataduras que son claves foráneas, para la descarga: `compania_id` es un
- * entero y `flito_proveedor_soat_id` un uuid, y ninguno de los dos le dice nada a quien abre el
+ * Los NOMBRES de las dos ataduras que son claves foráneas, para la descarga y para la lista: `compania_id` es un
+ * entero y `flito_proveedor_id` un uuid, y ninguno de los dos le dice nada a quien abre el
  * Excel. Dos consultas por lote (`inArray`), no una por fila: el AC prohíbe el N+1 en el listado y
  * la descarga no es distinta.
  */
@@ -863,8 +876,8 @@ export async function nombresDeAmbito(
     for (const f of filas) companias.set(f.id, f.name);
   }
   if (proveedorIds.length > 0) {
-    const filas = await db.select({ id: flitoProveedoresSoat.id, nombre: flitoProveedoresSoat.nombre })
-      .from(flitoProveedoresSoat).where(inArray(flitoProveedoresSoat.id, [...new Set(proveedorIds)]));
+    const filas = await db.select({ id: flitoProveedores.id, nombre: flitoProveedores.nombre })
+      .from(flitoProveedores).where(inArray(flitoProveedores.id, [...new Set(proveedorIds)]));
     for (const f of filas) proveedores.set(f.id, f.nombre);
   }
   return { companias, proveedores };

@@ -23,7 +23,7 @@ import { loggerFor } from '../../shared/logger.js';
 import { actorDeRequest, registrarRechazoAntiBloqueo } from '../../shared/historial/permisos-auditoria.js';
 import {
   actualizarUsuario, cambiarActivo, crearUsuario, funcionesDeVarios, listarUsuarios, nombresDeAmbito,
-  organismosDe, organismosDeVarios, organismosInexistentes, proveedorSoatExiste, restablecerContrasena,
+  organismosDe, organismosDeVarios, organismosInexistentes, ProveedorNoAtableError, restablecerContrasena,
   ProveedorSoatDelUsuarioEliminadoError, resumenUsuarios, rolAsignable as rolAsignableCrudo,
   type FiltrosUsuarios, type PaginacionUsuarios,
 } from './users.service.js';
@@ -192,7 +192,7 @@ function leerConsulta(req: Request, res: Response): { filtros: FiltrosUsuarios; 
 /** El texto de la columna «Ámbito» del Excel: por `tipoEnlace` del rol, no por literal de role. */
 function textoAmbito(
   tipoEnlace: string,
-  u: { companiaId: number | null; flitoProveedorSoatId: string | null },
+  u: { companiaId: number | null; flitoProveedorId: string | null },
   organismos: string[],
   companias: Map<number, string>,
   proveedores: Map<string, string>,
@@ -202,7 +202,7 @@ function textoAmbito(
     if (tipoEnlace === 'compania')
         return u.companiaId ? (companias.get(u.companiaId) ?? `Compañía ${u.companiaId}`) : '';
     if (tipoEnlace === 'proveedor')
-        return u.flitoProveedorSoatId ? (proveedores.get(u.flitoProveedorSoatId) ?? 'Proveedor') : '';
+        return u.flitoProveedorId ? (proveedores.get(u.flitoProveedorId) ?? 'Proveedor') : '';
     return '';
 }
 // Resto del módulo: `authMiddleware` a nivel de router y la función `usuarios.*` en cada ruta
@@ -226,7 +226,7 @@ router.get('/export', exigirFuncion('usuarios.usuario.exportar'), async (req: Re
     // descarga partida en páginas no le sirve a nadie.
     const { filas, total } = await listarUsuarios(consulta.filtros);
     const porUsuario = await organismosDeVarios(filas.map((u) => u.id));
-    const { companias, proveedores } = await nombresDeAmbito(filas.map((u) => u.companiaId).filter((c) => c !== null), filas.map((u) => u.flitoProveedorSoatId).filter((p) => p !== null));
+    const { companias, proveedores } = await nombresDeAmbito(filas.map((u) => u.companiaId).filter((c) => c !== null), filas.map((u) => u.flitoProveedorId).filter((p): p is string => p != null));
     const rolesUnicos = [...new Set(filas.map((u) => u.role))];
     const enlacePorRol = new Map<string, string>();
     if (rolesUnicos.length > 0) {
@@ -373,8 +373,16 @@ function avisarTransitoCodigoObsoleto(req: Request, verbo: string): void {
 // Que el id EXISTA no lo puede comprobar un schema: lo comprueba el handler contra `clients` antes
 // de escribir, para que una compañía inventada no salga como un 23503 servido en un 500.
 const companiaIdSchema = z.number().int().positive('Compañía inválida').nullable().optional();
-// FLITO (HU #12053) — el proveedor SOAT del tipo_enlace=proveedor_soat. Mismo patrón que `companiaId`.
-const proveedorSoatIdSchema = z.string().guid('Proveedor SOAT inválido').nullable().optional();
+// FLITO (HU #12053, #14341) — el proveedor del tipo_enlace=proveedor, con cualquier servicio. Mismo patrón que `companiaId`.
+// `flitoProveedorSoatId` es el cuerpo anterior y se interpreta como su proveedor hasta F5 (AC6).
+const proveedorIdSchema = z.string().guid('Proveedor inválido').nullable().optional();
+/** HU #14341 (AC6): el proveedor pedido. `undefined` = no vino; `conflicto` = los dos campos traen valores distintos. */
+function proveedorDelCuerpo(d: { flitoProveedorId?: string | null; flitoProveedorSoatId?: string | null }): string | null | undefined | 'conflicto' {
+    if (d.flitoProveedorId !== undefined && d.flitoProveedorSoatId !== undefined && d.flitoProveedorId !== d.flitoProveedorSoatId)
+        return 'conflicto';
+    return d.flitoProveedorId !== undefined ? d.flitoProveedorId : d.flitoProveedorSoatId;
+}
+const MSG_PROVEEDOR_CONFLICTO = 'Indique un solo proveedor';
 /**
  * Los organismos del tipo_enlace=organismos_transito. Es una LISTA y no un código porque el AC2 pide varios.
  *
@@ -392,9 +400,8 @@ const MSG_COMPANIA_REQUERIDA = 'Compañía requerida para este rol';
 const MSG_COMPANIA_SOBRA = 'Solo los roles con ámbito de compañía pueden tener compañía asignada';
 // HU #13953 (AC3): un cliente eliminado no se puede enlazar a un usuario; el mensaje cubre ambos casos.
 const MSG_COMPANIA_NO_EXISTE = 'La compañía seleccionada no existe o fue eliminada.';
-const MSG_PROVEEDOR_REQUERIDO = 'Proveedor SOAT requerido para este rol';
-const MSG_PROVEEDOR_SOBRA = 'Solo los roles con ámbito de proveedor SOAT pueden tener proveedor asignado';
-const MSG_PROVEEDOR_NO_EXISTE = 'El proveedor SOAT no existe';
+const MSG_PROVEEDOR_REQUERIDO = 'Proveedor requerido para este rol';
+const MSG_PROVEEDOR_SOBRA = 'Solo los roles con ámbito de proveedor pueden tener proveedor asignado';
 const MSG_ORGANISMOS_REQUERIDOS = 'Organismos requeridos para este rol';
 const MSG_ORGANISMOS_SOBRAN = 'Solo los roles con ámbito de organismos pueden tener organismos asignados';
 const MSG_ORGANISMOS_NO_EXISTE = 'Alguno de los organismos no existe';
@@ -404,7 +411,7 @@ const MSG_ROL_NO_ASIGNABLE = 'El rol no existe o está inactivo';
 
 type AmbitoBody = {
     companiaId?: number | null;
-    flitoProveedorSoatId?: string | null;
+    proveedorId?: string | null;
     organismosCodigos?: string[];
 };
 
@@ -414,7 +421,7 @@ type AmbitoBody = {
  */
 function assertAmbitoSegunEnlace(tipoEnlace: string, body: AmbitoBody): string | null {
     const tieneCompania = body.companiaId != null;
-    const tieneProveedor = body.flitoProveedorSoatId != null;
+    const tieneProveedor = body.proveedorId != null;
     const tieneOrgs = (body.organismosCodigos?.length ?? 0) > 0;
     switch (tipoEnlace) {
         case 'compania':
@@ -471,7 +478,8 @@ const createSchema = z.object({
     // HU #12088: sin literales de ámbito en Zod; la obligatoriedad vive en `assertAmbitoSegunEnlace`
     // tras `rolAsignable`. `transitoCodigo` ni siquiera entra al schema (warn+descartar en el handler).
     companiaId: companiaIdSchema,
-    flitoProveedorSoatId: proveedorSoatIdSchema,
+    flitoProveedorId: proveedorIdSchema,
+    flitoProveedorSoatId: proveedorIdSchema,
     organismosCodigos: organismosCodigosSchema,
 });
 const updateSchema = z.object({
@@ -480,7 +488,8 @@ const updateSchema = z.object({
     role: codigoRolSchema.optional(),
     funciones: funcionesSchema,
     companiaId: companiaIdSchema,
-    flitoProveedorSoatId: proveedorSoatIdSchema,
+    flitoProveedorId: proveedorIdSchema,
+    flitoProveedorSoatId: proveedorIdSchema,
     organismosCodigos: organismosCodigosSchema,
 });
 // `userSelect` vive en el servicio: lo comparten las cuatro respuestas y las dos escrituras
@@ -500,12 +509,15 @@ router.get('/', exigirFuncion('usuarios.usuario.listar'), async (req: Request, r
     const ids = filas.map((u) => u.id);
     const porUsuario = await organismosDeVarios(ids);
     const funcionesPorUsuario = await funcionesDeVarios(ids);
+    // HU #14341 (AC5): el nombre del padre, con cualquier servicio.
+    const { proveedores } = await nombresDeAmbito([], filas.map((u) => u.flitoProveedorId).filter((p): p is string => p != null));
     // `view`, no `export`: esto no genera ningún archivo. La descarga real es `/export`, y allí sí se
     // audita como `export` (HU #12172 — antes las dos cosas se registraban igual y el rastro mentía).
     await audit(req, { action: 'view', resource: 'user', detail: `Lista usuarios (${filas.length} de ${total})` });
     res.setHeader('X-Total-Count', String(total));
     res.json(filas.map((u) => ({
         ...u, organismosCodigos: porUsuario.get(u.id) ?? [], funciones: funcionesPorUsuario.get(u.id) ?? [],
+        proveedorNombre: u.flitoProveedorId ? (proveedores.get(u.flitoProveedorId) ?? null) : null,
     })));
 });
 // === Crear usuario ===========================================================
@@ -527,7 +539,13 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
         res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
         return;
     }
-    const { username, name, email, password, role, funciones, companiaId, flitoProveedorSoatId, organismosCodigos, } = parsed.data;
+    const { username, name, email, password, role, funciones, companiaId, organismosCodigos, } = parsed.data;
+    const pedido = proveedorDelCuerpo(parsed.data);
+    if (pedido === 'conflicto') {
+        res.status(400).json({ error: MSG_PROVEEDOR_CONFLICTO });
+        return;
+    }
+    const proveedorId = pedido ?? null;
     avisarAllowedPagesObsoleto(req, 'POST');
     avisarTransitoCodigoObsoleto(req, 'POST');
     // AC6: la pertenencia se pregunta al CATÁLOGO, no a una constante. Va lo primero porque un rol que
@@ -539,7 +557,7 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
         return;
     }
     // HU #12088: ámbito por tipoEnlace — ANTES de username, para no escribir ni consultar de más.
-    const errorAmbito = assertAmbitoSegunEnlace(rol.tipoEnlace, { companiaId, flitoProveedorSoatId, organismosCodigos });
+    const errorAmbito = assertAmbitoSegunEnlace(rol.tipoEnlace, { companiaId, proveedorId, organismosCodigos });
     if (errorAmbito) {
         res.status(400).json({ error: errorAmbito });
         return;
@@ -563,10 +581,6 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
         res.status(400).json({ error: MSG_COMPANIA_NO_EXISTE });
         return;
     }
-    if (rol.tipoEnlace === 'proveedor' && !(await proveedorSoatExiste(flitoProveedorSoatId!))) {
-        res.status(400).json({ error: MSG_PROVEEDOR_NO_EXISTE });
-        return;
-    }
     if (rol.tipoEnlace === 'organismos_transito') {
         const faltan = await organismosInexistentes(organismosCodigos!);
         if (faltan.length > 0) {
@@ -587,13 +601,17 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
             funciones: funciones ?? [],
             transitoCodigo: null,
             companiaId: rol.tipoEnlace === 'compania' ? companiaId! : null,
-            flitoProveedorSoatId: rol.tipoEnlace === 'proveedor' ? flitoProveedorSoatId! : null,
+            flitoProveedorId: rol.tipoEnlace === 'proveedor' ? proveedorId : null,
             organismosCodigos: rol.tipoEnlace === 'organismos_transito' ? organismosCodigos! : [],
         }, actorDeRequest(req));
     }
     catch (e) {
         if (e instanceof FuncionesInexistentesError) {
             res.status(400).json({ error: e.message, funciones: e.funciones });
+            return;
+        }
+        if (e instanceof ProveedorNoAtableError) {
+            res.status(400).json({ error: e.message });
             return;
         }
         const ambito = ambitoRechazado(e);
@@ -643,6 +661,11 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
         return;
     }
     const data = parsed.data;
+    const pedido = proveedorDelCuerpo(data);
+    if (pedido === 'conflicto') {
+        res.status(400).json({ error: MSG_PROVEEDOR_CONFLICTO });
+        return;
+    }
     avisarAllowedPagesObsoleto(req, 'PATCH');
     avisarTransitoCodigoObsoleto(req, 'PATCH');
     const [before] = await db.select().from(users).where(eq(users.id, id)).limit(1);
@@ -655,10 +678,11 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
     }
+    const proveedorCambia = pedido !== undefined && pedido !== before.flitoProveedorId;
     // AC6: SOLO si el cuerpo trae `role` se pregunta al catálogo. Editar nombre a un usuario cuyo
     // rol se desactivó no puede fallar por un campo que el admin no tocó.
     // HU #12088: si vienen campos de ámbito sin cambiar rol, sí hace falta el tipoEnlace del actual.
-    const traeAmbito = data.companiaId !== undefined || data.flitoProveedorSoatId !== undefined
+    const traeAmbito = data.companiaId !== undefined || pedido !== undefined
         || data.organismosCodigos !== undefined;
     let tipoEnlaceEfectivo: string | null = null;
     if (data.role !== undefined) {
@@ -679,7 +703,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
             res.status(400).json({ error: MSG_COMPANIA_SOBRA });
             return;
         }
-        if (tipoEnlaceEfectivo !== 'proveedor' && data.flitoProveedorSoatId != null) {
+        if (tipoEnlaceEfectivo !== 'proveedor' && pedido != null) {
             res.status(400).json({ error: MSG_PROVEEDOR_SOBRA });
             return;
         }
@@ -696,7 +720,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
             }
         }
         if (tipoEnlaceEfectivo === 'proveedor') {
-            const p = data.flitoProveedorSoatId !== undefined ? data.flitoProveedorSoatId : before.flitoProveedorSoatId;
+            const p = pedido !== undefined ? pedido : before.flitoProveedorId;
             if (p == null) {
                 res.status(400).json({ error: MSG_PROVEEDOR_REQUERIDO });
                 return;
@@ -712,10 +736,6 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     }
     if (data.companiaId && !(await companiaExiste(data.companiaId))) {
         res.status(400).json({ error: MSG_COMPANIA_NO_EXISTE });
-        return;
-    }
-    if (data.flitoProveedorSoatId && !(await proveedorSoatExiste(data.flitoProveedorSoatId))) {
-        res.status(400).json({ error: MSG_PROVEEDOR_NO_EXISTE });
         return;
     }
     if (data.organismosCodigos?.length) {
@@ -746,10 +766,11 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     if (data.role !== undefined && tipoEnlaceEfectivo !== 'compania' && data.companiaId === undefined) {
         updates.companiaId = null;
     }
-    if (data.flitoProveedorSoatId !== undefined)
-        updates.flitoProveedorSoatId = data.flitoProveedorSoatId;
-    if (data.role !== undefined && tipoEnlaceEfectivo !== 'proveedor' && data.flitoProveedorSoatId === undefined) {
-        updates.flitoProveedorSoatId = null;
+    // HU #14341: solo la columna nueva; el trigger `users_proveedor_sync` deja la vieja coherente (AC1, AC2, AC6).
+    if (proveedorCambia)
+        updates.flitoProveedorId = pedido;
+    if (data.role !== undefined && tipoEnlaceEfectivo !== 'proveedor' && pedido === undefined) {
+        updates.flitoProveedorId = null;
     }
     /**
      * Conjunto destino de organismos, o `null` para no tocarlo. Degradar desde organismos_transito
@@ -760,7 +781,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
         : (data.role !== undefined && tipoEnlaceEfectivo !== 'organismos_transito' ? [] : null);
     const invalidarPorCampos = data.role !== undefined
         || data.companiaId !== undefined
-        || data.flitoProveedorSoatId !== undefined
+        || proveedorCambia
         || data.organismosCodigos !== undefined;
     // HU #12084 (AC4) / #13424 (ADR-0022): nada por nombre de rol; lo decide el invariante (las cuatro
     // funciones de administración en un mismo usuario activo) DENTRO de la transacción.
@@ -768,6 +789,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     try {
         r = await actualizarUsuario(id, {
             updates, organismosDestino, funcionesDestino: data.funciones ?? null, invalidarPorCampos,
+            proveedorAExigir: proveedorCambia ? (pedido ?? null) : null,
         }, actorDeRequest(req));
     }
     catch (e) {
@@ -780,6 +802,10 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
         }
         if (e instanceof FuncionesInexistentesError) {
             res.status(400).json({ error: e.message, funciones: e.funciones });
+            return;
+        }
+        if (e instanceof ProveedorNoAtableError) {
+            res.status(400).json({ error: e.message });
             return;
         }
         const ambito = ambitoRechazado(e);
