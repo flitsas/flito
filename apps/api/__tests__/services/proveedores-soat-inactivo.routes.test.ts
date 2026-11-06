@@ -5,6 +5,7 @@
 // negativo comprueba además que NO hubo escritura: un 409 que igual envió es un 409 inútil. El `FOR SHARE`, la
 // concurrencia (AC6) y el canal sin trámite (AC5) contra PostgreSQL de verdad están en
 // `__tests__/db/proveedores-soat-inactivo.test.ts`.
+import 'express-async-errors'; // Como en `app.ts`: un error sin capturar en trámites llega a `errorHandler` (el 500).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
@@ -34,9 +35,10 @@ const NO_EXISTE = 'El gestor seleccionado no existe o fue eliminado.';
 const auth = async () => `Bearer ${await testToken({ sub: 7, username: 'ops@flitsas.com', role: 'admin' })}`;
 
 /** La tx: la 1.ª lectura es el padre `FOR SHARE`, la 2.ª su perfil vivo (R11); las demás, las filas bloqueadas del envío. */
-function montarTx(proveedor: unknown[]) {
+function montarTx(proveedor: unknown[], perfil: unknown[] = [{ id: P }]) {
   const txSelect = vi.fn().mockReturnValue(chain([{ id: SOAT_ID }]));
   txSelect.mockReturnValueOnce(chain(proveedor));
+  txSelect.mockReturnValueOnce(chain(perfil));
   const txUpdate = vi.fn().mockReturnValue(chain([{ id: SOAT_ID }]));
   const txInsert = vi.fn().mockReturnValue(chain([]));
   transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) =>
@@ -97,6 +99,52 @@ describe('POST /flito/soat/enviar — proveedor no utilizable (HU #13959)', () =
       .set('Authorization', await auth()).send({ ids: [SOAT_ID], gestionOperaciones: true });
     expect(r.status).toBe(200);
     expect(txSelect).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── Solicitudes desde Gestión Trámites (HU #14339, #14342) ─────────────────────────────────────────
+
+const TRAMITE_ID = '00000000-0000-0000-0000-000000000002';
+const VIGENTE = { nombre: 'Gestora Andina', activo: true, deletedAt: null };
+
+/** Los tres motivos de RN-PROV-5, con lo que lee cada uno dentro de la tx y el texto que tiene que llegar. */
+const NO_UTILIZABLES = [
+  { caso: 'inactivo', padre: [{ ...VIGENTE, activo: false }], perfil: [{ id: P }], error: INACTIVO },
+  { caso: 'eliminado', padre: [{ ...VIGENTE, deletedAt: new Date() }], perfil: [{ id: P }], error: NO_EXISTE },
+  { caso: 'sin servicio SOAT', padre: [VIGENTE], perfil: [], error: NO_EXISTE },
+];
+
+async function appTramites() {
+  const app = express();
+  app.use(express.json());
+  const { default: router } = await import('../../src/modules/flito-tramites/flito-tramites.routes.js');
+  const { errorHandler } = await import('../../src/shared/middleware/errorHandler.js');
+  app.use('/api/flito/tramites', conAlcance('tramites', router));
+  app.use(errorHandler);
+  return app;
+}
+
+describe.each(['solicitar-soat', 'solicitar-ambos'])('POST /flito/tramites/%s — proveedor no utilizable', (ruta) => {
+  const solicitar = async () => request(await appTramites()).post(`/api/flito/tramites/${ruta}`)
+    .set('Authorization', await auth()).send({ tramiteIds: [TRAMITE_ID], proveedorSoatId: P });
+
+  beforeEach(() => { selectMock.mockReturnValue(chain([{ soatId: SOAT_ID, soatAutogestionable: false }])); });
+
+  it.each(NO_UTILIZABLES)('$caso → 409 con el mensaje del error, no el genérico, y no se envía nada', async ({ padre, perfil, error }) => {
+    const { txUpdate, txInsert } = montarTx(padre, perfil);
+    const r = await solicitar();
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error });
+    expect(txUpdate).not.toHaveBeenCalled();
+    expect(txInsert).not.toHaveBeenCalled();
+    expect(transactionMock).toHaveBeenCalledTimes(1); // Tampoco se llega a pedir impuestos.
+  });
+
+  it('proveedor vigente → 200 y el SOAT se envía', async () => {
+    const { txUpdate } = montarTx([VIGENTE]);
+    const r = await solicitar();
+    expect(r.status).toBe(200);
+    expect(txUpdate).toHaveBeenCalledTimes(1);
   });
 });
 

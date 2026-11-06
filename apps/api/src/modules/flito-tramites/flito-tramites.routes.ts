@@ -24,6 +24,7 @@ import {
   desbloquear, revocar, ExcepcionError, MOTIVO_MINIMO,
 } from '../flito-excepciones/flito-excepciones.service.js';
 import { ClienteNoOperableError } from '../clients/cliente-operable.js';
+import { ProveedorSoatNoUsableError } from '../flito-parametrizacion/flito-proveedores-estado.service.js';
 import {
   crearEmpresaDesdeTramite, crearTramiteDemo, entregar, esOrdenListado, facetas, historial, listar,
   registrosZipTramites, solicitarAmbos, solicitarImpuestos, solicitarSoat,
@@ -280,9 +281,15 @@ router.post('/solicitar-soat', exigirFuncion('tramites.solicitud.pedir_soat'), a
   if (!parsed.success) { bad(res); return; }
   const ctx = await ctxDe(req);
   await exigirTramitesPropios(parsed.data.tramiteIds, ctx.alcance); // HU #13426 (AC3)
-  const r = await solicitarSoat(parsed.data.tramiteIds, parsed.data.proveedorSoatId, ctx);
-  await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Solicitud SOAT: ${r.enviados} enviados, ${r.yaEnviados} ya enviados, ${r.autogestionados} autogestionados, ${r.sinRegistro} sin registro` });
-  res.json(r);
+  try {
+    const r = await solicitarSoat(parsed.data.tramiteIds, parsed.data.proveedorSoatId, ctx);
+    await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Solicitud SOAT: ${r.enviados} enviados, ${r.yaEnviados} ya enviados, ${r.autogestionados} autogestionados, ${r.sinRegistro} sin registro` });
+    res.json(r);
+  } catch (err) {
+    // RN-PROV-5: proveedor inactivo, eliminado o sin servicio SOAT → 409, como `/flito/soat/enviar`.
+    if (err instanceof ProveedorSoatNoUsableError) { res.status(409).json({ error: err.message }); return; }
+    throw err;
+  }
 });
 
 // POST /solicitar-impuestos — envío al gestor de impuestos (solo los que tienen factura de venta).
@@ -302,9 +309,15 @@ router.post('/solicitar-ambos', exigirFuncion('tramites.solicitud.pedir_ambos'),
   if (!parsed.success) { bad(res); return; }
   const ctx = await ctxDe(req);
   await exigirTramitesPropios(parsed.data.tramiteIds, ctx.alcance);
-  const r = await solicitarAmbos(parsed.data.tramiteIds, parsed.data.proveedorSoatId, ctx);
-  await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Solicitud SOAT+impuestos sobre ${parsed.data.tramiteIds.length} trámites` });
-  res.json(r);
+  try {
+    const r = await solicitarAmbos(parsed.data.tramiteIds, parsed.data.proveedorSoatId, ctx);
+    await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Solicitud SOAT+impuestos sobre ${parsed.data.tramiteIds.length} trámites` });
+    res.json(r);
+  } catch (err) {
+    // RN-PROV-5: el SOAT va primero; si su proveedor no sirve, no se llega a pedir impuestos.
+    if (err instanceof ProveedorSoatNoUsableError) { res.status(409).json({ error: err.message }); return; }
+    throw err;
+  }
 });
 
 // POST /entregar — entrega en lote (delega en compuerta, que revalida cada uno). Solo Operaciones.
