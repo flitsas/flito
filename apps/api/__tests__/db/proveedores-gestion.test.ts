@@ -1,8 +1,8 @@
 // Feature #14324 (HU #14332, #14333, #14334, #14335) — gestión de proveedores contra PostgreSQL de verdad.
 //
-// Todo dentro de una transacción con ROLLBACK (`base-en-tx.ts`), con 0290 y 0291 aplicadas DENTRO: la base local compartida
+// Todo dentro de una transacción con ROLLBACK (`base-en-tx.ts`), con 0291 y 0292 aplicadas DENTRO: la base local compartida
 // puede no tenerlas. `db.transaction(fn)` abre un SAVEPOINT y lo revierte si `fn` lanza, para medir que un rechazo no deja
-// nada escrito. Las carreras necesitan dos conexiones: se saltan si la base no tiene la 0291 aplicada de verdad.
+// nada escrito. Las carreras necesitan dos conexiones: se saltan si la base no tiene la 0292 aplicada de verdad.
 // Sin TEST_DATABASE_URL se SALTA todo (el CI no levanta Postgres); las rutas se miden en `proveedores-gestion.routes.test.ts`.
 import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
@@ -75,8 +75,8 @@ async function conBase(fn: (tx: Tx) => Promise<void>) {
   const sql = abrirBase();
   try {
     await enTx(sql, async (tx) => {
-      await tx.unsafe(leerMigracion('0290_flito_proveedores_padre.sql'));
-      await tx.unsafe(leerMigracion('0291_flito_proveedores_logistica_unicidad_viva.sql'));
+      await tx.unsafe(leerMigracion('0291_flito_proveedores_padre.sql'));
+      await tx.unsafe(leerMigracion('0292_flito_proveedores_logistica_unicidad_viva.sql'));
       await sembrarAdminActivo(tx);
       actual.tx = tx;
       actual.db = drizzle(Object.assign(tx, { options: sql.options }) as unknown as postgres.Sql, { schema });
@@ -133,16 +133,16 @@ const perfilLog = async (tx: Tx, id: string) => (await tx`SELECT * FROM flito_pr
 const perfilSoat = async (tx: Tx, id: string) => (await tx`SELECT * FROM flito_proveedores_soat WHERE id = ${id}`)[0];
 const conteoAud = async (tx: Tx, id: string) => Number((await tx`SELECT count(*)::int AS n FROM flito_proveedores_auditoria WHERE proveedor_id = ${id}`)[0]!.n);
 
-describe.skipIf(!URL_BASE)('0291 — unicidad entre vigentes', () => {
+describe.skipIf(!URL_BASE)('0292 — unicidad entre vigentes', () => {
   it('quita la restricción con cualquiera de sus dos nombres, es idempotente y sus índices solo cuentan a los vigentes', async () => {
     await conBase(async (tx) => {
       const unicidad = async () => (await tx`SELECT conname FROM pg_constraint WHERE conrelid = 'flito_proveedores_logistica'::regclass AND contype = 'u'`).map((f) => f.conname);
       expect(await unicidad()).toEqual([]);
       await tx`ALTER TABLE flito_proveedores_logistica ADD CONSTRAINT flito_proveedores_logistica_nombre_key UNIQUE (nombre)`;
-      await tx.unsafe(leerMigracion('0291_flito_proveedores_logistica_unicidad_viva.sql'));
+      await tx.unsafe(leerMigracion('0292_flito_proveedores_logistica_unicidad_viva.sql'));
       expect(await unicidad()).toEqual([]);
       await tx`ALTER TABLE flito_proveedores_logistica ADD CONSTRAINT flito_proveedores_logistica_nombre_unique UNIQUE (nombre)`;
-      await tx.unsafe(leerMigracion('0291_flito_proveedores_logistica_unicidad_viva.sql'));
+      await tx.unsafe(leerMigracion('0292_flito_proveedores_logistica_unicidad_viva.sql'));
       expect(await unicidad()).toEqual([]);
 
       const [viva] = await tx`SELECT count(*)::int AS n FROM pg_indexes WHERE indexname IN ('uq_flito_proveedores_logistica_nombre_vivo', 'uq_flito_proveedores_logistica_nit') AND indexdef LIKE '%deleted_at IS NULL%'`;
@@ -837,7 +837,7 @@ describe.skipIf(!URL_BASE)('HU #14335 — auditoría', () => {
   });
 });
 
-/** Las carreras necesitan conexiones reales: solo donde la 0291 está aplicada de verdad. Limpia lo que confirma. */
+/** Las carreras necesitan conexiones reales: solo donde la 0292 está aplicada de verdad. Limpia lo que confirma. */
 async function conConexionesReales(fn: (sql: postgres.Sql) => Promise<void>, limpiar: (sql: postgres.Sql) => Promise<void>, ctx: { skip: () => void }) {
   const sql = postgres(URL_BASE!, { max: 4, onnotice: () => {} });
   try {

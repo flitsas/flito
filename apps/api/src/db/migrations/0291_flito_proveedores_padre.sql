@@ -1,4 +1,4 @@
--- 0290_flito_proveedores_padre.sql
+-- 0291_flito_proveedores_padre.sql
 -- Autor: David Chica
 -- Feature #14323, HU #14328, #14329 y #14330 (ADR-0039 §5.2) — identidad única de proveedor. Solo expansión.
 --
@@ -22,9 +22,9 @@ DECLARE
   casos text[] := ARRAY[]::text[];
   fila record;
 BEGIN
-  -- >>> PARADAS (idéntico en 0290 y en manual/flito-proveedores-preflight.sql; el test exige la igualdad)
+  -- >>> PARADAS (idéntico en 0291 y en manual/flito-proveedores-preflight.sql; el test exige la igualdad)
   -- Nombre: SOAT vigentes y Logística, con la normalización del índice único del padre. `to_jsonb` lee
-  -- `deleted_at` de Logística solo si la columna existe: antes de la 0290 no existe y ninguna fila está de baja.
+  -- `deleted_at` de Logística solo si la columna existe: antes de la 0291 no existe y ninguna fila está de baja.
   FOR fila IN
     WITH vigentes AS (
       SELECT 'SOAT'::text AS origen, s.id, s.nombre FROM flito_proveedores_soat s WHERE s.deleted_at IS NULL
@@ -72,7 +72,7 @@ BEGIN
 
   IF cardinality(casos) > 0 THEN
     RAISE EXCEPTION '%', format(
-      E'0290 detenida: %s caso(s) de proveedores por corregir. Ningún proveedor se unió ni se modificó.\n- %s\nEjecute apps/api/src/db/manual/flito-proveedores-preflight.sql, corrija los datos y reintente el despliegue.',
+      E'0291 detenida: %s caso(s) de proveedores por corregir. Ningún proveedor se unió ni se modificó.\n- %s\nEjecute apps/api/src/db/manual/flito-proveedores-preflight.sql, corrija los datos y reintente el despliegue.',
       cardinality(casos), array_to_string(casos, E'\n- '));
   END IF;
 END
@@ -219,7 +219,7 @@ BEGIN
 
   -- La imagen anterior elimina un SOAT con baja lógica y eso libera el nombre (0259, RN-PROV-6). Si el padre lo
   -- conservara, volver a crear ese nombre fallaría al revertir la imagen. Sin perfil vigente tampoco conserva los
-  -- datos personales: antes de la 0290 eliminar en Logística los borraba. Quedan el id y el nombre. Vaciar el NIT,
+  -- datos personales: antes de la 0291 eliminar en Logística los borraba. Quedan el id y el nombre. Vaciar el NIT,
   -- el contacto o el teléfono dispara padre_a_perfil, que vacía también el perfil de baja; su UPDATE se corta
   -- arriba por profundidad, así que la versión sube una sola vez.
   IF OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
@@ -386,7 +386,7 @@ BEGIN
   WHERE u.flito_proveedor_soat_id IS NOT NULL AND u.flito_proveedor_id IS DISTINCT FROM u.flito_proveedor_soat_id;
 
   IF perfiles_sin_padre > 0 OR usuarios_distintos > 0 THEN
-    RAISE EXCEPTION '0290 detenida en la comprobación final: % perfil(es) sin registro padre y % usuario(s) con proveedor distinto.',
+    RAISE EXCEPTION '0291 detenida en la comprobación final: % perfil(es) sin registro padre y % usuario(s) con proveedor distinto.',
       perfiles_sin_padre, usuarios_distintos;
   END IF;
 END
