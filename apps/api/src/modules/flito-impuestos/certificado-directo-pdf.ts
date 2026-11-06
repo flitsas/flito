@@ -1,8 +1,11 @@
 // PDF de la certificación sin trámite. Se arma al descargar y no se archiva.
-// El documento del propietario es dato de FLITO: la consulta fue por VIN y el RUNT no lo validó.
+// El documento y el nombre del propietario son datos de FLITO: el PDF no los presenta como validados ante el RUNT.
+// Solo dice qué se consultó con la línea de la modalidad usada, que viene del snapshot.
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { CAMPO_COMPARACION_FACTURA_RUNT_LABEL, type ComparacionCampoFacturaRunt } from '@operaciones/shared-types';
-import type { RegistroRuntGuardado } from '../../db/schema/flito-impuesto-certificacion-directa.js';
+import type {
+  ModalidadConsultaRunt, RegistroRuntGuardado,
+} from '../../db/schema/flito-impuesto-certificacion-directa.js';
 import { fechaHoraColombia, sanitize } from './certificado-pdf.js';
 
 const ETIQUETA_REGISTRO: Record<keyof RegistroRuntGuardado, string> = {
@@ -21,8 +24,9 @@ const ETIQUETA_REGISTRO: Record<keyof RegistroRuntGuardado, string> = {
 export interface CertificadoDirectoPdfDatos {
   placa: string;
   vin: string;
-  documento: string;
-  nombrePropietario: string;
+  documento: string | null;
+  nombrePropietario: string | null;
+  modalidadConsulta: ModalidadConsultaRunt;
   organismo: string;
   campos: ComparacionCampoFacturaRunt[];
   registroRunt: RegistroRuntGuardado;
@@ -38,15 +42,18 @@ const RESULTADO: Record<ComparacionCampoFacturaRunt['resultado'], string> = {
   no_verificable: 'No reportado por el RUNT',
 };
 
-/** Líneas que el PDF imprime. El documento no se rotula como validado ante el RUNT. */
-export function lineasDatoFlito(d: Pick<CertificadoDirectoPdfDatos, 'nombrePropietario' | 'documento' | 'vin' | 'placa' | 'organismo'>): [string, string][] {
-  return [
-    ['Nombre (dato de FLITO)', d.nombrePropietario],
-    ['Documento (dato de FLITO)', d.documento],
-    ['VIN consultado', d.vin],
-    ['Placa (dato de FLITO)', d.placa],
+/** Líneas que el PDF imprime. Omite lo no diligenciado. El documento no se rotula como validado ante el RUNT. */
+export function lineasDatoFlito(d: Pick<CertificadoDirectoPdfDatos, 'nombrePropietario' | 'documento' | 'vin' | 'placa' | 'organismo' | 'modalidadConsulta'>): [string, string][] {
+  const porVin = d.modalidadConsulta === 'vin';
+  const lineas: [string, string][] = [];
+  if (d.nombrePropietario) lineas.push(['Nombre (dato de FLITO)', d.nombrePropietario]);
+  if (d.documento) lineas.push(['Documento (dato de FLITO)', d.documento]);
+  lineas.push(
+    [porVin ? 'VIN consultado' : 'VIN (dato de FLITO)', d.vin],
+    [porVin ? 'Placa (dato de FLITO)' : 'Placa consultada', d.placa],
     ['Organismo (dato de FLITO)', d.organismo],
-  ];
+  );
+  return lineas;
 }
 
 export async function construirCertificadoDirectoPdf(d: CertificadoDirectoPdfDatos): Promise<Buffer> {
