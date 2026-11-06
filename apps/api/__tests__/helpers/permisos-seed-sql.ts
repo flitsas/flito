@@ -84,8 +84,8 @@ export const MIGRACIONES_CON_REPARTO = [
   '0284_flito_logistica_permiso_traslado_anular.sql', // HU #14115: anular viaje registrado; solo admin
   '0285_flito_logistica_motivos_permiso.sql', // HU #14119: catálogo de motivos de llegada a FLIT; solo admin
   '0286_flito_logistica_permiso_firmar_flit.sql', // HU #14122: firmar la llegada a FLIT; solo admin
-  '0292_flito_proveedores_permiso_historial.sql', // HU #14335: historial de un proveedor; admin y auditor
-  '0295_flito_logistica_permiso_dejar_pendiente.sql', // HU #14348: dejar una LT pendiente al escanear; solo admin
+  '0293_flito_proveedores_permiso_historial.sql', // HU #14335: historial de un proveedor; admin y auditor
+  '0296_flito_logistica_permiso_dejar_pendiente.sql', // HU #14348: dejar una LT pendiente al escanear; solo admin
   '0274_flito_impuesto_certificacion_directa.sql', // Certificar impuesto sin trámite: acción solo a admin
 ] as const;
 
@@ -96,7 +96,7 @@ export const MIGRACIONES_CON_REPARTO = [
  */
 // HU #14110: la 0281 también entra aquí, pero por ALTA: `logistica.actas.ver_documento_firmante` es una operación con guarda en la
 // foto (`inventario.generado.ts`), así que el catálogo plano la trae y el pliegue plano tiene que sembrarla para cuadrar.
-const RETIROS_DEL_MUNDO_PLANO: ReadonlySet<string> = new Set(['0295_flito_logistica_permiso_dejar_pendiente.sql', '0292_flito_proveedores_permiso_historial.sql', '0243_permisos_retirar_sync_lanzar.sql', '0281_flito_logistica_permiso_ver_documento_firmante.sql', '0282_flito_logistica_permiso_resolver_tramite.sql', '0283_flito_logistica_permiso_traslado_registrar.sql', '0284_flito_logistica_permiso_traslado_anular.sql', '0285_flito_logistica_motivos_permiso.sql', '0286_flito_logistica_permiso_firmar_flit.sql']);
+const RETIROS_DEL_MUNDO_PLANO: ReadonlySet<string> = new Set(['0296_flito_logistica_permiso_dejar_pendiente.sql', '0293_flito_proveedores_permiso_historial.sql', '0243_permisos_retirar_sync_lanzar.sql', '0281_flito_logistica_permiso_ver_documento_firmante.sql', '0282_flito_logistica_permiso_resolver_tramite.sql', '0283_flito_logistica_permiso_traslado_registrar.sql', '0284_flito_logistica_permiso_traslado_anular.sql', '0285_flito_logistica_motivos_permiso.sql', '0286_flito_logistica_permiso_firmar_flit.sql']);
 
 /**
  * HU #12873 — Las migraciones del mundo PLANO (antes del árbol, ≤ 0231, más `RETIROS_DEL_MUNDO_PLANO`). Los tests de cada migración

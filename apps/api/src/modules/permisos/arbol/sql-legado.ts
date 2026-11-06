@@ -45,9 +45,9 @@ export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set([
   'logistica.motivos.gestionar',
   // HU #14122: opcional de `accion.logistica.despachar_entregar_devolver`; su `padre_codigo` lo siembra la 0286.
   'logistica.actas.firmar_flit',
-  // HU #14348: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra la 0295.
+  // HU #14348: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra la 0296.
   'logistica.documento.dejar_pendiente',
-  // HU #14335: opcional de `accion.clientes.ver`; su `padre_codigo` lo siembra la 0292.
+  // HU #14335: opcional de `accion.clientes.ver`; su `padre_codigo` lo siembra la 0293.
   'parametrizacion.proveedores.historial',
 ]);
 

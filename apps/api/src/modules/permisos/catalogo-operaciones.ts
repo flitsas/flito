@@ -367,7 +367,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // HU #14103: proveedores de logística; reutilizan las funciones de proveedores SOAT (gestión de proveedores).
   op(`${PLOG} GET /`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
   op(`${PLOG} GET /:id/impacto`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
-  // HU #14332–#14335: gestión unificada de proveedores (ADR-0039 §7.1); `historial` es la única función nueva (0292).
+  // HU #14332–#14335: gestión unificada de proveedores (ADR-0039 §7.1); `historial` es la única función nueva (0293).
   op(`${PROV} GET /`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
   op(`${PROV} GET /selector`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
   op(`${PROV} GET /asignables-usuario`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),

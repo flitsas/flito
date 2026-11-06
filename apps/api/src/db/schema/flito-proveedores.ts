@@ -1,7 +1,7 @@
 // Identidad única de proveedor (Feature #14323, ADR-0039 §4.1): esta tabla es el padre y
 // `flito_proveedores_soat` y `flito_proveedores_logistica` son sus perfiles, con el MISMO UUID (R21).
 //
-// Solo en SQL (0290), para no crear imports circulares con `schema.ts`:
+// Solo en SQL (0291), para no crear imports circulares con `schema.ts`:
 //   · FK de los perfiles y de `deleted_by`/`actor_id` hacia `users`, todas RESTRICT.
 //   · uq_flito_proveedores_nombre_vivo y uq_flito_proveedores_nit_vivo, índices únicos parciales sobre
 //     expresiones: el nombre normalizado y el NIT sin dígito de verificación (R8).
