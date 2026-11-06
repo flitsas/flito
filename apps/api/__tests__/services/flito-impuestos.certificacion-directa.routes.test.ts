@@ -72,7 +72,7 @@ const sinFuncion = async () => `Bearer ${await testToken({ sub: sub++, username:
 const BASE = '/api/flito/impuestos/certificacion-directa';
 
 const datos = {
-  organismoCodigo: '11001', placa: 'abc123', documentoPropietario: '900123456', nombrePropietario: 'Empresa Prueba SAS',
+  organismoCodigo: '11001', placa: 'abc123', documentoPropietario: '900123456', tipoDocumentoPropietario: 'NIT', nombrePropietario: 'Empresa Prueba SAS',
   vin: '9ZZTEST0000000001', marca: 'KIA', linea: 'K3', anio: '2024', color: 'BLANCO', cilindrada: '1598',
 };
 
@@ -83,7 +83,7 @@ function conCampos(r: request.Test, d: Record<string, string>): request.Test {
 
 const filaBd = (extra: Record<string, unknown> = {}) => ({
   id: ID, organismoCodigo: '11001', placa: 'ABC123', placaNorm: 'ABC123',
-  documentoPropietario: '900123456', nombrePropietario: 'Empresa Prueba SAS',
+  documentoPropietario: '900123456', tipoDocumentoPropietario: 'NIT', nombrePropietario: 'Empresa Prueba SAS',
   vin: '9ZZTEST0000000001', vinNorm: '9ZZTEST0000000001', marca: 'KIA', linea: 'K3', anio: '2024',
   color: 'BLANCO', cilindrada: '1598', estado: 'radicado', comparacion: null, snapshot: null,
   facturaStorageKey: 'impuesto-certificacion-directa/x/factura.pdf', facturaBytes: 10,
@@ -203,6 +203,54 @@ describe('POST crear', () => {
       const r = await crear({ ...datos, documentoPropietario: '', nombrePropietario: '  Ana Prueba ' });
       expect(r.status).toBe(201);
       expect(valores[0]).toMatchObject({ documentoPropietario: null, nombrePropietario: 'Ana Prueba' });
+    });
+
+    describe('tipo de documento (Bug #14406: la pasarela RUNT exige el código)', () => {
+      it('con documento y tipo: lo guarda y la respuesta lo trae', async () => {
+        const valores: Record<string, unknown>[] = [];
+        kdb.insert.mockImplementation(() => {
+          const t: Record<string, unknown> = {};
+          t.values = (v: Record<string, unknown>) => { valores.push(v); return t; };
+          t.returning = () => Promise.resolve([filaBd({ tipoDocumentoPropietario: 'CC' })]);
+          return t;
+        });
+        const r = await crear({ ...datos, tipoDocumentoPropietario: 'CC' });
+        expect(r.status).toBe(201);
+        expect(valores[0]).toMatchObject({ documentoPropietario: '900123456', tipoDocumentoPropietario: 'CC' });
+        expect(r.body.tipoDocumentoPropietario).toBe('CC');
+      });
+
+      it.each([['ausente', undefined], ['vacío', ''], ['con solo espacios', '  ']])(
+        'documento con tipo %s: 400 con el mensaje del campo y no sube la factura', async (_n, tipo) => {
+          const { tipoDocumentoPropietario: _t, ...sinTipo } = datos;
+          const r = await crear(tipo === undefined ? sinTipo : { ...sinTipo, tipoDocumentoPropietario: tipo });
+          expect(r.status).toBe(400);
+          expect(r.body.error).toBe('Falta el tipo de documento del propietario');
+          expect(storage.upload).not.toHaveBeenCalled();
+          expect(kdb.insert).not.toHaveBeenCalled();
+        },
+      );
+
+      it('sin documento, el tipo que llegue se guarda null: no hay nada que tipificar', async () => {
+        const valores = capturarValues();
+        const r = await crear({ ...datos, documentoPropietario: '  ', tipoDocumentoPropietario: 'NIT' });
+        expect(r.status).toBe(201);
+        expect(valores[0]).toMatchObject({ documentoPropietario: null, tipoDocumentoPropietario: null });
+      });
+
+      it('sin documento y sin tipo: 201, tipo null', async () => {
+        const valores = capturarValues();
+        const { documentoPropietario: _d, tipoDocumentoPropietario: _t, ...sinNada } = datos;
+        const r = await crear(sinNada);
+        expect(r.status).toBe(201);
+        expect(valores[0]).toMatchObject({ tipoDocumentoPropietario: null });
+      });
+
+      it.each(['N', 'XX', 'nit'])('tipo %s, fuera del catálogo: 400 y no sube la factura', async (tipo) => {
+        const r = await crear({ ...datos, tipoDocumentoPropietario: tipo });
+        expect(r.status).toBe(400);
+        expect(storage.upload).not.toHaveBeenCalled();
+      });
     });
 
     it('un documento de más de 30 caracteres sigue siendo 400', async () => {
@@ -386,6 +434,51 @@ describe('PATCH editar', () => {
     expect(r.body.documentoPropietario).toBeNull();
   });
 
+  it('corregir el tipo de un registro anterior lo guarda', async () => {
+    kdb.when.selectOnce(FILA, [filaBd({ tipoDocumentoPropietario: null })]).select(FILA, []);
+    const sets: Record<string, unknown>[] = [];
+    kdb.update.mockImplementation(() => {
+      const t: Record<string, unknown> = {};
+      t.set = (v: Record<string, unknown>) => { sets.push(v); return t; };
+      t.where = () => t;
+      t.returning = () => Promise.resolve([filaBd({ tipoDocumentoPropietario: 'CE' })]);
+      return t;
+    });
+    const r = await editar({ ...datos, tipoDocumentoPropietario: 'CE' });
+    expect(r.status).toBe(200);
+    expect(sets[0]).toMatchObject({ tipoDocumentoPropietario: 'CE' });
+    expect(r.body.tipoDocumentoPropietario).toBe('CE');
+  });
+
+  it('borrar el documento borra también el tipo aunque llegue', async () => {
+    kdb.when.selectOnce(FILA, [filaBd()]).select(FILA, []);
+    const sets: Record<string, unknown>[] = [];
+    kdb.update.mockImplementation(() => {
+      const t: Record<string, unknown> = {};
+      t.set = (v: Record<string, unknown>) => { sets.push(v); return t; };
+      t.where = () => t;
+      t.returning = () => Promise.resolve([filaBd({ documentoPropietario: null, tipoDocumentoPropietario: null })]);
+      return t;
+    });
+    const r = await editar({ ...datos, documentoPropietario: '', tipoDocumentoPropietario: 'NIT' });
+    expect(r.status).toBe(200);
+    expect(sets[0]).toMatchObject({ documentoPropietario: null, tipoDocumentoPropietario: null });
+  });
+
+  it('documento sin tipo: 400 con el mensaje del campo y el registro no cambia', async () => {
+    const { tipoDocumentoPropietario: _t, ...sinTipo } = datos;
+    const r = await editar(sinTipo);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Falta el tipo de documento del propietario');
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+
+  it('tipo fuera del catálogo: 400 y el registro no cambia', async () => {
+    const r = await editar({ ...datos, tipoDocumentoPropietario: 'XX' });
+    expect(r.status).toBe(400);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+
   it('un registro certificado no se edita: 409', async () => {
     kdb.when.select(FILA, [filaBd({ estado: 'certificado' })]); // 1.º cargar; luego «sin duplicado» (la BD excluye el propio id)
     const r = await editar(datos);
@@ -439,7 +532,7 @@ describe('POST /:id/consultar', () => {
     expect(r.body.estado).toBe('certificado');
     expect(r.body.certificadoEn).toBe('2026-10-30T12:00:00.000Z');
     expect(runt.consultar).toHaveBeenCalledTimes(1);
-    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456');
+    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456', 'N');
     expect(kdb.update).toHaveBeenCalledTimes(1);
   });
 
@@ -468,7 +561,49 @@ describe('POST /:id/consultar', () => {
     capturarSets('certificado');
     runt.consultar.mockResolvedValue(runtOk());
     await consultar();
-    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456');
+    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456', 'N');
+  });
+
+  it.each([
+    ['NIT', 'N'], ['CC', 'C'], ['CE', 'E'], ['TI', 'T'], ['PAS', 'P'], ['PPT', 'Y'], ['RC', 'R'], ['PT', 'PT'],
+  ])('tipo %s del formulario viaja al RUNT como el código %s', async (tipo, codigo) => {
+    filaSinDuplicado({ tipoDocumentoPropietario: tipo });
+    capturarSets('certificado');
+    runt.consultar.mockResolvedValue(runtOk());
+    const r = await consultar();
+    expect(r.status).toBe(200);
+    expect(runt.consultar).toHaveBeenCalledTimes(1);
+    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456', codigo);
+  });
+
+  it.each<[string, string | null]>([
+    ['sin tipo (anterior a esta corrección)', null],
+    ['con un tipo que no mapea al RUNT', 'XX'],
+  ])('registro con documento %s: 400 sin enviar nada al RUNT, sin escribir y sin auditar', async (_n, tipo) => {
+    vi.mocked(audit).mockClear();
+    filaSinDuplicado({ tipoDocumentoPropietario: tipo });
+    const r = await consultar();
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Falta el tipo de documento del propietario');
+    expect(runt.consultar).not.toHaveBeenCalled();
+    expect(kdb.update).not.toHaveBeenCalled();
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  it('registro anterior sin documento ni tipo: sigue consultando por VIN', async () => {
+    filaSinDuplicado({ documentoPropietario: null, tipoDocumentoPropietario: null });
+    capturarSets('certificado');
+    runt.consultar.mockResolvedValue(runtOk());
+    const r = await consultar();
+    expect(r.status).toBe(200);
+    expect(runt.consultar).toHaveBeenCalledWith(undefined, '9ZZTEST0000000001');
+  });
+
+  it('un registro ya duplicado responde 409 antes de exigir el tipo', async () => {
+    kdb.when.selectOnce(FILA, [filaBd({ tipoDocumentoPropietario: null })]).select(FILA, [{ vin: '9ZZTEST0000000001', placa: 'OTRA99' }]);
+    const r = await consultar();
+    expect(r.status).toBe(409);
+    expect(runt.consultar).not.toHaveBeenCalled();
   });
 
   it('el snapshot congela la modalidad usada, porque el PDF se rearma al descargar', async () => {
@@ -494,7 +629,7 @@ describe('POST /:id/consultar', () => {
     expect(r.status).toBe(200);
     expect(r.body.estado).toBe('sin_vehiculo');
     expect(runt.consultar).toHaveBeenCalledTimes(1);
-    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456');
+    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456', 'N');
     expect(sets[0]).toMatchObject({ estado: 'sin_vehiculo', comparacion: null });
     expect(sets[0]).not.toHaveProperty('snapshot');
     expect(sets[0]).not.toHaveProperty('certificadoEn');
