@@ -16,7 +16,7 @@
 //   code-review: OK
 //   qa-agent B: PASS            (o SIN-ENTORNO declarado)
 //   security-agent: N/A — copia/CSS sin superficie sensible
-//   db-review-agent: SANO       (o N/A — no toca schema.ts ni migrations/)
+//   db-review-agent: SANO       (o N/A — no toca schema.ts, schema/ ni migrations/)
 //
 // Un veredicto *-CON-OBSERVACIONES no es verde (AGENTS.md): solo pasa con waiver
 // humano explícito en la misma línea («waiver: <cita>»).
@@ -54,7 +54,7 @@ const GATES = [
     linea: /db(-review)?(-agent)?\s*[:=]/i,
     verde: /db(-review)?(-agent)?\s*[:=]\s*(SANO|N\/A)\b/i,
     observado: /db(-review)?(-agent)?\s*[:=]\s*SANO-CON-OBSERVACIONES/i,
-    esperado: 'SANO, o N/A declarado (no toca apps/api/src/db/schema.ts ni src/db/migrations/)',
+    esperado: 'SANO, o N/A declarado (no toca apps/api/src/db/schema.ts, apps/api/src/db/schema/ ni src/db/migrations/)',
   },
 ];
 
@@ -65,7 +65,7 @@ const EJEMPLO = `
   code-review: OK
   qa-agent B: PASS
   security-agent: N/A — copy/CSS, sin superficie sensible
-  db-review-agent: N/A — no toca schema.ts ni migrations/`;
+  db-review-agent: N/A — no toca schema.ts, schema/ ni migrations/`;
 
 const title = process.env.PR_TITLE ?? '';
 const body = process.env.PR_BODY ?? '';
