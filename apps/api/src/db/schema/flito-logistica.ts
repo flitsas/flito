@@ -101,6 +101,12 @@ export const flitoLogisticaDocumentos = pgTable('flito_logistica_documentos', {
   actaIdx: index('idx_flito_log_doc_acta').on(t.actaId), proveedorIdx: index('idx_flito_log_doc_proveedor').on(t.proveedorLogisticaId), numeroLicenciaIdx: index('idx_flito_log_doc_numero_licencia').on(t.numeroLicencia), tramiteCompaniaCk: check('ck_flito_log_doc_tramite_compania', sql`${t.tramiteId} IS NOT NULL OR ${t.companiaId} IS NULL`), pendienteUq: uniqueIndex('uq_flito_log_doc_vehiculo_pendiente').on(t.vehiculoId, t.tipo).where(sql`${t.tramiteId} IS NULL`),
 }));
 
+// HU #14349 (0297, ADR-0039 §6.3): fecha desde la que el proveedor ve actas en este ambiente. Una sola fila: PK `unica` y CHECK. La escribe la migración; ninguna ruta la cambia.
+export const flitoLogisticaCorteProveedor = pgTable('flito_logistica_corte_proveedor', {
+  unica: boolean('unica').primaryKey().default(true),
+  corteEn: timestamp('corte_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ unicaCk: check('ck_flito_log_corte_proveedor_unica', sql`${t.unica}`) }));
+
 // Idempotencia de las escrituras de campo (RN-06/CA-06): la PWA del mensajero encola escrituras
 // offline con una clave propia; un reenvío con la misma clave devuelve la respuesta ya guardada en
 // vez de re-ejecutar, así una sincronización repetida no duplica recogidas/entregas.

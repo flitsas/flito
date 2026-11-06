@@ -134,8 +134,8 @@ function TarjetaGrupo({ grupo, expandida, onToggle, onRegistrar, onEnviar }: {
   const ltsFlit = grupo.lts.filter((l) => l.origen === 'flit');
   const hayOrg = ltsOrg.length > 0;
   const hayFlit = ltsFlit.length > 0;
-  const precioC = grupo.precioEntregaCliente;
-  const precioF = grupo.precioEntregaFlit;
+  const precioC = grupo.precioEntregaCliente ?? null;
+  const precioF = grupo.precioEntregaFlit ?? null;
   const alguno = precioC != null || precioF != null;
 
   return (
@@ -266,8 +266,8 @@ function ModalConfirmarViaje({ grupo, onClose, onRegistrado, onIrMotivos }: {
   const hayCliente = ltsCliente.length > 0;
   const todosFlit = hayFlit && !hayCliente;
   const todosCliente = hayCliente && !hayFlit;
-  const precioC = grupo.precioEntregaCliente;
-  const precioF = grupo.precioEntregaFlit;
+  const precioC = grupo.precioEntregaCliente ?? null;
+  const precioF = grupo.precioEntregaFlit ?? null;
   const faltaPrecio = (hayCliente && precioC == null) || (hayFlit && precioF == null);
   const motivosListos = motivosEstado === 'ok' && motivos.length > 0 && motivoId !== '';
   const puede = !busy && !faltaPrecio && (!hayFlit || motivosListos);

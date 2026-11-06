@@ -29,8 +29,8 @@ const llamar = async (metodo: 'get' | 'post', ruta: string, cuerpo: object = {})
 };
 
 describe('AC10 — sin efecto para el usuario de proveedor', () => {
-  it('la frontera de logística no incluye a `proveedor`', () => {
-    expect(FRONTERA_POR_ENLACE.logistica).not.toContain('proveedor');
+  it('la frontera de logística incluye a `proveedor` desde F4.2 (HU #14351)', () => {
+    expect(FRONTERA_POR_ENLACE.logistica).toContain('proveedor');
   });
 
   it.each([

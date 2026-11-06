@@ -322,10 +322,12 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/tramites/:id/revocar-autogestion',                         'filtra'],
   ['GET /api/flito/tablero',                                                   'filtra'],
   ['GET /api/flito/logistica',                                                 'filtra'],
+  ['POST /api/flito/logistica/buscar',                                         'filtra'], // HU #14351
   ['GET /api/flito/logistica/facetas',                                         'filtra'],
   ['GET /api/flito/logistica/mi-ruta',                                         'soloSinEnlace'],
   ['GET /api/flito/logistica/actas',                                           'filtra'],
   ['GET /api/flito/logistica/actas/:id',                                       'filtra'],
+  ['GET /api/flito/logistica/actas/:id/mensajeros',                            'filtra'], // HU #14353
   ['GET /api/flito/logistica/actas/:id/pdf',                                   'filtra'],
   ['GET /api/flito/logistica/pendientes-tramite',                                 'soloSinEnlace'], // HU #14143
   ['GET /api/flito/logistica/documentos/:id/candidatos-tramite',                  'soloSinEnlace'], // HU #14143

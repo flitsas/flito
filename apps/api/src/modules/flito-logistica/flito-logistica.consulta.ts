@@ -5,9 +5,9 @@ import {
   EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL,
   ESTADO_DOCUMENTO_LOGISTICA_LABEL, ESTADO_LOGISTICA_SIMPLE_LABEL, EstadoLogisticaSimple,
   simplificarEstadoLogistica, tipoEventoEfectivo,
-  type CompaniaCerrableLogistica, type EstadoDocumentoLogistica as TEstadoDoc,
+  type ActaFilaLogistica, type CompaniaCerrableLogistica, type EstadoDocumentoLogistica as TEstadoDoc,
   type EstadoLogisticaSimple as TEstadoSimple,
-  type HitoLineaTiempoLogistica, type LineaTiempoLogistica,
+  type HitoLineaTiempoLogistica, type LineaTiempoLogistica, type ListadoTramitesLogistica, type TramiteFilaLogistica,
 } from '@operaciones/shared-types';
 import { precioTrasladoDe } from './flito-logistica-precios.js';
 import { db } from '../../db/client.js';
@@ -34,21 +34,12 @@ const ESTADOS_INTERNOS_POR_SIMPLE: Record<TEstadoSimple, TEstadoDoc[]> = {
 
 // ── Listado de la consola: trámites APROBADOS + su estado logístico ──────────
 
-export interface TramiteFila {
-  tramiteId: string; idFlit: string;
-  placa: string | null; vin: string | null; propietario: string | null;
-  companiaId: number | null; companiaNombre: string | null; companiaNit: string | null;
-  organismoCodigo: string | null; organismoNombre: string | null;
-  docId: string | null; estado: string; estadoLabel: string;
-  estadoSimple: TEstadoSimple; estadoSimpleLabel: string;
-  numeroLicencia: string | null; numeroLt: string | null;
-  actaId: string | null; motivo: string | null; actualizadoEn: string | null;
-}
+export type TramiteFila = TramiteFilaLogistica;
 export interface FiltrosLogistica {
   buscar?: string; estados?: string[]; empresas?: string[]; organismos?: string[];
   actas?: string[]; page?: number; pageSize?: number;
 }
-export interface ListadoLogistica { items: TramiteFila[]; total: number; page: number; pageSize: number }
+export type ListadoLogistica = ListadoTramitesLogistica;
 
 function proyeccionTramites() {
   return db.select({
@@ -163,7 +154,8 @@ export async function eventos(documentoId: string): Promise<EventoDocumento[]> {
 }
 
 export interface TramiteDetalle extends TramiteFila {
-  propietarioDocumento: string | null; combustible: string | null; tieneFoto: boolean;
+  /** Ausentes al proveedor (ADR-0039 §7.2): `propietarioDocumento` y `tieneFoto`. */
+  propietarioDocumento?: string | null; combustible: string | null; tieneFoto?: boolean;
   eventos: EventoDocumento[];
 }
 /** Detalle de un trámite aprobado + su LT (si ya fue escaneada) + bitácora (CA-07). */
@@ -282,16 +274,7 @@ export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
 
 // ── Listado de actas (panel de despacho/entrega) ─────────────────────────────
 
-// HU #14109: `companiaId` es NULL solo en el acta de organismo (multi-compañía).
-export interface ActaFila {
-  id: string; companiaId: number | null; companiaNombre: string | null; estado: string; estadoLabel: string;
-  mensajeroId: number | null; mensajeroNombre: string | null; documentos: number;
-  receptorNombre: string | null; entregadoEn: string | null; creadoEn: string;
-  /** Destino del acta (`flito_logistica_actas.punto`). HU #14123. */
-  punto: 'organismo' | 'flit' | 'cliente';
-  /** Viaje que originó el acta. Null en actas anteriores al viaje. No se omite. */
-  trasladoId: string | null;
-}
+export type ActaFila = ActaFilaLogistica;
 export async function listarActas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ActaFila[]> {
   const rows = await db.select({
     id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name, proveedorLogisticaId: flitoLogisticaActas.proveedorLogisticaId,

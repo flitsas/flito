@@ -235,6 +235,21 @@ export function soloSinEnlace(): RequestHandler {
   return guarda;
 }
 
+/**
+ * HU #14351 (ADR-0039 §6.4) — Como `soloSinEnlace`, pero también deja pasar al enlace `proveedor`. Para las rutas de un
+ * módulo abierto a compañía y proveedor que siguen cerradas a la compañía (P-2 de la HU #13426). Falla cerrado.
+ */
+export function soloSinEnlaceOProveedor(): RequestHandler {
+  const guarda: RequestHandler = (req, res, next) => {
+    const enlace = req.frontera?.enlace;
+    if (enlace === 'ninguno' || enlace === 'proveedor') { next(); return; }
+    res.status(403).json({ error: 'Sin permisos' });
+  };
+  // Marca propia para el centinela: no es `fronteraSoloSinEnlace`, porque esta ruta sí alcanza a un enlace y filtra por él.
+  Object.defineProperty(guarda, 'fronteraSoloSinEnlaceOProveedor', { value: true, enumerable: true });
+  return guarda;
+}
+
 /** El id del enlace de un usuario, leído de la base. Un id ausente → el módulo devuelve CERO filas. */
 export async function alcanceDeUsuario(userId: number, enlace: TipoEnlace | null): Promise<AlcanceResuelto> {
   switch (enlace) {

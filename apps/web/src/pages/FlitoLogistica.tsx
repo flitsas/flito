@@ -8,7 +8,7 @@
 // La firma del RECEPTOR se captura en campo (PWA). El acta combina ambas firmas en su PDF.
 
 import { useEffect, useRef, useState } from 'react';
-import { ESTADO_LOGISTICA_SIMPLE_LABEL, simplificarEstadoLogistica, type CompaniaCerrableLogistica, type EstadoLogisticaSimple } from '@operaciones/shared-types';
+import { ESTADO_LOGISTICA_SIMPLE_LABEL, simplificarEstadoLogistica, type ActaFilaLogistica, type CompaniaCerrableLogistica, type EstadoLogisticaSimple, type ListadoTramitesLogistica, type TramiteFilaLogistica } from '@operaciones/shared-types';
 import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import NoAccess from '../components/NoAccess';
@@ -34,26 +34,10 @@ import BandejaLtPendientes from '../components/flito/logistica/bandeja/BandejaLt
 import { useLtPendientes } from '../components/flito/logistica/bandeja/useLtPendientes';
 import { FUNCION_RESOLVER_TRAMITE } from '../components/flito/logistica/bandeja/tipos';
 
-interface TramiteFila {
-  tramiteId: string; idFlit: string; placa: string | null; vin: string | null; propietario: string | null;
-  companiaId: number | null; companiaNombre: string | null; companiaNit: string | null;
-  organismoCodigo: string | null; organismoNombre: string | null;
-  docId: string | null; estado: string; estadoLabel: string;
-  estadoSimple: EstadoLogisticaSimple; estadoSimpleLabel: string;
-  numeroLicencia: string | null; numeroLt: string | null;
-  actaId: string | null; motivo: string | null; actualizadoEn: string | null;
-}
+type TramiteFila = TramiteFilaLogistica;
 interface EventoDocumento { id: string; tipo: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; lat: string | null; lng: string | null; motivo: string | null; origen: string; creadoEn: string }
-interface TramiteDetalle extends TramiteFila { propietarioDocumento: string | null; combustible: string | null; tieneFoto: boolean; eventos: EventoDocumento[] }
-interface ActaFila {
-  id: string; companiaId: number | null; companiaNombre: string | null; estado: string; estadoLabel: string;
-  mensajeroId: number | null; mensajeroNombre: string | null; documentos: number;
-  receptorNombre: string | null; entregadoEn: string | null; creadoEn: string;
-  punto?: 'organismo' | 'flit' | 'cliente';
-  trasladoId?: string | null;
-  /** HU #14350: dueño del acta; null = sin dueño, solo la despachan mensajeros de FLITO. */
-  proveedorLogisticaId: string | null;
-}
+interface TramiteDetalle extends TramiteFila { propietarioDocumento?: string | null; combustible: string | null; tieneFoto?: boolean; eventos: EventoDocumento[] }
+type ActaFila = ActaFilaLogistica;
 interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string }
 interface ActaEvento { id: string; documentoId: string; placa: string | null; tipo: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string }
 interface ActaDetalle { acta: ActaFila; tienePdf: boolean; firmaEntrega: boolean; firmaRecibe: boolean; entregaNombre: string | null; documentos: ActaLinea[]; bitacora: ActaEvento[] }
@@ -64,7 +48,7 @@ interface Facetas {
   /** `proveedorId` null = de FLITO. Trae a los de todos los proveedores: se filtra por el dueño de cada acta. */
   mensajeros: Array<{ id: number; nombre: string; proveedorId: string | null }>;
 }
-interface Listado { items: TramiteFila[]; total: number; page: number; pageSize: number }
+type Listado = ListadoTramitesLogistica;
 
 // Estados SIMPLE → tono del chip (mismos tonos del kit).
 const TONO_SIMPLE: Record<EstadoLogisticaSimple, ChipTone> = {
@@ -451,7 +435,7 @@ export default function FlitoLogistica() {
         />
       )}
       {despacharActa && facetas && (
-        <DespacharModal mensajeros={facetas.mensajeros} proveedorDelActa={despacharActa.proveedorLogisticaId} busy={busy} error={errorDespacho}
+        <DespacharModal mensajeros={facetas.mensajeros} proveedorDelActa={despacharActa.proveedorLogisticaId ?? null} busy={busy} error={errorDespacho}
           onClose={() => setDespacharActa(null)} onDespachar={(payload) => void despachar(despacharActa, payload)} />
       )}
     </div>

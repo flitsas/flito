@@ -4,7 +4,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { EstadoDocumentoLogistica } from '@operaciones/shared-types';
+import { EstadoDocumentoLogistica, type BuscarLogisticaCuerpo } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -105,6 +105,22 @@ router.get('/', exigirFuncion('logistica.consola.ver'), async (req: Request, res
   res.json(await listar(filtros, await alcanceDe(req)));
 });
 
+// POST /buscar — el listado con placa, VIN y NIT en el cuerpo (ADR-0039 §6.5, AGENTS §14; HU #14351). Misma respuesta que `GET /`.
+const BuscarSchema = z.object({
+  buscar: z.string().trim().min(1).max(100).optional(),
+  estados: z.array(z.string().trim().min(1).max(40)).max(50).optional(),
+  empresas: z.array(z.string().trim().min(1).max(30)).max(200).optional(),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).max(200).optional(),
+}).strict() satisfies z.ZodType<BuscarLogisticaCuerpo>;
+
+// Contract-first (F4.2): responde 501 hasta que el backend lo llene con `listar`, en este mismo PR.
+router.post('/buscar', exigirFuncion('logistica.consola.ver'), (req: Request, res: Response) => {
+  const cuerpo = BuscarSchema.safeParse(req.body);
+  if (!cuerpo.success) { res.status(400).json({ error: 'Filtros no válidos' }); return; }
+  res.status(501).json({ error: 'No implementado' });
+});
+
 // GET /facetas — valores para los dropdowns de filtro, compañías cerrables y mensajeros.
 router.get('/facetas', exigirFuncion('logistica.consola.filtrar'), async (req: Request, res: Response) => {
   res.json(await facetas(await alcanceDe(req)));
@@ -129,6 +145,15 @@ router.get('/actas/:id', exigirFuncion('logistica.actas.ver'), async (req: Reque
   const r = await ejecutar(res, () => actaDetalle(req.params.id));
   // Habeas Data (HU #13426): la compañía no recibe quién de FLIT movió cada documento de la bitácora.
   if (r !== undefined) res.json(esProyeccionCliente(alcance) ? { ...r, bitacora: sinActor(r.bitacora) } : r);
+});
+
+// GET /actas/:id/mensajeros — a quién se puede despachar ESTA acta (HU #14353, R1): `MensajeroDeActa[]`.
+// Contract-first (F4.2): responde 501 hasta que el backend lo llene, con `soloSinEnlaceOProveedor()` y el alcance, en este mismo PR.
+const MensajerosDeActaParams = z.object({ id: z.string().uuid() }).strict();
+router.get('/actas/:id/mensajeros', exigirFuncion('logistica.actas.despachar'), (req: Request, res: Response) => {
+  const params = MensajerosDeActaParams.safeParse(req.params);
+  if (!params.success) { res.status(404).json({ error: 'El acta no existe' }); return; }
+  res.status(501).json({ error: 'No implementado' });
 });
 
 // GET /actas/:id/pdf — URL prefirmada (AC4). `logPiiAccess` en generación (acta-pdf) y en esta descarga (NQ4).

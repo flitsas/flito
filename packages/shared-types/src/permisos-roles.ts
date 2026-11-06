@@ -40,6 +40,7 @@ export type EnlaceRestringido = Exclude<TipoEnlace, 'ninguno'>;
  *   · soat — filtra por enlace desde el Bug #12869 (`alcanceSoatDe`, `condicionesCola`).
  *   · impuestos (compania, organismos_transito) · derechos (organismos_transito) — #13426.
  *   · tramites / bolsas / comprobantes / logistica / tablero (compania) — #13426 (`alcance-filas.ts`).
+ *   · logistica (proveedor) — #14351 (ADR-0039 §6.3-§6.5): por dueño de la LT y del acta.
  *   · transito (organismos_transito) — página Tránsito antigua `/api/transito`, #13426 (AC6).
  */
 export const FRONTERA_POR_ENLACE: Readonly<Record<ModuloFrontera, readonly EnlaceRestringido[]>> = Object.freeze({
@@ -49,7 +50,7 @@ export const FRONTERA_POR_ENLACE: Readonly<Record<ModuloFrontera, readonly Enlac
   tramites: Object.freeze(['compania'] as const),
   bolsas: Object.freeze(['compania'] as const),
   comprobantes: Object.freeze(['compania'] as const),
-  logistica: Object.freeze(['compania'] as const),
+  logistica: Object.freeze(['compania', 'proveedor'] as const), // HU #14351 (ADR-0039 §6.5, F4.2): atómico con el filtro por dueño, mismo PR.
   tablero: Object.freeze(['compania'] as const),
   transito: Object.freeze(['organismos_transito'] as const),
 });

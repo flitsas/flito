@@ -49,13 +49,14 @@ export class AlcanceAjenoError extends Error {
 /** ¿Alcanza este enlace al dueño indicado? `ninguno` alcanza todo; un dueño ausente no es suyo. */
 export function esPropio(
   a: AlcanceResuelto,
-  dueno: { companiaId?: number | null; organismo?: string | null },
+  dueno: { companiaId?: number | null; organismo?: string | null; proveedorId?: string | null },
 ): boolean {
   if (a.enlace === 'ninguno') return true;
   if (a.enlace === 'compania') return a.companiaId != null && dueno.companiaId === a.companiaId;
   if (a.enlace === 'organismos_transito') {
     return dueno.organismo != null && a.organismos.includes(dueno.organismo);
   }
+  if (a.enlace === 'proveedor') return a.proveedorId != null && dueno.proveedorId === a.proveedorId; // HU #14351
   return false;
 }
 
@@ -65,7 +66,7 @@ export function esPropio(
  */
 export function exigirPropio(
   a: AlcanceResuelto,
-  dueno: { companiaId?: number | null; organismo?: string | null },
+  dueno: { companiaId?: number | null; organismo?: string | null; proveedorId?: string | null },
 ): void {
   if (!esPropio(a, dueno)) throw new AlcanceAjenoError();
 }
