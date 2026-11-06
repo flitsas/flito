@@ -128,7 +128,7 @@ beforeEach(() => {
 describe('HU #12089 — schema y anti-hard-delete', () => {
   it('users.deletedBy declara ON DELETE RESTRICT en schema.ts', () => {
     const src = readFileSync(
-      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/db/schema.ts'),
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/db/schema/nucleo.ts'),
       'utf8',
     );
     // Solo deletedBy/deleted_by: exige onDelete 'restrict' en ESE references (no otro del archivo).

@@ -7,7 +7,6 @@ import globals from 'globals';
 // Solo pueden bajar; si crecen una línea, el gate falla. Reducirlos es deuda
 // registrada en el reporte modo D. Al bajar de 800, quitar la entrada.
 const FROZEN_CEILINGS = {
-  'apps/api/src/db/schema.ts': 2103, // Feature #13975 (HU #13982, #13983): trámites, SOAT, comparendos, Siigo y finanzas salieron a schema/
   'apps/web/src/pages/FlitoTramites.tsx': 1190,
   'apps/api/src/modules/tramites/identidad.routes.ts': 901, // Feature #14097: bajó al sacar el cifrado local
   'apps/api/src/modules/flito-soat/flito-soat.service.ts': 1090,
