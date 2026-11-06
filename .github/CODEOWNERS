@@ -10,6 +10,7 @@
 
 # Esquema y migraciones de base de datos (el archivo más conflictivo del repo)
 /apps/api/src/db/schema.ts      @davidchica-flit
+/apps/api/src/db/schema/        @davidchica-flit
 /apps/api/src/db/migrations/    @davidchica-flit
 
 # Superficie PII / regulatoria (Ley 1581 Habeas Data, SARLAFT)
