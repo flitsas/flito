@@ -11,9 +11,9 @@
 import StatusChip from '../../components/flit/StatusChip';
 import { etiquetaRol, ROLE_TONE, tipoEnlaceDe, type RolOpcion, type User } from './types';
 import { AmbitoCelda } from './Ambito';
-import type { CatalogoOrganismos, CatalogoProveedores } from './AtaduraFields';
+import type { CatalogoOrganismos } from './AtaduraFields';
 
-export default function UsersTable({ users, loading, error, onReintentar, vacioMensaje, meId, rolesCatalogo, nombreCompania, proveedores, organismos, onEditar, onContrasena, onAlternar, onDarDeBaja, onReactivar }: {
+export default function UsersTable({ users, loading, error, onReintentar, vacioMensaje, meId, rolesCatalogo, nombreCompania, organismos, onEditar, onContrasena, onAlternar, onDarDeBaja, onReactivar }: {
   users: User[];
   loading: boolean;
   /** Mensaje del fallo de carga, o `null`. Es el CUARTO estado (HU #12172): ver `EstadoError`. */
@@ -24,7 +24,6 @@ export default function UsersTable({ users, loading, error, onReintentar, vacioM
   meId: number | undefined;
   rolesCatalogo: RolOpcion[] | null;
   nombreCompania: (id: number) => string | null;
-  proveedores: CatalogoProveedores;
   organismos: CatalogoOrganismos;
   onEditar: (u: User) => void;
   onContrasena: (u: User) => void;
@@ -102,7 +101,6 @@ export default function UsersTable({ users, loading, error, onReintentar, vacioM
                     user={u}
                     tipoEnlace={tipoEnlaceDe(u.role, rolesCatalogo)}
                     nombreCompania={nombreCompania}
-                    proveedores={proveedores}
                     organismos={organismos}
                   />
                   <td className="px-4 py-3">

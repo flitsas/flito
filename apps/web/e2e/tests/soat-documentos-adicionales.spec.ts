@@ -354,7 +354,7 @@ async function montarDetalle(page: Page, inicial: RespAdic) {
   const estado = { llamadas: 0, archivos: 0, respuesta: inicial, soltar: () => {} };
   const retenida = new Promise<void>((r) => { estado.soltar = r; });
   await page.route(/\/api\/flito\/soat\/facetas/, (r) => json(r, 200, { companias: [], organismos: [], proveedores: [] }));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (r) => json(r, 200, []));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (r) => json(r, 200, []));
   await page.route(RE_COLA, (r) => json(r, 200, { items: [fila('s1', 'XYZ789')], total: 1, page: 1, pageSize: 50 }));
   await page.route(RE_ADIC, async (route) => {
     estado.llamadas += 1;

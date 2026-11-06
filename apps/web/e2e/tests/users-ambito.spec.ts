@@ -26,11 +26,10 @@ const SURA = '11111111-1111-4111-8111-111111111111';
 const MUNDIAL = '22222222-2222-4222-8222-222222222222';
 const PREVISORA = '33333333-3333-4333-8333-333333333333';
 
-/** Tal como los sirve `GET /flito/parametrizacion/proveedores-soat`: activos E INACTIVOS. */
+/** Tal como los sirve `GET /flito/parametrizacion/proveedores/asignables-usuario`: solo activos, id y nombre. */
 const PROVEEDORES = [
-  { id: SURA, nombre: 'SURA', estrategia: 'ocr', umbralOcr: 0.8, slaHoras: 24, activo: true },
-  { id: MUNDIAL, nombre: 'Mundial de Seguros', estrategia: 'ocr', umbralOcr: null, slaHoras: null, activo: true },
-  { id: PREVISORA, nombre: 'La Previsora', estrategia: 'ocr', umbralOcr: null, slaHoras: null, activo: false },
+  { id: SURA, nombre: 'SURA' },
+  { id: MUNDIAL, nombre: 'Mundial de Seguros' },
 ];
 
 /** `GET /flito/parametrizacion/organismos`: los PARAMETRIZADOS, ordenados por código. */
@@ -101,7 +100,7 @@ async function mockCatalogos(page: Page, opts: {
   organismos?: unknown[];
   roles?: unknown[];
 } = {}) {
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (r) => r.fulfill(json(opts.proveedores ?? PROVEEDORES)));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/asignables-usuario$/, (r) => r.fulfill(json(opts.proveedores ?? PROVEEDORES)));
   await page.route(/\/api\/flito\/parametrizacion\/organismos$/, (r) => r.fulfill(json(opts.organismos ?? ORGANISMOS)));
   // HU #12088: select de rol + mapa tipoEnlace.
   await page.route(/\/api\/permisos\/roles$/, (r) => r.fulfill(json({ roles: opts.roles ?? ROLES_CATALOGO })));
@@ -218,22 +217,20 @@ test.describe('HU #12088 · AC1 — un tipoEnlace, un campo de ámbito', () => {
 // ───────────────────────── Catálogos · qué se ofrece y qué no se pierde ──────────────────────────
 
 test.describe('HU #12053 · los catálogos: activos al ofrecer, sin perder al asignado', () => {
-  test('TC-12053-03 · el proveedor INACTIVO se ve con «(Inactivo)» pero no se puede elegir', async ({ page }) => {
+  test('TC-12053-03 · HU #14344 AC1: el selector ofrece lo que entrega el API, sin inactivos', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     mockUsers(page);
     await mockCatalogos(page);
     await abrirAlta(page, 'proveedor');
 
     const select = page.getByLabel('Proveedor', { exact: true });
-    // HU #13963 (antes se ocultaba): «La Previsora» se ve, en gris y deshabilitada. Dar de alta a
-    // alguien atado a una aseguradora que ya no opera sigue sin ser posible.
-    await expect(select.getByRole('option')).toHaveText(['Seleccione proveedor…', 'SURA', 'Mundial de Seguros', 'La Previsora (Inactivo)']);
-    await expect(select.getByRole('option', { name: 'La Previsora (Inactivo)' })).toBeDisabled();
+    // Dar de alta a alguien atado a una aseguradora que ya no opera sigue sin ser posible.
+    await expect(select.getByRole('option')).toHaveText(['Seleccione proveedor…', 'SURA', 'Mundial de Seguros']);
   });
 
-  test('TC-12053-04 · el proveedor inactivo ASIGNADO se conserva con «(Inactivo)» y no se pierde al guardar', async ({ page }) => {
+  test('TC-12053-04 · el proveedor inactivo ASIGNADO se conserva con su nombre y no se pierde al guardar', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
-    const heredado = usuario({ id: 5, username: 'gestor.previsora', name: 'Heredado', role: 'proveedor', flitoProveedorSoatId: PREVISORA });
+    const heredado = usuario({ id: 5, username: 'gestor.previsora', name: 'Heredado', role: 'proveedor', flitoProveedorId: PREVISORA, proveedorNombre: 'La Previsora' });
     const { patches } = mockUsers(page, [heredado]);
     await mockCatalogos(page);
 
@@ -244,7 +241,7 @@ test.describe('HU #12053 · los catálogos: activos al ofrecer, sin perder al as
     // Mutante: filtrar por `activo` sin reinyectar → el `<select>` se pinta en blanco y guardar se
     // lleva la atadura por delante. El valor es lo que lo mata; el matiz es lo que lo explica.
     await expect(select).toHaveValue(PREVISORA);
-    await expect(select.getByRole('option', { name: 'La Previsora (Inactivo)' })).toHaveCount(1);
+    await expect(select.getByRole('option', { name: 'La Previsora (No disponible)' })).toHaveCount(1);
 
     await page.getByLabel('Nombre completo').fill('Heredado editado');
     await page.getByRole('button', { name: 'Guardar cambios' }).click();
@@ -434,7 +431,7 @@ test.describe('HU #12053 · AC4 — el aviso antes y el toast después', () => {
     await page.getByRole('button', { name: 'Nuevo usuario' }).click();
     await expect(page.getByLabel('Proveedor', { exact: true })).toBeVisible();
     await expect(page.getByText('Al guardar, este usuario deberá volver a iniciar sesión.')).toHaveCount(0);
-    await expect(page.getByText('Define qué cola de SOAT ve este usuario')).toBeVisible();
+    await expect(page.getByText('Define a qué proveedor queda atado este usuario')).toBeVisible();
   });
 });
 
@@ -514,7 +511,7 @@ test.describe('HU #12053 · los 4 estados, los dos catálogos', () => {
     let estado: 'colgado' | 'error' | 'vacio' = 'colgado';
     let soltar: () => void = () => {};
     const colgada = new Promise<void>((resolve) => { soltar = resolve; });
-    await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, async (route) => {
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores\/asignables-usuario$/, async (route) => {
       if (estado === 'colgado') { await colgada; return route.fulfill(json([])); }
       if (estado === 'error') return route.fulfill(json({ error: 'Catálogo caído' }, 500));
       return route.fulfill(json([]));
@@ -547,7 +544,7 @@ test.describe('HU #12053 · los 4 estados, los dos catálogos', () => {
   test('TC-12053-17 · organismos: sin caja en los tres estados, reintento solo en el error', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const { posts } = mockUsers(page);
-    await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (r) => r.fulfill(json(PROVEEDORES)));
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores\/asignables-usuario$/, (r) => r.fulfill(json(PROVEEDORES)));
     await page.route(/\/api\/permisos\/roles$/, (r) => r.fulfill(json({ roles: ROLES_CATALOGO })));
     await page.route(/\/api\/permisos\/funciones$/, (r) => r.fulfill(json({
       grupos: [{ modulo: 'general', funciones: [{ codigo: 'pagina.dashboard', nombreNegocio: 'Entrar al tablero', descripcion: null, tipo: 'pagina' }] }],
@@ -600,9 +597,9 @@ test.describe('HU #12053 · AC5 — la columna «Ámbito»', () => {
   test('TC-12053-19 · el proveedor se pinta por NOMBRE, no por uuid', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     mockUsers(page, [
-      usuario({ id: 2, username: 'gestor.sura', name: 'Gestor SURA (1)', role: 'proveedor', flitoProveedorSoatId: SURA }),
-      usuario({ id: 3, username: 'gestor.sura2', name: 'Gestor SURA (2)', role: 'proveedor', flitoProveedorSoatId: SURA }),
-      usuario({ id: 4, username: 'prov.huerfano', name: 'Proveedor sin atar', role: 'proveedor', flitoProveedorSoatId: null }),
+      usuario({ id: 2, username: 'gestor.sura', name: 'Gestor SURA (1)', role: 'proveedor', flitoProveedorId: SURA, proveedorNombre: 'SURA' }),
+      usuario({ id: 3, username: 'gestor.sura2', name: 'Gestor SURA (2)', role: 'proveedor', flitoProveedorId: SURA, proveedorNombre: 'SURA' }),
+      usuario({ id: 4, username: 'prov.huerfano', name: 'Proveedor sin atar', role: 'proveedor', flitoProveedorId: null, proveedorNombre: null }),
     ]);
     await mockCatalogos(page);
 
@@ -737,5 +734,91 @@ test.describe('HU #12175 · AC3 — el corte no reordena el formulario', () => {
       await permisos.elementHandle(),
     );
     expect(ambitoVaPrimero).toBe(true);
+  });
+});
+
+test.describe('HU #14344 · proveedor de cualquier servicio al atar', () => {
+  test('AC1 · crear: viaja solo `flitoProveedorId`, nunca los dos campos', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const { posts } = mockUsers(page);
+    await mockCatalogos(page, { proveedores: [{ id: SURA, nombre: 'Solo Logística S.A.S.' }] });
+    await abrirAlta(page, 'proveedor');
+    await page.getByLabel('Proveedor', { exact: true }).selectOption(SURA);
+    await page.getByRole('button', { name: 'Crear usuario' }).click();
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0].flitoProveedorId).toBe(SURA);
+    expect(posts[0]).not.toHaveProperty('flitoProveedorSoatId');
+  });
+
+  test('AC1 · editar: viaja solo `flitoProveedorId`', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const prov = usuario({ id: 11, username: 'gestor.sura', name: 'Gestor SURA', role: 'proveedor', flitoProveedorId: SURA, proveedorNombre: 'SURA' });
+    const { patches } = mockUsers(page, [prov]);
+    await mockCatalogos(page);
+    await page.goto('/users');
+    await page.getByRole('button', { name: 'Editar' }).first().click();
+    await page.getByLabel('Proveedor', { exact: true }).selectOption(MUNDIAL);
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect.poll(() => patches.length).toBe(1);
+    expect(patches[0]).toEqual({ flitoProveedorId: MUNDIAL });
+  });
+
+  test('cambiar a un rol sin proveedor limpia la atadura con el campo nuevo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const prov = usuario({ id: 11, username: 'gestor.sura', name: 'Gestor SURA', role: 'proveedor', flitoProveedorId: SURA, proveedorNombre: 'SURA' });
+    const { patches } = mockUsers(page, [prov]);
+    await mockCatalogos(page);
+    await page.goto('/users');
+    await page.getByRole('button', { name: 'Editar' }).first().click();
+    await page.getByLabel('Rol base').selectOption('auditor');
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect.poll(() => patches.length).toBe(1);
+    expect(patches[0].flitoProveedorId).toBeNull();
+    expect(patches[0]).not.toHaveProperty('flitoProveedorSoatId');
+  });
+
+  test('AC4 · un usuario creado antes, solo con el campo anterior, muestra su proveedor', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const antiguo = usuario({ id: 11, username: 'gestor.sura', name: 'Gestor SURA', role: 'proveedor', flitoProveedorSoatId: SURA });
+    mockUsers(page, [antiguo]);
+    await mockCatalogos(page);
+    await page.goto('/users');
+    await page.getByRole('button', { name: 'Editar' }).first().click();
+    await expect(page.getByLabel('Proveedor', { exact: true })).toHaveValue(SURA);
+  });
+
+  test('sin la función de listar: lo dice, sin reintento, y conserva al asignado', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const prov = usuario({ id: 11, username: 'gestor.sura', name: 'Gestor SURA', role: 'proveedor', flitoProveedorId: SURA, proveedorNombre: 'SURA' });
+    const { patches } = mockUsers(page, [prov]);
+    await mockCatalogos(page);
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores\/asignables-usuario$/, (r) => r.fulfill(json({ error: 'Forbidden: parametrizacion.proveedores.listar' }, 403)));
+    await page.goto('/users');
+    // La columna de ámbito no depende de ese catálogo.
+    await expect(celdaAmbito(page, 'gestor.sura')).toHaveText('SURA');
+    await page.getByRole('button', { name: 'Editar' }).first().click();
+    const select = page.getByLabel('Proveedor', { exact: true });
+    await expect(page.getByText('No tienes permiso para ver los proveedores.', { exact: false })).toBeVisible();
+    await expect(page.getByText(/Forbidden/)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Volver a cargar proveedores' })).toHaveCount(0);
+    await expect(select).toBeDisabled();
+    await expect(select).toHaveValue(SURA);
+    await expect(select.getByRole('option', { name: 'SURA', exact: true })).toHaveCount(1);
+    await page.getByLabel('Nombre completo').fill('Gestor II');
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect.poll(() => patches.length).toBe(1);
+    expect(patches[0]).toEqual({ name: 'Gestor II' });
+  });
+
+  test('sin la función, el alta no se guarda sin proveedor', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const { posts } = mockUsers(page);
+    await mockCatalogos(page);
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores\/asignables-usuario$/, (r) => r.fulfill(json({ error: 'x' }, 403)));
+    await abrirAlta(page, 'proveedor');
+    await expect(page.getByText('No tienes permiso para ver los proveedores.', { exact: false })).toBeVisible();
+    await page.getByRole('button', { name: 'Crear usuario' }).click();
+    await expect(page.getByRole('alert')).toHaveText('Selecciona el proveedor para este rol.');
+    expect(posts).toHaveLength(0);
   });
 });

@@ -46,7 +46,7 @@ async function montar(page: Page, alGuardar: (intento: number) => Respuesta) {
   await page.route(/\/api\/clients\/1$/, (route) => (route.request().method() === 'PATCH' ? responder(route) : route.continue()));
   await page.route(/\/api\/siigo\/clientes\/validacion\/detalle/, (route) => json(route, 200, { total: 1, data: [VEREDICTO] }));
   await page.route(/\/api\/siigo\/clientes\/\d+\/validacion/, (route) => json(route, 200, VEREDICTO));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (route) => json(route, 200, []));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat$/, (route) => json(route, 200, []));
   await page.route(/\/api\/siigo\/ciudades$/, (route) => json(route, 200, { cargado: true, total: 4605, activas: 4605, version: '2026-08-06' }));
   await page.route(/\/api\/siigo\/ciudades\/paises/, (route) => json(route, 200, { data: [{ codigo: 'Co', nombre: 'Colombia' }] }));
   await page.route(/\/api\/siigo\/ciudades\/Co\/departamentos/, (route) => json(route, 200, { data: [{ codigo: '11', nombre: 'Bogotá D.C' }] }));

@@ -1,5 +1,5 @@
-// FLITO — el ÁMBITO del usuario por rol: su proveedor SOAT (uno) y sus organismos de tránsito
-// (varios). HU #12053 / Feature #12052.
+// FLITO — el ÁMBITO del usuario por rol: su proveedor (uno, de cualquier servicio, HU #14344) y sus
+// organismos de tránsito (varios). HU #12053 / Feature #12052.
 //
 // Especificación que manda sobre este archivo, literal por literal:
 // `docs/ux/usuarios-ambito-proveedor-y-gestor-impuestos.md`.
@@ -17,7 +17,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getOrganismoByCodigo } from '@operaciones/shared-types';
-import { api, errorMessage } from '../../lib/api';
+import { api, ApiError, errorMessage } from '../../lib/api';
 import FlitSelect from '../../components/flit/FlitSelect';
 import { opcionesConEstado } from '../../components/flit/opcionesConEstado';
 
@@ -25,11 +25,13 @@ import { opcionesConEstado } from '../../components/flit/opcionesConEstado';
 
 export const PROVEEDOR_LABEL = 'Proveedor';
 const PROVEEDOR_VACIA = 'Seleccione proveedor…';
-const PROVEEDOR_AYUDA = 'Define qué cola de SOAT ve este usuario: solo los trámites de ese proveedor.';
+const PROVEEDOR_AYUDA = 'Define a qué proveedor queda atado este usuario: solo ve el trabajo de ese proveedor.';
 const PROVEEDOR_CARGANDO = 'Cargando proveedores…';
 const PROVEEDOR_ERROR = 'No se pudieron cargar los proveedores.';
 const PROVEEDOR_VACIO = 'No hay proveedores activos. Crea uno en Clientes y proveedores antes de asignar este enlace.';
 const PROVEEDOR_REINTENTO = 'Volver a cargar proveedores';
+const PROVEEDOR_SIN_PERMISO = 'No tienes permiso para ver los proveedores. Pide a un administrador la acción «Ver clientes y proveedores».';
+const PROVEEDOR_ASIGNADO = 'Proveedor asignado';
 export const PROVEEDOR_REQUERIDO = 'Selecciona el proveedor para este rol.';
 export const PROVEEDOR_RELOGIN = 'El usuario debe volver a iniciar sesión para aplicar el nuevo proveedor.';
 
@@ -47,8 +49,8 @@ const AVISO_RELOGIN = 'Al guardar, este usuario deberá volver a iniciar sesión
 
 // ───────────────────────────────────── Catálogos ─────────────────────────────────────────────────
 
-/** Lo que los campos necesitan de `GET /flito/parametrizacion/proveedores-soat`. Nada más. */
-export interface ProveedorSoat { id: string; nombre: string; activo: boolean }
+/** Lo que el campo necesita de `GET /flito/parametrizacion/proveedores/asignables-usuario`. Nada más. */
+export interface ProveedorAsignable { id: string; nombre: string }
 /** Lo que los campos necesitan de `GET /flito/parametrizacion/organismos`. Nada más. */
 export interface OrganismoParametrizado { codigo: string; alias: string | null; activo: boolean }
 
@@ -62,46 +64,41 @@ export interface OrganismoParametrizado { codigo: string; alias: string | null; 
 function useCatalogo<T>(ruta: string, mapear: (fila: any) => T, habilitado = true) {
   const [data, setData] = useState<T[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sinPermiso, setSinPermiso] = useState(false);
   const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
     if (!habilitado) return;
     let vivo = true;
-    setData(null); setError(null);
+    setData(null); setError(null); setSinPermiso(false);
     api.get<any[]>(ruta)
       .then((filas) => { if (vivo) setData(filas.map(mapear)); })
-      .catch((e) => { if (vivo) setError(errorMessage(e)); });
+      .catch((e) => {
+        if (!vivo) return;
+        setError(errorMessage(e));
+        setSinPermiso(e instanceof ApiError && e.status === 403);
+      });
     return () => { vivo = false; };
     // `mapear` es una constante de módulo; la ruta no cambia. La recarga es la única entrada.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ruta, recarga, habilitado]);
 
-  return { data, error, recargar: () => setRecarga((n) => n + 1) };
+  return { data, error, sinPermiso, recargar: () => setRecarga((n) => n + 1) };
 }
 
-const aProveedor = (p: any): ProveedorSoat => ({ id: String(p.id), nombre: p.nombre, activo: !!p.activo });
+const aProveedor = (p: any): ProveedorAsignable => ({ id: String(p.id), nombre: p.nombre });
 const aOrganismo = (o: any): OrganismoParametrizado => ({ codigo: String(o.codigo), alias: o.alias ?? null, activo: !!o.activo });
 
 /**
- * Catálogo de proveedores SOAT. **Del endpoint de parametrización**, que es el que trae `activo` y
- * el que el `admin` ya puede leer hoy. Devuelve activos e inactivos: filtrar al OFRECER es trabajo
- * de la UI (decisión 9 de UX), no del servidor.
- */
-/*
- * `habilitado` (HU #12079). Aditivo y con defecto `true`: los dos usos de `Users.tsx` quedan
- * idénticos.
+ * Proveedores a los que se puede atar un usuario: activos y vigentes, con cualquier servicio (HU #14344). El API ya no
+ * devuelve inactivos: el asignado que dejó de estar activo lo conserva `ProveedorField`.
  *
- * Existe porque `Clients.tsx` monta este catálogo para TODOS los roles que ven la pantalla y solo
- * `admin` puede leer la ruta (`requireRole('admin','auditor')` y `financiera` no está). Sin la
- * compuerta, abrir «Clientes y proveedores» como `financiera` dispararía un `GET` que responde 403
- * y pintaría un fallo de catálogo en una pantalla donde ese catálogo ni se ofrece. Es el mismo
- * gesto que `FlitoSoat.tsx:281` ya hace con `esOperaciones`.
- *
- * Con `habilitado: false` el hook se queda en `data === null` sin error — el estado «cargando» —,
- * así que quien lo apague tiene que no renderizar el selector, que es justo lo que hace la ficha.
+ * La ruta exige `parametrizacion.proveedores.listar`, que no va atada a la de crear usuarios. Decide el servidor y no
+ * una copia de sus reglas en la web: si responde 403, `sinPermiso` hace que el campo diga por qué no se puede elegir,
+ * sin ofrecer un reintento que volvería a fallar. A quien tiene la función no le cambia nada.
  */
-export function useProveedoresSoat(habilitado = true) {
-  return useCatalogo<ProveedorSoat>('/flito/parametrizacion/proveedores-soat', aProveedor, habilitado);
+export function useProveedoresAsignables() {
+  return useCatalogo<ProveedorAsignable>('/flito/parametrizacion/proveedores/asignables-usuario', aProveedor);
 }
 
 /**
@@ -116,7 +113,7 @@ export function useOrganismosParametrizados() {
   return useCatalogo<OrganismoParametrizado>('/flito/parametrizacion/organismos', aOrganismo);
 }
 
-export type CatalogoProveedores = ReturnType<typeof useProveedoresSoat>;
+export type CatalogoProveedores = ReturnType<typeof useProveedoresAsignables>;
 export type CatalogoOrganismos = ReturnType<typeof useOrganismosParametrizados>;
 
 // ─────────────────────────── Nombres: los mismos en el campo y en la tabla ───────────────────────
@@ -129,11 +126,6 @@ export type CatalogoOrganismos = ReturnType<typeof useOrganismosParametrizados>;
 export function nombreOrganismo(data: OrganismoParametrizado[] | null, codigo: string): string {
   const org = data?.find((o) => o.codigo === codigo);
   return org?.alias ?? getOrganismoByCodigo(codigo)?.ciudad ?? codigo;
-}
-
-/** Nombre del proveedor, o `null` si el catálogo no cargó o el id ya no está en él. */
-export function nombreProveedor(data: ProveedorSoat[] | null, id: string): string | null {
-  return data?.find((p) => p.id === id)?.nombre ?? null;
 }
 
 /**
@@ -159,50 +151,53 @@ export function resumenOrganismos(etiquetas: string[]): string {
   return `${etiquetas[0]}, ${etiquetas[1]} y ${etiquetas.length - 2} más`;
 }
 
-// ─────────────────────────────── Campo 1 · Proveedor SOAT ────────────────────────────────────────
+// ─────────────────────────────────── Campo 1 · Proveedor ─────────────────────────────────────────
 
 /**
- * El widget es `FlitSelect` **tal cual, sin ningún prop nuevo**: son ~4 aseguradoras, muy por
- * debajo del umbral (~40 opciones) donde un `<select>` nativo deja de leerse, y el kit ya trae
+ * El widget es `FlitSelect` **tal cual, sin ningún prop nuevo**: son pocas empresas, muy por debajo
+ * del umbral (~40 opciones) donde un `<select>` nativo deja de leerse, y el kit ya trae
  * `<label for>`, región `role="status"` montada siempre, `aria-describedby`, `required` nativo,
  * `error`/`onInvalido` con foco al control y `onReintentar`. Esta HU no toca el kit.
  *
- * **El proveedor desactivado** (HU #13963): sale en la lista con «Inactivo», deshabilitado y con
- * `aria-disabled` (`opcionesConEstado`, el mismo de los desplegables de compañía, HU #13950); los
- * eliminados el API ya no los devuelve. El asignado actual se conserva aunque esté inactivo: si se
- * vaciara, guardar cualquier otro campo se llevaría la atadura por delante sin que el admin lo pidiera.
+ * **El asignado que ya no se ofrece** (HU #13963, #14344): el API solo devuelve activos, así que un
+ * proveedor inactivado después no viene en la lista. Se conserva con su nombre (`nombreActual`) y la
+ * nota «No disponible»: si se vaciara, guardar cualquier otro campo se llevaría la atadura por delante.
  */
-export function ProveedorSoatField({ proveedores, value, onChange, error, onInvalido, editando }: {
+export function ProveedorField({ proveedores, value, nombreActual, onChange, error, onInvalido, editando }: {
   proveedores: CatalogoProveedores;
   value: string;
+  /** Nombre del proveedor que el usuario ya tiene; lo trae la lista de usuarios. */
+  nombreActual?: string | null;
   onChange: (v: string) => void;
   error: string | null;
   onInvalido: () => void;
   editando?: boolean;
 }) {
-  const { data, error: errorCarga, recargar } = proveedores;
-  const cargando = data === null && !errorCarga;
+  const { data, error: errorCarga, sinPermiso, recargar } = proveedores;
+  const cargando = data === null && !errorCarga && !sinPermiso;
 
-  // Vacío = nada que se pueda elegir ni conservar: ni un activo ni el asignado actual en el catálogo.
-  const vacio = data !== null && !data.some((p) => p.activo || p.id === value);
-  const mensaje = errorCarga ? PROVEEDOR_ERROR : cargando ? PROVEEDOR_CARGANDO : vacio ? PROVEEDOR_VACIO : null;
+  // Vacío = no hay nada que se pueda elegir. Lo ya asignado se sigue viendo, pero no se ofrece.
+  const vacio = data !== null && data.length === 0;
+  const fallo = !!errorCarga && !sinPermiso;
+  const mensaje = sinPermiso ? PROVEEDOR_SIN_PERMISO : fallo ? PROVEEDOR_ERROR : cargando ? PROVEEDOR_CARGANDO : vacio ? PROVEEDOR_VACIO : null;
 
   return (
     <FlitSelect
       label={PROVEEDOR_LABEL}
       value={value}
       onChange={onChange}
-      opciones={opcionesConEstado(data ?? [], data ? value : '', {
+      // Sin permiso no se puede decir que el asignado no esté disponible: solo se muestra.
+      opciones={opcionesConEstado(sinPermiso && value ? [{ id: value, nombre: nombreActual ?? PROVEEDOR_ASIGNADO }] : data ?? [], data || sinPermiso ? value : '', {
         placeholder: PROVEEDOR_VACIA,
-        etiquetaAusente: 'Proveedor asignado',
+        etiquetaAusente: nombreActual ?? PROVEEDOR_ASIGNADO,
       })}
       ayuda={editando ? `${PROVEEDOR_AYUDA} ${AVISO_RELOGIN}` : PROVEEDOR_AYUDA}
       mensaje={mensaje}
-      fallo={!!errorCarga}
-      disabled={cargando || vacio || !!errorCarga}
-      // Solo el error de carga se reintenta. En vacío NO se ofrece: volver a pedir el catálogo no
-      // crea proveedores, y un botón que no arregla nada es peor que ninguno.
-      onReintentar={errorCarga ? recargar : undefined}
+      fallo={fallo || sinPermiso}
+      disabled={cargando || vacio || !!errorCarga || sinPermiso}
+      // Solo el error de carga se reintenta. En vacío y sin permiso NO se ofrece: volver a pedir el
+      // catálogo no lo arregla, y un botón que no arregla nada es peor que ninguno.
+      onReintentar={fallo ? recargar : undefined}
       textoReintento={PROVEEDOR_REINTENTO}
       required
       error={error}

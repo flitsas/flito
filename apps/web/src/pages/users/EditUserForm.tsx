@@ -8,7 +8,7 @@ import type { FuncionDeUsuario } from '@operaciones/shared-types';
 import { api, cuerpoAntiBloqueo } from '../../lib/api';
 import { flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
 import FlitModal from '../../components/flit/FlitModal';
-import { tipoEnlaceDe, type RolOpcion, type User } from './types';
+import { proveedorDeUsuario, tipoEnlaceDe, type RolOpcion, type User } from './types';
 import { Field, Footer, formatErrors, inputCls } from './UserFormShared';
 import { COMPANIA_REQUERIDA, COMPANIA_RELOGIN, type CatalogoCompanias } from './CompaniaField';
 import { AmbitoCampos } from './Ambito';
@@ -56,7 +56,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
     role: user.role,
     excepciones: user.funciones ?? [],
     companiaId: user.companiaId ? String(user.companiaId) : '',
-    flitoProveedorSoatId: user.flitoProveedorSoatId ?? '',
+    flitoProveedorId: proveedorDeUsuario(user),
     organismosCodigos: user.organismosCodigos,
   });
   const [submitting, setSubmitting] = useState(false);
@@ -121,10 +121,10 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
       if (companiaChanged) body.companiaId = Number(f.companiaId);
       if (enlace !== 'compania' && user.companiaId) body.companiaId = null;
 
-      const proveedorPrevio = user.flitoProveedorSoatId ?? '';
-      const proveedorChanged = enlace === 'proveedor' && f.flitoProveedorSoatId !== proveedorPrevio;
-      if (proveedorChanged) body.flitoProveedorSoatId = f.flitoProveedorSoatId;
-      if (enlace !== 'proveedor' && user.flitoProveedorSoatId) body.flitoProveedorSoatId = null;
+      const proveedorPrevio = proveedorDeUsuario(user);
+      const proveedorChanged = enlace === 'proveedor' && f.flitoProveedorId !== proveedorPrevio;
+      if (proveedorChanged) body.flitoProveedorId = f.flitoProveedorId;
+      if (enlace !== 'proveedor' && proveedorPrevio) body.flitoProveedorId = null;
 
       const organismosChanged = enlace === 'organismos_transito' && !mismoConjunto(f.organismosCodigos, user.organismosCodigos);
       if (organismosChanged) body.organismosCodigos = f.organismosCodigos;
@@ -156,7 +156,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
     e.preventDefault();
     if (submitting) return;
     if (enlace === 'compania' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    if (enlace === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
+    if (enlace === 'proveedor' && !f.flitoProveedorId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
     if (enlace === 'organismos_transito' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
     setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
 
@@ -190,7 +190,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
                   role: nuevo,
                   // Limpiar ataduras que ya no aplican; conservar las del mismo tipo de enlace.
                   companiaId: nuevoEnlace === 'compania' ? f.companiaId : '',
-                  flitoProveedorSoatId: nuevoEnlace === 'proveedor' ? f.flitoProveedorSoatId : '',
+                  flitoProveedorId: nuevoEnlace === 'proveedor' ? f.flitoProveedorId : '',
                   organismosCodigos: nuevoEnlace === 'organismos_transito'
                     ? (enlaceUsuario === 'organismos_transito' ? user.organismosCodigos : [])
                     : [],
@@ -208,6 +208,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
             editando
             companias={companias}
             proveedores={proveedores}
+            proveedorNombreActual={user.proveedorNombre}
             organismos={organismos}
             valores={f}
             onValores={(p) => setF({ ...f, ...p })}

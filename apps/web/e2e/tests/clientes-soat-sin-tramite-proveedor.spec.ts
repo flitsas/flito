@@ -12,7 +12,7 @@ const AXA = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff';
 const MUNDIAL = 'cccccccc-dddd-4eee-8fff-000000000000';
 
 const RE_CLIENTES = /\/api\/clients(\?|$)/;
-const RE_PROVEEDORES = /\/api\/flito\/parametrizacion\/proveedores-soat$/;
+const RE_PROVEEDORES = /\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat$/;
 const RE_PATCH_COMPANIA = /\/api\/flito\/parametrizacion\/companias\/\d+$/;
 
 const AVISO = 'Tiene usuarios con permiso de SOAT sin trámite, pero no tiene proveedor elegido: el permiso no toma efecto hasta elegirlo.';
@@ -40,7 +40,6 @@ const SIN_SIN_AVISO = cliente(4, 'Rentadora Caribe', null, false);
 const CATALOGO = [
   { id: SURA, nombre: 'SURA', activo: true },
   { id: AXA, nombre: 'AXA', activo: true },
-  { id: MUNDIAL, nombre: 'MUNDIAL', activo: false },
 ];
 
 async function montar(page: Page, opciones: {
@@ -128,9 +127,8 @@ test.describe('HU #13968 · AC1 / AC4 — el cuadro: un solo control y el aviso'
     await expect(modal.getByLabel('Canal abierto')).toHaveCount(0);
     const selector = modal.getByLabel(ETIQUETA);
     await expect(selector).toHaveValue('');
-    // HU #13963: el inactivo se ve, con «(Inactivo)» y deshabilitado (antes se ocultaba).
-    await expect(selector.locator('option')).toHaveText(['Sin proveedor', 'SURA', 'AXA', 'MUNDIAL (Inactivo)']);
-    await expect(selector.locator(`option[value="${MUNDIAL}"]`)).toHaveJSProperty('disabled', true);
+    // HU #14342 AC2: solo lo que entrega el selector de SOAT.
+    await expect(selector.locator('option')).toHaveText(['Sin proveedor', 'SURA', 'AXA']);
     // AC4: sin el indicador, no hay aviso.
     await expect(modal.getByText(AVISO)).toHaveCount(0);
 
@@ -215,7 +213,7 @@ test.describe('HU #13968 · AC8 — cuatro estados y error de guardado pulido', 
     [403, 'No tiene permiso para elegir el proveedor de esta compañía.'],
     [500, 'No se pudo guardar el proveedor. Intente de nuevo en un momento.'],
   ] as const) {
-    test(`guardado ${status}: copy pulido, el cuadro sigue abierto y conserva la elección`, async ({ page }) => {
+    test(`guardado ${status}: copy pulido y el cuadro sigue abierto`, async ({ page }) => {
       await loginAs(page, OPERACIONES_USER);
       await montar(page, {
         patch: { status, cuerpo: { error: 'x', details: { fieldErrors: { proveedorSoatSinTramiteId: ['inactivo'] } } } },
@@ -226,7 +224,8 @@ test.describe('HU #13968 · AC8 — cuatro estados y error de guardado pulido', 
       await modal.getByRole('button', { name: 'Guardar cambios' }).click();
       await expect(modal.getByRole('alert')).toHaveText(copy);
       await expect(modal.getByText(/proveedorSoatSinTramiteId/)).toHaveCount(0);
-      await expect(modal.getByLabel(ETIQUETA)).toHaveValue(AXA);
+      // HU #14342 AC5: con el 400 el proveedor ya no se puede elegir, así que vuelve el asignado. Lo demás no toca la elección.
+      await expect(modal.getByLabel(ETIQUETA)).toHaveValue(status === 400 ? SURA : AXA);
     });
   }
 });

@@ -36,7 +36,7 @@ async function mockCola(page: Page, respuesta: Respuesta, opciones: { quitarTras
   const cap = { buscadas: 0, reintentos: [] as { id: string; cuerpo: string | null }[] };
   let soltar: () => void = () => {};
   const retenida = new Promise<void>((r) => { soltar = () => r(); });
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (r) => json(r, 200, []));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (r) => json(r, 200, []));
   await page.route(/\/api\/flito\/soat\/facetas/, (r) => json(r, 200, { companias: [], organismos: [], proveedores: [] }));
   await page.route(/\/api\/flito\/soat\?/, (r) => json(r, 200, { items: [], total: 0, page: 1, pageSize: 50 }));
   await page.route(/\/api\/flito\/soat\/cliente\/incompletas\/buscar$/, (r) => {

@@ -174,7 +174,7 @@ async function mockCola(page: Page, m: Modulo): Promise<TrazaCola> {
   const traza: TrazaCola = { busquedas: [], totalForzado: null };
   await page.route(m.facetas, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(m.datosFacetas) }));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.route(m.cola, (route: Route) => {
     const url = new URL(route.request().url());

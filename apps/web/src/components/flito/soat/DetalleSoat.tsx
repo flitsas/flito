@@ -11,6 +11,9 @@
 // Notificación (§8): la acción correcta cierra el modal Y deja un toast; la fallida se queda aquí, en
 // línea y con `role="alert"`, nunca con el mensaje crudo del API.
 
+import FlitSelect from '../../flit/FlitSelect';
+import { opcionesConEstado } from '../../flit/opcionesConEstado';
+import { SOAT_REINTENTO, mensajeSelectorSoat, type CatalogoSelector } from '../../clientes/proveedoresDatos';
 import { useState, type ReactNode, type RefObject } from 'react';
 import { Eye, FileUp, Lock, TriangleAlert } from 'lucide-react';
 import { ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
@@ -28,7 +31,7 @@ import {
 } from '../../flit/flitPageKit';
 import ChipEstadoSoat from './ChipEstadoSoat';
 import { DocumentosAdicionalesSeccion } from './DocumentosAdicionalesLista';
-import { ESTADOS_DESTINO_REVERSA, fecha, fechaDia, pesos, type Proveedor, type SoatItem } from './tipos';
+import { ESTADOS_DESTINO_REVERSA, fecha, fechaDia, pesos, type SoatItem } from './tipos';
 
 type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'proveedor' | 'asumir' | 'devolver';
 
@@ -72,7 +75,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
   soat: SoatItem; puede: PermisosDetalleSoat; soloLectura: boolean; esCliente: boolean;
   /** `null` = sin `soat.soportes.descargar`: el botón no existe en el DOM (AC4). */
   descarga: EstadoDescargaComprobante | null;
-  proveedores: Proveedor[]; restoreFocusRef?: RefObject<HTMLElement | null>;
+  proveedores: CatalogoSelector; restoreFocusRef?: RefObject<HTMLElement | null>;
   onClose: () => void; onCambio: () => void;
 }) {
   const [accion, setAccion] = useState<Accion>('idle');
@@ -123,12 +126,10 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
   );
 
   const selectProveedor = (etiqueta: string) => (
-    <FlitField label={etiqueta}>
-      <select className={flitInp} value={proveedorSoatId} onChange={(e) => setProveedorSoatId(e.target.value)}>
-        <option value="">Selecciona…</option>
-        {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-      </select>
-    </FlitField>
+    <FlitSelect label={etiqueta} value={proveedorSoatId} onChange={setProveedorSoatId}
+      opciones={opcionesConEstado(proveedores.data ?? [], '', { placeholder: 'Selecciona…' })}
+      mensaje={mensajeSelectorSoat(proveedores)} fallo={proveedores.error} disabled={!proveedores.data?.length}
+      onReintentar={proveedores.error ? proveedores.recargar : undefined} textoReintento={SOAT_REINTENTO} />
   );
 
   return (

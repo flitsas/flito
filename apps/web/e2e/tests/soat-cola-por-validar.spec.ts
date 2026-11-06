@@ -44,7 +44,7 @@ async function mockCola(page: Page, opciones: {
   const detalles: string[] = [];
   const soatPorId: string[] = [];
   const colas: string[] = [];
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (r) => json(r, 200, []));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (r) => json(r, 200, []));
   await page.route(/\/api\/flito\/soat\/facetas/, (r) => json(r, 200, { companias: [], organismos: [], proveedores: [] }));
   await page.route(/\/api\/flito\/soat\?/, (r) => {
     colas.push(new URL(r.request().url()).search);

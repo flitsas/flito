@@ -41,7 +41,7 @@ const AXA = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff';
 /** Un gestor RETIRADO del catálogo pero todavía atado a una compañía. Es el caso que se pierde solo. */
 const MUNDIAL = 'cccccccc-dddd-4eee-8fff-000000000000';
 
-const RE_PROVEEDORES = /\/api\/flito\/parametrizacion\/proveedores-soat$/;
+const RE_PROVEEDORES = /\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat$/;
 const RE_COLA = /\/api\/flito\/soat\?/;
 const RE_PRECONSULTA = /\/api\/flito\/soat\/cliente\/preconsulta$/;
 

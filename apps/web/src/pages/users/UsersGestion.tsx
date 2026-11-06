@@ -3,7 +3,7 @@
 //
 // Era el cuerpo de `pages/Users.tsx`. Bajó aquí en la HU #12171 (Feature #12072) porque el auditor
 // entra a la misma página y solo ve el historial: los hooks de catálogos (`useCompanias`,
-// `useProveedoresSoat`, `useOrganismosParametrizados`) y la carga de la lista no pueden ser
+// `useProveedoresAsignables`, `useOrganismosParametrizados`) y la carga de la lista no pueden ser
 // condicionales dentro de un componente, así que lo de admin vive en ESTE componente y `Users.tsx`
 // queda como conmutador. Si el auditor montara esto, cada hook le respondería 403 en silencio.
 //
@@ -19,7 +19,7 @@ import { useAuth } from '../../lib/auth';
 import PageHeaderCard from '../../components/flit/PageHeaderCard';
 import GradientButton from '../../components/flit/GradientButton';
 import { FlitPillGroup, flitPillBtn, flitPillBtnClase } from '../../components/flit/flitPageKit';
-import { useOrganismosParametrizados, useProveedoresSoat } from './AtaduraFields';
+import { useOrganismosParametrizados, useProveedoresAsignables } from './AtaduraFields';
 import { useCompanias } from './CompaniaField';
 import { formatErrors } from './UserFormShared';
 import type { ResumenUsuarios, RolOpcion, User, VistaBajas } from './types';
@@ -44,7 +44,7 @@ export default function UsersGestion({ puedeExportar }: {
 }) {
   const { user: me } = useAuth();
   const companias = useCompanias();
-  const proveedores = useProveedoresSoat();
+  const proveedores = useProveedoresAsignables();
   const organismos = useOrganismosParametrizados();
   const catalogo = useCatalogoFunciones();
   const rolesCatalogo = useCatalogoRoles();
@@ -288,7 +288,6 @@ export default function UsersGestion({ puedeExportar }: {
               meId={me?.id}
               rolesCatalogo={rolesCatalogo}
               nombreCompania={nombreCompania}
-              proveedores={proveedores}
               organismos={organismos}
               onEditar={setEditing}
               onContrasena={setPwdTarget}
