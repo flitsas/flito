@@ -1,33 +1,34 @@
-// HU #13961 — Proveedores SOAT: estado, filtro, activar y desactivar en la pestaña Proveedores.
-// Feature #13940. Reusa las piezas de Clientes (#13948 / #13949). API existente (#13958):
-// `GET /api/flito/parametrizacion/proveedores-soat`, `GET …/:id/impacto` (`ImpactoProveedorSoat`) y
-// `PATCH …/:id/estado` `{ activo, activoEsperado }`.
+// HU #13961 — Proveedores: estado, filtro, activar y desactivar en la pestaña Proveedores.
+// Feature #13940. Reusa las piezas de Clientes (#13948 / #13949). Desde HU #14337 habla con la ruta unificada:
+// `GET /api/flito/parametrizacion/proveedores`, `GET …/:id/impacto` (`ImpactoProveedorDto`) y
+// `PATCH …/:id/estado` `{ activo, versionEsperada }`.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER, FINANCIERA_USER, funcionesDe } from '../helpers/auth';
 
 const loginAdmin = (page: Page) =>
-  loginAs(page, ADMIN_USER, { funciones: [...funcionesDe(ADMIN_USER), 'parametrizacion.proveedores.estado'] });
+  loginAs(page, ADMIN_USER, { funciones: [...funcionesDe(ADMIN_USER), 'parametrizacion.proveedores.estado', 'parametrizacion.proveedores.editar'] });
 
 const UUID = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
 const RE_UNIFICADA = /\/api\/flito\/parametrizacion\/proveedores$/;
-const RE_LISTA = /\/api\/flito\/parametrizacion\/proveedores-soat$/;
-const RE_IMPACTO = /\/api\/flito\/parametrizacion\/proveedores-soat\/([0-9a-f-]+)\/impacto$/;
-const RE_ESTADO = /\/api\/flito\/parametrizacion\/proveedores-soat\/([0-9a-f-]+)\/estado$/;
-const RE_UNO = /\/api\/flito\/parametrizacion\/proveedores-soat\/([0-9a-f-]+)$/;
+const RE_IMPACTO = /\/api\/flito\/parametrizacion\/proveedores\/([0-9a-f-]+)\/impacto$/;
+const RE_ESTADO = /\/api\/flito\/parametrizacion\/proveedores\/([0-9a-f-]+)\/estado$/;
+const RE_UNO = /\/api\/flito\/parametrizacion\/proveedores\/([0-9a-f-]+)$/;
 
 const json = (route: Route, status: number, body: unknown) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
 const proveedor = (n: number, nombre: string, activo: boolean) => ({
-  id: UUID(n), nombre, estrategia: 'portal', umbralOcr: 0.8, slaHoras: 24, activo,
+  id: UUID(n), nombre, nit: `90000000${n}`, servicios: ['soat'], activo, companiasPorServicio: { soat: 0 }, datosCompletos: true,
+  umbralOcr: 0.8, slaHoras: 24, version: 5,
 });
 
-/** Forma real de `ImpactoProveedorSoat` (flito-proveedores-estado.service.ts). */
-const impacto = (soatEnCurso: number, companias: string[], usuarios = 0) => ({
-  activo: true, soatEnCurso,
-  companiasGestorPorDefecto: { cantidad: companias.length, nombres: companias },
-  usuariosAfectados: usuarios, puedeEliminar: false, motivoNoEliminable: 'Primero debe desactivarlo.',
+/** Forma real de `ImpactoProveedorDto`. */
+const impacto = (textos: string[], usuarios = 0) => ({
+  activo: true, version: 5,
+  bloqueosPorServicio: { soat: textos.map((texto) => ({ motivo: 'companias', cantidad: 1, texto })) },
+  sesionesAfectadas: usuarios, puedeInactivar: true, motivoNoInactivable: null,
+  puedeEliminar: false, motivoNoEliminable: 'Primero debe desactivarlo.',
 });
 
 interface Montaje {
@@ -51,19 +52,16 @@ async function montar(page: Page, m: Montaje = {}) {
   let listados = 0;
   await page.route(/\/api\/clients(\?|$)/, (route) => json(route, 200, []));
   await page.route(/\/api\/siigo\/clientes\/validacion\/detalle/, (route) => json(route, 200, { data: [] }));
-  // HU #14162: la pestaña lee el listado unificado; `proveedores-soat` solo completa editar/detalle.
   await page.route(RE_UNIFICADA, (route) => {
     listados += 1;
-    return m.listaFalla?.() ? json(route, 500, { error: 'boom interno' })
-      : json(route, 200, lista.map((p) => ({ tipo: 'soat', id: p.id, nombre: p.nombre, nit: null, contacto: null, telefono: null, activo: p.activo, companiasAsignadas: 0 })));
+    return m.listaFalla?.() ? json(route, 500, { error: 'boom interno' }) : json(route, 200, lista);
   });
-  await page.route(RE_LISTA, (route) => json(route, 200, lista));
   await page.route(RE_IMPACTO, (route) => {
-    const r = m.impacto?.() ?? { status: 200, body: impacto(4, ['Acme S.A.S.', 'Beta Ltda.'], 2) };
+    const r = m.impacto?.() ?? { status: 200, body: impacto(['4 SOAT en curso', '2 compañías asignadas'], 2) };
     return r === 'abort' ? route.abort('failed') : json(route, r.status, r.body);
   });
   await page.route(RE_ESTADO, (route) => {
-    const body = route.request().postDataJSON() as { activo: boolean; activoEsperado: boolean };
+    const body = route.request().postDataJSON() as { activo: boolean; versionEsperada: number };
     patches.push(body);
     const r = m.estado?.() ?? { status: 200, body: { id: 'x', activo: body.activo } };
     if (r === 'abort') return route.abort('failed');
@@ -72,7 +70,10 @@ async function montar(page: Page, m: Montaje = {}) {
     return json(route, r.status, r.body);
   });
   await page.route(RE_UNO, (route) => {
-    if (route.request().method() !== 'PATCH') return route.fallback();
+    if (route.request().method() === 'GET') {
+      const p = lista.find((x) => x.id === RE_UNO.exec(route.request().url())?.[1]);
+      return json(route, 200, { ...p, telefono: '3000000000', correo: 'contacto@empresa.com', direccion: 'Calle 00 # 00-00', ciudad: 'Bogotá', contacto: 'Área de operaciones', soat: { estrategia: 'portal', umbralOcr: 0.8, slaHoras: 24 } });
+    }
     ediciones.push(route.request().postDataJSON() as Record<string, unknown>);
     return json(route, 200, {});
   });
@@ -83,8 +84,8 @@ async function montar(page: Page, m: Montaje = {}) {
 
 const filas = (page: Page) => page.getByRole('table').locator('tbody tr');
 const fila = (page: Page, nombre: string) => filas(page).filter({ hasText: nombre });
-// HU #14105: Estado es la 6.ª columna (Nombre, Tipo, NIT, Contacto y teléfono, Compañías asignadas, Estado).
-const chip = (page: Page, nombre: string) => fila(page, nombre).locator('td').nth(5);
+// HU #14337: Nombre, Servicios, NIT, Compañías asignadas, Umbral OCR, ANS pactado, Estado.
+const chip = (page: Page, nombre: string) => fila(page, nombre).locator('td').nth(6);
 const kebab = (page: Page, nombre: string) => page.getByRole('button', { name: `Acciones de ${nombre}` });
 const menu = (page: Page) => page.getByRole('menu');
 const dialogo = (page: Page) => page.getByRole('dialog');
@@ -96,7 +97,7 @@ async function abrirOpcion(page: Page, nombre: string, opcion: string) {
   await menu(page).getByRole('menuitem', { name: opcion }).click();
 }
 
-test.describe('HU #13961 · Proveedores SOAT — estado, filtro, activar y desactivar', () => {
+test.describe('HU #13961 · Proveedores — estado, filtro, activar y desactivar', () => {
   test('AC1 — 3 activos y 1 inactivo: filtro en Todos, columna Estado y «Mostrando 4 de 4»', async ({ page }) => {
     await loginAdmin(page);
     await montar(page);
@@ -119,32 +120,32 @@ test.describe('HU #13961 · Proveedores SOAT — estado, filtro, activar y desac
     await expect(page.getByRole('table')).toHaveCount(0);
   });
 
-  test('AC3 — 4 SOAT y 2 compañías: frase del impacto; confirmar → Inactivo + «Proveedor desactivado.»', async ({ page }) => {
+  test('AC3 — con bloqueos: frase del impacto; confirmar → Inactivo + «Proveedor desactivado.»', async ({ page }) => {
     await loginAdmin(page);
     const m = await montar(page);
     await kebab(page, 'Proveedor Uno').click();
     await expect(menu(page).getByRole('menuitem')).toHaveText(['Desactivar']);
     await menu(page).getByRole('menuitem', { name: 'Desactivar' }).click();
     await expect(dialogo(page)).toHaveAttribute('aria-label', 'Desactivar «Proveedor Uno»');
-    await expect(dialogo(page).getByText('4 SOAT en curso, proveedor de SOAT sin trámite de 2 compañías.', { exact: true })).toBeVisible();
+    await expect(dialogo(page).getByText('4 SOAT en curso, 2 compañías asignadas.', { exact: true })).toBeVisible();
     await expect(dialogo(page).getByText('Se cerrará la sesión de sus 2 usuarios.')).toBeVisible();
     await expect(dialogo(page).getByRole('button', { name: 'Cancelar' })).toBeFocused();
     await dialogo(page).getByRole('button', { name: 'Desactivar' }).click();
     await expect(dialogo(page)).toHaveCount(0);
     await expect(page.getByText('Proveedor desactivado.')).toBeVisible();
     await expect(chip(page, 'Proveedor Uno')).toHaveText('Inactivo');
-    expect(m.patches).toEqual([{ activo: false, activoEsperado: true }]);
+    expect(m.patches).toEqual([{ activo: false, versionEsperada: 5 }]);
   });
 
-  test('AC3 — singular y vacío: «1 SOAT en curso, … de 1 compañía.» / «No tiene procesos en curso.»', async ({ page }) => {
+  test('AC3 — un usuario y vacío: «No tiene procesos en curso.»', async ({ page }) => {
     await loginAdmin(page);
-    let cuerpo = impacto(1, ['Acme S.A.S.'], 1);
+    let cuerpo = impacto(['1 SOAT en curso', '1 compañía asignada'], 1);
     await montar(page, { impacto: () => ({ status: 200, body: cuerpo }) });
     await abrirOpcion(page, 'Proveedor Uno', 'Desactivar');
-    await expect(dialogo(page).getByText('1 SOAT en curso, proveedor de SOAT sin trámite de 1 compañía.', { exact: true })).toBeVisible();
+    await expect(dialogo(page).getByText('1 SOAT en curso, 1 compañía asignada.', { exact: true })).toBeVisible();
     await expect(dialogo(page).getByText('Se cerrará la sesión de su usuario.')).toBeVisible();
     await page.keyboard.press('Escape');
-    cuerpo = impacto(0, []);
+    cuerpo = impacto([]);
     await abrirOpcion(page, 'Proveedor Dos', 'Desactivar');
     await expect(dialogo(page).getByText('No tiene procesos en curso.')).toBeVisible();
     await expect(dialogo(page).getByText(/Se cerrará la sesión/)).toHaveCount(0);
@@ -160,15 +161,16 @@ test.describe('HU #13961 · Proveedores SOAT — estado, filtro, activar y desac
     await dialogo(page).getByRole('button', { name: 'Activar' }).click();
     await expect(page.getByText('Proveedor activado.')).toBeVisible();
     await expect(chip(page, 'Proveedor Cuatro')).toHaveText('Activo');
-    expect(m.patches).toEqual([{ activo: true, activoEsperado: false }]);
+    expect(m.patches).toEqual([{ activo: true, versionEsperada: 5 }]);
   });
 
-  test('AC5 — editar: sin casilla «Activo» y el PATCH no envía `activo`', async ({ page }) => {
+  test('AC5 — editar: sin interruptor «Activo» y el PATCH no envía `activo`', async ({ page }) => {
     await loginAdmin(page);
     const m = await montar(page);
     await page.getByRole('button', { name: 'Editar Proveedor Uno' }).click();
     await expect(dialogo(page)).toBeVisible();
-    await expect(dialogo(page).getByRole('checkbox')).toHaveCount(0);
+    await expect(dialogo(page).getByLabel('NIT *')).toBeVisible();
+    await expect(dialogo(page).getByRole('switch')).toHaveCount(0);
     await expect(dialogo(page).getByText('Activo', { exact: true })).toHaveCount(0);
     await dialogo(page).getByRole('button', { name: 'Guardar' }).click();
     await expect(dialogo(page)).toHaveCount(0);
@@ -177,7 +179,7 @@ test.describe('HU #13961 · Proveedores SOAT — estado, filtro, activar y desac
   });
 
   test('AC6 — solo «Ver clientes y proveedores»: estado y filtro sí, menú ⋮ no', async ({ page }) => {
-    // «Ver clientes y proveedores» con su opcional `listar`: sin él, GET /proveedores-soat responde 403.
+    // «Ver clientes y proveedores» con su opcional `listar`: sin él, GET /proveedores responde 403.
     await loginAs(page, FINANCIERA_USER, { funciones: ['clients.clientes.ver', 'parametrizacion.proveedores.listar'] });
     await montar(page);
     await expect(filas(page)).toHaveCount(4);

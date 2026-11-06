@@ -20,6 +20,23 @@ export const leerMigracion = (archivo: string): string => readFileSync(path.join
 
 const ROLLBACK = Symbol('rollback');
 
+/**
+ * Un administrador activo: `conSeguroAntiBloqueo` rechaza toda baja de usuarios si no queda ninguno, y una base recién migrada
+ * no tiene usuarios. Dentro de `enTx` se deshace solo; con una conexión real, quien lo llama lo borra con `borrarAdminDePrueba`.
+ */
+export const USUARIO_ADMIN_DE_PRUEBA = 'admin_de_prueba_antibloqueo';
+
+export async function sembrarAdminActivo(sql: postgres.Sql | postgres.TransactionSql): Promise<number> {
+  const [f] = await sql`INSERT INTO users (username, name, password_hash, role, active)
+    VALUES (${USUARIO_ADMIN_DE_PRUEBA}, 'Admin de prueba', 'h', 'admin', true)
+    ON CONFLICT (username) DO UPDATE SET active = true, deleted_at = NULL RETURNING id`;
+  return f!.id as number;
+}
+
+export async function borrarAdminDePrueba(sql: postgres.Sql): Promise<void> {
+  await sql`DELETE FROM users WHERE username = ${USUARIO_ADMIN_DE_PRUEBA}`;
+}
+
 export function abrirBase(): postgres.Sql {
   return postgres(URL_BASE!, { max: 1, onnotice: () => {} });
 }
