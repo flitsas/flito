@@ -1,4 +1,4 @@
--- 0291_flito_proveedores_permiso_historial.sql
+-- 0292_flito_proveedores_permiso_historial.sql
 -- Autor: David Chica
 -- HU #14335 (Feature #14324, ADR-0039 §7.3) — consultar el historial de un proveedor. Patrón de la 0286.
 --   1. Función `parametrizacion.proveedores.historial`, opcional de `accion.clientes.ver`.

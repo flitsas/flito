@@ -109,7 +109,7 @@ export async function exigirServicioQuitable(tx: TxProveedor, id: string, servic
   if (motivo !== null) throw new ServicioNoQuitableError(servicio, motivo.texto, motivo.bloqueos);
 }
 
-/** RN-PSERV-4. Baja lógica del perfil, sin tocar el padre: la 0290 impide que este UPDATE le suba los datos vaciados. */
+/** RN-PSERV-4. Baja lógica del perfil, sin tocar el padre: la 0291 impide que este UPDATE le suba los datos vaciados. */
 export async function retirarPerfil(tx: TxProveedor, id: string, servicio: ServicioProveedor, actorId: number | null, ahora: Date): Promise<void> {
   if (servicio === 'soat') {
     await tx.update(flitoProveedoresSoat).set({ deletedAt: ahora, deletedBy: actorId }).where(eq(flitoProveedoresSoat.id, id));

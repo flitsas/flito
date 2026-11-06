@@ -1,14 +1,14 @@
 -- Comprobación previa de proveedores repetidos (HU #14328, Feature #14323, ADR-0039 §5.3). SOLO LECTURA.
 --
--- Cuándo: antes del merge de la 0289 en DEV y antes de cada promoción, en QA y PDN. La API de PDN usa
+-- Cuándo: antes del merge de la 0290 en DEV y antes de cada promoción, en QA y PDN. La API de PDN usa
 -- `strategy: Recreate`: si la migración se detiene, PDN queda caída hasta corregir el dato o revertir el digest.
 --
 -- Cómo: psql -f apps/api/src/db/manual/flito-proveedores-preflight.sql, o como script en DBeaver o pgAdmin. El
--- reporte sale en los mensajes (NOTICE). No usa metacomandos de psql. Corre igual antes y después de la 0289.
+-- reporte sale en los mensajes (NOTICE). No usa metacomandos de psql. Corre igual antes y después de la 0290.
 -- Córralo en autocommit o cierre la transacción al terminar (COMMIT o ROLLBACK): una transacción abierta retiene
 -- sus locks y haría esperar a la migración.
 --
--- Lista lo mismo que las paradas de la 0289: el bloque marcado es idéntico en ambos archivos y el test
+-- Lista lo mismo que las paradas de la 0290: el bloque marcado es idéntico en ambos archivos y el test
 -- flito-proveedores-migracion.test.ts lo exige. La transacción queda en solo lectura, así que Postgres rechaza
 -- cualquier escritura. No crea ningún objeto. Nunca escribe un NIT: solo nombres e identificadores.
 --
@@ -25,9 +25,9 @@ DECLARE
 BEGIN
   PERFORM set_config('transaction_read_only', 'on', true);
 
-  -- >>> PARADAS (idéntico en 0289 y en manual/flito-proveedores-preflight.sql; el test exige la igualdad)
+  -- >>> PARADAS (idéntico en 0290 y en manual/flito-proveedores-preflight.sql; el test exige la igualdad)
   -- Nombre: SOAT vigentes y Logística, con la normalización del índice único del padre. `to_jsonb` lee
-  -- `deleted_at` de Logística solo si la columna existe: antes de la 0289 no existe y ninguna fila está de baja.
+  -- `deleted_at` de Logística solo si la columna existe: antes de la 0290 no existe y ninguna fila está de baja.
   FOR fila IN
     WITH vigentes AS (
       SELECT 'SOAT'::text AS origen, s.id, s.nombre FROM flito_proveedores_soat s WHERE s.deleted_at IS NULL
@@ -74,9 +74,9 @@ BEGIN
   -- <<< PARADAS
 
   IF cardinality(casos) = 0 THEN
-    RAISE NOTICE 'Preflight 0289: sin casos. La migración no se detendrá con los datos actuales.';
+    RAISE NOTICE 'Preflight 0290: sin casos. La migración no se detendrá con los datos actuales.';
   ELSE
-    RAISE NOTICE '%', format(E'Preflight 0289: %s caso(s) que detienen la migración:\n- %s',
+    RAISE NOTICE '%', format(E'Preflight 0290: %s caso(s) que detienen la migración:\n- %s',
       cardinality(casos), array_to_string(casos, E'\n- '));
   END IF;
 

@@ -229,7 +229,7 @@ Unifica RN-PROV-6/7: inactivo, sin bloqueos de **ningún** servicio, sin compañ
 3. El guarda que detiene (R22) deja el rollout sin Ready **y bloquea los despliegues siguientes de ese ambiente** hasta corregir el dato. El initContainer se reintenta, y el runner vuelve a ejecutar el archivo porque no quedó registrado.
 4. El runner hace una transacción por archivo: lo anterior al guarda **sí queda aplicado**.
 
-### 5.2 `0289_flito_proveedores_padre.sql` (expand, F1)
+### 5.2 `0290_flito_proveedores_padre.sql` (expand, F1)
 
 Sin `BEGIN`/`COMMIT` propio. Idempotente. **Orden:**
 
@@ -277,7 +277,7 @@ Además informa, sin detener nada, cuántas filas de logística tienen `estrateg
 - Con nombre repetido y empresas distintas, renombrar uno de los dos desde la pantalla actual hace pasar el guarda. **Quedan dos proveedores separados.** Con NIT repetido, renombrar no basta: hay que corregir el NIT. El guarda también detiene por UUID repetidos o por repetidos dentro de una misma tabla, más allá de lo que pide R22.
 - Si en realidad son la misma empresa, unirlos no está diseñado ni automatizado (R22). Se decide con el caso concreto. Ver D5, §15.
 
-Si aun así el rollout se detiene en PDN: **la API queda caída** (§5.1), la lista se ve en los logs del initContainer y **no** en el health. Corregido el dato, el siguiente reintento pasa. Revertir el digest debería devolver el servicio, porque la imagen anterior no conoce `0289`, pero está sin probar.
+Si aun así el rollout se detiene en PDN: **la API queda caída** (§5.1), la lista se ve en los logs del initContainer y **no** en el health. Corregido el dato, el siguiente reintento pasa. Revertir el digest debería devolver el servicio, porque la imagen anterior no conoce `0290`, pero está sin probar.
 
 ### 5.4 Secuencia
 
@@ -297,7 +297,7 @@ sequenceDiagram
   H->>A: merge o promoción (digest nuevo)
   A->>I: arranca el pod nuevo
   I->>DB: migraciones previas (cada una se confirma)
-  I->>DB: 0289 guardas
+  I->>DB: 0290 guardas
   alt el guarda detiene
     DB-->>I: EXCEPTION con la lista
     I-->>A: sin Ready, reintento con backoff
@@ -591,7 +591,7 @@ Un tercero pasa a ver y capturar firmas, nombres y cédulas. **Revisión obligat
 
 | Tema | Efecto |
 |---|---|
-| **Orden de promoción** | `develop→staging→release` es lineal: `0275-0288` llegan a PDN antes o junto con `0289`. Si van en la misma promoción, **todo lo anterior al guarda queda aplicado aunque el guarda detenga**, con la imagen vieja sirviendo sobre `0275-0288`. Se recomienda promover #13758 primero o, como mínimo, correr el preflight en PDN antes |
+| **Orden de promoción** | `develop→staging→release` es lineal: `0275-0288` llegan a PDN antes o junto con `0290`. Si van en la misma promoción, **todo lo anterior al guarda queda aplicado aunque el guarda detenga**, con la imagen vieja sirviendo sobre `0275-0288`. Se recomienda promover #13758 primero o, como mínimo, correr el preflight en PDN antes |
 | **Datos** | En PDN, logística probablemente solo tiene «Mensajería FLIT» (el seed no sabe de NIT). El riesgo de repetidos es mayor en **DEV/QA**, con filas de prueba. El preflight de DEV y QA es el primero en importar |
 | **Compañías sin proveedor** | La `0279` deja NULL a las encendidas. Regla N1 sigue: bloquean viajes. Sus LT sin acta pasan al proveedor al asignarlo (§6.3) |
 | **Código reemplazado** | #14103 (alta), #14104 (asignación), #14148 (listado unificado, eliminar físico) y `FormProveedor`, `TabProveedores`, `proveedoresDatos`, `useEliminarProveedor`. Sus tests cambian; **no se reabren esas HU**: trabajo nuevo bajo #13757 |
@@ -649,7 +649,7 @@ Propuesto: (1) modelo y migración, (2) gestión, (3) asignación, usuarios y me
 
 **F1 — Modelo y migración.** R1, R2, R8, R21, R22 (solo esquema; sin cambio visible). `db-review-agent` y `security-agent` por el trigger de `users`. **Paso contract-first: serial, un solo agente.**
 
-- `apps/api/src/db/migrations/0289_flito_proveedores_padre.sql` (el número se confirma al integrar)
+- `apps/api/src/db/migrations/0290_flito_proveedores_padre.sql` (el número se confirma al integrar)
 - `apps/api/src/db/manual/flito-proveedores-preflight.sql`
 - `apps/api/src/db/schema/flito-proveedores.ts`, `apps/api/src/db/schema.ts`
 - `packages/shared-types/src/flito-proveedores.ts` (`SERVICIOS_PROVEEDOR`, `SERVICIO_DE_MODULO`, DTO), `index.ts`
@@ -711,7 +711,7 @@ Nuevo: `flito-proveedores.ts`. Modifica: `permisos-roles.ts` (F4.2), `flito-logi
 - Nada de leer el dueño fuera de la transacción que escribe. El alcance va en el WHERE, nunca como filtro en memoria.
 - Un solo constructor `noEncontrado`. Un test afirma la igualdad con `toStrictEqual` entre los casos de R18.
 - El orden de bloqueo se respeta: cliente → documentos; padre → perfil.
-- No añadir `RENAME`, `DROP` ni `NOT NULL` antes de F5. No editar `0289` una vez aplicada.
+- No añadir `RENAME`, `DROP` ni `NOT NULL` antes de F5. No editar `0290` una vez aplicada.
 
 **`frontend-agent`**
 - `dejarPendiente` no se ofrece sin la función. El mensaje de «no encontrado» sale de la constante, sin variantes.
@@ -719,7 +719,7 @@ Nuevo: `flito-proveedores.ts`. Modifica: `permisos-roles.ts` (F4.2), `flito-logi
 - Maqueta aprobada antes de F2 y de F4.2. Nada de PII en la URL: `POST /buscar`.
 
 **`db-review-agent`**
-- Triggers de `0289`: recursión, profundidad, guarda idempotente. Tiempo de los `UPDATE` sobre `users`. Costo del backfill de F4.1 en PDN.
+- Triggers de `0290`: recursión, profundidad, guarda idempotente. Tiempo de los `UPDATE` sobre `users`. Costo del backfill de F4.1 en PDN.
 
 **`devops-agent`**
 - Preflight en cada ambiente antes de la entrega de F1. Si el rollout no llega a Ready, mirar los logs del initContainer, no el health.
@@ -762,7 +762,7 @@ Valores que **no** se preguntan porque salen de las reglas o se pueden cambiar e
 
 6. **Parada en cadena (§5.1):** un guarda que detiene en DEV frena los despliegues del equipo. Mitigado con el preflight.
 7. **Triggers de transición:** si F5 no se hace, quedan indefinidamente. Mitigado con F5 como Feature explícito.
-8. **Escrituras de la imagen anterior (reversa por digest o ambiente con rollout gradual):** no se auditan en `flito_proveedores_auditoria`. Un nombre repetido cruzado responde 409 porque la 0289 relanza el choque con el nombre de restricción que reconocen las rutas.
+8. **Escrituras de la imagen anterior (reversa por digest o ambiente con rollout gradual):** no se auditan en `flito_proveedores_auditoria`. Un nombre repetido cruzado responde 409 porque la 0290 relanza el choque con el nombre de restricción que reconocen las rutas.
 8b. **Pendientes de F1 para F2, hallados en sus gates:**
    - La unicidad de Logística (`flito_proveedores_logistica_nombre_key` y `uq_flito_proveedores_logistica_nit`) no filtra por `deleted_at`: F2 necesita una migración para que dar de baja libere nombre y NIT (§3), y que el servicio reconozca `_key` además de `_unique`.
    - F2 debe escribir padre y perfiles en la misma transacción y dar de baja primero el padre. La primera rama de `perfil_a_padre` no mira `deleted_at`, así que un UPDATE sobre un perfil de baja podría volver a copiar datos al padre.
