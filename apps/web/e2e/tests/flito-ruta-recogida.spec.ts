@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, MENSAJERO_USER } from '../helpers/auth';
+import { MENSAJE_LT_NO_ENCONTRADA } from '@operaciones/shared-types';
 import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 
 // HU #14111 (C1.4) — Mi ruta · «Confirmar recogida» con la firma del funcionario. El backend está mockeado; se
@@ -11,22 +12,25 @@ import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 const CEDULA = '52123456';
 const FUNCIONES = ['logistica.ruta.ver', 'logistica.documento.escanear', 'logistica.recogida.confirmar'] as const;
 const SIN_CONFIRMAR = ['logistica.ruta.ver', 'logistica.documento.escanear'] as const;
+const CON_PENDIENTE = [...FUNCIONES, 'logistica.documento.dejar_pendiente'] as const;
 
 const cand = (o: Partial<Record<string, unknown>>) => ({
-  tramiteId: 't-1', idFlit: 'FLIT-1', companiaNombre: 'Transportes del Norte S.A.S.', organismoCodigo: '11001', gestionable: true,
+  tramiteId: 't-1', idFlit: 'FLIT-1', companiaNombre: 'Transportes del Norte S.A.S.', organismoCodigo: '11001',
   vin: 'VIN0000000000001', organismoNombre: 'STT Bogotá', vehiculo: { marca: 'Renault', linea: 'Duster', modelo: 2024 }, ...o,
 });
 const CANDIDATOS: Record<string, unknown[]> = {
   ABC123: [cand({ tramiteId: 't-a' })],
   DEF456: [cand({ tramiteId: 't-b', idFlit: 'FLIT-2', companiaNombre: 'Rápido del Valle S.A.' })],
   MUL111: [cand({ tramiteId: 't-m1', idFlit: 'FLIT-31' }), cand({ tramiteId: 't-m2', idFlit: 'FLIT-32', companiaNombre: 'Rápido del Valle S.A.' }),
-    cand({ tramiteId: 't-m3', idFlit: 'FLIT-33', companiaNombre: 'Autogestión S.A.', gestionable: false })],
+    cand({ tramiteId: 't-m3', idFlit: 'FLIT-33', companiaNombre: 'Andina de Carga S.A.' })],
+  // La consulta la encuentra, pero al registrar el servidor responde sin_match (autogestionada o sin trámite).
+  NOC000: [cand({ tramiteId: 't-n', idFlit: 'FLIT-9', companiaNombre: 'Compañía Que No Debe Verse' })],
 };
 
-interface Espias { escanear: Array<Record<string, unknown>>; confirmar: Array<Record<string, unknown>>; claves: Array<string | undefined>; consola: string[] }
+interface Espias { escanear: Array<Record<string, unknown>>; confirmar: Array<Record<string, unknown>>; claves: Array<string | undefined>; consola: string[]; rechazarPendiente: boolean }
 
 async function preparar(page: Page, funciones: readonly string[] = FUNCIONES): Promise<Espias> {
-  const espias: Espias = { escanear: [], confirmar: [], claves: [], consola: [] };
+  const espias: Espias = { escanear: [], confirmar: [], claves: [], consola: [], rechazarPendiente: false };
   page.on('console', (m) => espias.consola.push(m.text()));
   await loginAs(page, MENSAJERO_USER, { funciones });
   await page.route(/\/api\/flito\/logistica\/mi-ruta/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ entregas: [] }) }));
@@ -42,6 +46,10 @@ async function preparar(page: Page, funciones: readonly string[] = FUNCIONES): P
     n += 1;
     const c0 = (CANDIDATOS[b.placa as string]?.[0] ?? null) as { organismoCodigo: string; companiaNombre: string } | null;
     const base = { placa: b.placa, organismoCodigo: c0?.organismoCodigo ?? null, companiaNombre: b.dejarPendiente ? null : (c0?.companiaNombre ?? null), vin: 'VIN0000000000001', numeroLicencia: b.numeroLicencia, propietarioNombre: 'Propietario de Prueba' };
+    if (b.dejarPendiente && espias.rechazarPendiente) return r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'Sin permisos' }) });
+    if (b.placa === 'NOC000') {
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultado: 'sin_match', motivo: MENSAJE_LT_NO_ENCONTRADA, placa: b.placa, vin: '', numeroLicencia: b.numeroLicencia, propietarioNombre: null }) });
+    }
     const multiple = b.placa === 'MUL111' && !b.tramiteId && !b.dejarPendiente;
     const body = multiple
       ? { ...base, resultado: 'elegir_tramite', candidatos: CANDIDATOS.MUL111 }
@@ -122,9 +130,9 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
     await expect(page.getByText(/Aún no has escaneado licencias/)).toBeVisible();
   });
 
-  test('AC3: elegir_tramite con candidato no gestionable; «No sé cuál» deja la LT pendiente y se firma sin acta', async ({ page }) => {
+  test('AC3/AC4: la hoja muestra lo que devuelve la API; con la función, «No sé cuál» deja la LT pendiente', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    const e = await preparar(page);
+    const e = await preparar(page, CON_PENDIENTE);
     await page.getByRole('button', { name: 'Ingresar a mano' }).click();
     await page.getByLabel('Placa', { exact: true }).fill('MUL111');
     await expect(page.getByText(/Esta placa tiene 3 trámites/)).toBeVisible();
@@ -140,9 +148,9 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
     expect(caja!.width).toBe(375);
     await expect(hoja).toHaveCSS('border-top-left-radius', '20px');
     for (const f of await hoja.getByRole('button').all()) expect((await f.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    const noGestionable = hoja.getByRole('button', { name: /Autogestión/ });
-    await expect(noGestionable).toBeDisabled();
-    await expect(hoja.getByText('No la recoge FLITO: lo gestiona el cliente.')).toBeVisible();
+    await expect(hoja.getByRole('button', { name: /FLIT-3\d/ })).toHaveCount(3);
+    for (const f of await hoja.getByRole('button', { name: /FLIT-3\d/ }).all()) await expect(f).toBeEnabled();
+    await expect(hoja.getByText(/No la recoge FLITO/)).toHaveCount(0);
     await hoja.getByRole('button', { name: 'No sé cuál: dejar pendiente' }).click();
 
     await expect(page.getByRole('article', { name: 'LT MUL111' }).getByText('Pendiente de trámite').first()).toBeVisible();
@@ -261,6 +269,58 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
     await expect(page.getByLabel('Cédula', { exact: true })).toHaveCount(0);
   });
 
+  test('AC3: un solo candidato liga el trámite; elegir en la hoja envía el trámite elegido', async ({ page }) => {
+    const e = await preparar(page);
+    await agregarManual(page, 'ABC123', '10038156341', 'LT10000848805');
+    await expect.poll(() => e.escanear.length).toBe(1);
+    expect(e.escanear[0]).toMatchObject({ placa: 'ABC123', tramiteId: 't-a' });
+
+    await agregarManual(page, 'MUL111', '10038156341', 'LT10000848805');
+    const hoja = page.getByRole('dialog', { name: /MUL111 tiene varios trámites/ });
+    await hoja.getByRole('button', { name: /FLIT-32/ }).click();
+    await expect.poll(() => e.escanear.at(-1)?.tramiteId).toBe('t-m2');
+    await expect(page.getByRole('article', { name: 'LT MUL111' }).getByText('Lista')).toBeVisible();
+  });
+
+  test('AC1/AC2: sin resultado pinta la constante, sin nombre de compañía ni estado no gestionable', async ({ page }) => {
+    await preparar(page);
+    await agregarManual(page, 'NOC000', '10038156341', 'LT10000848805');
+    const tarjeta = page.getByRole('article', { name: 'LT NOC000' });
+    await expect(tarjeta.getByText('Sin trámite')).toBeVisible();
+    await expect(tarjeta.getByText(MENSAJE_LT_NO_ENCONTRADA, { exact: true })).toBeVisible();
+    await expect(tarjeta.getByText('Compañía Que No Debe Verse')).toHaveCount(0);
+    await expect(tarjeta.getByText(/No la recoge FLITO/)).toHaveCount(0);
+  });
+
+  test('AC4: sin la función no se ofrece dejar pendiente', async ({ page }) => {
+    const e = await preparar(page);
+    await agregarManual(page, 'MUL111', '10038156341', 'LT10000848805');
+    const hoja = page.getByRole('dialog', { name: /MUL111 tiene varios trámites/ });
+    await expect(hoja.getByRole('button', { name: /FLIT-31/ })).toBeEnabled();
+    await expect(hoja.getByRole('button', { name: /dejar pendiente/ })).toHaveCount(0);
+    await expect(hoja.getByText(/deja la LT pendiente/)).toHaveCount(0);
+    expect(e.escanear.every((b) => !b.dejarPendiente)).toBe(true);
+  });
+
+  test('AC5: el 403 al dejar pendiente da un aviso pulido y se puede seguir trabajando', async ({ page }) => {
+    const e = await preparar(page, CON_PENDIENTE);
+    e.rechazarPendiente = true;
+    await agregarManual(page, 'MUL111', '10038156341', 'LT10000848805');
+    await page.getByRole('dialog', { name: /MUL111 tiene varios trámites/ }).getByRole('button', { name: /dejar pendiente/ }).click();
+
+    await expect(page.getByRole('status').filter({ hasText: /no puede dejar pendiente la LT MUL111/ })).toBeVisible();
+    await expect(page.getByText('Sin permisos')).toHaveCount(0);
+    const tarjeta = page.getByRole('article', { name: 'LT MUL111' });
+    await expect(tarjeta.getByText('Elige trámite')).toBeVisible();
+
+    // Sigue trabajando: otra LT entra, y la rechazada se resuelve eligiendo el trámite.
+    await agregarManual(page, 'ABC123', '10038156341', 'LT10000848805');
+    await expect(page.getByRole('article', { name: 'LT ABC123' }).getByText('Lista')).toBeVisible();
+    await tarjeta.getByRole('button', { name: 'Elegir trámite' }).click();
+    await page.getByRole('dialog', { name: /MUL111 tiene varios trámites/ }).getByRole('button', { name: /FLIT-31/ }).click();
+    await expect.poll(() => e.escanear.at(-1)).toMatchObject({ placa: 'MUL111', tramiteId: 't-m1' });
+  });
+
   test('formulario manual: sin trámite, con trámite, prefijo LT y límite de consultas', async ({ page }) => {
     await preparar(page);
     await page.getByRole('button', { name: 'Ingresar a mano' }).click();
@@ -269,7 +329,7 @@ test.describe('HU #14111 — Confirmar recogida con firma del funcionario', () =
 
     // Sin trámite.
     await page.getByLabel('Placa', { exact: true }).fill('ZZZ999');
-    await expect(page.getByText('Esta placa no coincide con ningún trámite.')).toBeVisible();
+    await expect(page.getByText(MENSAJE_LT_NO_ENCONTRADA, { exact: true })).toBeVisible();
     await page.getByLabel(/licencia de tránsito/).fill('10038156339');
     await page.getByLabel(/sustrato/).fill('LT10000848803');
     await expect(agregar).toBeDisabled();

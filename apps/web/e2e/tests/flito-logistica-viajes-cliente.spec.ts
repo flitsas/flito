@@ -29,7 +29,7 @@ const FACETAS = {
       ],
     },
   ],
-  mensajeros: [{ id: 9, nombre: 'Ana Ríos' }],
+  mensajeros: [{ id: 9, nombre: 'Ana Ríos', proveedorId: null }],
 };
 
 const VACIAS = { ...FACETAS, companiasCerrables: [] };

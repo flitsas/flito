@@ -3,9 +3,10 @@
 
 import { useId, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
+import { MENSAJE_LT_NO_ENCONTRADA } from '@operaciones/shared-types';
 import StatusChip from '../../flit/StatusChip';
 import { flitInp } from '../../flit/flitPageKit';
-import { CHIP, TEXTO_ESTADO, textoSinTramite, type FilaLt } from './recogidaTipos';
+import { CHIP, TEXTO_ESTADO, type FilaLt } from './recogidaTipos';
 
 const LT_DIGITOS = 11;
 // El N.º de LT es siempre «LT» + 11 dígitos. El prefijo se muestra fijo; el operario teclea solo los dígitos.
@@ -23,7 +24,7 @@ export default function TarjetaLtRecogida({ fila, onChangeLt, onBorrar, onReinte
   const chip = fila.registro === 'registrando' ? { tono: 'neutral' as const, texto: 'Registrando…' } : fila.registro === 'encolada' ? { tono: 'neutral' as const, texto: 'En cola' } : CHIP[fila.estado];
   const editable = !fila.manual && fila.registro === 'no';
   const bloqueado = fila.registro === 'registrando' || fila.firmada;
-  const texto = fila.estado === 'sin_tramite' ? textoSinTramite(fila.motivo) : fila.estado === 'error' ? fila.motivo : TEXTO_ESTADO[fila.estado];
+  const texto = fila.estado === 'sin_tramite' ? MENSAJE_LT_NO_ENCONTRADA : fila.estado === 'error' ? fila.motivo : TEXTO_ESTADO[fila.estado];
   const hayDatos = !!(fila.vin || fila.propietario || fila.numeroLicencia || fila.combustible);
 
   return (
@@ -66,7 +67,7 @@ export default function TarjetaLtRecogida({ fila, onChangeLt, onBorrar, onReinte
         )}
       </div>
 
-      {texto && <p className="mt-1.5 text-xs" style={{ color: fila.estado === 'sin_tramite' || fila.estado === 'error' ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}>{texto}</p>}
+      {texto && <p className="mt-1.5 text-xs" style={{ color: fila.estado === 'sin_tramite' || fila.estado === 'error' ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}>{texto}</p>}
       {fila.companiaNombre && <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{fila.companiaNombre}</p>}
 
       {(fila.estado === 'error' || fila.registro === 'error') && (

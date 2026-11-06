@@ -29,8 +29,8 @@ const TRAMITES = [
 ];
 
 const ACTAS = [
-  { id: 'acta-1', companiaId: 5, companiaNombre: 'Concesionario Norte', estado: 'generada', estadoLabel: 'Generada', mensajeroId: null, mensajeroNombre: null, documentos: 2, receptorNombre: null, entregadoEn: null, creadoEn: '2026-07-21T08:00:00Z' },
-  { id: 'acta-2', companiaId: 6, companiaNombre: 'Concesionario Sur', estado: 'despachada', estadoLabel: 'Despachada', mensajeroId: 9, mensajeroNombre: 'Mensajero E2E', documentos: 3, receptorNombre: null, entregadoEn: null, creadoEn: '2026-07-21T07:00:00Z' },
+  { id: 'acta-1', proveedorLogisticaId: null, companiaId: 5, companiaNombre: 'Concesionario Norte', estado: 'generada', estadoLabel: 'Generada', mensajeroId: null, mensajeroNombre: null, documentos: 2, receptorNombre: null, entregadoEn: null, creadoEn: '2026-07-21T08:00:00Z' },
+  { id: 'acta-2', proveedorLogisticaId: 'prov-a', companiaId: 6, companiaNombre: 'Concesionario Sur', estado: 'despachada', estadoLabel: 'Despachada', mensajeroId: 9, mensajeroNombre: 'Mensajero E2E', documentos: 3, receptorNombre: null, entregadoEn: null, creadoEn: '2026-07-21T07:00:00Z' },
 ];
 
 const FACETAS = {
@@ -41,7 +41,7 @@ const FACETAS = {
     companiaId: 5, nombre: 'Concesionario Norte', disponibles: 1, precioEntregaCliente: 12000, precioEntregaFlit: 8000,
     lts: [{ documentoId: 'doc-2', origen: 'organismo', placa: 'XYZ789', numeroLt: 'LT-77', idFlit: 'FLIT-2002' }],
   }],
-  mensajeros: [{ id: 9, nombre: 'Mensajero E2E' }],
+  mensajeros: [{ id: 9, nombre: 'Mensajero E2E', proveedorId: null }, { id: 10, nombre: 'Mensajero Proveedor A', proveedorId: 'prov-a' }, { id: 11, nombre: 'Mensajero Proveedor B', proveedorId: 'prov-b' }],
 };
 
 async function mockLogistica(page: import('@playwright/test').Page) {
@@ -101,6 +101,56 @@ test.describe('FLITO — Logística', () => {
     expect(body).toMatchObject({ mensajeroId: 9 });
     expect(typeof body!.firmaEntrega).toBe('string');
   });
+
+  // HU #14350: el modal ofrece los de FLITO y los del dueño del acta; un acta sin dueño, solo los de FLITO.
+  for (const caso of [
+    { nombre: 'acta sin dueño: solo los de FLITO', dueno: null, proveedor: [] as string[] },
+    { nombre: 'acta de un proveedor: FLITO y ese proveedor, nunca otro', dueno: 'prov-a', proveedor: ['Mensajero Proveedor A'] },
+  ]) {
+    test(`despacho · ${caso.nombre}`, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mockLogistica(page);
+      await page.route(/\/api\/flito\/logistica\/actas$/, (route) => route.fulfill({
+        status: 200, contentType: 'application/json', body: JSON.stringify([{ ...ACTAS[0], proveedorLogisticaId: caso.dueno }]),
+      }));
+      await page.goto('/flito/logistica');
+      await page.getByRole('button', { name: /^Actas/ }).click();
+      await page.getByRole('button', { name: 'Firmar y despachar' }).first().click();
+      const modal = page.getByRole('dialog', { name: 'Firmar entrega y despachar' });
+      const grupo = (label: string) => modal.locator(`optgroup[label="${label}"] option`);
+      await expect(grupo('Mensajeros de FLITO')).toHaveText(['Mensajero E2E']);
+      await expect(grupo('Mensajeros del proveedor')).toHaveText(caso.proveedor);
+      await expect(modal.locator('option', { hasText: 'Mensajero Proveedor B' })).toHaveCount(0);
+    });
+  }
+
+  for (const caso of [
+    { status: 422, codigo: 'MENSAJERO_NO_ASIGNABLE', crudo: 'El mensajero seleccionado no se puede asignar a este despacho', copy: 'Ese mensajero ya no se puede asignar a este viaje. Elige otro de la lista.' },
+    { status: 409, codigo: 'LT_DE_OTRO_PROVEEDOR', crudo: 'Una o más LT no son del proveedor actual de la compañía', copy: /Alguna licencia de este viaje ya no es del proveedor actual/ },
+  ]) {
+    test(`despacho · ${caso.status} ${caso.codigo}: aviso pulido, el modal sigue abierto y sin confirmación falsa`, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mockLogistica(page);
+      await page.route(/\/api\/flito\/logistica\/actas\/acta-1\/despachar$/, (route) => route.fulfill({
+        status: caso.status, contentType: 'application/json', body: JSON.stringify({ error: caso.crudo, codigo: caso.codigo, detalle: { documentoIds: ['doc-2'] } }),
+      }));
+      await page.goto('/flito/logistica');
+      await page.getByRole('button', { name: /^Actas/ }).click();
+      await page.getByRole('button', { name: 'Firmar y despachar' }).first().click();
+      const modal = page.getByRole('dialog', { name: 'Firmar entrega y despachar' });
+      await modal.getByRole('combobox').selectOption('9');
+      await modal.getByLabel('Firma del receptor').evaluate((el: HTMLCanvasElement) => {
+        const r = el.getBoundingClientRect();
+        const pe = (type: string, x: number, y: number) =>
+          el.dispatchEvent(new PointerEvent(type, { clientX: r.left + x, clientY: r.top + y, bubbles: true, pointerId: 1 }));
+        pe('pointerdown', 20, 20); pe('pointermove', 90, 60); pe('pointermove', 140, 30); pe('pointerup', 140, 30);
+      });
+      await modal.getByRole('button', { name: 'Firmar y despachar' }).click();
+      await expect(modal.getByRole('alert')).toHaveText(caso.copy);
+      await expect(page.getByText(caso.crudo)).toHaveCount(0);
+      await expect(page.getByText(/Viaje despachado a/)).toHaveCount(0);
+    });
+  }
 
   test('registrar viaje a cliente envía un POST /traslados por compañía, nunca cerrar-lote', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
