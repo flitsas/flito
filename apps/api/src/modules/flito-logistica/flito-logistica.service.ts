@@ -19,6 +19,7 @@ import { flitoLogisticaActas, flitoLogisticaDocumentos } from '../../db/schema.j
 import { uploadEntityDocument } from '../../services/storage.js';
 import { LogisticaError, bloquearCompania, bufDesdeDataUrl, log, pasarAlProveedorVigente, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
 import { generarActaPdf } from './flito-logistica.acta-pdf.js';
+import { exigirMensajeroAsignable } from './flito-logistica.mensajeros.js';
 import { exigirCompaniaRegistrable, idsClasificadosDe, registrarTraslado } from './flito-logistica-traslados.service.js';
 import { SinLtClasificadasError } from './flito-logistica-traslados.errors.js';
 import {
@@ -36,6 +37,7 @@ export * from './flito-logistica-traslados.errors.js';
 export * from './flito-logistica-traslados-ciclo.service.js';
 export * from './flito-logistica-precios.js';
 export * from './flito-logistica.entregas.js';
+export * from './flito-logistica.mensajeros.js';
 
 // ── Novedad sobre una LT ya escaneada ────────────────────────────────────────
 
@@ -83,8 +85,8 @@ async function docsDeActa(exec: DbOrTx, actaId: string): Promise<Array<{ id: str
     .from(flitoLogisticaDocumentos).where(eq(flitoLogisticaDocumentos.actaId, actaId));
 }
 
-async function cargarActa(exec: DbOrTx, actaId: string): Promise<{ id: string; companiaId: number; estado: string; mensajeroId: number | null }> {
-  const [acta] = await exec.select({ id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId })
+async function cargarActa(exec: DbOrTx, actaId: string): Promise<{ id: string; companiaId: number; estado: string; mensajeroId: number | null; proveedorId: string | null }> {
+  const [acta] = await exec.select({ id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, proveedorId: flitoLogisticaActas.proveedorLogisticaId })
     .from(flitoLogisticaActas).where(eq(flitoLogisticaActas.id, actaId)).limit(1);
   if (!acta) throw new LogisticaError('Acta no encontrada', 404);
   return acta;
@@ -110,6 +112,7 @@ export async function despachar(actaId: string, datos: DespachoInput, ctx: Logis
   const res = await db.transaction(async (tx) => {
     const acta = await cargarActa(tx, actaId);
     if (acta.estado !== EstadoActaLogistica.GENERADA) throw new LogisticaError(`El acta no se puede despachar en estado "${acta.estado}"`);
+    await exigirMensajeroAsignable(tx, datos.mensajeroId, ctx.alcance, acta.proveedorId);
     await tx.update(flitoLogisticaActas).set({
       estado: EstadoActaLogistica.DESPACHADA, mensajeroId: datos.mensajeroId,
       firmaEntregaStorageKey: firmaKey, entregaNombre: datos.entregaNombre?.trim() || ctx.username,

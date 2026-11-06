@@ -12,6 +12,11 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn(),
 }));
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
+// HU #14347: la regla del mensajero se prueba en `db/flito-logistica.mensajero-asignable.pg.test.ts`.
+vi.mock('../../src/modules/flito-logistica/flito-logistica.mensajeros.js', async (orig) => ({
+  ...await orig<typeof import('../../src/modules/flito-logistica/flito-logistica.mensajeros.js')>(),
+  exigirMensajeroAsignable: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 vi.mock('../../src/services/storage.js', () => ({
   uploadEntityDocument: vi.fn().mockResolvedValue('storage/firma.png'),

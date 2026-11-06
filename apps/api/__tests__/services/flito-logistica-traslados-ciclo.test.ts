@@ -22,6 +22,11 @@ vi.mock('../../src/services/storage.js', () => ({
   presignedGetEntityDocument: vi.fn().mockResolvedValue('http://signed'),
   getEntityDocumentStream: vi.fn().mockResolvedValue([]),
 }));
+// HU #14347: la regla del mensajero se prueba en `db/flito-logistica.mensajero-asignable.pg.test.ts`.
+vi.mock('../../src/modules/flito-logistica/flito-logistica.mensajeros.js', async (orig) => ({
+  ...await orig<typeof import('../../src/modules/flito-logistica/flito-logistica.mensajeros.js')>(),
+  exigirMensajeroAsignable: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('../../src/modules/flito-logistica/flito-logistica.acta-pdf.js', () => ({
   generarActaPdf: vi.fn().mockResolvedValue('pdf-key'),
 }));

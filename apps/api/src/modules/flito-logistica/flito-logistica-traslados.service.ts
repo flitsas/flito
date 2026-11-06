@@ -17,6 +17,7 @@ import { exigirTramiteResuelto, insertarEvento, log, transicionar, type DbOrTx, 
 import { listarMotivosActivos } from './flito-logistica-motivos.service.js';
 import { conceptoPrecioDe, precioTrasladoDe, type DestinoTraslado } from './flito-logistica-precios.js';
 import { generarActaPdf } from './flito-logistica.acta-pdf.js';
+import { exigirMensajeroAsignable } from './flito-logistica.mensajeros.js';
 import {
   CompaniaNoEncontradaTrasladoError, DatosInvalidosTrasladoError, LogisticaAutogestionadaTrasladoError,
   LtAjenaTrasladoError, LtDeOtroProveedorError, LtEstadoNoAdmisibleError, LtNoEnFlitError, LtNoEncontradaTrasladoError, LtYaEnTrasladoError,
@@ -213,6 +214,8 @@ export async function registrarTraslado(input: RegistrarTrasladoInput, ctx: Logi
       const deOtro = docs.filter((d) => d.proveedorId !== proveedorId).map((d) => d.id);
       if (deOtro.length) throw new LtDeOtroProveedorError(deOtro);
 
+      // HU #14347: solo el elegido. Sin elegir, el viaje queda a nombre de quien lo registra y se asigna al despachar.
+      if (input.mensajeroId !== undefined) await exigirMensajeroAsignable(tx, input.mensajeroId, ctx.alcance, proveedorId);
       const mensajeroId = input.mensajeroId ?? ctx.userId;
       const punto = destino === 'flit' ? 'flit' : 'cliente';
       const [traslado] = await tx.insert(flitoLogisticaTraslados).values({

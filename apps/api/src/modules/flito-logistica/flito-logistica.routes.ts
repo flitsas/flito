@@ -37,8 +37,9 @@ router.use(authMiddleware);
  * Contexto de las operaciones SIN regla de propiedad (escanear, novedad, lote, despacho, reversa):
  * `operaAjenas` no se consulta ahí, así que va en `false` (cerrado) sin preguntar al resolutor.
  */
-function ctxDe(user: { sub: number; username: string; role: string }): LogisticaCtx {
-  return { userId: user.sub, username: user.username, role: user.role, operaAjenas: false };
+async function ctxDe(req: Request): Promise<LogisticaCtx> {
+  const { sub, username, role } = req.user!;
+  return { userId: sub, username, role, operaAjenas: false, alcance: await alcanceDe(req) };
 }
 
 /**
@@ -47,7 +48,7 @@ function ctxDe(user: { sub: number; username: string; role: string }): Logistica
  * Es la única guarda en línea del fichero, en un solo sitio para las tres rutas.
  */
 async function ctxConPropiedad(req: Request): Promise<LogisticaCtx> {
-  return { ...ctxDe(req.user!), operaAjenas: await tieneFuncion(req, 'logistica.actas.operar_ajenas') };
+  return { ...await ctxDe(req), operaAjenas: await tieneFuncion(req, 'logistica.actas.operar_ajenas') };
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
@@ -157,7 +158,7 @@ router.post('/documentos/:id/resolver-tramite', soloSinEnlace(), exigirFuncion('
   const parsed = resolverSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: 'Indica el trámite que corresponde a la LT', codigo: 'DATOS_INVALIDOS' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await resolverTramite(id.data, parsed.data.tramiteId, ctxDe(req.user!));
+    const r = await resolverTramite(id.data, parsed.data.tramiteId, await ctxDe(req));
     await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: id.data, detail: `Trámite de LT pendiente resuelto: trámite ${r.tramiteId}, compañía ${r.companiaId}` });
     return { body: r };
   }, 'documentos/resolver-tramite');
@@ -234,7 +235,7 @@ router.post('/escanear', soloSinEnlace(), exigirFuncion('logistica.documento.esc
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await conIdempotencia(req, res, async () => {
     const d = parsed.data;
-    const r = await escanearLt(entradaDe(d as never), d.rawValue !== undefined ? (d.numeroLt ?? null) : null, { lat: d.lat, lng: d.lng }, ctxDe(req.user!),
+    const r = await escanearLt(entradaDe(d as never), d.rawValue !== undefined ? (d.numeroLt ?? null) : null, { lat: d.lat, lng: d.lng }, await ctxDe(req),
       { tramiteId: d.tramiteId, dejarPendiente: d.dejarPendiente, organismoCodigo: d.organismoCodigo });
     await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Escaneo LT: ${r.resultado}${d.rawValue === undefined ? ' (manual)' : ''}` }); // sin placa (PII)
     return { body: r };
@@ -248,7 +249,7 @@ router.post('/documentos/:id/novedad', exigirFuncion('logistica.documento.report
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   await exigirPropioLogistica('documento', req.params.id, await alcanceDe(req)); // HU #13426 (AC3)
   await conIdempotencia(req, res, async () => {
-    await registrarNovedad(req.params.id, parsed.data.motivo, ctxDe(req.user!));
+    await registrarNovedad(req.params.id, parsed.data.motivo, await ctxDe(req));
     await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: req.params.id, detail: `Novedad: ${parsed.data.motivo}` });
     return { body: { ok: true } };
   });
@@ -321,7 +322,7 @@ router.post('/traslados/:id/despachar', soloSinEnlace(), exigirFuncion('logistic
   const parsed = despacharTrasladoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: 'Datos inválidos: el mensajero es obligatorio', codigo: 'DATOS_INVALIDOS' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await despacharTraslado(id.data, parsed.data, ctxDe(req.user!));
+    const r = await despacharTraslado(id.data, parsed.data, await ctxDe(req));
     await audit(req, { action: 'update', resource: 'flito_logistica_traslado', resourceId: id.data, detail: `Despacho a mensajero ${parsed.data.mensajeroId}` });
     return { body: r };
   }, 'traslados-despachar');
@@ -407,7 +408,7 @@ router.post('/traslados/:id/anular', soloSinEnlace(), exigirFuncion('logistica.t
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await anularTraslado(id.data, parsed.data.motivo, ctxDe(req.user!));
+    const r = await anularTraslado(id.data, parsed.data.motivo, await ctxDe(req));
     await audit(req, { action: 'update', resource: 'flito_logistica_traslado', resourceId: id.data, detail: `Anulación: ${parsed.data.motivo}` });
     return { body: r };
   }, 'traslados-anular');
@@ -440,7 +441,7 @@ router.post('/actas/:id/despachar', exigirFuncion('logistica.actas.despachar'), 
   const parsed = despacharSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'La firma de quien entrega es obligatoria' }); return; }
   await exigirPropioLogistica('acta', req.params.id, await alcanceDe(req));
-  const r = await ejecutar(res, () => despachar(req.params.id, parsed.data, ctxDe(req.user!)));
+  const r = await ejecutar(res, async () => despachar(req.params.id, parsed.data, await ctxDe(req)));
   if (r === undefined) return;
   await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Despacho a mensajero ${parsed.data.mensajeroId}` });
   res.json(r);
@@ -482,7 +483,7 @@ router.post('/documentos/:id/reversar', exigirFuncion('logistica.documento.rever
   const parsed = reversarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await exigirPropioLogistica('documento', req.params.id, await alcanceDe(req));
-  const r = await ejecutar(res, () => reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo, ctxDe(req.user!)));
+  const r = await ejecutar(res, async () => reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo, await ctxDe(req)));
   if (r === undefined && res.headersSent) return;
   await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: req.params.id, detail: `Reversa a "${parsed.data.estadoDestino}": ${parsed.data.motivo}` });
   res.json({ ok: true });

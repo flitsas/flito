@@ -6,6 +6,7 @@ import { tipoEventoEfectivo, type EstadoDocumentoLogistica as TEstadoDoc } from 
 import { db } from '../../db/client.js';
 import { clients, flitoLogisticaActaLineas, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 
 export const log = loggerFor('flito-logistica');
 
@@ -14,7 +15,11 @@ export const log = loggerFor('flito-logistica');
  * `tieneFuncion`; el servicio no consulta permisos). Sin ella, solo opera SUS actas (CA-11). Ninguna
  * regla de este servicio lee el nombre del rol: `role` viaja solo como dato de auditoría.
  */
-export interface LogisticaCtx { userId: number; username: string; role: string; operaAjenas: boolean }
+export interface LogisticaCtx {
+  userId: number; username: string; role: string; operaAjenas: boolean;
+  /** HU #14347 (ADR-0039 §6.4): el alcance del usuario. Hoy, por `soloSinEnlace`, casi siempre `ninguno`; la rama de proveedor la usa F4.2. */
+  alcance: AlcanceResuelto;
+}
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type DbOrTx = typeof db | Tx;
