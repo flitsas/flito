@@ -98,6 +98,7 @@ Si el diff no toca nada de eso, declararlo explícitamente ("superficie sensible
 Invocar `db-review-agent` cuando el diff toque **cualquiera** de:
 
 - `apps/api/src/db/schema.ts`
+- `apps/api/src/db/schema/*.ts`
 - `apps/api/src/db/migrations/*.sql` (alta o cambio de migración)
 
 Si no toca esquema ni migraciones, declarar "db-review: no aplica". Hallazgos críticos del
