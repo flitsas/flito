@@ -119,12 +119,12 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await expect(page.getByLabel('VIN', { exact: true })).toHaveValue(LECTURA.vin);
     await expect(page.getByText('Compañía')).toHaveCount(0);
 
-    await expect(page.getByText('Faltan 4 datos para guardar.')).toBeVisible();
+    await expect(page.getByText('Faltan 2 datos para guardar.')).toBeVisible();
     await expect(guardar(page)).toBeDisabled();
     await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
     await page.getByLabel('Placa', { exact: true }).fill('ABC123');
-    await page.getByLabel('Documento del propietario').fill('10101010');
-    await page.getByLabel('Nombre del propietario').fill('Ana Pérez');
+    await page.getByLabel('Documento del propietario (opcional)').fill('10101010');
+    await page.getByLabel('Nombre del propietario (opcional)').fill('Ana Pérez');
     await expect(page.getByText('Listo para guardar.')).toBeVisible();
     await expect(guardar(page)).toBeEnabled();
   });
@@ -225,4 +225,115 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await expect(page.getByRole('button', { name: 'Ampliar factura' })).toHaveCount(0);
     await expect(page.getByRole('region', { name: /^Páginas de/ })).toHaveCount(0);
   });
+
+  test('8 · alta sin propietario: se guarda, y placa, VIN y organismo siguen siendo obligatorios', async ({ page }) => {
+    await irACertificar(page);
+    await page.route(/\/certificacion-directa\/extraer$/, (r) => r.fulfill(json(LECTURA)));
+    let cuerpo = '';
+    await page.route(API, (r) => {
+      const url = r.request().url();
+      const metodo = r.request().method();
+      if (metodo === 'POST' && /certificacion-directa$/.test(url)) {
+        cuerpo = r.request().postDataBuffer()?.toString('latin1') ?? '';
+        return r.fulfill(json(fila({ documentoPropietario: null, nombrePropietario: null })));
+      }
+      if (metodo === 'GET' && /certificacion-directa$/.test(url)) return r.fulfill(json([]));
+      if (/\/c1\/factura$/.test(url)) return r.fulfill({ status: 200, contentType: 'application/pdf', body: PDF_VALIDO });
+      return r.fallback();
+    });
+    await nueva(page);
+    await page.locator('input[type="file"]').setInputFiles(FACTURA);
+    await expect(page.getByLabel('VIN', { exact: true })).toHaveValue(LECTURA.vin);
+
+    // Solo faltan organismo y placa: el propietario no cuenta, y sin VIN no se puede guardar.
+    await expect(page.getByText('Faltan 2 datos para guardar.')).toBeVisible();
+    await expect(guardar(page)).toBeDisabled();
+    await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
+    await page.getByLabel('Placa', { exact: true }).fill('ABC123');
+    await page.getByLabel('VIN', { exact: true }).fill('');
+    await expect(page.getByText(/1 dato para guardar\.$/)).toBeVisible();
+    await expect(guardar(page)).toBeDisabled();
+    await page.getByLabel('VIN', { exact: true }).fill(LECTURA.vin);
+    await expect(page.getByText('Listo para guardar.')).toBeVisible();
+
+    await guardar(page).click();
+    await expect(page.getByText('El registro quedó guardado. Consulta el RUNT cuando quieras.')).toBeVisible();
+    expect(cuerpo).toMatch(/name="documentoPropietario"\r\n\r\n\r\n/);
+    expect(cuerpo).toMatch(/name="nombrePropietario"\r\n\r\n\r\n/);
+    // El null del API llega al formulario como campo vacío, sin «null» ni aviso de obligatorio.
+    await expect(page.getByLabel('Documento del propietario (opcional)')).toHaveValue('');
+    await expect(page.getByLabel('Nombre del propietario (opcional)')).toHaveValue('');
+    await expect(page.getByRole('button', { name: 'Consultar RUNT' })).toBeEnabled();
+  });
+
+  test('9 · el formulario explica cómo se consultará el RUNT según haya documento o no', async ({ page }) => {
+    await irACertificar(page);
+    await page.route(/\/certificacion-directa\/extraer$/, (r) => r.fulfill(json(LECTURA)));
+    await nueva(page);
+    await page.locator('input[type="file"]').setInputFiles(FACTURA);
+    const ayuda = 'Con documento, el RUNT se consulta por placa y documento; sin él, por VIN.';
+    await expect(page.getByText(ayuda)).toBeVisible();
+    await expect(page.getByLabel('Documento del propietario (opcional)')).toHaveAccessibleDescription(ayuda);
+    await expect(page.getByText('El RUNT se consulta por VIN.')).toHaveCount(0);
+    await expect(page.getByText(/consulta el RUNT por VIN/)).toHaveCount(0);
+  });
+
+  test('10 · sin nombre, la columna Propietario muestra un marcador', async ({ page }) => {
+    await irACertificar(page);
+    await page.route(API, (r) => {
+      if (r.request().method() === 'GET' && /certificacion-directa$/.test(r.request().url())) {
+        return r.fulfill(json([fila({ nombrePropietario: null, documentoPropietario: null })]));
+      }
+      return r.fallback();
+    });
+    await page.goto('/flito/impuestos/certificar');
+    const celdas = page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('cell');
+    await expect(celdas.nth(2)).toHaveText('—');
+    await expect(page.getByText('null')).toHaveCount(0);
+  });
+
+  for (const caso of [
+    {
+      nombre: 'con documento nombra la placa y el documento, y ofrece consultar por VIN',
+      documentoPropietario: '10101010',
+      estado: 'sin_vehiculo',
+      aviso: 'El RUNT no encontró el vehículo con esa placa y ese documento. Corrige el documento o bórralo para consultar por VIN.',
+    },
+    {
+      nombre: 'sin documento conserva el mensaje del VIN',
+      documentoPropietario: null,
+      estado: 'sin_vehiculo',
+      aviso: 'El RUNT no tiene registro de este VIN.',
+    },
+    {
+      nombre: 'sin respuesta con documento también ofrece consultar por VIN',
+      documentoPropietario: '10101010',
+      estado: 'sin_respuesta',
+      aviso: 'El RUNT no respondió. El registro quedó guardado. Puedes consultar de nuevo o borrar el documento para consultar por VIN.',
+    },
+    {
+      nombre: 'sin respuesta y sin documento solo invita a consultar de nuevo',
+      documentoPropietario: null,
+      estado: 'sin_respuesta',
+      aviso: 'El RUNT no respondió. El registro quedó guardado. Puedes consultar de nuevo.',
+    },
+  ]) {
+    test(`11 · aviso tras consultar: ${caso.nombre}`, async ({ page }) => {
+      await irACertificar(page);
+      const base = fila({ documentoPropietario: caso.documentoPropietario });
+      await page.route(API, (r) => {
+        const url = r.request().url();
+        const metodo = r.request().method();
+        if (/\/c1\/factura$/.test(url)) return r.fulfill({ status: 200, contentType: 'application/pdf', body: PDF_VALIDO });
+        if (/\/c1\/consultar$/.test(url) && metodo === 'POST') return r.fulfill(json({ ...base, estado: caso.estado }));
+        if (metodo === 'GET' && /certificacion-directa$/.test(url)) return r.fulfill(json([base]));
+        return r.fallback();
+      });
+      await page.goto('/flito/impuestos/certificar');
+      await page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Abrir' }).click();
+      await page.getByRole('button', { name: 'Consultar RUNT' }).click();
+      const aviso = page.getByRole('status').filter({ hasText: caso.aviso });
+      await expect(aviso).toHaveText(caso.aviso);
+    });
+  }
 });

@@ -5,6 +5,7 @@ import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { CARGA_MASIVA_MAX_BYTES_ARCHIVO } from '@operaciones/shared-types';
+import { audit } from '../../shared/middleware/audit.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
@@ -51,11 +52,14 @@ const subidaLimiter = rateLimit({
   message: { error: 'Demasiadas solicitudes. Espera un minuto.' },
 });
 
+/** Llega por multipart: ausente, vacío o solo espacios es «no diligenciado» y se guarda null. */
+const opcional = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
+
 const datosSchema = z.object({
   organismoCodigo: z.string().trim().min(1).max(5),
   placa: z.string().trim().min(1).max(10),
-  documentoPropietario: z.string().trim().min(1).max(30),
-  nombrePropietario: z.string().trim().min(1).max(200),
+  documentoPropietario: opcional(30),
+  nombrePropietario: opcional(200),
   vin: z.string().trim().min(1).max(17),
   marca: z.string().trim().min(1).max(60),
   linea: z.string().trim().min(1).max(80),
@@ -128,6 +132,8 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
       const pdf = await construirCertificadoDirectoPdf({
         placa: fila.placa, vin: fila.vin, documento: fila.documentoPropietario,
         nombrePropietario: fila.nombrePropietario, organismo,
+        // De lo congelado, no de la fila: un certificado anterior tiene documento y se consultó por VIN.
+        modalidadConsulta: snapshot.modalidadConsulta ?? 'vin',
         campos: snapshot.campos, registroRunt: snapshot.registroRunt,
         certificadoPorNombre: fila.certificadoPorNombre ?? 'FLITO',
         certificadoEn: fila.certificadoEn!, generadoPor: req.user!.username, generadoEn: new Date(),
@@ -145,8 +151,13 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
 
   router.post('/certificacion-directa/:id/consultar', exigirFuncion('impuestos.certificacion_directa.gestionar'), consultaLimiter, async (req, res) => {
     try {
-      const fila = await consultarRuntCertificacionDirecta(req.params.id, {
+      const { fila, modalidad } = await consultarRuntCertificacionDirecta(req.params.id, {
         userId: req.user!.sub, username: req.user!.username,
+      });
+      // Cada consulta manda datos del titular a un tercero: queda quién la ordenó. Sin placa, documento, nombre ni VIN.
+      await audit(req, {
+        action: 'update', resource: 'flito_impuesto', resourceId: req.params.id,
+        detail: `Consulta RUNT sin trámite (modalidad ${modalidad}, estado ${fila.estado})`,
       });
       res.json(fila);
     } catch (e) { fallar(res, e); }
