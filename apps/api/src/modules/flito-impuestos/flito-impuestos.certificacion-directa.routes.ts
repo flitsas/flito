@@ -51,11 +51,14 @@ const subidaLimiter = rateLimit({
   message: { error: 'Demasiadas solicitudes. Espera un minuto.' },
 });
 
+/** Llega por multipart: ausente, vacío o solo espacios es «no diligenciado» y se guarda null. */
+const opcional = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
+
 const datosSchema = z.object({
   organismoCodigo: z.string().trim().min(1).max(5),
   placa: z.string().trim().min(1).max(10),
-  documentoPropietario: z.string().trim().min(1).max(30),
-  nombrePropietario: z.string().trim().min(1).max(200),
+  documentoPropietario: opcional(30),
+  nombrePropietario: opcional(200),
   vin: z.string().trim().min(1).max(17),
   marca: z.string().trim().min(1).max(60),
   linea: z.string().trim().min(1).max(80),
@@ -128,6 +131,8 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
       const pdf = await construirCertificadoDirectoPdf({
         placa: fila.placa, vin: fila.vin, documento: fila.documentoPropietario,
         nombrePropietario: fila.nombrePropietario, organismo,
+        // De lo congelado, no de la fila: un certificado anterior tiene documento y se consultó por VIN.
+        modalidadConsulta: snapshot.modalidadConsulta ?? 'vin',
         campos: snapshot.campos, registroRunt: snapshot.registroRunt,
         certificadoPorNombre: fila.certificadoPorNombre ?? 'FLITO',
         certificadoEn: fila.certificadoEn!, generadoPor: req.user!.username, generadoEn: new Date(),

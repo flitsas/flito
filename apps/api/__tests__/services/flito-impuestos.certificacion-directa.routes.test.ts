@@ -7,6 +7,7 @@ import request from 'supertest';
 import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { testToken, neutralizarEnlaceDe } from '../helpers/auth.js';
+import { textoDelPdf } from '../helpers/texto-pdf.js';
 
 neutralizarEnlaceDe('gestor_impuestos', 'conductor'); // mide la función, no el enlace
 
@@ -167,6 +168,61 @@ describe('POST crear', () => {
     expect(storage.upload).toHaveBeenCalledTimes(1);
   });
 
+  describe('propietario opcional', () => {
+    const capturarValues = () => {
+      const valores: Record<string, unknown>[] = [];
+      kdb.insert.mockImplementation(() => {
+        const t: Record<string, unknown> = {};
+        t.values = (v: Record<string, unknown>) => { valores.push(v); return t; };
+        t.returning = () => Promise.resolve([filaBd({ documentoPropietario: null, nombrePropietario: null })]);
+        return t;
+      });
+      return valores;
+    };
+
+    it('sin los dos campos: 201, guarda null y la respuesta los trae en null', async () => {
+      const valores = capturarValues();
+      const { documentoPropietario: _d, nombrePropietario: _n, ...sinPropietario } = datos;
+      const r = await crear(sinPropietario);
+      expect(r.status).toBe(201);
+      expect(valores[0]).toMatchObject({ documentoPropietario: null, nombrePropietario: null });
+      expect(r.body.documentoPropietario).toBeNull();
+      expect(r.body.nombrePropietario).toBeNull();
+    });
+
+    it.each([['vacíos', ''], ['con solo espacios', '   ']])('strings %s: guarda null', async (_n, v) => {
+      const valores = capturarValues();
+      const r = await crear({ ...datos, documentoPropietario: v, nombrePropietario: v });
+      expect(r.status).toBe(201);
+      expect(valores[0]).toMatchObject({ documentoPropietario: null, nombrePropietario: null });
+    });
+
+    it('son independientes: nombre sin documento conserva el nombre', async () => {
+      const valores = capturarValues();
+      const r = await crear({ ...datos, documentoPropietario: '', nombrePropietario: '  Ana Prueba ' });
+      expect(r.status).toBe(201);
+      expect(valores[0]).toMatchObject({ documentoPropietario: null, nombrePropietario: 'Ana Prueba' });
+    });
+
+    it('un documento de más de 30 caracteres sigue siendo 400', async () => {
+      const r = await crear({ ...datos, documentoPropietario: '1'.repeat(31) });
+      expect(r.status).toBe(400);
+      expect(storage.upload).not.toHaveBeenCalled();
+    });
+
+    it('un nombre de más de 200 caracteres sigue siendo 400', async () => {
+      const r = await crear({ ...datos, nombrePropietario: 'a'.repeat(201) });
+      expect(r.status).toBe(400);
+      expect(storage.upload).not.toHaveBeenCalled();
+    });
+
+    it.each(['placa', 'vin'] as const)('%s sigue siendo obligatorio', async (campo) => {
+      const r = await crear({ ...datos, [campo]: '' });
+      expect(r.status).toBe(400);
+      expect(storage.upload).not.toHaveBeenCalled();
+    });
+  });
+
   it('sin organismo es 400 y no guarda la factura', async () => {
     const { organismoCodigo: _o, ...sinOrg } = datos;
     const r = await crear(sinOrg);
@@ -313,6 +369,22 @@ describe('PATCH editar', () => {
     expect(storage.remove).toHaveBeenCalledWith('impuesto-certificacion-directa/x/factura.pdf');
   });
 
+  it('borrar el documento y el nombre guarda null, para poder volver a consultar por VIN', async () => {
+    kdb.when.selectOnce(FILA, [filaBd({ estado: 'sin_vehiculo' })]).select(FILA, []);
+    const sets: Record<string, unknown>[] = [];
+    kdb.update.mockImplementation(() => {
+      const t: Record<string, unknown> = {};
+      t.set = (v: Record<string, unknown>) => { sets.push(v); return t; };
+      t.where = () => t;
+      t.returning = () => Promise.resolve([filaBd({ documentoPropietario: null, nombrePropietario: null })]);
+      return t;
+    });
+    const r = await editar({ ...datos, documentoPropietario: '', nombrePropietario: '  ' });
+    expect(r.status).toBe(200);
+    expect(sets[0]).toMatchObject({ documentoPropietario: null, nombrePropietario: null, estado: 'radicado' });
+    expect(r.body.documentoPropietario).toBeNull();
+  });
+
   it('un registro certificado no se edita: 409', async () => {
     kdb.when.select(FILA, [filaBd({ estado: 'certificado' })]); // 1.º cargar; luego «sin duplicado» (la BD excluye el propio id)
     const r = await editar(datos);
@@ -339,7 +411,20 @@ describe('POST /:id/consultar', () => {
   const consultar = async (s?: number) =>
     request(await buildApp()).post(`${BASE}/${ID}/consultar`).set('Authorization', await gestor(s));
 
-  it('consulta por VIN (sin placa) y certifica cuando los seis campos coinciden', async () => {
+  /** El UPDATE que escribe el servicio, para comprobar lo que queda en la fila y no solo la respuesta. */
+  const capturarSets = (estado: string) => {
+    const sets: Record<string, unknown>[] = [];
+    kdb.update.mockImplementation(() => {
+      const t: Record<string, unknown> = {};
+      t.set = (v: Record<string, unknown>) => { sets.push(v); return t; };
+      t.where = () => t;
+      t.returning = () => Promise.resolve([filaBd({ estado })]);
+      return t;
+    });
+    return sets;
+  };
+
+  it('con documento consulta por placa y documento, sin VIN, y certifica cuando los seis campos coinciden', async () => {
     kdb.when.select(FILA, [filaBd()]);
     kdb.when.update(FILA, [filaBd({ estado: 'certificado', certificadoEn: new Date('2026-10-30T12:00:00Z'), certificadoPorNombre: 'gestor@flit.io' })]);
     runt.consultar.mockResolvedValue(runtOk());
@@ -347,8 +432,96 @@ describe('POST /:id/consultar', () => {
     expect(r.status).toBe(200);
     expect(r.body.estado).toBe('certificado');
     expect(r.body.certificadoEn).toBe('2026-10-30T12:00:00.000Z');
-    expect(runt.consultar).toHaveBeenCalledWith(undefined, '9ZZTEST0000000001');
+    expect(runt.consultar).toHaveBeenCalledTimes(1);
+    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456');
     expect(kdb.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('sin documento ni nombre consulta solo por VIN y certifica cuando los seis campos coinciden', async () => {
+    kdb.when.select(FILA, [filaBd({ documentoPropietario: null, nombrePropietario: null })]);
+    const sets = capturarSets('certificado');
+    runt.consultar.mockResolvedValue(runtOk());
+    const r = await consultar();
+    expect(r.status).toBe(200);
+    expect(sets[0]).toMatchObject({ estado: 'certificado' });
+    expect(runt.consultar).toHaveBeenCalledTimes(1);
+    expect(runt.consultar).toHaveBeenCalledWith(undefined, '9ZZTEST0000000001');
+  });
+
+  it('nombre sin documento consulta solo por VIN: decide el documento', async () => {
+    kdb.when.select(FILA, [filaBd({ documentoPropietario: null })]);
+    capturarSets('certificado');
+    runt.consultar.mockResolvedValue(runtOk());
+    await consultar();
+    expect(runt.consultar).toHaveBeenCalledTimes(1);
+    expect(runt.consultar).toHaveBeenCalledWith(undefined, '9ZZTEST0000000001');
+  });
+
+  it('documento sin nombre consulta por placa y documento: decide el documento', async () => {
+    kdb.when.select(FILA, [filaBd({ nombrePropietario: null })]);
+    capturarSets('certificado');
+    runt.consultar.mockResolvedValue(runtOk());
+    await consultar();
+    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456');
+  });
+
+  it('el snapshot congela la modalidad usada, porque el PDF se rearma al descargar', async () => {
+    kdb.when.select(FILA, [filaBd()]);
+    const conDoc = capturarSets('certificado');
+    runt.consultar.mockResolvedValue(runtOk());
+    await consultar();
+    expect(conDoc[0]!.snapshot).toMatchObject({ modalidadConsulta: 'placa_documento' });
+
+    kdb.when.select(FILA, [filaBd({ documentoPropietario: null })]);
+    const sinDoc = capturarSets('certificado');
+    await consultar();
+    expect(sinDoc[0]!.snapshot).toMatchObject({ modalidadConsulta: 'vin' });
+  });
+
+  it('rechazo del RUNT con documento: una sola llamada, no cae a VIN, queda sin_vehiculo y no certifica', async () => {
+    kdb.when.select(FILA, [filaBd()]);
+    const sets = capturarSets('sin_vehiculo');
+    runt.consultar.mockResolvedValue({
+      ok: false, message: 'Los datos no corresponden con los propietarios activos del vehículo', httpStatus: 200,
+    });
+    const r = await consultar();
+    expect(r.status).toBe(200);
+    expect(r.body.estado).toBe('sin_vehiculo');
+    expect(runt.consultar).toHaveBeenCalledTimes(1);
+    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456');
+    expect(sets[0]).toMatchObject({ estado: 'sin_vehiculo', comparacion: null });
+    expect(sets[0]).not.toHaveProperty('snapshot');
+    expect(sets[0]).not.toHaveProperty('certificadoEn');
+  });
+
+  it('el RUNT no responde con documento: una sola llamada, no cae a VIN, queda sin_respuesta y no certifica', async () => {
+    kdb.when.select(FILA, [filaBd()]);
+    const sets = capturarSets('sin_respuesta');
+    runt.consultar.mockResolvedValue({ ok: false, message: 'Timeout 90s' });
+    const r = await consultar();
+    expect(r.body.estado).toBe('sin_respuesta');
+    expect(runt.consultar).toHaveBeenCalledTimes(1);
+    expect(sets[0]).not.toHaveProperty('snapshot');
+  });
+
+  it('respuesta ok sin vehículo detrás (eco de la placa) con documento: sin_vehiculo, sin caer a VIN ni certificar', async () => {
+    kdb.when.select(FILA, [filaBd()]);
+    const sets = capturarSets('sin_vehiculo');
+    runt.consultar.mockResolvedValue({ ok: true, data: { vehiculo: { placa: 'ABC123', marca: null, linea: null } } });
+    const r = await consultar();
+    expect(r.body.estado).toBe('sin_vehiculo');
+    expect(runt.consultar).toHaveBeenCalledTimes(1);
+    expect(sets[0]).toMatchObject({ estado: 'sin_vehiculo', comparacion: null });
+    expect(sets[0]).not.toHaveProperty('snapshot');
+  });
+
+  it('con documento, un VIN del RUNT distinto al diligenciado no certifica (sin_coincidencia)', async () => {
+    kdb.when.select(FILA, [filaBd()]);
+    const sets = capturarSets('sin_coincidencia');
+    runt.consultar.mockResolvedValue(runtOk({ vin: 'OTROVIN0000000099' }));
+    const r = await consultar();
+    expect(r.body.estado).toBe('sin_coincidencia');
+    expect(sets[0]).not.toHaveProperty('snapshot');
   });
 
   it('el UPDATE de certificación guarda estado, fecha, snapshot y quién certificó', async () => {
@@ -508,6 +681,44 @@ describe('GET listado, detalle, factura y certificado', () => {
     expect(r.headers['content-disposition']).toContain('certificado-runt-ABC123.pdf');
     expect((r.body as Buffer).subarray(0, 4).toString()).toBe('%PDF');
     expect(pii.registrar).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ accion: 'export', archivo: 'certificado_runt' }));
+  });
+
+  const descargarCertificado = async (extra: Record<string, unknown>, snapshotExtra: Record<string, unknown> = {}) => {
+    const campos = ['vin', 'marca', 'linea', 'anio', 'color', 'cilindrada'].map((campo) => ({
+      campo, resultado: 'coincide', bloqueante: false, valorFactura: 'x', valorRunt: 'x',
+    }));
+    kdb.when.select(FILA, [filaBd({
+      estado: 'certificado', certificadoEn: new Date('2026-10-30T12:00:00Z'), certificadoPorNombre: 'gestor@flit.io',
+      snapshot: { campos, registroRunt: {}, ...snapshotExtra }, ...extra,
+    })]);
+    const r = await request(await buildApp()).get(`${BASE}/${ID}/certificado`).set('Authorization', await gestor()).buffer(true).parse((res, cb) => {
+      const partes: Buffer[] = []; res.on('data', (c: Buffer) => partes.push(c)); res.on('end', () => cb(null, Buffer.concat(partes)));
+    });
+    expect(r.status).toBe(200);
+    return textoDelPdf(r.body as Buffer);
+  };
+
+  it('un certificado sin propietario sale sin esas líneas y declara el VIN como consultado', async () => {
+    const t = await descargarCertificado({ documentoPropietario: null, nombrePropietario: null }, { modalidadConsulta: 'vin' });
+    expect(t).not.toContain('Nombre (dato de FLITO)');
+    expect(t).not.toContain('Documento (dato de FLITO)');
+    expect(t).toContain('VIN consultado: 9ZZTEST0000000001');
+  });
+
+  it('un certificado consultado con documento declara la placa como consultada, no el VIN', async () => {
+    const t = await descargarCertificado({}, { modalidadConsulta: 'placa_documento' });
+    expect(t).toContain('Placa consultada: ABC123');
+    expect(t).toContain('VIN (dato de FLITO): 9ZZTEST0000000001');
+    expect(t).not.toContain('VIN consultado');
+    expect(t).toContain('Documento (dato de FLITO): 900123456');
+  });
+
+  it('un certificado emitido antes del cambio (snapshot sin modalidad, con documento) sigue diciendo VIN consultado', async () => {
+    const t = await descargarCertificado({});
+    expect(t).toContain('VIN consultado: 9ZZTEST0000000001');
+    expect(t).toContain('Placa (dato de FLITO): ABC123');
+    expect(t).toContain('Documento (dato de FLITO): 900123456');
+    expect(t).not.toContain('Placa consultada');
   });
 });
 

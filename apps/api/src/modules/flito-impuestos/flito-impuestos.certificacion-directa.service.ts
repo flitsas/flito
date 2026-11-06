@@ -6,7 +6,7 @@ import type { ComparacionCampoFacturaRunt } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoImpuestoCertificacionDirecta, organismosTransitoConfig } from '../../db/schema.js';
 import type {
-  EstadoCertificacionDirecta, SnapshotCertificacionDirecta,
+  EstadoCertificacionDirecta, ModalidadConsultaRunt, SnapshotCertificacionDirecta,
 } from '../../db/schema/flito-impuesto-certificacion-directa.js';
 import { loggerFor } from '../../shared/logger.js';
 import { getEntityDocumentStream, removeEntityDocument, uploadEntityDocument } from '../../services/storage.js';
@@ -16,7 +16,7 @@ import { ImpuestoError, type ArchivoSubido } from './flito-factura-venta.service
 import { compararFacturaConRunt } from './flito-impuestos.comparacion-factura-runt.js';
 import { registrarAccesoImpuesto } from './flito-impuestos.pii.js';
 import {
-  extraerColorCilindrajeRunt, extraerRegistroRunt, extraerVehiculoRunt,
+  extraerColorCilindrajeRunt, extraerRegistroRunt, extraerVehiculoRunt, runtSinRegistro,
 } from './certificacion-runt.js';
 import {
   clasificarFalloRunt, esPdf, extraccionDesdeDiligenciado, normalizarClave, seisCoinciden,
@@ -31,8 +31,8 @@ const UNIQUE = '23505';
 export interface DatosAlta extends DatosVehiculoDiligenciados {
   organismoCodigo: string;
   placa: string;
-  documentoPropietario: string;
-  nombrePropietario: string;
+  documentoPropietario: string | null;
+  nombrePropietario: string | null;
 }
 
 export interface SugerenciaFactura {
@@ -45,8 +45,8 @@ export interface FilaCertificacionDirecta {
   organismoCodigo: string;
   organismoNombre: string;
   placa: string;
-  documentoPropietario: string;
-  nombrePropietario: string;
+  documentoPropietario: string | null;
+  nombrePropietario: string | null;
   vin: string;
   marca: string;
   linea: string;
@@ -183,8 +183,8 @@ export async function crearCertificacionDirecta(datos: DatosAlta, archivo: Archi
     const [row] = await db.insert(flitoImpuestoCertificacionDirecta).values({
       id, organismoCodigo: datos.organismoCodigo,
       placa: claves.placa, placaNorm: claves.placaNorm,
-      documentoPropietario: datos.documentoPropietario.trim(),
-      nombrePropietario: datos.nombrePropietario.trim(),
+      documentoPropietario: datos.documentoPropietario?.trim() || null,
+      nombrePropietario: datos.nombrePropietario?.trim() || null,
       vin: claves.vin, vinNorm: claves.vinNorm,
       marca: datos.marca.trim(), linea: datos.linea.trim(), anio: datos.anio.trim(),
       color: datos.color.trim(), cilindrada: datos.cilindrada.trim(),
@@ -243,8 +243,8 @@ export async function actualizarCertificacionDirecta(
     const [row] = await db.update(flitoImpuestoCertificacionDirecta).set({
       organismoCodigo: datos.organismoCodigo,
       placa: claves.placa, placaNorm: claves.placaNorm,
-      documentoPropietario: datos.documentoPropietario.trim(),
-      nombrePropietario: datos.nombrePropietario.trim(),
+      documentoPropietario: datos.documentoPropietario?.trim() || null,
+      nombrePropietario: datos.nombrePropietario?.trim() || null,
       vin: claves.vin, vinNorm: claves.vinNorm,
       marca: datos.marca.trim(), linea: datos.linea.trim(), anio: datos.anio.trim(),
       color: datos.color.trim(), cilindrada: datos.cilindrada.trim(),
@@ -267,15 +267,21 @@ export async function consultarRuntCertificacionDirecta(
 ): Promise<FilaCertificacionDirecta> {
   const actual = await cargar(id);
   if (actual.estado === 'certificado') throw new ImpuestoError(409, 'Este registro ya está certificado');
-  // Sin placa: si viaja junto al VIN, el cliente RUNT descarta el VIN y consulta por placa.
-  const consulta = await consultarVehiculoRunt(undefined, actual.vin);
+  // Decide el documento. Placa y VIN nunca viajan juntos: el cliente RUNT descartaría el VIN.
+  // Sin reintento: si esta consulta falla no se prueba la otra modalidad. El gestor decide si borra el documento.
+  const documento = actual.documentoPropietario?.trim() || null;
+  const modalidad: ModalidadConsultaRunt = documento ? 'placa_documento' : 'vin';
+  const consulta: { ok?: boolean; data?: unknown; message?: string; httpStatus?: number } = documento
+    ? await consultarVehiculoRunt(actual.placa, undefined, documento)
+    : await consultarVehiculoRunt(undefined, actual.vin);
   const ahora = new Date();
-  if (!consulta.ok) {
-    const estado = clasificarFalloRunt(consulta.message ?? '');
+  // Una placa que el RUNT no conoce responde ok:true con los campos en null: tampoco hay vehículo.
+  if (!consulta.ok || runtSinRegistro(consulta.data)) {
+    const estado = consulta.ok ? 'sin_vehiculo' : clasificarFalloRunt(consulta.message ?? '', consulta.httpStatus);
     const [row] = await db.update(flitoImpuestoCertificacionDirecta).set({
       estado, comparacion: null, updatedAt: ahora,
     }).where(eq(flitoImpuestoCertificacionDirecta.id, id)).returning();
-    log.info({ id, estado }, 'consulta RUNT sin certificado');
+    log.info({ id, estado, modalidad }, 'consulta RUNT sin certificado');
     return filaVisible(row!);
   }
   const veh = extraerVehiculoRunt(consulta.data);
@@ -296,6 +302,7 @@ export async function consultarRuntCertificacionDirecta(
   const snapshot: SnapshotCertificacionDirecta = {
     campos: comparado.comparacion.campos,
     registroRunt: extraerRegistroRunt(consulta.data),
+    modalidadConsulta: modalidad,
   };
   try {
     const [row] = await db.update(flitoImpuestoCertificacionDirecta).set({
