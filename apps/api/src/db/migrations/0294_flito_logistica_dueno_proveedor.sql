@@ -1,4 +1,4 @@
--- 0293_flito_logistica_dueno_proveedor.sql
+-- 0294_flito_logistica_dueno_proveedor.sql
 -- Autor: David Chica
 -- HU #14346 y #14348 (Feature #14326, ADR-0039 §6.3 y §8.6). Dueño de la LT y del firmante, y el índice de búsqueda por licencia.
 --

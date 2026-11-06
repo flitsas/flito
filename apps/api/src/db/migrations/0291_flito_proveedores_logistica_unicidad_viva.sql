@@ -1,4 +1,4 @@
--- 0290_flito_proveedores_logistica_unicidad_viva.sql
+-- 0291_flito_proveedores_logistica_unicidad_viva.sql
 -- Autor: David Chica
 -- Feature #14324, HU #14332, #14333 y #14334 (ADR-0039 §3 y §16.8b). F2 es el primero que escribe en el padre.
 --
@@ -26,7 +26,7 @@ CREATE UNIQUE INDEX uq_flito_proveedores_logistica_nit
   ON flito_proveedores_logistica (nit) WHERE nit IS NOT NULL AND deleted_at IS NULL;
 
 -- ── Paso 2. Un perfil de baja no sincroniza con el padre ────────────────────────────────────────────────
--- Misma función de la 0289, salvo la guarda de la copia: solo sube un perfil vigente, y solo a un padre vigente. La
+-- Misma función de la 0290, salvo la guarda de la copia: solo sube un perfil vigente, y solo a un padre vigente. La
 -- rama de la baja no cambia: es la que usa la imagen anterior.
 CREATE OR REPLACE FUNCTION flito_proveedor_perfil_a_padre() RETURNS trigger
 LANGUAGE plpgsql AS $fn$

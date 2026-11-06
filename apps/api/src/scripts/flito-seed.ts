@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   const sura = proveedores.find((p) => p.nombre === 'SURA')!;
 
   // ── Proveedor logístico por defecto (Fase 1: mensajería propia de FLIT) ──────
-  // Se consulta antes de insertar: `perfil_crea_padre` (0289) escribe el padre antes de que un ON CONFLICT del
+  // Se consulta antes de insertar: `perfil_crea_padre` (0290) escribe el padre antes de que un ON CONFLICT del
   // perfil pueda actuar, y un nombre ya sembrado por una migración chocaría con el índice único del padre.
   const [mensajeria] = await db.select({ id: flitoProveedoresLogistica.id }).from(flitoProveedoresLogistica)
     .where(eq(flitoProveedoresLogistica.nombre, 'Mensajería FLIT')).limit(1);

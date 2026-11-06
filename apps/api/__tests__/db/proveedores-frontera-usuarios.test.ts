@@ -1,5 +1,5 @@
 // Feature #14325 (HU #14338, #14339, #14340, #14341; ADR-0039 §6.1 y §6.2) — De punta a punta contra PostgreSQL de verdad, con
-// las rutas, la frontera y el resolutor REALES: lo único doble es Redis. Exige la base al día (incluida la 0292) y confirma
+// las rutas, la frontera y el resolutor REALES: lo único doble es Redis. Exige la base al día (incluida la 0293) y confirma
 // de verdad para medir la invalidación tras el commit y las carreras: hay que usar una base temporal recién migrada.
 // Sin TEST_DATABASE_URL se SALTA (el CI no levanta Postgres); la frontera también se mide en `frontera-proveedor-servicio.test.ts`.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';

@@ -1,4 +1,4 @@
--- 0294_flito_logistica_permiso_dejar_pendiente.sql
+-- 0295_flito_logistica_permiso_dejar_pendiente.sql
 -- Autor: David Chica
 -- HU #14348 (Feature #14326, ADR-0039 §7.3, R20) — dejar una licencia pendiente al escanearla. Patrón de la 0286.
 --   1. Función `logistica.documento.dejar_pendiente`, opcional de `accion.mi_ruta.escanear`.

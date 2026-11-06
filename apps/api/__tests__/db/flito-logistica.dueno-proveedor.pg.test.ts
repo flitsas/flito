@@ -406,7 +406,7 @@ describe.skipIf(!URL_BASE)('dueño de la LT (PostgreSQL, tx con ROLLBACK)', () =
   });
 
   describe('AC9 — licencias existentes', () => {
-    const MIG = '0293_flito_logistica_dueno_proveedor.sql';
+    const MIG = '0294_flito_logistica_dueno_proveedor.sql';
 
     it('las no entregadas y sin acta abierta quedan con el proveedor actual; las demás sin dueño; dos aplicaciones, mismo resultado', async () => {
       await conMundo(async (m) => {
