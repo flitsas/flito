@@ -39,14 +39,14 @@ export default function CreateForm({ companias, proveedores, organismos, rolesCa
     role: string;
     excepciones: FuncionDeUsuario[];
     companiaId: string;
-    flitoProveedorSoatId: string;
+    flitoProveedorId: string;
     organismosCodigos: string[];
   }>({
     username: '', name: '', email: '', password: '',
     role: rolInicial,
     excepciones: [],
     companiaId: '',
-    flitoProveedorSoatId: '',
+    flitoProveedorId: '',
     organismosCodigos: [],
   });
   const [submitting, setSubmitting] = useState(false);
@@ -62,7 +62,7 @@ export default function CreateForm({ companias, proveedores, organismos, rolesCa
     e.preventDefault();
     if (submitting) return;
     if (enlace === 'compania' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    if (enlace === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
+    if (enlace === 'proveedor' && !f.flitoProveedorId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
     if (enlace === 'organismos_transito' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
     setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
     setSubmitting(true);
@@ -71,7 +71,7 @@ export default function CreateForm({ companias, proveedores, organismos, rolesCa
       if (f.email.trim()) body.email = f.email.trim();
       if (funcionesOk && f.excepciones.length > 0) body.funciones = f.excepciones;
       if (enlace === 'compania') body.companiaId = Number(f.companiaId);
-      if (enlace === 'proveedor') body.flitoProveedorSoatId = f.flitoProveedorSoatId;
+      if (enlace === 'proveedor') body.flitoProveedorId = f.flitoProveedorId;
       if (enlace === 'organismos_transito') body.organismosCodigos = f.organismosCodigos;
       await api.post('/users', body);
       toast.success('Usuario creado');
@@ -110,7 +110,7 @@ export default function CreateForm({ companias, proveedores, organismos, rolesCa
                 role: e.target.value,
                 excepciones: [],
                 companiaId: '',
-                flitoProveedorSoatId: '',
+                flitoProveedorId: '',
                 organismosCodigos: [],
               });
               setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);

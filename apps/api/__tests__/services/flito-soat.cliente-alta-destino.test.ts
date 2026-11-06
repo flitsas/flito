@@ -473,6 +473,7 @@ describe('AC2e — el destino del SOAT POR TRÁMITE no depende de la configuraci
       flito_soat: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
       // HU #13959 (RN-PROV-5): el envío relee el proveedor elegido `FOR SHARE`; activo y vigente.
       flito_proveedores_soat: [{ id: OTRO_GESTOR, nombre: 'Otro', activo: true, deletedAt: null }],
+      flito_proveedores: [{ id: OTRO_GESTOR, nombre: 'Otro', activo: true, deletedAt: null }], // R11: padre y perfil, los dos FOR SHARE.
     });
 
     const r = await enviarAlGestor(

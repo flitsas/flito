@@ -25,9 +25,8 @@ import { opcionesConEstado } from '../flit/opcionesConEstado';
 import {
   FlitPillGroup, FlitPillButton, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../flit/flitPageKit';
-import type { CatalogoProveedores } from '../../pages/users/AtaduraFields';
 import FichaFiscal from './FichaFiscal';
-import { useProveedoresLogistica } from './proveedoresDatos';
+import { useProveedoresSelector, type CatalogoSelector } from './proveedoresDatos';
 
 export interface Client {
   id: number; name: string; document: string | null; documentType: string | null;
@@ -147,7 +146,7 @@ function FilaServicio({ titulo, etiqueta, checked, onToggle, disabled, children 
 
 export function ModalCliente({ cliente, editaAutogestion, editaSinTramite, puedeCrearProveedor, veTarifas, editable, proveedoresSoat, onClose, onGuardado, onFiscalGuardado }: {
   cliente: Client; editaAutogestion: boolean; editaSinTramite: boolean; puedeCrearProveedor: boolean; veTarifas: boolean;
-  editable: boolean; proveedoresSoat: CatalogoProveedores; onClose: () => void; onGuardado: () => void; onFiscalGuardado: () => void;
+  editable: boolean; proveedoresSoat: CatalogoSelector; onClose: () => void; onGuardado: () => void; onFiscalGuardado: () => void;
 }) {
   const idAviso = useId();
   const [pestana, setPestana] = useState<Pestana>('servicios');
@@ -161,11 +160,17 @@ export function ModalCliente({ cliente, editaAutogestion, editaSinTramite, puede
   const [errorServidor, setErrorServidor] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
-  const log = useProveedoresLogistica(true);
+  const log = useProveedoresSelector('logistica');
   const logCargando = log.data === null && !log.error;
-  const ofrecidosLog = useMemo(() => (log.data ?? []).map((p) => ({ id: p.id, nombre: p.nombre, activo: p.activo })), [log.data]);
-  const logVacio = log.data !== null && !ofrecidosLog.some((p) => p.activo || p.id === actualLog);
-  const nombreLog = ofrecidosLog.find((p) => p.id === provLog)?.nombre ?? null;
+  // HU #14342: el selector solo trae activos con el servicio. El asignado que ya no viene se conserva como inactivo.
+  const ofrecidosLog = useMemo(() => {
+    const catalogo = log.data ?? [];
+    return log.data && actualLog && !catalogo.some((p) => p.id === actualLog)
+      ? [...catalogo, { id: actualLog, nombre: cliente.proveedorLogisticaNombre ?? 'Proveedor asignado', activo: false }]
+      : catalogo;
+  }, [log.data, actualLog, cliente.proveedorLogisticaNombre]);
+  const logVacio = log.data !== null && ofrecidosLog.length === 0;
+  const nombreLog = ofrecidosLog.find((p) => p.id === provLog)?.nombre ?? (provLog === actualLog ? cliente.proveedorLogisticaNombre ?? null : null);
   const logInutil = logCargando || log.error || logVacio;
   const mensajeLog = log.error ? LOG_ERROR : logCargando ? PROVEEDOR_CARGANDO : logVacio ? (puedeCrearProveedor ? LOG_VACIO_PUEDE : LOG_VACIO_NO_PUEDE) : null;
 
@@ -213,6 +218,10 @@ export function ModalCliente({ cliente, editaAutogestion, editaSinTramite, puede
       onGuardado();
     } catch (err) {
       setErrorServidor(mensajeErrorGuardado(err, 'proveedorSoatSinTramiteId' in cambios));
+      // AC5: el proveedor ya no se puede asignar. Vuelve el asignado y se pide la lista de nuevo: ofrecerlo otra vez sería un callejón.
+      const status = err instanceof ApiError ? err.status : 0;
+      if (status === 422 && 'proveedorLogisticaId' in cambios) { setProvLog(actualLog); log.recargar(); }
+      if ((status === 400 || status === 409) && 'proveedorSoatSinTramiteId' in cambios) { setProvSin(actualSin); recargar(); }
     } finally { setGuardando(false); }
   };
 

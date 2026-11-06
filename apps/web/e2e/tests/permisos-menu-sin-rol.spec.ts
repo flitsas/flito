@@ -28,7 +28,7 @@ async function mockColaSoat(page: Page) {
     return route.fulfill(json({ items: [], total: 0, page: 1, pageSize: 50 }));
   });
   await page.route(/\/api\/flito\/soat\/facetas/, (route) => route.fulfill(json({ companias: [], organismos: [], proveedores: [] })));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) => route.fulfill(json([])));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (route) => route.fulfill(json([])));
 }
 
 const nav = (page: Page) => page.getByRole('navigation', { name: 'Navegación principal' });
@@ -269,7 +269,7 @@ async function mockColaConFila(page: Page, fila: unknown) {
     return route.fulfill(json({ items: [fila], total: 1, page: 1, pageSize: 50 }));
   });
   await page.route(/\/api\/flito\/soat\/facetas/, (route) => route.fulfill(json({ companias: [], organismos: [], proveedores: [] })));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) => route.fulfill(json([{ id: 'p1', nombre: 'Seguros Alfa', activo: true }])));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (route) => route.fulfill(json([{ id: 'p1', nombre: 'Seguros Alfa', activo: true }])));
   await page.route(/\/api\/flito\/soat\/[^/?]+\/historial/, (route) => route.fulfill(json([])));
 }
 

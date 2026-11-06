@@ -15,7 +15,7 @@ import { isUserLaftBlocked } from '../laft/employees/auth-block.service.js';
 import { laftAudit } from '../laft/audit.service.js';
 import { companiaInactiva } from '../clients/clients.service.js';
 import { canalSinTramiteAbiertoPara } from '../clients/cliente-operable.js';
-import { proveedorSoatInactivo } from '../flito-parametrizacion/flito-proveedores-estado.service.js';
+import { proveedorInactivo } from '../flito-parametrizacion/flito-proveedores-estado.service.js';
 
 /**
  * HU #12088: `transitoCodigo` del JWT/me = 1.er código ordenado de la puente
@@ -87,10 +87,10 @@ router.post('/login', async (req: Request, res: Response) => {
     return;
   }
 
-  // HU #13958 (AC3): proveedor SOAT inactivo o eliminado. Mismo criterio que la compañía inactiva (tras la contraseña,
-  // sin `registerFailed`, sin PII en el detalle).
-  if (await proveedorSoatInactivo(user.flitoProveedorSoatId)) {
-    await audit(req, { action: 'login_failed', resource: 'auth', resourceId: String(user.id), detail: 'proveedor SOAT inactivo' });
+  // HU #13958 (AC3) y #14340: proveedor inactivo o eliminado, con cualquier servicio. Mismo criterio que la compañía
+  // inactiva (tras la contraseña, sin `registerFailed`, sin PII en el detalle).
+  if (await proveedorInactivo(user.flitoProveedorId)) {
+    await audit(req, { action: 'login_failed', resource: 'auth', resourceId: String(user.id), detail: 'proveedor inactivo' });
     res.status(403).json({ error: 'Tu proveedor está inactivo en FLITO. Comunícate con el administrador.' });
     return;
   }

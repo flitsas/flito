@@ -1,6 +1,6 @@
 // HU #14104 (Feature #14089) — proveedor de logística por compañía: la regla «encendida exige proveedor» en
 // `PATCH /api/flito/parametrizacion/companias/:id`, el resolvedor `proveedorDeCompania` y el bloqueo de inactivar un
-// proveedor asignado (`PATCH /proveedores-logistica/:id/estado`). La migración 0279 se valida en la BD (HANDOFF).
+// proveedor asignado (se mide en `db/proveedores-gestion.test.ts`, HU #14334 AC1). La migración 0279 se valida en la BD (HANDOFF).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
@@ -47,7 +47,7 @@ const filaCompania = (over: Record<string, unknown> = {}) => ({
 function escenario(previa: { logisticaAutogestionable: boolean; proveedorLogisticaId: string | null },
   proveedores: { id: string; nombre: string; activo: boolean }[] = [{ id: PROV, nombre: 'Andina', activo: true }],
   devuelve: Record<string, unknown> = filaCompania()) {
-  kdb.when.scenario({ clients: [{ id: COMPANIA, proveedorSinTramiteId: null, ...previa }], flito_proveedores_logistica: proveedores });
+  kdb.when.scenario({ clients: [{ id: COMPANIA, proveedorSinTramiteId: null, ...previa }], flito_proveedores: proveedores, flito_proveedores_logistica: proveedores });
   kdb.when.update('clients', [devuelve]);
 }
 const patch = async (cuerpo: Record<string, unknown>) =>
@@ -129,37 +129,6 @@ describe('AC4 — resolvedor único proveedorDeCompania', () => {
   });
 });
 
-describe('AC6 — no inactivar un proveedor asignado', () => {
-  const estado = async (activo: boolean) =>
-    request(await buildApp()).patch(`/api/flito/parametrizacion/proveedores-logistica/${PROV}/estado`)
-      .set('Authorization', await auth()).send({ activo });
-
-  it('asignado a compañías → 409 con sus nombres, sin escribir', async () => {
-    kdb.when.scenario({ flito_proveedores_logistica: [{ id: PROV, activo: true }], clients: [{ name: 'Acme' }, { name: 'Beta' }] });
-    const r = await estado(false);
-    expect(r.status).toBe(409);
-    expect(r.body.companias).toEqual(['Acme', 'Beta']);
-    expect(r.body.error).toContain('Acme');
-    expect(espia.updatesEn('flito_proveedores_logistica')).toHaveLength(0);
-  });
-
-  it('sin compañías → se inactiva (200)', async () => {
-    kdb.when.scenario({ flito_proveedores_logistica: [{ id: PROV, activo: true }], clients: [] });
-    kdb.when.update('flito_proveedores_logistica', [{ id: PROV, nombre: 'Andina', nit: null, contacto: null, telefono: null, activo: false }]);
-    const r = await estado(false);
-    expect(r.status).toBe(200);
-    expect(r.body.activo).toBe(false);
-  });
-
-  it('reactivar sigue funcionando aunque tenga compañías (no consulta el bloqueo)', async () => {
-    kdb.when.scenario({ flito_proveedores_logistica: [{ id: PROV, activo: false }], clients: [{ name: 'Acme' }] });
-    kdb.when.update('flito_proveedores_logistica', [{ id: PROV, nombre: 'Andina', nit: null, contacto: null, telefono: null, activo: true }]);
-    const r = await estado(true);
-    expect(r.status).toBe(200);
-    expect(r.body.activo).toBe(true);
-  });
-});
-
 describe('AC3 — migración 0279 (forma del SQL; la ejecución real se valida en la BD)', () => {
   const sql = readFileSync(resolve(__dirname, '../../src/db/migrations/0279_flito_clients_proveedor_logistica.sql'), 'utf8');
   it('idempotente, FK RESTRICT, índice y SIN backfill de proveedor', () => {
@@ -168,5 +137,60 @@ describe('AC3 — migración 0279 (forma del SQL; la ejecución real se valida e
     expect(sql).toMatch(/ON DELETE RESTRICT/);
     expect(sql).toMatch(/CREATE INDEX IF NOT EXISTS idx_clients_flito_proveedor_logistica/);
     expect(sql).not.toMatch(/^\s*(UPDATE|INSERT)\b/im);
+  });
+});
+
+describe('HU #14346 — el PATCH reasigna las licencias en su transacción', () => {
+  const NUEVO = OTRO;
+  const conNuevo = () => [{ id: NUEVO, nombre: 'Nuevo', activo: true }];
+  const previa = (proveedorId: string | null) => ({ logisticaAutogestionable: false, proveedorLogisticaId: proveedorId });
+
+  it('AC5: cambiar de proveedor actualiza las licencias, con la compañía bloqueada, antes del UPDATE de la compañía; la auditoría cuenta las reasignadas', async () => {
+    escenario(previa(PROV), conNuevo());
+    kdb.when.update('flito_logistica_documentos', [{ id: 'd1' }, { id: 'd2' }]);
+    const r = await patch({ proveedorLogisticaId: NUEVO });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos').at(-1)?.datos).toMatchObject({ proveedorLogisticaId: NUEVO });
+    expect(auditMock.mock.calls[0]![1].detail).toContain('Licencias reasignadas: 2');
+    expect(JSON.stringify(auditMock.mock.calls[0]![1])).not.toMatch(/d1|d2/);
+  });
+
+  it('reenviar el mismo proveedor llega al UPDATE de licencias y la auditoría cuenta las reasignadas', async () => {
+    escenario(previa(PROV));
+    kdb.when.update('flito_logistica_documentos', [{ id: 'd1' }]);
+    const r = await patch({ proveedorLogisticaId: PROV });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos').at(-1)?.datos).toMatchObject({ proveedorLogisticaId: PROV });
+    expect(auditMock.mock.calls[0]![1].detail).toContain('Licencias reasignadas: 1');
+  });
+
+  it('reenviar el mismo proveedor sin nada que reasignar: la auditoría no menciona licencias', async () => {
+    escenario(previa(PROV));
+    kdb.when.update('flito_logistica_documentos', []);
+    const r = await patch({ proveedorLogisticaId: PROV });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(1);
+    expect(auditMock.mock.calls[0]![1].detail).not.toContain('Licencias reasignadas');
+  });
+
+  it('AC7: quitar el proveedor no toca las licencias', async () => {
+    escenario({ logisticaAutogestionable: true, proveedorLogisticaId: PROV });
+    const r = await patch({ proveedorLogisticaId: null });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(0);
+  });
+
+  it('un PATCH que no trae el proveedor no toca las licencias', async () => {
+    escenario(previa(PROV));
+    const r = await patch({ logisticaPermiteParcial: true });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(0);
+  });
+
+  it('si el proveedor nuevo no es usable, no se reasigna nada', async () => {
+    escenario(previa(PROV), [{ id: NUEVO, nombre: 'Nuevo', activo: false }]);
+    const r = await patch({ proveedorLogisticaId: NUEVO });
+    expect(r.status).toBe(422);
+    expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(0);
   });
 });

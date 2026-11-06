@@ -19,12 +19,12 @@ export const flitoLogisticaTipoDocEnum = pgEnum('flito_logistica_tipo_doc', ['li
 // Proveedor logístico: mensajería propia (PWA FLITO) o integración con tercero (FEATURE §6).
 export const flitoProveedoresLogistica = pgTable('flito_proveedores_logistica', {
   id: uuid('id').primaryKey().defaultRandom(),
-  nombre: varchar('nombre', { length: 150 }).notNull().unique(),
+  nombre: varchar('nombre', { length: 150 }).notNull(),
   estrategia: varchar('estrategia', { length: 40 }).notNull().default('pwa_propia'),
   activo: boolean('activo').notNull().default(true),
   // HU #14103 (0278): nit (único parcial `uq_flito_proveedores_logistica_nit` en la migración; NULL en filas previas), contacto y teléfono, en la misma línea: el techo congelado de schema.ts no admite crecer.
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), nit: varchar('nit', { length: 20 }), contacto: varchar('contacto', { length: 150 }), telefono: varchar('telefono', { length: 30 }),
-});
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), nit: varchar('nit', { length: 20 }), contacto: varchar('contacto', { length: 150 }), telefono: varchar('telefono', { length: 30 }), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }), // HU #14329 (0291). Nombre único entre vigentes: 0292.
+}, (t) => ({ nombreVivoUq: uniqueIndex('uq_flito_proveedores_logistica_nombre_vivo').on(t.nombre).where(sql`deleted_at IS NULL`) }));
 
 // Acta: agrupación por empresa para despacho/entrega (CA-04, una por empresa por lote). El acta
 // firmada + evidencia (columnas de entrega) se pueblan en la Fase 2 (PWA); aquí quedan definidas.
@@ -85,7 +85,7 @@ export const flitoLogisticaDocumentos = pgTable('flito_logistica_documentos', {
   combustible: varchar('combustible', { length: 30 }),
   // Foto del propietario embebida en el código (JPEG), subida a storage.
   fotoStorageKey: varchar('foto_storage_key', { length: 400 }),
-  actaId: uuid('acta_id').references(() => flitoLogisticaActas.id), recogidaFirmanteId: uuid('recogida_firmante_id'),
+  actaId: uuid('acta_id').references(() => flitoLogisticaActas.id), recogidaFirmanteId: uuid('recogida_firmante_id'), proveedorLogisticaId: uuid('proveedor_logistica_id').references(() => flitoProveedoresLogistica.id, { onDelete: 'restrict' }), // ADR-0039 §6.3: dueño de la LT; NULL = solo Operaciones.
   /** INDICADOR (no bloqueo): true = falta el acta de organismo de la LT. Backfill 0276: false solo en las ya entregadas. */
   actaOrganismoPendiente: boolean('acta_organismo_pendiente').notNull().default(true),
   // Motivo de la última novedad/devolución (obligatorio en esos estados, RN-04).
@@ -98,7 +98,7 @@ export const flitoLogisticaDocumentos = pgTable('flito_logistica_documentos', {
   tramiteTipoUnico: uniqueIndex('uq_flito_log_doc_tramite_tipo').on(t.tramiteId, t.tipo),
   estadoIdx: index('idx_flito_log_doc_estado').on(t.estado),
   companiaIdx: index('idx_flito_log_doc_compania').on(t.companiaId),
-  actaIdx: index('idx_flito_log_doc_acta').on(t.actaId), tramiteCompaniaCk: check('ck_flito_log_doc_tramite_compania', sql`${t.tramiteId} IS NOT NULL OR ${t.companiaId} IS NULL`), pendienteUq: uniqueIndex('uq_flito_log_doc_vehiculo_pendiente').on(t.vehiculoId, t.tipo).where(sql`${t.tramiteId} IS NULL`),
+  actaIdx: index('idx_flito_log_doc_acta').on(t.actaId), proveedorIdx: index('idx_flito_log_doc_proveedor').on(t.proveedorLogisticaId), numeroLicenciaIdx: index('idx_flito_log_doc_numero_licencia').on(t.numeroLicencia), tramiteCompaniaCk: check('ck_flito_log_doc_tramite_compania', sql`${t.tramiteId} IS NOT NULL OR ${t.companiaId} IS NULL`), pendienteUq: uniqueIndex('uq_flito_log_doc_vehiculo_pendiente').on(t.vehiculoId, t.tipo).where(sql`${t.tramiteId} IS NULL`),
 }));
 
 // Idempotencia de las escrituras de campo (RN-06/CA-06): la PWA del mensajero encola escrituras

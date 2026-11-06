@@ -534,6 +534,7 @@ describe('B2 — las plantillas del historial dejan de escribir datos internos e
 
     const insertados: Record<string, unknown>[] = [];
     const tx = {
+      select: () => chain([{ id: PROV, nombre: 'Gestora', activo: true, deletedAt: null }]), // padre y perfil FOR SHARE (RN-PROV-5)
       update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: SOAT_ID }]) }) }) }),
       insert: () => ({ values: (v: Record<string, unknown>) => { insertados.push(v); return Promise.resolve(undefined); } }),
     };
@@ -545,9 +546,8 @@ describe('B2 — las plantillas del historial dejan de escribir datos internos e
     selectMock.mockReturnValueOnce(chain([{ id: SOAT_ID, estado: 'solicitado', gestionOperaciones: false, proveedorSoatId: PROV }]));
     await asumirEnOperaciones(SOAT_ID, 'el proveedor no responde', ctx);
 
-    // Devolver: ya lo gestiona Operaciones y el proveedor destino existe.
+    // Devolver: ya lo gestiona Operaciones; el proveedor destino se valida dentro de la tx.
     selectMock.mockReturnValueOnce(chain([{ id: SOAT_ID, estado: 'solicitado', gestionOperaciones: true, proveedorSoatId: null }]));
-    selectMock.mockReturnValueOnce(chain([{ id: PROV }]));
     await devolverAlGestor(SOAT_ID, PROV, 'ya puede retomarlo', ctx);
 
     const motivos = insertados.filter((v) => 'estadoNuevo' in v).map((v) => String(v.motivo));

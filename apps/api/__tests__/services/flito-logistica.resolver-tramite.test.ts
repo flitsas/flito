@@ -40,6 +40,7 @@ const FIRMANTE = '44444444-4444-4444-8444-444444444444';
 const ACTA = '33333333-3333-4333-8333-333333333333';
 const FUNCION = 'logistica.documento.resolver_tramite';
 const PLACA = 'ZZZ999';
+const PROV = '99999999-9999-4999-8999-999999999999';
 
 const docPendiente = (over: Record<string, unknown> = {}) => ({
   id: DOC, estado: 'recogido', vehiculoId: 7, organismoCodigo: '11001', tramiteId: null, firmanteId: FIRMANTE, ...over,
@@ -52,10 +53,12 @@ type Insercion = { tabla: unknown; valores: Record<string, unknown> };
 let inserciones: Insercion[];
 let sets: Record<string, unknown>[];
 
-/** selects de la tx en orden: documento, trámite, LT del trámite, acta existente, firmante. */
+/** selects de la tx en orden: trámite, compañía, documento, LT del trámite, acta existente, firmante. */
 function tx(opts: { doc?: unknown; tramite?: unknown; yaLt?: unknown[]; actaExistente?: unknown[]; falla23505?: boolean } = {}) {
+  const tramite = opts.tramite === null ? null : (opts.tramite ?? tramiteOk()) as { companiaId?: number | null };
+  selectMock.mockReturnValueOnce(chain(tramite ? [tramite] : []));
+  if (tramite?.companiaId != null) selectMock.mockReturnValueOnce(chain([{ proveedorId: PROV }])); // HU #14346: dueño, con la compañía `FOR SHARE`
   selectMock.mockReturnValueOnce(chain([opts.doc ?? docPendiente()]));
-  selectMock.mockReturnValueOnce(chain(opts.tramite === null ? [] : [opts.tramite ?? tramiteOk()]));
   selectMock.mockReturnValueOnce(chain(opts.yaLt ?? []));
   selectMock.mockReturnValueOnce(chain(opts.actaExistente ?? []));
   selectMock.mockReturnValueOnce(chain([{ por: 3, en: new Date('2026-10-01T00:00:00Z'), lat: null, lng: null }]));
@@ -135,8 +138,9 @@ describe('AC1 — resolver con firma de organismo ya capturada', () => {
       };
       return t;
     };
-    selectMock.mockReturnValueOnce(chain([docPendiente()]));
     selectMock.mockReturnValueOnce(chain([tramiteOk({ companiaId: 6 })]));
+    selectMock.mockReturnValueOnce(chain([{ proveedorId: PROV }]));
+    selectMock.mockReturnValueOnce(chain([docPendiente()]));
     selectMock.mockReturnValueOnce(chain([]));
     selectMock.mockReturnValueOnce(tablaActas());
     selectMock.mockReturnValueOnce(chain([{ por: 3, en: new Date('2026-10-01T00:00:00Z'), lat: null, lng: null }]));
@@ -154,7 +158,7 @@ describe('AC1 — resolver con firma de organismo ya capturada', () => {
   });
 
   it('LT inexistente → 404 LT_NO_ENCONTRADA', async () => {
-    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([tramiteOk()])).mockReturnValueOnce(chain([{ proveedorId: PROV }])).mockReturnValueOnce(chain([]));
     const r = await llamar('post', RUTA, await operador(), { tramiteId: TRAM });
     expect([r.status, r.body.codigo]).toEqual([404, 'LT_NO_ENCONTRADA']);
   });
@@ -263,7 +267,7 @@ describe('AC4 — candidato no válido: se rechaza y la LT sigue pendiente', () 
     expect([r.status, r.body.codigo]).toEqual([409, 'TRAMITE_YA_TIENE_LT']);
   });
   it('LT que ya no es pendiente → 409 LT_NO_PENDIENTE', async () => {
-    selectMock.mockReturnValueOnce(chain([docPendiente({ tramiteId: TRAM })]));
+    selectMock.mockReturnValueOnce(chain([tramiteOk()])).mockReturnValueOnce(chain([{ proveedorId: PROV }])).mockReturnValueOnce(chain([docPendiente({ tramiteId: TRAM })]));
     const r = await llamar('post', RUTA, await operador(), { tramiteId: TRAM });
     expect([r.status, r.body.codigo]).toEqual([409, 'LT_NO_PENDIENTE']);
   });

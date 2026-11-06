@@ -127,7 +127,7 @@ describe('paginasEfectivasDeUsuario — del reparto sembrado a la lista de slugs
   it('de `users` pide `role` y el ENLACE del rol (no el tipo retirado), y NO `allowed_pages`: la columna está congelada (0188)', async () => {
     usuario('auditor', ['pesv'], 'pagina.dashboard');
     await paginasEfectivasDeUsuario(1);
-    expect(Object.keys(selectMock.mock.calls[0]![0] as object).sort()).toEqual(['rol', 'tipoEnlace']); // HU #12875: sin el tipo retirado
+    expect(Object.keys(selectMock.mock.calls[0]![0] as object).sort()).toEqual(['proveedorId', 'rol', 'tipoEnlace']); // HU #14338: su proveedor, solo para la frontera. // HU #12875: sin el tipo retirado
   });
 
   it('un rol sin reparto y sin páginas propias no ve NADA: el fallo por defecto es cerrado', async () => {

@@ -37,7 +37,7 @@ const json = (route: Route, body: unknown, status = 200) => route.fulfill({
 
 async function montar(page: Page) {
   await page.route(/\/api\/flito\/soat\/facetas/, (r) => json(r, { companias: [], organismos: [], proveedores: [] }));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (r) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (r) =>
     json(r, [{ id: 'p1', nombre: 'Seguros Alfa', activo: true }]));
   await page.route(/\/api\/flito\/soat\?/, (r) => json(r, { items: SOAT, total: SOAT.length, page: 1, pageSize: 50 }));
 }

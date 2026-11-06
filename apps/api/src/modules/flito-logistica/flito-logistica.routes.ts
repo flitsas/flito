@@ -17,7 +17,7 @@ import { confirmarRecogida } from './flito-logistica.recogida.js';
 import { candidatosDe, listarPendientes, resolverTramite } from './flito-logistica.pendientes.js';
 import { contarPendientesFirma, ltPendientesFirma } from './flito-logistica.pendientes-firma.js';
 import { misRecogidas, recogidaDetalle, revelarDocumentoFirmante } from './flito-logistica.firmante.js';
-import { recogidaConfirmarLimiter, revelarDocumentoLimiter, trasladoCicloLimiter, trasladoRegistrarLimiter } from './flito-logistica.limitadores.js';
+import { recogidaConfirmarLimiter, revelarDocumentoLimiter, trasladoCicloLimiter, trasladoRegistrarLimiter, validarLtLimiter } from './flito-logistica.limitadores.js';
 import {
   actaDetalle, anularTraslado, buscarIdempotencia, cerrarLote, despachar, despacharTraslado,
   destinoDeTraslado, devolverTraslado, entregar, entregarTraslado, firmarLlegadaFlit, consultarVehiculo, escanearLt, facetas,
@@ -37,8 +37,9 @@ router.use(authMiddleware);
  * Contexto de las operaciones SIN regla de propiedad (escanear, novedad, lote, despacho, reversa):
  * `operaAjenas` no se consulta ahí, así que va en `false` (cerrado) sin preguntar al resolutor.
  */
-function ctxDe(user: { sub: number; username: string; role: string }): LogisticaCtx {
-  return { userId: user.sub, username: user.username, role: user.role, operaAjenas: false };
+async function ctxDe(req: Request): Promise<LogisticaCtx> {
+  const { sub, username, role } = req.user!;
+  return { userId: sub, username, role, operaAjenas: false, alcance: await alcanceDe(req) };
 }
 
 /**
@@ -47,7 +48,7 @@ function ctxDe(user: { sub: number; username: string; role: string }): Logistica
  * Es la única guarda en línea del fichero, en un solo sitio para las tres rutas.
  */
 async function ctxConPropiedad(req: Request): Promise<LogisticaCtx> {
-  return { ...ctxDe(req.user!), operaAjenas: await tieneFuncion(req, 'logistica.actas.operar_ajenas') };
+  return { ...await ctxDe(req), operaAjenas: await tieneFuncion(req, 'logistica.actas.operar_ajenas') };
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
@@ -69,8 +70,13 @@ async function ejecutar<T>(res: Response, fn: () => Promise<T>): Promise<T | und
 /**
  * Envuelve una escritura de campo con idempotencia (RN-06/CA-06). Si la petición trae `Idempotency-Key`
  * y ya se procesó, devuelve la respuesta guardada sin re-ejecutar; así un reenvío offline no duplica.
+ * HU #14348 (AC8, ADR-0039 §8.7): `/escanear`, `/novedad`, `/actas/:id/entregar` y `/actas/:id/devolucion` pasan a llevar
+ * `ruta`. Efecto: una clave guardada antes del despliegue no se reconoce, y su reenvío offline se ejecuta una vez más;
+ * los índices de la operación y los estados del acta lo contienen.
+ * `noGuardar`: la respuesta no se persiste. La usa el `sin_match` de `/escanear` (ADR-0039 §8.3): no escribió nada, así que
+ * reenviarlo no duplica, y la tabla no se queda con placa, VIN y licencia de algo no gestionado.
  */
-async function conIdempotencia(req: Request, res: Response, run: () => Promise<{ status?: number; body: unknown }>, ruta?: string): Promise<void> {
+async function conIdempotencia(req: Request, res: Response, run: () => Promise<{ status?: number; body: unknown; noGuardar?: boolean }>, ruta?: string): Promise<void> {
   const cabecera = req.header('Idempotency-Key') || undefined;
   // ADR-0030 §10: con `ruta`, la clave se prefija `usuarioId:ruta:` y no colisiona entre usuarios ni endpoints.
   const key = cabecera && ruta ? `${req.user!.sub}:${ruta}:${cabecera}` : cabecera;
@@ -79,8 +85,8 @@ async function conIdempotencia(req: Request, res: Response, run: () => Promise<{
     if (prev) { res.status(prev.status).json(prev.body); return; }
   }
   try {
-    const { status = 200, body } = await run();
-    if (key) await guardarIdempotencia(key, status, body);
+    const { status = 200, body, noGuardar } = await run();
+    if (key && !noGuardar) await guardarIdempotencia(key, status, body);
     res.status(status).json(body);
   } catch (error) {
     if (error instanceof LogisticaError) { res.status(error.status).json({ error: error.message, ...(error.codigo ? { codigo: error.codigo } : {}), ...(error.extra ? { detalle: error.extra } : {}) }); return; }
@@ -157,7 +163,7 @@ router.post('/documentos/:id/resolver-tramite', soloSinEnlace(), exigirFuncion('
   const parsed = resolverSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: 'Indica el trámite que corresponde a la LT', codigo: 'DATOS_INVALIDOS' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await resolverTramite(id.data, parsed.data.tramiteId, ctxDe(req.user!));
+    const r = await resolverTramite(id.data, parsed.data.tramiteId, await ctxDe(req));
     await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: id.data, detail: `Trámite de LT pendiente resuelto: trámite ${r.tramiteId}, compañía ${r.companiaId}` });
     return { body: r };
   }, 'documentos/resolver-tramite');
@@ -203,10 +209,11 @@ const entradaDe = (b: { rawValue?: string; placa?: string; numeroLicencia?: stri
 // confirmar se llama a /escanear por cada LT relacionada). Solo lectura → sin idempotencia ni auditoría.
 const validarSchema = z.object({ rawValue: z.string().min(1).optional(), placa: manualCampos.placa.optional(), numeroLicencia: manualCampos.numeroLicencia.optional(), numeroLt: manualCampos.numeroLt.optional() }).strict().refine(xorEntrada);
 // HU #13426 (P-2): buscan por placa/VIN entre TODOS los trámites → oráculo para una compañía: cerradas.
-router.post('/validar-lt', soloSinEnlace(), exigirFuncion('logistica.lt.validar'), async (req: Request, res: Response) => {
+router.post('/validar-lt', soloSinEnlace(), exigirFuncion('logistica.lt.validar'), validarLtLimiter, async (req: Request, res: Response) => {
   const parsed = validarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
-  const r = await ejecutar(res, () => validarLt(entradaDe(parsed.data as never)));
+  const alcance = await alcanceDe(req);
+  const r = await ejecutar(res, () => validarLt(entradaDe(parsed.data as never), alcance));
   if (r !== undefined) res.json(r);
 });
 
@@ -216,7 +223,8 @@ const consultarSchema = z.object({ placa: manualCampos.placa }).strict();
 router.post('/consultar-vehiculo', soloSinEnlace(), exigirFuncion('logistica.documento.escanear'), consultarVehiculoLimiter, async (req: Request, res: Response) => {
   const parsed = consultarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
-  const r = await ejecutar(res, () => consultarVehiculo(parsed.data.placa));
+  const alcance = await alcanceDe(req);
+  const r = await ejecutar(res, () => consultarVehiculo(parsed.data.placa, alcance));
   if (r !== undefined) res.json(r);
 });
 
@@ -232,13 +240,16 @@ const escanearSchema = z.object({
 router.post('/escanear', soloSinEnlace(), exigirFuncion('logistica.documento.escanear'), async (req: Request, res: Response) => {
   const parsed = escanearSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  // HU #14348 (AC4): dejar pendiente tiene función propia y se exige antes de consultar datos.
+  if (parsed.data.dejarPendiente && !await tieneFuncion(req, 'logistica.documento.dejar_pendiente')) { res.status(403).json({ error: 'Sin permisos' }); return; }
   await conIdempotencia(req, res, async () => {
     const d = parsed.data;
-    const r = await escanearLt(entradaDe(d as never), d.rawValue !== undefined ? (d.numeroLt ?? null) : null, { lat: d.lat, lng: d.lng }, ctxDe(req.user!),
-      { tramiteId: d.tramiteId, dejarPendiente: d.dejarPendiente, organismoCodigo: d.organismoCodigo });
-    await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Escaneo LT: ${r.resultado}${d.rawValue === undefined ? ' (manual)' : ''}` }); // sin placa (PII)
-    return { body: r };
-  });
+    let motivoInterno = '';
+    const r = await escanearLt(entradaDe(d as never), d.rawValue !== undefined ? (d.numeroLt ?? null) : null, { lat: d.lat, lng: d.lng }, await ctxDe(req),
+      { tramiteId: d.tramiteId, dejarPendiente: d.dejarPendiente, organismoCodigo: d.organismoCodigo, alNoEncontrar: (m) => { motivoInterno = ` (${m})`; } });
+    await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Escaneo LT: ${r.resultado}${motivoInterno}${d.rawValue === undefined ? ' (manual)' : ''}` }); // sin placa (PII)
+    return { body: r, noGuardar: r.resultado === 'sin_match' };
+  }, 'escanear');
 });
 
 // POST /documentos/:id/novedad — motivo obligatorio; bloquea el avance (RN-04).
@@ -248,10 +259,10 @@ router.post('/documentos/:id/novedad', exigirFuncion('logistica.documento.report
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   await exigirPropioLogistica('documento', req.params.id, await alcanceDe(req)); // HU #13426 (AC3)
   await conIdempotencia(req, res, async () => {
-    await registrarNovedad(req.params.id, parsed.data.motivo, ctxDe(req.user!));
+    await registrarNovedad(req.params.id, parsed.data.motivo, await ctxDe(req));
     await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: req.params.id, detail: `Novedad: ${parsed.data.motivo}` });
     return { body: { ok: true } };
-  });
+  }, 'documentos-novedad');
 });
 
 // POST /traslados — HU #14114 / #14122. `origen` solo se honra si destino = cliente.
@@ -321,7 +332,7 @@ router.post('/traslados/:id/despachar', soloSinEnlace(), exigirFuncion('logistic
   const parsed = despacharTrasladoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: 'Datos inválidos: el mensajero es obligatorio', codigo: 'DATOS_INVALIDOS' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await despacharTraslado(id.data, parsed.data, ctxDe(req.user!));
+    const r = await despacharTraslado(id.data, parsed.data, await ctxDe(req));
     await audit(req, { action: 'update', resource: 'flito_logistica_traslado', resourceId: id.data, detail: `Despacho a mensajero ${parsed.data.mensajeroId}` });
     return { body: r };
   }, 'traslados-despachar');
@@ -407,7 +418,7 @@ router.post('/traslados/:id/anular', soloSinEnlace(), exigirFuncion('logistica.t
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await anularTraslado(id.data, parsed.data.motivo, ctxDe(req.user!));
+    const r = await anularTraslado(id.data, parsed.data.motivo, await ctxDe(req));
     await audit(req, { action: 'update', resource: 'flito_logistica_traslado', resourceId: id.data, detail: `Anulación: ${parsed.data.motivo}` });
     return { body: r };
   }, 'traslados-anular');
@@ -440,7 +451,7 @@ router.post('/actas/:id/despachar', exigirFuncion('logistica.actas.despachar'), 
   const parsed = despacharSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'La firma de quien entrega es obligatoria' }); return; }
   await exigirPropioLogistica('acta', req.params.id, await alcanceDe(req));
-  const r = await ejecutar(res, () => despachar(req.params.id, parsed.data, ctxDe(req.user!)));
+  const r = await ejecutar(res, async () => despachar(req.params.id, parsed.data, await ctxDe(req)));
   if (r === undefined) return;
   await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Despacho a mensajero ${parsed.data.mensajeroId}` });
   res.json(r);
@@ -461,7 +472,7 @@ router.post('/actas/:id/entregar', exigirFuncion('logistica.actas.entregar'), as
     await auditarCedulaReceptor(req, r.firmaId);
     await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Entrega a ${parsed.data.receptorNombre}` });
     return { body: r };
-  });
+  }, 'actas-entregar');
 });
 
 // POST /actas/:id/devolucion — receptor ausente/rechazo; motivo obligatorio (CA-10).
@@ -473,7 +484,7 @@ router.post('/actas/:id/devolucion', exigirFuncion('logistica.actas.devolver'), 
     const r = await registrarDevolucion(req.params.id, parsed.data.motivo, await ctxConPropiedad(req));
     await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Devolución: ${parsed.data.motivo}` });
     return { body: r };
-  });
+  }, 'actas-devolucion');
 });
 
 // POST /documentos/:id/reversar — reversa con justificación (RN-08). Solo Operaciones.
@@ -482,7 +493,7 @@ router.post('/documentos/:id/reversar', exigirFuncion('logistica.documento.rever
   const parsed = reversarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await exigirPropioLogistica('documento', req.params.id, await alcanceDe(req));
-  const r = await ejecutar(res, () => reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo, ctxDe(req.user!)));
+  const r = await ejecutar(res, async () => reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo, await ctxDe(req)));
   if (r === undefined && res.headersSent) return;
   await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: req.params.id, detail: `Reversa a "${parsed.data.estadoDestino}": ${parsed.data.motivo}` });
   res.json({ ok: true });

@@ -103,14 +103,14 @@ describe('servicio — la propiedad la decide `operaAjenas`, no `role`', () => {
       ]))
       .mockReturnValueOnce(chain([{ userId: 11, codigo: 'logistica.actas.entregar', efecto: 'revocar' }]))
       .mockImplementationOnce(() => {
-        const c = { from: () => c, where: (w: unknown) => { nombres.push(w); return Promise.resolve([{ id: 9, nombre: 'Rep' }]); } };
+        const c = { from: () => c, innerJoin: () => c, where: (w: unknown) => { nombres.push(w); return Promise.resolve([{ id: 9, nombre: 'Rep', tipoEnlace: 'ninguno', proveedorId: null }]); } };
         return c;
       });
     const nombres: unknown[] = [];
     const f = await svc.facetas();
-    expect(f.mensajeros).toEqual([{ id: 9, nombre: 'Rep' }]);
+    expect(f.mensajeros).toEqual([{ id: 9, nombre: 'Rep', proveedorId: null }]);
     // La consulta de nombres pide SOLO al 9: ni el admin (opera ajenas) ni el mensajero revocado.
-    expect(aSql(nombres[0]).params).toEqual([9]);
+    expect(aSql(nombres[0]).params).toEqual([9, true]); // y activo (HU #14347, AC5)
   });
 });
 

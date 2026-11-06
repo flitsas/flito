@@ -15,8 +15,9 @@ import {
   flitoLogisticaTrasladoLts, flitoLogisticaTraslados,
 } from '../../db/schema.js';
 import { uploadEntityDocument } from '../../services/storage.js';
-import { bufDesdeDataUrl, log, LogisticaError, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
+import { bloquearCompania, bufDesdeDataUrl, log, LogisticaError, pasarAlProveedorVigente, transicionar, type DbOrTx, type LogisticaCtx, type Tx } from './flito-logistica.base.js';
 import { generarActaPdf } from './flito-logistica.acta-pdf.js';
+import { exigirMensajeroAsignable } from './flito-logistica.mensajeros.js';
 import { protegerDocumento } from './flito-logistica.cifrado.js';
 import {
   DatosInvalidosTrasladoError, EntregaSinEntregadasError, FirmaLlegadaRequeridaError,
@@ -51,9 +52,9 @@ export interface ResultadoCicloTraslado {
 }
 
 interface TrasladoMin {
-  id: string; destino: string; origen: string; estado: string; mensajeroId: number | null;
+  id: string; companiaId: number; destino: string; origen: string; estado: string; mensajeroId: number | null;
 }
-interface ActaMin { id: string; estado: string; mensajeroId: number | null }
+interface ActaMin { id: string; estado: string; mensajeroId: number | null; proveedorId: string | null }
 interface LineaMin {
   id: string; documentoId: string; estado: string; precio: string | null; motivoLlegadaId: string | null;
 }
@@ -72,7 +73,7 @@ export async function destinoDeTraslado(id: string): Promise<'cliente' | 'flit' 
 
 async function cargarTraslado(exec: DbOrTx, id: string): Promise<TrasladoMin> {
   const [t] = await exec.select({
-    id: flitoLogisticaTraslados.id, destino: flitoLogisticaTraslados.destino,
+    id: flitoLogisticaTraslados.id, companiaId: flitoLogisticaTraslados.companiaId, destino: flitoLogisticaTraslados.destino,
     origen: flitoLogisticaTraslados.origen, estado: flitoLogisticaTraslados.estado,
     mensajeroId: flitoLogisticaTraslados.mensajeroId,
   }).from(flitoLogisticaTraslados).where(eq(flitoLogisticaTraslados.id, id)).limit(1).for('update');
@@ -83,15 +84,24 @@ async function cargarTraslado(exec: DbOrTx, id: string): Promise<TrasladoMin> {
 async function actaDeTraslado(exec: DbOrTx, trasladoId: string): Promise<ActaMin> {
   const [a] = await exec.select({
     id: flitoLogisticaActas.id, estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId,
+    proveedorId: flitoLogisticaActas.proveedorLogisticaId,
   }).from(flitoLogisticaActas).where(eq(flitoLogisticaActas.trasladoId, trasladoId)).limit(1);
   if (!a) throw new TrasladoActaNoEncontradaError();
   return a;
+}
+
+/** Viaje que se cierra: el cliente va después del viaje y antes de líneas y licencias (ADR-0039 §6.3). */
+async function cargarTrasladoQueCierra(tx: Tx, id: string): Promise<TrasladoMin> {
+  const t = await cargarTraslado(tx, id);
+  await bloquearCompania(tx, t.companiaId);
+  return t;
 }
 
 /** Variante tolerante: un viaje sin acta asociada devuelve null en vez de lanzar. */
 async function actaOpcionalDeTraslado(exec: DbOrTx, trasladoId: string): Promise<ActaMin | null> {
   const [a] = await exec.select({
     id: flitoLogisticaActas.id, estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId,
+    proveedorId: flitoLogisticaActas.proveedorLogisticaId,
   }).from(flitoLogisticaActas).where(eq(flitoLogisticaActas.trasladoId, trasladoId)).limit(1);
   return a ?? null;
 }
@@ -145,6 +155,7 @@ export async function despacharTraslado(
     const t = await cargarTraslado(tx, trasladoId);
     if (t.estado !== 'registrado') throw new TrasladoEstadoNoAdmisibleError(t.estado, 'despachar');
     const acta = await actaDeTraslado(tx, t.id);
+    await exigirMensajeroAsignable(tx, datos.mensajeroId, ctx.alcance, acta.proveedorId);
     const lineas = await lineasDe(tx, t.id);
     const docs = await docsDe(tx, lineas.map((l) => l.documentoId));
     const ahora = new Date();
@@ -223,7 +234,7 @@ export async function entregarTraslado(
     : null;
 
   const res = await db.transaction(async (tx) => {
-    const t = await cargarTraslado(tx, trasladoId);
+    const t = await cargarTrasladoQueCierra(tx, trasladoId);
     if (t.destino === 'flit') throw new DatosInvalidosTrasladoError();
     if (t.estado !== 'en_ruta') throw new TrasladoEstadoNoAdmisibleError(t.estado, 'entregar');
     const acta = await actaDeTraslado(tx, t.id);
@@ -278,6 +289,7 @@ export async function entregarTraslado(
         });
       }
     }
+    await pasarAlProveedorVigente(tx, docs.map((d) => d.id));
     return {
       documentos: docs.length, trasladoId: t.id, estado: estadoTraslado, actaId: acta.id,
       entregados: entregadas.length, devueltos: devueltas.length, firmaId,
@@ -302,7 +314,7 @@ export async function firmarLlegadaFlit(
     'flito-logistica-firmas-llegada', trasladoId, 'firma-llegada.png', bufDesdeDataUrl(firma), 'image/png',
   );
   const res = await db.transaction(async (tx) => {
-    const t = await cargarTraslado(tx, trasladoId);
+    const t = await cargarTrasladoQueCierra(tx, trasladoId);
     if (t.destino !== 'flit') throw new DatosInvalidosTrasladoError();
     if (t.estado !== 'en_ruta') throw new TrasladoEstadoNoAdmisibleError(t.estado, 'entregar');
     const acta = await actaDeTraslado(tx, t.id);
@@ -354,6 +366,7 @@ export async function firmarLlegadaFlit(
         });
       }
     }
+    await pasarAlProveedorVigente(tx, docs.map((d) => d.id));
     return {
       documentos: docs.length, trasladoId: t.id, estado: 'entregado' as const, actaId: acta.id,
       entregados: entregadas.length, devueltos: devueltas.length, firmaId,
@@ -371,7 +384,7 @@ export async function devolverTraslado(
   const m = motivo?.trim();
   if (!m) throw new LogisticaError('La devolución requiere motivo (RN-04)');
   return db.transaction(async (tx) => {
-    const t = await cargarTraslado(tx, trasladoId);
+    const t = await cargarTrasladoQueCierra(tx, trasladoId);
     if (t.estado !== 'en_ruta') throw new TrasladoEstadoNoAdmisibleError(t.estado, 'devolver');
     const acta = await actaDeTraslado(tx, t.id);
     exigirPropia(ctx, t.mensajeroId ?? acta.mensajeroId, 'registrar devoluciones de');
@@ -396,6 +409,7 @@ export async function devolverTraslado(
         payload: { trasladoId: t.id, actaId: acta.id },
       });
     }
+    await pasarAlProveedorVigente(tx, docs.map((d) => d.id));
     return { documentos: docs.length, trasladoId: t.id, estado: 'devuelto', devueltos: docs.length };
   });
 }
@@ -407,7 +421,7 @@ export async function anularTraslado(
   const m = motivo?.trim();
   if (!m) throw new LogisticaError('La anulación requiere motivo');
   return db.transaction(async (tx) => {
-    const t = await cargarTraslado(tx, trasladoId);
+    const t = await cargarTrasladoQueCierra(tx, trasladoId);
     if (t.estado !== 'registrado') throw new TrasladoEstadoNoAdmisibleError(t.estado, 'anular');
     const acta = await actaOpcionalDeTraslado(tx, t.id);
     const lineas = await lineasDe(tx, t.id);
@@ -433,6 +447,7 @@ export async function anularTraslado(
         payload: { trasladoId: t.id, actaId: acta?.id },
       });
     }
+    await pasarAlProveedorVigente(tx, docs.map((d) => d.id));
     return { documentos: docs.length, trasladoId: t.id, estado: 'anulado' };
   });
 }

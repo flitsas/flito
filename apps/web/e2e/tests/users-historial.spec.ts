@@ -178,6 +178,12 @@ test.describe('Usuarios — Historial de cambios (HU #12171)', () => {
     await expect(page.getByText(/Todavía no hay cambios/)).toHaveCount(0);
   });
 
+  test('HU #14344: el cambio de `flito_proveedor_id` se lee igual que el de la columna anterior', async ({ page }) => {
+    mockHistorial(page, () => json(respuesta([fila({ id: 1, loteId: 'L1', campo: 'flito_proveedor_id', valorAntes: null, valorDespues: 'prov-1' })])));
+    await abrirHistorial(page);
+    await expect(panel(page).locator('tbody tr').first()).toContainText('Proveedor prov-1');
+  });
+
   test('TC-16: diff legible, escalares con etiqueta, password sin valores, borrar con «—», una fila por cambio', async ({ page }) => {
     mockHistorial(page, () => json(respuesta(ITEMS_DIFF)));
     await abrirHistorial(page);
@@ -239,7 +245,7 @@ test.describe('Usuarios — Historial de cambios (HU #12171)', () => {
       /\/api\/users(\?.*)?$/,
       /\/api\/users\/resumen/,
       /\/api\/flito\/parametrizacion\/companias/,
-      /\/api\/flito\/parametrizacion\/proveedores-soat/,
+      /\/api\/flito\/parametrizacion\/proveedores\/asignables-usuario$/,
       /\/api\/flito\/parametrizacion\/organismos/,
     ];
     const disparos: string[] = [];

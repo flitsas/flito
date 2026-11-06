@@ -4,12 +4,15 @@
 import { useMemo, useRef, useState } from 'react';
 import type { CompaniaCerrableLogistica } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
-import { DESTINO_CLIENTE, nombreCompania, nuevaKey } from '../../../lib/viajesCliente';
+import { codigoDe, DESTINO_CLIENTE, nombreCompania, nuevaKey } from '../../../lib/viajesCliente';
 import { toastOk } from '../../flit/ToastFlito';
 import FlitModal from '../../flit/FlitModal';
 import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 
 function mensajeEnviar(e: unknown): string {
+  if (codigoDe(e) === 'LT_DE_OTRO_PROVEEDOR') {
+    return 'Alguna LT ya no es del proveedor actual de la compañía. Se actualizó la lista; revise y vuelva a intentar.';
+  }
   if (e instanceof ApiError && e.status === 409) {
     return 'Alguna LT ya no está en FLIT. Se actualizó la lista; revise y vuelva a intentar.';
   }

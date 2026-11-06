@@ -70,7 +70,7 @@ const urlsPedidas: string[] = [];
 
 async function mock(page: import('@playwright/test').Page) {
   urlsPedidas.length = 0;
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROVEEDORES) }));
   await page.route(/\/api\/flito\/soat\/facetas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FACETAS) }));
@@ -786,7 +786,7 @@ const urlsVigencia: string[] = [];
  */
 async function mockVigencia(page: import('@playwright/test').Page) {
   urlsVigencia.length = 0;
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROVEEDORES) }));
   await page.route(/\/api\/flito\/soat\/facetas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FACETAS) }));

@@ -54,6 +54,7 @@ const TODAS = [
 type Enlace = 'ninguno' | 'compania' | 'proveedor' | 'organismos_transito' | null;
 const ok = (userId: number, rol: string, tipoEnlace: Enlace, funciones: string[]): PermisosResueltos => ({
   ok: true, userId, rol, tipoEnlace, funciones: new Set(funciones), version: `v${userId}`, resueltoEn: new Date(),
+  proveedor: tipoEnlace === 'proveedor' ? { id: 'prov-a', activo: true, servicios: ['soat'] } : null,
 });
 
 /** Los usuarios del laboratorio, por `sub`. El enlace sale de aquí, NUNCA del rol del token. */

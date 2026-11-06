@@ -85,7 +85,7 @@ async function montar(page: Page, funciones: string[], opciones: { lista?: Docum
   const postRetenido = new Promise<void>((r) => { st.soltarPost = r; });
   const deleteRetenido = new Promise<void>((r) => { st.soltarDelete = r; });
   await page.route(/\/api\/flito\/soat\/facetas/, (r) => json(r, 200, { companias: [], organismos: [], proveedores: [] }));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (r) => json(r, 200, []));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (r) => json(r, 200, []));
   await page.route(RE_COLA, (r) => json(r, 200, { items: [fila('s1', 'XYZ789')], total: 1, page: 1, pageSize: 50 }));
   await page.route(RE_ADIC, async (route) => {
     if (route.request().method() !== 'POST') {

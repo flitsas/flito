@@ -101,7 +101,7 @@ async function fijarTema(page: Page, tema: 'light' | 'dark' | 'system'): Promise
 async function mockSoat(page: Page): Promise<void> {
   await page.route('**/api/flito/tablero', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TABLERO_VACIO) }));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }));
   await page.route(/\/api\/flito\/soat\/facetas/, (route) =>
     route.fulfill({

@@ -691,7 +691,7 @@ const V = DATOS_DEMO.vins;
 const C = DATOS_DEMO.cedulas;
 const N = DATOS_DEMO.nits;
 
-/** `GET /api/flito/parametrizacion/proveedores-soat`: gestores de SOAT. */
+/** Selectores de proveedores (`/proveedores/selector?servicio=soat`, `/proveedores/asignables-usuario`). */
 export const PROVEEDORES_SOAT_DEMO = [
   { id: 'prov-demo-1', nombre: ASEGURADORAS_DEMO[0], estrategia: 'portal', umbralOcr: 0.85, slaHoras: 24, activo: true },
   { id: 'prov-demo-2', nombre: ASEGURADORAS_DEMO[1], estrategia: 'correo', umbralOcr: 0.9, slaHoras: 48, activo: true },
@@ -1073,7 +1073,7 @@ export const LOGISTICA_FACETAS_DEMO = {
       ],
     },
   ],
-  mensajeros: [{ id: 51, nombre: NOMBRES_DEMO[4] }],
+  mensajeros: [{ id: 51, nombre: NOMBRES_DEMO[4], proveedorId: null }],
 };
 
 export const LOGISTICA_ACTAS_DEMO = [

@@ -121,8 +121,14 @@ describe('0185 — el archivo dice lo mismo que schema/permisos.ts (análisis es
 
   it('la lista blanca de `campo` es la MISMA en shared-types, en el CHECK del modelo y en el CHECK del SQL (RN-A10)', () => {
     const esperados = [...new Set(Object.values(CAMPOS_AUDITABLES).flat())];
-    // SQL: el bloque del CHECK contiene exactamente esos literales y ninguno más.
-    const bloque = SIN_COMENTARIOS.split('permisos_auditoria_campo_lista_chk')[1]!.split('),\n')[0]!;
+    // SQL: la ÚLTIMA definición de la restricción (la 0185 ya no lo es) contiene exactamente esos literales y ninguno más.
+    const carpeta = path.dirname(RUTA);
+    const vigente = readdirSync(carpeta).filter((f) => f.endsWith('.sql')).sort()
+      .filter((f) => readFileSync(path.join(carpeta, f), 'utf8').includes('ADD CONSTRAINT permisos_auditoria_campo_lista_chk'))
+      .at(-1)!;
+    expect(vigente >= '0294_permisos_auditoria_campo_proveedor.sql').toBe(true);
+    const bloque = readFileSync(path.join(carpeta, vigente), 'utf8').replace(/--[^\n]*/g, '')
+      .split('ADD CONSTRAINT permisos_auditoria_campo_lista_chk')[1]!.split(') NOT VALID')[0]!;
     const enSql = [...bloque.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]!);
     expect(enSql.sort()).toEqual([...esperados].sort());
     // Modelo: el CHECK renderizado nombra los mismos literales.
