@@ -4,7 +4,8 @@ import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { CARGA_MASIVA_MAX_BYTES_ARCHIVO } from '@operaciones/shared-types';
+import { CARGA_MASIVA_MAX_BYTES_ARCHIVO, TIPOS_DOCUMENTO_RUNT } from '@operaciones/shared-types';
+import { audit } from '../../shared/middleware/audit.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
@@ -15,7 +16,7 @@ import { registrarAccesoImpuesto } from './flito-impuestos.pii.js';
 import {
   actualizarCertificacionDirecta, bytesFacturaCertificacionDirecta, catalogoCertificacionDirecta,
   consultarRuntCertificacionDirecta, crearCertificacionDirecta, datosCertificadoDirecto,
-  detalleCertificacionDirecta, listarCertificacionDirecta, sugerirDesdeFactura,
+  detalleCertificacionDirecta, FALTA_TIPO_DOCUMENTO, listarCertificacionDirecta, sugerirDesdeFactura,
 } from './flito-impuestos.certificacion-directa.service.js';
 
 type Contexto = (user: NonNullable<Request['user']>) => Promise<ImpuestoCtx>;
@@ -51,18 +52,32 @@ const subidaLimiter = rateLimit({
   message: { error: 'Demasiadas solicitudes. Espera un minuto.' },
 });
 
+/** Llega por multipart: ausente, vacío o solo espacios es «no diligenciado» y se guarda null. */
+const opcional = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
+
 const datosSchema = z.object({
   organismoCodigo: z.string().trim().min(1).max(5),
   placa: z.string().trim().min(1).max(10),
-  documentoPropietario: z.string().trim().min(1).max(30),
-  nombrePropietario: z.string().trim().min(1).max(200),
+  documentoPropietario: opcional(30),
+  tipoDocumentoPropietario: z.string().trim().optional().transform((v) => v || null)
+    .pipe(z.enum(TIPOS_DOCUMENTO_RUNT).nullable()),
+  nombrePropietario: opcional(200),
   vin: z.string().trim().min(1).max(17),
   marca: z.string().trim().min(1).max(60),
   linea: z.string().trim().min(1).max(80),
   anio: z.string().trim().regex(/^\d{4}$/),
   color: z.string().trim().min(1).max(60),
   cilindrada: z.string().trim().min(1).max(20),
-});
+}).superRefine((d, ctx) => {
+  if (d.documentoPropietario && !d.tipoDocumentoPropietario) {
+    ctx.addIssue({ code: 'custom', path: ['tipoDocumentoPropietario'], message: FALTA_TIPO_DOCUMENTO });
+  }
+}).transform((d) => (d.documentoPropietario ? d : { ...d, tipoDocumentoPropietario: null })); // sin documento no hay nada que tipificar
+
+/** Solo la regla del tipo tiene mensaje propio; el resto del formulario conserva el genérico. */
+function errorDeDatos(error: z.ZodError): string {
+  return error.issues.find((i) => i.code === 'custom')?.message ?? 'Revisa los datos del formulario';
+}
 
 function archivoDe(file: Express.Multer.File | undefined): ArchivoSubido | null {
   if (!file) return null;
@@ -105,7 +120,7 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
 
   router.post('/certificacion-directa', exigirFuncion('impuestos.certificacion_directa.gestionar'), subidaLimiter, recibirPdf, async (req, res) => {
     const parsed = datosSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: 'Revisa los datos del formulario' }); return; }
+    if (!parsed.success) { res.status(400).json({ error: errorDeDatos(parsed.error) }); return; }
     const archivo = archivoDe(req.file);
     if (!archivo) { res.status(400).json({ error: 'Falta la factura de venta' }); return; }
     try { res.status(201).json(await crearCertificacionDirecta(parsed.data, archivo, req.user!.sub)); }
@@ -128,6 +143,8 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
       const pdf = await construirCertificadoDirectoPdf({
         placa: fila.placa, vin: fila.vin, documento: fila.documentoPropietario,
         nombrePropietario: fila.nombrePropietario, organismo,
+        // De lo congelado, no de la fila: un certificado anterior tiene documento y se consultó por VIN.
+        modalidadConsulta: snapshot.modalidadConsulta ?? 'vin',
         campos: snapshot.campos, registroRunt: snapshot.registroRunt,
         certificadoPorNombre: fila.certificadoPorNombre ?? 'FLITO',
         certificadoEn: fila.certificadoEn!, generadoPor: req.user!.username, generadoEn: new Date(),
@@ -145,8 +162,13 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
 
   router.post('/certificacion-directa/:id/consultar', exigirFuncion('impuestos.certificacion_directa.gestionar'), consultaLimiter, async (req, res) => {
     try {
-      const fila = await consultarRuntCertificacionDirecta(req.params.id, {
+      const { fila, modalidad } = await consultarRuntCertificacionDirecta(req.params.id, {
         userId: req.user!.sub, username: req.user!.username,
+      });
+      // Cada consulta manda datos del titular a un tercero: queda quién la ordenó. Sin placa, documento, nombre ni VIN.
+      await audit(req, {
+        action: 'update', resource: 'flito_impuesto', resourceId: req.params.id,
+        detail: `Consulta RUNT sin trámite (modalidad ${modalidad}, estado ${fila.estado})`,
       });
       res.json(fila);
     } catch (e) { fallar(res, e); }
@@ -158,7 +180,7 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
 
   router.patch('/certificacion-directa/:id', exigirFuncion('impuestos.certificacion_directa.gestionar'), subidaLimiter, recibirPdf, async (req, res) => {
     const parsed = datosSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: 'Revisa los datos del formulario' }); return; }
+    if (!parsed.success) { res.status(400).json({ error: errorDeDatos(parsed.error) }); return; }
     try {
       res.json(await actualizarCertificacionDirecta(req.params.id, parsed.data, archivoDe(req.file)));
     } catch (e) { fallar(res, e); }

@@ -30,10 +30,15 @@ export const ESTADOS_CERTIFICACION_DIRECTA = [
 ] as const;
 export type EstadoCertificacionDirecta = (typeof ESTADOS_CERTIFICACION_DIRECTA)[number];
 
+/** Cómo se consultó el RUNT: con documento, por placa y documento; sin él, solo por VIN. */
+export type ModalidadConsultaRunt = 'placa_documento' | 'vin';
+
 /** Lo que se congela al certificar, para rearmar el PDF sin volver al RUNT. */
 export interface SnapshotCertificacionDirecta {
   campos: ComparacionCampoFacturaRunt[];
   registroRunt: RegistroRuntGuardado;
+  /** Ausente en los certificados anteriores al Bug #14406: todos esos se consultaron por VIN. */
+  modalidadConsulta?: ModalidadConsultaRunt;
 }
 
 export const flitoImpuestoCertificacionDirecta = pgTable('flito_impuesto_certificacion_directa', {
@@ -41,8 +46,10 @@ export const flitoImpuestoCertificacionDirecta = pgTable('flito_impuesto_certifi
   organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
   placa: varchar('placa', { length: 10 }).notNull(),
   placaNorm: varchar('placa_norm', { length: 10 }).notNull(),
-  documentoPropietario: varchar('documento_propietario', { length: 30 }).notNull(),
-  nombrePropietario: varchar('nombre_propietario', { length: 200 }).notNull(),
+  documentoPropietario: varchar('documento_propietario', { length: 30 }),
+  /** Valor del formulario (`TIPOS_DOCUMENTO_RUNT`), no el código RUNT. Null sin documento y en registros anteriores al Bug #14406. */
+  tipoDocumentoPropietario: varchar('tipo_documento_propietario', { length: 5 }),
+  nombrePropietario: varchar('nombre_propietario', { length: 200 }),
   vin: varchar('vin', { length: 17 }).notNull(),
   vinNorm: varchar('vin_norm', { length: 17 }).notNull(),
   marca: varchar('marca', { length: 60 }).notNull(),

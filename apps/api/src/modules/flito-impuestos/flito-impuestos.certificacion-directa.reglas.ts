@@ -2,6 +2,7 @@
 // `compararFacturaConRunt` (la misma de la cola). Aquí solo se exige que los seis coincidan.
 import type { CampoExtraido, ComparacionCampoFacturaRunt, ExtraccionFacturaVentaImpuesto } from '@operaciones/shared-types';
 import { CAMPOS_COMPARACION_FACTURA_RUNT } from '@operaciones/shared-types';
+import { esTraspasoEnSincronizacion } from './certificacion-runt.js';
 
 export interface DatosVehiculoDiligenciados {
   vin: string;
@@ -43,8 +44,13 @@ export function seisCoinciden(campos: readonly ComparacionCampoFacturaRunt[]): b
   return CAMPOS_COMPARACION_FACTURA_RUNT.every((c) => porCampo.get(c) === 'coincide');
 }
 
-/** El texto del RUNT no se guarda ni se muestra: solo distingue «no está» de «no respondió». */
-export function clasificarFalloRunt(mensaje: string): 'sin_vehiculo' | 'sin_respuesta' {
+/**
+ * El texto del RUNT no se guarda ni se muestra: solo distingue «no está» de «no respondió».
+ * Un `ok:false` con HTTP 200 es un rechazo: el RUNT respondió (ver `anotarTransporte` en runt.service). El
+ * documento que no corresponde llega así y se reporta como `sin_vehiculo`, no como una caída del servicio.
+ */
+export function clasificarFalloRunt(mensaje: string, httpStatus?: number): 'sin_vehiculo' | 'sin_respuesta' {
+  if (httpStatus === 200 || esTraspasoEnSincronizacion(mensaje)) return 'sin_vehiculo';
   const m = mensaje.toLowerCase();
   if (m.includes('no se encuentra') || m.includes('no encontr') || m.includes('no existe') || m.includes('no registr')) {
     return 'sin_vehiculo';
