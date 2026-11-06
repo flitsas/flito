@@ -22,9 +22,9 @@ const CAMPOS_LEIDOS: CampoLeido[] = ['vin', 'marca', 'linea', 'anio', 'color', '
 
 const CONTROL = 'flit-focus h-10 w-full rounded-lg border bg-flit-card px-3 text-sm';
 const OBLIGATORIOS: (keyof Borrador)[] = [
-  'organismoCodigo', 'placa', 'documentoPropietario', 'nombrePropietario',
-  'vin', 'marca', 'linea', 'anio', 'color', 'cilindrada',
+  'organismoCodigo', 'placa', 'vin', 'marca', 'linea', 'anio', 'color', 'cilindrada',
 ];
+const ID_MODALIDAD_RUNT = 'cert-modalidad-runt';
 
 /** true desde `lg` (1024 px). La vista previa no se monta por debajo: no descarga ni rasteriza el PDF. */
 function useEscritorio(): boolean {
@@ -246,11 +246,11 @@ export default function CertificarEditor(p: Props) {
               <Sel id="cert-organismo" etiqueta="Organismo" valor={b.organismoCodigo} disabled={certificado} onChange={set('organismoCodigo')}
                 opciones={(p.catalogo?.organismos ?? []).map((o) => ({ v: o.codigo, t: o.nombre }))} />
             </Bloque>
-            <Bloque titulo="Propietario" cols={colsForm}>
-              <Campo id="cert-documento" etiqueta="Documento del propietario" valor={b.documentoPropietario} disabled={certificado} onChange={set('documentoPropietario')} />
-              <Campo id="cert-nombre" etiqueta="Nombre del propietario" valor={b.nombrePropietario} disabled={certificado} onChange={set('nombrePropietario')} />
+            <Bloque titulo="Propietario" nota="Con documento, el RUNT se consulta por placa y documento; sin él, por VIN." notaId={ID_MODALIDAD_RUNT} cols={colsForm}>
+              <Campo id="cert-documento" etiqueta="Documento del propietario (opcional)" opcional maxLength={30} describidoPor={ID_MODALIDAD_RUNT} valor={b.documentoPropietario} disabled={certificado} onChange={set('documentoPropietario')} />
+              <Campo id="cert-nombre" etiqueta="Nombre del propietario (opcional)" opcional maxLength={200} valor={b.nombrePropietario} disabled={certificado} onChange={set('nombrePropietario')} />
             </Bloque>
-            <Bloque titulo="Vehículo" nota="El RUNT se consulta por VIN." cols={ampliada ? colsForm : 'lg:grid-cols-3'}>
+            <Bloque titulo="Vehículo" cols={ampliada ? colsForm : 'lg:grid-cols-3'}>
               <Campo id="cert-placa" etiqueta="Placa" valor={b.placa} disabled={certificado} onChange={set('placa')} />
               <Campo id="cert-vin" etiqueta="VIN" valor={b.vin} disabled={certificado} onChange={set('vin')} leido={leido('vin')} ayuda={ayuda('vin')} />
               <Campo id="cert-marca" etiqueta="Marca" valor={b.marca} disabled={certificado} onChange={set('marca')} leido={leido('marca')} ayuda={ayuda('marca')} />
@@ -287,12 +287,12 @@ export default function CertificarEditor(p: Props) {
   );
 }
 
-function Bloque({ titulo, nota, cols = '', children }: { titulo: string; nota?: string; cols?: string; children: ReactNode }) {
+function Bloque({ titulo, nota, notaId, cols = '', children }: { titulo: string; nota?: string; notaId?: string; cols?: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-3">
       <div>
         <h4 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{titulo}</h4>
-        {nota && <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{nota}</p>}
+        {nota && <p id={notaId} className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{nota}</p>}
       </div>
       <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${cols}`}>{children}</div>
     </section>
@@ -310,18 +310,19 @@ function Etiqueta({ id, texto, leido }: { id: string; texto: string; leido?: boo
 
 const borde = (vacio: boolean) => ({ borderColor: vacio ? 'var(--flit-warning)' : 'var(--flit-border-soft)' });
 
-function Campo({ id, etiqueta, valor, disabled, onChange, leido, ayuda }: {
+function Campo({ id, etiqueta, valor, disabled, onChange, leido, ayuda, opcional, maxLength, describidoPor }: {
   id: string; etiqueta: string; valor: string; disabled?: boolean; onChange: (v: string) => void; leido?: boolean;
   ayuda?: { valor: string; onUsar: () => void };
+  opcional?: boolean; maxLength?: number; describidoPor?: string;
 }) {
   const idAyuda = `${id}-ayuda`;
   return (
     <div>
       <Etiqueta id={id} texto={etiqueta} leido={leido} />
-      <input id={id} className={CONTROL} required value={valor} disabled={disabled}
-        aria-describedby={ayuda ? idAyuda : undefined}
+      <input id={id} className={CONTROL} required={!opcional} maxLength={maxLength} value={valor} disabled={disabled}
+        aria-describedby={ayuda ? idAyuda : describidoPor}
         // Diferencia pendiente con la factura: borde PUNTEADO en advertencia (el «obligatorio vacío» es continuo).
-        style={ayuda && !disabled ? { borderColor: 'var(--flit-warning)', borderStyle: 'dashed' } : borde(!valor.trim())}
+        style={ayuda && !disabled ? { borderColor: 'var(--flit-warning)', borderStyle: 'dashed' } : borde(!opcional && !valor.trim())}
         onChange={(ev) => onChange(ev.target.value)} />
       {ayuda && !disabled && (
         <div
