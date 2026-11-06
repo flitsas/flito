@@ -21,6 +21,7 @@ interface Fila {
   organismoCodigo: string;
   organismoNombre: string;
   placa: string;
+  tipoDocumentoPropietario: string | null;
   documentoPropietario: string | null;
   nombrePropietario: string | null;
   vin: string;
@@ -36,7 +37,7 @@ interface Fila {
 }
 
 const VACIO: Borrador = {
-  organismoCodigo: '', placa: '', documentoPropietario: '', nombrePropietario: '',
+  organismoCodigo: '', placa: '', tipoDocumentoPropietario: '', documentoPropietario: '', nombrePropietario: '',
   vin: '', marca: '', linea: '', anio: '', color: '', cilindrada: '',
 };
 
@@ -79,6 +80,7 @@ function avisoDe(e: unknown): string {
 function desdeFila(f: Fila): Borrador {
   return {
     organismoCodigo: f.organismoCodigo, placa: f.placa,
+    tipoDocumentoPropietario: f.tipoDocumentoPropietario ?? '',
     documentoPropietario: f.documentoPropietario ?? '', nombrePropietario: f.nombrePropietario ?? '',
     vin: f.vin, marca: f.marca, linea: f.linea, anio: f.anio, color: f.color, cilindrada: f.cilindrada,
   };
@@ -118,6 +120,8 @@ export default function FlitoImpuestosCertificar() {
   useEffect(() => { void cargarLista(); }, [cargarLista]);
 
   async function abrirAlta() {
+    // «Volver al listado» conserva la fila: heredada, un certificado dejaría el alta en solo lectura.
+    setFila(null);
     setAviso(null);
     setPdf(null);
     setFallaLectura(null);
