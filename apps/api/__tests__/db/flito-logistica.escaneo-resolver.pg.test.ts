@@ -76,7 +76,7 @@ async function conMundo(fn: (m: Mundo) => Promise<void>) {
 
 const manual = (placa: string, numero = `L${sello()}`) => ({ placa, numeroLicencia: numero, numeroLt: 'LT-NUEVO' });
 const NO_ENCONTRADO = (e: { placa: string; numeroLicencia: string }) => ({
-  resultado: 'sin_match', motivo: MENSAJE_LT_NO_ENCONTRADA, placa: e.placa, vin: '', numeroLicencia: e.numeroLicencia, propietarioNombre: null,
+  resultado: 'sin_match', motivo: MENSAJE_LT_NO_ENCONTRADA, placa: e.placa, vin: '', numeroLicencia: e.numeroLicencia,
 });
 
 describe.skipIf(!URL_BASE)('flujo único del escaneo (PostgreSQL)', () => {

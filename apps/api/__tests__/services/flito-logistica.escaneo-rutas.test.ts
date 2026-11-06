@@ -72,7 +72,7 @@ describe('AC1 — el motivo real va a auditoría, no a la respuesta', () => {
     const r = await post('/escanear', MANUAL, await testToken({ role: 'admin', sub: 1 }));
     expect(r.body).toStrictEqual({
       resultado: 'sin_match', motivo: 'No se encontró un trámite para esta licencia',
-      placa: 'QOX858', vin: '', numeroLicencia: '10038156339', propietarioNombre: null,
+      placa: 'QOX858', vin: '', numeroLicencia: '10038156339',
     });
     expect(vi.mocked(audit).mock.calls[0]![1].detail).toBe('Escaneo LT: sin_match (inexistente) (manual)');
     expect(vi.mocked(audit).mock.calls[0]![1].detail).not.toMatch(/QOX/);
@@ -104,6 +104,33 @@ describe('AC8 — idempotencia por usuario', () => {
     const r = await post('/escanear', MANUAL, await testToken({ role: 'admin', sub: 1 }), { 'Idempotency-Key': 'K-vieja' });
     expect(r.body.vieja).toBeUndefined();
     expect(r.body.resultado).toBe('sin_match');
+  });
+
+  it('un sin_match no deja fila de idempotencia, y su reenvío vuelve a decidir y responde lo mismo', async () => {
+    const token = await testToken({ role: 'admin', sub: 1 });
+    const primero = await post('/escanear', MANUAL, token, { 'Idempotency-Key': 'K-sin-match' });
+    expect(primero.body.resultado).toBe('sin_match');
+    expect(guardadas.size).toBe(0);
+
+    const reenvio = await post('/escanear', MANUAL, token, { 'Idempotency-Key': 'K-sin-match' });
+    expect(reenvio.status).toBe(200);
+    expect(reenvio.body).toStrictEqual(primero.body);
+    expect(guardadas.size).toBe(0);
+    expect(vi.mocked(audit)).toHaveBeenCalledTimes(2);
+  });
+
+  it('un resultado distinto de sin_match se sigue guardando con su clave, y su reenvío no vuelve a decidir', async () => {
+    const { db } = await import('../../src/db/client.js');
+    vi.mocked(db.update).mockReturnValueOnce(chain([]) as never);
+    selectMock.mockImplementation(() => chain([{ id: DOC, organismoCodigo: null, companiaNombre: 'ACME', propia: true }]));
+    const token = await testToken({ role: 'admin', sub: 1 });
+    const r = await post('/escanear', MANUAL, token, { 'Idempotency-Key': 'K-duplicado' });
+    expect(r.body.resultado).toBe('duplicado');
+    expect(guardadas.get('1:escanear:K-duplicado')?.body).toEqual(r.body);
+
+    const reenvio = await post('/escanear', MANUAL, token, { 'Idempotency-Key': 'K-duplicado' });
+    expect(reenvio.body).toEqual(r.body);
+    expect(vi.mocked(audit)).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -70,10 +70,10 @@ function leer(entrada: string | EntradaManual, numeroLt: string | null): Lectura
   };
 }
 
-/** Único constructor de «no encontrado» (§8.3): solo lo que el usuario envió o lo que trae el código que tiene en la mano. */
+/** Único constructor de «no encontrado» (§8.3): identifica lo leído para reintentarlo, sin el nombre del propietario de algo no gestionado (Ley 1581). */
 const noEncontrado = (l: Lectura) => ({
   resultado: 'sin_match' as const, motivo: MENSAJE_LT_NO_ENCONTRADA,
-  placa: l.placa, vin: l.vin ?? '', numeroLicencia: l.numeroLicencia, propietarioNombre: l.propietarioNombre,
+  placa: l.placa, vin: l.vin ?? '', numeroLicencia: l.numeroLicencia,
 });
 
 type FilaTramite = {

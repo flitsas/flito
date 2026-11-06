@@ -513,14 +513,14 @@ sequenceDiagram
 // shared-types
 export const MENSAJE_LT_NO_ENCONTRADA = 'No se encontró un trámite para esta licencia';
 
-// Único constructor. Solo devuelve lo que el usuario envió o lo que trae el código que tiene en la mano.
+// Único constructor. Identifica lo leído para reintentarlo; no devuelve el nombre del propietario (Ley 1581).
 const noEncontrado = (l: Lectura): ResultadoEscaneo => ({
   resultado: 'sin_match', motivo: MENSAJE_LT_NO_ENCONTRADA,
-  placa: l.placa, vin: l.vin ?? '', numeroLicencia: l.numeroLicencia, propietarioNombre: l.propietarioNombre,
+  placa: l.placa, vin: l.vin ?? '', numeroLicencia: l.numeroLicencia,
 });
 ```
 
-Siempre HTTP 200, misma forma, sin `idFlit`, `companiaNombre`, `organismoCodigo`, `documentoId` ni `candidatos`. El motivo real (`inexistente`, `fuera_de_alcance`, `no_gestionada`, `lt_ajena`) se escribe solo en `audit().detail`, sin PII, para soporte.
+Siempre HTTP 200, misma forma, sin `idFlit`, `companiaNombre`, `organismoCodigo`, `documentoId`, `candidatos` ni `propietarioNombre`. La web, que necesita el nombre para mostrar la tarjeta del escaneo, lo saca de su propio parseo del código. El motivo real (`inexistente`, `fuera_de_alcance`, `no_gestionada`, `lt_ajena`) se escribe solo en `audit().detail`, sin PII, para soporte.
 
 ### 8.4 Matriz de casos
 
@@ -556,6 +556,8 @@ Siempre HTTP 200, misma forma, sin `idFlit`, `companiaNombre`, `organismoCodigo`
 ### 8.7 Idempotencia
 
 `/escanear`, `/novedad`, `/actas/:id/entregar` y `/actas/:id/devolucion` pasan `ruta` a `conIdempotencia`: la clave queda `usuarioId:ruta:cabecera`. Efecto: un reenvío offline de una clave vieja, en el momento del despliegue, se ejecuta una vez más; los índices de la operación lo contienen. Por eso entra en F4.1, antes de abrir.
+
+**`sin_match` no se persiste.** `flito_logistica_idempotencia.response` es jsonb sin cifrar y sin purga, y un `sin_match` no escribió nada: guardarlo solo dejaría placa, VIN y número de licencia de algo que FLITO no gestiona. Su reenvío vuelve a decidir, sin escribir si nada cambió. Si entretanto apareció un trámite gestionable, el reenvío lo registra, que es lo correcto: la licencia ya es gestionable. Cada reenvío deja su línea de auditoría.
 
 ---
 

@@ -73,8 +73,10 @@ async function ejecutar<T>(res: Response, fn: () => Promise<T>): Promise<T | und
  * HU #14348 (AC8, ADR-0039 §8.7): `/escanear`, `/novedad`, `/actas/:id/entregar` y `/actas/:id/devolucion` pasan a llevar
  * `ruta`. Efecto: una clave guardada antes del despliegue no se reconoce, y su reenvío offline se ejecuta una vez más;
  * los índices de la operación y los estados del acta lo contienen.
+ * `noGuardar`: la respuesta no se persiste. La usa el `sin_match` de `/escanear` (ADR-0039 §8.3): no escribió nada, así que
+ * reenviarlo no duplica, y la tabla no se queda con placa, VIN y licencia de algo no gestionado.
  */
-async function conIdempotencia(req: Request, res: Response, run: () => Promise<{ status?: number; body: unknown }>, ruta?: string): Promise<void> {
+async function conIdempotencia(req: Request, res: Response, run: () => Promise<{ status?: number; body: unknown; noGuardar?: boolean }>, ruta?: string): Promise<void> {
   const cabecera = req.header('Idempotency-Key') || undefined;
   // ADR-0030 §10: con `ruta`, la clave se prefija `usuarioId:ruta:` y no colisiona entre usuarios ni endpoints.
   const key = cabecera && ruta ? `${req.user!.sub}:${ruta}:${cabecera}` : cabecera;
@@ -83,8 +85,8 @@ async function conIdempotencia(req: Request, res: Response, run: () => Promise<{
     if (prev) { res.status(prev.status).json(prev.body); return; }
   }
   try {
-    const { status = 200, body } = await run();
-    if (key) await guardarIdempotencia(key, status, body);
+    const { status = 200, body, noGuardar } = await run();
+    if (key && !noGuardar) await guardarIdempotencia(key, status, body);
     res.status(status).json(body);
   } catch (error) {
     if (error instanceof LogisticaError) { res.status(error.status).json({ error: error.message, ...(error.codigo ? { codigo: error.codigo } : {}), ...(error.extra ? { detalle: error.extra } : {}) }); return; }
@@ -246,7 +248,7 @@ router.post('/escanear', soloSinEnlace(), exigirFuncion('logistica.documento.esc
     const r = await escanearLt(entradaDe(d as never), d.rawValue !== undefined ? (d.numeroLt ?? null) : null, { lat: d.lat, lng: d.lng }, await ctxDe(req),
       { tramiteId: d.tramiteId, dejarPendiente: d.dejarPendiente, organismoCodigo: d.organismoCodigo, alNoEncontrar: (m) => { motivoInterno = ` (${m})`; } });
     await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Escaneo LT: ${r.resultado}${motivoInterno}${d.rawValue === undefined ? ' (manual)' : ''}` }); // sin placa (PII)
-    return { body: r };
+    return { body: r, noGuardar: r.resultado === 'sin_match' };
   }, 'escanear');
 });
 
