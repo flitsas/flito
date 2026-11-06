@@ -304,10 +304,10 @@ export function OrganismosField({ organismos, seleccionados, onChange, error, ed
             return (
               <label
                 key={o.codigo}
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs hover:bg-[color:var(--flit-bg-app)]"
-                style={marcado
-                  ? { color: 'var(--flit-blue)', background: 'rgba(79,116,201,0.12)' }
-                  : { color: 'var(--flit-text-secondary)' }}
+                className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs hover:bg-[color:var(--flit-bg-app)] ${marcado
+                  ? 'text-[color:var(--flit-blue)] [[data-theme=dark]_&]:text-[color:var(--flit-blue-text)]'
+                  : 'text-[color:var(--flit-text-secondary)]'}`}
+                style={marcado ? { background: 'rgba(79,116,201,0.12)' } : undefined}
               >
                 <input
                   type="checkbox"

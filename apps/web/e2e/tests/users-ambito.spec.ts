@@ -852,6 +852,8 @@ test.describe('HU #14344 · usuarios en los dos temas', () => {
     await anotar('select', dialogo.getByLabel('Rol base'));
     await anotar('Cancelar', dialogo.getByRole('button', { name: 'Cancelar' }));
     await anotar('lista de organismos', dialogo.getByText('Medellín'));
+    await casilla(page, /Medellín/).check();
+    await anotar('organismo marcado', dialogo.locator('label').filter({ hasText: 'Medellín' }).locator('span'));
     return medidas;
   };
 
@@ -864,8 +866,9 @@ test.describe('HU #14344 · usuarios en los dos temas', () => {
 
   test('claro: las mismas superficies siguen en blanco', async ({ page }) => {
     for (const { nombre, fondo } of await medir(page, 'light')) {
-      expect(aHex(fondo).toLowerCase(), nombre).toBe('#ffffff');
+      if (nombre !== 'organismo marcado') expect(aHex(fondo).toLowerCase(), nombre).toBe('#ffffff');
     }
+    await expect(page.getByRole('dialog').locator('label').filter({ hasText: 'Medellín' })).toHaveCSS('color', 'rgb(79, 116, 201)');
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Editar' })).toHaveCSS('color', 'rgb(79, 116, 201)');
