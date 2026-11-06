@@ -8,9 +8,10 @@ import FlitUploadBox from '../components/flit/FlitUploadBox';
 import StatusChip from '../components/flit/StatusChip';
 import VisorPdf from '../components/flit/VisorPdf';
 import { FlitCard, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary } from '../components/flit/flitPageKit';
+import { OPCIONES_TIPO_DOC } from '../lib/soatCliente';
 
 export interface Borrador {
-  organismoCodigo: string; placa: string; documentoPropietario: string;
+  organismoCodigo: string; placa: string; tipoDocumentoPropietario: string; documentoPropietario: string;
   nombrePropietario: string; vin: string; marca: string; linea: string; anio: string;
   color: string; cilindrada: string;
 }
@@ -25,6 +26,8 @@ const OBLIGATORIOS: (keyof Borrador)[] = [
   'organismoCodigo', 'placa', 'vin', 'marca', 'linea', 'anio', 'color', 'cilindrada',
 ];
 const ID_MODALIDAD_RUNT = 'cert-modalidad-runt';
+// El catálogo trae su propio marcador vacío; aquí lo pone `Sel`.
+const TIPOS_DOC = OPCIONES_TIPO_DOC.filter((o) => o.valor).map((o) => ({ v: o.valor, t: o.etiqueta }));
 
 /** true desde `lg` (1024 px). La vista previa no se monta por debajo: no descarga ni rasteriza el PDF. */
 function useEscritorio(): boolean {
@@ -47,8 +50,13 @@ async function esPdf(b: Blob): Promise<boolean> {
 
 const norm = (v: string) => v.trim().replace(/\s+/g, ' ').toLowerCase();
 
+/** El tipo de documento solo es obligatorio si hay documento: sin él, el RUNT se consulta por VIN. */
+function faltaTipoDocumento(b: Borrador): boolean {
+  return !!b.documentoPropietario.trim() && !b.tipoDocumentoPropietario;
+}
+
 export function faltantes(b: Borrador): number {
-  return OBLIGATORIOS.filter((k) => !b[k].trim()).length;
+  return OBLIGATORIOS.filter((k) => !b[k].trim()).length + (faltaTipoDocumento(b) ? 1 : 0);
 }
 
 interface Props {
@@ -132,6 +140,8 @@ export default function CertificarEditor(p: Props) {
   const hayDiferencias = CAMPOS_LEIDOS.some(difiere);
 
   const set = (k: keyof Borrador) => (v: string) => p.onBorrador({ ...b, [k]: v });
+  // Sin documento no hay tipo que conservar: el API lo guardaría null de todos modos.
+  const setDocumento = (v: string) => p.onBorrador({ ...b, documentoPropietario: v, tipoDocumentoPropietario: v.trim() ? b.tipoDocumentoPropietario : '' });
   const leido = (k: CampoLeido) => !!b[k] && !!p.leidos[k] && norm(p.leidos[k] as string) === norm(b[k]);
   const ayuda = (k: CampoLeido) => (difiere(k) ? { valor: p.leidos[k] as string, onUsar: () => set(k)(p.leidos[k] as string) } : undefined);
   const hayCambios = alta || p.dirty;
@@ -246,8 +256,10 @@ export default function CertificarEditor(p: Props) {
               <Sel id="cert-organismo" etiqueta="Organismo" valor={b.organismoCodigo} disabled={certificado} onChange={set('organismoCodigo')}
                 opciones={(p.catalogo?.organismos ?? []).map((o) => ({ v: o.codigo, t: o.nombre }))} />
             </Bloque>
-            <Bloque titulo="Propietario" nota="Con documento, el RUNT se consulta por placa y documento; sin él, por VIN." notaId={ID_MODALIDAD_RUNT} cols={colsForm}>
-              <Campo id="cert-documento" etiqueta="Documento del propietario (opcional)" opcional maxLength={30} describidoPor={ID_MODALIDAD_RUNT} valor={b.documentoPropietario} disabled={certificado} onChange={set('documentoPropietario')} />
+            <Bloque titulo="Propietario" nota="Con documento, elige el tipo: el RUNT se consulta por placa y documento. Sin documento, por VIN." notaId={ID_MODALIDAD_RUNT} cols={ampliada ? colsForm : 'lg:grid-cols-3'}>
+              <Sel id="cert-tipo-documento" etiqueta="Tipo de documento" valor={b.tipoDocumentoPropietario} disabled={certificado} onChange={set('tipoDocumentoPropietario')}
+                obligatorio={!!b.documentoPropietario.trim()} describidoPor={ID_MODALIDAD_RUNT} opciones={TIPOS_DOC} />
+              <Campo id="cert-documento" etiqueta="Documento del propietario (opcional)" opcional maxLength={30} describidoPor={ID_MODALIDAD_RUNT} valor={b.documentoPropietario} disabled={certificado} onChange={setDocumento} />
               <Campo id="cert-nombre" etiqueta="Nombre del propietario (opcional)" opcional maxLength={200} valor={b.nombrePropietario} disabled={certificado} onChange={set('nombrePropietario')} />
             </Bloque>
             <Bloque titulo="Vehículo" cols={ampliada ? colsForm : 'lg:grid-cols-3'}>
@@ -352,12 +364,16 @@ function Campo({ id, etiqueta, valor, disabled, onChange, leido, ayuda, opcional
   );
 }
 
-function Sel({ id, etiqueta, valor, disabled, onChange, opciones }: { id: string; etiqueta: string; valor: string; disabled?: boolean; onChange: (v: string) => void; opciones: { v: string; t: string }[] }) {
+function Sel({ id, etiqueta, valor, disabled, onChange, opciones, obligatorio = true, describidoPor }: {
+  id: string; etiqueta: string; valor: string; disabled?: boolean; onChange: (v: string) => void; opciones: { v: string; t: string }[];
+  obligatorio?: boolean; describidoPor?: string;
+}) {
   return (
     <div>
       <Etiqueta id={id} texto={etiqueta} />
-      <select id={id} className={CONTROL} style={borde(!valor)} required disabled={disabled} value={valor} onChange={(ev) => onChange(ev.target.value)}>
-        <option value="">Selecciona</option>
+      <select id={id} className={CONTROL} style={borde(obligatorio && !disabled && !valor)} required={obligatorio} aria-describedby={describidoPor} disabled={disabled} value={valor} onChange={(ev) => onChange(ev.target.value)}>
+        {/* Un certificado anterior a esta corrección no tiene tipo y ya no se edita: nada que seleccionar. */}
+        <option value="">{disabled ? '—' : 'Selecciona'}</option>
         {opciones.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
       </select>
     </div>
