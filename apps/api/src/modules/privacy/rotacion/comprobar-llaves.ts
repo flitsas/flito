@@ -23,7 +23,7 @@ import {
 } from '../../../db/schema.js';
 import { loggerFor } from '../../../shared/logger.js';
 import {
-  decryptLegacyBiometric, decryptPii, decryptPiiText, decryptPiiTextConLlave, encryptPiiTextConVersion,
+  decryptPii, decryptPiiText, decryptPiiTextConLlave, encryptPiiTextConVersion,
   PII_TEXT_PREFIJO, versionVigentePii, type PiiTextContext,
 } from '../../../shared/utils/crypto.js';
 import {
@@ -148,15 +148,12 @@ function columnaCedulaLogistica(
 
 function columnaFoto(columna: string, col: AnyPgColumn): () => Promise<Intento[]> {
   return async () => {
-    // El formato anterior `iv:tag:data` usa la misma pasada V1 con otra sal: también prueba la llave.
+    // Solo el formato vigente. Un `iv:tag:data` de un dump restaurado no se puede descifrar con ninguna
+    // llave (HU #14273): si contara, tumbaría el arranque con `muestra_no_descifra` sin que la llave falle.
     const filas = await db.select({ id: tramitesValidaciones.id, valor: col }).from(tramitesValidaciones)
-      .where(sql`left(${col}, 70) ~ '^(v1:[0-9a-f]{24}:[0-9a-f]{32}:|[0-9a-fA-F]{32}:[0-9a-fA-F]{32}:)'`)
+      .where(sql`left(${col}, 70) ~ '^v1:[0-9a-f]{24}:[0-9a-f]{32}:'`)
       .limit(MUESTRA_POR_COLUMNA);
-    return filas.map((f) => () => {
-      const ctx = { table: 'tramites_validaciones', column: columna, id: f.id };
-      const valor = f.valor as string;
-      return PII_TEXT_PREFIJO.test(valor) ? decryptPiiText(valor, ctx) : decryptLegacyBiometric(valor, ctx);
-    });
+    return filas.map((f) => () => decryptPiiText(f.valor as string, { table: 'tramites_validaciones', column: columna, id: f.id }));
   };
 }
 
