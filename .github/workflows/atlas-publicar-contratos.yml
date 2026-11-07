@@ -43,7 +43,9 @@ jobs:
       fail-fast: false
       matrix: &contratos
         include:
-          - { contrato: flito-api, aplicativo: flito-api, tipo: openapi, ruta: contracts/openapi/flito-api.v1.yaml, ruleset: interno, lint: advertencia }
+          # breaking: advertencia: contrato inferido del código, sin clientes externos, y cada rama genera el suyo. Sin esto, las rutas
+          # de develop que aún no están en release cuentan como incompatibles y nada se publica.
+          - { contrato: flito-api, aplicativo: flito-api, tipo: openapi, ruta: contracts/openapi/flito-api.v1.yaml, ruleset: interno, lint: advertencia, breaking: advertencia }
           - { contrato: flit2-integracion, aplicativo: flito-api, tipo: openapi, ruta: contracts/openapi/flit2-integracion.v1.yaml, ruleset: compartible, lint: error }
     uses: flitsas/flit-atlas/.github/workflows/atlas-publicar.yml@v1
     with:
