@@ -1,51 +1,83 @@
 // Especificación común de la arquitectura de FLIT. Esta es la FUENTE: flitsas/flito lleva una copia idéntica en
 // docs/arquitectura/specification.c4 y su workflow arquitectura.yml falla si las dos se separan.
 // Los repos son públicos: nada de IP, secretos, hosts internos ni datos personales en los modelos.
+// textSize xl y size sm: en el marco de Atlas (928 px) el texto se lee sin zoom.
 specification {
   // ── Elementos ─────────────────────────────────────────────
   element actor {
     style {
+      size sm
+      textSize xl
       shape person
       color secondary
     }
   }
   element system {
     style {
+      size sm
+      textSize xl
       color primary
     }
   }
   element external {
     notation 'Sistema externo'
     style {
+      size sm
+      textSize xl
       color muted
     }
   }
   element webapp {
     notation 'Aplicación web'
     style {
+      size sm
+      textSize xl
       shape browser
     }
   }
   element service {
     notation 'Servicio / API'
+    style {
+      size sm
+      textSize xl
+    }
   }
   element database {
     style {
+      size sm
+      textSize xl
       shape storage
     }
   }
   element queue {
     style {
+      size sm
+      textSize xl
       shape queue
     }
   }
   element bucket {
     style {
+      size sm
+      textSize xl
       shape storage
       color muted
     }
   }
-  element component
+  element component {
+    style {
+      size sm
+      textSize xl
+    }
+  }
+  // Agrupa elementos para que los resúmenes se lean; no es un sistema ni se despliega.
+  element grupo {
+    style {
+      size sm
+      textSize xl
+      color slate
+    }
+  }
 
   // ── Relaciones ───────────────────────────────────────────
   relationship sync {

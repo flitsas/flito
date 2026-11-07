@@ -1,140 +1,217 @@
 // Componentes de FLITO api (nivel 3). Un componente por grupo funcional, no uno por módulo.
 model {
   extend flito.api {
-    flito_tramites = component 'flito-tramites' {
-      metadata {
-        repo_path 'apps/api/src/modules/flito-tramites'
+    operacion = grupo 'Operación' {
+      description 'Trámites, SOAT, comparendos y liquidación'
+      flito_tramites = component 'flito-tramites' {
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/flito-tramites'
+        }
+      }
+      flito_soat = component 'flito-soat' {
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/flito-soat'
+        }
+      }
+      flito_comparendos = component 'flito-comparendos' {
+        description 'Ingesta de SIMIT y fuentes municipales'
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/flito-comparendos'
+          adr 'ADR-0001, ADR-0003'
+        }
+      }
+      flito_liquidacion = component 'flito-liquidacion + siigo' {
+        description 'Facturar y emitir a Siigo'
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/flito-liquidacion'
+        }
+      }
+      tramites_legado = component 'tramites' {
+        #legado
+        description 'Módulo sin prefijo flito-; aquí está el envío por WhatsApp'
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/tramites'
+        }
       }
     }
-    flito_soat = component 'flito-soat' {
-      metadata {
-        repo_path 'apps/api/src/modules/flito-soat'
+    integracion = grupo 'Integraciones' {
+      description 'Sincronización con FLIT y conexiones con terceros'
+      flito_sync = component 'flito-sync' {
+        description 'Sincroniza trámites desde FLIT 2 y FLIT 1, con interruptores'
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/flito-sync'
+        }
+      }
+      integraciones = component 'integraciones' {
+        description 'SIMIT, Fasecolda, MercadoLibre, impuesto vehicular y proxy CEA'
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/integraciones'
+        }
+      }
+      runt_mod = component 'runt' {
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/runt'
+        }
+      }
+      rndc_mod = component 'rndc' {
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/rndc'
+        }
+      }
+      pesv_mod = component 'pesv' {
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/pesv'
+        }
+      }
+      drive_mod = component 'drive' {
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/drive'
+        }
+      }
+      firma_mod = component 'firma' {
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/firma'
+        }
       }
     }
-    flito_comparendos = component 'flito-comparendos' {
-      description 'Ingesta de SIMIT y fuentes municipales'
-      metadata {
-        repo_path 'apps/api/src/modules/flito-comparendos'
-        adr 'ADR-0001, ADR-0003'
+    transversal = grupo 'Transversales' {
+      description 'Cumplimiento, OCR, Dr. FLIT y acceso'
+      cumplimiento = component 'laft + privacy' {
+        #pii
+        description 'Ley 1581, listas restrictivas y reportes SIREL'
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/laft'
+        }
       }
-    }
-    flito_liquidacion = component 'flito-liquidacion + siigo' {
-      description 'Facturar y emitir a Siigo'
-      metadata {
-        repo_path 'apps/api/src/modules/flito-liquidacion'
+      ocr = component 'flito-ocr + ai' {
+        #ia
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/flito-ocr'
+        }
       }
-    }
-    flito_sync = component 'flito-sync' {
-      description 'Sincroniza trámites desde FLIT 2 y FLIT 1, con interruptores'
-      metadata {
-        repo_path 'apps/api/src/modules/flito-sync'
+      dr_flit = component 'flito-dr-flit' {
+        #ia
+        description 'Asistente y escalamiento de soporte'
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/flito-dr-flit'
+        }
       }
-    }
-    integraciones = component 'integraciones' {
-      description 'SIMIT, Fasecolda, MercadoLibre, impuesto vehicular y proxy CEA'
-      metadata {
-        repo_path 'apps/api/src/modules/integraciones'
-      }
-    }
-    runt_mod = component 'runt' {
-      metadata {
-        repo_path 'apps/api/src/modules/runt'
-      }
-    }
-    rndc_mod = component 'rndc' {
-      metadata {
-        repo_path 'apps/api/src/modules/rndc'
-      }
-    }
-    pesv_mod = component 'pesv' {
-      metadata {
-        repo_path 'apps/api/src/modules/pesv'
-      }
-    }
-    cumplimiento = component 'laft + privacy' {
-      #pii
-      description 'Ley 1581, listas restrictivas y reportes SIREL'
-      metadata {
-        repo_path 'apps/api/src/modules/laft'
-      }
-    }
-    ocr = component 'flito-ocr + ai' {
-      #ia
-      metadata {
-        repo_path 'apps/api/src/modules/flito-ocr'
-      }
-    }
-    dr_flit = component 'flito-dr-flit' {
-      #ia
-      description 'Asistente y escalamiento de soporte'
-      metadata {
-        repo_path 'apps/api/src/modules/flito-dr-flit'
-      }
-    }
-    drive_mod = component 'drive' {
-      metadata {
-        repo_path 'apps/api/src/modules/drive'
-      }
-    }
-    firma_mod = component 'firma' {
-      metadata {
-        repo_path 'apps/api/src/modules/firma'
-      }
-    }
-    tramites_legado = component 'tramites' {
-      #legado
-      description 'Módulo sin prefijo flito-; aquí está el envío por WhatsApp'
-      metadata {
-        repo_path 'apps/api/src/modules/tramites'
-      }
-    }
-    acceso = component 'auth + users + permisos' {
-      metadata {
-        repo_path 'apps/api/src/modules/auth'
+      acceso = component 'auth + users + permisos' {
+        metadata {
+          aplicativo 'flito-api'
+          repo_path 'apps/api/src/modules/auth'
+        }
       }
     }
   }
 
-  flito.api.acceso -> flito.redis 'Estado de sesión'
-  flito.api.flito_sync -> flit1 'Lee reporte de trámites y facturas' {
+  flito.api.transversal.acceso -> flito.redis 'Estado de sesión'
+  flito.api.integracion.flito_sync -> flit1 'Lee reporte de trámites y facturas' {
     #vigente
   }
-  flito.api.flito_sync -> flit2.gateway 'Feed external-api por cursor y adjuntos'
-  flito.api.flito_sync -> flito.db 'Upsert idempotente'
-  flito.api.flito_sync -> flito.api.flito_tramites 'Alimenta los trámites'
-  flito.api.flito_tramites -> flito.api.flito_soat 'SOAT del trámite [por verificar]'
-  flito.api.flito_tramites -> flito.api.flito_liquidacion 'Liquida el trámite [por verificar]'
-  flito.api.flito_liquidacion -> siigo 'Factura electrónica'
-  flito.api.flito_comparendos -> simit 'Estado de cuenta'
-  flito.api.flito_comparendos -> verifik 'SIMIT'
-  flito.api.integraciones -> simit 'Estado de cuenta'
-  flito.api.integraciones -> fasecolda 'Guía de valores'
-  flito.api.integraciones -> mercadolibre 'Precios de referencia'
-  flito.api.integraciones -> kyverum 'Proxy CEA'
-  flito.api.runt_mod -> runt 'Consulta directa'
-  flito.api.runt_mod -> kyverum 'RUNT'
-  flito.api.rndc_mod -> rndc 'Despachos'
-  flito.api.pesv_mod -> supertransporte 'PESV'
-  flito.api.cumplimiento -> uiaf 'Reportes LAFT'
-  flito.api.cumplimiento -> listas_restrictivas 'Descarga de listas'
-  flito.api.ocr -> llm 'OCR' {
+  flito.api.integracion.flito_sync -> flit2.gateway 'Feed external-api por cursor y adjuntos'
+  flito.api.integracion.flito_sync -> flito.db 'Upsert idempotente'
+  flito.api.integracion.flito_sync -> flito.api.operacion.flito_tramites 'Alimenta los trámites'
+  flito.api.operacion.flito_tramites -> flito.api.operacion.flito_soat 'SOAT del trámite [por verificar]'
+  flito.api.operacion.flito_tramites -> flito.api.operacion.flito_liquidacion 'Liquida el trámite [por verificar]'
+  flito.api.operacion.flito_liquidacion -> entidades.siigo 'Factura electrónica'
+  flito.api.operacion.flito_comparendos -> fuentes.simit 'Estado de cuenta'
+  flito.api.operacion.flito_comparendos -> fuentes.verifik 'SIMIT'
+  flito.api.integracion.integraciones -> fuentes.simit 'Estado de cuenta'
+  flito.api.integracion.integraciones -> fuentes.fasecolda 'Guía de valores'
+  flito.api.integracion.integraciones -> fuentes.mercadolibre 'Precios de referencia'
+  flito.api.integracion.integraciones -> fuentes.kyverum 'Proxy CEA'
+  flito.api.integracion.runt_mod -> fuentes.runt 'Consulta directa'
+  flito.api.integracion.runt_mod -> fuentes.kyverum 'RUNT'
+  flito.api.integracion.rndc_mod -> entidades.rndc 'Despachos'
+  flito.api.integracion.pesv_mod -> entidades.supertransporte 'PESV'
+  flito.api.transversal.cumplimiento -> entidades.uiaf 'Reportes LAFT'
+  flito.api.transversal.cumplimiento -> entidades.listas_restrictivas 'Descarga de listas'
+  flito.api.transversal.ocr -> terceros.llm 'OCR' {
     #ia
   }
-  flito.api.dr_flit -> llm 'Asistente' {
+  flito.api.transversal.dr_flit -> terceros.llm 'Asistente' {
     #ia
   }
-  flito.api.dr_flit -> ado 'Casos de soporte'
-  flito.api.drive_mod -> google_drive 'Lee documentos'
-  flito.api.firma_mod -> zapsign 'Firma electrónica'
-  flito.api.tramites_legado -> whatsapp 'Mensajería'
-  flito.api.tramites_legado -> correo 'Correo'
+  flito.api.transversal.dr_flit -> terceros.ado 'Casos de soporte'
+  flito.api.integracion.drive_mod -> terceros.google_drive 'Lee documentos'
+  flito.api.integracion.firma_mod -> terceros.zapsign 'Firma electrónica'
+  flito.api.operacion.tramites_legado -> terceros.whatsapp 'Mensajería'
+  flito.api.operacion.tramites_legado -> terceros.correo 'Correo'
 }
 
 views {
-  // V07
+  // V07, resumen
   view flito_api_componentes of flito.api {
     title 'FLITO api: componentes'
-    description 'Grupos funcionales de la API y sus salidas.'
-    include *
+    description 'Resumen por grupos. Toca un grupo para ver sus componentes.'
+    include
+      flito.api.operacion with { navigateTo flito_api_operacion },
+      flito.api.integracion with { navigateTo flito_api_integracion },
+      flito.api.transversal with { navigateTo flito_api_transversal },
+      flito.db,
+      flito.redis,
+      flit1,
+      flit2,
+      fuentes,
+      entidades,
+      terceros
+    style element.tag = #legado {
+      color gray
+    }
+    autoLayout LeftRight 60 25
+  }
+
+  view flito_api_operacion of flito.api.operacion {
+    title 'FLITO api: operación'
+    include
+      flito.api.operacion.*,
+      flito.api.integracion,
+      fuentes,
+      entidades,
+      terceros
+    autoLayout TopBottom 45 25
+  }
+
+  view flito_api_integracion of flito.api.integracion {
+    title 'FLITO api: integraciones'
+    include
+      flito.api.integracion.*,
+      flito.api.operacion,
+      flito.db,
+      flit1,
+      flit2,
+      fuentes,
+      entidades,
+      terceros
+    style element.tag = #legado {
+      color gray
+    }
+    autoLayout LeftRight 60 25
+  }
+
+  view flito_api_transversal of flito.api.transversal {
+    title 'FLITO api: transversales'
+    include
+      flito.api.transversal.*,
+      flito.redis,
+      entidades,
+      terceros
+    autoLayout LeftRight 60 25
   }
 }

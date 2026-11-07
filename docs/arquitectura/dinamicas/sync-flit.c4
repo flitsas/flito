@@ -5,21 +5,23 @@ views {
   dynamic view flujo_sync_flito_flit {
     title 'Sincronización FLIT 2 → FLITO'
     description 'El aviso solo indica cuándo leer; el feed es la verdad. La lectura programada queda de respaldo.'
-    flit2.core_api -> flit2.bus 'Trabajo notificaciones.webhook.send'
-    flit2.bus -> flit2.core_notificaciones 'Consume'
-    flit2.core_notificaciones -> flito.api.flito_sync 'POST aviso tramite.cambio (firmado)'
-    flito.api.flito_sync -> flit2.gateway 'POST /api/v1/external/auth/token'
-    flito.api.flito_sync -> flit2.gateway 'GET /api/v1/external/tramites/sync'
-    flit2.gateway -> flit2.core_api 'Feed por cursor'
-    flito.api.flito_sync -> flito.db 'Upsert idempotente'
-    flito.api.flito_sync -> flit2.gateway 'POST /api/v1/external/tramites/{id}/adjuntos'
+    flit2.negocio.core_api -> flit2.datos.bus 'Trabajo notificaciones.webhook.send'
+    flit2.datos.bus -> flit2.plataforma.core_notificaciones 'Consume'
+    flit2.plataforma.core_notificaciones -> flito.api.integracion.flito_sync 'POST aviso tramite.cambio (firmado)'
+    flito.api.integracion.flito_sync -> flit2.gateway 'POST /api/v1/external/auth/token'
+    flito.api.integracion.flito_sync -> flit2.gateway 'GET /api/v1/external/tramites/sync'
+    flit2.gateway -> flit2.negocio.core_api 'Feed por cursor'
+    flito.api.integracion.flito_sync -> flito.db 'Upsert idempotente'
+    flito.api.integracion.flito_sync -> flit2.gateway 'POST adjuntos del trámite'
+    autoLayout TopBottom 45 25
   }
 
   // V09, variante: la lectura de FLIT 1. Cuándo se apaga en cada ambiente: [por verificar].
   dynamic view flujo_sync_flito_flit1 {
     title 'Lectura del reporte de FLIT 1'
     description 'Lectura automática con ventana móvil, con su interruptor. Estado en cada ambiente: [por verificar].'
-    flito.api.flito_sync -> flit1 'Lee el reporte de trámites y las facturas'
-    flito.api.flito_sync -> flito.db 'Upsert idempotente'
+    flito.api.integracion.flito_sync -> flit1 'Lee el reporte de trámites y las facturas'
+    flito.api.integracion.flito_sync -> flito.db 'Upsert idempotente'
+    autoLayout TopBottom 45 25
   }
 }

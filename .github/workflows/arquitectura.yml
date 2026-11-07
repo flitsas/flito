@@ -1,11 +1,11 @@
 name: arquitectura
 
-# Modelo LikeC4 de FLITO (Atlas HU 6.2, plan 01 §10.1). Valida en cada PR que lo toque; en push a develop o release puede
-# además publicar en Atlas con el token OIDC de GitHub Actions, sin secretos.
+# Modelo LikeC4 de FLITO (Atlas HU 6.2 y ATLAS-ADR-0056). Valida en cada PR que lo toque. En push a develop, staging o release
+# puede además publicar en Atlas con el workflow reutilizable oficial y el token OIDC de GitHub Actions, sin secretos.
 #
-# La publicación necesita dos variables: ATLAS_URL y ATLAS_PUBLICAR_ARQUITECTURA='true'. ATLAS_URL ya existe como variable
-# de organización, así que por sí sola no apaga nada; la segunda se enciende cuando Atlas tenga el endpoint de arquitectura
-# y la lista blanca de este workflow. [por verificar: la ruta del POST sale del plan 01 §10.2 y Atlas aún no la expone].
+# La publicación necesita dos variables: ATLAS_URL y ATLAS_PUBLICAR_ARQUITECTURA='true'. ATLAS_URL ya existe como variable de
+# organización, así que por sí sola no apaga nada; la segunda se enciende cuando el tag v1 de flit-atlas traiga
+# atlas-publicar-arquitectura.yml.
 #
 # Los filtros son por extensión porque docs/arquitectura también guarda documentos de diseño y runbooks.
 
@@ -17,7 +17,7 @@ on:
       - 'docs/arquitectura/tools/**'
       - '.github/workflows/arquitectura.yml'
   push:
-    branches: [develop, release]
+    branches: [develop, staging, release]
     paths:
       - 'docs/arquitectura/**/*.c4'
       - 'docs/arquitectura/likec4.config.json'
@@ -87,31 +87,21 @@ jobs:
           retention-days: 14
 
   publicar:
-    name: publicar en Atlas
+    name: publicar ${{ matrix.proyecto }} en Atlas
     needs: validar
     if: github.event_name == 'push' && vars.ATLAS_URL != '' && vars.ATLAS_PUBLICAR_ARQUITECTURA == 'true'
-    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: arquitectura
-          path: out
-
-      - name: Publicar el modelo
-        env:
-          ATLAS_URL: ${{ vars.ATLAS_URL }}
-        run: |
-          set -euo pipefail
-          token=$(curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${ATLAS_URL}" | jq -r .value)
-          echo "::add-mask::${token}"
-          jq -n --arg rama "$GITHUB_REF_NAME" --arg sha "$GITHUB_SHA" --arg version "$LIKEC4_VERSION" \
-            --slurpfile modelo out/flito.json \
-            '{proyecto: "flito", tipo: "modelo", rama: $rama, commitSha: $sha, herramienta: {nombre: "likec4", version: $version}, modelo: $modelo[0]}' \
-            > out/cuerpo.json
-          curl -fsS --retry 3 --max-time 60 -X POST "${ATLAS_URL%/}/api/v1/atlas/publicaciones/arquitectura" \
-            -H "Authorization: Bearer ${token}" -H 'Content-Type: application/json' \
-            --data-binary @out/cuerpo.json
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { proyecto: flito, carpeta: docs/arquitectura }
+    uses: flitsas/flit-atlas/.github/workflows/atlas-publicar-arquitectura.yml@v1
+    with:
+      tipo: modelo
+      proyecto: ${{ matrix.proyecto }}
+      aplicativo: flito
+      carpeta: ${{ matrix.carpeta }}
+      atlas_url: ${{ vars.ATLAS_URL }}
