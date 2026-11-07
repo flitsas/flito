@@ -169,6 +169,13 @@ jobs:
       - name: Build API (tsc)
         run: npm run build:api
 
+      # DOCS: contratos de Atlas. Toda ruta de Express debe estar en contracts/openapi/flito-api.v1.yaml, y al revés. El
+      # inventario sale del Express real (sin BD ni red), con shared-types ya compilado arriba. Corrección: npm run contrato:generar.
+      - name: Rutas de Express contra el contrato OpenAPI
+        run: |
+          node --test scripts/contratos/rutas-openapi.test.mjs
+          npm run check:contrato-rutas
+
   build-web:
     name: build web
     runs-on: ubuntu-latest
