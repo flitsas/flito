@@ -1,0 +1,86 @@
+// Sistema FLITO y sus contenedores (nivel 2 de C4). Comprobado contra el código el 06/11/2026: AGENTS.md, apps/*,
+// docker-compose.prod.yml y apps/api/src/modules. k8s_workload es la llave del drift (plan 01 §8.4 de Atlas).
+model {
+  flito = system 'FLITO (Operaciones)' {
+    #critico #pii
+    description 'Operación para organismos, CEA y gestoras: SOAT, impuestos, derechos, comparendos, liquidación y facturación'
+    link https://github.com/flitsas/flito 'Repositorio'
+    metadata {
+      owner 'Líder FLITO [por verificar]'
+      repo 'flitsas/flito'
+      criticidad 'critica'
+      datos_personales 'si'
+    }
+
+    web = webapp 'FLITO web' {
+      #pii
+      technology 'Vite 5, React 18, Tailwind 4'
+      description 'SPA de operaciones'
+      metadata {
+        owner 'Líder FLITO [por verificar]'
+        repo_path 'apps/web'
+        k8s_workload 'web'
+        criticidad 'alta'
+        datos_personales 'si'
+      }
+    }
+    api = service 'FLITO api' {
+      #pii #critico #ia
+      technology 'Express 4, TypeScript ESM, Drizzle, Zod'
+      description 'Módulos en src/modules; producto bajo /api/flito; crons propios. Contrato de tipos en packages/shared-types, sin OpenAPI'
+      metadata {
+        owner 'Líder FLITO [por verificar]'
+        repo_path 'apps/api'
+        k8s_workload 'api'
+        criticidad 'critica'
+        datos_personales 'si'
+        contrato 'packages/shared-types'
+      }
+    }
+    db = database 'PostgreSQL FLITO' {
+      #pii
+      technology 'PostgreSQL, migraciones SQL a mano'
+      metadata {
+        owner 'DevOps [por verificar]'
+        repo_path 'apps/api/src/db/migrations'
+        criticidad 'alta'
+        datos_personales 'si'
+      }
+    }
+    redis = database 'Redis' {
+      technology 'Redis 7'
+      description 'Estado compartido entre réplicas'
+      metadata {
+        owner 'DevOps [por verificar]'
+        repo_path 'apps/api/src/shared/redis.ts'
+        k8s_workload 'redis'
+        criticidad 'media'
+        datos_personales 'no'
+      }
+    }
+    minio = bucket 'MinIO' {
+      #pii
+      technology 'MinIO, S3'
+      description 'Archivos: OCR, PDF y expedientes'
+      metadata {
+        owner 'DevOps [por verificar]'
+        repo_path 'docker-compose.prod.yml'
+        k8s_workload 'minio'
+        criticidad 'alta'
+        datos_personales 'si'
+      }
+    }
+  }
+
+  operador_flito -> flito.web 'Opera SOAT, impuestos y liquidación'
+  organismo -> flito.web 'Consulta y gestiona'
+  cea -> flito.web 'Consulta y gestiona'
+
+  flito.web -> flito.api '/api'
+  flito.api -> flito.db 'Drizzle'
+  flito.api -> flito.redis 'Estado compartido'
+  flito.api -> flito.minio 'Archivos'
+
+  // Señal de FLIT 2: el aviso solo indica cuándo leer; el feed es la verdad (ver flujo_sync_flito_flit).
+  flit2.core_notificaciones -[async]-> flito.api.flito_sync 'Aviso tramite.cambio (firmado)'
+}

@@ -1,0 +1,588 @@
+openapi: 3.1.0
+info:
+  title: FLITO — integración de lectura con FLIT 2
+  version: 1.0.0
+  description: >-
+    Lo que FLITO consume de la API externa de FLIT 2 para sincronizar trámites: el pase de acceso y el feed incremental.
+    Es la vista del consumidor, escrita a partir del código de apps/api/src/modules/flito-sync (flit2-pase.service.ts y
+    flit2-sync-http.adapter.ts): lista los campos que FLITO envía y lee. El proveedor es FLIT 2 y su contrato completo es
+    contracts/openapi/external-api.v1.json del repo flit (contrato external-api de flit2-core-api); si difieren, manda
+    ese. FLITO ignora los campos que no conoce, así que FLIT 2 puede agregar campos sin romperlo. La guía de uso está en
+    docs/integraciones/flit2-api.md. Todos los ejemplos usan datos ficticios.
+  contact:
+    name: Equipo FLIT
+    url: https://github.com/flitsas/flito
+  license:
+    name: Propietaria
+    url: https://github.com/flitsas/flito
+  x-flit-visibilidad: compartible
+servers:
+  - url: https://{host}
+    description: Un host de FLIT 2 y un cliente por ambiente; en FLITO, la variable FLIT2_BASE_URL.
+    variables:
+      host:
+        default: api.example.com
+        description: Host de la API de FLIT 2 en el ambiente.
+tags:
+  - name: Autenticación
+    description: Pase de acceso de cliente.
+  - name: Sincronización
+    description: Feed incremental de trámites.
+paths:
+  /api/v1/external/auth/token:
+    post:
+      operationId: obtenerPaseFlit2
+      tags:
+        - Autenticación
+      summary: Obtener un pase de acceso
+      description: >-
+        FLITO envía las credenciales de su cliente y guarda el pase hasta su vencimiento. No sigue redirecciones. Solo
+        lee accessToken, expiresIn (mayor que 0) y scope; con otra forma considera que FLIT 2 no respondió.
+      x-public: true
+      x-flit-sin-autenticacion: true
+      security: []
+      requestBody:
+        required: true
+        description: Credenciales del cliente de FLITO en el ambiente.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PedidoPase'
+            example:
+              clientId: flito-demo
+              clientSecret: secreto-de-ejemplo
+      responses:
+        '200':
+          description: Pase emitido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pase'
+              example:
+                accessToken: pase-jwt-de-ejemplo
+                tokenType: Bearer
+                expiresIn: 1800
+                scope:
+                  - external.tramites.read
+        '401':
+          description: Credenciales inválidas o cliente inactivo. FLITO marca el acceso como rechazado.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              example:
+                title: invalid_client
+                status: 401
+                code: invalid_client
+        '403':
+          description: El cliente debe rotar su secreto. FLITO marca el acceso como rechazado.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              example:
+                title: secret_rotation_required
+                status: 403
+                code: secret_rotation_required
+        '423':
+          description: Cliente bloqueado temporalmente. FLITO pausa según Retry-After.
+          headers:
+            Retry-After:
+              description: Segundos de espera.
+              schema:
+                type: integer
+                format: int32
+                minimum: 0
+                maximum: 86400
+                example: 900
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              example:
+                title: client_locked
+                status: 423
+                code: client_locked
+        '429':
+          description: Límite de peticiones superado. FLITO pausa según Retry-After.
+          headers:
+            Retry-After:
+              description: Segundos de espera.
+              schema:
+                type: integer
+                format: int32
+                minimum: 0
+                maximum: 86400
+                example: 60
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              example:
+                title: rate_limited
+                status: 429
+                code: rate_limited
+  /api/v1/external/tramites/sync:
+    get:
+      operationId: leerFeedTramitesFlit2
+      tags:
+        - Sincronización
+      summary: Leer una página del feed de trámites
+      description: >-
+        FLITO llama con cursor o con since, nunca con los dos. Ante un 401 renueva el pase una vez. Valida el sobre y cada
+        ítem por separado: el que no cumple se cuenta como inválido y se salta.
+      x-public: true
+      security:
+        - paseExterno: []
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: nextCursor de la página anterior. Excluyente con since.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 2000
+            example: cursor-opaco-de-ejemplo
+        - name: since
+          in: query
+          required: false
+          description: Fecha ISO-8601 desde la que se arranca. Excluyente con cursor.
+          schema:
+            type: string
+            format: date-time
+            example: '2026-09-21T10:15:00-05:00'
+        - name: pageSize
+          in: query
+          required: false
+          description: Tamaño de página, entre 1 y 1000.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 1000
+            example: 200
+      responses:
+        '200':
+          description: Página del feed. Sin resultados, items viene vacío.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaFeed'
+              example:
+                items:
+                  - id: 0192b7c4-5e6a-7d10-9f21-3a4b5c6d7e8f
+                    radicado: DEMO-0001234
+                    syncVersion: 48213
+                    eliminado: false
+                    estado: aprobado
+                    tramite:
+                      familia: MATRICULAS
+                    fechaCreacion: '2026-09-01T08:00:00-05:00'
+                    fechaAprobacion: '2026-09-20T16:02:10-05:00'
+                    vehiculo:
+                      vin: DEMO0000000000000
+                      placa: DEM123
+                      marca: MARCA EJEMPLO
+                      linea: LINEA EJEMPLO
+                      carroceria: SUV
+                      cilindraje: 2000
+                      cilindrajeTexto: null
+                      numeroMotor: MTR000000
+                      numeroSerie: SER000000
+                      tipoServicio:
+                        codigo: PARTICULAR
+                        nombre: Particular
+                    organismo:
+                      codigoSecretaria: '00000'
+                      ciudad: Ciudad Demo
+                      nombre: Organismo Demo
+                    compradores:
+                      - ordinal: 1
+                        porcentajeParticipacion: 100
+                        rolActor: comprador
+                        tipoPersona: NATURAL
+                        tipoDocumento: CC
+                        numeroDocumento: '1000000000'
+                        nombreCompleto: Persona Demo
+                        direccion: Calle Ficticia 1
+                        ciudad: Ciudad Demo
+                        celular: '3000000000'
+                        correo: persona@ejemplo.com
+                    factura:
+                      adjuntoId: adjunto-demo-1
+                    companiaGestora:
+                      nit: '900000000'
+                nextCursor: cursor-opaco-de-ejemplo
+                hasMore: false
+        '400':
+          description: Parámetros inválidos (invalid_cursor, invalid_page_size, invalid_since o cursor_and_since_exclusive).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              example:
+                title: cursor_and_since_exclusive
+                status: 400
+                code: cursor_and_since_exclusive
+        '401':
+          description: Pase vencido o inválido. FLITO renueva el pase una sola vez.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              example:
+                title: invalid_token
+                status: 401
+                code: invalid_token
+        '403':
+          description: El pase no tiene el permiso de lectura.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              example:
+                title: insufficient_scope
+                status: 403
+                code: insufficient_scope
+        '429':
+          description: Límite de peticiones superado. FLITO espera lo que indique Retry-After.
+          headers:
+            Retry-After:
+              description: Segundos de espera.
+              schema:
+                type: integer
+                format: int32
+                minimum: 0
+                maximum: 86400
+                example: 60
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              example:
+                title: rate_limited
+                status: 429
+                code: rate_limited
+components:
+  securitySchemes:
+    paseExterno:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Pase obtenido en POST /api/v1/external/auth/token. Permisos: external.tramites.read para el feed y
+        external.tramites.pii.read para recibir datos personales sin enmascarar. Referencia de buenas prácticas de JWT:
+        RFC8725.
+  schemas:
+    PedidoPase:
+      type: object
+      description: Credenciales del cliente.
+      required:
+        - clientId
+        - clientSecret
+      properties:
+        clientId:
+          type: string
+          description: Identificador del cliente.
+          maxLength: 200
+          example: flito-demo
+        clientSecret:
+          type: string
+          description: Secreto del cliente. FLITO lo guarda cifrado y nunca lo escribe en un log.
+          maxLength: 500
+          example: secreto-de-ejemplo
+      example:
+        clientId: flito-demo
+        clientSecret: secreto-de-ejemplo
+    Pase:
+      type: object
+      description: Pase de acceso; FLITO ignora los demás campos.
+      required:
+        - accessToken
+        - expiresIn
+      properties:
+        accessToken:
+          type: string
+          description: Pase que se envía como Bearer.
+          maxLength: 8000
+          example: pase-jwt-de-ejemplo
+        tokenType:
+          type: string
+          description: Tipo de pase.
+          maxLength: 20
+          example: Bearer
+        expiresIn:
+          type: integer
+          format: int32
+          description: Segundos de vigencia. Debe ser mayor que 0.
+          minimum: 1
+          maximum: 86400
+          example: 1800
+        scope:
+          type: array
+          description: Permisos concedidos. FLITO decide con ellos si recibe datos personales.
+          maxItems: 20
+          items:
+            type: string
+            description: Un permiso.
+            maxLength: 100
+            example: external.tramites.read
+          example:
+            - external.tramites.read
+      example:
+        accessToken: pase-jwt-de-ejemplo
+        tokenType: Bearer
+        expiresIn: 1800
+        scope:
+          - external.tramites.read
+    PaginaFeed:
+      type: object
+      description: Sobre de una página del feed. FLITO exige items, nextCursor y hasMore.
+      required:
+        - items
+        - nextCursor
+        - hasMore
+      properties:
+        items:
+          type: array
+          description: Trámites de la página.
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/ItemTramite'
+        nextCursor:
+          type: string
+          description: Cursor para continuar; FLITO lo persiste.
+          minLength: 1
+          maxLength: 2000
+          example: cursor-opaco-de-ejemplo
+        hasMore:
+          type: boolean
+          description: Si quedan más páginas.
+          example: false
+      example:
+        items: []
+        nextCursor: cursor-opaco-de-ejemplo
+        hasMore: false
+    ItemTramite:
+      type: object
+      description: >-
+        Trámite tal como lo lee FLITO (itemSchema de flit2-sync-http.adapter.ts). Solo id, radicado y syncVersion son
+        obligatorios para FLITO; el resto puede venir nulo o no venir.
+      required:
+        - id
+        - radicado
+        - syncVersion
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador del trámite en FLIT 2.
+          example: 0192b7c4-5e6a-7d10-9f21-3a4b5c6d7e8f
+        radicado:
+          type: string
+          description: Radicado del trámite.
+          minLength: 1
+          maxLength: 60
+          example: DEMO-0001234
+        syncVersion:
+          type: integer
+          format: int64
+          description: Versión de sincronización; ascendente en el feed.
+          minimum: 0
+          maximum: 9007199254740991
+          example: 48213
+        eliminado:
+          type: boolean
+          description: Tombstone. Si no viene, FLITO asume false.
+          default: false
+          example: false
+        estado:
+          $ref: '#/components/schemas/TextoNulable'
+        tramite:
+          type:
+            - object
+            - 'null'
+          description: Tipo de trámite.
+          properties:
+            familia:
+              $ref: '#/components/schemas/TextoNulable'
+          example:
+            familia: MATRICULAS
+        fechaCreacion:
+          $ref: '#/components/schemas/TextoNulable'
+        fechaAprobacion:
+          $ref: '#/components/schemas/TextoNulable'
+        vehiculo:
+          $ref: '#/components/schemas/Vehiculo'
+        organismo:
+          type:
+            - object
+            - 'null'
+          description: Organismo de tránsito.
+          properties:
+            codigoSecretaria:
+              $ref: '#/components/schemas/TextoNulable'
+            ciudad:
+              $ref: '#/components/schemas/TextoNulable'
+            nombre:
+              $ref: '#/components/schemas/TextoNulable'
+          example:
+            codigoSecretaria: '00000'
+            ciudad: Ciudad Demo
+            nombre: Organismo Demo
+        compradores:
+          type:
+            - array
+            - 'null'
+          description: Compradores. Sin el permiso de datos personales, FLIT 2 los entrega enmascarados.
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/Comprador'
+        factura:
+          type:
+            - object
+            - 'null'
+          description: Referencia al adjunto de la factura.
+          properties:
+            adjuntoId:
+              $ref: '#/components/schemas/TextoNulable'
+          example:
+            adjuntoId: adjunto-demo-1
+        companiaGestora:
+          type:
+            - object
+            - 'null'
+          description: Compañía gestora.
+          properties:
+            nit:
+              $ref: '#/components/schemas/TextoNulable'
+          example:
+            nit: '900000000'
+      example:
+        id: 0192b7c4-5e6a-7d10-9f21-3a4b5c6d7e8f
+        radicado: DEMO-0001234
+        syncVersion: 48213
+    Vehiculo:
+      type:
+        - object
+        - 'null'
+      description: Vehículo del trámite. Sin VIN, FLITO lo trata como «sin vehículo».
+      properties:
+        vin:
+          $ref: '#/components/schemas/TextoNulable'
+        placa:
+          $ref: '#/components/schemas/TextoNulable'
+        marca:
+          $ref: '#/components/schemas/TextoNulable'
+        linea:
+          $ref: '#/components/schemas/TextoNulable'
+        carroceria:
+          $ref: '#/components/schemas/TextoNulable'
+        cilindraje:
+          type:
+            - number
+            - 'null'
+          format: double
+          description: Cilindraje numérico; si no viene, FLITO usa cilindrajeTexto.
+          minimum: 0
+          maximum: 1000000
+          example: 2000
+        cilindrajeTexto:
+          $ref: '#/components/schemas/TextoNulable'
+        numeroMotor:
+          $ref: '#/components/schemas/TextoNulable'
+        numeroSerie:
+          $ref: '#/components/schemas/TextoNulable'
+        tipoServicio:
+          type:
+            - object
+            - 'null'
+          description: Tipo de servicio. FLITO usa el nombre.
+          properties:
+            codigo:
+              $ref: '#/components/schemas/TextoNulable'
+            nombre:
+              $ref: '#/components/schemas/TextoNulable'
+          example:
+            codigo: PARTICULAR
+            nombre: Particular
+      example:
+        vin: DEMO0000000000000
+        placa: DEM123
+    Comprador:
+      type: object
+      description: Comprador. Datos personales; FLITO no los escribe en logs.
+      properties:
+        ordinal:
+          type:
+            - integer
+            - 'null'
+          format: int32
+          description: Orden del comprador; si no viene, FLITO usa su posición.
+          minimum: 0
+          maximum: 100
+          example: 1
+        porcentajeParticipacion:
+          type:
+            - number
+            - 'null'
+          format: double
+          description: Porcentaje de participación.
+          minimum: 0
+          maximum: 100
+          example: 100
+        rolActor:
+          $ref: '#/components/schemas/TextoNulable'
+        tipoPersona:
+          $ref: '#/components/schemas/TextoNulable'
+        tipoDocumento:
+          $ref: '#/components/schemas/TextoNulable'
+        numeroDocumento:
+          $ref: '#/components/schemas/TextoNulable'
+        nombreCompleto:
+          $ref: '#/components/schemas/TextoNulable'
+        direccion:
+          $ref: '#/components/schemas/TextoNulable'
+        ciudad:
+          $ref: '#/components/schemas/TextoNulable'
+        celular:
+          $ref: '#/components/schemas/TextoNulable'
+        correo:
+          $ref: '#/components/schemas/TextoNulable'
+      example:
+        ordinal: 1
+        rolActor: comprador
+        nombreCompleto: Persona Demo
+    TextoNulable:
+      type:
+        - string
+        - 'null'
+      description: Texto; FLITO acepta que venga nulo o que no venga.
+      maxLength: 500
+      example: texto de ejemplo
+    Problema:
+      type: object
+      description: Error RFC 7807. FLITO solo toma de él un código; nunca reenvía ni registra el cuerpo.
+      properties:
+        title:
+          type: string
+          description: Título del problema.
+          maxLength: 200
+          example: invalid_client
+        status:
+          type: integer
+          format: int32
+          description: Estado HTTP.
+          minimum: 100
+          maximum: 599
+          example: 401
+        code:
+          type: string
+          description: Código estable.
+          maxLength: 60
+          example: invalid_client
+      example:
+        title: invalid_client
+        status: 401
+        code: invalid_client
