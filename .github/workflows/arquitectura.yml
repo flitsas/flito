@@ -23,6 +23,7 @@ on:
       - 'docs/arquitectura/likec4.config.json'
       - 'docs/arquitectura/tools/**'
       - '.github/workflows/arquitectura.yml'
+  workflow_dispatch:
 
 permissions: {}
 
@@ -64,6 +65,8 @@ jobs:
           likec4 export json --project flito -o out/flito.json docs/arquitectura
 
       - name: Validar metadatos y revisión de repo público
+        env:
+          VALIDAR_RUTAS: ${{ (github.base_ref || github.ref_name) == 'develop' && 'error' || 'aviso' }}
         run: node docs/arquitectura/tools/validar-metadata.mjs out/flito.json docs/arquitectura
 
       # La fuente vive en flitsas/flit, que es público. Mientras no llegue a su develop solo se avisa.
@@ -89,7 +92,7 @@ jobs:
   publicar:
     name: publicar ${{ matrix.proyecto }} en Atlas
     needs: validar
-    if: github.event_name == 'push' && vars.ATLAS_URL != '' && vars.ATLAS_PUBLICAR_ARQUITECTURA == 'true'
+    if: github.event_name != 'pull_request' && vars.ATLAS_URL != '' && vars.ATLAS_PUBLICAR_ARQUITECTURA == 'true'
     permissions:
       contents: read
       id-token: write
@@ -105,3 +108,24 @@ jobs:
       aplicativo: flito
       carpeta: ${{ matrix.carpeta }}
       atlas_url: ${{ vars.ATLAS_URL }}
+
+  # Como los contratos: el Atlas central recibe todo, y el de QA recibe lo de staging para probar su versión (ATLAS-ADR-0052).
+  publicar-qa:
+    name: publicar ${{ matrix.proyecto }} en el Atlas de QA
+    needs: validar
+    if: github.event_name != 'pull_request' && github.ref_name == 'staging' && vars.ATLAS_URL_QA != '' && vars.ATLAS_PUBLICAR_ARQUITECTURA == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { proyecto: flito, carpeta: docs/arquitectura }
+    uses: flitsas/flit-atlas/.github/workflows/atlas-publicar-arquitectura.yml@v1
+    with:
+      tipo: modelo
+      proyecto: ${{ matrix.proyecto }}
+      aplicativo: flito
+      carpeta: ${{ matrix.carpeta }}
+      atlas_url: ${{ vars.ATLAS_URL_QA }}
