@@ -1,0 +1,117 @@
+name: arquitectura
+
+# Modelo LikeC4 de FLITO (Atlas HU 6.2, plan 01 §10.1). Valida en cada PR que lo toque; en push a develop o release puede
+# además publicar en Atlas con el token OIDC de GitHub Actions, sin secretos.
+#
+# La publicación necesita dos variables: ATLAS_URL y ATLAS_PUBLICAR_ARQUITECTURA='true'. ATLAS_URL ya existe como variable
+# de organización, así que por sí sola no apaga nada; la segunda se enciende cuando Atlas tenga el endpoint de arquitectura
+# y la lista blanca de este workflow. [por verificar: la ruta del POST sale del plan 01 §10.2 y Atlas aún no la expone].
+#
+# Los filtros son por extensión porque docs/arquitectura también guarda documentos de diseño y runbooks.
+
+on:
+  pull_request:
+    paths:
+      - 'docs/arquitectura/**/*.c4'
+      - 'docs/arquitectura/likec4.config.json'
+      - 'docs/arquitectura/tools/**'
+      - '.github/workflows/arquitectura.yml'
+  push:
+    branches: [develop, release]
+    paths:
+      - 'docs/arquitectura/**/*.c4'
+      - 'docs/arquitectura/likec4.config.json'
+      - 'docs/arquitectura/tools/**'
+      - '.github/workflows/arquitectura.yml'
+
+permissions: {}
+
+concurrency:
+  group: arquitectura-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  LIKEC4_VERSION: '1.59.4'
+
+jobs:
+  validar:
+    name: validar modelo
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Se instala fuera del repo para que no lo afecten su package.json ni su .npmrc.
+      - name: Instalar LikeC4
+        working-directory: ${{ runner.temp }}
+        run: |
+          npm install --prefix likec4 --ignore-scripts --no-audit --no-fund "likec4@${LIKEC4_VERSION}"
+          echo "$PWD/likec4/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Validar FLITO
+        run: likec4 validate docs/arquitectura
+
+      - name: Exportar JSON
+        run: |
+          mkdir -p out
+          likec4 export json --project flito -o out/flito.json docs/arquitectura
+
+      - name: Validar metadatos y revisión de repo público
+        run: node docs/arquitectura/tools/validar-metadata.mjs out/flito.json docs/arquitectura
+
+      # La fuente vive en flitsas/flit, que es público. Mientras no llegue a su develop solo se avisa.
+      - name: Comparar la especificación con la de flit
+        run: |
+          fuente=https://raw.githubusercontent.com/flitsas/flit/develop/arquitectura/landscape/specification.c4
+          codigo=$(curl -sS -o "$RUNNER_TEMP/specification.c4" -w '%{http_code}' "$fuente")
+          if [ "$codigo" = 404 ]; then
+            echo "::notice::La especificación aún no está en develop de flitsas/flit; no se compara."
+          elif [ "$codigo" != 200 ]; then
+            echo "::error::No se pudo leer la especificación de flitsas/flit (HTTP $codigo)."
+            exit 1
+          else
+            diff -u "$RUNNER_TEMP/specification.c4" docs/arquitectura/specification.c4
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arquitectura
+          path: out/
+          retention-days: 14
+
+  publicar:
+    name: publicar en Atlas
+    needs: validar
+    if: github.event_name == 'push' && vars.ATLAS_URL != '' && vars.ATLAS_PUBLICAR_ARQUITECTURA == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: arquitectura
+          path: out
+
+      - name: Publicar el modelo
+        env:
+          ATLAS_URL: ${{ vars.ATLAS_URL }}
+        run: |
+          set -euo pipefail
+          token=$(curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${ATLAS_URL}" | jq -r .value)
+          echo "::add-mask::${token}"
+          jq -n --arg rama "$GITHUB_REF_NAME" --arg sha "$GITHUB_SHA" --arg version "$LIKEC4_VERSION" \
+            --slurpfile modelo out/flito.json \
+            '{proyecto: "flito", tipo: "modelo", rama: $rama, commitSha: $sha, herramienta: {nombre: "likec4", version: $version}, modelo: $modelo[0]}' \
+            > out/cuerpo.json
+          curl -fsS --retry 3 --max-time 60 -X POST "${ATLAS_URL%/}/api/v1/atlas/publicaciones/arquitectura" \
+            -H "Authorization: Bearer ${token}" -H 'Content-Type: application/json' \
+            --data-binary @out/cuerpo.json
