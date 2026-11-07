@@ -65,6 +65,8 @@ jobs:
           likec4 export json --project flito -o out/flito.json docs/arquitectura
 
       - name: Validar metadatos y revisión de repo público
+        env:
+          VALIDAR_RUTAS: ${{ (github.base_ref || github.ref_name) == 'develop' && 'error' || 'aviso' }}
         run: node docs/arquitectura/tools/validar-metadata.mjs out/flito.json docs/arquitectura
 
       # La fuente vive en flitsas/flit, que es público. Mientras no llegue a su develop solo se avisa.

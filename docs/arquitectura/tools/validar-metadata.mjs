@@ -3,6 +3,8 @@
 // Uso: node validar-metadata.mjs <modelo.json> <carpeta de .c4> [<carpeta de .c4> ...]
 //   modelo.json: salida de `likec4 export json`. Se corre desde la raíz del repo; las rutas se resuelven contra ella.
 // Sin dependencias. Sale con 1 si encuentra un error.
+// Con VALIDAR_RUTAS=aviso (staging y release), lo que el modelo nombra y la rama aún no tiene se avisa sin fallar: el modelo
+// nace en develop y llega antes que el código. La diferencia con lo desplegado la muestra el drift de Atlas.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
@@ -13,6 +15,7 @@ if (!rutaModelo || carpetas.length === 0) {
 }
 
 const errores = [];
+const ausentes = [];
 const CRITICIDADES = new Set(['critica', 'alta', 'media', 'baja']);
 const CONTENEDORES = new Set(['webapp', 'service', 'database', 'queue', 'bucket']);
 const DESPLEGABLES = new Set(['webapp', 'service']);
@@ -57,12 +60,12 @@ for (const proyecto of proyectos) {
     if (DESPLEGABLES.has(el.kind) && !meta.k8s_workload) falta('k8s_workload');
 
     // Rutas y ADR: solo se comprueban en el repo dueño del elemento.
-    if (meta.repo_path && !existsSync(meta.repo_path)) errores.push(`${id}: repo_path no existe: ${meta.repo_path}`);
+    if (meta.repo_path && !existsSync(meta.repo_path)) ausentes.push(`${id}: repo_path no existe: ${meta.repo_path}`);
     for (const [clave, valor] of Object.entries(meta)) {
-      if (CONTRATO.test(clave) && !existsSync(valor)) errores.push(`${id}: ${clave} no existe: ${valor}`);
+      if (CONTRATO.test(clave) && !existsSync(valor)) ausentes.push(`${id}: ${clave} no existe: ${valor}`);
     }
     for (const adr of (meta.adr ?? '').split(',').map((a) => a.trim()).filter(Boolean)) {
-      if (!adrs.some((a) => a.startsWith(`${adr}-`))) errores.push(`${id}: no se encontró ${adr} en el repo`);
+      if (!adrs.some((a) => a.startsWith(`${adr}-`))) ausentes.push(`${id}: no se encontró ${adr} en el repo`);
     }
   }
 }
@@ -86,6 +89,12 @@ for (const carpeta of carpetas) {
       }
     });
   }
+}
+
+if (process.env.VALIDAR_RUTAS === 'aviso') {
+  for (const a of ausentes) console.warn(`::warning::${a}`);
+} else {
+  errores.push(...ausentes);
 }
 
 if (errores.length > 0) {
