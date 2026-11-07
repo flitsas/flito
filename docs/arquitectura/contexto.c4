@@ -1,0 +1,60 @@
+// Lo que rodea a FLITO: actores, sistemas externos y las piezas de FLIT con las que habla. Los ids son los del landscape
+// (flitsas/flit, arquitectura/landscape). Lo marcado #referencia vive en otro repo y aquí solo se redeclara para relacionarlo.
+model {
+  operador_flito = actor 'Operador / finanzas FLITO'
+  organismo = actor 'Organismo de tránsito' {
+    description 'Secretaría que consulta y gestiona'
+  }
+  cea = actor 'CEA' {
+    description 'Centro de enseñanza automovilística'
+  }
+
+  flit1 = system 'FLIT 1 (legado)' {
+    #legado #referencia
+    description 'Sistema legado en retiro hacia FLIT 2.0'
+  }
+  flit2 = system 'FLIT 2.0 (Suite)' {
+    #referencia
+    description 'Detalle en flitsas/flit, docs/arquitectura'
+    link https://github.com/flitsas/flit 'Repositorio'
+
+    gateway = service 'Gateway' {
+      #referencia
+    }
+    core_api = service 'core-api' {
+      #referencia
+    }
+    core_notificaciones = service 'core-notificaciones' {
+      #referencia
+    }
+    bus = queue 'RabbitMQ' {
+      #referencia
+    }
+    core_api -[async]-> bus 'Trabajo notificaciones.webhook.send'
+    bus -[async]-> core_notificaciones 'Consume'
+    gateway -> core_api 'Feed, autenticación y adjuntos'
+  }
+
+  runt = external 'RUNT'
+  simit = external 'SIMIT (FCM)'
+  verifik = external 'Verifik'
+  kyverum = external 'Kyverum'
+  fasecolda = external 'Fasecolda'
+  mercadolibre = external 'MercadoLibre'
+  siigo = external 'Siigo → DIAN'
+  rndc = external 'RNDC'
+  uiaf = external 'UIAF (SIREL)'
+  listas_restrictivas = external 'Listas restrictivas' {
+    description 'Listas públicas de sanciones que usa el módulo LAFT'
+  }
+  supertransporte = external 'Supertransporte (PESV)'
+  google_drive = external 'Google Drive'
+  whatsapp = external 'WhatsApp (Meta)'
+  zapsign = external 'ZapSign'
+  llm = external 'Anthropic' {
+    #ia
+    description 'OCR, análisis de documentos y Dr. FLIT'
+  }
+  ado = external 'Azure DevOps'
+  correo = external 'Proveedor SMTP'
+}
