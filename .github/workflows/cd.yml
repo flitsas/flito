@@ -3,6 +3,14 @@ name: CD - Build & Deploy to VPS
 on:
   push:
     branches: [release, staging, develop]
+    # Solo contratos, documentación y sus workflows: no se reconstruye ni se reinicia nada. Con código, el CD corre igual,
+    # porque se omite solo si TODOS los archivos del empuje coinciden. Un cambio solo en cd.yml se lanza con workflow_dispatch.
+    paths-ignore:
+      - 'contracts/**'
+      - 'docs/**'
+      - '.github/workflows/atlas-publicar-contratos.yml'
+      - '.github/workflows/arquitectura.yml'
+      - '.github/workflows/cd.yml'
   workflow_dispatch:
 
 concurrency:

@@ -1,12 +1,15 @@
 // Lo que rodea a FLITO: actores, sistemas externos y las piezas de FLIT con las que habla. Los ids son los del landscape
 // (flitsas/flit, arquitectura/landscape). Lo marcado #referencia vive en otro repo y aquí solo se redeclara para relacionarlo.
 model {
-  operador_flito = actor 'Operador / finanzas FLITO'
-  organismo = actor 'Organismo de tránsito' {
-    description 'Secretaría que consulta y gestiona'
-  }
-  cea = actor 'CEA' {
-    description 'Centro de enseñanza automovilística'
+  usuarios = grupo 'Usuarios' {
+    description 'Quienes operan FLITO'
+    operador_flito = actor 'Operador / finanzas FLITO'
+    organismo = actor 'Organismo de tránsito' {
+      description 'Secretaría que consulta y gestiona'
+    }
+    cea = actor 'CEA' {
+      description 'Centro de enseñanza automovilística'
+    }
   }
 
   flit1 = system 'FLIT 1 (legado)' {
@@ -21,40 +24,55 @@ model {
     gateway = service 'Gateway' {
       #referencia
     }
-    core_api = service 'core-api' {
-      #referencia
+    negocio = grupo 'Servicios de negocio' {
+      core_api = service 'core-api' {
+        #referencia
+      }
     }
-    core_notificaciones = service 'core-notificaciones' {
-      #referencia
+    plataforma = grupo 'Servicios de plataforma' {
+      core_notificaciones = service 'core-notificaciones' {
+        #referencia
+      }
     }
-    bus = queue 'RabbitMQ' {
-      #referencia
+    datos = grupo 'Datos y mensajería' {
+      bus = queue 'RabbitMQ' {
+        #referencia
+      }
     }
-    core_api -[async]-> bus 'Trabajo notificaciones.webhook.send'
-    bus -[async]-> core_notificaciones 'Consume'
-    gateway -> core_api 'Feed, autenticación y adjuntos'
+    negocio.core_api -[async]-> datos.bus 'Trabajo notificaciones.webhook.send'
+    datos.bus -[async]-> plataforma.core_notificaciones 'Consume'
+    gateway -> negocio.core_api 'Feed, autenticación y adjuntos'
   }
 
-  runt = external 'RUNT'
-  simit = external 'SIMIT (FCM)'
-  verifik = external 'Verifik'
-  kyverum = external 'Kyverum'
-  fasecolda = external 'Fasecolda'
-  mercadolibre = external 'MercadoLibre'
-  siigo = external 'Siigo → DIAN'
-  rndc = external 'RNDC'
-  uiaf = external 'UIAF (SIREL)'
-  listas_restrictivas = external 'Listas restrictivas' {
-    description 'Listas públicas de sanciones que usa el módulo LAFT'
+  fuentes = grupo 'Fuentes de datos' {
+    description 'RUNT, SIMIT y proveedores de consulta'
+    runt = external 'RUNT'
+    simit = external 'SIMIT (FCM)'
+    verifik = external 'Verifik'
+    kyverum = external 'Kyverum'
+    fasecolda = external 'Fasecolda'
+    mercadolibre = external 'MercadoLibre'
   }
-  supertransporte = external 'Supertransporte (PESV)'
-  google_drive = external 'Google Drive'
-  whatsapp = external 'WhatsApp (Meta)'
-  zapsign = external 'ZapSign'
-  llm = external 'Anthropic' {
-    #ia
-    description 'OCR, análisis de documentos y Dr. FLIT'
+  entidades = grupo 'Entidades y reportes' {
+    description 'Facturación y reportes regulatorios'
+    siigo = external 'Siigo → DIAN'
+    rndc = external 'RNDC'
+    uiaf = external 'UIAF (SIREL)'
+    listas_restrictivas = external 'Listas restrictivas' {
+      description 'Listas públicas de sanciones que usa el módulo LAFT'
+    }
+    supertransporte = external 'Supertransporte (PESV)'
   }
-  ado = external 'Azure DevOps'
-  correo = external 'Proveedor SMTP'
+  terceros = grupo 'Servicios de terceros' {
+    description 'IA, correo, firma y mensajería'
+    google_drive = external 'Google Drive'
+    whatsapp = external 'WhatsApp (Meta)'
+    zapsign = external 'ZapSign'
+    llm = external 'Anthropic' {
+      #ia
+      description 'OCR, análisis de documentos y Dr. FLIT'
+    }
+    ado = external 'Azure DevOps'
+    correo = external 'Proveedor SMTP'
+  }
 }
