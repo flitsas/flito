@@ -1701,14 +1701,16 @@ export async function cambiarProveedor(id: string, proveedorSoatId: string, moti
     throw new SoatError(400, 'RN-05: para cambiar el proveedor de un SOAT en adquisición, primero hay que reversarlo a Pendiente con justificación.');
   }
   if (!motivo?.trim()) throw new SoatError(400, 'El motivo del cambio de proveedor es obligatorio');
-  const [prov] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat).where(eq(flitoProveedoresSoat.id, proveedorSoatId)).limit(1);
-  if (!prov) throw new SoatError(404, 'El proveedor no existe');
 
   const anterior = soat.proveedorSoatId;
-  const [updated] = await db.update(flitoSoat)
-    .set({ proveedorSoatId, proveedorSobrescrito: true, updatedAt: new Date() })
-    .where(eq(flitoSoat.id, id)).returning();
-  return { soat: updated, anterior };
+  return db.transaction(async (tx) => {
+    // RN-PROV-5: inactivo, eliminado o sin servicio SOAT → 409. El FOR SHARE va antes de tocar `flito_soat` (ADR-0039).
+    await exigirProveedorSoatUsable(tx, proveedorSoatId);
+    const [updated] = await tx.update(flitoSoat)
+      .set({ proveedorSoatId, proveedorSobrescrito: true, updatedAt: new Date() })
+      .where(eq(flitoSoat.id, id)).returning();
+    return { soat: updated, anterior };
+  });
 }
 
 // ─────────────────── Traspaso de gestión: Operaciones ↔ proveedor (HU #11153) ─
@@ -1794,12 +1796,10 @@ export async function devolverAlGestor(id: string, proveedorSoatId: string, moti
   if (!soat.gestionOperaciones) throw new SoatError(400, 'Este SOAT no lo gestiona Operaciones: no hay nada que devolver');
   if (!ESTADOS_TRASPASO_GESTION.includes(soat.estado as EstadoSoat)) throw noAdmiteTraspaso(soat.estado as EstadoSoat);
 
-  const [prov] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat)
-    .where(eq(flitoProveedoresSoat.id, proveedorSoatId)).limit(1);
-  if (!prov) throw new SoatError(404, 'El proveedor no existe');
-
   const ahora = new Date();
   return db.transaction(async (tx) => {
+    // RN-PROV-5: inactivo, eliminado o sin servicio SOAT → 409. El FOR SHARE va antes de tocar `flito_soat` (ADR-0039).
+    await exigirProveedorSoatUsable(tx, proveedorSoatId);
     const [updated] = await tx.update(flitoSoat).set({
       gestionOperaciones: false,
       gestionOperacionesMotivo: null,

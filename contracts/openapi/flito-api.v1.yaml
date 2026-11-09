@@ -51672,6 +51672,17 @@ paths:
                   - error
                   - funcion
                   - motivo
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
         "429":
           description: Límite de peticiones superado.
           headers:
@@ -51874,6 +51885,17 @@ paths:
                   - error
                   - funcion
                   - motivo
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
         "429":
           description: Límite de peticiones superado.
           headers:
@@ -111029,6 +111051,10 @@ paths:
                         required:
                           - codigo
                           - efecto
+                    proveedorNombre:
+                      type:
+                        - string
+                        - "null"
                     username:
                       type: string
                     role:
@@ -111067,6 +111093,10 @@ paths:
                       type:
                         - number
                         - "null"
+                    flitoProveedorId:
+                      type:
+                        - string
+                        - "null"
                     companiaId:
                       type:
                         - number
@@ -111074,6 +111104,7 @@ paths:
                   required:
                     - organismosCodigos
                     - funciones
+                    - proveedorNombre
                     - username
                     - role
                     - name
@@ -111086,6 +111117,7 @@ paths:
                     - flitoProveedorSoatId
                     - deletedAt
                     - deletedBy
+                    - flitoProveedorId
                     - companiaId
         "400":
           description: Petición inválida.
@@ -111218,6 +111250,10 @@ paths:
                   type:
                     - number
                     - "null"
+                flitoProveedorId:
+                  type:
+                    - string
+                    - "null"
                 flitoProveedorSoatId:
                   type:
                     - string
@@ -111240,7 +111276,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-5fc66c284b"
+                "$ref": "#/components/schemas/Forma-d7c52f9804"
         "400":
           description: Petición inválida.
           content:
@@ -111286,6 +111322,10 @@ paths:
                                 items:
                                   type: string
                               companiaId:
+                                type: array
+                                items:
+                                  type: string
+                              flitoProveedorId:
                                 type: array
                                 items:
                                   type: string
@@ -111415,7 +111455,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-5fc66c284b"
+                "$ref": "#/components/schemas/Forma-d7c52f9804"
         "400":
           description: Petición inválida.
           content:
@@ -111559,6 +111599,10 @@ paths:
                   type:
                     - number
                     - "null"
+                flitoProveedorId:
+                  type:
+                    - string
+                    - "null"
                 flitoProveedorSoatId:
                   type:
                     - string
@@ -111577,7 +111621,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-5fc66c284b"
+                "$ref": "#/components/schemas/Forma-d7c52f9804"
         "400":
           description: Petición inválida.
           content:
@@ -111621,6 +111665,10 @@ paths:
                                 items:
                                   type: string
                               companiaId:
+                                type: array
+                                items:
+                                  type: string
+                              flitoProveedorId:
                                 type: array
                                 items:
                                   type: string
@@ -112263,7 +112311,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-5fc66c284b"
+                "$ref": "#/components/schemas/Forma-d7c52f9804"
         "400":
           description: Petición inválida.
           content:
@@ -112371,7 +112419,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-5fc66c284b"
+                "$ref": "#/components/schemas/Forma-d7c52f9804"
         "400":
           description: Petición inválida.
           content:
@@ -120192,87 +120240,6 @@ components:
         - evidenciaKeys
         - createdAt
         - updatedAt
-    Forma-5fc66c284b:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        id:
-          type: number
-        username:
-          type: string
-        name:
-          type: string
-        email:
-          type:
-            - string
-            - "null"
-        role:
-          type: string
-        active:
-          type: boolean
-        allowedPages:
-          type: array
-          items:
-            type: string
-        transitoCodigo:
-          type:
-            - string
-            - "null"
-        companiaId:
-          type:
-            - number
-            - "null"
-        flitoProveedorSoatId:
-          type:
-            - string
-            - "null"
-        createdAt:
-          type: string
-          format: date-time
-        deletedAt:
-          type:
-            - string
-            - "null"
-          format: date-time
-        deletedBy:
-          type:
-            - number
-            - "null"
-        organismosCodigos:
-          type: array
-          items:
-            type: string
-        funciones:
-          type: array
-          items:
-            type: object
-            properties:
-              codigo:
-                type: string
-              efecto:
-                type: string
-                enum:
-                  - conceder
-                  - revocar
-            required:
-              - codigo
-              - efecto
-      required:
-        - id
-        - username
-        - name
-        - email
-        - role
-        - active
-        - allowedPages
-        - transitoCodigo
-        - companiaId
-        - flitoProveedorSoatId
-        - createdAt
-        - deletedAt
-        - deletedBy
-        - organismosCodigos
-        - funciones
     Forma-60412a5d0f:
       description: Forma que comparten varias operaciones.
       type: object
@@ -125510,6 +125477,92 @@ components:
         - nombre
         - activo
         - orden
+    Forma-d7c52f9804:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: number
+        username:
+          type: string
+        name:
+          type: string
+        email:
+          type:
+            - string
+            - "null"
+        role:
+          type: string
+        active:
+          type: boolean
+        allowedPages:
+          type: array
+          items:
+            type: string
+        transitoCodigo:
+          type:
+            - string
+            - "null"
+        companiaId:
+          type:
+            - number
+            - "null"
+        flitoProveedorSoatId:
+          type:
+            - string
+            - "null"
+        flitoProveedorId:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        deletedBy:
+          type:
+            - number
+            - "null"
+        organismosCodigos:
+          type: array
+          items:
+            type: string
+        funciones:
+          type: array
+          items:
+            type: object
+            properties:
+              codigo:
+                type: string
+              efecto:
+                type: string
+                enum:
+                  - conceder
+                  - revocar
+            required:
+              - codigo
+              - efecto
+      required:
+        - id
+        - username
+        - name
+        - email
+        - role
+        - active
+        - allowedPages
+        - transitoCodigo
+        - companiaId
+        - flitoProveedorSoatId
+        - flitoProveedorId
+        - createdAt
+        - deletedAt
+        - deletedBy
+        - organismosCodigos
+        - funciones
     Forma-d89e19b589:
       description: Forma que comparten varias operaciones.
       type: object

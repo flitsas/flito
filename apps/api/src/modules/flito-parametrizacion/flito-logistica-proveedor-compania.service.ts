@@ -13,7 +13,7 @@
 //   · Las compañías con la logística encendida al migrar quedan SIN proveedor (no hay proveedor por defecto).
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { clients, flitoProveedoresLogistica } from '../../db/schema.js';
+import { clients, flitoProveedores, flitoProveedoresLogistica } from '../../db/schema.js';
 import { clienteVigente } from '../clients/cliente-operable.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -61,12 +61,19 @@ export function exigirProveedorSiEncendida(logisticaAutogestionable: boolean, pr
   if (!logisticaAutogestionable && proveedorId == null) throw new ProveedorLogisticaRequeridoError();
 }
 
-/** RN-PLOGC-2. Con la transacción que escribe: el `FOR SHARE` dura hasta su commit. */
+/**
+ * RN-PLOGC-2, R11. Con la transacción que escribe: el `FOR SHARE` dura hasta su commit. Primero el padre y luego el perfil, igual que
+ * `exigirProveedorSoatUsable`, el orden de quien inactiva o retira el servicio. Va después del de SOAT cuando la petición asigna ambos.
+ */
 export async function exigirProveedorLogisticaUsable(tx: Tx, id: string): Promise<void> {
-  const [p] = await tx.select({ nombre: flitoProveedoresLogistica.nombre, activo: flitoProveedoresLogistica.activo })
+  const [padre] = await tx.select({ nombre: flitoProveedores.nombre, activo: flitoProveedores.activo })
+    .from(flitoProveedores).where(and(eq(flitoProveedores.id, id), isNull(flitoProveedores.deletedAt))).for('share').limit(1);
+  const NO_EXISTE = 'El proveedor de logística seleccionado no existe.';
+  if (!padre) throw new ProveedorLogisticaNoUsableError(NO_EXISTE, 'no_existe');
+  const [perfil] = await tx.select({ id: flitoProveedoresLogistica.id })
     .from(flitoProveedoresLogistica).where(and(eq(flitoProveedoresLogistica.id, id), isNull(flitoProveedoresLogistica.deletedAt))).for('share').limit(1);
-  if (!p) throw new ProveedorLogisticaNoUsableError('El proveedor de logística seleccionado no existe.', 'no_existe');
-  if (!p.activo) throw new ProveedorLogisticaNoUsableError(`El proveedor de logística ${p.nombre} está inactivo: elige otro.`, 'inactivo');
+  if (!perfil) throw new ProveedorLogisticaNoUsableError(NO_EXISTE, 'no_existe');
+  if (!padre.activo) throw new ProveedorLogisticaNoUsableError(`El proveedor de logística ${padre.nombre} está inactivo: elige otro.`, 'inactivo');
 }
 
 /** RN-PLOGC-3. Nombres de las compañías VIGENTES que tienen a este proveedor asignado (vacío = se puede inactivar). */

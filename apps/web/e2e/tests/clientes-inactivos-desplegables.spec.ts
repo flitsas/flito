@@ -49,7 +49,7 @@ const CUADRO = new Set(codigosDe(ARBOL));
 async function mockUsuarios(page: Page, filas: Fila[]) {
   const patches: Fila[] = [];
   await page.route(/\/api\/flito\/parametrizacion\/companias$/, (r) => r.fulfill(json(COMPANIAS)));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (r) => r.fulfill(json([])));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat$/, (r) => r.fulfill(json([])));
   await page.route(/\/api\/flito\/parametrizacion\/organismos$/, (r) => r.fulfill(json([])));
   await page.route(/\/api\/permisos\/roles$/, (r) => r.fulfill(json({ roles: ROLES })));
   await page.route(/\/api\/permisos\/funciones$/, (r) => r.fulfill(json({ grupos: [] })));

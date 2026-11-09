@@ -46,8 +46,8 @@ async function montar(page: Page, ruta: string, o: Opc = {}) {
     patchesCompania.push(r.request().postDataJSON() as Record<string, unknown>);
     return json(r, 200, { id: 1 });
   });
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (r) => json(r, 200, PROV_SOAT));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-logistica$/, (r) => {
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat$/, (r) => json(r, 200, PROV_SOAT));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=logistica$/, (r) => {
     if (o.logistica === 'error') return json(r, 500, { error: 'caído' });
     return json(r, 200, o.logistica === 'vacio' ? [] : PROV_LOG);
   });

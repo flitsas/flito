@@ -34,6 +34,7 @@ import {
   CONCILIACION_BOLETAS_DEMO,
   CONCILIACION_DETALLE_DEMO,
   interceptarApiDemo,
+  type ManejadorDemo,
   LOGISTICA_ACTAS_DEMO,
   LOGISTICA_DETALLE_DEMO,
   LOGISTICA_FACETAS_DEMO,
@@ -129,6 +130,15 @@ const NOMBRE_CAPTURA = /^\d{2}-[a-z0-9-]+\.png$/;
 
 // Rutas que fija `loginAs` (sesión sintética). Se registran después del interceptor y le ganan.
 const RUTAS_DE_SESION = /^GET \/api\/(auth\/me|auth\/perfil|permisos\/mios)$/;
+
+/**
+ * `interceptarApiDemo` compara contra el pathname, sin query: un `?servicio=` en la regex nunca casa y la pantalla
+ * recibiría `[]`. El servicio se lee en el manejador; Logística no tiene proveedores en estas capturas.
+ */
+const SELECTOR_PROVEEDORES_DEMO: [RegExp, ManejadorDemo] = [
+  /\/api\/flito\/parametrizacion\/proveedores\/selector$/,
+  (route) => ({ body: new URL(route.request().url()).searchParams.get('servicio') === 'soat' ? PROVEEDORES_SOAT_DEMO : [] }),
+];
 
 function prepararCarpeta(clave: string): string {
   const dir = resolve(DIR_PUBLICO, clave);
@@ -566,7 +576,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
         return { body: { rol: { codigo, nombre: rol?.nombre ?? codigo, tipoEnlace: 'ninguno' }, arbol: arbolRol(ARBOL_DEMO, new Set(MARCAS_GESTOR)) } };
       }],
       [/\/api\/flito\/parametrizacion\/companias$/, () => ({ body: COMPANIAS_DEMO })],
-      [/\/api\/flito\/parametrizacion\/proveedores-soat$/, () => ({ body: [] })],
+      [/\/api\/flito\/parametrizacion\/proveedores\/asignables-usuario$/, () => ({ body: [] })],
       [/\/api\/flito\/parametrizacion\/organismos$/, () => ({ body: [] })],
     ]);
     await entrarComoAdminDemo(page);
@@ -590,7 +600,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
 
     // Paso 6 — Historial: quién cambió qué y cuándo.
     await page.getByRole('tab', { name: 'Historial' }).click();
-    await expect(page.getByText(USUARIOS_TITULARES_DEMO[0].username).first()).toBeVisible();
+    await expect(page.getByText(USUARIOS_TITULARES_DEMO[0].username).locator('visible=true').first()).toBeVisible();
     await sinFoco(page);
     await capturar(page, dir, '03-historial');
 
@@ -1230,8 +1240,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
           ? { ...c, proveedorLogisticaId: null, proveedorLogisticaNombre: null }
           : { ...c, proveedorLogisticaId: '11111111-aaaa-4aaa-8aaa-111111111111', proveedorLogisticaNombre: 'Logística Demo' })),
       })],
-      [/\/api\/flito\/parametrizacion\/proveedores-soat$/, () => ({ body: PROVEEDORES_SOAT_DEMO })],
-      [/\/api\/flito\/parametrizacion\/proveedores-logistica$/, () => ({ body: [] })],
+      SELECTOR_PROVEEDORES_DEMO,
       // HU #14337: la pestaña Proveedores lee el listado de gestión (`ProveedorListaItemDto`).
       [/\/api\/flito\/parametrizacion\/proveedores$/, () => ({
         body: (PROVEEDORES_SOAT_DEMO as any[]).map((p, i) => ({
@@ -1321,7 +1330,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       [/\/api\/flito\/tramites$/, () => ({ body: TRAMITES_DEMO })],
       [/\/api\/flito\/tramites\/facetas$/, () => ({ body: TRAMITES_FACETAS_DEMO })],
       [/\/api\/flito\/parametrizacion\/companias$/, () => ({ body: COMPANIAS_DEMO })],
-      [/\/api\/flito\/parametrizacion\/proveedores-soat$/, () => ({ body: PROVEEDORES_SOAT_DEMO })],
+      SELECTOR_PROVEEDORES_DEMO,
       [/\/api\/flito\/sync\/interruptores$/, () => ({ body: SYNC_DEMO.interruptores })],
       [/\/api\/flito\/sync\/estado$/, () => ({ body: SYNC_DEMO.estado1 })],
       [/\/api\/flito\/sync\/flit2\/estado$/, () => ({ body: SYNC_DEMO.estado2 })],
@@ -1374,7 +1383,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
         const items = estados.includes('incompleta') ? [SOAT_POR_VALIDAR_DEMO] : [];
         return { body: { items, total: items.length, conteos: { incompleta: 1, descartada: 0 } } };
       }],
-      [/\/api\/flito\/parametrizacion\/proveedores-soat$/, () => ({ body: PROVEEDORES_SOAT_DEMO })],
+      SELECTOR_PROVEEDORES_DEMO,
       [/\/api\/flito\/soat\/soat-demo-2\/documentos-adicionales$/, () => ({ body: SOAT_DOCUMENTOS_ADICIONALES_DEMO })],
     ]);
     await entrarComoAdminDemo(page);

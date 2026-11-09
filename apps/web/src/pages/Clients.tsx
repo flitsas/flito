@@ -53,11 +53,8 @@ import { DialogoEstadoRegistro, type ImpactoEstado } from '../components/cliente
 import { useEliminarCliente } from '../components/clientes/useEliminarCliente';
 // Pestaña Proveedores con estado, filtro y ⋮ (HU #13961), en su propio archivo por el techo de 800.
 import TabProveedores from '../components/clientes/TabProveedores';
-// El catálogo de gestores de SOAT y su selector con los cuatro estados (HU #12053). Se REUTILIZA y
-// no se copia: `ProveedorSoatField` ya resuelve el caso que aquí también hace falta —reinyectar el
-// gestor asignado aunque esté desactivado, para que guardar otra cosa no se lo quite a la compañía
-// por la espalda— y su copy vive junto al de Usuarios.
-import { useProveedoresSoat } from './users/AtaduraFields';
+// HU #14342: solo los proveedores activos que prestan SOAT. El asignado inactivo lo conserva `ModalCliente`.
+import { useProveedoresSelector } from '../components/clientes/proveedoresDatos';
 
 type Tab = 'clientes' | 'proveedores';
 type CambioEstado = { c: Client; accion: 'desactivar' | 'activar' };
@@ -153,7 +150,7 @@ function TabClientes({ editaAutogestion, editaSinTramite, puedeCrearProveedor, v
    * haya cambiado. Y no para todos: la ruta es `admin`+`auditor`, así que `financiera` —que ve esta
    * pantalla— recibiría un 403 por un catálogo que ni siquiera se le ofrece.
    */
-  const proveedores = useProveedoresSoat(editaSinTramite);
+  const proveedores = useProveedoresSelector('soat', editaSinTramite);
 
   const load = () => {
     setClients(null); setErrorCarga(false);

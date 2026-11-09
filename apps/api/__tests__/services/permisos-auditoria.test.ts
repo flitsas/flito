@@ -173,7 +173,7 @@ describe('la lista blanca de shared-types es EXACTAMENTE la del ADR-0014 (RN-A10
   it('CAMPOS_AUDITABLES, ENTIDADES y ACCIONES: fijadas; ningún dato personal del titular es un campo', () => {
     expect(CAMPOS_AUDITABLES).toEqual({
       usuario: ['role', 'active', 'deleted_at', 'password', 'funciones', 'allowed_pages',
-        'organismos_codigos', 'compania_id', 'flito_proveedor_soat_id', 'transito_codigo'],
+        'organismos_codigos', 'compania_id', 'flito_proveedor_soat_id', 'flito_proveedor_id', 'transito_codigo'],
       rol: ['nombre', 'descripcion', 'tipo_enlace', 'tipo_principal', 'activo'],
       rol_funcion: ['conjunto'],
       usuario_funcion: ['conjunto'],

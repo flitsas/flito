@@ -47,7 +47,7 @@ const filaCompania = (over: Record<string, unknown> = {}) => ({
 function escenario(previa: { logisticaAutogestionable: boolean; proveedorLogisticaId: string | null },
   proveedores: { id: string; nombre: string; activo: boolean }[] = [{ id: PROV, nombre: 'Andina', activo: true }],
   devuelve: Record<string, unknown> = filaCompania()) {
-  kdb.when.scenario({ clients: [{ id: COMPANIA, proveedorSinTramiteId: null, ...previa }], flito_proveedores_logistica: proveedores });
+  kdb.when.scenario({ clients: [{ id: COMPANIA, proveedorSinTramiteId: null, ...previa }], flito_proveedores: proveedores, flito_proveedores_logistica: proveedores });
   kdb.when.update('clients', [devuelve]);
 }
 const patch = async (cuerpo: Record<string, unknown>) =>

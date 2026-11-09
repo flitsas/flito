@@ -25,7 +25,7 @@ const PROV_LOG = [{ id: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', nombre: 'Logíst
 async function mock(page: import('@playwright/test').Page, clientes = CLIENTES) {
   await page.route(/\/api\/clients(\?|$)/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(clientes) }));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-logistica$/, (route) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=logistica$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROV_LOG) }));
 }
 
@@ -247,7 +247,7 @@ async function mockModulo(page: import('@playwright/test').Page) {
       id: '00000000-0000-4000-8000-000000000001', nombre: 'Seguros Alfa', nit: null, servicios: ['soat'], activo: true,
       companiasPorServicio: { soat: 0 }, datosCompletos: false, umbralOcr: 0.8, slaHoras: 24, version: 1,
     }]) }));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROVEEDORES) }));
 }
 

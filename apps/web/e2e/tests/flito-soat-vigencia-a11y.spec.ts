@@ -54,7 +54,7 @@ const FILAS = [
 ];
 
 async function montarCola(page: Page) {
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (route) =>
     json(route, [{ id: 'p1', nombre: 'Seguros Alfa', activo: true }]));
   await page.route(/\/api\/flito\/soat\/facetas/, (route) =>
     json(route, { companias: [{ id: 2, nombre: 'Concesionario Sur' }], organismos: [], proveedores: [{ id: 'p1', nombre: 'Seguros Alfa' }] }));

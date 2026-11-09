@@ -120,7 +120,7 @@ const json = (route: Route, body: unknown) => route.fulfill({
 
 async function montarSoat(page: Page, items: unknown[] = SOAT) {
   await page.route(/\/api\/flito\/soat\/facetas/, (r) => json(r, { companias: [], organismos: [], proveedores: [] }));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (r) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (r) =>
     json(r, [{ id: 'p1', nombre: 'Seguros Alfa', activo: true }]));
   await page.route(/\/api\/flito\/soat\?/, (r) => json(r, { items, total: items.length, page: 1, pageSize: 50 }));
 }
@@ -132,7 +132,7 @@ async function montarImpuestos(page: Page) {
 }
 
 async function montarTramites(page: Page, items: unknown[] = TRAMITES) {
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (r) => json(r, []));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (r) => json(r, []));
   await page.route(/\/api\/flito\/parametrizacion\/companias/, (r) => json(r, []));
   await page.route(/\/api\/flito\/sync\/estado/, (r) => json(r, { ultimaSincronizacion: '2026-08-30T10:00:00Z' }));
   await page.route(/\/api\/flito\/tramites\/facetas/, (r) =>

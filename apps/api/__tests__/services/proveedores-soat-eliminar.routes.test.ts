@@ -86,7 +86,7 @@ describe('RN-PROV-6 — condiciones en orden (`motivoNoEliminableProveedor`)', (
 });
 
 describe('AC7 — activar a un usuario huérfano (su proveedor SOAT fue eliminado) → 409', () => {
-  const MSG = 'El proveedor SOAT de este usuario fue eliminado; asígnale otro antes de activarlo.';
+  const MSG = 'El proveedor de este usuario fue eliminado; asígnale otro antes de activarlo.';
 
   it('PATCH /api/users/:id/toggle → 409 con el texto, sin invalidar ni auditar', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 30, active: false, deletedAt: null, role: 'gestor_soat' }]));
