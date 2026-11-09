@@ -37,7 +37,9 @@ const TIMEOUT_MS = 30_000;
 /** HU #13268: el envío sube hasta 20 MB; más holgura que la lectura. */
 const TIMEOUT_ENVIO_MS = 60_000;
 /** Ancho de las columnas de `vehicles` que no cubre `MAX_DATOS_VEHICULO`. */
-const MAX_VEHICULO = { vin: 17, placa: 10, marca: 50, linea: 50 } as const;
+const MAX_VEHICULO = { vin: 17, placa: 10, marca: 50, linea: 50, clase: 50, capacidad: 10 } as const;
+/** Bug #14491: año-modelo admitido para `vehicles.year`; fuera de rango → null. */
+const RANGO_MODELO_ANO = { min: 1900, max: 2100 } as const;
 
 const texto = z.string().nullish();
 const compradorSchema = z.object({
@@ -74,6 +76,11 @@ const itemSchema = z.object({
     numeroMotor: texto,
     numeroSerie: texto,
     tipoServicio: z.object({ codigo: texto, nombre: texto }).passthrough().nullish(),
+    // Bug #14491: `unknown` y no tipados a propósito — antes no se validaban, y un tipo inesperado en
+    // uno de estos tres volvería inválido un ítem que hoy se acepta. Se normalizan en `aVehiculo`.
+    clase: z.unknown().optional(),
+    modeloAno: z.unknown().optional(),
+    capacidad: z.unknown().optional(),
   }).passthrough().nullish(),
   organismo: z.object({ codigoSecretaria: texto, ciudad: texto, nombre: texto }).passthrough().nullish(),
   compradores: z.array(compradorSchema).nullish(),
@@ -105,6 +112,19 @@ function acotado(v: string | null | undefined, max: number, idFlit2: string, cam
   return null;
 }
 
+/** Entero del contrato (`2026` o `"2026"`); cualquier otra cosa → null. */
+function entero(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isSafeInteger(v) ? v : null;
+  if (typeof v === 'string' && /^\d{1,9}$/.test(v.trim())) return Number(v.trim());
+  return null;
+}
+
+/** Bug #14491: `vehiculo.modeloAno` → `vehicles.year`; no entero o fuera de rango → null. */
+export function modeloAnoFlit2(v: unknown): number | null {
+  const n = entero(v);
+  return n !== null && n >= RANGO_MODELO_ANO.min && n <= RANGO_MODELO_ANO.max ? n : null;
+}
+
 function aVehiculo(v: z.infer<typeof itemSchema>['vehiculo'], idFlit2: string): VehiculoFlit2 | null {
   const vin = acotado(v?.vin, MAX_VEHICULO.vin, idFlit2, 'vin');
   if (!v || !vin) return null;
@@ -122,7 +142,16 @@ function aVehiculo(v: z.infer<typeof itemSchema>['vehiculo'], idFlit2: string): 
     tipoServicio: acotado(v.tipoServicio?.nombre, MAX_DATOS_VEHICULO.tipoServicio, idFlit2, 'tipoServicio'),
     numMotor: ms.numMotor ?? null,
     numSerie: ms.numSerie ?? null,
+    clase: typeof v.clase === 'string' ? acotado(v.clase, MAX_VEHICULO.clase, idFlit2, 'clase') : null,
+    modeloAno: modeloAnoFlit2(v.modeloAno),
+    capacidad: capacidadFlit2(v.capacidad, idFlit2),
   };
+}
+
+/** Bug #14491: `vehiculo.capacidad` (entero ≥ 0) → texto de `vehicles.pasajeros_sentados`; si no, null. */
+function capacidadFlit2(v: unknown, idFlit2: string): string | null {
+  const n = entero(v);
+  return n === null || n < 0 ? null : acotado(String(n), MAX_VEHICULO.capacidad, idFlit2, 'capacidad');
 }
 
 function aComprador(c: z.infer<typeof compradorSchema>, i: number): CompradorFlit2 {

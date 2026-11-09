@@ -15,6 +15,12 @@ export interface VehiculoFlit2 {
   tipoServicio: string | null;
   numMotor: string | null;
   numSerie: string | null;
+  /** Bug #14491: `vehicles.vehicle_class` (≤ 50). */
+  clase: string | null;
+  /** Bug #14491: `vehicles.year`, entero en rango o null. */
+  modeloAno: number | null;
+  /** Bug #14491: `vehicles.pasajeros_sentados`, el entero de FLIT 2 como texto. */
+  capacidad: string | null;
 }
 
 /** Comprador tal como lo entrega FLIT 2. PII: solo en memoria; lo consume la #13093. */

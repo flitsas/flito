@@ -25,8 +25,8 @@ import { flitoTramites } from '../../src/db/schema.js';
 import { renderizar } from '../helpers/sql-ligado.js';
 import {
   bloqueTitular, bloqueTitularDesdeComprador, celdaDesdeJson, ciudadDeOrganismo,
-  clasificacionDeTipoFlit, claveTitular, CLASE_ID, CLASE_INTERLOCUTOR, CLAVES_FLIT_RAW,
-  expresionesFlitRaw, titularDeClave, TITULAR_VACIO,
+  clasificacionDeTipoFlit, claveTitular, CLASE_ID, CLASE_INTERLOCUTOR, CLAVES_FLIT_RAW, CLAVES_FLIT2_VEHICULO,
+  expresionesFlitRaw, RESPALDO_FLIT2, bloqueTitularFlit2, expresionTiposDocumentoFlit2, titularDeClave, TITULAR_VACIO,
 } from '../../src/shared/export/cola-flito-derivados.js';
 
 // ─────────────────────────── Las nueve expresiones `->>` ─────────────────────────────────────────
@@ -44,8 +44,17 @@ describe('las claves de `flit_raw`: qué clave alimenta qué campo', () => {
     // DOS parámetros y no uno: la clave se liga dos veces —una en el `jsonb_typeof(… -> clave)` que
     // descarta lo no escalar y otra en el `->>` que extrae—. Que sean IGUALES es parte del contrato:
     // comprobar la forma de una clave y extraer otra sería un descarte que no descarta nada.
-    expect(q.params, `${campo} tiene que ligar su clave como parámetro`).toHaveLength(2);
+    //
+    // Bug #14491: los cinco del vehículo y `departamento` ligan SEIS — la plana (2) y, de respaldo,
+    // la anidada de FLIT 2 (objeto, clave, objeto, clave). La igualdad comprobar = extraer vale para las dos.
+    const respaldo = RESPALDO_FLIT2[campo];
+    expect(q.params, `${campo} tiene que ligar su clave como parámetro`).toHaveLength(respaldo ? 6 : 2);
     expect(q.params[0], `${campo} comprueba y extrae claves distintas`).toBe(q.params[1]);
+    if (respaldo) {
+      expect(q.params[2], `${campo}: el respaldo de FLIT 2 comprueba otro objeto`).toBe(respaldo[0]);
+      expect(q.params[4], `${campo}: el respaldo de FLIT 2 extrae de otro objeto`).toBe(respaldo[0]);
+      expect(q.params[3], `${campo}: el respaldo de FLIT 2 comprueba y extrae claves distintas`).toBe(q.params[5]);
+    }
     return q.params[0];
   };
 
@@ -77,6 +86,37 @@ describe('las claves de `flit_raw`: qué clave alimenta qué campo', () => {
     const todas = Object.keys(exprs).map((c) => claveDe(c as keyof typeof exprs));
     expect(todas).not.toContain('codigoSecretaria');
     expect(todas).toHaveLength(9);
+  });
+
+  it('Bug #14491: los cinco del vehículo caen a la clave ANIDADA de FLIT 2 (`vehiculo.*`) con `coalesce`', () => {
+    // El defecto: en FLIT 2 el crudo trae `vehiculo.{marca, linea, modeloAno, clase, capacidad}` y no
+    // las claves planas de FLIT 1, así que las cinco celdas salían vacías. La clave anidada que queda
+    // ligada es la tercera/cuarta del SQL. Y `linea` es `linea` en FLIT 2 (no el `modelo` de FLIT 1).
+    const anidadaDe = (campo: keyof typeof CLAVES_FLIT2_VEHICULO | 'departamento'): unknown => {
+      const q = renderizar(exprs[campo]);
+      expect(q.sql, `${campo}: la plana tiene que ir primero en un coalesce`).toMatch(/^coalesce\(case jsonb_typeof/);
+      expect(q.sql).toContain('jsonb_typeof("flito_tramites"."flit_raw" -> $3 -> $4)');
+      expect(q.sql).toContain('"flito_tramites"."flit_raw" -> $5 ->> $6');
+      return q.params[3];
+    };
+    expect(anidadaDe('marca')).toBe('marca');
+    expect(anidadaDe('linea')).toBe('linea');
+    expect(anidadaDe('modelo')).toBe('modeloAno');
+    expect(anidadaDe('clase')).toBe('clase');
+    expect(anidadaDe('capacidad')).toBe('capacidad');
+    // Y el departamento del ORGANISMO de tránsito: `organismo.departamento`, no el domicilio.
+    expect(anidadaDe('departamento')).toBe('departamento');
+    expect(renderizar(exprs.departamento).params[2]).toBe('organismo');
+    expect(claveDe('departamento')).toBe('departamentoTransito');
+    // Y la plana de FLIT 1 sigue siendo la primera: su salida no cambia (regresión).
+    expect(claveDe('linea')).toBe('modelo');
+    expect(claveDe('modelo')).toBe('modeloAno');
+  });
+
+  it('Bug #14491: `nombres`, `apellidos` y `tipo` NO ganan respaldo anidado (el crudo de FLIT 2 no trae el nombre)', () => {
+    for (const campo of ['nombres', 'apellidos', 'tipo'] as const) {
+      expect(renderizar(exprs[campo]).sql, campo).not.toContain('coalesce');
+    }
   });
 
   it('**`tipo` es una clave del payload, no la columna `flito_compradores.tipo_documento`**', () => {
@@ -600,5 +640,46 @@ describe('`bloqueTitularDesdeComprador` — la clase la afirma `tipo_documento`'
     expect(bloqueTitularDesdeComprador(titular({ tipoDocumento: 'n' }))).toEqual(TITULAR_VACIO);
     expect(bloqueTitular({ tipo: 'CC', nombres: 'JUANA', apellidos: 'PEREZ' }).claseId).toBe(CLASE_ID.cedula);
     expect(bloqueTitular({ tipo: 'NIT', nombres: 'X', apellidos: null })).toEqual(TITULAR_VACIO);
+  });
+});
+
+// ─────────────────────────── Bug #14491: el titular de un trámite de FLIT 2 ──────────────────────
+
+describe('Bug #14491 · bloqueTitularFlit2 — tipoDocumento del crudo + comprador de `flito_compradores`', () => {
+  const comprador = (over: Partial<Parameters<typeof bloqueTitularFlit2>[1] & object> = {}) => ({
+    orden: 0, nombreCompletoFlit2: 'EMPRESA EJEMPLO SAS', ...over,
+  });
+
+  it('jurídico (`NIT`): PJUR / NIT y la razón social sale de `nombre_completo` (`nombreCompletoFlit2`)', () => {
+    expect(bloqueTitularFlit2(['NIT'], comprador())).toEqual({
+      claseDeInterlocutor: 'PJUR', nombrePila: null, apellidos: null, razonSocial: 'EMPRESA EJEMPLO SAS', claseId: 'NIT',
+    });
+  });
+
+  it('natural (`CC`): PNAT / CC; NombrePila = nombre completo ENTERO y Apellidos vacío (decisión del humano, Bug #14491)', () => {
+    expect(bloqueTitularFlit2(['CC'], comprador({ nombreCompletoFlit2: 'ANA MARIA PEREZ GOMEZ' }))).toEqual({
+      claseDeInterlocutor: 'PNAT', nombrePila: 'ANA MARIA PEREZ GOMEZ', apellidos: null, razonSocial: null, claseId: 'CC',
+    });
+  });
+
+  it('el tipo es el del comprador de ese `orden`, no el primero del arreglo', () => {
+    expect(bloqueTitularFlit2(['NIT', 'CC'], comprador({ orden: 1 })).claseDeInterlocutor).toBe('PNAT');
+  });
+
+  it('sin comprador, sin tipos, tipo desconocido o no cadena: el bloque entero vacío (fallback del canal)', () => {
+    expect(bloqueTitularFlit2(['CC'], undefined)).toEqual(TITULAR_VACIO);
+    expect(bloqueTitularFlit2(null, comprador())).toEqual(TITULAR_VACIO);
+    expect(bloqueTitularFlit2([], comprador())).toEqual(TITULAR_VACIO);
+    expect(bloqueTitularFlit2(['XX'], comprador())).toEqual(TITULAR_VACIO);
+    expect(bloqueTitularFlit2([null], comprador())).toEqual(TITULAR_VACIO);
+  });
+
+  it('la expresión de los tipos solo lee el crudo cuando `fuente = flit2`, y no proyecta los compradores enteros', () => {
+    const q = renderizar(expresionTiposDocumentoFlit2(flitoTramites.flitRaw, flitoTramites.fuente));
+    expect(q.sql).toContain('"flito_tramites"."fuente" = $1');
+    expect(q.params[0]).toBe('flit2');
+    expect(q.params).toContain('tipoDocumento');
+    expect(q.params).not.toContain('numeroDocumento');
+    expect(q.params).not.toContain('nombreCompleto');
   });
 });

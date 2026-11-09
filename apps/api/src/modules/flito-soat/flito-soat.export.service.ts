@@ -31,7 +31,7 @@
 // El registro de acceso (Ley 1581 art. 17) lo pone la RUTA, como el resto de lecturas del módulo: es
 // el borde HTTP quien sabe quién pidió el archivo. Este servicio no toca `req`.
 
-import { and, desc, inArray, type SQL } from 'drizzle-orm';
+import { and, desc, inArray, sql, type SQL } from 'drizzle-orm';
 import type { PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
@@ -44,8 +44,8 @@ import {
 } from '../../shared/export/cola-flito-excel.js';
 import { celdasPagoSoat, COLUMNAS_PAGO_SOAT, fechasComprobantePorSoat } from './flito-soat.export-pago.js';
 import {
-  bloqueTitular, bloqueTitularDesdeComprador, celdaDesdeJson, ciudadDeOrganismo, claveTitular,
-  expresionesFlitRaw, titularDeClave, TITULAR_VACIO, type BloqueTitular,
+  bloqueTitular, bloqueTitularDesdeComprador, bloqueTitularFlit2, celdaDesdeJson, ciudadDeOrganismo, claveTitular,
+  expresionesFlitRaw, expresionTiposDocumentoFlit2, titularDeClave, TITULAR_VACIO, type BloqueTitular,
 } from '../../shared/export/cola-flito-derivados.js';
 import {
   comun, conJoinsCola, condicionesCola, ORIGEN_CLIENTE,
@@ -149,6 +149,11 @@ const COLUMNAS_COMPRADOR = {
   nombres: flitoCompradores.nombres,
   apellidos: flitoCompradores.apellidos,
   razonSocial: flitoCompradores.razonSocial,
+  // Bug #14491 (decisión del humano: FLIT 2 no entrega el nombre partido): el nombre del titular de
+  // FLIT 2 —NombrePila de la natural, RazonSocial de la jurídica—, que solo guarda `nombre_completo`.
+  // SOLO para compradores de un trámite `fuente = 'flit2'`: para FLIT 1 la base devuelve NULL y la
+  // cadena fundida sigue sin entrar al proceso (el aserto de la HU #11934 sobre esta lectura).
+  nombreCompletoFlit2: sql<string | null>`case when exists (select 1 from ${flitoTramites} where ${flitoTramites.id} = ${flitoCompradores.tramiteId} and ${flitoTramites.fuente} = ${'flit2'}) then ${flitoCompradores.nombreCompleto} end`,
   numeroDocumento: flitoCompradores.numeroDocumento,
   correo: flitoCompradores.correo,
   celular: flitoCompradores.celular,
@@ -173,6 +178,7 @@ interface Comprador {
   nombres: string | null;
   apellidos: string | null;
   razonSocial: string | null;
+  nombreCompletoFlit2: string | null;
   numeroDocumento: string;
   correo: string | null;
   celular: string | null;
@@ -279,6 +285,10 @@ interface TramiteDeSoat {
   apellidos: unknown;
   /** HU #11947: lo que decide las CINCO columnas del titular. No se imprime; clasifica. */
   tipo: unknown;
+  /** Bug #14491: `flito_tramites.fuente` (`flit` | `flit2`). */
+  fuente: string;
+  /** Bug #14491: `tipoDocumento` de los compradores del crudo de FLIT 2, por `orden`; NULL en FLIT 1. */
+  tiposDocumentoFlit2: unknown;
 }
 
 /**
@@ -309,6 +319,8 @@ async function tramitesDe(ids: string[]): Promise<TramiteDeSoat[]> {
     // `OrganismoDetto` = el nombre CRUDO que manda FLIT, no el alias configurado en FLITO.
     organismoDetto: flitoTramites.transitoNombreFlit,
     ...RAW,
+    fuente: flitoTramites.fuente,
+    tiposDocumentoFlit2: expresionTiposDocumentoFlit2(flitoTramites.flitRaw, flitoTramites.fuente),
   }).from(flitoTramites).where(inArray(flitoTramites.soatId, ids));
 }
 
@@ -433,6 +445,19 @@ function datosDeTramitePorSoat(tramites: TramiteDeSoat[]): Map<string, DatosDeTr
 }
 
 /**
+ * Bug #14491: el titular de una fila de trámite de FLIT 2. El crudo de FLIT 2 no trae `tipo` ni el
+ * nombre, así que `bloqueTitular` lo deja vacío; aquí se decide con el comprador principal
+ * (`flito_compradores`, ya cargado por `propietariosDe`) y el `tipoDocumento` del crudo sin PII.
+ * Solo cuando el trámite de ese comprador es `fuente = 'flit2'` y el bloque del crudo salió vacío:
+ * una fila de FLIT 1 no cambia.
+ */
+function conTitularFlit2(d: DatosDeTramite, p: Comprador | undefined, tramites: Map<string, TramiteDeSoat>): DatosDeTramite {
+  const t = p?.tramiteId ? tramites.get(p.tramiteId) : undefined;
+  if (!t || t.fuente !== 'flit2' || d.titular.claseDeInterlocutor !== null) return d;
+  return { ...d, titular: bloqueTitularFlit2(t.tiposDocumentoFlit2, p) };
+}
+
+/**
  * Filtro, orden y tope de la lectura principal, iguales para las DOS proyecciones (Bug #12642).
  *
  * Se extrae para que la variante ampliada no pueda ordenar ni acotar distinto: el archivo con
@@ -533,6 +558,7 @@ async function ensamblarFilas(filas: FilaConsulta[]): Promise<FilaColaExport[]> 
     filas.map((f) => ({ id: f.id, origen: f.origen })),
     tramites,
   );
+  const tramitePorId = new Map(tramites.map((t) => [t.id, t]));
 
   return filas.map((f) => {
     const p = propietarios.get(f.id);
@@ -551,7 +577,7 @@ async function ensamblarFilas(filas: FilaConsulta[]): Promise<FilaColaExport[]> 
      */
     const d = f.origen === ORIGEN_CLIENTE
       ? datosDeCanal(f, p)
-      : (datos.get(f.id) ?? SIN_TRAMITE);
+      : conTitularFlit2(datos.get(f.id) ?? SIN_TRAMITE, p, tramitePorId);
     // El orden de las claves es el de `COLUMNAS_COLA_EXPORT` para que las dos listas se lean juntas,
     // pero NO es lo que ordena el archivo: ExcelJS empareja por `key`, y quien mueva una columna allí
     // sin moverla aquí no rompe nada — solo cambia el sitio en que se lee esta.
