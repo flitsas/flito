@@ -103,7 +103,7 @@ describe.skipIf(!URL_BASE)('AC6 — desactivar P y fijarlo como gestor por defec
   async function limpiar(): Promise<void> {
     await sql`DELETE FROM clients WHERE name LIKE 'zz_prueba13959%'`;
     await sql`DELETE FROM flito_proveedores_soat WHERE nombre LIKE 'zz_prueba13959%'`;
-    await sql`DELETE FROM flito_proveedores WHERE nombre LIKE 'zz_prueba13959%'`; // Desde la 0291, el perfil tiene padre.
+    await sql`DELETE FROM flito_proveedores WHERE nombre LIKE 'zz_prueba13959%'`; // Desde la 0292, el perfil tiene padre.
   }
 
   beforeAll(async () => {
