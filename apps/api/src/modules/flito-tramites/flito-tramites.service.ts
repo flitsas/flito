@@ -33,6 +33,7 @@ import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js
 import type { SoatCtx } from '../flito-soat/flito-soat.service.js';
 import type { ImpuestoCtx } from '../flito-impuestos/flito-factura-venta.service.js';
 import { condicionAlcanceTramites } from './flito-tramites.alcance.js';
+import { arrancarTramiteGuardado, COLUMNAS_TRAMITE_GUARDADO } from '../flito-sync/arrancar-tramite-guardado.js';
 
 export interface TramitesCtx { userId: number; username: string; role: string; alcance: AlcanceResuelto }
 
@@ -207,9 +208,11 @@ export interface ResultadoCrearEmpresa { companiaId: number; yaExistia: boolean;
 
 /**
  * Crea la empresa (cliente) de un trámite cuya compañía FLIT no existía aún y la re-vincula: fija
- * `companiaId` en todos los trámites de ese NIT que estaban sin compañía, dejándolos accionables sin
- * esperar a un nuevo sync. El cambio queda en el historial con origen 'usuario'. Idempotente: si ya
- * existe un cliente con ese NIT, lo reutiliza (yaExistia) y solo re-vincula los pendientes.
+ * `companiaId` en todos los trámites de ese NIT que estaban sin compañía, deja el cambio en el historial
+ * con origen 'usuario' y les arranca SOAT e impuesto con las mismas reglas que al activar una compañía
+ * (`arrancarTramiteGuardado`), porque FLIT no vuelve a enviarlos y nada más los arrancaría (Bug #14414).
+ * Todo va en UNA transacción: si un arranque falla, no queda ni la empresa ni la vinculación.
+ * Idempotente: si ya existe un cliente con ese NIT, lo reutiliza (yaExistia) y solo re-vincula los pendientes.
  */
 export async function crearEmpresaDesdeTramite(
   nombre: string, nit: string, autogestion: { soat: boolean; impuestos: boolean; logistica: boolean }, ctx: TramitesCtx,
@@ -221,32 +224,42 @@ export async function crearEmpresaDesdeTramite(
   // tercero y el segundo pisaría al primero; aquí, además, el duplicado nace sin la marca de
   // conflicto que sí puso la migración 0132 a los preexistentes, así que parece limpio.
   const docCliente = doc.toUpperCase();
-  const [existente] = await db.select({ id: clients.id }).from(clients)
-    .where(sql`trim(upper(${clients.document})) = ${docCliente}`).limit(1);
-  let companiaId: number;
-  let yaExistia = false;
-  if (existente) { companiaId = existente.id; yaExistia = true; }
-  else {
-    const [creada] = await db.insert(clients)
-      .values({
-        name: nombre.trim(), document: docCliente, documentType: 'NIT',
-        soatAutogestionable: autogestion.soat, impuestosAutogestionable: autogestion.impuestos,
-        logisticaAutogestionable: autogestion.logistica,
-      })
-      .returning({ id: clients.id });
-    companiaId = creada.id;
-  }
-  const pendientes = await db.select({ id: flitoTramites.id }).from(flitoTramites)
-    .where(and(eq(flitoTramites.companiaNit, doc), sql`${flitoTramites.companiaId} is null`));
-  if (pendientes.length > 0) {
-    const ids = pendientes.map((t) => t.id);
-    await db.update(flitoTramites).set({ companiaId }).where(inArray(flitoTramites.id, ids));
-    await db.insert(flitoTramiteHistorial).values(ids.map((tid) => ({
-      tramiteId: tid, campo: 'compania_id', valorAnterior: null, valorNuevo: String(companiaId),
-      origen: 'usuario', usuarioId: ctx.userId,
-    })));
-  }
-  return { companiaId, yaExistia, revinculados: pendientes.length };
+  return db.transaction(async (tx) => {
+    const [existente] = await tx.select({ id: clients.id }).from(clients)
+      .where(sql`trim(upper(${clients.document})) = ${docCliente}`).limit(1);
+    let companiaId: number;
+    let yaExistia = false;
+    if (existente) { companiaId = existente.id; yaExistia = true; }
+    else {
+      const [creada] = await tx.insert(clients)
+        .values({
+          name: nombre.trim(), document: docCliente, documentType: 'NIT',
+          soatAutogestionable: autogestion.soat, impuestosAutogestionable: autogestion.impuestos,
+          logisticaAutogestionable: autogestion.logistica,
+        })
+        .returning({ id: clients.id });
+      companiaId = creada.id;
+    }
+    // `for update`: dos vinculaciones simultáneas del mismo NIT no arrancan dos veces el mismo trámite;
+    // la segunda espera y, al ver `companiaId` ya puesto, lo descarta.
+    const pendientes = await tx.select(COLUMNAS_TRAMITE_GUARDADO).from(flitoTramites)
+      .where(and(eq(flitoTramites.companiaNit, doc), sql`${flitoTramites.companiaId} is null`))
+      .orderBy(asc(flitoTramites.createdAt), asc(flitoTramites.id))
+      .for('update');
+    if (pendientes.length > 0) {
+      const ids = pendientes.map((t) => t.id);
+      await tx.update(flitoTramites).set({ companiaId }).where(inArray(flitoTramites.id, ids));
+      await tx.insert(flitoTramiteHistorial).values(ids.map((tid) => ({
+        tramiteId: tid, campo: 'compania_id', valorAnterior: null, valorNuevo: String(companiaId),
+        origen: 'usuario', usuarioId: ctx.userId,
+      })));
+      // `for share`: choca con el `UPDATE … active` de `cambiarEstadoCliente` (mismo criterio que `cliente-operable.ts`).
+      const [compania] = await tx.select().from(clients).where(eq(clients.id, companiaId)).limit(1).for('share');
+      const contadores = { soatCreados: 0, soatBloqueadosPorVin: 0, impuestosCreados: 0, impuestosBloqueadosPorVehiculo: 0 };
+      for (const t of pendientes) await arrancarTramiteGuardado(tx, t, compania, contadores);
+    }
+    return { companiaId, yaExistia, revinculados: pendientes.length };
+  });
 }
 
 export interface TramiteReferencia { tramiteId: string; idFlit: string; placa: string | null }
