@@ -55,10 +55,23 @@ const AVISO_CON_DOCUMENTO: Partial<Record<Estado, string>> = {
   sin_vehiculo: 'El RUNT no encontró el vehículo con esa placa y ese documento. Corrige el documento o bórralo para consultar por VIN.',
 };
 
+// Con placa y documento el RUNT no descarta que el vehículo exista: quizá solo falló el documento.
+const TEXTO_CON_DOCUMENTO: Partial<Record<Estado, string>> = {
+  sin_vehiculo: 'No encontrado',
+};
+
 /** Editar devuelve el registro a `radicado`: el documento de la fila es el de su última consulta. */
 function avisoDeEstado(f: Fila): string {
   return (f.documentoPropietario && AVISO_CON_DOCUMENTO[f.estado]) || ESTADO[f.estado].aviso;
 }
+
+/** Recibe la fila guardada, no el borrador: un documento sin guardar no se ha consultado. */
+function textoDeEstado(f: Fila): string {
+  return (f.documentoPropietario && TEXTO_CON_DOCUMENTO[f.estado]) || ESTADO[f.estado].texto;
+}
+
+// Resultados de consulta que dejan algo por hacer: su aviso reaparece al reabrir el registro.
+const CON_AVISO_AL_ABRIR = new Set<Estado>(['sin_respuesta', 'sin_vehiculo', 'sin_coincidencia']);
 
 const INFORMATIVO = new Set<string>([
   ...Object.values(ESTADO).map((e) => e.aviso),
@@ -142,7 +155,7 @@ export default function FlitoImpuestosCertificar() {
     setFallaLectura(null);
     setLeidos({});
     setLeidosN(null);
-    setAviso(null);
+    setAviso(CON_AVISO_AL_ABRIR.has(f.estado) ? avisoDeEstado(f) : null);
     setVista('detalle');
     if (!catalogo) {
       void api.get<Catalogo>(`${BASE}/catalogo`).then(setCatalogo).catch((e) => setAviso(avisoDe(e)));
@@ -283,7 +296,7 @@ export default function FlitoImpuestosCertificar() {
                   <td className="px-4 py-2 text-sm">{f.placa}</td>
                   <td className="px-4 py-2 text-sm">{f.vin}</td>
                   <td className="px-4 py-2 text-sm">{f.nombrePropietario || '—'}</td>
-                  <td className="px-4 py-2 text-sm"><StatusChip tone={ESTADO[f.estado].tono}>{ESTADO[f.estado].texto}</StatusChip></td>
+                  <td className="px-4 py-2 text-sm"><StatusChip tone={ESTADO[f.estado].tono}>{textoDeEstado(f)}</StatusChip></td>
                   <td className="px-4 py-2 text-sm">
                     <button type="button" className={flitBtnSecondary} onClick={() => abrirDetalle(f)}>Abrir</button>
                   </td>
@@ -317,7 +330,7 @@ export default function FlitoImpuestosCertificar() {
           debajo={vista === 'detalle' && fila ? (
             <FlitCard>
               <div className="flex flex-col gap-3">
-                <StatusChip tone={ESTADO[fila.estado].tono}>{ESTADO[fila.estado].texto}</StatusChip>
+                <StatusChip tone={ESTADO[fila.estado].tono}>{textoDeEstado(fila)}</StatusChip>
                 {certificado && (
                   <div>
                     <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => void bajar('certificado')}>
