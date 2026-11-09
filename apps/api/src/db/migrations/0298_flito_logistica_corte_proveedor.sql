@@ -1,4 +1,4 @@
--- 0297_flito_logistica_corte_proveedor.sql
+-- 0298_flito_logistica_corte_proveedor.sql
 -- Autor: David Chica
 -- HU #14349 (Feature #14326, ADR-0039 §6.3, R17). Fecha de corte de la operación por proveedor en este ambiente y reparto de las licencias anteriores.
 --
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS flito_logistica_corte_proveedor (
 -- despliegue posterior (`--allow-drift` reejecuta un pendiente): borrarían el dueño de una licencia que el proveedor
 -- entregó después del corte, y el de una cuya compañía se quedó sin proveedor, que conserva el suyo (ADR §6.3).
 --
--- Entre el PR 1 y el PR 2 una licencia con dueño pudo entrar a un acta o entregarse: el backfill de la 0295 no basta.
+-- Entre el PR 1 y el PR 2 una licencia con dueño pudo entrar a un acta o entregarse: el backfill de la 0296 no basta.
 --   · Anterior al corte y entregada, o en un acta abierta anterior → sin dueño. Al cerrarse esa acta,
 --     `pasarAlProveedorVigente` lleva lo no entregado al proveedor vigente.
 --   · Anterior al corte, no entregada y sin acta abierta → proveedor de su compañía, o sin dueño si no tiene. Una licencia

@@ -344,7 +344,7 @@ const ITEMS_DE_OPERACION_LEGADA: ReadonlyMap<string, string[]> = (() => {
 })();
 
 /**
- * ADR-0040 (0298, HU #14351 y #14353) — Reparto sembrado DESPUÉS del árbol, sobre nodos que ya existen: no entra
+ * ADR-0040 (0299, HU #14351 y #14353) — Reparto sembrado DESPUÉS del árbol, sobre nodos que ya existen: no entra
  * al mundo plano (los tests de las migraciones históricas no lo ven) y sí al de hoy (`repartoDePartida`, AC9 de la
  * 0233). El rol `proveedor` trae el perfil «Coordinador de proveedor» de logística; la rama `menu.gestion` ya la
  * tenía por SOAT. Lo que NO se siembra (cerrar lote, reversar, viajes adicionales, firmar en FLIT, dejar pendiente,

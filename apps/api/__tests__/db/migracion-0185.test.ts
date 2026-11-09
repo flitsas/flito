@@ -126,7 +126,7 @@ describe('0185 — el archivo dice lo mismo que schema/permisos.ts (análisis es
     const vigente = readdirSync(carpeta).filter((f) => f.endsWith('.sql')).sort()
       .filter((f) => readFileSync(path.join(carpeta, f), 'utf8').includes('ADD CONSTRAINT permisos_auditoria_campo_lista_chk'))
       .at(-1)!;
-    expect(vigente >= '0294_permisos_auditoria_campo_proveedor.sql').toBe(true);
+    expect(vigente >= '0295_permisos_auditoria_campo_proveedor.sql').toBe(true);
     const bloque = readFileSync(path.join(carpeta, vigente), 'utf8').replace(/--[^\n]*/g, '')
       .split('ADD CONSTRAINT permisos_auditoria_campo_lista_chk')[1]!.split(') NOT VALID')[0]!;
     const enSql = [...bloque.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]!);

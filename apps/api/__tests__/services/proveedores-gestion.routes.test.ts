@@ -427,8 +427,8 @@ describe('HU #14335 — historial y máscaras', () => {
     m.existe.mockResolvedValue(false);
     expect((await request(await app()).get(`${BASE}/${ID}/historial`).set('Authorization', await con(HISTORIAL))).status).toBe(404);
   });
-  it('AC7: la 0293 siembra la función solo a admin y auditor', () => {
-    const s = readFileSync(new URL('../../src/db/migrations/0293_flito_proveedores_permiso_historial.sql', import.meta.url), 'utf8');
+  it('AC7: la 0294 siembra la función solo a admin y auditor', () => {
+    const s = readFileSync(new URL('../../src/db/migrations/0294_flito_proveedores_permiso_historial.sql', import.meta.url), 'utf8');
     expect(s).toContain("('admin', 'parametrizacion.proveedores.historial')");
     expect(s).toContain("('auditor', 'parametrizacion.proveedores.historial')");
     expect(s).not.toMatch(/'(proveedor|financiera|mensajero)'/);

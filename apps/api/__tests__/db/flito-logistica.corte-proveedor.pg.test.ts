@@ -1,12 +1,12 @@
 // HU #14349 (Feature #14326, ADR-0039 §6.3) — la fecha de corte y la normalización de dueños, contra PostgreSQL de verdad y
-// dentro de una transacción con ROLLBACK (se SALTA sin TEST_DATABASE_URL). Cada caso borra la tabla y aplica la 0297 entera:
+// dentro de una transacción con ROLLBACK (se SALTA sin TEST_DATABASE_URL). Cada caso borra la tabla y aplica la 0298 entera:
 // en una transacción `now()` no avanza, así que lo «anterior al corte» se fabrica con `created_at` en el pasado.
 import { describe, it, expect } from 'vitest';
 import type postgres from 'postgres';
 import { abrirBase, enTx, leerMigracion, URL_BASE } from '../helpers/base-en-tx.js';
 
 type Tx = postgres.TransactionSql;
-const MIGRACION = leerMigracion('0297_flito_logistica_corte_proveedor.sql');
+const MIGRACION = leerMigracion('0298_flito_logistica_corte_proveedor.sql');
 const AYER = new Date(Date.now() - 86_400_000).toISOString();
 const TRAS_EL_CORTE = new Date(Date.now() + 3_600_000).toISOString(); // `now()` no avanza en la tx y un Date recorta los microsegundos
 let n = 0;

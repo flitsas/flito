@@ -1,14 +1,14 @@
-// HU #14349 — lo que se comprueba sin base: que la 0297 y el esquema Drizzle dicen lo mismo y que el corte no depende de nadie.
+// HU #14349 — lo que se comprueba sin base: que la 0298 y el esquema Drizzle dicen lo mismo y que el corte no depende de nadie.
 // Las reglas de la normalización se prueban contra Postgres en `flito-logistica.corte-proveedor.pg.test.ts`.
 import { describe, it, expect } from 'vitest';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { flitoLogisticaCorteProveedor } from '../../src/db/schema.js';
 import { leerMigracion } from '../helpers/base-en-tx.js';
 
-const SQL_0297 = leerMigracion('0297_flito_logistica_corte_proveedor.sql');
+const SQL_0297 = leerMigracion('0298_flito_logistica_corte_proveedor.sql');
 const sinComentarios = SQL_0297.replace(/--.*$/gm, '');
 
-describe('0297 — fecha de corte (estático)', () => {
+describe('0298 — fecha de corte (estático)', () => {
   it('AC1: la fecha sale de `now()`, sin variable de entorno ni parámetro', () => {
     expect(sinComentarios).toMatch(/VALUES \(true, now\(\)\)/);
     expect(sinComentarios).not.toMatch(/current_setting|\\set|:'/i);

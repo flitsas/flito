@@ -14,7 +14,7 @@ Un proveedor que no presta logística (por ejemplo, uno solo de SOAT) no debe ve
 
 ## Decisión
 
-1. **Reparto de filas en `permisos_rol_funcion` para el rol `proveedor`** (migración 0298, forma `JOIN permisos_roles`). Las filas se marcan después del paso al árbol, así que son acciones, páginas y opcionales, no operaciones sueltas:
+1. **Reparto de filas en `permisos_rol_funcion` para el rol `proveedor`** (migración 0299, forma `JOIN permisos_roles`). Las filas se marcan después del paso al árbol, así que son acciones, páginas y opcionales, no operaciones sueltas:
    - Páginas: `pagina.flito_logistica` y `pagina.flito_logistica_ruta`.
    - Acciones: `accion.logistica.ver_consola`, `accion.logistica.ver_actas`, `accion.logistica.generar_actas`, `accion.logistica.despachar_entregar_devolver`, `accion.mi_ruta.ver`, `accion.mi_ruta.escanear` y `accion.mi_ruta.reportar_novedad`.
    - Opcionales: `logistica.actas.descargar`, `logistica.actas.despachar`, `logistica.actas.operar_ajenas`, `logistica.recogida.confirmar`, `logistica.traslado.registrar` y `logistica.traslado.anular`.

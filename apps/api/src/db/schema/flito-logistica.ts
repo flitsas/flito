@@ -23,7 +23,7 @@ export const flitoProveedoresLogistica = pgTable('flito_proveedores_logistica', 
   estrategia: varchar('estrategia', { length: 40 }).notNull().default('pwa_propia'),
   activo: boolean('activo').notNull().default(true),
   // HU #14103 (0278): nit (único parcial `uq_flito_proveedores_logistica_nit` en la migración; NULL en filas previas), contacto y teléfono, en la misma línea: el techo congelado de schema.ts no admite crecer.
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), nit: varchar('nit', { length: 20 }), contacto: varchar('contacto', { length: 150 }), telefono: varchar('telefono', { length: 30 }), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }), // HU #14329 (0291). Nombre único entre vigentes: 0292.
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), nit: varchar('nit', { length: 20 }), contacto: varchar('contacto', { length: 150 }), telefono: varchar('telefono', { length: 30 }), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }), // HU #14329 (0292). Nombre único entre vigentes: 0293.
 }, (t) => ({ nombreVivoUq: uniqueIndex('uq_flito_proveedores_logistica_nombre_vivo').on(t.nombre).where(sql`deleted_at IS NULL`) }));
 
 // Acta: agrupación por empresa para despacho/entrega (CA-04, una por empresa por lote). El acta
@@ -101,7 +101,7 @@ export const flitoLogisticaDocumentos = pgTable('flito_logistica_documentos', {
   actaIdx: index('idx_flito_log_doc_acta').on(t.actaId), proveedorIdx: index('idx_flito_log_doc_proveedor').on(t.proveedorLogisticaId), numeroLicenciaIdx: index('idx_flito_log_doc_numero_licencia').on(t.numeroLicencia), tramiteCompaniaCk: check('ck_flito_log_doc_tramite_compania', sql`${t.tramiteId} IS NOT NULL OR ${t.companiaId} IS NULL`), pendienteUq: uniqueIndex('uq_flito_log_doc_vehiculo_pendiente').on(t.vehiculoId, t.tipo).where(sql`${t.tramiteId} IS NULL`),
 }));
 
-// HU #14349 (0297, ADR-0039 §6.3): fecha desde la que el proveedor ve actas en este ambiente. Una sola fila: PK `unica` y CHECK. La escribe la migración; ninguna ruta la cambia.
+// HU #14349 (0298, ADR-0039 §6.3): fecha desde la que el proveedor ve actas en este ambiente. Una sola fila: PK `unica` y CHECK. La escribe la migración; ninguna ruta la cambia.
 export const flitoLogisticaCorteProveedor = pgTable('flito_logistica_corte_proveedor', {
   unica: boolean('unica').primaryKey().default(true),
   corteEn: timestamp('corte_en', { withTimezone: true }).notNull().defaultNow(),

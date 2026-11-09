@@ -116,7 +116,7 @@ describe.skipIf(!URL_BASE)('0259 — contra PostgreSQL (tx con ROLLBACK)', () =>
         const salida = await traducido(duplicado);
         expect(salida).toBeInstanceOf(ProveedorDuplicadoError);
         expect((salida as ProveedorDuplicadoError).campo).toBe('nombre');
-        // Desde la 0291 el perfil baja al padre, que compara el nombre normalizado: otra capitalización también choca,
+        // Desde la 0292 el perfil baja al padre, que compara el nombre normalizado: otra capitalización también choca,
         // y el trigger la relanza con el nombre de este índice.
         const otraCapitalizacion = await choca(NOMBRE.toUpperCase());
         expect((otraCapitalizacion as { constraint_name?: string }).constraint_name).toBe(INDICE_PROVEEDOR_SOAT_NOMBRE_VIVO);

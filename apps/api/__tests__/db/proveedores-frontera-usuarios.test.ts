@@ -1,5 +1,5 @@
 // Feature #14325 (HU #14338, #14339, #14340, #14341; ADR-0039 §6.1 y §6.2) — De punta a punta contra PostgreSQL de verdad, con
-// las rutas, la frontera y el resolutor REALES: lo único doble es Redis. Exige la base al día (incluida la 0294) y confirma
+// las rutas, la frontera y el resolutor REALES: lo único doble es Redis. Exige la base al día (incluida la 0295) y confirma
 // de verdad para medir la invalidación tras el commit y las carreras: hay que usar una base temporal recién migrada.
 // Sin TEST_DATABASE_URL se SALTA (el CI no levanta Postgres); la frontera también se mide en `frontera-proveedor-servicio.test.ts`.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -153,7 +153,7 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       expect(me.body.user?.allowedPages ?? me.body.allowedPages).not.toContain('flito_soat');
     }, 30_000);
 
-    // ADR-0040 (0298): el rol `proveedor` trae Logística; un proveedor mixto la ve en el menú. Los viajes adicionales siguen cerrados (D3).
+    // ADR-0040 (0299): el rol `proveedor` trae Logística; un proveedor mixto la ve en el menú. Los viajes adicionales siguen cerrados (D3).
     it('AC3: mixto → SOAT sí; Usuarios cerrado; Logística en el menú (ADR-0040) y viajes adicionales cerrados', async () => {
       const p = await nuevoProveedor(['soat', 'logistica']);
       const auth = await bearer(await usuario('zzf3_gestor', p.id));

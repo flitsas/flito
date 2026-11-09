@@ -84,9 +84,9 @@ export const MIGRACIONES_CON_REPARTO = [
   '0284_flito_logistica_permiso_traslado_anular.sql', // HU #14115: anular viaje registrado; solo admin
   '0285_flito_logistica_motivos_permiso.sql', // HU #14119: catálogo de motivos de llegada a FLIT; solo admin
   '0286_flito_logistica_permiso_firmar_flit.sql', // HU #14122: firmar la llegada a FLIT; solo admin
-  '0293_flito_proveedores_permiso_historial.sql', // HU #14335: historial de un proveedor; admin y auditor
-  '0296_flito_logistica_permiso_dejar_pendiente.sql', // HU #14348: dejar una LT pendiente al escanear; solo admin
-  '0298_permisos_rol_proveedor_logistica.sql', // ADR-0040 (HU #14351, #14353): el rol proveedor trae el perfil Coordinador de logística
+  '0294_flito_proveedores_permiso_historial.sql', // HU #14335: historial de un proveedor; admin y auditor
+  '0297_flito_logistica_permiso_dejar_pendiente.sql', // HU #14348: dejar una LT pendiente al escanear; solo admin
+  '0299_permisos_rol_proveedor_logistica.sql', // ADR-0040 (HU #14351, #14353): el rol proveedor trae el perfil Coordinador de logística
   '0274_flito_impuesto_certificacion_directa.sql', // Certificar impuesto sin trámite: acción solo a admin
 ] as const;
 
@@ -97,7 +97,7 @@ export const MIGRACIONES_CON_REPARTO = [
  */
 // HU #14110: la 0281 también entra aquí, pero por ALTA: `logistica.actas.ver_documento_firmante` es una operación con guarda en la
 // foto (`inventario.generado.ts`), así que el catálogo plano la trae y el pliegue plano tiene que sembrarla para cuadrar.
-const RETIROS_DEL_MUNDO_PLANO: ReadonlySet<string> = new Set(['0296_flito_logistica_permiso_dejar_pendiente.sql', '0293_flito_proveedores_permiso_historial.sql', '0243_permisos_retirar_sync_lanzar.sql', '0281_flito_logistica_permiso_ver_documento_firmante.sql', '0282_flito_logistica_permiso_resolver_tramite.sql', '0283_flito_logistica_permiso_traslado_registrar.sql', '0284_flito_logistica_permiso_traslado_anular.sql', '0285_flito_logistica_motivos_permiso.sql', '0286_flito_logistica_permiso_firmar_flit.sql']);
+const RETIROS_DEL_MUNDO_PLANO: ReadonlySet<string> = new Set(['0297_flito_logistica_permiso_dejar_pendiente.sql', '0294_flito_proveedores_permiso_historial.sql', '0243_permisos_retirar_sync_lanzar.sql', '0281_flito_logistica_permiso_ver_documento_firmante.sql', '0282_flito_logistica_permiso_resolver_tramite.sql', '0283_flito_logistica_permiso_traslado_registrar.sql', '0284_flito_logistica_permiso_traslado_anular.sql', '0285_flito_logistica_motivos_permiso.sql', '0286_flito_logistica_permiso_firmar_flit.sql']);
 
 /**
  * HU #12873 — Las migraciones del mundo PLANO (antes del árbol, ≤ 0231, más `RETIROS_DEL_MUNDO_PLANO`). Los tests de cada migración
@@ -130,7 +130,7 @@ function bloquesInsertCondicionado(sql: string): string[] {
 }
 
 /**
- * ADR-0040 (0298) — Reparto a UN rol que existe, sin literal de rol en VALUES: `INSERT INTO permisos_rol_funcion
+ * ADR-0040 (0299) — Reparto a UN rol que existe, sin literal de rol en VALUES: `INSERT INTO permisos_rol_funcion
  * (rol_codigo, funcion_codigo) SELECT r.codigo, f.codigo FROM permisos_roles r JOIN permisos_funciones f ON
  * f.codigo IN ('<codigo>', …) WHERE r.codigo = '<rol>' ON CONFLICT DO NOTHING;`. Sin base se pliega como el
  * literal (el JOIN con `permisos_funciones` deja fuera un código no sembrado: aquí es error de orden).

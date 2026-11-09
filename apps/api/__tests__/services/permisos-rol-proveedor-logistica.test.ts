@@ -1,7 +1,7 @@
 // ADR-0040 (Feature #14326, HU #14351 y #14353) — El rol `proveedor` trae el perfil «Coordinador de proveedor» de logística
-// (0298) y `/me` publica sus funciones con la frontera por servicio (`funcionesDePermisos`). Sin base: lo doble es la LECTURA de
+// (0299) y `/me` publica sus funciones con la frontera por servicio (`funcionesDePermisos`). Sin base: lo doble es la LECTURA de
 // filas (`fijarFuenteDePermisos`); la regla en cadena, el hash y la proyección son los reales. Las filas del rol salen del SQL de
-// la 0298 (`bloquesRepartoUnRol`), no de una copia en el test: si la migración pierde una fila, aquí se nota.
+// la 0299 (`bloquesRepartoUnRol`), no de una copia en el test: si la migración pierde una fila, aquí se nota.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/db/client.js', () => {
@@ -21,7 +21,7 @@ import type { FilasPermisos, PermisosOk, ProveedorDePermisos } from '../../src/s
 import { bloquesRepartoUnRol } from '../helpers/permisos-seed-sql.js';
 import { leerMigracion } from '../helpers/base-en-tx.js';
 
-const [[ROL_0298, FILAS_0298]] = bloquesRepartoUnRol(leerMigracion('0298_permisos_rol_proveedor_logistica.sql')) as [[string, string[]]];
+const [[ROL_0298, FILAS_0298]] = bloquesRepartoUnRol(leerMigracion('0299_permisos_rol_proveedor_logistica.sql')) as [[string, string[]]];
 // Lo que el rol ya traía (SOAT) y la rama del menú que comparten las dos páginas.
 const SOAT = ['menu.gestion', 'pagina.flito_soat', 'accion.soat.ver_listado', 'accion.soat.cargar_comprobantes'];
 const ROL = [...SOAT, ...FILAS_0298!];
@@ -42,7 +42,7 @@ const esSoat = (c: string) => c.startsWith('soat.') || c.startsWith('accion.soat
 
 beforeEach(() => { filas.clear(); fuente.mockClear(); permisos.fijarFuenteDePermisos(fuente); });
 
-describe('0298 — reparto del rol proveedor', () => {
+describe('0299 — reparto del rol proveedor', () => {
   it('siembra el perfil Coordinador y nada de lo que ADR-0040 deja fuera', () => {
     expect(ROL_0298).toBe('proveedor');
     expect(FILAS_0298).toHaveLength(15);

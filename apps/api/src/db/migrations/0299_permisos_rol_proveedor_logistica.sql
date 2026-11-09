@@ -1,4 +1,4 @@
--- 0298_permisos_rol_proveedor_logistica.sql
+-- 0299_permisos_rol_proveedor_logistica.sql
 -- ADR-0040 (Feature #14326, HU #14351 y #14353) — el rol `proveedor` trae el perfil «Coordinador de
 -- proveedor» de logística. Supersede en parte ADR-0039 §12 («no se siembran»).
 --

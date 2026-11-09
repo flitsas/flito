@@ -5,7 +5,7 @@
 //   · RN-PAUD-2 — La máscara se aplica AL ESCRIBIR (R23): teléfono, correo, dirección y contacto nunca llegan en claro a
 //       la fila. El NIT también se enmascara (decisión del humano, ADR-0039 §16.8b). Nombre y ciudad van en claro: el
 //       proveedor es una empresa.
-//   · RN-PAUD-3 — `campo` y `accion` son listas blancas: los CHECK de la 0291 rechazan cualquier otro valor.
+//   · RN-PAUD-3 — `campo` y `accion` son listas blancas: los CHECK de la 0292 rechazan cualquier otro valor.
 import { desc, eq } from 'drizzle-orm';
 import type { AccionAuditoriaProveedor, ProveedorHistorialItemDto } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';

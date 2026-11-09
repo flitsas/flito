@@ -1,4 +1,4 @@
-// ADR-0040 (HU #14351, #14353) — la 0298 siembra el perfil Coordinador de logística en el rol `proveedor` y cuelga
+// ADR-0040 (HU #14351, #14353) — la 0299 siembra el perfil Coordinador de logística en el rol `proveedor` y cuelga
 // `logistica.traslado.anular` de `despachar_entregar_devolver`. Estática (siempre) + contra PostgreSQL solo con
 // TEST_DATABASE_URL (en tx con ROLLBACK).
 process.env.TZ = 'UTC';
@@ -14,13 +14,13 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn(),
 }));
 
-const ARCHIVO = '0298_permisos_rol_proveedor_logistica.sql';
+const ARCHIVO = '0299_permisos_rol_proveedor_logistica.sql';
 const SQL = leerMigracion(ARCHIVO);
 const sinComentarios = (s: string) => s.replace(/--[^\n]*/g, '');
 const ANULAR = 'logistica.traslado.anular';
 const DESPACHAR = 'accion.logistica.despachar_entregar_devolver';
 
-describe('0298 — reglas del archivo (estática)', () => {
+describe('0299 — reglas del archivo (estática)', () => {
   it('sin control de transacción propio y sin DDL', () => {
     expect(scanForTxControl(ARCHIVO, SQL)).toEqual([]);
     expect(sinComentarios(SQL)).not.toMatch(/\b(BEGIN|COMMIT|ALTER|CREATE|DROP)\b/i);
@@ -47,12 +47,12 @@ describe('0298 — reglas del archivo (estática)', () => {
   });
 });
 
-describe.skipIf(!URL_BASE)('0298 — contra la base real', () => {
+describe.skipIf(!URL_BASE)('0299 — contra la base real', () => {
   let sql: ReturnType<typeof abrirBase>;
   beforeAll(() => { sql = abrirBase(); });
   afterAll(async () => { await sql?.end(); });
 
-  it('aplicar 0298 dos veces deja el mismo reparto del proveedor y el padre de anular', async () => {
+  it('aplicar 0299 dos veces deja el mismo reparto del proveedor y el padre de anular', async () => {
     await enTx(sql, async (tx) => {
       const foto = async () => {
         const [n] = await tx`SELECT count(*)::int AS n FROM permisos_rol_funcion WHERE rol_codigo = 'proveedor'`;

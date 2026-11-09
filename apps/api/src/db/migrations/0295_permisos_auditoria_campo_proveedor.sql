@@ -1,4 +1,4 @@
--- 0294_permisos_auditoria_campo_proveedor.sql
+-- 0295_permisos_auditoria_campo_proveedor.sql
 -- Autor: David Chica
 -- HU #14341 (Feature #14325, ADR-0039 §3) — El historial de permisos registra la pertenencia en `flito_proveedor_id`.
 -- Un usuario de un proveedor solo de Logística tiene vacía la columna vieja: registrarlo como `flito_proveedor_soat_id`
