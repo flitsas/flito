@@ -1,6 +1,6 @@
 // HU #14104 (Feature #14089) — proveedor de logística por compañía: la regla «encendida exige proveedor» en
 // `PATCH /api/flito/parametrizacion/companias/:id`, el resolvedor `proveedorDeCompania` y el bloqueo de inactivar un
-// proveedor asignado (`PATCH /proveedores-logistica/:id/estado`). La migración 0279 se valida en la BD (HANDOFF).
+// proveedor asignado (se mide en `db/proveedores-gestion.test.ts`, HU #14334 AC1). La migración 0279 se valida en la BD (HANDOFF).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
@@ -126,37 +126,6 @@ describe('AC4 — resolvedor único proveedorDeCompania', () => {
     kdb.reset();
     kdb.when.scenario({ clients: [] });
     expect(await proveedorDeCompania(kdb.db as never, 999)).toBeNull();
-  });
-});
-
-describe('AC6 — no inactivar un proveedor asignado', () => {
-  const estado = async (activo: boolean) =>
-    request(await buildApp()).patch(`/api/flito/parametrizacion/proveedores-logistica/${PROV}/estado`)
-      .set('Authorization', await auth()).send({ activo });
-
-  it('asignado a compañías → 409 con sus nombres, sin escribir', async () => {
-    kdb.when.scenario({ flito_proveedores_logistica: [{ id: PROV, activo: true }], clients: [{ name: 'Acme' }, { name: 'Beta' }] });
-    const r = await estado(false);
-    expect(r.status).toBe(409);
-    expect(r.body.companias).toEqual(['Acme', 'Beta']);
-    expect(r.body.error).toContain('Acme');
-    expect(espia.updatesEn('flito_proveedores_logistica')).toHaveLength(0);
-  });
-
-  it('sin compañías → se inactiva (200)', async () => {
-    kdb.when.scenario({ flito_proveedores_logistica: [{ id: PROV, activo: true }], clients: [] });
-    kdb.when.update('flito_proveedores_logistica', [{ id: PROV, nombre: 'Andina', nit: null, contacto: null, telefono: null, activo: false }]);
-    const r = await estado(false);
-    expect(r.status).toBe(200);
-    expect(r.body.activo).toBe(false);
-  });
-
-  it('reactivar sigue funcionando aunque tenga compañías (no consulta el bloqueo)', async () => {
-    kdb.when.scenario({ flito_proveedores_logistica: [{ id: PROV, activo: false }], clients: [{ name: 'Acme' }] });
-    kdb.when.update('flito_proveedores_logistica', [{ id: PROV, nombre: 'Andina', nit: null, contacto: null, telefono: null, activo: true }]);
-    const r = await estado(true);
-    expect(r.status).toBe(200);
-    expect(r.body.activo).toBe(true);
   });
 });
 

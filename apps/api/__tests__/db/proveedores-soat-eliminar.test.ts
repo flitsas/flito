@@ -11,7 +11,7 @@ import express from 'express';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '../../src/db/schema.js';
-import { abrirBase, enTx, URL_BASE } from '../helpers/base-en-tx.js';
+import { abrirBase, borrarAdminDePrueba, enTx, sembrarAdminActivo, URL_BASE } from '../helpers/base-en-tx.js';
 import { testToken } from '../helpers/auth.js';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
@@ -50,12 +50,14 @@ vi.mock('../../src/shared/redis.js', () => ({
   getRedis: () => null, closeRedis: vi.fn().mockResolvedValue(undefined), redisHealthy: vi.fn().mockResolvedValue(false),
 }));
 
-const { eliminarProveedorSoat, ProveedorSoatNoEliminableError } =
+const { eliminarProveedor, ProveedorNoEliminableError } =
   await import('../../src/modules/flito-parametrizacion/flito-proveedores-eliminar.service.js');
-const { EstadoProveedorCambiadoError, ProveedorSoatNoEncontradoError, impactoProveedorSoat } =
+const { EstadoProveedorCambiadoError, impactoProveedorSoat } =
   await import('../../src/modules/flito-parametrizacion/flito-proveedores-estado.service.js');
 const { cambiarActivo, reactivarUsuario, ProveedorSoatDelUsuarioEliminadoError } =
   await import('../../src/modules/users/users.service.js');
+
+const { ProveedorNoEncontradoError } = await import('../../src/modules/flito-parametrizacion/flito-proveedores.service.js');
 
 const ACTOR = { userId: null, email: null, rol: null };
 
@@ -95,6 +97,7 @@ async function conBase(fn: (tx: postgres.TransactionSql, f: Awaited<ReturnType<t
   const sql = abrirBase();
   try {
     await enTx(sql, async (tx) => {
+      await sembrarAdminActivo(tx);
       actual.tx = tx;
       actual.db = drizzle(Object.assign(tx, { options: sql.options }) as unknown as postgres.Sql, { schema });
       await fn(tx, await sembrar(tx));
@@ -106,16 +109,16 @@ async function conBase(fn: (tx: postgres.TransactionSql, f: Awaited<ReturnType<t
 }
 
 const motivo = async (id: string) => {
-  try { await eliminarProveedorSoat(id, ACTOR); return null; } catch (e) {
-    expect(e).toBeInstanceOf(ProveedorSoatNoEliminableError);
+  try { await eliminarProveedor(id, ACTOR); return null; } catch (e) {
+    expect(e).toBeInstanceOf(ProveedorNoEliminableError);
     return (e as Error).message;
   }
 };
 
-describe.skipIf(!URL_BASE)('eliminarProveedorSoat — contra PostgreSQL (tx con ROLLBACK)', () => {
+describe.skipIf(!URL_BASE)('eliminarProveedor — contra PostgreSQL (tx con ROLLBACK)', () => {
   it('AC1/AC5: baja lógica; sus usuarios sin baja quedan inactivos con sesión invalidada; nada más cambia', async () => {
     await conBase(async (tx, f) => {
-      const r = await eliminarProveedorSoat(f.p, ACTOR);
+      const r = await eliminarProveedor(f.p, ACTOR);
       expect(r).toMatchObject({ id: f.p, nombre: 'Gestora HU13960' });
       expect([...r.usuariosDesactivados].sort()).toEqual([f.g, f.h].sort());
       const [prov] = await tx`SELECT deleted_at IS NOT NULL AS eliminado, deleted_by FROM flito_proveedores_soat WHERE id = ${f.p}`;
@@ -133,7 +136,7 @@ describe.skipIf(!URL_BASE)('eliminarProveedorSoat — contra PostgreSQL (tx con 
         WHERE usuario_afectado_id IN (${f.g}, ${f.h}) AND campo = 'active'`;
       expect(hist!.n).toBe(2);
       // Ya eliminado → 404 (el nombre queda libre por el índice parcial de la 0259).
-      await expect(eliminarProveedorSoat(f.p, ACTOR)).rejects.toBeInstanceOf(ProveedorSoatNoEncontradoError);
+      await expect(eliminarProveedor(f.p, ACTOR)).rejects.toBeInstanceOf(ProveedorNoEncontradoError);
       await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES ('Gestora HU13960')`;
     });
   });
@@ -168,7 +171,7 @@ describe.skipIf(!URL_BASE)('eliminarProveedorSoat — contra PostgreSQL (tx con 
       const ids = async () => (await request(app).get('/api/flito/parametrizacion/proveedores-soat')
         .set('Authorization', `Bearer ${token}`)).body.map((p: { id: string }) => p.id);
       expect(await ids()).toContain(f.p);
-      await eliminarProveedorSoat(f.p, ACTOR);
+      await eliminarProveedor(f.p, ACTOR);
       const despues = await ids();
       expect(despues).not.toContain(f.p);
       expect(despues).toContain(f.otro);
@@ -177,7 +180,7 @@ describe.skipIf(!URL_BASE)('eliminarProveedorSoat — contra PostgreSQL (tx con 
 
   it('AC7: activar o reactivar a un usuario huérfano → error y nada cambia; con otro proveedor vigente, sí', async () => {
     await conBase(async (tx, f) => {
-      await eliminarProveedorSoat(f.p, ACTOR);
+      await eliminarProveedor(f.p, ACTOR);
       await expect(cambiarActivo(f.g, ACTOR)).rejects.toBeInstanceOf(ProveedorSoatDelUsuarioEliminadoError);
       await expect(cambiarActivo(f.g, ACTOR)).rejects.toThrow(
         'El proveedor SOAT de este usuario fue eliminado; asígnale otro antes de activarlo.');
@@ -194,15 +197,16 @@ describe.skipIf(!URL_BASE)('eliminarProveedorSoat — contra PostgreSQL (tx con 
   });
 });
 
-describe.skipIf(!URL_BASE)('eliminarProveedorSoat — AC9: dos DELETE concurrentes (conexiones reales)', () => {
+describe.skipIf(!URL_BASE)('eliminarProveedor — AC9: dos DELETE concurrentes (conexiones reales)', () => {
   it('uno elimina; el otro, que esperaba el bloqueo, recibe «Otro administrador ya cambió su estado»', async () => {
     const sql = postgres(URL_BASE!, { max: 4, onnotice: () => {} });
     const nombre = `HU13960 concurrencia ${Date.now()}`;
     const [fila] = await sql`INSERT INTO flito_proveedores_soat (nombre, activo) VALUES (${nombre}, false) RETURNING id`;
     const id = fila!.id as string;
+    await sembrarAdminActivo(sql);
     try {
       actual.real = drizzle(sql, { schema });
-      const resultados = await Promise.allSettled([eliminarProveedorSoat(id, ACTOR), eliminarProveedorSoat(id, ACTOR)]);
+      const resultados = await Promise.allSettled([eliminarProveedor(id, ACTOR), eliminarProveedor(id, ACTOR)]);
       const ok = resultados.filter((r) => r.status === 'fulfilled');
       const ko = resultados.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
       expect(ok).toHaveLength(1);
@@ -211,7 +215,10 @@ describe.skipIf(!URL_BASE)('eliminarProveedorSoat — AC9: dos DELETE concurrent
       expect((ko[0]!.reason as Error).message).toBe('Otro administrador ya cambió su estado');
     } finally {
       actual.real = null;
+      await sql`DELETE FROM flito_proveedores_auditoria WHERE proveedor_id = ${id}`;
       await sql`DELETE FROM flito_proveedores_soat WHERE id = ${id}`;
+      await sql`DELETE FROM flito_proveedores WHERE id = ${id}`;
+      await borrarAdminDePrueba(sql);
       await sql.end();
     }
   });

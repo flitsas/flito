@@ -7,7 +7,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { mensajesDeTipo } from '../../shared/utils/zod-mensajes.js';
-import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   clients,
@@ -17,7 +17,7 @@ import {
   flitoReglasProveedorSoat,
   organismosTransitoConfig,
 } from '../../db/schema.js';
-import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion, funcionesConcedidas, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
@@ -34,7 +34,7 @@ import {
   esConceptoLogistica,
 } from '@operaciones/shared-types';
 import {
-  esDuplicadoNombreProveedorSoat, mensajeNombreProveedorDuplicado, modalidadVigente,
+  modalidadVigente,
 } from './flito-parametrizacion.service.js';
 import { clienteVigente } from '../clients/cliente-operable.js';
 import {
@@ -50,13 +50,8 @@ import {
   ServicioAdicionalConflictoError, ServicioAdicionalError, ServicioAdicionalNoEncontradoError,
 } from './flito-servicios-adicionales.service.js';
 import {
-  EstadoProveedorCambiadoError, MENSAJE_ESTADO_POR_ACCION, ProveedorSoatNoEncontradoError,
-  ProveedorSoatNoUsableError, cambiarEstadoProveedorSoat, exigirProveedorSoatUsable, impactoProveedorSoat,
+  ProveedorSoatNoEncontradoError, ProveedorSoatNoUsableError, exigirProveedorSoatUsable, impactoProveedorSoat,
 } from './flito-proveedores-estado.service.js';
-import { listarProveedoresUnificados } from './flito-proveedores-logistica-gestion.service.js';
-import { ProveedorSoatNoEliminableError, eliminarProveedorSoat } from './flito-proveedores-eliminar.service.js';
-import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
-import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -309,12 +304,6 @@ function proveedorDto(p: typeof flitoProveedoresSoat.$inferSelect) {
   };
 }
 
-// HU #14148: listado UNIFICADO de proveedores (SOAT + logística) con `tipo` y `companiasAsignadas`. Misma función que
-// los listados por tipo (`parametrizacion.proveedores.listar`): no ensancha quién ve NIT/contacto/teléfono.
-router.get('/proveedores', exigirFuncion('parametrizacion.proveedores.listar'), async (_req: Request, res: Response) => {
-  res.json(await listarProveedoresUnificados());
-});
-
 router.get('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.listar'), async (_req: Request, res: Response) => {
   // HU #13957: los proveedores eliminados (baja lógica, `deleted_at`) no se listan.
   const filas = await db.select().from(flitoProveedoresSoat)
@@ -322,99 +311,10 @@ router.get('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.lista
   res.json(filas.map(proveedorDto));
 });
 
-/** ¿Otro proveedor VIGENTE (distinto de `excluirId`) ya usa este nombre exacto? (HU #13957) */
-async function nombreProveedorEnUso(nombre: string, excluirId?: string): Promise<boolean> {
-  const filtros = [eq(flitoProveedoresSoat.nombre, nombre), isNull(flitoProveedoresSoat.deletedAt)];
-  if (excluirId !== undefined) filtros.push(ne(flitoProveedoresSoat.id, excluirId));
-  const [fila] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat).where(and(...filtros)).limit(1);
-  return fila !== undefined;
-}
+// HU #14334: las escrituras de proveedores viven en `flito-proveedores.routes.ts` (ADR-0039 §7.1). Aquí solo quedan las lecturas.
 
-const crearProveedorSchema = z.object({
-  nombre: z.string().min(1).max(150),
-  estrategia: z.string().max(40).optional(),
-  umbralOcr: z.number().min(0).max(1).nullable().optional(),
-  slaHoras: z.number().int().min(1).nullable().optional(),
-});
-
-router.post('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.crear'), async (req: Request, res: Response) => {
-  const parsed = crearProveedorSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-  const { nombre, estrategia, umbralOcr, slaHoras } = parsed.data;
-
-  // HU #13957: el nombre solo lo ocupa un proveedor VIGENTE (un eliminado lo libera). El índice parcial de la 0259
-  // es la red de seguridad de la carrera entre dos altas: su 23505 se traduce al mismo 409.
-  if (await nombreProveedorEnUso(nombre)) { res.status(409).json({ error: mensajeNombreProveedorDuplicado(nombre) }); return; }
-
-  let creado: typeof flitoProveedoresSoat.$inferSelect;
-  try {
-    [creado] = await db.insert(flitoProveedoresSoat).values({
-      nombre,
-      ...(estrategia !== undefined ? { estrategia } : {}),
-      umbralOcr: umbralOcr === undefined || umbralOcr === null ? null : String(umbralOcr),
-      slaHoras: slaHoras ?? null,
-    }).returning();
-  } catch (e) {
-    if (esDuplicadoNombreProveedorSoat(e)) { res.status(409).json({ error: mensajeNombreProveedorDuplicado(nombre) }); return; }
-    throw e;
-  }
-
-  await audit(req, { action: 'create', resource: 'flito_proveedor_soat', resourceId: creado.id, detail: `Proveedor SOAT: ${nombre}` });
-  res.status(201).json(proveedorDto(creado));
-});
-
-const actualizarProveedorSchema = z.object({
-  nombre: z.string().min(1).max(150).optional(),
-  estrategia: z.string().max(40).optional(),
-  umbralOcr: z.number().min(0, 'El umbral de OCR debe estar entre 0 y 1').max(1, 'El umbral de OCR debe estar entre 0 y 1').nullable().optional(),
-  slaHoras: z.number().int().min(1).nullable().optional(),
-  activo: z.boolean().optional(),
-});
-
-router.patch('/proveedores-soat/:id', exigirFuncion('parametrizacion.proveedores.editar'), async (req: Request, res: Response) => {
-  const id = req.params.id;
-  const parsed = actualizarProveedorSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-
-  const cambios = parsed.data;
-  // HU #13958 (AC5): el estado tiene su propia acción (exclusiva del Administrador, `PATCH /:id/estado`). Intentar
-  // CAMBIARLO aquí → 400; el mismo valor que ya tiene se ignora (patrón de `PATCH /api/clients/:id`, HU #13945: el
-  // formulario de edición reenvía la fila completa y no debe romperse). `activo` nunca entra en el `set`.
-  if (cambios.activo !== undefined) {
-    const [actual] = await db.select({ activo: flitoProveedoresSoat.activo }).from(flitoProveedoresSoat)
-      .where(eq(flitoProveedoresSoat.id, id)).limit(1);
-    if (actual && actual.activo !== cambios.activo) { res.status(400).json({ error: MENSAJE_ESTADO_POR_ACCION }); return; }
-  }
-  const set: Partial<typeof flitoProveedoresSoat.$inferInsert> = {};
-  if (cambios.nombre !== undefined) set.nombre = cambios.nombre;
-  if (cambios.estrategia !== undefined) set.estrategia = cambios.estrategia;
-  if (cambios.umbralOcr !== undefined) set.umbralOcr = cambios.umbralOcr === null ? null : String(cambios.umbralOcr);
-  if (cambios.slaHoras !== undefined) set.slaHoras = cambios.slaHoras;
-
-  if (Object.keys(set).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
-
-  if (set.nombre !== undefined && await nombreProveedorEnUso(set.nombre, id)) {
-    res.status(409).json({ error: mensajeNombreProveedorDuplicado(set.nombre) }); return;
-  }
-
-  let updated: typeof flitoProveedoresSoat.$inferSelect | undefined;
-  try {
-    [updated] = await db.update(flitoProveedoresSoat).set(set).where(eq(flitoProveedoresSoat.id, id)).returning();
-  } catch (e) {
-    if (set.nombre !== undefined && esDuplicadoNombreProveedorSoat(e)) {
-      res.status(409).json({ error: mensajeNombreProveedorDuplicado(set.nombre) }); return;
-    }
-    throw e;
-  }
-  if (!updated) { res.status(404).json({ error: 'El proveedor no existe' }); return; }
-
-  await audit(req, { action: 'update', resource: 'flito_proveedor_soat', resourceId: id, detail: `Parametrización proveedor ${updated.nombre}` });
-  res.json(proveedorDto(updated));
-});
-
-// ── HU #13958: desactivar y activar un proveedor SOAT, con vista previa de su impacto ────────────────────────────
-// Las dos rutas exigen `parametrizacion.proveedores.estado`, que concede «Activar o desactivar proveedores», exclusiva
-// del Administrador (0261). Gemelas de `GET /api/clients/:id/impacto` y `PATCH /api/clients/:id/estado` (HU #13945).
+// ── HU #13958: vista previa del impacto de un proveedor SOAT ─────────────────────────────────────────────────────
+// Exige `parametrizacion.proveedores.estado`, que concede «Activar o desactivar proveedores», exclusiva del Administrador (0261).
 
 const UUID = z.string().uuid();
 const idProveedor = (req: Request): string | null => (UUID.safeParse(req.params.id).success ? req.params.id : null);
@@ -425,62 +325,6 @@ router.get('/proveedores-soat/:id/impacto', exigirFuncion('parametrizacion.prove
   const impacto = await impactoProveedorSoat(db, id);
   if (!impacto) { res.status(404).json({ error: new ProveedorSoatNoEncontradoError().message }); return; }
   res.json(impacto);
-});
-
-const estadoProveedorSchema = z.object({ activo: z.boolean(), activoEsperado: z.boolean() }).strict();
-
-router.patch('/proveedores-soat/:id/estado', exigirFuncion('parametrizacion.proveedores.estado'), async (req: Request, res: Response, next: NextFunction) => {
-  const id = idProveedor(req);
-  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
-  const parsed = estadoProveedorSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-
-  let cambio;
-  try {
-    cambio = await cambiarEstadoProveedorSoat(id, parsed.data);
-  } catch (e) {
-    if (e instanceof ProveedorSoatNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
-    if (e instanceof EstadoProveedorCambiadoError) { res.status(409).json({ error: e.message }); return; }
-    next(e); return;
-  }
-  // DESPUÉS del commit (patrón de `clients.routes.ts`): la siguiente petición de cada usuario relee la marca.
-  for (const userId of cambio.usuariosInvalidados) invalidateSessionCacheFor(userId);
-
-  // El nombre de un proveedor no es PII (mismo detalle que el resto de auditorías de proveedores).
-  await audit(req, {
-    action: 'update',
-    resource: 'flito_proveedor_soat',
-    resourceId: id,
-    detail: `Proveedor SOAT ${cambio.activo ? 'activado' : 'desactivado'}: ${cambio.nombre}`
-      + (cambio.activo ? '' : ` · sesiones invalidadas: ${cambio.usuariosInvalidados.length} usuario(s)`),
-  });
-  res.json({ id: cambio.id, activo: cambio.activo });
-});
-
-// ── HU #13960: eliminar un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas (RN-PROV-6/7) ─────────
-// Exige `parametrizacion.proveedores.eliminar`, que concede «Eliminar proveedores», exclusiva del Administrador (0263).
-router.delete('/proveedores-soat/:id', exigirFuncion('parametrizacion.proveedores.eliminar'), async (req: Request, res: Response, next: NextFunction) => {
-  const id = idProveedor(req);
-  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
-  let eliminado;
-  try {
-    eliminado = await eliminarProveedorSoat(id, actorDeRequest(req));
-  } catch (e) {
-    if (e instanceof ProveedorSoatNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
-    if (e instanceof EstadoProveedorCambiadoError || e instanceof ProveedorSoatNoEliminableError) {
-      res.status(409).json({ error: e.message }); return;
-    }
-    // Seguro anti-bloqueo (HU #12089): desactivar a sus usuarios dejaría sin administrador. La tx revirtió.
-    if (e instanceof BloqueoAdministracionError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return; }
-    next(e); return;
-  }
-  // DESPUÉS del commit: la siguiente petición de cada usuario relee `active = false`.
-  for (const userId of eliminado.usuariosDesactivados) invalidateSessionCacheFor(userId);
-  await audit(req, {
-    action: 'delete', resource: 'flito_proveedor_soat', resourceId: id,
-    detail: `Proveedor SOAT eliminado: ${eliminado.nombre} · usuarios desactivados: ${eliminado.usuariosDesactivados.length}`,
-  });
-  res.json({ id: eliminado.id, eliminado: true });
 });
 
 // ───────────────────────────────── Organismos + modalidad ───────────────────

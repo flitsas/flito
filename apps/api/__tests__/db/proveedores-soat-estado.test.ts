@@ -24,13 +24,16 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 
 const {
-  impactoProveedorSoat, cambiarEstadoProveedorSoat, proveedorSoatInactivo,
-  EstadoProveedorCambiadoError, ProveedorSoatNoEncontradoError,
+  impactoProveedorSoat, cambiarEstadoProveedor, proveedorSoatInactivo,
 } = await import('../../src/modules/flito-parametrizacion/flito-proveedores-estado.service.js');
 
 const INEXISTENTE = 'f0000000-0000-4000-8000-0000000fffff';
 
 /** Un proveedor con lo que el AC1 necesita: lo que cuenta y lo que NO cuenta. */
+const ACTOR = { userId: null, email: null, rol: null };
+const { ProveedorEditadoPorOtroError, ProveedorNoEncontradoError } = await import('../../src/modules/flito-parametrizacion/flito-proveedores.service.js');
+const version = async (tx: postgres.TransactionSql, id: string) => (await tx`SELECT version FROM flito_proveedores WHERE id = ${id}`)[0]!.version as number;
+
 async function sembrar(tx: postgres.TransactionSql) {
   const [p] = await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES ('Gestora HU13958') RETURNING id`;
   const [otroP] = await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES ('Otra HU13958') RETURNING id`;
@@ -105,8 +108,8 @@ describe.skipIf(!URL_BASE)('flito-proveedores-estado.service — contra PostgreS
 
   it('AC2/AC3: desactivar invalida las sesiones de SUS usuarios sin tocar users.active; el login ve el proveedor inactivo', async () => {
     await conBase(async (tx, f) => {
-      const r = await cambiarEstadoProveedorSoat(f.id, { activo: false, activoEsperado: true });
-      expect(r).toMatchObject({ id: f.id, nombre: 'Gestora HU13958', activo: false });
+      const r = await cambiarEstadoProveedor(f.id, { activo: false, versionEsperada: await version(tx, f.id) }, ACTOR);
+      expect(r.item).toMatchObject({ id: f.id, nombre: 'Gestora HU13958', activo: false });
       expect(r.usuariosInvalidados).toEqual(expect.arrayContaining([f.g, f.h]));
       expect(r.usuariosInvalidados).not.toContain(f.j);
       const filas = await tx`SELECT id, active, session_invalidated_at IS NOT NULL AS invalidada FROM users
@@ -131,28 +134,30 @@ describe.skipIf(!URL_BASE)('flito-proveedores-estado.service — contra PostgreS
 
   it('AC4: activar devuelve el proveedor a activo sin reactivar al usuario inactivo por su cuenta', async () => {
     await conBase(async (tx, f) => {
-      await cambiarEstadoProveedorSoat(f.id, { activo: false, activoEsperado: true });
-      const r = await cambiarEstadoProveedorSoat(f.id, { activo: true, activoEsperado: false });
-      expect(r).toMatchObject({ id: f.id, activo: true, usuariosInvalidados: [] });
+      await cambiarEstadoProveedor(f.id, { activo: false, versionEsperada: await version(tx, f.id) }, ACTOR);
+      const r = await cambiarEstadoProveedor(f.id, { activo: true, versionEsperada: await version(tx, f.id) }, ACTOR);
+      expect(r.item).toMatchObject({ id: f.id, activo: true });
+      expect(r.usuariosInvalidados).toEqual([]);
       expect(await proveedorSoatInactivo(f.id)).toBe(false);
       const [h] = await tx`SELECT active FROM users WHERE id = ${f.h}`;
       expect(h!.active).toBe(false);
     });
   });
 
-  it('AC8: con el estado ya cambiado por otro → EstadoProveedorCambiadoError y nada cambia; AC9: inexistente o eliminado → 404', async () => {
+  it('AC8: con la versión anterior → PROVEEDOR_EDITADO_POR_OTRO y nada cambia; AC9: inexistente o eliminado → 404', async () => {
     await conBase(async (tx, f) => {
-      await cambiarEstadoProveedorSoat(f.id, { activo: false, activoEsperado: true });
+      const vieja = await version(tx, f.id);
+      await cambiarEstadoProveedor(f.id, { activo: false, versionEsperada: vieja }, ACTOR);
       const [antes] = await tx`SELECT session_invalidated_at FROM users WHERE id = ${f.g}`;
-      await expect(cambiarEstadoProveedorSoat(f.id, { activo: false, activoEsperado: true }))
-        .rejects.toBeInstanceOf(EstadoProveedorCambiadoError);
+      await expect(cambiarEstadoProveedor(f.id, { activo: true, versionEsperada: vieja }, ACTOR))
+        .rejects.toBeInstanceOf(ProveedorEditadoPorOtroError);
       const [despues] = await tx`SELECT session_invalidated_at FROM users WHERE id = ${f.g}`;
       expect(despues).toEqual(antes);
-      await expect(cambiarEstadoProveedorSoat(INEXISTENTE, { activo: false, activoEsperado: true }))
-        .rejects.toBeInstanceOf(ProveedorSoatNoEncontradoError);
-      await tx`UPDATE flito_proveedores_soat SET deleted_at = now() WHERE id = ${f.otro}`;
-      await expect(cambiarEstadoProveedorSoat(f.otro, { activo: false, activoEsperado: true }))
-        .rejects.toBeInstanceOf(ProveedorSoatNoEncontradoError);
+      await expect(cambiarEstadoProveedor(INEXISTENTE, { activo: false, versionEsperada: 1 }, ACTOR))
+        .rejects.toBeInstanceOf(ProveedorNoEncontradoError);
+      await tx`UPDATE flito_proveedores SET deleted_at = now() WHERE id = ${f.otro}`;
+      await expect(cambiarEstadoProveedor(f.otro, { activo: false, versionEsperada: 1 }, ACTOR))
+        .rejects.toBeInstanceOf(ProveedorNoEncontradoError);
     });
   });
 });

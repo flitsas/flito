@@ -87,6 +87,7 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'parametrizacion', fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts' },
   { modulo: 'parametrizacion', fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts' }, // HU #14103
   { modulo: 'parametrizacion', fichero: 'flito-parametrizacion/flito-tarifas-proveedor.routes.ts' }, // Épica #13763 (ADR-0041)
+  { modulo: 'parametrizacion', fichero: 'flito-parametrizacion/flito-proveedores.routes.ts' }, // HU #14332
   { modulo: 'sync', fichero: 'flito-sync/flito-sync.routes.ts' },
   { modulo: 'tramite', fichero: 'tramites/tramites.routes.ts' },
   { modulo: 'tramite', fichero: 'tramites/ocr-docs.routes.ts' },

@@ -1,38 +1,43 @@
-// HU #13962 — Proveedores SOAT: eliminar desde el menú ⋮ y nombre duplicado bajo el campo Nombre.
-// Feature #13940. Gemelo de `clientes-eliminar.spec.ts` (#13956). API existente:
-// `GET …/proveedores-soat/:id/impacto` (`puedeEliminar` / `motivoNoEliminable`, RN-PROV-6, #13960),
-// `DELETE …/proveedores-soat/:id` (#13960) y el 409 de nombre duplicado en POST/PATCH (#13957).
+// HU #13962 — Proveedores: eliminar desde el menú ⋮ y nombre duplicado bajo el campo Nombre.
+// Feature #13940. Gemelo de `clientes-eliminar.spec.ts` (#13956). Desde HU #14337 habla con la ruta unificada:
+// `GET …/proveedores/:id/impacto` (`puedeEliminar` / `motivoNoEliminable`), `DELETE …/proveedores/:id` y el 409 de
+// nombre duplicado en POST/PATCH.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER, funcionesDe } from '../helpers/auth';
 
 const ESTADO = 'parametrizacion.proveedores.estado';
 const ELIMINAR = 'parametrizacion.proveedores.eliminar';
+const FORMULARIO = ['parametrizacion.proveedores.crear', 'parametrizacion.proveedores.editar'];
 const loginAdmin = (page: Page) =>
-  loginAs(page, ADMIN_USER, { funciones: [...funcionesDe(ADMIN_USER), ESTADO, ELIMINAR] });
+  loginAs(page, ADMIN_USER, { funciones: [...funcionesDe(ADMIN_USER), ESTADO, ELIMINAR, ...FORMULARIO] });
 const sinEliminar = (page: Page) =>
   loginAs(page, ADMIN_USER, { funciones: [...funcionesDe(ADMIN_USER).filter((f) => f !== ELIMINAR), ESTADO] });
 
 const UUID = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
-const RE_LISTA = /\/api\/flito\/parametrizacion\/proveedores-soat$/;
-const RE_IMPACTO = /\/api\/flito\/parametrizacion\/proveedores-soat\/([0-9a-f-]+)\/impacto$/;
-const RE_UNO = /\/api\/flito\/parametrizacion\/proveedores-soat\/([0-9a-f-]+)$/;
+const RE_LISTA = /\/api\/flito\/parametrizacion\/proveedores$/;
+const RE_IMPACTO = /\/api\/flito\/parametrizacion\/proveedores\/([0-9a-f-]+)\/impacto$/;
+const RE_UNO = /\/api\/flito\/parametrizacion\/proveedores\/([0-9a-f-]+)$/;
 
 const json = (route: Route, status: number, body: unknown) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
 const proveedor = (n: number, nombre: string, activo: boolean) => ({
-  id: UUID(n), nombre, estrategia: 'portal', umbralOcr: 0.8, slaHoras: 24, activo,
+  id: UUID(n), nombre, nit: `90000000${n}`, servicios: ['soat'], activo, companiasPorServicio: { soat: 0 }, datosCompletos: true,
+  umbralOcr: 0.8, slaHoras: 24, version: 1,
+});
+const detalle = (p: ReturnType<typeof proveedor>) => ({
+  ...p, telefono: '3000000000', correo: 'contacto@empresa.com', direccion: 'Calle 00 # 00-00', ciudad: 'Bogotá', contacto: 'Área de operaciones',
+  soat: { estrategia: 'portal', umbralOcr: p.umbralOcr, slaHoras: p.slaHoras },
 });
 
-/** Forma real de `ImpactoProveedorSoat` (flito-proveedores-estado.service.ts). */
-const impacto = (activo: boolean, soatEnCurso: number, companias: string[], motivo: string | null) => ({
-  activo, soatEnCurso,
-  companiasGestorPorDefecto: { cantidad: companias.length, nombres: companias },
-  usuariosAfectados: 0, puedeEliminar: motivo === null, motivoNoEliminable: motivo,
+/** Forma real de `ImpactoProveedorDto`. */
+const impacto = (activo: boolean, motivo: string | null) => ({
+  activo, version: 1, bloqueosPorServicio: {}, sesionesAfectadas: 0, puedeInactivar: true, motivoNoInactivable: null,
+  puedeEliminar: motivo === null, motivoNoEliminable: motivo,
 });
 
-const DUPLICADO = 'Ya existe un proveedor SOAT con el nombre Seguros Andinos.';
+const DUPLICADO = 'Ya existe un proveedor con ese nombre: Seguros Andinos';
 type Respuesta = { status: number; body: unknown } | 'abort';
 
 interface Montaje {
@@ -52,10 +57,10 @@ async function montar(page: Page, m: Montaje = {}) {
     proveedor(3, 'Sin Tramite', false), proveedor(4, 'Eliminable', false),
   ];
   const porDefecto: Record<number, ReturnType<typeof impacto>> = {
-    1: impacto(true, 0, [], 'Primero debe desactivarlo.'),
-    2: impacto(false, 4, [], 'Tiene 4 SOAT en curso.'),
-    3: impacto(false, 0, ['Alfa', 'Beta'], 'Es el proveedor de SOAT sin trámite de 2 compañías (Alfa, Beta).'),
-    4: impacto(false, 0, [], null),
+    1: impacto(true, 'Primero debe desactivarlo.'),
+    2: impacto(false, 'Tiene 4 SOAT en curso.'),
+    3: impacto(false, 'Es el proveedor de SOAT sin trámite de 2 compañías (Alfa, Beta).'),
+    4: impacto(false, null),
   };
   const deletes: string[] = [];
   const impactos: string[] = [];
@@ -87,7 +92,10 @@ async function montar(page: Page, m: Montaje = {}) {
       const r = m.editar?.() ?? { status: 200, body: {} };
       return r === 'abort' ? route.abort('failed') : json(route, r.status, r.body);
     }
-    if (metodo !== 'DELETE') return route.fallback();
+    if (metodo === 'GET') {
+      const p = lista.find((x) => x.id === id);
+      return p ? json(route, 200, detalle(p)) : json(route, 404, { error: 'No existe' });
+    }
     deletes.push(id);
     const r = m.eliminar?.() ?? { status: 200, body: { id, eliminado: true } };
     if (r === 'abort') return route.abort('failed');
@@ -114,7 +122,7 @@ async function abrirDialogo(page: Page, nombre = 'Eliminable') {
   await expect(dialogo(page)).toHaveAttribute('aria-label', `Eliminar «${nombre}»`);
 }
 
-test.describe('HU #13962 · Proveedores SOAT — eliminar y nombre duplicado', () => {
+test.describe('HU #13962 · Proveedores — eliminar y nombre duplicado', () => {
   test('AC1 — activo: «Eliminar» deshabilitada con «Primero debe desactivarlo.» sin pedir impacto', async ({ page }) => {
     await loginAdmin(page);
     const m = await montar(page);
@@ -171,10 +179,16 @@ test.describe('HU #13962 · Proveedores SOAT — eliminar y nombre duplicado', (
     await loginAdmin(page);
     const m = await montar(page, { crear: () => ({ status: 409, body: { error: DUPLICADO } }) });
     await page.getByRole('button', { name: /Nuevo proveedor/ }).click();
-    const nombre = dialogo(page).getByLabel('Nombre *');
+    const nombre = dialogo(page).getByLabel('Nombre de la empresa *');
     await nombre.fill('Seguros Andinos');
+    await dialogo(page).getByLabel('NIT *').fill('900123456-7');
+    await dialogo(page).getByLabel('Teléfono *').fill('3000000000');
+    await dialogo(page).getByLabel('Correo *').fill('contacto@empresa.com');
+    await dialogo(page).getByLabel('Dirección *').fill('Calle 00 # 00-00');
+    await dialogo(page).getByLabel('Ciudad *').fill('Bogotá');
+    await dialogo(page).getByLabel('Persona de contacto *').fill('Área de operaciones');
     await dialogo(page).getByLabel('Estrategia').fill('correo');
-    await dialogo(page).getByRole('button', { name: 'Guardar' }).click();
+    await dialogo(page).getByRole('button', { name: 'Crear proveedor' }).click();
     await expect(dialogo(page)).toBeVisible();
     await expect(nombre).toHaveAttribute('aria-invalid', 'true');
     await expect(nombre).toHaveAccessibleDescription(DUPLICADO);
@@ -192,7 +206,7 @@ test.describe('HU #13962 · Proveedores SOAT — eliminar y nombre duplicado', (
     await loginAdmin(page);
     await montar(page, { editar: () => ({ status: 409, body: { error: DUPLICADO } }) });
     await page.getByRole('button', { name: 'Editar Eliminable' }).click();
-    const nombre = dialogo(page).getByLabel('Nombre *');
+    const nombre = dialogo(page).getByLabel('Nombre de la empresa *');
     await nombre.fill('Seguros Andinos');
     await dialogo(page).getByRole('button', { name: 'Guardar' }).click();
     await expect(nombre).toHaveAccessibleDescription(DUPLICADO);

@@ -44,14 +44,18 @@ export function maskEmail(email: string | null | undefined): string {
 }
 
 /**
- * Enmascara teléfono: oculta los dígitos centrales.
- * - "3003427829" → "300***7829"
- * - "+57 300 342 7829" → mantiene formato pero enmascara dígitos
+ * Enmascara teléfono. Nunca lanza, y la parte visible está acotada a cualquier longitud:
+ * - 10 o más dígitos: primeros 3 y últimos 4. "3103334567" → "310***4567"
+ * - 5 a 9 dígitos (fijos, datos migrados): solo los últimos 2. "4441234" → "*****34"
+ * - hasta 4 dígitos: nada. "1234" → "****"
+ * - sin dígitos o vacío: ''
+ * Del valor original solo pueden salir dígitos: "+57 300 342 7829" → "573*****7829"
  */
 export function maskPhone(phone: string | null | undefined): string {
   if (!phone) return '';
   const digits = String(phone).replace(/\D/g, '');
   if (digits.length <= 4) return '*'.repeat(digits.length);
+  if (digits.length < 10) return '*'.repeat(digits.length - 2) + digits.slice(-2);
   return digits.slice(0, 3) + '*'.repeat(digits.length - 7) + digits.slice(-4);
 }
 

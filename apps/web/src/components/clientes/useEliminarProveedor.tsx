@@ -1,12 +1,12 @@
-// «Eliminar» del menú ⋮ de Proveedores (HU #13962). Gemelo de `useEliminarCliente` (#13956): mismo
+// «Eliminar» del menú ⋮ de Proveedores (HU #13962, #14337: un solo camino para cualquier servicio). Gemelo de `useEliminarCliente` (#13956): mismo
 // diseño (`docs/ux/clientes-menu-estado-13949-slim.md`, divisor + tono peligro) y mismos estados.
 //
 // El impacto se pide AL ABRIR el menú: el motivo debe verse ANTES de elegir la opción (AC1).
 //   activo   → deshabilitada con «Primero debe desactivarlo.» SIN pedir impacto: el front ya lo sabe.
 //   cargando → deshabilitada con «Comprobando…».
 //   listo    → habilitada si `puedeEliminar`; si no, deshabilitada con `motivoNoEliminable` tal cual
-//              (copy de producto del API: «Tiene 4 SOAT en curso.», «Es el proveedor de SOAT sin
-//              trámite de 2 compañías (Alfa, Beta).»).
+//              (copy de producto del API: «Tiene 4 SOAT en curso.», «No se puede eliminar. Logística: 2
+//              compañías asignadas.»).
 //   error    → habilitada como reintento: elegirla vuelve a comprobar sin cerrar el menú.
 //   403      → deshabilitada con «No tiene permiso para esta acción.». Contrato (#13956): el impacto
 //              exige `parametrizacion.proveedores.estado`, así que eliminar depende de estado.
@@ -18,9 +18,7 @@ import { useAuth } from '../../lib/auth';
 import { toastError, toastOk } from '../flit/ToastFlito';
 import type { OpcionMenuFila } from '../flit/MenuFila';
 import { DialogoEliminarRegistro } from './DialogoEliminarRegistro';
-
-/** Lo que este hook lee de `ImpactoProveedorSoat`. */
-interface ImpactoEliminar { puedeEliminar: boolean; motivoNoEliminable: string | null }
+import { RUTA_UNIFICADA, cargarImpactoProveedor } from './proveedoresDatos';
 
 export const MOTIVO_PROVEEDOR_ACTIVO = 'Primero debe desactivarlo.';
 
@@ -29,15 +27,13 @@ type EstadoComprobacion =
   | { fase: 'error'; sinPermiso: boolean }
   | { fase: 'listo'; puede: boolean; motivo: string | null };
 
-interface ProveedorFila { id: string; nombre: string; activo: boolean; tipo?: 'SOAT' | 'LOGISTICA' }
-
-const RUTA = '/flito/parametrizacion';
+interface ProveedorFila { id: string; nombre: string; activo: boolean }
 
 /**
- * 409 del DELETE de logística (HU #14162): con `companias` → tiene compañías vigentes; sin ellas → aún
- * lo referencia una compañía eliminada o un acta. Copy propio, nunca el texto del API.
+ * 409 del DELETE que llegó después de la comprobación: con `companias` → tiene compañías vigentes; «No se puede eliminar.…»
+ * → el motivo de `motivoNoEliminable`, que es copy de producto. El resto sigue la clasificación estándar del diálogo.
  */
-export function textoErrorEliminarLogistica(e: unknown): string | null {
+export function textoErrorEliminarProveedor(e: unknown): string | null {
   if (!(e instanceof ApiError) || e.status !== 409) return null;
   const cuerpo = e.rawDetails as { companias?: unknown } | null | undefined;
   if (Array.isArray(cuerpo?.companias) && cuerpo.companias.length > 0) {
@@ -46,7 +42,7 @@ export function textoErrorEliminarLogistica(e: unknown): string | null {
     const ver = nombres.slice(0, 3).join(', ');
     return `No se puede eliminar: está asignado a ${n} ${n === 1 ? 'compañía' : 'compañías'} (${n > 3 ? `${ver} y ${n - 3} más` : ver}). Asigne otro proveedor a esas compañías y vuelva a intentarlo.`;
   }
-  return 'No se puede eliminar: todavía figura en compañías dadas de baja o en actas de entrega. Puede desactivarlo para que deje de ofrecerse.';
+  return /^No se puede eliminar\. /.test(e.message.trim()) ? e.message.trim() : null;
 }
 
 interface Opciones<P extends ProveedorFila> {
@@ -69,11 +65,11 @@ export function useEliminarProveedor<P extends ProveedorFila>({ onEliminado, onD
     setComprobaciones((prev) => new Map(prev).set(id, e));
 
   const comprobar = (p: P) => {
-    if (!habilitado || p.activo || p.tipo === 'LOGISTICA') return;
+    if (!habilitado || p.activo) return;
     const n = (turno.current.get(p.id) ?? 0) + 1;
     turno.current.set(p.id, n);
     fijar(p.id, { fase: 'cargando' });
-    api.get<ImpactoEliminar>(`/flito/parametrizacion/proveedores-soat/${p.id}/impacto`)
+    cargarImpactoProveedor(p.id)
       .then((r) => {
         if (turno.current.get(p.id) === n) fijar(p.id, { fase: 'listo', puede: r.puedeEliminar, motivo: r.motivoNoEliminable });
       })
@@ -85,8 +81,6 @@ export function useEliminarProveedor<P extends ProveedorFila>({ onEliminado, onD
   const opciones = (p: P): OpcionMenuFila[] => {
     if (!habilitado) return [];
     const base = { id: 'eliminar', texto: 'Eliminar', tono: 'peligro' as const };
-    // Logística: sin comprobación previa; el DELETE responde con los motivos (409) y se dicen en el diálogo.
-    if (p.tipo === 'LOGISTICA') return [{ ...base, onElegir: () => setEliminarDe(p) }];
     if (p.activo) return [{ ...base, deshabilitada: true, motivo: MOTIVO_PROVEEDOR_ACTIVO, onElegir: () => {} }];
     const e = comprobaciones.get(p.id) ?? { fase: 'cargando' as const };
     if (e.fase === 'cargando') return [{ ...base, deshabilitada: true, motivo: 'Comprobando…', onElegir: () => {} }];
@@ -105,8 +99,8 @@ export function useEliminarProveedor<P extends ProveedorFila>({ onEliminado, onD
     <DialogoEliminarRegistro
       nombre={eliminarDe.nombre}
       sustantivo="proveedor"
-      confirmar={async () => { await api.delete(`${RUTA}/${eliminarDe.tipo === 'LOGISTICA' ? 'proveedores-logistica' : 'proveedores-soat'}/${eliminarDe.id}`); }}
-      textoError={eliminarDe.tipo === 'LOGISTICA' ? textoErrorEliminarLogistica : undefined}
+      confirmar={async () => { await api.delete(`${RUTA_UNIFICADA}/${eliminarDe.id}`); }}
+      textoError={textoErrorEliminarProveedor}
       onHecho={() => {
         const p = eliminarDe;
         setEliminarDe(null);

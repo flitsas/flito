@@ -1,7 +1,7 @@
 {
   "lineaBase": {
     "(sin-regla)": 18,
-    "@typescript-eslint/no-explicit-any": 1394,
+    "@typescript-eslint/no-explicit-any": 1391,
     "@typescript-eslint/no-namespace": 1,
     "@typescript-eslint/no-unused-expressions": 3,
     "@typescript-eslint/no-unused-vars": 157,
