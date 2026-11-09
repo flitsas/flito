@@ -38,7 +38,7 @@ export function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: (
   );
 }
 
-const PILL_OK = { background: 'rgba(112,207,58,0.14)', color: 'var(--flit-success)' } as const;
+const PILL_OK = { background: 'rgba(112,207,58,0.14)', color: 'var(--flit-success-text)' } as const;
 const PILL_NO = { background: 'rgba(89,103,125,0.14)', color: 'var(--flit-text-secondary)' } as const;
 
 export function ActaDetalleModal({ detalle, onClose, onPdf }: { detalle: ActaDetalle; onClose: () => void; onPdf?: () => void }) {
