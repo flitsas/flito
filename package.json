@@ -22,6 +22,8 @@
     "check:roles-web": "node scripts/check-roles-web.mjs",
     "check:pdf-worker": "node scripts/check-pdf-worker.mjs",
     "check:exemptions": "node scripts/check-exemptions.mjs",
+    "check:contrato-rutas": "node scripts/contratos/check-rutas-contrato.mjs",
+    "contrato:generar": "node --max-old-space-size=8192 scripts/contratos/generar-openapi.mjs",
     "lint": "eslint .",
     "smoke:prod": "bash scripts/smoke-prod.sh",
     "smoke:traspaso-gates": "bash scripts/smoke-traspaso-gates-prod.sh",

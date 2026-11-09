@@ -14,13 +14,13 @@ Monorepo **npm workspaces** (nunca pnpm, nunca yarn, nunca dotnet):
 |---|---|
 | `apps/api` | Express 4 + TypeScript **ESM** + **Drizzle ORM** + PostgreSQL + **Zod**. Módulos en `src/modules/<modulo>/` con el par `.routes.ts` / `.service.ts` (más `.cron.ts` opcional). Esquema en `src/db/schema.ts`, que es solo un barril de re-exportaciones: toda tabla nueva va en `src/db/schema/<dominio>.ts` (lo que dos o más de esos archivos evalúan al cargar, como enums compartidos o `bytea`, va en `src/db/schema/_comunes.ts`), migraciones en `src/db/migrations/`. Transversales en `src/shared/` (middleware `auth.ts`, `audit.ts`, `rateLimiter.ts`, `errorHandler.ts`, `pii-audit.ts`, `redis.ts`, `logger.ts` con pino, `metrics.ts`). Tests **Vitest + supertest** en `__tests__/` |
 | `apps/web` | Vite 5 + React 18.3 + **react-router-dom 6** + **Tailwind CSS 4** (`@tailwindcss/vite`). Páginas en `src/pages/`, cliente HTTP único en `src/lib/api.ts` (`BASE = '/api'`, token en `localStorage`, timeout 90 s). **No hay TanStack Query, ni Vitest, ni RTL**: los tests son **Playwright E2E** en `e2e/tests/` + `tsc --noEmit` |
-| `packages/shared-types` | Contrato de tipos entre ambos, importado como `@operaciones/shared-types`. **No hay OpenAPI**: el contrato vive aquí y en los documentos de diseño |
+| `packages/shared-types` | Contrato de tipos entre ambos, importado como `@operaciones/shared-types`. Hacia afuera, el contrato HTTP es `contracts/openapi/flito-api.v1.yaml`, **generado** desde `apps/api` con `npm run contrato:generar` (no se edita a mano); el CI falla si una ruta de Express no está en él |
 
 Infra en el repo: `docker-compose.yml` (local), `docker-compose.prod.yml` (legacy: el stack viejo de PDN, ya no se despliega), `scripts/`.
 **Ambientes (fuente de verdad: `.github/workflows/cd.yml`):** DEV y QA viven desde el 2026-10-18 en el **k3s de la 177** (namespaces `flito-dev` / `flito-qa`) y se despliegan por **GitOps**: el CD escribe los digests de imagen en el repo `flit-gitops` (`services/flito-<env>/kustomization.yaml`) y **Argo CD** los aplica (rollback = revertir ese commit). **PDN** también va por GitOps desde el 2026-10-23 (k3s de la 145, Argo CD sobre `flit-gitops`); no hay deploy por SSH en ningún ambiente. `ecosystem.config.cjs` (PM2) es **legacy**: no se usa en ningún ambiente.
 Dependencias externas ya integradas (la barra para añadir otra es alta): PostgreSQL, Redis, MinIO/S3, Google Drive API, OCR (Tesseract + motor Anthropic), firma digital (`@signpdf`), RUNT/RNDC.
 
-**No existen aquí:** Next.js / App Router, .NET / C# / EF Core, Prisma / TypeORM, Clean Architecture por capas (`Domain/`, `Application/`), `services/core-api/`, `contracts/openapi/`, `frontend/`, `.cursor/workflows/`. Si un prompt menciona algo de eso, es contexto de otro proyecto: dilo y pide aclaración.
+**No existen aquí:** Next.js / App Router, .NET / C# / EF Core, Prisma / TypeORM, Clean Architecture por capas (`Domain/`, `Application/`), `services/core-api/`, `frontend/`, `.cursor/workflows/`. Si un prompt menciona algo de eso, es contexto de otro proyecto: dilo y pide aclaración.
 
 ## Convención de módulos FLITO
 

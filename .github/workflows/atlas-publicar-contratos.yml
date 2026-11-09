@@ -1,0 +1,83 @@
+name: Contratos → Flit Atlas
+
+# Publica los contratos de FLITO en Flit Atlas con el workflow reutilizable de flit-atlas (atlas-publicar.yml, ATLAS-ADR-0035
+# de Atlas). Un job por contrato:
+#   - pull_request: solo valida (vacuum y oasdiff breaking contra la rama release o la rama base).
+#   - push a develop, staging o release (y workflow_dispatch): valida y publica con el token OIDC de GitHub Actions, sin
+#     secretos. develop publica X.Y.Z-dev.<sha7>, staging X.Y.Z-rc.<sha7> y release la versión estable X.Y.Z.
+#   - staging marca el canal qa y release el canal pdn en el Atlas central (ATLAS_URL).
+#   - contratos-qa: desde staging, publica además en el Atlas de QA (ATLAS_URL_QA), como el CD de flit-atlas (ATLAS-ADR-0052).
+# Sin ATLAS_URL solo valida; sin ATLAS_URL_QA, contratos-qa se omite.
+#
+# La versión es info.version del spec: súbela cuando cambie el contrato (en release, un spec distinto con la misma versión
+# falla; un breaking sin subir la MAJOR falla siempre). flito-api.v1.yaml se genera: npm run contrato:generar.
+#
+# flito-api va con lint: advertencia porque quedan errores que no se arreglan en el contrato sino con una decisión: rutas
+# públicas que escriben (login, webhooks) y rutas con token en la URL (magic links, QR). flit2-integracion cumple lo compartible.
+
+on:
+  push:
+    branches: [develop, staging, release]
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/atlas-publicar-contratos.yml'
+  pull_request:
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/atlas-publicar-contratos.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: atlas-contratos-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  contrato:
+    name: ${{ matrix.contrato }} (${{ matrix.tipo }})
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix: &contratos
+        include:
+          # breaking: advertencia: contrato inferido del código, sin clientes externos, y cada rama genera el suyo. Sin esto, las rutas
+          # de develop que aún no están en release cuentan como incompatibles y nada se publica.
+          - { contrato: flito-api, aplicativo: flito-api, tipo: openapi, ruta: contracts/openapi/flito-api.v1.yaml, ruleset: interno, lint: advertencia, breaking: advertencia }
+          - { contrato: flit2-integracion, aplicativo: flito-api, tipo: openapi, ruta: contracts/openapi/flit2-integracion.v1.yaml, ruleset: compartible, lint: error }
+    uses: flitsas/flit-atlas/.github/workflows/atlas-publicar.yml@v1
+    with:
+      aplicativo: ${{ matrix.aplicativo }}
+      contrato: ${{ matrix.contrato }}
+      tipo: ${{ matrix.tipo }}
+      ruta: ${{ matrix.ruta }}
+      version: ${{ matrix.version || '' }}
+      ruleset: ${{ matrix.ruleset || '' }}
+      modo_lint: ${{ matrix.lint || 'error' }}
+      modo_breaking: ${{ matrix.breaking || 'error' }}
+      atlas_url: ${{ vars.ATLAS_URL }}
+      ambiente: ${{ github.ref_name == 'staging' && 'qa' || github.ref_name == 'release' && 'pdn' || '' }}
+
+  contratos-qa:
+    name: QA · ${{ matrix.contrato }} (${{ matrix.tipo }})
+    if: github.ref_name == 'staging' && github.event_name != 'pull_request' && vars.ATLAS_URL_QA != ''
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix: *contratos
+    uses: flitsas/flit-atlas/.github/workflows/atlas-publicar.yml@v1
+    with:
+      aplicativo: ${{ matrix.aplicativo }}
+      contrato: ${{ matrix.contrato }}
+      tipo: ${{ matrix.tipo }}
+      ruta: ${{ matrix.ruta }}
+      version: ${{ matrix.version || '' }}
+      ruleset: ${{ matrix.ruleset || '' }}
+      modo_lint: ${{ matrix.lint || 'error' }}
+      modo_breaking: ${{ matrix.breaking || 'error' }}
+      atlas_url: ${{ vars.ATLAS_URL_QA }}
+      ambiente: qa
