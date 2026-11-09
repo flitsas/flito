@@ -11,10 +11,11 @@
 //       con los nombres de las compañías (nombre empresarial, sin datos de contacto).
 //   · RN-PLOGC-4 — `proveedorDeCompania` es el resolvedor único que consumirá el Feature de viajes a cliente.
 //   · Las compañías con la logística encendida al migrar quedan SIN proveedor (no hay proveedor por defecto).
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, or } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { clients, flitoProveedores, flitoProveedoresLogistica } from '../../db/schema.js';
+import { clients, flitoLogisticaDocumentos, flitoProveedores, flitoProveedoresLogistica } from '../../db/schema.js';
 import { clienteVigente } from '../clients/cliente-operable.js';
+import { sinActaAbierta } from '../flito-logistica/flito-logistica.base.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /** La conexión o una transacción abierta. */
@@ -74,6 +75,29 @@ export async function exigirProveedorLogisticaUsable(tx: Tx, id: string): Promis
     .from(flitoProveedoresLogistica).where(and(eq(flitoProveedoresLogistica.id, id), isNull(flitoProveedoresLogistica.deletedAt))).for('share').limit(1);
   if (!perfil) throw new ProveedorLogisticaNoUsableError(NO_EXISTE, 'no_existe');
   if (!padre.activo) throw new ProveedorLogisticaNoUsableError(`El proveedor de logística ${padre.nombre} está inactivo: elige otro.`, 'inactivo');
+}
+
+/**
+ * HU #14346 (ADR-0039 §6.3, R16). En la transacción del PATCH, antes del UPDATE de `clients`: toma la compañía
+ * `FOR UPDATE` y pasa al proveedor recibido sus LT no entregadas y sin acta abierta. Devuelve cuántas pasó. Si el proveedor
+ * cambia, va después de `exigirProveedorLogisticaUsable`: padre → perfil → cliente → licencias. Nadie toma el padre o el perfil después
+ * del cliente: el escaneo y el registro de viaje, con el cliente `FOR SHARE`, solo piden `FOR KEY SHARE` por el FK, y
+ * quien toma el perfil `FOR UPDATE` (inactivar, retirar el servicio, eliminar) lee `clients` sin bloqueo.
+ *
+ * El UPDATE toca todo dueño distinto del recibido, no solo el anterior o NULL (§6.3): con A → sin proveedor → B, el
+ * anterior es NULL y la LT de A quedaría con A para siempre, sin poder entrar a ningún viaje. También corre al reenviar
+ * el mismo proveedor: es el procedimiento de reavance tras una reversa de imagen (§5.5). Con datos consistentes pasa 0.
+ */
+export async function reasignarLicenciasDeCompania(tx: Tx, companiaId: number, nuevoId: string): Promise<number> {
+  const [c] = await tx.select({ id: clients.id }).from(clients)
+    .where(and(eq(clients.id, companiaId), clienteVigente())).for('update');
+  if (!c) return 0;
+  const D = flitoLogisticaDocumentos;
+  const pasadas = await tx.update(D).set({ proveedorLogisticaId: nuevoId, updatedAt: new Date() }).where(and(
+    eq(D.companiaId, companiaId), eq(D.tipo, 'licencia_transito'), ne(D.estado, 'entregado'), sinActaAbierta,
+    or(isNull(D.proveedorLogisticaId), ne(D.proveedorLogisticaId, nuevoId)),
+  )).returning({ id: D.id });
+  return pasadas.length;
 }
 
 /** RN-PLOGC-3. Nombres de las compañías VIGENTES que tienen a este proveedor asignado (vacío = se puede inactivar). */

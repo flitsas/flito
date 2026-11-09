@@ -21,7 +21,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import {
-  clients, users, organismosTransitoConfig, flitoLogisticaActas, flitoLogisticaDocumentos, flitoTarifasVigencias,
+  clients, users, organismosTransitoConfig, flitoLogisticaActas, flitoLogisticaDocumentos, flitoProveedoresLogistica, flitoTarifasVigencias,
 } from '../schema.js';
 
 /** Catálogo de motivos por los que una LT llega a FLIT. Único por `lower(nombre)` (índice SQL). */
@@ -159,7 +159,10 @@ export const flitoLogisticaRecogidaFirmantes = pgTable('flito_logistica_recogida
   firmadoEn: timestamp('firmado_en', { withTimezone: true }).notNull().defaultNow(),
   lat: numeric('lat', { precision: 10, scale: 7 }),
   lng: numeric('lng', { precision: 10, scale: 7 }),
+  /** ADR-0039 §6.3: el proveedor si todas sus LT son del mismo; si no, NULL (solo Operaciones). */
+  proveedorLogisticaId: uuid('proveedor_logistica_id').references(() => flitoProveedoresLogistica.id, { onDelete: 'restrict' }),
 }, (t) => ({
+  proveedorIdx: index('idx_flito_log_recogida_firmantes_proveedor').on(t.proveedorLogisticaId),
   registradoIdx: index('idx_flito_log_recogida_firmantes_registrado').on(t.registradoPorId, t.firmadoEn),
   organismoIdx: index('idx_flito_log_recogida_firmantes_organismo').on(t.organismoCodigo),
   ultimosCk: check('ck_flito_log_recogida_firmantes_ultimos', sql`${t.documentoUltimos} IS NULL OR char_length(${t.documentoUltimos}) <= 4`),

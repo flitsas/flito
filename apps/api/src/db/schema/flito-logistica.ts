@@ -85,7 +85,7 @@ export const flitoLogisticaDocumentos = pgTable('flito_logistica_documentos', {
   combustible: varchar('combustible', { length: 30 }),
   // Foto del propietario embebida en el código (JPEG), subida a storage.
   fotoStorageKey: varchar('foto_storage_key', { length: 400 }),
-  actaId: uuid('acta_id').references(() => flitoLogisticaActas.id), recogidaFirmanteId: uuid('recogida_firmante_id'),
+  actaId: uuid('acta_id').references(() => flitoLogisticaActas.id), recogidaFirmanteId: uuid('recogida_firmante_id'), proveedorLogisticaId: uuid('proveedor_logistica_id').references(() => flitoProveedoresLogistica.id, { onDelete: 'restrict' }), // ADR-0039 §6.3: dueño de la LT; NULL = solo Operaciones.
   /** INDICADOR (no bloqueo): true = falta el acta de organismo de la LT. Backfill 0276: false solo en las ya entregadas. */
   actaOrganismoPendiente: boolean('acta_organismo_pendiente').notNull().default(true),
   // Motivo de la última novedad/devolución (obligatorio en esos estados, RN-04).
@@ -98,7 +98,7 @@ export const flitoLogisticaDocumentos = pgTable('flito_logistica_documentos', {
   tramiteTipoUnico: uniqueIndex('uq_flito_log_doc_tramite_tipo').on(t.tramiteId, t.tipo),
   estadoIdx: index('idx_flito_log_doc_estado').on(t.estado),
   companiaIdx: index('idx_flito_log_doc_compania').on(t.companiaId),
-  actaIdx: index('idx_flito_log_doc_acta').on(t.actaId), tramiteCompaniaCk: check('ck_flito_log_doc_tramite_compania', sql`${t.tramiteId} IS NOT NULL OR ${t.companiaId} IS NULL`), pendienteUq: uniqueIndex('uq_flito_log_doc_vehiculo_pendiente').on(t.vehiculoId, t.tipo).where(sql`${t.tramiteId} IS NULL`),
+  actaIdx: index('idx_flito_log_doc_acta').on(t.actaId), proveedorIdx: index('idx_flito_log_doc_proveedor').on(t.proveedorLogisticaId), numeroLicenciaIdx: index('idx_flito_log_doc_numero_licencia').on(t.numeroLicencia), tramiteCompaniaCk: check('ck_flito_log_doc_tramite_compania', sql`${t.tramiteId} IS NOT NULL OR ${t.companiaId} IS NULL`), pendienteUq: uniqueIndex('uq_flito_log_doc_vehiculo_pendiente').on(t.vehiculoId, t.tipo).where(sql`${t.tramiteId} IS NULL`),
 }));
 
 // Idempotencia de las escrituras de campo (RN-06/CA-06): la PWA del mensajero encola escrituras

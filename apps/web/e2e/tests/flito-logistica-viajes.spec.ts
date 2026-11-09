@@ -40,7 +40,7 @@ const FACETAS = {
   estados: ['pendiente', 'registrada', 'despachada', 'entregada', 'novedad'],
   empresas: [{ nit: '900111', nombre: 'Concesionario Norte' }],
   organismos: [{ codigo: '05001', nombre: 'STT Medellín' }],
-  companiasCerrables: [], mensajeros: [{ id: 9, nombre: 'Mensajero E2E' }],
+  companiasCerrables: [], mensajeros: [{ id: 9, nombre: 'Mensajero E2E', proveedorId: null }],
 };
 
 interface Viaje {

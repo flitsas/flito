@@ -30,13 +30,14 @@ const { audit } = await import('../../src/shared/middleware/audit.js');
 const svc = await import('../../src/modules/flito-logistica/flito-logistica.service.js');
 const { default: logisticaRoutes } = await import('../../src/modules/flito-logistica/flito-logistica.routes.js');
 
-const ctx = { userId: 1, username: 'op', role: 'admin', operaAjenas: true };
-const txObj = { select: selectMock, insert: insertMock, update: updateMock, delete: vi.fn() };
+const OPS = { enlace: 'ninguno' } as const;
+const ctx = { userId: 1, username: 'op', role: 'admin', operaAjenas: true, alcance: OPS };
+const txObj = { select: selectMock, insert: insertMock, update: updateMock, delete: vi.fn(), execute: vi.fn().mockResolvedValue([]) };
 const RAW = '10038156339 C.C. 1053786950 MUÑOZ GOMEZ EMMANUEL DAVID CLL 112 N 47A 08 MANIZALES 7 /9j/4AAQSkZJRgABAQEA QOX858 LRWYGCFJ0TC496126 LRWYGCFJ0TC496126 352026000097934 ELECTRICO';
 
 const fila = (over: Record<string, unknown> = {}) => ({
   tramiteId: 't1', idFlit: 'F1', organismoCodigo: '05001', companiaId: 5, companiaNit: '900', companiaNombre: 'ACME',
-  vehiculoId: 9, vin: 'LRWYGCFJ0TC496126', autogestionable: false, docId: null, ...over,
+  vehiculoId: 9, vin: 'LRWYGCFJ0TC496126', docId: null, ...over,
 });
 
 let insertados: Array<Record<string, unknown>>;
@@ -48,7 +49,7 @@ function insertCapturando(rows: unknown[]) {
 
 beforeEach(() => {
   insertados = [];
-  selectMock.mockReset();
+  selectMock.mockReset().mockReturnValue(chain([]));
   insertMock.mockReset().mockImplementation(() => insertCapturando([]));
   updateMock.mockReset().mockReturnValue(chain([]));
   transactionMock.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(txObj));
@@ -69,12 +70,15 @@ describe('escanearLt por vehículo (HU #14142)', () => {
   });
 
   it('AC2: varios aprobados sin LT → elegir_tramite con candidatos, NO crea nada', async () => {
-    lecturas([], [fila(), fila({ tramiteId: 't2', idFlit: 'F2', companiaId: 6, companiaNombre: 'OTRA', autogestionable: true })]);
+    lecturas([], [fila(), fila({ tramiteId: 't2', idFlit: 'F2', companiaId: 6, companiaNombre: 'OTRA' })]);
     const r = await svc.escanearLt(RAW, null, {}, ctx);
     expect(r.resultado).toBe('elegir_tramite');
+    // Este resultado se guarda en la tabla de idempotencia y no crea documento: no lleva lo leído del titular (Ley 1581).
+    expect(r).not.toHaveProperty('propietarioNombre');
+    expect(r).not.toHaveProperty('numeroLicencia');
     expect(r.candidatos).toEqual([
-      { tramiteId: 't1', idFlit: 'F1', companiaNombre: 'ACME', organismoCodigo: '05001', gestionable: true },
-      { tramiteId: 't2', idFlit: 'F2', companiaNombre: 'OTRA', organismoCodigo: '05001', gestionable: false },
+      { tramiteId: 't1', idFlit: 'F1', companiaNombre: 'ACME', organismoCodigo: '05001' },
+      { tramiteId: 't2', idFlit: 'F2', companiaNombre: 'OTRA', organismoCodigo: '05001' },
     ]);
     expect(transactionMock).not.toHaveBeenCalled();
     expect(insertMock).not.toHaveBeenCalled();
@@ -165,11 +169,11 @@ describe('escanearLt por vehículo (HU #14142)', () => {
   });
 
   it('AC7: mismo numeroLicencia ya registrado → duplicado, sin crear ni ofrecer otro trámite', async () => {
-    selectMock.mockReturnValueOnce(chain([{ id: 'dPrevio' }]));
+    selectMock.mockReturnValueOnce(chain([{ id: 'dPrevio', propia: true }]));
     const r = await svc.escanearLt(RAW, 'LT-9', {}, ctx);
     expect(r).toMatchObject({ resultado: 'duplicado', documentoId: 'dPrevio' });
     expect(r.candidatos).toBeUndefined();
-    expect(selectMock).toHaveBeenCalledTimes(1);
+    expect(selectMock).toHaveBeenCalledTimes(2); // HU #14348: las dos consultas corren siempre
     expect(transactionMock).not.toHaveBeenCalled();
   });
 
@@ -180,10 +184,11 @@ describe('escanearLt por vehículo (HU #14142)', () => {
     expect(transactionMock).not.toHaveBeenCalled();
   });
 
-  it('autogestionable elegido → no_gestionable, no crea', async () => {
-    lecturas([], [fila({ autogestionable: true })]);
-    const r = await svc.escanearLt(RAW, null, {}, ctx);
-    expect(r.resultado).toBe('no_gestionable');
+  it('HU #14348: un trámite sin compañía o sin organismo conserva su mensaje específico, sin escribir', async () => {
+    lecturas([], [fila({ companiaId: null })]);
+    expect((await svc.escanearLt(RAW, null, {}, ctx)).motivo).toMatch(/no tiene compañía/);
+    lecturas([], [fila({ organismoCodigo: null })]);
+    expect((await svc.escanearLt(RAW, null, {}, ctx)).motivo).toMatch(/no tiene organismo/);
     expect(transactionMock).not.toHaveBeenCalled();
   });
 });
@@ -191,9 +196,9 @@ describe('escanearLt por vehículo (HU #14142)', () => {
 describe('validarLt por vehículo (HU #14142)', () => {
   it('varios candidatos → elegir_tramite; número ya registrado → ya_registrada', async () => {
     lecturas([], [fila(), fila({ tramiteId: 't2' })]);
-    expect((await svc.validarLt(RAW)).resultado).toBe('elegir_tramite');
-    selectMock.mockReturnValueOnce(chain([{ id: 'd' }]));
-    expect((await svc.validarLt(RAW)).resultado).toBe('ya_registrada');
+    expect((await svc.validarLt(RAW, OPS)).resultado).toBe('elegir_tramite');
+    selectMock.mockReturnValueOnce(chain([{ id: 'd', propia: true }]));
+    expect((await svc.validarLt(RAW, OPS)).resultado).toBe('ya_registrada');
   });
 });
 
@@ -230,7 +235,7 @@ describe('ingreso manual (placa + n.º de licencia + sustrato LT) — HU #14142'
   });
 
   it('manual: numeroLicencia ya registrado → duplicado; placa sin trámite → sin_match', async () => {
-    selectMock.mockReturnValueOnce(chain([{ id: 'dPrevio' }]));
+    selectMock.mockReturnValueOnce(chain([{ id: 'dPrevio', propia: true }]));
     expect(await svc.escanearLt(MANUAL, null, {}, ctx)).toMatchObject({ resultado: 'duplicado', documentoId: 'dPrevio' });
     lecturas([], []);
     expect((await svc.escanearLt(MANUAL, null, {}, ctx)).resultado).toBe('sin_match');
@@ -248,17 +253,17 @@ describe('consultarVehiculo — HU #14142', () => {
       fila({ organismoNombre: 'Tránsito Medellín', marca: 'BYD', linea: 'Dolphin', modelo: 2026 }),
       fila({ tramiteId: 'conLt', docId: 'x' }),
     ]));
-    const r = await svc.consultarVehiculo('qox-858');
+    const r = await svc.consultarVehiculo('qox-858', OPS);
     expect(r).toEqual({ encontrado: true, candidatos: [{
-      tramiteId: 't1', idFlit: 'F1', companiaNombre: 'ACME', organismoCodigo: '05001', gestionable: true,
+      tramiteId: 't1', idFlit: 'F1', companiaNombre: 'ACME', organismoCodigo: '05001',
       vin: 'LRWYGCFJ0TC496126', organismoNombre: 'Tránsito Medellín', vehiculo: { marca: 'BYD', linea: 'Dolphin', modelo: 2026 },
     }] });
   });
   it('sin trámites pendientes (o todos con LT) → {encontrado:false}', async () => {
     selectMock.mockReturnValueOnce(chain([]));
-    expect(await svc.consultarVehiculo('QOX858')).toEqual({ encontrado: false });
+    expect(await svc.consultarVehiculo('QOX858', OPS)).toEqual({ encontrado: false });
     selectMock.mockReturnValueOnce(chain([fila({ docId: 'x' })]));
-    expect(await svc.consultarVehiculo('QOX858')).toEqual({ encontrado: false });
+    expect(await svc.consultarVehiculo('QOX858', OPS)).toEqual({ encontrado: false });
   });
 });
 
@@ -330,7 +335,7 @@ describe('HU #14147 — organismo y compañía en la respuesta del escaneo y la 
     expect(r).toMatchObject({ resultado: 'duplicado', organismoCodigo: '05001', companiaNombre: 'ACME' });
   });
   it('escanear duplicado por n.º de licencia ya registrado: los trae del documento', async () => {
-    selectMock.mockReturnValueOnce(chain([{ id: 'dY', organismoCodigo: '11001', companiaNombre: 'BETA' }]));
+    selectMock.mockReturnValueOnce(chain([{ id: 'dY', organismoCodigo: '11001', companiaNombre: 'BETA', propia: true }]));
     const r = await svc.escanearLt(RAW, null, {}, ctx);
     expect(r).toMatchObject({ resultado: 'duplicado', documentoId: 'dY', organismoCodigo: '11001', companiaNombre: 'BETA' });
   });
@@ -342,9 +347,9 @@ describe('HU #14147 — organismo y compañía en la respuesta del escaneo y la 
   });
   it('validar relacionada y ya_registrada traen organismo y compañía', async () => {
     lecturas([], [fila()]);
-    expect(await svc.validarLt(RAW)).toMatchObject({ resultado: 'relacionada', organismoCodigo: '05001', companiaNombre: 'ACME' });
-    selectMock.mockReturnValueOnce(chain([{ id: 'dY', organismoCodigo: '11001', companiaNombre: 'BETA' }]));
-    expect(await svc.validarLt(RAW)).toMatchObject({ resultado: 'ya_registrada', organismoCodigo: '11001', companiaNombre: 'BETA' });
+    expect(await svc.validarLt(RAW, OPS)).toMatchObject({ resultado: 'relacionada', organismoCodigo: '05001', companiaNombre: 'ACME' });
+    selectMock.mockReturnValueOnce(chain([{ id: 'dY', organismoCodigo: '11001', companiaNombre: 'BETA', propia: true }]));
+    expect(await svc.validarLt(RAW, OPS)).toMatchObject({ resultado: 'ya_registrada', organismoCodigo: '11001', companiaNombre: 'BETA' });
   });
   it('elegir_tramite: cada candidato ya trae organismo y compañía', async () => {
     lecturas([], [fila(), fila({ tramiteId: 't2', companiaNombre: 'OTRA' })]);

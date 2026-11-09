@@ -64,8 +64,9 @@ type Insercion = { tabla: unknown; valores: unknown };
 let inserciones: Insercion[];
 let sets: unknown[];
 
-/** select de la tx en orden: documentos, [propias], líneas de organismo ya existentes. */
+/** select de la tx en orden: compañías, documentos, [propias], líneas de organismo ya existentes. */
 function tx(opts: { docs?: unknown[]; propias?: unknown[]; yaEn?: unknown[]; falla23505?: boolean } = {}) {
+  selectMock.mockReturnValueOnce(chain([])); // compañías de las licencias (HU #14346): vacío evita el bloqueo del cliente
   selectMock.mockReturnValueOnce(chain(opts.docs ?? DOCS));
   if (opts.propias) selectMock.mockReturnValueOnce(chain(opts.propias));
   selectMock.mockReturnValueOnce(chain(opts.yaEn ?? []));

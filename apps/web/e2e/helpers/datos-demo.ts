@@ -1073,7 +1073,7 @@ export const LOGISTICA_FACETAS_DEMO = {
       ],
     },
   ],
-  mensajeros: [{ id: 51, nombre: NOMBRES_DEMO[4] }],
+  mensajeros: [{ id: 51, nombre: NOMBRES_DEMO[4], proveedorId: null }],
 };
 
 export const LOGISTICA_ACTAS_DEMO = [

@@ -33321,8 +33321,6 @@ paths:
                               type:
                                 - string
                                 - "null"
-                            gestionable:
-                              type: boolean
                           required:
                             - vin
                             - organismoNombre
@@ -33331,7 +33329,6 @@ paths:
                             - idFlit
                             - companiaNombre
                             - organismoCodigo
-                            - gestionable
                     required:
                       - encontrado
                       - candidatos
@@ -34269,9 +34266,14 @@ paths:
                           type: number
                         nombre:
                           type: string
+                        proveedorId:
+                          type:
+                            - string
+                            - "null"
                       required:
                         - id
                         - nombre
+                        - proveedorId
                 required:
                   - estados
                   - empresas
@@ -37119,7 +37121,6 @@ paths:
                       - novedad
                       - relacionada
                       - sin_match
-                      - no_gestionable
                       - ya_registrada
                       - elegir_tramite
                   placa:
@@ -37155,14 +37156,11 @@ paths:
                           type:
                             - string
                             - "null"
-                        gestionable:
-                          type: boolean
                       required:
                         - tramiteId
                         - idFlit
                         - companiaNombre
                         - organismoCodigo
-                        - gestionable
                   organismoCodigo:
                     type:
                       - string

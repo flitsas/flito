@@ -226,6 +226,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} POST /validar-lt`, 'logistica.lt.validar', 'Validar un número de guía', 'Comprobar que la guía de transporte existe y corresponde.'),
   op(`${LOG} POST /consultar-vehiculo`, 'logistica.documento.escanear', 'Escanear un documento en campo', 'Registrar el paso de un documento leyendo su código de barras.'),
   op(`${LOG} POST /escanear`, 'logistica.documento.escanear', 'Escanear un documento en campo', 'Registrar el paso de un documento leyendo su código de barras.'),
+  // HU #14348 (ADR-0039 §7.3): guarda en línea, según el cuerpo. Sin `dejarPendiente`, basta `escanear`.
+  op(`${LOG} POST /escanear [dejarPendiente]`, 'logistica.documento.dejar_pendiente', 'Dejar una licencia pendiente de trámite', 'Registrar una licencia sin elegir su trámite, cuando el vehículo tiene varios, para que Operaciones lo resuelva después.'),
   // HU #14110 (ADR-0030 §17): función NUEVA para confirmar la recogida y consultar mis recogidas (ya no `escanear`).
   op(`${LOG} POST /recogidas/confirmar`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
   op(`${LOG} GET /recogidas/mias`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),

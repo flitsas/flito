@@ -106,6 +106,20 @@ test.describe('Logística — Enviar a cliente', () => {
     await expect(page.getByRole('alert')).toContainText('Alguna LT ya no está en FLIT.');
     await expect(page.getByText('TrasladoOrigenMixtoError')).toHaveCount(0);
   });
+
+  test('409 LT_DE_OTRO_PROVEEDOR (HU #14350): copy propio, nunca el texto del API', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER, { funciones: FUN });
+    await mockBase(page);
+    const crudo = 'Una o más LT no son del proveedor actual de la compañía';
+    await page.route(/\/api\/flito\/logistica\/traslados$/, (r) =>
+      r.request().method() === 'POST' ? r.fulfill(json({ error: crudo, codigo: 'LT_DE_OTRO_PROVEEDOR', detalle: { documentoIds: ['doc-fl-1'] } }, 409)) : r.fallback());
+    await page.goto('/flito/logistica');
+    await page.getByRole('button', { name: /^Viajes/ }).first().click();
+    await page.getByRole('button', { name: 'Enviar a cliente' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Enviar a cliente' }).click();
+    await expect(page.getByRole('alert')).toContainText('Alguna LT ya no es del proveedor actual de la compañía.');
+    await expect(page.getByText(crudo)).toHaveCount(0);
+  });
 });
 
 test.describe('Logística — Anular viaje', () => {

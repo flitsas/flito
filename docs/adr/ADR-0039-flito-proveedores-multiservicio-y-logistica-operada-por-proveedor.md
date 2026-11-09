@@ -316,8 +316,10 @@ sequenceDiagram
 | Entrega | Rollback (revertir el digest) |
 |---|---|
 | F1-F3 | Limpio. La imagen vieja lee perfiles sincronizados. Un usuario de un proveedor **solo de logística** queda con la columna vieja en NULL y falla cerrado |
-| F4 | Limpio. Las columnas nuevas se ignoran; la frontera vuelve a cerrar a `proveedor` en logística |
+| F4 | **Revertir es limpio, volver a avanzar no.** Al revertir, las columnas nuevas se ignoran y la frontera vuelve a cerrar a `proveedor` en logística. Pero la imagen vieja no estampa ni reasigna el dueño: las LT que toque quedan con dueño `NULL` o desfasado, y el backfill no se repite. Al avanzar otra vez, AC3 las rechaza con 409 y una sola hace fallar `cerrarLote` de su compañía. Exige el reavance descrito abajo |
 | **F5** | **No reversible sin restaurar.** Con `pg_dump` previo; solo cuando F4 lleve un tiempo estable en PDN |
+
+**Reavance de F4 tras una reversa:** por cada compañía afectada, reenviar su mismo proveedor (`PATCH /api/flito/parametrizacion/companias/:id` con `proveedorLogisticaId`), que aplica la regla de §6.3 y con datos consistentes no reasigna nada. La pantalla de clientes no reenvía un proveedor sin cambios (`ServiciosCliente.tsx`), así que es una llamada directa al API. Si son muchas compañías, una **migración nueva** con el mismo `UPDATE`; el backfill ya aplicado no se edita.
 
 **F5 (contract):** deja de leer las columnas viejas, migra los lectores, elimina triggers, `nombre`/`activo`/`nit`/`contacto`/`telefono` de los perfiles, `estrategia` de logística, `users.flito_proveedor_soat_id`. También actualiza `users_ambito_requerido` si aún la nombra y retira las rutas `proveedores-soat`/`proveedores-logistica` que queden.
 
@@ -367,7 +369,7 @@ Falla cerrado. Mismo cuerpo que hoy. La tabla `FRONTERA_POR_ENLACE` sigue siendo
 | LT pendiente | `NULL`: solo Operaciones (R20) |
 | `registrarTraslado` | Exige dueño = proveedor actual; estampa el acta con él (ya lo hace) |
 | `confirmarRecogida` | Estampa el acta de organismo (hoy queda NULL). El firmante recibe el proveedor si todas sus LT son del mismo; si no, `NULL` |
-| **Cambio de proveedor (R16)** | En la transacción del PATCH: `UPDATE` de LT de esa compañía con dueño anterior o `NULL`, estado distinto de `entregado` y **sin acta abierta** (`generada`/`despachada`). Quitar el proveedor (→ NULL) no reasigna |
+| **Cambio de proveedor (R16)** | En la transacción del PATCH: `UPDATE` de LT de esa compañía con **todo dueño distinto del nuevo**, incluido `NULL`, estado distinto de `entregado` y **sin acta abierta** (`generada`/`despachada`). No basta con «dueño anterior o `NULL`»: con A → sin proveedor → B el anterior es `NULL`, y la LT de A quedaría con A para siempre, sin poder entrar a ningún viaje (validado por QA). Reenviar el mismo proveedor aplica la misma regla (§5.5). Quitar el proveedor (→ NULL) no reasigna |
 | **Cierre de un acta abierta** | `pasarAlProveedorVigente(tx, docIds)` tras `entregarTraslado`, `firmarLlegadaFlit`, `devolverTraslado`, `anularTraslado`, `entregar`, `registrarDevolucion`, `reversar`: lo no entregado va al proveedor actual, si hay uno |
 
 **Bloqueos sin interbloqueo:** el cliente antes que las LT, `FOR UPDATE` en el PATCH y `FOR SHARE` en escaneo y registro de viaje.
@@ -513,14 +515,14 @@ sequenceDiagram
 // shared-types
 export const MENSAJE_LT_NO_ENCONTRADA = 'No se encontró un trámite para esta licencia';
 
-// Único constructor. Solo devuelve lo que el usuario envió o lo que trae el código que tiene en la mano.
+// Único constructor. Identifica lo leído para reintentarlo; no devuelve el nombre del propietario (Ley 1581).
 const noEncontrado = (l: Lectura): ResultadoEscaneo => ({
   resultado: 'sin_match', motivo: MENSAJE_LT_NO_ENCONTRADA,
-  placa: l.placa, vin: l.vin ?? '', numeroLicencia: l.numeroLicencia, propietarioNombre: l.propietarioNombre,
+  placa: l.placa, vin: l.vin ?? '', numeroLicencia: l.numeroLicencia,
 });
 ```
 
-Siempre HTTP 200, misma forma, sin `idFlit`, `companiaNombre`, `organismoCodigo`, `documentoId` ni `candidatos`. El motivo real (`inexistente`, `fuera_de_alcance`, `no_gestionada`, `lt_ajena`) se escribe solo en `audit().detail`, sin PII, para soporte.
+Siempre HTTP 200, misma forma, sin `idFlit`, `companiaNombre`, `organismoCodigo`, `documentoId`, `candidatos` ni `propietarioNombre`. La web, que necesita el nombre para mostrar la tarjeta del escaneo, lo saca de su propio parseo del código. El motivo real (`inexistente`, `fuera_de_alcance`, `no_gestionada`, `lt_ajena`) se escribe solo en `audit().detail`, sin PII, para soporte.
 
 ### 8.4 Matriz de casos
 
@@ -556,6 +558,8 @@ Siempre HTTP 200, misma forma, sin `idFlit`, `companiaNombre`, `organismoCodigo`
 ### 8.7 Idempotencia
 
 `/escanear`, `/novedad`, `/actas/:id/entregar` y `/actas/:id/devolucion` pasan `ruta` a `conIdempotencia`: la clave queda `usuarioId:ruta:cabecera`. Efecto: un reenvío offline de una clave vieja, en el momento del despliegue, se ejecuta una vez más; los índices de la operación lo contienen. Por eso entra en F4.1, antes de abrir.
+
+**`sin_match` no se persiste.** `flito_logistica_idempotencia.response` es jsonb sin cifrar y sin purga, y un `sin_match` no escribió nada: guardarlo solo dejaría placa, VIN y número de licencia de algo que FLITO no gestiona. Su reenvío vuelve a decidir, sin escribir si nada cambió. Si entretanto apareció un trámite gestionable, el reenvío lo registra, que es lo correcto: la licencia ya es gestionable. Cada reenvío deja su línea de auditoría.
 
 ---
 
@@ -741,6 +745,7 @@ Todas tienen un valor por defecto en el diseño, que se aplica si se aprueba tal
 | **D4** | ¿El proveedor ve el **precio** que FLITO cobra a la compañía? | **No.** | Las respuestas actuales lo incluyen. Es dato comercial |
 | **D5** | Si dos filas repetidas son **la misma empresa**, ¿cómo se unen? R22 prohíbe la fusión automática, pero no dice qué sigue | **Sin decidir por ahora:** se decide con el caso concreto si la comprobación previa lo muestra (decisión del humano, reemplaza el valor inicial de renombrar) | Unir exige reapuntar compañías, usuarios y actas. Si el preflight no lista nada, esta decisión no aplica |
 | **D6** | ¿Hay un **instrumento legal** con cada proveedor como encargado del tratamiento (Ley 1581)? | Fuera del código. Sugerencia: confirmar con jurídica/cumplimiento antes de operar F4.2 en PDN | Un tercero tratará firmas y cédulas |
+| **D7** | Un usuario con enlace `compania` en `POST /actas/:id/despachar`: ¿qué mensajeros puede asignar? **Pendiente del humano antes de F4.2** | **Sin decidir.** Hoy recibe la regla de Operaciones, por decisión del agente que lo implementó, no del humano. `security-agent` recomienda fallar cerrado | La regla de Operaciones es la más amplia (§6.2, R14), y ese enlace no es Operaciones |
 
 Valores que **no** se preguntan porque salen de las reglas o se pueden cambiar en el panel: `dejar_pendiente` solo a `admin` (literal de R20; el mensajero de FLITO lo pierde y el administrador puede concederlo), roles creados por el administrador.
 
