@@ -266,7 +266,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor"], heredada: false },
   // HU #14148: impacto y baja de proveedores de logística, y listado unificado (mismas funciones que los de SOAT).
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "GET", ruta: "/:id/impacto", roles: ["admin"], heredada: false },
-  // HU #14332–#14335: gestión unificada de proveedores (ADR-0039 §7.1); `historial` es la única función nueva (0293).
+  // HU #14332–#14335: gestión unificada de proveedores (ADR-0039 §7.1); `historial` es la única función nueva (0294).
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores.routes.ts", metodo: "GET", ruta: "/selector", roles: ["admin","auditor"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores.routes.ts", metodo: "GET", ruta: "/asignables-usuario", roles: ["admin","auditor"], heredada: false },
