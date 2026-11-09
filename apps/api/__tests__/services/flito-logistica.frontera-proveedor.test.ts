@@ -26,7 +26,7 @@ const PROV = '14346000-0000-4000-8000-000000000001';
 const ID = '14346000-0000-4000-8000-0000000000aa';
 const FUNCIONES = ['logistica.consola.ver', 'logistica.consola.filtrar', 'logistica.documento.escanear', 'logistica.traslado.registrar', 'logistica.actas.despachar',
   'logistica.documento.resolver_tramite', 'logistica.documento.reversar', 'logistica.lote.cerrar', 'logistica.viajes.ver', 'logistica.viajes.registrar', 'logistica.viajes.quitar',
-  'logistica.actas.firmar_flit', 'logistica.ruta.ver', 'logistica.actas.listar'];
+  'logistica.actas.firmar_flit', 'logistica.ruta.ver', 'logistica.actas.listar', 'logistica.actas.ver_documento_firmante'];
 const llamar = async (metodo: 'get' | 'post' | 'delete', ruta: string, cuerpo: object = {}) => {
   const app = express();
   app.use(express.json());
@@ -55,6 +55,7 @@ describe('apertura del módulo al usuario de proveedor', () => {
     ['get', '/pendientes-tramite'], ['get', `/documentos/${ID}/candidatos-tramite`], ['post', `/documentos/${ID}/resolver-tramite`],
     ['post', `/documentos/${ID}/reversar`], ['post', '/cerrar-lote'], ['get', `/tramites/${ID}/viajes`], ['post', `/tramites/${ID}/viajes`],
     ['post', '/viajes/masivo'], ['delete', `/tramites/${ID}/viajes/${ID}`],
+    ['post', `/recogidas/${ID}/documento`], // H5 (§9.5): la cédula completa del funcionario no sale al proveedor
   ] as const)('%s %s sigue cerrada: 403, con la función', async (metodo, ruta) => {
     const r = await llamar(metodo, ruta);
     expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);

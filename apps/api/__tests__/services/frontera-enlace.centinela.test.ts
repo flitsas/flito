@@ -370,7 +370,7 @@ const RUTAS_13426: [string, Decision][] = [
   ['GET /api/flito/logistica/recogidas/mias',                                  'soloSinEnlaceOProveedor'], // HU #14110
   ['GET /api/flito/logistica/recogidas/pendientes-firma',                       'soloSinEnlaceOProveedor'], // HU #14147
   ['GET /api/flito/logistica/recogidas/:firmanteId',                           'soloSinEnlaceOProveedor'], // HU #14110
-  ['POST /api/flito/logistica/recogidas/:firmanteId/documento',                'soloSinEnlaceOProveedor'], // HU #14110: la función no se siembra (§6.5, H5)
+  ['POST /api/flito/logistica/recogidas/:firmanteId/documento',                'soloSinEnlace'], // H5 (§9.5): cerrada al proveedor por security-agent
   ['GET /api/flito/logistica/tramites/:tramiteId/viajes',                      'cerradaAlProveedor'], // D3
   ['POST /api/flito/logistica/tramites/:tramiteId/viajes',                     'cerradaAlProveedor'], // D3
   ['POST /api/flito/logistica/viajes/masivo',                                  'cerradaAlProveedor'], // D3

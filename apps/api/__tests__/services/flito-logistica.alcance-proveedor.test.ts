@@ -9,13 +9,14 @@ import { registrarUsuarioDePrueba, soloEstas, testToken } from '../helpers/auth.
 import { conAlcance } from '../helpers/frontera.js';
 import type { crearCaptura } from '../helpers/alcance-captura.js';
 
-const h = vi.hoisted(() => ({ cap: null as unknown as ReturnType<typeof crearCaptura>, audit: vi.fn().mockResolvedValue(undefined) }));
+const h = vi.hoisted(() => ({ cap: null as unknown as ReturnType<typeof crearCaptura>, audit: vi.fn().mockResolvedValue(undefined), pii: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../../src/db/client.js', async () => {
   const { crearCaptura: crear } = await import('../helpers/alcance-captura.js');
   h.cap = crear();
   return { db: h.cap.db, getPoolStats: vi.fn() };
 });
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: h.audit }));
+vi.mock('../../src/shared/pii-audit.js', () => ({ logPiiAccess: h.pii, logPiiAccessOrThrow: h.pii }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 vi.mock('../../src/services/storage.js', () => ({
   uploadEntityDocument: vi.fn().mockResolvedValue('k'), presignedGetEntityDocument: vi.fn().mockResolvedValue('https://u'), getEntityDocumentStream: vi.fn(),
@@ -46,7 +47,7 @@ const wheres = () => h.cap.sqlDeWheres().filter((w) => !w.sql.includes('"users".
 const escrituras = () => h.cap.consultas.filter((c) => c.tipo !== 'select' && c.tipo !== 'selectDistinct');
 const url = (r: string) => `/api/flito/logistica${r}`;
 
-beforeEach(() => { h.cap.reset(); h.audit.mockClear(); });
+beforeEach(() => { h.cap.reset(); h.audit.mockClear(); h.pii.mockClear(); });
 
 describe('AC2 — lectura ajena: 404, con el cuerpo de lo inexistente', () => {
   const LECTURAS: [string, 'get' | 'post', string, object][] = [
@@ -57,7 +58,6 @@ describe('AC2 — lectura ajena: 404, con el cuerpo de lo inexistente', () => {
     ['línea de tiempo de la LT', 'get', `/documentos/${ID}/linea-tiempo`, { error: 'La LT no existe' }],
     ['línea de tiempo del trámite', 'get', `/tramites/${ID}/linea-tiempo`, { error: 'El trámite no existe' }],
     ['recogida', 'get', `/recogidas/${ID}`, { error: 'La recogida no existe', codigo: 'RECOGIDA_NO_ENCONTRADA' }],
-    ['cédula del firmante', 'post', `/recogidas/${ID}/documento`, { error: 'El documento del firmante no está disponible', codigo: 'DOCUMENTO_NO_DISPONIBLE' }],
   ];
   it.each(LECTURAS)('%s', async (_n, metodo, ruta, cuerpo) => {
     deA();
@@ -226,5 +226,60 @@ describe('Rutas que la compañía conserva cerradas (P-2): el nuevo enlace no se
     const r = await request(await app())[metodo](url(ruta)).set('Authorization', await como('compania')).send({});
     expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);
     expect(h.cap.consultas).toEqual([]);
+  });
+});
+
+describe('Regla 16 (security H-B2) — PII en las listas del proveedor', () => {
+  const ACTA = { id: ID, companiaId: 1, companiaNombre: 'Cía', proveedorLogisticaId: A, estado: 'entregada', mensajeroId: null, mensajeroNombre: null,
+    receptorNombre: 'Ana Receptora', entregadoEn: null, creadoEn: new Date('2026-11-01T00:00:00Z'), punto: 'cliente', trasladoId: null, documentos: 1, mensajeroProveedorId: null };
+
+  it('GET /actas: el proveedor recibe `receptorNombre` nulo, con la misma forma', async () => {
+    deA(); h.cap.responder([ACTA]);
+    const r = await request(await app()).get(url('/actas')).set('Authorization', await como('proveedor'));
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveLength(1);
+    expect(r.body[0]).toHaveProperty('receptorNombre', null);
+    expect(r.text).not.toContain('Ana Receptora');
+  });
+
+  it('GET /actas: Operaciones (sin enlace) sigue recibiendo el nombre del receptor', async () => {
+    h.cap.responder([ACTA]);
+    const r = await request(await app()).get(url('/actas')).set('Authorization', await como('ninguno'));
+    expect(r.status).toBe(200);
+    expect(r.body[0]).toHaveProperty('receptorNombre', 'Ana Receptora');
+  });
+
+  const FIRMANTE = { firmanteId: ID2, organismoCodigo: '05001', nombre: 'Funcionario Demo', ultimos: '3456', firmadoEn: new Date('2026-11-01T00:00:00Z'), actas: 1, pendientes: 0 };
+
+  it('GET /recogidas/mias: con filas, el proveedor deja una entrada en pii_access_log con los ids en `motivo`', async () => {
+    deA(); h.cap.responder([FIRMANTE]);
+    const r = await request(await app()).get(url('/recogidas/mias')).set('Authorization', await como('proveedor'));
+    expect(r.status).toBe(200);
+    expect(r.body.recogidas.map((x: { nombre: string }) => x.nombre)).toEqual(['Funcionario Demo']);
+    expect(h.pii).toHaveBeenCalledTimes(1);
+    expect(h.pii.mock.calls[0]![1]).toMatchObject({ resourceTipo: 'flito_logistica_recogida_firmante', accion: 'read', camposAccedidos: ['nombre', 'documento_ultimos'], motivo: `firmantes:1:${ID2}` });
+  });
+
+  it('GET /recogidas/mias: sin filas no registra nada', async () => {
+    deA();
+    const r = await request(await app()).get(url('/recogidas/mias')).set('Authorization', await como('proveedor'));
+    expect([r.status, r.body.recogidas]).toEqual([200, []]);
+    expect(h.pii).not.toHaveBeenCalled();
+  });
+
+  it('GET /recogidas/mias: `motivo` no pasa de varchar(200) aunque vengan 100 firmantes, y conserva el conteo', async () => {
+    deA(); h.cap.responder(Array.from({ length: 100 }, (_, i) => ({ ...FIRMANTE, firmanteId: `${ID2.slice(0, -3)}${String(i).padStart(3, '0')}` })));
+    const r = await request(await app()).get(url('/recogidas/mias')).set('Authorization', await como('proveedor'));
+    expect(r.status).toBe(200);
+    const motivo = (h.pii.mock.calls[0]![1] as { motivo: string }).motivo;
+    expect(motivo.length).toBeLessThanOrEqual(200);
+    expect(motivo.startsWith('firmantes:100:')).toBe(true);
+  });
+
+  it('GET /recogidas/mias: Operaciones (sin enlace) no pasa por este registro', async () => {
+    h.cap.responder([FIRMANTE]);
+    const r = await request(await app()).get(url('/recogidas/mias')).set('Authorization', await como('ninguno'));
+    expect(r.status).toBe(200);
+    expect(h.pii).not.toHaveBeenCalled();
   });
 });

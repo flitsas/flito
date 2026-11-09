@@ -590,7 +590,14 @@ router.post('/recogidas/confirmar', soloSinEnlaceOProveedor(), exigirFuncion('lo
 // cédula enmascarada ••••1234). Antes de `/:firmanteId` para que `mias` no se tome por un id.
 router.get('/recogidas/mias', soloSinEnlaceOProveedor(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
   const r = await ejecutar(res, async () => { const ctx = await ctxConPropiedad(req); return { recogidas: await misRecogidas(ctx), pendientesFirma: await contarPendientesFirma(ctx) }; });
-  if (r !== undefined) res.json(r);
+  if (r === undefined) return;
+  // Regla 16 (security H-B2): con `operaAjenas` el tercero lee el nombre de los firmantes de su proveedor. Una entrada por
+  // lectura, solo si trae filas; `motivo` es varchar(200): el conteo siempre, los ids hasta donde quepan. Falla abierto (bandeja).
+  if (req.frontera?.enlace === 'proveedor' && r.recogidas.length > 0) {
+    await logPiiAccess(req, { resourceTipo: 'flito_logistica_recogida_firmante', accion: 'read', camposAccedidos: ['nombre', 'documento_ultimos'],
+      motivo: `firmantes:${r.recogidas.length}:${r.recogidas.map((x) => x.firmanteId).join(',')}`.slice(0, 200) });
+  }
+  res.json(r);
 });
 // GET /recogidas/pendientes-firma — HU #14147: mis LT escaneadas cuya acta de organismo sigue pendiente (se firman con
 // POST /recogidas/confirmar). Sin filtros ni placa en la URL; la placa solo sale en la respuesta, nunca en audit/logs.
@@ -610,9 +617,9 @@ router.get('/recogidas/:firmanteId', soloSinEnlaceOProveedor(), exigirFuncion('l
 
 // POST /recogidas/:firmanteId/documento — cédula COMPLETA del firmante (PII). Función propia, rateLimiter y
 // registro de acceso (`logPiiAccess`); el uuid va en `motivo` porque resource_id es integer.
-// HU #14351 (§6.5, valor por defecto del ADR): abierta al proveedor, la función NO se le siembra. Es una lectura: lo ajeno es 404 igual que lo purgado.
-// Pendiente de `security-agent` (H5, §9.5): si se cierra al proveedor, basta cambiar esta guarda por `soloSinEnlace()`.
-router.post('/recogidas/:firmanteId/documento', soloSinEnlaceOProveedor(), exigirFuncion('logistica.actas.ver_documento_firmante'), revelarDocumentoLimiter, async (req: Request, res: Response) => {
+// HU #14351 (§9.5, H5): CERRADA a cualquier enlace, también al proveedor aunque tenga la función — decisión de `security-agent`
+// por minimización (Ley 1581): el proveedor ya ve la cédula enmascarada en GET /recogidas/:id. Lo ajeno es 404 igual que lo purgado.
+router.post('/recogidas/:firmanteId/documento', soloSinEnlace(), exigirFuncion('logistica.actas.ver_documento_firmante'), revelarDocumentoLimiter, async (req: Request, res: Response) => {
   const id = z.string().uuid().safeParse(req.params.firmanteId);
   if (!id.success) { res.status(404).json({ error: 'El documento del firmante no está disponible' }); return; }
   const alcance = await alcanceDe(req);

@@ -341,6 +341,8 @@ export async function listarActas(alcance: AlcanceResuelto = SIN_ENLACE): Promis
     ...r,
     ...(alcance.enlace === 'proveedor' ? {} : { proveedorLogisticaId }),
     mensajeroNombre: ajenoAlProveedor(alcance, mensajeroProveedorId) ? null : r.mensajeroNombre,
+    // Regla 16 (security H-B2): la lista no lleva el nombre del receptor al proveedor (nulo, misma forma); el detalle lo registra.
+    receptorNombre: alcance.enlace === 'proveedor' ? null : r.receptorNombre,
     punto: r.punto as ActaFila['punto'],
     trasladoId: r.trasladoId ?? null,
     estadoLabel: ESTADO_ACTA_LOGISTICA_LABEL[r.estado as keyof typeof ESTADO_ACTA_LOGISTICA_LABEL] ?? r.estado,

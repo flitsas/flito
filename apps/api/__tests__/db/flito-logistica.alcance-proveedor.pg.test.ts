@@ -200,8 +200,9 @@ describe.skipIf(!URL_BASE)('alcance del proveedor (PostgreSQL, tx con ROLLBACK)'
         expect(x.status, ajena).toBe(404);
         cuerpoIgual(x, y);
       }
+      // H5 (§9.5): la cédula completa está cerrada al proveedor; ajena e inexistente responden el mismo 403.
       const x = await enviar(m, `/recogidas/${f}/documento`, m.tokenA);
-      expect(x.status).toBe(404);
+      expect(x.status).toBe(403);
       cuerpoIgual(x, await enviar(m, `/recogidas/${INEXISTENTE}/documento`, m.tokenA));
     }));
 
@@ -296,9 +297,10 @@ describe.skipIf(!URL_BASE)('alcance del proveedor (PostgreSQL, tx con ROLLBACK)'
       expect((await obtener(m, `/actas/${actaOrganismo}`, m.tokenA)).status).toBe(200);
       const logPii = async () => (await m.tx`SELECT count(*)::int c FROM pii_access_log WHERE resource_tipo = 'flito_logistica_recogida_firmante'`)[0]!.c as number;
       const antes = await logPii();
+      // H5 (§9.5): ni la propia cédula completa sale al proveedor, aunque tenga la función; no hay lectura que registrar.
       const cedula = await enviar(m, `/recogidas/${r.body.firmanteId}/documento`, m.tokenA);
-      expect([cedula.status, cedula.body.documento]).toEqual([200, '123456']);
-      expect(await logPii()).toBe(antes + 1);
+      expect([cedula.status, cedula.text.includes('123456')]).toEqual([403, false]);
+      expect(await logPii()).toBe(antes);
 
       const dev = await m.viaje(ciaA, m.A, { estado: 'despachada', mensajero: m.mensajeroA });
       const enRuta = await m.lt(ciaA, m.A, { actaId: dev.acta, estado: 'despachado' });
