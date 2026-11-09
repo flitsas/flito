@@ -63,6 +63,7 @@ export default function TabEntregas({ onViajeAnulado }: TabEntregasProps = {}) {
   const { hasFuncion } = useAuth();
   const [sinPermisoAnular, setSinPermisoAnular] = useState(false);
   const puedeAnular = hasFuncion('logistica.traslado.anular') && !sinPermisoAnular;
+  const puedeRegistrar = hasFuncion('logistica.traslado.registrar');
   const [anulando, setAnulando] = useState<FilaEntregaLogistica | null>(null);
   const disparador = useRef<HTMLButtonElement | null>(null);
   const [placa, setPlaca] = useState('');
@@ -123,7 +124,6 @@ export default function TabEntregas({ onViajeAnulado }: TabEntregasProps = {}) {
               className={flitInp}
               placeholder="Placa"
               value={placa}
-              disabled={cargando}
               autoComplete="off"
               onChange={(e) => setPlaca(e.target.value)}
             />
@@ -174,13 +174,13 @@ export default function TabEntregas({ onViajeAnulado }: TabEntregasProps = {}) {
       )}
 
       {carga === 'error403' && (
-        <p className="mt-4 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+        <p className="mt-4 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
           No tiene permiso para ver los viajes.
         </p>
       )}
 
       {carga === 'error' && (
-        <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+        <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
           <p className="flex-1">No se pudieron cargar los viajes. Inténtelo de nuevo.</p>
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setIntento((n) => n + 1)}>
             Reintentar
@@ -191,7 +191,9 @@ export default function TabEntregas({ onViajeAnulado }: TabEntregasProps = {}) {
       {carga === 'ok' && viajes.length === 0 && !conFiltro && (
         <div className="mt-4">
           <FlitEmpty>
-            Aún no hay viajes. Regístrelos en Viajes: cuando queden registrados, aparecen aquí.
+            {puedeRegistrar
+              ? 'Aún no hay viajes. Regístrelos en Viajes: cuando queden registrados, aparecen aquí.'
+              : 'Aún no hay viajes registrados. Cuando los registren, aparecen aquí.'}
           </FlitEmpty>
         </div>
       )}
