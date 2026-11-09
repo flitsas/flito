@@ -5904,6 +5904,8 @@ paths:
                         type:
                           - string
                           - "null"
+                      telefono:
+                        type: string
                       direccion:
                         type:
                           - string
@@ -5913,8 +5915,6 @@ paths:
                           - string
                           - "null"
                       zona:
-                        type: string
-                      telefono:
                         type: string
                       telefonoAlternativo:
                         type:
@@ -5930,10 +5930,10 @@ paths:
                       - tipo
                       - id
                       - email
+                      - telefono
                       - direccion
                       - observaciones
                       - zona
-                      - telefono
                       - telefonoAlternativo
                       - prioridad
                 required:
@@ -44790,7 +44790,7 @@ paths:
                 type: object
                 properties:
                   extraccion:
-                    "$ref": "#/components/schemas/Forma-a314dbd8cf"
+                    "$ref": "#/components/schemas/Forma-b8a95ca624"
                 required:
                   - extraccion
         "400":
@@ -45525,7 +45525,7 @@ paths:
                 type: object
                 properties:
                   extraccion:
-                    "$ref": "#/components/schemas/Forma-a314dbd8cf"
+                    "$ref": "#/components/schemas/Forma-b8a95ca624"
                   lectura:
                     type: string
                     enum:
@@ -54968,6 +54968,8 @@ paths:
                     type:
                       - string
                       - "null"
+                  version:
+                    type: number
                   phone:
                     type:
                       - string
@@ -54980,8 +54982,6 @@ paths:
                     type:
                       - string
                       - "null"
-                  version:
-                    type: number
                   createdBy:
                     type:
                       - number
@@ -55085,10 +55085,10 @@ paths:
                   - updatedAt
                   - id
                   - email
+                  - version
                   - phone
                   - address
                   - city
-                  - version
                   - createdBy
                   - kind
                   - docType
@@ -56844,9 +56844,9 @@ paths:
                     format: date-time
                   id:
                     type: number
-                  userId:
-                    type: number
                   version:
+                    type: number
+                  userId:
                     type: number
                   createdBy:
                     type: number
@@ -56897,8 +56897,8 @@ paths:
                   - createdAt
                   - updatedAt
                   - id
-                  - userId
                   - version
+                  - userId
                   - createdBy
                   - updatedBy
                   - observaciones
@@ -58016,10 +58016,10 @@ paths:
                     format: date-time
                   id:
                     type: number
-                  sha256:
-                    type: string
                   version:
                     type: number
+                  sha256:
+                    type: string
                   createdBy:
                     type: number
                   titulo:
@@ -58057,8 +58057,8 @@ paths:
                 required:
                   - createdAt
                   - id
-                  - sha256
                   - version
+                  - sha256
                   - createdBy
                   - titulo
                   - contenidoMd
@@ -74025,6 +74025,8 @@ paths:
                     format: date-time
                   id:
                     type: number
+                  nit:
+                    type: string
                   estado:
                     type: string
                     enum:
@@ -74038,8 +74040,6 @@ paths:
                       - string
                       - "null"
                   razonSocial:
-                    type: string
-                  nit:
                     type: string
                   contactoNombre:
                     type:
@@ -74079,11 +74079,11 @@ paths:
                   - createdAt
                   - updatedAt
                   - id
+                  - nit
                   - estado
                   - createdBy
                   - observaciones
                   - razonSocial
-                  - nit
                   - contactoNombre
                   - contactoEmail
                   - contactoTelefono
@@ -78486,6 +78486,8 @@ paths:
                     format: date-time
                   id:
                     type: number
+                  version:
+                    type: number
                   estado:
                     type: string
                     enum:
@@ -78498,8 +78500,6 @@ paths:
                     type:
                       - string
                       - "null"
-                  version:
-                    type: number
                   createdBy:
                     type: number
                   titulo:
@@ -78547,10 +78547,10 @@ paths:
                   - createdAt
                   - updatedAt
                   - id
+                  - version
                   - estado
                   - vigenciaDesde
                   - vigenciaHasta
-                  - version
                   - createdBy
                   - titulo
                   - contenidoMd
@@ -82428,6 +82428,10 @@ paths:
                         type:
                           - string
                           - "null"
+                      telefono:
+                        type:
+                          - string
+                          - "null"
                       direccion:
                         type:
                           - string
@@ -82437,10 +82441,6 @@ paths:
                           - number
                           - "null"
                       notas:
-                        type:
-                          - string
-                          - "null"
-                      telefono:
                         type:
                           - string
                           - "null"
@@ -82466,10 +82466,10 @@ paths:
                       - updatedAt
                       - id
                       - email
+                      - telefono
                       - direccion
                       - createdBy
                       - notas
-                      - telefono
                       - tipoDoc
                       - documento
                       - ciudadDane
@@ -85104,23 +85104,23 @@ paths:
                         type:
                           - string
                           - "null"
-                      clientId:
+                      telefono:
                         type:
-                          - number
+                          - string
                           - "null"
                       direccion:
                         type:
                           - string
+                          - "null"
+                      clientId:
+                        type:
+                          - number
                           - "null"
                       createdBy:
                         type:
                           - number
                           - "null"
                       notas:
-                        type:
-                          - string
-                          - "null"
-                      telefono:
                         type:
                           - string
                           - "null"
@@ -85146,11 +85146,11 @@ paths:
                       - updatedAt
                       - id
                       - email
-                      - clientId
+                      - telefono
                       - direccion
+                      - clientId
                       - createdBy
                       - notas
-                      - telefono
                       - tipoDoc
                       - documento
                       - ciudadDane
@@ -87147,6 +87147,10 @@ paths:
                         type:
                           - string
                           - "null"
+                      telefono:
+                        type:
+                          - string
+                          - "null"
                       direccion:
                         type:
                           - string
@@ -87156,10 +87160,6 @@ paths:
                           - number
                           - "null"
                       notas:
-                        type:
-                          - string
-                          - "null"
-                      telefono:
                         type:
                           - string
                           - "null"
@@ -87190,10 +87190,10 @@ paths:
                       - tipo
                       - id
                       - email
+                      - telefono
                       - direccion
                       - createdBy
                       - notas
-                      - telefono
                       - tipoDoc
                       - documento
                       - ciudadDane
@@ -89380,6 +89380,14 @@ paths:
                     format: date-time
                   id:
                     type: number
+                  telefono:
+                    type:
+                      - string
+                      - "null"
+                  contacto:
+                    type:
+                      - string
+                      - "null"
                   createdBy:
                     type:
                       - number
@@ -89392,10 +89400,6 @@ paths:
                     type:
                       - string
                       - "null"
-                  telefono:
-                    type:
-                      - string
-                      - "null"
                   routeId:
                     type:
                       - number
@@ -89403,10 +89407,6 @@ paths:
                   capacidad:
                     type:
                       - number
-                      - "null"
-                  contacto:
-                    type:
-                      - string
                       - "null"
                   protocoloMd:
                     type:
@@ -89422,13 +89422,13 @@ paths:
                   - createdAt
                   - updatedAt
                   - id
+                  - telefono
+                  - contacto
                   - createdBy
                   - lat
                   - lng
-                  - telefono
                   - routeId
                   - capacidad
-                  - contacto
                   - protocoloMd
                   - servicios
         "400":
@@ -110291,16 +110291,16 @@ paths:
                       type:
                         - string
                         - "null"
-                    companiaId:
-                      type:
-                        - number
-                        - "null"
                     deletedAt:
                       type:
                         - string
                         - "null"
                       format: date-time
                     deletedBy:
+                      type:
+                        - number
+                        - "null"
+                    companiaId:
                       type:
                         - number
                         - "null"
@@ -110317,9 +110317,9 @@ paths:
                     - allowedPages
                     - transitoCodigo
                     - flitoProveedorSoatId
-                    - companiaId
                     - deletedAt
                     - deletedBy
+                    - companiaId
         "400":
           description: Petición inválida.
           content:
@@ -111814,8 +111814,9 @@ paths:
                             - allowed_pages
                             - transito_codigo
                             - flito_proveedor_soat_id
-                            - compania_id
+                            - flito_proveedor_id
                             - deleted_at
+                            - compania_id
                             - funciones
                             - organismos_codigos
                             - conjunto
@@ -122546,38 +122547,6 @@ components:
         - total
         - limit
         - offset
-    Forma-a314dbd8cf:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        vin:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        placa:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        direccion:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        municipio:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        departamento:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        numeroFactura:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        fechaFactura:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        tipoDocumento:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        numeroDocumento:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        razonSocial:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        nombres:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        apellidos:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        celular:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        valorVehiculo:
-          "$ref": "#/components/schemas/Forma-2795a98920"
     Forma-a6edf62c95:
       description: Forma que comparten varias operaciones.
       type: object
@@ -123245,6 +123214,38 @@ components:
         - saldo
         - ultimaRecargaValor
         - ultimaRecargaEn
+    Forma-b8a95ca624:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        direccion:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        vin:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        placa:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        municipio:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        departamento:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        numeroFactura:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        fechaFactura:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        tipoDocumento:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        numeroDocumento:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        razonSocial:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        nombres:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        apellidos:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        celular:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        valorVehiculo:
+          "$ref": "#/components/schemas/Forma-2795a98920"
     Forma-b8ce431176:
       description: Forma que comparten varias operaciones.
       type: object
