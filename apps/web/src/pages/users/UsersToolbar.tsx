@@ -40,7 +40,7 @@ export default function UsersToolbar({ rol, onRol, vistaBajas, onVistaBajas, rol
 
   return (
     <div
-      className="flex flex-col gap-4 bg-white px-4 py-4"
+      className="flex flex-col gap-4 bg-flit-card px-4 py-4"
       style={{ borderRadius: 'var(--flit-radius-card)', boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' }}
     >
       <div className="flex flex-wrap items-end justify-between gap-3">

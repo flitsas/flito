@@ -2,37 +2,23 @@
 //
 // HU #14336 y #14337 (ADR-0039 §7.1): la gestión habla con `/flito/parametrizacion/proveedores`, que entrega una identidad
 // por proveedor con sus servicios. El servidor cuenta las compañías y los bloqueos; la web no cruza catálogos.
-// El selector de la compañía sigue en `proveedores-logistica`, que convive hasta F5.
+// HU #14342 y #14344 (ADR-0039 §7.1 y §14): los selectores de asignación piden `/proveedores/selector?servicio=`, que
+// entrega solo los activos con ese servicio. Por eso aquí no hay filtro de inactivos ni cruce de catálogos.
 
 import { useCallback, useEffect, useState } from 'react';
 import {
   SERVICIOS_PROVEEDOR, SERVICIO_PROVEEDOR_LABEL,
-  type ImpactoProveedorDto, type ProveedorDetalleDto, type ProveedorListaItemDto, type ServicioProveedor,
+  type ImpactoProveedorDto, type ProveedorDetalleDto, type ProveedorListaItemDto, type ProveedorSelectorItemDto, type ServicioProveedor,
 } from '@operaciones/shared-types';
 import { api } from '../../lib/api';
 
-export type TipoProveedor = 'SOAT' | 'LOGISTICA';
-
-/** Fila del selector de logística de la compañía. La gestión de proveedores usa los DTO de `shared-types`. */
-export interface Proveedor {
-  id: string; tipo: TipoProveedor; nombre: string; activo: boolean;
-  /** Solo SOAT. */
-  estrategia: string | null; umbralOcr: number | null; slaHoras: number | null;
-  /** Solo Logística. */
-  nit: string | null; contacto: string | null; telefono: string | null;
-  /** Compañías vigentes asignadas (lo cuenta el servidor). */
-  companiasAsignadas: number;
-}
-
-export const aProveedorLogistica = (p: any): Proveedor => ({
-  id: String(p.id), tipo: 'LOGISTICA', nombre: p.nombre, activo: !!p.activo,
-  estrategia: null, umbralOcr: null, slaHoras: null,
-  nit: p.nit ?? null, contacto: p.contacto ?? null, telefono: p.telefono ?? null,
-  companiasAsignadas: Number(p.companiasAsignadas ?? 0),
-});
-
-export const RUTA_LOGISTICA = '/flito/parametrizacion/proveedores-logistica';
 export const RUTA_UNIFICADA = '/flito/parametrizacion/proveedores';
+
+/**
+ * Fila de un selector de asignación. El API solo devuelve activos y sin `activo`; se marca aquí para que
+ * `opcionesConEstado` los trate igual que a un asignado inactivo que la pantalla agrega aparte.
+ */
+export interface ProveedorOfrecido extends ProveedorSelectorItemDto { activo: boolean }
 
 /** Listado de gestión: sin teléfono, correo, dirección ni contacto. */
 export const cargarProveedores = () => api.get<ProveedorListaItemDto[]>(RUTA_UNIFICADA);
@@ -80,19 +66,36 @@ export function fraseImpacto(i: Pick<ImpactoProveedorDto, 'bloqueosPorServicio'>
   return conBloqueos.map((s) => `${SERVICIO_PROVEEDOR_LABEL[s]}: ${lista(s)}.`).join(' ');
 }
 
-/** Solo proveedores de logística (selector de la compañía): cuatro estados + reintento. */
-export function useProveedoresLogistica(habilitado = true) {
-  const [data, setData] = useState<Proveedor[] | null>(null);
+/**
+ * Proveedores activos que prestan un servicio: cuatro estados + reintento. `refresco` vuelve a pedir el
+ * catálogo cuando la página recarga sus datos. Con `habilitado: false` se queda en cargando: quien lo apaga no pinta el selector.
+ */
+export function useProveedoresSelector(servicio: ServicioProveedor, habilitado = true, refresco = 0) {
+  const [data, setData] = useState<ProveedorOfrecido[] | null>(null);
   const [error, setError] = useState(false);
   const [recarga, setRecarga] = useState(0);
   useEffect(() => {
     if (!habilitado) return;
     let vivo = true;
     setData(null); setError(false);
-    api.get<any[]>(RUTA_LOGISTICA)
-      .then((f) => { if (vivo) setData(f.map(aProveedorLogistica)); })
+    api.get<ProveedorSelectorItemDto[]>(`${RUTA_UNIFICADA}/selector?servicio=${servicio}`)
+      .then((f) => { if (vivo) setData(f.map((p) => ({ ...p, activo: true }))); })
       .catch(() => { if (vivo) setError(true); });
     return () => { vivo = false; };
-  }, [habilitado, recarga]);
+  }, [servicio, habilitado, refresco, recarga]);
   return { data, error, recargar: useCallback(() => setRecarga((n) => n + 1), []) };
+}
+
+export type CatalogoSelector = ReturnType<typeof useProveedoresSelector>;
+
+const SOAT_CARGANDO = 'Cargando proveedores…';
+const SOAT_ERROR = 'No se pudieron cargar los proveedores.';
+const SOAT_VACIO = 'No hay proveedores de SOAT activos.';
+export const SOAT_REINTENTO = 'Volver a cargar proveedores';
+
+/** Lo que dice el selector de envío de SOAT cuando no hay nada que elegir; `null` si hay opciones. */
+export function mensajeSelectorSoat({ data, error }: Pick<CatalogoSelector, 'data' | 'error'>): string | null {
+  if (error) return SOAT_ERROR;
+  if (data === null) return SOAT_CARGANDO;
+  return data.length === 0 ? SOAT_VACIO : null;
 }

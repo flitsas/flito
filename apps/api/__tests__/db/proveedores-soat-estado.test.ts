@@ -24,7 +24,7 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 
 const {
-  impactoProveedorSoat, cambiarEstadoProveedor, proveedorSoatInactivo,
+  impactoProveedorSoat, cambiarEstadoProveedor, proveedorInactivo,
 } = await import('../../src/modules/flito-parametrizacion/flito-proveedores-estado.service.js');
 
 const INEXISTENTE = 'f0000000-0000-4000-8000-0000000fffff';
@@ -119,16 +119,16 @@ describe.skipIf(!URL_BASE)('flito-proveedores-estado.service — contra PostgreS
         { id: f.h, active: false, invalidada: true },
         { id: f.j, active: true, invalidada: false },
       ].sort((a, b) => a.id - b.id));
-      expect(await proveedorSoatInactivo(f.id)).toBe(true);
-      expect(await proveedorSoatInactivo(f.otro)).toBe(false);
-      expect(await proveedorSoatInactivo(null)).toBe(false);
+      expect(await proveedorInactivo(f.id)).toBe(true);
+      expect(await proveedorInactivo(f.otro)).toBe(false);
+      expect(await proveedorInactivo(null)).toBe(false);
     });
   });
 
   it('AC3: un proveedor eliminado (aunque `activo`) también bloquea el login', async () => {
     await conBase(async (tx, f) => {
       await tx`UPDATE flito_proveedores_soat SET deleted_at = now() WHERE id = ${f.otro}`;
-      expect(await proveedorSoatInactivo(f.otro)).toBe(true);
+      expect(await proveedorInactivo(f.otro)).toBe(true);
     });
   });
 
@@ -138,7 +138,7 @@ describe.skipIf(!URL_BASE)('flito-proveedores-estado.service — contra PostgreS
       const r = await cambiarEstadoProveedor(f.id, { activo: true, versionEsperada: await version(tx, f.id) }, ACTOR);
       expect(r.item).toMatchObject({ id: f.id, activo: true });
       expect(r.usuariosInvalidados).toEqual([]);
-      expect(await proveedorSoatInactivo(f.id)).toBe(false);
+      expect(await proveedorInactivo(f.id)).toBe(false);
       const [h] = await tx`SELECT active FROM users WHERE id = ${f.h}`;
       expect(h!.active).toBe(false);
     });

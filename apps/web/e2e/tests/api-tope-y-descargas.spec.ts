@@ -162,7 +162,7 @@ const VEHICULO = {
 
 /** Los tres endpoints que pinta la página de Trámites. El listado se sirve salvo que se estanque. */
 async function mockTramites(page: Page) {
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) => route.fulfill({
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: '[]',
   }));
   await page.route(/\/api\/flito\/tramites\/facetas/, (route) => route.fulfill({

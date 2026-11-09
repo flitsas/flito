@@ -40,7 +40,7 @@ async function montarFicha(page: Page) {
     permisoSinTramiteSinEfecto: true,
   }]));
   await page.route(/\/api\/siigo\/clientes\/validacion\/detalle/, (route) => json(route, 200, { data: [] }));
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (route) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat$/, (route) =>
     json(route, 200, [{ id: SURA, nombre: 'SURA', activo: true }]));
   await page.goto('/clients');
 }

@@ -374,6 +374,7 @@ function escalar(campo: ItemAuditoriaPermisos['campo'], v: ValorAuditable | null
     case 'activo': return v ? 'Sí' : 'No';
     case 'compania_id': return `Compañía #${v}`;
     case 'flito_proveedor_soat_id': return `Proveedor ${v}`;
+    case 'flito_proveedor_id': return `Proveedor ${v}`;
     case 'tipo_enlace': return TIPO_ENLACE[String(v)] ?? String(v);
     case 'tipo_principal': return TIPO_PRINCIPAL[String(v)] ?? String(v);
     default: return typeof v === 'boolean' ? (v ? 'Sí' : 'No') : String(v);

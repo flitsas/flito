@@ -12,7 +12,7 @@ import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middlewa
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
-import { invalidarPermisosDe } from '../../shared/permisos-efectivos.js';
+import { invalidarPermisosDe, invalidarPermisosDeProveedor } from '../../shared/permisos-efectivos.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
 import { ProveedorLogisticaAsignadoError } from './flito-logistica-proveedor-compania.service.js';
@@ -191,6 +191,7 @@ router.patch('/:id', exigirFuncion('parametrizacion.proveedores.editar'), async 
     const act = await editarProveedor(id, {
       versionEsperada, ...(generales ? { generales } : {}), ...(servicios ? { servicios } : {}), ...(soat ? { soat } : {}),
     }, actorDeRequest(req));
+    invalidarPermisosDeProveedor(id); // HU #14338 (AC6): tras el commit, la frontera por servicio ya ve el cambio.
     await audit(req, { action: 'update', resource: 'flito_proveedor', resourceId: act.id, detail: detalleAudit(act) });
     res.json(act);
   } catch (e) { manejar(e, res, next); }
@@ -203,6 +204,7 @@ router.delete('/:id/servicios/:servicio', exigirFuncion('parametrizacion.proveed
   if (!servicio.success) { res.status(400).json({ error: 'Servicio no reconocido' }); return; }
   try {
     const act = await quitarServicio(id, servicio.data, actorDeRequest(req));
+    invalidarPermisosDeProveedor(id); // HU #14338 (AC6).
     await audit(req, { action: 'update', resource: 'flito_proveedor', resourceId: act.id, detail: detalleAudit(act) });
     res.json(act);
   } catch (e) { manejar(e, res, next); }
@@ -222,6 +224,7 @@ router.patch('/:id/estado', exigirFuncion('parametrizacion.proveedores.estado'),
   try {
     const { item, usuariosInvalidados } = await cambiarEstadoProveedor(id, cuerpo.data, actorDeRequest(req));
     invalidarUsuarios(usuariosInvalidados);
+    invalidarPermisosDeProveedor(id); // HU #14338 y #14340: la frontera también ve la reactivación, que no invalida sesiones.
     await audit(req, { action: 'update', resource: 'flito_proveedor', resourceId: item.id, detail: detalleAudit(item) });
     res.json(item);
   } catch (e) { manejar(e, res, next); }
@@ -233,6 +236,7 @@ router.delete('/:id', exigirFuncion('parametrizacion.proveedores.eliminar'), asy
   try {
     const eliminado = await eliminarProveedor(id, actorDeRequest(req));
     invalidarUsuarios(eliminado.usuariosDesactivados);
+    invalidarPermisosDeProveedor(id);
     await audit(req, { action: 'delete', resource: 'flito_proveedor', resourceId: eliminado.id, detail: detalleAudit(eliminado) });
     res.json({ id: eliminado.id, eliminado: true });
   } catch (e) { manejar(e, res, next); }

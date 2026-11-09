@@ -34,7 +34,7 @@ function contarArchivos(postData: string | null): number {
 }
 
 async function mockSoat(page: import('@playwright/test').Page) {
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }));
   await page.route(/\/api\/flito\/soat\/facetas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FACETAS_SOAT) }));

@@ -183,7 +183,7 @@ describe.skipIf(!URL_BASE)('eliminarProveedor — contra PostgreSQL (tx con ROLL
       await eliminarProveedor(f.p, ACTOR);
       await expect(cambiarActivo(f.g, ACTOR)).rejects.toBeInstanceOf(ProveedorSoatDelUsuarioEliminadoError);
       await expect(cambiarActivo(f.g, ACTOR)).rejects.toThrow(
-        'El proveedor SOAT de este usuario fue eliminado; asígnale otro antes de activarlo.');
+        'El proveedor de este usuario fue eliminado; asígnale otro antes de activarlo.');
       const [g] = await tx`SELECT active FROM users WHERE id = ${f.g}`;
       expect(g!.active).toBe(false);
       // B (dado de baja antes, aún `active`): reactivarlo lo dejaría activo con el proveedor eliminado.

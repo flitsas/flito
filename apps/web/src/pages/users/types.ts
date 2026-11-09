@@ -30,8 +30,12 @@ export interface User {
   transitoCodigo?: string | null;
   /** Compañía cuando `tipoEnlace = 'compania'`. */
   companiaId?: number | null;
-  /** Proveedor SOAT cuando `tipoEnlace = 'proveedor'`. */
-  flitoProveedorSoatId: string | null;
+  /** Proveedor, de cualquier servicio, cuando `tipoEnlace = 'proveedor'` (HU #14341). */
+  flitoProveedorId?: string | null;
+  /** Nombre de ese proveedor, aunque ya esté inactivo. */
+  proveedorNombre?: string | null;
+  /** Campo anterior; convive con `flitoProveedorId` hasta F5. */
+  flitoProveedorSoatId?: string | null;
   /**
    * Organismos cuando `tipoEnlace = 'organismos_transito'` (gestor, tránsito, roles nuevos).
    * **Siempre un array**, nunca `null` ni ausente: `[]` si no aplica o aún no hay filas.
@@ -97,3 +101,7 @@ export const ROLE_TONE: Record<string, ChipTone> = {
   // `success` están reservados a perfiles internos, y el Cliente es el primer rol EXTERNO a FLIT.
   cliente: 'neutral',
 };
+
+/** Id del proveedor del usuario: la columna nueva y, mientras convivan, la anterior. `''` si no tiene. */
+export const proveedorDeUsuario = (u: Pick<User, 'flitoProveedorId' | 'flitoProveedorSoatId'>): string =>
+  u.flitoProveedorId ?? u.flitoProveedorSoatId ?? '';

@@ -156,8 +156,8 @@ export async function cambiarEstadoProveedor(
     exigirVersion(actual, versionEsperada);
     if (actual.activo === activo) return { item: await itemDeProveedor(tx, actual), usuariosInvalidados: [] };
     if (!activo) {
-      // RN-PLOGC-3: la asignación toma `FOR SHARE` sobre el perfil, no sobre el padre. Sin este bloqueo, una asignación en
-      // curso no se vería aquí y quedaría un proveedor inactivo con compañías.
+      // RN-PLOGC-3: la asignación toma `FOR SHARE` sobre el padre y sobre el perfil. Con este bloqueo, una asignación en
+      // curso que ya pasó se ve aquí y no queda un proveedor inactivo con compañías.
       await bloquearPerfilesDeProveedor(tx, id);
       const companias = await companiasConProveedorLogistica(tx, id);
       if (companias.length > 0) throw new ProveedorLogisticaAsignadoError(companias);
@@ -178,11 +178,15 @@ export async function cambiarEstadoProveedor(
   });
 }
 
-/** Login (HU #13958 AC3): ¿el proveedor SOAT del usuario está inactivo o eliminado? `false` si no tiene proveedor. */
-export async function proveedorSoatInactivo(proveedorId: string | null | undefined): Promise<boolean> {
+/**
+ * Login (HU #13958 AC3, HU #14340, ADR-0039 §6.1): ¿el proveedor del usuario está inactivo o eliminado? Se mira el PADRE: quitarle
+ * SOAT a un proveedor activo no corta el login (lo cierra la frontera por servicio) y uno solo de Logística también se corta.
+ * `false` si el usuario no tiene proveedor.
+ */
+export async function proveedorInactivo(proveedorId: string | null | undefined): Promise<boolean> {
   if (proveedorId == null) return false;
-  const [fila] = await db.select({ activo: flitoProveedoresSoat.activo, deletedAt: flitoProveedoresSoat.deletedAt })
-    .from(flitoProveedoresSoat).where(eq(flitoProveedoresSoat.id, proveedorId)).limit(1);
+  const [fila] = await db.select({ activo: flitoProveedores.activo, deletedAt: flitoProveedores.deletedAt })
+    .from(flitoProveedores).where(eq(flitoProveedores.id, proveedorId)).limit(1);
   return fila !== undefined && (!fila.activo || fila.deletedAt !== null);
 }
 
@@ -203,11 +207,18 @@ export class ProveedorSoatNoUsableError extends Error {
   }
 }
 
-/** RN-PROV-5. Debe llamarse con la transacción que escribe: el `FOR SHARE` dura hasta su commit. */
+/**
+ * RN-PROV-5, R11. Debe llamarse con la transacción que escribe: el `FOR SHARE` dura hasta su commit. Primero el padre y luego el
+ * perfil, el orden de quien inactiva o retira el servicio (`bloquearProveedorVigente` + `bloquearPerfilesDeProveedor`): si hay uno
+ * en curso, esto espera y relee lo confirmado. Un perfil de baja es un proveedor que no presta SOAT.
+ */
 export async function exigirProveedorSoatUsable(tx: Tx, id: string): Promise<void> {
-  const [p] = await tx.select({
-    nombre: flitoProveedoresSoat.nombre, activo: flitoProveedoresSoat.activo, deletedAt: flitoProveedoresSoat.deletedAt,
-  }).from(flitoProveedoresSoat).where(eq(flitoProveedoresSoat.id, id)).for('share').limit(1);
-  if (!p || p.deletedAt != null) throw new ProveedorSoatNoUsableError(MENSAJE_PROVEEDOR_NO_EXISTE, 'no_existe');
-  if (!p.activo) throw new ProveedorSoatNoUsableError(mensajeProveedorInactivo(p.nombre), 'inactivo');
+  const [padre] = await tx.select({
+    nombre: flitoProveedores.nombre, activo: flitoProveedores.activo, deletedAt: flitoProveedores.deletedAt,
+  }).from(flitoProveedores).where(eq(flitoProveedores.id, id)).for('share').limit(1);
+  if (!padre || padre.deletedAt != null) throw new ProveedorSoatNoUsableError(MENSAJE_PROVEEDOR_NO_EXISTE, 'no_existe');
+  const [perfil] = await tx.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat)
+    .where(and(eq(flitoProveedoresSoat.id, id), isNull(flitoProveedoresSoat.deletedAt))).for('share').limit(1);
+  if (!perfil) throw new ProveedorSoatNoUsableError(MENSAJE_PROVEEDOR_NO_EXISTE, 'no_existe');
+  if (!padre.activo) throw new ProveedorSoatNoUsableError(mensajeProveedorInactivo(padre.nombre), 'inactivo');
 }

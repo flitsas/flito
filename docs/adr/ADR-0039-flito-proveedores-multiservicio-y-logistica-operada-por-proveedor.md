@@ -353,9 +353,7 @@ Falla cerrado. Mismo cuerpo que hoy. La tabla `FRONTERA_POR_ENLACE` sigue siendo
 
 **Selección de mensajero (R14):** `exigirMensajeroAsignable(tx, mensajeroId, alcance, proveedorDelActa)`, en servidor, en **los cuatro caminos**: `POST /traslados`, `/traslados/:id/despachar`, `/actas/:id/despachar` y `mensajerosAsignables`, que también debe exigir `active` (hoy no lo hace). Proveedor: solo los suyos. Operaciones: los de FLITO y los del proveedor dueño del acta (R13; confirmado por el humano el 2026-11-05).
 
-**Creación del mensajero (decisión del humano, 2026-11-05):** se crea atado a su proveedor y lo puede crear quien tenga el permiso, incluido el propio proveedor si su rol tiene `usuarios.usuario.crear`. Por ahora lo hace Operaciones.
-
-**Trabajo que esto exige, en F3 y con revisión obligatoria de `security-agent`:** hoy dar ese permiso a un proveedor no basta, porque `/api/users` no está en ningún módulo de `FRONTERA_POR_ENLACE` y la frontera lo rechaza. Abrirlo solo al enlace `proveedor` exige, en el mismo PR (ADR-0024): tomar el proveedor de la sesión y nunca del cuerpo, limitar los roles asignables a los de enlace `proveedor` para impedir que se escale a un rol con más permisos (`POST /api/users` acepta hoy cualquier rol y proveedor), y filtrar a su proveedor la lista de usuarios y cada acción abierta sobre ellos. Sin esas guardas no se abre.
+**Creación del mensajero (decisión del humano, 2026-11-05):** se crea atado a su proveedor, con la pantalla y la ruta actuales de usuarios, y lo hace Operaciones. **Que el proveedor gestione sus propios usuarios queda fuera de esta épica,** porque modifica más que el tema de proveedores: `/api/users` sigue cerrado a todo enlace. Si se retoma, `POST /api/users` acepta hoy cualquier rol y proveedor en el cuerpo, y habría que limitarlos.
 
 ### 6.3 Dueño de cada fila (R12, R15, R16, R17)
 
@@ -640,7 +638,7 @@ ADR-0030 sigue vigente para traslados, actas, firmas, precios y estados. **No se
 
 Propuesto: (1) modelo y migración, (2) gestión, (3) asignación, usuarios y mensajeros, (4) operación y escaneo.
 
-1. **Elegir mensajero al despachar pasa de 3 a 4.** La rama de proveedor de `mensajerosAsignables` no tiene uso hasta abrir la frontera. Crear usuarios y mensajeros del proveedor queda en F3 (§6.2).
+1. **Elegir mensajero al despachar pasa de 3 a 4.** La rama de proveedor de `mensajerosAsignables` no tiene uso hasta abrir la frontera. Atar usuarios y mensajeros a un proveedor de cualquier servicio queda en F3 (§6.2).
 2. **La frontera por servicio entra en F3.** Desde F3 se pueden crear usuarios de un proveedor solo de logística; sin esa guarda verían SOAT en el menú.
 3. **F4 se parte en 2 PR del mismo Feature.** F4.1 es invisible para el proveedor y puede fallar sin exponer nada. F4.2 abre `FRONTERA_POR_ENLACE.logistica` **en el mismo PR** que filtra (ADR-0024). **F4.2 no se parte**, aunque pase de ~1500 líneas.
 4. **F5 es nuevo:** la contracción. No está en el pedido; es la consecuencia de elegir expand/contract, y sin ella queda duplicación permanente. Su momento depende de PDN.
@@ -662,7 +660,7 @@ Propuesto: (1) modelo y migración, (2) gestión, (3) asignación, usuarios y me
 - *Frontend (∥ backend tras el contrato):* `components/clientes/FormProveedor.tsx`, `TabProveedores.tsx`, `proveedoresDatos.ts`, `useEliminarProveedor.tsx`. Con `ux-agent` y maqueta.
 - *Tests:* `proveedores-gestion.routes.test.ts`, más los cuatro `proveedores-*` existentes que cambien.
 
-**F3 — Asignación, pertenencia y frontera por servicio.** R3, R5, R10, R11, R14 (creación), R21. Depende de F1. Sin abrir logística. Abre `/api/users` solo al enlace `proveedor`, con las guardas de §6.2 y revisión obligatoria de `security-agent`; los archivos adicionales de esa apertura se precisan en las HUs de F3.
+**F3 — Asignación, pertenencia y frontera por servicio.** R3, R5, R10, R11, R21. Depende de F1. Sin abrir logística ni `/api/users`.
 
 - *Backend:* `shared/permisos-efectivos.ts`, `shared/middleware/frontera-enlace.ts`, `modules/auth/auth.routes.ts`, `modules/users/users.routes.ts`, `users.service.ts`, `modules/flito-parametrizacion/flito-parametrizacion.routes.ts` (solo PATCH de compañías y GET de selectores), `flito-logistica-proveedor-compania.service.ts`, `flito-proveedores-estado.service.ts` (`exigirProveedorSoatUsable`).
 - *Frontend:* `components/clientes/ServiciosCliente.tsx`, `pages/users/AtaduraFields.tsx`, `pages/FlitoSoat.tsx`, `pages/FlitoTramites.tsx`.
@@ -733,7 +731,7 @@ Nuevo: `flito-proveedores.ts`. Modifica: `permisos-roles.ts` (F4.2), `flito-logi
 
 Todas tienen un valor por defecto en el diseño, que se aplica si se aprueba tal cual.
 
-**Respuesta del humano (David Chica, sesión del 2026-11-05):** aprobó la Opción 2 y los valores por defecto de D1 a D5. Los ajustes a R4, R5, R17 y R20 se le presentaron en ese mismo mensaje y no los objetó, sin aprobarlos por separado. D6 sigue abierta, pendiente de jurídica. Después, sobre las contradicciones halladas al crear los Features, aprobó la fecha de corte de R17 (§6.3) y **dejar D5 sin decidir hasta que la comprobación previa muestre un caso real, lo que reemplaza el valor por defecto de la tabla.** También indicó que el mensajero se crea atado al proveedor, que lo puede hacer quien tenga el permiso, y que por ahora lo hace Operaciones (§6.2). Al cerrar las HUs aprobó: gestión completa de los usuarios de su propio proveedor, cada acción con su permiso, con exportar, resumen y auditoría cerrados (#14343); fecha de corte automática al desplegar (#14349); historial solo por API (#14335); y flujo local para F1 a F4, con merge retenido hasta validar la épica en local. El estado del ADR no lo cambia ningún agente.
+**Respuesta del humano (David Chica, sesión del 2026-11-05):** aprobó la Opción 2 y los valores por defecto de D1 a D5. Los ajustes a R4, R5, R17 y R20 se le presentaron en ese mismo mensaje y no los objetó, sin aprobarlos por separado. D6 sigue abierta, pendiente de jurídica. Después, sobre las contradicciones halladas al crear los Features, aprobó la fecha de corte de R17 (§6.3) y **dejar D5 sin decidir hasta que la comprobación previa muestre un caso real, lo que reemplaza el valor por defecto de la tabla.** También indicó que el mensajero se crea atado al proveedor con la pantalla actual, por Operaciones, y dejó fuera de la épica que el proveedor gestione sus usuarios (§6.2). Al cerrar las HUs aprobó: fecha de corte automática al desplegar (#14349); historial solo por API (#14335); y flujo local para F1 a F4, con merge retenido hasta validar la épica en local. El estado del ADR no lo cambia ningún agente.
 
 | # | Pregunta | Por defecto | Por qué importa |
 |---|---|---|---|

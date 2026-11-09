@@ -45,10 +45,13 @@
 // importarse, para que los ~172 ficheros que firman tokens de prueba no consuman tres `selectMock` por
 // petición. No es una bandera de entorno a propósito (§10 del diseño).
 import { createHash } from 'node:crypto';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { permisosRoles, permisosRolFuncion, permisosUsuarioFuncion, users } from '../db/schema.js';
-import { isValidPage, TIPOS_ENLACE, type PageSlug, type TipoEnlace as TipoEnlaceContrato } from '@operaciones/shared-types';
+import { flitoProveedores, permisosRoles, permisosRolFuncion, permisosUsuarioFuncion, users } from '../db/schema.js';
+import {
+  MODULO_FRONTERA_DE_PAGINA, SERVICIO_DE_MODULO, isValidPage, paginaAbiertaAlEnlace, TIPOS_ENLACE,
+  type PageSlug, type ServicioProveedor, type TipoEnlace as TipoEnlaceContrato,
+} from '@operaciones/shared-types';
 import { loggerFor } from './logger.js';
 import { alternativasDe, expandir } from '../modules/permisos/arbol/expansion.js';
 
@@ -77,6 +80,16 @@ export function enlaceConocido(v: string | null | undefined): TipoEnlace | null 
   return ALIAS_ENLACE[v] ?? null;
 }
 
+/**
+ * HU #14338 (ADR-0039 §6.1) — El proveedor del usuario, para la frontera por servicio. Solo se lee con
+ * enlace `proveedor`. `activo` ya descuenta la baja del padre, y `servicios` son los perfiles vivos.
+ */
+export interface ProveedorDePermisos {
+  id: string;
+  activo: boolean;
+  servicios: readonly ServicioProveedor[];
+}
+
 export interface PermisosOk {
   ok: true;
   userId: number;
@@ -84,6 +97,8 @@ export interface PermisosOk {
   rol: string;
   /** `permisos_roles.tipo_enlace` del rol (Bug #12869); `null` si el valor no es uno conocido. */
   tipoEnlace: TipoEnlace | null;
+  /** HU #14338: `null` sin enlace `proveedor`, o con ese enlace y sin proveedor resoluble (fallo cerrado). */
+  proveedor: ProveedorDePermisos | null;
   /** El conjunto efectivo: (R ∪ C) \ V. */
   funciones: ReadonlySet<string>;
   /** Hash del conjunto: cambia si y solo si cambia lo que este usuario puede. */
@@ -100,6 +115,8 @@ export interface FilasPermisos {
   rol: string;
   /** Crudo, como viene de la base; `resolverPermisos` lo normaliza (desconocido → `null`). */
   tipoEnlace: string | null;
+  /** HU #14338: ausente en los pliegues por lote, que no deciden frontera. */
+  proveedor?: ProveedorDePermisos | null;
   funcionesDelRol: string[];
   excepciones: { codigo: string; efecto: 'conceder' | 'revocar' }[];
 }
@@ -111,6 +128,23 @@ export const PERMISOS_CACHE_TTL_MS = 60_000;
 const cache = new Map<number, { valor: PermisosOk; expiraEn: number }>();
 
 /**
+ * HU #14338 (AC6): sube con cada `invalidarPermisosDeProveedor`. Una lectura que empezó ANTES del commit y
+ * termina DESPUÉS de invalidar traería la foto vieja: no se cachea y la siguiente petición vuelve a leer.
+ */
+let generacionProveedores = 0;
+
+/** HU #14338: el padre y sus servicios vivos. Un id sin fila devuelve `null` y la frontera cierra (AC4). */
+async function leerProveedorDePermisos(id: string): Promise<ProveedorDePermisos | null> {
+  const [padre] = await db.select({ id: flitoProveedores.id, activo: flitoProveedores.activo, deletedAt: flitoProveedores.deletedAt })
+    .from(flitoProveedores).where(eq(flitoProveedores.id, id)).limit(1);
+  if (!padre) return null;
+  const rows = await db.execute<{ servicio: ServicioProveedor }>(
+    sql`SELECT servicio FROM flito_proveedor_servicios_v WHERE proveedor_id = ${id}`,
+  );
+  return { id: padre.id, activo: padre.activo && padre.deletedAt == null, servicios: [...rows].map((r) => r.servicio).sort() };
+}
+
+/**
  * Las tres consultas, en secuencia y con `db.select` (no un CTE): el `chainEspia` de las pruebas
  * captura cada `where` por separado y afirma que el de `permisos_rol_funcion` lleva el rol LEÍDO de
  * la fila de `users` y el de `permisos_usuario_funcion` el `userId`. De `users` se pide `role` y
@@ -120,6 +154,7 @@ async function leerFilasDePermisos(userId: number): Promise<FilasPermisos | null
   const [fila] = await db.select({
     rol: users.role,
     tipoEnlace: permisosRoles.tipoEnlace,
+    proveedorId: users.flitoProveedorId,
   })
     .from(users)
     .innerJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
@@ -141,6 +176,9 @@ async function leerFilasDePermisos(userId: number): Promise<FilasPermisos | null
   return {
     rol: fila.rol,
     tipoEnlace: fila.tipoEnlace,
+    proveedor: enlaceConocido(fila.tipoEnlace) === 'proveedor' && fila.proveedorId
+      ? await leerProveedorDePermisos(fila.proveedorId)
+      : null,
     funcionesDelRol: delRol.map((r) => r.codigo),
     excepciones: propias.map((p) => ({
       codigo: p.codigo,
@@ -196,9 +234,11 @@ function conjuntoEfectivo(filas: FilasPermisos): Set<string> {
   return expandir(conjunto, revocados);
 }
 
-function versionDe(rol: string, tipoEnlace: TipoEnlace | null, funciones: Set<string>): string {
+function versionDe(rol: string, tipoEnlace: TipoEnlace | null, funciones: Set<string>, proveedor: ProveedorDePermisos | null): string {
+  // Sin proveedor el hash es el de siempre: la versión de los demás enlaces no cambia con este despliegue.
+  const delProveedor = proveedor ? `|${proveedor.id}|${proveedor.activo}|${[...proveedor.servicios].sort().join(',')}` : '';
   return createHash('sha256')
-    .update(`${rol}|${tipoEnlace ?? '?'}|${[...funciones].sort().join(',')}`)
+    .update(`${rol}|${tipoEnlace ?? '?'}|${[...funciones].sort().join(',')}${delProveedor}`)
     .digest('hex')
     .slice(0, 16);
 }
@@ -212,6 +252,7 @@ export async function resolverPermisos(userId: number): Promise<PermisosResuelto
   const acierto = cache.get(userId);
   if (acierto && acierto.expiraEn > ahora) return acierto.valor;
 
+  const generacion = generacionProveedores;
   let filas: FilasPermisos | null;
   try {
     filas = await fuente(userId);
@@ -223,16 +264,18 @@ export async function resolverPermisos(userId: number): Promise<PermisosResuelto
 
   const funciones = conjuntoEfectivo(filas);
   const tipoEnlace = enlaceConocido(filas.tipoEnlace);
+  const proveedor = tipoEnlace === 'proveedor' ? filas.proveedor ?? null : null;
   const valor: PermisosOk = {
     ok: true,
     userId,
     rol: filas.rol,
     tipoEnlace,
+    proveedor,
     funciones,
-    version: versionDe(filas.rol, tipoEnlace, funciones),
+    version: versionDe(filas.rol, tipoEnlace, funciones, proveedor),
     resueltoEn: new Date(ahora),
   };
-  cache.set(userId, { valor, expiraEn: ahora + PERMISOS_CACHE_TTL_MS });
+  if (generacion === generacionProveedores) cache.set(userId, { valor, expiraEn: ahora + PERMISOS_CACHE_TTL_MS });
   return valor;
 }
 
@@ -249,18 +292,46 @@ export function invalidarPermisosDeRol(rolCodigo: string): void {
 }
 
 /**
+ * HU #14338 (ADR-0039 §6.1) — Borra de la caché a todos los usuarios de ese proveedor. Se llama DESPUÉS
+ * del commit de cada cambio de servicio o de estado: sin esto el módulo seguiría abierto hasta 60 s.
+ */
+export function invalidarPermisosDeProveedor(proveedorId: string): void {
+  generacionProveedores += 1;
+  for (const [userId, { valor }] of cache) {
+    if (valor.proveedor?.id === proveedorId) cache.delete(userId);
+  }
+}
+
+/**
+ * HU #14338 (AC1, AC3): ¿deja el enlace `proveedor` esta página en el menú? Tiene que estar abierta a ese
+ * enlace y, si su módulo pide un servicio, el proveedor activo debe prestarlo. Falla cerrado sin proveedor.
+ */
+function paginaVisibleParaProveedor(slug: PageSlug, proveedor: ProveedorDePermisos | null): boolean {
+  if (!paginaAbiertaAlEnlace(slug, 'proveedor')) return false;
+  const modulo = MODULO_FRONTERA_DE_PAGINA[slug];
+  const servicio = modulo ? SERVICIO_DE_MODULO[modulo] : undefined;
+  return !servicio || (proveedor?.activo === true && proveedor.servicios.includes(servicio));
+}
+
+/** Los slugs vivos de un conjunto, ya con la frontera por servicio del enlace `proveedor` aplicada. */
+export function paginasDePermisos(p: PermisosOk): PageSlug[] {
+  const paginas: PageSlug[] = [];
+  for (const codigo of p.funciones) {
+    if (!esPaginaViva(codigo)) continue;
+    const slug = codigo.slice(PREFIJO.length) as PageSlug;
+    if (p.tipoEnlace !== 'proveedor' || paginaVisibleParaProveedor(slug, p.proveedor)) paginas.push(slug);
+  }
+  return paginas;
+}
+
+/**
  * Las páginas que este usuario ve hoy, como slugs: una VISTA del resolutor para el login y `/me`, que
  * pintan un menú y no deciden nada. Con `ok:false` devuelve `[]`: la decisión la toma `exigirFuncion`
  * en cada petición, y un menú vacío ante un fallo de base es la degradación correcta.
  */
 export async function paginasEfectivasDeUsuario(userId: number): Promise<PageSlug[]> {
   const p = await resolverPermisos(userId);
-  if (!p.ok) return [];
-  const paginas: PageSlug[] = [];
-  for (const codigo of p.funciones) {
-    if (esPaginaViva(codigo)) paginas.push(codigo.slice(PREFIJO.length) as PageSlug);
-  }
-  return paginas;
+  return p.ok ? paginasDePermisos(p) : [];
 }
 
 /**

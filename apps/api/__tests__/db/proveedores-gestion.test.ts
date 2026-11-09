@@ -327,15 +327,32 @@ describe.skipIf(!URL_BASE)('HU #14332 — crear, editar y listar', () => {
     await conBase(async () => {
       const s = await crearCon(['soat']);
       const l = await crearCon(['logistica']);
-      const inactivo = await crearCon(['soat']);
+      const inactivo = await crearCon(['soat', 'logistica']);
       await cambiarEstadoProveedor(inactivo.id, { activo: false, versionEsperada: inactivo.version }, ACTOR);
-      const soat = (await selectorProveedores('soat')).map((p: { id: string }) => p.id);
+      const eliminado = await crearCon(['soat', 'logistica']);
+      const idsDe = async () => ({
+        soat: (await selectorProveedores('soat')).map((p: { id: string }) => p.id),
+        logistica: (await selectorProveedores('logistica')).map((p: { id: string }) => p.id),
+        asignables: (await proveedoresAsignablesAUsuario()).map((p: { id: string }) => p.id),
+      });
+      // Control: vigente sale en los tres, así su ausencia de abajo la causa la baja y no el escenario.
+      const antes = await idsDe();
+      for (const lista of [antes.soat, antes.logistica, antes.asignables]) expect(lista).toContain(eliminado.id);
+      await cambiarEstadoProveedor(eliminado.id, { activo: false, versionEsperada: eliminado.version }, ACTOR);
+      await eliminarProveedor(eliminado.id, ACTOR);
+
+      const { soat, logistica, asignables } = await idsDe();
       expect(soat).toContain(s.id);
       expect(soat).not.toContain(l.id);
       expect(soat).not.toContain(inactivo.id);
-      const asignables = (await proveedoresAsignablesAUsuario()).map((p: { id: string }) => p.id);
+      expect(soat).not.toContain(eliminado.id);
+      expect(logistica).toContain(l.id);
+      expect(logistica).not.toContain(s.id);
+      expect(logistica).not.toContain(inactivo.id);
+      expect(logistica).not.toContain(eliminado.id);
       expect(asignables).toEqual(expect.arrayContaining([s.id, l.id]));
       expect(asignables).not.toContain(inactivo.id);
+      expect(asignables).not.toContain(eliminado.id);
     });
   });
 });

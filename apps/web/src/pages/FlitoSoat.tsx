@@ -16,6 +16,7 @@ import { TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/Tarj
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
 import BarraEnvioSoat from '../components/flito/BarraEnvioSoat';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
+import { useProveedoresSelector } from '../components/clientes/proveedoresDatos';
 import {
   AvisoExportCola, BotonExportarCola, COLA_SOAT, useExportCola, type FiltrosExportCola,
 } from '../components/flito/ExportarCola';
@@ -30,7 +31,7 @@ import { toastError, toastOk } from '../components/flit/ToastFlito';
 // Las piezas de la cola viven en `components/flito/soat/` desde la HU #12819 (techo de 800 líneas).
 import {
   ESTADOS_ADMIN, ESTADOS_CLIENTE, ESTADOS_GESTOR, esPastillaIncompleta,
-  type ColaSoat, type FacetasSoat, type FiltroEstadoSoat, type Proveedor,
+  type ColaSoat, type FacetasSoat, type FiltroEstadoSoat,
 } from '../components/flito/soat/tipos';
 import BarraFiltrosSoat, { type PresetSoat } from '../components/flito/soat/BarraFiltrosSoat';
 import TablaColaSoat from '../components/flito/soat/TablaColaSoat';
@@ -85,6 +86,8 @@ export default function FlitoSoat() {
     Object.entries(FUNCION_ACCION_SOAT).map(([accion, codigo]) => [accion, hasFuncion(codigo)]),
   ) as unknown as PermisosDetalleSoat;
   if (!sinEnlace) { puedeDetalle.cambiarProveedor = false; puedeDetalle.devolver = false; }
+  // HU #14342: los tres selectores ofrecen solo activos que prestan SOAT.
+  const proveedores = useProveedoresSelector('soat', puedeEnviarProveedor || puedeDetalle.cambiarProveedor || puedeDetalle.devolver);
   // Con las pastillas nuevas el orden es el del Cliente también para Operaciones (UX §3.2).
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente || conIncompletas ? ESTADOS_CLIENTE : ESTADOS_ADMIN;
   // AC9: «Ir a mis SOAT» de la tarjeta de la solicitud guardada abre «Por validar». Llega por el
@@ -102,7 +105,6 @@ export default function FlitoSoat() {
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [cargaMasiva, setCargaMasiva] = useState(false);
-  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [recarga, setRecarga] = useState(0);
   const [detalleIncompleta, setDetalleIncompleta] = useState<SolicitudIncompletaFila | null>(null);
 
@@ -247,11 +249,6 @@ export default function FlitoSoat() {
   useEffect(() => {
     api.get<FacetasSoat>('/flito/soat/facetas').then(setFacetas).catch(() => setFacetas(null));
   }, []);
-
-  useEffect(() => {
-    if (!puedeEnviarProveedor) return;
-    api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setProveedores).catch(() => setProveedores([]));
-  }, [puedeEnviarProveedor]);
 
   // Llegada desde el modal del AC4 con «Ver la solicitud» (HU #11914). El uuid viaja en el ESTADO de
   // navegación y NO en la URL: el detalle de esta cola es un modal y no tiene dirección propia, y
