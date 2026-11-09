@@ -47,7 +47,7 @@ export const ACCIONES_ADMINISTRACION: Readonly<Record<string, AccionArbol>> = {
   // acciones de admin que los necesitan.
   'accion.clientes.ver': {
     lectura: true, operaciones: ['clients.clientes.ver'],
-    opcionales: ['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar'],
+    opcionales: ['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar', 'parametrizacion.proveedores.historial'], // historial: HU #14335 (0294)
   },
   'accion.clientes.crear_editar_clientes': {
     operaciones: ['clients.clientes.crear', 'clients.clientes.editar', COMPANIAS_EDITAR, 'tramites.empresa.crear'],

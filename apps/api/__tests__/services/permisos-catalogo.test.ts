@@ -226,9 +226,9 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['logistica.motivos.gestionar', 4], // HU #14119: las 4 rutas del catálogo de motivos
       ['logistica.recogida.confirmar', 4], ['logistica.viajes.registrar', 2],
       // HU #14148: +impacto de logística (estado 4), +baja de logística (eliminar 2) y +listado unificado (listar 3).
-      ['parametrizacion.proveedores.crear', 2], ['parametrizacion.proveedores.editar', 2],
-      ['parametrizacion.proveedores.eliminar', 2],
-      ['parametrizacion.proveedores.estado', 4], ['parametrizacion.proveedores.listar', 3],
+      // HU #14332–#14335: la gestión unificada entra y las escrituras viejas salen; `crear` y `eliminar` quedan con una guarda.
+      ['parametrizacion.proveedores.editar', 2],
+      ['parametrizacion.proveedores.estado', 4], ['parametrizacion.proveedores.listar', 6],
       ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.cola.ver', 2], ['soat.solicitud.crear', 8], // + 3 de la carga masiva (HU #14131)
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);
@@ -471,11 +471,11 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
     for (const [codigo, modulo] of Object.entries(esperado)) expect(porCodigoTodo.get(codigo), codigo).toBe(modulo);
   });
 
-  it('`reagrupaciones()` tiene 46 pares ordenados por código (HU #13631: sin `sync.sync.lanzar`); 45 cambian el valor estructural y el de `transito_organismos` es no-op', () => {
+  it('`reagrupaciones()` tiene 47 pares ordenados por código (HU #13631: sin `sync.sync.lanzar`; HU #14335: + historial de proveedores); 46 cambian el valor estructural y el de `transito_organismos` es no-op', () => {
     const pares = reagrupaciones();
-    expect(pares).toHaveLength(46);
+    expect(pares).toHaveLength(47);
     expect(pares.map(([c]) => c)).toEqual([...pares.map(([c]) => c)].sort((a, b) => a.localeCompare(b)));
-    expect(new Set(pares.map(([c]) => c)).size).toBe(46);
+    expect(new Set(pares.map(([c]) => c)).size).toBe(47);
 
     // El módulo ESTRUCTURAL: el grupo de PAGE_GROUPS (primera aparición) para páginas y `g.modulo`
     // de la foto para operaciones. Se calcula sin el mapa, que es la otra cuenta.
@@ -486,7 +486,7 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
     for (const g of GUARDAS_MEDIDAS) estructural.set(codigoDeLlave.get(llaveDe(g))!, g.modulo);
 
     const cambian = pares.filter(([codigo, modulo]) => estructural.get(codigo) !== modulo);
-    expect(cambian).toHaveLength(45);
+    expect(cambian).toHaveLength(46);
     const noOp = pares.filter(([codigo, modulo]) => estructural.get(codigo) === modulo);
     expect(noOp).toEqual([['pagina.transito_organismos', 'transito']]);
   });

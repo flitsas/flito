@@ -38338,11 +38338,30 @@ paths:
       tags:
         - flito-parametrizacion
       summary: GET /api/flito/parametrizacion/proveedores
-      description: "HU #14148: listado UNIFICADO de proveedores (SOAT + logística) con `tipo` y `companiasAsignadas`. Misma función que los listados por tipo (`parametrizacion.proveedores.listar`): no ensancha quién ve NIT/contacto/teléfono. Fuente: apps/api/src/modules/flito-parametrizacion/flito-parametrizacion.routes.ts. Exige la función: parametrizacion.proveedores.listar."
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores.routes.ts. Exige la función: parametrizacion.proveedores.listar."
       security:
         - bearerAuth: []
       x-flit-funciones:
         - parametrizacion.proveedores.listar
+      parameters:
+        - name: servicio
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - soat
+              - logistica
+          description: "Parámetro servicio, validado con el esquema de Zod de la ruta."
+        - name: activo
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "false"
+              - "true"
+          description: "Parámetro activo, validado con el esquema de Zod de la ruta."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -38351,44 +38370,9 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
-                  properties:
-                    tipo:
-                      type: string
-                      enum:
-                        - soat
-                        - logistica
-                    id:
-                      type: string
-                    nombre:
-                      type: string
-                    nit:
-                      type:
-                        - string
-                        - "null"
-                    contacto:
-                      type:
-                        - string
-                        - "null"
-                    telefono:
-                      type:
-                        - string
-                        - "null"
-                    activo:
-                      type: boolean
-                    companiasAsignadas:
-                      type: number
-                  required:
-                    - tipo
-                    - id
-                    - nombre
-                    - nit
-                    - contacto
-                    - telefono
-                    - activo
-                    - companiasAsignadas
-        "401":
-          description: No autenticado.
+                  "$ref": "#/components/schemas/Forma-94421439de"
+        "400":
+          description: Petición inválida.
           content:
             application/json:
               schema:
@@ -38398,65 +38382,6 @@ paths:
                     type: string
                 required:
                   - error
-        "403":
-          description: Sin permisos.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  funcion:
-                    type: string
-                  motivo:
-                    type: string
-                    enum:
-                      - sin_funcion
-                      - sin_modulo
-                      - no_reconocida
-                      - no_resuelto
-                required:
-                  - error
-                  - funcion
-                  - motivo
-        "429":
-          description: Límite de peticiones superado.
-          headers:
-            Retry-After:
-              description: Segundos que hay que esperar antes de reintentar.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-        "500":
-          description: Error interno del servidor.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-  /api/flito/parametrizacion/proveedores-logistica:
-    get:
-      operationId: get-api-flito-parametrizacion-proveedores-logistica
-      tags:
-        - flito-parametrizacion
-      summary: GET /api/flito/parametrizacion/proveedores-logistica
-      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.ts. Exige la función: parametrizacion.proveedores.listar."
-      security:
-        - bearerAuth: []
-      x-flit-funciones:
-        - parametrizacion.proveedores.listar
-      responses:
-        "200":
-          description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  "$ref": "#/components/schemas/Forma-04d4765829"
         "401":
           description: No autenticado.
           content:
@@ -38508,11 +38433,11 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
     post:
-      operationId: post-api-flito-parametrizacion-proveedores-logistica
+      operationId: post-api-flito-parametrizacion-proveedores
       tags:
         - flito-parametrizacion
-      summary: POST /api/flito/parametrizacion/proveedores-logistica
-      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.ts. Exige la función: parametrizacion.proveedores.crear."
+      summary: POST /api/flito/parametrizacion/proveedores
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores.routes.ts. Exige la función: parametrizacion.proveedores.crear."
       security:
         - bearerAuth: []
       x-flit-funciones:
@@ -38523,29 +38448,20 @@ paths:
             schema:
               type: object
               properties:
-                nombre:
-                  type: string
-                nit:
-                  type: string
-                contacto:
-                  type:
-                    - string
-                    - "null"
-                telefono:
-                  type:
-                    - string
-                    - "null"
-              required:
-                - nombre
-                - nit
-        description: Cuerpo que valida la ruta con su esquema de Zod.
+                generales:
+                  description: "[por verificar] el esquema acepta cualquier valor (ZodUnknown)."
+                servicios:
+                  description: "[por verificar] el esquema acepta cualquier valor (ZodUnknown)."
+                soat:
+                  description: "[por verificar] el esquema acepta cualquier valor (ZodUnknown)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
       responses:
         "201":
           description: Respuesta exitosa.
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-04d4765829"
+                "$ref": "#/components/schemas/Forma-94421439de"
         "401":
           description: No autenticado.
           content:
@@ -38600,338 +38516,109 @@ paths:
                     properties:
                       error:
                         type: string
-                    required:
-                      - error
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                      companias:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - error
-                      - companias
-        "422":
-          description: No se puede procesar.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  campo:
-                    type: string
-                  details:
-                    type: object
-                    properties:
-                      formErrors:
-                        type: array
-                        items:
-                          type: string
-                      fieldErrors:
-                        type: object
-                    required:
-                      - formErrors
-                      - fieldErrors
-                required:
-                  - error
-                  - campo
-                  - details
-        "429":
-          description: Límite de peticiones superado.
-          headers:
-            Retry-After:
-              description: Segundos que hay que esperar antes de reintentar.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-        "500":
-          description: Error interno del servidor.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-  "/api/flito/parametrizacion/proveedores-logistica/{id}":
-    delete:
-      operationId: delete-api-flito-parametrizacion-proveedores-logistica-id
-      tags:
-        - flito-parametrizacion
-      summary: "DELETE /api/flito/parametrizacion/proveedores-logistica/:id"
-      description: "HU #14148 — eliminar: solo sin compañías asignadas (409). Exclusiva del Administrador (`…proveedores.eliminar`). Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.ts. Exige la función: parametrizacion.proveedores.eliminar."
-      security:
-        - bearerAuth: []
-      x-flit-funciones:
-        - parametrizacion.proveedores.eliminar
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Parámetro id de la ruta.
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  eliminado:
-                    type: boolean
-                required:
-                  - id
-                  - eliminado
-        "400":
-          description: Petición inválida.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "401":
-          description: No autenticado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "403":
-          description: Sin permisos.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  funcion:
-                    type: string
-                  motivo:
-                    type: string
-                    enum:
-                      - sin_funcion
-                      - sin_modulo
-                      - no_reconocida
-                      - no_resuelto
-                required:
-                  - error
-                  - funcion
-                  - motivo
-        "404":
-          description: No encontrado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "409":
-          description: Conflicto con el estado actual.
-          content:
-            application/json:
-              schema:
-                anyOf:
-                  - type: object
-                    properties:
-                      error:
+                      code:
                         type: string
                     required:
                       - error
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                      companias:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - error
-                      - companias
-        "429":
-          description: Límite de peticiones superado.
-          headers:
-            Retry-After:
-              description: Segundos que hay que esperar antes de reintentar.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-        "500":
-          description: Error interno del servidor.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-    patch:
-      operationId: patch-api-flito-parametrizacion-proveedores-logistica-id
-      tags:
-        - flito-parametrizacion
-      summary: "PATCH /api/flito/parametrizacion/proveedores-logistica/:id"
-      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.ts. Exige la función: parametrizacion.proveedores.editar."
-      security:
-        - bearerAuth: []
-      x-flit-funciones:
-        - parametrizacion.proveedores.editar
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Parámetro id de la ruta.
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                nombre:
-                  type: string
-                nit:
-                  type: string
-                contacto:
-                  type:
-                    - string
-                    - "null"
-                telefono:
-                  type:
-                    - string
-                    - "null"
-        description: Cuerpo que valida la ruta con su esquema de Zod.
-      responses:
-        "200":
-          description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Forma-04d4765829"
-        "401":
-          description: No autenticado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "403":
-          description: Sin permisos.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  funcion:
-                    type: string
-                  motivo:
-                    type: string
-                    enum:
-                      - sin_funcion
-                      - sin_modulo
-                      - no_reconocida
-                      - no_resuelto
-                required:
-                  - error
-                  - funcion
-                  - motivo
-        "404":
-          description: No encontrado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "409":
-          description: Conflicto con el estado actual.
-          content:
-            application/json:
-              schema:
-                anyOf:
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                    required:
-                      - error
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                      companias:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - error
-                      - companias
-        "422":
-          description: No se puede procesar.
-          content:
-            application/json:
-              schema:
-                anyOf:
+                      - code
                   - type: object
                     properties:
                       error:
                         type: string
                       campo:
+                        type:
+                          - string
+                          - "null"
+                        enum:
+                          - nombre
+                          - nit
+                          - null
+                    required:
+                      - error
+                      - campo
+                  - type: object
+                    properties:
+                      error:
                         type: string
-                      details:
-                        type: object
-                        properties:
-                          formErrors:
-                            type: array
-                            items:
+                      servicio:
+                        type: string
+                        enum:
+                          - soat
+                          - logistica
+                      bloqueos:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            motivo:
                               type: string
-                          fieldErrors:
-                            type: object
-                        required:
-                          - formErrors
-                          - fieldErrors
+                              enum:
+                                - companias
+                                - actas
+                                - soat_en_curso
+                                - reglas
+                                - licencias
+                            cantidad:
+                              type: number
+                            texto:
+                              type: string
+                          required:
+                            - motivo
+                            - cantidad
+                            - texto
                     required:
                       - error
-                      - campo
-                      - details
+                      - servicio
+                      - bloqueos
                   - type: object
                     properties:
                       error:
                         type: string
-                      campo:
+                      companias:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - companias
+                  - type: object
+                    properties:
+                      error:
                         type: string
                     required:
                       - error
-                      - campo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                    required:
+                      - error
+                      - funcion
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campos:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - campos
         "429":
           description: Límite de peticiones superado.
           headers:
@@ -38949,44 +38636,52 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-  "/api/flito/parametrizacion/proveedores-logistica/{id}/estado":
-    patch:
-      operationId: patch-api-flito-parametrizacion-proveedores-logistica-id-estado
+  /api/flito/parametrizacion/proveedores-logistica:
+    get:
+      operationId: get-api-flito-parametrizacion-proveedores-logistica
       tags:
         - flito-parametrizacion
-      summary: "PATCH /api/flito/parametrizacion/proveedores-logistica/:id/estado"
-      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.ts. Exige la función: parametrizacion.proveedores.estado."
+      summary: GET /api/flito/parametrizacion/proveedores-logistica
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.ts. Exige la función: parametrizacion.proveedores.listar."
       security:
         - bearerAuth: []
       x-flit-funciones:
-        - parametrizacion.proveedores.estado
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Parámetro id de la ruta.
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                activo:
-                  type: boolean
-                activoEsperado:
-                  type: boolean
-              required:
-                - activo
-        description: Cuerpo que valida la ruta con su esquema de Zod.
+        - parametrizacion.proveedores.listar
       responses:
         "200":
           description: Respuesta exitosa.
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-04d4765829"
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    nombre:
+                      type: string
+                    nit:
+                      type:
+                        - string
+                        - "null"
+                    contacto:
+                      type:
+                        - string
+                        - "null"
+                    telefono:
+                      type:
+                        - string
+                        - "null"
+                    activo:
+                      type: boolean
+                  required:
+                    - id
+                    - nombre
+                    - nit
+                    - contacto
+                    - telefono
+                    - activo
         "401":
           description: No autenticado.
           content:
@@ -39020,67 +38715,6 @@ paths:
                   - error
                   - funcion
                   - motivo
-        "404":
-          description: No encontrado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "409":
-          description: Conflicto con el estado actual.
-          content:
-            application/json:
-              schema:
-                anyOf:
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                    required:
-                      - error
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                      companias:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - error
-                      - companias
-        "422":
-          description: No se puede procesar.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  campo:
-                    type: string
-                  details:
-                    type: object
-                    properties:
-                      formErrors:
-                        type: array
-                        items:
-                          type: string
-                      fieldErrors:
-                        type: object
-                    required:
-                      - formErrors
-                      - fieldErrors
-                required:
-                  - error
-                  - campo
-                  - details
         "429":
           description: Límite de peticiones superado.
           headers:
@@ -39104,7 +38738,7 @@ paths:
       tags:
         - flito-parametrizacion
       summary: "GET /api/flito/parametrizacion/proveedores-logistica/:id/impacto"
-      description: "HU #14148 — impacto de una baja (inactivar o eliminar): cuántas compañías lo tienen y los 3 primeros nombres. Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.ts. Exige la función: parametrizacion.proveedores.estado."
+      description: "HU #14148 — cuántas compañías lo tienen y los 3 primeros nombres. Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.ts. Exige la función: parametrizacion.proveedores.estado."
       security:
         - bearerAuth: []
       x-flit-funciones:
@@ -39188,29 +38822,6 @@ paths:
                     type: string
                 required:
                   - error
-        "409":
-          description: Conflicto con el estado actual.
-          content:
-            application/json:
-              schema:
-                anyOf:
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                    required:
-                      - error
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                      companias:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - error
-                      - companias
         "429":
           description: Límite de peticiones superado.
           headers:
@@ -39247,7 +38858,31 @@ paths:
               schema:
                 type: array
                 items:
-                  "$ref": "#/components/schemas/Forma-0ad8ae6c64"
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    nombre:
+                      type: string
+                    estrategia:
+                      type: string
+                    umbralOcr:
+                      type:
+                        - number
+                        - "null"
+                    slaHoras:
+                      type:
+                        - number
+                        - "null"
+                    activo:
+                      type: boolean
+                  required:
+                    - id
+                    - nombre
+                    - estrategia
+                    - umbralOcr
+                    - slaHoras
+                    - activo
         "401":
           description: No autenticado.
           content:
@@ -39281,612 +38916,6 @@ paths:
                   - error
                   - funcion
                   - motivo
-        "429":
-          description: Límite de peticiones superado.
-          headers:
-            Retry-After:
-              description: Segundos que hay que esperar antes de reintentar.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-        "500":
-          description: Error interno del servidor.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-    post:
-      operationId: post-api-flito-parametrizacion-proveedores-soat
-      tags:
-        - flito-parametrizacion
-      summary: POST /api/flito/parametrizacion/proveedores-soat
-      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-parametrizacion.routes.ts. Exige la función: parametrizacion.proveedores.crear."
-      security:
-        - bearerAuth: []
-      x-flit-funciones:
-        - parametrizacion.proveedores.crear
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                nombre:
-                  type: string
-                  minLength: 1
-                  maxLength: 150
-                estrategia:
-                  type: string
-                  maxLength: 40
-                umbralOcr:
-                  type:
-                    - number
-                    - "null"
-                  minimum: 0
-                  maximum: 1
-                slaHoras:
-                  type:
-                    - integer
-                    - "null"
-                  minimum: 1
-              required:
-                - nombre
-        description: Cuerpo que valida la ruta con su esquema de Zod.
-      responses:
-        "201":
-          description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Forma-0ad8ae6c64"
-        "400":
-          description: Petición inválida.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  details:
-                    type: object
-                    properties:
-                      formErrors:
-                        type: array
-                        items:
-                          type: string
-                      fieldErrors:
-                        type: object
-                        properties:
-                          nombre:
-                            type: array
-                            items:
-                              type: string
-                          estrategia:
-                            type: array
-                            items:
-                              type: string
-                          umbralOcr:
-                            type: array
-                            items:
-                              type: string
-                          slaHoras:
-                            type: array
-                            items:
-                              type: string
-                    required:
-                      - formErrors
-                      - fieldErrors
-                required:
-                  - error
-                  - details
-        "401":
-          description: No autenticado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "403":
-          description: Sin permisos.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  funcion:
-                    type: string
-                  motivo:
-                    type: string
-                    enum:
-                      - sin_funcion
-                      - sin_modulo
-                      - no_reconocida
-                      - no_resuelto
-                required:
-                  - error
-                  - funcion
-                  - motivo
-        "409":
-          description: Conflicto con el estado actual.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "429":
-          description: Límite de peticiones superado.
-          headers:
-            Retry-After:
-              description: Segundos que hay que esperar antes de reintentar.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-        "500":
-          description: Error interno del servidor.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-  "/api/flito/parametrizacion/proveedores-soat/{id}":
-    delete:
-      operationId: delete-api-flito-parametrizacion-proveedores-soat-id
-      tags:
-        - flito-parametrizacion
-      summary: "DELETE /api/flito/parametrizacion/proveedores-soat/:id"
-      description: "── HU #13960: eliminar un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas (RN-PROV-6/7) ───────── Exige `parametrizacion.proveedores.eliminar`, que concede «Eliminar proveedores», exclusiva del Administrador (0263). Fuente: apps/api/src/modules/flito-parametrizacion/flito-parametrizacion.routes.ts. Exige la función: parametrizacion.proveedores.eliminar."
-      security:
-        - bearerAuth: []
-      x-flit-funciones:
-        - parametrizacion.proveedores.eliminar
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Parámetro id de la ruta.
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  eliminado:
-                    type: boolean
-                required:
-                  - id
-                  - eliminado
-        "400":
-          description: Petición inválida.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "401":
-          description: No autenticado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "403":
-          description: Sin permisos.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  funcion:
-                    type: string
-                  motivo:
-                    type: string
-                    enum:
-                      - sin_funcion
-                      - sin_modulo
-                      - no_reconocida
-                      - no_resuelto
-                required:
-                  - error
-                  - funcion
-                  - motivo
-        "404":
-          description: No encontrado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "409":
-          description: Conflicto con el estado actual.
-          content:
-            application/json:
-              schema:
-                anyOf:
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                    required:
-                      - error
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                      funcion:
-                        type: string
-                    required:
-                      - error
-                      - funcion
-        "429":
-          description: Límite de peticiones superado.
-          headers:
-            Retry-After:
-              description: Segundos que hay que esperar antes de reintentar.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-        "500":
-          description: Error interno del servidor.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-    patch:
-      operationId: patch-api-flito-parametrizacion-proveedores-soat-id
-      tags:
-        - flito-parametrizacion
-      summary: "PATCH /api/flito/parametrizacion/proveedores-soat/:id"
-      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-parametrizacion.routes.ts. Exige la función: parametrizacion.proveedores.editar."
-      security:
-        - bearerAuth: []
-      x-flit-funciones:
-        - parametrizacion.proveedores.editar
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Parámetro id de la ruta.
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                nombre:
-                  type: string
-                  minLength: 1
-                  maxLength: 150
-                estrategia:
-                  type: string
-                  maxLength: 40
-                umbralOcr:
-                  type:
-                    - number
-                    - "null"
-                  minimum: 0
-                  maximum: 1
-                slaHoras:
-                  type:
-                    - integer
-                    - "null"
-                  minimum: 1
-                activo:
-                  type: boolean
-        description: Cuerpo que valida la ruta con su esquema de Zod.
-      responses:
-        "200":
-          description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Forma-0ad8ae6c64"
-        "400":
-          description: Petición inválida.
-          content:
-            application/json:
-              schema:
-                anyOf:
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                      details:
-                        type: object
-                        properties:
-                          formErrors:
-                            type: array
-                            items:
-                              type: string
-                          fieldErrors:
-                            type: object
-                            properties:
-                              nombre:
-                                type: array
-                                items:
-                                  type: string
-                              estrategia:
-                                type: array
-                                items:
-                                  type: string
-                              umbralOcr:
-                                type: array
-                                items:
-                                  type: string
-                              slaHoras:
-                                type: array
-                                items:
-                                  type: string
-                              activo:
-                                type: array
-                                items:
-                                  type: string
-                        required:
-                          - formErrors
-                          - fieldErrors
-                    required:
-                      - error
-                      - details
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                    required:
-                      - error
-        "401":
-          description: No autenticado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "403":
-          description: Sin permisos.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  funcion:
-                    type: string
-                  motivo:
-                    type: string
-                    enum:
-                      - sin_funcion
-                      - sin_modulo
-                      - no_reconocida
-                      - no_resuelto
-                required:
-                  - error
-                  - funcion
-                  - motivo
-        "404":
-          description: No encontrado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "409":
-          description: Conflicto con el estado actual.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "429":
-          description: Límite de peticiones superado.
-          headers:
-            Retry-After:
-              description: Segundos que hay que esperar antes de reintentar.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-        "500":
-          description: Error interno del servidor.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-  "/api/flito/parametrizacion/proveedores-soat/{id}/estado":
-    patch:
-      operationId: patch-api-flito-parametrizacion-proveedores-soat-id-estado
-      tags:
-        - flito-parametrizacion
-      summary: "PATCH /api/flito/parametrizacion/proveedores-soat/:id/estado"
-      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-parametrizacion.routes.ts. Exige la función: parametrizacion.proveedores.estado."
-      security:
-        - bearerAuth: []
-      x-flit-funciones:
-        - parametrizacion.proveedores.estado
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Parámetro id de la ruta.
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                activo:
-                  type: boolean
-                activoEsperado:
-                  type: boolean
-              required:
-                - activo
-                - activoEsperado
-        description: Cuerpo que valida la ruta con su esquema de Zod.
-      responses:
-        "200":
-          description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  activo:
-                    type: boolean
-                required:
-                  - id
-                  - activo
-        "400":
-          description: Petición inválida.
-          content:
-            application/json:
-              schema:
-                anyOf:
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                    required:
-                      - error
-                  - type: object
-                    properties:
-                      error:
-                        type: string
-                      details:
-                        type: object
-                        properties:
-                          formErrors:
-                            type: array
-                            items:
-                              type: string
-                          fieldErrors:
-                            type: object
-                            properties:
-                              activo:
-                                type: array
-                                items:
-                                  type: string
-                              activoEsperado:
-                                type: array
-                                items:
-                                  type: string
-                        required:
-                          - formErrors
-                          - fieldErrors
-                    required:
-                      - error
-                      - details
-        "401":
-          description: No autenticado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "403":
-          description: Sin permisos.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  funcion:
-                    type: string
-                  motivo:
-                    type: string
-                    enum:
-                      - sin_funcion
-                      - sin_modulo
-                      - no_reconocida
-                      - no_resuelto
-                required:
-                  - error
-                  - funcion
-                  - motivo
-        "404":
-          description: No encontrado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "409":
-          description: Conflicto con el estado actual.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
         "429":
           description: Límite de peticiones superado.
           headers:
@@ -40016,6 +39045,1908 @@ paths:
                     type: string
                 required:
                   - error
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/proveedores/{id}":
+    delete:
+      operationId: delete-api-flito-parametrizacion-proveedores-id
+      tags:
+        - flito-parametrizacion
+      summary: "DELETE /api/flito/parametrizacion/proveedores/:id"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores.routes.ts. Exige la función: parametrizacion.proveedores.eliminar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.proveedores.eliminar
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  eliminado:
+                    type: boolean
+                required:
+                  - id
+                  - eliminado
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type:
+                          - string
+                          - "null"
+                        enum:
+                          - nombre
+                          - nit
+                          - null
+                    required:
+                      - error
+                      - campo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      servicio:
+                        type: string
+                        enum:
+                          - soat
+                          - logistica
+                      bloqueos:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            motivo:
+                              type: string
+                              enum:
+                                - companias
+                                - actas
+                                - soat_en_curso
+                                - reglas
+                                - licencias
+                            cantidad:
+                              type: number
+                            texto:
+                              type: string
+                          required:
+                            - motivo
+                            - cantidad
+                            - texto
+                    required:
+                      - error
+                      - servicio
+                      - bloqueos
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      companias:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - companias
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                    required:
+                      - error
+                      - funcion
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campos:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - campos
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    get:
+      operationId: get-api-flito-parametrizacion-proveedores-id
+      tags:
+        - flito-parametrizacion
+      summary: "GET /api/flito/parametrizacion/proveedores/:id"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores.routes.ts. Exige la función: parametrizacion.proveedores.listar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.proveedores.listar
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  telefono:
+                    type:
+                      - string
+                      - "null"
+                  correo:
+                    type:
+                      - string
+                      - "null"
+                  direccion:
+                    type:
+                      - string
+                      - "null"
+                  ciudad:
+                    type:
+                      - string
+                      - "null"
+                  contacto:
+                    type:
+                      - string
+                      - "null"
+                  soat:
+                    type:
+                      - object
+                      - "null"
+                    properties:
+                      estrategia:
+                        type: string
+                      umbralOcr:
+                        type:
+                          - number
+                          - "null"
+                      slaHoras:
+                        type:
+                          - number
+                          - "null"
+                    required:
+                      - estrategia
+                      - umbralOcr
+                      - slaHoras
+                  id:
+                    type: string
+                  nombre:
+                    type: string
+                  nit:
+                    type:
+                      - string
+                      - "null"
+                  servicios:
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - soat
+                        - logistica
+                  activo:
+                    type: boolean
+                  companiasPorServicio:
+                    type: object
+                    properties:
+                      soat:
+                        type: number
+                      logistica:
+                        type: number
+                  datosCompletos:
+                    type: boolean
+                  umbralOcr:
+                    type:
+                      - number
+                      - "null"
+                  slaHoras:
+                    type:
+                      - number
+                      - "null"
+                  version:
+                    type: number
+                required:
+                  - telefono
+                  - correo
+                  - direccion
+                  - ciudad
+                  - contacto
+                  - soat
+                  - id
+                  - nombre
+                  - nit
+                  - servicios
+                  - activo
+                  - companiasPorServicio
+                  - datosCompletos
+                  - umbralOcr
+                  - slaHoras
+                  - version
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type:
+                          - string
+                          - "null"
+                        enum:
+                          - nombre
+                          - nit
+                          - null
+                    required:
+                      - error
+                      - campo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      servicio:
+                        type: string
+                        enum:
+                          - soat
+                          - logistica
+                      bloqueos:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            motivo:
+                              type: string
+                              enum:
+                                - companias
+                                - actas
+                                - soat_en_curso
+                                - reglas
+                                - licencias
+                            cantidad:
+                              type: number
+                            texto:
+                              type: string
+                          required:
+                            - motivo
+                            - cantidad
+                            - texto
+                    required:
+                      - error
+                      - servicio
+                      - bloqueos
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      companias:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - companias
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                    required:
+                      - error
+                      - funcion
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campos:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - campos
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    patch:
+      operationId: patch-api-flito-parametrizacion-proveedores-id
+      tags:
+        - flito-parametrizacion
+      summary: "PATCH /api/flito/parametrizacion/proveedores/:id"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores.routes.ts. Exige la función: parametrizacion.proveedores.editar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.proveedores.editar
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                versionEsperada:
+                  type: number
+                generales:
+                  description: "[por verificar] el esquema acepta cualquier valor (ZodUnknown)."
+                servicios:
+                  description: "[por verificar] el esquema acepta cualquier valor (ZodUnknown)."
+                soat:
+                  description: "[por verificar] el esquema acepta cualquier valor (ZodUnknown)."
+              required:
+                - versionEsperada
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Forma-94421439de"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type:
+                          - string
+                          - "null"
+                        enum:
+                          - nombre
+                          - nit
+                          - null
+                    required:
+                      - error
+                      - campo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      servicio:
+                        type: string
+                        enum:
+                          - soat
+                          - logistica
+                      bloqueos:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            motivo:
+                              type: string
+                              enum:
+                                - companias
+                                - actas
+                                - soat_en_curso
+                                - reglas
+                                - licencias
+                            cantidad:
+                              type: number
+                            texto:
+                              type: string
+                          required:
+                            - motivo
+                            - cantidad
+                            - texto
+                    required:
+                      - error
+                      - servicio
+                      - bloqueos
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      companias:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - companias
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                    required:
+                      - error
+                      - funcion
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campos:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - campos
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/proveedores/{id}/estado":
+    patch:
+      operationId: patch-api-flito-parametrizacion-proveedores-id-estado
+      tags:
+        - flito-parametrizacion
+      summary: "PATCH /api/flito/parametrizacion/proveedores/:id/estado"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores.routes.ts. Exige la función: parametrizacion.proveedores.estado."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.proveedores.estado
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                activo:
+                  type: boolean
+                versionEsperada:
+                  type: number
+              required:
+                - activo
+                - versionEsperada
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Forma-94421439de"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type:
+                          - string
+                          - "null"
+                        enum:
+                          - nombre
+                          - nit
+                          - null
+                    required:
+                      - error
+                      - campo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      servicio:
+                        type: string
+                        enum:
+                          - soat
+                          - logistica
+                      bloqueos:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            motivo:
+                              type: string
+                              enum:
+                                - companias
+                                - actas
+                                - soat_en_curso
+                                - reglas
+                                - licencias
+                            cantidad:
+                              type: number
+                            texto:
+                              type: string
+                          required:
+                            - motivo
+                            - cantidad
+                            - texto
+                    required:
+                      - error
+                      - servicio
+                      - bloqueos
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      companias:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - companias
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                    required:
+                      - error
+                      - funcion
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campos:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - campos
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/proveedores/{id}/historial":
+    get:
+      operationId: get-api-flito-parametrizacion-proveedores-id-historial
+      tags:
+        - flito-parametrizacion
+      summary: "GET /api/flito/parametrizacion/proveedores/:id/historial"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores.routes.ts. Exige la función: parametrizacion.proveedores.historial."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.proveedores.historial
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    accion:
+                      type: string
+                      enum:
+                        - crear
+                        - editar
+                        - activar
+                        - desactivar
+                        - eliminar
+                        - servicio_agregado
+                        - servicio_quitado
+                    campo:
+                      type:
+                        - string
+                        - "null"
+                    valorAntes:
+                      type:
+                        - string
+                        - "null"
+                    valorDespues:
+                      type:
+                        - string
+                        - "null"
+                    actorId:
+                      type:
+                        - number
+                        - "null"
+                    actorNombre:
+                      type:
+                        - string
+                        - "null"
+                    fecha:
+                      type: string
+                  required:
+                    - id
+                    - accion
+                    - campo
+                    - valorAntes
+                    - valorDespues
+                    - actorId
+                    - actorNombre
+                    - fecha
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type:
+                          - string
+                          - "null"
+                        enum:
+                          - nombre
+                          - nit
+                          - null
+                    required:
+                      - error
+                      - campo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      servicio:
+                        type: string
+                        enum:
+                          - soat
+                          - logistica
+                      bloqueos:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            motivo:
+                              type: string
+                              enum:
+                                - companias
+                                - actas
+                                - soat_en_curso
+                                - reglas
+                                - licencias
+                            cantidad:
+                              type: number
+                            texto:
+                              type: string
+                          required:
+                            - motivo
+                            - cantidad
+                            - texto
+                    required:
+                      - error
+                      - servicio
+                      - bloqueos
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      companias:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - companias
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                    required:
+                      - error
+                      - funcion
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campos:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - campos
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/proveedores/{id}/impacto":
+    get:
+      operationId: get-api-flito-parametrizacion-proveedores-id-impacto
+      tags:
+        - flito-parametrizacion
+      summary: "GET /api/flito/parametrizacion/proveedores/:id/impacto"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores.routes.ts. Exige la función: parametrizacion.proveedores.estado."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.proveedores.estado
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  activo:
+                    type: boolean
+                  version:
+                    type: number
+                  bloqueosPorServicio:
+                    type: object
+                    properties:
+                      soat:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            motivo:
+                              type: string
+                              enum:
+                                - companias
+                                - actas
+                                - soat_en_curso
+                                - reglas
+                                - licencias
+                            cantidad:
+                              type: number
+                            texto:
+                              type: string
+                          required:
+                            - motivo
+                            - cantidad
+                            - texto
+                      logistica:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            motivo:
+                              type: string
+                              enum:
+                                - companias
+                                - actas
+                                - soat_en_curso
+                                - reglas
+                                - licencias
+                            cantidad:
+                              type: number
+                            texto:
+                              type: string
+                          required:
+                            - motivo
+                            - cantidad
+                            - texto
+                  sesionesAfectadas:
+                    type: number
+                  puedeInactivar:
+                    type: boolean
+                  motivoNoInactivable:
+                    type:
+                      - string
+                      - "null"
+                  puedeEliminar:
+                    type: boolean
+                  motivoNoEliminable:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - activo
+                  - version
+                  - bloqueosPorServicio
+                  - sesionesAfectadas
+                  - puedeInactivar
+                  - motivoNoInactivable
+                  - puedeEliminar
+                  - motivoNoEliminable
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type:
+                          - string
+                          - "null"
+                        enum:
+                          - nombre
+                          - nit
+                          - null
+                    required:
+                      - error
+                      - campo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      servicio:
+                        type: string
+                        enum:
+                          - soat
+                          - logistica
+                      bloqueos:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            motivo:
+                              type: string
+                              enum:
+                                - companias
+                                - actas
+                                - soat_en_curso
+                                - reglas
+                                - licencias
+                            cantidad:
+                              type: number
+                            texto:
+                              type: string
+                          required:
+                            - motivo
+                            - cantidad
+                            - texto
+                    required:
+                      - error
+                      - servicio
+                      - bloqueos
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      companias:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - companias
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                    required:
+                      - error
+                      - funcion
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campos:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - campos
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/proveedores/{id}/servicios/{servicio}":
+    delete:
+      operationId: delete-api-flito-parametrizacion-proveedores-id-servicios-servicio
+      tags:
+        - flito-parametrizacion
+      summary: "DELETE /api/flito/parametrizacion/proveedores/:id/servicios/:servicio"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores.routes.ts. Exige la función: parametrizacion.proveedores.editar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.proveedores.editar
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+        - name: servicio
+          in: path
+          required: true
+          description: Parámetro servicio de la ruta.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Forma-94421439de"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type:
+                          - string
+                          - "null"
+                        enum:
+                          - nombre
+                          - nit
+                          - null
+                    required:
+                      - error
+                      - campo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      servicio:
+                        type: string
+                        enum:
+                          - soat
+                          - logistica
+                      bloqueos:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            motivo:
+                              type: string
+                              enum:
+                                - companias
+                                - actas
+                                - soat_en_curso
+                                - reglas
+                                - licencias
+                            cantidad:
+                              type: number
+                            texto:
+                              type: string
+                          required:
+                            - motivo
+                            - cantidad
+                            - texto
+                    required:
+                      - error
+                      - servicio
+                      - bloqueos
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      companias:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - companias
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                    required:
+                      - error
+                      - funcion
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campos:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - error
+                      - campos
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  /api/flito/parametrizacion/proveedores/asignables-usuario:
+    get:
+      operationId: get-api-flito-parametrizacion-proveedores-asignables-usuario
+      tags:
+        - flito-parametrizacion
+      summary: GET /api/flito/parametrizacion/proveedores/asignables-usuario
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores.routes.ts. Exige la función: parametrizacion.proveedores.listar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.proveedores.listar
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    nombre:
+                      type: string
+                  required:
+                    - id
+                    - nombre
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  /api/flito/parametrizacion/proveedores/selector:
+    get:
+      operationId: get-api-flito-parametrizacion-proveedores-selector
+      tags:
+        - flito-parametrizacion
+      summary: GET /api/flito/parametrizacion/proveedores/selector
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores.routes.ts. Exige la función: parametrizacion.proveedores.listar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.proveedores.listar
+      parameters:
+        - name: servicio
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - soat
+              - logistica
+          description: "Parámetro servicio, validado con el esquema de Zod de la ruta."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    nombre:
+                      type: string
+                  required:
+                    - id
+                    - nombre
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
         "429":
           description: Límite de peticiones superado.
           headers:
@@ -69794,8 +70725,8 @@ paths:
                           enum:
                             - accion
                             - operacion
-                            - elemento
                             - item
+                            - elemento
                         padre:
                           type:
                             - string
@@ -70828,8 +71759,8 @@ paths:
                           enum:
                             - accion
                             - operacion
-                            - elemento
                             - item
+                            - elemento
                         padre:
                           type:
                             - string
@@ -110865,8 +111796,8 @@ paths:
                           enum:
                             - accion
                             - operacion
-                            - elemento
                             - item
+                            - elemento
                         nivel:
                           type: number
                         orden:
@@ -111628,12 +112559,12 @@ paths:
                           type: string
                           enum:
                             - baja
-                            - reactivar
                             - crear
                             - editar
-                            - borrar
                             - activar
                             - desactivar
+                            - reactivar
+                            - borrar
                         campo:
                           type:
                             - string
@@ -116088,35 +117019,6 @@ components:
         - entradas
         - salidas
         - movimientos
-    Forma-04d4765829:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        id:
-          type: string
-        nombre:
-          type: string
-        nit:
-          type:
-            - string
-            - "null"
-        contacto:
-          type:
-            - string
-            - "null"
-        telefono:
-          type:
-            - string
-            - "null"
-        activo:
-          type: boolean
-      required:
-        - id
-        - nombre
-        - nit
-        - contacto
-        - telefono
-        - activo
     Forma-059d20f8e9:
       description: Forma que comparten varias operaciones.
       type: object
@@ -116314,33 +117216,6 @@ components:
         - anuladoPor
         - anuladoMotivo
         - createdAt
-    Forma-0ad8ae6c64:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        id:
-          type: string
-        nombre:
-          type: string
-        estrategia:
-          type: string
-        umbralOcr:
-          type:
-            - number
-            - "null"
-        slaHoras:
-          type:
-            - number
-            - "null"
-        activo:
-          type: boolean
-      required:
-        - id
-        - nombre
-        - estrategia
-        - umbralOcr
-        - slaHoras
-        - activo
     Forma-0fbdd10002:
       description: Forma que comparten varias operaciones.
       type: object
@@ -121952,6 +122827,57 @@ components:
         - opcional
         - vigente
         - tieneHistorial
+    Forma-94421439de:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        nombre:
+          type: string
+        nit:
+          type:
+            - string
+            - "null"
+        servicios:
+          type: array
+          items:
+            type: string
+            enum:
+              - soat
+              - logistica
+        activo:
+          type: boolean
+        companiasPorServicio:
+          type: object
+          properties:
+            soat:
+              type: number
+            logistica:
+              type: number
+        datosCompletos:
+          type: boolean
+        umbralOcr:
+          type:
+            - number
+            - "null"
+        slaHoras:
+          type:
+            - number
+            - "null"
+        version:
+          type: number
+      required:
+        - id
+        - nombre
+        - nit
+        - servicios
+        - activo
+        - companiasPorServicio
+        - datosCompletos
+        - umbralOcr
+        - slaHoras
+        - version
     Forma-948f2e8602:
       description: Forma que comparten varias operaciones.
       type: object

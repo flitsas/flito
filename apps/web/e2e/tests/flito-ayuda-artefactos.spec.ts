@@ -309,7 +309,8 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // HU #13955: NIT duplicado bajo el campo y campo Sucursal en el alta (capturas sin cambio: el
     // formulario de alta y la ficha fiscal no salen en ninguna).
     // HU #13961: Proveedores con Estado, filtro y ⋮ para desactivar y activar (03-proveedores regenerada).
-    clients: { version: '2.3', fecha: '2026-10-28', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
+    // HU #14336/#14337: proveedores con varios servicios (ficha 3.0 y 03-proveedores regenerada).
+    clients: { version: '3.0', fecha: '2026-11-05', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
       '01-clientes.png', '02-soat-sin-tramite.png', '03-proveedores.png'] },
     flito_tablero: { version: '1.2', diagrama: null, capturas: ['01-indicadores-y-alertas.png', '02-por-estado.png'] },
   };

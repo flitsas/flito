@@ -243,10 +243,10 @@ const PROVEEDORES = [
 async function mockModulo(page: import('@playwright/test').Page) {
   await mock(page);
   await page.route(/\/api\/flito\/parametrizacion\/proveedores$/, (route) =>
-    route.fulfill({
-      status: 200, contentType: 'application/json',
-      body: JSON.stringify(PROVEEDORES.map((p) => ({ tipo: 'soat', id: p.id, nombre: p.nombre, nit: null, contacto: null, telefono: null, activo: p.activo, companiasAsignadas: 0 }))),
-    }));
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{
+      id: '00000000-0000-4000-8000-000000000001', nombre: 'Seguros Alfa', nit: null, servicios: ['soat'], activo: true,
+      companiasPorServicio: { soat: 0 }, datosCompletos: false, umbralOcr: 0.8, slaHoras: 24, version: 1,
+    }]) }));
   await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROVEEDORES) }));
 }
@@ -261,7 +261,7 @@ test.describe('Clientes y proveedores · módulo fusionado', () => {
     await expect(page.getByText('Concesionario Norte')).toBeVisible();
 
     await page.getByRole('button', { name: 'Proveedores', exact: true }).click();
-    await expect(page.getByRole('cell', { name: 'Seguros Alfa', exact: true })).toBeVisible();
+    await expect(page.getByRole('cell', { name: /^Seguros Alfa/ })).toBeVisible();
     await expect(page.getByRole('cell', { name: 'SOAT', exact: true })).toBeVisible();
   });
 

@@ -40,6 +40,7 @@ import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js'
 import flitoDrFlitRoutes from './modules/flito-dr-flit/dr-flit.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
 import flitoProveedoresLogisticaRoutes from './modules/flito-parametrizacion/flito-proveedores-logistica.routes.js';
+import flitoProveedoresRoutes from './modules/flito-parametrizacion/flito-proveedores.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
 import flitoLogisticaViajesRoutes from './modules/flito-logistica/flito-logistica-viajes.routes.js';
 import flitoLogisticaMotivosRoutes from './modules/flito-logistica/flito-logistica-motivos.routes.js';
@@ -268,6 +269,8 @@ export function createApp() {
   app.use('/api/clients', clientsRoutes);
   // HU #14103: proveedores de logística (antes del router general, que comparte prefijo).
   app.use('/api/flito/parametrizacion/proveedores-logistica', flitoProveedoresLogisticaRoutes);
+  // HU #14332: gestión unificada (ADR-0039 §7.1). SIN `conAlcance`: cerrada a todo enlace. Antes del router general.
+  app.use('/api/flito/parametrizacion/proveedores', flitoProveedoresRoutes);
   app.use('/api/flito/parametrizacion', flitoParametrizacionRoutes);
   // HU #13061: acceso a FLIT 2. Antes de `/api/flito/sync` para no pasar dos veces por su authMiddleware.
   app.use('/api/flito/sync/flit2', flit2Routes);

@@ -100,7 +100,7 @@ export default function Clients() {
 
       {tab === 'clientes'
         ? <TabClientes editaAutogestion={editaAutogestion} editaSinTramite={editaSinTramite} puedeCrearProveedor={puedeCrearProveedor} veTarifas={veTarifas} editaEstado={editaEstado} />
-        : <TabProveedores editable={editaAutogestion} editaEstado={editaEstadoProveedor} />}
+        : <TabProveedores editaEstado={editaEstadoProveedor} />}
     </div>
   );
 }
