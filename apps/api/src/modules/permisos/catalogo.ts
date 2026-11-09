@@ -344,6 +344,24 @@ const ITEMS_DE_OPERACION_LEGADA: ReadonlyMap<string, string[]> = (() => {
 })();
 
 /**
+ * ADR-0040 (0298, HU #14351 y #14353) — Reparto sembrado DESPUÉS del árbol, sobre nodos que ya existen: no entra
+ * al mundo plano (los tests de las migraciones históricas no lo ven) y sí al de hoy (`repartoDePartida`, AC9 de la
+ * 0233). El rol `proveedor` trae el perfil «Coordinador de proveedor» de logística; la rama `menu.gestion` ya la
+ * tenía por SOAT. Lo que NO se siembra (cerrar lote, reversar, viajes adicionales, firmar en FLIT, dejar pendiente,
+ * resolver trámite, ver documento del firmante, motivos) queda fuera a propósito: ADR-0039 §6 y D3.
+ */
+const REPARTO_POSTERIOR_AL_ARBOL: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['proveedor', [
+    'pagina.flito_logistica', 'pagina.flito_logistica_ruta',
+    'accion.logistica.ver_consola', 'accion.logistica.ver_actas', 'accion.logistica.generar_actas',
+    'accion.logistica.despachar_entregar_devolver', 'accion.mi_ruta.ver', 'accion.mi_ruta.escanear',
+    'accion.mi_ruta.reportar_novedad',
+    'logistica.actas.descargar', 'logistica.actas.despachar', 'logistica.actas.operar_ajenas',
+    'logistica.recogida.confirmar', 'logistica.traslado.registrar', 'logistica.traslado.anular',
+  ]],
+];
+
+/**
  * El catálogo entero: el plano MENOS lo que absorbió el árbol (operaciones de acciones y de ítems antiguos,
  * y las páginas que absorbe una acción) MÁS las acciones y, desde la #13429, los elementos `menu.*`. Es lo
  * que la base debe tener (arranque, AC9) y lo que siembran las migraciones.
@@ -389,6 +407,13 @@ export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
       codigo: e.codigo, modulo: e.codigo.slice(PREFIJO_ELEMENTO.length), nombreNegocio: e.nombre,
       descripcion: `Ver la sección «${e.nombre}» del menú.`, tipo: 'elemento', roles: [...roles].sort(), nivel: 1, orden: e.orden,
     });
+  }
+  for (const [rol, codigos] of REPARTO_POSTERIOR_AL_ARBOL) {
+    for (const c of codigos) {
+      const f = salida.find((x) => x.codigo === c);
+      if (!f) { errores.push(`reparto posterior al árbol sobre un código que no está en el catálogo: ${rol} ${c}`); continue; }
+      if (!f.roles.includes(rol)) f.roles = [...f.roles, rol].sort();
+    }
   }
   if (errores.length) throw new CatalogoIncoherenteError(`El árbol de permisos y el catálogo no coinciden:\n  ${errores.join('\n  ')}`);
   return marcarExclusivasAdmin(salida).sort((a, b) => a.codigo.localeCompare(b.codigo));

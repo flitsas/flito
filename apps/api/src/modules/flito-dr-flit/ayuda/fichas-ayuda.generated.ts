@@ -469,7 +469,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_logistica",
     "etiqueta": "Logística",
     "resumen": "Viajes a FLIT o al cliente, despacho y seguimiento de los viajes.",
-    "version": "2.9",
+    "version": "3.0",
     "fecha": "2026-11-09",
     "palabrasClave": [
       "logística",
@@ -500,12 +500,12 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "para-quien",
         "titulo": "Para quién",
-        "texto": "Administrador (cada pestaña aparece solo si su rol tiene la función que la sirve; si ninguna, verá No tienes acceso a FLITO — Logística; registra viajes, anula viajes, firma y despacha, firma la llegada a FLIT, registra novedades). Auditor (consulta). Coordinador de un proveedor de logística: ve Trámites, Viajes, Entregas y Actas de su empresa, sin precios, y despacha con sus propios mensajeros; el menú solo muestra Logística si su proveedor presta ese servicio. El Mensajero no entra aquí: su trabajo es Mi ruta. Logística muestra la operación de su empresa desde que empezó a operar en FLITO. Si necesita algo anterior, escríbale a Operaciones de FLITO."
+        "texto": "Administrador (cada pestaña aparece solo si su rol tiene la función que la sirve; si ninguna, verá No tienes acceso a FLITO — Logística; registra viajes, anula viajes, firma y despacha, firma la llegada a FLIT, registra novedades). Auditor (consulta). Coordinador de un proveedor de logística (el rol Proveedor trae este perfil): ve Trámites, Viajes, Entregas y Actas de su empresa, sin precios, y despacha con sus propios mensajeros; el menú solo muestra Logística si su proveedor presta ese servicio. El Mensajero no entra aquí: su trabajo es Mi ruta. Logística muestra la operación de su empresa desde que empezó a operar en FLITO. Si necesita algo anterior, escríbale a Operaciones de FLITO."
       },
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú lateral, sección Gestión, ítem Logística."
+        "texto": "En el menú lateral, sección Gestión, ítem Logística. Un usuario con rol Proveedor lo tiene de partida si su proveedor presta Logística."
       },
       {
         "ancla": "pasos",
@@ -1272,8 +1272,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "users",
     "etiqueta": "Usuarios",
     "resumen": "Alta, edición, bloqueo y baja de las personas que entran a FLITO, con el historial de cambios.",
-    "version": "1.5",
-    "fecha": "2026-11-06",
+    "version": "1.6",
+    "fecha": "2026-11-09",
     "palabrasClave": [
       "usuarios",
       "gestión de usuarios",
@@ -1308,7 +1308,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "pasos",
         "titulo": "Pasos",
-        "texto": "Entre a Usuarios. En la pestaña Usuarios filtre por Rol y por Vista (En alta, Dados de baja o Todos); debajo, Usuarios por rol cuenta cuántos hay de cada rol y cuántos están activos e inactivos. Descargar Excel baja todas las coincidencias del filtro. Lista de usuarios demo con filtros, conteo por rol y acciones por fila Para crear a alguien pulse Nuevo usuario y complete Username (login), Nombre completo, Email (opcional), Contraseña (mínimo 8 caracteres con minúscula, mayúscula, número y un carácter especial) y Rol base; según el enlace del rol se pide la compañía, el proveedor o los organismos. Una compañía inactiva aparece con (Inactivo) y no se puede elegir; si el usuario ya estaba atado a una que se desactivó, el campo la conserva con esa marca y el resto del formulario se guarda igual. El campo Proveedor ofrece los proveedores activos, sea cual sea su servicio; uno desactivado no sale en la lista. Si el usuario ya estaba atado a él, el campo lo conserva con (No disponible). Si su usuario no tiene la función Ver los proveedores SOAT, el campo lo dice y no deja elegir: pídala a un administrador. Debajo, Permisos de este usuario muestra lo que trae el rol y permite añadir o quitar excepciones. Pulse Crear usuario. Formulario Nuevo usuario vacío con los campos y los permisos que trae el rol En la fila de una persona, Editar cambia sus datos, su rol, su ámbito y sus excepciones de permisos, y Contraseña le asigna una nueva. Cuatro funciones son exclusivas del Administrador y no admiten excepción: Activar o desactivar clientes, Eliminar clientes, Activar o desactivar proveedores y Eliminar proveedores. En una persona con otro rol aparecen apagadas con la nota Exclusiva del Administrador: solo la tiene quien tiene ese rol.; en un Administrador, marcadas por el rol con Exclusiva del Administrador: la da su rol y no se puede quitar. Para que alguien las tenga, cámbiele el Rol base a Administrador. Desactivar le impide entrar sin sacarla de la lista; Activar la devuelve. Usted no puede desactivarse ni darse de baja a sí mismo (su fila dice «(tú)»). Dar de baja la saca de la lista En alta; queda en Dados de baja, donde Reactivar la recupera. En la pestaña Historial filtre por Usuario, Recurso (Todos, Usuarios, Roles, Cuadro rol × función o Funciones por usuario) y fechas. Cada fila dice Cuándo, Quién, Qué y el Cambio (antes → después). Historial con dos cambios demo: una desactivación y un cambio de rol Diagrama del ciclo de un usuario: nuevo usuario activo, desactivar y activar, dar de baja y reactivar, con cada cambio en el historial Los permisos de cada rol se deciden en Roles y permisos. Aquí solo se añaden o quitan excepciones para una persona."
+        "texto": "Entre a Usuarios. En la pestaña Usuarios filtre por Rol y por Vista (En alta, Dados de baja o Todos); debajo, Usuarios por rol cuenta cuántos hay de cada rol y cuántos están activos e inactivos. Descargar Excel baja todas las coincidencias del filtro. Lista de usuarios demo con filtros, conteo por rol y acciones por fila Para crear a alguien pulse Nuevo usuario y complete Username (login), Nombre completo, Email (opcional), Contraseña (mínimo 8 caracteres con minúscula, mayúscula, número y un carácter especial) y Rol base; según el enlace del rol se pide la compañía, el proveedor o los organismos. Una compañía inactiva aparece con (Inactivo) y no se puede elegir; si el usuario ya estaba atado a una que se desactivó, el campo la conserva con esa marca y el resto del formulario se guarda igual. El campo Proveedor ofrece los proveedores activos, sea cual sea su servicio; uno desactivado no sale en la lista. Si el usuario ya estaba atado a él, el campo lo conserva con (No disponible). Si su usuario no tiene la función Ver los proveedores SOAT, el campo lo dice y no deja elegir: pídala a un administrador. Debajo, Permisos de este usuario muestra lo que trae el rol y permite añadir o quitar excepciones. El rol Proveedor trae también Logística: la consola, las actas (incluido Generar actas), Mi ruta y registrar el viaje a cliente; solo la ve si su proveedor presta ese servicio. Para un mensajero de proveedor, quítele a ese usuario Operar actas asignadas a otro mensajero. Pulse Crear usuario. Formulario Nuevo usuario vacío con los campos y los permisos que trae el rol En la fila de una persona, Editar cambia sus datos, su rol, su ámbito y sus excepciones de permisos, y Contraseña le asigna una nueva. Cuatro funciones son exclusivas del Administrador y no admiten excepción: Activar o desactivar clientes, Eliminar clientes, Activar o desactivar proveedores y Eliminar proveedores. En una persona con otro rol aparecen apagadas con la nota Exclusiva del Administrador: solo la tiene quien tiene ese rol.; en un Administrador, marcadas por el rol con Exclusiva del Administrador: la da su rol y no se puede quitar. Para que alguien las tenga, cámbiele el Rol base a Administrador. Desactivar le impide entrar sin sacarla de la lista; Activar la devuelve. Usted no puede desactivarse ni darse de baja a sí mismo (su fila dice «(tú)»). Dar de baja la saca de la lista En alta; queda en Dados de baja, donde Reactivar la recupera. En la pestaña Historial filtre por Usuario, Recurso (Todos, Usuarios, Roles, Cuadro rol × función o Funciones por usuario) y fechas. Cada fila dice Cuándo, Quién, Qué y el Cambio (antes → después). Historial con dos cambios demo: una desactivación y un cambio de rol Diagrama del ciclo de un usuario: nuevo usuario activo, desactivar y activar, dar de baja y reactivar, con cada cambio en el historial Los permisos de cada rol se deciden en Roles y permisos. Aquí solo se añaden o quitan excepciones para una persona."
       },
       {
         "ancla": "estados",

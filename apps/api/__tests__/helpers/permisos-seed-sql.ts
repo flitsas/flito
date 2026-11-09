@@ -86,6 +86,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0286_flito_logistica_permiso_firmar_flit.sql', // HU #14122: firmar la llegada a FLIT; solo admin
   '0293_flito_proveedores_permiso_historial.sql', // HU #14335: historial de un proveedor; admin y auditor
   '0296_flito_logistica_permiso_dejar_pendiente.sql', // HU #14348: dejar una LT pendiente al escanear; solo admin
+  '0298_permisos_rol_proveedor_logistica.sql', // ADR-0040 (HU #14351, #14353): el rol proveedor trae el perfil Coordinador de logística
   '0274_flito_impuesto_certificacion_directa.sql', // Certificar impuesto sin trámite: acción solo a admin
 ] as const;
 
@@ -126,6 +127,17 @@ function bloquesInsert(sql: string, tabla: string): string[] {
 function bloquesInsertCondicionado(sql: string): string[] {
   const re = /INSERT INTO permisos_rol_funcion \(rol_codigo, funcion_codigo\)\s+SELECT v\.rol, v\.fn FROM \(VALUES([\s\S]*?)\) AS v\(rol, fn, origen\)\s+WHERE EXISTS \(SELECT 1 FROM permisos_rol_funcion o WHERE o\.rol_codigo = v\.rol AND o\.funcion_codigo = v\.origen\)\s+ON CONFLICT \(rol_codigo, funcion_codigo\) DO NOTHING\s*;/g;
   return [...sinComentariosSql(sql).matchAll(re)].map((m) => m[1]!);
+}
+
+/**
+ * ADR-0040 (0298) — Reparto a UN rol que existe, sin literal de rol en VALUES: `INSERT INTO permisos_rol_funcion
+ * (rol_codigo, funcion_codigo) SELECT r.codigo, f.codigo FROM permisos_roles r JOIN permisos_funciones f ON
+ * f.codigo IN ('<codigo>', …) WHERE r.codigo = '<rol>' ON CONFLICT DO NOTHING;`. Sin base se pliega como el
+ * literal (el JOIN con `permisos_funciones` deja fuera un código no sembrado: aquí es error de orden).
+ */
+export function bloquesRepartoUnRol(sql: string): [string, string[]][] {
+  const re = /INSERT INTO permisos_rol_funcion \(rol_codigo, funcion_codigo\)\s+SELECT r\.codigo, f\.codigo\s+FROM permisos_roles r\s+JOIN permisos_funciones f ON f\.codigo IN \(([\s\S]*?)\)\s+WHERE r\.codigo = '([a-z0-9_]+)'\s+ON CONFLICT DO NOTHING\s*;/g;
+  return [...sinComentariosSql(sql).matchAll(re)].map((m) => [m[2]!, [...m[1]!.matchAll(/'([a-z0-9_.]+)'/g)].map((c) => c[1]!)]);
 }
 
 /**
@@ -276,6 +288,10 @@ export function repartoDeSql(sqls: readonly string[], nombre = 'sql'): Map<strin
         if (!reparto.has(rol)) reparto.set(rol, new Set());
         reparto.get(rol)!.add(codigo);
       }
+    }
+    for (const [rol, codigos] of bloquesRepartoUnRol(sql)) {
+      if (!reparto.has(rol)) reparto.set(rol, new Set());
+      for (const codigo of codigos) reparto.get(rol)!.add(codigo);
     }
     // El reparto condicionado se evalúa contra lo sembrado HASTA AQUÍ: la fila entra solo si el rol ya
     // tiene la función de origen, igual que el `WHERE EXISTS` en la base.

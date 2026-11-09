@@ -18,7 +18,7 @@ consultas:
   - dónde está un documento enviado
   - qué significa el estado en flit
   - cómo veo el recorrido de una licencia
-version: 2.9
+version: 3.0
 fecha: 2026-11-09
 ---
 ## Qué es
@@ -27,13 +27,13 @@ Consola de las licencias de tránsito de trámites **Aprobado**: de la recogida 
 
 ## Para quién
 
-Administrador (cada pestaña aparece solo si su rol tiene la función que la sirve; si ninguna, verá **No tienes acceso a FLITO — Logística**; registra viajes, anula viajes, firma y despacha, firma la llegada a FLIT, registra novedades). Auditor (consulta). Coordinador de un proveedor de logística: ve **Trámites**, **Viajes**, **Entregas** y **Actas** de su empresa, sin precios, y despacha con sus propios mensajeros; el menú solo muestra Logística si su proveedor presta ese servicio. El Mensajero no entra aquí: su trabajo es **Mi ruta**.
+Administrador (cada pestaña aparece solo si su rol tiene la función que la sirve; si ninguna, verá **No tienes acceso a FLITO — Logística**; registra viajes, anula viajes, firma y despacha, firma la llegada a FLIT, registra novedades). Auditor (consulta). Coordinador de un proveedor de logística (el rol **Proveedor** trae este perfil): ve **Trámites**, **Viajes**, **Entregas** y **Actas** de su empresa, sin precios, y despacha con sus propios mensajeros; el menú solo muestra Logística si su proveedor presta ese servicio. El Mensajero no entra aquí: su trabajo es **Mi ruta**.
 
 Logística muestra la operación de su empresa desde que empezó a operar en FLITO. Si necesita algo anterior, escríbale a Operaciones de FLITO.
 
 ## Cómo se entra
 
-En el menú lateral, sección **Gestión**, ítem **Logística**.
+En el menú lateral, sección **Gestión**, ítem **Logística**. Un usuario con rol **Proveedor** lo tiene de partida si su proveedor presta Logística.
 
 ## Pasos
 

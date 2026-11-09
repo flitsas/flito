@@ -313,6 +313,32 @@ function paginaVisibleParaProveedor(slug: PageSlug, proveedor: ProveedorDePermis
   return !servicio || (proveedor?.activo === true && proveedor.servicios.includes(servicio));
 }
 
+/** ¿Pide servicio el módulo de esta página y el proveedor no lo presta? Sin proveedor activo, cierra. */
+function faltaServicioDePagina(slug: string, proveedor: ProveedorDePermisos | null): boolean {
+  const modulo = MODULO_FRONTERA_DE_PAGINA[slug as PageSlug];
+  const servicio = modulo ? SERVICIO_DE_MODULO[modulo] : undefined;
+  return servicio !== undefined && !(proveedor?.activo === true && proveedor.servicios.includes(servicio));
+}
+
+/**
+ * ADR-0040 §3 — Las funciones del conjunto que `/me` publica, simétrica a `paginasDePermisos`: con enlace
+ * `proveedor` quita las que solo cuelgan de páginas cuyo módulo pide un servicio que el proveedor no presta
+ * (sin proveedor activo, falla cerrado). Es una PROYECCIÓN para pintar: no decide nada; la decisión de la ruta
+ * la toma la frontera por servicio de `conAlcance`. Una función cuenta si ALGUNA de sus cadenas (`alternativasDe`)
+ * pasa por una página que el proveedor sí ve; la que no cuelga de ninguna página (`menu.*`) se conserva.
+ */
+export function funcionesDePermisos(p: PermisosOk): string[] {
+  const todas = [...p.funciones].sort();
+  if (p.tipoEnlace !== 'proveedor') return todas;
+  return todas.filter((codigo) => {
+    const paginas = new Set<string>();
+    if (codigo.startsWith(PREFIJO)) paginas.add(codigo);
+    for (const cadena of alternativasDe(codigo)) for (const c of cadena) if (c.startsWith(PREFIJO)) paginas.add(c);
+    if (paginas.size === 0) return true;
+    return [...paginas].some((pg) => !faltaServicioDePagina(pg.slice(PREFIJO.length), p.proveedor));
+  });
+}
+
 /** Los slugs vivos de un conjunto, ya con la frontera por servicio del enlace `proveedor` aplicada. */
 export function paginasDePermisos(p: PermisosOk): PageSlug[] {
   const paginas: PageSlug[] = [];
