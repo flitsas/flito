@@ -12,6 +12,11 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn(),
 }));
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
+// HU #14347: la regla del mensajero se prueba en `db/flito-logistica.mensajero-asignable.pg.test.ts`.
+vi.mock('../../src/modules/flito-logistica/flito-logistica.mensajeros.js', async (orig) => ({
+  ...await orig<typeof import('../../src/modules/flito-logistica/flito-logistica.mensajeros.js')>(),
+  exigirMensajeroAsignable: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 vi.mock('../../src/services/storage.js', () => ({
   uploadEntityDocument: vi.fn().mockResolvedValue('storage/firma.png'),
@@ -76,10 +81,12 @@ describe('despachar el acta de un viaje a FLIT', () => {
 
   it('después de despachar, la llegada a FLIT es admisible (traslado en_ruta)', async () => {
     cola(
-      [{ id: TR, destino: 'flit', origen: 'organismo', estado: 'en_ruta', mensajeroId: 7 }],
+      [{ id: TR, companiaId: 5, destino: 'flit', origen: 'organismo', estado: 'en_ruta', mensajeroId: 7 }],
+      [{ proveedorId: null }], // HU #14346: compañía antes que licencias
       [{ id: ACTA, estado: 'despachada', mensajeroId: 7 }],
       [{ id: 'lin-1', documentoId: DOC, estado: 'en_ruta', precio: '18500.00', motivoLlegadaId: 'm1' }],
       [{ id: DOC, estado: 'despachado' }],
+      [], // compañías de las licencias al pasar al proveedor vigente
     );
     const r = await firmarLlegadaFlit(TR, { firma: 'iVBORw0KGgo=' }, ctx);
     expect(r).toMatchObject({ estado: 'entregado', entregados: 1 });

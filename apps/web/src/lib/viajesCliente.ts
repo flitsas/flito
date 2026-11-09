@@ -66,6 +66,9 @@ export function mensajeRegistrarViaje(e: unknown, nombre: string, destino: Desti
   if (c === 'LT_YA_EN_TRASLADO' || c === 'LT_ESTADO_NO_ADMISIBLE') {
     return 'Alguna LT de este grupo ya no está lista. Cierre y recargue la lista.';
   }
+  if (c === 'LT_DE_OTRO_PROVEEDOR') {
+    return 'Alguna LT de este grupo ya no es del proveedor actual de la compañía. Cierre y recargue la lista.';
+  }
   if (c === 'LT_AJENA') return 'Solo puede registrar el viaje de las LT que recogió usted.';
   if (c === 'TRASLADO_COMPANIA_MIXTA' || c === 'TRASLADO_ORIGEN_MIXTO') {
     return 'Este grupo no se puede registrar junto. Recargue la lista.';

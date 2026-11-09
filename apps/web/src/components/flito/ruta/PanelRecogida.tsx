@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, PencilLine } from 'lucide-react';
 import { parseLicenciaTransito } from '@operaciones/shared-types';
 import { api } from '../../../lib/api';
+import { useAuth } from '../../../lib/auth';
 import { submitCampo } from '../../../lib/offlineQueue';
 import { obtenerUbicacion } from '../../../lib/geo';
 import { precargarOcr } from '../../../lib/ocrLt';
@@ -18,7 +19,7 @@ import IngresoManual from './IngresoManual';
 import PasoFirma, { type ResumenRecogida } from './PasoFirma';
 import TarjetaLtRecogida from './TarjetaLtRecogida';
 import {
-  entra, estadoDeEscaneo, estadoDeValidacion, mensajeEscanear, nuevaKey,
+  avisoPendienteSinPermiso, entra, estadoDeEscaneo, estadoDeValidacion, mensajeEscanear, mensajeValidar, nuevaKey, statusDe,
   type Candidato, type DatosManual, type FilaLt, type RespuestaEscaneo, type RespuestaValidacion,
 } from './recogidaTipos';
 
@@ -35,6 +36,8 @@ function BotonEscanear({ primaria, otra, onClick }: { primaria: boolean; otra: b
 }
 
 export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { puedeConfirmar: boolean; onVerRecogidas: () => void }) {
+  const { hasFuncion } = useAuth();
+  const puedeDejarPendiente = hasFuncion('logistica.documento.dejar_pendiente');
   const [filas, setFilas] = useState<FilaLt[]>([]);
   const [vista, setVista] = useState<Vista>('lista');
   const [escaneando, setEscaneando] = useState(false);
@@ -68,7 +71,7 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
     ...(f.dejarPendiente ? { dejarPendiente: true, organismoCodigo: f.organismoCodigo ?? undefined } : {}),
     ...geo,
   });
-  const registrarUna = async (f: FilaLt, geo: { lat?: string; lng?: string }): Promise<'ok' | 'elegir' | 'encolada' | 'error'> => {
+  const registrarUna = async (f: FilaLt, geo: { lat?: string; lng?: string }): Promise<'ok' | 'elegir' | 'encolada' | 'error' | 'sin_permiso'> => {
     patch(f.key, { registro: 'registrando' });
     try {
       const { queued, result } = await submitCampo('/flito/logistica/escanear', cuerpo(f, geo), `LT ${f.placa}`);
@@ -76,13 +79,19 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
       const r = result as RespuestaEscaneo;
       const estado = f.dejarPendiente && (r.resultado === 'recogido' || r.resultado === 'novedad') ? 'pendiente' : estadoDeEscaneo(r);
       patch(f.key, {
-        estado, motivo: r.motivo ?? null, documentoId: r.documentoId, vin: r.vin ?? f.vin, propietario: r.propietarioNombre ?? f.propietario,
+        estado, motivo: r.motivo ?? null, documentoId: r.documentoId, vin: r.vin || f.vin, propietario: r.propietarioNombre ?? f.propietario,
         numeroLicencia: r.numeroLicencia ?? f.numeroLicencia, candidatos: r.candidatos ?? null,
-        organismoCodigo: r.organismoCodigo ?? f.organismoCodigo, companiaNombre: r.companiaNombre ?? f.companiaNombre, registro: estado === 'elegir' ? 'no' : 'registrada',
+        organismoCodigo: r.organismoCodigo ?? f.organismoCodigo, companiaNombre: estado === 'sin_tramite' ? null : r.companiaNombre ?? f.companiaNombre, registro: estado === 'elegir' ? 'no' : 'registrada',
       });
       if (estado === 'elegir') { setHojaKey(f.key); return 'elegir'; }
       return 'ok';
     } catch (e) {
+      // AC5: la función se retiró con la sesión abierta. La LT vuelve a «Elige trámite» y la lista sigue viva.
+      if (f.dejarPendiente && statusDe(e) === 403) {
+        patch(f.key, { registro: 'no', estado: 'elegir', dejarPendiente: false, motivo: null });
+        setAviso({ tipo: 'status', texto: avisoPendienteSinPermiso(f.placa) });
+        return 'sin_permiso';
+      }
       patch(f.key, { registro: 'error', estado: 'error', motivo: mensajeEscanear(e) });
       return 'error';
     }
@@ -96,7 +105,7 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
       const estado = estadoDeValidacion(r);
       patch(f.key, { estado, motivo: r.motivo ?? null, candidatos: r.candidatos ?? null, organismoCodigo: r.organismoCodigo ?? null, companiaNombre: r.companiaNombre ?? null });
       if (estado === 'elegir') setHojaKey(f.key);
-    } catch { patch(f.key, { estado: 'error', motivo: 'No pudimos validar la LT. Revisa la señal e inténtalo de nuevo.' }); }
+    } catch (e) { patch(f.key, { estado: 'error', motivo: mensajeValidar(e) }); }
   };
   const procesar = (rawValue: string, numeroLt?: string | null) => {
     const p = parseLicenciaTransito(rawValue);
@@ -115,7 +124,7 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
   const agregarManual = async (datos: DatosManual, candidato: Candidato | undefined): Promise<string | null> => {
     const f = nueva({
       placa: datos.placa, manual: datos, numeroLicencia: datos.numeroLicencia, numeroLt: datos.numeroLt,
-      tramiteId: candidato?.gestionable ? candidato.tramiteId : undefined,
+      tramiteId: candidato?.tramiteId,
       companiaNombre: candidato?.companiaNombre ?? null, organismoCodigo: candidato?.organismoCodigo ?? null,
     });
     setFilas((fs) => [f, ...fs]);
@@ -142,7 +151,7 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
   const dejarPendiente = () => {
     if (!filaHoja) return;
     const org = filaHoja.candidatos?.[0]?.organismoCodigo ?? null;
-    void continuarTrasHoja(filaHoja, { tramiteId: undefined, dejarPendiente: true, estado: 'pendiente', companiaNombre: null, organismoCodigo: org, candidatos: null });
+    void continuarTrasHoja(filaHoja, { tramiteId: undefined, dejarPendiente: true, estado: 'pendiente', companiaNombre: null, organismoCodigo: org }); // conserva los candidatos: si la API lo rechaza, se vuelve a elegir
   };
   const cancelarHoja = () => { if (filaHoja) quitar(filaHoja); setHojaKey(null); };
 
@@ -158,7 +167,7 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
       let encoladas = 0; let errores = 0;
       for (const f of sinRegistrar) {
         const r = await registrarUna(filasRef.current.find((x) => x.key === f.key) ?? f, geo);
-        if (r === 'elegir') { setRegistrando(false); return; } // la hoja ya está abierta; se retoma al terminar
+        if (r === 'elegir' || r === 'sin_permiso') { setRegistrando(false); return; } // hoja abierta o aviso visible; se retoma al resolverla
         if (r === 'encolada') encoladas += 1;
         if (r === 'error') errores += 1;
       }
@@ -240,7 +249,7 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
       {escaneando && <Escaner onScan={procesar} onClose={() => { setEscaneando(false); disparador.current?.focus(); }} />}
       {manual && <IngresoManual onAgregar={agregarManual} onCerrar={() => { setManual(false); disparador.current?.focus(); }} />}
       {filaHoja?.candidatos && (
-        <HojaElegirTramite placa={filaHoja.placa} candidatos={filaHoja.candidatos} onElegir={elegirTramite} onPendiente={dejarPendiente} onCancelar={cancelarHoja} />
+        <HojaElegirTramite placa={filaHoja.placa} candidatos={filaHoja.candidatos} puedeDejarPendiente={puedeDejarPendiente} onElegir={elegirTramite} onPendiente={dejarPendiente} onCancelar={cancelarHoja} />
       )}
     </section>
   );

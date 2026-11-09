@@ -12,7 +12,6 @@ const insertMock = vi.fn();
 const updateMock = vi.fn();
 const transactionMock = vi.fn();
 const tarifaDeMock = vi.fn();
-const proveedorDeCompaniaMock = vi.fn();
 
 vi.mock('../../src/db/client.js', () => ({
   db: { select: selectMock, insert: insertMock, update: updateMock, delete: vi.fn(), transaction: transactionMock, execute: vi.fn() },
@@ -27,9 +26,6 @@ vi.mock('../../src/services/storage.js', () => ({
 }));
 vi.mock('../../src/modules/flito-parametrizacion/flito-tarifas.service.js', () => ({
   tarifaDe: (...a: unknown[]) => tarifaDeMock(...a),
-}));
-vi.mock('../../src/modules/flito-parametrizacion/flito-logistica-proveedor-compania.service.js', () => ({
-  proveedorDeCompania: (...a: unknown[]) => proveedorDeCompaniaMock(...a),
 }));
 
 const { default: logisticaRoutes } = await import('../../src/modules/flito-logistica/flito-logistica.routes.js');
@@ -50,7 +46,7 @@ const ctxAdmin = { userId: 1, username: 'op', role: 'admin', operaAjenas: true }
 const ctxMensajero = { userId: 9, username: 'msj', role: 'mensajero', operaAjenas: false };
 
 const lt = (id: string, over: Record<string, unknown> = {}) => ({
-  id, estado: 'clasificado', companiaId: 5, actaOrganismoPendiente: true, ...over,
+  id, estado: 'clasificado', companiaId: 5, actaOrganismoPendiente: true, proveedorId: 'prov-1', ...over,
 });
 const DOCS = [lt(D1), lt(D2), lt(D3)];
 
@@ -66,13 +62,13 @@ function txRegistro(opts: {
   falla23505?: boolean;
 } = {}) {
   const docs = opts.docs ?? DOCS;
+  selectMock.mockReturnValueOnce(chain([{
+    id: 5, nombre: 'ACME', autogestionable: false, direccion: 'Calle 1', contactoDoc: '900', proveedorId: 'prov-1',
+    ...opts.compania,
+  }]));
   selectMock.mockReturnValueOnce(chain(docs));
   selectMock.mockReturnValueOnce(chain(opts.pendientes ?? []));
   if (opts.propias) selectMock.mockReturnValueOnce(chain(opts.propias));
-  selectMock.mockReturnValueOnce(chain([{
-    id: 5, nombre: 'ACME', autogestionable: false, direccion: 'Calle 1', contactoDoc: '900',
-    ...opts.compania,
-  }]));
   selectMock.mockReturnValueOnce(chain(opts.vivos ?? []));
   insertMock.mockImplementation((tabla: unknown) => ({
     values: (valores: unknown) => {
@@ -112,7 +108,6 @@ beforeEach(() => {
   insertMock.mockReset();
   updateMock.mockReset().mockReturnValue(chain([]));
   tarifaDeMock.mockReset().mockResolvedValue({ valor: 18500, origen: 'generica', vigenciaId: VIG });
-  proveedorDeCompaniaMock.mockReset().mockResolvedValue('prov-1');
   inserciones = [];
   transactionMock.mockReset().mockImplementation(async (fn: (t: unknown) => unknown) => fn({
     select: selectMock, insert: insertMock, update: updateMock,
@@ -174,8 +169,7 @@ describe('AC2 — sin precio vigente → 422 PRECIO_TRASLADO_NO_CONFIGURADO y no
 
 describe('AC3 — sin proveedor → 422 PROVEEDOR_LOGISTICA_REQUERIDO y no inserta', () => {
   it('logística encendida sin proveedor asignado', async () => {
-    proveedorDeCompaniaMock.mockResolvedValueOnce(null);
-    txRegistro();
+    txRegistro({ compania: { proveedorId: null } });
     await expect(registrarTraslado(cuerpo() as never, ctxAdmin))
       .rejects.toMatchObject({ status: 422, codigo: 'PROVEEDOR_LOGISTICA_REQUERIDO' });
     expect(inserciones).toEqual([]);
@@ -316,10 +310,10 @@ describe('AC9 — POST /cerrar-lote equivale al viaje cliente; misma Idempotency
 
 describe('destino FLIT y autenticación', () => {
   it('destino=flit sin motivo → 422 MOTIVO_LLEGADA_REQUERIDO y no inserta el viaje', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, nombre: 'ACME', autogestionable: false, direccion: 'Calle 1', contactoDoc: '900', proveedorId: 'prov-1' }]));
     selectMock.mockReturnValueOnce(chain(DOCS));
     selectMock.mockReturnValueOnce(chain([]));
     selectMock.mockReturnValueOnce(chain([]));
-    selectMock.mockReturnValueOnce(chain([{ id: 5, nombre: 'ACME', autogestionable: false, direccion: 'Calle 1', contactoDoc: '900' }]));
     selectMock.mockReturnValueOnce(chain([]));
     await expect(registrarTraslado(cuerpo({ destino: 'flit' }) as never, ctxAdmin))
       .rejects.toMatchObject({ status: 422, codigo: 'MOTIVO_LLEGADA_REQUERIDO' });

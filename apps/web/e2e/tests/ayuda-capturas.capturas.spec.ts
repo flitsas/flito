@@ -241,7 +241,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     const dir = prepararCarpeta('flito_logistica_ruta');
     const candidato = {
       tramiteId: 't-demo-1', idFlit: 'FLIT-DEMO-1', companiaNombre: EMPRESAS_DEMO[0],
-      organismoCodigo: '11001', gestionable: true, vin: DATOS_DEMO.vins[0],
+      organismoCodigo: '11001', vin: DATOS_DEMO.vins[0],
       organismoNombre: 'STT Bogotá', vehiculo: { marca: 'Renault', linea: 'Duster', modelo: 2024 },
     };
     const api = await interceptarApiDemo(page, [

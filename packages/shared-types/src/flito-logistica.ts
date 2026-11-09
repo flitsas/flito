@@ -339,3 +339,6 @@ export interface ListadoEntregasLogistica {
   companias: CompaniaConViajeLogistica[];
   truncado: boolean;
 }
+
+/** HU #14348 (ADR-0039 §8.3): el único mensaje de una licencia que no se puede gestionar. La web lo pinta sin variantes, también ante `{encontrado:false}`. */
+export const MENSAJE_LT_NO_ENCONTRADA = 'No se encontró un trámite para esta licencia';

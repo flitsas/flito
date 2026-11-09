@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
+import { MENSAJE_LT_NO_ENCONTRADA } from '@operaciones/shared-types';
 import { api } from '../../../lib/api';
 import ModalPortal from '../../flit/ModalPortal';
 import { FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitInp } from '../../flit/flitPageKit';
@@ -99,7 +100,7 @@ export default function IngresoManual({ onAgregar, onCerrar }: Props) {
           <div id="manual-consulta" aria-live="polite">
             {consulta.fase === 'cargando' && <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Buscando el vehículo…</p>}
             {consulta.fase === 'sin' && (
-              <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>Esta placa no coincide con ningún trámite.</p>
+              <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{MENSAJE_LT_NO_ENCONTRADA}</p>
             )}
             {consulta.fase === 'error' && (
               <div role="alert" className="flex flex-wrap items-center gap-2 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>

@@ -1,6 +1,6 @@
 // FLITO Logística — consultas de la consola, actas y ruta del mensajero (HU #14108, ADR-0030 §11).
 
-import { and, desc, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL,
   ESTADO_DOCUMENTO_LOGISTICA_LABEL, ESTADO_LOGISTICA_SIMPLE_LABEL, EstadoLogisticaSimple,
@@ -15,10 +15,10 @@ import {
   clients, flitoCompradores, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos,
   flitoLogisticaMotivosLlegada, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
-import { usuariosConFuncion } from '../../shared/permisos-efectivos.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import { condicionActasLogistica, condicionDocumentosLogistica, condicionTramitesLogistica } from './flito-logistica.alcance.js';
 import { LT, LogisticaError, aprobadoSql, type LogisticaCtx } from './flito-logistica.base.js';
+import { mensajerosAsignables, type MensajeroAsignable } from './flito-logistica.mensajeros.js';
 
 const ESTADO_PENDIENTE = 'pendiente'; // trámite aprobado aún sin LT escaneada (estado sintético de la consola)
 // Estados internos que agrupa cada estado SIMPLE (para traducir filtros de la consola). 'pendiente' se
@@ -190,7 +190,8 @@ export interface FacetasLogistica {
   empresas: Array<{ nit: string; nombre: string | null }>;
   organismos: Array<{ codigo: string; nombre: string | null }>;
   companiasCerrables: CompaniaCerrableLogistica[];
-  mensajeros: Array<{ id: number; nombre: string }>;
+  /** HU #14347: `proveedorId` null = de FLITO. Para un acta, la pantalla ofrece los de FLITO y los de su `proveedorLogisticaId`; la API lo exige igual. */
+  mensajeros: MensajeroAsignable[];
 }
 
 type DocCerrableRow = {
@@ -218,18 +219,7 @@ function agruparCerrables(rows: DocCerrableRow[]): CompaniaCerrableLogistica[] {
 }
 
 /** Función que deja operar actas de otros (HU #13425). Sin ella, cada usuario solo opera las suyas. */
-export const FUNCION_OPERAR_AJENAS = 'logistica.actas.operar_ajenas';
-
-/**
- * Candidatos a mensajero de un acta (HU #13425): usuarios activos que entregan actas y NO operan las
- * ajenas — hoy, exactamente los del rol `mensajero` —, decidido por sus funciones efectivas.
- */
-async function mensajerosAsignables(): Promise<Array<{ id: number; nombre: string }>> {
-  const ids = await usuariosConFuncion('logistica.actas.entregar', { sin: FUNCION_OPERAR_AJENAS });
-  if (ids.length === 0) return [];
-  return db.select({ id: users.id, nombre: users.name }).from(users)
-    .where(and(inArray(users.id, ids), isNull(users.deletedAt)));
-}
+export { FUNCION_OPERAR_AJENAS } from './flito-logistica.mensajeros.js';
 
 export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<FacetasLogistica> {
   // Todas las facetas se restringen a compañías gestionadas por FLITO (logisticaAutogestionable = false).
@@ -264,7 +254,7 @@ export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
       )),
     // HU #13425: asignable = quien entrega actas y NO opera las ajenas (hoy: el rol mensajero), leído
     // de sus funciones efectivas y no del nombre del rol.
-    alcance.enlace === 'ninguno' ? mensajerosAsignables() : Promise.resolve([]),
+    alcance.enlace === 'ninguno' ? mensajerosAsignables(alcance) : Promise.resolve([]),
   ]);
   const grupos = agruparCerrables(docsCerrables);
   const ahora = new Date();
@@ -304,7 +294,7 @@ export interface ActaFila {
 }
 export async function listarActas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ActaFila[]> {
   const rows = await db.select({
-    id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name,
+    id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name, proveedorLogisticaId: flitoLogisticaActas.proveedorLogisticaId,
     estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, mensajeroNombre: users.name,
     receptorNombre: flitoLogisticaActas.receptorNombre, entregadoEn: flitoLogisticaActas.entregadoEn,
     creadoEn: flitoLogisticaActas.createdAt, punto: flitoLogisticaActas.punto, trasladoId: flitoLogisticaActas.trasladoId,
@@ -384,7 +374,7 @@ export interface ActaDetalle {
 
 export async function actaDetalle(actaId: string): Promise<ActaDetalle> {
   const [cab] = await db.select({
-    id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name,
+    id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name, proveedorLogisticaId: flitoLogisticaActas.proveedorLogisticaId,
     estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, mensajeroNombre: users.name,
     receptorNombre: flitoLogisticaActas.receptorNombre, entregadoEn: flitoLogisticaActas.entregadoEn,
     creadoEn: flitoLogisticaActas.createdAt, pdfStorageKey: flitoLogisticaActas.pdfStorageKey,

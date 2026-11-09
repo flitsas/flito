@@ -51,6 +51,8 @@ interface ActaFila {
   receptorNombre: string | null; entregadoEn: string | null; creadoEn: string;
   punto?: 'organismo' | 'flit' | 'cliente';
   trasladoId?: string | null;
+  /** HU #14350: dueño del acta; null = sin dueño, solo la despachan mensajeros de FLITO. */
+  proveedorLogisticaId: string | null;
 }
 interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string }
 interface ActaEvento { id: string; documentoId: string; placa: string | null; tipo: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string }
@@ -59,7 +61,8 @@ interface Facetas {
   estados: string[]; empresas: Array<{ nit: string; nombre: string | null }>;
   organismos: Array<{ codigo: string; nombre: string | null }>;
   companiasCerrables: CompaniaCerrableLogistica[];
-  mensajeros: Array<{ id: number; nombre: string }>;
+  /** `proveedorId` null = de FLITO. Trae a los de todos los proveedores: se filtra por el dueño de cada acta. */
+  mensajeros: Array<{ id: number; nombre: string; proveedorId: string | null }>;
 }
 interface Listado { items: TramiteFila[]; total: number; page: number; pageSize: number }
 
@@ -71,6 +74,14 @@ const TONO_ACTA: Record<string, ChipTone> = { generada: 'neutral', despachada: '
 const ESTADOS_SIMPLE: EstadoLogisticaSimple[] = ['pendiente', 'registrada', 'en_flit', 'despachada', 'entregada', 'novedad'];
 
 const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—');
+
+/** Errores de POST /actas/:id/despachar → aviso dentro del modal, que sigue abierto con la firma trazada. */
+function mensajeDespachar(e: unknown): string {
+  const codigo = e instanceof ApiError ? (e.rawDetails as { codigo?: unknown } | null | undefined)?.codigo : null;
+  if (codigo === 'MENSAJERO_NO_ASIGNABLE') return 'Ese mensajero ya no se puede asignar a este viaje. Elige otro de la lista.';
+  if (codigo === 'LT_DE_OTRO_PROVEEDOR') return 'Alguna licencia de este viaje ya no es del proveedor actual de la compañía. Cierra esta ventana y revisa el viaje.';
+  return errorMessage(e);
+}
 
 type Tab = 'tramites' | 'viajes-cliente' | 'entregas' | 'actas' | 'viajes' | 'pendientes' | 'motivos-llegada';
 type CargaFacetas = 'cargando' | 'ok' | 'error' | 'error403';
@@ -125,6 +136,7 @@ export default function FlitoLogistica() {
   const [detalle, setDetalle] = useState<TramiteDetalle | null>(null);
   const [motivoModal, setMotivoModal] = useState<{ tipo: 'novedad' | 'devolucion'; id: string } | null>(null);
   const [despacharActa, setDespacharActa] = useState<ActaFila | null>(null);
+  const [errorDespacho, setErrorDespacho] = useState<string | null>(null);
   const [llegadaFlit, setLlegadaFlit] = useState<ActaFila | null>(null);
   const [actaDetalle, setActaDetalle] = useState<ActaDetalle | null>(null);
 
@@ -171,6 +183,22 @@ export default function FlitoLogistica() {
     try { await fn(); cargar(); recargarFacetas(); }
     catch (e) { setError(errorMessage(e)); }
     finally { setBusy(false); }
+  };
+
+  const despachar = async (acta: ActaFila, payload: { mensajeroId: number; firmaEntrega: string; entregaNombre?: string }) => {
+    setBusy(true); setErrorDespacho(null);
+    try {
+      await api.post(`/flito/logistica/actas/${acta.id}/despachar`, payload);
+      const m = facetas?.mensajeros.find((x) => x.id === payload.mensajeroId);
+      toastOk(`Viaje despachado a ${m?.nombre ?? 'el mensajero'}.`);
+      setDespacharActa(null);
+      cargar(); recargarFacetas();
+    } catch (e) {
+      setErrorDespacho(mensajeDespachar(e));
+      // Un mensajero que dejó de ser asignable sale de la lista. Silencioso: si este GET también falla,
+      // las facetas se conservan y el modal, que depende de ellas, no pierde la firma ni el aviso.
+      void recargarFacetas(true);
+    } finally { setBusy(false); }
   };
 
   const toggleEstado = (e: string) => setEstadosSel((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]));
@@ -375,7 +403,7 @@ export default function FlitoLogistica() {
                         <div className="flex flex-wrap gap-2">
                           <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => verActa(a.id)}>Ver</button>
                           {esOperaciones && a.estado === 'generada' && (
-                            <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => setDespacharActa(a)}>Firmar y despachar</button>
+                            <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => { setErrorDespacho(null); setDespacharActa(a); }}>Firmar y despachar</button>
                           )}
                           {puedeFirmarLlegada && a.punto === 'flit' && a.estado === 'despachada' && a.trasladoId && (
                             <button type="button"
@@ -423,12 +451,8 @@ export default function FlitoLogistica() {
         />
       )}
       {despacharActa && facetas && (
-        <DespacharModal mensajeros={facetas.mensajeros} busy={busy} onClose={() => setDespacharActa(null)}
-          onDespachar={(payload) => accion(() => api.post(`/flito/logistica/actas/${despacharActa.id}/despachar`, payload)).then(() => {
-            const m = facetas.mensajeros.find((x) => x.id === payload.mensajeroId);
-            toastOk(`Viaje despachado a ${m?.nombre ?? 'el mensajero'}.`);
-            setDespacharActa(null);
-          })} />
+        <DespacharModal mensajeros={facetas.mensajeros} proveedorDelActa={despacharActa.proveedorLogisticaId} busy={busy} error={errorDespacho}
+          onClose={() => setDespacharActa(null)} onDespachar={(payload) => void despachar(despacharActa, payload)} />
       )}
     </div>
   );
@@ -539,19 +563,27 @@ function MotivoModal({ tipo, busy, onClose, onConfirmar }: { tipo: 'novedad' | '
   );
 }
 
-function DespacharModal({ mensajeros, busy, onClose, onDespachar }: { mensajeros: Facetas['mensajeros']; busy: boolean; onClose: () => void; onDespachar: (payload: { mensajeroId: number; firmaEntrega: string; entregaNombre?: string }) => void }) {
+function DespacharModal({ mensajeros, proveedorDelActa, busy, error, onClose, onDespachar }: { mensajeros: Facetas['mensajeros']; proveedorDelActa: string | null; busy: boolean; error: string | null; onClose: () => void; onDespachar: (payload: { mensajeroId: number; firmaEntrega: string; entregaNombre?: string }) => void }) {
   const [sel, setSel] = useState('');
   const [nombre, setNombre] = useState('');
   const [firma, setFirma] = useState<string | null>(null);
+  // HU #14350: los de FLITO y los del dueño del acta; un acta sin dueño, solo los de FLITO. La API exige lo mismo.
+  const deFlito = mensajeros.filter((m) => m.proveedorId === null);
+  const delProveedor = proveedorDelActa === null ? [] : mensajeros.filter((m) => m.proveedorId === proveedorDelActa);
+  const opcion = (m: Facetas['mensajeros'][number]) => <option key={m.id} value={m.id}>{m.nombre}</option>;
+  const sinOpciones = deFlito.length + delProveedor.length === 0;
+  // Derivado del catálogo: el mensajero que salió de la lista (422) deja de contar como elegido.
+  const elegido = [...deFlito, ...delProveedor].some((m) => String(m.id) === sel) ? sel : '';
   return (
     <FlitModal title="Firmar entrega y despachar" onClose={onClose}>
       <FlitField label="Mensajero">
-        <select className={flitInp} value={sel} onChange={(e) => setSel(e.target.value)}>
+        <select className={flitInp} value={elegido} onChange={(e) => setSel(e.target.value)}>
           <option value="">Selecciona…</option>
-          {mensajeros.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+          {deFlito.length > 0 && <optgroup label="Mensajeros de FLITO">{deFlito.map(opcion)}</optgroup>}
+          {delProveedor.length > 0 && <optgroup label="Mensajeros del proveedor">{delProveedor.map(opcion)}</optgroup>}
         </select>
       </FlitField>
-      {mensajeros.length === 0 && <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>No hay mensajeros registrados. Crea un usuario con rol Mensajero.</p>}
+      {sinOpciones && <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>No hay mensajeros registrados. Crea un usuario con rol Mensajero.</p>}
       <div className="mt-3">
         <FlitField label="Nombre de quien entrega (Operaciones)">
           <input className={flitInp} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Opcional (por defecto tu usuario)" />
@@ -561,10 +593,11 @@ function DespacharModal({ mensajeros, busy, onClose, onDespachar }: { mensajeros
         <span className="mb-1 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Firma de quien entrega</span>
         <FirmaCanvas onChange={setFirma} />
       </div>
+      {error && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
       <div className="mt-4 flex justify-end gap-2">
         <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={busy || !sel || !firma}
-          onClick={() => onDespachar({ mensajeroId: Number(sel), firmaEntrega: firma!, entregaNombre: nombre.trim() || undefined })}>Firmar y despachar</button>
+        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={busy || !elegido || !firma}
+          onClick={() => onDespachar({ mensajeroId: Number(elegido), firmaEntrega: firma!, entregaNombre: nombre.trim() || undefined })}>Firmar y despachar</button>
       </div>
     </FlitModal>
   );

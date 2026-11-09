@@ -38,7 +38,7 @@ import {
 } from './flito-parametrizacion.service.js';
 import { clienteVigente } from '../clients/cliente-operable.js';
 import {
-  ProveedorLogisticaNoUsableError, ProveedorLogisticaRequeridoError, exigirProveedorLogisticaUsable, exigirProveedorSiEncendida,
+  ProveedorLogisticaNoUsableError, ProveedorLogisticaRequeridoError, exigirProveedorLogisticaUsable, exigirProveedorSiEncendida, reasignarLicenciasDeCompania,
 } from './flito-logistica-proveedor-compania.service.js';
 import { parseFechaQuery } from '../../shared/utils/fecha-rango.js';
 import {
@@ -238,11 +238,14 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
     && cambios.proveedorLogisticaId !== previo.proveedorLogisticaId;
 
   let updated: FilaCompania | undefined;
+  let licenciasReasignadas = 0;
   try {
     // `returning()` PROYECTADO a lo que el DTO publica: ver `COLUMNAS_COMPANIA_DTO`.
     [updated] = await db.transaction(async (tx) => {
       if (cambiaGestor) await exigirProveedorSoatUsable(tx, cambios.proveedorSoatSinTramiteId!);
       if (cambiaProveedorLogistica) await exigirProveedorLogisticaUsable(tx, cambios.proveedorLogisticaId!);
+      // HU #14346 (AC5 a AC7): quitar el proveedor (null) no reasigna; con uno, nuevo o reenviado (ADR-0039 §5.5), sus LT pasan en esta transacción.
+      if (cambios.proveedorLogisticaId != null) licenciasReasignadas = await reasignarLicenciasDeCompania(tx, id, cambios.proveedorLogisticaId);
       return tx.update(clients).set(set).where(and(eq(clients.id, id), clienteVigente()))
         .returning(COLUMNAS_COMPANIA_DTO);
     });
@@ -279,6 +282,7 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
 
   if (cambios.proveedorLogisticaId !== undefined) {
     cambiosDelCanal.push(`Proveedor de logística: ${cambios.proveedorLogisticaId ?? 'Sin proveedor'}`);
+    if (licenciasReasignadas > 0) cambiosDelCanal.push(`Licencias reasignadas: ${licenciasReasignadas}`);
   }
 
   await audit(req, {

@@ -4,11 +4,11 @@
 import type { ChipTone } from '../../flit/StatusChip';
 
 export interface Candidato {
-  tramiteId: string; idFlit: string; companiaNombre: string | null; organismoCodigo: string | null; gestionable: boolean;
+  tramiteId: string; idFlit: string; companiaNombre: string | null; organismoCodigo: string | null;
   vin?: string | null; organismoNombre?: string | null;
   vehiculo?: { marca: string | null; linea: string | null; modelo: number | null };
 }
-export type ResultadoEscaneo = 'recogido' | 'novedad' | 'duplicado' | 'sin_match' | 'no_gestionable' | 'elegir_tramite';
+export type ResultadoEscaneo = 'recogido' | 'novedad' | 'duplicado' | 'sin_match' | 'elegir_tramite';
 export interface RespuestaEscaneo {
   resultado: ResultadoEscaneo; documentoId?: string; placa: string; vin: string; idFlit?: string;
   numeroLicencia?: string; propietarioNombre?: string | null; motivo?: string | null; candidatos?: Candidato[]; pendienteTramite?: boolean;
@@ -16,7 +16,7 @@ export interface RespuestaEscaneo {
   organismoCodigo?: string | null; companiaNombre?: string | null;
 }
 export interface RespuestaValidacion {
-  resultado: 'relacionada' | 'novedad' | 'sin_match' | 'no_gestionable' | 'ya_registrada' | 'elegir_tramite';
+  resultado: 'relacionada' | 'novedad' | 'sin_match' | 'ya_registrada' | 'elegir_tramite';
   motivo?: string | null; candidatos?: Candidato[]; organismoCodigo?: string | null; companiaNombre?: string | null;
 }
 export type RespuestaConsulta = { encontrado: false } | { encontrado: true; candidatos: Candidato[] };
@@ -40,7 +40,7 @@ export const filaDePendiente = (p: PendienteFirma): FilaLt => ({
 
 export interface DatosManual { placa: string; numeroLicencia: string; numeroLt: string }
 
-export type EstadoLt = 'validando' | 'lista' | 'novedad' | 'ya_registrada' | 'sin_tramite' | 'no_gestionable' | 'elegir' | 'pendiente' | 'sin_conexion' | 'error';
+export type EstadoLt = 'validando' | 'lista' | 'novedad' | 'ya_registrada' | 'sin_tramite' | 'elegir' | 'pendiente' | 'sin_conexion' | 'error';
 export type Registro = 'no' | 'registrando' | 'registrada' | 'encolada' | 'error';
 
 /** Una LT de la lista del mensajero. La cédula del funcionario NUNCA vive aquí. */
@@ -58,7 +58,6 @@ export const CHIP: Record<EstadoLt, { tono: ChipTone; texto: string }> = {
   novedad: { tono: 'warning', texto: 'Con novedad' },
   ya_registrada: { tono: 'neutral', texto: 'Ya registrada' },
   sin_tramite: { tono: 'danger', texto: 'Sin trámite' },
-  no_gestionable: { tono: 'neutral', texto: 'No la recoge FLITO' },
   elegir: { tono: 'active', texto: 'Elige trámite' },
   pendiente: { tono: 'warning', texto: 'Pendiente de trámite' },
   sin_conexion: { tono: 'neutral', texto: 'Sin validar' },
@@ -68,18 +67,11 @@ export const CHIP: Record<EstadoLt, { tono: ChipTone; texto: string }> = {
 export const TEXTO_ESTADO: Partial<Record<EstadoLt, string>> = {
   novedad: 'El VIN no coincide con el del vehículo. Se registra igual y Operaciones la revisa.',
   ya_registrada: 'Esta LT ya fue recogida. No se incluye de nuevo.',
-  no_gestionable: 'Este trámite lo gestiona el cliente. No se recoge.',
   pendiente: 'Operaciones elegirá el trámite. La LT queda firmada igualmente.',
   sin_conexion: 'Sin señal: no se pudo validar. Se registrará al continuar.',
 };
 
-/** El mensajero ve un texto propio por motivo; el del servidor solo se usa para clasificar. */
-export function textoSinTramite(motivo: string | null): string {
-  if (motivo && /pendiente de LT/i.test(motivo)) return 'El vehículo no tiene un trámite aprobado pendiente de LT.';
-  return 'No encontramos este vehículo en FLITO. Revisa la placa o avisa a Operaciones.';
-}
-
-/** Cuenta para el botón «Continuar»: lo que se confirmará (no duplicadas, sin trámite ni no gestionables). */
+/** Cuenta para el botón «Continuar»: lo que se confirmará (no duplicadas ni sin trámite). */
 export const entra = (f: FilaLt): boolean => ['lista', 'novedad', 'pendiente', 'sin_conexion'].includes(f.estado);
 
 export const estadoDeEscaneo = (r: RespuestaEscaneo): EstadoLt => {
@@ -88,7 +80,6 @@ export const estadoDeEscaneo = (r: RespuestaEscaneo): EstadoLt => {
     case 'novedad': return r.pendienteTramite ? 'pendiente' : 'novedad';
     case 'duplicado': return 'ya_registrada';
     case 'sin_match': return 'sin_tramite';
-    case 'no_gestionable': return 'no_gestionable';
     default: return 'elegir';
   }
 };
@@ -98,14 +89,13 @@ export const estadoDeValidacion = (r: RespuestaValidacion): EstadoLt => {
     case 'novedad': return 'novedad';
     case 'ya_registrada': return 'ya_registrada';
     case 'sin_match': return 'sin_tramite';
-    case 'no_gestionable': return 'no_gestionable';
     default: return 'elegir';
   }
 };
 
 // ── Errores ──────────────────────────────────────────────────────────────────
 
-const statusDe = (e: unknown): number => (e && typeof e === 'object' && 'status' in e ? Number((e as { status: unknown }).status) : 0);
+export const statusDe = (e: unknown): number => (e && typeof e === 'object' && 'status' in e ? Number((e as { status: unknown }).status) : 0);
 export const codigoDe = (e: unknown): string | null => {
   const d = e && typeof e === 'object' && 'rawDetails' in e ? (e as { rawDetails?: unknown }).rawDetails : null;
   const c = d && typeof d === 'object' ? (d as { codigo?: unknown; detalle?: { code?: unknown } }) : null;
@@ -124,6 +114,13 @@ export function mensajeEscanear(e: unknown): string {
   if (s === 422 || s === 400) return 'Revisa los datos de la LT: el N.º de sustrato empieza por LT.';
   if (s === 429) return 'Demasiados intentos seguidos. Espera un momento y reintenta.';
   return 'No pudimos registrar la LT. Revisa la señal e inténtalo de nuevo.';
+}
+/** HU #14350 (AC5): la API rechazó dejar la LT pendiente. Aviso en página; se puede elegir el trámite y seguir escaneando. */
+export const avisoPendienteSinPermiso = (placa: string): string =>
+  `Tu usuario no puede dejar pendiente la LT ${placa}. Elige el trámite o avisa a Operaciones. Puedes seguir escaneando.`;
+export function mensajeValidar(e: unknown): string {
+  if (statusDe(e) === 429) return 'Demasiados intentos seguidos. Espera un momento y reintenta.';
+  return 'No pudimos validar la LT. Revisa la señal e inténtalo de nuevo.';
 }
 export function mensajeConfirmar(e: unknown): string {
   const s = statusDe(e); const c = codigoDe(e);
