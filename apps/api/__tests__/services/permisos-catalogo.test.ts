@@ -219,12 +219,14 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['bolsas.transito.inactivar', 2],
       ['derechos.cola.ver', 2],
       ['impuestos.certificacion_directa.gestionar', 9], ['impuestos.cola.ver', 2],
-      ['logistica.actas.despachar', 2], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2],
-      ['logistica.consola.ver', 2],
+      ['logistica.actas.despachar', 3], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2], // HU #14353: +GET /actas/:id/mensajeros
+      ['logistica.consola.ver', 3], // HU #14351: +POST /buscar
       ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],
       ['logistica.documento.ver', 3], // HU #14124: GET /:id y las dos líneas de tiempo
       ['logistica.motivos.gestionar', 4], // HU #14119: las 4 rutas del catálogo de motivos
-      ['logistica.recogida.confirmar', 4], ['logistica.viajes.registrar', 2],
+      ['logistica.recogida.confirmar', 4],
+      ['logistica.traslado.registrar', 2], // HU #14351 (H3): POST /traslados y las facetas en línea [registraTraslados]
+      ['logistica.viajes.registrar', 2],
       // HU #14148: +impacto de logística (estado 4), +baja de logística (eliminar 2) y +listado unificado (listar 3).
       // HU #14332–#14335: la gestión unificada entra y las escrituras viejas salen; `crear` y `eliminar` quedan con una guarda.
       ['parametrizacion.proveedores.editar', 2],
@@ -291,6 +293,8 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'flito-dr-flit/dr-flit.funciones.ts POST * [usar_ia]',
       'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
       'flito-logistica/flito-logistica-motivos.routes.ts GET / [listar]',
+      // HU #14351 (H3): las facetas pasan también con `traslado.registrar`, en línea.
+      'flito-logistica/flito-logistica.routes.ts GET /facetas [registraTraslados]',
       'flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar [operarAjenas]',
       'flito-logistica/flito-logistica.routes.ts POST /escanear [dejarPendiente]', // HU #14348
       'flito-logistica/flito-logistica.routes.ts POST /traslados/:id/entregar [entregar]',

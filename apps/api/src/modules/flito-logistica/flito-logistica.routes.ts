@@ -137,11 +137,14 @@ router.post('/buscar', exigirFuncion('logistica.consola.ver'), async (req: Reque
 
 // GET /facetas — valores para los dropdowns de filtro, compañías cerrables y mensajeros.
 // H3 (David Chica, 2026-11-06): quien ve Viajes (`logistica.traslado.registrar`) las necesita sin `consola.filtrar`. Sin regla por rol.
-const exigirFacetas = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+// La guarda de ruta va escrita en la línea del `router.get` para que el inventario de permisos la lea; el pase por
+// `traslado.registrar` es la guarda en línea `[registraTraslados]` del catálogo.
+type Guarda = (req: Request, res: Response, next: NextFunction) => unknown;
+const oQuienRegistraTraslados = (guarda: Guarda) => async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   if (await tieneFuncion(req, 'logistica.traslado.registrar')) { next(); return; }
-  await exigirFuncion('logistica.consola.filtrar')(req, res, next);
+  await guarda(req, res, next);
 };
-router.get('/facetas', exigirFacetas, async (req: Request, res: Response) => {
+router.get('/facetas', oQuienRegistraTraslados(exigirFuncion('logistica.consola.filtrar')), async (req: Request, res: Response) => {
   res.json(await facetas(await alcanceDe(req)));
 });
 

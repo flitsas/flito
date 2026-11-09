@@ -215,6 +215,10 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── Logística ─────────────────────────────────────────────────────────────────────────────────
   op(`${LOG} GET /`, 'logistica.consola.ver', 'Ver la consola de logística', 'Abrir la trazabilidad de documentos en tránsito.'),
   op(`${LOG} GET /facetas`, 'logistica.consola.filtrar', 'Filtrar la consola de logística', 'Leer los contadores y las facetas de la consola.'),
+  // HU #14351 (H3): las facetas también pasan con `traslado.registrar` (en línea), aunque falte `consola.filtrar`.
+  op(`${LOG} GET /facetas [registraTraslados]`, 'logistica.traslado.registrar', 'Registrar un viaje de logística', 'Registrar el viaje a cliente de las LT de una compañía, con el precio congelado.'),
+  // HU #14351: búsqueda por body de la consola (PII fuera de la URL); reutiliza `consola.ver`.
+  op(`${LOG} POST /buscar`, 'logistica.consola.ver', 'Ver la consola de logística', 'Abrir la trazabilidad de documentos en tránsito.'),
   op(`${LOG} GET /:id`, 'logistica.documento.ver', 'Ver un documento en logística', 'Consultar el detalle y el recorrido de un documento.'),
   // HU #14124: las dos lecturas de la línea de tiempo reutilizan la misma función (sin función nueva ni siembra).
   op(`${LOG} GET /documentos/:id/linea-tiempo`, 'logistica.documento.ver', 'Ver un documento en logística', 'Consultar el detalle y el recorrido de un documento.'),
@@ -222,6 +226,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} GET /mi-ruta`, 'logistica.ruta.ver', 'Ver mi ruta de mensajería', 'Consultar las recogidas y entregas asignadas al mensajero.'),
   op(`${LOG} GET /actas`, 'logistica.actas.listar', 'Ver las actas de logística', 'Listar las actas de despacho y entrega.'),
   op(`${LOG} GET /actas/:id`, 'logistica.actas.ver', 'Ver un acta de logística', 'Abrir el detalle de un acta y sus documentos.'),
+  // HU #14353 (R1): mensajeros a los que se puede despachar el acta; reutiliza `actas.despachar`.
+  op(`${LOG} GET /actas/:id/mensajeros`, 'logistica.actas.despachar', 'Despachar un acta', 'Poner en ruta el acta y sus documentos.'),
   op(`${LOG} GET /actas/:id/pdf`, 'logistica.actas.descargar', 'Descargar el PDF de un acta', 'Bajar el acta firmada en formato PDF.'),
   op(`${LOG} POST /validar-lt`, 'logistica.lt.validar', 'Validar un número de guía', 'Comprobar que la guía de transporte existe y corresponde.'),
   op(`${LOG} POST /consultar-vehiculo`, 'logistica.documento.escanear', 'Escanear un documento en campo', 'Registrar el paso de un documento leyendo su código de barras.'),
