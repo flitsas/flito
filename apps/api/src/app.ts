@@ -298,7 +298,7 @@ export function createApp() {
   app.use('/api/flito/dr-flit', flitoDrFlitRoutes);
   app.use('/api/flito/bitacora', flitoBitacoraRoutes);
   // HU #14119: catálogo de motivos de llegada a FLIT. ANTES del router con `GET /:id`.
-  app.use('/api/flito/logistica/motivos-llegada', flitoLogisticaMotivosRoutes);
+  app.use('/api/flito/logistica/motivos-llegada', conAlcance('logistica', flitoLogisticaMotivosRoutes));
   app.use('/api/flito/logistica', conAlcance('logistica', flitoLogisticaRoutes));
   // Viajes adicionales de logística por trámite (HU #12619): misma URL base, fichero hermano
   // (`/tramites/:tramiteId/viajes` no choca con el `GET /:id` del router legado).

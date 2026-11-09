@@ -85,11 +85,19 @@ async function docsDeActa(exec: DbOrTx, actaId: string): Promise<Array<{ id: str
     .from(flitoLogisticaDocumentos).where(eq(flitoLogisticaDocumentos.actaId, actaId));
 }
 
-async function cargarActa(exec: DbOrTx, actaId: string): Promise<{ id: string; companiaId: number; estado: string; mensajeroId: number | null; proveedorId: string | null }> {
-  const [acta] = await exec.select({ id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, proveedorId: flitoLogisticaActas.proveedorLogisticaId })
+async function cargarActa(exec: DbOrTx, actaId: string): Promise<{ id: string; companiaId: number; estado: string; mensajeroId: number | null; proveedorId: string | null; punto: string | null }> {
+  const [acta] = await exec.select({ id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, proveedorId: flitoLogisticaActas.proveedorLogisticaId, punto: flitoLogisticaActas.punto })
     .from(flitoLogisticaActas).where(eq(flitoLogisticaActas.id, actaId)).limit(1);
   if (!acta) throw new LogisticaError('Acta no encontrada', 404);
   return acta;
+}
+
+/**
+ * HU #14351 (N4, ADR-0039 §6.5): el camino sin viaje de `/actas/:id/entregar` y `/devolucion` no es una puerta trasera para
+ * un acta a FLIT ni de organismo: el proveedor cierra por aquí solo un acta de cliente. Mismo 403 que el resto de la frontera.
+ */
+function exigirActaDeClienteAlProveedor(ctx: LogisticaCtx, punto: string | null): void {
+  if (ctx.alcance?.enlace === 'proveedor' && punto !== 'cliente') throw new LogisticaError('Sin permisos', 403);
 }
 
 export interface DespachoInput { mensajeroId: number; firmaEntrega?: string | null; entregaNombre?: string | null }
@@ -122,7 +130,7 @@ export async function despachar(actaId: string, datos: DespachoInput, ctx: Logis
     for (const d of docs) await transicionar(tx, d, EstadoDocumentoLogistica.DESPACHADO, ctx);
     return { documentos: docs.length };
   });
-  try { await generarActaPdf(actaId); }
+  try { await generarActaPdf(actaId, ctx.req); }
   catch (e) { log.warn({ actaId, err: (e as Error).message }, 'no se pudo regenerar el PDF del acta tras despacho'); }
   return res;
 }
@@ -145,6 +153,7 @@ export async function entregar(actaId: string, datos: EntregaInput, ctx: Logisti
   if (trasladoId) return entregarTraslado(trasladoId, datos, ctx);
 
   const acta0 = await cargarActa(db, actaId);
+  exigirActaDeClienteAlProveedor(ctx, acta0.punto);
   if (acta0.estado !== EstadoActaLogistica.DESPACHADA) throw new LogisticaError(`El acta no se puede entregar en estado "${acta0.estado}"`);
   if (!ctx.operaAjenas && acta0.mensajeroId !== ctx.userId) throw new LogisticaError('Solo puedes entregar tus propias actas', 403);
 
@@ -165,7 +174,7 @@ export async function entregar(actaId: string, datos: EntregaInput, ctx: Logisti
     await pasarAlProveedorVigente(tx, docs.map((d) => d.id));
     return { documentos: docs.length };
   });
-  try { await generarActaPdf(actaId); }
+  try { await generarActaPdf(actaId, ctx.req); }
   catch (e) { log.warn({ actaId, err: (e as Error).message }, 'no se pudo regenerar el PDF firmado del acta'); }
   return res;
 }
@@ -178,6 +187,7 @@ export async function registrarDevolucion(actaId: string, motivo: string, ctx: L
   if (trasladoId) return devolverTraslado(trasladoId, m, ctx);
   return db.transaction(async (tx) => {
     const acta = await cargarActa(tx, actaId);
+    exigirActaDeClienteAlProveedor(ctx, acta.punto);
     if (acta.estado !== EstadoActaLogistica.DESPACHADA) throw new LogisticaError(`El acta no se puede devolver en estado "${acta.estado}"`);
     if (!ctx.operaAjenas && acta.mensajeroId !== ctx.userId) throw new LogisticaError('Solo puedes registrar devoluciones de tus propias actas', 403);
     await bloquearCompania(tx, acta.companiaId); // ADR-0039 §6.3: cliente antes que licencias

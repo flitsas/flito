@@ -111,6 +111,14 @@ describe.skipIf(!URL_BASE)('fecha de corte del proveedor (PostgreSQL, tx con ROL
       expect(await dueno(d)).toBeNull();
     }));
 
+    it('una compañía autogestionada queda sin dueño, aunque conserve un proveedor asignado (decisión del agente, declarada)', () => conMundo(async ({ tx, A, aplicar, cia, doc, dueno }) => {
+      const c = await cia(A);
+      await tx`UPDATE clients SET logistica_autogestionable = true WHERE id = ${c}`;
+      const d = await doc(c, { dueno: A });
+      await aplicar();
+      expect(await dueno(d)).toBeNull();
+    }));
+
     it('una licencia pendiente de trámite, sin compañía, queda sin dueño', () => conMundo(async ({ A, aplicar, doc, dueno }) => {
       const d = await doc(null, { dueno: A });
       await aplicar();

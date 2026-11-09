@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS flito_logistica_corte_proveedor (
 --     `pasarAlProveedorVigente` lleva lo no entregado al proveedor vigente.
 --   · Anterior al corte, no entregada y sin acta abierta → proveedor de su compañía, o sin dueño si no tiene. Una licencia
 --     pendiente de trámite (`compania_id` NULL) queda sin dueño.
+--   · Compañía autogestionada → sin dueño, aunque conserve un proveedor asignado (decisión del agente en F4.2, declarada al
+--     humano): ningún tercero ve las licencias de una compañía cuya logística no gestiona FLITO.
 --   · Solo en un acta abierta posterior al corte (la creó el pod viejo durante el rollout) → no se toca.
 -- Acta abierta por las dos vías que usa el módulo: `documentos.acta_id` (actas sin viaje) y las líneas del acta.
 -- `updated_at` no cambia: es un reparto interno, no actividad de la licencia.
@@ -37,7 +39,7 @@ WITH registro AS (
   RETURNING corte_en
 ), anteriores AS (
   SELECT d.id, d.estado, d.proveedor_logistica_id, r.corte_en,
-         (SELECT c.flito_proveedor_logistica_id FROM clients c WHERE c.id = d.compania_id) AS proveedor_compania,
+         (SELECT c.flito_proveedor_logistica_id FROM clients c WHERE c.id = d.compania_id AND NOT c.logistica_autogestionable) AS proveedor_compania,
          (SELECT min(abierta.created_at) FROM (
             SELECT a.created_at FROM flito_logistica_actas a
              WHERE a.id = d.acta_id AND a.estado IN ('generada', 'despachada')

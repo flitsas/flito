@@ -1,15 +1,19 @@
 // FLITO Logística (HTTP). Montado en /api/flito/logistica. Consola de Operaciones (trazabilidad por
 // documento, actas, despacho) + endpoints de campo que la PWA del mensajero consumirá en la Fase 2.
 // Lectura: Operaciones/Auditoría. Escritura de Operaciones: admin. Campo: admin/mensajero (con scoping).
+//
+// HU #14351 y #14352 (ADR-0039 §6.5, la matriz manda): abierto al usuario de proveedor con su filtro en el WHERE. Fuera de alcance:
+// 404 en lectura y 403 en escritura, igual que lo inexistente y antes de validar negocio. `soloSinEnlaceOProveedor` mantiene cerradas a
+// las compañías (P-2 de la HU #13426); `cerradaAlProveedor`, las excepciones de Operaciones que la compañía conserva.
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { EstadoDocumentoLogistica, type BuscarLogisticaCuerpo } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
-import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alcance.js';
+import { alcanceDe, cerradaAlProveedor, soloSinEnlace, soloSinEnlaceOProveedor } from '../../shared/middleware/frontera-enlace.js';
+import { enAlcanceLogistica, exigirPropioLogistica, exigirPropiosLogistica } from './flito-logistica.alcance.js';
 import { consultarVehiculoLimiter } from '../../shared/middleware/rateLimiter.js';
 import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
@@ -17,14 +21,21 @@ import { confirmarRecogida } from './flito-logistica.recogida.js';
 import { candidatosDe, listarPendientes, resolverTramite } from './flito-logistica.pendientes.js';
 import { contarPendientesFirma, ltPendientesFirma } from './flito-logistica.pendientes-firma.js';
 import { misRecogidas, recogidaDetalle, revelarDocumentoFirmante } from './flito-logistica.firmante.js';
-import { recogidaConfirmarLimiter, revelarDocumentoLimiter, trasladoCicloLimiter, trasladoRegistrarLimiter, validarLtLimiter } from './flito-logistica.limitadores.js';
+import { escanearLimiter, recogidaConfirmarLimiter, revelarDocumentoLimiter, trasladoCicloLimiter, trasladoRegistrarLimiter, validarLtLimiter } from './flito-logistica.limitadores.js';
 import {
   actaDetalle, anularTraslado, buscarIdempotencia, cerrarLote, despachar, despacharTraslado,
   destinoDeTraslado, devolverTraslado, entregar, entregarTraslado, firmarLlegadaFlit, consultarVehiculo, escanearLt, facetas,
-  guardarIdempotencia, lineaTiempoDocumento, lineaTiempoTramite, listar, listarActas, listarEntregas, LogisticaError, miRuta, registrarDevolucion,
+  guardarIdempotencia, lineaTiempoDocumento, lineaTiempoTramite, listar, listarActas, listarEntregas, LogisticaError, mensajerosDeActa, miRuta, registrarDevolucion,
   registrarNovedad, registrarTraslado, reversar, tramiteDetalle, urlActaPdf, validarLt,
   type FiltrosLogistica, type LogisticaCtx,
 } from './flito-logistica.service.js';
+
+/** ADR-0039 §7.2: al proveedor, las líneas del viaje sin precio ni vigencia (D4). Sin `...spread` hacia él. */
+const trasladoParaLector = <T extends { lts: Array<{ documentoId: string; actaOrganismoPendiente: boolean; motivoLlegadaId: string | null; motivoPorId: number | null; motivoEn: Date | null }> }>(t: T, proveedor: boolean) => (
+  proveedor
+    ? { ...t, lts: t.lts.map((l) => ({ documentoId: l.documentoId, actaOrganismoPendiente: l.actaOrganismoPendiente, motivoLlegadaId: l.motivoLlegadaId, motivoPorId: l.motivoPorId, motivoEn: l.motivoEn })) }
+    : t
+);
 
 /** La bitácora sin el nombre del actor (HU #13426): la forma del DTO no cambia. */
 const sinActor = <T extends { actorNombre: string | null }>(xs: T[]): T[] => xs.map((e) => ({ ...e, actorNombre: null }));
@@ -39,7 +50,7 @@ router.use(authMiddleware);
  */
 async function ctxDe(req: Request): Promise<LogisticaCtx> {
   const { sub, username, role } = req.user!;
-  return { userId: sub, username, role, operaAjenas: false, alcance: await alcanceDe(req) };
+  return { userId: sub, username, role, operaAjenas: false, alcance: await alcanceDe(req), req };
 }
 
 /**
@@ -95,10 +106,12 @@ async function conIdempotencia(req: Request, res: Response, run: () => Promise<{
 }
 
 // GET / — listado paginado con filtros multiselect (CA-07).
+// HU #14351 (AC10): la búsqueda por placa o VIN va por `POST /buscar`, para todos: la query se rechaza sin leerla.
 router.get('/', exigirFuncion('logistica.consola.ver'), async (req: Request, res: Response) => {
   const q = req.query;
+  if ('buscar' in q) { res.status(400).json({ error: 'La búsqueda se envía en el cuerpo de POST /buscar', codigo: 'BUSQUEDA_EN_QUERY' }); return; }
   const filtros: FiltrosLogistica = {
-    buscar: str(q.buscar), estados: lista(q.estados),
+    estados: lista(q.estados),
     empresas: lista(q.empresas), organismos: lista(q.organismos), actas: lista(q.actas),
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
@@ -114,21 +127,27 @@ const BuscarSchema = z.object({
   pageSize: z.number().int().min(1).max(200).optional(),
 }).strict() satisfies z.ZodType<BuscarLogisticaCuerpo>;
 
-// Contract-first (F4.2): responde 501 hasta que el backend lo llene con `listar`, en este mismo PR.
-router.post('/buscar', exigirFuncion('logistica.consola.ver'), (req: Request, res: Response) => {
+// Sin audit ni log con el término: la búsqueda no queda en claro en ningún registro.
+router.post('/buscar', exigirFuncion('logistica.consola.ver'), async (req: Request, res: Response) => {
   const cuerpo = BuscarSchema.safeParse(req.body);
   if (!cuerpo.success) { res.status(400).json({ error: 'Filtros no válidos' }); return; }
-  res.status(501).json({ error: 'No implementado' });
+  res.set('Cache-Control', 'no-store');
+  res.json(await listar(cuerpo.data, await alcanceDe(req)));
 });
 
 // GET /facetas — valores para los dropdowns de filtro, compañías cerrables y mensajeros.
-router.get('/facetas', exigirFuncion('logistica.consola.filtrar'), async (req: Request, res: Response) => {
+// H3 (David Chica, 2026-11-06): quien ve Viajes (`logistica.traslado.registrar`) las necesita sin `consola.filtrar`. Sin regla por rol.
+const exigirFacetas = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  if (await tieneFuncion(req, 'logistica.traslado.registrar')) { next(); return; }
+  await exigirFuncion('logistica.consola.filtrar')(req, res, next);
+};
+router.get('/facetas', exigirFacetas, async (req: Request, res: Response) => {
   res.json(await facetas(await alcanceDe(req)));
 });
 
 // GET /mi-ruta — ruta del mensajero (PWA): recogidas por organismo + entregas asignadas (CA-11).
-// HU #13426 (P-2): la ruta del mensajero es de personal de FLITO (sin enlace, AC1) → cerrada a enlaces.
-router.get('/mi-ruta', soloSinEnlace(), exigirFuncion('logistica.ruta.ver'), async (req: Request, res: Response) => {
+// HU #13426 (P-2): cerrada a la compañía. HU #14351: abierta al mensajero de proveedor, con sus viajes a FLIT (R4).
+router.get('/mi-ruta', soloSinEnlaceOProveedor(), exigirFuncion('logistica.ruta.ver'), async (req: Request, res: Response) => {
   res.json(await miRuta(await ctxConPropiedad(req)));
 });
 
@@ -142,18 +161,25 @@ router.get('/actas/:id', exigirFuncion('logistica.actas.ver'), async (req: Reque
   // HU #13426 (AC2): un acta de otra compañía responde 404, igual que una inexistente.
   const alcance = await alcanceDe(req);
   if (!await enAlcanceLogistica('acta', req.params.id, alcance)) { res.status(404).json({ error: 'El acta no existe' }); return; }
-  const r = await ejecutar(res, () => actaDetalle(req.params.id));
+  const r = await ejecutar(res, () => actaDetalle(req.params.id, alcance));
+  if (r === undefined) return;
+  // HU #14351 (R15, §7.2): el tercero lee el nombre del receptor; queda registrado.
+  if (alcance.enlace === 'proveedor') await logPiiAccess(req, { resourceTipo: 'flito_logistica_acta', accion: 'read', camposAccedidos: ['receptor_nombre'], motivo: `acta:${req.params.id}` });
   // Habeas Data (HU #13426): la compañía no recibe quién de FLIT movió cada documento de la bitácora.
-  if (r !== undefined) res.json(esProyeccionCliente(alcance) ? { ...r, bitacora: sinActor(r.bitacora) } : r);
+  res.json(esProyeccionCliente(alcance) ? { ...r, bitacora: sinActor(r.bitacora) } : r);
 });
 
 // GET /actas/:id/mensajeros — a quién se puede despachar ESTA acta (HU #14353, R1): `MensajeroDeActa[]`.
-// Contract-first (F4.2): responde 501 hasta que el backend lo llene, con `soloSinEnlaceOProveedor()` y el alcance, en este mismo PR.
 const MensajerosDeActaParams = z.object({ id: z.string().uuid() }).strict();
-router.get('/actas/:id/mensajeros', exigirFuncion('logistica.actas.despachar'), (req: Request, res: Response) => {
+router.get('/actas/:id/mensajeros', soloSinEnlaceOProveedor(), exigirFuncion('logistica.actas.despachar'), async (req: Request, res: Response) => {
   const params = MensajerosDeActaParams.safeParse(req.params);
   if (!params.success) { res.status(404).json({ error: 'El acta no existe' }); return; }
-  res.status(501).json({ error: 'No implementado' });
+  const alcance = await alcanceDe(req);
+  if (!await enAlcanceLogistica('acta', params.data.id, alcance)) { res.status(404).json({ error: 'El acta no existe' }); return; }
+  const r = await ejecutar(res, () => mensajerosDeActa(params.data.id, alcance));
+  if (r === undefined) return;
+  res.set('Cache-Control', 'no-store');
+  res.json(r);
 });
 
 // GET /actas/:id/pdf — URL prefirmada (AC4). `logPiiAccess` en generación (acta-pdf) y en esta descarga (NQ4).
@@ -194,30 +220,34 @@ router.post('/documentos/:id/resolver-tramite', soloSinEnlace(), exigirFuncion('
   }, 'documentos/resolver-tramite');
 });
 
-// HU #14124 — línea de tiempo. Misma función que GET /:id. `soloSinEnlace` antes de la función:
-// el enlace compañía recibe 403 sin mirar si el id existe. Proveedor y organismos los cierra la frontera del módulo.
+// HU #14124 — línea de tiempo. Misma función que GET /:id. La guarda antes de la función:
+// el enlace compañía recibe 403 sin mirar si el id existe. HU #14351: el proveedor, solo lo suyo (404 igual que inexistente) y el nombre del actor solo si es de P.
 async function responderLinea(res: Response, fn: () => Promise<unknown>): Promise<void> {
   res.set('Cache-Control', 'no-store');
   const r = await ejecutar(res, fn);
   if (r !== undefined) res.json(r);
 }
-router.get('/documentos/:id/linea-tiempo', soloSinEnlace(), exigirFuncion('logistica.documento.ver'), async (req: Request, res: Response) => {
+router.get('/documentos/:id/linea-tiempo', soloSinEnlaceOProveedor(), exigirFuncion('logistica.documento.ver'), async (req: Request, res: Response) => {
   const id = z.string().uuid().safeParse(req.params.id);
-  if (!id.success) { res.set('Cache-Control', 'no-store').status(404).json({ error: 'La LT no existe' }); return; }
-  await responderLinea(res, () => lineaTiempoDocumento(id.data));
+  const alcance = await alcanceDe(req);
+  if (!id.success || !await enAlcanceLogistica('documento', id.data, alcance)) { res.set('Cache-Control', 'no-store').status(404).json({ error: 'La LT no existe' }); return; }
+  await responderLinea(res, () => lineaTiempoDocumento(id.data, alcance));
 });
-router.get('/tramites/:tramiteId/linea-tiempo', soloSinEnlace(), exigirFuncion('logistica.documento.ver'), async (req: Request, res: Response) => {
+router.get('/tramites/:tramiteId/linea-tiempo', soloSinEnlaceOProveedor(), exigirFuncion('logistica.documento.ver'), async (req: Request, res: Response) => {
   const id = z.string().uuid().safeParse(req.params.tramiteId);
-  if (!id.success) { res.set('Cache-Control', 'no-store').status(404).json({ error: 'El trámite no existe' }); return; }
-  await responderLinea(res, () => lineaTiempoTramite(id.data));
+  const alcance = await alcanceDe(req);
+  if (!id.success || !await enAlcanceLogistica('tramite', id.data, alcance)) { res.set('Cache-Control', 'no-store').status(404).json({ error: 'El trámite no existe' }); return; }
+  await responderLinea(res, () => lineaTiempoTramite(id.data, alcance));
 });
 
 // GET /:id — detalle del trámite aprobado + su LT + bitácora (CA-07).
 router.get('/:id', exigirFuncion('logistica.documento.ver'), async (req: Request, res: Response) => {
   const alcance = await alcanceDe(req);
   if (!await enAlcanceLogistica('tramite', req.params.id, alcance)) { res.status(404).json({ error: 'El trámite no existe' }); return; }
-  const r = await ejecutar(res, () => tramiteDetalle(req.params.id));
-  if (r !== undefined) res.json(esProyeccionCliente(alcance) ? { ...r, eventos: sinActor(r.eventos) } : r); // ídem acta
+  const r = await ejecutar(res, () => tramiteDetalle(req.params.id, alcance));
+  if (r === undefined) return;
+  if (alcance.enlace === 'proveedor') await logPiiAccess(req, { resourceTipo: 'flito_tramite', accion: 'read', camposAccedidos: ['propietario'], motivo: `tramite:${req.params.id}` }); // §7.2: solo el nombre
+  res.json(esProyeccionCliente(alcance) ? { ...r, eventos: sinActor(r.eventos) } : r); // ídem acta
 });
 
 // Entrada de la LT: o el código PDF417 (`rawValue`) o el ingreso manual (placa + n.º de licencia del frente +
@@ -233,8 +263,8 @@ const entradaDe = (b: { rawValue?: string; placa?: string; numeroLicencia?: stri
 // POST /validar-lt — valida el match de una LT SIN persistir (el mensajero escanea en lote; solo al
 // confirmar se llama a /escanear por cada LT relacionada). Solo lectura → sin idempotencia ni auditoría.
 const validarSchema = z.object({ rawValue: z.string().min(1).optional(), placa: manualCampos.placa.optional(), numeroLicencia: manualCampos.numeroLicencia.optional(), numeroLt: manualCampos.numeroLt.optional() }).strict().refine(xorEntrada);
-// HU #13426 (P-2): buscan por placa/VIN entre TODOS los trámites → oráculo para una compañía: cerradas.
-router.post('/validar-lt', soloSinEnlace(), exigirFuncion('logistica.lt.validar'), validarLtLimiter, async (req: Request, res: Response) => {
+// HU #13426 (P-2): buscan por placa/VIN entre TODOS los trámites → oráculo para una compañía: cerradas. HU #14352: el proveedor, con §8.
+router.post('/validar-lt', soloSinEnlaceOProveedor(), exigirFuncion('logistica.lt.validar'), validarLtLimiter, async (req: Request, res: Response) => {
   const parsed = validarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   const alcance = await alcanceDe(req);
@@ -245,7 +275,7 @@ router.post('/validar-lt', soloSinEnlace(), exigirFuncion('logistica.lt.validar'
 // POST /consultar-vehiculo — HU #14142: trámites aprobados sin LT de una placa (ingreso manual). Placa en body;
 // mismas guardas que /escanear + tope de consultas por usuario (no enumerar placas). Sin auditoría con la placa.
 const consultarSchema = z.object({ placa: manualCampos.placa }).strict();
-router.post('/consultar-vehiculo', soloSinEnlace(), exigirFuncion('logistica.documento.escanear'), consultarVehiculoLimiter, async (req: Request, res: Response) => {
+router.post('/consultar-vehiculo', soloSinEnlaceOProveedor(), exigirFuncion('logistica.documento.escanear'), consultarVehiculoLimiter, async (req: Request, res: Response) => {
   const parsed = consultarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   const alcance = await alcanceDe(req);
@@ -262,17 +292,18 @@ const escanearSchema = z.object({
 }).strict()
   .refine((b) => b.rawValue !== undefined ? (b.placa === undefined && b.numeroLicencia === undefined) : (b.placa !== undefined && b.numeroLicencia !== undefined && b.numeroLt !== undefined), { message: 'rawValue o (placa, numeroLicencia, numeroLt)' })
   .refine((b) => !(b.tramiteId && b.dejarPendiente), { message: 'tramiteId y dejarPendiente son excluyentes' });
-router.post('/escanear', soloSinEnlace(), exigirFuncion('logistica.documento.escanear'), async (req: Request, res: Response) => {
+router.post('/escanear', soloSinEnlaceOProveedor(), exigirFuncion('logistica.documento.escanear'), escanearLimiter, async (req: Request, res: Response) => {
   const parsed = escanearSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
-  // HU #14348 (AC4): dejar pendiente tiene función propia y se exige antes de consultar datos.
-  if (parsed.data.dejarPendiente && !await tieneFuncion(req, 'logistica.documento.dejar_pendiente')) { res.status(403).json({ error: 'Sin permisos' }); return; }
+  // HU #14348 (AC4): dejar pendiente tiene función propia y se exige antes de consultar datos. HU #14352 (AC7, R20): solo Operaciones, aunque el proveedor tenga la función.
+  if (parsed.data.dejarPendiente && (req.frontera?.enlace !== 'ninguno' || !await tieneFuncion(req, 'logistica.documento.dejar_pendiente'))) { res.status(403).json({ error: 'Sin permisos' }); return; }
   await conIdempotencia(req, res, async () => {
     const d = parsed.data;
     let motivoInterno = '';
+    let fueraDeAlcance = '';
     const r = await escanearLt(entradaDe(d as never), d.rawValue !== undefined ? (d.numeroLt ?? null) : null, { lat: d.lat, lng: d.lng }, await ctxDe(req),
-      { tramiteId: d.tramiteId, dejarPendiente: d.dejarPendiente, organismoCodigo: d.organismoCodigo, alNoEncontrar: (m) => { motivoInterno = ` (${m})`; } });
-    await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Escaneo LT: ${r.resultado}${motivoInterno}${d.rawValue === undefined ? ' (manual)' : ''}` }); // sin placa (PII)
+      { tramiteId: d.tramiteId, dejarPendiente: d.dejarPendiente, organismoCodigo: d.organismoCodigo, alNoEncontrar: (m) => { motivoInterno = ` (${m})`; }, alContarFueraDeAlcance: (n) => { if (n > 0) fueraDeAlcance = ` [candidatos fuera de alcance: ${n}]`; } });
+    await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Escaneo LT: ${r.resultado}${motivoInterno}${fueraDeAlcance}${d.rawValue === undefined ? ' (manual)' : ''}` }); // sin placa (PII)
     return { body: r, noGuardar: r.resultado === 'sin_match' };
   }, 'escanear');
 });
@@ -304,30 +335,33 @@ const trasladoSchema = z.object({
   motivoLlegadaId: z.string().uuid().optional(),
   mensajeroId: z.number().int().positive().optional(),
 });
-router.post('/traslados', soloSinEnlace(), exigirFuncion('logistica.traslado.registrar'), trasladoRegistrarLimiter, async (req: Request, res: Response) => {
+router.post('/traslados', soloSinEnlaceOProveedor(), exigirFuncion('logistica.traslado.registrar'), trasladoRegistrarLimiter, async (req: Request, res: Response) => {
   const parsed = trasladoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: 'Datos inválidos: la compañía, el destino y al menos una LT son obligatorios', codigo: 'DATOS_INVALIDOS' }); return; }
+  // §6.4: 403 por lote antes de `LT_NO_ENCONTRADA`, `TRASLADO_COMPANIA_MIXTA` y demás: serían oráculos.
+  const alcance = await alcanceDe(req);
+  await exigirPropiosLogistica('documento', parsed.data.lts.map((l) => l.documentoId), alcance);
   await conIdempotencia(req, res, async () => {
     const r = await registrarTraslado(parsed.data, await ctxConPropiedad(req));
     await audit(req, { action: 'create', resource: 'flito_logistica_traslado', detail: `Traslado ${r.id} destino ${parsed.data.destino} compañía ${parsed.data.companiaId}: ${r.documentos} LT` });
-    return { body: r };
+    return { body: trasladoParaLector(r, alcance.enlace === 'proveedor') };
   }, 'traslados');
 });
 
 // POST /traslados/buscar — HU #14125. Pestaña Entregas. Placa en el body (nunca en query).
-// `soloSinEnlace` antes de la función. Sin audit (el motivo no puede llevar la placa), sin logPiiAccess
-// (el DTO no lleva PII) y sin limitador nuevo (no devuelve la placa).
+// La guarda antes de la función. Sin audit (el motivo no puede llevar la placa), sin logPiiAccess
+// (el DTO no lleva PII) y sin limitador nuevo (no devuelve la placa). HU #14351: al proveedor, sus viajes, vía acta.
 const buscarEntregasSchema = z.object({
   placa: z.string().trim().max(10).optional(),
   estado: z.enum(['registrado', 'en_ruta', 'entregado', 'devuelto', 'anulado']).optional(),
   destino: z.enum(['flit', 'cliente']).optional(),
   companiaId: z.number().int().positive().optional(),
 }).strict();
-router.post('/traslados/buscar', soloSinEnlace(), exigirFuncion('logistica.consola.ver'), async (req: Request, res: Response) => {
+router.post('/traslados/buscar', soloSinEnlaceOProveedor(), exigirFuncion('logistica.consola.ver'), async (req: Request, res: Response) => {
   res.set('Cache-Control', 'no-store');
   const parsed = buscarEntregasSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
-  res.json(await listarEntregas(parsed.data));
+  res.json(await listarEntregas(parsed.data, await alcanceDe(req)));
 });
 
 const uuidParam = (v: string | undefined) => z.string().uuid().safeParse(v);
@@ -351,9 +385,10 @@ async function auditarCedulaReceptor(req: Request, firmaId: string | undefined):
 }
 
 // POST /traslados/:id/despachar — HU #14115. Reusa `logistica.actas.despachar`. Firma de Operaciones opcional.
-router.post('/traslados/:id/despachar', soloSinEnlace(), exigirFuncion('logistica.actas.despachar'), trasladoCicloLimiter, async (req: Request, res: Response) => {
+router.post('/traslados/:id/despachar', soloSinEnlaceOProveedor(), exigirFuncion('logistica.actas.despachar'), trasladoCicloLimiter, async (req: Request, res: Response) => {
   const id = uuidParam(req.params.id);
   if (!id.success) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }
+  await exigirPropioLogistica('traslado', id.data, await alcanceDe(req));
   const parsed = despacharTrasladoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: 'Datos inválidos: el mensajero es obligatorio', codigo: 'DATOS_INVALIDOS' }); return; }
   await conIdempotencia(req, res, async () => {
@@ -380,13 +415,16 @@ function sinPermiso(res: Response): void {
 // Cliente: cédula + `logistica.actas.entregar`. FLIT: `{ firma, lat?, lng? }` + `logistica.actas.firmar_flit`.
 // 404 si el viaje no está, antes del 403 de función. Sin `exigirFuncion` de ruta: quien solo firma FLIT
 // no puede quedar fuera, y el mensajero (solo `entregar`) no puede entrar a un viaje a FLIT.
-router.post('/traslados/:id/entregar', soloSinEnlace(), trasladoCicloLimiter, async (req: Request, res: Response) => {
+// HU #14351 (§6.5): `destinoDeTraslado` va DESPUÉS del alcance. Al proveedor, lo ajeno y lo inexistente son el mismo 403, y la firma de FLIT sigue cerrada (N4).
+router.post('/traslados/:id/entregar', soloSinEnlaceOProveedor(), trasladoCicloLimiter, async (req: Request, res: Response) => {
   const id = uuidParam(req.params.id);
   if (!id.success) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }
+  const alcance = await alcanceDe(req);
+  await exigirPropioLogistica('traslado', id.data, alcance);
   const destino = await destinoDeTraslado(id.data);
   if (!destino) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }
   if (destino === 'flit') {
-    if (!(await tieneFuncion(req, 'logistica.actas.firmar_flit'))) { sinPermiso(res); return; }
+    if (alcance.enlace === 'proveedor' || !(await tieneFuncion(req, 'logistica.actas.firmar_flit'))) { sinPermiso(res); return; }
     const cuerpo = req.body;
     if (cuerpo && typeof cuerpo === 'object' && CAMPOS_PROHIBIDOS_LLEGADA.some((k) => k in cuerpo)) {
       res.status(422).json({ error: 'La llegada a FLIT no admite cédula ni nombre de receptor', codigo: 'DATOS_INVALIDOS' });
@@ -424,9 +462,10 @@ router.post('/traslados/:id/entregar', soloSinEnlace(), trasladoCicloLimiter, as
 });
 
 // POST /traslados/:id/devolucion — todo el viaje. Reusa `logistica.actas.devolver`.
-router.post('/traslados/:id/devolucion', soloSinEnlace(), exigirFuncion('logistica.actas.devolver'), trasladoCicloLimiter, async (req: Request, res: Response) => {
+router.post('/traslados/:id/devolucion', soloSinEnlaceOProveedor(), exigirFuncion('logistica.actas.devolver'), trasladoCicloLimiter, async (req: Request, res: Response) => {
   const id = uuidParam(req.params.id);
   if (!id.success) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }
+  await exigirPropioLogistica('traslado', id.data, await alcanceDe(req));
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   await conIdempotencia(req, res, async () => {
@@ -437,9 +476,10 @@ router.post('/traslados/:id/devolucion', soloSinEnlace(), exigirFuncion('logisti
 });
 
 // POST /traslados/:id/anular — solo `registrado`. Permiso propio; siembra admin (0284).
-router.post('/traslados/:id/anular', soloSinEnlace(), exigirFuncion('logistica.traslado.anular'), trasladoCicloLimiter, async (req: Request, res: Response) => {
+router.post('/traslados/:id/anular', soloSinEnlaceOProveedor(), exigirFuncion('logistica.traslado.anular'), trasladoCicloLimiter, async (req: Request, res: Response) => {
   const id = uuidParam(req.params.id);
   if (!id.success) { res.status(404).json({ error: 'Viaje no encontrado', codigo: 'TRASLADO_NO_ENCONTRADO' }); return; }
+  await exigirPropioLogistica('traslado', id.data, await alcanceDe(req));
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   await conIdempotencia(req, res, async () => {
@@ -451,7 +491,7 @@ router.post('/traslados/:id/anular', soloSinEnlace(), exigirFuncion('logistica.t
 
 // POST /cerrar-lote — adaptador (HU #14114): viaje a cliente de las LT clasificadas de la compañía.
 const cerrarLoteSchema = z.object({ companiaId: z.number().int().positive() });
-router.post('/cerrar-lote', exigirFuncion('logistica.lote.cerrar'), async (req: Request, res: Response) => {
+router.post('/cerrar-lote', cerradaAlProveedor(), exigirFuncion('logistica.lote.cerrar'), async (req: Request, res: Response) => {
   const parsed = cerrarLoteSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   // HU #13426 (AC3): una compañía solo cierra SU lote; otro id → 403 sin comprobar si existe.
@@ -472,7 +512,8 @@ router.post('/cerrar-lote', exigirFuncion('logistica.lote.cerrar'), async (req: 
 const despacharSchema = z.object({
   mensajeroId: z.number().int().positive(), firmaEntrega: z.string().min(1), entregaNombre: z.string().optional(),
 });
-router.post('/actas/:id/despachar', exigirFuncion('logistica.actas.despachar'), async (req: Request, res: Response) => {
+// D7 (David Chica, 2026-11-06): el enlace `compania` recibe 403, antes de la función y sin consultar el acta.
+router.post('/actas/:id/despachar', soloSinEnlaceOProveedor(), exigirFuncion('logistica.actas.despachar'), async (req: Request, res: Response) => {
   const parsed = despacharSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'La firma de quien entrega es obligatoria' }); return; }
   await exigirPropioLogistica('acta', req.params.id, await alcanceDe(req));
@@ -495,7 +536,7 @@ router.post('/actas/:id/entregar', exigirFuncion('logistica.actas.entregar'), as
   await conIdempotencia(req, res, async () => {
     const r = await entregar(req.params.id, parsed.data, await ctxConPropiedad(req));
     await auditarCedulaReceptor(req, r.firmaId);
-    await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Entrega a ${parsed.data.receptorNombre}` });
+    await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: 'Entrega de acta' }); // AC10: sin el nombre del receptor
     return { body: r };
   }, 'actas-entregar');
 });
@@ -514,7 +555,7 @@ router.post('/actas/:id/devolucion', exigirFuncion('logistica.actas.devolver'), 
 
 // POST /documentos/:id/reversar — reversa con justificación (RN-08). Solo Operaciones.
 const reversarSchema = z.object({ estadoDestino: z.nativeEnum(EstadoDocumentoLogistica), motivo: z.string().trim().min(1) });
-router.post('/documentos/:id/reversar', exigirFuncion('logistica.documento.reversar'), async (req: Request, res: Response) => {
+router.post('/documentos/:id/reversar', cerradaAlProveedor(), exigirFuncion('logistica.documento.reversar'), async (req: Request, res: Response) => {
   const parsed = reversarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await exigirPropioLogistica('documento', req.params.id, await alcanceDe(req));
@@ -533,9 +574,10 @@ const recogidaSchema = z.object({
   firmante: z.object({ nombre: z.string().trim().min(1).max(150), documento: z.string().trim().min(4).max(30), firma: z.string().min(1) }),
   lat: z.string().max(20).optional(), lng: z.string().max(20).optional(),
 });
-router.post('/recogidas/confirmar', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), recogidaConfirmarLimiter, async (req: Request, res: Response) => {
+router.post('/recogidas/confirmar', soloSinEnlaceOProveedor(), exigirFuncion('logistica.recogida.confirmar'), recogidaConfirmarLimiter, async (req: Request, res: Response) => {
   const parsed = recogidaSchema.safeParse(req.body);
   if (!parsed.success) { res.status(422).json({ error: 'Datos inválidos: el organismo, las LT y el nombre, la cédula y la firma del funcionario son obligatorios', codigo: 'DATOS_INVALIDOS' }); return; }
+  await exigirPropiosLogistica('documento', parsed.data.documentoIds, await alcanceDe(req)); // §6.4: antes de `LT_NO_ENCONTRADA` y `LT_DE_OTRO_ORGANISMO`
   await conIdempotencia(req, res, async () => {
     const r = await confirmarRecogida(parsed.data, await ctxConPropiedad(req));
     // Solo ids y conteos: sin nombre, cédula ni firma del funcionario.
@@ -546,29 +588,35 @@ router.post('/recogidas/confirmar', soloSinEnlace(), exigirFuncion('logistica.re
 
 // GET /recogidas/mias y /recogidas/:firmanteId — la recogida se consulta aparte de las actas (sin filtros con PII;
 // cédula enmascarada ••••1234). Antes de `/:firmanteId` para que `mias` no se tome por un id.
-router.get('/recogidas/mias', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
+router.get('/recogidas/mias', soloSinEnlaceOProveedor(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
   const r = await ejecutar(res, async () => { const ctx = await ctxConPropiedad(req); return { recogidas: await misRecogidas(ctx), pendientesFirma: await contarPendientesFirma(ctx) }; });
   if (r !== undefined) res.json(r);
 });
 // GET /recogidas/pendientes-firma — HU #14147: mis LT escaneadas cuya acta de organismo sigue pendiente (se firman con
 // POST /recogidas/confirmar). Sin filtros ni placa en la URL; la placa solo sale en la respuesta, nunca en audit/logs.
-router.get('/recogidas/pendientes-firma', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
+router.get('/recogidas/pendientes-firma', soloSinEnlaceOProveedor(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
   const r = await ejecutar(res, async () => ltPendientesFirma(await ctxConPropiedad(req)));
   if (r !== undefined) res.json({ pendientes: r });
 });
-router.get('/recogidas/:firmanteId', soloSinEnlace(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
+router.get('/recogidas/:firmanteId', soloSinEnlaceOProveedor(), exigirFuncion('logistica.recogida.confirmar'), async (req: Request, res: Response) => {
   const id = z.string().uuid().safeParse(req.params.firmanteId);
   if (!id.success) { res.status(404).json({ error: 'La recogida no existe', codigo: 'RECOGIDA_NO_ENCONTRADA' }); return; }
   const r = await ejecutar(res, async () => recogidaDetalle(id.data, await ctxConPropiedad(req)));
-  if (r !== undefined) res.json(r);
+  if (r === undefined) return;
+  // HU #14351 (§9): el tercero lee el nombre y los últimos dígitos del funcionario; queda registrado.
+  if (req.frontera?.enlace === 'proveedor') await logPiiAccess(req, { resourceTipo: 'flito_logistica_recogida_firmante', accion: 'read', camposAccedidos: ['nombre', 'documento_ultimos'], motivo: `firmante:${id.data}` });
+  res.json(r);
 });
 
 // POST /recogidas/:firmanteId/documento — cédula COMPLETA del firmante (PII). Función propia, rateLimiter y
 // registro de acceso (`logPiiAccess`); el uuid va en `motivo` porque resource_id es integer.
-router.post('/recogidas/:firmanteId/documento', soloSinEnlace(), exigirFuncion('logistica.actas.ver_documento_firmante'), revelarDocumentoLimiter, async (req: Request, res: Response) => {
+// HU #14351 (§6.5, valor por defecto del ADR): abierta al proveedor, la función NO se le siembra. Es una lectura: lo ajeno es 404 igual que lo purgado.
+// Pendiente de `security-agent` (H5, §9.5): si se cierra al proveedor, basta cambiar esta guarda por `soloSinEnlace()`.
+router.post('/recogidas/:firmanteId/documento', soloSinEnlaceOProveedor(), exigirFuncion('logistica.actas.ver_documento_firmante'), revelarDocumentoLimiter, async (req: Request, res: Response) => {
   const id = z.string().uuid().safeParse(req.params.firmanteId);
   if (!id.success) { res.status(404).json({ error: 'El documento del firmante no está disponible' }); return; }
-  const documento = await ejecutar(res, () => revelarDocumentoFirmante(id.data));
+  const alcance = await alcanceDe(req);
+  const documento = await ejecutar(res, () => revelarDocumentoFirmante(id.data, alcance));
   if (documento === undefined) return;
   await logPiiAccess(req, {
     resourceTipo: 'flito_logistica_recogida_firmante', accion: 'read', camposAccedidos: ['documento'],

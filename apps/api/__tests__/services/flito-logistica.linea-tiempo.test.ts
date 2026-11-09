@@ -180,9 +180,9 @@ describe('HU #14124 — línea de tiempo', () => {
     expect(selectMock).not.toHaveBeenCalled();
   });
 
-  it('enlace compañía → 403 sin consultar si el id existe; proveedor y organismos los cierra la frontera', async () => {
+  it('enlace compañía → 403 sin consultar si el id existe; organismos lo cierra la frontera (el proveedor: flito-logistica.alcance-proveedor.test.ts)', async () => {
     const rutas = [`/documentos/${DOC}/linea-tiempo`, `/tramites/${TRAM}/linea-tiempo`];
-    for (const [i, tipo] of ['compania', 'proveedor', 'organismos_transito'].entries()) {
+    for (const [i, tipo] of ['compania', 'organismos_transito'].entries()) {
       const token = await ver({ sub: 14140 + i, tipoEnlace: tipo });
       for (const ruta of rutas) {
         selectMock.mockClear();

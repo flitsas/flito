@@ -51,7 +51,7 @@ describe.skipIf(!URL_BASE)('LT pendientes de firma — regla de selección contr
         estadoNoConfirmable: await doc('novedad', { estado: 'novedad' }),
       };
       const q = (operaAjenas: boolean) => {
-        const cond = condicionPendientesFirma({ userId: yo, username: 'u', role: 'mensajero', operaAjenas });
+        const cond = condicionPendientesFirma({ userId: yo, username: 'u', role: 'mensajero', operaAjenas, alcance: { enlace: 'ninguno' } });
         const { sql: texto, params } = new QueryBuilder().select({ id: flitoLogisticaDocumentos.id }).from(flitoLogisticaDocumentos).where(cond).toSQL();
         return tx.unsafe(texto, params as never[]).values();
       };
