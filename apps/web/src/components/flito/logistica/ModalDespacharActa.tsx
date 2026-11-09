@@ -89,8 +89,8 @@ export default function ModalDespacharActa({ acta, onClose, onDespachado, onList
 
   const pie = (deshabilitado: boolean) => (
     <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-      <button type="button" className={`${flitBtnSecondary} w-full justify-center max-lg:min-h-11 sm:w-auto`} style={flitBtnSecondaryStyle} disabled={busy} onClick={onClose}>Cancelar</button>
-      <button type="button" className={`${flitBtnPrimary} w-full justify-center max-lg:min-h-11 sm:w-auto`} style={flitBtnPrimaryStyle} disabled={deshabilitado} onClick={() => void despachar()}>Firmar y despachar</button>
+      <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} disabled={busy} onClick={onClose}>Cancelar</button>
+      <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle} disabled={deshabilitado} onClick={() => void despachar()}>Firmar y despachar</button>
     </div>
   );
 
@@ -112,7 +112,7 @@ export default function ModalDespacharActa({ acta, onClose, onDespachado, onList
           {carga === 'error' ? (
             <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
               <p className="flex-1">No se pudieron cargar los mensajeros.</p>
-              <button type="button" className={`${flitBtnSecondary} max-lg:min-h-11`} style={flitBtnSecondaryStyle} onClick={() => cargar()}>Reintentar</button>
+              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => cargar()}>Reintentar</button>
             </div>
           ) : (
             <FlitField label="Mensajero">

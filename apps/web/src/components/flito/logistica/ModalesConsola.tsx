@@ -115,8 +115,8 @@ export function MotivoModal({ tipo, busy, error, onClose, onConfirmar }: { tipo:
       </FlitField>
       {error && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
       <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <button type="button" className={`${flitBtnSecondary} w-full justify-center max-lg:min-h-11 sm:w-auto`} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
-        <button type="button" className={`${flitBtnPrimary} w-full justify-center max-lg:min-h-11 sm:w-auto`} style={flitBtnPrimaryStyle} disabled={busy || !motivo.trim()} onClick={() => onConfirmar(motivo.trim())}>Confirmar</button>
+        <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
+        <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle} disabled={busy || !motivo.trim()} onClick={() => onConfirmar(motivo.trim())}>Confirmar</button>
       </div>
     </FlitModal>
   );

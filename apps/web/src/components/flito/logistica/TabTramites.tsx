@@ -168,7 +168,7 @@ function Tarjetas({ filas, verPropietario, verDetalle, puedeNovedad, onDetalle, 
               {verPropietario && f.propietario && <div className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{f.propietario}</div>}
               {f.motivo && <div className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{f.motivo}</div>}
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                {verDetalle && <button type="button" className={`${flitBtnSecondary} min-h-11`} style={flitBtnSecondaryStyle} aria-label={`Detalle de ${placa}`} onClick={() => onDetalle(f)}>Detalle</button>}
+                {verDetalle && <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} aria-label={`Detalle de ${placa}`} onClick={() => onDetalle(f)}>Detalle</button>}
                 {hayNovedad(f, puedeNovedad) && <BotonTarjetaPeligro aria={`Novedad de ${placa}`} onClick={() => onNovedad(f.docId!)}>Novedad</BotonTarjetaPeligro>}
               </div>
             </article>

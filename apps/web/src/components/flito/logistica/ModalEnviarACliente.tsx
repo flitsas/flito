@@ -122,8 +122,8 @@ export default function ModalEnviarACliente({ grupo, onClose, onRegistrado }: Pr
         )}
 
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <button type="button" className={`${flitBtnSecondary} w-full justify-center max-lg:min-h-11 sm:w-auto`} style={flitBtnSecondaryStyle} onClick={cerrar} disabled={busy}>Cancelar</button>
-          <button type="button" className={`${flitBtnPrimary} w-full justify-center max-lg:min-h-11 sm:w-auto`} style={flitBtnPrimaryStyle} disabled={busy || marcadas.size === 0} onClick={() => void enviar()}>
+          <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={cerrar} disabled={busy}>Cancelar</button>
+          <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle} disabled={busy || marcadas.size === 0} onClick={() => void enviar()}>
             {busy ? 'Enviando…' : 'Enviar a cliente'}
           </button>
         </div>

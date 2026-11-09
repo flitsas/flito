@@ -127,9 +127,9 @@ function Tarjetas({ actas, esProveedor, permisos, onVer, onDespachar, onDevolver
               {!esProveedor && a.receptorNombre && <div className="mt-1 text-sm" style={sec}>Receptor: {a.receptorNombre} · {fecha(a.entregadoEn)}</div>}
               {flit && esProveedor && <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>Operaciones de FLITO firma la llegada.</p>}
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                {puede.despachar && <button type="button" className={`${flitBtnPrimary} min-h-11 w-full justify-center`} style={flitBtnPrimaryStyle} onClick={() => onDespachar(a)}>Firmar y despachar</button>}
-                {puede.llegada && <button type="button" className={`${flitBtnPrimary} min-h-11 w-full justify-center`} style={flitBtnPrimaryStyle} onClick={() => onFirmarLlegada(a)}>Firmar llegada</button>}
-                {permisos.ver && <button type="button" className={`${flitBtnSecondary} min-h-11`} style={flitBtnSecondaryStyle} aria-label={`Ver acta de ${nombre}`} onClick={() => onVer(a)}>Ver</button>}
+                {puede.despachar && <button type="button" className={`${flitBtnPrimary} w-full justify-center`} style={flitBtnPrimaryStyle} onClick={() => onDespachar(a)}>Firmar y despachar</button>}
+                {puede.llegada && <button type="button" className={`${flitBtnPrimary} w-full justify-center`} style={flitBtnPrimaryStyle} onClick={() => onFirmarLlegada(a)}>Firmar llegada</button>}
+                {permisos.ver && <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} aria-label={`Ver acta de ${nombre}`} onClick={() => onVer(a)}>Ver</button>}
                 {puede.devolver && <BotonTarjetaPeligro aria={`Devolver acta de ${nombre}`} onClick={() => onDevolver(a)}>Devolver</BotonTarjetaPeligro>}
               </div>
             </article>

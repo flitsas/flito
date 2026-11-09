@@ -461,8 +461,8 @@ function ModalConfirmarViaje({ grupo, sinPrecios, onClose, onRegistrado, onIrMot
         )}
 
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <button type="button" className={`${flitBtnSecondary} w-full justify-center max-lg:min-h-11 sm:w-auto`} style={flitBtnSecondaryStyle} onClick={cerrar} disabled={busy}>Cancelar</button>
-          <button type="button" className={`${flitBtnPrimary} w-full justify-center max-lg:min-h-11 sm:w-auto`} style={flitBtnPrimaryStyle} disabled={!puede} onClick={() => void confirmar()}>
+          <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={cerrar} disabled={busy}>Cancelar</button>
+          <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle} disabled={!puede} onClick={() => void confirmar()}>
             {busy ? 'Registrando…' : 'Confirmar viaje'}
           </button>
         </div>
