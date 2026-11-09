@@ -352,7 +352,7 @@ export default function FlitoLogistica() {
           onReintentar={cargarActas}
           esProveedor={esProveedor}
           vacio={conEnlace
-            ? 'Aún no hay actas. Cuando haya un viaje registrado o una recogida confirmada, su acta aparece aquí.'
+            ? 'Aún no hay actas. Cuando registre un viaje, su acta aparece aquí. Las de recogida están en Mi ruta › Mis recogidas.'
             : 'Aún no hay actas. Vaya a «Viajes» y registre el viaje de una compañía con LT clasificadas.'}
           permisos={permisosActas}
           onVer={(a) => verActa(a.id)}

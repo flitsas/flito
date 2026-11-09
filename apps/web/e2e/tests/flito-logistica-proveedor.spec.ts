@@ -394,7 +394,7 @@ test.describe('AC9 · cuatro estados y errores sin crudo', () => {
     await expect(page.getByText('Aún no hay actas')).toHaveCount(0);
     caido = false;
     await page.getByRole('button', { name: 'Reintentar' }).click();
-    await expect(page.getByText('Aún no hay actas. Cuando haya un viaje registrado o una recogida confirmada, su acta aparece aquí.')).toBeVisible();
+    await expect(page.getByText('Aún no hay actas. Cuando registre un viaje, su acta aparece aquí. Las de recogida están en Mi ruta › Mis recogidas.')).toBeVisible();
     await expect(page.locator('body')).not.toContainText(/fecha de corte|anteriores/i);
   });
 
