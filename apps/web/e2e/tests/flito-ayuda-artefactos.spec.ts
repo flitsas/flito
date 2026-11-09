@@ -297,7 +297,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // HU #13968: SOAT sin trámite por proveedor (soat y clients cambiaron de nuevo).
     soat: { version: '1.8', fecha: '2026-10-28', diagrama: 'ciclo-soat.svg', capturas: [
       '01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png'] },
-    flito_tramites: { version: '1.2', diagrama: 'camino-a-entregar.svg', capturas: [
+    flito_tramites: { version: '1.3', fecha: '2026-11-09', diagrama: 'camino-a-entregar.svg', capturas: [
       '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-seleccion.png', '04-documentos-del-zip.png'] },
     flito_revisiones: { version: '1.2', diagrama: 'resolver-o-descartar.svg', capturas: [
       '01-cola-y-documento.png', '02-revisar-campos.png', '03-constancia.png'] },
