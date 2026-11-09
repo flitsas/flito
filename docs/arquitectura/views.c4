@@ -1,0 +1,68 @@
+// Vistas estáticas de FLITO (plan 01 §5 de Atlas). Cada resumen cabe en el marco de Atlas y lleva al detalle con navigateTo.
+// Las de componentes y las dinámicas están en sus carpetas.
+// Las vistas de despliegue no se escriben a mano: las emitirá el generador desde gitops y nunca viven en este repo.
+views {
+  // V03
+  view flito_contexto of flito {
+    title 'FLITO: contexto'
+    description 'Resumen por grupos. Toca un grupo para ver su detalle.'
+    include
+      flito with { navigateTo flito_contenedores },
+      usuarios,
+      flit1,
+      flit2,
+      fuentes with { navigateTo flito_fuentes },
+      entidades with { navigateTo flito_entidades },
+      terceros with { navigateTo flito_terceros }
+    style element.tag = #legado {
+      color gray
+    }
+    autoLayout LeftRight 60 25
+  }
+
+  view flito_fuentes of fuentes {
+    title 'FLITO: fuentes de datos'
+    include
+      fuentes.*,
+      flito
+    autoLayout LeftRight 60 25
+  }
+
+  view flito_entidades of entidades {
+    title 'FLITO: entidades y reportes'
+    include
+      entidades.*,
+      flito
+    autoLayout LeftRight 60 25
+  }
+
+  view flito_terceros of terceros {
+    title 'FLITO: servicios de terceros'
+    include
+      terceros.*,
+      flito
+    autoLayout LeftRight 60 25
+  }
+
+  // V05
+  view flito_contenedores of flito {
+    title 'FLITO: contenedores'
+    description 'Web, API y almacenes, con los grupos con los que hablan.'
+    include
+      flito.web,
+      flito.api with { navigateTo flito_api_componentes },
+      flito.db,
+      flito.redis,
+      flito.minio,
+      usuarios,
+      flit1,
+      flit2,
+      fuentes,
+      entidades,
+      terceros
+    style element.tag = #legado {
+      color gray
+    }
+    autoLayout LeftRight 60 25
+  }
+}

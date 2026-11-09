@@ -442,6 +442,81 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await expect(guardar(page)).toBeEnabled();
   });
 
+  const CHIP_CON_DOCUMENTO = 'No encontrado';
+  const CHIP_SIN_DOCUMENTO = 'Sin vehículo';
+  const AVISO_CORREGIR_O_BORRAR = 'El RUNT no encontró el vehículo con esa placa y ese documento. Corrige el documento o bórralo para consultar por VIN.';
+  const chip = (zona: Page | ReturnType<Page['getByRole']>, texto: string) => zona.getByText(texto, { exact: true });
+  const SIN_DOCUMENTO = { documentoPropietario: null, tipoDocumentoPropietario: null };
+
+  test('19 · sin vehículo con documento: el chip dice «No encontrado» en la lista y en el detalle', async ({ page }) => {
+    await irACertificar(page);
+    await conFila(page, fila({ estado: 'sin_vehiculo' }));
+    await expect(chip(page, CHIP_CON_DOCUMENTO)).toBeVisible();
+    await expect(chip(page, CHIP_SIN_DOCUMENTO)).toHaveCount(0);
+    // Editar sin guardar no cambia el resultado de la consulta: el chip sigue siendo el de la fila guardada.
+    await documento(page).fill('');
+    await expect(chip(page, CHIP_CON_DOCUMENTO)).toBeVisible();
+    await expect(chip(page, CHIP_SIN_DOCUMENTO)).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Volver al listado' }).click();
+    const filaLista = page.getByRole('row').filter({ hasText: 'ABC123' });
+    await expect(chip(filaLista, CHIP_CON_DOCUMENTO)).toBeVisible();
+    await expect(chip(filaLista, CHIP_SIN_DOCUMENTO)).toHaveCount(0);
+  });
+
+  test('20 · sin vehículo sin documento: el chip conserva «Sin vehículo» en la lista y en el detalle', async ({ page }) => {
+    await irACertificar(page);
+    await conFila(page, fila({ estado: 'sin_vehiculo', ...SIN_DOCUMENTO }));
+    await expect(chip(page, CHIP_SIN_DOCUMENTO)).toBeVisible();
+    await expect(chip(page, CHIP_CON_DOCUMENTO)).toHaveCount(0);
+    // Escribir un documento sin guardar no cambia el chip: aún no se ha consultado con él.
+    await documento(page).fill('10101010');
+    await expect(chip(page, CHIP_SIN_DOCUMENTO)).toBeVisible();
+    await expect(chip(page, CHIP_CON_DOCUMENTO)).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Volver al listado' }).click();
+    const filaLista = page.getByRole('row').filter({ hasText: 'ABC123' });
+    await expect(chip(filaLista, CHIP_SIN_DOCUMENTO)).toBeVisible();
+    await expect(chip(filaLista, CHIP_CON_DOCUMENTO)).toHaveCount(0);
+  });
+
+  for (const caso of [
+    { nombre: 'sin vehículo con documento pide corregirlo o borrarlo', extra: { estado: 'sin_vehiculo' }, aviso: AVISO_CORREGIR_O_BORRAR },
+    { nombre: 'sin vehículo sin documento nombra el VIN', extra: { estado: 'sin_vehiculo', ...SIN_DOCUMENTO }, aviso: 'El RUNT no tiene registro de este VIN.' },
+    { nombre: 'sin respuesta con documento ofrece consultar por VIN', extra: { estado: 'sin_respuesta' }, aviso: 'El RUNT no respondió. El registro quedó guardado. Puedes consultar de nuevo o borrar el documento para consultar por VIN.' },
+    { nombre: 'sin respuesta sin documento invita a consultar de nuevo', extra: { estado: 'sin_respuesta', ...SIN_DOCUMENTO }, aviso: 'El RUNT no respondió. El registro quedó guardado. Puedes consultar de nuevo.' },
+    { nombre: 'no coincide pide corregir y consultar', extra: { estado: 'sin_coincidencia' }, aviso: 'Los datos no coinciden con el RUNT. Corrige y vuelve a consultar.' },
+  ]) {
+    test(`21 · al abrir el registro reaparece el aviso, informativo y no de error: ${caso.nombre}`, async ({ page }) => {
+      await irACertificar(page);
+      await conFila(page, fila(caso.extra));
+      await expect(page.getByRole('status').filter({ hasText: caso.aviso })).toHaveText(caso.aviso);
+      await expect(page.getByRole('alert').filter({ hasText: caso.aviso })).toHaveCount(0);
+
+      // Al cambiar de vista se limpia, y no viaja a la siguiente pantalla.
+      await page.getByRole('button', { name: 'Volver al listado' }).click();
+      await expect(page.getByRole('button', { name: 'Nueva certificación' })).toBeVisible();
+      await expect(page.getByText(caso.aviso)).toHaveCount(0);
+      await page.getByRole('button', { name: 'Nueva certificación' }).click();
+      await expect(page.locator('input[type="file"]')).toHaveCount(1);
+      await expect(page.getByText(caso.aviso)).toHaveCount(0);
+    });
+  }
+
+  for (const caso of [
+    { nombre: 'guardado', extra: { estado: 'radicado' }, chipEstado: 'Guardado', aviso: 'El registro quedó guardado. Consulta el RUNT cuando quieras.' },
+    { nombre: 'certificado', extra: { estado: 'certificado', certificadoEn: '2026-10-02T12:00:00Z' }, chipEstado: 'Certificado', aviso: 'Los datos coincidieron. Puedes descargar el certificado.' },
+  ]) {
+    test(`22 · al abrir un registro ${caso.nombre} no aparece aviso`, async ({ page }) => {
+      await irACertificar(page);
+      await conFila(page, fila(caso.extra));
+      // El detalle ya está pintado (su chip) antes de comprobar la ausencia.
+      await expect(chip(page, caso.chipEstado)).toBeVisible();
+      await expect(page.getByText(caso.aviso)).toHaveCount(0);
+      await expect(page.getByText(AVISO_CORREGIR_O_BORRAR)).toHaveCount(0);
+    });
+  }
+
   for (const caso of [
     {
       nombre: 'con documento nombra la placa y el documento, y ofrece consultar por VIN',
