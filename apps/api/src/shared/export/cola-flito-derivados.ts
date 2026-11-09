@@ -96,6 +96,44 @@ export const CLAVES_FLIT_RAW = {
 export type CampoFlitRaw = keyof typeof CLAVES_FLIT_RAW;
 
 /**
+ * Bug #14491 — dónde trae FLIT 2 los cinco datos del vehículo: ANIDADOS bajo `vehiculo`.
+ *
+ * El `flit_raw` de un trámite de FLIT 2 no es el reporte plano de FLIT 1: es el ítem del contrato
+ * (`docs/integraciones/flit2-api.md` §4) sin PII, y ahí marca, línea, año, clase y capacidad viven en
+ * `vehiculo.{marca, linea, modeloAno, clase, capacidad}`. Leídos solo por la clave plana salían
+ * vacíos en las 18 filas de FLIT 2 medidas en DEV.
+ *
+ * **Fíjese en `linea`: en FLIT 2 se llama `linea`, no `modelo`.** El cruce de FLIT 1 (`modelo` = la
+ * línea comercial) no existe en FLIT 2, así que esta tabla NO es una copia de la de arriba.
+ *
+ * Solo es el RESPALDO de la clave plana (`coalesce`): para FLIT 1, cuyo payload no trae `vehiculo`,
+ * la parte anidada da NULL y la celda sale exactamente igual que antes. Y se lee del crudo ya
+ * guardado, así que los trámites sincronizados antes del arreglo salen bien sin re-leer FLIT 2.
+ */
+export const CLAVES_FLIT2_VEHICULO = {
+  marca: 'marca',
+  linea: 'linea',
+  modelo: 'modeloAno',
+  clase: 'clase',
+  capacidad: 'capacidad',
+} as const satisfies Partial<Record<CampoFlitRaw, string>>;
+
+/** El objeto de FLIT 2 que agrupa los datos del vehículo dentro de `flit_raw`. */
+export const CLAVE_FLIT2_VEHICULO = 'vehiculo';
+
+/**
+ * Bug #14491 — el respaldo anidado de FLIT 2 de cada campo: `[objeto, clave]`. Además de los cinco
+ * del vehículo, `departamento` cae a `organismo.departamento`: el departamento del ORGANISMO DE
+ * TRÁNSITO, el mismo significado que `departamentoTransito` de FLIT 1 (no el domicilio del titular).
+ * `nombres`, `apellidos` y `tipo` NO tienen respaldo aquí: en FLIT 2 el crudo no trae el nombre (sin
+ * PII) y el titular se decide con {@link bloqueTitularFlit2}.
+ */
+export const RESPALDO_FLIT2 = {
+  ...Object.fromEntries(Object.entries(CLAVES_FLIT2_VEHICULO).map(([c, k]) => [c, [CLAVE_FLIT2_VEHICULO, k]])),
+  departamento: ['organismo', 'departamento'],
+} as Partial<Record<CampoFlitRaw, readonly [string, string]>>;
+
+/**
  * Una expresión por clave, listas para entrar en un `select({...})`.
  *
  * La clave viaja como PARÁMETRO (`->> $1`) y no concatenada en el texto del SQL: es la regla 3 de
@@ -140,13 +178,21 @@ export function expresionesFlitRaw(columna: Column): Record<CampoFlitRaw, Return
   // misma: comprobar la forma de una clave y extraer otra sería un descarte que no descarta nada.
   // Hay un aserto que fija esa igualdad.
   const extraer = (clave: string) => sql<string | null>`case jsonb_typeof(${columna} -> ${clave}) when 'object' then null when 'array' then null else ${columna} ->> ${clave} end`;
+  // Bug #14491: la clave plana (FLIT 1) primero y, si da NULL, la anidada de FLIT 2 con la MISMA
+  // guarda de forma —y otra vez la misma clave en comprobar y extraer—. Un objeto/array anidado bajo
+  // `vehiculo.<clave>` se descarta igual que uno plano.
+  const anidada = (objeto: string, clave: string) => sql<string | null>`case jsonb_typeof(${columna} -> ${objeto} -> ${clave}) when 'object' then null when 'array' then null else ${columna} -> ${objeto} ->> ${clave} end`;
+  const conRespaldo = (campo: CampoFlitRaw) => {
+    const [objeto, clave] = RESPALDO_FLIT2[campo]!;
+    return sql<string | null>`coalesce(${extraer(CLAVES_FLIT_RAW[campo])}, ${anidada(objeto, clave)})`;
+  };
   return {
-    marca: extraer(CLAVES_FLIT_RAW.marca),
-    linea: extraer(CLAVES_FLIT_RAW.linea),
-    modelo: extraer(CLAVES_FLIT_RAW.modelo),
-    clase: extraer(CLAVES_FLIT_RAW.clase),
-    capacidad: extraer(CLAVES_FLIT_RAW.capacidad),
-    departamento: extraer(CLAVES_FLIT_RAW.departamento),
+    marca: conRespaldo('marca'),
+    linea: conRespaldo('linea'),
+    modelo: conRespaldo('modelo'),
+    clase: conRespaldo('clase'),
+    capacidad: conRespaldo('capacidad'),
+    departamento: conRespaldo('departamento'),
     nombres: extraer(CLAVES_FLIT_RAW.nombres),
     apellidos: extraer(CLAVES_FLIT_RAW.apellidos),
     tipo: extraer(CLAVES_FLIT_RAW.tipo),
@@ -557,6 +603,61 @@ export function bloqueTitularDesdeComprador(c: TitularComprador | null | undefin
     razonSocial: null,
     claseId: clase.claseId,
   };
+}
+
+// ── El titular de un trámite de FLIT 2 (Bug #14491) ──────────────────────────────────────────────
+
+/**
+ * El `tipoDocumento` de cada comprador de un trámite de FLIT 2, en el ORDEN que les da
+ * `compradoresDesdeFlit2` (por `ordinal`; sin él, la posición — como `aComprador`), de modo que
+ * `[orden]` es el del comprador de `flito_compradores` con ese `orden`.
+ *
+ * Sale del crudo SIN PII (`rawSinPii` solo deja `ordinal`, `tipoPersona`, `tipoDocumento`…) y solo
+ * para `fuente = 'flit2'`: el crudo de FLIT 1 no se lee por aquí, ni se proyecta entero (RN-E1). Solo
+ * escalares de texto: un `tipoDocumento` no cadena queda NULL y no clasifica nada.
+ */
+export function expresionTiposDocumentoFlit2(columna: Column, fuente: Column) {
+  // `to_jsonb(array(…))` y no `text[]`: el driver devuelve un NULL de un `text[]` como la cadena
+  // `'NULL'` (medido); en jsonb llega como `null`.
+  return sql<(string | null)[] | null>`case when ${fuente} = ${'flit2'} and jsonb_typeof(${columna} -> ${'compradores'}) = 'array' then to_jsonb(array(
+    select case jsonb_typeof(e.c -> ${'tipoDocumento'}) when 'string' then e.c ->> ${'tipoDocumento'} end
+    from jsonb_array_elements(${columna} -> ${'compradores'}) with ordinality as e(c, i)
+    order by coalesce(case jsonb_typeof(e.c -> ${'ordinal'}) when 'number' then (e.c ->> ${'ordinal'})::numeric end, e.i), e.i
+  )) end`;
+}
+
+/** El comprador principal de `flito_compradores` tal como lo necesita {@link bloqueTitularFlit2}. */
+export interface CompradorFlit2Titular {
+  orden: number;
+  /** `nombre_completo`, que la consulta solo trae para compradores de trámites de FLIT 2. */
+  nombreCompletoFlit2: string | null;
+}
+
+/**
+ * Las cinco columnas del titular para una fila de trámite de FLIT 2.
+ *
+ * Clasifica con la MISMA tabla que el canal Cliente ({@link bloqueTitularDesdeComprador}) y el
+ * `tipoDocumento` del crudo del comprador de ese `orden`: un tipo ausente o desconocido vacía el
+ * bloque entero, igual que allí. Sin comprador o sin tipos → {@link TITULAR_VACIO}, sin fallar.
+ *
+ * ── EXCEPCIÓN DELIBERADA a la regla de la HU #11934 / #11966 («se lee el dato partido, nunca la
+ * cadena fundida») — decisión del humano, Bug #14491: FLIT 2 no entrega el nombre partido ─────────
+ *
+ * FLIT 2 solo guarda `nombre_completo`. Por eso, y SOLO para FLIT 2: la persona natural lleva
+ * `NombrePila = nombre_completo` entero y `Apellidos` vacío (no se parte por espacios), y la jurídica
+ * `RazonSocial = nombre_completo`. FLIT 1 y el canal siguen leyendo el dato partido. No «arreglar»
+ * esto de vuelta sin otra decisión de producto: el día que FLIT 2 mande nombres y apellidos separados,
+ * se cambia aquí.
+ */
+export function bloqueTitularFlit2(tipos: unknown, c: CompradorFlit2Titular | null | undefined): BloqueTitular {
+  if (!c || !Array.isArray(tipos)) return TITULAR_VACIO;
+  const tipo: unknown = tipos[c.orden];
+  return bloqueTitularDesdeComprador({
+    tipoDocumento: typeof tipo === 'string' ? tipo : null,
+    nombres: c.nombreCompletoFlit2,
+    apellidos: null,
+    razonSocial: c.nombreCompletoFlit2,
+  });
 }
 
 // ── La ciudad del organismo ──────────────────────────────────────────────────────────────────────
