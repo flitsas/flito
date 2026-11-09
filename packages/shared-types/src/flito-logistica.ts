@@ -272,10 +272,98 @@ export interface CompaniaCerrableLogistica {
   companiaId: number;
   nombre: string | null;
   disponibles: number;
-  precioEntregaCliente: number | null;
-  /** Tarifa de entrega en instalaciones FLIT (HU #14123). Misma `ahora` que el precio a cliente. */
-  precioEntregaFlit: number | null;
+  /** Ausente al proveedor (ADR-0039 §7.2): la web no puede pintar una cifra que no llega. */
+  precioEntregaCliente?: number | null;
+  /** Tarifa de entrega en instalaciones FLIT (HU #14123). Misma `ahora` que el precio a cliente. Ausente al proveedor. */
+  precioEntregaFlit?: number | null;
+  /** Solo al proveedor (HU #14351, R2): a qué destinos puede registrar el viaje, sin revelar el precio. */
+  destinos?: DestinosViajeLogistica;
   lts: LtClasificadaCerrable[];
+}
+
+/** A qué destinos hay tarifa para esta compañía. Lo que recibe el proveedor en vez de los precios (HU #14351, R2). */
+export interface DestinosViajeLogistica {
+  cliente: boolean;
+  flit: boolean;
+}
+
+/**
+ * Fila de la consola: `GET /` y `POST /buscar`. `propietario` no le llega al proveedor en las listas (decisión H2 de
+ * HU #14351); lo ve en el Detalle. `actaId` null también si el acta es anterior al corte y lee el proveedor (R5).
+ */
+export interface TramiteFilaLogistica {
+  tramiteId: string;
+  idFlit: string;
+  placa: string | null;
+  vin: string | null;
+  propietario?: string | null;
+  companiaId: number | null;
+  companiaNombre: string | null;
+  companiaNit: string | null;
+  organismoCodigo: string | null;
+  organismoNombre: string | null;
+  docId: string | null;
+  estado: string;
+  estadoLabel: string;
+  estadoSimple: EstadoLogisticaSimple;
+  estadoSimpleLabel: string;
+  numeroLicencia: string | null;
+  numeroLt: string | null;
+  actaId: string | null;
+  motivo: string | null;
+  actualizadoEn: string | null;
+}
+
+/** Respuesta de `GET /` y `POST /buscar`. */
+export interface ListadoTramitesLogistica {
+  items: TramiteFilaLogistica[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** Cuerpo de `POST /buscar` (`.strict()`, HU #14351, R3). Placa, VIN y NIT no viajan en la URL (AGENTS §14). */
+export interface BuscarLogisticaCuerpo {
+  buscar?: string;
+  estados?: string[];
+  /** NIT de las compañías. */
+  empresas?: string[];
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * Fila de `GET /actas`. HU #14109: `companiaId` es null solo en el acta de organismo (multi-compañía).
+ * `proveedorLogisticaId` (HU #14350): dueño del acta, null = sin dueño. Ausente al proveedor, que solo lee las suyas.
+ */
+export interface ActaFilaLogistica {
+  id: string;
+  companiaId: number | null;
+  companiaNombre: string | null;
+  estado: string;
+  estadoLabel: string;
+  mensajeroId: number | null;
+  mensajeroNombre: string | null;
+  documentos: number;
+  receptorNombre: string | null;
+  entregadoEn: string | null;
+  creadoEn: string;
+  /** Destino del acta (`flito_logistica_actas.punto`). HU #14123. */
+  punto: 'organismo' | 'flit' | 'cliente';
+  /** Viaje que originó el acta. Null en actas anteriores al viaje. No se omite. */
+  trasladoId: string | null;
+  proveedorLogisticaId?: string | null;
+}
+
+/**
+ * Elemento de `GET /actas/:id/mensajeros` (HU #14353, R1). `grupo` y `proveedorNombre` solo llegan a Operaciones;
+ * `proveedorNombre`, solo con `grupo: 'proveedor'`. El proveedor recibe únicamente `id` y `nombre`.
+ */
+export interface MensajeroDeActa {
+  id: number;
+  nombre: string;
+  grupo?: 'flito' | 'proveedor';
+  proveedorNombre?: string;
 }
 
 /** Hito de la línea de tiempo (HU #14124). Sin payload, ubicación ni firmas. */

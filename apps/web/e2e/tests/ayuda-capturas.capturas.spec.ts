@@ -37,7 +37,7 @@ import {
   type ManejadorDemo,
   LOGISTICA_ACTAS_DEMO,
   LOGISTICA_DETALLE_DEMO,
-  LOGISTICA_FACETAS_DEMO,
+  LOGISTICA_FACETAS_DEMO, LOGISTICA_MENSAJEROS_DEMO,
   LOGISTICA_TRAMITES_DEMO,
   LOGISTICA_VIAJES_DEMO,
   LT_DEMO,
@@ -354,7 +354,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
   test('flito_logistica @capturas', async ({ page }) => {
     const dir = prepararCarpeta('flito_logistica');
     const api = await interceptarApiDemo(page, [
-      [/\/api\/flito\/logistica$/, () => ({ body: LOGISTICA_TRAMITES_DEMO })],
+      [/\/api\/flito\/logistica\/buscar$/, () => ({ body: LOGISTICA_TRAMITES_DEMO })],
+      [/\/api\/flito\/logistica\/actas\/[^/]+\/mensajeros$/, () => ({ body: LOGISTICA_MENSAJEROS_DEMO })],
       [/\/api\/flito\/logistica\/facetas$/, () => ({ body: LOGISTICA_FACETAS_DEMO })],
       [/\/api\/flito\/logistica\/actas$/, () => ({ body: LOGISTICA_ACTAS_DEMO })],
       [/\/api\/flito\/logistica\/tramites\/tram-log-demo-2\/viajes$/, () => ({ body: LOGISTICA_VIAJES_DEMO })],

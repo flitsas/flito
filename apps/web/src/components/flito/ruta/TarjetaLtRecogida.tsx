@@ -1,9 +1,11 @@
 // FLITO Logística — tarjeta de una LT en la lista de «Recoger licencias» (HU #14111). Siempre visibles:
-// placa, N.º de LT y estado. VIN, licencia, combustible y propietario quedan tras «Ver datos».
+// placa, N.º de LT y estado. VIN, licencia y combustible quedan tras «Ver datos»; el propietario, también, salvo para
+// el proveedor (H2 de HU #14353), que lo ve solo en el Detalle de la consola.
 
 import { useId, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import { MENSAJE_LT_NO_ENCONTRADA } from '@operaciones/shared-types';
+import { useAuth } from '../../../lib/auth';
 import StatusChip from '../../flit/StatusChip';
 import { flitInp } from '../../flit/flitPageKit';
 import { CHIP, TEXTO_ESTADO, type FilaLt } from './recogidaTipos';
@@ -17,6 +19,8 @@ interface Props {
 }
 
 export default function TarjetaLtRecogida({ fila, onChangeLt, onBorrar, onReintentar, onElegir }: Props) {
+  const { tipoEnlace } = useAuth();
+  const esProveedor = tipoEnlace === 'proveedor';
   const [datos, setDatos] = useState(false);
   const ayudaId = useId();
   const digitos = soloDigitosLt(fila.numeroLt);
@@ -24,9 +28,12 @@ export default function TarjetaLtRecogida({ fila, onChangeLt, onBorrar, onReinte
   const chip = fila.registro === 'registrando' ? { tono: 'neutral' as const, texto: 'Registrando…' } : fila.registro === 'encolada' ? { tono: 'neutral' as const, texto: 'En cola' } : CHIP[fila.estado];
   const editable = !fila.manual && fila.registro === 'no';
   const bloqueado = fila.registro === 'registrando' || fila.firmada;
-  // El servidor decide qué motivo ve cada quien (mensaje único al proveedor, específico a Operaciones): la web lo pinta tal cual.
-  const texto = fila.estado === 'sin_tramite' ? fila.motivo || MENSAJE_LT_NO_ENCONTRADA : fila.estado === 'error' ? fila.motivo : TEXTO_ESTADO[fila.estado];
-  const hayDatos = !!(fila.vin || fila.propietario || fila.numeroLicencia || fila.combustible);
+  const sinTramite = fila.estado === 'sin_tramite';
+  // El servidor decide qué motivo ve cada quien (específico a Operaciones; al proveedor, el mensaje único de AC6 o
+  // «Sin trámite pendiente», AC5 de HU #14352): la web lo pinta tal cual y no añade variantes que confirmen existencia.
+  const texto = sinTramite ? fila.motivo || MENSAJE_LT_NO_ENCONTRADA : fila.estado === 'error' ? fila.motivo : TEXTO_ESTADO[fila.estado];
+  const propietario = esProveedor ? null : fila.propietario;
+  const hayDatos = !!(fila.vin || propietario || fila.numeroLicencia || fila.combustible);
 
   return (
     <article className="rounded-xl border bg-flit-card p-3.5" style={{ borderColor: 'var(--flit-border-soft)' }} aria-label={`LT ${fila.placa}`}>
@@ -68,8 +75,9 @@ export default function TarjetaLtRecogida({ fila, onChangeLt, onBorrar, onReinte
         )}
       </div>
 
-      {texto && <p className="mt-1.5 text-xs" style={{ color: fila.estado === 'sin_tramite' || fila.estado === 'error' ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}>{texto}</p>}
-      {fila.companiaNombre && <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{fila.companiaNombre}</p>}
+      {texto && <p className="mt-1.5 text-xs" style={{ color: sinTramite || fila.estado === 'error' ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}>{texto}</p>}
+      {sinTramite && <p className="mt-0.5 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Revisa los datos o quita esta LT.</p>}
+      {fila.companiaNombre && !sinTramite && <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{fila.companiaNombre}</p>}
 
       {(fila.estado === 'error' || fila.registro === 'error') && (
         <button type="button" onClick={onReintentar}
@@ -92,7 +100,7 @@ export default function TarjetaLtRecogida({ fila, onChangeLt, onBorrar, onReinte
           </button>
           {datos && (
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-              {fila.propietario && (<><dt style={{ color: 'var(--flit-text-muted)' }}>Propietario</dt><dd>{fila.propietario}</dd></>)}
+              {propietario && (<><dt style={{ color: 'var(--flit-text-muted)' }}>Propietario</dt><dd>{propietario}</dd></>)}
               {fila.vin && (<><dt style={{ color: 'var(--flit-text-muted)' }}>VIN</dt><dd className="break-all tabular-nums">{fila.vin}</dd></>)}
               {fila.numeroLicencia && (<><dt style={{ color: 'var(--flit-text-muted)' }}>Licencia</dt><dd className="tabular-nums">{fila.numeroLicencia}</dd></>)}
               {fila.combustible && (<><dt style={{ color: 'var(--flit-text-muted)' }}>Combustible</dt><dd>{fila.combustible}</dd></>)}

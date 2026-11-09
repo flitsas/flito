@@ -6,7 +6,9 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { clients, flitoLogisticaActaLineas, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaRecogidaFirmantes } from '../../db/schema.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import { LogisticaError, type LogisticaCtx } from './flito-logistica.base.js';
+import { condicionActasLogistica, condicionDocumentosLogistica, condicionFirmantesLogistica } from './flito-logistica.alcance.js';
 import { enmascarar, revelarDocumento } from './flito-logistica.cifrado.js';
 
 const F = flitoLogisticaRecogidaFirmantes;
@@ -24,13 +26,18 @@ export interface RecogidaDetalleDto extends Omit<RecogidaResumenDto, 'actas' | '
 
 const noEncontrada = () => new LogisticaError('La recogida no existe', 404, undefined, 'RECOGIDA_NO_ENCONTRADA');
 
-/** Mis recogidas confirmadas (las que firmé yo), más recientes primero. Sin PII más que la cédula enmascarada. */
+/**
+ * Mis recogidas confirmadas (las que firmé yo), más recientes primero. Sin PII más que la cédula enmascarada.
+ * HU #14351 (AC7): el coordinador de un proveedor, con `operar_ajenas`, ve las de su proveedor; Operaciones sigue viendo las suyas.
+ */
 export async function misRecogidas(ctx: LogisticaCtx): Promise<RecogidaResumenDto[]> {
+  const delProveedor = ctx.alcance.enlace === 'proveedor' && ctx.operaAjenas;
   const rows = await db.select({
     firmanteId: F.id, organismoCodigo: F.organismoCodigo, nombre: F.nombre, ultimos: F.documentoUltimos, firmadoEn: F.firmadoEn,
     actas: sql<number>`(select count(*)::int from flito_logistica_actas a where a.firmante_id = ${F.id})`,
     pendientes: sql<number>`(select count(*)::int from flito_logistica_documentos d where d.recogida_firmante_id = ${F.id} and d.tramite_id is null)`,
-  }).from(F).where(eq(F.registradoPorId, ctx.userId)).orderBy(desc(F.firmadoEn)).limit(100);
+  }).from(F).where(and(delProveedor ? undefined : eq(F.registradoPorId, ctx.userId), condicionFirmantesLogistica(ctx.alcance)))
+    .orderBy(desc(F.firmadoEn)).limit(100);
   return rows.map((r) => ({
     firmanteId: r.firmanteId, organismoCodigo: r.organismoCodigo, nombre: r.nombre, documentoEnmascarado: enmascarar(r.ultimos),
     firmadoEn: r.firmadoEn.toISOString(), actas: r.actas, pendientesTramite: r.pendientes, estadoFirma: 'firmada' as const,
@@ -41,18 +48,20 @@ export async function misRecogidas(ctx: LogisticaCtx): Promise<RecogidaResumenDt
 export async function recogidaDetalle(firmanteId: string, ctx: LogisticaCtx): Promise<RecogidaDetalleDto> {
   const [f] = await db.select({
     id: F.id, organismoCodigo: F.organismoCodigo, nombre: F.nombre, ultimos: F.documentoUltimos, firmadoEn: F.firmadoEn, registradoPorId: F.registradoPorId,
-  }).from(F).where(eq(F.id, firmanteId)).limit(1);
+  }).from(F).where(and(eq(F.id, firmanteId), condicionFirmantesLogistica(ctx.alcance))).limit(1); // HU #14351: en el WHERE, 404 igual que inexistente
   // Un mensajero solo ve las que firmó él; una ajena responde igual que una inexistente.
   if (!f || (!ctx.operaAjenas && f.registradoPorId !== ctx.userId)) throw noEncontrada();
   const actas = await db.select({ actaId: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name })
     .from(flitoLogisticaActas).leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
-    .where(eq(flitoLogisticaActas.firmanteId, firmanteId)).orderBy(flitoLogisticaActas.companiaId);
+    .where(and(eq(flitoLogisticaActas.firmanteId, firmanteId), condicionActasLogistica(ctx.alcance))).orderBy(flitoLogisticaActas.companiaId);
   const lineas = actas.length
     ? await db.select({ actaId: flitoLogisticaActaLineas.actaId, documentoId: flitoLogisticaActaLineas.documentoId })
-      .from(flitoLogisticaActaLineas).where(inArray(flitoLogisticaActaLineas.actaId, actas.map((a) => a.actaId)))
+      .from(flitoLogisticaActaLineas)
+      .innerJoin(flitoLogisticaDocumentos, eq(flitoLogisticaDocumentos.id, flitoLogisticaActaLineas.documentoId))
+      .where(and(inArray(flitoLogisticaActaLineas.actaId, actas.map((a) => a.actaId)), condicionDocumentosLogistica(ctx.alcance)))
     : [];
   const pend = await db.select({ id: flitoLogisticaDocumentos.id }).from(flitoLogisticaDocumentos)
-    .where(and(eq(flitoLogisticaDocumentos.recogidaFirmanteId, firmanteId), isNull(flitoLogisticaDocumentos.tramiteId)));
+    .where(and(eq(flitoLogisticaDocumentos.recogidaFirmanteId, firmanteId), isNull(flitoLogisticaDocumentos.tramiteId), condicionDocumentosLogistica(ctx.alcance)));
   return {
     firmanteId: f.id, organismoCodigo: f.organismoCodigo, nombre: f.nombre, documentoEnmascarado: enmascarar(f.ultimos),
     firmadoEn: f.firmadoEn.toISOString(), estadoFirma: 'firmada',
@@ -64,9 +73,9 @@ export async function recogidaDetalle(firmanteId: string, ctx: LogisticaCtx): Pr
   };
 }
 
-/** Cédula completa del firmante. 404 si no existe o ya fue purgada. */
-export async function revelarDocumentoFirmante(firmanteId: string): Promise<string> {
-  const [f] = await db.select({ id: F.id, cifrado: F.documentoCifrado }).from(F).where(eq(F.id, firmanteId)).limit(1);
+/** Cédula completa del firmante. 404 si no existe, ya fue purgada o queda fuera del alcance: la misma respuesta. */
+export async function revelarDocumentoFirmante(firmanteId: string, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<string> {
+  const [f] = await db.select({ id: F.id, cifrado: F.documentoCifrado }).from(F).where(and(eq(F.id, firmanteId), condicionFirmantesLogistica(alcance))).limit(1);
   if (!f || !f.cifrado) throw new LogisticaError('El documento del firmante no está disponible', 404, undefined, 'DOCUMENTO_NO_DISPONIBLE');
   return revelarDocumento(f.cifrado, f.id);
 }

@@ -36,8 +36,9 @@ function BotonEscanear({ primaria, otra, onClick }: { primaria: boolean; otra: b
 }
 
 export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { puedeConfirmar: boolean; onVerRecogidas: () => void }) {
-  const { hasFuncion } = useAuth();
-  const puedeDejarPendiente = hasFuncion('logistica.documento.dejar_pendiente');
+  const { hasFuncion, tipoEnlace } = useAuth();
+  // Doble cerradura (HU #14353, AC4): no aparece aunque un administrador le asigne la función a un rol de proveedor.
+  const puedeDejarPendiente = hasFuncion('logistica.documento.dejar_pendiente') && tipoEnlace !== 'proveedor';
   const [filas, setFilas] = useState<FilaLt[]>([]);
   const [vista, setVista] = useState<Vista>('lista');
   const [escaneando, setEscaneando] = useState(false);
@@ -175,7 +176,7 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
       if (errores) { setAviso({ tipo: 'alert', texto: 'No pudimos registrar las LT. Revisa la señal e inténtalo de nuevo.' }); return; }
       if (encoladas) { setAviso({ tipo: 'status', texto: 'Sin señal: las LT quedan guardadas. Se necesita señal para confirmar la recogida.' }); return; }
     }
-    if (!puedeConfirmar) { setAviso({ tipo: 'status', texto: 'Guardamos tus LT escaneadas. Tu usuario no puede confirmar recogidas: pide a Operaciones que lo haga.' }); return; }
+    if (!puedeConfirmar) { setAviso({ tipo: 'status', texto: 'Guardamos tus LT escaneadas. Tu usuario no puede confirmar recogidas: pide a Operaciones de FLITO que lo haga.' }); return; }
     if (typeof navigator !== 'undefined' && navigator.onLine === false) { setAviso({ tipo: 'status', texto: 'Sin señal: las LT quedan guardadas. Se necesita señal para confirmar la recogida.' }); return; }
     setVista('firma');
   };
@@ -269,7 +270,7 @@ function PantallaConfirmada({ r, onListo, onVer }: { r: ResumenRecogida; onListo
       </ul>
       {r.pendientes > 0 && (
         <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-          {r.pendientes} {r.pendientes === 1 ? 'LT pendiente' : 'LT pendientes'} de trámite: quedó firmada, sin acta. Operaciones elegirá el trámite.
+          {r.pendientes} {r.pendientes === 1 ? 'LT pendiente' : 'LT pendientes'} de trámite: quedó firmada, sin acta. Operaciones de FLITO elegirá el trámite.
         </p>
       )}
       <div className="flex flex-col gap-2">

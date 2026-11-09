@@ -1,5 +1,7 @@
 // FLITO Logística — pestaña Viajes (HU #14116, destino HU #14123).
 // Una tarjeta por compañía. El modal reparte Cliente | FLIT: dos destinos son dos POST, primero FLIT.
+// `sinPrecios` (proveedor, HU #14353): ninguna cifra ni la palabra «precio». El botón no depende del precio sino de
+// `destinos`; si `destinos` no llega, se muestra y el 409 del servidor pinta el aviso genérico.
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { CompaniaCerrableLogistica, LtClasificadaCerrable } from '@operaciones/shared-types';
@@ -7,7 +9,7 @@ import { api } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
 import { hasPage } from '../../../lib/permissions';
 import {
-  avisoSinPrecio, codigoDe, DESTINO_CLIENTE, DESTINO_FLIT, formatoPrecio, mensajeRegistrarViaje,
+  AVISO_VIAJE_NO_REGISTRABLE, avisoSinPrecio, codigoDe, DESTINO_CLIENTE, DESTINO_FLIT, formatoPrecio, mensajeRegistrarViaje,
   nombreCompania, nuevaKey, textoPrecioDestino, type DestinoViaje,
 } from '../../../lib/viajesCliente';
 import { toastOk } from '../../flit/ToastFlito';
@@ -25,13 +27,14 @@ interface MotivoLlegada { id: string; nombre: string }
 interface Props {
   grupos: CompaniaCerrableLogistica[];
   estado: Carga;
+  sinPrecios?: boolean;
   onReintentar: () => void;
   onRegistrado: () => void;
   /** Cambia a la pestaña del catálogo. Solo si hay `logistica.motivos.gestionar`. */
   onIrMotivos?: () => void;
 }
 
-export default function ViajesACliente({ grupos, estado, onReintentar, onRegistrado, onIrMotivos }: Props) {
+export default function ViajesACliente({ grupos, estado, sinPrecios = false, onReintentar, onRegistrado, onIrMotivos }: Props) {
   const [confirmar, setConfirmar] = useState<CompaniaCerrableLogistica | null>(null);
   const [enviar, setEnviar] = useState<CompaniaCerrableLogistica | null>(null);
   const botonEnviar = useRef<HTMLButtonElement | null>(null);
@@ -63,7 +66,7 @@ export default function ViajesACliente({ grupos, estado, onReintentar, onRegistr
   if (estado === 'error' || estado === 'error403') {
     return (
       <FlitCard>
-        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
           <p className="flex-1">{estado === 'error403' ? 'No tiene permiso para registrar viajes.' : 'No se pudieron cargar las LT listas para viaje.'}</p>
           {estado === 'error' && (
             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>Reintentar</button>
@@ -78,7 +81,7 @@ export default function ViajesACliente({ grupos, estado, onReintentar, onRegistr
       <div>
         <h2 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Viajes</h2>
         <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-          Elija el destino de cada compañía y revise el precio antes de registrar.
+          {sinPrecios ? 'Elija el destino de cada compañía y registre el viaje.' : 'Elija el destino de cada compañía y revise el precio antes de registrar.'}
         </p>
       </div>
 
@@ -92,6 +95,7 @@ export default function ViajesACliente({ grupos, estado, onReintentar, onRegistr
             <li key={g.companiaId}>
               <TarjetaGrupo
                 grupo={g}
+                sinPrecios={sinPrecios}
                 expandida={abiertas.has(g.companiaId)}
                 onToggle={() => toggleMas(g.companiaId)}
                 onRegistrar={() => setConfirmar({ ...g, lts: g.lts.filter((l) => l.origen !== 'flit'), disponibles: g.lts.filter((l) => l.origen !== 'flit').length })}
@@ -105,6 +109,7 @@ export default function ViajesACliente({ grupos, estado, onReintentar, onRegistr
       {confirmar && (
         <ModalConfirmarViaje
           grupo={confirmar}
+          sinPrecios={sinPrecios}
           onIrMotivos={onIrMotivos}
           onClose={() => setConfirmar(null)}
           onRegistrado={() => { setConfirmar(null); onRegistrado(); }}
@@ -122,8 +127,9 @@ export default function ViajesACliente({ grupos, estado, onReintentar, onRegistr
   );
 }
 
-function TarjetaGrupo({ grupo, expandida, onToggle, onRegistrar, onEnviar }: {
+function TarjetaGrupo({ grupo, sinPrecios, expandida, onToggle, onRegistrar, onEnviar }: {
   grupo: CompaniaCerrableLogistica;
+  sinPrecios: boolean;
   expandida: boolean;
   onToggle: () => void;
   onRegistrar: () => void;
@@ -134,28 +140,30 @@ function TarjetaGrupo({ grupo, expandida, onToggle, onRegistrar, onEnviar }: {
   const ltsFlit = grupo.lts.filter((l) => l.origen === 'flit');
   const hayOrg = ltsOrg.length > 0;
   const hayFlit = ltsFlit.length > 0;
-  const precioC = grupo.precioEntregaCliente;
-  const precioF = grupo.precioEntregaFlit;
+  const precioC = grupo.precioEntregaCliente ?? null;
+  const precioF = grupo.precioEntregaFlit ?? null;
   const alguno = precioC != null || precioF != null;
+  // Sin `destinos`, el botón se muestra: decide el servidor.
+  const registrable = sinPrecios ? grupo.destinos === undefined || grupo.destinos.cliente || grupo.destinos.flit : alguno;
 
   return (
     <article className="rounded-xl border p-4" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' }}>
       <h3 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
         {nombre} · {grupo.disponibles} LT
       </h3>
-      {hayOrg && (
+      {hayOrg && !sinPrecios && (
         <p className="mt-1 flex flex-wrap gap-x-1 text-sm">
-          <span style={{ color: precioC == null ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}>
+          <span style={{ color: precioC == null ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}>
             {textoPrecioDestino('Cliente', precioC)}
           </span>
           <span style={{ color: 'var(--flit-text-muted)' }} aria-hidden="true">·</span>
-          <span style={{ color: precioF == null ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}>
+          <span style={{ color: precioF == null ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}>
             {textoPrecioDestino('FLIT', precioF)}
           </span>
         </p>
       )}
 
-      {hayOrg && !alguno && <AvisoSinTarifa companiaId={grupo.companiaId} />}
+      {hayOrg && !sinPrecios && !alguno && <AvisoSinTarifa companiaId={grupo.companiaId} />}
 
       <BloqueLts titulo="Clasificadas" lts={ltsOrg} expandida={expandida} />
       <BloqueLts titulo="En FLIT" lts={ltsFlit} expandida={expandida} chip />
@@ -171,9 +179,13 @@ function TarjetaGrupo({ grupo, expandida, onToggle, onRegistrar, onEnviar }: {
         </button>
       ) : null}
 
-      {(hayFlit || (hayOrg && alguno)) && (
+      {hayOrg && sinPrecios && !registrable && (
+        <p className="mt-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{AVISO_VIAJE_NO_REGISTRABLE}</p>
+      )}
+
+      {(hayFlit || (hayOrg && registrable)) && (
         <div className="mt-4 flex flex-col gap-2 lg:flex-row-reverse lg:justify-start">
-          {hayOrg && alguno && (
+          {hayOrg && registrable && (
             <button type="button" className={`${flitBtnPrimary} w-full justify-center lg:w-auto`} style={flitBtnPrimaryStyle} onClick={onRegistrar}>
               Registrar viaje
             </button>
@@ -181,8 +193,8 @@ function TarjetaGrupo({ grupo, expandida, onToggle, onRegistrar, onEnviar }: {
           {hayFlit && (
             <button
               type="button"
-              className={hayOrg && alguno ? `${flitBtnSecondary} w-full justify-center lg:w-auto` : `${flitBtnPrimary} w-full justify-center lg:w-auto`}
-              style={hayOrg && alguno ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
+              className={hayOrg && registrable ? `${flitBtnSecondary} w-full justify-center lg:w-auto` : `${flitBtnPrimary} w-full justify-center lg:w-auto`}
+              style={hayOrg && registrable ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
               onClick={(e) => onEnviar(e.currentTarget)}
             >
               Enviar a cliente
@@ -236,14 +248,21 @@ function fraseCobro(n: number, precio: number): string {
   return `Se cobrará ${formatoPrecio(precio)} por cada LT. Total ${formatoPrecio(precio * n)}.`;
 }
 
-function ModalConfirmarViaje({ grupo, onClose, onRegistrado, onIrMotivos }: {
+function fraseConteo(nFlit: number, nCliente: number): string {
+  if (nFlit > 0 && nCliente > 0) return `Se registrarán dos viajes: ${nFlit} LT a FLIT y ${nCliente} a cliente.`;
+  return nFlit > 0 ? `Se registrará un viaje a FLIT con ${nFlit} LT.` : `Se registrará un viaje a cliente con ${nCliente} LT.`;
+}
+
+function ModalConfirmarViaje({ grupo, sinPrecios, onClose, onRegistrado, onIrMotivos }: {
   grupo: CompaniaCerrableLogistica;
+  sinPrecios: boolean;
   onClose: () => void;
   onRegistrado: () => void;
   onIrMotivos?: () => void;
 }) {
   const nombre = nombreCompania(grupo.nombre, grupo.companiaId);
-  const defecto: DestinoViaje = grupo.precioEntregaCliente != null ? DESTINO_CLIENTE : DESTINO_FLIT;
+  const clienteDisponible = sinPrecios ? grupo.destinos?.cliente !== false : grupo.precioEntregaCliente != null;
+  const defecto: DestinoViaje = clienteDisponible ? DESTINO_CLIENTE : DESTINO_FLIT;
   const [asig, setAsig] = useState<Record<string, DestinoViaje>>(() =>
     Object.fromEntries(grupo.lts.map((lt) => [lt.documentoId, defecto])),
   );
@@ -258,7 +277,7 @@ function ModalConfirmarViaje({ grupo, onClose, onRegistrado, onIrMotivos }: {
   const keys = useRef<{ flit: { sig: string; key: string } | null; cliente: { sig: string; key: string } | null }>({ flit: null, cliente: null });
   const flitOk = useRef(false);
   const { user } = useAuth();
-  const veTarifas = hasPage(user, 'flito_tarifas');
+  const veTarifas = !sinPrecios && hasPage(user, 'flito_tarifas');
 
   const ltsFlit = grupo.lts.filter((lt) => asig[lt.documentoId] === DESTINO_FLIT);
   const ltsCliente = grupo.lts.filter((lt) => asig[lt.documentoId] !== DESTINO_FLIT);
@@ -266,9 +285,11 @@ function ModalConfirmarViaje({ grupo, onClose, onRegistrado, onIrMotivos }: {
   const hayCliente = ltsCliente.length > 0;
   const todosFlit = hayFlit && !hayCliente;
   const todosCliente = hayCliente && !hayFlit;
-  const precioC = grupo.precioEntregaCliente;
-  const precioF = grupo.precioEntregaFlit;
-  const faltaPrecio = (hayCliente && precioC == null) || (hayFlit && precioF == null);
+  const precioC = grupo.precioEntregaCliente ?? null;
+  const precioF = grupo.precioEntregaFlit ?? null;
+  const faltaPrecio = sinPrecios
+    ? (hayCliente && grupo.destinos?.cliente === false) || (hayFlit && grupo.destinos?.flit === false)
+    : (hayCliente && precioC == null) || (hayFlit && precioF == null);
   const motivosListos = motivosEstado === 'ok' && motivos.length > 0 && motivoId !== '';
   const puede = !busy && !faltaPrecio && (!hayFlit || motivosListos);
 
@@ -343,7 +364,7 @@ function ModalConfirmarViaje({ grupo, onClose, onRegistrado, onIrMotivos }: {
         setError('El viaje a FLIT quedó registrado. El viaje a cliente no. Las LT de cliente siguen aquí.');
       } else {
         const destinoFallo: DestinoViaje = hayFlit && !flitOk.current ? DESTINO_FLIT : DESTINO_CLIENTE;
-        setError(mensajeRegistrarViaje(e, nombre, destinoFallo));
+        setError(mensajeRegistrarViaje(e, nombre, destinoFallo, sinPrecios));
       }
     } finally {
       setBusy(false);
@@ -363,21 +384,29 @@ function ModalConfirmarViaje({ grupo, onClose, onRegistrado, onIrMotivos }: {
           </div>
         </div>
 
-        <PreciosModal
-          nombre={nombre}
-          hayFlit={hayFlit}
-          hayCliente={hayCliente}
-          nFlit={ltsFlit.length}
-          nCliente={ltsCliente.length}
-          precioC={precioC}
-          precioF={precioF}
-        />
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-          Este precio queda congelado en el viaje. Si Finanzas lo cambia después, este viaje no se mueve.
-        </p>
+        {sinPrecios ? (
+          <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }} aria-live="polite">{fraseConteo(ltsFlit.length, ltsCliente.length)}</p>
+        ) : (
+          <>
+            <PreciosModal
+              nombre={nombre}
+              hayFlit={hayFlit}
+              hayCliente={hayCliente}
+              nFlit={ltsFlit.length}
+              nCliente={ltsCliente.length}
+              precioC={precioC}
+              precioF={precioF}
+            />
+            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+              Este precio queda congelado en el viaje. Si Finanzas lo cambia después, este viaje no se mueve.
+            </p>
+          </>
+        )}
 
-        {faltaPrecio && (
-          <div className="space-y-2 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+        {faltaPrecio && sinPrecios && <p className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{AVISO_VIAJE_NO_REGISTRABLE}</p>}
+
+        {faltaPrecio && !sinPrecios && (
+          <div className="space-y-2 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
             {hayFlit && precioF == null && <p>{avisoSinPrecio(nombre, DESTINO_FLIT)}</p>}
             {hayCliente && precioC == null && <p>{avisoSinPrecio(nombre, DESTINO_CLIENTE)}</p>}
             {veTarifas && (
@@ -421,7 +450,7 @@ function ModalConfirmarViaje({ grupo, onClose, onRegistrado, onIrMotivos }: {
         </ul>
 
         {error && (
-          <div role="alert" className="space-y-2 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-ink)', background: 'var(--flit-bg-card)' }}>
+          <div role="alert" className="space-y-2 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-text)', background: 'var(--flit-bg-card)' }}>
             <p>{error}</p>
             {codigo === 'PRECIO_TRASLADO_NO_CONFIGURADO' && veTarifas && (
               <Link to={`/flito/tarifas/${grupo.companiaId}`} className={`${flitBtnSecondary} inline-flex`} style={flitBtnSecondaryStyle}>
@@ -431,7 +460,7 @@ function ModalConfirmarViaje({ grupo, onClose, onRegistrado, onIrMotivos }: {
           </div>
         )}
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={cerrar} disabled={busy}>Cancelar</button>
           <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle} disabled={!puede} onClick={() => void confirmar()}>
             {busy ? 'Registrando…' : 'Confirmar viaje'}
@@ -498,16 +527,16 @@ function BloqueMotivo({ motivos, estado, motivoId, nota, busy, onMotivo, onNota,
           </select>
         </FlitField>
       )}
-      {falta && <p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>Elija el motivo de llegada.</p>}
+      {falta && <p className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>Elija el motivo de llegada.</p>}
       {estado === 'error' && (
-        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
           <p className="flex-1">No se pudieron cargar los motivos de llegada.</p>
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>Reintentar</button>
         </div>
       )}
       {vacio && (
         <div className="space-y-2">
-          <p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+          <p className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>
             No hay motivos de llegada activos. Pídale a quien administra el catálogo que active uno.
           </p>
           {onIrMotivos && (

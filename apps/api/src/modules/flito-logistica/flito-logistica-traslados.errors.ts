@@ -10,10 +10,13 @@ export class TrasladoLogisticaError extends LogisticaError {
 
 /** AC2: la compañía no tiene precio vigente para el destino. */
 export class PrecioTrasladoNoConfiguradoError extends TrasladoLogisticaError {
-  constructor(destino: 'cliente' | 'flit') {
+  /** `paraProveedor` (HU #14351, AC6, D4): el mismo código, con el mensaje genérico. Ni precio ni Tarifas. */
+  constructor(destino: 'cliente' | 'flit', paraProveedor = false) {
     const etiqueta = destino === 'flit' ? 'FLIT' : 'cliente';
     super(
-      `La compañía no tiene precio vigente de entrega a ${etiqueta}; configúralo en Tarifas antes de registrar el viaje`,
+      paraProveedor
+        ? 'Este viaje aún no se puede registrar. Avísele a Operaciones de FLITO para que complete la configuración de la compañía.'
+        : `La compañía no tiene precio vigente de entrega a ${etiqueta}; configúralo en Tarifas antes de registrar el viaje`,
       422,
       'PRECIO_TRASLADO_NO_CONFIGURADO',
     );

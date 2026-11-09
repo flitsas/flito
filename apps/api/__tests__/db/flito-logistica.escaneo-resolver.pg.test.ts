@@ -244,7 +244,7 @@ describe.skipIf(!URL_BASE)('flujo único del escaneo (PostgreSQL)', () => {
     it('un alcance sin acceso (rama de proveedor con NINGUNA_FILA) no encuentra nada, ni en las tres rutas', async () => {
       await conMundo(async (m) => {
         const v = await m.vehiculo(); await m.tramite(await m.cia(m.A), v.id);
-        const a = { enlace: 'proveedor', proveedorId: m.A } as const;
+        const a = { enlace: 'proveedor', proveedorId: null } as const; // HU #14351: con id, A ya alcanza lo suyo (escaneo-proveedor.pg)
         const e = manual(v.placa);
         expect(await svc.escanearLt(e, null, {}, { ...m.ctx, alcance: a } as never)).toStrictEqual(NO_ENCONTRADO(e));
         expect(await svc.validarLt(e, a)).toStrictEqual(NO_ENCONTRADO(e));

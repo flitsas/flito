@@ -43,7 +43,7 @@ async function mockConsola(page: import('@playwright/test').Page, facetas = FACE
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(facetas) }));
   await page.route(/\/api\/flito\/logistica\/actas$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
-  await page.route(/\/api\/flito\/logistica\?/, (route) =>
+  await page.route(/\/api\/flito\/logistica\/buscar$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0, page: 1, pageSize: 50 }) }));
 }
 
@@ -161,9 +161,11 @@ test.describe('FLITO — Viajes (HU #14116)', () => {
   test('Actas vacío apunta a Viajes', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockConsola(page);
+    // HU #14353: un error ya no se ve como vacío; el vacío hay que pedirlo.
+    await page.route(/\/api\/flito\/logistica\/actas$/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
     await page.goto('/flito/logistica');
     await page.getByRole('button', { name: /^Actas/ }).click();
-    await expect(page.getByText(/Ve a «Viajes» y registra el viaje/)).toBeVisible();
+    await expect(page.getByText(/Vaya a «Viajes» y registre el viaje/)).toBeVisible();
   });
 });
 
@@ -300,7 +302,7 @@ test.describe('FLITO — destino del viaje y llegada a FLIT (HU #14123)', () => 
     });
     await page.route(/\/api\/flito\/logistica\/actas$/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
-    await page.route(/\/api\/flito\/logistica\?/, (route) =>
+    await page.route(/\/api\/flito\/logistica\/buscar$/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0, page: 1, pageSize: 50 }) }));
 
     await page.setViewportSize({ width: 375, height: 812 });

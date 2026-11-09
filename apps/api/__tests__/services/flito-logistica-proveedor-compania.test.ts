@@ -194,3 +194,25 @@ describe('HU #14346 — el PATCH reasigna las licencias en su transacción', () 
     expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(0);
   });
 });
+
+describe('Autogestionada = sin proveedor en sus licencias (decisión del agente en F4.2, declarada)', () => {
+  it('asignarle un proveedor a una compañía que queda autogestionada no le reasigna ninguna licencia', async () => {
+    escenario({ logisticaAutogestionable: true, proveedorLogisticaId: null }, undefined, filaCompania({ logisticaAutogestionable: true }));
+    const r = await patch({ proveedorLogisticaId: PROV });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(0);
+  });
+
+  it('al encender la logística conservando su proveedor, sus licencias pasan a él', async () => {
+    escenario({ logisticaAutogestionable: true, proveedorLogisticaId: PROV });
+    const r = await patch({ logisticaAutogestionable: false });
+    expect(r.status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(1);
+  });
+
+  it('un PATCH que no toca la logística de una compañía encendida no reasigna', async () => {
+    escenario({ logisticaAutogestionable: false, proveedorLogisticaId: PROV });
+    expect((await patch({ logisticaPermiteParcial: true })).status).toBe(200);
+    expect(espia.updatesEn('flito_logistica_documentos')).toHaveLength(0);
+  });
+});

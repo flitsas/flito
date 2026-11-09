@@ -200,7 +200,7 @@ describe('AC3 — lo nuevo nace cerrado', () => {
       soat: ['compania', 'proveedor'],
       impuestos: ['compania', 'organismos_transito'],
       derechos: ['organismos_transito'],
-      tramites: ['compania'], bolsas: ['compania'], comprobantes: ['compania'], logistica: ['compania'], tablero: ['compania'],
+      tramites: ['compania'], bolsas: ['compania'], comprobantes: ['compania'], logistica: ['compania', 'proveedor'], tablero: ['compania'],
       transito: ['organismos_transito'],
     });
     // El panel no la puede ampliar: las rutas de permisos no la importan; el servicio de roles solo

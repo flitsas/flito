@@ -4,6 +4,8 @@
 import { useMemo, useRef, useState } from 'react';
 import type { CompaniaCerrableLogistica } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
+import { useAuth } from '../../../lib/auth';
+import { esRechazoDeAlcance, MENSAJE_ESCRITURA_RECHAZADA } from '../../../lib/mensajesLogisticaHttp';
 import { codigoDe, DESTINO_CLIENTE, nombreCompania, nuevaKey } from '../../../lib/viajesCliente';
 import { toastOk } from '../../flit/ToastFlito';
 import FlitModal from '../../flit/FlitModal';
@@ -16,7 +18,7 @@ function mensajeEnviar(e: unknown): string {
   if (e instanceof ApiError && e.status === 409) {
     return 'Alguna LT ya no está en FLIT. Se actualizó la lista; revise y vuelva a intentar.';
   }
-  if (e instanceof ApiError && e.status === 403) return 'No tiene permiso para registrar viajes.';
+  if (esRechazoDeAlcance(e)) return MENSAJE_ESCRITURA_RECHAZADA;
   return 'No se pudo registrar el viaje. Inténtelo de nuevo.';
 }
 
@@ -27,6 +29,7 @@ interface Props {
 }
 
 export default function ModalEnviarACliente({ grupo, onClose, onRegistrado }: Props) {
+  const { tipoEnlace } = useAuth();
   const nombre = nombreCompania(grupo.nombre, grupo.companiaId);
   const lts = useMemo(() => grupo.lts.filter((l) => l.origen === 'flit'), [grupo.lts]);
   const [marcadas, setMarcadas] = useState<Set<string>>(() => new Set(lts.map((l) => l.documentoId)));
@@ -60,7 +63,7 @@ export default function ModalEnviarACliente({ grupo, onClose, onRegistrado }: Pr
       toastOk(`Viaje a cliente de ${nombre} registrado (${ids.length} LT). Despáchelo desde Actas.`);
       onRegistrado();
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) setRecargar(true);
+      if ((e instanceof ApiError && e.status === 409) || esRechazoDeAlcance(e)) setRecargar(true);
       setError(mensajeEnviar(e));
     } finally {
       setBusy(false);
@@ -73,7 +76,7 @@ export default function ModalEnviarACliente({ grupo, onClose, onRegistrado }: Pr
         <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
           Estas LT ya están en FLIT. Se enviarán al cliente.
         </p>
-        <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>Este tramo no tiene costo.</p>
+        {tipoEnlace !== 'proveedor' && <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>Este tramo no tiene costo.</p>}
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }} aria-live="polite">
@@ -118,7 +121,7 @@ export default function ModalEnviarACliente({ grupo, onClose, onRegistrado }: Pr
           </div>
         )}
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={cerrar} disabled={busy}>Cancelar</button>
           <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle} disabled={busy || marcadas.size === 0} onClick={() => void enviar()}>
             {busy ? 'Enviando…' : 'Enviar a cliente'}

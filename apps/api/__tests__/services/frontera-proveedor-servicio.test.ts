@@ -62,10 +62,12 @@ describe('Frontera por servicio', () => {
     expect((await pide('/api/soat', 2)).status).toBe(200);
   });
 
-  it('AC3: con los dos servicios, Logística sigue cerrada al enlace hasta F4.2', async () => {
+  it('AC3 (F4.2, HU #14351): Logística se abre al proveedor que presta el servicio, y solo a ese', async () => {
     de(1, P(['soat', 'logistica']));
+    de(2, P(['soat']));
     expect((await pide('/api/soat', 1)).status).toBe(200);
-    expect((await pide('/api/logistica', 1)).status).toBe(403);
+    expect((await pide('/api/logistica', 1)).status).toBe(200);
+    expect((await pide('/api/logistica', 2)).status).toBe(403);
   });
 
   it('AC4 y R5: sin proveedor, inexistente o inactivo → 403; un módulo sin servicio queda cerrado', async () => {
@@ -126,8 +128,8 @@ describe('Menú y versión', () => {
     de(1, P(['logistica']));
     de(2, P(['soat', 'logistica']));
     de(3, P(['soat'], false));
-    expect(await paginas(1)).toEqual(['perfil']);
-    expect((await paginas(2)).sort()).toEqual(['flito_soat', 'perfil']);
+    expect((await paginas(1)).sort()).toEqual(['flito_logistica', 'perfil']); // F4.2 (HU #14351): abierta al enlace
+    expect((await paginas(2)).sort()).toEqual(['flito_logistica', 'flito_soat', 'perfil']);
     expect(await paginas(3)).toEqual(['perfil']);
   });
 

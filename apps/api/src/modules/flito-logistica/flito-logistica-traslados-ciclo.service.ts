@@ -135,8 +135,8 @@ function exigirPropia(ctx: LogisticaCtx, mensajeroId: number | null, accion: str
   }
 }
 
-async function regenerarPdf(actaId: string, que: string): Promise<void> {
-  try { await generarActaPdf(actaId); }
+async function regenerarPdf(actaId: string, que: string, ctx: LogisticaCtx): Promise<void> {
+  try { await generarActaPdf(actaId, ctx.req); }
   catch (e) { log.warn({ actaId, err: (e as Error).message }, `no se pudo regenerar el PDF del acta tras ${que}`); }
 }
 
@@ -185,7 +185,7 @@ export async function despacharTraslado(
     }
     return { documentos: docs.length, trasladoId: t.id, estado: 'en_ruta' as const, actaId: acta.id };
   });
-  await regenerarPdf(res.actaId, 'despacho');
+  await regenerarPdf(res.actaId, 'despacho', ctx);
   return { documentos: res.documentos, trasladoId: res.trasladoId, estado: res.estado };
 }
 
@@ -295,7 +295,7 @@ export async function entregarTraslado(
       entregados: entregadas.length, devueltos: devueltas.length, firmaId,
     };
   });
-  await regenerarPdf(res.actaId, 'entrega');
+  await regenerarPdf(res.actaId, 'entrega', ctx);
   const { actaId: _a, ...out } = res;
   return out;
 }
@@ -372,7 +372,7 @@ export async function firmarLlegadaFlit(
       entregados: entregadas.length, devueltos: devueltas.length, firmaId,
     };
   });
-  await regenerarPdf(res.actaId, 'llegada a FLIT');
+  await regenerarPdf(res.actaId, 'llegada a FLIT', ctx);
   const { actaId: _a, ...out } = res;
   return out;
 }

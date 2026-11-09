@@ -2,6 +2,7 @@
 // El precio `null` no se formatea (nunca `$0` por ausencia). `0` sí es un precio configurado.
 // La pestaña Viajes y la llegada a FLIT hablan de usted. La entrega a cliente sigue tuteando.
 import { ApiError } from './api';
+import { esRechazoDeAlcance, MENSAJE_ESCRITURA_RECHAZADA, MENSAJE_VIAJE_FUERA_DE_RUTA } from './mensajesLogisticaHttp';
 
 export const DESTINO_CLIENTE = 'cliente' as const;
 export const DESTINO_FLIT = 'flit' as const;
@@ -47,15 +48,18 @@ export function mensajeCargarViajes(e: unknown): { texto: string; reintentar: bo
 
 export function mensajeCargarEntregas(e: unknown): { texto: string; reintentar: boolean } {
   if (e instanceof ApiError && e.status === 403) {
-    return { texto: 'No tienes entregas asignadas.', reintentar: false };
+    return { texto: 'Tu usuario ya no tiene acceso a las entregas. Pide a Operaciones de FLITO que lo revise.', reintentar: false };
   }
   return { texto: 'No se pudieron cargar tus entregas.', reintentar: true };
 }
 
+/** Lo que ve el proveedor si el destino no se puede registrar: sin la palabra «precio» y sin enlace a Tarifas (HU #14353). */
+export const AVISO_VIAJE_NO_REGISTRABLE = 'Este viaje aún no se puede registrar. Avísele a Operaciones de FLITO para que complete la configuración de la compañía.';
+
 /** Errores de POST /traslados → copy en el modal. Nunca el mensaje crudo. `destino` es el POST que falló. */
-export function mensajeRegistrarViaje(e: unknown, nombre: string, destino: DestinoViaje = DESTINO_CLIENTE): string {
+export function mensajeRegistrarViaje(e: unknown, nombre: string, destino: DestinoViaje = DESTINO_CLIENTE, sinPrecios = false): string {
   const c = codigoDe(e);
-  if (c === 'PRECIO_TRASLADO_NO_CONFIGURADO') return avisoSinPrecio(nombre, destino);
+  if (c === 'PRECIO_TRASLADO_NO_CONFIGURADO') return sinPrecios ? AVISO_VIAJE_NO_REGISTRABLE : avisoSinPrecio(nombre, destino);
   if (c === 'MOTIVO_LLEGADA_REQUERIDO' || c === 'MOTIVO_LLEGADA_INACTIVO' || c === 'MOTIVO_LLEGADA_NO_EXISTE') {
     return 'Elija el motivo de llegada.';
   }
@@ -73,6 +77,7 @@ export function mensajeRegistrarViaje(e: unknown, nombre: string, destino: Desti
   if (c === 'TRASLADO_COMPANIA_MIXTA' || c === 'TRASLADO_ORIGEN_MIXTO') {
     return 'Este grupo no se puede registrar junto. Recargue la lista.';
   }
+  if (esRechazoDeAlcance(e)) return MENSAJE_ESCRITURA_RECHAZADA;
   return 'No se pudo registrar el viaje. Las LT siguen aquí; vuelva a intentarlo.';
 }
 
@@ -100,12 +105,12 @@ export function mensajeEntregar(e: unknown): string {
   if (c === 'ENTREGA_SIN_ENTREGADAS') {
     return 'La entrega necesita al menos una LT. Para devolver todas usa Devolver el viaje.';
   }
-  if (e instanceof ApiError && e.status === 403) return 'Esta entrega no es tuya.';
+  if (esRechazoDeAlcance(e)) return MENSAJE_VIAJE_FUERA_DE_RUTA;
   return 'No se pudo registrar la entrega. Nombre, cédula y firma siguen aquí; vuelve a intentarlo.';
 }
 
 export function mensajeDevolverViaje(e: unknown): string {
-  if (e instanceof ApiError && e.status === 403) return 'Esta entrega no es tuya.';
+  if (esRechazoDeAlcance(e)) return MENSAJE_VIAJE_FUERA_DE_RUTA;
   return 'No se pudo devolver el viaje. El motivo sigue aquí; vuelve a intentarlo.';
 }
 

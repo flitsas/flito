@@ -100,10 +100,13 @@ export default function IngresoManual({ onAgregar, onCerrar }: Props) {
           <div id="manual-consulta" aria-live="polite">
             {consulta.fase === 'cargando' && <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Buscando el vehículo…</p>}
             {consulta.fase === 'sin' && (
-              <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{MENSAJE_LT_NO_ENCONTRADA}</p>
+              <div role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+                <p>{MENSAJE_LT_NO_ENCONTRADA}</p>
+                <p>Revisa la placa e inténtalo de nuevo.</p>
+              </div>
             )}
             {consulta.fase === 'error' && (
-              <div role="alert" className="flex flex-wrap items-center gap-2 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+              <div role="alert" className="flex flex-wrap items-center gap-2 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
                 <span>{consulta.texto}</span>
                 <button type="button" className={`${flitBtnSecondary} text-xs`} style={{ minHeight: 40 }} onClick={() => void consultar(placa)}>Reintentar</button>
               </div>
@@ -121,13 +124,13 @@ export default function IngresoManual({ onAgregar, onCerrar }: Props) {
                 aria-invalid={sustratoError} aria-describedby="manual-sustrato-ayuda"
                 onChange={(e) => setSustrato(e.target.value.toUpperCase().replace(/\s/g, ''))} onBlur={() => setTocoSustrato(true)} />
             </FlitField>
-            <p id="manual-sustrato-ayuda" className="mt-1 text-xs" style={{ color: sustratoError ? 'var(--flit-danger-ink)' : 'var(--flit-text-muted)' }}>
+            <p id="manual-sustrato-ayuda" className="mt-1 text-xs" style={{ color: sustratoError ? 'var(--flit-danger-text)' : 'var(--flit-text-muted)' }}>
               {sustratoError ? 'El N.º de sustrato empieza siempre por LT. Revísalo en el reverso.' : 'Está en el reverso y empieza por LT.'}
             </p>
           </div>
         </div>
 
-        {errorEnvio && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{errorEnvio}</p>}
+        {errorEnvio && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{errorEnvio}</p>}
 
         <div className="sticky bottom-0 mt-auto pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2" style={{ background: 'var(--flit-bg-app)' }}>
           <button type="button" className={`${flitBtnPrimary} w-full justify-center`} style={{ ...flitBtnPrimaryStyle, minHeight: 48 }}

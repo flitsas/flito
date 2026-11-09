@@ -31,8 +31,8 @@ export default function HojaElegirTramite({ placa, candidatos, puedeDejarPendien
         <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>¿A cuál corresponde esta LT?</p>
         <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
           {puedeDejarPendiente
-            ? 'Si no sabes cuál es, deja la LT pendiente: Operaciones la asigna después y la firma ya queda tomada.'
-            : 'Si no sabes cuál es, quita esta LT y consulta a Operaciones.'}
+            ? 'Si no sabes cuál es, deja la LT pendiente: Operaciones de FLITO la asigna después y la firma ya queda tomada.'
+            : 'Si no sabes cuál es, quita esta LT y consúltalo antes de seguir.'}
         </p>
         <ul className="space-y-2">
           {candidatos.map((c) => (

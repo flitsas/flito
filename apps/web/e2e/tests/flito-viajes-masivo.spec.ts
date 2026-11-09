@@ -20,7 +20,7 @@ async function mockBase(page: Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route(/\/api\/flito\/logistica\/facetas/, ok({ estados: [], empresas: [], organismos: [], companiasCerrables: [], mensajeros: [] }));
   await page.route(/\/api\/flito\/logistica\/actas$/, ok([]));
-  await page.route(/\/api\/flito\/logistica\?/, ok({ items: [], total: 0, page: 1, pageSize: 50 }));
+  await page.route(/\/api\/flito\/logistica\/buscar$/, ok({ items: [], total: 0, page: 1, pageSize: 50 }));
 }
 
 type Responder = (body: { items: { placa: string; valor: number }[] }, intento: number) => { status: number; body: unknown };

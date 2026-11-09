@@ -26,7 +26,7 @@ test.describe('FLITO — Logística · En FLIT (HU #14121)', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FACETAS) }));
     await page.route(/\/api\/flito\/logistica\/actas$/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }));
-    await page.route(/\/api\/flito\/logistica\?/, (route) =>
+    await page.route(/\/api\/flito\/logistica\/buscar$/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [FILA_EN_FLIT], total: 1, page: 1, pageSize: 50 }) }));
 
     await page.goto('/flito/logistica');

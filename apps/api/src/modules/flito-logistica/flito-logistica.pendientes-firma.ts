@@ -1,13 +1,14 @@
 // FLITO Logística — LT escaneadas que aún esperan la firma del organismo (HU #14147, ADR-0030 §17.1/§17.3).
 // Pendiente de firma = LT viva con `acta_organismo_pendiente` true, SIN línea en un acta de organismo, SIN firmante
 // capturado (`recogida_firmante_id` NULL: la pendiente de trámite ya firmada no se vuelve a firmar) y en un estado
-// confirmable (§17.4). El mensajero solo ve las que escaneó él (autor del primer evento); `operar_ajenas` ve todas.
+// confirmable (§17.4). El mensajero solo ve las que escaneó él (autor del primer evento); `operar_ajenas` ve todas las de su alcance.
 // Se firman con el mismo `POST /recogidas/confirmar`. La placa es PII: viaja solo en la respuesta, nunca en logs ni en audit.
 
 import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { clients, flitoLogisticaDocumentos, flitoTramites } from '../../db/schema.js';
 import { LT, type LogisticaCtx } from './flito-logistica.base.js';
+import { condicionDocumentosLogistica } from './flito-logistica.alcance.js';
 import { ESTADOS_CONFIRMABLES } from './flito-logistica.recogida.js';
 
 const D = flitoLogisticaDocumentos;
@@ -22,6 +23,7 @@ export interface LtPendienteFirmaDto {
 /** Condición de «pendiente de firma» (+ propiedad si el usuario no opera ajenas). Compartida por el listado y el conteo. */
 export function condicionPendientesFirma(ctx: LogisticaCtx): SQL {
   const base = and(
+    condicionDocumentosLogistica(ctx.alcance), // HU #14351: el coordinador de A ve las de A, nunca las de B (AC7)
     eq(D.tipo, LT), eq(D.actaOrganismoPendiente, true), sql`${D.recogidaFirmanteId} IS NULL`,
     inArray(D.estado, [...ESTADOS_CONFIRMABLES]),
     sql`NOT EXISTS (select 1 from flito_logistica_acta_lineas l where l.documento_id = ${D.id} and l.punto = 'organismo')`,

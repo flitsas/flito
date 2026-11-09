@@ -207,7 +207,7 @@ export async function registrarTraslado(input: RegistrarTrasladoInput, ctx: Logi
       const precio = salidaDeFlit
         ? { valor: 0, vigenciaId: null }
         : await precioTrasladoDe(input.companiaId, destino, ahora);
-      if (precio == null) throw new PrecioTrasladoNoConfiguradoError(destino);
+      if (precio == null) throw new PrecioTrasladoNoConfiguradoError(destino, ctx.alcance?.enlace === 'proveedor');
 
       const proveedorId = compania.proveedorId;
       if (proveedorId == null) throw new ProveedorLogisticaRequeridoError();
@@ -277,7 +277,7 @@ export async function registrarTraslado(input: RegistrarTrasladoInput, ctx: Logi
         }),
       };
     });
-    try { await generarActaPdf(res.actaId); }
+    try { await generarActaPdf(res.actaId, ctx.req); }
     catch (e) { log.warn({ actaId: res.actaId, err: (e as Error).message }, 'no se pudo generar el PDF base del acta'); }
     return res;
   } catch (e) {
