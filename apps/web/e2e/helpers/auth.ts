@@ -325,6 +325,8 @@ const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
     'logistica.documento.ver',
     // HU #14123: Firmar llegada a FLIT. Sin ella el botón no existe (ni en Actas ni en Mi ruta).
     'logistica.actas.firmar_flit',
+    // HU #14353: la consola dejó el gate `lote.cerrar`; cada acción pide su función (0179: admin).
+    'logistica.actas.ver', 'logistica.actas.descargar', 'logistica.actas.despachar', 'logistica.actas.devolver', 'logistica.documento.reportar_novedad',
     // HU #14120: pestaña Motivos de llegada (migración 0285: solo admin).
     'logistica.motivos.gestionar',
     'tablero.tablero.ver',
@@ -393,6 +395,8 @@ const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
     'logistica.actas.listar', 'logistica.consola.filtrar',
     // HU #14126: lectura de la línea de tiempo (el catálogo se la da a auditor junto con la consola).
     'logistica.documento.ver',
+    // HU #14353: «Ver» y «Descargar PDF» del acta piden su función (0179: admin y auditor).
+    'logistica.actas.ver', 'logistica.actas.descargar',
     // HU #13423 (0230): lecturas de Siigo, el tablero LAFT y la consulta de vehículos (copia de pagina.soat).
     ...SIIGO_LEER_13423, 'laft.tablero.ver', 'vehicles.vehiculos.consultar',
   ],

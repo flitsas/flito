@@ -25,7 +25,7 @@ async function mockConsola(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FACETAS) }));
   await page.route(/\/api\/flito\/logistica\/actas$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
-  await page.route(/\/api\/flito\/logistica\?/, (route) =>
+  await page.route(/\/api\/flito\/logistica\/buscar$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0, page: 1, pageSize: 50 }) }));
 }
 

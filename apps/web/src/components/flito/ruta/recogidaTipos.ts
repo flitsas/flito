@@ -65,9 +65,9 @@ export const CHIP: Record<EstadoLt, { tono: ChipTone; texto: string }> = {
 };
 
 export const TEXTO_ESTADO: Partial<Record<EstadoLt, string>> = {
-  novedad: 'El VIN no coincide con el del vehículo. Se registra igual y Operaciones la revisa.',
+  novedad: 'El VIN no coincide con el del vehículo. Se registra igual y Operaciones de FLITO la revisa.',
   ya_registrada: 'Esta LT ya fue recogida. No se incluye de nuevo.',
-  pendiente: 'Operaciones elegirá el trámite. La LT queda firmada igualmente.',
+  pendiente: 'Operaciones de FLITO elegirá el trámite. La LT queda firmada igualmente.',
   sin_conexion: 'Sin señal: no se pudo validar. Se registrará al continuar.',
 };
 
@@ -110,14 +110,14 @@ export function mensajeConsulta(e: unknown): string {
 }
 export function mensajeEscanear(e: unknown): string {
   const s = statusDe(e);
-  if (s === 403) return 'Tu usuario no puede registrar LT. Pide a Operaciones que lo habilite.';
+  if (s === 403) return 'Tu usuario no puede registrar LT. Pide a Operaciones de FLITO que lo habilite.';
   if (s === 422 || s === 400) return 'Revisa los datos de la LT: el N.º de sustrato empieza por LT.';
   if (s === 429) return 'Demasiados intentos seguidos. Espera un momento y reintenta.';
   return 'No pudimos registrar la LT. Revisa la señal e inténtalo de nuevo.';
 }
 /** HU #14350 (AC5): la API rechazó dejar la LT pendiente. Aviso en página; se puede elegir el trámite y seguir escaneando. */
 export const avisoPendienteSinPermiso = (placa: string): string =>
-  `Tu usuario no puede dejar pendiente la LT ${placa}. Elige el trámite o avisa a Operaciones. Puedes seguir escaneando.`;
+  `Tu usuario no puede dejar pendiente la LT ${placa}. Elige el trámite o avisa a Operaciones de FLITO. Puedes seguir escaneando.`;
 export function mensajeValidar(e: unknown): string {
   if (statusDe(e) === 429) return 'Demasiados intentos seguidos. Espera un momento y reintenta.';
   return 'No pudimos validar la LT. Revisa la señal e inténtalo de nuevo.';
@@ -126,7 +126,7 @@ export function mensajeConfirmar(e: unknown): string {
   const s = statusDe(e); const c = codigoDe(e);
   if (c === 'LT_ESTADO_NO_CONFIRMABLE') return 'Algunas LT no se pueden confirmar porque ya tienen otro estado. Quítalas de la lista y vuelve a intentar.';
   if (c === 'LT_YA_EN_ACTA_ORGANISMO') return 'Una de estas LT ya está en un acta de recogida. Quítala y confirma las demás.';
-  if (s === 403) return 'Tu usuario no puede confirmar recogidas. Pide a Operaciones que lo haga.';
+  if (s === 403) return 'Tu usuario no puede confirmar recogidas. Pide a Operaciones de FLITO que lo haga.';
   if (s === 422) return 'La firma no se pudo guardar. Bórrala y firma de nuevo.';
   if (s === 429) return 'Demasiados intentos seguidos. Espera un momento y reintenta.';
   return 'No pudimos confirmar la recogida. Revisa la señal e inténtalo de nuevo. Lo que escribiste se conserva.';

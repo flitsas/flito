@@ -34,7 +34,7 @@ async function mockConsola(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FACETAS) }));
   await page.route(/\/api\/flito\/logistica\/actas$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
-  await page.route(/\/api\/flito\/logistica\?/, (route) =>
+  await page.route(/\/api\/flito\/logistica\/buscar$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0, page: 1, pageSize: 50 }) }));
 }
 
@@ -107,7 +107,8 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
 
     await page.getByRole('button', { name: 'Entregas', exact: true }).click();
     await expect(page.getByRole('status', { name: 'Cargando viajes…' })).toBeVisible();
-    await expect(page.getByLabel('Placa')).toBeDisabled();
+    // HU #14353: la placa sigue editable mientras carga, para no perder el foco al escribir.
+    await expect(page.getByLabel('Placa')).toBeEnabled();
     await expect.poll(() => st.posts).toBeGreaterThanOrEqual(1);
     expect(st.bodies.every((b) => Object.keys(b).length === 0)).toBe(true);
     expect(st.urls.every((u) => u.includes('/flito/logistica/traslados/buscar') && new URL(u).search === '')).toBe(true);

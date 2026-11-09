@@ -2,6 +2,7 @@
 // transacción, constantes y helpers que usan los demás archivos del módulo. Sin dependencias de ellos.
 
 import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import type { Request } from 'express';
 import { tipoEventoEfectivo, type EstadoDocumentoLogistica as TEstadoDoc } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { clients, flitoLogisticaActaLineas, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos } from '../../db/schema.js';
@@ -17,8 +18,10 @@ export const log = loggerFor('flito-logistica');
  */
 export interface LogisticaCtx {
   userId: number; username: string; role: string; operaAjenas: boolean;
-  /** HU #14347 (ADR-0039 §6.4): el alcance del usuario. Hoy, por `soloSinEnlace`, casi siempre `ninguno`; la rama de proveedor la usa F4.2. */
+  /** HU #14347 y #14351 (ADR-0039 §6.4): el alcance del usuario. Con `operaAjenas`, «todas las de mi alcance». */
   alcance: AlcanceResuelto;
+  /** AC10 de #14351: para registrar en `logPiiAccess` la generación del PDF que esta petición provoca. No se persiste ni se loguea. */
+  req?: Request;
 }
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -100,11 +103,19 @@ export async function exigirTramiteResuelto(exec: DbOrTx, documentoIds: string[]
 // sus LT, así que quien ya tiene una LT bloqueada no puede pedir después el cliente: se tomaría el ciclo inverso.
 // Esto incluye el FK `compania_id` de un INSERT, que pide `FOR KEY SHARE` y choca con ese `FOR UPDATE`.
 
+/**
+ * El proveedor que gestiona la logística de una compañía. Autogestionada = sin proveedor: conserva el que tenía asignado
+ * (RN-PLOGC-1), pero sus licencias no llevan dueño (decisión del agente en F4.2, declarada al humano): ningún tercero ve las
+ * de una compañía cuya logística no gestiona FLITO.
+ */
+const proveedorQueGestiona = (c: { proveedorId: string | null; autogestionable?: boolean | null } | undefined): string | null =>
+  (c?.autogestionable ? null : c?.proveedorId ?? null);
+
 /** Toma el cliente `FOR SHARE` y devuelve su proveedor vigente. Va antes de bloquear o escribir licencias. */
 export async function bloquearCompania(tx: Tx, companiaId: number): Promise<string | null> {
-  const [c] = await tx.select({ proveedorId: clients.flitoProveedorLogisticaId }).from(clients)
+  const [c] = await tx.select({ proveedorId: clients.flitoProveedorLogisticaId, autogestionable: clients.logisticaAutogestionable }).from(clients)
     .where(eq(clients.id, companiaId)).for('share');
-  return c?.proveedorId ?? null;
+  return proveedorQueGestiona(c);
 }
 
 /** Bloquea las compañías de estas licencias, en orden de id. La lectura de `compania_id` es sin bloqueo: no cambia en una LT con compañía. */
@@ -114,8 +125,9 @@ export async function bloquearCompaniasDeDocumentos(tx: Tx, docIds: string[]): P
     .where(inArray(flitoLogisticaDocumentos.id, docIds));
   const companias = [...new Set(filas.flatMap((f) => (f.companiaId === null ? [] : [f.companiaId])))];
   if (!companias.length) return [];
-  return tx.select({ id: clients.id, proveedorId: clients.flitoProveedorLogisticaId }).from(clients)
+  const bloqueadas = await tx.select({ id: clients.id, proveedorId: clients.flitoProveedorLogisticaId, autogestionable: clients.logisticaAutogestionable }).from(clients)
     .where(inArray(clients.id, companias)).orderBy(clients.id).for('share');
+  return bloqueadas.map((c) => ({ id: c.id, proveedorId: proveedorQueGestiona(c) }));
 }
 
 /** La LT no está en un acta abierta, ni por `acta_id` (acta sin viaje) ni por las líneas del acta. */

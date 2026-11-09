@@ -12,6 +12,7 @@ import { useAuth } from '../lib/auth';
 import { usePendingQueue } from '../lib/offlineQueue';
 import { mensajeCargarEntregas } from '../lib/viajesCliente';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import StatusChip from '../components/flit/StatusChip';
 import PanelRecogida from '../components/flito/ruta/PanelRecogida';
 import MisRecogidas from '../components/flito/ruta/MisRecogidas';
 import PasoEntrega, { DevolverViajeModal, type ActaEntrega } from '../components/flito/ruta/PasoEntrega';
@@ -32,11 +33,13 @@ export default function FlitoRuta() {
   const [paso, setPaso] = useState<RutaEntrega | null>(null);
   const [devolver, setDevolver] = useState<RutaEntrega | null>(null);
   const { count, online, flushing, flush } = usePendingQueue();
-  const { hasFuncion } = useAuth();
+  const { hasFuncion, tipoEnlace } = useAuth();
   const puedeConfirmar = hasFuncion('logistica.recogida.confirmar');
-  // Sin `firmar_flit` el viaje a FLIT no se lista: el único botón volvería a pedir cédula.
-  const puedeFirmarFlit = hasFuncion('logistica.actas.firmar_flit');
-  const entregasVisibles = (ruta?.entregas ?? []).filter((e) => e.destino !== 'flit' || puedeFirmarFlit);
+  const esProveedor = tipoEnlace === 'proveedor';
+  // Doble cerradura (HU #14353, AC4): el proveedor no firma la llegada aunque le asignen la función.
+  const puedeFirmarFlit = hasFuncion('logistica.actas.firmar_flit') && !esProveedor;
+  // Sin `firmar_flit` el viaje a FLIT no se lista, salvo al mensajero de proveedor: lo lleva él y lo ve sin firma (H1).
+  const entregasVisibles = (ruta?.entregas ?? []).filter((e) => e.destino !== 'flit' || puedeFirmarFlit || esProveedor);
   const [vista, setVista] = useState<'ruta' | 'recogidas'>('ruta');
 
   const cargar = () => {
@@ -102,6 +105,7 @@ export default function FlitoRuta() {
             onReintentar={cargar}
             onEntregar={setPaso}
             onDevolver={setDevolver}
+            puedeFirmarFlit={puedeFirmarFlit}
           />
         </section>
       ) : null}
@@ -110,6 +114,7 @@ export default function FlitoRuta() {
         <DevolverViajeModal
           nombre={devolver.companiaNombre}
           actaId={devolver.actaId}
+          trasladoId={esProveedor && devolver.destino === 'flit' ? devolver.trasladoId : undefined}
           onClose={() => setDevolver(null)}
           onListo={alListo}
         />
@@ -118,13 +123,14 @@ export default function FlitoRuta() {
   );
 }
 
-function BloqueEntregas({ carga, error, entregas, onReintentar, onEntregar, onDevolver }: {
+function BloqueEntregas({ carga, error, entregas, onReintentar, onEntregar, onDevolver, puedeFirmarFlit }: {
   carga: CargaEntregas;
   error: string | null;
   entregas: RutaEntrega[];
   onReintentar: () => void;
   onEntregar: (a: RutaEntrega) => void;
   onDevolver: (a: RutaEntrega) => void;
+  puedeFirmarFlit: boolean;
 }) {
   if (carga === 'cargando') {
     return (
@@ -141,7 +147,7 @@ function BloqueEntregas({ carga, error, entregas, onReintentar, onEntregar, onDe
   }
   if (carga === 'error' || carga === 'error403') {
     return (
-      <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border px-3 py-3 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-ink)', background: 'var(--flit-bg-card)' }}>
+      <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border px-3 py-3 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-text)', background: 'var(--flit-bg-card)' }}>
         <p className="flex-1">{error}</p>
         {carga === 'error' && (
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>Reintentar</button>
@@ -152,7 +158,7 @@ function BloqueEntregas({ carga, error, entregas, onReintentar, onEntregar, onDe
   if (entregas.length === 0) {
     return (
       <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
-        No tienes viajes despachados para entregar. Cuando Operaciones despache un viaje, aparece aquí.
+        No tienes viajes despachados para entregar. Cuando te despachen un viaje, aparece aquí.
       </p>
     );
   }
@@ -160,10 +166,39 @@ function BloqueEntregas({ carga, error, entregas, onReintentar, onEntregar, onDe
     <ul className="space-y-3">
       {entregas.map((acta) => (
         <li key={acta.actaId}>
-          <TarjetaEntrega acta={acta} onEntregar={() => onEntregar(acta)} onDevolver={() => onDevolver(acta)} />
+          {acta.destino === 'flit' && !puedeFirmarFlit
+            ? <TarjetaViajeAFlit acta={acta} onDevolver={() => onDevolver(acta)} />
+            : <TarjetaEntrega acta={acta} onEntregar={() => onEntregar(acta)} onDevolver={() => onDevolver(acta)} />}
         </li>
       ))}
     </ul>
+  );
+}
+
+function BotonDevolver({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button"
+      className="flit-focus rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
+      style={{ color: 'var(--flit-danger-text)', minHeight: 44 }}
+      onClick={onClick}>
+      Devolver el viaje
+    </button>
+  );
+}
+
+/** H1 de HU #14353: el mensajero de proveedor lleva el viaje a FLIT, pero la llegada la firma Operaciones de FLITO. Sin primaria. */
+function TarjetaViajeAFlit({ acta, onDevolver }: { acta: RutaEntrega; onDevolver: () => void }) {
+  const placas = acta.documentos.map((d) => d.placa).filter(Boolean).join(', ');
+  return (
+    <article className="rounded-xl border bg-flit-card p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{acta.companiaNombre ?? 'Empresa'}</span>
+        <StatusChip tone="active"><span className="normal-case">A FLIT</span></StatusChip>
+      </div>
+      {placas && <div className="mt-1 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{placas}</div>}
+      <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Lleva estas LT a FLIT. Allí firman la llegada.</p>
+      <div className="mt-2 flex justify-end"><BotonDevolver onClick={onDevolver} /></div>
+    </article>
   );
 }
 
@@ -182,12 +217,7 @@ function TarjetaEntrega({ acta, onEntregar, onDevolver }: {
         <button type="button" className={`${btn} flex-1`} style={btnPrimaryStyle} onClick={onEntregar}>
           {acta.destino === 'flit' ? 'Firmar llegada' : 'Entregar'}
         </button>
-        <button type="button"
-          className="flit-focus rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
-          style={{ color: 'var(--flit-danger-ink)', minHeight: 44 }}
-          onClick={onDevolver}>
-          Devolver el viaje
-        </button>
+        <BotonDevolver onClick={onDevolver} />
       </div>
     </article>
   );

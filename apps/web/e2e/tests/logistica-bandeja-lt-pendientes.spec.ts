@@ -6,7 +6,8 @@ import { loginAs, OPERACIONES_USER } from '../helpers/auth';
 
 type Page = import('@playwright/test').Page;
 const FUNCION = 'logistica.documento.resolver_tramite';
-const BASE = ['logistica.documento.ver', 'logistica.lote.cerrar'];
+// `actas.listar`: con una sola pestaña visible no se pinta la barra (HU #14353), y aquí la barra es lo que se prueba.
+const BASE = ['logistica.documento.ver', 'logistica.lote.cerrar', 'logistica.actas.listar'];
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
 const CAND_A = { tramiteId: 'tr-a', idFlit: 'FL-48213', companiaId: 1, companiaNombre: 'Seguros Andina S. A.', organismoCodigo: 'CALI', fechaAprobacion: '2026-10-18T12:00:00Z', tipoTramite: 'Matrícula inicial' };
@@ -18,7 +19,7 @@ const LT3 = { documentoId: 'd3', placa: 'QWE456', organismoCodigo: 'CALI', estad
 async function mockBase(page: Page) {
   await page.route(/\/api\/flito\/logistica\/facetas/, (r) => r.fulfill(json({ estados: [], empresas: [], organismos: [], companiasCerrables: [], mensajeros: [] })));
   await page.route(/\/api\/flito\/logistica\/actas$/, (r) => r.fulfill(json([])));
-  await page.route(/\/api\/flito\/logistica\?/, (r) => r.fulfill(json({ items: [], total: 7, page: 1, pageSize: 50 })));
+  await page.route(/\/api\/flito\/logistica\/buscar$/, (r) => r.fulfill(json({ items: [], total: 7, page: 1, pageSize: 50 })));
 }
 
 interface Mock { lista?: unknown[]; listaFalla?: boolean; candidatos?: Record<string, unknown[]>; resolver?: (n: number) => { status: number; body: unknown } }
@@ -51,10 +52,10 @@ const irABandeja = async (page: Page) => {
 test.describe('FLITO — Logística · bandeja de LT pendientes', () => {
   test('sin la función: ni pestaña ni llamada al API', async ({ page }) => {
     // Épica #13758: sin consola.ver/actas.listar la consola no tendría pestañas; se deja Actas como ancla.
-    await loginAs(page, OPERACIONES_USER, { funciones: [...BASE, 'logistica.actas.listar'] });
+    await loginAs(page, OPERACIONES_USER, { funciones: BASE });
     const st = await mockBandeja(page);
     await page.goto('/flito/logistica');
-    await expect(page.getByRole('button', { name: /^Actas/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Actas' })).toBeVisible();
     await expect(page.getByRole('button', { name: /LT pendientes/ })).toHaveCount(0);
     expect(st.listaGets).toBe(0);
   });

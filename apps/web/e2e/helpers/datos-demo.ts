@@ -1073,8 +1073,10 @@ export const LOGISTICA_FACETAS_DEMO = {
       ],
     },
   ],
-  mensajeros: [{ id: 51, nombre: NOMBRES_DEMO[4], proveedorId: null }],
 };
+
+/** `GET /actas/:id/mensajeros` (HU #14353): por acta y con su grupo. */
+export const LOGISTICA_MENSAJEROS_DEMO = [{ id: 51, nombre: NOMBRES_DEMO[4], grupo: 'flito' }];
 
 export const LOGISTICA_ACTAS_DEMO = [
   { id: 'acta-log-demo-1', companiaId: 901, companiaNombre: EMPRESAS_DEMO[0], estado: 'generada', estadoLabel: 'Generada',

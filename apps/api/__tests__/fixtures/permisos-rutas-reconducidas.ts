@@ -227,9 +227,12 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // flito-logistica/flito-logistica.routes.ts
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/', codigo: 'logistica.consola.ver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/facetas', codigo: 'logistica.consola.filtrar' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/facetas', condicion: 'registraTraslados', codigo: 'logistica.traslado.registrar' }, // HU #14351 (H3), en línea
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'logistica.consola.ver' }, // HU #14351
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/mi-ruta', codigo: 'logistica.ruta.ver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/actas', codigo: 'logistica.actas.listar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/actas/:id', codigo: 'logistica.actas.ver' },
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/actas/:id/mensajeros', codigo: 'logistica.actas.despachar' }, // HU #14353 (R1)
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/actas/:id/pdf', codigo: 'logistica.actas.descargar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'logistica.documento.ver' },
   // HU #14124: línea de tiempo, la misma función que el detalle.

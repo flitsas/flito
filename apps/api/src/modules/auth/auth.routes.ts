@@ -9,7 +9,7 @@ import { env } from '../../config/env.js';
 import { authMiddleware, blacklistToken } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { paginasEfectivasDeUsuario, resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
+import { funcionesDePermisos, paginasEfectivasDeUsuario, resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
 import { checkLockout, registerFailed, clearLockout } from './loginLockout.js';
 import { isUserLaftBlocked } from '../laft/employees/auth-block.service.js';
 import { laftAudit } from '../laft/audit.service.js';
@@ -189,10 +189,10 @@ async function puedeSolicitarSoat(p: PermisosResueltos, companiaId: number | nul
  */
 async function sobreDePermisos(userId: number, companiaId: number | null) {
   const p = await resolverPermisos(userId);
-  const funciones: ReadonlySet<string> = p.ok ? p.funciones : new Set<string>();
   return {
     allowedPages: await paginasEfectivasDeUsuario(userId),
-    funciones: [...funciones].sort(),
+    // ADR-0040 §3: con enlace `proveedor`, sin las funciones de un servicio que su proveedor no presta.
+    funciones: p.ok ? funcionesDePermisos(p) : [],
     puedeSolicitarSoat: await puedeSolicitarSoat(p, companiaId),
   };
 }

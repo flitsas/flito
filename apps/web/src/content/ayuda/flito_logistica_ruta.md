@@ -11,7 +11,7 @@ consultas:
   - qué entregas tengo asignadas
   - cómo marco una recogida como hecha
   - qué significa el aviso en flit en una recogida
-version: 2.4
+version: 2.5
 fecha: 2026-11-06
 ---
 ## Qué es
@@ -20,7 +20,7 @@ Pantalla de campo del Mensajero: escanear las licencias de tránsito en el organ
 
 ## Para quién
 
-Quien tenga el permiso de **Mi ruta**; de partida, el Mensajero (se reparte desde **Roles y permisos**). El Administrador despacha desde **Logística**; no usa esta vista como consola.
+Quien tenga el permiso de **Mi ruta**; de partida, el Mensajero (se reparte desde **Roles y permisos**). También el mensajero de un proveedor de logística, si su proveedor presta ese servicio. El Administrador despacha desde **Logística**; no usa esta vista como consola.
 
 ## Cómo se entra
 
@@ -28,10 +28,10 @@ En el menú lateral, sección **Gestión**, ítem **Mi ruta** (visible para quie
 
 ## Pasos
 
-1. En **Recoger licencias**, pulse **Escanear LT** (o **Escanear otra LT**) y apunte al código de barras del reverso. Si no hay cámara o el código no se lee, pulse **Ingresar a mano** y escriba la **Placa**, el **N.º de licencia de tránsito (frente)** y el **N.º de sustrato (reverso)**, que siempre empieza por **LT**. Al escribir la placa aparece **Confirma que es el vehículo** (VIN, organismo y vehículo); si dice **No se encontró un trámite para esta licencia**, no se puede agregar. Pulse **Agregar LT**.
-2. Cada tarjeta muestra la placa, el N.º de LT y el estado: **Lista**, **Con novedad**, **Ya registrada**, **Sin trámite** (con el aviso **No se encontró un trámite para esta licencia** o, para Operaciones, el motivo concreto, como que el trámite aún no tiene compañía asignada), **Pendiente de trámite** o **Sin validar** (sin señal). Las ingresadas a mano llevan además **A mano**. **Ver datos** muestra VIN, licencia, combustible y propietario. Si la placa tiene varios trámites se abre **Elige el trámite**: toque el que corresponda o **Cancelar (quitar esta LT)**. Si su usuario tiene el permiso de dejar licencias pendientes, verá además **No sé cuál: dejar pendiente**; sin él, consulte a Operaciones.
+1. En **Recoger licencias**, pulse **Escanear LT** (o **Escanear otra LT**) y apunte al código de barras del reverso. Si no hay cámara o el código no se lee, pulse **Ingresar a mano** y escriba la **Placa**, el **N.º de licencia de tránsito (frente)** y el **N.º de sustrato (reverso)**, que siempre empieza por **LT**. Al escribir la placa aparece **Confirma que es el vehículo** (VIN, organismo y vehículo); si dice **No se encontró un trámite para esta licencia** y **Revisa la placa e inténtalo de nuevo.**, no se puede agregar. Pulse **Agregar LT**.
+2. Cada tarjeta muestra la placa, el N.º de LT y el estado: **Lista**, **Con novedad**, **Ya registrada**, **Sin trámite** (con el aviso **No se encontró un trámite para esta licencia** o, para Operaciones, el motivo concreto, como que el trámite aún no tiene compañía asignada; si todos sus trámites ya tienen licencia, **Sin trámite pendiente**; debajo, **Revisa los datos o quita esta LT.**), **Pendiente de trámite** o **Sin validar** (sin señal). Las ingresadas a mano llevan además **A mano**. **Ver datos** muestra VIN, licencia, combustible y propietario; al mensajero de un proveedor no le muestra el propietario. Si la placa tiene varios trámites se abre **Elige el trámite**: toque el que corresponda o **Cancelar (quitar esta LT)**. Si su usuario tiene el permiso de dejar licencias pendientes, verá además **No sé cuál: dejar pendiente**; sin él, quite esta LT y consúltelo antes de seguir. El mensajero de un proveedor no tiene esa opción.
 3. Pulse **Continuar a la firma (N)**. Revise las LT por compañía (se genera 1 acta por compañía), escriba **Nombre** y **Cédula** del funcionario del organismo, haga que firme en **Firma** y pulse **Confirmar recogida**. Verá **Recogida confirmada** con las actas generadas. Para confirmar necesita señal. Si el funcionario no puede firmar, **Confirmar sin firma** deja las LT escaneadas con el acta pendiente de firma; luego pulse **Firmar acta**. Quien tenga el permiso de confirmar recogidas ve también **Mis recogidas** (cédula del funcionario enmascarada): arriba aparecen las LT **Pendientes de firma** (placa, N.º LT, compañía y organismo; «Pendiente de trámite» si Operaciones aún no elige el trámite) con el aviso **Falta firma**; si esa licencia ya está en las instalaciones de FLIT, la fila muestra además **En FLIT**. Márquelas y pulse **Firmar N LT** para firmarlas, y las recogidas ya firmadas muestran **Firmada**; sin ese permiso puede escanear y guardar, pero no confirmar.
-4. En **Entregas**, cada viaje despachado al cliente es una tarjeta con la empresa, la dirección y sus licencias. Un viaje con destino FLIT no aparece aquí: quien tiene la función de firmar la llegada lo firma en la consola de Logística, solo con la firma de su sesión, sin cédula. Pulse **Entregar**: el paso sustituye el listado. En **LT de este viaje** deje sin marcar las que entrega; marque las que **NO** entrega. Capture **Nombre de quien recibe**, **Cédula de quien recibe** (solo números, 5 a 12 dígitos) y **Firma de quien recibe**; si quiere, **Adjuntar foto (opcional)**. Pulse **Confirmar entrega**: el equipo pide la ubicación. Si marca todas las LT, **Confirmar entrega** se apaga y aparece **Devolver el viaje**. ![Paso de entrega con las LT, nombre y cédula de quien recibe, firma trazada y el botón Confirmar entrega](./flito_logistica_ruta/04-entregar.png)
+4. En **Entregas**, cada viaje despachado al cliente es una tarjeta con la empresa, la dirección y sus licencias. Un viaje con destino FLIT no aparece aquí: quien tiene la función de firmar la llegada lo firma en la consola de Logística, solo con la firma de su sesión, sin cédula. El mensajero de un proveedor sí lo ve, con el rótulo **A FLIT**, el aviso **Lleva estas LT a FLIT. Allí firman la llegada.** y solo la opción **Devolver el viaje**: la firma la toma Operaciones de FLITO. Pulse **Entregar**: el paso sustituye el listado. En **LT de este viaje** deje sin marcar las que entrega; marque las que **NO** entrega. Capture **Nombre de quien recibe**, **Cédula de quien recibe** (solo números, 5 a 12 dígitos) y **Firma de quien recibe**; si quiere, **Adjuntar foto (opcional)**. Pulse **Confirmar entrega**: el equipo pide la ubicación. Si marca todas las LT, **Confirmar entrega** se apaga y aparece **Devolver el viaje**. ![Paso de entrega con las LT, nombre y cédula de quien recibe, firma trazada y el botón Confirmar entrega](./flito_logistica_ruta/04-entregar.png)
 5. Si quien recibe no toma el viaje, pulse **Devolver el viaje** en la tarjeta, escriba el **Motivo (obligatorio)** y pulse **Devolver el viaje**.
 6. Sin red verá **Trabajando offline** o **Sin conexión · N cambio(s) sin sincronizar**: lo que registre queda en cola. Con señal, pulse **Reintentar** (verá **Sincronizando…**). ![Aviso Sin conexión · 1 cambio(s) sin sincronizar y una LT En cola](./flito_logistica_ruta/05-sin-conexion.png)
 
@@ -40,8 +40,8 @@ En el menú lateral, sección **Gestión**, ítem **Mi ruta** (visible para quie
 ## Estados
 
 - Cargando: el encabezado **Mi ruta** se ve; **Entregas** aparece al llegar la ruta.
-- Error: banda roja con el mensaje; en la tarjeta o en el paso de firma, un aviso con **Reintentar**.
-- Vacío: **Aún no has escaneado licencias.** en la recogida; **No tienes viajes despachados para entregar. Cuando Operaciones despache un viaje, aparece aquí.** si aún no hay entregas.
+- Error: banda roja con el mensaje; en la tarjeta o en el paso de firma, un aviso con **Reintentar**. Si su usuario perdió el acceso: **Tu usuario ya no tiene acceso a las entregas. Pide a Operaciones de FLITO que lo revise.**, sin reintento. Si al entregar o devolver el viaje ya no es suyo: **Este viaje ya no está en tu ruta. Revisa la lista actualizada.** y la lista se recarga.
+- Vacío: **Aún no has escaneado licencias.** en la recogida; **No tienes viajes despachados para entregar. Cuando te despachen un viaje, aparece aquí.** si aún no hay entregas.
 - Lleno: tarjetas de LT recogidas y viajes por entregar. Mensaje verde al guardar (**Guardado sin conexión — se enviará al recuperar señal.**).
 
 ## Qué no hace

@@ -153,7 +153,8 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       expect(me.body.user?.allowedPages ?? me.body.allowedPages).not.toContain('flito_soat');
     }, 30_000);
 
-    it('AC3: mixto → SOAT sí; Usuarios cerrado; Logística cerrada hasta F4.2 en la ruta y en el menú', async () => {
+    // ADR-0040 (0299): el rol `proveedor` trae Logística; un proveedor mixto la ve en el menú. Los viajes adicionales siguen cerrados (D3).
+    it('AC3: mixto → SOAT sí; Usuarios cerrado; Logística en el menú (ADR-0040) y viajes adicionales cerrados', async () => {
       const p = await nuevoProveedor(['soat', 'logistica']);
       const auth = await bearer(await usuario('zzf3_gestor', p.id));
       expect((await request(app).get('/api/flito/soat').set('Authorization', auth)).status).toBe(200);
@@ -162,7 +163,7 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       const paginas = me.body.user?.allowedPages ?? me.body.allowedPages;
       expect(paginas).toContain('flito_soat');
       expect(paginas).not.toContain('users'); // Cerrada: la gestión por el proveedor salió de esta épica.
-      expect(paginas).not.toContain('flito_logistica');
+      expect(paginas).toContain('flito_logistica');
     }, 30_000);
 
     it('AC5: usuario existente creado con la columna vieja → mismo menú y su cola de SOAT, sin la ajena', async () => {

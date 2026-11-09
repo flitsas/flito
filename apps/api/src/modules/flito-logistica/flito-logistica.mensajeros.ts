@@ -6,11 +6,11 @@
 // `flito_proveedor_id` es P.
 //   · Alcance de proveedor: solo los suyos.
 //   · Operaciones: los de FLITO y los del proveedor dueño del acta (R13).
-//   · Compañía: `/actas/:id/despachar` sigue abierta a su enlace, y la regla es la de Operaciones. `facetas` no le lista ninguno.
-//   · Otro enlace, o sin resolver: ninguno. Falla cerrado.
+//   · Otro enlace, o sin resolver: ninguno. Falla cerrado. D7 (David Chica, 2026-11-06): `/actas/:id/despachar` rechaza a la compañía.
 import { and, eq, inArray, isNull } from 'drizzle-orm';
+import type { MensajeroDeActa } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { permisosRoles, users } from '../../db/schema.js';
+import { flitoProveedores, permisosRoles, users } from '../../db/schema.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import { usuariosConFuncion } from '../../shared/permisos-efectivos.js';
 import { LogisticaError, type DbOrTx } from './flito-logistica.base.js';
@@ -31,7 +31,7 @@ interface FilaMensajero { id: number; nombre: string; tipoEnlace: string; provee
 function esAsignable(m: FilaMensajero, alcance: AlcanceResuelto, proveedorDelActa: string | null | undefined): boolean {
   const delProveedor = m.tipoEnlace === 'proveedor' && m.proveedorId !== null;
   if (alcance.enlace === 'proveedor') return alcance.proveedorId !== null && delProveedor && m.proveedorId === alcance.proveedorId;
-  if (alcance.enlace !== 'ninguno' && alcance.enlace !== 'compania') return false;
+  if (alcance.enlace !== 'ninguno') return false;
   if (m.tipoEnlace === 'ninguno') return true;
   return delProveedor && (proveedorDelActa === undefined || m.proveedorId === proveedorDelActa);
 }
@@ -51,6 +51,22 @@ export interface MensajeroAsignable { id: number; nombre: string; proveedorId: s
 export async function mensajerosAsignables(alcance: AlcanceResuelto, proveedorDelActa?: string | null): Promise<MensajeroAsignable[]> {
   return (await candidatos(db)).filter((m) => esAsignable(m, alcance, proveedorDelActa))
     .map(({ id, nombre, proveedorId }) => ({ id, nombre, proveedorId: proveedorId ?? null }));
+}
+
+/**
+ * A quién se puede despachar un acta (R1, HU #14351, AC8 y AC9). Al proveedor, solo `id` y `nombre`. A Operaciones, los de
+ * FLITO y los del proveedor dueño de ESA acta, con `grupo` y, en los del proveedor, `proveedorNombre`.
+ */
+export async function mensajerosParaActa(alcance: AlcanceResuelto, proveedorDelActa: string | null): Promise<MensajeroDeActa[]> {
+  const lista = await mensajerosAsignables(alcance, proveedorDelActa);
+  if (alcance.enlace !== 'ninguno') return lista.map(({ id, nombre }) => ({ id, nombre }));
+  const conNombre = proveedorDelActa !== null && lista.some((m) => m.proveedorId !== null);
+  const [p] = conNombre
+    ? await db.select({ nombre: flitoProveedores.nombre }).from(flitoProveedores).where(eq(flitoProveedores.id, proveedorDelActa)).limit(1)
+    : [];
+  return lista.map(({ id, nombre, proveedorId }) => (proveedorId === null
+    ? { id, nombre, grupo: 'flito' as const }
+    : { id, nombre, grupo: 'proveedor' as const, ...(p ? { proveedorNombre: p.nombre } : {}) }));
 }
 
 /** Lanza `MENSAJERO_NO_ASIGNABLE` (422), con la misma respuesta para un mensajero inexistente, inactivo o ajeno. */
