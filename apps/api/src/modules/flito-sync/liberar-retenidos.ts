@@ -10,8 +10,9 @@
 //     condiciones propias: comprador principal guardado (RN-17) y compradores no enmascarados (RN-19).
 import { and, eq } from 'drizzle-orm';
 import type { db } from '../../db/client.js';
-import { clients, flitoCompradores, flitoTramites, vehicles } from '../../db/schema.js';
-import { arrancarSoatEImpuesto, esAsignado, type ContadoresArranque } from './flito-sync.service.js';
+import { clients, flitoTramites } from '../../db/schema.js';
+import { arrancarTramiteGuardado, COLUMNAS_TRAMITE_GUARDADO } from './arrancar-tramite-guardado.js';
+import type { ContadoresArranque } from './flito-sync.service.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -29,30 +30,9 @@ export async function liberarTramitesRetenidos(tx: Tx, companiaId: number): Prom
 
   const liberados = await tx.update(flitoTramites).set({ retenido: false, updatedAt: new Date() })
     .where(and(eq(flitoTramites.companiaId, companiaId), eq(flitoTramites.retenido, true)))
-    .returning({
-      id: flitoTramites.id, idFlit: flitoTramites.idFlit, flitEstado: flitoTramites.flitEstado,
-      organismoCodigo: flitoTramites.organismoCodigo, vehiculoId: flitoTramites.vehiculoId, soatId: flitoTramites.soatId,
-      valorImpuestoLiquidado: flitoTramites.valorImpuestoLiquidado, fuente: flitoTramites.fuente,
-      flit2PiiEnmascarada: flitoTramites.flit2PiiEnmascarada,
-    });
+    .returning(COLUMNAS_TRAMITE_GUARDADO);
   r.liberados = liberados.length;
 
-  for (const t of liberados) {
-    if (!esAsignado(t.flitEstado ?? '') || !t.organismoCodigo || t.vehiculoId === null) continue;
-    if (t.fuente === 'flit2') {
-      if (t.flit2PiiEnmascarada) continue; // RN-19: espera la relectura
-      const [principal] = await tx.select({ id: flitoCompradores.id }).from(flitoCompradores)
-        .where(and(eq(flitoCompradores.tramiteId, t.id), eq(flitoCompradores.orden, 0))).limit(1);
-      if (!principal) continue; // RN-17: sin comprador principal, espera
-    }
-    const [vehiculo] = await tx.select({ vin: vehicles.vin }).from(vehicles).where(eq(vehicles.id, t.vehiculoId)).limit(1);
-    if (!vehiculo?.vin) continue;
-    await arrancarSoatEImpuesto(
-      tx,
-      { vin: vehiculo.vin, idFlit: t.idFlit, valorImpuestoLiquidado: t.valorImpuestoLiquidado === null ? null : Number(t.valorImpuestoLiquidado) },
-      { tramiteId: t.id, soatId: t.soatId, vehiculoId: t.vehiculoId, compania, organismoCodigo: t.organismoCodigo },
-      r,
-    );
-  }
+  for (const t of liberados) await arrancarTramiteGuardado(tx, t, compania, r);
   return r;
 }
