@@ -5,6 +5,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { flitoProveedoresLogistica } from './flito-logistica.js';
+import { flitoProveedores } from './flito-proveedores.js';
 import { permisosRoles } from './permisos.js';
 import { flitoProveedoresSoat } from './soat.js';
 import { organismosTransitoConfig } from './tramites.js';
@@ -61,7 +62,7 @@ export const users = pgTable('users', {
   // `flito_gestor_organismos`, porque son VARIOS organismos y `transito_codigo` solo guardaba uno
   // —y además es del rol `transito`—. Para un `gestor_impuestos`, `transito_codigo` queda NULL
   // desde la migración 0173: fuente única, sin segundo inquilino.
-  flitoProveedorSoatId: uuid('flito_proveedor_soat_id').references((): any => flitoProveedoresSoat.id),
+  flitoProveedorSoatId: uuid('flito_proveedor_soat_id').references((): any => flitoProveedoresSoat.id), flitoProveedorId: uuid('flito_proveedor_id').references(() => flitoProveedores.id, { onDelete: 'restrict' }), // HU #14330: la nueva es la identidad; la vieja se sincroniza por trigger y se retira en F5.
   /**
    * FLITO — Cliente (Feature #11912): la compañía de la que es este usuario. Es la atadura de
    * visibilidad del rol `cliente`, igual que `flitoProveedorSoatId` lo es del gestor: `contextoSoat()`
@@ -104,7 +105,7 @@ export const users = pgTable('users', {
   // Sin él, borrar un rol escanea `users` entera. También sirve al conteo por rol (CF-22).
   roleIdx: index('idx_users_role').on(t.role),
   // HU #13971 (0264): impacto/desactivación/eliminación de un proveedor SOAT. Completo, no parcial (ver cabecera 0264).
-  proveedorSoatIdx: index('idx_users_flito_proveedor_soat').on(t.flitoProveedorSoatId),
+  proveedorSoatIdx: index('idx_users_flito_proveedor_soat').on(t.flitoProveedorSoatId), proveedorIdx: index('idx_users_flito_proveedor').on(t.flitoProveedorId),
 }));
 
 export const clients = pgTable('clients', {
