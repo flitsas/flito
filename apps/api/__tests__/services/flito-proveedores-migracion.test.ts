@@ -1,4 +1,4 @@
-// Feature #14323, HU #14328, #14329 y #14330 — migración 0291 y comprobación previa (ADR-0039 §5).
+// Feature #14323, HU #14328, #14329 y #14330 — migración 0292 y comprobación previa (ADR-0039 §5).
 //
 // La parte estática corre siempre. La parte con BD necesita TEST_DATABASE_URL (el CI no levanta Postgres, y sin la
 // variable se salta) y lo hace TODO dentro de una transacción que termina en ROLLBACK: la base local queda intacta.
@@ -20,7 +20,7 @@ import { URL_BASE, enTx } from '../helpers/base-en-tx.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIR = path.resolve(__dirname, '../../src/db/migrations');
-const ARCHIVO = '0291_flito_proveedores_padre.sql';
+const ARCHIVO = '0292_flito_proveedores_padre.sql';
 const MIGRACION = readFileSync(path.join(DIR, ARCHIVO), 'utf8');
 const PREFLIGHT = readFileSync(path.resolve(__dirname, '../../src/db/manual/flito-proveedores-preflight.sql'), 'utf8');
 const SEED = readFileSync(path.resolve(__dirname, '../../src/scripts/flito-seed.ts'), 'utf8');
@@ -36,7 +36,7 @@ const entre = (texto: string, abre: string, cierra: string): string => {
 
 const COMPROBACION_FINAL = entre(MIGRACION, '-- >>> COMPROBACION FINAL', '-- <<< COMPROBACION FINAL');
 
-describe('0291 — análisis estático', () => {
+describe('0292 — análisis estático', () => {
   it('número propio y sin control de transacción propio: el runner envuelve el archivo', () => {
     expect(scanForTxControl(ARCHIVO, MIGRACION)).toEqual([]);
     const sqls = readdirSync(DIR).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
@@ -118,7 +118,7 @@ describe('0291 — análisis estático', () => {
 
 const conBd = URL_BASE ? describe : describe.skip;
 
-conBd('0291 — contra PostgreSQL, en transacción revertida', () => {
+conBd('0292 — contra PostgreSQL, en transacción revertida', () => {
   const avisos: string[] = [];
   let sql: postgres.Sql;
   beforeAll(() => { sql = postgres(URL_BASE!, { max: 1, onnotice: (n) => { avisos.push(String(n.message)); } }); });

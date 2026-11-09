@@ -39,7 +39,7 @@ const RETIRADAS_DESPUES: readonly [string, string][] = [['sync.sync.lanzar', 'tr
 // El mapa del código también crece: lo que nació después de la 0205 está en `reagrupaciones()` y no en sus tuplas.
 // Lista explícita a propósito: una función nueva tiene que declararse aquí, no pasar por un filtro que la absuelva.
 const NACIDAS_DESPUES: readonly [string, string][] = [
-  ['parametrizacion.proveedores.historial', 'clientes'], // HU #14335 (0293)
+  ['parametrizacion.proveedores.historial', 'clientes'], // HU #14335 (0294)
 ];
 const CODIGOS_NACIDOS = new Set(NACIDAS_DESPUES.map(([c]) => c));
 const PARES_0205 = [...PARES.filter(([c]) => !CODIGOS_NACIDOS.has(c)), ...RETIRADAS_DESPUES].sort(([a], [b]) => a.localeCompare(b));
