@@ -2303,3 +2303,43 @@ describe('archivo ampliado — rastro: `resultado=ampliado` y los campos de pago
     expect(m.COLUMNAS_PAGO_SOAT_EXPORT.map((c) => c.header)).toEqual(CABECERAS_PAGO);
   });
 });
+
+// ─────────────────────────── Bug #14491: el titular de un trámite de FLIT 2 ──────────────────────
+
+describe('Bug #14491 · el titular de una fila de trámite de FLIT 2 sale del comprador principal', () => {
+  const CINCO = ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId'] as const;
+  const RAZON_FLIT2 = 'CENTINELA-RAZON-FLIT2';
+  /** Un trámite de FLIT 2 tal como sale de `tramitesDe()`: sin `tipo` ni nombre en el crudo. */
+  const tramiteFlit2 = (tipos: unknown, over: Record<string, unknown> = {}) =>
+    tramite({ fuente: 'flit2', tipo: null, nombres: null, apellidos: null, tiposDocumentoFlit2: tipos, ...over });
+  const exportarCon = async (tramites: unknown[], compradores: unknown[]) => {
+    kdb.reset(); instalarEspias(); consultas.length = 0;
+    kdb.when.scenario({ flito_soat: [filaSoat()], flito_tramites: tramites, flito_compradores: compradores });
+    return libro((await exportar(await sesion())).body as Buffer);
+  };
+  const bloque = (hoja: Awaited<ReturnType<typeof libro>>) => CINCO.map((c) => celda(hoja, 2, c) ?? null);
+
+  it('jurídico (`NIT` en el crudo): PJUR / NIT con la razón social de `nombre_completo`', async () => {
+    const hoja = await exportarCon([tramiteFlit2(['NIT'])], [comprador({ nombreCompletoFlit2: RAZON_FLIT2 })]);
+    expect(bloque(hoja)).toEqual(['PJUR', null, null, RAZON_FLIT2, 'NIT']);
+  });
+
+  it('natural (`CC` en el crudo): PNAT / CC; NombrePila = nombre completo entero, Apellidos vacío', async () => {
+    const hoja = await exportarCon([tramiteFlit2(['CC'])], [comprador({ nombreCompletoFlit2: CENTINELA_CONCATENADO })]);
+    expect(bloque(hoja)).toEqual(['PNAT', CENTINELA_CONCATENADO, null, null, 'CC']);
+  });
+
+  it('sin comprador principal (PII enmascarada o trámite sin comprador): el bloque vacío, y la fila sale', async () => {
+    const hoja = await exportarCon([tramiteFlit2(['NIT'])], []);
+    expect(bloque(hoja)).toEqual([null, null, null, null, null]);
+    expect(celda(hoja, 2, 'Marca')).toBe('CHEVROLET');
+  });
+
+  it('FLIT 1 (regresión): con `fuente = flit` el titular sigue saliendo del crudo, aunque hubiera tipos', async () => {
+    const hoja = await exportarCon([tramite({ fuente: 'flit', tiposDocumentoFlit2: ['NIT'] })], [comprador()]);
+    expect(bloque(hoja)).toEqual(['PNAT', CENTINELA_NOMBRE, CENTINELA_APELLIDOS, null, 'CC']);
+    // Y un FLIT 1 sin `tipo` sigue vacío: no se rellena desde el comprador.
+    const vacia = await exportarCon([tramite({ fuente: 'flit', tipo: null })], [comprador({ tipoDocumento: 'NIT' })]);
+    expect(bloque(vacia)).toEqual([null, null, null, null, null]);
+  });
+});

@@ -312,3 +312,39 @@ describe('HU #13095 · obtenerUrlAdjunto (URL firmada de la factura)', () => {
     expect(await fake.obtenerUrlAdjunto(U1, ADJ)).toBe(u);
   });
 });
+
+describe('Bug #14491 · aItemFlit2 lee clase, modeloAno y capacidad del vehículo', () => {
+  const conVehiculo = (extra: Record<string, unknown>) => aItemFlit2(item({ vehiculo: { ...item().vehiculo, ...extra } }))?.vehiculo;
+
+  it('el contrato §4: clase (texto), modeloAno (int) y capacidad (int → texto de su columna)', () => {
+    expect(conVehiculo({ clase: ' CAMIONETA ', modeloAno: 2026, capacidad: 5 }))
+      .toMatchObject({ clase: 'CAMIONETA', modeloAno: 2026, capacidad: '5' });
+    expect(conVehiculo({ modeloAno: '2024', capacidad: '7' })).toMatchObject({ modeloAno: 2024, capacidad: '7' });
+  });
+
+  it('ausentes o null → null (sin romper el ítem)', () => {
+    expect(conVehiculo({})).toMatchObject({ clase: null, modeloAno: null, capacidad: null });
+    expect(conVehiculo({ clase: null, modeloAno: null, capacidad: null })).toMatchObject({ clase: null, modeloAno: null, capacidad: null });
+  });
+
+  it('valores inválidos → null, y el ítem sigue siendo válido (antes no se validaban)', () => {
+    const v = conVehiculo({ clase: 42, modeloAno: 2021.5, capacidad: -1 });
+    expect(v).toMatchObject({ vin: '9FKTEST0000000001', clase: null, modeloAno: null, capacidad: null });
+    expect(conVehiculo({ modeloAno: 1899 })?.modeloAno).toBeNull();
+    expect(conVehiculo({ modeloAno: 2101 })?.modeloAno).toBeNull();
+    expect(conVehiculo({ modeloAno: Number.NaN, capacidad: Infinity })).toMatchObject({ modeloAno: null, capacidad: null });
+    expect(conVehiculo({ modeloAno: { a: 1 }, capacidad: ['5'], clase: '   ' })).toMatchObject({ modeloAno: null, capacidad: null, clase: null });
+    expect(conVehiculo({ modeloAno: '20x4', capacidad: '5 pasajeros' })).toMatchObject({ modeloAno: null, capacidad: null });
+  });
+
+  it('lo que no cabe en la columna se descarta a null, no se trunca', () => {
+    expect(conVehiculo({ clase: 'C'.repeat(51) })?.clase).toBeNull();
+    expect(conVehiculo({ clase: 'C'.repeat(50) })?.clase).toBe('C'.repeat(50));
+    expect(conVehiculo({ capacidad: 12345678901 })?.capacidad).toBeNull();
+  });
+
+  it('los extremos del rango del año entran', () => {
+    expect(conVehiculo({ modeloAno: 1900 })?.modeloAno).toBe(1900);
+    expect(conVehiculo({ modeloAno: 2100 })?.modeloAno).toBe(2100);
+  });
+});
