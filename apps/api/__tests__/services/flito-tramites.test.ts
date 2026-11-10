@@ -36,7 +36,7 @@ vi.mock('../../src/modules/flito-compuerta/flito-compuerta.service.js', async (o
 const { listar, solicitarSoat, solicitarImpuestos, entregar } = await import('../../src/modules/flito-tramites/flito-tramites.service.js');
 const { default: tramitesRoutes } = await import('../../src/modules/flito-tramites/flito-tramites.routes.js');
 const dbMock = (await import('../../src/db/client.js')).db as unknown as {
-  insert: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>;
+  insert: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; transaction: ReturnType<typeof vi.fn>;
 };
 
 const ctx = { userId: 1, username: 'op', role: 'admin', alcance: { enlace: 'ninguno' as const } };
@@ -45,6 +45,8 @@ beforeEach(() => {
   selectMock.mockReset();
   dbMock.insert.mockReset();
   dbMock.update.mockReset();
+  // `crearEmpresaDesdeTramite` corre en `db.transaction` (Bug #14414): el callback recibe el mismo mock como `tx`.
+  dbMock.transaction.mockReset().mockImplementation((fn: (tx: unknown) => unknown) => fn(dbMock));
   enviarSoatMock.mockClear().mockResolvedValue({ enviados: [], yaEnviados: [] });
   enviarImpuestosMock.mockClear().mockResolvedValue({ enviados: [], yaEnviados: [] });
   entregarCompuertaMock.mockClear().mockResolvedValue({});
@@ -273,7 +275,8 @@ describe('rutas — lectura Operaciones/Auditoría; acciones solo Operaciones; g
   it('POST /crear-empresa → crea el cliente y reporta re-vinculados', async () => {
     selectMock
       .mockReturnValueOnce(chain([]))                 // no existe cliente con ese NIT
-      .mockReturnValueOnce(chain([{ id: 't1' }, { id: 't2' }])); // trámites pendientes de ese NIT
+      .mockReturnValueOnce(chain([{ id: 't1' }, { id: 't2' }])) // trámites pendientes de ese NIT
+      .mockReturnValueOnce(chain([{ id: 99, active: true }])); // compañía `for share` (sin flitEstado: no arrancan)
     dbMock.insert.mockReturnValue(chain([{ id: 99 }])); // clients.returning + historial
     dbMock.update.mockReturnValue(chain([]));
     const token = await testToken({ role: 'admin' });
