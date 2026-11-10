@@ -28,7 +28,7 @@
 //     mueven `updated_at` ni dejan historial). El vehículo se decide DESPUÉS de `soloAlta` (Bug #13585).
 //     Consecuencia: `flito_tramites.sincronizado_en` pasa a ser «última vez que cambió». FLIT 2 no cambia.
 
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   auditLogs, flitoCompradores, flitoImpuestos, flitoSoat, flitoTramiteHistorial, flitoTramites, systemKv, vehicles,
@@ -219,7 +219,15 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
 
 /** Lo que el sync escribe en `vehicles`. FLIT 1 pasa su `TramiteFlit` completo; FLIT 2 arma el suyo. */
 export type VehiculoFlit = Pick<TramiteFlit,
-  'vin' | 'placa' | 'marca' | 'linea' | 'cilindraje' | 'carroceria' | 'tipoServicio' | 'numMotor' | 'numSerie' | 'compradores'>;
+  'vin' | 'placa' | 'marca' | 'linea' | 'cilindraje' | 'carroceria' | 'tipoServicio' | 'numMotor' | 'numSerie' | 'compradores'> & {
+  /**
+   * Bug #14491: solo los trae FLIT 2. Opcionales a propósito: el reporte de FLIT 1 no los tiene, y su
+   * `undefined` cae en los spreads condicionales y no pisa lo guardado.
+   */
+  clase?: string | null;
+  modeloAno?: number | null;
+  capacidad?: string | null;
+};
 
 /**
  * Titular que se guarda en el vehículo: el comprador principal (el primero que trae FLIT, `cedulanit`
@@ -285,6 +293,20 @@ export function setVehiculoDesdeFlit(tf: VehiculoFlit): Partial<typeof vehicles.
   };
 }
 
+/**
+ * Bug #14491 — clase, año-modelo y capacidad (solo los trae FLIT 2), con OTRA política a propósito:
+ * **solo llenan el vacío**. `coalesce(columna, valor)`: si la columna ya tiene dato (RUNT, OCR, otra
+ * versión) se conserva; si está en NULL, FLIT 2 la completa. Sin valor, la clave no va al SET. FLIT 1
+ * no los trae y aquí devuelve `{}`. Decisión del humano en el Bug: FLIT 2 no pisa estas tres.
+ */
+export function rellenoVehiculoDesdeFlit(tf: VehiculoFlit): { vehicleClass?: SQL; year?: SQL; pasajerosSentados?: SQL } {
+  return {
+    ...(tf.clase ? { vehicleClass: sql`coalesce(${vehicles.vehicleClass}, ${tf.clase})` } : {}),
+    ...(tf.modeloAno ? { year: sql`coalesce(${vehicles.year}, ${tf.modeloAno}::integer)` } : {}),
+    ...(tf.capacidad ? { pasajerosSentados: sql`coalesce(${vehicles.pasajerosSentados}, ${tf.capacidad})` } : {}),
+  };
+}
+
 /** Las 10 columnas que puede escribir `setVehiculoDesdeFlit`: lo que `soloSiCambia` compara. */
 const COLUMNAS_VEHICULO_FLIT = {
   plate: vehicles.plate, brand: vehicles.brand, model: vehicles.model,
@@ -340,7 +362,9 @@ export async function upsertVehiculo(
       await tx.update(vehicles).set({ ...parche, updatedAt: new Date() }).where(eq(vehicles.id, existente.id));
       return existente.id;
     }
-    await tx.update(vehicles).set({ ...set, updatedAt: new Date() }).where(eq(vehicles.id, existente.id));
+    // Bug #14491: el relleno (solo-si-vacío) va solo en esta rama, la de FLIT 2; `soloSiCambia` es de
+    // FLIT 1, que no trae esos tres campos.
+    await tx.update(vehicles).set({ ...set, ...rellenoVehiculoDesdeFlit(tf), updatedAt: new Date() }).where(eq(vehicles.id, existente.id));
     return existente.id;
   }
   const [creado] = await tx.insert(vehicles)
@@ -351,6 +375,8 @@ export async function upsertVehiculo(
       // correcta de decir «FLIT no lo trajo» en una fila nueva.
       cilindraje: tf.cilindraje, carroceria: tf.carroceria, tipoServicio: tf.tipoServicio,
       numMotor: tf.numMotor, numSerie: tf.numSerie,
+      // Bug #14491: FLIT 1 no los trae (`undefined` → NULL, lo mismo que antes de existir).
+      vehicleClass: tf.clase ?? null, year: tf.modeloAno ?? null, pasajerosSentados: tf.capacidad ?? null,
     })
     .returning({ id: vehicles.id });
   return creado.id;
