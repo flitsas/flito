@@ -1,11 +1,13 @@
-// Bug #14414 — Vincular la empresa a un trámite arranca SOAT e impuesto. Contra PostgreSQL de verdad, dentro de una transacción con ROLLBACK (`base-en-tx.ts`); se SALTA sin
+// Bug #14414 — Vincular la empresa a un trámite arranca SOAT e impuesto, y la migración
+// 0253_flito_reparar_arranque_empresa_vinculada_pdn (backport a PDN de la 0291) repara lo que quedó sin arrancar.
+// Contra PostgreSQL de verdad, dentro de una transacción con ROLLBACK (`base-en-tx.ts`); se SALTA sin
 // TEST_DATABASE_URL (el CI no levanta Postgres: lo que corre en CI está en `flito-sync.arrancar-tramite-guardado.test.ts`).
 // `db` es un Drizzle sobre la transacción del test.
 import { describe, it, expect, vi } from 'vitest';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type postgres from 'postgres';
 import * as schema from '../../src/db/schema.js';
-import { abrirBase, enTx, URL_BASE } from '../helpers/base-en-tx.js';
+import { abrirBase, enTx, leerMigracion, URL_BASE } from '../helpers/base-en-tx.js';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 const actual: { db: Db | null; transaction: ((fn: (tx: unknown) => unknown) => unknown) | null } = { db: null, transaction: null };
@@ -37,6 +39,8 @@ vi.mock('../../src/shared/historial/estado-historial.js', async (importOriginal)
 });
 
 const { crearEmpresaDesdeTramite } = await import('../../src/modules/flito-tramites/flito-tramites.service.js');
+const { impuestoBloqueantePorVehiculo, anioGravableEnCurso } = await import('../../src/modules/flito-impuestos/impuesto-por-vehiculo.js');
+const ANIO = anioGravableEnCurso();
 
 type Tx = postgres.TransactionSql;
 const SUFIJO = String(Date.now()).slice(-6);
@@ -44,6 +48,7 @@ let secuencia = 0;
 let opciones: postgres.Sql['options'];
 const ctx = { userId: null } as never;
 const AUTOGESTION_NO = { soat: false, impuestos: false, logistica: false };
+const SQL_REPARACION = leerMigracion('0253_flito_reparar_arranque_empresa_vinculada_pdn.sql');
 
 async function organismoConModalidad(tx: Tx, modalidad: 'requiere_gestion' | 'autogestionado' | null): Promise<string> {
   const [o] = await tx`SELECT codigo FROM organismos_transito_config ORDER BY codigo LIMIT 1`;
@@ -228,4 +233,255 @@ describe.skipIf(!URL_BASE)('Bug #14414 — crearEmpresaDesdeTramite arranca SOAT
     expect(await tx`SELECT 1 FROM clients WHERE document = ${nit}`).toHaveLength(0);
     expect(await tx`SELECT 1 FROM flito_tramite_historial WHERE tramite_id = ${t.id}`).toHaveLength(0);
   }));
+});
+
+describe.skipIf(!URL_BASE)('Bug #14414 — migración 0253_pdn (backport a PDN de la 0291) repara los afectados', () => {
+  const aplicar = (tx: Tx) => tx.unsafe(SQL_REPARACION);
+
+  it('huella de usuario, FLIT 2 Asignado con comprador → repara y deja rastro; la segunda corrida no hace nada', conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const c = await compania(tx);
+    const t = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', valor: '98765.40' });
+
+    await aplicar(tx);
+
+    const e = await estadoDe(tx, t.id);
+    expect(e.soat_estado).toBe('pendiente');
+    expect(e.proveedor_soat_id).toBeNull();
+    expect(e.proveedor_sobrescrito).toBe(false);
+    expect(e.soat_excepcion).toBe(false);
+    expect(e.impuesto_estado).toBe('pendiente');
+    expect(e.impuesto_excepcion).toBe(false);
+    expect(e.modalidad).toBe('requiere_gestion');
+    expect(e.valor_liquidado).toBe('98765.40');
+
+    const hist = await tx`SELECT concepto, estado_anterior, estado_nuevo, origen, motivo, usuario_id FROM flito_estado_historial
+      WHERE registro_id IN (${e.soat_id as string}, ${e.impuesto_id as string}) ORDER BY concepto`;
+    expect(hist.map((h) => h.concepto)).toEqual(['impuesto', 'soat']);
+    for (const h of hist) {
+      expect(h).toMatchObject({ estado_anterior: null, estado_nuevo: 'pendiente', origen: 'sistema', usuario_id: null });
+      expect(h.motivo).toContain('Bug #14414');
+      expect(h.motivo).toContain(t.idFlit);
+    }
+    const auditoria = await tx`SELECT resource, action::text AS action, user_id, user_email, detail FROM audit_logs
+      WHERE resource_id IN (${e.soat_id as string}, ${e.impuesto_id as string}) ORDER BY resource`;
+    expect(auditoria.map((a) => a.resource)).toEqual(['flito_impuesto', 'flito_soat']);
+    for (const a of auditoria) {
+      expect(a).toMatchObject({ action: 'create', user_id: null, user_email: 'sistema' });
+      expect(a.detail).toContain('Bug #14414');
+    }
+
+    const contar = async () => {
+      const [n] = await tx`SELECT
+        (SELECT count(*)::int FROM flito_soat WHERE compania_id = ${c.id}) AS soat,
+        (SELECT count(*)::int FROM flito_impuestos WHERE compania_id = ${c.id}) AS impuestos,
+        (SELECT count(*)::int FROM flito_estado_historial WHERE registro_id IN (${e.soat_id as string}, ${e.impuesto_id as string})) AS historial,
+        (SELECT count(*)::int FROM audit_logs WHERE resource_id IN (${e.soat_id as string}, ${e.impuesto_id as string})) AS auditoria`;
+      return n;
+    };
+    const antes = await contar();
+    await aplicar(tx);
+    expect(await contar()).toEqual(antes);
+  }));
+
+  it.each<[string, Partial<OpcTramite> & { compania?: { soat?: boolean; impuestos?: boolean; activa?: boolean } }]>([
+    ['sin huella (un Asignado cualquiera con empresa)', { huella: null }],
+    ['huella de otro origen', { huella: 'api' }],
+    ['no está Asignado', { flitEstado: 'Aprobado' }],
+    ['enmascarado', { enmascarada: true }],
+    ['sin comprador principal', { comprador: false }],
+    ['compañía inactiva', { compania: { activa: false } }],
+    ['autogestiona ambos', { compania: { soat: true, impuestos: true } }],
+  ])('fuera de condición: %s → no crea', async (_n, { compania: bc, ...opc }) => conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const c = await compania(tx, bc);
+    const t = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', ...opc });
+    await aplicar(tx);
+    const e = await estadoDe(tx, t.id);
+    expect(e.soat_id).toBeNull();
+    expect(e.impuesto_id).toBeNull();
+  })());
+
+  it('comprador que no es el principal (orden 1) no cuenta', conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const c = await compania(tx);
+    const t = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', comprador: false });
+    await tx`INSERT INTO flito_compradores (tramite_id, nombre_completo, numero_documento, orden) VALUES (${t.id}, 'Otro', 'DOC-2', 1)`;
+    await aplicar(tx);
+    expect((await estadoDe(tx, t.id)).soat_id).toBeNull();
+  }));
+
+  it('FLIT 1 no exige comprador ni mira el enmascarado', conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const c = await compania(tx);
+    const t = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', fuente: 'flit', comprador: false, enmascarada: true });
+    await aplicar(tx);
+    expect((await estadoDe(tx, t.id)).soat_estado).toBe('pendiente');
+  }));
+
+  it('autogestión por concepto: SOAT propio → solo impuesto; impuesto propio → solo SOAT', conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const soatPropio = await compania(tx, { soat: true });
+    const impuestoPropio = await compania(tx, { impuestos: true });
+    const a = await tramite(tx, { organismo, nit: soatPropio.nit, companiaId: soatPropio.id, huella: 'usuario' });
+    const b = await tramite(tx, { organismo, nit: impuestoPropio.nit, companiaId: impuestoPropio.id, huella: 'usuario' });
+    await aplicar(tx);
+    const ea = await estadoDe(tx, a.id);
+    expect(ea.soat_id).toBeNull();
+    expect(ea.impuesto_estado).toBe('pendiente');
+    const eb = await estadoDe(tx, b.id);
+    expect(eb.soat_estado).toBe('pendiente');
+    expect(eb.impuesto_id).toBeNull();
+  }));
+
+  it.each<[string, 'autogestionado' | null]>([
+    ['modalidad autogestionado', 'autogestionado'],
+    ['sin vigencia abierta (default autogestionado)', null],
+  ])('%s → sin impuesto, con SOAT', async (_n, modalidad) => conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, modalidad);
+    const c = await compania(tx);
+    const t = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario' });
+    await aplicar(tx);
+    const e = await estadoDe(tx, t.id);
+    expect(e.soat_estado).toBe('pendiente');
+    expect(e.impuesto_id).toBeNull();
+  })());
+
+  it('`esAsignado` normaliza igual que JS: mayúsculas y blancos (también NBSP)', conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const c = await compania(tx);
+    const t = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', flitEstado: '  \tASIGNADO\n　' });
+    await aplicar(tx);
+    expect((await estadoDe(tx, t.id)).soat_estado).toBe('pendiente');
+  }));
+
+  it('SOAT actual del VIN: vincula el abierto aunque haya un pagado más reciente, sin duplicar', conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const c = await compania(tx);
+    const v = await vehiculo(tx);
+    const [abierto] = await tx`INSERT INTO flito_soat (vin, vehiculo_id, estado, compania_id, organismo_codigo, created_at)
+      VALUES (${v.vin}, ${v.id}, 'pendiente', ${c.id}, ${organismo}, now() - interval '2 days') RETURNING id`;
+    await tx`INSERT INTO flito_soat (vin, vehiculo_id, estado, compania_id, organismo_codigo, created_at)
+      VALUES (${v.vin}, ${v.id}, 'pagado', ${c.id}, ${organismo}, now() - interval '1 day')`;
+    const t = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', vehiculoId: v.id });
+    await aplicar(tx);
+    expect((await estadoDe(tx, t.id)).soat_id).toBe(abierto!.id);
+    expect(await soatsDelVin(tx, v.vin)).toHaveLength(2);
+  }));
+
+  it.each(['solicitado', 'pagado'])('SOAT del VIN en %s: vincula y audita el bloqueo una sola vez', async (estado) => conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const c = await compania(tx);
+    const v = await vehiculo(tx);
+    const [s] = await tx`INSERT INTO flito_soat (vin, vehiculo_id, estado, compania_id, organismo_codigo)
+      VALUES (${v.vin}, ${v.id}, ${estado}, ${c.id}, ${organismo}) RETURNING id`;
+    const t = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', vehiculoId: v.id });
+    await aplicar(tx);
+    await aplicar(tx);
+    expect((await estadoDe(tx, t.id)).soat_id).toBe(s!.id);
+    expect(await soatsDelVin(tx, v.vin)).toHaveLength(1);
+    const a = await tx`SELECT detail FROM audit_logs WHERE resource = 'flito_soat' AND resource_id = ${s!.id as string}`;
+    expect(a).toHaveLength(1);
+    expect(a[0]!.detail).toContain('Reencolado bloqueado');
+    expect(a[0]!.detail).toContain('Bug #14414');
+  })());
+
+  it('dos trámites del mismo VIN: un solo SOAT, vinculado a los dos', conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const c = await compania(tx);
+    const v = await vehiculo(tx);
+    const a = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', vehiculoId: v.id });
+    const b = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', vehiculoId: v.id });
+    await aplicar(tx);
+    expect(await soatsDelVin(tx, v.vin)).toHaveLength(1);
+    expect((await estadoDe(tx, a.id)).soat_id).toBe((await estadoDe(tx, b.id)).soat_id);
+  }));
+
+  it('impuesto ya existente: no duplica y solo completa el valor que falta', conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const c = await compania(tx);
+    const t = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', valor: '500.00' });
+    await tx`INSERT INTO flito_impuestos (tramite_id, estado, organismo_codigo, compania_id, modalidad_aplicada)
+      VALUES (${t.id}, 'con_novedad', ${organismo}, ${c.id}, 'requiere_gestion')`;
+    await aplicar(tx);
+    const e = await estadoDe(tx, t.id);
+    expect(e.impuesto_estado).toBe('con_novedad');
+    expect(e.valor_liquidado).toBe('500.00');
+  }));
+
+  // Paridad: cada caso se contrasta con la función real, no solo con el resultado esperado escrito a mano.
+  const anterior = ANIO - 1;
+  const casos: Array<[string, { estado: string; extraccion?: unknown; pagadoEn?: string; estadoTramite?: string }, boolean]> = [
+    ['pagado con año OCR (texto) en curso', { estado: 'pagado', extraccion: { anioGravable: { valor: String(ANIO) } } }, true],
+    ['pagado con año OCR (número) en curso', { estado: 'pagado', extraccion: { anioGravable: { valor: ANIO } } }, true],
+    ['pagado con año OCR anterior', { estado: 'pagado', extraccion: { anioGravable: { valor: String(anterior) } }, pagadoEn: `${ANIO}-06-15T12:00:00Z` }, false],
+    ['pagado con OCR inválido cae al año de pagado_en', { estado: 'pagado', extraccion: { anioGravable: { valor: '20a6' } }, pagadoEn: `${ANIO}-06-15T12:00:00Z` }, true],
+    ['pagado con número de OCR fuera de rango cae a pagado_en', { estado: 'pagado', extraccion: { anioGravable: { valor: 202600 } }, pagadoEn: `${anterior}-06-15T12:00:00Z` }, false],
+    ['pagado con número decimal de OCR cae a pagado_en', { estado: 'pagado', extraccion: { anioGravable: { valor: ANIO + 0.5 } } }, false],
+    ['pagado el 1-ene UTC cuenta en el año anterior de Colombia', { estado: 'pagado', pagadoEn: `${ANIO}-01-01T02:00:00Z` }, false],
+    ['pagado sin año no bloquea', { estado: 'pagado' }, false],
+    ['pagado en trámite anulado sigue bloqueando', { estado: 'pagado', pagadoEn: `${ANIO}-06-15T12:00:00Z`, estadoTramite: 'anulado' }, true],
+    ['solicitado sin año cuenta como del año en curso', { estado: 'solicitado' }, true],
+    ['solicitado de otro año no bloquea', { estado: 'solicitado', extraccion: { anioGravable: { valor: String(anterior) } } }, false],
+    ['solicitado en trámite anulado no bloquea', { estado: 'solicitado', estadoTramite: 'anulado' }, false],
+    ['solicitado en trámite rechazado no bloquea', { estado: 'solicitado', estadoTramite: 'rechazado' }, false],
+    ['pendiente no bloquea', { estado: 'pendiente' }, false],
+    ['con novedad no bloquea', { estado: 'con_novedad' }, false],
+  ];
+
+  it.each(casos)('impuesto del vehículo — %s', async (_n, otro, bloquea) => conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const c = await compania(tx);
+    const v = await vehiculo(tx);
+    const previo = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, vehiculoId: v.id, estado: otro.estadoTramite ?? null });
+    const [i] = await tx`INSERT INTO flito_impuestos (tramite_id, estado, organismo_codigo, compania_id, modalidad_aplicada, extraccion, pagado_en)
+      VALUES (${previo.id}, ${otro.estado}, ${organismo}, ${c.id}, 'requiere_gestion',
+        ${otro.extraccion === undefined ? null : JSON.stringify(otro.extraccion)}::jsonb, ${otro.pagadoEn ?? null}) RETURNING id`;
+    const t = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', vehiculoId: v.id });
+
+    const real = await impuestoBloqueantePorVehiculo(actual.db as never, v.id, anioGravableEnCurso(), t.id);
+    expect(real !== undefined).toBe(bloquea);
+
+    await aplicar(tx);
+    const e = await estadoDe(tx, t.id);
+    expect(e.impuesto_id !== null).toBe(!bloquea);
+    const a = await tx`SELECT detail FROM audit_logs WHERE resource = 'flito_impuesto' AND resource_id = ${i!.id as string}`;
+    expect(a).toHaveLength(bloquea ? 1 : 0);
+    if (bloquea) expect(a[0]!.detail).toContain('Alta bloqueada');
+    if (bloquea) await aplicar(tx);
+    if (bloquea) expect(await tx`SELECT 1 FROM audit_logs WHERE resource = 'flito_impuesto' AND resource_id = ${i!.id as string}`).toHaveLength(1);
+  })());
+
+  it('un trámite que choca con un índice único se revierte solo él y el resto se repara', conBase(async (tx) => {
+    const organismo = await organismoConModalidad(tx, 'requiere_gestion');
+    const c = await compania(tx);
+    const v = await vehiculo(tx);
+    // Otro SOAT abierto del MISMO vehículo con otro VIN: no es «el actual del VIN» y `uq_flito_soat_vehiculo_abierto` impide el alta.
+    await tx`INSERT INTO flito_soat (vin, vehiculo_id, estado, compania_id, organismo_codigo)
+      VALUES (${`Z${SUFIJO}${++secuencia}`}, ${v.id}, 'pendiente', ${c.id}, ${organismo})`;
+    const choca = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario', vehiculoId: v.id });
+    const sano = await tramite(tx, { organismo, nit: c.nit, companiaId: c.id, huella: 'usuario' });
+
+    await aplicar(tx);
+
+    const e = await estadoDe(tx, choca.id);
+    expect(e.soat_id).toBeNull();
+    expect(e.impuesto_id).toBeNull();
+    expect((await estadoDe(tx, sano.id)).soat_estado).toBe('pendiente');
+  }));
+});
+
+describe('0253_pdn — análisis estático', () => {
+  const limpio = SQL_REPARACION.replace(/--[^\n]*/g, '');
+  it('alcance estrecho: exige la huella de usuario', () => {
+    expect(limpio).toContain("h.campo = 'compania_id' AND h.origen = 'usuario'");
+  });
+  it('sin control de transacción fuera del DO (ADR-DB-001)', () => {
+    expect(limpio.split('DO $$')[0]!.trim()).toBe('');
+    expect(limpio).not.toMatch(/\b(COMMIT|ROLLBACK)\b/);
+  });
+  it('no marca excepción de autogestión ni pre-asigna proveedor', () => {
+    expect(limpio).not.toContain('excepcion_autogestion');
+    expect(limpio).toMatch(/proveedor_soat_id, proveedor_sobrescrito\)\s+VALUES \(t\.vin, t\.vehiculo_id, 'pendiente', t\.compania_id, t\.organismo_codigo, NULL, false\)/);
+  });
 });
