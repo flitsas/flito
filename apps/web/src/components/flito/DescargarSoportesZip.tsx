@@ -56,9 +56,11 @@ import {
  * que el esquema `.strict()` del endpoint valida el cuerpo, así que un valor inventado en esta
  * pantalla es un error de compilación y no un 400 en producción.
  *
- * `RECIBO_IMPUESTO` cubre el recibo CON y SIN marca de agua —el servidor resuelve al limpio y cae al
- * marcado—: son dos filas de `TipoSoporte` pero una sola cosa para quien concilia, y una tercera
- * casilla obligaría al usuario a saber qué es una marca de agua.
+ * **El recibo del impuesto son DOS opciones y sin caída cruzada (Bug #14532).** Antes una sola casilla
+ * «Recibo del impuesto» resolvía al recibo limpio y caía al marcado, y quien concilia no podía pedir
+ * uno sin el otro. Ahora «Liquidación» (`LIQUIDACION_IMPUESTO`, el recibo sin sello) y «Pagado»
+ * (`PAGO_IMPUESTO`, el recibo con el sello PAGADO) son casillas separadas: si el registro no tiene el
+ * que se pidió, no se sustituye por el otro, se declara como faltante.
  */
 export interface OpcionTipoZip {
   valor: TipoSoporteZip;
@@ -66,7 +68,7 @@ export interface OpcionTipoZip {
   rotulo: string;
   /** La línea de ayuda de la opción, atada por `aria-describedby`. */
   ayuda: string;
-  /** Cómo se nombra en la frase del aviso: «…tenían recibo del impuesto; las otras 3 no». */
+  /** Cómo se nombra en la frase del aviso: «…tenían liquidación; las otras 3 no». */
   enFrase: string;
 }
 
@@ -76,11 +78,17 @@ const FACTURA_VENTA: OpcionTipoZip = {
   ayuda: 'La que emite el concesionario y llega de FLIT.',
   enFrase: 'factura de venta',
 };
-const RECIBO_IMPUESTO: OpcionTipoZip = {
-  valor: TipoSoporteZip.RECIBO_IMPUESTO,
-  rotulo: 'Recibo del impuesto',
-  ayuda: 'El comprobante que el organismo emite al pagar.',
-  enFrase: 'recibo del impuesto',
+const LIQUIDACION: OpcionTipoZip = {
+  valor: TipoSoporteZip.LIQUIDACION_IMPUESTO,
+  rotulo: 'Liquidación',
+  ayuda: 'La liquidación del impuesto que emite el organismo, sin sello de pago.',
+  enFrase: 'liquidación',
+};
+const PAGADO: OpcionTipoZip = {
+  valor: TipoSoporteZip.PAGO_IMPUESTO,
+  rotulo: 'Pagado',
+  ayuda: 'El recibo con el sello PAGADO del organismo.',
+  enFrase: 'soporte de pagado',
 };
 const FACTURA_SOAT: OpcionTipoZip = {
   valor: TipoSoporteZip.FACTURA_SOAT,
@@ -122,7 +130,7 @@ export const ZIP_SOAT: SuperficieZip = {
 
 export const ZIP_IMPUESTOS: SuperficieZip = {
   ruta: '/flito/impuestos/soportes/zip',
-  tipos: [FACTURA_VENTA, RECIBO_IMPUESTO],
+  tipos: [FACTURA_VENTA, LIQUIDACION, PAGADO],
   tiposEnElCuerpo: true,
   contenidoZip: 'Se descarga un solo ZIP con un PDF por registro, nombrado con la placa (por ejemplo, '
     + 'ABC123.pdf). Si un documento viene protegido y no se puede unir, va aparte, tal cual, como ABC123-2.pdf.',
@@ -130,7 +138,7 @@ export const ZIP_IMPUESTOS: SuperficieZip = {
 
 export const ZIP_TRAMITES: SuperficieZip = {
   ruta: '/flito/tramites/soportes/zip',
-  tipos: [FACTURA_VENTA, RECIBO_IMPUESTO, FACTURA_SOAT],
+  tipos: [FACTURA_VENTA, LIQUIDACION, PAGADO, FACTURA_SOAT],
   tiposEnElCuerpo: true,
   notaTransicion: 'Antes este botón traía solo las facturas de venta. Ahora eliges qué documentos entran.',
   contenidoZip: 'Se descarga un solo ZIP con un PDF por trámite, nombrado con la placa (por ejemplo, '
@@ -458,8 +466,11 @@ export function DescargarSoportesZip(
       )}
       {abierto && (
         <DialogoTipos
-          superficie={superficie}
-          marcadas={ids.length}
+          titulo="Documentos del ZIP"
+          leyenda={`Qué se descarga de las ${ids.length} filas marcadas`}
+          tipos={superficie.tipos}
+          notaTransicion={superficie.notaTransicion}
+          nota={superficie.contenidoZip}
           onCancelar={() => setAbierto(false)}
           onConfirmar={(tipos) => {
             // Se cierra ANTES de lanzar: un ZIP de 100 PDF puede tardar y retener la pantalla tras
@@ -487,16 +498,26 @@ export function DescargarSoportesZip(
  *
  * **Todas las casillas marcadas por defecto**: el caso frecuente es «todo lo que tengan estas filas»
  * y así el gesto memorizado del botón viejo de Trámites sigue trayendo su factura de venta.
+ *
+ * **Exportado desde el Bug #14532**: la descarga individual de Impuestos (`DescargarSoporteImpuesto`)
+ * abre ESTE diálogo con las mismas casillas, solo cambian el título, la leyenda y la nota. Un solo
+ * diálogo para las dos superficies, para que «Liquidación» signifique lo mismo en la fila y en el ZIP.
  */
-function DialogoTipos(
-  { superficie, marcadas, onCancelar, onConfirmar }:
+export function DialogoTipos(
+  { titulo, leyenda, tipos, notaTransicion, nota, onCancelar, onConfirmar }:
   {
-    superficie: SuperficieZip; marcadas: number;
+    titulo: string;
+    /** El `legend` del grupo: de qué filas o de qué registro son los documentos. */
+    leyenda: string;
+    tipos: OpcionTipoZip[];
+    notaTransicion?: string;
+    /** Qué se descarga y cómo se nombran los archivos. */
+    nota?: string;
     onCancelar: () => void; onConfirmar: (tipos: TipoSoporteZip[]) => void;
   },
 ) {
   const [elegidos, setElegidos] = useState<TipoSoporteZip[]>(
-    () => superficie.tipos.map((t) => t.valor),
+    () => tipos.map((t) => t.valor),
   );
   const sinTipos = elegidos.length === 0;
 
@@ -507,11 +528,11 @@ function DialogoTipos(
   );
 
   return (
-    <FlitModal title="Documentos del ZIP" onClose={onCancelar}>
+    <FlitModal title={titulo} onClose={onCancelar}>
       <div className="space-y-4">
-        {superficie.notaTransicion && (
+        {notaTransicion && (
           <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            {superficie.notaTransicion}
+            {notaTransicion}
           </p>
         )}
 
@@ -519,9 +540,9 @@ function DialogoTipos(
             una a una con lector: sin él, «Factura de venta» llega sola y sin decir de qué filas. */}
         <fieldset className="space-y-3">
           <legend className="mb-2 text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>
-            Qué se descarga de las {marcadas} filas marcadas
+            {leyenda}
           </legend>
-          {superficie.tipos.map((t) => (
+          {tipos.map((t) => (
             <label key={t.valor} className="flex cursor-pointer items-start gap-2 text-sm">
               <input
                 type="checkbox"
@@ -544,9 +565,9 @@ function DialogoTipos(
           ))}
         </fieldset>
 
-        {superficie.contenidoZip && (
+        {nota && (
           <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-            {superficie.contenidoZip}
+            {nota}
           </p>
         )}
 
