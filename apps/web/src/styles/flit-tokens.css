@@ -125,12 +125,20 @@
      gris claro. Los ratios los mide `check:contraste` en los dos temas. */
   --flit-chip-success-bg: #EBF8E3;
   --flit-chip-active-bg: #E6ECF7;
-  --flit-chip-warning-bg: #FDE8E3;
+  /* Épica #13763: crema cálida y no rosa. Con el rosa de antes, «atención» se leía como rojo (el
+     humano lo vio en «Rechazada por la DIAN»), y el rojo no se usa en el sistema. */
+  --flit-chip-warning-bg: #FDF0E0;
   --flit-chip-danger-bg: #FBE4E2;
   --flit-chip-draft-bg: #E8EAED;
   --flit-chip-neutral-bg: #EFF1F3;
   --flit-chip-draft-ink: #59677D;
   --flit-chip-neutral-ink: #646E82;
+  /* Tinta de los chips de color (Épica #13763). En claro valen el `-ink` de marca —el chip claro
+     no cambia en ninguna pantalla—; en oscuro se aclaran junto con su fondo (ver el bloque oscuro). */
+  --flit-chip-success-ink: #3C7C17;
+  --flit-chip-active-ink: #4264B7;
+  --flit-chip-warning-ink: #B94120;
+  --flit-chip-danger-ink: #C02F24;
 
   /* Gradientes — nivel TINTA, por la misma causa raíz que las variantes -ink de aquí arriba.
      Bug #11766: los cuatro se definieron como superficie decorativa y terminaron siendo el mayor
@@ -282,14 +290,22 @@
   --flit-success-text: #9BDB6E;
   --flit-warning-text: #F2B266;
   --flit-pill-active-ink: #9DBCF7;
-  --flit-chip-success-bg: #EBF8E3;
-  --flit-chip-active-bg: #E6ECF7;
-  --flit-chip-warning-bg: #FDE8E3;
-  --flit-chip-danger-bg: #FBE4E2;
-  --flit-chip-draft-bg: #E8EAED;
-  --flit-chip-neutral-bg: #EFF1F3;
-  --flit-chip-draft-ink: #59677D;
-  --flit-chip-neutral-ink: #646E82;
+  /* Épica #13763: los chips dejan de ser pastel en oscuro. Sobre la tarjeta oscura una pastilla
+     casi blanca deslumbraba y rompía la jerarquía (el humano lo vio en el Reporte de costos). Fondo
+     del mismo matiz, oscuro y opaco, y la tinta aclarada a los `-text` del tema. Ratios en
+     `check:contraste` (tinta sobre el fondo del propio chip). */
+  --flit-chip-success-bg: #1F3B2A;
+  --flit-chip-active-bg: #22365C;
+  --flit-chip-warning-bg: #3D2E1A;
+  --flit-chip-danger-bg: #3E2328;
+  --flit-chip-draft-bg: #2A3850;
+  --flit-chip-neutral-bg: #26354D;
+  --flit-chip-draft-ink: #BCC8DA;
+  --flit-chip-neutral-ink: #A1AEC2;
+  --flit-chip-success-ink: #9BDB6E;
+  --flit-chip-active-ink: #9DBCF7;
+  --flit-chip-warning-ink: #F2B266;
+  --flit-chip-danger-ink: #F4A097;
 
   /* Texto. `muted` conserva el #93A0B5 que el Bug #11720 midió sobre el píxel real de la paleta
      en oscuro: ese hex ya estaba validado contra este mismo sustrato, así que reabsorberlo como

@@ -1295,9 +1295,10 @@ const SEIS_FILAS = {
   total: 6, page: 1, pageSize: 50,
 };
 const TONO_POR_TINTA: Record<string, string> = {
-  'var(--flit-success-ink)': 'success', 'var(--flit-blue-ink)': 'active', 'var(--flit-warning-ink)': 'warning',
+  // Épica #13763: la tinta de los chips de color pasó a sus tokens `--flit-chip-*-ink`, con par oscuro.
+  'var(--flit-chip-success-ink)': 'success', 'var(--flit-chip-active-ink)': 'active', 'var(--flit-chip-warning-ink)': 'warning',
   // HU #12819: la tinta de `neutral` pasó a su token de chip, con par oscuro legible.
-  'var(--flit-chip-neutral-ink)': 'neutral', 'var(--flit-danger-ink)': 'danger',
+  'var(--flit-chip-neutral-ink)': 'neutral', 'var(--flit-chip-danger-ink)': 'danger',
 };
 const tonoDe = (chip: Locator) => chip.evaluate((el) => (el as HTMLElement).style.color).then((c) => TONO_POR_TINTA[c] ?? c);
 const selectorAsociacion = (page: Page) => page.getByRole('combobox', { name: 'Estado de asociación' });
