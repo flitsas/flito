@@ -2,6 +2,7 @@
 
 - **Estado:** Propuesto (pendiente de aprobación del Líder Técnico)
 - **Fecha:** 2026-11-11
+- **Enmienda 1 (2026-11-11, Propuesta):** §13 «Costo de proveedor en el trámite» reescribe **R8** — el costo pasa a leerse en el reporte de costos y a congelarse al sellar, sin sumar a nada de lo que se cobra (C1–C8). Donde este documento diga «R8: ningún proceso lee estos valores», manda §13.
 - **Épica:** ADO #13763 «Tarifas: valores que cobra cada proveedor». **Sin Features ni HUs en ADO por instrucción explícita del humano**; el criterio de aceptación son las reglas R1–R9 acordadas con él (se citan como `R1`…`R9`).
 - **Rama:** `FEATURE/13763-davidchica-tarifas-proveedores`
 - **Módulos:** FLITO `flito-parametrizacion` (servicio y router nuevos), `db/schema/flito-proveedores.ts`, `packages/shared-types`, `apps/web` página `FlitoTarifas`. **No toca** los legacy `soat`, `tramites`, `liquidacion`, ni la tarifa al cliente (`flito_tarifas_vigencias`), ni ningún proceso (SOAT, liquidación, entregas) — R1, R8.
@@ -339,3 +340,308 @@ Por debajo de ~1 500 y sin backend de riesgo (sin PII, sin auth nueva, sin multe
 - **P-3 — Confirmación de $0.** Propuesta D4: sin confirmación. Confirmar o pedir el mismo `confirmarCero` de la tarifa al cliente.
 - **R-1:** las descripciones de `parametrizacion.tarifas.listar` («lo que se le cobra a cada compañía») no mencionan proveedores. Cambiarlas exigiría tocar la siembra de `permisos_funciones`; se deja como deuda visible (Nota), no en este Feature.
 - **R-2:** un administrador puede conceder `accion.tarifas.*` a un rol con enlace `proveedor` (el panel solo avisa). La frontera lo anula por HTTP; si se quiere bloqueo duro en el panel, es otro cambio sobre permisos, fuera del alcance.
+
+---
+
+## 13. Enmienda 1 — Costo de proveedor en el trámite (Propuesta)
+
+- **Estado:** Propuesto (pendiente de aprobación del Líder Técnico). No supersede ADRs aceptados; reescribe la R8 de este mismo ADR, que sigue Propuesto.
+- **Origen:** decisión del humano en sesión (C1–C8). Sin Azure DevOps por instrucción explícita.
+- **Módulos que habla:** FLITO `finanzas` (reporte de costos: `/api/finanzas/reporte-costos*`, montado **sin** `conAlcance`), `flito-liquidacion` (sellado), `flito-parametrizacion` (solo lectura de `flito_tarifas_proveedor_vigencias` vía `vigenteEn`). Lee, sin modificar, `flito_soat`, `flito_logistica_*`. **No toca** legacy `liquidacion`, `soat`, `tramites`, ni Siigo/facturación, ni `flito_tarifas_vigencias`.
+
+### 13.1 R8 reescrita
+
+> **R8 (nueva).** El costo de proveedor es un valor **informativo** del trámite: se muestra en el reporte de costos (tabla de detalle, columnas configurables y Excel) y se congela en el `detalle` de la liquidación al sellar. **Nunca** entra en `EXPR_TOTAL`, `EXPR_BASE_GMF`, subtotales RN-02 (reintegro/servicio), `TotalesReporte`, consolidado de cobro, `faltantes`, `EXPR_BLOQUEADA`, `noConfigurados`, salidas de bolsa ni Siigo. Ninguna ruta abierta a un enlace (`proveedor`, `compania`, `organismos_transito`) lo proyecta.
+
+Consecuencias en el resto del ADR: la nota de §11 «no exportar nada que lea esta tabla» queda sustituida por §13.4 (un único lector: `finanzas.costos-proveedor.ts`). D7 (vigencia latente al quitar un servicio) sigue igual: la vigencia la elige la **fecha del evento**, no el servicio vigente hoy; un acta de un proveedor al que luego se le quitó el servicio sigue costando lo que estaba vigente ese día.
+
+### 13.2 Reglas (C1–C8, del humano) y su lectura técnica
+
+| # | Regla | Cómo se implementa |
+|---|---|---|
+| C1 | Columnas nuevas, no suman | Campos nuevos en `FilaReporte`; ninguna `EXPR_*` existente los referencia. Test de no-regresión: mismo universo con y sin vigencias de proveedor ⇒ `total`, `gmf`, `totalReintegro`, `totalServicio`, `TotalesReporte` y consolidado **idénticos** |
+| C2 | SOAT con trámite | `flito_tramites.soat_id → flito_soat.proveedor_soat_id`; vigencia `soat_con_tramite` en `COALESCE(flito_soat.enviado_en, now())` (misma forma que RN-07 con `fecha_aprobacion`; ver duda H-1). `gestion_operaciones = true` ⇒ `gestionado_operaciones`; sin proveedor, sin SOAT o FLITO no gestiona el SOAT (`GESTIONA_SOAT` falso) ⇒ `sin_proveedor` |
+| C3 | SOAT compartido | «Primero» = el trámite con menor `(created_at, id)` entre los que tienen ese `soat_id` (todos, sin filtrar por el reporte). Los demás ⇒ `ya_contado` con `contadoEnTramiteId` / `contadoEnIdFlit`. Determinista y estable: `created_at` no cambia en el resync |
+| C4 | Logística, valor fijo por trámite | Primera entrega (`ORDER BY a.entregado_en, a.id`) de una línea `flito_logistica_traslado_lts.estado='entregado'` de un documento `tipo='licencia_transito'` del trámite (cualquier destino, `flit` o `cliente`, igual que `cobra()` de `trasladosDe`). Proveedor = `flito_logistica_actas.proveedor_logistica_id` del acta del traslado (una por traslado: `actaDeTraslado`). Vigencia `logistica` en `a.entregado_en`. **Exclusión del proveedor por defecto falso** (ADR-0039 §1.1): el **mismo** criterio que `actasDelProveedor` (`flito-logistica.alcance.ts:46-51`) — traslado `legado` o acta con `created_at` anterior a `flito_logistica_corte_proveedor.corte_en` ⇒ esa entrega no tiene proveedor válido. Si la **primera** entrega está excluida o tiene proveedor NULL ⇒ `sin_proveedor` (ver duda H-3). `GESTIONA_LOGISTICA` falso (autogestionada sin excepción) ⇒ `sin_proveedor`. Viajes adicionales y entregas posteriores no cambian el valor |
+| C5 | SOAT sin trámite | Fuera. El concepto `soat_sin_tramite` no se lee |
+| C6 | Congelar al sellar | `liquidar()` escribe `detalle.costosProveedor` (§13.6). Sellados anteriores sin la clave ⇒ cálculo en vivo con `estado='estimado'` cuando el vivo da valor (§13.5) |
+| C7 | «Sin configurar» avisa | Estado propio `sin_configurar` (proveedor resuelto, sin vigencia en la fecha del evento). No entra en `EXPR_BLOQUEADA`, `EXPR_INCOMPLETA`, `filasIncompletas`, `noConfigurados` ni `faltantes`. Filtro nuevo `costoProveedorSinConfigurar` |
+| C8 | El proveedor no lo ve | `/api/finanzas/*` y `/api/flito/liquidacion/*` se montan **sin** `conAlcance` (`app.ts:293,320`) ⇒ `guardiaFrontera` (`frontera-enlace.ts:199-221`) da 403 a todo enlace ≠ `ninguno`, aunque su rol tenga `finanzas.reporte_costos.ver`. Verificado en código; se fija con test (§13.9). Ninguna ruta con `conAlcance` lee `costosProveedor` ni la tabla de vigencias. `LiquidacionDto` **no** expone la clave (§13.6) |
+
+### 13.3 Alternativas para el cálculo
+
+#### Opción A — Expresiones SQL correlacionadas, compuestas en `SELECT_FILA` desde un archivo propio (RECOMENDADA)
+
+Un `jsonb_build_object` por concepto (una subconsulta escalar correlacionada para SOAT y otra para logística), con `CASE` sellado/vivo, exportado como `SELECT_COSTOS_PROVEEDOR` y `EXPR_*` desde `finanzas.costos-proveedor.ts`. Es exactamente el patrón de `SELECT_CONCILIACION_SOAT` y `SELECT_VALORES_DOCUMENTALES` (subconsultas correlacionadas, no joins, para no multiplicar filas).
+
+| | |
+|---|---|
+| **Pros** | Una sola definición para página, exportación (20 000 filas), filtro `sin_configurar` y conteo: el filtro pagina bien porque está en el `WHERE`. Las subconsultas escalares en el `SELECT` solo se evalúan para las filas proyectadas (50 por página): el conteo y los totales no las pagan salvo con el filtro activo. Sin cambios en `conJoins` (no altera el plan de conteo/totales/consolidado). El sellado reutiliza la misma expresión vía una consulta mínima (`flito_tramites ⟕ flito_soat` por id), sin duplicar la regla en TS |
+| **Contras** | SQL largo; el `jsonb` se parsea en `aFila`. Las expresiones necesitan `GESTIONA_SOAT`/`GESTIONA_LOGISTICA`, que viven en `finanzas.service.ts` → se pasan como parámetro (función fábrica) para no crear el ciclo de imports `flito-liquidacion → costos-proveedor → finanzas.service → flito-liquidacion` |
+| **Esfuerzo** | **M** |
+| **Riesgos** | Rendimiento con el filtro activo sobre el universo entero (N × 2 subconsultas indexadas). Mitigado con el índice de §13.8 y medido con `EXPLAIN ANALYZE` en la BD local (nota a backend) |
+
+#### Opción B — Vista `flito_costos_proveedor_tramite_v` (una fila por trámite) unida en `conJoins`
+
+| | |
+|---|---|
+| **Pros** | SQL legible y reutilizable por cualquier lector; consultable a mano |
+| **Contras** | La regla queda en una migración: cada ajuste (H-1..H-4) es `CREATE OR REPLACE VIEW` nueva y deriva entre el SQL en disco y el TS. No puede usar `vigenteEn` ni `GESTIONA_*` (que son TS): se duplican en SQL y divergen. Unirla en `conJoins` la mete también en el conteo, los totales y el consolidado (LEFT JOIN de vista no se elimina si tiene agregados/`DISTINCT ON`) |
+| **Esfuerzo** | **M** |
+| **Riesgos** | Medios: dos definiciones de «gestiona» (lo que AGENTS y la cabecera de `finanzas.service.ts` piden evitar). Drift de vista en un rollout con pods viejos |
+
+#### Opción C — Función TS por lote (`costosProveedorDe(tramiteIds[])`) tras paginar
+
+| | |
+|---|---|
+| **Pros** | Lógica en TS, fácil de testear unitariamente; consultas simples |
+| **Contras** | El filtro `sin_configurar` (C7) no se puede aplicar en el `WHERE`: o rompe la paginación (filtrar después de paginar) o obliga a calcular todo el universo en memoria. La exportación (20 000 filas) necesita lotes. El sellado y el reporte podrían divergir si el lote y la consulta de `liquidar()` no comparten el SQL |
+| **Esfuerzo** | **S–M** |
+| **Riesgos** | Altos para C7: filtro que miente sobre el total |
+
+**Decisión recomendada: Opción A.** Qué la cambiaría: que el humano pidiera **sumar** costos de proveedor en `TotalesReporte` o en el consolidado sobre el universo entero (hoy C1 lo excluye); entonces se mediría y, si no cabe, se pasaría a una columna materializada en una migración aparte.
+
+### 13.4 Expresiones (para `backend-agent`; esbozo, no código final)
+
+Archivo nuevo `apps/api/src/modules/finanzas/finanzas.costos-proveedor.ts`. Imports: esquema, `vigenteEn` (de `flito-tarifas.service.ts`, que no importa finanzas: sin ciclo). **No** importa `finanzas.service.ts`.
+
+```ts
+export function exprCostosProveedor(g: { gestionaSoat: SQL; gestionaLogistica: SQL }): { soatVivo: SQL; logisticaVivo: SQL };
+export function exprCostosProveedorReporte(g): { soat: SQL; logistica: SQL };   // CASE sellado / vivo + 'estimado'
+export const SELECT_COSTOS_PROVEEDOR /* fábrica: { costoProveedorSoat, costoProveedorLogistica } jsonb */;
+export const EXPR_COSTO_PROVEEDOR_SIN_CONFIGURAR /* fábrica */;
+export function costosProveedorDeFila(r): Pick<FilaReporte, 'costoProveedorSoat' | 'costoProveedorLogistica' | 'costoProveedorTotal'>;
+export async function costosProveedorParaSellar(ej: Ejecutor, tramiteId: string, g: { gestionaSoat: boolean; gestionaLogistica: boolean }): Promise<CostosProveedorSellados>;
+```
+
+SOAT vivo (orden de los `WHEN` = prioridad de estados):
+
+```sql
+CASE
+  WHEN t.soat_id IS NULL OR NOT <GESTIONA_SOAT>                  THEN {estado:'sin_proveedor'}
+  WHEN s.gestion_operaciones                                     THEN {estado:'gestionado_operaciones'}
+  WHEN s.proveedor_soat_id IS NULL                               THEN {estado:'sin_proveedor'}
+  WHEN p1.id <> t.id  -- p1 = (SELECT id, id_flit FROM flito_tramites WHERE soat_id = t.soat_id ORDER BY created_at, id LIMIT 1)
+                                                                 THEN {estado:'ya_contado', contadoEnTramiteId, contadoEnIdFlit}
+  ELSE (SELECT jsonb_build_object('estado', CASE WHEN v.id IS NULL THEN 'sin_configurar' ELSE 'costo' END,
+          'proveedorId', p.id, 'proveedor', p.nombre, 'vigenciaId', v.id, 'valor', v.valor,
+          'fechaReferencia', COALESCE(s.enviado_en, now()))
+        FROM flito_proveedores p
+        LEFT JOIN flito_tarifas_proveedor_vigencias v ON v.proveedor_id = p.id AND v.concepto = 'soat_con_tramite'
+             AND <vigenteEn(v, s.enviado_en)>
+        WHERE p.id = s.proveedor_soat_id)
+END
+```
+
+Logística vivo:
+
+```sql
+CASE WHEN NOT <GESTIONA_LOGISTICA> THEN {estado:'sin_proveedor'}
+ELSE COALESCE((
+  SELECT CASE
+      WHEN tr.legado OR a.created_at < (SELECT corte_en FROM flito_logistica_corte_proveedor)
+           OR a.proveedor_logistica_id IS NULL                     THEN {estado:'sin_proveedor'}
+      ELSE jsonb_build_object('estado', CASE WHEN v.id IS NULL THEN 'sin_configurar' ELSE 'costo' END,
+             'proveedorId', p.id, 'proveedor', p.nombre, 'vigenciaId', v.id, 'valor', v.valor,
+             'fechaReferencia', a.entregado_en) END
+  FROM flito_logistica_documentos d
+  JOIN flito_logistica_traslado_lts l ON l.documento_id = d.id AND l.estado = 'entregado'
+  JOIN flito_logistica_traslados tr   ON tr.id = l.traslado_id
+  JOIN flito_logistica_actas a        ON a.traslado_id = tr.id AND a.entregado_en IS NOT NULL
+  LEFT JOIN flito_proveedores p       ON p.id = a.proveedor_logistica_id
+  LEFT JOIN flito_tarifas_proveedor_vigencias v ON v.proveedor_id = p.id AND v.concepto = 'logistica'
+       AND tstzrange(v.vigente_desde, v.vigente_hasta, '[)') @> a.entregado_en
+  WHERE d.tramite_id = t.id AND d.tipo = 'licencia_transito'
+  ORDER BY a.entregado_en, a.id
+  LIMIT 1), {estado:'sin_proveedor'})
+END
+```
+
+`{estado:'x'}` = `jsonb_build_object('estado','x', …resto en null)`: el objeto tiene **siempre** las mismas claves (contrato estable). Si el corte aún no existe en el ambiente (tabla vacía), la subconsulta da NULL y la comparación no excluye — mismo comportamiento que `desdeElCorte`; la 0298 lo siembra en todos los ambientes.
+
+Reporte (sellado manda, como `EXPR_*`; sin `COALESCE(sellado, vivo)` ciego):
+
+```sql
+CASE
+  WHEN liq.id IS NOT NULL AND jsonb_typeof(liq.detalle->'costosProveedor'->'soat') = 'object'
+    THEN liq.detalle->'costosProveedor'->'soat'
+  WHEN liq.id IS NOT NULL   -- sellado sin la clave, o concepto no congelado (null, §13.6)
+    THEN CASE WHEN <vivo>->>'estado' = 'costo' THEN <vivo> || '{"estado":"estimado"}' ELSE <vivo> END
+  ELSE <vivo>
+END
+```
+
+`EXPR_COSTO_PROVEEDOR_SIN_CONFIGURAR` = `(soat->>'estado' = 'sin_configurar' OR logistica->>'estado' = 'sin_configurar')`. Para no evaluar dos veces el `jsonb` en `WHERE` y `SELECT`, aceptable (solo con el filtro activo); si el `EXPLAIN` lo pide, envolver la consulta paginada en un CTE.
+
+### 13.5 Contrato (shared-types + `FilaReporte`)
+
+En `packages/shared-types/src/flito-tarifas-proveedor.ts` (ya existe en la rama `-api`; se amplía, no se crea otro archivo):
+
+```ts
+export const ESTADOS_COSTO_PROVEEDOR = ['costo', 'sin_configurar', 'sin_proveedor', 'gestionado_operaciones', 'ya_contado', 'estimado'] as const;
+export type EstadoCostoProveedor = (typeof ESTADOS_COSTO_PROVEEDOR)[number];
+/** Estados que se congelan al sellar (`estimado` solo existe al leer un sello sin la clave). */
+export type EstadoCostoProveedorSellado = Exclude<EstadoCostoProveedor, 'estimado'>;
+export const ETIQUETA_ESTADO_COSTO_PROVEEDOR: Readonly<Record<EstadoCostoProveedor, string>>;
+// 'Sin configurar' · 'Sin proveedor' · 'Gestionado por Operaciones' · 'Ya contado en el trámite {idFlit}' (la UI interpola) · 'Estimado'
+export interface CostoProveedorConcepto {
+  estado: EstadoCostoProveedor;
+  proveedorId: string | null;  proveedor: string | null;   // nombre de la empresa; sin NIT/contacto (D10)
+  vigenciaId: string | null;   valor: number | null;       // valor != null ⇔ estado ∈ {costo, estimado}
+  fechaReferencia: string | null;                          // ISO: enviado_en (SOAT) o entregado_en (logística) usada
+  contadoEnTramiteId: string | null; contadoEnIdFlit: string | null;  // solo ya_contado
+}
+export interface CostosProveedorSellados {                  // detalle.costosProveedor
+  version: 1;
+  soat: (CostoProveedorConcepto & { estado: EstadoCostoProveedorSellado }) | null;
+  logistica: (CostoProveedorConcepto & { estado: EstadoCostoProveedorSellado }) | null;
+}
+```
+
+`FilaReporte` (API, `finanzas.service.ts`) hereda una interfaz nueva `CostosProveedorDeFila` (patrón de `ConciliacionSoatDeFila`, para que el compilador exija rellenarla en `aFila`):
+
+```ts
+costoProveedorSoat: CostoProveedorConcepto;
+costoProveedorLogistica: CostoProveedorConcepto;
+/** Σ de los `valor` no nulos; null si ninguno tiene valor. Informativo: no entra en `total` (C1). */
+costoProveedorTotal: number | null;
+```
+
+`FiltrosReporte += costoProveedorSinConfigurar?: boolean` — query `costoProveedorSinConfigurar=true` en `GET /reporte-costos`, `/consolidado`, `/facturacion-electronica` (los comparte `filtrosDe`) y el mismo campo en el body de `POST /reporte-costos/export`. Booleano, sin PII. El consolidado lo acepta como filtro del universo pero **no** suma costos (C1). OpenAPI: `npm run contrato:generar`.
+
+Excel (`COLUMNAS_EXPORT_DETALLE`): siete columnas **al final** (Financiero pega el libro sobre el suyo; insertar en medio desplaza sus fórmulas): `Proveedor SOAT`, `Costo proveedor SOAT`, `Estado costo SOAT`, `Proveedor logística`, `Costo proveedor logística`, `Estado costo logística`, `Total costo proveedor`. Celda de valor vacía (no 0) cuando no hay valor, como el resto del libro. La hoja `Consolidado` no cambia.
+
+### 13.6 `detalle` de la liquidación
+
+`liquidar()` (dentro de la transacción, con `tx`) llama a `costosProveedorParaSellar(tx, tramiteId, { gestionaSoat, gestionaLogistica })` — los dos booleanos salen del mismo `calcular()` previo (la regla «gestiona» que ya decide si SOAT/logística bloquean), y la consulta usa las **mismas** expresiones vivas de §13.4. Se añade al objeto `detalle`:
+
+```ts
+detalle.costosProveedor = { version: 1, soat, logistica }   // CostosProveedorSellados
+```
+
+- Un concepto se congela con su estado **solo si es definitivo**: `costo`, `sin_configurar`, `gestionado_operaciones`, `ya_contado`, y `sin_proveedor` cuando no depende de un evento futuro (FLITO no gestiona / sin SOAT / entrega excluida). Si a la hora de sellar el evento aún no ocurrió (logística sin ninguna entrega; SOAT sin `enviado_en` si H-1 se resuelve así), el concepto se guarda `null` = «no congelado» y el reporte lo calcula en vivo marcado `estimado` cuando dé valor. **Duda H-2.**
+- No cambia `total`, `baseGmf`, `valorGmf`, columnas `valor_*`, `faltantes`, salidas de bolsa ni consumo de tránsito. `flito_liquidacion_eventos.snapshot` lo hereda (`{...detalle}`): interno, aceptable.
+- `aDto` / `LiquidacionDto` **no** cambian: nadie pidió verlo en la pantalla de liquidación y así ninguna ruta de liquidación lo proyecta (C8). Siigo lee claves concretas (`serviciosAdicionales->items`): la clave nueva no le afecta.
+- Lectura de sellados viejos (sin `costosProveedor`): §13.4, `estimado`. Mismo espíritu que `viajes`/`traslados` en `aDto:807-823` (la ausencia de clave no se lee como «cero»), con la diferencia pedida por C6: aquí se calcula en vivo en lugar de `null`.
+- Reversar la liquidación borra el sello ⇒ vuelve a vivo, sin cambio de código.
+
+### 13.7 Diagrama del cálculo
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant W as Web (Reporte de costos)
+  participant R as finanzas.routes
+  participant F as finanzas.service (SELECT_FILA)
+  participant C as finanzas.costos-proveedor
+  participant DB as PostgreSQL
+  participant L as flito-liquidacion.liquidar
+
+  W->>R: GET /api/finanzas/reporte-costos?costoProveedorSinConfigurar=true
+  R->>R: authMiddleware + guardiaFrontera (enlace=ninguno, si no 403) + exigirFuncion(reporte_costos.ver)
+  R->>F: reporteCostos(filtros)
+  F->>C: exprCostosProveedorReporte({GESTIONA_SOAT, GESTIONA_LOGISTICA})
+  F->>DB: SELECT … , costoProveedorSoat(jsonb), costoProveedorLogistica(jsonb) WHERE … AND sin_configurar LIMIT 50
+  DB->>DB: por fila: ¿sellado con clave? → detalle.costosProveedor
+  DB->>DB: si no: SOAT = soat_id→proveedor_soat_id→¿primero (created_at,id)?→vigencia en enviado_en
+  DB->>DB: logística = 1.ª entrega LT→acta (no legado, ≥ corte)→vigencia en entregado_en
+  DB-->>F: filas
+  F->>C: costosProveedorDeFila(r) (parse jsonb, total informativo)
+  F-->>W: FilaReporte (total/GMF/RN-02 sin cambios)
+
+  L->>DB: BEGIN; bloquear trámite; calcular (sin cambios)
+  L->>C: costosProveedorParaSellar(tx, tramiteId, gestiona)
+  C->>DB: SELECT expresiones vivas FROM flito_tramites ⟕ flito_soat WHERE id = $1
+  L->>DB: INSERT flito_liquidaciones (detalle.costosProveedor = {version:1, soat, logistica}); COMMIT
+```
+
+### 13.8 Índices — migración `0301`
+
+`flito_tramites.soat_id` **no tiene índice** (verificado: ni en el esquema ni en migraciones). La subconsulta de C3 corre por fila y, con el filtro `sin_configurar`, por todo el universo: sin índice es un seq scan de `flito_tramites` por fila.
+
+```sql
+-- 0301_flito_tramites_soat_orden.sql — ADR-0041 §13 (Épica #13763). C3: primer trámite por SOAT compartido.
+CREATE INDEX IF NOT EXISTS idx_flito_tramites_soat_orden
+  ON flito_tramites (soat_id, created_at, id) WHERE soat_id IS NOT NULL;
+```
+
+Sin `CONCURRENTLY` (el runner envuelve en transacción); el tamaño de `flito_tramites` lo hace un bloqueo breve en el rollout — `db-review-agent` lo confirma. Espejo Drizzle en `db/schema/tramites.ts` (`soatOrdenIdx`, `.where(sql\`… IS NOT NULL\`)`). Renumerar al integrar si `0301` está tomada.
+
+Índices que **ya existen** y bastan: `uq_flito_log_doc_tramite_tipo (tramite_id, tipo)`, `idx_flito_log_traslado_lts_documento`, `idx_flito_log_actas_traslado`, PK de traslados y proveedores, `idx_flito_tarifas_prov_proveedor_concepto (proveedor_id, concepto, vigente_desde)` (la `EXCLUDE` gist también sirve al `@>`).
+
+### 13.9 Archivos por bloque
+
+Contrato y backend van **en serie** en un solo bloque (el contrato es pequeño y vive en la rama `-api`). FRONTEND después, en `-ui`. Ningún archivo en los dos bloques.
+
+#### Bloque BACKEND — rama `FEATURE/13763-davidchica-tarifas-proveedores-api` (PR #772), `backend-agent`
+
+| Archivo | Acción | Líneas prod. |
+|---|---|---|
+| `apps/api/src/db/migrations/0301_flito_tramites_soat_orden.sql` | Crear (§13.8) | ~8 |
+| `apps/api/src/db/schema/tramites.ts` | Modificar: índice espejo | +2 |
+| `packages/shared-types/src/flito-tarifas-proveedor.ts` | Modificar: tipos de §13.5 | +40 |
+| `apps/api/src/modules/finanzas/finanzas.costos-proveedor.ts` | **Crear**: expresiones, parseo, `costosProveedorParaSellar`; cabecera con `RN-CP-01..08` = C1–C8 | ~220 |
+| `apps/api/src/modules/finanzas/finanzas.service.ts` | Modificar: `FilaReporte extends CostosProveedorDeFila`, spread en `SELECT_FILA`, `aFila`, `FiltrosReporte` + condición. Hoy **448** líneas efectivas (no está en `FROZEN_CEILINGS`): queda ~475 | +25 |
+| `apps/api/src/modules/finanzas/finanzas.routes.ts` | Modificar: `filtrosDe` y Zod del body de export con `costoProveedorSinConfigurar` | +4 |
+| `apps/api/src/modules/finanzas/finanzas.export-excel.ts` | Modificar: 7 columnas al final + `filasExcelDetalle` | +20 |
+| `apps/api/src/modules/flito-liquidacion/flito-liquidacion.service.ts` | Modificar: `detalle.costosProveedor` en `liquidar()`. Hoy **647** efectivas: queda ~660 | +12 |
+| `contracts/openapi/flito-api.v1.yaml` | Regenerar (`npm run contrato:generar`) | gen. |
+
+**No se tocan:** `finanzas.consolidado.ts`, `finanzas.gastos-diarios.ts`, `finanzas.reporte-columnas.ts` (no define columnas por defecto ni grupos: solo proyecciones de titular/organismo y `subtotalesDe`; los grupos y las columnas por defecto viven en la web, `TablaReporteCostos.tsx` `COLUMNAS`/`Grupo` + `localStorage`; y el Excel tiene un orden fijo pactado con Financiero, sin grupos), Siigo, `flito-tarifas.service.ts`, `app.ts`.
+
+Tests P1 por regla:
+
+| Regla | Test (crear o ampliar) |
+|---|---|
+| C2, C3, C4, C7 (SQL contra BD) | `apps/api/__tests__/services/finanzas-costos-proveedor.test.ts` (**crear**): SOAT con proveedor y vigencia en `enviado_en` (y otra vigencia posterior que no debe usarse); `gestion_operaciones`; sin proveedor; compañía autogestiona SOAT; SOAT compartido por 3 trámites ⇒ uno `costo`, dos `ya_contado` con el `idFlit` del primero, empate de `created_at` resuelto por `id`; logística: primera entrega con proveedor y vigencia en `entregado_en`, segunda entrega de otro proveedor ignorada, viaje adicional no cambia valor, traslado `legado` ⇒ `sin_proveedor`, acta anterior al corte ⇒ `sin_proveedor`, sin entregas ⇒ `sin_proveedor`, autogestionada ⇒ `sin_proveedor`; proveedor sin vigencia ⇒ `sin_configurar`; filtro `costoProveedorSinConfigurar` pagina y cuenta bien |
+| C1 | mismo archivo: universo con y sin vigencias de proveedor ⇒ `total`, `gmf`, `totalReintegro`, `totalServicio`, `totales` y `consolidadoReporte` idénticos; `filasIncompletas`/etapa `listo` iguales con un `sin_configurar` |
+| C6 | `apps/api/__tests__/services/flito-liquidacion-costos-proveedor.test.ts` (**crear**): `liquidar()` congela `costosProveedor` (version, proveedor, vigenciaId, valor, estado); cambiar la vigencia después no cambia lo sellado; sello sin la clave ⇒ reporte en vivo con `estimado`; concepto `null` (sin entrega al sellar) ⇒ vivo tras la entrega; `total`/`faltantes`/salidas iguales con y sin costos; `LiquidacionDto` sin la clave |
+| C7 (sellado) | mismo archivo: `sin_configurar` no bloquea `liquidar()` |
+| C8 | `apps/api/__tests__/services/finanzas-reporte-costos-proveedor.routes.test.ts` (**crear**, supertest): enlace `proveedor` y `compania` con `finanzas.reporte_costos.ver` concedida ⇒ 403 en `GET /reporte-costos`, `/consolidado`, `POST /reporte-costos/export` y `GET /api/flito/liquidacion/:id`, sin importes en el cuerpo; `ninguno` ⇒ 200 con los campos; query `costoProveedorSinConfigurar` mal formada ⇒ 400 |
+| Excel | `apps/api/__tests__/services/finanzas.export-excel.test.ts` (**ampliar**): 7 columnas al final, celdas vacías sin valor, orden anterior intacto |
+
+Comando P1: `npm test -w apps/api -- __tests__/services/finanzas-costos-proveedor.test.ts __tests__/services/flito-liquidacion-costos-proveedor.test.ts __tests__/services/finanzas-reporte-costos-proveedor.routes.test.ts __tests__/services/finanzas.export-excel.test.ts` + `build:api` (con heap) + `build -w packages/shared-types` + 0301 dos veces (P6).
+
+Gates que dispara: `db-review-agent` (0301, `schema/tramites.ts`), `security-agent` (C8, filtros nuevos en rutas existentes), `qa-agent` B, `flit-code-review`.
+
+#### Bloque FRONTEND — rama `FEATURE/13763-davidchica-tarifas-proveedores-ui` (PR #773), `frontend-agent`
+
+Archivos que toca **solo por el costo de proveedor**, y cuáles toca también el rediseño de `docs/ux/flito-reporte-costos-rediseno.md` (spec de `ux-agent` en curso):
+
+| Archivo (efectivas hoy) | Cambio por costo de proveedor | Lo toca el rediseño | Líneas costo |
+|---|---|---|---|
+| `apps/web/src/components/finanzas/tiposReporteCostos.ts` (112) | Campos de `FilaReporte` (tipos de shared-types) y filtro | **Sí** (filtros/periodo) | +15 |
+| `apps/web/src/components/finanzas/TablaReporteCostos.tsx` (409) | `Grupo` nuevo `costo_proveedor` (encabezado «Costo de proveedor»), columnas: Proveedor SOAT · Costo SOAT · Proveedor logística · Costo logística · Total; celda con valor o etiqueta de estado (`ETIQUETA_ESTADO_COSTO_PROVEEDOR`, `ya_contado` con el `idFlit`, `estimado` con la marca de estimado ya usada); columnas configurables | **Sí** (grupos «Cobro al cliente»/«Costo de proveedor», columnas por defecto, «Columnas») | +60 |
+| `apps/web/src/components/finanzas/FiltrosReporteCostos.tsx` (94) | Casilla «Costo de proveedor sin configurar» | **Sí** (una barra, un periodo, «Más filtros»: la casilla cae dentro) | +12 |
+| `apps/web/src/pages/FinanzasReporteCostos.tsx` (461) | Estado del filtro → query del `api` y body de export | **Sí** (estado de filtros) | +8 |
+| `apps/web/src/content/ayuda/finanzas_reporte_costos.md` | Delta (skill `flit-ayuda-flito`): qué es el costo, que no suma, estados | **Sí** | +20 |
+| `apps/web/e2e/tests/finanzas-reporte-costos.spec.ts` | Columnas, estados, filtro | **Sí** | tests |
+
+Sin cambio por costo: `TotalesReporteCostos.tsx` y `ConsolidadoReporteCostos.tsx` (C1: no suman), `ExportarReporteCostos.tsx` (si toma el objeto de filtros entero; si arma el body campo a campo, +1 línea — verificar), `App.tsx`, `src/lib/api.ts`.
+
+**Los seis archivos coinciden con el rediseño**: costo y rediseño van en **un solo bloque FRONTEND y un solo `frontend-agent`**, implementando el costo sobre la estructura del rediseño (grupos y columnas por defecto de la spec). Hacer primero el costo con el `Grupo` actual y luego rehacer la tabla con el rediseño duplicaría el trabajo en `TablaReporteCostos.tsx`.
+
+### 13.10 Estimación
+
+| Bloque | Líneas de producto |
+|---|---|
+| BACKEND costo de proveedor (§13.9) | **~330** (tests aparte, ~700) |
+| FRONTEND solo costo de proveedor | **~115** |
+| FRONTEND rediseño (estimación sin la spec: tabla con grupos y por defecto ~150, barra única + «Más filtros» ~180, página ~80, ayuda ~30) | **~450–550**, a confirmar con la spec |
+
+PR #772 (`-api`) pasa de ~630 a ~960 líneas de producto: un solo PR, pero ahora **mezcla backend de riesgo** (sellado de liquidación + migración) con lo ya revisado; se declara en el cuerpo. PR #773 (`-ui`) ya lleva ~800: costo + rediseño (~600) lo llevarían a ~1 400, rozando el umbral y mezclando dos pantallas. **Recomendación:** tercer PR `FEATURE/13763-davidchica-reporte-costos-ui` apilado sobre `-ui`, con el costo **y** el rediseño juntos (mismos seis archivos); #773 queda solo con Tarifas › Proveedores.
+
+### 13.11 Notas operativas
+
+- **backend-agent:** copiar la forma de `SELECT_CONCILIACION_SOAT` (spread en `SELECT_FILA`, interfaz heredada por `FilaReporte`). Fábricas con `GESTIONA_*` por parámetro para evitar el ciclo de imports. `vigenteEn` necesita `ColumnasVigencia`: comprobar que el alias de `flitoTarifasProveedorVigencias` cumple el tipo; si no, una línea `tstzrange … @> …::timestamptz` local con el mismo comentario de Bug #12682. `valor` del `jsonb` llega como número o texto: normalizar en `costosProveedorDeFila`. `EXPLAIN ANALYZE` en local de la página y de la exportación con el filtro activo; pegar los tiempos en el HANDOFF. No sumar nada a `TotalesReporte`.
+- **frontend-agent:** sin `fetch` suelto; estados con texto, no solo color; `estimado` con la misma marca que las filas estimadas; 4 estados ya existentes de la página.
+- **db-review-agent:** 0301 (índice parcial, bloqueo en rollout) y que no hay drift con `schema/tramites.ts`.
+- **security-agent:** C8 (frontera de `/api/finanzas` y `/api/flito/liquidacion`), que el nombre del proveedor es de empresa (no PII), y que `costosProveedor` no aparece en rutas con `conAlcance`.
+
+### 13.12 Dudas que cambian comportamiento (pendiente humano)
+
+- **H-1 — SOAT con proveedor y aún no enviado** (`enviado_en` NULL). Propuesta: vigencia en `now()` (como RN-07 con la aprobación) y, al sellar, no congelar (`null`, vivo). Alternativa: `sin_proveedor` hasta que se envíe.
+- **H-2 — Sellar antes del evento.** Un trámite puede liquidarse antes de su primera entrega (la logística solo exige la tarifa al cliente). Propuesta: el concepto se guarda `null` y se sigue calculando en vivo (`estimado`). Alternativa literal de C6: congelar `sin_proveedor` para siempre.
+- **H-3 — Primera entrega excluida, entrega posterior válida.** Si la 1.ª entrega es `legado`/anterior al corte y hay otra posterior con proveedor real: propuesta `sin_proveedor` (C4 literal: el proveedor es el de la primera entrega). Alternativa: tomar la primera entrega **válida**.
+- **H-4 — SOAT de un trámite que FLITO no gestiona** (compañía autogestiona sin excepción): propuesta `sin_proveedor`. Confirmar que no se quiere un estado «Autogestionado».
+- **H-5 — SOAT compartido entre trámites de compañías distintas**: «primero» se mide entre todos los trámites del `soat_id`, sin importar compañía. Confirmar.
