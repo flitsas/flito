@@ -247,7 +247,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     flito_servicios_adicionales: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-tipo.svg', capturas: [
       '02-editar.png', '03-nuevo-tipo.png', '04-dados-de-baja.png', '01-catalogo.png'] },
     // Épica #13763: rediseño (Columnas, Más filtros, chips, acción + menú ⋮) y costo de proveedor (v2.0).
-    finanzas_reporte_costos: { version: '2.0', fecha: '2026-11-11', diagrama: 'tres-verbos.svg', capturas: [
+    finanzas_reporte_costos: { version: '2.1', fecha: '2026-11-11', diagrama: 'tres-verbos.svg', capturas: [
       '01-filtros-y-periodo.png', '02-mas-filtros.png', '03-tabla.png', '04-columnas.png',
       '05-costo-de-proveedor.png', '06-acciones-de-fila.png', '07-consolidado.png'] },
     finanzas_gastos_diarios: { version: '1.2', fecha: '2026-10-22', diagrama: null, capturas: [
