@@ -103,3 +103,47 @@ export interface ResultadoCambioCostoProveedor {
   valorAnterior: number;
   valorNuevo: number | null;
 }
+
+// ── Costo de proveedor en el trámite (ADR-0041 §13, Enmienda 1) ─────────────────────────────────
+// Informativo (R8 nueva, C1): se muestra en el reporte de costos y se congela al sellar, pero NUNCA suma al cobro.
+
+/** Estados del costo de un concepto. El orden no es prioridad: la prioridad la decide el SQL (`finanzas.costos-proveedor.ts`). */
+export const ESTADOS_COSTO_PROVEEDOR = [
+  'costo', 'sin_configurar', 'sin_proveedor', 'gestionado_operaciones', 'ya_contado', 'estimado',
+] as const;
+export type EstadoCostoProveedor = (typeof ESTADOS_COSTO_PROVEEDOR)[number];
+/** Estados que se congelan al sellar (`estimado` solo existe al leer un sello sin el concepto congelado). */
+export type EstadoCostoProveedorSellado = Exclude<EstadoCostoProveedor, 'estimado'>;
+
+/** Texto de cada estado. `ya_contado` lo interpola la UI con `contadoEnIdFlit`. Estados con texto, no solo color. */
+export const ETIQUETA_ESTADO_COSTO_PROVEEDOR: Readonly<Record<EstadoCostoProveedor, string>> = {
+  costo: 'Costo',
+  sin_configurar: 'Sin configurar',
+  sin_proveedor: 'Sin proveedor',
+  gestionado_operaciones: 'Gestionado por Operaciones',
+  ya_contado: 'Ya contado en el trámite {idFlit}',
+  estimado: 'Estimado',
+};
+
+/** El costo de proveedor de UN concepto (SOAT o logística) de un trámite. Claves siempre presentes. */
+export interface CostoProveedorConcepto {
+  estado: EstadoCostoProveedor;
+  /** Empresa proveedora: id y nombre. Sin NIT ni contacto (D10). */
+  proveedorId: string | null;
+  proveedor: string | null;
+  vigenciaId: string | null;
+  /** `valor !== null` ⇔ `estado ∈ {costo, estimado}`. `0` es un costo válido (R4). */
+  valor: number | null;
+  /** ISO: `enviado_en` (SOAT) o `entregado_en` (logística) con que se eligió la vigencia. */
+  fechaReferencia: string | null;
+  /** Solo `ya_contado`: el trámite donde se contó el SOAT compartido (C3). */
+  contadoEnTramiteId: string | null;
+  contadoEnIdFlit: string | null;
+}
+
+/** `detalle.costosProveedor` de una liquidación sellada (C6). `null` en un concepto = no congelado (H-1, H-2). */
+export interface CostosProveedorSellados {
+  version: 1;
+  soat: (CostoProveedorConcepto & { estado: EstadoCostoProveedorSellado }) | null;
+  logistica: (CostoProveedorConcepto & { estado: EstadoCostoProveedorSellado }) | null;
+}

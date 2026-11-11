@@ -69,6 +69,7 @@ import { aDto as aDtoViaje, type FilaViaje, viajesDe } from '../flito-logistica/
 // ya tomó el FOR UPDATE. No hay otro bloqueo en la entrega.
 import { trasladosDe } from '../flito-logistica/flito-logistica-traslados-liquidacion.js';
 import { exigirClienteOperable } from '../clients/cliente-operable.js';
+import { costosProveedorParaSellar } from '../finanzas/finanzas.costos-proveedor.js';
 
 export class LiquidacionError extends Error {
   constructor(message: string, readonly faltantes: string[] = []) {
@@ -444,6 +445,13 @@ function proyeccionCalculo() {
  *    es el viaje 1; los viajes adicionales registrados se suman con su precio (HU #12626).
  */
 export async function calcular(tramiteId: string): Promise<CalculoLiquidacion> {
+  return (await calcularConGestion(tramiteId)).calculo;
+}
+
+/** Qué gestiona FLITO en el trámite. Sale del cálculo para el costo de proveedor (ADR-0041 §13.6); no entra en el DTO. */
+interface GestionaTramite { gestionaSoat: boolean; gestionaLogistica: boolean }
+
+async function calcularConGestion(tramiteId: string): Promise<{ calculo: CalculoLiquidacion; gestiona: GestionaTramite }> {
   const [f] = await proyeccionCalculo().where(eq(flitoTramites.id, tramiteId)).limit(1) as FilaCalculo[];
   if (!f) throw new LiquidacionError('El trámite no existe');
   // Fuera de transacción: esto es la PREVISUALIZACIÓN. `liquidar()` vuelve a leer la puente con su
@@ -579,7 +587,7 @@ function totalizar(
 async function calcularDeFila(
   f: FilaCalculo, servicios: ConceptoServiciosAdicionales, viajes: FilaViaje[], docs: Documentales,
   traslados: LineaTrasladoLogistica[],
-): Promise<CalculoLiquidacion> {
+): Promise<{ calculo: CalculoLiquidacion; gestiona: GestionaTramite }> {
   const faltantes: string[] = [];
 
   // Modalidad vigente del organismo; sin vigencia abierta, el default del dominio es autogestionado.
@@ -656,11 +664,12 @@ async function calcularDeFila(
   // a la base como cero disfrazado. La suma vive en `totalizar` para que el sellado —que relee los
   // servicios bajo bloqueo— use exactamente la misma.
   // Una diferencia documental (aceptada o no) NUNCA entra en `faltantes` (D5): el sello la conserva.
-  return totalizar({
+  const calculo = totalizar({
     tramiteId: f.tramiteId, idFlit: f.idFlit,
     soat, impuesto, derecho, tramiteDigital, logistica, serviciosAdicionales: servicios,
     baseGmf: 0, tasaGmf: TASA_GMF, valorGmf: 0, total: 0, faltantes,
   }, servicios, viajes, docs, traslados);
+  return { calculo, gestiona: { gestionaSoat, gestionaLogistica } };
 }
 
 /**
@@ -867,7 +876,7 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     throw new LiquidacionError('El trámite ya está liquidado. Reversa la liquidación antes de volver a liquidar.');
   }
 
-  const previo = await calcular(tramiteId);
+  const { calculo: previo, gestiona } = await calcularConGestion(tramiteId);
   if (previo.faltantes.length > 0) {
     throw new LiquidacionBloqueadaError('El trámite no puede liquidarse todavía', previo.faltantes);
   }
@@ -893,6 +902,9 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     // arriba solo decidió que no faltaba nada; si alguien aplicó un comprobante, asignó un servicio,
     // registró un viaje o entregó una línea entre medias, lo que se sella es esta lectura.
     const calculo = totalizar(previo, servicios, viajes, docs, traslados);
+    // ADR-0041 §13.6 (C6): el costo de proveedor se congela con el MISMO `tx`. Informativo: no toca
+    // `total`, `faltantes` ni salidas de bolsa, y `aDto` no lo expone (C8). `sin_configurar` no bloquea (C7).
+    const costosProveedor = await costosProveedorParaSellar(tx, tramiteId, gestiona);
 
     const detalle = {
       soat: calculo.soat, impuesto: calculo.impuesto, derecho: calculo.derecho,
@@ -906,6 +918,7 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
       // todo lo sellado por esta HU y el reporte puede distinguir «cero servicios» (0) de «sellada
       // antes de la HU» (sin clave), en vez de leer lo mismo en los dos casos.
       serviciosAdicionales: calculo.serviciosAdicionales,
+      costosProveedor,
     };
     const valores = {
       tramiteId,

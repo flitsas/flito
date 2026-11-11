@@ -343,7 +343,7 @@ Por debajo de ~1 500 y sin backend de riesgo (sin PII, sin auth nueva, sin multe
 
 ---
 
-## 13. Enmienda 1 — Costo de proveedor en el trámite (Propuesta)
+## 13. Enmienda 1 — Costo de proveedor en el trámite (Propuesta; H-1…H-5 decididas)
 
 - **Estado:** Propuesto (pendiente de aprobación del Líder Técnico). No supersede ADRs aceptados; reescribe la R8 de este mismo ADR, que sigue Propuesto.
 - **Origen:** decisión del humano en sesión (C1–C8). Sin Azure DevOps por instrucción explícita.
@@ -360,9 +360,9 @@ Consecuencias en el resto del ADR: la nota de §11 «no exportar nada que lea es
 | # | Regla | Cómo se implementa |
 |---|---|---|
 | C1 | Columnas nuevas, no suman | Campos nuevos en `FilaReporte`; ninguna `EXPR_*` existente los referencia. Test de no-regresión: mismo universo con y sin vigencias de proveedor ⇒ `total`, `gmf`, `totalReintegro`, `totalServicio`, `TotalesReporte` y consolidado **idénticos** |
-| C2 | SOAT con trámite | `flito_tramites.soat_id → flito_soat.proveedor_soat_id`; vigencia `soat_con_tramite` en `COALESCE(flito_soat.enviado_en, now())` (misma forma que RN-07 con `fecha_aprobacion`; ver duda H-1). `gestion_operaciones = true` ⇒ `gestionado_operaciones`; sin proveedor, sin SOAT o FLITO no gestiona el SOAT (`GESTIONA_SOAT` falso) ⇒ `sin_proveedor` |
+| C2 | SOAT con trámite | `flito_tramites.soat_id → flito_soat.proveedor_soat_id`; vigencia `soat_con_tramite` en `COALESCE(flito_soat.enviado_en, now())` (H-1 decidida, §13.12: sin `enviado_en` ⇒ `sin_proveedor`, sin `now()`). `gestion_operaciones = true` ⇒ `gestionado_operaciones`; sin proveedor, sin SOAT o FLITO no gestiona el SOAT (`GESTIONA_SOAT` falso) ⇒ `sin_proveedor` |
 | C3 | SOAT compartido | «Primero» = el trámite con menor `(created_at, id)` entre los que tienen ese `soat_id` (todos, sin filtrar por el reporte). Los demás ⇒ `ya_contado` con `contadoEnTramiteId` / `contadoEnIdFlit`. Determinista y estable: `created_at` no cambia en el resync |
-| C4 | Logística, valor fijo por trámite | Primera entrega (`ORDER BY a.entregado_en, a.id`) de una línea `flito_logistica_traslado_lts.estado='entregado'` de un documento `tipo='licencia_transito'` del trámite (cualquier destino, `flit` o `cliente`, igual que `cobra()` de `trasladosDe`). Proveedor = `flito_logistica_actas.proveedor_logistica_id` del acta del traslado (una por traslado: `actaDeTraslado`). Vigencia `logistica` en `a.entregado_en`. **Exclusión del proveedor por defecto falso** (ADR-0039 §1.1): el **mismo** criterio que `actasDelProveedor` (`flito-logistica.alcance.ts:46-51`) — traslado `legado` o acta con `created_at` anterior a `flito_logistica_corte_proveedor.corte_en` ⇒ esa entrega no tiene proveedor válido. Si la **primera** entrega está excluida o tiene proveedor NULL ⇒ `sin_proveedor` (ver duda H-3). `GESTIONA_LOGISTICA` falso (autogestionada sin excepción) ⇒ `sin_proveedor`. Viajes adicionales y entregas posteriores no cambian el valor |
+| C4 | Logística, valor fijo por trámite | Primera entrega (`ORDER BY a.entregado_en, a.id`) de una línea `flito_logistica_traslado_lts.estado='entregado'` de un documento `tipo='licencia_transito'` del trámite (cualquier destino, `flit` o `cliente`, igual que `cobra()` de `trasladosDe`). Proveedor = `flito_logistica_actas.proveedor_logistica_id` del acta del traslado (una por traslado: `actaDeTraslado`). Vigencia `logistica` en `a.entregado_en`. **Exclusión del proveedor por defecto falso** (ADR-0039 §1.1): el **mismo** criterio que `actasDelProveedor` (`flito-logistica.alcance.ts:46-51`) — traslado `legado` o acta con `created_at` anterior a `flito_logistica_corte_proveedor.corte_en` ⇒ esa entrega no tiene proveedor válido. Una entrega excluida se salta y cuenta la primera entrega **válida** (H-3 decidida, §13.12); si esa válida tiene proveedor NULL ⇒ `sin_proveedor`. `GESTIONA_LOGISTICA` falso (autogestionada sin excepción) ⇒ `sin_proveedor`. Viajes adicionales y entregas posteriores no cambian el valor |
 | C5 | SOAT sin trámite | Fuera. El concepto `soat_sin_tramite` no se lee |
 | C6 | Congelar al sellar | `liquidar()` escribe `detalle.costosProveedor` (§13.6). Sellados anteriores sin la clave ⇒ cálculo en vivo con `estado='estimado'` cuando el vivo da valor (§13.5) |
 | C7 | «Sin configurar» avisa | Estado propio `sin_configurar` (proveedor resuelto, sin vigencia en la fecha del evento). No entra en `EXPR_BLOQUEADA`, `EXPR_INCOMPLETA`, `filasIncompletas`, `noConfigurados` ni `faltantes`. Filtro nuevo `costoProveedorSinConfigurar` |
@@ -519,7 +519,7 @@ Excel (`COLUMNAS_EXPORT_DETALLE`): siete columnas **al final** (Financiero pega 
 detalle.costosProveedor = { version: 1, soat, logistica }   // CostosProveedorSellados
 ```
 
-- Un concepto se congela con su estado **solo si es definitivo**: `costo`, `sin_configurar`, `gestionado_operaciones`, `ya_contado`, y `sin_proveedor` cuando no depende de un evento futuro (FLITO no gestiona / sin SOAT / entrega excluida). Si a la hora de sellar el evento aún no ocurrió (logística sin ninguna entrega; SOAT sin `enviado_en` si H-1 se resuelve así), el concepto se guarda `null` = «no congelado» y el reporte lo calcula en vivo marcado `estimado` cuando dé valor. **Duda H-2.**
+- Un concepto se congela con su estado **solo si es definitivo**: `costo`, `sin_configurar`, `gestionado_operaciones`, `ya_contado`, y `sin_proveedor` cuando no depende de un evento futuro (FLITO no gestiona / sin SOAT / entrega excluida). Si a la hora de sellar el evento aún no ocurrió (logística sin ninguna entrega; SOAT sin `enviado_en` si H-1 se resuelve así), el concepto se guarda `null` = «no congelado» y el reporte lo calcula en vivo marcado `estimado` cuando dé valor. **H-2 decidida (§13.12): `null` y vivo `estimado`.**
 - No cambia `total`, `baseGmf`, `valorGmf`, columnas `valor_*`, `faltantes`, salidas de bolsa ni consumo de tránsito. `flito_liquidacion_eventos.snapshot` lo hereda (`{...detalle}`): interno, aceptable.
 - `aDto` / `LiquidacionDto` **no** cambian: nadie pidió verlo en la pantalla de liquidación y así ninguna ruta de liquidación lo proyecta (C8). Siigo lee claves concretas (`serviciosAdicionales->items`): la clave nueva no le afecta.
 - Lectura de sellados viejos (sin `costosProveedor`): §13.4, `estimado`. Mismo espíritu que `viajes`/`traslados` en `aDto:807-823` (la ausencia de clave no se lee como «cero»), con la diferencia pedida por C6: aquí se calcula en vivo en lugar de `null`.
@@ -638,10 +638,28 @@ PR #772 (`-api`) pasa de ~630 a ~960 líneas de producto: un solo PR, pero ahora
 - **db-review-agent:** 0301 (índice parcial, bloqueo en rollout) y que no hay drift con `schema/tramites.ts`.
 - **security-agent:** C8 (frontera de `/api/finanzas` y `/api/flito/liquidacion`), que el nombre del proveedor es de empresa (no PII), y que `costosProveedor` no aparece en rutas con `conAlcance`.
 
-### 13.12 Dudas que cambian comportamiento (pendiente humano)
+### 13.12 Dudas H-1…H-5 — DECIDIDAS por el humano (mandan sobre §13.2–§13.6)
 
-- **H-1 — SOAT con proveedor y aún no enviado** (`enviado_en` NULL). Propuesta: vigencia en `now()` (como RN-07 con la aprobación) y, al sellar, no congelar (`null`, vivo). Alternativa: `sin_proveedor` hasta que se envíe.
-- **H-2 — Sellar antes del evento.** Un trámite puede liquidarse antes de su primera entrega (la logística solo exige la tarifa al cliente). Propuesta: el concepto se guarda `null` y se sigue calculando en vivo (`estimado`). Alternativa literal de C6: congelar `sin_proveedor` para siempre.
-- **H-3 — Primera entrega excluida, entrega posterior válida.** Si la 1.ª entrega es `legado`/anterior al corte y hay otra posterior con proveedor real: propuesta `sin_proveedor` (C4 literal: el proveedor es el de la primera entrega). Alternativa: tomar la primera entrega **válida**.
-- **H-4 — SOAT de un trámite que FLITO no gestiona** (compañía autogestiona sin excepción): propuesta `sin_proveedor`. Confirmar que no se quiere un estado «Autogestionado».
-- **H-5 — SOAT compartido entre trámites de compañías distintas**: «primero» se mide entre todos los trámites del `soat_id`, sin importar compañía. Confirmar.
+| # | Decisión | Dónde queda en el código |
+|---|---|---|
+| **H-1** | SOAT con proveedor y **sin `enviado_en`** ⇒ `sin_proveedor` hasta que se envíe. **No hay valor estimado** (se descarta la vigencia en `now()`). | `soatVivo`: `WHEN proveedor_soat_id IS NULL OR enviado_en IS NULL THEN sin_proveedor`, antes de buscar vigencia. Al sellar, ese concepto espera un evento futuro ⇒ se guarda `null` (abierto) y se lee en vivo. |
+| **H-2** | Sellado **antes de la primera entrega** de logística ⇒ el concepto queda **abierto**: `detalle.costosProveedor.logistica = null`; al leer se calcula en vivo y se marca `estimado` cuando hay valor. Lo que tenga valor al sellar queda congelado. | `costosProveedorParaSellar`: `logisticaAbierta = gestiona AND primera entrega válida IS NULL` ⇒ `null`. El reporte (`selladoOVivo`) lee el vivo y lo marca `estimado` si es `costo`. |
+| **H-3** | Logística: la **primera entrega VÁLIDA** (excluidas las de traslado `legado` y las de acta con `created_at` anterior a `corte_en`), con su `entregado_en`. No la primera entrega literal. | `PRIMERA_ENTREGA_VALIDA`: la exclusión va **en el JOIN** (`NOT tr.legado`, `a.created_at >= corte_en`), así una entrega excluida se salta y cuenta la siguiente. |
+| **H-4** | SOAT de un trámite cuya compañía **autogestiona** el SOAT (sin excepción) ⇒ `sin_proveedor`. Sin estado «Autogestionado». | Primer `WHEN` de `soatVivo` (`NOT gestionaSoat`). Al sellar es definitivo (se congela). |
+| **H-5** | El «primer trámite» de un SOAT compartido se elige entre **todos** los trámites de ese `soat_id`, **sin mirar la compañía**, por `(created_at, id)`. | `HAY_UNO_ANTERIOR` / `YA_CONTADO` sobre `flito_tramites p1` sin condición de compañía; índice `idx_flito_tramites_soat_orden` (0301). |
+
+- El «detalle» de C1 es la **tabla de detalle del reporte** y la **hoja de detalle del Excel**. No hay panel por trámite.
+- Lectura de §13.6 con H-1: un SOAT gestionado, no de Operaciones y sin enviar se guarda `null` al sellar **salvo** que ya cuente en otro trámite (`ya_contado`, definitivo). El resto de estados (`costo`, `sin_configurar`, `gestionado_operaciones`, `ya_contado`, `sin_proveedor` por no gestionar/sin SOAT/sin proveedor con SOAT enviado) se congela.
+- Orden de prioridad de estados del SOAT tal como quedó: sin SOAT o no gestiona ⇒ `sin_proveedor`; `gestion_operaciones` ⇒ `gestionado_operaciones`; no es el primero ⇒ `ya_contado`; sin proveedor o sin enviar ⇒ `sin_proveedor`; si no, `costo`/`sin_configurar`. (`ya_contado` va antes que «sin proveedor/sin enviar» para que el trámite compartido diga dónde se contó.)
+
+### 13.13 Medición (BD local, 8 625 trámites, `EXPLAIN ANALYZE`)
+
+| Consulta | Tiempo de ejecución |
+|---|---|
+| Página de 50, sin filtro | ~14 ms |
+| Página de 50, `costoProveedorSinConfigurar=true` | ~82 ms |
+| Exportación (tope 20 001), con el filtro | ~81 ms |
+| Exportación sin filtro, **sin** las dos columnas de costo (línea base) | ~7,0 s |
+| Exportación sin filtro, **con** las dos columnas de costo | ~9,1 s (+~2 s, ~0,23 ms por fila) |
+
+La línea base de ~7 s es preexistente (las demás subconsultas correlacionadas de `SELECT_FILA`).

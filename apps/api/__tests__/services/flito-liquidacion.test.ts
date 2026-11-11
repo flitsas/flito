@@ -523,6 +523,8 @@ function espiarSellado(
   const respuestas: Array<[string, unknown[]]> = [
     ['bloqueo', [{ id: 't1', idFlit: 'FLIT-1' }]], ['documental', documentalEnTx], ['servicios', serviciosEnTx],
     ['viajes', viajesEnTx], ['traslados', trasladosEnTx],
+    // ADR-0041 §13.6: el costo de proveedor se lee con el MISMO `tx`, tras el bloqueo y las demás lecturas.
+    ['costosProveedor', []],
   ];
   let n = 0;
   const select = vi.fn(() => {
@@ -581,8 +583,8 @@ describe('liquidar — sella los servicios adicionales leyéndolos DENTRO de la 
 
     await liquidar('t1', 1);
 
-    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes', 'traslados']);
-    expect(espia.tx.select).toHaveBeenCalledTimes(5);
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes', 'traslados', 'costosProveedor']);
+    expect(espia.tx.select).toHaveBeenCalledTimes(6); // + costo de proveedor (ADR-0041 §13.6)
   });
 
   it('sin servicios, la columna va NULL y la clave del detalle se escribe igual, con items vacío (M-SA5)', async () => {
@@ -994,7 +996,7 @@ describe('liquidar — sella la logística con los viajes leídos DENTRO de la t
 
     await liquidar('t1', 1);
 
-    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes', 'traslados']);
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes', 'traslados', 'costosProveedor']);
     // Los SEIS selects de `db` son los de fuera de la tx (liquidación, cálculo, servicios, viajes,
     // traslados, identificadores). Un séptimo sería la relectura de viajes con `db`, que es el mutante.
     expect(selectMock).toHaveBeenCalledTimes(6);
@@ -1363,8 +1365,8 @@ describe('AC5 — el documental se relee bajo el bloqueo del trámite (lo sellad
 
     await liquidar('t1', 1);
 
-    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes', 'traslados']);
-    expect(espia.tx.select).toHaveBeenCalledTimes(5);
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes', 'traslados', 'costosProveedor']);
+    expect(espia.tx.select).toHaveBeenCalledTimes(6); // + costo de proveedor (ADR-0041 §13.6)
     // Los SEIS selects de `db` son los de fuera de la tx: ninguna relectura documental con `db`.
     expect(selectMock).toHaveBeenCalledTimes(6);
     const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;

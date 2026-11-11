@@ -43,6 +43,7 @@
 // fila —los servicios entran en la base del GMF—, así que esta columna es el desglose de un sumando
 // que ya estaba, no un cobro nuevo que sumar aparte.
 
+import { ETIQUETA_ESTADO_COSTO_PROVEEDOR, type CostoProveedorConcepto } from '@operaciones/shared-types';
 import type { ExcelColumn } from '../../shared/utils/excel.js';
 import { SIN_APROBAR, type ConsolidadoReporte } from './finanzas.consolidado.js';
 import type { FilaReporte } from './finanzas.service.js';
@@ -108,7 +109,21 @@ export const COLUMNAS_EXPORT_DETALLE: readonly ExcelColumn[] = [
   { header: 'Tramite', key: 'tramiteCategoria', width: 16 },
   { header: 'fecha_aprobacion', key: 'fechaAprobacion', width: 16, numFmt: FORMATO_FECHA },
   { header: 'Filtromes', key: 'filtromes', width: 10 },
+  // Costo de proveedor (ADR-0041 §13): SIEMPRE al final. Financiero pega el libro sobre el suyo y
+  // una columna en medio le desplazaría las fórmulas. Informativo: no entra en ningún total (C1).
+  { header: 'Proveedor SOAT', key: 'proveedorSoat', width: 24 },
+  dinero('Costo proveedor SOAT', 'costoProveedorSoat'),
+  { header: 'Estado costo SOAT', key: 'estadoCostoSoat', width: 22 },
+  { header: 'Proveedor logística', key: 'proveedorLogistica', width: 24 },
+  dinero('Costo proveedor logística', 'costoProveedorLogistica'),
+  { header: 'Estado costo logística', key: 'estadoCostoLogistica', width: 22 },
+  dinero('Total costo proveedor', 'totalCostoProveedor'),
 ];
+
+/** El texto del estado de un concepto; `ya_contado` con el trámite donde se contó. */
+export function estadoCostoExcel(c: CostoProveedorConcepto): string {
+  return ETIQUETA_ESTADO_COSTO_PROVEEDOR[c.estado].replace('{idFlit}', c.contadoEnIdFlit ?? '');
+}
 
 /**
  * Un ISO de instante → `Date` del DÍA en UTC (00:00Z), o `null`.
@@ -157,6 +172,11 @@ export function filasExcelDetalle(filas: FilaReporte[]): Record<string, unknown>
     factura: f.facturaNumero, facturaTerceros: null,
     vin: f.vin, placa2: f.placa, tramiteCategoria: f.tipoTramite,
     fechaAprobacion: fechaExcel(f.fechaAprobacion), filtromes: f.mes,
+    proveedorSoat: f.costoProveedorSoat.proveedor, costoProveedorSoat: f.costoProveedorSoat.valor,
+    estadoCostoSoat: estadoCostoExcel(f.costoProveedorSoat),
+    proveedorLogistica: f.costoProveedorLogistica.proveedor, costoProveedorLogistica: f.costoProveedorLogistica.valor,
+    estadoCostoLogistica: estadoCostoExcel(f.costoProveedorLogistica),
+    totalCostoProveedor: f.costoProveedorTotal,
   }));
 }
 

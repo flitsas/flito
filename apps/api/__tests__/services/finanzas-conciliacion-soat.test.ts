@@ -212,6 +212,10 @@ const FILA_BASE = {
   titularCorreo: null, titularTelefono: null, titularDireccion: null,
   organismoCodigo: null, organismoNombre: null, mes: '2026-07', trimestre: '2026-T3',
   totalReintegro: 547980, totalServicio: 200000,
+  // ADR-0041 §13 — costo de proveedor: la fila lo trae SIEMPRE; sin datos, `sin_proveedor` y total null.
+  costoProveedorSoat: { estado: 'sin_proveedor', proveedorId: null, proveedor: null, vigenciaId: null, valor: null, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+  costoProveedorLogistica: { estado: 'sin_proveedor', proveedorId: null, proveedor: null, vigenciaId: null, valor: null, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+  costoProveedorTotal: null,
   // HU #12653 — origen y valor documental por concepto: el fixture crudo no trae comprobantes, así
   // que el origen es la tarifa (lo que el CASE devuelve sin comprobante) y los documentales van nulos.
   origenes: { tramiteDigital: 'tarifa', logistica: 'tarifa' },
@@ -509,6 +513,10 @@ describe('AC4 — el archivo ya no lleva «SOAT conciliado» (HU #12536: el deta
       noConfigurados: [], sinRecibo: [], pendientesPago: [], autogestionados: [], noAplican: [],
       estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,
       soatConciliado: false, boletaReferencia: null, soatConciliadoEn: null,
+      // ADR-0041 §13 — costo de proveedor: la fila lo trae SIEMPRE; sin datos, `sin_proveedor` y total null.
+      costoProveedorSoat: { estado: 'sin_proveedor', proveedorId: null, proveedor: null, vigenciaId: null, valor: null, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+      costoProveedorLogistica: { estado: 'sin_proveedor', proveedorId: null, proveedor: null, vigenciaId: null, valor: null, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+      costoProveedorTotal: null,
       ...over,
     } as unknown as Parameters<typeof filasExcelDetalle>[0][number];
   }

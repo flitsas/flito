@@ -10479,6 +10479,14 @@ paths:
                             - tramiteDigital
                             - logistica
                             - serviciosAdicionales
+                        costoProveedorSoat:
+                          "$ref": "#/components/schemas/Forma-fee7e39b31"
+                        costoProveedorLogistica:
+                          "$ref": "#/components/schemas/Forma-fee7e39b31"
+                        costoProveedorTotal:
+                          type:
+                            - number
+                            - "null"
                       required:
                         - tramiteId
                         - idFlit
@@ -10530,6 +10538,9 @@ paths:
                         - trimestre
                         - origenes
                         - valorDocumental
+                        - costoProveedorSoat
+                        - costoProveedorLogistica
+                        - costoProveedorTotal
                   total:
                     type: number
                   page:
@@ -10807,6 +10818,8 @@ paths:
                   type: boolean
                 conDiferencias:
                   type: boolean
+                costoProveedorSinConfigurar:
+                  type: boolean
                 desde:
                   type: string
                 hasta:
@@ -10964,6 +10977,8 @@ paths:
                 documentacionCompleta:
                   type: boolean
                 conDiferencias:
+                  type: boolean
+                costoProveedorSinConfigurar:
                   type: boolean
                 desde:
                   type: string
@@ -129084,3 +129099,53 @@ components:
         - evidenciaStorageKey
         - estado
         - createdAt
+    Forma-fee7e39b31:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        estado:
+          type: string
+          enum:
+            - costo
+            - sin_configurar
+            - sin_proveedor
+            - gestionado_operaciones
+            - ya_contado
+            - estimado
+        proveedorId:
+          type:
+            - string
+            - "null"
+        proveedor:
+          type:
+            - string
+            - "null"
+        vigenciaId:
+          type:
+            - string
+            - "null"
+        valor:
+          type:
+            - number
+            - "null"
+        fechaReferencia:
+          type:
+            - string
+            - "null"
+        contadoEnTramiteId:
+          type:
+            - string
+            - "null"
+        contadoEnIdFlit:
+          type:
+            - string
+            - "null"
+      required:
+        - estado
+        - proveedorId
+        - proveedor
+        - vigenciaId
+        - valor
+        - fechaReferencia
+        - contadoEnTramiteId
+        - contadoEnIdFlit

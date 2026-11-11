@@ -165,6 +165,15 @@ const CABECERAS_DETALLE = [
   'SOAT', 'Trámite', 'Impuesto', 'Columna1', 'Columna2', 'GMF', 'Total Reintegro', 'Servicio',
   'Factura', 'Factura Terceros', 'Vin', 'Placa2', 'Tramite', 'fecha_aprobacion', 'Filtromes',
 ];
+/**
+ * ADR-0041 §13.5 — las 7 del costo de proveedor, escritas a mano y SIEMPRE AL FINAL: Financiero pega el libro sobre el
+ * suyo y una columna en medio le desplazaría las fórmulas. Mutante «insertadas tras Servicio»: cae en el `toEqual`.
+ */
+const CABECERAS_COSTO_PROVEEDOR = [
+  'Proveedor SOAT', 'Costo proveedor SOAT', 'Estado costo SOAT',
+  'Proveedor logística', 'Costo proveedor logística', 'Estado costo logística', 'Total costo proveedor',
+];
+const CABECERAS_DETALLE_TODAS = [...CABECERAS_DETALLE, ...CABECERAS_COSTO_PROVEEDOR];
 const CABECERAS_CONSOLIDADO = [
   'Cliente', 'Periodo', 'Trámites', 'SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística',
   'Total reintegro', 'Trámite digital', 'Servicio', 'Total', 'Incompletos',
@@ -201,15 +210,15 @@ describe('AC1 — POST /reporte-costos/export entrega el detalle entero en .xlsx
     // Mutante «hoja 'Datos'» (el defecto de sendExcel).
     expect(hoja.name).toBe('Reporte de costos');
     // Mutante «una columna de más» (p. ej. Marca o Liquidación): el `toEqual` es del array entero.
-    expect((hoja.getRow(1).values as unknown[]).slice(1)).toEqual(CABECERAS_DETALLE);
+    expect((hoja.getRow(1).values as unknown[]).slice(1)).toEqual(CABECERAS_DETALLE_TODAS);
     expect(CABECERAS_DETALLE).toHaveLength(32);
-    expect(hoja.getRow(1).cellCount).toBe(32);
+    expect(hoja.getRow(1).cellCount).toBe(39);
     // HU #12653 (AC7): el valor documental NO añade columna — «Origen valores» queda fuera hasta VoBo del PO.
     expect(CABECERAS_DETALLE).not.toContain('Origen valores');
     expect(hoja.getRow(1).values).not.toContain('Origen valores');
     // La 32.ª va PEGADA a «Modelo» (CF-10 de la HU #12546), no al final del archivo.
     expect(CABECERAS_DETALLE[CABECERAS_DETALLE.indexOf('Modelo') + 1]).toBe('Servicios adicionales');
-    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).toEqual(CABECERAS_DETALLE);
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).toEqual(CABECERAS_DETALLE_TODAS);
     // Todas las filas del filtro, no una página: 1 cabecera + 3 filas.
     expect(hoja.rowCount).toBe(4);
     expect(celda(hoja, 'FLIT', 4).value).toBe('FLIT-3');
@@ -352,7 +361,8 @@ describe('AC3 — el dinero es número con el formato contable, nunca texto ni f
     expect(hoja).not.toHaveProperty('logisticaViajesCantidad');
     expect(Object.values(hoja)).not.toContain(3);
     expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).not.toContain('logisticaViajesCantidad');
-    expect(COLUMNAS_EXPORT_DETALLE).toHaveLength(32);
+    // 32 de Financiero + 7 del costo de proveedor al final (ADR-0041 §13); ninguna es la cantidad de viajes.
+    expect(COLUMNAS_EXPORT_DETALLE).toHaveLength(39);
     // Columna1 sigue siendo la logística YA sumada (tarifa + viajes), no la tarifa sola.
     expect(hoja.columna1).toBe(90000);
   });
@@ -433,13 +443,18 @@ describe('AC4 — fechas como Date de día en UTC, periodos como texto, null com
       titularDocumento: null, titularCorreo: null, titularTelefono: null, titularDireccion: null,
       organismoCodigo: null, organismoNombre: null, mes: null, trimestre: null, totalReintegro: null, totalServicio: null,
       serviciosAdicionales: null, serviciosAdicionalesCantidad: null, logisticaViajesCantidad: null,
+      // ADR-0041 §13: sin costo, el estado sigue siendo un texto (no se pinta solo con color) y el valor queda null.
+      costoProveedorSoat: { estado: 'sin_proveedor', proveedorId: null, proveedor: null, vigenciaId: null, valor: null, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+      costoProveedorLogistica: { estado: 'sin_proveedor', proveedorId: null, proveedor: null, vigenciaId: null, valor: null, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+      costoProveedorTotal: null,
     }])[0]!;
     const noNulos = Object.entries(f).filter(([, v]) => v !== null).map(([k]) => k).sort();
     // Solo lo que de verdad tiene valor: el id. Mutante «columna2: ''» o «facturaTerceros: ''»: aparecerían aquí.
-    expect(noNulos).toEqual(['flit']);
+    expect(noNulos).toEqual(['estadoCostoLogistica', 'estadoCostoSoat', 'flit']);
+    expect(f.estadoCostoSoat).toBe('Sin proveedor');
     expect(f.columna2).toBeNull();
     expect(f.facturaTerceros).toBeNull();
-    expect(Object.keys(f)).toHaveLength(32);
+    expect(Object.keys(f)).toHaveLength(39);
   });
 });
 
@@ -454,8 +469,8 @@ describe('AC6 — cabecera negrita con relleno, autofiltro y primera fila fija',
     // Mutante «sin opciones»: `autoFilter` undefined y `views` sin frozen.
     const af = hoja.autoFilter as unknown;
     const ref = typeof af === 'string' ? af : JSON.stringify(af);
-    // 32 columnas: A..Z son 26 y la 32.ª es AF. Mutante «una columna menos»: AE1.
-    expect(ref).toMatch(/A1:AF1|"row":1,"column":32/);
+    // 39 columnas (32 + 7 del costo de proveedor, ADR-0041 §13): la 39.ª es AM. Mutante «una columna menos»: AL1.
+    expect(ref).toMatch(/A1:AM1|"row":1,"column":39/);
     expect(hoja.views[0]).toMatchObject({ state: 'frozen', ySplit: 1 });
   });
 });
@@ -622,5 +637,48 @@ describe('AC2 — POST /reporte-costos/consolidado/export', () => {
     expect(consolidadoMock.mock.calls.at(-1)![0]).toMatchObject({ empresas: ['811011779'] });
     const hoja = await libro(r.body as Buffer);
     expect(celda(hoja, 'Periodo').value).toBe('2026-T3');
+  });
+});
+
+// ─────────────── ADR-0041 §13 — costo de proveedor, al final del detalle ───────────────
+
+describe('ADR-0041 §13 (C1, Excel) — 7 columnas del costo de proveedor al final', () => {
+  const concepto = (o: Record<string, unknown>) => ({
+    estado: 'costo', proveedorId: 'p1', proveedor: 'Seguros Uno', vigenciaId: 'v1', valor: '12000.00',
+    fechaReferencia: '2026-09-02T10:00:00+00:00', contadoEnTramiteId: null, contadoEnIdFlit: null, ...o,
+  });
+
+  it('el orden anterior queda intacto: las 32 primeras son las de siempre y las 7 nuevas cierran el libro', () => {
+    const cabeceras = COLUMNAS_EXPORT_DETALLE.map((c) => c.header);
+    expect(cabeceras.slice(0, 32)).toEqual(CABECERAS_DETALLE);
+    expect(cabeceras.slice(32)).toEqual(CABECERAS_COSTO_PROVEEDOR);
+  });
+
+  it('valores como número con formato contable; sin valor, celda VACÍA (no 0); estado con texto; ya_contado con el FLIT', async () => {
+    kdb.when.select('flito_tramites', [
+      cruda({ costoProveedorSoat: concepto({}), costoProveedorLogistica: concepto({ proveedor: 'Mensajería Dos', valor: 8000 }) }),
+      cruda({
+        tramiteId: 't2', idFlit: 'FLIT-2',
+        costoProveedorSoat: concepto({ estado: 'ya_contado', valor: null, vigenciaId: null, contadoEnTramiteId: 't1', contadoEnIdFlit: 'FLIT-1' }),
+        costoProveedorLogistica: concepto({ estado: 'sin_configurar', valor: null, vigenciaId: null }),
+      }),
+    ]);
+    const r = await exportar(RUTA_DETALLE, await sesion());
+    expect(r.status).toBe(200);
+    const hoja = await libro(r.body as Buffer);
+    expect(celda(hoja, 'Proveedor SOAT').value).toBe('Seguros Uno');
+    expect(celda(hoja, 'Costo proveedor SOAT').value).toBe(12000);
+    expect(celda(hoja, 'Costo proveedor SOAT').numFmt).toBe(NUMFMT_DINERO);
+    expect(celda(hoja, 'Estado costo SOAT').value).toBe('Costo');
+    expect(celda(hoja, 'Costo proveedor logística').value).toBe(8000);
+    expect(celda(hoja, 'Total costo proveedor').value).toBe(20000);
+    // C1: el total de COBRO de la fila no cambia por llevar costo de proveedor.
+    expect(celda(hoja, 'Total Reintegro').value).not.toBe(20000);
+
+    expect(celda(hoja, 'Costo proveedor SOAT', 3).value).toBeNull();
+    expect(celda(hoja, 'Estado costo SOAT', 3).value).toBe('Ya contado en el trámite FLIT-1');
+    expect(celda(hoja, 'Costo proveedor logística', 3).value).toBeNull();
+    expect(celda(hoja, 'Estado costo logística', 3).value).toBe('Sin configurar');
+    expect(celda(hoja, 'Total costo proveedor', 3).value).toBeNull();
   });
 });
