@@ -663,3 +663,7 @@ PR #772 (`-api`) pasa de ~630 a ~960 líneas de producto: un solo PR, pero ahora
 | Exportación sin filtro, **con** las dos columnas de costo | ~9,1 s (+~2 s, ~0,23 ms por fila) |
 
 La línea base de ~7 s es preexistente (las demás subconsultas correlacionadas de `SELECT_FILA`).
+
+### 13.14 Enmienda 1.1 (2026-11-11) — logística estimada por la compañía antes de la entrega
+
+Decisión del humano que enmienda **C4 / H-2** solo en la lectura en vivo. **Sin entrega válida** aún, si la compañía del trámite tiene proveedor de logística configurado (`clients.flito_proveedor_logistica_id`, p. ej. TESLA → SURA), el costo de logística se **estima** con ese proveedor y su vigencia `logistica` **vigente hoy** (`now()`); si ese proveedor no tiene vigencia hoy ⇒ `sin_configurar` con su nombre; sin proveedor configurado ⇒ `sin_proveedor`, como antes. **Con entrega válida** manda la regla de C4 (proveedor del acta, vigencia en `entregado_en`), aunque la compañía tenga otro proveedor; si la compañía autogestiona la logística ⇒ `sin_proveedor`. La estimación por compañía **nunca se sella**: al liquidar sin entrega, la logística se congela abierta (`null`, H-2 intacto) y el reporte la lee en vivo, marcada `estimado` por `selladoOVivo`. En código: `GestionaSql.proveedorLogisticaCompania` (solo lo pasa el reporte, con `clients` del mismo join que `gestionaLogistica`) añade el respaldo `estimadaPorCompania` tras `PRIMERA_ENTREGA_VALIDA`; `costosProveedorParaSellar` no lo pasa, así que lo que se congela y `logisticaAbierta` siguen dependiendo solo de la entrega.

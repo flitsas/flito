@@ -210,7 +210,11 @@ const GESTIONA_SOAT = sql`(NOT ${AUTO_SOAT} OR ${EXC_SOAT})`;
 export const GESTIONA_LOGISTICA = sql`(NOT ${AUTO_LOGISTICA} OR ${EXC_LOGISTICA})`;
 
 // Costo de proveedor (ADR-0041 §13): informativo. Ninguna `EXPR_*` de cobro lo referencia (C1).
-export const COSTOS_PROVEEDOR = exprCostosProveedorReporte({ gestionaSoat: GESTIONA_SOAT, gestionaLogistica: GESTIONA_LOGISTICA });
+// Enmienda 1.1: el reporte estima la logística sin entrega con el proveedor de la compañía (join `clients`).
+export const COSTOS_PROVEEDOR = exprCostosProveedorReporte({
+  gestionaSoat: GESTIONA_SOAT, gestionaLogistica: GESTIONA_LOGISTICA,
+  proveedorLogisticaCompania: sql`${clients.flitoProveedorLogisticaId}`,
+});
 
 /**
  * RN-01 Impuestos, en SQL: es el espejo de `flitoGestionaImpuesto` de shared-types, que es la que

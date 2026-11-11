@@ -83,6 +83,14 @@ describe('C4 / RN-CP-04 — logística: primera entrega VÁLIDA (H-3)', () => {
     expect(log).toContain("@> a.entregado_en::timestamptz");
     expect(log.indexOf('GL_MARCA')).toBeLessThan(log.indexOf('flito_logistica_documentos'));
   });
+  it('Enmienda 1.1: lo que se sella (sin proveedor de compañía) no estima con now(); el reporte sí, DESPUÉS de la entrega', () => {
+    expect(log).not.toContain('now()');
+    expect(log).not.toContain('flito_proveedor_logistica_id');
+    const rep = texto(svc.COSTOS_PROVEEDOR.logistica);
+    expect(rep).toContain('"clients"."flito_proveedor_logistica_id"');
+    expect(rep).toContain('@> now()::timestamptz');
+    expect(rep.indexOf('flito_logistica_documentos')).toBeLessThan(rep.indexOf('"clients"."flito_proveedor_logistica_id"'));
+  });
 });
 
 describe('C7 / RN-CP-07 — filtro costoProveedorSinConfigurar', () => {

@@ -11,6 +11,8 @@
 //   C4 / RN-CP-04  primera entrega con proveedor y vigencia en `entregado_en`; segunda entrega de otro proveedor ignorada;
 //                  H-3 primera entrega `legado` o anterior al corte se salta y cuenta la primera VÁLIDA; sin entregas y
 //                  autogestionada ⇒ sin_proveedor
+//   Enmienda 1.1   sin entrega y compañía con proveedor de logística ⇒ su vigencia de HOY; sin vigencia ⇒
+//                  sin_configurar; sin proveedor ⇒ sin_proveedor; con entrega manda el acta; nunca se sella
 //   C7 / RN-CP-07  proveedor sin vigencia ⇒ `sin_configurar`; filtro `costoProveedorSinConfigurar` pagina y cuenta
 //   C1 / RN-CP-01  con y sin vigencias de proveedor: total, gmf, reintegro, servicio, totales, consolidado y etapas idénticos
 //   C6 / RN-CP-06  `costosProveedorParaSellar`: congela lo definitivo; H-1/H-2 dejan `null` lo que espera su evento;
@@ -41,7 +43,7 @@ interface Mundo {
   tx: Tx; org: string; buscar: string;
   proveedor(o?: { soat?: boolean; nombre?: string }): Promise<string>;
   vigencia(p: string, concepto: 'logistica' | 'soat_con_tramite', valor: number, desde: string, hasta?: string | null): Promise<string>;
-  cia(o?: { autoSoat?: boolean; autoLog?: boolean }): Promise<number>;
+  cia(o?: { autoSoat?: boolean; autoLog?: boolean; provLog?: string | null }): Promise<number>;
   soat(cia: number, o: { proveedor?: string | null; enviado?: string | null; operaciones?: boolean }): Promise<string>;
   tramite(cia: number, o?: { soat?: string | null; creado?: string; id?: string }): Promise<{ id: string; idFlit: string }>;
   entrega(tramite: string, cia: number, proveedor: string | null, o: { entregado: string; legado?: boolean; actaCreada?: string; destino?: 'flit' | 'cliente' }): Promise<void>;
@@ -75,8 +77,8 @@ async function conMundo(fn: (m: Mundo) => Promise<void>) {
               ${hasta === null ? null : (await tx`SELECT id FROM users LIMIT 1`)[0]?.id ?? null}) RETURNING id`;
           return v!.id as string;
         },
-        cia: async (o = {}) => (await tx`INSERT INTO clients (name, document, soat_autogestionable, logistica_autogestionable)
-          VALUES (${`Cia ${sello()}`}, ${`D${sello()}`}, ${o.autoSoat ?? false}, ${o.autoLog ?? false}) RETURNING id`)[0]!.id as number,
+        cia: async (o = {}) => (await tx`INSERT INTO clients (name, document, soat_autogestionable, logistica_autogestionable, flito_proveedor_logistica_id)
+          VALUES (${`Cia ${sello()}`}, ${`D${sello()}`}, ${o.autoSoat ?? false}, ${o.autoLog ?? false}, ${o.provLog ?? null}) RETURNING id`)[0]!.id as number,
         soat: async (cia, o) => {
           const placa = `S${sello().slice(-6)}`;
           const [v] = await tx`INSERT INTO vehicles (plate, vin) VALUES (${placa}, ${`VIN${placa}`}) RETURNING id`;
@@ -267,6 +269,44 @@ describe.skipIf(!URL_BASE)('ADR-0041 §13 — costo de proveedor (PostgreSQL)', 
     }));
   });
 
+  describe('Enmienda 1.1 — logística estimada por la compañía antes de la entrega', () => {
+    it('sin entrega y compañía con proveedor ⇒ la vigencia `logistica` de HOY de ese proveedor', () => conMundo(async (m) => {
+      const p = await m.proveedor({ nombre: `Sura ${sello()}` });
+      await m.vigencia(p, 'logistica', 1111, HACE(60), HACE(10));
+      const vHoy = await m.vigencia(p, 'logistica', 6500, HACE(10));
+      const cia = await m.cia({ provLog: p });
+      const t = await m.tramite(cia);
+      const f = await fila(m, t.idFlit);
+      expect(f.costoProveedorLogistica).toMatchObject({ estado: 'costo', proveedorId: p, vigenciaId: vHoy, valor: 6500 });
+      expect(Date.now() - new Date(f.costoProveedorLogistica.fechaReferencia!).getTime()).toBeLessThan(86_400_000);
+      expect(f.costoProveedorTotal).toBe(6500);
+    }));
+
+    it('proveedor de la compañía sin vigencia hoy ⇒ sin_configurar con su nombre; sin proveedor configurado ⇒ sin_proveedor', () => conMundo(async (m) => {
+      const nombre = `Sin tarifa ${sello()}`;
+      const p = await m.proveedor({ nombre });
+      await m.vigencia(p, 'logistica', 4000, HACE(60), HACE(10));
+      const conProv = await m.tramite(await m.cia({ provLog: p }));
+      const sinProv = await m.tramite(await m.cia());
+      expect((await fila(m, conProv.idFlit)).costoProveedorLogistica).toMatchObject({
+        estado: 'sin_configurar', proveedorId: p, proveedor: nombre, vigenciaId: null, valor: null,
+      });
+      expect((await fila(m, sinProv.idFlit)).costoProveedorLogistica).toMatchObject({ estado: 'sin_proveedor', valor: null });
+    }));
+
+    it('con entrega válida manda el proveedor del acta aunque la compañía tenga otro; autogestiona ⇒ sin_proveedor', () => conMundo(async (m) => {
+      const pActa = await m.proveedor(); const pCia = await m.proveedor();
+      await m.vigencia(pActa, 'logistica', 8000, HACE(30));
+      await m.vigencia(pCia, 'logistica', 6500, HACE(30));
+      const cia = await m.cia({ provLog: pCia });
+      const t = await m.tramite(cia);
+      await m.entrega(t.id, cia, pActa, { entregado: HACE(2) });
+      expect((await fila(m, t.idFlit)).costoProveedorLogistica).toMatchObject({ estado: 'costo', proveedorId: pActa, valor: 8000 });
+      const auto = await m.tramite(await m.cia({ autoLog: true, provLog: pCia }));
+      expect((await fila(m, auto.idFlit)).costoProveedorLogistica).toMatchObject({ estado: 'sin_proveedor', valor: null });
+    }));
+  });
+
   describe('C7 / RN-CP-07 — sin configurar', () => {
     it('proveedor sin vigencia en la fecha ⇒ sin_configurar; el filtro pagina y cuenta solo esos', () => conMundo(async (m) => {
       const p = await m.proveedor({ soat: true });
@@ -404,6 +444,18 @@ describe.skipIf(!URL_BASE)('ADR-0041 §13 — costo de proveedor (PostgreSQL)', 
       expect((await fila(m, antes.idFlit)).costoProveedorLogistica.estado).toBe('sin_proveedor');
       await m.entrega(antes.id, cia, p, { entregado: HACE(0) });
       expect((await fila(m, antes.idFlit)).costoProveedorLogistica).toMatchObject({ estado: 'estimado', valor: 1 });
+    }));
+
+    it('Enmienda 1.1 — sin entrega se congela null aunque la compañía dé estimación; el reporte la lee `estimado`', () => conMundo(async (m) => {
+      const p = await m.proveedor();
+      await m.vigencia(p, 'logistica', 6500, HACE(30));
+      const cia = await m.cia({ provLog: p });
+      const t = await m.tramite(cia);
+      const db = actual.db as Parameters<typeof costosProveedorParaSellar>[0];
+      const s = await costosProveedorParaSellar(db, t.id, { gestionaSoat: true, gestionaLogistica: true });
+      expect(s.logistica).toBeNull();
+      await m.sellar(t.id, { costosProveedor: s });
+      expect((await fila(m, t.idFlit)).costoProveedorLogistica).toMatchObject({ estado: 'estimado', proveedorId: p, valor: 6500 });
     }));
   });
 });

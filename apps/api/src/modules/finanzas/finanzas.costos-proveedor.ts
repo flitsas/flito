@@ -20,6 +20,10 @@
 //            `actasDelProveedor`). Proveedor = el del acta; vigencia `logistica` en su
 //            `entregado_en`. Viajes adicionales y entregas posteriores no cambian el valor.
 //            FLITO no gestiona la logística ⇒ `sin_proveedor`.
+//            Enmienda 1.1 (2026-11-11): SIN entrega válida aún, si la compañía tiene proveedor de
+//            logística configurado (`clients.flito_proveedor_logistica_id`), el costo se ESTIMA con ese
+//            proveedor y su vigencia `logistica` vigente HOY (`now()`); sin vigencia ⇒ `sin_configurar`;
+//            sin proveedor configurado ⇒ `sin_proveedor`. Esa estimación NUNCA se sella (RN-CP-06).
 //   RN-CP-05 (C5) SOAT sin trámite: fuera. `soat_sin_tramite` no se lee aquí.
 //   RN-CP-06 (C6) Congelar al sellar: `liquidar()` guarda `detalle.costosProveedor`. Un concepto que
 //            aún espera su evento (SOAT sin enviar, logística sin entrega válida: H-1/H-2) se guarda
@@ -45,8 +49,13 @@ import { db } from '../../db/client.js';
 import { flitoLiquidaciones, flitoSoat, flitoTramites } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 
-/** Las reglas «gestiona», como SQL sobre la fila del trámite (reporte) o como literal (sellado). */
-export interface GestionaSql { gestionaSoat: SQL; gestionaLogistica: SQL }
+/**
+ * Las reglas «gestiona», como SQL sobre la fila del trámite (reporte) o como literal (sellado).
+ * `proveedorLogisticaCompania` (Enmienda 1.1): el proveedor de logística configurado en la compañía
+ * del trámite, solo para el REPORTE (`clients.flito_proveedor_logistica_id`, del join que ya trae
+ * `gestionaLogistica`). El sellado no lo pasa: la estimación por compañía nunca se congela.
+ */
+export interface GestionaSql { gestionaSoat: SQL; gestionaLogistica: SQL; proveedorLogisticaCompania?: SQL }
 
 /** Un objeto con TODAS las claves del contrato; las que no se pasan, en null (contrato estable). */
 function objeto(estado: SQL | string, resto: Partial<Record<Exclude<keyof CostoProveedorConcepto, 'estado'>, SQL>> = {}): SQL {
@@ -117,12 +126,28 @@ const PRIMERA_ENTREGA_VALIDA = sql`(
    ORDER BY a.entregado_en, a.id
    LIMIT 1)`;
 
+/**
+ * Enmienda 1.1 — sin entrega válida aún: el proveedor de logística de la compañía con su vigencia
+ * `logistica` de HOY, ya proyectado; NULL si la compañía no tiene proveedor configurado.
+ */
+const estimadaPorCompania = (proveedorCompania: SQL): SQL => sql`(
+  SELECT ${conVigencia(sql`now()`)}
+    FROM flito_proveedores p
+    LEFT JOIN flito_tarifas_proveedor_vigencias v ON ${vigenciaEn('logistica', sql`now()`)}
+   WHERE p.id = ${proveedorCompania})`;
+
+/**
+ * Logística en vivo: entrega válida → (solo reporte) compañía → `sin_proveedor`. Sin
+ * `proveedorLogisticaCompania` (el sellado) queda la regla de la entrega a secas.
+ */
 function logisticaVivo(g: GestionaSql): SQL {
+  const respaldo = g.proveedorLogisticaCompania
+    ? sql`COALESCE(${estimadaPorCompania(g.proveedorLogisticaCompania)}, ${SIN_PROVEEDOR})` : SIN_PROVEEDOR;
   return sql`(CASE WHEN NOT ${g.gestionaLogistica} THEN ${SIN_PROVEEDOR}
-    ELSE COALESCE(${PRIMERA_ENTREGA_VALIDA}, ${SIN_PROVEEDOR}) END)`;
+    ELSE COALESCE(${PRIMERA_ENTREGA_VALIDA}, ${respaldo}) END)`;
 }
 
-/** Los dos conceptos en vivo (lo que se congela al sellar). */
+/** Los dos conceptos en vivo (sin `proveedorLogisticaCompania`, lo que se congela al sellar). */
 export function exprCostosProveedor(g: GestionaSql): { soatVivo: SQL; logisticaVivo: SQL } {
   return { soatVivo: soatVivo(g), logisticaVivo: logisticaVivo(g) };
 }
