@@ -350,20 +350,19 @@ function asomarse(s: Readable): Promise<Buffer | null> {
 /**
  * Los tipos de `flito_soportes` que resuelven cada tipo del catálogo del ZIP.
  *
- * `RECIBO_IMPUESTO` mapea a DOS y el orden importa. Son las dos fases de la HU #12590: la
- * **liquidación del impuesto** (`recibo_impuesto_sin_marca_agua`, el documento de la hacienda sin
- * marca, que deja `liquidado_en`) y el **pago con marca** (`recibo_impuesto`, el mismo documento con
- * el sello PAGADO, la única vía a `pagado`). Se prefiere la liquidación y, si ese impuesto no la
- * tiene, el pago. **Nunca los dos**: son el mismo documento y el ZIP los llamaría igual, así que el
- * archivo traería dos copias con sufijos `-2` que el AC5 no reserva para eso. Desde la 0196 el
- * servicio escribe el MISMO literal que este catálogo, así que el limpio sí se encuentra.
+ * Las dos fases de la HU #12590 son DOS tipos del ZIP, cada uno con SU documento y sin caída
+ * cruzada (Bug #14532): la **liquidación del impuesto** (`recibo_impuesto_sin_marca_agua`, el
+ * documento de la hacienda sin marca, que deja `liquidado_en`) y el **pago** (`recibo_impuesto`, el
+ * mismo documento con el sello PAGADO, la única vía a `pagado`). Antes había un único
+ * `recibo_impuesto` que prefería la liquidación y solo caía al pago si no existía: en un impuesto
+ * liquidado y pagado el soporte pagado no salía nunca. Un registro sin el documento del tipo pedido
+ * se omite (cuenta en omitidos), igual que cualquier otro tipo.
  *
  * `FACTURA_VENTA` no está: no vive en `flito_soportes`.
  */
 const TIPOS_BD_POR_TIPO_ZIP: Record<string, readonly string[]> = {
-  [TipoSoporteZip.RECIBO_IMPUESTO]: [
-    TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA, TipoSoporte.RECIBO_IMPUESTO,
-  ],
+  [TipoSoporteZip.LIQUIDACION_IMPUESTO]: [TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA],
+  [TipoSoporteZip.PAGO_IMPUESTO]: [TipoSoporte.RECIBO_IMPUESTO],
   [TipoSoporteZip.FACTURA_SOAT]: [TipoSoporte.FACTURA_SOAT],
 };
 
@@ -463,13 +462,15 @@ export async function resolverEntradasZip(
   const anclas = (leer: (r: RegistroZip) => string | null | undefined): string[] =>
     [...new Set(ordenados.map(leer).filter((v): v is string => !!v))];
 
-  const quiereRecibo = pedidos.includes(TipoSoporteZip.RECIBO_IMPUESTO);
+  // Los tipos de BD del recibo que se pidieron (liquidación, pago o ambos), en UNA consulta.
+  const tiposBdRecibo = pedidos
+    .filter((t) => t === TipoSoporteZip.LIQUIDACION_IMPUESTO || t === TipoSoporteZip.PAGO_IMPUESTO)
+    .flatMap((t) => TIPOS_BD_POR_TIPO_ZIP[t]!);
   const quiereSoat = pedidos.includes(TipoSoporteZip.FACTURA_SOAT);
 
   const [recibos, comprobantes] = await Promise.all([
-    quiereRecibo
-      ? soportesDeLote(flitoSoportes.impuestoId, anclas((r) => r.impuestoId),
-        TIPOS_BD_POR_TIPO_ZIP[TipoSoporteZip.RECIBO_IMPUESTO]!)
+    tiposBdRecibo.length > 0
+      ? soportesDeLote(flitoSoportes.impuestoId, anclas((r) => r.impuestoId), tiposBdRecibo)
       : Promise.resolve([] as SoporteZip[]),
     quiereSoat
       ? soportesDeLote(flitoSoportes.soatId, anclas((r) => r.soatId),
@@ -488,16 +489,15 @@ export async function resolverEntradasZip(
   const recibosPorImpuesto = porAncla(recibos);
   const comprobantesPorSoat = porAncla(comprobantes);
 
-  /**
-   * El recibo de UN impuesto: los `sin_marca_agua` si los hay, y si no, los marcados.
-   *
-   * La caída se decide POR IMPUESTO y no para el lote entero: un lote donde la mitad tiene el limpio
-   * y la otra mitad solo el marcado tiene que entregar el mejor de cada uno.
-   */
-  const recibosDe = (impuestoId: string): SoporteZip[] => {
-    const todos = recibosPorImpuesto.get(impuestoId) ?? [];
-    const limpios = todos.filter((s) => s.tipo === TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA);
-    return (limpios.length > 0 ? limpios : todos).sort(ordenarSoportes);
+  /** Los soportes de UN registro para UN tipo del ZIP, en orden `subido_en, id`. Sin caída cruzada. */
+  const soportesDe = (reg: RegistroZip, tipo: TipoSoporteZip): SoporteZip[] => {
+    if (tipo === TipoSoporteZip.FACTURA_SOAT) {
+      return reg.soatId ? [...(comprobantesPorSoat.get(reg.soatId) ?? [])].sort(ordenarSoportes) : [];
+    }
+    if (!reg.impuestoId) return [];
+    const tiposBd = TIPOS_BD_POR_TIPO_ZIP[tipo] ?? [];
+    return (recibosPorImpuesto.get(reg.impuestoId) ?? [])
+      .filter((s) => tiposBd.includes(s.tipo)).sort(ordenarSoportes);
   };
 
   const cupoFactura = env.FLITO_ZIP_FACTURA_CUPO_BYTES;
@@ -526,11 +526,7 @@ export async function resolverEntradasZip(
         continue;
       }
 
-      const soportes = tipo === TipoSoporteZip.RECIBO_IMPUESTO
-        ? (reg.impuestoId ? recibosDe(reg.impuestoId) : [])
-        : (reg.soatId ? [...(comprobantesPorSoat.get(reg.soatId) ?? [])].sort(ordenarSoportes) : []);
-
-      for (const s of soportes) {
+      for (const s of soportesDe(reg, tipo)) {
         entradas.push({
           nombreBase: nombrar(base),
           nombreRegistro: base,

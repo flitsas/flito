@@ -130,10 +130,10 @@ router.get('/:id/soportes', exigirFuncion('tramites.tramite.ver_soportes'), asyn
 /**
  * POST /soportes/zip — el ZIP MIXTO de los trámites marcados (HU #11910, AC4).
  *
- * Los tres tipos a la vez y en un solo archivo: la factura de venta de FLIT, el recibo del organismo
- * y el comprobante del SOAT. Desde la HU #12817 los documentos de cada trámite salen JUNTOS en un
- * solo `PLACA.pdf` (factura → recibo → comprobante), así que el `-2` ya no separa documentos del
- * mismo trámite: separa trámites distintos con la misma placa.
+ * Los cuatro tipos a la vez y en un solo archivo: la factura de venta de FLIT, la liquidación y el
+ * pago del organismo (Bug #14532: dos tipos, sin caída cruzada) y el comprobante del SOAT. Desde la
+ * HU #12817 los documentos de cada trámite salen JUNTOS en un solo `PLACA.pdf` (factura → liquidación → pago → comprobante), así que el `-2` ya no separa
+ * documentos del mismo trámite: separa trámites distintos con la misma placa.
  *
  * ── La función es `tramites.soportes.descargar` (solo `admin` de partida), **no una de lectura** ─
  *
@@ -154,8 +154,9 @@ const zipSoportesSchema = z.object({
   // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
   ids: z.array(z.string().guid()).min(1),
   tipos: z.array(z.enum([
-    TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.RECIBO_IMPUESTO, TipoSoporteZip.FACTURA_SOAT,
-  ])).min(1).max(3),
+    TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.LIQUIDACION_IMPUESTO, TipoSoporteZip.PAGO_IMPUESTO,
+    TipoSoporteZip.FACTURA_SOAT,
+  ])).min(1).max(4),
 }).strict();
 
 router.post('/soportes/zip', exigirFuncion('tramites.soportes.descargar'), zipSoportesLimiter, async (req: Request, res: Response) => {

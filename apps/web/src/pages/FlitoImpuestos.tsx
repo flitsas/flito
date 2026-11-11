@@ -5,6 +5,7 @@
 // nunca los Pendiente; Auditoría es solo lectura.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ChevronRight } from 'lucide-react';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
   TOPE_LOTE_CERTIFICACION,
@@ -30,6 +31,9 @@ import {
   AvisoSoportesZip, DescargarSoportesZip, ZIP_IMPUESTOS, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
 import {
+  BotonSoporteImpuestoFila, DialogoSoporteImpuesto, useDescargaSoporteImpuesto,
+} from '../components/flito/DescargarSoporteImpuesto';
+import {
   AvisoCertificadosZip, DescargarCertificadosZip, useDescargaCertificados,
 } from '../components/flito/DescargarCertificadosZip';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
@@ -45,7 +49,7 @@ import { ChipDocumentos, TONO_IMPUESTO as TONO, fecha, pesos, type ImpuestoItem 
 import useDebounce from '../lib/useDebounce';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitPillGroup, FlitPillButton,
-  flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+  flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitBtnSecondarySm,
 } from '../components/flit/flitPageKit';
 
 interface ColaImpuestos { items: ImpuestoItem[]; total: number; page: number; pageSize: number }
@@ -297,6 +301,8 @@ export default function FlitoImpuestos() {
   const puedeDescargarSoportes = esOperaciones || esGestor;
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const descargaZip = useDescargaZip(ZIP_IMPUESTOS);
+  // Descarga individual por fila (Bug #14532): misma guarda que la masiva.
+  const descargaFila = useDescargaSoporteImpuesto();
   const descargaCert = useDescargaCertificados();
   // Casillas y barra existen si hay al menos una de las dos descargas (HU #13206).
   const puedeSeleccionar = puedeDescargarSoportes || puedeDescargarCertificados;
@@ -612,7 +618,15 @@ export default function FlitoImpuestos() {
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorLiquidado)}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>
                   <td className="px-3 py-2">
-                    <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setDetalleId(f.id)}>Ver</button>
+                    {/* Misma composición que la cola SOAT (TablaColaSoat): icono de descarga y «Ver»
+                        compactos (`h-7`) en la última columna (Bug #14532). */}
+                    <div className="flex items-center gap-2 whitespace-nowrap">
+                      {puedeDescargarSoportes && <BotonSoporteImpuestoFila fila={f} descarga={descargaFila} />}
+                      <button type="button" className={flitBtnSecondarySm} onClick={() => setDetalleId(f.id)}>
+                        Ver
+                        <ChevronRight size={16} aria-hidden="true" className="-mr-1 shrink-0" />
+                      </button>
+                    </div>
                   </td>
                 </FlitTr>
               ))}
@@ -624,6 +638,8 @@ export default function FlitoImpuestos() {
           </div>
         </FlitCard>
       )}
+
+      {puedeDescargarSoportes && <DialogoSoporteImpuesto descarga={descargaFila} />}
 
       {resultadoCert && (
         <ModalResultadoCertificacion resultado={resultadoCert.resultado} placa={resultadoCert.placa}
