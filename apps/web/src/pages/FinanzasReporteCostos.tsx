@@ -87,7 +87,7 @@ export default function FinanzasReporteCostos() {
   const [data, setData] = useState<Reporte | null>(null);
   const [facetas, setFacetas] = useState<Facetas | null>(null);
   const [facetasCargando, setFacetasCargando] = useState(true);
-  /** Error de una ACCIÓN (liquidar, facturar, reversar): aviso de página con `--flit-danger-ink`. */
+  /** Error de una ACCIÓN (liquidar, facturar, reversar): aviso de página con la tinta de atención del kit, sin rojo (Épica #13763). */
   const [error, setError] = useState<string | null>(null);
   /** Error de la CARGA del reporte: aviso sin rojo en la tarjeta de la tabla, con Reintentar. */
   const [errorCarga, setErrorCarga] = useState(false);

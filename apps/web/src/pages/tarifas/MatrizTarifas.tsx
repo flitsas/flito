@@ -420,7 +420,7 @@ function ModalDejarDeCobrar({ fila, companiaNombre, restoreFocusRef, onClose, on
           cerrada en el historial, con tu nombre y la hora.
         </p>
         <p style={{ color: 'var(--flit-text-secondary)' }}>
-          {esLogistica ? 'Sus entregas nuevas' : 'Sus trámites nuevos de este tipo'} saldrán como «No configurado» en el reporte de costos y no se
+          {esLogistica ? 'Sus entregas nuevas' : 'Sus trámites nuevos de este tipo'} saldrán como «Sin configurar» en el reporte de costos y no se
           podrán liquidar hasta que se fije un valor otra vez. Lo ya liquidado no cambia.
         </p>
         <div className="flex flex-wrap justify-end gap-2 pt-1">

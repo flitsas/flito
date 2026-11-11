@@ -3066,7 +3066,7 @@ const FILA_CUADRA = {
   origenes: { tramiteDigital: 'documental', logistica: 'tarifa' },
   valorDocumental: { tramiteDigital: VD({ comprobanteId: 'cccc0000-0000-0000-0000-000000000007', diferencia: 0 }), logistica: null, serviciosAdicionales: null },
 };
-/** «No configurado» (origen null) sin chip: AC1. */
+/** «Sin configurar» (origen null) sin chip: AC1. */
 const FILA_NO_CONFIGURADA = { ...FILA_BLOQUEADA, tramiteId: 'dddd0000-0000-0000-0000-000000000108', idFlit: 'FLIT-2108', origenes: { tramiteDigital: null, logistica: 'tarifa' } };
 
 const FILAS_DIFERENCIAS = [FILA_DOCUMENTAL, FILA_DOS_PENDIENTES, FILA_ACEPTADA, FILA_SA, FILA_SIN_TARIFA, FILA_AUTOGESTIONADA, FILA_CUADRA, FILA_NO_CONFIGURADA];
@@ -3105,7 +3105,7 @@ const botonAceptar = async (page: import('@playwright/test').Page, idFlit?: stri
   idFlit ? opcionDeMenu(page, idFlit, /^Aceptar diferencia de /) : page.getByRole('menuitem', { name: /^Aceptar diferencia de / });
 
 test.describe('HU #12655 · diferencias documentales', () => {
-  test('TC-01/TC-02 — AC1: en ampliada TD y LG llevan «Documento»/«Tarifa»; SA no lleva origen; «No configurado» va sin chip', async ({ page }) => {
+  test('TC-01/TC-02 — AC1: en ampliada TD y LG llevan «Documento»/«Tarifa»; SA no lleva origen; «Sin configurar» va sin chip', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
     await mockDiferencias(page);
     await ampliarColumnas(page);
