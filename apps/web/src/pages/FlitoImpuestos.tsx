@@ -30,6 +30,9 @@ import {
   AvisoSoportesZip, DescargarSoportesZip, ZIP_IMPUESTOS, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
 import {
+  BotonSoporteImpuestoFila, DialogoSoporteImpuesto, useDescargaSoporteImpuesto,
+} from '../components/flito/DescargarSoporteImpuesto';
+import {
   AvisoCertificadosZip, DescargarCertificadosZip, useDescargaCertificados,
 } from '../components/flito/DescargarCertificadosZip';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
@@ -297,6 +300,8 @@ export default function FlitoImpuestos() {
   const puedeDescargarSoportes = esOperaciones || esGestor;
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const descargaZip = useDescargaZip(ZIP_IMPUESTOS);
+  // Descarga individual por fila (Bug #14532): misma guarda que la masiva.
+  const descargaFila = useDescargaSoporteImpuesto();
   const descargaCert = useDescargaCertificados();
   // Casillas y barra existen si hay al menos una de las dos descargas (HU #13206).
   const puedeSeleccionar = puedeDescargarSoportes || puedeDescargarCertificados;
@@ -586,6 +591,7 @@ export default function FlitoImpuestos() {
                         onCertificar={() => certificar(f)}
                         onDescargar={() => descargarCertificado(f)}
                       />
+                      {puedeDescargarSoportes && <BotonSoporteImpuestoFila fila={f} descarga={descargaFila} />}
                     </AccionesTramite>)} />
                   <CeldaVehiculo placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea} />
                   <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
@@ -624,6 +630,8 @@ export default function FlitoImpuestos() {
           </div>
         </FlitCard>
       )}
+
+      {puedeDescargarSoportes && <DialogoSoporteImpuesto descarga={descargaFila} />}
 
       {resultadoCert && (
         <ModalResultadoCertificacion resultado={resultadoCert.resultado} placa={resultadoCert.placa}

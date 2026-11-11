@@ -154,11 +154,11 @@ const P_SOAT: Pantalla = {
   montar: montarSoat, placaVisible: 'ABC123',
 };
 const P_IMPUESTOS: Pantalla = {
-  ruta: '/flito/impuestos', zip: /\/api\/flito\/impuestos\/soportes\/zip$/, tipos: 2,
+  ruta: '/flito/impuestos', zip: /\/api\/flito\/impuestos\/soportes\/zip$/, tipos: 3,
   montar: montarImpuestos, placaVisible: 'ABC123',
 };
 const P_TRAMITES: Pantalla = {
-  ruta: '/flito/tramites', zip: /\/api\/flito\/tramites\/soportes\/zip$/, tipos: 3,
+  ruta: '/flito/tramites', zip: /\/api\/flito\/tramites\/soportes\/zip$/, tipos: 4,
   montar: montarTramites, placaVisible: 'ABC123',
 };
 
@@ -357,12 +357,17 @@ test.describe('HU #11910 — AC3: el diálogo de tipos', () => {
     await expect(dialogo(page)).toBeVisible();
     await expect(page.getByText('Qué se descarga de las 2 filas marcadas')).toBeVisible();
     const facturaVenta = dialogo(page).getByRole('checkbox', { name: /Factura de venta/ });
-    const recibo = dialogo(page).getByRole('checkbox', { name: /Recibo del impuesto/ });
+    // Bug #14532: el recibo son DOS casillas, Liquidación y Pagado, sin caída de una a la otra.
+    const liquidacion = dialogo(page).getByRole('checkbox', { name: /Liquidación/ });
+    const pagado = dialogo(page).getByRole('checkbox', { name: /Pagado/ });
     await expect(facturaVenta).toBeChecked();
-    await expect(recibo).toBeChecked();
+    await expect(liquidacion).toBeChecked();
+    await expect(pagado).toBeChecked();
+    await expect(dialogo(page).getByRole('checkbox')).toHaveCount(3);
 
-    // Se desmarca uno: si el diálogo fuera decorativo, el cuerpo llevaría los dos igual.
-    await recibo.uncheck();
+    // Se desmarcan dos: si el diálogo fuera decorativo, el cuerpo llevaría los tres igual.
+    await liquidacion.uncheck();
+    await pagado.uncheck();
     const [descarga] = await Promise.all([
       page.waitForEvent('download'),
       confirmarZip(page).click(),
@@ -388,7 +393,7 @@ test.describe('HU #11910 — AC3: el diálogo de tipos', () => {
     await marcar(page, 'ABC123');
     await botonZip(page).click();
 
-    for (const nombre of [/Factura de venta/, /Recibo del impuesto/]) {
+    for (const nombre of [/Factura de venta/, /Liquidación/, /Pagado/]) {
       await dialogo(page).getByRole('checkbox', { name: nombre }).uncheck();
     }
     // Un `disabled` no dice por qué lo está, y por eso el motivo va en una región anunciada.
@@ -441,7 +446,7 @@ test.describe('HU #11910 — AC3: el diálogo de tipos', () => {
     await Promise.all([page.waitForEvent('download'), confirmarZip(page).click()]);
     expect(zip.peticiones[0].cuerpo).toEqual({
       ids: [TRAMITES[2].tramiteId],
-      tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
+      tipos: ['factura_venta', 'liquidacion_impuesto', 'pago_impuesto', 'factura_soat'],
     });
   });
 });
@@ -867,5 +872,92 @@ test.describe('HU #12815 — AC7/AC8: el ZIP cuelga de `soat.soportes.descargar`
     await expect(botonZip(page)).toHaveAttribute('style', /--flit-gradient-primary/);
     await Promise.all([page.waitForEvent('download'), botonZip(page).click()]);
     expect(zip.peticiones[0].cuerpo).toEqual({ ids: ['s2', 's3'] });
+  });
+});
+
+// ═════════════════════ Bug #14532 — descarga INDIVIDUAL de soportes de un impuesto ═════════════════════
+
+test.describe('Bug #14532 — descarga individual por fila en /flito/impuestos', () => {
+  const RUTA_PDF = /\/api\/flito\/impuestos\/i1\/soportes\/pdf$/;
+  const SUFIJO: Record<string, string> = {
+    factura_venta: 'factura-venta', liquidacion_impuesto: 'liquidacion', pago_impuesto: 'pagado',
+  };
+
+  /** Mock del PDF individual: traza del cuerpo; los tipos de `faltan` responden 404 `zip_sin_soportes`. */
+  async function mockPdf(page: Page, faltan: string[] = []) {
+    const peticiones: Array<{ cuerpo: { tipo: string }; search: string; metodo: string }> = [];
+    await page.route(RUTA_PDF, (route: Route) => {
+      const req = route.request();
+      const cuerpo = req.postDataJSON() as { tipo: string };
+      peticiones.push({ cuerpo, search: new URL(req.url()).search, metodo: req.method() });
+      if (faltan.includes(cuerpo.tipo)) {
+        return route.fulfill({
+          status: 404, contentType: 'application/json',
+          body: JSON.stringify({ error: 'No hay soporte.', codigo: 'zip_sin_soportes' }),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/pdf',
+        headers: { 'content-disposition': `attachment; filename="ABC123-${SUFIJO[cuerpo.tipo]}.pdf"` },
+        body: '%PDF-1.4 FLITO-E2E',
+      });
+    });
+    return peticiones;
+  }
+
+  const botonFila = (page: Page) => page.getByRole('button', { name: 'Descargar soportes ABC123' });
+
+  test('el icono abre la modal con 3 casillas; Liquidación + Pagado = 2 POST y 2 PDF', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await montarImpuestos(page);
+    const peticiones = await mockPdf(page);
+
+    await page.goto('/flito/impuestos');
+    await botonFila(page).click();
+
+    await expect(dialogo(page)).toBeVisible();
+    await expect(dialogo(page).getByRole('checkbox')).toHaveCount(3);
+    await dialogo(page).getByRole('checkbox', { name: /Factura de venta/ }).uncheck();
+
+    const descargas: string[] = [];
+    page.on('download', (d) => descargas.push(d.suggestedFilename()));
+    await confirmarZip(page).click();
+    await expect.poll(() => descargas.length).toBe(2);
+
+    expect(peticiones.map((p) => p.metodo)).toEqual(['POST', 'POST']);
+    expect(peticiones.map((p) => p.cuerpo)).toEqual([{ tipo: 'liquidacion_impuesto' }, { tipo: 'pago_impuesto' }]);
+    // Nada en la URL (§14): el tipo va en el cuerpo.
+    expect(peticiones.every((p) => p.search === '')).toBe(true);
+    expect(descargas.sort()).toEqual(['ABC123-liquidacion.pdf', 'ABC123-pagado.pdf']);
+    await expect(dialogo(page)).toHaveCount(0);
+    // Sin toast de éxito: la descarga es el resultado.
+    await expect(page.getByText(/no tiene/)).toHaveCount(0);
+  });
+
+  test('404 `zip_sin_soportes` en un tipo: baja el otro y un toast nombra lo que faltó', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await montarImpuestos(page);
+    const peticiones = await mockPdf(page, ['pago_impuesto']);
+
+    await page.goto('/flito/impuestos');
+    await botonFila(page).click();
+    await dialogo(page).getByRole('checkbox', { name: /Factura de venta/ }).uncheck();
+    const [descarga] = await Promise.all([page.waitForEvent('download'), confirmarZip(page).click()]);
+
+    expect(descarga.suggestedFilename()).toBe('ABC123-liquidacion.pdf');
+    await expect(page.getByText('Se descargó la liquidación; el impuesto de ABC123 no tiene soporte de pagado.'))
+      .toBeVisible();
+    expect(peticiones).toHaveLength(2);
+    // Un faltante no se arregla reintentando.
+    await expect(page.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
+  });
+
+  test('el auditor no ve el icono de descarga de la fila', async ({ page }) => {
+    await loginAs(page, AUDITOR_USER);
+    await montarImpuestos(page);
+    await page.goto('/flito/impuestos');
+    await expect(page.getByText('ABC123').first()).toBeVisible();
+    await expect(botonFila(page)).toHaveCount(0);
   });
 });
