@@ -54,6 +54,11 @@ export interface CuerpoExportReporteCostos {
   /** Calco de `documentacionCompleta` (HU #12655, AC4): `true` viaja como `conDiferencias=si` en los GET. */
   conDiferencias?: boolean;
   estadoFacturacion?: SiigoEstadoReporte;
+  /**
+   * ADR-0041 §13 (C7): al menos un costo de proveedor «Sin configurar». En los GET viaja como
+   * `costoProveedorSinConfigurar=true` —el API lo lee así, no como `si`— y en el cuerpo, como booleano.
+   */
+  costoProveedorSinConfigurar?: boolean;
   /** Solo el consolidado: el eje del agrupado. El detalle no lo manda (esquema `.strict()`). */
   periodo?: TipoPeriodo;
 }
@@ -79,6 +84,7 @@ export function cuerpoDeExport(f: FiltrosDetalle, estadoFe: SiigoEstadoReporte |
   if (f.organismos.length) c.organismos = f.organismos;
   if (f.docCompleta) c.documentacionCompleta = true;
   if (f.conDiferencias) c.conDiferencias = true;
+  if (f.costoProveedorSinConfigurar) c.costoProveedorSinConfigurar = true;
   if (estadoFe) c.estadoFacturacion = estadoFe;
   return c;
 }
@@ -92,7 +98,9 @@ export function paramsDeCriterios(c: CuerpoExportReporteCostos): URLSearchParams
   const p = new URLSearchParams();
   for (const [clave, valor] of Object.entries(c)) {
     if (valor === undefined || valor === false) continue;
-    p.set(clave, valor === true ? 'si' : Array.isArray(valor) ? valor.join(',') : String(valor));
+    // Las casillas viejas se leen como `si`; la del costo de proveedor, como `true` (su Zod lo exige).
+    const verdad = clave === 'costoProveedorSinConfigurar' ? 'true' : 'si';
+    p.set(clave, valor === true ? verdad : Array.isArray(valor) ? valor.join(',') : String(valor));
   }
   return p;
 }

@@ -4,7 +4,7 @@
 // `finanzas.service.ts` y `ConsolidadoReporte` en `finanzas.consolidado.ts`). La pantalla NO
 // calcula nada con ellos: reintegro, servicio, mes, trimestre y el consolidado llegan hechos.
 
-import type { SiigoEstadoReporte, ValoresDocumentalesDeFila } from '@operaciones/shared-types';
+import type { CostoProveedorConcepto, SiigoEstadoReporte, ValoresDocumentalesDeFila } from '@operaciones/shared-types';
 
 // Los textos del origen y de la diferencia documental viven en `lib/diferenciaDocumental.ts` (puro,
 // con `node --test`); la tabla y el diálogo los toman de ahí. Se reexportan para quien llega por aquí.
@@ -89,6 +89,15 @@ export interface Fila extends ValoresDocumentalesDeFila {
    * cobrara viajes adicionales (no se sabe, y nunca se pinta «0»). El importe ya va en `logistica`.
    */
   logisticaViajesCantidad: number | null;
+  /**
+   * Costo de proveedor del trámite (ADR-0041 §13, Épica #13763). Informativo: es lo que FLITO le
+   * paga al proveedor y NUNCA se suma al cobro (`total`, `totalReintegro`, `totalServicio`). Cada
+   * concepto trae su estado; la pantalla lo pinta y no suma nada: `costoProveedorTotal` llega hecho
+   * (`null` = ningún concepto con valor).
+   */
+  costoProveedorSoat: CostoProveedorConcepto;
+  costoProveedorLogistica: CostoProveedorConcepto;
+  costoProveedorTotal: number | null;
 }
 
 export interface Totales {
@@ -113,7 +122,18 @@ export interface Facetas { estados: string[]; empresas: Opcion[]; tipos: string[
 
 export type TipoPeriodo = 'mes' | 'trimestre';
 
-export interface FilaConsolidado extends Totales {
+/**
+ * El costo de proveedor agregado del consolidado (ADR-0041 §13). No está en shared-types: lo declara
+ * `TotalesConsolidado` en `finanzas.consolidado.ts`, y aquí se tipan solo estas cuatro claves. Van
+ * en un grupo aparte y no se restan del cobro: sin margen (decisión del humano).
+ */
+export interface CostoProveedorConsolidado {
+  costoProveedorSoat: number; costoProveedorLogistica: number; costoProveedorTotal: number;
+  /** Cuántos trámites del grupo tienen algún concepto «Sin configurar». */
+  tramitesCostoSinConfigurar: number;
+}
+
+export interface FilaConsolidado extends Totales, CostoProveedorConsolidado {
   clienteClave: string;
   clienteNombre: string;
   /** `'YYYY-MM'` o `'YYYY-Tn'`; `null` = sin fecha de aprobación (se rotula «Sin aprobar»). */
@@ -123,7 +143,7 @@ export interface FilaConsolidado extends Totales {
 export interface ConsolidadoReporte {
   periodo: TipoPeriodo;
   items: FilaConsolidado[];
-  totales: Totales;
+  totales: Totales & CostoProveedorConsolidado;
 }
 
 export const pesos = (n: number) =>
@@ -185,7 +205,9 @@ export const ETAPAS: Array<{ v: Etapa; label: string; ayuda: string; cuenta?: (r
  */
 export type Falta = 'tarifa' | 'recibo' | 'pago' | 'auto' | 'nada';
 export const TEXTO_FALTA: Record<Falta, string> = {
-  tarifa: 'No configurado', recibo: 'Sin recibo', pago: 'Sin pagar',
+  // «Sin configurar» y no «No configurado» (decisión del humano, Épica #13763): el mismo hecho se
+  // dice igual en el cobro al cliente y en el costo de proveedor.
+  tarifa: 'Sin configurar', recibo: 'Sin recibo', pago: 'Sin pagar',
   auto: 'Autogestiona', nada: 'No aplica',
 };
 
@@ -239,5 +261,10 @@ export interface FiltrosDetalle {
   estados: string[]; organismos: string[]; docCompleta: boolean;
   /** Solo trámites con al menos una diferencia documental SIN aceptar (HU #12655). Viaja como `conDiferencias=si`. */
   conDiferencias: boolean;
+  /**
+   * Solo trámites con al menos un costo de proveedor «Sin configurar» (ADR-0041 §13, C7). Booleano
+   * sin PII: viaja como `costoProveedorSinConfigurar=true` en los GET y `true` en el cuerpo del export.
+   */
+  costoProveedorSinConfigurar: boolean;
   tipoPeriodo: TipoPeriodo;
 }

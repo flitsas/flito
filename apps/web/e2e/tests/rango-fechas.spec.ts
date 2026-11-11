@@ -10,6 +10,14 @@ import { loginAs, OPERACIONES_USER } from '../helpers/auth';
 const rango = (page: import('@playwright/test').Page, etiqueta: string) =>
   page.locator('summary').filter({ hasText: etiqueta });
 
+/**
+ * Desde el rediseño del Reporte de costos (Épica #13763) «Creación» vive en «Más filtros» y el rango
+ * de aprobación es el «Rango personalizado» del control Periodo.
+ */
+async function abrir(page: import('@playwright/test').Page, panel: 'Más filtros' | 'Periodo') {
+  await page.locator('summary').filter({ hasText: new RegExp(`^${panel}`) }).click();
+}
+
 async function mock(page: import('@playwright/test').Page, capturado: { url?: string }) {
   await page.route(/\/api\/finanzas\/reporte-costos\/facetas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
@@ -21,7 +29,7 @@ async function mock(page: import('@playwright/test').Page, capturado: { url?: st
       status: 200, contentType: 'application/json',
       body: JSON.stringify({
         items: [], total: 0, page: 1, pageSize: 50,
-        totales: { soat: 0, impuesto: 0, derechoTramite: 0, logistica: 0, tramiteDigital: 0, gmf: 0, total: 0, filasIncompletas: 0 },
+        totales: { soat: 0, impuesto: 0, derechoTramite: 0, logistica: 0, tramiteDigital: 0, gmf: 0, total: 0, filasIncompletas: 0, totalReintegro: 0, totalServicio: 0, serviciosAdicionales: 0 },
         resumen: { listo: 0, incompleto: 0, porFacturar: 0, facturado: 0 },
       }),
     });
@@ -34,6 +42,7 @@ test.describe('Rango de fechas — un solo calendario', () => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page, capturado);
     await page.goto('/finanzas/reporte-costos');
+    await abrir(page, 'Más filtros');
 
     // Cerrado: resume el rango elegido en el propio botón, sin abrir nada.
     const creado = rango(page, 'Creación');
@@ -53,6 +62,7 @@ test.describe('Rango de fechas — un solo calendario', () => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page, capturado);
     await page.goto('/finanzas/reporte-costos');
+    await abrir(page, 'Más filtros');
 
     await rango(page, 'Creación').click();
     // Dos días del mes visible, el segundo anterior al primero. Quien marca al revés está
@@ -72,10 +82,11 @@ test.describe('Rango de fechas — un solo calendario', () => {
     await mock(page, capturado);
     await page.goto('/finanzas/reporte-costos');
 
-    await rango(page, 'Aprobación').click();
+    await abrir(page, 'Periodo');
+    await rango(page, 'Rango personalizado').click();
     await page.getByRole('button', { name: 'Hoy' }).click();
 
-    await expect(rango(page, 'Aprobación')).toContainText('→');
+    await expect(rango(page, 'Rango personalizado')).toContainText('→');
     // Tocar uno no puede mover el otro: son dos preguntas distintas sobre el mismo trámite.
     await expect(rango(page, 'Creación')).toContainText('Cualquier fecha');
   });
@@ -85,6 +96,7 @@ test.describe('Rango de fechas — un solo calendario', () => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page, capturado);
     await page.goto('/finanzas/reporte-costos');
+    await abrir(page, 'Más filtros');
 
     const creado = rango(page, 'Creación');
     await creado.click();

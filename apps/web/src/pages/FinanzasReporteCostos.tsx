@@ -1,6 +1,7 @@
-// Finanzas — Reporte de costos. Cada fila muestra los valores SELLADOS si el trámite está
-// liquidado, o un ESTIMADO en vivo si no. La distinción se pinta, porque un estimado puede cambiar
-// mañana y un sellado no. Rol `financiera` (+ admin/auditor, este último en solo lectura).
+// Finanzas — Reporte de costos. Lo que se COBRA al cliente y, aparte, el COSTO DE PROVEEDOR (lo que
+// FLITO le paga, ADR-0041 §13), trámite por trámite. Rediseño «Esencial + desglose», Épica #13763:
+// spec `docs/ux/flito-reporte-costos-rediseno.md`. Rol `financiera` (+ admin/auditor, este último
+// en solo lectura).
 //
 // Desde la HU #12434 la página es el ORQUESTADOR: guarda el estado, dispara las cargas y reparte
 // entre la tarjeta de filtros, la tabla en secciones, la vista consolidada y los diálogos. Lo que
@@ -22,10 +23,10 @@ import TarjetaEnvioFacturacion from '../components/finanzas/TarjetaEnvioFacturac
 import AccionEnviarFactura from '../components/finanzas/AccionEnviarFactura';
 import DialogoEnvioFacturacion, { type TramiteDelEnvio } from '../components/finanzas/DialogoEnvioFacturacion';
 import { useElegibilidadFacturacion } from '../components/finanzas/useElegibilidadFacturacion';
-import FiltrosReporteCostos from '../components/finanzas/FiltrosReporteCostos';
+import FiltrosReporteCostos, { ROTULO_COSTO_SIN_CONFIGURAR } from '../components/finanzas/FiltrosReporteCostos';
 import TablaReporteCostos from '../components/finanzas/TablaReporteCostos';
 import ConsolidadoReporteCostos from '../components/finanzas/ConsolidadoReporteCostos';
-import { periodoEnCurso, rangoDeMes } from '../components/finanzas/SelectorPeriodo';
+import { periodoDe, periodoEnCurso, rangoDeMes, textoPeriodo } from '../components/finanzas/SelectorPeriodo';
 import { cuerpoDeExport, paramsDeCriterios, useExportReporteCostos, type VistaExport } from '../components/finanzas/ExportarReporteCostos';
 import { AvisoVisible } from '../components/flito/ExportarCola';
 import type { FacturacionTramite, ResumenFacturacion } from '../components/finanzas/tiposFacturacion';
@@ -55,13 +56,14 @@ function filtrosIniciales(): FiltrosDetalle {
   return {
     buscar: '', empresa: '', tipo: '', etapa: '', desde: '', hasta: '',
     aprobadoDesde: r.desde, aprobadoHasta: r.hasta,
-    estados: [ESTADO_POR_DEFECTO], organismos: [], docCompleta: false, conDiferencias: false, tipoPeriodo: 'mes',
+    estados: [ESTADO_POR_DEFECTO], organismos: [], docCompleta: false, conDiferencias: false,
+    costoProveedorSinConfigurar: false, tipoPeriodo: 'mes',
   };
 }
 
 const claveDe = (f: FiltrosDetalle) => [
   f.buscar, f.empresa, f.tipo, f.etapa, f.desde, f.hasta, f.aprobadoDesde, f.aprobadoHasta,
-  f.estados.join(','), f.organismos.join(','), f.docCompleta, f.conDiferencias, f.tipoPeriodo,
+  f.estados.join(','), f.organismos.join(','), f.docCompleta, f.conDiferencias, f.costoProveedorSinConfigurar, f.tipoPeriodo,
 ].join('|');
 
 export default function FinanzasReporteCostos() {
@@ -85,7 +87,11 @@ export default function FinanzasReporteCostos() {
   const [data, setData] = useState<Reporte | null>(null);
   const [facetas, setFacetas] = useState<Facetas | null>(null);
   const [facetasCargando, setFacetasCargando] = useState(true);
+  /** Error de una ACCIÓN (liquidar, facturar, reversar): aviso de página con `--flit-danger-ink`. */
   const [error, setError] = useState<string | null>(null);
+  /** Error de la CARGA del reporte: aviso sin rojo en la tarjeta de la tabla, con Reintentar. */
+  const [errorCarga, setErrorCarga] = useState(false);
+  const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState<string | null>(null);
   const [recarga, setRecarga] = useState(0);
   const [enProceso, setEnProceso] = useState(false);
@@ -185,13 +191,18 @@ export default function FinanzasReporteCostos() {
   useEffect(() => { setPage(1); setSeleccion(new Set()); }, [claveFiltros, estadoFe]);
 
   useEffect(() => {
-    setError(null);
+    setErrorCarga(false);
+    setCargando(true);
     const p = params();
     p.set('page', String(page));
+    let vigente = true;
     api.get<Reporte>(`/finanzas/reporte-costos?${p.toString()}`)
       // El parche local se descarta con los datos nuevos: mandan los del servidor.
-      .then((r) => { setData(r); setParcheFe(new Map()); })
-      .catch((e) => setError(errorMessage(e)));
+      .then((r) => { if (vigente) { setData(r); setParcheFe(new Map()); } })
+      // Nunca el error crudo del API: la tarjeta dice qué pasó y ofrece reintentar.
+      .catch(() => { if (vigente) setErrorCarga(true); })
+      .finally(() => { if (vigente) setCargando(false); });
+    return () => { vigente = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claveFiltros, estadoFe, page, recarga]);
 
@@ -273,6 +284,7 @@ export default function FinanzasReporteCostos() {
   const enviablesSel = seleccionados.filter((f) => esCandidato(f) && esElegible(f));
   const enviablesPagina = candidatos.filter(esElegible);
   const conSeleccion = puedeEmitir && enviablesSel.length > 0;
+  const soloEnviables = conSeleccion && liquidablesSel.length === 0;
 
   // A4 — el diálogo agrupa por empresa para preguntar la emisión una vez por cliente.
   const deEnvio = (f: Fila): TramiteDelEnvio => ({
@@ -363,7 +375,7 @@ export default function FinanzasReporteCostos() {
   return (
     <div className="space-y-4">
       <PageHeaderCard title="Reporte de costos" titleRef={tituloRef}
-        subtitle="Costos reales por trámite. Las filas liquidadas muestran valores sellados; el resto, un estimado con las tarifas vigentes."
+        subtitle="Lo que se cobra al cliente y lo que se paga al proveedor, trámite por trámite."
         actions={(
           <div className="flex flex-wrap items-center gap-3">
             {/* El conmutador de vista: el consolidado es la misma pantalla plegada por cliente y
@@ -384,19 +396,15 @@ export default function FinanzasReporteCostos() {
                 </button>
               )
               : (
-                <div className="flex flex-col items-end gap-1">
-                  {/* `id`: el enlace «Exportar a Excel» de la línea del conteo de la tabla lleva el
-                      foco aquí (HU #12537); el disparador del export sigue siendo solo este botón. */}
-                  <button type="button" id="exportar-excel" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                    onClick={() => exportacion.exportar('detalle')}
-                    disabled={exportacion.ocupado} aria-busy={exportacion.ocupado || undefined}>
-                    {exportacion.ocupado ? 'Generando…' : 'Exportar a Excel'}
-                  </button>
-                  {/* Lo único que no se deduce del botón: la tabla pagina y compacta; el archivo no. */}
-                  <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                    Todo el filtro con todas sus columnas, no solo esta página.
-                  </span>
-                </div>
+                // En la cabecera, junto a Detalle/Consolidado (retoque 2 del humano), y secundario:
+                // la cabecera no lleva primaria en el detalle. Lo que no se deduce del botón —que el
+                // archivo es todo el filtro con todas sus columnas— va en su `title` y en la ficha.
+                <button type="button" id="exportar-excel" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                  title="Todo el filtro con todas sus columnas, no solo esta página."
+                  onClick={() => exportacion.exportar('detalle')}
+                  disabled={exportacion.ocupado} aria-busy={exportacion.ocupado || undefined}>
+                  {exportacion.ocupado ? 'Generando…' : 'Exportar a Excel'}
+                </button>
               )}
           </div>
         )} />
@@ -434,7 +442,8 @@ export default function FinanzasReporteCostos() {
             onReintentar={refrescar}
           />
 
-          {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
+          {/* El error de una ACCIÓN, con la tinta de peligro del kit (D-6), no `text-red-600`. */}
+          {error && <FlitCard><p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
           {aviso && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-blue-text)' }}>{aviso}</p></FlitCard>}
 
           {/* Un total al que le faltan conceptos no puede pasar por completo. Va en una línea y con
@@ -443,13 +452,14 @@ export default function FinanzasReporteCostos() {
             <FlitCard className="!p-3">
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <span>
-                  El total mostrado está incompleto:{' '}
+                  <span aria-hidden="true" style={{ color: 'var(--flit-text-muted)' }}>ⓘ </span>
+                  El total está incompleto:{' '}
                   <strong>{data.totales.filasIncompletas.toLocaleString('es-CO')}</strong> de{' '}
-                  <strong>{data.total.toLocaleString('es-CO')}</strong> trámites tienen algún concepto
+                  <strong>{data.total.toLocaleString('es-CO')}</strong> trámites tienen un concepto
                   sin resolver.
                 </span>
                 {filtros.etapa !== 'incompleto' && (
-                  <button type="button" className="text-sm font-semibold underline"
+                  <button type="button" className="flit-focus rounded text-sm font-semibold underline transition-colors hover:bg-[var(--flit-bg-hover)]"
                     style={{ color: 'var(--flit-blue-text)' }} onClick={() => cambiarFiltros({ etapa: 'incompleto' })}>
                     Ver cuáles
                   </button>
@@ -467,12 +477,14 @@ export default function FinanzasReporteCostos() {
                   {seleccion.size} seleccionado(s) · {liquidablesSel.length} se pueden liquidar
                   {puedeEmitir && ` · ${enviablesSel.length} se pueden enviar a facturación electrónica`}
                 </span>
-                <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+                {/* UNA primaria (spec §2): «Liquidar n», o «Enviar n» si la selección solo tiene
+                    enviables. La otra pasa a secundaria. */}
+                <button className={soloEnviables ? flitBtnSecondary : flitBtnPrimary} style={soloEnviables ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
                   disabled={enProceso || liquidablesSel.length === 0} onClick={liquidarLote}>
                   {enProceso ? 'Liquidando…' : `Liquidar ${liquidablesSel.length}`}
                 </button>
                 {conSeleccion && (
-                  <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+                  <button className={soloEnviables ? flitBtnPrimary : flitBtnSecondary} style={soloEnviables ? flitBtnPrimaryStyle : flitBtnSecondaryStyle}
                     onClick={() => abrirEnvio(seleccionados.filter(esCandidato))}>
                     Enviar {enviablesSel.length} a facturación electrónica
                   </button>
@@ -484,7 +496,8 @@ export default function FinanzasReporteCostos() {
 
           {/* La tarjeta de envío NO se monta para quien no puede emitir: al `auditor` el estado ya
               se lo dan los contadores, la columna y la ficha; esto es el envoltorio de la acción. */}
-          {puedeEmitir && filas.length > 0 && (
+          {/* Con selección la tarjeta se oculta: la barra de lote ya lleva su acción (una primaria). */}
+          {puedeEmitir && filas.length > 0 && seleccion.size === 0 && (
             <TarjetaEnvioFacturacion
               cargando={elegibilidad.cargando}
               error={elegibilidad.error}
@@ -502,14 +515,26 @@ export default function FinanzasReporteCostos() {
             />
           )}
 
-          {/* Con «Con diferencias» puesta el vacío dice qué desmarcar; el genérico sigue para el resto. */}
-          {data && filas.length === 0 && (
-            <FlitCard><FlitEmpty>{filtros.conDiferencias ? VACIO_CON_DIFERENCIAS : 'No hay trámites que coincidan con los filtros.'}</FlitEmpty></FlitCard>
+          {/* Error de carga: sin rojo, en la tarjeta de la tabla; los filtros siguen usables. */}
+          {errorCarga && !cargando && (
+            <FlitCard>
+              <div role="alert" className="flex flex-wrap items-center gap-3 rounded-[10px] border p-3 text-sm"
+                style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>
+                <span aria-hidden="true" style={{ color: 'var(--flit-text-muted)' }}>ⓘ</span>
+                <span>No se pudo cargar el reporte. Revisa tu conexión y vuelve a intentarlo.</span>
+                <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={refrescar}>Reintentar</button>
+              </div>
+            </FlitCard>
           )}
 
-          {data && filas.length > 0 && (
+          {/* Vacío: con «Con diferencias» o «Costo de proveedor sin configurar» dice qué desmarcar. */}
+          {!errorCarga && !cargando && data && filas.length === 0 && (
+            <FlitCard><FlitEmpty><VacioReporte filtros={filtros} onLimpiar={limpiarFiltros} /></FlitEmpty></FlitCard>
+          )}
+
+          {!errorCarga && (cargando || (data && filas.length > 0)) && (
             <FlitCard>
-              <TablaReporteCostos data={data} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar} enProceso={enProceso}
+              <TablaReporteCostos data={data} cargando={cargando} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar} enProceso={enProceso}
                 puedeVerServicios={puedeVerServicios} puedeAceptarDiferencia={puedeAceptarDiferencia}
                 seleccion={seleccion} onSeleccion={setSeleccion} accionable={accionable}
                 fichasFe={fichasFe} estadoFeDe={estadoFeDe} onAbrirDetalle={setDetalleDe}
@@ -607,5 +632,27 @@ export default function FinanzasReporteCostos() {
         />
       )}
     </div>
+  );
+}
+
+/** El vacío de la tabla, con su siguiente paso (spec §3.7). */
+function VacioReporte({ filtros, onLimpiar }: { filtros: FiltrosDetalle; onLimpiar: () => void }) {
+  if (filtros.costoProveedorSinConfigurar) {
+    return (
+      <>
+        <p style={{ color: 'var(--flit-text-primary)' }}>Todos los trámites de este filtro tienen su costo de proveedor configurado.</p>
+        <p className="mt-1">Desmarca «{ROTULO_COSTO_SIN_CONFIGURAR}» para verlos todos.</p>
+      </>
+    );
+  }
+  if (filtros.conDiferencias) return <>{VACIO_CON_DIFERENCIAS}</>;
+  const periodo = periodoDe(filtros.tipoPeriodo, { desde: filtros.aprobadoDesde, hasta: filtros.aprobadoHasta });
+  const enPeriodo = periodo ? ` en ${textoPeriodo(filtros.tipoPeriodo, { desde: filtros.aprobadoDesde, hasta: filtros.aprobadoHasta }).toLowerCase()}` : '';
+  return (
+    <>
+      <p style={{ color: 'var(--flit-text-primary)' }}>No hay trámites que coincidan con los filtros{enPeriodo}.</p>
+      <p className="mt-1">Prueba otro periodo o quita un filtro.</p>
+      <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={onLimpiar}>Limpiar filtros</button>
+    </>
   );
 }

@@ -4,6 +4,14 @@ import { loginAs, funcionesDe, OPERACIONES_USER, AUDITOR_USER, FINANCIERA_USER, 
 // HU #10967 — Reporte de costos. Liquidar, facturar y consultar soportes sin salir de la pantalla.
 // Las filas liquidadas muestran valores sellados; el resto, un estimado. Backend mockeado.
 
+/** Un concepto de costo de proveedor con valor (`CostoProveedorConcepto`). */
+const costo = (proveedor: string | null, valor: number | null, estado = 'costo', extra: Record<string, unknown> = {}) => ({
+  estado, proveedorId: proveedor ? `p-${proveedor}` : null, proveedor, vigenciaId: valor !== null ? 'v-1' : null,
+  valor, fechaReferencia: '2026-07-10T12:00:00.000Z', contadoEnTramiteId: null, contadoEnIdFlit: null, ...extra,
+});
+const COSTO_SOAT = costo('Seguros Demo', 48000);
+const COSTO_LOGISTICA = costo('Transportes Demo Norte', 35000);
+
 const FILA_ESTIMADA = {
   tramiteId: 'aaaa0000-0000-0000-0000-000000000001', idFlit: 'FLIT-2001', placa: 'ABC123',
   estado: 'Aprobado', empresa: 'ACME SAS', tipoTramite: 'Traspaso',
@@ -40,6 +48,11 @@ const FILA_ESTIMADA = {
   // el chip «Tarifa» pese en todas las filas, como en producción.
   origenes: { tramiteDigital: 'tarifa', logistica: 'tarifa' },
   valorDocumental: { tramiteDigital: null, logistica: null, serviciosAdicionales: null },
+  // Costo de proveedor (ADR-0041 §13, Épica #13763): informativo, nunca suma al cobro. Claves
+  // siempre presentes en el contrato; la base trae los dos conceptos con valor (C1).
+  costoProveedorSoat: COSTO_SOAT,
+  costoProveedorLogistica: COSTO_LOGISTICA,
+  costoProveedorTotal: 83000,
 };
 const FILA_BLOQUEADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000002', idFlit: 'FLIT-2002',
@@ -273,10 +286,20 @@ async function mock(page: import('@playwright/test').Page) {
  * en Servicio / Total reintegro o «Falta: …» junto a Liquidar NO la llaman: eso tiene que seguir a
  * la vista en compacta (AC7 de la #12539).
  */
+/** Los `id` de `definicionColumnasReporteCostos.tsx`, en su orden. */
+const TODAS_LAS_COLUMNAS = [
+  'tramite', 'placa', 'empresa', 'tipo', 'aprobacion', 'liquidacion', 'falta',
+  'soat', 'impuesto', 'derecho', 'logistica', 'digital', 'adicionales', 'gmf', 'totalReintegro', 'servicio', 'viajes', 'total',
+  'costoSoat', 'proveedorSoat', 'costoLogistica', 'proveedorLogistica', 'totalCostos',
+  'creacion', 'estado', 'ot', 'mes', 'trimestre', 'facturaDian', 'marca', 'linea', 'vin',
+  'nombres', 'apellidos', 'razonSocial', 'tipoDocumento', 'documento',
+];
+
 async function ampliarColumnas(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
-    try { localStorage.setItem('flito.reporteCostos.columnas', 'todas'); } catch { /* sin storage */ }
-  });
+  await page.addInitScript((TODAS_LAS_COLUMNAS) => {
+    // Desde el rediseño (Épica #13763) la preferencia es la LISTA de columnas visibles, clave v2.
+    try { localStorage.setItem('flito.reporteCostos.columnas.v2', JSON.stringify(TODAS_LAS_COLUMNAS)); } catch { /* sin storage */ }
+  }, TODAS_LAS_COLUMNAS);
 }
 
 /** Igual que `mock`, pero con las dos únicas filas que la marca de conciliado necesita (HU #11681). */
@@ -289,13 +312,40 @@ async function mockConciliacion(page: import('@playwright/test').Page) {
     }) }));
 }
 
+/**
+ * Desde el rediseño (Épica #13763) la fila lleva UN botón y el ⋮: Soporte, Servicios, Viajes,
+ * Aceptar diferencia y Reversar… se eligen en el menú de la fila.
+ */
+async function abrirMenuFila(page: import('@playwright/test').Page, idFlit: string) {
+  // Un ⋮ ya abierto se cierra antes: un segundo clic sobre el mismo lo plegaría.
+  if (await page.getByRole('menu').count()) await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: `Más acciones de ${idFlit}`, exact: true }).click();
+  return page.getByRole('menu');
+}
+async function accionDeFila(page: import('@playwright/test').Page, idFlit: string, opcion: string | RegExp) {
+  const menu = await abrirMenuFila(page, idFlit);
+  await menu.getByRole('menuitem', { name: opcion }).click();
+}
+/** Empresa, Tipo, Estado, OT, Creación y las casillas viven en «Más filtros» desde el rediseño. */
+async function abrirMasFiltros(page: import('@playwright/test').Page) {
+  const summary = page.locator('summary').filter({ hasText: 'Más filtros' });
+  if (!(await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) await summary.click();
+}
+/** El rango de aprobación es el «Rango personalizado» del control Periodo. */
+async function abrirPeriodo(page: import('@playwright/test').Page) {
+  const summary = page.locator('summary').filter({ hasText: /^Periodo/ });
+  if (!(await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) await summary.click();
+}
+
 test.describe('Finanzas — Reporte de costos', () => {
-  test('distingue sellado, facturado y estimado', async ({ page }) => {
+  test('distingue sellado y facturado; sin liquidar la columna queda vacía (sin «Estimado»)', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.goto('/finanzas/reporte-costos');
 
-    await expect(page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByText('Estimado')).toBeVisible();
+    // Retoque 3 del humano (Épica #13763): «Liquidación» no dice «Estimado».
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT-2001' })).toBeVisible();
+    await expect(page.getByRole('table').getByText('Estimado', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('row').filter({ hasText: 'FLIT-2003' }).getByText('Liquidado')).toBeVisible();
     await expect(page.getByRole('row').filter({ hasText: 'FLIT-2004' }).getByText('Facturado')).toBeVisible();
   });
@@ -384,6 +434,7 @@ test.describe('Finanzas — Reporte de costos', () => {
     });
 
     await page.goto('/finanzas/reporte-costos');
+    await abrirMasFiltros(page);
     const soportes = page.getByText('Solo con soportes completos');
     // Un filtro que no dice qué está filtrando es peor que ninguno: quien mira la lista no sabe qué
     // se le está quedando fuera, y aquí lo que se salta son los conceptos que la compañía autogestiona.
@@ -415,11 +466,16 @@ test.describe('Finanzas — Reporte de costos', () => {
 
     // Cada rango es un calendario propio (HU #11026): se elige el tramo y viaja completo.
     const rango = (etiqueta: string) => page.locator('summary').filter({ hasText: etiqueta });
+    await abrirMasFiltros(page);
     await rango('Creación').click();
     await page.getByRole('button', { name: 'Este mes' }).click();
     await expect.poll(() => urls.at(-1) ?? '').toContain('desde=');
 
-    await rango('Aprobación').click();
+    // Desde el rediseño el rango de aprobación es el «Rango personalizado» del Periodo.
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await abrirPeriodo(page);
+    await rango('Rango personalizado').click();
     await page.getByRole('button', { name: 'Hoy' }).click();
     await expect.poll(() => urls.at(-1) ?? '').toContain('aprobadoDesde=');
     // Los dos viajan a la vez y por separado: uno no pisa al otro.
@@ -436,6 +492,7 @@ test.describe('Finanzas — Reporte de costos', () => {
     });
 
     await page.goto('/finanzas/reporte-costos');
+    await abrirMasFiltros(page);
     // Plegado ya dice cuál está puesto: no hay que abrirlo para saber qué se está mirando.
     const estado = page.locator('summary').filter({ hasText: 'Estado' });
     await expect(estado).toContainText('Aprobado');
@@ -457,15 +514,18 @@ test.describe('Finanzas — Reporte de costos', () => {
     });
 
     await page.goto('/finanzas/reporte-costos');
-    // Con el punto de partida puesto no hay nada que limpiar: el botón lo dice.
-    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeDisabled();
+    // Con el punto de partida puesto no hay nada que limpiar: «Limpiar filtros» no se pinta.
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(0);
+    await abrirMasFiltros(page);
     await page.locator('summary').filter({ hasText: 'Estado' }).click();
     await page.getByRole('checkbox', { name: 'Entregado' }).check();
     await page.locator('summary').filter({ hasText: 'Creación' }).click();
     await page.getByRole('button', { name: 'Este mes' }).click();
     // Y el rango de aprobación a mano, para que «limpiar» tenga que volver al mes en curso, no
     // conservar lo que había.
-    await page.locator('summary').filter({ hasText: 'Aprobación' }).click();
+    await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
+    await abrirPeriodo(page);
+    await page.locator('summary').filter({ hasText: 'Rango personalizado' }).click();
     await page.getByRole('button', { name: 'Hoy' }).click();
     await expect.poll(() => urls.at(-1) ?? '').toContain('aprobadoDesde=2026-09-15');
     await page.getByRole('button', { name: 'Limpiar filtros' }).click();
@@ -478,7 +538,7 @@ test.describe('Finanzas — Reporte de costos', () => {
     // …y el de aprobación vuelve al mes en curso, no a un rango vacío (CF-05).
     expect(ultima).toContain('aprobadoDesde=2026-09-01');
     expect(ultima).toContain('aprobadoHasta=2026-09-30');
-    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(0);
   });
 
   test('el derecho de tránsito sin recibo NO dice «No configurado»', async ({ page }) => {
@@ -495,7 +555,9 @@ test.describe('Finanzas — Reporte de costos', () => {
     await expect(fila.getByText('No configurado')).toHaveCount(0);
     // Y sigue sin poder liquidarse: falta un costo que existe. Se nombra en el aviso.
     await expect(fila.getByRole('button', { name: 'Liquidar' })).toBeDisabled();
-    await expect(fila.getByText('Falta: Derecho de tránsito')).toBeVisible();
+    // Desde el rediseño lo dice la columna «Falta» y el `title` del botón.
+    await expect(fila.getByRole('button', { name: 'Liquidar' })).toHaveAttribute('title', 'Falta: Derecho de tránsito');
+    await expect(fila.getByRole('cell', { name: 'Derecho de tránsito', exact: true })).toBeVisible();
   });
 
   test('un SOAT sin pagar bloquea la liquidación, y lo dice', async ({ page }) => {
@@ -510,7 +572,7 @@ test.describe('Finanzas — Reporte de costos', () => {
     // arranca compacta: SOAT está oculto y el motivo se lee en el subtotal (AC5).
     await expect(fila.getByText('Sin pagar').first()).toBeVisible();
     await expect(fila.getByRole('button', { name: 'Liquidar' })).toBeDisabled();
-    await expect(fila.getByText('Falta: SOAT')).toBeVisible();
+    await expect(fila.getByRole('button', { name: 'Liquidar' })).toHaveAttribute('title', 'Falta: SOAT');
   });
 
   test('lo que la compañía autogestiona se dice, no se deja en blanco', async ({ page }) => {
@@ -529,20 +591,21 @@ test.describe('Finanzas — Reporte de costos', () => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.goto('/finanzas/reporte-costos');
+    await abrirMasFiltros(page);
 
-    const empresas = page.getByLabel('Empresa');
+    const empresas = page.getByRole('combobox', { name: 'Empresa' });
     await expect(empresas.getByRole('option')).toHaveText(['Todas las empresas', 'ACME SAS']);
     await empresas.selectOption('900111,9001112');
   });
 
-  test('un concepto sin tarifa se muestra como «No configurado», no como cero', async ({ page }) => {
+  test('un concepto sin tarifa se muestra como «Sin configurar», no como cero', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.goto('/finanzas/reporte-costos');
 
     const fila = page.getByRole('row').filter({ hasText: 'FLIT-2002' });
-    // En compacta (HU #12537) lo dice «Servicio», el subtotal: no hace falta ampliar (AC5).
-    await expect(fila.getByText('No configurado').first()).toBeVisible();
+    // «Sin configurar» desde la Épica #13763: el mismo hecho se dice igual en cobro y costo.
+    await expect(fila.getByText('Sin configurar').first()).toBeVisible();
     await expect(fila.getByText('$ 0')).toHaveCount(0);
   });
 
@@ -556,7 +619,7 @@ test.describe('Finanzas — Reporte de costos', () => {
     });
 
     await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText(/tienen algún concepto sin\s+resolver/)).toBeVisible();
+    await expect(page.getByText(/tienen un concepto sin\s+resolver/)).toBeVisible();
 
     // El aviso servía de poco si para ver esos trámites había que armar el filtro a mano.
     await page.getByRole('button', { name: 'Ver cuáles' }).click();
@@ -577,7 +640,7 @@ test.describe('Finanzas — Reporte de costos', () => {
 
     const bloqueada = page.getByRole('row').filter({ hasText: 'FLIT-2002' });
     await expect(bloqueada.getByRole('button', { name: 'Liquidar' })).toBeDisabled();
-    await expect(bloqueada.getByText(/Falta: Trámite digital/)).toBeVisible();
+    await expect(bloqueada.getByRole('button', { name: 'Liquidar' })).toHaveAttribute('title', /Falta: Trámite digital/);
 
     await expect(page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button', { name: 'Liquidar' })).toBeEnabled();
   });
@@ -602,12 +665,14 @@ test.describe('Finanzas — Reporte de costos', () => {
     await page.goto('/finanzas/reporte-costos');
 
     const liquidada = page.getByRole('row').filter({ hasText: 'FLIT-2003' });
-    await expect(liquidada.getByRole('button', { name: 'Reversar' })).toBeVisible();
     await expect(liquidada.getByRole('button', { name: 'Facturar' })).toBeVisible();
+    // Reversar vive en el ⋮ desde el rediseño.
+    await expect((await abrirMenuFila(page, 'FLIT-2003')).getByRole('menuitem', { name: 'Reversar…' })).toBeVisible();
+    await page.keyboard.press('Escape');
 
     const facturada = page.getByRole('row').filter({ hasText: 'FLIT-2004' });
-    await expect(facturada.getByRole('button', { name: 'Reversar' })).toHaveCount(0);
     await expect(facturada.getByRole('button', { name: 'Facturar' })).toHaveCount(0);
+    await expect((await abrirMenuFila(page, 'FLIT-2004')).getByRole('menuitem', { name: 'Reversar…' })).toHaveCount(0);
   });
 
   test('el reverso exige un motivo antes de confirmar', async ({ page }) => {
@@ -615,11 +680,12 @@ test.describe('Finanzas — Reporte de costos', () => {
     await mock(page);
     await page.goto('/finanzas/reporte-costos');
 
-    const liquidada = page.getByRole('row').filter({ hasText: 'FLIT-2003' });
-    await liquidada.getByRole('button', { name: 'Reversar' }).click();
-    await expect(liquidada.getByRole('button', { name: 'Confirmar' })).toBeDisabled();
-    await liquidada.getByLabel('Motivo del reverso').fill('error de tarifa');
-    await expect(liquidada.getByRole('button', { name: 'Confirmar' })).toBeEnabled();
+    // El motivo se pide en un diálogo, no en un campo dentro de la celda.
+    await accionDeFila(page, 'FLIT-2003', 'Reversar…');
+    const dialogo = page.getByRole('dialog', { name: 'Reversar la liquidación de FLIT-2003' });
+    await expect(dialogo.getByRole('button', { name: 'Confirmar' })).toBeDisabled();
+    await dialogo.getByLabel('Motivo del reverso').fill('error de tarifa');
+    await expect(dialogo.getByRole('button', { name: 'Confirmar' })).toBeEnabled();
   });
 
   test('el visor lista TODOS los documentos del trámite, de los cuatro orígenes', async ({ page }) => {
@@ -634,7 +700,7 @@ test.describe('Finanzas — Reporte de costos', () => {
       ]) }));
 
     await page.goto('/finanzas/reporte-costos');
-    await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button', { name: 'Soporte' }).click();
+    await accionDeFila(page, 'FLIT-2001', 'Soporte');
     await expect(page.getByText('Documentos de FLIT-2001')).toBeVisible();
     // Un trámite con los cuatro cargados tiene que enseñar los cuatro, no el primero que se halló.
     await expect(page.getByRole('button').filter({ hasText: 'SOAT' }).filter({ hasText: 'soat.pdf' })).toBeVisible();
@@ -660,7 +726,7 @@ test.describe('Finanzas — Reporte de costos', () => {
     });
 
     await page.goto('/finanzas/reporte-costos');
-    await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button', { name: 'Soporte' }).click();
+    await accionDeFila(page, 'FLIT-2001', 'Soporte');
     await expect(page.getByRole('button').filter({ hasText: 'impuesto.pdf' })).toHaveCount(0);
 
     impuestoCargado = true;
@@ -677,7 +743,7 @@ test.describe('Finanzas — Reporte de costos', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
 
     await page.goto('/finanzas/reporte-costos');
-    await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button', { name: 'Soporte' }).click();
+    await accionDeFila(page, 'FLIT-2001', 'Soporte');
     await expect(page.getByText(/no tiene ningún documento cargado/)).toBeVisible();
   });
 
@@ -687,7 +753,8 @@ test.describe('Finanzas — Reporte de costos', () => {
     await page.goto('/finanzas/reporte-costos');
 
     await expect(page.getByText('FLIT-2001')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Soporte' }).first()).toBeVisible();
+    await expect((await abrirMenuFila(page, 'FLIT-2001')).getByRole('menuitem', { name: 'Soporte' })).toBeVisible();
+    await page.keyboard.press('Escape');
     // Dentro de la tabla: las pestañas de etapa del filtro también se llaman «…liquidar» y
     // «…facturar», y lo que se comprueba aquí es que no haya acciones en las filas.
     const tabla = page.getByRole('table');
@@ -702,6 +769,10 @@ test.describe('Finanzas — Reporte de costos', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe('Reporte de costos — facturación electrónica', () => {
+  // «Factura DIAN» está en «Más del trámite», fuera de la vista por defecto desde el rediseño
+  // (Épica #13763): estos casos la piden visible con la preferencia v2.
+  test.beforeEach(async ({ page }) => { await ampliarColumnas(page); });
+
   test('los contadores se ven y dicen cuántos hay en cada punto', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
@@ -1141,6 +1212,10 @@ const filaDe = (page: import('@playwright/test').Page, idFlit: string) =>
   page.getByRole('row').filter({ hasText: idFlit });
 
 test.describe('Reporte de costos — estado de facturación electrónica (HU #11331)', () => {
+  // «Factura DIAN» está en «Más del trámite», fuera de la vista por defecto desde el rediseño
+  // (Épica #13763): estos casos la piden visible con la preferencia v2.
+  test.beforeEach(async ({ page }) => { await ampliarColumnas(page); });
+
   test('AC3 — un trámite emitido muestra el número de su factura sin abrir nada', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockFe(page);
@@ -1387,18 +1462,21 @@ const CONSOLIDADO = {
       soat: 1800000, impuesto: 480000, derechoTramite: 320000, gmf: 10400, logistica: 60000,
       tramiteDigital: 600000, serviciosAdicionales: 890000,
       totalReintegro: 2670400, totalServicio: 600000, total: 3270400, filasIncompletas: 0,
+      costoProveedorSoat: 1968000, costoProveedorLogistica: 1435000, costoProveedorTotal: 3403000, tramitesCostoSinConfigurar: 2,
     },
     {
       clienteClave: 'n900222', clienteNombre: 'Logicargo', periodo: null, tramites: 4,
       soat: 0, impuesto: 0, derechoTramite: 0, gmf: 0, logistica: 0,
       tramiteDigital: 0, serviciosAdicionales: 0,
       totalReintegro: 0, totalServicio: 0, total: 0, filasIncompletas: 3,
+      costoProveedorSoat: 0, costoProveedorLogistica: 0, costoProveedorTotal: 0, tramitesCostoSinConfigurar: 0,
     },
   ],
   totales: {
     soat: 1800000, impuesto: 480000, derechoTramite: 320000, gmf: 10400, logistica: 60000,
     tramiteDigital: 600000, serviciosAdicionales: 890000,
     totalReintegro: 2670400, totalServicio: 600000, total: 3270400, filasIncompletas: 3,
+    costoProveedorSoat: 1968000, costoProveedorLogistica: 1435000, costoProveedorTotal: 3403000, tramitesCostoSinConfigurar: 2,
   },
 };
 
@@ -1447,7 +1525,9 @@ const querySin = (url: string, ...claves: string[]) => {
 async function columnasPorGrupo(page: Pagina): Promise<Record<string, string[]>> {
   const tabla = page.getByRole('table').first();
   await expect(tabla.locator('th[scope="colgroup"]').first()).toBeVisible();
-  const grupos = await tabla.locator('thead tr').first().locator('th[scope="colgroup"]').evaluateAll(
+  // Desde el rediseño (Épica #13763) las fijas (Trámite, Placa) llevan un `th` de grupo SIN título
+  // ni `scope`; la casilla y las acciones, `rowspan=2`. Se recorren todos menos esos dos.
+  const grupos = await tabla.locator('thead tr').first().locator('th:not([rowspan="2"])').evaluateAll(
     (ths) => ths.map((th) => ({ titulo: th.textContent?.trim() ?? '', n: Number(th.getAttribute('colspan') ?? 1) })));
   const columnas = await tabla.locator('thead tr').nth(1).locator('th[scope="col"]').allTextContents();
   const resultado: Record<string, string[]> = {};
@@ -1475,15 +1555,16 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
     const grupos = await columnasPorGrupo(page);
-    expect(Object.keys(grupos)).toEqual(['Identificación', 'Datos del trámite', 'Valores']);
-    // Pertenencia por rol de columna, no solo presencia: «Trámite» (pesos) bajo Valores y «OT»
-    // bajo Datos. Si se cruzaran, este aserto cae.
-    expect(grupos['Identificación']).toEqual(
-      ['Empresa', 'Flit', 'Placa', 'VIN', 'Nombres', 'Apellidos', 'Razón social', 'Tipo', 'Documento']);
-    expect(grupos['Datos del trámite']).toEqual(
-      ['Tipo trámite', 'Marca', 'Línea', 'OT', 'Estado', 'Fechas', 'Mes', 'Trimestre', 'Factura DIAN']);
-    expect(grupos['Valores']).toEqual(
-      ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Viajes', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación']);
+    // Desde el rediseño (Épica #13763): las fijas, Esencial, Cobro al cliente, Costo de proveedor,
+    // Más del trámite y Titular. Pertenencia por rol de columna, no solo presencia.
+    expect(Object.keys(grupos)).toEqual(['', 'Esencial', 'Cobro al cliente', 'Costo de proveedor', 'Más del trámite', 'Titular']);
+    expect(grupos['']).toEqual(['Trámite', 'Placa']);
+    expect(grupos['Esencial']).toEqual(['Empresa', 'Tipo', 'Aprobación', 'Liquidación', 'Falta']);
+    expect(grupos['Cobro al cliente']).toEqual(
+      ['SOAT', 'Impuesto', 'Derecho', 'Logística', 'Trámite digital', 'Adicionales', 'GMF', 'Total reintegro', 'Servicio', 'Viajes', 'Total']);
+    expect(grupos['Costo de proveedor']).toEqual(['Costo SOAT', 'Proveedor SOAT', 'Costo logística', 'Proveedor logística', 'Total costos']);
+    expect(grupos['Más del trámite']).toEqual(['Creación', 'Estado', 'OT', 'Mes', 'Trimestre', 'Factura DIAN', 'Marca', 'Línea', 'VIN']);
+    expect(grupos['Titular']).toEqual(['Nombres', 'Apellidos', 'Razón social', 'Tipo de documento', 'Documento']);
   });
 
   test('AC1 — persona natural y jurídica, con y sin organismo, con y sin aprobación', async ({ page }) => {
@@ -1493,7 +1574,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await page.goto('/finanzas/reporte-costos');
 
     const grupos = await columnasPorGrupo(page);
-    const todas = [...grupos['Identificación'], ...grupos['Datos del trámite'], ...grupos['Valores']];
+    const todas = Object.values(grupos).flat();
     // La casilla de selección va delante de las columnas para quien puede liquidar.
     const celda = (fila: import('@playwright/test').Locator, titulo: string) =>
       fila.getByRole('cell').nth(todas.indexOf(titulo) + 1);
@@ -1502,7 +1583,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await expect(celda(natural, 'Nombres')).toHaveText('Ana María');
     await expect(celda(natural, 'Apellidos')).toHaveText('Pérez Gómez');
     await expect(celda(natural, 'Razón social')).toHaveText('');
-    await expect(celda(natural, 'Tipo')).toHaveText('CC');
+    await expect(celda(natural, 'Tipo de documento')).toHaveText('CC');
     await expect(celda(natural, 'Documento')).toHaveText('CC 1020304050');
     await expect(celda(natural, 'OT')).toHaveText('Envigado');
     await expect(celda(natural, 'Mes')).toHaveText('2026-07');
@@ -1537,7 +1618,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await page.goto('/finanzas/reporte-costos');
 
     const grupos = await columnasPorGrupo(page);
-    const todas = [...grupos['Identificación'], ...grupos['Datos del trámite'], ...grupos['Valores']];
+    const todas = Object.values(grupos).flat();
     const celda = (id: string, titulo: string) => filaDe(page, id).getByRole('cell').nth(todas.indexOf(titulo) + 1);
 
     await expect(celda('FLIT-2001', 'Total reintegro')).toHaveText('$ 668.460');
@@ -1545,9 +1626,9 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await expect(celda('FLIT-2001', 'Total')).toHaveText('$ 868.460');
     await expect(celda('FLIT-2002', 'Total reintegro')).toHaveText('$ 1');
     // Servicio null con «Trámite digital» sin tarifa → el motivo, nunca $ 0.
-    await expect(celda('FLIT-2002', 'Servicio')).toHaveText('No configurado');
+    await expect(celda('FLIT-2002', 'Servicio')).toHaveText('Sin configurar');
     await expect(celda('FLIT-2002', 'Servicio')).not.toContainText('$');
-    await expect(filaDe(page, 'FLIT-2002').getByText('Falta: Trámite digital')).toBeVisible();
+    await expect(celda('FLIT-2002', 'Falta')).toHaveText('Trámite digital');
 
     // El pie: totales del universo filtrado, con los dos subtotales junto a los conceptos. Desde la
     // HU #12539 el rótulo va en un `th[scope=row]` que se come las columnas sin total: las `td` del
@@ -1565,6 +1646,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     const { detalle } = await mockSecciones(page);
     await page.goto('/finanzas/reporte-costos');
     await expect.poll(() => detalle.length).toBeGreaterThan(0);
+    await abrirMasFiltros(page);
 
     const ot = page.locator('summary').filter({ hasText: 'OT' });
     await expect(ot).toContainText('Todos');
@@ -1584,7 +1666,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await expect(ot).toContainText('2 organismos');
 
     // Combinado con la empresa en la MISMA petición.
-    await page.getByLabel('Empresa', { exact: true }).selectOption({ label: 'ACME SAS' });
+    await page.getByRole('combobox', { name: 'Empresa' }).selectOption({ label: 'ACME SAS' });
     await expect.poll(() => detalle.at(-1) ?? '').toContain('empresas=');
     const ultima = detalle.at(-1) ?? '';
     expect(ultima).toContain('organismos=05266%2C05001');
@@ -1600,11 +1682,14 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await expect.poll(() => detalle[0] ?? '').toContain('estados=Aprobado');
     expect(detalle[0]).toContain('aprobadoDesde=2026-09-01');
     expect(detalle[0]).toContain('aprobadoHasta=2026-09-30');
+    // Plegado, el Periodo ya lo dice; dentro, el selector y el rango personalizado.
+    await expect(page.locator('summary').filter({ hasText: /^Periodo/ })).toContainText('Septiembre 2026');
+    await abrirPeriodo(page);
     await expect(page.getByRole('status').filter({ hasText: 'Septiembre 2026' })).toBeVisible();
-    await expect(page.getByLabel('Mes', { exact: true })).toHaveValue('8');
-    await expect(page.getByLabel('Año', { exact: true })).toHaveValue('2026');
-    await expect(page.locator('summary').filter({ hasText: 'Aprobación' })).toContainText('1 sep 2026');
-    await expect(page.locator('summary').filter({ hasText: 'Aprobación' })).toContainText('30 sep 2026');
+    await expect(page.getByRole('combobox', { name: 'Mes', exact: true })).toHaveValue('8');
+    await expect(page.getByRole('combobox', { name: 'Año', exact: true })).toHaveValue('2026');
+    await expect(page.locator('summary').filter({ hasText: 'Rango personalizado' })).toContainText('1 sep 2026');
+    await expect(page.locator('summary').filter({ hasText: 'Rango personalizado' })).toContainText('30 sep 2026');
   });
 
   test('AC5 — trimestre, rango a mano («Personalizado») y vuelta a un mes', async ({ page }) => {
@@ -1615,14 +1700,15 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
 
     // Trimestre → el que contiene septiembre: T3, cerrado el 30 de septiembre (no el 30 de agosto
     // ni el 1 de octubre).
+    await abrirPeriodo(page);
     await page.getByRole('button', { name: 'Trimestre' }).click();
     await expect.poll(() => detalle.at(-1) ?? '').toContain('aprobadoDesde=2026-07-01');
     expect(detalle.at(-1)).toContain('aprobadoHasta=2026-09-30');
     await expect(page.getByRole('status').filter({ hasText: 'T3 2026' })).toBeVisible();
-    await expect(page.getByLabel('Trimestre', { exact: true })).toHaveValue('2');
+    await expect(page.getByRole('combobox', { name: 'Trimestre', exact: true })).toHaveValue('2');
 
     // A mano → «Personalizado», y el selector NO lo pisa aunque la pantalla se repinte.
-    await page.locator('summary').filter({ hasText: 'Aprobación' }).click();
+    await page.locator('summary').filter({ hasText: 'Rango personalizado' }).click();
     await page.getByRole('button', { name: 'Hoy' }).click();
     await expect.poll(() => detalle.at(-1) ?? '').toContain('aprobadoDesde=2026-09-15');
     await expect(page.getByRole('status').filter({ hasText: 'Personalizado' })).toBeVisible();
@@ -1635,7 +1721,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
 
     // Mes → Octubre 2026.
     await page.getByRole('button', { name: 'Mes', exact: true }).click();
-    await page.getByLabel('Mes', { exact: true }).selectOption('9');
+    await page.getByRole('combobox', { name: 'Mes', exact: true }).selectOption('9');
     await expect.poll(() => detalle.at(-1) ?? '').toContain('aprobadoDesde=2026-10-01');
     expect(detalle.at(-1)).toContain('aprobadoHasta=2026-10-31');
     await expect(page.getByRole('status').filter({ hasText: 'Octubre 2026' })).toBeVisible();
@@ -1645,7 +1731,8 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await loginAs(page, OPERACIONES_USER);
     const { detalle, consolidado } = await mockSecciones(page);
     await page.goto('/finanzas/reporte-costos');
-    await page.getByLabel('Empresa', { exact: true }).selectOption({ label: 'ACME SAS' });
+    await abrirMasFiltros(page);
+    await page.getByRole('combobox', { name: 'Empresa' }).selectOption({ label: 'ACME SAS' });
     await expect.poll(() => detalle.at(-1) ?? '').toContain('empresas=');
     // Nada del consolidado hasta conmutar: se carga solo cuando se mira.
     expect(consolidado).toHaveLength(0);
@@ -1677,6 +1764,8 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await expect(tabla.getByRole('button')).toHaveCount(0);
 
     // Cambiar a trimestre RECARGA el consolidado con periodo=trimestre.
+    await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
+    await abrirPeriodo(page);
     await page.getByRole('button', { name: 'Trimestre' }).click();
     await expect.poll(() => consolidado.length).toBe(2);
     expect(new URL(consolidado[1]).searchParams.get('periodo')).toBe('trimestre');
@@ -1686,7 +1775,8 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     // De vuelta al detalle con los mismos filtros.
     await page.getByRole('tablist', { name: 'Vista del reporte' }).getByRole('button', { name: 'Detalle' }).click();
     await expect(page.getByText('FLIT-2001')).toBeVisible();
-    await expect(page.getByLabel('Empresa', { exact: true })).toHaveValue('900111,9001112');
+    await abrirMasFiltros(page);
+    await expect(page.getByRole('combobox', { name: 'Empresa' })).toHaveValue('900111,9001112');
     expect(page.url()).not.toContain('vista=consolidado');
   });
 
@@ -1699,7 +1789,8 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await expect.poll(() => consolidado.length).toBeGreaterThanOrEqual(1);
     await expect(page.getByText('No hay trámites que coincidan con los filtros.')).toBeVisible();
     await expect(page.getByRole('table')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(2);
+    // El del vacío; el de la fila de chips no se pinta sin nada distinto del punto de partida.
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(1);
   });
 
   test('AC6 — si el consolidado falla se dice, y «Reintentar» repite la petición', async ({ page }) => {
@@ -1723,10 +1814,13 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     const exportadas = await mockExport(page, { nombre: 'consolidado-costos_20260914-1530.xlsx' });
     await page.goto('/finanzas/reporte-costos?vista=consolidado');
     await expect(page.getByRole('row').filter({ hasText: 'ACME SAS' })).toBeVisible();
+    await abrirMasFiltros(page);
     await page.getByRole('combobox', { name: 'Empresa' }).selectOption('900111,9001112');
     await page.locator('summary').filter({ hasText: 'OT' }).click();
     await page.getByRole('checkbox', { name: 'Envigado' }).check();
     await expect.poll(() => consolidado.at(-1) ?? '').toContain('organismos=05266');
+    await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
+    await abrirPeriodo(page);
     await page.getByRole('button', { name: 'Trimestre' }).click();
     await expect.poll(() => consolidado.at(-1) ?? '').toContain('periodo=trimestre');
 
@@ -1753,6 +1847,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     const { detalle } = await mockSecciones(page);
     const exportadas = await mockExport(page);
     await page.goto('/finanzas/reporte-costos');
+    await abrirMasFiltros(page);
     await page.locator('summary').filter({ hasText: 'OT' }).click();
     await page.getByRole('checkbox', { name: 'Medellín' }).check();
     await expect.poll(() => detalle.at(-1) ?? '').toContain('organismos=05001');
@@ -1777,11 +1872,12 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
     const grupos = await columnasPorGrupo(page);
-    expect(Object.keys(grupos)).toEqual(['Identificación', 'Datos del trámite', 'Valores']);
-    expect(grupos['Identificación']).toContain('Documento');
-    expect(grupos['Datos del trámite']).toContain('OT');
+    expect(Object.keys(grupos)).toEqual(['', 'Esencial', 'Cobro al cliente', 'Costo de proveedor', 'Más del trámite', 'Titular']);
+    expect(grupos['Titular']).toContain('Documento');
+    expect(grupos['Más del trámite']).toContain('OT');
     await expect(filaDe(page, 'FLIT-2001')).toContainText('CC 1020304050');
-    await expect(page.getByRole('status').filter({ hasText: 'Septiembre 2026' })).toBeVisible();
+    await expect(page.locator('summary').filter({ hasText: /^Periodo/ })).toContainText('Septiembre 2026');
+    await abrirMasFiltros(page);
     await expect(page.locator('summary').filter({ hasText: 'OT' })).toBeVisible();
 
     // Sin casillas ni acciones, como hoy.
@@ -1799,479 +1895,9 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HU #12539 — la compacta se recorta a NUEVE columnas para que quepa en la pantalla de un portátil.
-// (La #12548 añade «Serv. adic.» a la AMPLIADA —29— y un botón más a Acciones; la #12628 añade
-// «Viajes» —30— y otro botón; la compacta sigue en nueve y este bloque es el que lo vigila.)
-//
-// Sustituye al bloque de la #12537 (12 columnas, colSpan 3/5/4), que solo medía que la compacta
-// fuera menor que la ampliada: en 1366×768 seguía desbordando (1628 px frente a 1258). Ahora lo que
-// se afirma es que CABE —`scrollWidth === clientWidth` en la región de scroll de `FlitTable`, y sin
-// `tabindex`, que es como el kit dice que no desborda—, la cabecera real (`th[scope=col]` en orden y
-// el `colSpan` de los grupos), el pie en un `th[scope=row]`, el tipo bajo el Flit, una sola fecha,
-// y lo de la #12537 que no cambia: un control, anuncio, `localStorage`, la frase del Excel.
-// Cada aserto lleva su mutante en una línea. Backend mockeado.
-// ─────────────────────────────────────────────────────────────────────────────
-test.describe('Reporte de costos — compacta de nueve columnas que cabe en pantalla (HU #12539)', () => {
-  const CLAVE = 'flito.reporteCostos.columnas';
-  const COMPACTA: Record<string, string[]> = {
-    'Identificación': ['Empresa', 'Flit', 'Placa'],
-    'Datos del trámite': ['Aprobación', 'Factura DIAN'],
-    'Valores': ['Total reintegro', 'Servicio', 'Total', 'Liquidación'],
-  };
-  const AMPLIADA: Record<string, string[]> = {
-    'Identificación': ['Empresa', 'Flit', 'Placa', 'VIN', 'Nombres', 'Apellidos', 'Razón social', 'Tipo', 'Documento'],
-    'Datos del trámite': ['Tipo trámite', 'Marca', 'Línea', 'OT', 'Estado', 'Fechas', 'Mes', 'Trimestre', 'Factura DIAN'],
-    // «Serv. adic.» va entre «Trámite digital» y «Servicio» (HU #12548, AC6): la fila se lee como
-    // la cuenta que es. Va DESPUÉS de la primera de Valores, así que `antesDelPrimerTotal` —y con
-    // él el `colSpan` del rótulo del pie— no se mueve; ponerla antes de SOAT lo arrastraría.
-    // «Viajes» va justo tras «Logística» (HU #12628, AC1): es la explicación de ese importe.
-    'Valores': ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Viajes', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación'],
-  };
-  // Las cifras que la pantalla tiene que decir salen de ESTAS listas, no se escriben: si mañana
-  // entra una columna, el test cambia con ella y un «9» literal en el código se delata.
-  const N_COMPACTA = Object.values(COMPACTA).flat().length;
-  const N_AMPLIADA = Object.values(AMPLIADA).flat().length;
-  const planas = (g: Record<string, string[]>) => Object.values(g).flat();
-  /** Cuántas columnas visibles hay ANTES de la primera con total —la primera de Valores—: el `colSpan` del rótulo del pie. */
-  const antesDelPrimerTotal = (g: Record<string, string[]>) => planas(g).indexOf(g['Valores'][0]);
-  /** Una razón social de 40 caracteres: la que decidía sola si la tabla cabía. */
-  const EMPRESA_LARGA = 'Transportes y Logística del Norte S.A.S.';
-
-  const tabla = (page: Pagina) => page.getByRole('table').first();
-  /** La región de scroll de `FlitTable`: el padre directo de la `<table>`. Es la que mide `useDesbordaX`. */
-  const region = (page: Pagina) => tabla(page).locator('xpath=..');
-  const columnas = (page: Pagina) => tabla(page).locator('thead tr').nth(1).locator('th[scope="col"]');
-  const colSpans = (page: Pagina) => tabla(page).locator('th[scope="colgroup"]')
-    .evaluateAll((ths) => ths.map((th) => Number(th.getAttribute('colspan'))));
-  const control = (page: Pagina) => page.getByRole('button', { name: /columnas/ });
-  const anuncio = (page: Pagina, texto: string) => page.getByRole('status').filter({ hasText: texto });
-  const fraseExcel = (page: Pagina) => page.getByText('Las demás van en el Excel');
-  const enlaceExcel = (page: Pagina) => page.locator('a[href="#exportar-excel"]');
-  const rotuloPie = (page: Pagina) => tabla(page).locator('tfoot th[scope="row"]');
-  /** Un `th[scope=col]` por su título EXACTO («OT» no es «Total»). */
-  const cabecera = (page: Pagina, titulo: string) => columnas(page).filter({ has: page.getByText(titulo, { exact: true }) });
-  /** La celda de una columna por su título, contando la casilla que va delante para quien liquida. */
-  const celda = (fila: import('@playwright/test').Locator, titulo: string, vista: Record<string, string[]>, conCasilla = true) =>
-    fila.getByRole('cell').nth(planas(vista).indexOf(titulo) + (conCasilla ? 1 : 0));
-  /**
-   * Ancho de la región y de su contenido —«cabe» es que los dos midan lo mismo— y el ancho MÍNIMO
-   * de la tabla: lo que pide como poco (`min-content`, con Acciones y los títulos de dos palabras
-   * plegados), que es lo que mide `scrollWidth` cuando desborda y por tanto la cifra comparable con
-   * los 1628 px de la #12537. Es la que la HU pide registrar y la que dice el margen. Se mide y se
-   * restaura en el mismo paso.
-   */
-  const medida = (page: Pagina) => region(page).evaluate((el) => {
-    const t = el.querySelector('table') as HTMLTableElement;
-    const antes = t.style.width;
-    t.style.width = 'min-content';
-    const minimo = t.offsetWidth;
-    t.style.width = antes;
-    return { scroll: el.scrollWidth, cliente: el.clientWidth, minimo };
-  });
-  const elegibilidad = (items: Array<{ tramiteId: string; elegible: boolean; motivos: Array<{ motivo: string; detalle: string }> }>) => ({
-    items,
-    resumen: {
-      total: items.length, elegibles: items.filter((i) => i.elegible).length, noElegibles: items.filter((i) => !i.elegible).length,
-      anterioresAlCorte: 0,
-      porMotivo: {
-        liquidacion_no_facturada: 0, documentacion_incompleta: 0, anterior_al_corte: 0,
-        sin_compania: 0, tercero_sin_vincular: 0, cliente_no_facturable: 0, compuerta_cerrada: 0, ya_facturado: 0,
-      },
-    },
-  });
-
-  /**
-   * Las diez filas del gate de ancho (nota QA 1): las tres combinaciones de acciones alternadas
-   * —Soporte + Liquidar + «Falta: SOAT»; Soporte + Facturar + Reversar; Soporte + Enviar a
-   * facturación (o ¿Por qué no?)— y la empresa de 40 caracteres en todas.
-   */
-  async function mockDiezFilasAnchas(page: Pagina) {
-    await mockFacetas(page, ['Aprobado']);
-    await mockFacturacion(page);
-    // Las facturadas van «Aceptada por la DIAN» con su número, que es lo que llevan en la práctica
-    // y lo más ancho que pinta Factura DIAN; un «Sin enviar» en todas mediría de menos.
-    const base = [FILA_SIN_PAGAR, FILA_LIQUIDADA, { ...FILA_FACTURADA, estadoFacturacion: 'aceptado', facturaNumero: 'FV-1-100' }];
-    const filas = Array.from({ length: 10 }, (_, i) => ({
-      ...base[i % 3], empresa: EMPRESA_LARGA,
-      tramiteId: `aaaa0000-0000-0000-0000-0000000000${20 + i}`, idFlit: `FLIT-30${i}`,
-    }));
-    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...REPORTE, items: filas, total: 10 }) }));
-    // La última ruta registrada gana: las facturadas son elegibles salvo la última, que lleva
-    // «¿Por qué no?» —la otra forma de la tercera combinación—.
-    const facturadas = filas.filter((f) => f.estadoLiquidacion === 'facturado');
-    await page.route(/\/api\/siigo\/elegibilidad\/tramites/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(elegibilidad(
-        facturadas.map((f, i) => i === facturadas.length - 1
-          ? { tramiteId: f.tramiteId, elegible: false, motivos: [{ motivo: 'documentacion_incompleta', detalle: 'Faltan soportes' }] }
-          : { tramiteId: f.tramiteId, elegible: true, motivos: [] }),
-      )) }));
-    return filas;
-  }
-
-  /**
-   * El montaje del gate de ancho (notas QA 1 y 2): viewport, las diez filas, y la prueba de que las
-   * tres combinaciones de acciones están de verdad en la tabla (el lote «Liquidar N» no cuenta).
-   * Devuelve las medidas de la compacta; el aserto lo pone cada viewport, porque no dicen lo mismo.
-   */
-  async function montarGateDeAncho(page: Pagina, width: number, height: number) {
-    await page.setViewportSize({ width, height });
-    await loginAs(page, OPERACIONES_USER);
-    await mockDiezFilasAnchas(page);
-    await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('FLIT-309')).toBeVisible();
-    const t = tabla(page);
-    await expect(t.getByRole('button', { name: 'Liquidar', exact: true })).toHaveCount(4);
-    await expect(t.getByText('Falta: SOAT')).toHaveCount(4);
-    await expect(t.getByRole('button', { name: 'Facturar' })).toHaveCount(3);
-    await expect(t.getByRole('button', { name: 'Reversar' })).toHaveCount(3);
-    await expect(t.getByRole('button', { name: /Enviar .* a facturación electrónica/ })).toHaveCount(3);
-    await expect(t.getByRole('button', { name: /^Por qué .* no se puede enviar/ })).toHaveCount(1);
-    await expect(t.getByRole('button', { name: 'Soporte' })).toHaveCount(10);
-    // El sexto control de la celda (HU #12548). Se afirma AQUÍ, dentro del montaje del gate de
-    // ancho: sin esto el gate mediría una tabla sin el botón nuevo y pasaría en verde vacío.
-    await expect(t.getByRole('button', { name: /^Servicios adicionales de/ })).toHaveCount(10);
-    await expect(t.getByText('Factura FV-1-100')).toHaveCount(3);
-    await expect(columnas(page)).toHaveCount(N_COMPACTA);
-
-    const compacta = await medida(page);
-    // Se deja escrito en la salida del test: es el dato que la HU pide registrar.
-    console.log(`[HU #12539] ${width}×${height} compacta: mínimo ${compacta.minimo} px · contenedor ${compacta.cliente} px · contenido ${compacta.scroll} px`);
-    if (process.env.MEDIR_COLUMNAS) {
-      // Qué pide cada columna, para volver a repartir el presupuesto del doc UX sin adivinar.
-      console.log(await region(page).evaluate((el) => {
-        const tb = el.querySelector('table') as HTMLTableElement;
-        tb.style.width = 'min-content';
-        const ths = [...tb.querySelectorAll('thead tr:nth-child(2) th, thead tr:first-child th[rowspan]')] as HTMLElement[];
-        const r = ths.map((th) => `${th.textContent?.trim() || '(sin título)'}=${th.offsetWidth}`).join(' · ');
-        tb.style.width = '';
-        return r;
-      }));
-    }
-    await page.screenshot({ path: test.info().outputPath(`compacta-${width}.png`), fullPage: true });
-    return compacta;
-  }
-
-  test('AC1 — en 1366×768 la compacta cabe: diez filas con las tres acciones y una empresa de 40 caracteres', async ({ page }) => {
-    const compacta = await montarGateDeAncho(page, 1366, 768);
-    // mutante: «OT con compacta: true» (+105 px) → el contenido supera al contenedor y hay scroll. A «px-4 de
-    // vuelta» este aserto NO lo mata (medido: 1256 frente a 1258, quedan 2 px); lo matan el caso de 1280 y el AC5.
-    expect(compacta.scroll, `compacta desborda: ${compacta.scroll} > ${compacta.cliente}`).toBe(compacta.cliente);
-    expect(compacta.minimo).toBeLessThanOrEqual(compacta.cliente);
-    // mutante: dejar el `div.overflow-x-auto` exterior → el que desplaza es otro y `FlitTable` no lo sabe
-    await expect(region(page)).toHaveAttribute('role', 'region');
-    await expect(region(page)).not.toHaveAttribute('tabindex', /.*/);
-    await expect(page.locator('[data-desborde]')).toHaveCount(0);
-
-    // Control positivo: la ampliada sí desborda, y entonces el kit sí marca la región.
-    await control(page).click();
-    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    const ampliada = await medida(page);
-    console.log(`[HU #12539] 1366×768 ampliada: mínimo ${ampliada.minimo} px · contenedor ${ampliada.cliente} px · contenido ${ampliada.scroll} px`);
-    expect(ampliada.scroll).toBeGreaterThan(ampliada.cliente);
-    await expect(region(page)).toHaveAttribute('tabindex', '0');
-  });
-
-  /**
-   * 1280×720 queda AL LÍMITE, como preveía el doc UX. Medido el 2026-09-14 con estas diez filas
-   * (facturadas «Aceptada por la DIAN» con su número, que es lo ancho de verdad): 1192 px frente a
-   * 1172 de contenedor; con la palanca D-21 ya aplicada (Empresa a 8rem, −16) quedan 1176: 4 px de
-   * desborde. Lo que sigue —alternativa C— no es del frontend sino del PO, y hasta entonces este
-   * caso guarda el estado registrado: cualquier columna de vuelta (OT +105, Estado +105, `px-4`
-   * +48, el tipo en su columna +110) lo pone en rojo, y si mañana cabe del todo también sigue en verde.
-   */
-  const DESBORDE_REGISTRADO_1280 = 4;
-
-  test(`AC1 — en 1280×720 queda al límite: con la palanca D-21 desborda ${DESBORDE_REGISTRADO_1280} px (registrado en la HU)`, async ({ page }) => {
-    const compacta = await montarGateDeAncho(page, 1280, 720);
-    // mutante: OT con `compacta: true` → +105 px
-    expect(compacta.minimo - compacta.cliente, `mínimo ${compacta.minimo} px frente a ${compacta.cliente} px de contenedor`)
-      .toBeLessThanOrEqual(DESBORDE_REGISTRADO_1280);
-  });
-
-  test('AC2 — sin preferencia guardada: nueve columnas en su orden, grupos 3/2/4 y un solo control', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    await mockSecciones(page);
-    await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('FLIT-2001')).toBeVisible();
-
-    // mutante: estado inicial ampliado (`useState(() => true)`) → aquí salen las 30
-    // mutante: OT con `compacta: true` → cuatro bajo Datos del trámite y colSpan 3/3/4
-    expect(await columnasPorGrupo(page)).toEqual(COMPACTA);
-    expect(await colSpans(page)).toEqual(Object.values(COMPACTA).map((c) => c.length));
-    await expect(columnas(page)).toHaveCount(N_COMPACTA);
-    await expect(columnas(page)).toHaveText(planas(COMPACTA));
-    for (const titulo of ['OT', 'Estado', 'Tipo trámite', 'Fechas']) {
-      await expect(cabecera(page, titulo), `«${titulo}» no es columna en compacta`).toHaveCount(0);
-    }
-
-    // mutante: dejar los botones por sección → tres botones (o cuatro)
-    await expect(page.getByRole('button', { name: /Compactar|Mostrar todas/ })).toHaveCount(1);
-    await expect(control(page)).toHaveText('Mostrar todas las columnas');
-    await expect(control(page)).toHaveAttribute('aria-expanded', 'false');
-    await expect(tabla(page).locator('th[scope="colgroup"]')).toHaveText(['Identificación', 'Datos del trámite', 'Valores']);
-    await expect(tabla(page).locator('th[scope="colgroup"] button')).toHaveCount(0);
-    // mutante: «9» escrito como literal — con una columna más en la lista seguiría diciendo 9
-    await expect(page.getByText(`${await columnas(page).count()} de ${N_AMPLIADA} columnas`, { exact: true })).toBeVisible();
-  });
-
-  test('AC3 — el tipo de trámite va bajo el Flit en compacta; al ampliar vuelve a su columna', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    await mockSecciones(page);
-    await page.goto('/finanzas/reporte-costos');
-    const fila = filaDe(page, 'FLIT-2001');
-    await expect(fila).toBeVisible();
-
-    const flitCompacta = celda(fila, 'Flit', COMPACTA);
-    // mutante: tipo pintado en los dos modos (`celda` con los dos renglones) → la ampliada de abajo cae
-    // mutante: tipo en su propia columna también en compacta → habría `th` «Tipo trámite»
-    await expect(flitCompacta).toContainText('FLIT-2001');
-    await expect(flitCompacta).toContainText('Traspaso');
-    // Dos renglones: el Flit arriba y el tipo debajo, en su propio bloque con el texto entero en `title`.
-    await expect(flitCompacta.locator('div').nth(0)).toHaveText('FLIT-2001');
-    await expect(flitCompacta.locator('div').nth(1)).toHaveText('Traspaso');
-    await expect(flitCompacta.locator('div').nth(1)).toHaveAttribute('title', 'Traspaso');
-    await expect(cabecera(page, 'Tipo trámite')).toHaveCount(0);
-    // Y sin paradas de tabulador nuevas: la celda es texto.
-    await expect(flitCompacta.locator('[tabindex], a, button')).toHaveCount(0);
-
-    await control(page).click();
-    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    await expect(cabecera(page, 'Tipo trámite')).toHaveCount(1);
-    await expect(celda(fila, 'Flit', AMPLIADA)).toHaveText('FLIT-2001');
-    await expect(celda(fila, 'Tipo trámite', AMPLIADA)).toHaveText('Traspaso');
-  });
-
-  test('AC4 — una sola fecha en compacta: «Aprobación», con «Sin aprobar» y sin «Creado»; al ampliar, «Fechas» con las dos', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    await mockSecciones(page);   // FLIT-2001 aprobado el 14 de julio; FLIT-2002 sin fecha
-    await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('FLIT-2001')).toBeVisible();
-
-    // mutante: `CeldaFechas` también en compacta → «Creado» aparece y la cabecera sigue diciendo «Fechas»
-    await expect(cabecera(page, 'Aprobación')).toHaveCount(1);
-    await expect(cabecera(page, 'Fechas')).toHaveCount(0);
-    await expect(celda(filaDe(page, 'FLIT-2001'), 'Aprobación', COMPACTA)).toHaveText('14 de jul de 26');
-    await expect(celda(filaDe(page, 'FLIT-2002'), 'Aprobación', COMPACTA)).toHaveText('Sin aprobar');
-    await expect(tabla(page).getByText('Creado')).toHaveCount(0);
-    await expect(tabla(page).getByText('02 de jul de 26')).toHaveCount(0);
-
-    await control(page).click();
-    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    await expect(cabecera(page, 'Fechas')).toHaveCount(1);
-    await expect(cabecera(page, 'Aprobación')).toHaveCount(0);
-    const fechas = celda(filaDe(page, 'FLIT-2001'), 'Fechas', AMPLIADA);
-    await expect(fechas).toContainText('Creado 02 de jul de 26');
-    await expect(fechas).toContainText('Aprob. 14 de jul de 26');
-    await expect(celda(filaDe(page, 'FLIT-2002'), 'Fechas', AMPLIADA)).toContainText('Sin aprobar');
-  });
-
-  test('AC5 — el rótulo del pie va en un th[scope=row] con colSpan 5 / 18, y Empresa no pasa de 168 px', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    await mockFacetas(page, ['Aprobado']);
-    await mockFacturacion(page);
-    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
-        ...REPORTE, total: 3, items: [{ ...FILA_ESTIMADA, empresa: EMPRESA_LARGA }, FILA_BLOQUEADA, FILA_JURIDICA],
-      }) }));
-    await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('FLIT-2001')).toBeVisible();
-
-    const pie = tabla(page).locator('tfoot tr');
-    const totalesDelPie = pie.getByRole('cell').filter({ hasText: '$' });
-    /** La celda del pie bajo una columna: detrás de la casilla y del rótulo, que se come `colSpan` columnas. */
-    const celdaPie = (titulo: string, vista: Record<string, string[]>) =>
-      pie.getByRole('cell').nth(planas(vista).indexOf(titulo) - antesDelPrimerTotal(vista) + 1);
-
-    // mutante: rótulo en la primera `td` (como en la #12537) → no hay `th[scope=row]`
-    await expect(rotuloPie(page)).toHaveCount(1);
-    await expect(rotuloPie(page)).toHaveText('Totales (3 trámites del filtro)');
-    await expect(pie.getByRole('rowheader')).toHaveText('Totales (3 trámites del filtro)');
-    await expect(pie.getByRole('cell').filter({ hasText: 'Totales' })).toHaveCount(0);
-    // mutante: `colSpan` escrito (5) → al ampliar seguiría siendo 5 y los totales se corren
-    expect(antesDelPrimerTotal(COMPACTA)).toBe(5);
-    await expect(rotuloPie(page)).toHaveAttribute('colspan', String(antesDelPrimerTotal(COMPACTA)));
-    // mutante: pie recorriendo `COLUMNAS` en vez de `visibles` → nueve importes
-    await expect(totalesDelPie).toHaveCount(3);
-    await expect(celdaPie('Total reintegro', COMPACTA)).toHaveText('$ 2.670.400');
-    await expect(celdaPie('Servicio', COMPACTA)).toHaveText('$ 600.000');
-    await expect(celdaPie('Total', COMPACTA)).toHaveText('$ 3.270.400');
-    await expect(celdaPie('Liquidación', COMPACTA)).toHaveText('');
-
-    // Empresa: tope de ancho con el nombre entero en el `title` y en el DOM (D-16). El AC pide
-    // ≤ 168 px (9rem + px-3); con la palanca D-21 aplicada (8rem) son 152, y es eso lo que se guarda.
-    // mutante: quitar el `max-w` → la celda mide lo que mida la razón social (> 168); volver a 9rem → 168
-    const TOPE_EMPRESA = 8 * 16 + 2 * 12;
-    const empresa = celda(filaDe(page, 'FLIT-2001'), 'Empresa', COMPACTA);
-    await expect(empresa).toHaveText(EMPRESA_LARGA);
-    await expect(empresa.locator('[title]')).toHaveAttribute('title', EMPRESA_LARGA);
-    const ancho = (await empresa.boundingBox())?.width ?? Infinity;
-    expect(ancho, `Empresa mide ${ancho} px`).toBeLessThanOrEqual(TOPE_EMPRESA);
-    await expect(empresa.locator('[tabindex], a, button')).toHaveCount(0);
-
-    await control(page).click();
-    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    expect(antesDelPrimerTotal(AMPLIADA)).toBe(18);
-    await expect(rotuloPie(page)).toHaveAttribute('colspan', String(antesDelPrimerTotal(AMPLIADA)));
-    await expect(totalesDelPie).toHaveCount(10);
-    await expect(celdaPie('SOAT', AMPLIADA)).toHaveText('$ 1.800.000');
-    await expect(celdaPie('Total reintegro', AMPLIADA)).toHaveText('$ 2.670.400');
-    await expect(celdaPie('Total', AMPLIADA)).toHaveText('$ 3.270.400');
-    // El tope de Empresa es el mismo en los dos modos: no hay dos anchos para la misma celda.
-    const anchoAmpliada = (await celda(filaDe(page, 'FLIT-2001'), 'Empresa', AMPLIADA).boundingBox())?.width ?? Infinity;
-    expect(anchoAmpliada).toBeLessThanOrEqual(TOPE_EMPRESA);
-  });
-
-  test('AC6 — un clic amplía a 30 y otro vuelve a 9; el foco no se mueve, se anuncia y se recuerda en UNA clave', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    // Dos filas, una con el SOAT conciliado: la marca vive en la celda SOAT, que se calla en compacta.
-    await mockConciliacion(page);
-    await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('FLIT-2007')).toBeVisible();
-
-    const boton = control(page);
-    const marca = page.getByTestId('marca-soat-conciliado');
-    await expect(columnas(page)).toHaveCount(N_COMPACTA);
-    await expect(marca).toHaveCount(0);
-
-    // Por TECLADO, para que «el foco se queda en el botón» sea una afirmación y no un efecto del clic.
-    await boton.focus();
-    await boton.press('Enter');
-    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    // mutante: cambiar el orden o quitar una de las 30 al ampliar
-    expect(await columnasPorGrupo(page)).toEqual(AMPLIADA);
-    expect(await colSpans(page)).toEqual(Object.values(AMPLIADA).map((c) => c.length));
-    await expect(boton).toHaveText('Compactar columnas');
-    await expect(boton).toHaveAttribute('aria-expanded', 'true');
-    // mutante: mover el foco a la tabla al ampliar
-    await expect(boton).toBeFocused();
-    // mutante: segunda región `role="status"` para el anuncio → 2 nodos (D-07)
-    await expect(anuncio(page, `Todas las columnas: ${N_AMPLIADA}.`)).toHaveCount(1);
-    await expect(page.getByText(`${await columnas(page).count()} columnas`, { exact: true })).toBeVisible();
-    await expect(marca).toBeVisible();
-    // mutante: no escribir la clave (o escribir otra) → tras el reload vuelve a 9
-    expect(await page.evaluate((k) => localStorage.getItem(k), CLAVE)).toBe('todas');
-
-    await boton.press('Enter');
-    await expect(columnas(page)).toHaveCount(N_COMPACTA);
-    expect(await colSpans(page)).toEqual(Object.values(COMPACTA).map((c) => c.length));
-    await expect(boton).toHaveText('Mostrar todas las columnas');
-    await expect(boton).toHaveAttribute('aria-expanded', 'false');
-    await expect(boton).toBeFocused();
-    // mutante: «9» escrito como literal en el anuncio
-    await expect(anuncio(page, `Vista compacta: ${N_COMPACTA} de ${N_AMPLIADA} columnas.`)).toHaveCount(1);
-    await expect(marca).toHaveCount(0);
-    expect(await page.evaluate((k) => localStorage.getItem(k), CLAVE)).toBe('compacta');
-
-    // La preferencia sobrevive al reload, y cualquier valor que no sea `todas` es compacta (D-06).
-    await page.evaluate((k) => localStorage.setItem(k, 'todas'), CLAVE);
-    await page.reload();
-    await expect(page.getByText('FLIT-2007')).toBeVisible();
-    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    // mutante: `!== 'compacta'` como condición → «ampliada» abriría las 30
-    await page.evaluate((k) => localStorage.setItem(k, 'ampliada'), CLAVE);
-    await page.reload();
-    await expect(page.getByText('FLIT-2007')).toBeVisible();
-    await expect(columnas(page)).toHaveCount(N_COMPACTA);
-  });
-
-  test('AC7 — lo que no cambia: «Las demás van en el Excel» solo en compacta, el enlace lleva al botón y NO exporta', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    await mockSecciones(page);
-    const pedidas = await mockExport(page);
-    await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('FLIT-2001')).toBeVisible();
-
-    await expect(fraseExcel(page)).toBeVisible();
-    const enlace = enlaceExcel(page);
-    await expect(enlace).toHaveText('Exportar a Excel');
-    const boton = page.getByRole('button', { name: 'Exportar a Excel' });
-    await expect(boton).toHaveAttribute('id', 'exportar-excel');
-
-    await enlace.click();
-    // mutante: enlace sin destino (quitar el `id` del botón) → el foco no llega
-    await expect(boton).toBeFocused();
-    // mutante: segundo disparador del export en el enlace → 1
-    expect(pedidas.length).toBe(0);
-    await boton.click();
-    await expect.poll(() => pedidas.length).toBe(1);
-
-    // Ampliada: nada oculto que explicar → ni frase ni enlace. mutante: frase permanente
-    await control(page).click();
-    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    await expect(fraseExcel(page)).toHaveCount(0);
-    await expect(enlace).toHaveCount(0);
-    await control(page).click();
-    await expect(fraseExcel(page)).toBeVisible();
-  });
-
-  test('AC7 — lo que no cambia: en compacta se sigue leyendo por qué no se puede liquidar, y los filtros OT y Estado siguen', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    await mock(page);   // seis filas: FLIT-2002 sin tarifa digital, FLIT-2005 sin recibo, FLIT-2006 sin pagar
-    await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('FLIT-2001')).toBeVisible();
-    expect(await columnasPorGrupo(page)).toEqual(COMPACTA);
-
-    // mutante: Servicio fuera de la compacta → la celda es otra
-    await expect(celda(filaDe(page, 'FLIT-2002'), 'Servicio', COMPACTA)).toHaveText('No configurado');
-    // mutante: Total reintegro fuera de la compacta
-    await expect(celda(filaDe(page, 'FLIT-2005'), 'Total reintegro', COMPACTA)).toHaveText('Sin recibo');
-    await expect(celda(filaDe(page, 'FLIT-2006'), 'Total reintegro', COMPACTA)).toHaveText('Sin pagar');
-    await expect(filaDe(page, 'FLIT-2002').getByText('Falta: Trámite digital')).toBeVisible();
-    await expect(filaDe(page, 'FLIT-2005').getByText('Falta: Derecho de tránsito')).toBeVisible();
-    await expect(filaDe(page, 'FLIT-2006').getByRole('button', { name: 'Liquidar' })).toBeDisabled();
-    await expect(filaDe(page, 'FLIT-2005').getByText('$ 0')).toHaveCount(0);
-    // Liquidación y Factura DIAN siguen en la fila, con sus textos.
-    await expect(celda(filaDe(page, 'FLIT-2003'), 'Liquidación', COMPACTA)).toHaveText('Liquidado');
-    await expect(celda(filaDe(page, 'FLIT-2001'), 'Factura DIAN', COMPACTA)).toContainText('Sin enviar');
-    await expect(filaDe(page, 'FLIT-2003').getByRole('button', { name: 'Facturar' })).toBeVisible();
-    await expect(filaDe(page, 'FLIT-2003').getByRole('button', { name: 'Reversar' })).toBeVisible();
-    await expect(filaDe(page, 'FLIT-2001').getByRole('button', { name: 'Soporte' })).toBeVisible();
-    // OT y Estado salen de la fila, no del filtro (D-19, D-20).
-    await expect(page.locator('summary').filter({ hasText: 'OT' })).toBeVisible();
-    await expect(page.locator('summary').filter({ hasText: 'Estado' })).toBeVisible();
-    // El lote: marcar una fila enseña la barra con «Liquidar N».
-    await page.getByRole('checkbox', { name: 'Seleccionar FLIT-2001' }).check();
-    await expect(page.getByRole('button', { name: /^Liquidar \d+$/ })).toBeVisible();
-  });
-
-  test('AC7 — el auditor ve las nueve, el control y el enlace al Excel; sin casillas ni acciones, y en 1366 le cabe', async ({ page }) => {
-    await page.setViewportSize({ width: 1366, height: 768 });
-    await loginAs(page, AUDITOR_USER);
-    await mockDiezFilasAnchas(page);
-    await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('FLIT-309')).toBeVisible();
-
-    expect(await columnasPorGrupo(page)).toEqual(COMPACTA);
-    await expect(fraseExcel(page)).toBeVisible();
-    await expect(enlaceExcel(page)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Exportar a Excel' })).toBeVisible();
-    // mutante: esconder el control a quien no liquida (es lectura: lo ven los tres roles)
-    await expect(control(page)).toHaveCount(1);
-    // Sin casilla: la primera celda de la fila es Empresa.
-    await expect(celda(filaDe(page, 'FLIT-300'), 'Empresa', COMPACTA, false)).toHaveText(EMPRESA_LARGA);
-
-    const t = tabla(page);
-    await expect(t.getByRole('checkbox')).toHaveCount(0);
-    await expect(t.getByRole('button', { name: 'Liquidar' })).toHaveCount(0);
-    await expect(t.getByRole('button', { name: 'Facturar' })).toHaveCount(0);
-    await expect(t.getByRole('button', { name: 'Reversar' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /Enviar .* a facturación electrónica/ })).toHaveCount(0);
-    await expect(t.getByRole('button', { name: 'Soporte' })).toHaveCount(10);
-
-    const m = await medida(page);
-    console.log(`[HU #12539] auditor 1366×768 compacta: mínimo ${m.minimo} px · contenedor ${m.cliente} px · contenido ${m.scroll} px`);
-    expect(m.scroll).toBe(m.cliente);
-    await expect(region(page)).not.toHaveAttribute('tabindex', /.*/);
-
-    await control(page).click();
-    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    await expect(anuncio(page, `Todas las columnas: ${N_AMPLIADA}.`)).toHaveCount(1);
-    await control(page).click();
-    await expect(columnas(page)).toHaveCount(N_COMPACTA);
-  });
-});
+// HU #12539 (compacta de nueve columnas) — RETIRADO por el rediseño de la Épica #13763: el binario
+// compacta/ampliada lo sustituye el panel «Columnas» con clave v2, cubierto en el bloque
+// «Reporte de costos — rediseño y costo de proveedor (Épica #13763)» al final de este archivo.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HU #12532 — descargar el Excel del reporte de costos con la sesión del usuario.
@@ -2542,8 +2168,20 @@ async function mockReporteDelPanel(
   return peticiones;
 }
 
+/**
+ * Desde el rediseño (Épica #13763) «Servicios», «Viajes» y «Aceptar diferencia» son opciones del ⋮
+ * de la fila, con el MISMO nombre accesible que tenían como botón. El helper abre el menú y devuelve
+ * la opción; al cerrar el panel, el foco vuelve al ⋮ (`botonMenu`), que es quien lo abrió.
+ */
+const botonMenu = (page: import('@playwright/test').Page, flit: string) =>
+  page.getByRole('button', { name: `Más acciones de ${flit}`, exact: true });
+async function opcionDeMenu(page: import('@playwright/test').Page, flit: string, nombre: RegExp) {
+  if (await page.getByRole('menu').count()) await page.keyboard.press('Escape');
+  await botonMenu(page, flit).click();
+  return page.getByRole('menu').getByRole('menuitem', { name: nombre });
+}
 const botonServicios = (page: Pagina, flit: string) =>
-  page.getByRole('button', { name: new RegExp(`^Servicios adicionales de ${flit}:`) });
+  opcionDeMenu(page, flit, new RegExp(`^Servicios adicionales de ${flit}:`));
 const panelServicios = (page: Pagina) => page.getByRole('dialog', { name: /^Servicios adicionales · / });
 
 test.describe('Reporte de costos — panel de servicios adicionales del trámite (HU #12548)', () => {
@@ -2557,14 +2195,14 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
     // mutante: contador con `?? 0` → «Servicios · 0» en las dos de abajo
-    await expect(botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 2');
-    await expect(botonServicios(page, 'FLIT-2002')).toHaveText('Servicios');   // cantidad 0
-    await expect(botonServicios(page, 'FLIT-2003')).toHaveText('Servicios');   // cantidad null
-    await expect(botonServicios(page, 'FLIT-2002')).toHaveAccessibleName('Servicios adicionales de FLIT-2002: ninguno');
+    await expect(await botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 2');
+    await expect(await botonServicios(page, 'FLIT-2002')).toHaveText('Servicios');   // cantidad 0
+    await expect(await botonServicios(page, 'FLIT-2003')).toHaveText('Servicios');   // cantidad null
+    await expect(await botonServicios(page, 'FLIT-2002')).toHaveAccessibleName('Servicios adicionales de FLIT-2002: ninguno');
     // El contador NO cuesta una petición: viaja en la fila del reporte.
     expect(panelPeticiones.get).toBe(0);
 
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
     // mutante: título sin la placa → este nombre accesible cambia
     await expect(panelServicios(page)).toHaveAttribute('aria-label', 'Servicios adicionales · FLIT-2001 · ABC123');
     // El catálogo NO se precarga al abrir el panel (§12-D5).
@@ -2573,7 +2211,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await page.keyboard.press('Escape');
     await expect(panelServicios(page)).toHaveCount(0);
     // mutante: quitar `useFocusTrap` / no restaurar → el foco se queda en <body>
-    await expect(botonServicios(page, 'FLIT-2001')).toBeFocused();
+    await expect(botonMenu(page, 'FLIT-2001')).toBeFocused();
   });
 
   test('AC1 — sin placa el título no deja un « · » colgando, y la ✕ también cierra y devuelve el foco', async ({ page }) => {
@@ -2582,13 +2220,13 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await mockReporteDelPanel(page, estado, { fila: { ...FILA_ESTIMADA, placa: null } });
     await mockPanelServicios(page, estado);
     await page.goto('/finanzas/reporte-costos');
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
 
     // mutante: `[...].join(' · ')` sin filtrar nulos → «… · FLIT-2001 · »
     await expect(panelServicios(page)).toHaveAttribute('aria-label', 'Servicios adicionales · FLIT-2001');
     await panelServicios(page).getByRole('button', { name: 'Cerrar' }).click();
     await expect(panelServicios(page)).toHaveCount(0);
-    await expect(botonServicios(page, 'FLIT-2001')).toBeFocused();
+    await expect(botonMenu(page, 'FLIT-2001')).toBeFocused();
   });
 
   test('AC2 — los cuatro estados: esqueleto, error con Reintentar que repite el GET, vacío y lleno', async ({ page }) => {
@@ -2598,7 +2236,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     const peticiones = await mockPanelServicios(page, estado);
     await mockCatalogoTipos(page);
     await page.goto('/finanzas/reporte-costos');
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
 
     // Cargando: esqueleto con la FORMA de la lista, no un spinner (mutante: quitar `aria-busy`).
     const esqueleto = panelServicios(page).getByRole('status', { name: 'Cargando los servicios adicionales del trámite' });
@@ -2617,7 +2255,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     estado.getDemoraMs = undefined;
     estado.getStatus = 500;
     estado.getCuerpo = { error: 'La base de datos no responde' };
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
     const antes = peticiones.get;
     await expect(panelServicios(page).getByRole('alert')).toContainText('No se pudieron cargar los servicios adicionales de este trámite.');
     await expect(panelServicios(page).getByRole('alert')).toContainText('La base de datos no responde');
@@ -2656,7 +2294,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await expect(page.getByText(/1 seleccionado\(s\)/)).toBeVisible();
     const peticionesIniciales = reporte.length;
 
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
     await expect(panelServicios(page).getByText('Diagnóstico', { exact: true })).toBeVisible();
     await panelServicios(page).getByRole('button', { name: 'Añadir servicio' }).click();
     // El catálogo se pide AL PULSAR, no al abrir el panel.
@@ -2692,11 +2330,12 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     const fila = page.getByRole('row').filter({ hasText: 'FLIT-2001' });
     // mutante: pintar la celda con una suma local en vez del dato que trae el servidor.
     await expect(fila.getByText('$ 210.000')).toBeVisible();
-    await expect(fila.getByText('3 servicios')).toBeVisible();
+    // Un renglón desde el rediseño: cuántos son va en el nombre accesible de la celda.
+    await expect(fila.getByRole('cell', { name: /en 3 servicios adicionales/ })).toBeVisible();
     // Y el pie de totales: 890.000 + 210.000, que NO es la suma de las filas de la página.
     await expect(page.getByRole('table').first().locator('tfoot')).toContainText('$ 1.100.000');
     await panelServicios(page).getByRole('button', { name: 'Cerrar' }).click();
-    await expect(botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 3');
+    await expect(await botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 3');
 
     // Ni aviso global de la página —el resultado y el error viven DENTRO del panel—, ni selección
     // perdida: `ejecutar()` habría hecho las dos cosas (AC3, §12-D11).
@@ -2711,7 +2350,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await mockPanelServicios(page, estado);
     await mockCatalogoTipos(page, { status: 403 });
     await page.goto('/finanzas/reporte-costos');
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
     await panelServicios(page).getByRole('button', { name: 'Añadir servicio' }).click();
 
     // mutante: un 403 tratado como error genérico → saldría «No se pudo cargar…» y un Reintentar
@@ -2728,7 +2367,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     const peticiones = await mockPanelServicios(page, estado);
     await mockCatalogoTipos(page);
     await page.goto('/finanzas/reporte-costos');
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
     await panelServicios(page).getByRole('button', { name: 'Añadir servicio' }).click();
     await expect(panelServicios(page).getByRole('option')).toHaveCount(1);
 
@@ -2749,7 +2388,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await mockReporteDelPanel(page, estado);
     const peticiones = await mockPanelServicios(page, estado);
     await page.goto('/finanzas/reporte-costos');
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
     await expect(panelServicios(page).getByText('Diagnóstico', { exact: true })).toBeVisible();
 
     await panelServicios(page).getByRole('button', { name: 'Quitar · Diagnóstico' }).click();
@@ -2776,10 +2415,10 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     const reporte = await mockReporteDelPanel(page, estado);
     const peticiones = await mockPanelServicios(page, estado);
     await page.goto('/finanzas/reporte-costos');
-    await expect(botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 2');
+    await expect(await botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 2');
     const iniciales = reporte.length;
 
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
     await panelServicios(page).getByRole('button', { name: 'Quitar · Diagnóstico' }).click();
     await panelServicios(page).getByRole('button', { name: 'Quitar', exact: true }).click();
 
@@ -2793,7 +2432,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     // mutante: no llamar a `refrescar()` tras el 204
     await expect.poll(() => reporte.length).toBe(iniciales + 1);
     await panelServicios(page).getByRole('button', { name: 'Cerrar' }).click();
-    await expect(botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 1');
+    await expect(await botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 1');
   });
 
   test('AC5 — liquidado: sin botones (no apagados) y con la instrucción de reversar para quien opera', async ({ page }) => {
@@ -2802,7 +2441,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await mockReporteDelPanel(page, estado, { fila: FILA_LIQUIDADA, otras: [] });
     await mockPanelServicios(page, estado);
     await page.goto('/finanzas/reporte-costos');
-    await botonServicios(page, 'FLIT-2003').click();
+    await (await botonServicios(page, 'FLIT-2003')).click();
 
     await expect(panelServicios(page).getByText(/Liquidado: estos servicios quedaron sellados\./)).toBeVisible();
     await expect(panelServicios(page).getByText(/Reversa la liquidación para cambiarlos\./)).toBeVisible();
@@ -2821,7 +2460,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await mockReporteDelPanel(page, estado, { fila: FILA_LIQUIDADA, otras: [] });
     await mockPanelServicios(page, estado);
     await page.goto('/finanzas/reporte-costos');
-    await botonServicios(page, 'FLIT-2003').click();
+    await (await botonServicios(page, 'FLIT-2003')).click();
 
     await expect(panelServicios(page).getByText(/Liquidado: estos servicios quedaron sellados\./)).toBeVisible();
     // mutante: pintar la segunda frase sin mirar las funciones → reversar no es su trabajo (AC5)
@@ -2835,7 +2474,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await mockReporteDelPanel(page, estado);
     await mockPanelServicios(page, estado);
     await page.goto('/finanzas/reporte-costos');
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
 
     await expect(panelServicios(page).getByText('Diagnóstico', { exact: true })).toBeVisible();
     // mutante: línea de estado por «no puede operar» en vez de por «liquidado»
@@ -2866,17 +2505,17 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await mockPanelServicios(page, estado);
     await page.goto('/finanzas/reporte-costos');
 
-    await botonServicios(page, 'FLIT-2003').click();
+    await (await botonServicios(page, 'FLIT-2003')).click();
     await expect(panelServicios(page).getByRole('button', { name: 'Añadir servicio' })).toHaveCount(0);
     await panelServicios(page).getByRole('button', { name: 'Cerrar' }).click();
 
-    await page.getByRole('button', { name: 'Reversar' }).click();
-    await page.getByLabel('Motivo del reverso').fill('Se cobró de más');
-    await page.getByRole('button', { name: 'Confirmar' }).click();
+    await accionDeFila(page, 'FLIT-2003', 'Reversar…');
+    await page.getByRole('dialog').getByLabel('Motivo del reverso').fill('Se cobró de más');
+    await page.getByRole('dialog').getByRole('button', { name: 'Confirmar' }).click();
     await expect(page.getByText(/reversada\./)).toBeVisible();
 
     // Sin F5: el panel repide y `liquidado: false` lo devuelve a editable.
-    await botonServicios(page, 'FLIT-2003').click();
+    await (await botonServicios(page, 'FLIT-2003')).click();
     await expect(panelServicios(page).getByRole('button', { name: 'Añadir servicio' })).toBeVisible();
     await expect(panelServicios(page).getByRole('button', { name: 'Quitar · Diagnóstico' })).toBeVisible();
   });
@@ -2887,7 +2526,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await mockReporteDelPanel(page, estado);
     await mockPanelServicios(page, estado);
     await page.goto('/finanzas/reporte-costos');
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
     await panelServicios(page).getByRole('button', { name: 'Quitar · Diagnóstico' }).click();
 
     estado.borrarStatus = 409;
@@ -2908,7 +2547,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await mockPanelServicios(page, estado);
     await mockCatalogoTipos(page);
     await page.goto('/finanzas/reporte-costos');
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
 
     // 1) La confirmación de «Quitar» (mutante: quitar el `stopPropagation` → se cierra el panel).
     await panelServicios(page).getByRole('button', { name: 'Quitar · Diagnóstico' }).click();
@@ -2939,11 +2578,12 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
     // mutante: pintar el botón apagado en vez de no pintarlo
-    await expect(page.getByRole('button', { name: /^Servicios adicionales de/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Soporte' }).first()).toBeVisible();
+    const menu = await abrirMenuFila(page, 'FLIT-2001');
+    await expect(menu.getByRole('menuitem', { name: /^Servicios adicionales de/ })).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: 'Soporte' })).toBeVisible();
   });
 
-  test('AC6 — la columna «Serv. adic.»: fuera de la compacta, entre Trámite digital y Servicio, y sus cuatro lecturas', async ({ page }) => {
+  test('AC6 — la columna «Adicionales» (antes «Serv. adic.»): por defecto, tras Trámite digital, en UN renglón y sus cuatro lecturas', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockFacetas(page, ['Aprobado']);
     await mockFacturacion(page);
@@ -2956,24 +2596,16 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
-    // En compacta NO está (mutante: `compacta: true` en la entrada de COLUMNAS).
+    // Desde el rediseño (Épica #13763, spec §3.2) va en la vista por defecto, se titula «Adicionales»
+    // y pierde el segundo renglón: cuántos son pasa al nombre accesible y al «Servicios · n» del ⋮.
     const cabeceras = page.getByRole('table').first().locator('thead tr').nth(1).locator('th[scope="col"]');
-    await expect(cabeceras).toHaveCount(9);
-    await expect(cabeceras.filter({ hasText: 'Serv. adic.' })).toHaveCount(0);
-
-    await page.getByRole('button', { name: /Mostrar todas las columnas/ }).click();
-    await expect(cabeceras).toHaveCount(30);
-    // `allTextContents` y no `allInnerTexts`: la cabecera va en versalitas por CSS y `innerText`
-    // devolvería «SERV. ADIC.», que no es lo que dice el DOM ni lo que lee un lector de pantalla.
     const titulos = await cabeceras.allTextContents();
-    // mutante: ponerla después de «Servicio» → la cuenta deja de leerse como tal
-    expect(titulos.indexOf('Serv. adic.')).toBe(titulos.indexOf('Trámite digital') + 1);
-    expect(titulos.indexOf('Servicio')).toBe(titulos.indexOf('Serv. adic.') + 1);
+    expect(titulos.indexOf('Adicionales')).toBe(titulos.indexOf('Trámite digital') + 1);
 
     const celdaDe = (flit: string) => page.getByRole('row').filter({ hasText: flit })
-      .getByRole('cell').nth(titulos.indexOf('Serv. adic.') + 1);
-    // Con servicios: dos renglones y el nombre accesible completo.
-    await expect(celdaDe('FLIT-2001')).toHaveText('$ 125.0002 servicios');
+      .getByRole('cell').nth(titulos.indexOf('Adicionales') + 1);
+    // Con servicios: UN renglón y el nombre accesible completo.
+    await expect(celdaDe('FLIT-2001')).toHaveText('$ 125.000');
     await expect(celdaDe('FLIT-2001')).toHaveAttribute('aria-label', '$ 125.000 en 2 servicios adicionales');
     // cantidad 0 → el guion; cantidad null → «Sin dato» con su explicación. No son lo mismo.
     // mutante: `if (!valor) vacío` → FLIT-2006 perdería su cobro legítimo de cero.
@@ -2981,11 +2613,11 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await expect(celdaDe('FLIT-2003')).toHaveText('Sin dato');
     await expect(celdaDe('FLIT-2003').getByTitle('Se liquidó antes de que FLITO cobrara servicios adicionales.')).toBeVisible();
     // importe 0 con cantidad 2: el cero SÍ se pinta (mutante: `pesos(valor ?? 0)` pondría «$ 0» en las tres de arriba).
-    await expect(celdaDe('FLIT-2006')).toHaveText('$ 02 servicios');
+    await expect(celdaDe('FLIT-2006')).toHaveText('$ 0');
 
     // El pie trae su total, y es el del SERVIDOR: 890.000 no es la suma de las filas de la página.
     const pie = page.getByRole('table').first().locator('tfoot tr').first();
-    await expect(pie.getByRole('cell').nth(titulos.indexOf('Serv. adic.') - titulos.indexOf('SOAT') + 1)).toHaveText('$ 890.000');
+    await expect(pie.getByRole('cell').nth(titulos.indexOf('Adicionales') - titulos.indexOf('SOAT') + 1)).toHaveText('$ 890.000');
   });
 });
 
@@ -3064,34 +2696,33 @@ async function mockDesglose(
 }
 
 const botonViajes = (page: Pagina, flit: string) =>
-  page.getByRole('button', { name: new RegExp(`^Viajes de logística de ${flit}:`) });
+  opcionDeMenu(page, flit, new RegExp(`^Viajes de logística de ${flit}:`));
 const panelViajes = (page: Pagina) => page.getByRole('dialog', { name: /^Viajes de logística · / });
 
 test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo lectura por viaje', () => {
   const cabeceras = (page: Pagina) => page.getByRole('table').first().locator('thead tr').nth(1).locator('th[scope="col"]');
 
-  test('AC1 — «Viajes» va tras «Logística» solo en la ampliada (30), sin pie; la compacta sigue en 9 de 30', async ({ page }) => {
+  test('AC1 — «Viajes» está en «Columnas» (fuera de la vista por defecto), antes de «Total» y sin pie', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockReporteViajes(page);
     await ampliarColumnas(page);
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
-    await expect(cabeceras(page)).toHaveCount(30);
+    await expect(cabeceras(page)).toHaveCount(TODAS_LAS_COLUMNAS.length);
     const titulos = await cabeceras(page).allTextContents();
-    // mutante: ponerla tras «Serv. adic.» → deja de leerse como la explicación de Logística
-    expect(titulos.indexOf('Viajes')).toBe(titulos.indexOf('Logística') + 1);
-    expect(titulos.indexOf('Total reintegro')).toBe(titulos.indexOf('Viajes') + 1);
+    // Desde el rediseño (Épica #13763, spec §3.2): Servicio y Viajes antes de Total, dentro del cobro.
+    expect(titulos.indexOf('Viajes')).toBe(titulos.indexOf('Servicio') + 1);
+    expect(titulos.indexOf('Total')).toBe(titulos.indexOf('Viajes') + 1);
     // mutante: `total` añadido a la entrada → el pie deja de estar vacío bajo «Viajes»
     const pie = page.getByRole('table').first().locator('tfoot tr').first();
     await expect(pie.getByRole('cell').nth(titulos.indexOf('Viajes') - titulos.indexOf('SOAT') + 1)).toHaveText('');
     await expect(pie.getByRole('cell').nth(titulos.indexOf('Logística') - titulos.indexOf('SOAT') + 1)).not.toHaveText('');
 
-    // mutante: `compacta: true` → aparece en la compacta y el anuncio dice 10 de 30
-    await page.getByRole('button', { name: /Compactar columnas/ }).click();
-    await expect(cabeceras(page)).toHaveCount(9);
+    // mutante: `porDefecto: true` → seguiría a la vista tras restablecer
+    await page.locator('summary').filter({ hasText: 'Columnas' }).click();
+    await page.getByRole('button', { name: 'Restablecer columnas' }).click();
     await expect(cabeceras(page).filter({ hasText: 'Viajes' })).toHaveCount(0);
-    await expect(page.getByRole('status').filter({ hasText: 'Vista compacta: 9 de 30 columnas.' })).toHaveCount(1);
   });
 
   test('AC2 — la celda: «3» y «1» con su nombre accesible, «—» para 0 y «Sin dato» para null; ningún «0»', async ({ page }) => {
@@ -3127,21 +2758,22 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
     // mutante: contador con `n >= 1` → «Viajes · 1» en FLIT-2002; con `?? 0` → «· 0» en la sellada
-    await expect(botonViajes(page, 'FLIT-2001')).toHaveText('Viajes · 3');
-    await expect(botonViajes(page, 'FLIT-2002')).toHaveText('Viajes');
-    await expect(botonViajes(page, 'FLIT-2031')).toHaveText('Viajes');
-    await expect(botonViajes(page, 'FLIT-2003')).toHaveText('Viajes');   // sellada: también lo lleva
-    await expect(botonViajes(page, 'FLIT-2001')).toHaveAccessibleName('Viajes de logística de FLIT-2001: 3 viajes');
-    await expect(botonViajes(page, 'FLIT-2002')).toHaveAccessibleName('Viajes de logística de FLIT-2002: 1 viaje');
-    await expect(botonViajes(page, 'FLIT-2031')).toHaveAccessibleName('Viajes de logística de FLIT-2031: autogestiona');
-    await expect(botonViajes(page, 'FLIT-2003')).toHaveAccessibleName('Viajes de logística de FLIT-2003: sin dato');
+    await expect(await botonViajes(page, 'FLIT-2001')).toHaveText('Viajes · 3');
+    await expect(await botonViajes(page, 'FLIT-2002')).toHaveText('Viajes');
+    await expect(await botonViajes(page, 'FLIT-2031')).toHaveText('Viajes');
+    await expect(await botonViajes(page, 'FLIT-2003')).toHaveText('Viajes');   // sellada: también lo lleva
+    await expect(await botonViajes(page, 'FLIT-2001')).toHaveAccessibleName('Viajes de logística de FLIT-2001: 3 viajes');
+    await expect(await botonViajes(page, 'FLIT-2002')).toHaveAccessibleName('Viajes de logística de FLIT-2002: 1 viaje');
+    await expect(await botonViajes(page, 'FLIT-2031')).toHaveAccessibleName('Viajes de logística de FLIT-2031: autogestiona');
+    await expect(await botonViajes(page, 'FLIT-2003')).toHaveAccessibleName('Viajes de logística de FLIT-2003: sin dato');
     // El contador NO cuesta una petición: viaja en la fila.
     expect(desglose.get).toBe(0);
 
-    // Orden: Soporte → Servicios → Viajes → Liquidar (consultar antes que operar).
-    const botones = await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button').allTextContents();
-    expect(botones.indexOf('Viajes · 3')).toBe(botones.indexOf('Servicios · 2') + 1);
-    expect(botones.indexOf('Liquidar')).toBeGreaterThan(botones.indexOf('Viajes · 3'));
+    // Orden en el ⋮: Soporte → Servicios → Viajes; «Liquidar» es el botón de la fila (rediseño).
+    const opciones = await (await abrirMenuFila(page, 'FLIT-2001')).getByRole('menuitem').allTextContents();
+    expect(opciones.indexOf('Viajes · 3')).toBe(opciones.indexOf('Servicios · 2') + 1);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button', { name: /^Liquidar/ })).toBeVisible();
   });
 
   test('AC3 — el auditor SIN la función de servicios ve «Viajes» en todas las filas y abre el panel', async ({ page }) => {
@@ -3156,15 +2788,17 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
     // mutante: gating por `puedeVerServicios` → el auditor se queda sin botón
-    await expect(botonViajes(page, 'FLIT-2001')).toBeVisible();
-    await expect(botonViajes(page, 'FLIT-2003')).toBeVisible();
-    const botones = await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button').allTextContents();
-    expect(botones).not.toContain('Servicios · 2');
-    expect(botones.indexOf('Viajes · 3')).toBe(botones.indexOf('Soporte') + 1);
+    await expect(await botonViajes(page, 'FLIT-2001')).toBeVisible();
+    await expect(await botonViajes(page, 'FLIT-2003')).toBeVisible();
+    const opciones = await (await abrirMenuFila(page, 'FLIT-2001')).getByRole('menuitem').allTextContents();
+    expect(opciones).not.toContain('Servicios · 2');
+    expect(opciones.indexOf('Viajes · 3')).toBe(opciones.indexOf('Soporte') + 1);
+    await page.keyboard.press('Escape');
     // Y sin Liquidar ni Facturar: el auditor solo consulta.
+    const botones = await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button').allTextContents();
     expect(botones).not.toContain('Liquidar');
 
-    await botonViajes(page, 'FLIT-2001').click();
+    await (await botonViajes(page, 'FLIT-2001')).click();
     await expect(panelViajes(page)).toBeVisible();
     await expect(panelViajes(page).getByText('Total logística')).toBeVisible();
   });
@@ -3176,7 +2810,7 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
-    await botonViajes(page, 'FLIT-2001').click();
+    await (await botonViajes(page, 'FLIT-2001')).click();
     const panel = panelViajes(page);
     // mutante: título sin la placa
     await expect(panel).toHaveAttribute('aria-label', 'Viajes de logística · FLIT-2001 · ABC123');
@@ -3218,7 +2852,12 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
-    await botonViajes(page, 'FLIT-2002').focus();
+    // Por teclado, el patrón del ⋮: Enter abre en «Soporte», ↓↓ llega a «Viajes» y Enter lo elige.
+    await botonMenu(page, 'FLIT-2002').focus();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('menuitem', { name: /^Viajes de logística de FLIT-2002:/ })).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(panelViajes(page)).toBeVisible();
     await page.keyboard.press('Tab');
@@ -3226,13 +2865,13 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
     await page.keyboard.press('Escape');
     await expect(panelViajes(page)).toHaveCount(0);
     // mutante: devolver el foco al título → aquí cae
-    await expect(botonViajes(page, 'FLIT-2002')).toBeFocused();
+    await expect(botonMenu(page, 'FLIT-2002')).toBeFocused();
 
-    await botonViajes(page, 'FLIT-2001').click();
+    await (await botonViajes(page, 'FLIT-2001')).click();
     await expect(panelViajes(page)).toBeVisible();
     await panelViajes(page).getByRole('button', { name: 'Cerrar' }).click();
     await expect(panelViajes(page)).toHaveCount(0);
-    await expect(botonViajes(page, 'FLIT-2001')).toBeFocused();
+    await expect(botonMenu(page, 'FLIT-2001')).toBeFocused();
   });
 
   test('AC5 — sin_desglose: «Sin dato…», «Sellado el …», el total sellado y SIN «Viaje 1»', async ({ page }) => {
@@ -3246,7 +2885,7 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2003')).toBeVisible();
 
-    await botonViajes(page, 'FLIT-2003').click();
+    await (await botonViajes(page, 'FLIT-2003')).click();
     const panel = panelViajes(page);
     await expect(panel.getByText('Sin dato: se liquidó antes de que FLITO cobrara viajes adicionales.')).toBeVisible();
     await expect(panel.getByText(/^Sellado el 12 sep 2026, \d{1,2}:\d{2}/)).toBeVisible();
@@ -3266,7 +2905,7 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2031')).toBeVisible();
 
-    await botonViajes(page, 'FLIT-2031').click();
+    await (await botonViajes(page, 'FLIT-2031')).click();
     const panel = panelViajes(page);
     await expect(panel.getByText('La logística de esta compañía la gestiona el cliente: no hay viajes que cobrar.')).toBeVisible();
     await expect(panel.getByText(/Viaje 1/)).toHaveCount(0);
@@ -3285,7 +2924,7 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2002')).toBeVisible();
 
-    await botonViajes(page, 'FLIT-2002').click();
+    await (await botonViajes(page, 'FLIT-2002')).click();
     const panel = panelViajes(page);
     await expect(panel.getByText('Viaje 1 · incluido en la tarifa · $ 35.000')).toBeVisible();
     await expect(panel.getByText('Sin viajes adicionales.')).toBeVisible();
@@ -3299,7 +2938,7 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
       ...DESGLOSE_VIGENTE, tramiteId: FILA_BLOQUEADA.tramiteId, idFlit: 'FLIT-2002',
       tarifa: null, totalViajes: 1, totalLogistica: null, items: [],
     } });
-    await botonViajes(page, 'FLIT-2002').click();
+    await (await botonViajes(page, 'FLIT-2002')).click();
     await expect(panelViajes(page).getByText('Viaje 1 · incluido en la tarifa · Sin tarifa configurada')).toBeVisible();
     await expect(panelViajes(page)).not.toContainText('$ 0');
     // La segunda apertura pintó lo del mock nuevo: cada apertura repide, no cachea.
@@ -3314,7 +2953,7 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
     await expect(page.getByText('FLIT-2001')).toBeVisible();
     const pedidasAntes = reporte.length;
 
-    await botonViajes(page, 'FLIT-2001').click();
+    await (await botonViajes(page, 'FLIT-2001')).click();
     const panel = panelViajes(page);
     await expect(panel.getByRole('alert')).toHaveText('Tu usuario ya no puede ver los viajes de este trámite. Vuelve a entrar para actualizar tus permisos.');
     // mutante: Reintentar en 403
@@ -3324,7 +2963,7 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
 
     await page.unroute(/\/api\/finanzas\/tramites\/[^/]+\/viajes-logistica/);
     await mockDesglose(page, { status: 404, error: { error: 'Trámite no encontrado' } });
-    await botonViajes(page, 'FLIT-2001').click();
+    await (await botonViajes(page, 'FLIT-2001')).click();
     await expect(panelViajes(page).getByRole('alert')).toHaveText('El trámite ya no existe.');
     await expect(panelViajes(page).getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
     await panelViajes(page).getByRole('button', { name: 'Actualizar el reporte' }).click();
@@ -3341,7 +2980,7 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
-    await botonViajes(page, 'FLIT-2001').click();
+    await (await botonViajes(page, 'FLIT-2001')).click();
     const panel = panelViajes(page);
     // mutante: spinner sin `role="status"` o sin `aria-busy`
     const esqueleto = panel.getByRole('status', { name: 'Consultando los viajes…' });
@@ -3455,8 +3094,8 @@ async function mockDiferencias(page: import('@playwright/test').Page, opciones: 
 }
 
 const marcaDe = (page: import('@playwright/test').Page, idFlit: string) => filaDe(page, idFlit).getByTestId('marca-diferencia');
-const botonAceptar = (page: import('@playwright/test').Page, idFlit?: string) =>
-  (idFlit ? filaDe(page, idFlit) : page).getByRole('button', { name: /^Aceptar diferencia de / });
+const botonAceptar = async (page: import('@playwright/test').Page, idFlit?: string) =>
+  idFlit ? opcionDeMenu(page, idFlit, /^Aceptar diferencia de /) : page.getByRole('menuitem', { name: /^Aceptar diferencia de / });
 
 test.describe('HU #12655 · diferencias documentales', () => {
   test('TC-01/TC-02 — AC1: en ampliada TD y LG llevan «Documento»/«Tarifa»; SA no lleva origen; «No configurado» va sin chip', async ({ page }) => {
@@ -3471,8 +3110,8 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await expect(doc.getByText('Tarifa', { exact: true })).toHaveCount(1);
     // El orden: el chip «Documento» está en la celda de trámite digital, no en logística.
     const celdas = doc.getByRole('cell');
-    const tdIdx = (await page.getByRole('columnheader', { name: 'Trámite digital' }).evaluate((el) => (el as HTMLTableCellElement).cellIndex));
-    const lgIdx = (await page.getByRole('columnheader', { name: 'Logística' }).evaluate((el) => (el as HTMLTableCellElement).cellIndex));
+    const tdIdx = (await page.getByRole('columnheader', { name: 'Trámite digital', exact: true }).evaluate((el) => (el as HTMLTableCellElement).cellIndex));
+    const lgIdx = (await page.getByRole('columnheader', { name: 'Logística', exact: true }).evaluate((el) => (el as HTMLTableCellElement).cellIndex));
     // La columna de la casilla de selección va antes: +1 en el índice de celda para financiera (puede liquidar).
     await expect(celdas.nth(tdIdx + 1)).toContainText('Documento');
     await expect(celdas.nth(lgIdx + 1)).toContainText('Tarifa');
@@ -3482,9 +3121,9 @@ test.describe('HU #12655 · diferencias documentales', () => {
     // SA nunca lleva origen: la fila FLIT-2104 es de tarifa en TD y LG (2 chips «Tarifa») y ninguno más.
     await expect(filaDe(page, 'FLIT-2104').getByText('Tarifa', { exact: true })).toHaveCount(2);
     await expect(filaDe(page, 'FLIT-2104').getByText('Documento', { exact: true })).toHaveCount(0);
-    // «No configurado» sigue como hoy y sin chip de origen en TD (solo el «Tarifa» de LG).
+    // «Sin configurar» (antes «No configurado», Épica #13763) y sin chip de origen en TD (solo el «Tarifa» de LG).
     const noConf = filaDe(page, 'FLIT-2108');
-    await expect(noConf.getByText('No configurado').first()).toBeVisible();
+    await expect(noConf.getByText('Sin configurar').first()).toBeVisible();
     await expect(noConf.getByText('Tarifa', { exact: true })).toHaveCount(1);
     await expect(noConf.getByText('Documento', { exact: true })).toHaveCount(0);
   });
@@ -3511,7 +3150,7 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await expect(pendiente.locator('span').first()).toHaveCSS('background-color', 'rgb(253, 232, 227)');
     await expect(aceptada.locator('span').first()).toHaveCSS('background-color', 'rgb(239, 241, 243)');
     // La aceptada NO ofrece el botón, aunque financiera tenga la función.
-    await expect(botonAceptar(page, 'FLIT-2103')).toHaveCount(0);
+    await expect(await botonAceptar(page, 'FLIT-2103')).toHaveCount(0);
 
     // SA: el importe de la celda SIGUE siendo el catálogo (mutante: pintar el documental).
     const sa = filaDe(page, 'FLIT-2104');
@@ -3555,30 +3194,32 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await expect(fila.getByText('Autogestiona')).toBeVisible();
     await expect(fila.getByText('Documento', { exact: true })).toHaveCount(0);
     await expect(marcaDe(page, 'FLIT-2106')).toHaveCount(0);          // mutante 9: decidir por valorDocumental
-    await expect(botonAceptar(page, 'FLIT-2106')).toHaveCount(0);
+    await expect(await botonAceptar(page, 'FLIT-2106')).toHaveCount(0);
     await expect(page.getByText(/Difiere|Diferencia aceptada/)).toHaveCount(0);
     // Solo el «Tarifa» del trámite digital.
     await expect(fila.getByText('Tarifa', { exact: true })).toHaveCount(1);
   });
 
-  test('TC-09 — compacta: ningún chip, pero el botón «Aceptar diferencia» sí está en la fila con diferencia pendiente', async ({ page }) => {
+  test('TC-09 — el ⋮ lleva «Aceptar diferencia» en la fila con diferencia pendiente, con su nombre y sus importes', async ({ page }) => {
+    // Desde el rediseño (Épica #13763) «Aceptar diferencia» es una opción del ⋮, no un botón de la fila.
     await loginAs(page, FINANCIERA_USER);
     await mockDiferencias(page);
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2101')).toBeVisible();
-    await expect(page.getByText(/Difiere|Documento|Diferencia aceptada/)).toHaveCount(0);
-    await expect(page.getByText('Tarifa', { exact: true })).toHaveCount(0);
-    await expect(botonAceptar(page, 'FLIT-2101')).toHaveCount(1);
-    await expect(botonAceptar(page, 'FLIT-2101')).toHaveText('Aceptar diferencia');
-    await expect(botonAceptar(page, 'FLIT-2101')).toHaveAccessibleName('Aceptar diferencia de trámite digital de FLIT-2101');
-    await expect(botonAceptar(page, 'FLIT-2102')).toHaveAccessibleName('Aceptar diferencia de trámite digital y logística de FLIT-2102');
-    await expect(botonAceptar(page, 'FLIT-2102')).toHaveAttribute('title', 'Trámite digital +$15.000 · Logística −$5.000');
+    await expect(await botonAceptar(page, 'FLIT-2101')).toHaveCount(1);
+    await expect(await botonAceptar(page, 'FLIT-2101')).toContainText('Aceptar diferencia');
+    await expect(await botonAceptar(page, 'FLIT-2101')).toHaveAccessibleName('Aceptar diferencia de trámite digital de FLIT-2101');
+    await expect(await botonAceptar(page, 'FLIT-2102')).toHaveAccessibleName('Aceptar diferencia de trámite digital y logística de FLIT-2102');
+    // Los importes, visibles bajo la opción (antes iban en el `title` del botón).
+    await expect(await botonAceptar(page, 'FLIT-2102')).toContainText('Trámite digital +$15.000 · Logística −$5.000');
     // Uno por fila con pendiente: 2101, 2102, 2104 (catálogo) y 2105 (sin tarifa). Ni 2103 (aceptada) ni 2106/2107/2108.
-    await expect(botonAceptar(page)).toHaveCount(4);
-    // Tras «Viajes» y antes de «Liquidar»; y Liquidar no cambia por tener diferencias.
-    const botones = filaDe(page, 'FLIT-2101').getByRole('button');
-    // «Sin enviar» es el botón de la celda «Factura DIAN», antes de Acciones.
-    await expect(botones).toHaveText(['Sin enviar', 'Soporte', 'Servicios · 2', 'Viajes · 3', 'Aceptar diferencia', 'Liquidar']);
+    for (const id of ['FLIT-2104', 'FLIT-2105']) await expect(await botonAceptar(page, id)).toHaveCount(1);
+    for (const id of ['FLIT-2103', 'FLIT-2106', 'FLIT-2107', 'FLIT-2108']) await expect(await botonAceptar(page, id)).toHaveCount(0);
+    // Tras «Viajes» en el ⋮; y Liquidar no cambia por tener diferencias.
+    const opciones = await (await abrirMenuFila(page, 'FLIT-2101')).getByRole('menuitem').allTextContents();
+    expect(opciones.slice(0, 3)).toEqual(['Soporte', 'Servicios · 2', 'Viajes · 3']);
+    expect(opciones[3]).toContain('Aceptar diferencia');
+    await page.keyboard.press('Escape');
     await expect(filaDe(page, 'FLIT-2101').getByRole('button', { name: 'Liquidar' })).toBeEnabled();
   });
 
@@ -3588,10 +3229,11 @@ test.describe('HU #12655 · diferencias documentales', () => {
     const exportadas = await mockExport(page);
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2101')).toBeVisible();
+    await abrirMasFiltros(page);
 
     const casilla = page.getByRole('checkbox', { name: 'Con diferencias' });
     await expect(casilla).not.toBeChecked();
-    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(0);
     expect(gets[gets.length - 1]).not.toContain('conDiferencias');
     await expect(page.getByText('Con diferencias', { exact: true })).toHaveAttribute('title', 'Solo trámites con al menos una diferencia sin aceptar.');
 
@@ -3599,9 +3241,10 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await expect.poll(() => gets[gets.length - 1]).toContain('conDiferencias=si');     // mutante: `=1` / `=true` / fuera de cuerpoDeExport
     expect(gets[gets.length - 1]).not.toMatch(/conDiferencias=(1|true)/);
     await expect(page).toHaveURL(/conDiferencias=si/);
-    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeEnabled();   // mutante: fuera de claveDe
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeVisible();   // mutante: fuera de claveDe
 
     // El export del detalle lleva el booleano en el cuerpo.
+    await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
     await page.getByRole('button', { name: 'Exportar a Excel' }).click();
     await expect.poll(() => exportadas.length).toBe(1);
     expect(exportadas[0].postDataJSON()).toMatchObject({ conDiferencias: true, estados: ['Aprobado'] });
@@ -3613,22 +3256,24 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await page.getByRole('button', { name: 'Detalle' }).click();
 
     await page.getByRole('button', { name: 'Limpiar filtros' }).click();
+    await abrirMasFiltros(page);
     await expect(casilla).not.toBeChecked();
     await expect(page).not.toHaveURL(/conDiferencias/);
     await expect.poll(() => gets[gets.length - 1]).not.toContain('conDiferencias');
-    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(0);
   });
 
   test('TC-12 — AC4: la casilla desde la URL abre marcada, y con 0 filas el vacío dice qué desmarcar', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
     const { gets } = await mockDiferencias(page, { filas: [] });
     await page.goto('/finanzas/reporte-costos?conDiferencias=si');
+    await abrirMasFiltros(page);
     await expect(page.getByRole('checkbox', { name: 'Con diferencias' })).toBeChecked();
     await expect.poll(() => gets[0]).toContain('conDiferencias=si');
     await expect(page.getByText('No hay trámites con diferencias sin aceptar en este filtro. Desmarca «Con diferencias» o amplía el periodo.')).toBeVisible();
-    await expect(page.getByText('No hay trámites que coincidan con los filtros.')).toHaveCount(0);
+    await expect(page.getByText(/No hay trámites que coincidan con los filtros/)).toHaveCount(0);
     await page.getByRole('checkbox', { name: 'Con diferencias' }).uncheck();
-    await expect(page.getByText('No hay trámites que coincidan con los filtros.')).toBeVisible();
+    await expect(page.getByText(/No hay trámites que coincidan con los filtros/)).toBeVisible();
   });
 
   test('TC-13/TC-14/TC-15 — AC5: el modal exige motivo (5 caracteres), no dispara POST con menos, y al 200 avisa, refresca y devuelve el foco al título', async ({ page }) => {
@@ -3640,7 +3285,7 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await page.getByRole('checkbox', { name: 'Seleccionar FLIT-2001' }).check();
     const getsAntes = gets.length;
 
-    await botonAceptar(page, 'FLIT-2101').click();
+    await (await botonAceptar(page, 'FLIT-2101')).click();
     const modal = page.getByRole('dialog', { name: 'Aceptar diferencia · FLIT-2101 · ABC123' });
     await expect(modal).toBeVisible();
     await expect(modal.getByText('Trámite digital', { exact: true })).toBeVisible();
@@ -3675,7 +3320,7 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await expect(page.getByRole('checkbox', { name: 'Seleccionar FLIT-2001' })).toBeChecked(); // mutante: ejecutar() vacía la selección
     // Este mock devuelve la misma fila al refrescar, así que el botón sigue y el foco vuelve a él
     // (el kit restaura al disparador). Cuando el botón desaparece, el foco va al título: TC-16.
-    await expect(botonAceptar(page, 'FLIT-2101')).toBeFocused();
+    await expect(botonMenu(page, 'FLIT-2101')).toBeFocused();
   });
 
   test('TC-16 — AC5: la celda pasa a «Diferencia aceptada» con el importe aún visible tras recargar', async ({ page }) => {
@@ -3693,14 +3338,14 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await ampliarColumnas(page);
     await page.goto('/finanzas/reporte-costos');
     await expect(marcaDe(page, 'FLIT-2101')).toHaveText('Difiere de tarifa +$15.000');
-    await botonAceptar(page, 'FLIT-2101').click();
+    await (await botonAceptar(page, 'FLIT-2101')).click();
     await page.getByLabel('Por qué se acepta (obligatorio)').fill('Factura con IVA');
     await page.getByRole('dialog').getByRole('button', { name: 'Aceptar diferencia', exact: true }).click();
     await expect(marcaDe(page, 'FLIT-2101')).toHaveText('Diferencia aceptada +$15.000');
     await expect(filaDe(page, 'FLIT-2101').getByText('$ 95.000')).toBeVisible();
-    await expect(botonAceptar(page, 'FLIT-2101')).toHaveCount(0);      // mutante: botón visible tras aceptar
-    // El disparador ya no existe: `restoreFocusRef` lleva el foco al título, no a `<body>`.
-    await expect(page.getByRole('heading', { level: 1, name: 'Reporte de costos' })).toBeFocused();
+    // Desde el rediseño el disparador es el ⋮, que sigue en la fila: el foco vuelve a él, no a `<body>`.
+    await expect(botonMenu(page, 'FLIT-2101')).toBeFocused();
+    await expect(await botonAceptar(page, 'FLIT-2101')).toHaveCount(0);      // mutante: opción visible tras aceptar
   });
 
   test('TC-17 — AC5: 409 sin_diferencia / 403 / 400 se pintan con errorMessage en el modal y la fila no cambia', async ({ page }) => {
@@ -3716,7 +3361,7 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await page.goto('/finanzas/reporte-costos');
 
     // 409: mensaje del servidor + «La fila se actualizó.»; el modal sigue abierto; la fila no cambia.
-    await botonAceptar(page, 'FLIT-2101').click();
+    await (await botonAceptar(page, 'FLIT-2101')).click();
     let modal = page.getByRole('dialog');
     await modal.getByLabel('Por qué se acepta (obligatorio)').fill('Motivo válido');
     await modal.getByRole('button', { name: 'Aceptar diferencia', exact: true }).click();
@@ -3728,7 +3373,7 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await expect(modal).toHaveCount(0);
 
     // 403: sufijo de permisos y la primaria apagada.
-    await botonAceptar(page, 'FLIT-2105').click();
+    await (await botonAceptar(page, 'FLIT-2105')).click();
     modal = page.getByRole('dialog');
     await expect(modal.getByText('Comprobante $ 95.000 · Sin tarifa configurada')).toBeVisible();
     await modal.getByLabel('Por qué se acepta (obligatorio)').fill('Motivo válido');
@@ -3738,7 +3383,7 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await modal.getByRole('button', { name: 'Cancelar' }).click();
 
     // 400: el mensaje tal cual y la primaria sigue viva; lo escrito se conserva.
-    await botonAceptar(page, 'FLIT-2104').click();
+    await (await botonAceptar(page, 'FLIT-2104')).click();
     modal = page.getByRole('dialog');
     await expect(modal.getByText('Comprobante $ 105.000 · Catálogo $ 125.000')).toBeVisible();
     await expect(modal.getByText(/El costo usa el valor del comprobante; el catálogo queda como referencia\./)).toBeVisible();
@@ -3758,7 +3403,7 @@ test.describe('HU #12655 · diferencias documentales', () => {
       aceptar: (id) => id.endsWith('0002') ? { status: 409, body: { error: 'La diferencia ya fue aceptada', codigo: 'sin_diferencia' } } : { status: 200, body: { ok: true } },
     });
     await page.goto('/finanzas/reporte-costos');
-    await botonAceptar(page, 'FLIT-2102').click();
+    await (await botonAceptar(page, 'FLIT-2102')).click();
     const modal = page.getByRole('dialog', { name: 'Aceptar diferencia · FLIT-2102 · ABC123' });
     const casillas = modal.getByRole('checkbox');
     await expect(casillas).toHaveCount(2);
@@ -3795,7 +3440,7 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await loginAs(page, FINANCIERA_USER);
     const { aceptados } = await mockDiferencias(page, { filas: [FILA_DOS_PENDIENTES] });
     await page.goto('/finanzas/reporte-costos');
-    await botonAceptar(page, 'FLIT-2102').click();
+    await (await botonAceptar(page, 'FLIT-2102')).click();
     await page.getByLabel('Por qué se acepta (obligatorio)').fill('Factura con IVA');
     await page.getByRole('dialog').getByRole('button', { name: 'Aceptar diferencia', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -3810,10 +3455,13 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await ampliarColumnas(page);
     await page.goto('/finanzas/reporte-costos');
     await expect(marcaDe(page, 'FLIT-2101')).toHaveText('Difiere de tarifa +$15.000');
-    await expect(botonAceptar(page)).toHaveCount(0);                    // mutante: pintar sin hasFuncion
+    // mutante: pintar sin hasFuncion → la opción saldría en el ⋮ de las filas con pendiente.
+    for (const id of ['FLIT-2101', 'FLIT-2102']) await expect(await botonAceptar(page, id)).toHaveCount(0);
+    await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: 'Aceptar diferencia' })).toHaveCount(0);
     // Liquidar sigue igual.
     await expect(filaDe(page, 'FLIT-2101').getByRole('button', { name: 'Liquidar' })).toBeEnabled();
+    await abrirMasFiltros(page);
     await page.getByRole('checkbox', { name: 'Con diferencias' }).check();
     await expect.poll(() => gets[gets.length - 1]).toContain('conDiferencias=si');
     expect(aceptados).toHaveLength(0);
@@ -3825,8 +3473,11 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await ampliarColumnas(page);
     await page.goto('/finanzas/reporte-costos');
     await expect(marcaDe(page, 'FLIT-2103')).toHaveText('Diferencia aceptada −$20.000');
-    await expect(page.getByText('Documento', { exact: true }).first()).toBeVisible();
+    await expect(filaDe(page, 'FLIT-2101').getByText('Documento', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /Aceptar diferencia/ })).toHaveCount(0);
+    for (const id of ['FLIT-2101', 'FLIT-2102']) await expect(await botonAceptar(page, id)).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await abrirMasFiltros(page);
     await page.getByRole('checkbox', { name: 'Con diferencias' }).check();
     await expect.poll(() => gets[gets.length - 1]).toContain('conDiferencias=si');
   });
@@ -3846,7 +3497,7 @@ test.describe('Bug #12913 · panel de servicios — asignación «Desde comproba
     await mockReporteDelPanel(page, estado);
     const peticiones = await mockPanelServicios(page, estado);
     await page.goto('/finanzas/reporte-costos');
-    await botonServicios(page, 'FLIT-2001').click();
+    await (await botonServicios(page, 'FLIT-2001')).click();
     const panel = panelServicios(page);
     await expect(panel.getByText('Diagnóstico', { exact: true })).toBeVisible();
 
@@ -3863,4 +3514,323 @@ test.describe('Bug #12913 · panel de servicios — asignación «Desde comproba
     // La fila sigue: el 409 dice la verdad sobre lo que hay.
     await expect(panel.getByText('Diagnóstico', { exact: true })).toBeVisible();
   });
+});
+
+// ── Rediseño «Esencial + desglose» y costo de proveedor (Épica #13763) ───────────────────────────
+// Spec `docs/ux/flito-reporte-costos-rediseno.md` y sus retoques del humano al aprobar la maqueta:
+// sin recortar empresa ni proveedor, «Exportar a Excel» en la cabecera, «Liquidación» vacía sin
+// liquidar y ninguna etiqueta pegada al importe.
+
+const EMPRESA_LARGA = 'Compañía Demo Uno de Transporte Especial y Logística Integral S.A.S.';
+const PROVEEDOR_LARGO = 'Transportes Demo Norte Operadora Logística del Valle de Aburrá Ltda.';
+
+/** Una fila por estado de costo (C1–C6) y una con nombres largos. */
+const FILAS_COSTO = [
+  { ...FILA_LIQUIDADA, tramiteId: 'cccc0000-0000-0000-0000-000000000001', idFlit: 'FLIT-3001' },
+  {
+    ...FILA_ESTIMADA, tramiteId: 'cccc0000-0000-0000-0000-000000000002', idFlit: 'FLIT-3002',
+    empresa: EMPRESA_LARGA,
+    costoProveedorLogistica: costo(PROVEEDOR_LARGO, 35000),
+  },
+  {
+    ...FILA_ESTIMADA, tramiteId: 'cccc0000-0000-0000-0000-000000000003', idFlit: 'FLIT-3003',
+    costoProveedorSoat: costo('Seguros Demo', null, 'sin_configurar'), costoProveedorTotal: 35000,
+  },
+  {
+    ...FILA_ESTIMADA, tramiteId: 'cccc0000-0000-0000-0000-000000000004', idFlit: 'FLIT-3004',
+    costoProveedorLogistica: costo(null, null, 'sin_proveedor'), costoProveedorTotal: 48000,
+  },
+  {
+    ...FILA_ESTIMADA, tramiteId: 'cccc0000-0000-0000-0000-000000000005', idFlit: 'FLIT-3005',
+    costoProveedorSoat: costo(null, null, 'gestionado_operaciones'), costoProveedorTotal: 35000,
+  },
+  {
+    ...FILA_ESTIMADA, tramiteId: 'cccc0000-0000-0000-0000-000000000006', idFlit: 'FLIT-3006',
+    costoProveedorSoat: costo(null, null, 'ya_contado', { contadoEnTramiteId: 'x', contadoEnIdFlit: '10234' }), costoProveedorTotal: 35000,
+  },
+  {
+    ...FILA_FACTURADA, tramiteId: 'cccc0000-0000-0000-0000-000000000007', idFlit: 'FLIT-3007',
+    costoProveedorSoat: costo('Seguros Demo', 48000, 'estimado'),
+  },
+];
+const REPORTE_COSTO = { ...REPORTE, items: FILAS_COSTO, total: FILAS_COSTO.length };
+
+async function mockRediseno(page: import('@playwright/test').Page, reporte: unknown = REPORTE_COSTO) {
+  const urls: string[] = [];
+  await mockFacetas(page, ['Aprobado', 'Entregado']);
+  await mockFacturacion(page);
+  await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+    urls.push(route.request().url());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(reporte) });
+  });
+  return urls;
+}
+
+const filaRc = (page: import('@playwright/test').Page, idFlit: string) =>
+  page.getByRole('row').filter({ hasText: idFlit });
+/** La celda de la columna `titulo` en la fila: por índice de cabecera, no por texto. */
+async function celda(page: import('@playwright/test').Page, idFlit: string, titulo: string) {
+  await expect(filaRc(page, idFlit)).toBeVisible();
+  const titulos = await page.getByRole('region', { name: 'Reporte de costos, detalle' }).getByRole('table')
+    .locator('thead tr').nth(1).locator('th').allTextContents();
+  const i = titulos.findIndex((t) => t.trim() === titulo);
+  expect(i, `columna «${titulo}»`).toBeGreaterThanOrEqual(0);
+  // El cuerpo lleva la casilla delante cuando se puede liquidar: la cabecera la tiene en la fila de grupos.
+  const conCasilla = await page.getByRole('checkbox', { name: 'Seleccionar los trámites con acciones de esta página' }).count();
+  return filaRc(page, idFlit).locator('td').nth(i + conCasilla);
+}
+
+test.describe('Reporte de costos — rediseño y costo de proveedor (Épica #13763)', () => {
+  test('por defecto: Esencial, Cobro al cliente y Costo de proveedor; sin Total reintegro ni Servicio', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockRediseno(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    const tabla = page.getByRole('region', { name: 'Reporte de costos, detalle' }).getByRole('table');
+    await expect(tabla.locator('thead tr').nth(1).locator('th')).toHaveText([
+      'Trámite', 'Placa', 'Empresa', 'Tipo', 'Aprobación', 'Liquidación', 'Falta',
+      'SOAT', 'Impuesto', 'Derecho', 'Logística', 'Trámite digital', 'Adicionales', 'GMF', 'Total',
+      'Costo SOAT', 'Proveedor SOAT', 'Costo logística', 'Proveedor logística', 'Total costos',
+    ]);
+    await expect(tabla.locator('th[scope="colgroup"]')).toHaveText(['Esencial', 'Cobro al cliente', 'Costo de proveedor']);
+    await expect(tabla.locator('th[scope="colgroup"]', { hasText: 'Costo de proveedor' }))
+      .toHaveAttribute('title', 'Lo que FLITO le paga al proveedor. No se suma al cobro.');
+    await expect(tabla.getByRole('columnheader', { name: 'Total reintegro' })).toHaveCount(0);
+    await expect(tabla.getByRole('columnheader', { name: 'Servicio', exact: true })).toHaveCount(0);
+  });
+
+  test('«Columnas» añade, recuerda en la clave v2 tras recargar y restablece; la clave vieja se ignora', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await page.addInitScript(() => {
+      // La preferencia de antes del rediseño no amplía nada.
+      if (!sessionStorage.getItem('sembrado')) { localStorage.setItem('flito.reporteCostos.columnas', 'todas'); sessionStorage.setItem('sembrado', '1'); }
+    });
+    await mockRediseno(page);
+    await page.goto('/finanzas/reporte-costos');
+    const tabla = page.getByRole('region', { name: 'Reporte de costos, detalle' }).getByRole('table');
+    await expect(tabla.getByRole('columnheader', { name: 'VIN' })).toHaveCount(0);
+
+    await page.locator('summary').filter({ hasText: 'Columnas' }).click();
+    await page.getByRole('checkbox', { name: 'Total reintegro' }).check();
+    await expect(tabla.getByRole('columnheader', { name: 'Total reintegro' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /Columnas: \d+ de 37 visibles\./ })).toHaveCount(1);
+    // Trámite y Placa no se pueden ocultar: no tienen casilla.
+    await expect(page.getByRole('checkbox', { name: 'Trámite', exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem('flito.reporteCostos.columnas.v2'))).toContain('totalReintegro');
+
+    await page.reload();
+    await expect(tabla.getByRole('columnheader', { name: 'Total reintegro' })).toBeVisible();
+
+    await page.locator('summary').filter({ hasText: 'Columnas' }).click();
+    await page.getByRole('button', { name: 'Restablecer columnas' }).click();
+    await expect(tabla.getByRole('columnheader', { name: 'Total reintegro' })).toHaveCount(0);
+  });
+
+  test('cada estado de costo se pinta con su texto, sin «estimado» ni «parcial» junto al valor', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockRediseno(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    await expect(await celda(page, 'FLIT-3001', 'Costo SOAT')).toHaveText('$ 48.000');
+    await expect(await celda(page, 'FLIT-3001', 'Proveedor SOAT')).toHaveText('Seguros Demo');
+    await expect(await celda(page, 'FLIT-3003', 'Costo SOAT')).toHaveText('Sin configurar');
+    await expect(await celda(page, 'FLIT-3004', 'Costo logística')).toHaveText('Sin proveedor');
+    await expect(await celda(page, 'FLIT-3004', 'Proveedor logística')).toHaveText('—');
+    await expect(await celda(page, 'FLIT-3005', 'Costo SOAT')).toHaveText('Gestionado por Operaciones');
+    await expect(await celda(page, 'FLIT-3006', 'Costo SOAT')).toHaveText('Ya contado en el trámite 10234');
+
+    // Estimado (sello sin el concepto congelado) y total parcial: SOLO el valor en la celda…
+    const estimado = await celda(page, 'FLIT-3007', 'Costo SOAT');
+    await expect(estimado).toHaveText('$ 48.000');
+    await expect(estimado).toHaveAttribute('aria-label', /estimado: el trámite se liquidó antes/);
+    const parcial = await celda(page, 'FLIT-3003', 'Total costos');
+    await expect(parcial).toHaveText('$ 35.000');
+    // …y el matiz en el nombre accesible, donde no se suma con la vista.
+    await expect(parcial).toHaveAttribute('aria-label', /parcial: falta el costo SOAT \(sin configurar\)/);
+    // Ninguna celda del cuerpo dice «estimado» o «parcial» a la vista.
+    await expect(page.getByRole('region', { name: 'Reporte de costos, detalle' }).getByRole('table').locator('tbody')).not.toContainText(/estimado|parcial/i);
+  });
+
+  test('«Liquidación» queda vacía sin liquidar, y dice Liquidado o Facturado cuando lo está', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockRediseno(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(await celda(page, 'FLIT-3002', 'Liquidación')).toHaveText('');
+    await expect(await celda(page, 'FLIT-3001', 'Liquidación')).toHaveText('Liquidado');
+    await expect(await celda(page, 'FLIT-3007', 'Liquidación')).toHaveText('Facturado');
+    await expect(page.getByRole('region', { name: 'Reporte de costos, detalle' }).getByRole('table').getByText('Estimado', { exact: true })).toHaveCount(0);
+  });
+
+  test('empresa y proveedor largos se leen enteros, sin recorte', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockRediseno(page);
+    await page.goto('/finanzas/reporte-costos');
+    for (const [titulo, texto] of [['Empresa', EMPRESA_LARGA], ['Proveedor logística', PROVEEDOR_LARGO]] as const) {
+      const c = await celda(page, 'FLIT-3002', titulo);
+      await expect(c).toHaveText(texto);
+      // Sin elipsis: el contenido no desborda su caja.
+      expect(await c.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      expect(await c.evaluate((el) => !!el.querySelector('.truncate'))).toBe(false);
+    }
+  });
+
+  test('«Exportar a Excel» está en la cabecera, junto a Detalle/Consolidado, y no en la barra de la tabla', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockRediseno(page);
+    await page.goto('/finanzas/reporte-costos');
+    const exportar = page.locator('#exportar-excel');
+    await expect(exportar).toHaveText('Exportar a Excel');
+    await expect(exportar).toHaveAttribute('title', 'Todo el filtro con todas sus columnas, no solo esta página.');
+    const cajaExport = await exportar.boundingBox();
+    const cajaConmutador = await page.getByRole('button', { name: 'Consolidado' }).boundingBox();
+    const cajaFiltros = await page.getByRole('button', { name: /Listos para liquidar/ }).boundingBox();
+    // En la misma banda que el conmutador y por encima de los filtros.
+    expect(Math.abs((cajaExport?.y ?? 0) - (cajaConmutador?.y ?? 0))).toBeLessThan(30);
+    expect(cajaExport!.y).toBeLessThan(cajaFiltros!.y);
+    await expect(page.getByRole('button', { name: 'Exportar a Excel' })).toHaveCount(1);
+  });
+
+  test('«Más filtros» con «Costo de proveedor sin configurar»: cuenta, chip, query `=true` y cuerpo del export', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const urls = await mockRediseno(page);
+    const peticiones = await mockExport(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.locator('summary').filter({ hasText: 'Más filtros' }).click();
+    const casilla = page.getByRole('checkbox', { name: 'Costo de proveedor sin configurar' });
+    await expect(casilla.locator('xpath=..')).toHaveAttribute('title', 'Trámites con al menos un costo de proveedor sin configurar. No impide liquidar.');
+    await casilla.check();
+    await expect.poll(() => urls.at(-1) ?? '').toContain('costoProveedorSinConfigurar=true');
+    await expect(page.locator('summary').filter({ hasText: 'Más filtros · 2' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Quitar filtro Costo de proveedor sin configurar' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Cerrar' }).click();
+    await page.locator('#exportar-excel').click();
+    await expect.poll(() => peticiones.length).toBe(1);
+    expect(peticiones[0].postDataJSON()).toMatchObject({ costoProveedorSinConfigurar: true });
+  });
+
+  test('chips de lo puesto, ✕ que quita uno y «Limpiar filtros» que vuelve a Aprobado', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const urls = await mockRediseno(page);
+    await page.goto('/finanzas/reporte-costos');
+    // El estado por defecto se ve como chip; sin nada distinto del punto de partida no hay «Limpiar».
+    await expect(page.getByRole('button', { name: 'Quitar filtro Estado: Aprobado' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(0);
+
+    await page.locator('summary').filter({ hasText: 'Más filtros' }).click();
+    await page.getByRole('combobox', { name: 'Empresa' }).selectOption('900111,9001112');
+    await page.getByRole('checkbox', { name: 'Con diferencias' }).check();
+    // El panel se superpone a la fila de chips mientras está abierto: se cierra para usarlos.
+    await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Quitar filtro Empresa: ACME SAS' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Quitar filtro Empresa: ACME SAS' }).click();
+    await expect.poll(() => urls.at(-1) ?? '').not.toContain('empresas=');
+    await expect(page.getByRole('button', { name: /Quitar filtro Empresa/ })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Limpiar filtros' }).click();
+    await expect.poll(() => urls.at(-1) ?? '').not.toContain('conDiferencias');
+    await expect(page.getByRole('button', { name: /Quitar filtro/ })).toHaveText(['Estado: Aprobado✕']);
+  });
+
+  test('ningún filtro de antes se pierde: Periodo con rango personalizado y Más filtros completo', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-09-15T12:00:00Z'));
+    await loginAs(page, OPERACIONES_USER);
+    await mockRediseno(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.locator('summary').filter({ hasText: 'Periodo' })).toContainText('Septiembre 2026');
+    await page.locator('summary').filter({ hasText: 'Periodo' }).click();
+    await expect(page.getByRole('button', { name: 'Trimestre' })).toBeVisible();
+    await expect(page.locator('summary').filter({ hasText: 'Rango personalizado' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.locator('summary').filter({ hasText: 'Más filtros' }).click();
+    for (const nombre of ['Empresa', 'Tipo de trámite']) await expect(page.getByRole('combobox', { name: nombre })).toBeVisible();
+    await expect(page.locator('summary').filter({ hasText: 'Estado' })).toBeVisible();
+    await expect(page.locator('summary').filter({ hasText: 'OT' })).toBeVisible();
+    await expect(page.locator('summary').filter({ hasText: 'Creación' })).toBeVisible();
+    for (const nombre of ['Solo con soportes completos', 'Con diferencias', 'Costo de proveedor sin configurar']) {
+      await expect(page.getByRole('checkbox', { name: nombre })).toBeVisible();
+    }
+  });
+
+  test('el consolidado lleva el grupo «Costo de proveedor» aparte, sin margen y con un solo scroll', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockRediseno(page);
+    await page.route(/\/api\/finanzas\/reporte-costos\/consolidado\?/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CONSOLIDADO) }));
+    await page.goto('/finanzas/reporte-costos?vista=consolidado');
+
+    const tabla = page.getByRole('region', { name: 'Consolidado por cliente y periodo' }).getByRole('table');
+    await expect(tabla.locator('th[scope="colgroup"]')).toHaveText(['Cobro al cliente', 'Costo de proveedor']);
+    await expect(tabla.getByRole('columnheader', { name: 'Total costos' })).toBeVisible();
+    await expect(tabla.getByRole('columnheader', { name: /margen/i })).toHaveCount(0);
+    await expect(tabla.getByRole('row').filter({ hasText: 'ACME SAS' })).toContainText('$ 3.403.000');
+    // El total cobrado no cambia por el costo.
+    await expect(tabla.getByRole('row').filter({ hasText: 'ACME SAS' })).toContainText('$ 3.270.400');
+    // UNA región de scroll: la de FlitTable, sin un `overflow-x-auto` alrededor.
+    expect(await tabla.evaluate((t) => {
+      let n = 0; let el: HTMLElement | null = t.parentElement;
+      while (el && el !== document.body) { if (getComputedStyle(el).overflowX === 'auto') n++; el = el.parentElement; }
+      return n;
+    })).toBe(1);
+  });
+
+  test('el error del consolidado no es rojo ni enseña el error crudo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockRediseno(page);
+    await page.route(/\/api\/finanzas\/reporte-costos\/consolidado\?/, (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'boom interno' }) }));
+    await page.goto('/finanzas/reporte-costos?vista=consolidado');
+    const alerta = page.getByRole('alert').filter({ hasText: 'No se pudo calcular el consolidado. Vuelve a intentarlo.' });
+    await expect(alerta).toBeVisible();
+    await expect(alerta).not.toContainText('boom');
+    await expect(alerta.locator('.text-red-600')).toHaveCount(0);
+  });
+
+  test('4 estados del detalle: cargando, error con Reintentar, vacío (genérico y por costo) y lleno', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFacetas(page, ['Aprobado']);
+    await mockFacturacion(page);
+    let modo: 'lento' | 'error' | 'vacio' | 'lleno' = 'lento';
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, async (route) => {
+      if (modo === 'lento') { await new Promise((r) => setTimeout(r, 1500)); }
+      if (modo === 'error') return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"x"}' });
+      const cuerpo = modo === 'vacio' ? { ...REPORTE_COSTO, items: [], total: 0 } : REPORTE_COSTO;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(cuerpo) });
+    });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('Cargando trámites…').first()).toBeVisible();
+    await expect(filaRc(page, 'FLIT-3001')).toBeVisible();
+
+    modo = 'error';
+    await page.getByRole('button', { name: /Listos para liquidar/ }).click();
+    const alerta = page.getByRole('alert').filter({ hasText: 'No se pudo cargar el reporte. Revisa tu conexión y vuelve a intentarlo.' });
+    await expect(alerta).toBeVisible();
+    // Los filtros siguen usables durante el error.
+    await expect(page.getByRole('button', { name: /Incompletos/ })).toBeEnabled();
+    modo = 'vacio';
+    await alerta.getByRole('button', { name: 'Reintentar' }).click();
+    await expect(page.getByText(/No hay trámites que coincidan con los filtros/)).toBeVisible();
+    await expect(page.getByText('Prueba otro periodo o quita un filtro.')).toBeVisible();
+
+    await page.locator('summary').filter({ hasText: 'Más filtros' }).click();
+    await page.getByRole('checkbox', { name: 'Costo de proveedor sin configurar' }).check();
+    await expect(page.getByText('Todos los trámites de este filtro tienen su costo de proveedor configurado.')).toBeVisible();
+  });
+
+  for (const ancho of [375, 768]) {
+    test(`sin scroll horizontal de página a ${ancho} px (la tabla usa el scroll del kit)`, async ({ page }) => {
+      await page.setViewportSize({ width: ancho, height: 812 });
+      await loginAs(page, OPERACIONES_USER);
+      await mockRediseno(page);
+      await page.goto('/finanzas/reporte-costos');
+      await expect(filaRc(page, 'FLIT-3001')).toBeVisible();
+      await page.locator('summary').filter({ hasText: 'Más filtros' }).click();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+      await page.keyboard.press('Escape');
+      await page.locator('summary').filter({ hasText: 'Columnas' }).click();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    });
+  }
 });

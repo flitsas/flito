@@ -10,7 +10,7 @@
 // lo lee así, y no hay celdas vacías de relleno delante.
 
 import { FlitTr } from '../flit/flitPageKit';
-import type { Columna } from './TablaReporteCostos';
+import type { Columna } from './definicionColumnasReporteCostos';
 import type { Totales } from './tiposReporteCostos';
 
 export default function TotalesReporteCostos({ columnas, totales, total, conCasilla }: {
@@ -20,8 +20,8 @@ export default function TotalesReporteCostos({ columnas, totales, total, conCasi
   /** Si la tabla lleva la columna de casillas, el pie deja ese hueco. */
   conCasilla: boolean;
 }) {
-  // Calculado, no escrito: 5 en compacta y 18 en ampliada hoy, y lo que toque si una columna se
-  // mueve. Sin ninguna con total (no pasa: Valores siempre trae Total), el rótulo ocupa la fila.
+  // Calculado, no escrito: las columnas visibles antes de la primera con total (las fijas y Esencial
+  // por defecto). Sin ninguna con total (Cobro oculto entero), el rótulo ocupa la fila.
   const primeraConTotal = columnas.findIndex((c) => c.total);
   const sinTotal = primeraConTotal === -1 ? columnas.length : primeraConTotal;
 
@@ -34,7 +34,7 @@ export default function TotalesReporteCostos({ columnas, totales, total, conCasi
           Totales ({total.toLocaleString('es-CO')} trámites del filtro)
         </th>
         {columnas.slice(sinTotal).map((c) => (
-          <td key={c.titulo} className="px-3 py-2 text-right text-xs tabular-nums">{c.total?.(totales)}</td>
+          <td key={c.id} className="px-3 py-2 text-right text-xs tabular-nums">{c.total?.(totales)}</td>
         ))}
         <td />
       </FlitTr>
