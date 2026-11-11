@@ -477,8 +477,8 @@ describe('Bug #14532 — liquidación y pago son DOS tipos, sin caída cruzada',
     const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['pago_impuesto'] });
 
     expect(r.status).toBe(200);
-    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([301]);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['liquidaciones pagadas/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([301]);
   });
 
   it('con liquidación Y pago, `liquidacion_impuesto` trae SOLO la liquidación', async () => {
@@ -486,17 +486,21 @@ describe('Bug #14532 — liquidación y pago son DOS tipos, sin caída cruzada',
     const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['liquidacion_impuesto'] });
 
     expect(r.status).toBe(200);
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([201]);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['liquidaciones/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones/ASD123.pdf')).toEqual([201]);
   });
 
-  it('los dos tipos a la vez: UN PDF con liquidación → pago, en el orden del catálogo', async () => {
+  it('los dos tipos a la vez: una carpeta por tipo, cada PDF solo con lo suyo', async () => {
     conLasDosFases();
     const r = await pedirZip(IMPUESTOS, await sesion(), {
       ids: [IMP_A], tipos: ['pago_impuesto', 'liquidacion_impuesto'],
     });
 
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([201, 301]);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['liquidaciones/ASD123.pdf', 'liquidaciones pagadas/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones/ASD123.pdf')).toEqual([201]);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([301]);
     expect(r.headers['x-soportes-incluidos']).toBe('2');
+    expect(r.headers['x-soportes-registros']).toBe('1');
   });
 
   it('sin caída: con SOLO el pago, `liquidacion_impuesto` es 409 (no trae el pago)', async () => {
@@ -542,7 +546,7 @@ describe('Bug #14532 — liquidación y pago son DOS tipos, sin caída cruzada',
 
     const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A, IMP_B], tipos: ['pago_impuesto'] });
 
-    expect(await entradasDe(r.body as Buffer)).toEqual(['QWE789.pdf']);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['liquidaciones pagadas/QWE789.pdf']);
     expect(r.headers['x-soportes-registros']).toBe('1');
   });
 
@@ -551,7 +555,7 @@ describe('Bug #14532 — liquidación y pago son DOS tipos, sin caída cruzada',
     expect(r.status).toBe(400);
   });
 
-  it('HU #12817 AC2 — factura de venta + recibo en UN solo PDF por impuesto', async () => {
+  it('factura de venta + pago: cada tipo en su carpeta (ya no un PDF consolidado en la raíz)', async () => {
     kdb.when.scenario({
       flito_impuestos: [filaImpuesto({ facturaVentaFlitId: 'fac-1' })],
       flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_RECIBO })],
@@ -564,11 +568,87 @@ describe('Bug #14532 — liquidación y pago son DOS tipos, sin caída cruzada',
     });
 
     expect(r.status).toBe(200);
-    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
-    // El orden dentro del PDF es el del catálogo (factura → recibo), no el del array pedido.
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 201]);
+    // Las carpetas salen en el orden del catálogo (factura → pago), no el del array pedido.
+    expect(await entradasDe(r.body as Buffer)).toEqual(['facturas de venta/ASD123.pdf', 'liquidaciones pagadas/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'facturas de venta/ASD123.pdf')).toEqual([101]);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([201]);
     expect(r.headers['x-soportes-incluidos']).toBe('2');
     expect(r.headers['x-soportes-omitidos']).toBe('0');
+  });
+
+  it('Bug #14532 (a) — los TRES tipos con datos → tres carpetas con sus nombres exactos y `ASD123.pdf` dentro', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ facturaVentaFlitId: 'fac-1' })],
+      flito_soportes: [
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', nombreArchivo: 'PAGADO.pdf', contenido: PDF_SOAT }),
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua', nombreArchivo: 'liq.pdf', contenido: PDF_RECIBO }),
+      ],
+    });
+    obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
+
+    const r = await pedirZip(IMPUESTOS, await sesion(), {
+      ids: [IMP_A], tipos: ['pago_impuesto', 'factura_venta', 'liquidacion_impuesto'],
+    });
+
+    expect(r.status).toBe(200);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['facturas de venta/ASD123.pdf', 'liquidaciones/ASD123.pdf', 'liquidaciones pagadas/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'facturas de venta/ASD123.pdf')).toEqual([101]);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones/ASD123.pdf')).toEqual([201]);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([301]);
+    expect(r.headers['x-soportes-incluidos']).toBe('3');
+    expect(r.headers['x-soportes-registros']).toBe('1');
+  });
+
+  it('Bug #14532 (b) — solo `pago_impuesto` → solo `liquidaciones pagadas/`', async () => {
+    conLasDosFases();
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['pago_impuesto'] });
+
+    const nombres = await entradasDe(r.body as Buffer);
+    expect(nombres).toEqual(['liquidaciones pagadas/ASD123.pdf']);
+    expect(nombres.some((n) => n.startsWith('liquidaciones/'))).toBe(false);
+  });
+
+  it('Bug #14532 (c) — dos tipos marcados y uno sin documentos en TODO el lote → una sola carpeta, ninguna vacía', async () => {
+    const IMP_B = 'cccccccc-0000-0000-0000-00000000000e';
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto(), filaImpuesto({ id: IMP_B, placa: 'QWE789', createdAt: HOY })],
+      flito_soportes: [
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_SOAT }),
+        soporte({ ancla: IMP_B, tipo: 'recibo_impuesto', contenido: PDF_SOAT }),
+      ],
+    });
+
+    const r = await pedirZip(IMPUESTOS, await sesion(), {
+      ids: [IMP_A, IMP_B], tipos: ['liquidacion_impuesto', 'pago_impuesto'],
+    });
+
+    expect(r.status).toBe(200);
+    const nombres = await entradasDe(r.body as Buffer);
+    // La lista ENTERA de entradas: ni `liquidaciones/` ni ninguna entrada de directorio.
+    expect(nombres).toEqual(['liquidaciones pagadas/ASD123.pdf', 'liquidaciones pagadas/QWE789.pdf']);
+    expect(nombres.filter((n) => n.endsWith('/'))).toEqual([]);
+    expect(r.headers['x-soportes-registros']).toBe('2');
+  });
+
+  it('Bug #14532 — misma placa en dos impuestos: el `-2` desempata DENTRO de la carpeta', async () => {
+    const IMP_B = 'cccccccc-0000-0000-0000-00000000000e';
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto(), filaImpuesto({ id: IMP_B, createdAt: HOY })],
+      flito_soportes: [
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_SOAT }),
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua', contenido: PDF_RECIBO }),
+        soporte({ ancla: IMP_B, tipo: 'recibo_impuesto', contenido: PDF_SOAT }),
+      ],
+    });
+
+    const r = await pedirZip(IMPUESTOS, await sesion(), {
+      ids: [IMP_A, IMP_B], tipos: ['liquidacion_impuesto', 'pago_impuesto'],
+    });
+
+    expect((await entradasDe(r.body as Buffer)).sort()).toEqual([
+      'liquidaciones pagadas/ASD123-2.pdf', 'liquidaciones pagadas/ASD123.pdf', 'liquidaciones/ASD123.pdf',
+    ]);
   });
 
   it('`factura_soat` NO es un tipo de esta superficie: 400', async () => {
@@ -610,6 +690,27 @@ describe('HU #12817 AC1 — Trámites: los tres tipos en UN PDF por trámite', (
     expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
     expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 201, 301]);
     expect(r.headers['x-soportes-omitidos']).toBe('0');
+  });
+
+  it('Bug #14532 (d) — Trámites NO usa carpetas: varios tipos siguen en UN PDF en la raíz', async () => {
+    kdb.when.scenario({
+      flito_tramites: [filaTramite()],
+      flito_soportes: [
+        soporte({ ancla: SOAT_A, tipo: 'factura_soat', contenido: PDF_SOAT }),
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_RECIBO }),
+      ],
+    });
+    obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
+
+    const r = await pedirZip(TRAMITES, await sesion(), {
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'pago_impuesto', 'factura_soat'],
+    });
+
+    expect(r.status).toBe(200);
+    const nombres = await entradasDe(r.body as Buffer);
+    expect(nombres).toEqual(['ASD123.pdf']);
+    expect(nombres.some((n) => n.includes('/'))).toBe(false);
   });
 
   it('se pide UN solo tipo y sale igual como `PLACA.pdf` consolidado', async () => {
@@ -1715,7 +1816,8 @@ describe('Bug #13230 — el ZIP (Impuestos y Trámites) incluye la factura de un
     const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['factura_venta', 'pago_impuesto'] });
 
     expect(r.status).toBe(200);
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 201]);
+    expect(await anchosEnZip(r.body as Buffer, 'facturas de venta/ASD123.pdf')).toEqual([101]);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([201]);
     expect(r.headers['x-soportes-incluidos']).toBe('2');
     expect(r.headers['x-soportes-omitidos']).toBe('0');
     expect(obtenerUrlAdjuntoMock).toHaveBeenCalledWith(ID2, ADJ);
@@ -1733,7 +1835,9 @@ describe('Bug #13230 — el ZIP (Impuestos y Trámites) incluye la factura de un
     const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['factura_venta', 'pago_impuesto'] });
 
     expect(r.status).toBe(200);
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([201]);
+    // La factura no llegó: su carpeta NO existe (nunca una carpeta vacía).
+    expect(await entradasDe(r.body as Buffer)).toEqual(['liquidaciones pagadas/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([201]);
     expect(r.headers['x-soportes-omitidos']).toBe('1');
     expect(r.headers['x-soportes-incluidos']).toBe('1');
     expect(fetchMock).not.toHaveBeenCalled();
@@ -1770,7 +1874,7 @@ describe('Bug #13230 — el ZIP (Impuestos y Trámites) incluye la factura de un
     const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['factura_venta'] });
 
     expect(r.status).toBe(200);
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101]);
+    expect(await anchosEnZip(r.body as Buffer, 'facturas de venta/ASD123.pdf')).toEqual([101]);
     expect(obtenerUrlFacturaMock).toHaveBeenCalledWith('fac-1');
     expect(obtenerUrlAdjuntoMock).not.toHaveBeenCalled();
   });
