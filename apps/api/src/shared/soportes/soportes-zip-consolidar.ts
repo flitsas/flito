@@ -3,7 +3,7 @@
 // El ZIP de la HU #11910 entregaba una entrada por DOCUMENTO: un trámite con factura, recibo y
 // comprobante SOAT salía como `PLACA.pdf`, `PLACA-2.pdf`, `PLACA-3.pdf`, y Operaciones tenía que
 // abrir tres archivos para cuadrar un trámite. Aquí cada registro se junta en UN PDF con sus
-// documentos en `ORDEN_TIPOS_SOPORTE_ZIP` (factura → recibo → comprobante SOAT), todas las páginas.
+// documentos en `ORDEN_TIPOS_SOPORTE_ZIP` (factura → liquidación → pago → comprobante SOAT), todas las páginas.
 //
 // ── Por qué ANTES del primer byte y en disco (diseño slim, opción c) ───────────────────────────────
 //

@@ -29104,6 +29104,168 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  "/api/flito/impuestos/{id}/soportes/pdf":
+    post:
+      operationId: post-api-flito-impuestos-id-soportes-pdf
+      tags:
+        - flito-impuestos
+      summary: "POST /api/flito/impuestos/:id/soportes/pdf"
+      description: "POST /:id/soportes/pdf — `{ tipo }` → un `application/pdf`. 400 cuerpo inválido · 403 sin función (no consume cuota) · 404 impuesto no visible o sin ese documento (`codigo` = `zip_sin_soportes`) · 422 demasiado grande · 429 limitador · 200 PDF. Fuente: apps/api/src/modules/flito-impuestos/flito-impuestos.soporte-pdf.routes.ts. Exige la función: impuestos.soportes.descargar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - impuestos.soportes.descargar
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tipo:
+                  type: string
+                  enum:
+                    - factura_venta
+                    - liquidacion_impuesto
+                    - pago_impuesto
+              required:
+                - tipo
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  details:
+                    type: object
+                    properties:
+                      formErrors:
+                        type: array
+                        items:
+                          type: string
+                      fieldErrors:
+                        type: object
+                        properties:
+                          tipo:
+                            type: array
+                            items:
+                              type: string
+                    required:
+                      - formErrors
+                      - fieldErrors
+                required:
+                  - error
+                  - details
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                      - codigo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                      - codigo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   /api/flito/impuestos/buscar:
     post:
       operationId: post-api-flito-impuestos-buscar
@@ -31071,10 +31233,11 @@ paths:
                   items:
                     type: string
                     enum:
-                      - recibo_impuesto
                       - factura_venta
+                      - liquidacion_impuesto
+                      - pago_impuesto
                   minItems: 1
-                  maxItems: 2
+                  maxItems: 3
               required:
                 - ids
                 - tipos
@@ -52113,10 +52276,11 @@ paths:
                     type: string
                     enum:
                       - factura_soat
-                      - recibo_impuesto
                       - factura_venta
+                      - liquidacion_impuesto
+                      - pago_impuesto
                   minItems: 1
-                  maxItems: 3
+                  maxItems: 4
               required:
                 - ids
                 - tipos
