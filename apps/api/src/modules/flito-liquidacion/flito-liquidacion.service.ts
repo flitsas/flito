@@ -226,7 +226,7 @@ const sumar = (...vs: Array<number | null>): number =>
 
 function deTarifa(t: ValorTarifa, etiqueta: string): ConceptoHonorarioLiquidado {
   if (t.origen === 'no_configurada') {
-    return { valor: null, origen: 'No configurado', bloquea: true, origenValor: 'tarifa', diferencia: null };
+    return { valor: null, origen: 'Sin configurar', bloquea: true, origenValor: 'tarifa', diferencia: null };
   }
   return {
     valor: t.valor, origen: t.origen === 'especifica' ? `Tarifa de ${etiqueta}` : 'Tarifa genérica', bloquea: false,

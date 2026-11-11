@@ -128,6 +128,15 @@ async function conMundo(fn: (m: Mundo) => Promise<void>) {
   } finally { await sql.end(); }
 }
 
+/** El consolidado sin las claves del costo de proveedor: lo que es COBRO (C1). */
+function soloCobro(c: Awaited<ReturnType<typeof consolidadoReporte>>) {
+  const quitar = <T extends Record<string, unknown>>(t: T) => {
+    const { costoProveedorSoat: _a, costoProveedorLogistica: _b, costoProveedorTotal: _c, tramitesCostoSinConfigurar: _d, ...resto } = t;
+    return resto;
+  };
+  return { ...c, items: c.items.map(quitar), totales: quitar(c.totales) };
+}
+
 const fila = async (m: Mundo, idFlit: string) => {
   const r = await reporteCostos({ buscar: idFlit, pageSize: 50 });
   const f = r.items.find((x) => x.idFlit === idFlit);
@@ -296,7 +305,7 @@ describe.skipIf(!URL_BASE)('ADR-0041 §13 — costo de proveedor (PostgreSQL)', 
         return {
           filas: r.items.map((f) => ({ id: f.idFlit, total: f.total, gmf: f.gmf, reintegro: f.totalReintegro, servicio: f.totalServicio, noConf: f.noConfigurados })),
           totales: r.totales, etapas: r.resumen, total: r.total,
-          consolidado: await consolidadoReporte({ buscar: m.buscar }, 'mes'),
+          consolidado: soloCobro(await consolidadoReporte({ buscar: m.buscar }, 'mes')),
         };
       };
       const sin = await cobro();
@@ -306,6 +315,22 @@ describe.skipIf(!URL_BASE)('ADR-0041 §13 — costo de proveedor (PostgreSQL)', 
       const con = await cobro();
       expect((await fila(m, t1.idFlit)).costoProveedorTotal).toBe(777777);
       expect(con).toEqual(sin);
+      // El consolidado SÍ muestra el costo, como grupo aparte (sin margen): suma solo lo que tiene valor.
+      const c = await consolidadoReporte({ buscar: m.buscar }, 'mes');
+      expect(c.totales).toMatchObject({ costoProveedorSoat: 123456, costoProveedorLogistica: 654321, costoProveedorTotal: 777777, tramitesCostoSinConfigurar: 0 });
+    }));
+
+    it('consolidado: ya_contado no suma; sin_configurar cuenta como «parcial» y no suma', () => conMundo(async (m) => {
+      const p = await m.proveedor({ soat: true });
+      await m.vigencia(p, 'soat_con_tramite', 15000, HACE(30));
+      const cia = await m.cia();
+      const s = await m.soat(cia, { proveedor: p, enviado: HACE(2) });
+      await m.tramite(cia, { soat: s, creado: HACE(3) });
+      await m.tramite(cia, { soat: s, creado: HACE(1) }); // ya_contado
+      const sinConf = await m.tramite(cia);
+      await m.entrega(sinConf.id, cia, p, { entregado: HACE(1) }); // logística sin vigencia
+      const c = await consolidadoReporte({ buscar: m.buscar }, 'mes');
+      expect(c.totales).toMatchObject({ costoProveedorSoat: 15000, costoProveedorLogistica: 0, costoProveedorTotal: 15000, tramitesCostoSinConfigurar: 1 });
     }));
   });
 

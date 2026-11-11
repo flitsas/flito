@@ -34,7 +34,7 @@
 //
 // Salen del archivo: Marca, Creado, Estado factura, Trámite digital, Total, Liquidación, Qué falta
 // para liquidar, SOAT conciliado y Razón social como columna aparte (va dentro de Nombre completo).
-// El consolidado (13 columnas) no cambia.
+// El consolidado: sus 13 columnas de cobro no cambian; el costo de proveedor añade 4 al final (ADR-0041 §13).
 //
 // ── La 32.ª: «Servicios adicionales» (HU #12546) ──────────────────────────────────────────────────
 //
@@ -183,7 +183,7 @@ export function filasExcelDetalle(filas: FilaReporte[]): Record<string, unknown>
 // ── Consolidado ─────────────────────────────────────────────────────────────
 
 /**
- * Las 13 columnas del consolidado: las mismas de valor y con los mismos nombres que el detalle
+ * Las 13 columnas de cobro del consolidado (más 4 del costo de proveedor al final): las mismas de valor y con los mismos nombres que el detalle
  * (CF-14). «Trámites» e «Incompletos» son enteros; «Periodo» es texto (`2026-09`, `2026-T3`).
  */
 export const COLUMNAS_EXPORT_CONSOLIDADO: readonly ExcelColumn[] = [
@@ -200,6 +200,11 @@ export const COLUMNAS_EXPORT_CONSOLIDADO: readonly ExcelColumn[] = [
   dinero('Servicio', 'servicio'),
   dinero('Total', 'total'),
   { header: 'Incompletos', key: 'incompletos', width: 12, numFmt: FORMATO_ENTERO },
+  // Costo de proveedor (grupo aparte, sin margen): SIEMPRE al final, como en el detalle.
+  dinero('Costo proveedor SOAT', 'costoProveedorSoat'),
+  dinero('Costo proveedor logística', 'costoProveedorLogistica'),
+  dinero('Total costo proveedor', 'totalCostoProveedor'),
+  { header: 'Trámites con costo sin configurar', key: 'tramitesCostoSinConfigurar', width: 16, numFmt: FORMATO_ENTERO },
 ];
 
 /** Las filas del consolidado con las claves de `COLUMNAS_EXPORT_CONSOLIDADO`, en el orden de `items`. */
@@ -209,5 +214,7 @@ export function filasExcelConsolidado(c: ConsolidadoReporte): Record<string, unk
     soat: f.soat, impuesto: f.impuesto, tramite: f.derechoTramite, gmf: f.gmf, logistica: f.logistica,
     totalReintegro: f.totalReintegro, tramiteDigital: f.tramiteDigital, servicio: f.totalServicio, total: f.total,
     incompletos: f.filasIncompletas,
+    costoProveedorSoat: f.costoProveedorSoat, costoProveedorLogistica: f.costoProveedorLogistica,
+    totalCostoProveedor: f.costoProveedorTotal, tramitesCostoSinConfigurar: f.tramitesCostoSinConfigurar,
   }));
 }

@@ -10690,6 +10690,14 @@ paths:
                           type: number
                         filasIncompletas:
                           type: number
+                        costoProveedorSoat:
+                          type: number
+                        costoProveedorLogistica:
+                          type: number
+                        costoProveedorTotal:
+                          type: number
+                        tramitesCostoSinConfigurar:
+                          type: number
                       required:
                         - clienteClave
                         - clienteNombre
@@ -10706,8 +10714,28 @@ paths:
                         - totalReintegro
                         - totalServicio
                         - filasIncompletas
+                        - costoProveedorSoat
+                        - costoProveedorLogistica
+                        - costoProveedorTotal
+                        - tramitesCostoSinConfigurar
                   totales:
-                    "$ref": "#/components/schemas/Forma-3c54444721"
+                    allOf:
+                      - "$ref": "#/components/schemas/Forma-3c54444721"
+                      - type: object
+                        properties:
+                          costoProveedorSoat:
+                            type: number
+                          costoProveedorLogistica:
+                            type: number
+                          costoProveedorTotal:
+                            type: number
+                          tramitesCostoSinConfigurar:
+                            type: number
+                        required:
+                          - costoProveedorSoat
+                          - costoProveedorLogistica
+                          - costoProveedorTotal
+                          - tramitesCostoSinConfigurar
                 required:
                   - periodo
                   - items

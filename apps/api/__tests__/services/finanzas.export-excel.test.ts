@@ -103,6 +103,7 @@ const grupo = (over: Record<string, unknown> = {}) => ({
   soat: '900000', impuesto: '240000', derechoTramite: '160000', gmf: '6920', logistica: '30000',
   tramiteDigital: '400000', serviciosAdicionales: '0', totalReintegro: '1336920', totalServicio: '400000', total: '1736920',
   filasIncompletas: 1,
+  costoProveedorSoat: '0', costoProveedorLogistica: '0', costoProveedorTotal: '0', tramitesCostoSinConfigurar: 0,
   ...over,
 });
 const MAESTRO = [{ id: 7, nombre: 'ACME', documento: '811011779' }, { id: 9, nombre: 'BETA', documento: '900555111' }];
@@ -177,6 +178,8 @@ const CABECERAS_DETALLE_TODAS = [...CABECERAS_DETALLE, ...CABECERAS_COSTO_PROVEE
 const CABECERAS_CONSOLIDADO = [
   'Cliente', 'Periodo', 'Trámites', 'SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística',
   'Total reintegro', 'Trámite digital', 'Servicio', 'Total', 'Incompletos',
+  // ADR-0041 §13 — costo de proveedor, grupo aparte y al final.
+  'Costo proveedor SOAT', 'Costo proveedor logística', 'Total costo proveedor', 'Trámites con costo sin configurar',
 ];
 /** Las nueve de dinero del CONSOLIDADO (AC2, sin cambios en la HU #12536). */
 const DINERO = ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Servicio', 'Total'];

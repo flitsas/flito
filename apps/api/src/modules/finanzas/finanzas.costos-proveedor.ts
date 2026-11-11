@@ -200,6 +200,34 @@ export function costosProveedorDeFila(r: Record<string, unknown>): CostosProveed
   };
 }
 
+/**
+ * Consolidado (decisión del humano, posterior a §13): el costo de proveedor por (cliente, periodo) como GRUPO APARTE,
+ * sin margen. Suma solo los conceptos con valor (`costo` o `estimado`; `ya_contado`, `sin_configurar` y el resto no
+ * traen valor y no suman). `tramitesCostoSinConfigurar` cuenta los trámites con algún concepto sin configurar para
+ * que la UI marque la suma como parcial. RN-CP-01: nada de esto entra en `SELECT_TOTALES` ni en los totales de cobro.
+ */
+export interface CostosProveedorConsolidado {
+  costoProveedorSoat: number;
+  costoProveedorLogistica: number;
+  costoProveedorTotal: number;
+  tramitesCostoSinConfigurar: number;
+}
+
+const valorSiSuma = (c: SQL): SQL =>
+  sql`CASE WHEN (${c})->>'estado' IN ('costo', 'estimado') THEN ((${c})->>'valor')::numeric END`;
+
+/** Agregados para un `GROUP BY` sobre las filas del reporte. `tramiteId` = la columna id del trámite (conteo DISTINCT). */
+export function selectCostosProveedorConsolidado(e: ExprCostosReporte, tramiteId: SQL) {
+  const soat = valorSiSuma(e.soat);
+  const logistica = valorSiSuma(e.logistica);
+  return {
+    costoProveedorSoat: sql<string>`COALESCE(SUM(${soat}), 0)`,
+    costoProveedorLogistica: sql<string>`COALESCE(SUM(${logistica}), 0)`,
+    costoProveedorTotal: sql<string>`COALESCE(SUM(COALESCE(${soat}, 0) + COALESCE(${logistica}, 0)), 0)`,
+    tramitesCostoSinConfigurar: sql<number>`COUNT(DISTINCT CASE WHEN ${e.sinConfigurar} THEN ${tramiteId} END)::int`,
+  } as const;
+}
+
 /** `db` o la `tx` de `liquidar()`: solo se usa `select`. */
 type Ejecutor = Pick<typeof db, 'select'>;
 
