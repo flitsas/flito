@@ -37,9 +37,9 @@ const TONO: Record<SiigoResultadoEnvio, ChipTone> = {
   reactivado: 'active',
   ya_en_cola: 'neutral',
   ya_enviado: 'neutral',
-  fallido_definitivo: 'danger',
+  fallido_definitivo: 'warning',
   no_elegible: 'draft',
-  error: 'danger',
+  error: 'warning',
 };
 
 /** Lo que pide acción nace abierto; la repetición inocua, plegada. */

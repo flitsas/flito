@@ -137,6 +137,12 @@ const REPORTE = {
     // ella misma pintaría 375.000 y caería aquí.
     serviciosAdicionales: 890000,
   },
+  // Costo de proveedor del filtro (Épica #13763): hermano de `totales`, nunca dentro. A propósito
+  // distinto de la suma de las filas de la página, por la misma razón que `serviciosAdicionales`.
+  totalesCostosProveedor: {
+    costoProveedorSoat: 1500000, costoProveedorLogistica: 240000, costoProveedorTotal: 1740000,
+    tramitesCostoSinConfigurar: 0,
+  },
   resumen: { listo: 1, incompleto: 3, porFacturar: 1, facturado: 1 },
 };
 
@@ -1633,12 +1639,13 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     // El pie: totales del universo filtrado, con los dos subtotales junto a los conceptos. Desde la
     // HU #12539 el rótulo va en un `th[scope=row]` que se come las columnas sin total: las `td` del
     // pie empiezan en la primera con total, y ese `colSpan` se resta al índice.
+    // Desde la segunda pasada del rediseño (Épica #13763) el rótulo ocupa solo las columnas FIJAS
+    // (sticky) y una celda vacía cubre el resto: cada celda con total se busca por su `data-pie`.
     const pie = page.getByRole('table').first().locator('tfoot tr');
-    const rotulo = Number(await pie.locator('th[scope="row"]').getAttribute('colspan'));
-    const celdaPie = (titulo: string) => pie.getByRole('cell').nth(todas.indexOf(titulo) - rotulo + 1);
-    await expect(celdaPie('Total reintegro')).toHaveText('$ 2.670.400');
-    await expect(celdaPie('Servicio')).toHaveText('$ 600.000');
-    await expect(celdaPie('SOAT')).toHaveText('$ 1.800.000');
+    const celdaPie = (id: string) => pie.locator(`td[data-pie="${id}"]`);
+    await expect(celdaPie('totalReintegro')).toHaveText('$ 2.670.400');
+    await expect(celdaPie('servicio')).toHaveText('$ 600.000');
+    await expect(celdaPie('soat')).toHaveText('$ 1.800.000');
   });
 
   test('AC3 — el filtro OT manda los códigos, se lee por nombre y viaja con los demás', async ({ page }) => {
@@ -2617,7 +2624,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
 
     // El pie trae su total, y es el del SERVIDOR: 890.000 no es la suma de las filas de la página.
     const pie = page.getByRole('table').first().locator('tfoot tr').first();
-    await expect(pie.getByRole('cell').nth(titulos.indexOf('Adicionales') - titulos.indexOf('SOAT') + 1)).toHaveText('$ 890.000');
+    await expect(pie.locator('td[data-pie="adicionales"]')).toHaveText('$ 890.000');
   });
 });
 
@@ -2716,8 +2723,8 @@ test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo l
     expect(titulos.indexOf('Total')).toBe(titulos.indexOf('Viajes') + 1);
     // mutante: `total` añadido a la entrada → el pie deja de estar vacío bajo «Viajes»
     const pie = page.getByRole('table').first().locator('tfoot tr').first();
-    await expect(pie.getByRole('cell').nth(titulos.indexOf('Viajes') - titulos.indexOf('SOAT') + 1)).toHaveText('');
-    await expect(pie.getByRole('cell').nth(titulos.indexOf('Logística') - titulos.indexOf('SOAT') + 1)).not.toHaveText('');
+    await expect(pie.locator('td[data-pie="viajes"]')).toHaveText('');
+    await expect(pie.locator('td[data-pie="logistica"]')).not.toHaveText('');
 
     // mutante: `porDefecto: true` → seguiría a la vista tras restablecer
     await page.locator('summary').filter({ hasText: 'Columnas' }).click();
@@ -3147,7 +3154,7 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await expect(aceptada).toHaveText('Diferencia aceptada −$20.000');
     await expect(aceptada).toHaveAttribute('aria-label', /aceptada por ana\.perez el 16 sep 2026: «Factura del proveedor con IVA»/);
     // Tonos del kit: warning (pendiente) vs neutral (aceptada); el fondo del chip es el que los distingue.
-    await expect(pendiente.locator('span').first()).toHaveCSS('background-color', 'rgb(253, 232, 227)');
+    await expect(pendiente.locator('span').first()).toHaveCSS('background-color', 'rgb(253, 240, 224)'); // --flit-chip-warning-bg: crema, no rosa (Épica #13763)
     await expect(aceptada.locator('span').first()).toHaveCSS('background-color', 'rgb(239, 241, 243)');
     // La aceptada NO ofrece el botón, aunque financiera tenga la función.
     await expect(await botonAceptar(page, 'FLIT-2103')).toHaveCount(0);
@@ -3833,4 +3840,64 @@ test.describe('Reporte de costos — rediseño y costo de proveedor (Épica #137
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
     });
   }
+
+  // ── Pie «Totales del filtro» del costo de proveedor (segunda pasada) ──
+  // Mutantes que caen: sumar las filas de la página (la fixture va descuadrada a propósito), meter el
+  // costo dentro de `totales`, pintar la etiqueta «parcial» junto al importe, o no avisar del parcial.
+  const pieDe = (page: import('@playwright/test').Page, id: string) =>
+    page.getByRole('region', { name: 'Reporte de costos, detalle' }).locator(`tfoot td[data-pie="${id}"]`);
+
+  test('pie: las tres sumas del costo de proveedor bajo sus columnas, del servidor y sin aviso si todo está configurado', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockRediseno(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(filaRc(page, 'FLIT-3001')).toBeVisible();
+
+    await expect(pieDe(page, 'costoSoat')).toHaveText('$ 1.500.000');
+    await expect(pieDe(page, 'costoLogistica')).toHaveText('$ 240.000');
+    await expect(pieDe(page, 'totalCostos')).toHaveText('$ 1.740.000');
+    // Proveedor no es un importe: su celda del pie queda vacía.
+    await expect(pieDe(page, 'proveedorSoat')).toHaveText('');
+    // El cobro sigue intacto: el costo no se suma al Total.
+    await expect(pieDe(page, 'total')).toHaveText('$ 3.270.400');
+    await expect(pieDe(page, 'totalCostos')).not.toHaveAttribute('aria-label', /.+/);
+    await expect(pieDe(page, 'totalCostos')).not.toHaveAttribute('title', /.+/);
+  });
+
+  test('pie: con costos sin configurar la suma es parcial y se dice en aria-label/title, sin texto pegado', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockRediseno(page, {
+      ...REPORTE_COSTO,
+      totalesCostosProveedor: {
+        costoProveedorSoat: 96000, costoProveedorLogistica: 35000, costoProveedorTotal: 131000,
+        tramitesCostoSinConfigurar: 2,
+      },
+    });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(filaRc(page, 'FLIT-3001')).toBeVisible();
+
+    // La celda muestra solo el valor (retoque 4 del humano).
+    await expect(pieDe(page, 'totalCostos')).toHaveText('$ 131.000');
+    // `\s`: el formato de moneda de es-CO separa el símbolo con un espacio duro.
+    await expect(pieDe(page, 'totalCostos')).toHaveAttribute('aria-label',
+      /^Total costos: \$\s131\.000\. Suma parcial: 2 trámites tienen un costo de proveedor sin configurar\.$/);
+    await expect(pieDe(page, 'costoSoat')).toHaveAttribute('title',
+      /^Costo SOAT: \$\s96\.000\. Suma parcial: 2 trámites tienen un costo de proveedor sin configurar\.$/);
+    await expect(pieDe(page, 'costoLogistica')).toHaveAttribute('aria-label', /^Costo logística: \$\s35\.000\. Suma parcial/);
+    await expect(page.locator('tfoot')).not.toContainText(/parcial/i);
+  });
+
+  test('pie: si se oculta el grupo Costo de proveedor, sus sumas no se pintan', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockRediseno(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(pieDe(page, 'totalCostos')).toHaveText('$ 1.740.000');
+    await page.locator('summary').filter({ hasText: 'Columnas' }).click();
+    for (const nombre of ['Costo SOAT', 'Costo logística', 'Total costos']) {
+      await page.getByRole('checkbox', { name: nombre, exact: true }).uncheck();
+    }
+    await expect(pieDe(page, 'costoSoat')).toHaveCount(0);
+    await expect(pieDe(page, 'totalCostos')).toHaveCount(0);
+    await expect(page.locator('tfoot')).not.toContainText('$ 1.740.000');
+  });
 });

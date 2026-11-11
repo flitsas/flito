@@ -190,7 +190,7 @@ export default function TablaReporteCostos({
             ))}
           </tbody>
           {!esqueleto && data && (
-            <TotalesReporteCostos columnas={visibles} totales={data.totales} total={data.total} conCasilla={puedeLiquidar} />
+            <TotalesReporteCostos columnas={visibles} totales={data.totales} costos={data.totalesCostosProveedor} total={data.total} conCasilla={puedeLiquidar} />
           )}
         </FlitTable>
       </div>

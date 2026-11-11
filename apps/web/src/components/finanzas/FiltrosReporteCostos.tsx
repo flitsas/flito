@@ -95,11 +95,11 @@ export default function FiltrosReporteCostos({ filtros, onCambio, facetas, facet
   return (
     <FlitCard className="relative !p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <FlitPillGroup label="Etapa del cobro">
+        <FlitPillGroup label="Etapa del cobro" desplazable>
           {ETAPAS.map((e) => (
             <button key={e.v} type="button" title={e.ayuda} onClick={() => onCambio({ etapa: e.v })}
               aria-pressed={filtros.etapa === e.v}
-              className="flit-focus inline-flex h-8 items-center gap-2 rounded-[999px] px-3 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
+              className="flit-focus inline-flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-[999px] px-3 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
               style={flitPillBtn(filtros.etapa === e.v)}>
               {e.label}
               {resumen && e.cuenta && (

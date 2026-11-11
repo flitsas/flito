@@ -11,10 +11,15 @@
 
 import { FlitTr } from '../flit/flitPageKit';
 import type { Columna } from './definicionColumnasReporteCostos';
-import type { Totales } from './tiposReporteCostos';
 
-export default function TotalesReporteCostos({ columnas, totales, total, conCasilla }: {
+/** Mismo `sticky` que las celdas fijas del cuerpo (`TablaReporteCostos`), con fondo de tarjeta. */
+const FIJA = 'lg:sticky lg:z-10 bg-flit-card';
+import type { Totales, TotalesCostosProveedor } from './tiposReporteCostos';
+
+export default function TotalesReporteCostos({ columnas, totales, costos, total, conCasilla }: {
   columnas: Columna[]; totales: Totales;
+  /** El costo de proveedor del filtro: va bajo su grupo, aparte del cobro (no se suma a él). */
+  costos: TotalesCostosProveedor;
   /** Cuántos trámites hay en el filtro entero. */
   total: number;
   /** Si la tabla lleva la columna de casillas, el pie deja ese hueco. */
@@ -24,19 +29,34 @@ export default function TotalesReporteCostos({ columnas, totales, total, conCasi
   // por defecto). Sin ninguna con total (Cobro oculto entero), el rótulo ocupa la fila.
   const primeraConTotal = columnas.findIndex((c) => c.total);
   const sinTotal = primeraConTotal === -1 ? columnas.length : primeraConTotal;
+  // El rótulo va en las columnas FIJAS y es `sticky` como ellas (desde `lg`): al desplazar la tabla
+  // hasta el costo de proveedor, el pie no se corría por debajo de Trámite/Placa y cada suma seguía
+  // bajo su columna (segunda pasada, Épica #13763). El resto de columnas sin total, una celda vacía.
+  const fijas = columnas.slice(0, sinTotal).filter((c) => c.grupo === 'fija').length;
+  const rotuloSpan = fijas > 0 ? fijas : sinTotal;
+  const huecoSpan = sinTotal - rotuloSpan;
+  const t = { cobro: totales, costo: costos };
 
   return (
     <tfoot>
       <FlitTr>
-        {conCasilla && <td />}
-        <th scope="row" colSpan={sinTotal} className="px-3 py-2 text-left text-xs font-semibold whitespace-nowrap"
-          style={{ color: 'var(--flit-text-secondary)' }}>
+        {conCasilla && <td className={`${FIJA} lg:left-0`} />}
+        <th scope="row" colSpan={rotuloSpan}
+          className={`px-3 py-2 text-left text-xs font-semibold ${fijas > 0 ? `${FIJA} lg:shadow-[inset_-1px_0_0_var(--flit-border-input)]` : 'whitespace-nowrap'}`}
+          style={{ color: 'var(--flit-text-secondary)', left: fijas > 0 ? 'var(--rc-izq)' : undefined }}>
           Totales ({total.toLocaleString('es-CO')} trámites del filtro)
         </th>
-        {columnas.slice(sinTotal).map((c) => (
-          <td key={c.id} className="px-3 py-2 text-right text-xs tabular-nums">{c.total?.(totales)}</td>
-        ))}
-        <td />
+        {huecoSpan > 0 && <td colSpan={huecoSpan} />}
+        {columnas.slice(sinTotal).map((c) => {
+          const nombre = c.totalNombre?.(t);
+          return (
+            <td key={c.id} className="px-3 py-2 text-right text-xs tabular-nums whitespace-nowrap"
+              data-pie={c.id} aria-label={nombre} title={nombre}>
+              {c.total?.(t)}
+            </td>
+          );
+        })}
+        <td className={`${FIJA} lg:right-0`} />
       </FlitTr>
     </tfoot>
   );

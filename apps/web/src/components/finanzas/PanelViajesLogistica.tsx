@@ -23,7 +23,7 @@ import { FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flit
 import { pesos } from './tiposReporteCostos';
 
 const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
+const PELIGRO = { color: 'var(--flit-warning-text)' } as const;
 const BORDE_SUAVE = { borderColor: 'var(--flit-border-soft)' } as const;
 
 /** Lo que falla al PEDIR el desglose. El 403 y el 404 no se reintentan: reintentar no los arregla. */

@@ -23,7 +23,7 @@ import Monto from './Monto';
 import type { FacturacionTramite } from './tiposFacturacion';
 import {
   CONCEPTO, CONCEPTOS_REINTEGRO, CONCEPTOS_SERVICIO, faltaDe, faltaDeSubtotal, faltantes,
-  type Fila, type Totales,
+  pesos, type Fila, type TotalesCostosProveedor, type TotalesPie,
 } from './tiposReporteCostos';
 import { TITULO_SIN_DATO, textoCeldaServicios } from '../../lib/serviciosAdicionalesTramite';
 import { textoCeldaViajes } from '../../lib/viajesLogisticaReporte';
@@ -49,7 +49,12 @@ export interface Columna {
   ayuda?: string;
   celda: (f: Fila, ctx: Contexto) => ReactElement;
   /** Qué va en el pie de totales bajo esta columna. Sin él, la celda del pie queda vacía. */
-  total?: (t: Totales) => ReactNode;
+  total?: (t: TotalesPie) => ReactNode;
+  /**
+   * Nombre accesible y `title` de la celda del pie, cuando el valor solo no lo dice todo (suma
+   * parcial del costo de proveedor). Va en la celda, como en `CeldaCostoProveedor`, no pegado al valor.
+   */
+  totalNombre?: (t: TotalesPie) => string | undefined;
 }
 
 export const GRUPOS: Array<{ clave: Grupo; titulo: string; ayuda?: string }> = [
@@ -71,6 +76,16 @@ const monto = (n: ReactNode, extra?: { color: string }) =>
   <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap" style={extra}>{n}</td>;
 const pie = (n: ReactNode, extra?: { color: string }) =>
   <span className="font-semibold" style={extra}>{n}</span>;
+
+/**
+ * Nombre del pie del costo de proveedor cuando la suma es parcial (algún trámite del filtro con un
+ * costo «Sin configurar»). Sin trámites así, el pie es el importe y nada más.
+ */
+function nombrePieCosto(v: number, c: TotalesCostosProveedor, titulo: string): string | undefined {
+  const n = c.tramitesCostoSinConfigurar;
+  if (n === 0) return undefined;
+  return `${titulo}: ${pesos(v)}. Suma parcial: ${n.toLocaleString('es-CO')} ${n === 1 ? 'trámite tiene' : 'trámites tienen'} un costo de proveedor sin configurar.`;
+}
 
 /** Un subtotal en null se dice con su motivo y con qué falta en el `title` (RN-02), nunca «$ 0». */
 function subtotal(f: Fila, v: number | null, conceptos: readonly string[]): ReactNode {
@@ -161,7 +176,7 @@ export const COLUMNAS: Columna[] = [
 
   // ── Cobro al cliente ──
   {
-    id: 'soat', titulo: CONCEPTO.soat, grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.soat} />),
+    id: 'soat', titulo: CONCEPTO.soat, grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.cobro.soat} />),
     celda: (f) => (
       <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
         <Monto v={f.soat} falta={faltaDe(f, CONCEPTO.soat)} />
@@ -169,25 +184,26 @@ export const COLUMNAS: Columna[] = [
       </td>
     ),
   },
-  { id: 'impuesto', titulo: CONCEPTO.impuesto, grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.impuesto} />), celda: (f) => monto(<Monto v={f.impuesto} falta={faltaDe(f, CONCEPTO.impuesto)} />) },
+  { id: 'impuesto', titulo: CONCEPTO.impuesto, grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.cobro.impuesto} />), celda: (f) => monto(<Monto v={f.impuesto} falta={faltaDe(f, CONCEPTO.impuesto)} />) },
   // Los PESOS del derecho de tránsito (RN-08). Se titula «Derecho» porque «Trámite» es ya la columna fija.
-  { id: 'derecho', titulo: 'Derecho', grupo: 'cobro', porDefecto: true, center: true, ayuda: 'Derecho de tránsito', total: (t) => pie(<Monto v={t.derechoTramite} />), celda: (f) => monto(<Monto v={f.derechoTramite} falta={faltaDe(f, CONCEPTO.derecho)} />) },
-  { id: 'logistica', titulo: CONCEPTO.logistica, grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.logistica} />), celda: (f) => <CeldaHonorario fila={f} concepto="logistica" valor={f.logistica} falta={faltaDe(f, CONCEPTO.logistica)} /> },
-  { id: 'digital', titulo: CONCEPTO.digital, grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.tramiteDigital} />), celda: (f) => <CeldaHonorario fila={f} concepto="tramiteDigital" valor={f.tramiteDigital} falta={faltaDe(f, CONCEPTO.digital)} /> },
-  { id: 'adicionales', titulo: 'Adicionales', grupo: 'cobro', porDefecto: true, center: true, ayuda: 'Servicios adicionales', total: (t) => pie(<Monto v={t.serviciosAdicionales} />), celda: celdaAdicionales },
-  { id: 'gmf', titulo: 'GMF', grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.gmf} />), celda: (f) => monto(<Monto v={f.gmf} />) },
-  { id: 'totalReintegro', titulo: 'Total reintegro', grupo: 'cobro', porDefecto: false, center: true, total: (t) => pie(<Monto v={t.totalReintegro} />), celda: (f) => monto(subtotal(f, f.totalReintegro, CONCEPTOS_REINTEGRO)) },
-  { id: 'servicio', titulo: 'Servicio', grupo: 'cobro', porDefecto: false, center: true, total: (t) => pie(<Monto v={t.totalServicio} />), celda: (f) => monto(subtotal(f, f.totalServicio, CONCEPTOS_SERVICIO)) },
+  { id: 'derecho', titulo: 'Derecho', grupo: 'cobro', porDefecto: true, center: true, ayuda: 'Derecho de tránsito', total: (t) => pie(<Monto v={t.cobro.derechoTramite} />), celda: (f) => monto(<Monto v={f.derechoTramite} falta={faltaDe(f, CONCEPTO.derecho)} />) },
+  { id: 'logistica', titulo: CONCEPTO.logistica, grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.cobro.logistica} />), celda: (f) => <CeldaHonorario fila={f} concepto="logistica" valor={f.logistica} falta={faltaDe(f, CONCEPTO.logistica)} /> },
+  { id: 'digital', titulo: CONCEPTO.digital, grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.cobro.tramiteDigital} />), celda: (f) => <CeldaHonorario fila={f} concepto="tramiteDigital" valor={f.tramiteDigital} falta={faltaDe(f, CONCEPTO.digital)} /> },
+  { id: 'adicionales', titulo: 'Adicionales', grupo: 'cobro', porDefecto: true, center: true, ayuda: 'Servicios adicionales', total: (t) => pie(<Monto v={t.cobro.serviciosAdicionales} />), celda: celdaAdicionales },
+  { id: 'gmf', titulo: 'GMF', grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.cobro.gmf} />), celda: (f) => monto(<Monto v={f.gmf} />) },
+  { id: 'totalReintegro', titulo: 'Total reintegro', grupo: 'cobro', porDefecto: false, center: true, total: (t) => pie(<Monto v={t.cobro.totalReintegro} />), celda: (f) => monto(subtotal(f, f.totalReintegro, CONCEPTOS_REINTEGRO)) },
+  { id: 'servicio', titulo: 'Servicio', grupo: 'cobro', porDefecto: false, center: true, total: (t) => pie(<Monto v={t.cobro.totalServicio} />), celda: (f) => monto(subtotal(f, f.totalServicio, CONCEPTOS_SERVICIO)) },
   { id: 'viajes', titulo: 'Viajes', grupo: 'cobro', porDefecto: false, center: true, celda: celdaViajes },
-  { id: 'total', titulo: 'Total', grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.total} />, AZUL), celda: (f) => monto(<Monto v={f.total} negrita />, AZUL) },
+  { id: 'total', titulo: 'Total', grupo: 'cobro', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.cobro.total} />, AZUL), celda: (f) => monto(<Monto v={f.total} negrita />, AZUL) },
 
-  // ── Costo de proveedor ── Sin pie: el API no agrega el costo en los totales del detalle y la
-  // pantalla no suma (el consolidado sí lo trae).
-  { id: 'costoSoat', titulo: 'Costo SOAT', grupo: 'costo', porDefecto: true, center: true, celda: (f) => <CeldaCosto fila={f} concepto="soat" /> },
+  // ── Costo de proveedor ── El pie sale de `totalesCostosProveedor` (agregado en el API sobre el
+  // filtro entero): la pantalla no suma. Si algún trámite tiene un costo «Sin configurar», la suma
+  // es parcial y se dice en `title`/`aria-label`, sin etiqueta pegada al valor (retoque 4).
+  { id: 'costoSoat', titulo: 'Costo SOAT', grupo: 'costo', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.costo.costoProveedorSoat} />), totalNombre: (t) => nombrePieCosto(t.costo.costoProveedorSoat, t.costo, 'Costo SOAT'), celda: (f) => <CeldaCosto fila={f} concepto="soat" /> },
   { id: 'proveedorSoat', titulo: 'Proveedor SOAT', grupo: 'costo', porDefecto: true, celda: (f) => <CeldaProveedor fila={f} concepto="soat" /> },
-  { id: 'costoLogistica', titulo: 'Costo logística', grupo: 'costo', porDefecto: true, center: true, celda: (f) => <CeldaCosto fila={f} concepto="logistica" /> },
+  { id: 'costoLogistica', titulo: 'Costo logística', grupo: 'costo', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.costo.costoProveedorLogistica} />), totalNombre: (t) => nombrePieCosto(t.costo.costoProveedorLogistica, t.costo, 'Costo logística'), celda: (f) => <CeldaCosto fila={f} concepto="logistica" /> },
   { id: 'proveedorLogistica', titulo: 'Proveedor logística', grupo: 'costo', porDefecto: true, celda: (f) => <CeldaProveedor fila={f} concepto="logistica" /> },
-  { id: 'totalCostos', titulo: 'Total costos', grupo: 'costo', porDefecto: true, center: true, celda: (f) => <CeldaTotalCostos fila={f} /> },
+  { id: 'totalCostos', titulo: 'Total costos', grupo: 'costo', porDefecto: true, center: true, total: (t) => pie(<Monto v={t.costo.costoProveedorTotal} />), totalNombre: (t) => nombrePieCosto(t.costo.costoProveedorTotal, t.costo, 'Total costos'), celda: (f) => <CeldaTotalCostos fila={f} /> },
 
   // ── Más del trámite ──
   { id: 'creacion', titulo: 'Creación', grupo: 'tramite', porDefecto: false, celda: (f) => fecha(f.fechaCreacion) },

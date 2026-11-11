@@ -59,6 +59,7 @@ const TOTALES = {
 function reporte(items: unknown[]) {
   return {
     items, total: items.length, page: 1, pageSize: 50, totales: TOTALES,
+    totalesCostosProveedor: { costoProveedorSoat: 0, costoProveedorLogistica: 0, costoProveedorTotal: 0, tramitesCostoSinConfigurar: 0 },
     resumen: { listo: 1, incompleto: 0, porFacturar: 0, facturado: 3 },
   };
 }
@@ -342,7 +343,9 @@ test.describe('Envío a facturación — los cuatro estados', () => {
 
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText(/Ninguno de los 2 trámites facturados de esta página se puede enviar/)).toBeVisible();
-    await expect(page.getByText('La compañía todavía no existe como tercero en Siigo. Sincronízala desde su ficha.').first()).toBeVisible();
+    // El texto del catálogo vigente (`MOTIVO_TRAMITE_NO_ELEGIBLE_TEXTO.tercero_sin_vincular` en
+    // shared-types), no el de antes: «no existe como tercero» se cambió por «no está vinculada».
+    await expect(page.getByText(/^La compañía todavía no está vinculada con su tercero de Siigo\. Sincronízala desde su ficha/)).toBeVisible();
     // Los que delegan el diagnóstico lo dicen: su texto de catálogo es un encabezado.
     await expect(page.getByText(/el detalle exacto está en cada fila/)).toBeVisible();
     // El corte va en su propio bloque, y NO repetido arriba.

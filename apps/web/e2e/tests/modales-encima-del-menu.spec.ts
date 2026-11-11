@@ -109,6 +109,7 @@ test.describe('Modales por encima de la barra de navegación', () => {
         }],
         total: 1, page: 1, pageSize: 50,
         totales: { soat: 0, impuesto: 0, derechoTramite: 0, logistica: 0, tramiteDigital: 0, gmf: 0, total: 0, filasIncompletas: 0, totalReintegro: 0, totalServicio: 0, serviciosAdicionales: 0 },
+        totalesCostosProveedor: { costoProveedorSoat: 0, costoProveedorLogistica: 0, costoProveedorTotal: 0, tramitesCostoSinConfigurar: 0 },
         resumen: { listo: 1, incompleto: 0, porFacturar: 0, facturado: 0 },
       }),
     }));

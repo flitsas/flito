@@ -114,6 +114,12 @@ export interface Totales {
 export interface Resumen { listo: number; incompleto: number; porFacturar: number; facturado: number }
 export interface Reporte {
   items: Fila[]; total: number; page: number; pageSize: number; totales: Totales; resumen: Resumen;
+  /**
+   * El costo de proveedor agregado sobre el universo filtrado (ADR-0041 §13, Épica #13763). Va
+   * aparte de `totales` a propósito: no es cobro y no se suma a él. Mismas cuatro claves que el
+   * consolidado; `tramitesCostoSinConfigurar > 0` significa que las sumas son parciales.
+   */
+  totalesCostosProveedor: TotalesCostosProveedor;
 }
 export interface Opcion { valor: string; nombre: string }
 export interface Facetas { estados: string[]; empresas: Opcion[]; tipos: string[]; organismos: Opcion[] }
@@ -132,6 +138,12 @@ export interface CostoProveedorConsolidado {
   /** Cuántos trámites del grupo tienen algún concepto «Sin configurar». */
   tramitesCostoSinConfigurar: number;
 }
+
+/** El mismo agregado, en el pie del detalle (`Reporte.totalesCostosProveedor`). */
+export type TotalesCostosProveedor = CostoProveedorConsolidado;
+
+/** Lo que recibe cada celda del pie: el cobro y, aparte, el costo de proveedor. */
+export interface TotalesPie { cobro: Totales; costo: TotalesCostosProveedor }
 
 export interface FilaConsolidado extends Totales, CostoProveedorConsolidado {
   clienteClave: string;

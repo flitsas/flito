@@ -443,7 +443,7 @@ export default function FinanzasReporteCostos() {
           />
 
           {/* El error de una ACCIÓN, con la tinta de peligro del kit (D-6), no `text-red-600`. */}
-          {error && <FlitCard><p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
+          {error && <FlitCard><p role="alert" className="text-sm" style={{ color: 'var(--flit-warning-text)' }}>{error}</p></FlitCard>}
           {aviso && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-blue-text)' }}>{aviso}</p></FlitCard>}
 
           {/* Un total al que le faltan conceptos no puede pasar por completo. Va en una línea y con
