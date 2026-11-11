@@ -10565,6 +10565,8 @@ paths:
                       - incompleto
                       - porFacturar
                       - facturado
+                  totalesCostosProveedor:
+                    "$ref": "#/components/schemas/Forma-2ac05118ea"
                 required:
                   - items
                   - total
@@ -10572,6 +10574,7 @@ paths:
                   - pageSize
                   - totales
                   - resumen
+                  - totalesCostosProveedor
         "401":
           description: No autenticado.
           content:
@@ -10721,21 +10724,7 @@ paths:
                   totales:
                     allOf:
                       - "$ref": "#/components/schemas/Forma-3c54444721"
-                      - type: object
-                        properties:
-                          costoProveedorSoat:
-                            type: number
-                          costoProveedorLogistica:
-                            type: number
-                          costoProveedorTotal:
-                            type: number
-                          tramitesCostoSinConfigurar:
-                            type: number
-                        required:
-                          - costoProveedorSoat
-                          - costoProveedorLogistica
-                          - costoProveedorTotal
-                          - tramitesCostoSinConfigurar
+                      - "$ref": "#/components/schemas/Forma-2ac05118ea"
                 required:
                   - periodo
                   - items
@@ -119359,6 +119348,23 @@ components:
         - proporcion
         - muestraSuficiente
         - superaUmbral
+    Forma-2ac05118ea:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        costoProveedorSoat:
+          type: number
+        costoProveedorLogistica:
+          type: number
+        costoProveedorTotal:
+          type: number
+        tramitesCostoSinConfigurar:
+          type: number
+      required:
+        - costoProveedorSoat
+        - costoProveedorLogistica
+        - costoProveedorTotal
+        - tramitesCostoSinConfigurar
     Forma-2ba038dccb:
       description: Forma que comparten varias operaciones.
       type: object

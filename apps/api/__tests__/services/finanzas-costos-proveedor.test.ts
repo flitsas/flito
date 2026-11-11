@@ -18,7 +18,7 @@ vi.mock('../../src/db/client.js', () => ({ db: {}, getPoolStats: vi.fn() }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
 const svc = await import('../../src/modules/finanzas/finanzas.service.js');
-const { costosProveedorDeFila, conceptoDe, exprCostosProveedor } = await import('../../src/modules/finanzas/finanzas.costos-proveedor.js');
+const { costosProveedorDeFila, conceptoDe, exprCostosProveedor, costosProveedorConsolidadoDe } = await import('../../src/modules/finanzas/finanzas.costos-proveedor.js');
 
 const dialecto = new PgDialect();
 const texto = (q: SQL) => dialecto.sqlToQuery(q).sql.replace(/\s+/g, ' ');
@@ -127,5 +127,18 @@ describe('Traducción a la fila — costosProveedorDeFila', () => {
     expect(conceptoDe({ estado: 'inventado', valor: 5 }).estado).toBe('sin_proveedor');
     expect(conceptoDe(crudo({ estado: 'ya_contado', valor: null, contadoEnTramiteId: 't1', contadoEnIdFlit: 'FLIT-1' })))
       .toMatchObject({ estado: 'ya_contado', contadoEnIdFlit: 'FLIT-1' });
+  });
+});
+
+describe('Pie del detalle — costosProveedorConsolidadoDe (totalesCostosProveedor)', () => {
+  it('numeric de pg (texto) → número; fila ausente ⇒ ceros; no trae claves de cobro (RN-CP-01)', () => {
+    expect(costosProveedorConsolidadoDe({
+      costoProveedorSoat: '20000.00', costoProveedorLogistica: '10000', costoProveedorTotal: '30000.00', tramitesCostoSinConfigurar: 2,
+    })).toEqual({ costoProveedorSoat: 20000, costoProveedorLogistica: 10000, costoProveedorTotal: 30000, tramitesCostoSinConfigurar: 2 });
+    expect(costosProveedorConsolidadoDe(undefined)).toEqual({ costoProveedorSoat: 0, costoProveedorLogistica: 0, costoProveedorTotal: 0, tramitesCostoSinConfigurar: 0 });
+  });
+
+  it('SELECT_TOTALES (los totales de cobro del pie) sigue sin claves de costo de proveedor', () => {
+    expect(Object.keys(svc.SELECT_TOTALES).some((k) => k.toLowerCase().includes('proveedor'))).toBe(false);
   });
 });

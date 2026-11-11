@@ -228,6 +228,15 @@ export function selectCostosProveedorConsolidado(e: ExprCostosReporte, tramiteId
   } as const;
 }
 
+/** Fila cruda de `selectCostosProveedorConsolidado` (pg devuelve `numeric` como texto) → números. */
+export function costosProveedorConsolidadoDe(r: Record<string, unknown> | undefined): CostosProveedorConsolidado {
+  const n = (v: unknown) => Number(v ?? 0) || 0;
+  return {
+    costoProveedorSoat: n(r?.costoProveedorSoat), costoProveedorLogistica: n(r?.costoProveedorLogistica),
+    costoProveedorTotal: n(r?.costoProveedorTotal), tramitesCostoSinConfigurar: n(r?.tramitesCostoSinConfigurar),
+  };
+}
+
 /** `db` o la `tx` de `liquidar()`: solo se usa `select`. */
 type Ejecutor = Pick<typeof db, 'select'>;
 

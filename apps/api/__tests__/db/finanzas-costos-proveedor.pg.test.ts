@@ -320,6 +320,29 @@ describe.skipIf(!URL_BASE)('ADR-0041 §13 — costo de proveedor (PostgreSQL)', 
       expect(c.totales).toMatchObject({ costoProveedorSoat: 123456, costoProveedorLogistica: 654321, costoProveedorTotal: 777777, tramitesCostoSinConfigurar: 0 });
     }));
 
+    it('detalle: `totalesCostosProveedor` = costo del consolidado para el mismo filtro, y `totales` no cambia', () => conMundo(async (m) => {
+      const p = await m.proveedor({ soat: true });
+      const cia = await m.cia();
+      const s = await m.soat(cia, { proveedor: p, enviado: HACE(3) });
+      const t1 = await m.tramite(cia, { soat: s, creado: HACE(4) });
+      await m.tramite(cia, { soat: s, creado: HACE(1) }); // ya_contado: no suma
+      await m.entrega(t1.id, cia, p, { entregado: HACE(2) });
+      const sinConf = await m.tramite(cia);
+      await m.entrega(sinConf.id, cia, p, { entregado: HACE(1) });
+      const antes = await reporteCostos({ buscar: m.buscar });
+      await m.vigencia(p, 'soat_con_tramite', 20000, HACE(30));
+      await m.vigencia(p, 'logistica', 5000, HACE(30));
+      const r = await reporteCostos({ buscar: m.buscar });
+      const c = await consolidadoReporte({ buscar: m.buscar }, 'mes');
+      const { costoProveedorSoat, costoProveedorLogistica, costoProveedorTotal, tramitesCostoSinConfigurar } = c.totales;
+      expect(r.totalesCostosProveedor).toEqual({ costoProveedorSoat, costoProveedorLogistica, costoProveedorTotal, tramitesCostoSinConfigurar });
+      expect(r.totalesCostosProveedor).toEqual({ costoProveedorSoat: 20000, costoProveedorLogistica: 10000, costoProveedorTotal: 30000, tramitesCostoSinConfigurar: 0 });
+      expect(antes.totalesCostosProveedor.tramitesCostoSinConfigurar).toBe(2);
+      // RN-CP-01: el cobro del pie no se mueve al aparecer el costo.
+      expect(r.totales).toEqual(antes.totales);
+      expect(r.totales).not.toHaveProperty('costoProveedorTotal');
+    }));
+
     it('consolidado: ya_contado no suma; sin_configurar cuenta como «parcial» y no suma', () => conMundo(async (m) => {
       const p = await m.proveedor({ soat: true });
       await m.vigencia(p, 'soat_con_tramite', 15000, HACE(30));

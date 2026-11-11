@@ -40,7 +40,8 @@ import {
   EXPR_CON_DIFERENCIAS, SELECT_VALORES_DOCUMENTALES, valoresDocumentalesDeFila, type ValoresDocumentalesDeFila,
 } from './finanzas.valores-documentales.js';
 import {
-  costosProveedorDeFila, exprCostosProveedorReporte, selectCostosProveedor, type CostosProveedorDeFila,
+  costosProveedorConsolidadoDe, costosProveedorDeFila, exprCostosProveedorReporte, selectCostosProveedor,
+  selectCostosProveedorConsolidado, type CostosProveedorConsolidado, type CostosProveedorDeFila,
 } from './finanzas.costos-proveedor.js';
 import { EXPR_DOC_LG, EXPR_DOC_TD } from '../flito-comprobantes/flito-comprobantes.expr.js';
 import type { SiigoEstadoReporte, SiigoResumenReporte } from '@operaciones/shared-types';
@@ -155,6 +156,8 @@ export interface ResumenEtapas { listo: number; incompleto: number; porFacturar:
 export interface ReporteCostos {
   items: FilaReporte[]; total: number; page: number; pageSize: number;
   totales: TotalesReporte; resumen: ResumenEtapas;
+  /** Costo de proveedor del universo filtrado: grupo APARTE, no suma a `totales` (RN-CP-01). */
+  totalesCostosProveedor: CostosProveedorConsolidado;
 }
 
 // Alias para resolver la tarifa VIGENTE EN LA FECHA DE APROBACIÓN del trámite (HU #12374, RN-07):
@@ -696,6 +699,13 @@ async function totalesDe(where: SQL | undefined): Promise<TotalesReporte> {
   };
 }
 
+/** Costo de proveedor del universo filtrado, con la MISMA expresión del consolidado (RN-CP-01: aparte de `totalesDe`). */
+async function totalesCostosProveedorDe(where: SQL | undefined): Promise<CostosProveedorConsolidado> {
+  const [t] = await conJoins(db.select(selectCostosProveedorConsolidado(COSTOS_PROVEEDOR, sql`${flitoTramites.id}`))
+    .from(flitoTramites).$dynamic()).where(where);
+  return costosProveedorConsolidadoDe(t);
+}
+
 /**
  * Cuántos trámites hay en cada etapa, con TODOS los demás filtros puestos menos la etapa misma.
  *
@@ -730,18 +740,19 @@ export async function reporteCostos(f: FiltrosReporte = {}): Promise<ReporteCost
   const condsSinEtapa = condiciones({ ...f, etapa: undefined });
   const whereSinEtapa = condsSinEtapa.length ? and(...condsSinEtapa) : undefined;
 
-  const [countRows, rows, totales, resumen] = await Promise.all([
+  const [countRows, rows, totales, resumen, totalesCostosProveedor] = await Promise.all([
     conJoins(db.select({ total: sql<number>`count(distinct ${flitoTramites.id})::int` })
       .from(flitoTramites).$dynamic()).where(where),
     conJoins(db.select(SELECT_FILA).from(flitoTramites).$dynamic()).where(where)
       .orderBy(sql`${flitoTramites.createdAt} DESC`).limit(pageSize).offset((page - 1) * pageSize),
     totalesDe(where),
     resumenDe(whereSinEtapa),
+    totalesCostosProveedorDe(where),
   ]);
 
   return {
     items: rows.map((r: Record<string, unknown>) => aFila(r)),
-    total: Number(countRows[0]?.total ?? 0), page, pageSize, totales, resumen,
+    total: Number(countRows[0]?.total ?? 0), page, pageSize, totales, resumen, totalesCostosProveedor,
   };
 }
 
