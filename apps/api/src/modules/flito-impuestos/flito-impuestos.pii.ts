@@ -141,8 +141,9 @@ export interface AccesoImpuesto {
    * verdad sin tocarla. `certificado_runt` = el PDF del certificado RUNT (HU #13204), que lleva
    * documento, placa, VIN, motor, chasis y serie ({@link CAMPOS_PII_CERTIFICADO}).
    * `zip_certificados_runt` = el ZIP de N certificados + `omitidos.csv` (HU #13205).
+   * `pdf_soporte` = el PDF de UN tipo de soporte de un impuesto (Bug #14532).
    */
-  archivo?: 'zip_soportes' | 'certificado_runt' | 'zip_certificados_runt';
+  archivo?: 'zip_soportes' | 'certificado_runt' | 'zip_certificados_runt' | 'pdf_soporte';
 }
 
 /** `pii_access_log.motivo` es `varchar(200)`: pasarse sería un 22001 en vez de un rastro. */

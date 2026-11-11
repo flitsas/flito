@@ -451,19 +451,25 @@ export type DocumentosImpuesto = 'liquidacion' | 'pago' | 'ambos';
  *
  * Son dos documentos de dos orígenes con el mismo literal. Reutilizar el enum habría hecho que
  * «marcar factura de venta» en Trámites metiera en el ZIP el adjunto del cliente creyendo que mete
- * la factura de FLIT —o las dos—, sin que ningún tipo lo impidiera. Y `RECIBO_IMPUESTO` tampoco es
- * un alias: en el ZIP resuelve a `recibo_impuesto_sin_marca_agua` con caída a `recibo_impuesto` (ver
- * `shared/soportes/soportes-zip.ts`), o sea a UN documento de entre DOS tipos de la tabla.
+ * la factura de FLIT —o las dos—, sin que ningún tipo lo impidiera.
+ *
+ * Las dos fases del recibo del impuesto (HU #12590) son DOS tipos del ZIP y no uno (Bug #14532):
+ * `LIQUIDACION_IMPUESTO` resuelve SOLO a `recibo_impuesto_sin_marca_agua` y `PAGO_IMPUESTO` SOLO a
+ * `recibo_impuesto` (el que lleva el sello PAGADO). Sin caída cruzada: antes había un único
+ * `RECIBO_IMPUESTO` que prefería la liquidación y caía al pago solo si no la había, así que el
+ * soporte pagado nunca se descargaba en un impuesto ya liquidado. Ver `shared/soportes/soportes-zip.ts`.
  *
  * Lo que este catálogo nombra es «qué puede marcar el usuario en la pantalla», no «qué fila hay en
- * la base». Cada superficie admite un subconjunto: SOAT solo `FACTURA_SOAT`, Impuestos los dos
- * primeros, Trámites los tres.
+ * la base». Cada superficie admite un subconjunto: SOAT solo `FACTURA_SOAT`, Impuestos los tres
+ * primeros, Trámites los cuatro.
  */
 export const TipoSoporteZip = {
   /** La factura de venta que emite FLIT (S3 de FLIT), NO el adjunto del canal Cliente. */
   FACTURA_VENTA: 'factura_venta',
-  /** El recibo del organismo: el limpio (`sin_marca_agua`) y, si no existe, el marcado. */
-  RECIBO_IMPUESTO: 'recibo_impuesto',
+  /** La liquidación del impuesto (`recibo_impuesto_sin_marca_agua`), sin caída al pago. */
+  LIQUIDACION_IMPUESTO: 'liquidacion_impuesto',
+  /** El pago con sello PAGADO (`recibo_impuesto`), sin caída a la liquidación. */
+  PAGO_IMPUESTO: 'pago_impuesto',
   /** El comprobante/póliza que sube el gestor de SOAT. Nunca el comprobante PSE de conciliación. */
   FACTURA_SOAT: 'factura_soat',
 } as const;
@@ -481,7 +487,8 @@ export type TipoSoporteZip = (typeof TipoSoporteZip)[keyof typeof TipoSoporteZip
  */
 export const ORDEN_TIPOS_SOPORTE_ZIP: readonly TipoSoporteZip[] = [
   TipoSoporteZip.FACTURA_VENTA,
-  TipoSoporteZip.RECIBO_IMPUESTO,
+  TipoSoporteZip.LIQUIDACION_IMPUESTO,
+  TipoSoporteZip.PAGO_IMPUESTO,
   TipoSoporteZip.FACTURA_SOAT,
 ];
 

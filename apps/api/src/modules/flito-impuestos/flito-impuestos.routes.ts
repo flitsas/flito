@@ -50,6 +50,7 @@ import direccionRouter from './flito-impuestos.direccion.routes.js';
 import certificadosRouter from './flito-impuestos.certificados.routes.js';
 import reciboFaseRouter from './flito-impuestos.recibo-fase.routes.js';
 import reciboReemplazoRouter from './flito-impuestos.recibo-reemplazo.routes.js';
+import soportePdfRouter from './flito-impuestos.soporte-pdf.routes.js';
 import { contarDireccionesSinConfirmar } from './flito-impuestos.export-pago.js';
 
 const router = Router();
@@ -59,6 +60,7 @@ router.use(direccionRouter(contextoImpuesto)); // HU #12833: PATCH /:id/direccio
 router.use(certificadosRouter(contextoImpuesto)); // HU #13205: POST /certificados/zip
 router.use(reciboFaseRouter(contextoImpuesto)); // HU #13208: POST /:id/recibos (carga por fase)
 router.use(reciboReemplazoRouter(contextoImpuesto)); // HU #13269: POST /:id/recibos/reemplazar-pago
+router.use(soportePdfRouter(contextoImpuesto)); // Bug #14532: POST /:id/soportes/pdf (un PDF por tipo)
 
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
@@ -214,11 +216,11 @@ async function facturaFlit2(
  * singular— se ignoraría en silencio y el usuario recibiría un archivo con otra cosa dentro
  * creyendo que pidió lo que marcó.
  *
- * **`recibo_impuesto` NO es un alias de la columna `tipo`**: resuelve a
- * `recibo_impuesto_sin_marca_agua` (la liquidación del impuesto, sin marca) con caída a
- * `recibo_impuesto` (el pago con marca); ver `soportes-zip.ts`. Desde la HU #12590 el productor,
- * `flito-recibos.service.ts`, escribe los dos con el literal del catálogo, así que la preferencia
- * por el limpio se cumple cuando la liquidación se cargó y la caída cubre al resto.
+ * **Ni `liquidacion_impuesto` ni `pago_impuesto` son literales de la columna `tipo`** (Bug #14532):
+ * el primero resuelve SOLO a `recibo_impuesto_sin_marca_agua` (la liquidación, sin marca) y el
+ * segundo SOLO a `recibo_impuesto` (el pago con sello PAGADO), sin caída cruzada; ver
+ * `soportes-zip.ts`. El documento individual de un tipo sale por `POST /:id/soportes/pdf`
+ * (`flito-impuestos.soporte-pdf.routes.ts`).
  *
  * ── La función: `impuestos.soportes.descargar` (admin + gestor de partida), no la de ver ─────────
  *
@@ -228,8 +230,9 @@ const zipSoportesSchema = z.object({
   // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
   // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
   ids: z.array(z.string().guid()).min(1),
-  tipos: z.array(z.enum([TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.RECIBO_IMPUESTO]))
-    .min(1).max(2),
+  tipos: z.array(z.enum([
+    TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.LIQUIDACION_IMPUESTO, TipoSoporteZip.PAGO_IMPUESTO,
+  ])).min(1).max(3),
 }).strict();
 
 router.post('/soportes/zip', exigirFuncion('impuestos.soportes.descargar'), zipSoportesLimiter, async (req: Request, res: Response) => {
