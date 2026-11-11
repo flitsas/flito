@@ -22,7 +22,9 @@ import {
   CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, nombrePorPlaca,
   resolverEntradasZip, tipoPorBytes, ZipError, zipSoportesLimiter,
 } from '../../shared/soportes/soportes-zip.js';
-import { consolidarPorRegistro, emitirZipConsolidado } from '../../shared/soportes/soportes-zip-consolidar.js';
+import {
+  CARPETAS_ZIP_IMPUESTOS, consolidarPorRegistro, emitirZipConsolidado,
+} from '../../shared/soportes/soportes-zip-consolidar.js';
 import {
   construirFilasExportImpuestos, nombreArchivoExportImpuestos,
 } from './flito-impuestos.export.service.js';
@@ -55,6 +57,7 @@ import certificadosRouter from './flito-impuestos.certificados.routes.js';
 import certificacionDirectaRouter from './flito-impuestos.certificacion-directa.routes.js';
 import reciboFaseRouter from './flito-impuestos.recibo-fase.routes.js';
 import reciboReemplazoRouter from './flito-impuestos.recibo-reemplazo.routes.js';
+import soportePdfRouter from './flito-impuestos.soporte-pdf.routes.js';
 import { contarDireccionesSinConfirmar } from './flito-impuestos.export-pago.js';
 
 const router = Router();
@@ -65,6 +68,7 @@ router.use(certificadosRouter(contextoImpuesto)); // HU #13205: POST /certificad
 router.use(certificacionDirectaRouter(contextoImpuesto));
 router.use(reciboFaseRouter(contextoImpuesto)); // HU #13208: POST /:id/recibos (carga por fase)
 router.use(reciboReemplazoRouter(contextoImpuesto)); // HU #13269: POST /:id/recibos/reemplazar-pago
+router.use(soportePdfRouter(contextoImpuesto)); // Bug #14532: POST /:id/soportes/pdf (un PDF por tipo)
 
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
@@ -206,6 +210,13 @@ async function facturaFlit2(
 /**
  * POST /soportes/zip — factura de venta y/o recibo de impuesto de los marcados, en UN ZIP (AC3).
  *
+ * ── Formato (Bug #14532): una carpeta por tipo ───────────────────────────────────────────────────
+ *
+ * `facturas de venta/`, `liquidaciones/` y `liquidaciones pagadas/`, y dentro un PDF por placa con
+ * las piezas de ESE tipo (`liquidaciones pagadas/ABC123.pdf`; cifrado aparte como `ABC123-2.pdf`,
+ * desempate por carpeta). Solo existen las carpetas de los tipos marcados que aportaron algo:
+ * nunca una vacía. Trámites sigue con un PDF por registro en la raíz.
+ *
  * ── Sustituye a `POST /facturas-venta/zip`, que se RETIRA ────────────────────────────────────────
  *
  * Aquella ruta se queda sin llamadores con esta HU y no se conserva «por si acaso»: exportaba
@@ -220,11 +231,11 @@ async function facturaFlit2(
  * singular— se ignoraría en silencio y el usuario recibiría un archivo con otra cosa dentro
  * creyendo que pidió lo que marcó.
  *
- * **`recibo_impuesto` NO es un alias de la columna `tipo`**: resuelve a
- * `recibo_impuesto_sin_marca_agua` (la liquidación del impuesto, sin marca) con caída a
- * `recibo_impuesto` (el pago con marca); ver `soportes-zip.ts`. Desde la HU #12590 el productor,
- * `flito-recibos.service.ts`, escribe los dos con el literal del catálogo, así que la preferencia
- * por el limpio se cumple cuando la liquidación se cargó y la caída cubre al resto.
+ * **Ni `liquidacion_impuesto` ni `pago_impuesto` son literales de la columna `tipo`** (Bug #14532):
+ * el primero resuelve SOLO a `recibo_impuesto_sin_marca_agua` (la liquidación, sin marca) y el
+ * segundo SOLO a `recibo_impuesto` (el pago con sello PAGADO), sin caída cruzada; ver
+ * `soportes-zip.ts`. El documento individual de un tipo sale por `POST /:id/soportes/pdf`
+ * (`flito-impuestos.soporte-pdf.routes.ts`).
  *
  * ── La función: `impuestos.soportes.descargar` (admin + gestor de partida), no la de ver ─────────
  *
@@ -234,8 +245,9 @@ const zipSoportesSchema = z.object({
   // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
   // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
   ids: z.array(z.string().guid()).min(1),
-  tipos: z.array(z.enum([TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.RECIBO_IMPUESTO]))
-    .min(1).max(2),
+  tipos: z.array(z.enum([
+    TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.LIQUIDACION_IMPUESTO, TipoSoporteZip.PAGO_IMPUESTO,
+  ])).min(1).max(3),
 }).strict();
 
 router.post('/soportes/zip', exigirFuncion('impuestos.soportes.descargar'), zipSoportesLimiter, async (req: Request, res: Response) => {
@@ -250,9 +262,9 @@ router.post('/soportes/zip', exigirFuncion('impuestos.soportes.descargar'), zipS
     comprobarTopeRegistrosZip(parsed.data.ids);
     const registros = await registrosZipImpuestos(parsed.data.ids, ctx);
     const entradas = await resolverEntradasZip(registros, parsed.data.tipos);
-    // HU #12817: un PDF por impuesto, consolidado en disco ANTES del primer byte, aunque se pida
-    // un solo tipo (el nombre y el aviso de ilegibles se comportan igual pase lo que pase).
-    const zc = await consolidarPorRegistro(entradas);
+    // HU #12817 + Bug #14532: un PDF por (impuesto, tipo) en la carpeta de su tipo, consolidado en
+    // disco ANTES del primer byte (el nombre y el aviso de ilegibles salen igual pase lo que pase).
+    const zc = await consolidarPorRegistro(entradas, { carpetas: CARPETAS_ZIP_IMPUESTOS });
     try {
       // ANTES del primer byte, y esto es la deuda que la HU #11909 dejó abierta en este endpoint: el
       // zip de facturas auditaba con `audit()` pero NO llamaba a `registrarAccesoImpuesto`, así que un

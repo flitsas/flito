@@ -10,11 +10,10 @@
 //     ANTES del bucle. Una selección sin soportes producía un archivo válido y vacío que el usuario
 //     abre y no entiende. El AC6 se afirma por AUSENCIA de `Content-Disposition` y por que `archiver`
 //     no se instanció: invertir las dos mitades de la ruta no cambia ninguna otra respuesta.
-//   · **El ZIP vacío EN PRODUCCIÓN, en verde.** `recibo_impuesto_sin_marca_agua` no lo escribe nadie
-//     hoy: el único productor (`flito-recibos.service.ts`) fija `recibo_impuesto`. Una implementación
-//     que consulte solo el limpio compila, tipa, y pasaría cualquier test titulado «elige el sin
-//     marca de agua» — devolviendo nada para el 100 % del parque actual. Por eso el test central del
-//     AC3 es el de la CAÍDA, no el de la preferencia.
+//   · **El pago que nunca salía (Bug #14532).** Un único `recibo_impuesto` prefería la liquidación y
+//     caía al pago solo si no la había: en un impuesto liquidado y pagado el soporte con sello PAGADO
+//     no se descargaba nunca. Ahora son `liquidacion_impuesto` y `pago_impuesto`, sin caída cruzada,
+//     y el repro siembra las DOS fases y pide el pago.
 //   · **Los homónimos.** `factura_venta` significa dos cosas: sobre `soat_id` es el adjunto que sube
 //     el CLIENTE al radicar; la del flujo es la de FLIT y no vive en `flito_soportes`. Un ZIP de SOAT
 //     que se lo lleve mete el documento del cliente en una descarga de Operaciones.
@@ -63,6 +62,16 @@ const logPiiAccessMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../src/shared/pii-audit.js', () => ({
   logPiiAccess: (...args: unknown[]) => { orden.push('pii'); return logPiiAccessMock(...args); },
 }));
+
+/** `audit()` ENVUELTO (Bug #14532): se espía la llamada y se delega en la real. */
+const auditSpy = vi.fn();
+vi.mock('../../src/shared/middleware/audit.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/shared/middleware/audit.js')>();
+  return {
+    ...actual,
+    audit: (...args: Parameters<typeof actual.audit>) => { auditSpy(...args); return actual.audit(...args); },
+  };
+});
 
 /** `archiver` envuelto: el archivo que se afirma es el de verdad, pero se sabe si se instanció. */
 vi.mock('archiver', async (importOriginal) => {
@@ -302,6 +311,7 @@ beforeEach(() => {
   kdb.reset();
   instalarEspias();
   logPiiAccessMock.mockClear();
+  auditSpy.mockClear();
   getEntityDocumentStreamMock.mockClear();
   obtenerUrlFacturaMock.mockReset();
   obtenerUrlAdjuntoMock.mockReset();
@@ -452,57 +462,79 @@ describe('AC2 — el ZIP de SOAT trae el comprobante y NADA más', () => {
 
 // ─────────────────────────── AC3 · el recibo de Impuestos ───────────────────────────────────────
 
-describe('AC3 — el recibo: la CAÍDA es el camino real, no la preferencia', () => {
-  it('**con SOLO `recibo_impuesto`, el ZIP trae el recibo**', async () => {
-    // El caso del 100 % de los datos de hoy: `recibo_impuesto_sin_marca_agua` no lo escribe NADIE
-    // —el único productor, `flito-recibos.service.ts`, fija `recibo_impuesto`—. Una implementación
-    // que consulte solo el limpio compila, tipa y devuelve un ZIP vacío para todo el parque, en
-    // verde. Aquí es donde cae el mutante «consultar solo `sin_marca_agua`»: 409 en vez de 200.
-    kdb.when.scenario({
-      flito_impuestos: [filaImpuesto()],
-      flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', nombreArchivo: 'recibo.pdf' })],
-    });
+describe('Bug #14532 — liquidación y pago son DOS tipos, sin caída cruzada', () => {
+  /** Un impuesto liquidado Y pagado: la liquidación (201) y el pago con sello PAGADO (301). */
+  const conLasDosFases = () => kdb.when.scenario({
+    flito_impuestos: [filaImpuesto()],
+    flito_soportes: [
+      soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', nombreArchivo: 'PAGADO.pdf', contenido: PDF_SOAT }),
+      soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua', nombreArchivo: 'liquidacion.pdf', contenido: PDF_RECIBO }),
+    ],
+  });
 
-    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['recibo_impuesto'] });
+  it('REPRO: con liquidación Y pago, `pago_impuesto` trae el PAGADO (antes salía la liquidación)', async () => {
+    conLasDosFases();
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['pago_impuesto'] });
 
     expect(r.status).toBe(200);
-    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['liquidaciones pagadas/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([301]);
   });
 
-  it('con los DOS tipos, UNA sola entrada y es la `sin_marca_agua`', async () => {
-    // Consultar ambos sin preferencia daría dos entradas del MISMO pago, desempatadas con `-2` e
-    // indistinguibles de un duplicado legítimo. El nombre del fichero de la fixture es el testigo.
-    kdb.when.scenario({
-      flito_impuestos: [filaImpuesto()],
-      flito_soportes: [
-        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', nombreArchivo: 'MARCADO.pdf', contenido: PDF_SOAT }),
-        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua', nombreArchivo: 'limpio.pdf', contenido: PDF_RECIBO }),
-      ],
+  it('con liquidación Y pago, `liquidacion_impuesto` trae SOLO la liquidación', async () => {
+    conLasDosFases();
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['liquidacion_impuesto'] });
+
+    expect(r.status).toBe(200);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['liquidaciones/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones/ASD123.pdf')).toEqual([201]);
+  });
+
+  it('los dos tipos a la vez: una carpeta por tipo, cada PDF solo con lo suyo', async () => {
+    conLasDosFases();
+    const r = await pedirZip(IMPUESTOS, await sesion(), {
+      ids: [IMP_A], tipos: ['pago_impuesto', 'liquidacion_impuesto'],
     });
 
-    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['recibo_impuesto'] });
-
-    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
-    // La prueba de CUÁL se eligió es la página del PDF: la del limpio (201), no la del marcado (301).
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([201]);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['liquidaciones/ASD123.pdf', 'liquidaciones pagadas/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones/ASD123.pdf')).toEqual([201]);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([301]);
+    expect(r.headers['x-soportes-incluidos']).toBe('2');
+    expect(r.headers['x-soportes-registros']).toBe('1');
   });
 
-  it('la consulta pide los DOS tipos: sin eso no puede haber caída', async () => {
+  it('sin caída: con SOLO el pago, `liquidacion_impuesto` es 409 (no trae el pago)', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto()],
+      flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto' })],
+    });
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['liquidacion_impuesto'] });
+    expect(r.status).toBe(409);
+  });
+
+  it('sin caída: con SOLO la liquidación, `pago_impuesto` es 409 (no trae la liquidación)', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto()],
+      flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua' })],
+    });
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['pago_impuesto'] });
+    expect(r.status).toBe(409);
+  });
+
+  it('la consulta pide SOLO el tipo de BD de lo marcado', async () => {
     kdb.when.scenario({
       flito_impuestos: [filaImpuesto()],
       flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto' })],
     });
 
-    await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['recibo_impuesto'] });
+    await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['pago_impuesto'] });
 
     const { params } = whereDe('flito_soportes');
-    expect(params).toContain('recibo_impuesto_sin_marca_agua');
     expect(params).toContain('recibo_impuesto');
+    expect(params).not.toContain('recibo_impuesto_sin_marca_agua');
   });
 
-  it('la caída se decide POR IMPUESTO, no para el lote entero', async () => {
-    // Un lote donde uno tiene el limpio y otro solo el marcado tiene que entregar los DOS: decidir
-    // «hay limpios en el lote → solo limpios» dejaría al segundo sin recibo, en silencio.
+  it('en un lote, a cada impuesto se le entrega lo que tiene del tipo pedido; el que no, se omite', async () => {
     const IMP_B = 'cccccccc-0000-0000-0000-00000000000e';
     kdb.when.scenario({
       flito_impuestos: [filaImpuesto(), filaImpuesto({ id: IMP_B, placa: 'QWE789', createdAt: HOY })],
@@ -512,12 +544,18 @@ describe('AC3 — el recibo: la CAÍDA es el camino real, no la preferencia', ()
       ],
     });
 
-    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A, IMP_B], tipos: ['recibo_impuesto'] });
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A, IMP_B], tipos: ['pago_impuesto'] });
 
-    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf', 'QWE789.pdf']);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['liquidaciones pagadas/QWE789.pdf']);
+    expect(r.headers['x-soportes-registros']).toBe('1');
   });
 
-  it('HU #12817 AC2 — factura de venta + recibo en UN solo PDF por impuesto', async () => {
+  it('el valor retirado `recibo_impuesto` ya no es un tipo del ZIP: 400', async () => {
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['recibo_impuesto'] });
+    expect(r.status).toBe(400);
+  });
+
+  it('factura de venta + pago: cada tipo en su carpeta (ya no un PDF consolidado en la raíz)', async () => {
     kdb.when.scenario({
       flito_impuestos: [filaImpuesto({ facturaVentaFlitId: 'fac-1' })],
       flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_RECIBO })],
@@ -526,15 +564,91 @@ describe('AC3 — el recibo: la CAÍDA es el camino real, no la preferencia', ()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
 
     const r = await pedirZip(IMPUESTOS, await sesion(), {
-      ids: [IMP_A], tipos: ['factura_venta', 'recibo_impuesto'],
+      ids: [IMP_A], tipos: ['factura_venta', 'pago_impuesto'],
     });
 
     expect(r.status).toBe(200);
-    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
-    // El orden dentro del PDF es el del catálogo (factura → recibo), no el del array pedido.
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 201]);
+    // Las carpetas salen en el orden del catálogo (factura → pago), no el del array pedido.
+    expect(await entradasDe(r.body as Buffer)).toEqual(['facturas de venta/ASD123.pdf', 'liquidaciones pagadas/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'facturas de venta/ASD123.pdf')).toEqual([101]);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([201]);
     expect(r.headers['x-soportes-incluidos']).toBe('2');
     expect(r.headers['x-soportes-omitidos']).toBe('0');
+  });
+
+  it('Bug #14532 (a) — los TRES tipos con datos → tres carpetas con sus nombres exactos y `ASD123.pdf` dentro', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ facturaVentaFlitId: 'fac-1' })],
+      flito_soportes: [
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', nombreArchivo: 'PAGADO.pdf', contenido: PDF_SOAT }),
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua', nombreArchivo: 'liq.pdf', contenido: PDF_RECIBO }),
+      ],
+    });
+    obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
+
+    const r = await pedirZip(IMPUESTOS, await sesion(), {
+      ids: [IMP_A], tipos: ['pago_impuesto', 'factura_venta', 'liquidacion_impuesto'],
+    });
+
+    expect(r.status).toBe(200);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['facturas de venta/ASD123.pdf', 'liquidaciones/ASD123.pdf', 'liquidaciones pagadas/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'facturas de venta/ASD123.pdf')).toEqual([101]);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones/ASD123.pdf')).toEqual([201]);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([301]);
+    expect(r.headers['x-soportes-incluidos']).toBe('3');
+    expect(r.headers['x-soportes-registros']).toBe('1');
+  });
+
+  it('Bug #14532 (b) — solo `pago_impuesto` → solo `liquidaciones pagadas/`', async () => {
+    conLasDosFases();
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['pago_impuesto'] });
+
+    const nombres = await entradasDe(r.body as Buffer);
+    expect(nombres).toEqual(['liquidaciones pagadas/ASD123.pdf']);
+    expect(nombres.some((n) => n.startsWith('liquidaciones/'))).toBe(false);
+  });
+
+  it('Bug #14532 (c) — dos tipos marcados y uno sin documentos en TODO el lote → una sola carpeta, ninguna vacía', async () => {
+    const IMP_B = 'cccccccc-0000-0000-0000-00000000000e';
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto(), filaImpuesto({ id: IMP_B, placa: 'QWE789', createdAt: HOY })],
+      flito_soportes: [
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_SOAT }),
+        soporte({ ancla: IMP_B, tipo: 'recibo_impuesto', contenido: PDF_SOAT }),
+      ],
+    });
+
+    const r = await pedirZip(IMPUESTOS, await sesion(), {
+      ids: [IMP_A, IMP_B], tipos: ['liquidacion_impuesto', 'pago_impuesto'],
+    });
+
+    expect(r.status).toBe(200);
+    const nombres = await entradasDe(r.body as Buffer);
+    // La lista ENTERA de entradas: ni `liquidaciones/` ni ninguna entrada de directorio.
+    expect(nombres).toEqual(['liquidaciones pagadas/ASD123.pdf', 'liquidaciones pagadas/QWE789.pdf']);
+    expect(nombres.filter((n) => n.endsWith('/'))).toEqual([]);
+    expect(r.headers['x-soportes-registros']).toBe('2');
+  });
+
+  it('Bug #14532 — misma placa en dos impuestos: el `-2` desempata DENTRO de la carpeta', async () => {
+    const IMP_B = 'cccccccc-0000-0000-0000-00000000000e';
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto(), filaImpuesto({ id: IMP_B, createdAt: HOY })],
+      flito_soportes: [
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_SOAT }),
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua', contenido: PDF_RECIBO }),
+        soporte({ ancla: IMP_B, tipo: 'recibo_impuesto', contenido: PDF_SOAT }),
+      ],
+    });
+
+    const r = await pedirZip(IMPUESTOS, await sesion(), {
+      ids: [IMP_A, IMP_B], tipos: ['liquidacion_impuesto', 'pago_impuesto'],
+    });
+
+    expect((await entradasDe(r.body as Buffer)).sort()).toEqual([
+      'liquidaciones pagadas/ASD123-2.pdf', 'liquidaciones pagadas/ASD123.pdf', 'liquidaciones/ASD123.pdf',
+    ]);
   });
 
   it('`factura_soat` NO es un tipo de esta superficie: 400', async () => {
@@ -543,10 +657,10 @@ describe('AC3 — el recibo: la CAÍDA es el camino real, no la preferencia', ()
   });
 
   it('un campo desconocido es 400 y no un filtro ignorado en silencio', async () => {
-    // Sin `.strict()`, `{"tipo": "recibo_impuesto"}` —en singular— se ignoraría y el usuario
+    // Sin `.strict()`, `{"tipo": "pago_impuesto"}` —en singular— se ignoraría y el usuario
     // recibiría un archivo con otra cosa dentro creyendo que pidió lo que marcó.
     const r = await pedirZip(IMPUESTOS, await sesion(), {
-      ids: [IMP_A], tipos: ['recibo_impuesto'], tipo: 'factura_venta',
+      ids: [IMP_A], tipos: ['pago_impuesto'], tipo: 'factura_venta',
     });
     expect(r.status).toBe(400);
   });
@@ -569,13 +683,34 @@ describe('HU #12817 AC1 — Trámites: los tres tipos en UN PDF por trámite', (
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
 
     const r = await pedirZip(TRAMITES, await sesion(), {
-      ids: [TRAMITE_A], tipos: ['factura_soat', 'recibo_impuesto', 'factura_venta'],
+      ids: [TRAMITE_A], tipos: ['factura_soat', 'pago_impuesto', 'factura_venta'],
     });
 
     expect(r.status).toBe(200);
     expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
     expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 201, 301]);
     expect(r.headers['x-soportes-omitidos']).toBe('0');
+  });
+
+  it('Bug #14532 (d) — Trámites NO usa carpetas: varios tipos siguen en UN PDF en la raíz', async () => {
+    kdb.when.scenario({
+      flito_tramites: [filaTramite()],
+      flito_soportes: [
+        soporte({ ancla: SOAT_A, tipo: 'factura_soat', contenido: PDF_SOAT }),
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_RECIBO }),
+      ],
+    });
+    obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
+
+    const r = await pedirZip(TRAMITES, await sesion(), {
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'pago_impuesto', 'factura_soat'],
+    });
+
+    expect(r.status).toBe(200);
+    const nombres = await entradasDe(r.body as Buffer);
+    expect(nombres).toEqual(['ASD123.pdf']);
+    expect(nombres.some((n) => n.includes('/'))).toBe(false);
   });
 
   it('se pide UN solo tipo y sale igual como `PLACA.pdf` consolidado', async () => {
@@ -599,7 +734,7 @@ describe('HU #12817 AC1 — Trámites: los tres tipos en UN PDF por trámite', (
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
 
     const r = await pedirZip(TRAMITES, await sesion(), {
-      ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'pago_impuesto', 'factura_soat'],
     });
 
     expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 301]);
@@ -617,7 +752,7 @@ describe('HU #12817 AC1 — Trámites: los tres tipos en UN PDF por trámite', (
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
 
     const r = await pedirZip(TRAMITES, await sesion(), {
-      ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'pago_impuesto', 'factura_soat'],
     });
 
     expect(r.status).toBe(200);
@@ -639,7 +774,7 @@ describe('HU #12817 AC1 — Trámites: los tres tipos en UN PDF por trámite', (
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 502, body: null }));
 
     const r = await pedirZip(TRAMITES, await sesion(), {
-      ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto'],
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'pago_impuesto'],
     });
 
     expect(r.status).toBe(200);
@@ -665,7 +800,7 @@ describe('HU #12817 — lo ilegible se omite y se avisa; nada legible es el mism
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
 
     const r = await pedirZip(TRAMITES, await sesion(), {
-      ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'pago_impuesto', 'factura_soat'],
     });
 
     expect(r.status).toBe(200);
@@ -688,7 +823,7 @@ describe('HU #12817 — lo ilegible se omite y se avisa; nada legible es el mism
     const antes = temporales();
 
     const r = await pedirZip(TRAMITES, await sesion(), {
-      ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'pago_impuesto', 'factura_soat'],
     });
 
     expect(r.status).toBe(409);
@@ -714,7 +849,7 @@ describe('HU #12817 — lo ilegible se omite y se avisa; nada legible es el mism
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
 
     const r = await pedirZip(TRAMITES, await sesion(), {
-      ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'pago_impuesto', 'factura_soat'],
     });
 
     expect(r.status).toBe(200);
@@ -992,7 +1127,7 @@ describe('AC7 — auditoría NO descarga, en las tres rutas', () => {
     const app = await buildApp();
     for (const [base, cuerpo] of [
       [SOAT, { ids: [SOAT_A] }],
-      [IMPUESTOS, { ids: [IMP_A], tipos: ['recibo_impuesto'] }],
+      [IMPUESTOS, { ids: [IMP_A], tipos: ['pago_impuesto'] }],
       // El mutante nombrado de Trámites: `OPERACIONES → LECTURA`. `LECTURA` de ese router es
       // `admin` + `auditor`, así que el cambio se lee como una coherencia con `GET /:id/soportes` de
       // al lado y abre una descarga masiva de documentos a auditoría.
@@ -1061,7 +1196,7 @@ describe('fronteras — lo ajeno no sale, y no se distingue de «sin soporte»',
     });
 
     const r = await pedirZip(IMPUESTOS, await sesion('gestor_impuestos'), {
-      ids: [IMP_A], tipos: ['recibo_impuesto'],
+      ids: [IMP_A], tipos: ['pago_impuesto'],
     });
 
     expect(r.status).toBe(409);
@@ -1369,7 +1504,7 @@ describe('tope de registros — 400 con código propio, distinguible del 422 por
     const app = await buildApp();
     for (const [base, extra] of [
       [SOAT, {}],
-      [IMPUESTOS, { tipos: ['recibo_impuesto'] }],
+      [IMPUESTOS, { tipos: ['pago_impuesto'] }],
       [TRAMITES, { tipos: ['factura_soat'] }],
     ] as const) {
       const r = await request(app).post(`${base}/soportes/zip`)
@@ -1423,7 +1558,7 @@ describe('caso parcial — el ZIP dice CUÁNTO trae, en cabeceras', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
 
     const r = await pedirZip(TRAMITES, await sesion(), {
-      ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'pago_impuesto', 'factura_soat'],
     });
 
     // HU #12817: sale UN PDF, pero `incluidos` sigue contando DOCUMENTOS (los tres, dentro de él).
@@ -1514,7 +1649,7 @@ describe('rastro — antes del primer byte, y con lo que el ZIP publica de verda
       flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto' })],
     });
 
-    await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['recibo_impuesto'] });
+    await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['pago_impuesto'] });
 
     expect(logPiiAccessMock).toHaveBeenCalledTimes(1);
     expect(ultimoAcceso().resourceTipo).toBe('flito_impuesto');
@@ -1584,7 +1719,7 @@ describe('cuota — una sola bolsa, y por usuario', () => {
     }
 
     const sexto = await request(app).post(`${IMPUESTOS}/soportes/zip`)
-      .set('Authorization', cabecera).responseType('blob').send({ ids: [IMP_A], tipos: ['recibo_impuesto'] });
+      .set('Authorization', cabecera).responseType('blob').send({ ids: [IMP_A], tipos: ['pago_impuesto'] });
     expect(sexto.status).toBe(429);
 
     const septimo = await request(app).post(`${TRAMITES}/soportes/zip`)
@@ -1678,10 +1813,11 @@ describe('Bug #13230 — el ZIP (Impuestos y Trámites) incluye la factura de un
     const fetchMock = vi.fn().mockResolvedValue(new Response(PDF_FACTURA, { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['factura_venta', 'recibo_impuesto'] });
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['factura_venta', 'pago_impuesto'] });
 
     expect(r.status).toBe(200);
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 201]);
+    expect(await anchosEnZip(r.body as Buffer, 'facturas de venta/ASD123.pdf')).toEqual([101]);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([201]);
     expect(r.headers['x-soportes-incluidos']).toBe('2');
     expect(r.headers['x-soportes-omitidos']).toBe('0');
     expect(obtenerUrlAdjuntoMock).toHaveBeenCalledWith(ID2, ADJ);
@@ -1696,10 +1832,12 @@ describe('Bug #13230 — el ZIP (Impuestos y Trámites) incluye la factura de un
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
-    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['factura_venta', 'recibo_impuesto'] });
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['factura_venta', 'pago_impuesto'] });
 
     expect(r.status).toBe(200);
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([201]);
+    // La factura no llegó: su carpeta NO existe (nunca una carpeta vacía).
+    expect(await entradasDe(r.body as Buffer)).toEqual(['liquidaciones pagadas/ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'liquidaciones pagadas/ASD123.pdf')).toEqual([201]);
     expect(r.headers['x-soportes-omitidos']).toBe('1');
     expect(r.headers['x-soportes-incluidos']).toBe('1');
     expect(fetchMock).not.toHaveBeenCalled();
@@ -1736,8 +1874,150 @@ describe('Bug #13230 — el ZIP (Impuestos y Trámites) incluye la factura de un
     const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['factura_venta'] });
 
     expect(r.status).toBe(200);
-    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101]);
+    expect(await anchosEnZip(r.body as Buffer, 'facturas de venta/ASD123.pdf')).toEqual([101]);
     expect(obtenerUrlFacturaMock).toHaveBeenCalledWith('fac-1');
     expect(obtenerUrlAdjuntoMock).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────── Bug #14532 · descarga individual: POST /impuestos/:id/soportes/pdf ───────────────
+
+describe('Bug #14532 — un PDF por tipo de un impuesto (POST /:id/soportes/pdf)', () => {
+  const pedirPdf = async (cabecera: string, cuerpo: unknown, id = IMP_A) =>
+    request(await buildApp())
+      .post(`${IMPUESTOS}/${id}/soportes/pdf`)
+      .set('Authorization', cabecera)
+      .responseType('blob')
+      .send(cuerpo as object);
+
+  const conLasDosFases = () => kdb.when.scenario({
+    flito_impuestos: [filaImpuesto({ facturaVentaFlitId: 'fac-1' })],
+    flito_soportes: [
+      soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_SOAT }),
+      soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua', contenido: PDF_RECIBO }),
+    ],
+  });
+
+  it.each([
+    ['pago_impuesto', 'ASD123-pagado.pdf', [301]],
+    ['liquidacion_impuesto', 'ASD123-liquidacion.pdf', [201]],
+  ] as const)('`%s` → 200 PDF `%s` con SOLO ese documento', async (tipo, nombre, anchos) => {
+    conLasDosFases();
+    const r = await pedirPdf(await sesion(), { tipo });
+
+    expect(r.status).toBe(200);
+    expect(r.headers['content-type']).toMatch(/^application\/pdf/);
+    expect(r.headers['content-disposition']).toBe(`attachment; filename="${nombre}"`);
+    expect(await anchosDe(new Uint8Array(r.body as Buffer))).toEqual([...anchos]);
+    expect(temporales()).toEqual([]);
+  });
+
+  it('`factura_venta` → 200 `ASD123-factura-venta.pdf` con la factura de FLIT', async () => {
+    conLasDosFases();
+    obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
+
+    const r = await pedirPdf(await sesion(), { tipo: 'factura_venta' });
+
+    expect(r.status).toBe(200);
+    expect(r.headers['content-disposition']).toBe('attachment; filename="ASD123-factura-venta.pdf"');
+    expect(await anchosDe(new Uint8Array(r.body as Buffer))).toEqual([101]);
+  });
+
+  it('rastro PII (export, pdf_soporte, 1 fila) ANTES del primer byte', async () => {
+    conLasDosFases();
+    const r = await pedirPdf(await sesion(), { tipo: 'pago_impuesto' });
+
+    expect(r.status).toBe(200);
+    expect(logPiiAccessMock).toHaveBeenCalledTimes(1);
+    const [, acceso] = logPiiAccessMock.mock.calls[0] as [unknown, { accion: string; motivo: string }];
+    expect(acceso.accion).toBe('export');
+    expect(acceso.motivo).toContain('archivo=pdf_soporte');
+    expect(acceso.motivo).toContain('filas=1');
+  });
+
+  it('404 `zip_sin_soportes` si el impuesto no tiene ese documento (sin caída al otro)', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto()],
+      flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua' })],
+    });
+    const r = await pedirPdf(await sesion(), { tipo: 'pago_impuesto' });
+
+    expect(r.status).toBe(404);
+    expect(JSON.parse(Buffer.from(r.body as Buffer).toString()).codigo).toBe('zip_sin_soportes');
+    expect(r.headers['content-disposition']).toBeUndefined();
+    expect(logPiiAccessMock).not.toHaveBeenCalled();
+  });
+
+  it('404 si el impuesto no es visible para el actor (fuera de su frontera)', async () => {
+    kdb.when.scenario({ flito_impuestos: [], flito_soportes: [] });
+    const r = await pedirPdf(await sesion(), { tipo: 'pago_impuesto' });
+    expect(r.status).toBe(404);
+    expect(lecturasDe('flito_soportes')).toHaveLength(0);
+  });
+
+  it('403 sin `impuestos.soportes.descargar` (auditor), sin consultar nada', async () => {
+    conLasDosFases();
+    const r = await pedirPdf(await sesion('auditor'), { tipo: 'pago_impuesto' });
+    expect(r.status).toBe(403);
+    expect(lecturasDe('flito_soportes')).toHaveLength(0);
+  });
+
+  it.each([
+    ['tipo fuera del catálogo de Impuestos', { tipo: 'factura_soat' }],
+    ['valor retirado', { tipo: 'recibo_impuesto' }],
+    ['campo extra (.strict)', { tipo: 'pago_impuesto', ids: [IMP_A] }],
+    ['sin tipo', {}],
+  ])('400 — %s', async (_caso, cuerpo) => {
+    const r = await pedirPdf(await sesion(), cuerpo);
+    expect(r.status).toBe(400);
+    expect(lecturasDe('flito_soportes')).toHaveLength(0);
+  });
+
+  it('200 deja bitácora `audit()` export sobre ESE impuesto', async () => {
+    conLasDosFases();
+    const r = await pedirPdf(await sesion(), { tipo: 'pago_impuesto' });
+
+    expect(r.status).toBe(200);
+    expect(auditSpy).toHaveBeenCalledTimes(1);
+    expect(auditSpy.mock.calls[0]![1]).toMatchObject({
+      action: 'export', resource: 'flito_impuesto', resourceId: IMP_A,
+    });
+  });
+
+  it('el 404 `zip_sin_soportes` NO deja bitácora: no se descargó nada', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto()],
+      flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua' })],
+    });
+    const r = await pedirPdf(await sesion(), { tipo: 'pago_impuesto' });
+
+    expect(r.status).toBe(404);
+    expect(auditSpy).not.toHaveBeenCalled();
+  });
+
+  it('comparte la cuota de `zipSoportesLimiter`: agotados los 5 en SOAT, el PDF individual es 429', async () => {
+    const cabecera = await sesion();
+    kdb.when.scenario({
+      flito_soat: [filaSoat()], flito_impuestos: [filaImpuesto()],
+      flito_soportes: [soporte(), soporte({ ancla: IMP_A, tipo: 'recibo_impuesto' })],
+    });
+    const app = await buildApp();
+
+    for (let i = 1; i <= 5; i += 1) {
+      const r = await request(app).post(`${SOAT}/soportes/zip`)
+        .set('Authorization', cabecera).responseType('blob').send({ ids: [SOAT_A] });
+      expect(r.status, `la descarga ${i} tenía que caber en la cuota`).toBe(200);
+    }
+
+    const sexto = await request(app).post(`${IMPUESTOS}/${IMP_A}/soportes/pdf`)
+      .set('Authorization', cabecera).responseType('blob').send({ tipo: 'pago_impuesto' });
+    expect(sexto.status).toBe(429);
+  });
+
+  it('404 con un id que no es uuid, sin consultar', async () => {
+    const r = await pedirPdf(await sesion(), { tipo: 'pago_impuesto' }, 'ASD123');
+    expect(r.status).toBe(404);
+    expect(lecturasDe('flito_impuestos')).toHaveLength(0);
   });
 });

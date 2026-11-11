@@ -376,8 +376,9 @@ describe('AC7/AC8 — el tipo nuevo vive en el catálogo y NO entra en el ZIP ma
   });
 
   it('TipoSoporteZip y ORDEN_TIPOS_SOPORTE_ZIP no lo contienen; soportes-zip.ts no lo referencia', () => {
-    expect(Object.values(TipoSoporteZip)).toEqual(['factura_venta', 'recibo_impuesto', 'factura_soat']);
-    expect(ORDEN_TIPOS_SOPORTE_ZIP).toHaveLength(3);
+    // Bug #14532: el recibo del impuesto son dos tipos del ZIP (liquidación y pago).
+    expect(Object.values(TipoSoporteZip)).toEqual(['factura_venta', 'liquidacion_impuesto', 'pago_impuesto', 'factura_soat']);
+    expect(ORDEN_TIPOS_SOPORTE_ZIP).toHaveLength(4);
     expect(ORDEN_TIPOS_SOPORTE_ZIP as readonly string[]).not.toContain('recibo_caja_impuesto');
     const zip = fuente('shared/soportes/soportes-zip.ts');
     expect(zip).not.toMatch(/RECIBO_CAJA|recibo_caja/);
