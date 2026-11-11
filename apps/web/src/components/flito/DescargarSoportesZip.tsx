@@ -35,6 +35,10 @@
 //   · un documento dañado no tumba el ZIP, se omite y se declara en `X-Soportes-Omitidos`. Esa
 //     cifra va al aviso PERSISTENTE de la página (no a un toast efímero): es algo que el usuario
 //     tiene que poder leer después de abrir el ZIP y notar que falta algo.
+//
+// **Bug #14532.** En Impuestos el ZIP agrupa por tipo elegido: carpetas `facturas de venta/`,
+// `liquidaciones/`, `liquidaciones pagadas/` (nunca vacías), un PDF por placa dentro. Trámites
+// sigue con un PDF por placa en la raíz.
 
 import { useCallback, useRef, useState } from 'react';
 import { FileArchive } from 'lucide-react';
@@ -132,8 +136,9 @@ export const ZIP_IMPUESTOS: SuperficieZip = {
   ruta: '/flito/impuestos/soportes/zip',
   tipos: [FACTURA_VENTA, LIQUIDACION, PAGADO],
   tiposEnElCuerpo: true,
-  contenidoZip: 'Se descarga un solo ZIP con un PDF por registro, nombrado con la placa (por ejemplo, '
-    + 'ABC123.pdf). Si un documento viene protegido y no se puede unir, va aparte, tal cual, como ABC123-2.pdf.',
+  contenidoZip: 'Se descarga un solo ZIP con una carpeta por cada documento elegido (facturas de venta, '
+    + 'liquidaciones, liquidaciones pagadas) y, dentro, un PDF por placa (por ejemplo, liquidaciones pagadas/ABC123.pdf). '
+    + 'Si un documento viene protegido, va aparte en su carpeta como ABC123-2.pdf.',
 };
 
 export const ZIP_TRAMITES: SuperficieZip = {

@@ -12,7 +12,7 @@ import { Readable } from 'node:stream';
 import { PDFDocument } from 'pdf-lib';
 import { env } from '../../src/config/env.js';
 import {
-  consolidarPdf, consolidarPorRegistro,
+  CARPETAS_ZIP_IMPUESTOS, consolidarPdf, consolidarPorRegistro,
 } from '../../src/shared/soportes/soportes-zip-consolidar.js';
 import {
   ZipDemasiadoGrandeError, ZipSinSoportesError, type EntradaZip,
@@ -237,6 +237,39 @@ describe('consolidarPorRegistro', () => {
       expect(await anchosDe(await leer(zc.entradas[0]!))).toEqual([100, 100, 100, 200]);
       expect(await anchosDe(await leer(zc.entradas[1]!))).toEqual([300, 300]);
       expect(zc).toMatchObject({ incluidos: 4, omitidos: 0 });
+    } finally {
+      await zc.limpiar();
+    }
+  });
+
+  it('Bug #14532 — con `carpetas`: un PDF por (registro, tipo) en su carpeta; `-2` por carpeta; tipo vacío no deja carpeta', async () => {
+    const de = (tipo: EntradaZip['tipo'], e: EntradaZip): EntradaZip => ({ ...e, tipo });
+    const zc = await consolidarPorRegistro([
+      de('liquidacion_impuesto', entrada('r1', 'ABC123', FACTURA)),
+      de('pago_impuesto', entrada('r1', 'ABC123', RECIBO)),
+      de('pago_impuesto', entrada('r1', 'ABC123', SOAT)),
+      de('pago_impuesto', entrada('r2', 'ABC123', SOAT)),
+    ], { carpetas: CARPETAS_ZIP_IMPUESTOS });
+    try {
+      expect(zc.entradas.map((e) => e.nombreBase)).toEqual([
+        'liquidaciones/ABC123', 'liquidaciones pagadas/ABC123', 'liquidaciones pagadas/ABC123-2',
+      ]);
+      expect(await anchosDe(await leer(zc.entradas[0]!))).toEqual([100, 100, 100]);
+      expect(await anchosDe(await leer(zc.entradas[1]!))).toEqual([200, 300, 300]);
+      expect(zc.entradas.some((e) => e.nombreBase.startsWith('facturas de venta/'))).toBe(false);
+      expect(zc).toMatchObject({ incluidos: 4, omitidos: 0 });
+    } finally {
+      await zc.limpiar();
+    }
+  });
+
+  it('Bug #14532 — cifrado con `carpetas`: el original aparte como `-2` dentro de la MISMA carpeta', async () => {
+    const zc = await consolidarPorRegistro([
+      { ...entrada('r1', 'ABC123', RECIBO), tipo: 'pago_impuesto' },
+      { ...entrada('r1', 'ABC123', CIFRADO), tipo: 'pago_impuesto' },
+    ], { carpetas: CARPETAS_ZIP_IMPUESTOS });
+    try {
+      expect(zc.entradas.map((e) => e.nombreBase)).toEqual(['liquidaciones pagadas/ABC123', 'liquidaciones pagadas/ABC123-2']);
     } finally {
       await zc.limpiar();
     }

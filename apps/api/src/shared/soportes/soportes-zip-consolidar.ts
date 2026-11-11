@@ -22,6 +22,14 @@
 //   así que el original viaja APARTE, bytes intactos, como otra entrada del registro con el
 //   desempate de siempre (`PLACA-2.pdf`). Cuenta como incluido.
 //
+// ── Impuestos: una carpeta por tipo (Bug #14532) ──────────────────────────────────────────────────
+//
+// Con `{ carpetas }` (solo la ruta de Impuestos, `CARPETAS_ZIP_IMPUESTOS`) el grupo deja de ser el
+// registro y pasa a ser (registro, tipo): `liquidaciones pagadas/ABC123.pdf` lleva SOLO las piezas
+// de ese tipo de ese impuesto, y el desempate `-2` es POR CARPETA. Las carpetas no se crean aparte:
+// existen porque una entrada lleva su ruta, así que un tipo sin ningún documento en el lote no deja
+// carpeta vacía. Trámites y el PDF individual llaman sin opciones: un PDF por registro en la raíz.
+//
 // Depende de `soportes-zip.ts` y nunca al revés: pdf-lib no entra en la ruta de SOAT, que no consolida.
 
 import { randomUUID } from 'node:crypto';
@@ -33,6 +41,7 @@ import type { Readable } from 'node:stream';
 import type { Response } from 'express';
 import { EncryptedPDFError, PDFDocument } from 'pdf-lib';
 import { env } from '../../config/env.js';
+import { TipoSoporteZip } from '@operaciones/shared-types';
 import { loggerFor } from '../logger.js';
 import {
   clasificarBytes, desempatador, emitirZipSoportes, ZipDemasiadoGrandeError, ZipSinSoportesError,
@@ -188,6 +197,22 @@ export async function consolidarPdf(docs: Buffer[]): Promise<PdfConsolidado> {
   return { pdf, incluidos, omitidos, cifrados };
 }
 
+/**
+ * Nombre de carpeta por tipo en el ZIP masivo de Impuestos (Bug #14532). En minúscula y EXACTOS:
+ * es lo que Operaciones ve al descomprimir.
+ */
+export const CARPETAS_ZIP_IMPUESTOS: Partial<Record<TipoSoporteZip, string>> = {
+  [TipoSoporteZip.FACTURA_VENTA]: 'facturas de venta',
+  [TipoSoporteZip.LIQUIDACION_IMPUESTO]: 'liquidaciones',
+  [TipoSoporteZip.PAGO_IMPUESTO]: 'liquidaciones pagadas',
+};
+
+/** Opciones de la consolidación. Sin ellas: un PDF por registro en la raíz (Trámites, PDF individual). */
+export interface OpcionesConsolidacion {
+  /** Un PDF por (registro, tipo) dentro de la carpeta de su tipo. Ver la cabecera. */
+  carpetas?: Partial<Record<TipoSoporteZip, string>>;
+}
+
 /** Lo que las rutas de Trámites e Impuestos necesitan para emitir: entradas, cifras y la limpieza. */
 export interface ZipConsolidado {
   /** Una por PDF escrito en disco: el consolidado de cada registro y sus cifrados aparte. */
@@ -231,6 +256,8 @@ async function leerConTope(stream: Readable, topeDoc: number, contador: Contador
 /** Lo que dejó en disco UN registro, antes de nombrarlo. */
 interface ResultadoRegistro {
   registroId: string;
+  /** El tipo del grupo; solo cuenta con `carpetas` (allí el grupo es de un solo tipo). */
+  tipo: EntradaZip['tipo'];
   nombreRegistro: string;
   /** Rutas en orden: el consolidado (si hubo) y luego los cifrados. */
   archivos: { ruta: string; bytes: number; cifrado: boolean }[];
@@ -271,6 +298,7 @@ async function consolidarRegistro(
 
   return {
     registroId: grupo[0]!.registroId,
+    tipo: grupo[0]!.tipo,
     nombreRegistro: grupo[0]!.nombreRegistro,
     archivos,
     incluidos: r.incluidos + r.cifrados.length,
@@ -290,11 +318,18 @@ async function consolidarRegistro(
  * @throws ZipDemasiadoGrandeError  los bytes reales superan el tope (AC8).
  * En los dos casos el temporal ya está borrado.
  */
-export async function consolidarPorRegistro(entradas: EntradaZip[]): Promise<ZipConsolidado> {
+export async function consolidarPorRegistro(
+  entradas: EntradaZip[], opciones: OpcionesConsolidacion = {},
+): Promise<ZipConsolidado> {
+  const { carpetas } = opciones;
+  // Con carpetas, el tipo también corta el grupo: dentro de un registro las entradas ya vienen
+  // agrupadas por tipo (`ORDEN_TIPOS_SOPORTE_ZIP`), así que sigue siendo consecutivo.
+  const mismoGrupo = (a: EntradaZip, b: EntradaZip): boolean =>
+    a.registroId === b.registroId && (!carpetas || a.tipo === b.tipo);
   const grupos: EntradaZip[][] = [];
   for (const e of entradas) {
     const ultimo = grupos[grupos.length - 1];
-    if (ultimo && ultimo[0]!.registroId === e.registroId) ultimo.push(e);
+    if (ultimo && mismoGrupo(ultimo[0]!, e)) ultimo.push(e);
     else grupos.push([e]);
   }
 
@@ -321,7 +356,20 @@ export async function consolidarPorRegistro(entradas: EntradaZip[]): Promise<Zip
     await Promise.allSettled(Array.from({ length: Math.min(CONCURRENCIA, grupos.length) }, trabajador));
     if (fallo !== null) throw fallo;
 
-    const nombrar = desempatador();
+    // Un desempatador por carpeta (`''` = la raíz): `-2` solo entre PDFs de la MISMA carpeta.
+    const desempates = new Map<string, (base: string) => string>();
+    const nombrarEn = (carpeta: string, base: string): string => {
+      let nombrar = desempates.get(carpeta);
+      if (!nombrar) { nombrar = desempatador(); desempates.set(carpeta, nombrar); }
+      const nombre = nombrar(base);
+      return carpeta ? `${carpeta}/${nombre}` : nombre;
+    };
+    const carpetaDe = (r: ResultadoRegistro): string => {
+      if (!carpetas) return '';
+      const c = carpetas[r.tipo as TipoSoporteZip];
+      if (!c) throw new Error(`tipo sin carpeta en el ZIP: ${r.tipo}`);
+      return c;
+    };
     const salida: EntradaZip[] = [];
     let incluidos = 0;
     let omitidos = 0;
@@ -329,10 +377,11 @@ export async function consolidarPorRegistro(entradas: EntradaZip[]): Promise<Zip
     for (const r of resultados) {
       incluidos += r.incluidos;
       omitidos += r.omitidos;
+      const carpeta = carpetaDe(r);
       for (const a of r.archivos) {
         if (a.cifrado) cifrados += 1;
         salida.push({
-          nombreBase: nombrar(r.nombreRegistro),
+          nombreBase: nombrarEn(carpeta, r.nombreRegistro),
           nombreRegistro: r.nombreRegistro,
           tipo: 'consolidado',
           registroId: r.registroId,

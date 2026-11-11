@@ -361,7 +361,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // Las dos fichas describen procesos de más de 3 pasos o con decisiones: las dos llevan diagrama.
   const IMPUESTOS_13772: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
     // Bug #14532: Liquidación y Pagado, y descarga individual por fila (01-cola y 02-seleccion regeneradas).
-    flito_impuestos: { version: '1.7', fecha: '2026-11-11', diagrama: 'ciclo-impuesto.svg', capturas: [
+    flito_impuestos: { version: '1.8', fecha: '2026-11-11', diagrama: 'ciclo-impuesto.svg', capturas: [
       '01-cola.png', '02-seleccion.png', '03-carga-masiva.png', '04-validacion-runt.png', '05-detalle.png'] },
     flito_derechos: { version: '1.1', diagrama: 'canastas-de-carga.svg', capturas: [
       '01-resultado-de-la-carga.png', '02-drive.png', '03-registrados.png'] },
