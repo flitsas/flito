@@ -246,6 +246,55 @@ test.describe('FLITO — Tarifas › Proveedores · escritorio', () => {
     await expect(page.getByText('No hay proveedores activos.')).toBeVisible();
   });
 
+  test('cargando: lista, vista e historial muestran su esqueleto hasta que la respuesta llega', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockProveedores(page, { historial: [vig('h1', 'logistica', 'logistica', 45000)] });
+
+    /** Retiene un GET del módulo hasta `soltar()`; luego cae al mock base (`fallback`). */
+    const retener = async (coincide: (pathname: string) => boolean) => {
+      let soltar!: () => void;
+      const liberada = new Promise<void>((r) => { soltar = r; });
+      let llego!: () => void;
+      const pedida = new Promise<void>((r) => { llego = r; });
+      await page.route((url) => coincide(url.pathname), async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        llego();
+        await liberada;
+        return route.fallback();
+      });
+      return { soltar, pedida };
+    };
+
+    const lista = await retener((p) => p === BASE);
+    const vista = await retener((p) => p === `${BASE}/${ANDINA_ID}`);
+    const historial = await retener((p) => p === `${BASE}/${ANDINA_ID}/historial`);
+
+    await page.goto(`/flito/tarifas/proveedores/${ANDINA_ID}`);
+    await lista.pedida;
+    const cargandoLista = page.getByRole('status', { name: 'Cargando proveedores' });
+    await expect(cargandoLista).toBeVisible();
+    await expect(cargandoLista).toHaveAttribute('aria-busy', 'true');
+    lista.soltar();
+    await expect(page.getByRole('heading', { name: 'Proveedores (2)' })).toBeVisible();
+
+    await vista.pedida;
+    const cargandoVista = page.getByRole('status', { name: `Cargando los valores de ${ANDINA}` });
+    await expect(cargandoVista).toBeVisible();
+    await expect(cargandoVista).toHaveAttribute('aria-busy', 'true');
+    vista.soltar();
+    await expect(filaDe(page, 'Logística')).toContainText('$45.000');
+    await expect(cargandoVista).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Historial del proveedor' }).click();
+    await historial.pedida;
+    const cargandoHistorial = page.getByRole('status', { name: 'Cargando el historial' });
+    await expect(cargandoHistorial).toBeVisible();
+    await expect(cargandoHistorial).toHaveAttribute('aria-busy', 'true');
+    historial.soltar();
+    await expect(page.getByRole('region', { name: `Historial de ${ANDINA}` }).getByRole('table')).toContainText('Vigente');
+    await expect(cargandoHistorial).toHaveCount(0);
+  });
+
   test('proveedor sin servicios: vacío del panel', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
     await mockProveedores(page, { vista: { ...VISTA, filas: [] } });
