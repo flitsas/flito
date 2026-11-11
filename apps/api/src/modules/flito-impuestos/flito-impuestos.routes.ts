@@ -22,7 +22,9 @@ import {
   CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, nombrePorPlaca,
   resolverEntradasZip, tipoPorBytes, ZipError, zipSoportesLimiter,
 } from '../../shared/soportes/soportes-zip.js';
-import { consolidarPorRegistro, emitirZipConsolidado } from '../../shared/soportes/soportes-zip-consolidar.js';
+import {
+  CARPETAS_ZIP_IMPUESTOS, consolidarPorRegistro, emitirZipConsolidado,
+} from '../../shared/soportes/soportes-zip-consolidar.js';
 import {
   construirFilasExportImpuestos, nombreArchivoExportImpuestos,
 } from './flito-impuestos.export.service.js';
@@ -202,6 +204,13 @@ async function facturaFlit2(
 /**
  * POST /soportes/zip — factura de venta y/o recibo de impuesto de los marcados, en UN ZIP (AC3).
  *
+ * ── Formato (Bug #14532): una carpeta por tipo ───────────────────────────────────────────────────
+ *
+ * `facturas de venta/`, `liquidaciones/` y `liquidaciones pagadas/`, y dentro un PDF por placa con
+ * las piezas de ESE tipo (`liquidaciones pagadas/ABC123.pdf`; cifrado aparte como `ABC123-2.pdf`,
+ * desempate por carpeta). Solo existen las carpetas de los tipos marcados que aportaron algo:
+ * nunca una vacía. Trámites sigue con un PDF por registro en la raíz.
+ *
  * ── Sustituye a `POST /facturas-venta/zip`, que se RETIRA ────────────────────────────────────────
  *
  * Aquella ruta se queda sin llamadores con esta HU y no se conserva «por si acaso»: exportaba
@@ -247,9 +256,9 @@ router.post('/soportes/zip', exigirFuncion('impuestos.soportes.descargar'), zipS
     comprobarTopeRegistrosZip(parsed.data.ids);
     const registros = await registrosZipImpuestos(parsed.data.ids, ctx);
     const entradas = await resolverEntradasZip(registros, parsed.data.tipos);
-    // HU #12817: un PDF por impuesto, consolidado en disco ANTES del primer byte, aunque se pida
-    // un solo tipo (el nombre y el aviso de ilegibles se comportan igual pase lo que pase).
-    const zc = await consolidarPorRegistro(entradas);
+    // HU #12817 + Bug #14532: un PDF por (impuesto, tipo) en la carpeta de su tipo, consolidado en
+    // disco ANTES del primer byte (el nombre y el aviso de ilegibles salen igual pase lo que pase).
+    const zc = await consolidarPorRegistro(entradas, { carpetas: CARPETAS_ZIP_IMPUESTOS });
     try {
       // ANTES del primer byte, y esto es la deuda que la HU #11909 dejó abierta en este endpoint: el
       // zip de facturas auditaba con `audit()` pero NO llamaba a `registrarAccesoImpuesto`, así que un
