@@ -914,6 +914,10 @@ test.describe('Bug #14532 — descarga individual por fila en /flito/impuestos',
     const peticiones = await mockPdf(page);
 
     await page.goto('/flito/impuestos');
+    // Bug #14532: como en SOAT, el icono vive en la última celda, junto a «Ver», y no en la del trámite.
+    const celdaIcono = botonFila(page).locator('xpath=ancestor::td[1]');
+    await expect(celdaIcono.getByRole('button', { name: 'Ver', exact: true })).toBeVisible();
+    await expect(celdaIcono.locator('xpath=following-sibling::td')).toHaveCount(0);
     await botonFila(page).click();
 
     await expect(dialogo(page)).toBeVisible();
