@@ -79,12 +79,15 @@ describe.skipIf(!URL_BASE)('tarifas de proveedor (PostgreSQL)', () => {
   });
 
   describe('R6 — una sola abierta por concepto y sin solapes', () => {
-    it('segunda abierta del mismo concepto → 23505 de uq_flito_tarifas_prov_abierta, que el servicio traduce a 409', conTabla(async (tx) => {
+    it('segunda abierta del mismo concepto → choque de llave (23505 o 23P01), que el servicio traduce a 409', conTabla(async (tx) => {
       const p = await proveedor(tx);
       await abrir(tx, p, 'logistica', 100);
       let error: unknown;
       try { await tx.savepoint((sp) => abrir(sp as Tx, p, 'logistica', 200)); } catch (e) { error = e; }
-      expect(error).toMatchObject({ code: '23505', constraint_name: 'uq_flito_tarifas_prov_abierta' });
+      // Cuál de las dos llaves salta primero depende del orden de evaluación de los índices en PG
+      // (en la práctica, el EXCLUDE: 23P01). Las dos son el mismo choque y el servicio traduce ambas a 409.
+      expect([['23505', 'uq_flito_tarifas_prov_abierta'], ['23P01', 'flito_tarifas_prov_sin_solape']])
+        .toContainEqual([(error as { code?: string }).code, (error as { constraint_name?: string }).constraint_name]);
       expect(esChoqueDeLlaveCosto(error)).toBe(true);
     }));
 
@@ -132,7 +135,7 @@ describe.skipIf(!URL_BASE)('tarifas de proveedor (PostgreSQL)', () => {
   });
 
   describe('R6 — dos primeras fijaciones simultáneas (dos conexiones)', () => {
-    it('la segunda espera a la primera y falla con 23505, que el servicio traduce a 409', async () => {
+    it('la segunda espera a la primera y falla con choque de llave (23505 o 23P01), que el servicio traduce a 409', async () => {
       const limpieza = abrirBase();
       const a = abrirBase();
       const b = abrirBase();
@@ -156,7 +159,10 @@ describe.skipIf(!URL_BASE)('tarifas de proveedor (PostgreSQL)', () => {
         terminar();
         await primera;
         const error = await segunda;
-        expect(error).toMatchObject({ code: '23505', constraint_name: 'uq_flito_tarifas_prov_abierta' });
+        // Cuál de las dos llaves salta primero depende del orden de evaluación de los índices en PG
+        // (en la práctica, el EXCLUDE: 23P01). Las dos son el mismo choque y el servicio traduce ambas a 409.
+        expect([['23505', 'uq_flito_tarifas_prov_abierta'], ['23P01', 'flito_tarifas_prov_sin_solape']])
+          .toContainEqual([(error as { code?: string }).code, (error as { constraint_name?: string }).constraint_name]);
         expect(esChoqueDeLlaveCosto(error)).toBe(true);
         expect((await limpieza`SELECT count(*)::int AS c FROM flito_tarifas_proveedor_vigencias WHERE proveedor_id = ${p}`)[0]!.c).toBe(1);
       } finally {
