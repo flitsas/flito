@@ -42081,6 +42081,8 @@ paths:
                               type:
                                 - string
                                 - "null"
+                            servicioAsignado:
+                              type: boolean
                           required:
                             - id
                             - proveedorId
@@ -42093,6 +42095,7 @@ paths:
                             - fijadoEn
                             - cerradoPor
                             - cerradoEn
+                            - servicioAsignado
                       required:
                         - servicio
                         - concepto
@@ -42259,7 +42262,7 @@ paths:
               schema:
                 type: array
                 items:
-                  "$ref": "#/components/schemas/Forma-32465ff52c"
+                  "$ref": "#/components/schemas/Forma-79f4aa2f82"
         "400":
           description: Petición inválida.
           content:
@@ -42432,7 +42435,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-32465ff52c"
+                "$ref": "#/components/schemas/Forma-79f4aa2f82"
         "400":
           description: Petición inválida.
           content:
@@ -42595,7 +42598,7 @@ paths:
                 type: object
                 properties:
                   vigencia:
-                    "$ref": "#/components/schemas/Forma-32465ff52c"
+                    "$ref": "#/components/schemas/Forma-79f4aa2f82"
                   accion:
                     type: string
                     enum:
@@ -119644,79 +119647,6 @@ components:
         - scopeNits
         - resumen
         - iniciadoPor
-    Forma-32465ff52c:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        id:
-          type: string
-        proveedorId:
-          type: string
-        servicio:
-          type: string
-          enum:
-            - soat
-            - logistica
-        concepto:
-          type: string
-          enum:
-            - logistica
-            - soat_con_tramite
-            - soat_sin_tramite
-        valor:
-          type: number
-        vigenteDesde:
-          type: string
-        vigenteHasta:
-          type:
-            - string
-            - "null"
-        fijadoPor:
-          type:
-            - object
-            - "null"
-          properties:
-            id:
-              type: number
-            nombre:
-              type:
-                - string
-                - "null"
-          required:
-            - id
-            - nombre
-        fijadoEn:
-          type: string
-        cerradoPor:
-          type:
-            - object
-            - "null"
-          properties:
-            id:
-              type: number
-            nombre:
-              type:
-                - string
-                - "null"
-          required:
-            - id
-            - nombre
-        cerradoEn:
-          type:
-            - string
-            - "null"
-      required:
-        - id
-        - proveedorId
-        - servicio
-        - concepto
-        - valor
-        - vigenteDesde
-        - vigenteHasta
-        - fijadoPor
-        - fijadoEn
-        - cerradoPor
-        - cerradoEn
     Forma-3249eb9564:
       description: Forma que comparten varias operaciones.
       type: object
@@ -122709,6 +122639,82 @@ components:
         - valor
         - origen
         - bloquea
+    Forma-79f4aa2f82:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        proveedorId:
+          type: string
+        servicio:
+          type: string
+          enum:
+            - soat
+            - logistica
+        concepto:
+          type: string
+          enum:
+            - logistica
+            - soat_con_tramite
+            - soat_sin_tramite
+        valor:
+          type: number
+        vigenteDesde:
+          type: string
+        vigenteHasta:
+          type:
+            - string
+            - "null"
+        fijadoPor:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: number
+            nombre:
+              type:
+                - string
+                - "null"
+          required:
+            - id
+            - nombre
+        fijadoEn:
+          type: string
+        cerradoPor:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: number
+            nombre:
+              type:
+                - string
+                - "null"
+          required:
+            - id
+            - nombre
+        cerradoEn:
+          type:
+            - string
+            - "null"
+        servicioAsignado:
+          type: boolean
+      required:
+        - id
+        - proveedorId
+        - servicio
+        - concepto
+        - valor
+        - vigenteDesde
+        - vigenteHasta
+        - fijadoPor
+        - fijadoEn
+        - cerradoPor
+        - cerradoEn
+        - servicioAsignado
     Forma-7d269e222c:
       description: Forma que comparten varias operaciones.
       type: object

@@ -53,6 +53,12 @@ export interface VigenciaCostoProveedor {
   fijadoEn: string;
   cerradoPor: UsuarioCostoRef | null;
   cerradoEn: string | null;
+  /**
+   * `false` = el proveedor ya no presta el servicio de esta vigencia (perfil eliminado). Una abierta en ese estado queda
+   * LATENTE: no sale en la vista y, si el servicio se reasigna, vuelve con su valor. El historial la muestra con
+   * «Sin servicio asignado» en «Hasta» (decisión del humano, posterior a ADR-0041 D7). En la vista siempre es `true`.
+   */
+  servicioAsignado: boolean;
 }
 
 /** Una fila de la vista: `vigencia === null` es «Sin configurar»; `valor === 0` es un costo válido (R4). */
