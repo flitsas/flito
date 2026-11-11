@@ -41833,6 +41833,916 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  /api/flito/parametrizacion/tarifas-proveedores:
+    get:
+      operationId: get-api-flito-parametrizacion-tarifas-proveedores
+      tags:
+        - flito-parametrizacion
+      summary: GET /api/flito/parametrizacion/tarifas-proveedores
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-tarifas-proveedor.routes.ts. Exige la función: parametrizacion.tarifas.listar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.tarifas.listar
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    nombre:
+                      type: string
+                    servicios:
+                      type: array
+                      items:
+                        type: string
+                        enum:
+                          - soat
+                          - logistica
+                    conceptos:
+                      type: number
+                    faltan:
+                      type: number
+                  required:
+                    - id
+                    - nombre
+                    - servicios
+                    - conceptos
+                    - faltan
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/tarifas-proveedores/{proveedorId}":
+    get:
+      operationId: get-api-flito-parametrizacion-tarifas-proveedores-proveedorId
+      tags:
+        - flito-parametrizacion
+      summary: "GET /api/flito/parametrizacion/tarifas-proveedores/:proveedorId"
+      description: "`editar` exige las dos funciones de escritura porque la vista escribe por las dos rutas (POST fija, PATCH cambia/cierra). Fuente: apps/api/src/modules/flito-parametrizacion/flito-tarifas-proveedor.routes.ts. Exige la función: parametrizacion.tarifas.listar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.tarifas.listar
+      parameters:
+        - name: proveedorId
+          in: path
+          required: true
+          description: Parámetro proveedorId de la ruta.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  capacidades:
+                    type: object
+                    properties:
+                      editar:
+                        type: boolean
+                      verHistorial:
+                        type: boolean
+                    required:
+                      - editar
+                      - verHistorial
+                  filas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        servicio:
+                          type: string
+                          enum:
+                            - soat
+                            - logistica
+                        concepto:
+                          type: string
+                          enum:
+                            - logistica
+                            - soat_con_tramite
+                            - soat_sin_tramite
+                        vigencia:
+                          type:
+                            - object
+                            - "null"
+                          properties:
+                            id:
+                              type: string
+                            proveedorId:
+                              type: string
+                            servicio:
+                              type: string
+                              enum:
+                                - soat
+                                - logistica
+                            concepto:
+                              type: string
+                              enum:
+                                - logistica
+                                - soat_con_tramite
+                                - soat_sin_tramite
+                            valor:
+                              type: number
+                            vigenteDesde:
+                              type: string
+                            vigenteHasta:
+                              type:
+                                - string
+                                - "null"
+                            fijadoPor:
+                              type:
+                                - object
+                                - "null"
+                              properties:
+                                id:
+                                  type: number
+                                nombre:
+                                  type:
+                                    - string
+                                    - "null"
+                              required:
+                                - id
+                                - nombre
+                            fijadoEn:
+                              type: string
+                            cerradoPor:
+                              type:
+                                - object
+                                - "null"
+                              properties:
+                                id:
+                                  type: number
+                                nombre:
+                                  type:
+                                    - string
+                                    - "null"
+                              required:
+                                - id
+                                - nombre
+                            cerradoEn:
+                              type:
+                                - string
+                                - "null"
+                          required:
+                            - id
+                            - proveedorId
+                            - servicio
+                            - concepto
+                            - valor
+                            - vigenteDesde
+                            - vigenteHasta
+                            - fijadoPor
+                            - fijadoEn
+                            - cerradoPor
+                            - cerradoEn
+                      required:
+                        - servicio
+                        - concepto
+                        - vigencia
+                  proveedor:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      nombre:
+                        type: string
+                      activo:
+                        type: boolean
+                      eliminado:
+                        type: boolean
+                    required:
+                      - id
+                      - nombre
+                      - activo
+                      - eliminado
+                required:
+                  - capacidades
+                  - filas
+                  - proveedor
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/tarifas-proveedores/{proveedorId}/historial":
+    get:
+      operationId: get-api-flito-parametrizacion-tarifas-proveedores-proveedorId-historial
+      tags:
+        - flito-parametrizacion
+      summary: "GET /api/flito/parametrizacion/tarifas-proveedores/:proveedorId/historial"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-tarifas-proveedor.routes.ts. Exige la función: parametrizacion.tarifas.historial."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.tarifas.historial
+      parameters:
+        - name: proveedorId
+          in: path
+          required: true
+          description: Parámetro proveedorId de la ruta.
+          schema:
+            type: string
+        - name: concepto
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - logistica
+              - soat_con_tramite
+              - soat_sin_tramite
+          description: "Parámetro concepto, validado con el esquema de Zod de la ruta."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/Forma-32465ff52c"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - campo
+                      - code
+                  - type: object
+                    properties:
+                      campo:
+                        type: string
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/tarifas-proveedores/{proveedorId}/vigencias":
+    post:
+      operationId: post-api-flito-parametrizacion-tarifas-proveedores-proveedorId-vigencias
+      tags:
+        - flito-parametrizacion
+      summary: "POST /api/flito/parametrizacion/tarifas-proveedores/:proveedorId/vigencias"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-tarifas-proveedor.routes.ts. Exige la función: parametrizacion.tarifas.crear."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.tarifas.crear
+      parameters:
+        - name: proveedorId
+          in: path
+          required: true
+          description: Parámetro proveedorId de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                concepto:
+                  type: string
+                  enum:
+                    - logistica
+                    - soat_con_tramite
+                    - soat_sin_tramite
+                valor:
+                  type: number
+              required:
+                - concepto
+                - valor
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "201":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Forma-32465ff52c"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - campo
+                      - code
+                  - type: object
+                    properties:
+                      campo:
+                        type: string
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/tarifas-proveedores/vigencias/{vigenciaId}":
+    patch:
+      operationId: patch-api-flito-parametrizacion-tarifas-proveedores-vigencias-vigenciaId
+      tags:
+        - flito-parametrizacion
+      summary: "PATCH /api/flito/parametrizacion/tarifas-proveedores/vigencias/:vigenciaId"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-tarifas-proveedor.routes.ts. Exige la función: parametrizacion.tarifas.editar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.tarifas.editar
+      parameters:
+        - name: vigenciaId
+          in: path
+          required: true
+          description: Parámetro vigenciaId de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+        description: "[por verificar] El handler usa req.body, pero su forma no se puede derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vigencia:
+                    "$ref": "#/components/schemas/Forma-32465ff52c"
+                  accion:
+                    type: string
+                    enum:
+                      - cerrada
+                      - cambiada
+                      - sin_cambio
+                  valorAnterior:
+                    type: number
+                  valorNuevo:
+                    type:
+                      - number
+                      - "null"
+                required:
+                  - vigencia
+                  - accion
+                  - valorAnterior
+                  - valorNuevo
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - campo
+                      - code
+                  - type: object
+                    properties:
+                      campo:
+                        type: string
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
   "/api/flito/parametrizacion/tarifas/{id}":
     patch:
       operationId: patch-api-flito-parametrizacion-tarifas-id
@@ -118734,6 +119644,79 @@ components:
         - scopeNits
         - resumen
         - iniciadoPor
+    Forma-32465ff52c:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        proveedorId:
+          type: string
+        servicio:
+          type: string
+          enum:
+            - soat
+            - logistica
+        concepto:
+          type: string
+          enum:
+            - logistica
+            - soat_con_tramite
+            - soat_sin_tramite
+        valor:
+          type: number
+        vigenteDesde:
+          type: string
+        vigenteHasta:
+          type:
+            - string
+            - "null"
+        fijadoPor:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: number
+            nombre:
+              type:
+                - string
+                - "null"
+          required:
+            - id
+            - nombre
+        fijadoEn:
+          type: string
+        cerradoPor:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: number
+            nombre:
+              type:
+                - string
+                - "null"
+          required:
+            - id
+            - nombre
+        cerradoEn:
+          type:
+            - string
+            - "null"
+      required:
+        - id
+        - proveedorId
+        - servicio
+        - concepto
+        - valor
+        - vigenteDesde
+        - vigenteHasta
+        - fijadoPor
+        - fijadoEn
+        - cerradoPor
+        - cerradoEn
     Forma-3249eb9564:
       description: Forma que comparten varias operaciones.
       type: object

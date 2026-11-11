@@ -61,6 +61,7 @@ const LIQ = 'flito-liquidacion/flito-liquidacion.routes.ts';
 const PAR = 'flito-parametrizacion/flito-parametrizacion.routes.ts';
 const PLOG = 'flito-parametrizacion/flito-proveedores-logistica.routes.ts'; // HU #14103
 const PROV = 'flito-parametrizacion/flito-proveedores.routes.ts'; // HU #14332
+const TPROV = 'flito-parametrizacion/flito-tarifas-proveedor.routes.ts'; // Épica #13763 (ADR-0041)
 const SYN = 'flito-sync/flito-sync.routes.ts';
 const FL2 = 'flito-sync/flit2.routes.ts';
 const SYI = 'flito-sync/flito-sync-interruptores.routes.ts';
@@ -395,6 +396,12 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // HU #12373: `DELETE /tarifas/:id` (parametrizacion.tarifas.borrar) se retiró — una vigencia no se borra, se cierra.
   op(`${PAR} GET /tarifas/companias/:id`, 'parametrizacion.tarifas.ver_por_cliente', 'Ver las tarifas de una compañía', 'Consultar el valor vigente de cada concepto de una compañía y quién lo fijó.'),
   op(`${PAR} GET /tarifas/companias/:id/historial`, 'parametrizacion.tarifas.historial', 'Ver el historial de tarifas de una compañía', 'Consultar las vigencias pasadas y presentes de cada concepto, con quién las fijó y quién las cerró.'),
+  // Épica #13763 (ADR-0041 D8): costos de proveedor; reutilizan las funciones de las tarifas, sin funciones nuevas.
+  op(`${TPROV} GET /`, 'parametrizacion.tarifas.listar', 'Ver las tarifas', 'Consultar lo que se le cobra a cada compañía por cada concepto.'),
+  op(`${TPROV} GET /:proveedorId`, 'parametrizacion.tarifas.listar', 'Ver las tarifas', 'Consultar lo que se le cobra a cada compañía por cada concepto.'),
+  op(`${TPROV} GET /:proveedorId/historial`, 'parametrizacion.tarifas.historial', 'Ver el historial de tarifas de una compañía', 'Consultar las vigencias pasadas y presentes de cada concepto, con quién las fijó y quién las cerró.'),
+  op(`${TPROV} POST /:proveedorId/vigencias`, 'parametrizacion.tarifas.crear', 'Crear una tarifa', 'Fijar el precio de un concepto para una compañía.'),
+  op(`${TPROV} PATCH /vigencias/:vigenciaId`, 'parametrizacion.tarifas.editar', 'Editar una tarifa', 'Cambiar el precio o la vigencia de una tarifa.'),
   // HU #12541: catálogo de tipos de servicio adicional (baja lógica: sin DELETE ni reactivación).
   op(`${PAR} GET /servicios-adicionales`, 'parametrizacion.servicios_adicionales.listar', 'Ver los tipos de servicio adicional', 'Consultar el catálogo de tipos de servicio adicional y su valor.'),
   op(`${PAR} POST /servicios-adicionales`, 'parametrizacion.servicios_adicionales.crear', 'Crear un tipo de servicio adicional', 'Dar de alta un tipo de servicio adicional con su nombre, descripción y valor.'),
