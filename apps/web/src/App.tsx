@@ -274,6 +274,8 @@ function AppRoutes() {
             enlazar a una boleta, y un modal no es enlazable. */}
         <Route path="/flito/tarifas" element={<ProtectedRoute page="flito_tarifas"><Lazy><FlitoTarifas /></Lazy></ProtectedRoute>} />
         <Route path="/flito/tarifas/:companiaId" element={<ProtectedRoute page="flito_tarifas"><Lazy><FlitoTarifas /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/tarifas/proveedores" element={<ProtectedRoute page="flito_tarifas"><Lazy><FlitoTarifas /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/tarifas/proveedores/:proveedorId" element={<ProtectedRoute page="flito_tarifas"><Lazy><FlitoTarifas /></Lazy></ProtectedRoute>} />
         <Route path="/flito/servicios-adicionales" element={<ProtectedRoute page="flito_servicios_adicionales"><Lazy><FlitoServiciosAdicionales /></Lazy></ProtectedRoute>} />
         <Route path="/flito/conciliacion" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacion /></Lazy></ProtectedRoute>} />
         <Route path="/flito/conciliacion/:boletaId" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacionBoleta /></Lazy></ProtectedRoute>} />
