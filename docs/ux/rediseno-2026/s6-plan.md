@@ -78,3 +78,6 @@ Specs del shell (`auth`, `command-palette-claro/oscuro`, `kit-flit-tema-oscuro`,
 - Para no repetir los errores del briefing: c) chips propios con `etiquetaKit`; e) todos los velos van por las clases del
   Modal (RolFormModal, BorrarRolModal, formularios de usuario, Dr. Flit); g) los íconos lucide pasan a `<Icono>`;
   j) en los tests de aspecto se cambia el valor visual, nunca la lógica.
+- **Contrato con el menú de usuario (aprobado):** «Cambiar contraseña» navega a `/perfil?accion=contrasena` (sin PII).
+  Perfil abre el modal de contraseña al leer el parámetro y, al cerrarlo, lo limpia con `navigate(..., { replace: true })`
+  para que «atrás» no lo reabra. Lo cubre `perfil.spec.ts`.
