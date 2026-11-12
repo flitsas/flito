@@ -341,8 +341,8 @@ export function useExportCola(cola: ColaExportable, filtros: FiltrosExportCola):
 /**
  * El botón y su línea de ayuda, para el hueco de acciones de la cabecera.
  *
- * Secundario y sin icono: en estas dos colas el primario ya está ocupado por «Cargar facturas
- * (masivo)» / «Cargar recibos (masivo)», que es la acción del día.
+ * Secundario y sin icono: en estas dos colas el primario ya está ocupado por «Cargar comprobantes
+ * de SOAT (masivo)» / «Cargar recibos (masivo)», que es la acción del día.
  *
  * `aria-busy` además del texto: quien navega con lector no ve que el rótulo cambió, y «Preparando el
  * archivo…» sin `aria-busy` es solo otra etiqueta.

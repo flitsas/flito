@@ -314,9 +314,9 @@ test.describe('FLITO — Ayuda · índice', () => {
 test.describe('FLITO — Ayuda · buscar fichas (HU #11901; relevancia HU #13704)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('TC-11901-01 AC1 — proveedor: «Cargar factura» lista SOAT; URL sin query', async ({ page }) => {
+  test('TC-11901-01 AC1 — proveedor: «Cargar comprobante» lista SOAT; URL sin query', async ({ page }) => {
     await abrirAyuda(page, PROVEEDOR_USER);
-    await buscarFichas(page, 'Cargar factura');
+    await buscarFichas(page, 'Cargar comprobante');
     // HU #13704 (P9-1a): con consulta, una sola lista; el grupo es la etiqueta de la fila.
     await expect(resultados(page).getByRole('link', { name: 'Abrir ficha de SOAT, Gestión' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Gestión', exact: true })).toHaveCount(0);
@@ -324,11 +324,11 @@ test.describe('FLITO — Ayuda · buscar fichas (HU #11901; relevancia HU #13704
     urlIndiceSinQuery(page);
   });
 
-  test('TC-11901-02 AC1 — case-insensitive: «cargar factura» y «CARGAR FACTURA»', async ({ page }) => {
+  test('TC-11901-02 AC1 — case-insensitive: «cargar comprobante» y «CARGAR COMPROBANTE»', async ({ page }) => {
     await abrirAyuda(page, PROVEEDOR_USER);
-    await buscarFichas(page, 'cargar factura');
+    await buscarFichas(page, 'cargar comprobante');
     await expect(page.getByRole('link', { name: 'Abrir ficha de SOAT' })).toBeVisible();
-    await buscarFichas(page, 'CARGAR FACTURA');
+    await buscarFichas(page, 'CARGAR COMPROBANTE');
     await expect(page.getByRole('link', { name: 'Abrir ficha de SOAT' })).toBeVisible();
     urlIndiceSinQuery(page);
   });
@@ -390,9 +390,9 @@ test.describe('FLITO — Ayuda · buscar fichas (HU #11901; relevancia HU #13704
     await expect(campoBuscar(page)).toHaveCount(0);
   });
 
-  test('TC-11901-07 AC4 — admin «Cargar factura»: SOAT en la lista única, sin grupos', async ({ page }) => {
+  test('TC-11901-07 AC4 — admin «Cargar comprobante»: SOAT en la lista única, sin grupos', async ({ page }) => {
     await abrirAyuda(page, OPERACIONES_USER);
-    await buscarFichas(page, 'Cargar factura');
+    await buscarFichas(page, 'Cargar comprobante');
     // HU #13704: ya no es frase literal sino todas las palabras en algún campo, ordenado por
     // relevancia (Facturación electrónica · Operación declara «factura» en su encabezado y puede ir
     // antes). SOAT, que lo explica en su cuerpo, sigue en la lista; sin h2 de grupo.
@@ -421,14 +421,14 @@ test.describe('FLITO — Ayuda · buscar fichas (HU #11901; relevancia HU #13704
     await expect(page.getByRole('link', { name: 'Abrir ficha de SOAT' })).toBeVisible();
     await expect(page.getByText(COPY_CERO)).toHaveCount(0);
 
-    await buscarFichas(page, 'Cargar factura');
+    await buscarFichas(page, 'Cargar comprobante');
     urlIndiceSinQuery(page);
     await page.reload();
     await expect(campoBuscar(page)).toHaveValue('');
     await expect(page.getByRole('link', { name: 'Abrir ficha de SOAT' })).toBeVisible();
     urlIndiceSinQuery(page);
 
-    await buscarFichas(page, 'Cargar factura');
+    await buscarFichas(page, 'Cargar comprobante');
     await page.getByRole('link', { name: 'Abrir ficha de SOAT' }).click();
     await expect(page).toHaveURL(/\/flito\/ayuda\/soat$/);
     await expect(campoBuscar(page)).toHaveCount(0);
