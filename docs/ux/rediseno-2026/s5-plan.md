@@ -126,3 +126,10 @@ Ninguna bloqueante. Glifos de subpáginas: se eligen al migrar y, si alguno no e
 
 App local en el puerto **515** (`npm run dev -w apps/web -- --port 515`; si el SO lo rechaza por ser <1024, uso 5155 y lo
 declaro). Capturas en `docs/ux/rediseno-2026/s5/` a 1280 px, 375 px y tema oscuro, contra el molde de la propuesta.
+
+## Hallazgos funcionales (no corregidos)
+
+Regla del humano (2026-11-12): aquí solo se rediseña. Un defecto de permisos, lógica o datos no se corrige ni se radica;
+se anota aquí y pasa a la sección del mismo nombre del HANDOFF.
+
+- (ninguno aún)
