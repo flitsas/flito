@@ -50,6 +50,6 @@ test.describe('HU #12170 — botones por función efectiva', () => {
     ] });
     await page.goto('/flito/soat');
     await expect(page.getByRole('link', { name: 'Solicitar SOAT' }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: /Cargar facturas/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Cargar comprobantes de SOAT/i })).toHaveCount(0);
   });
 });

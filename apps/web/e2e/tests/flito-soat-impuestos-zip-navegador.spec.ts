@@ -396,7 +396,7 @@ test.describe('HU #12056 — el ZIP se abre en el navegador', () => {
     });
 
     await page.goto('/flito/soat');
-    await page.getByRole('button', { name: 'Cargar facturas (masivo)' }).click();
+    await page.getByRole('button', { name: 'Cargar comprobantes de SOAT (masivo)' }).click();
     const modal = page.getByRole('dialog');
     await modal.locator('input[type="file"]').setInputFiles([archivoZip('agosto.zip', await zipCon(DOCE_RECIBOS))]);
     await modal.getByRole('button', { name: 'Subir y procesar' }).click();

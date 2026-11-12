@@ -90,7 +90,7 @@ test.describe('HU #12051 — tandas de carga masiva', () => {
     });
 
     await page.goto('/flito/soat');
-    await page.getByRole('button', { name: 'Cargar facturas (masivo)' }).click();
+    await page.getByRole('button', { name: 'Cargar comprobantes de SOAT (masivo)' }).click();
     const modal = page.getByRole('dialog');
     await modal.locator('input[type="file"]').setInputFiles(archivos(12));
     await modal.getByRole('button', { name: 'Subir y procesar' }).click();
@@ -122,7 +122,7 @@ test.describe('HU #12051 — tandas de carga masiva', () => {
     });
 
     await page.goto('/flito/soat');
-    await page.getByRole('button', { name: 'Cargar facturas (masivo)' }).click();
+    await page.getByRole('button', { name: 'Cargar comprobantes de SOAT (masivo)' }).click();
     const modal = page.getByRole('dialog');
     await modal.locator('input[type="file"]').setInputFiles(archivos(5));
     await modal.getByRole('button', { name: 'Subir y procesar' }).click();
@@ -154,7 +154,7 @@ test.describe('HU #12051 — tandas de carga masiva', () => {
     });
 
     await page.goto('/flito/soat');
-    await page.getByRole('button', { name: 'Cargar facturas (masivo)' }).click();
+    await page.getByRole('button', { name: 'Cargar comprobantes de SOAT (masivo)' }).click();
     const modal = page.getByRole('dialog');
     await modal.locator('input[type="file"]').setInputFiles(archivos(12));
     await modal.getByRole('button', { name: 'Subir y procesar' }).click();
