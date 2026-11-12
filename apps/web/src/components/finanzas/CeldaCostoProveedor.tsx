@@ -38,12 +38,14 @@ export function textoEstadoCosto(c: CostoProveedorConcepto): string {
 }
 
 /** Por qué el estado es el que es: va al `title` y al nombre accesible, nunca pegado al valor. */
-function explicacion(c: CostoProveedorConcepto, f: Fila): string | null {
+function explicacion(c: CostoProveedorConcepto, f: Fila, concepto: ConceptoCosto): string | null {
   switch (c.estado) {
     case 'estimado': return 'estimado: el trámite se liquidó antes de que FLITO guardara este costo';
     case 'costo': return f.sellada ? null : 'estimado: puede cambiar hasta que se liquide';
     case 'sin_configurar': return 'El proveedor no tiene costo configurado. No impide liquidar.';
-    case 'sin_proveedor': return 'Este trámite no tuvo entrega con proveedor.';
+    case 'sin_proveedor': return concepto === 'soat'
+      ? 'El SOAT de este trámite no pasó por un proveedor de FLITO.'
+      : 'Este trámite no tuvo entrega con proveedor.';
     case 'gestionado_operaciones': return 'SOAT en contingencia: lo gestiona Operaciones.';
     case 'ya_contado': return `El SOAT es compartido y su costo se cargó al trámite ${c.contadoEnIdFlit ?? ''}.`.trim();
   }
@@ -55,7 +57,7 @@ export function accesibleCosto(f: Fila, concepto: ConceptoCosto): string {
   const valor = c.valor !== null ? pesos(c.valor) : textoEstadoCosto(c);
   const partes = [`Costo proveedor ${NOMBRE[concepto]}: ${valor}`];
   if (c.proveedor) partes.push(c.proveedor);
-  const porque = explicacion(c, f);
+  const porque = explicacion(c, f, concepto);
   if (porque && c.valor !== null) partes.push(porque);
   return partes.join(', ') + (porque && c.valor === null ? `. ${porque}` : '');
 }

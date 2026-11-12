@@ -3658,6 +3658,31 @@ test.describe('Reporte de costos — rediseño y costo de proveedor (Épica #137
     await expect(page.getByRole('region', { name: 'Reporte de costos, detalle' }).getByRole('table').locator('tbody')).not.toContainText(/estimado|parcial/i);
   });
 
+  test('«Sin proveedor» se explica según el concepto: el SOAT no habla de una entrega', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const filas = [
+      ...FILAS_COSTO,
+      {
+        ...FILA_ESTIMADA, tramiteId: 'cccc0000-0000-0000-0000-000000000008', idFlit: 'FLIT-3008',
+        costoProveedorSoat: costo(null, null, 'sin_proveedor'), costoProveedorTotal: 35000,
+      },
+    ];
+    await mockRediseno(page, { ...REPORTE, items: filas, total: filas.length });
+    await page.goto('/finanzas/reporte-costos');
+
+    const soat = await celda(page, 'FLIT-3008', 'Costo SOAT');
+    await expect(soat).toHaveText('Sin proveedor');
+    await expect(soat).toHaveAttribute('aria-label', /El SOAT de este trámite no pasó por un proveedor de FLITO\./);
+    await expect(soat).toHaveAttribute('title', /El SOAT de este trámite no pasó por un proveedor de FLITO\./);
+    await expect(soat).not.toHaveAttribute('aria-label', /entrega/);   // mutante: la frase de logística para los dos
+    await expect(soat).not.toHaveAttribute('title', /entrega/);
+
+    const logistica = await celda(page, 'FLIT-3004', 'Costo logística');
+    await expect(logistica).toHaveText('Sin proveedor');
+    await expect(logistica).toHaveAttribute('aria-label', /no tuvo entrega con proveedor/);
+    await expect(logistica).not.toHaveAttribute('aria-label', /SOAT/);
+  });
+
   test('«Liquidación» queda vacía sin liquidar, y dice Liquidado o Facturado cuando lo está', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockRediseno(page);
