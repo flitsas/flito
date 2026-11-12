@@ -250,8 +250,16 @@ export async function leerSeveridades(raiz, reglas) {
   return severidades;
 }
 
+// En CI el job `lint` corre antes `eslint . --cache` con la misma ubicación y estrategia: con
+// ESLINT_CACHE_LOCATION definida, esta segunda pasada lee los resultados de esa caché en vez de
+// volver a analizar el repo entero (~40 s). Sin la variable (local, tests) no se usa caché.
+export function opcionesCache(env) {
+  const ubicacion = env.ESLINT_CACHE_LOCATION;
+  return ubicacion ? { cache: true, cacheLocation: ubicacion, cacheStrategy: 'content' } : {};
+}
+
 async function medir(raiz) {
-  const eslint = new ESLint({ cwd: raiz, warnIgnored: false });
+  const eslint = new ESLint({ cwd: raiz, warnIgnored: false, ...opcionesCache(process.env) });
   return contarWarnings(await eslint.lintFiles(listarArchivosVersionados(raiz)));
 }
 
