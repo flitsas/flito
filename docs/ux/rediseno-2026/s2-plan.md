@@ -79,9 +79,16 @@ Delegación prevista: `frontend-agent` por bloque (1–4) dentro del worktree, a
 - **D4** S0 trae `FileDrop` (`.carga` → `.carga--lista`) y `VisorPdf`.
 - **D5** Sin respuesta explícita: se aplica `PasosHorizontal` solo si la página ya tiene pasos; si es formulario por bloques, se viste por bloques (regla k: no se cambia el flujo).
 - **D6** `Soat.tsx` entra completo.
-- **D7** Tonos del kit para las 6 canastas: info, warn, ok, radicado, neutro, danger. El orden choca con el sentido actual
-  del código (`Registrados=success`, `Sin trámite asociado=active`); propuesta semántica en consulta con `flit-de`:
-  Registrados=ok, En revisión=warn, Sin trámite asociado=info, Duplicados=radicado, Páginas omitidas=neutro, Fallidos=danger.
+- **D7** Canastas de Derechos (decisión de `flit-de`, aprobada por el integrador; el orden actual se conserva):
+  | Canasta | Tono | Glifo |
+  |---|---|---|
+  | Registrados | ok (verde) | `doble-check` («confirmado») |
+  | En revisión | warn (naranja) | `espera` |
+  | Sin trámite asociado | info (azul) | `tramites` (o `aviso-info.svg`) |
+  | Duplicados | amarillo, tono «revocado»: `--c` #F9AC00, `--ct` #8B6000; oscuro #F9AC00 en ambos | `papelera` (el duplicado por hash se descarta, no se registra) |
+  | Páginas omitidas | neutro #5E6A7B | `menos` |
+  | Fallidos | danger (rojo) | `alerta` («error») |
+  Turquesa (radicado) **no**: en el kit es un resultado positivo.
 - **D8** El integrador pidió modo cursor para la Paginación del kit.
 - Extraer subcomponentes nuevos con prefijo del módulo en `components/flito/` para bajar `FlitoImpuestos.tsx`: aprobado; su
   techo en `eslint.config.mjs` se ajusta **hacia abajo** (solo esa línea).
