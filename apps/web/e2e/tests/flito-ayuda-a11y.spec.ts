@@ -163,7 +163,7 @@ test.describe('FLITO — Ayuda · AC6 búsqueda (HU #11901)', () => {
   test('TC-11901-13 AC6 — coincidencia: contraste de fila filtrada y controles con nombre', async ({ page }) => {
     await abrirAyuda(page, PROVEEDOR_USER);
     const campo = page.getByRole('searchbox', { name: 'Buscar fichas' });
-    await campo.fill('Cargar factura');
+    await campo.fill('Cargar comprobante');
     const fila = page.getByRole('link', { name: 'Abrir ficha de SOAT' });
     await expect(fila).toBeVisible();
     expect(await ratioDe(page, fila.getByText('SOAT', { exact: true }), fila)).toBeGreaterThanOrEqual(MINIMO);

@@ -421,7 +421,7 @@ export default function FlitoSoat() {
             {puedeCargaMasiva && (
               <button type="button" className={`${flitBtnPrimary} ${ACCION_CABECERA}`} style={flitBtnPrimaryStyle} onClick={() => setCargaMasiva(true)}>
                 <Upload size={16} aria-hidden="true" className="shrink-0" />
-                Cargar facturas (masivo)
+                Cargar comprobantes de SOAT (masivo)
               </button>
             )}
             {/* La ÚNICA acción primaria que el Cliente tiene en todo el producto (HU #11914).
@@ -435,7 +435,7 @@ export default function FlitoSoat() {
                 Solicitar SOAT
               </Link>
             )}
-            {/* Secundario y después del primario: la acción del día de esta cola es cargar facturas,
+            {/* Secundario y después del primario: la acción del día de esta cola es cargar comprobantes de SOAT,
                 no descargar. Al auditor NO se le pinta deshabilitado — no se pinta. */}
             {puedeExportar && (
               <BotonExportarCola

@@ -1,4 +1,4 @@
-// Carga masiva de facturas SOAT (modal). HU #12819 (§13): copy sin mecánica interna (tandas, OCR,
+// Carga masiva de comprobantes de SOAT (modal). HU #12819 (§13): copy sin mecánica interna (tandas, OCR,
 // umbral), icono en la primaria, error con token de par oscuro y hover de fila en el resultado.
 
 import { useState } from 'react';
@@ -38,7 +38,7 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
   };
 
   return (
-    <FlitModal title="Carga masiva de facturas SOAT" onClose={resultado ? onListo : onClose} wide>
+    <FlitModal title="Carga masiva de comprobantes de SOAT" onClose={resultado ? onListo : onClose} wide>
       {!resultado ? (
         <div className="space-y-3">
           <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>

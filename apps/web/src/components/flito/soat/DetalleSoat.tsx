@@ -113,7 +113,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
   const subirFactura = (file: File) => ejecutar(() => {
     const form = new FormData(); form.append('archivo', file);
     return api.post(`/flito/soat/${soat.id}/factura`, form);
-  }, 'cargar la factura', `Factura cargada para ${placa}.`);
+  }, 'cargar el comprobante de SOAT', `Comprobante de SOAT cargado para ${placa}.`);
 
   const formMotivo = (etiqueta: string, ruta: string, cuerpo: Record<string, unknown>, queSeIntento: string, exito: string,
     opciones: { minLen?: number; deshabilitado?: boolean } = {}) => (
@@ -165,7 +165,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
         )}
         {error && <p role="alert" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
 
-        {/* 3 · la acción del estado: UNA primaria («Cargar factura»). En `con_novedad`, «Reactivar»
+        {/* 3 · la acción del estado: UNA primaria («Cargar comprobante de SOAT»). En `con_novedad`, «Reactivar»
             va secundaria: la decisión entre reactivar, devolver o reversar la toma la persona. */}
         {hayAccionDelEstado && accion === 'idle' && (
           <div className="flex flex-wrap gap-2">
@@ -175,7 +175,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
               <label className={`${flitBtnPrimary} cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-[color:var(--flit-border-focus)]`}
                 style={flitBtnPrimaryStyle}>
                 <FileUp size={16} aria-hidden="true" className="shrink-0" />
-                {enviando ? 'Cargando…' : 'Cargar factura'}
+                {enviando ? 'Cargando…' : 'Cargar comprobante de SOAT'}
                 <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="sr-only" disabled={enviando}
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) subirFactura(f); e.target.value = ''; }} />
               </label>

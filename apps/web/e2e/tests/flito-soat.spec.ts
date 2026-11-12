@@ -1198,7 +1198,7 @@ test.describe('HU #12819 — los botones del kit reaccionan al puntero (§9)', (
     await page.goto('/flito/soat');
     await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
 
-    const primaria = page.getByRole('button', { name: 'Cargar facturas (masivo)' });
+    const primaria = page.getByRole('button', { name: 'Cargar comprobantes de SOAT (masivo)' });
     const secundaria = page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver', exact: true });
     await expect(primaria).toHaveAttribute('class', /hover:shadow-\[inset_0_0_0_999px_var\(--flit-veil-press-hover\)\]/);
     await expect(secundaria).toHaveAttribute('class', /hover:bg-\[var\(--flit-bg-hover\)\]/);
