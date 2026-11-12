@@ -39,6 +39,11 @@ export interface OpcionMenuFila {
   motivo?: string;
   /** `false`: elegirla no cierra el menú (p. ej. reintentar una comprobación). Por defecto `true`. */
   cierra?: boolean;
+  /**
+   * Nombre accesible más completo que el texto visible («Servicios adicionales de 10231: 2
+   * asignados»). Sin él, el nombre es el `texto`. Rediseño del Reporte de costos (Épica #13763).
+   */
+  nombreAccesible?: string;
 }
 
 interface Props {
@@ -212,7 +217,8 @@ export function MenuFila({ etiqueta, opciones, onAbrir }: Props) {
                 role="menuitem"
                 tabIndex={-1}
                 aria-disabled={o.deshabilitada ? true : undefined}
-                aria-labelledby={idTexto}
+                aria-label={o.nombreAccesible}
+                aria-labelledby={o.nombreAccesible ? undefined : idTexto}
                 aria-describedby={o.motivo ? idMotivo : undefined}
                 onClick={() => elegir(o)}
                 onMouseEnter={() => setActivo(i)}

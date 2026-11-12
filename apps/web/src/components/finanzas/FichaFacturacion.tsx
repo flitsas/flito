@@ -103,7 +103,7 @@ export default function FichaFacturacion(
         {/* Estado y AC3 — cuándo se comprobó, sin prometer una consulta en vivo. */}
         <section className="flex flex-wrap items-center gap-3">
           <StatusChip tone={ficha.estado === 'aceptado' ? 'success'
-            : ficha.estado === 'rechazado' || ficha.estado === 'fallido' ? 'danger'
+            : ficha.estado === 'rechazado' || ficha.estado === 'fallido' ? 'warning'
               : ficha.estado === 'no_enviado' ? 'draft' : 'active'}>
             {SIIGO_ESTADO_REPORTE_ETIQUETA[ficha.estado]}
           </StatusChip>
@@ -149,7 +149,7 @@ export default function FichaFacturacion(
         {ficha.estado === 'rechazado' && (
           <section className="rounded-lg px-3 py-2"
             style={{ background: 'rgba(228, 61, 48, 0.08)' }}>
-            <div className="mb-1 text-xs font-semibold" style={{ color: 'var(--flit-danger)' }}>
+            <div className="mb-1 text-xs font-semibold" style={{ color: 'var(--flit-warning-text)' }}>
               Motivo del rechazo
             </div>
             {ficha.motivo
@@ -178,7 +178,7 @@ export default function FichaFacturacion(
 
           {errorEnvios && (
             <div className="flex items-center gap-2">
-              <span style={{ color: 'var(--flit-danger)' }}>No se pudo consultar: {errorEnvios}</span>
+              <span style={{ color: 'var(--flit-warning-text)' }}>No se pudo consultar: {errorEnvios}</span>
               <button type="button" className={flitBtnSecondarySm}
                 style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
                 onClick={() => void cargarEnvios()}>Reintentar</button>

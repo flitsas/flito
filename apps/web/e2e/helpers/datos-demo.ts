@@ -574,6 +574,18 @@ const SIN_DOCUMENTAL = {
   valorDocumental: { tramiteDigital: null, logistica: null, serviciosAdicionales: null },
 };
 
+/**
+ * Costo de proveedor de un concepto (Épica #13763): lo que FLITO le paga al proveedor. Nombres de
+ * proveedor demo: la aseguradora del catálogo demo y una transportadora «Demo».
+ */
+const TRANSPORTADORA_DEMO = 'Transportes Demo Norte';
+function costoDemo(proveedor: string | null, valor: number | null, estado = 'costo', extra: Record<string, unknown> = {}) {
+  return {
+    estado, proveedorId: proveedor ? 'prov-demo-1' : null, proveedor, vigenciaId: null, valor, fechaReferencia: null,
+    contadoEnTramiteId: null, contadoEnIdFlit: null, ...extra,
+  };
+}
+
 function filaCostos(i: number, p: Record<string, unknown>) {
   const placa = DATOS_DEMO.placas[(i - 1) % 3];
   return {
@@ -587,7 +599,9 @@ function filaCostos(i: number, p: Record<string, unknown>) {
     titularNombres: null, titularApellidos: null, titularRazonSocial: EMPRESAS_DEMO[(i - 1) % 3], titularTipoDocumento: 'NIT',
     titularDocumento: DATOS_DEMO.nits[(i - 1) % 3], organismoCodigo: '17001000', organismoNombre: ORGANISMOS_REALES[0],
     mes: '2026-10', trimestre: '2026-T4', totalReintegro: 943760, totalServicio: 150000, serviciosAdicionales: null,
-    serviciosAdicionalesCantidad: 0, logisticaViajesCantidad: 1, ...SIN_DOCUMENTAL, ...p,
+    serviciosAdicionalesCantidad: 0, logisticaViajesCantidad: 1,
+    costoProveedorSoat: costoDemo(ASEGURADORAS_DEMO[0], 52000), costoProveedorLogistica: costoDemo(TRANSPORTADORA_DEMO, 30000),
+    costoProveedorTotal: 82000, ...SIN_DOCUMENTAL, ...p,
   };
 }
 
@@ -607,15 +621,28 @@ const TOTALES_CLIENTE: Totales[] = [
 ];
 const TOTALES_COSTOS = sumar(...TOTALES_CLIENTE);
 
+/** Costo de proveedor agregado (sin margen, aparte del cobro). Un trámite con el SOAT sin configurar: suma parcial. */
+const COSTOS_PROVEEDOR_CLIENTE = [
+  { costoProveedorSoat: 104000, costoProveedorLogistica: 60000, costoProveedorTotal: 164000, tramitesCostoSinConfigurar: 0 },
+  { costoProveedorSoat: 0, costoProveedorLogistica: 30000, costoProveedorTotal: 30000, tramitesCostoSinConfigurar: 1 },
+  { costoProveedorSoat: 52000, costoProveedorLogistica: 30000, costoProveedorTotal: 82000, tramitesCostoSinConfigurar: 0 },
+];
+const COSTOS_PROVEEDOR = {
+  costoProveedorSoat: 156000, costoProveedorLogistica: 120000, costoProveedorTotal: 276000, tramitesCostoSinConfigurar: 1,
+};
+
 export const REPORTE_COSTOS_DEMO = {
-  total: 4, page: 1, pageSize: 50, totales: TOTALES_COSTOS,
+  total: 4, page: 1, pageSize: 50, totales: TOTALES_COSTOS, totalesCostosProveedor: COSTOS_PROVEEDOR,
   resumen: { listo: 1, incompleto: 1, porFacturar: 1, facturado: 1 },
   items: [
     filaCostos(1, {}),
-    filaCostos(2, { impuesto: null, sinRecibo: ['Impuesto'], total: null, totalReintegro: null }),
+    filaCostos(2, { impuesto: null, sinRecibo: ['Impuesto'], total: null, totalReintegro: null,
+      costoProveedorSoat: costoDemo(ASEGURADORAS_DEMO[1], null, 'sin_configurar'), costoProveedorTotal: 30000 }),
     filaCostos(3, { sellada: true, estadoLiquidacion: 'liquidado', serviciosAdicionales: 60000, serviciosAdicionalesCantidad: 1,
       totalServicio: 210000, total: 1153760 }),
     filaCostos(4, { sellada: true, estadoLiquidacion: 'facturado', estadoFacturacion: 'aceptado', facturaNumero: 'DEMO-104',
+      costoProveedorLogistica: costoDemo(null, null, 'ya_contado', { contadoEnTramiteId: 'tr-demo-1', contadoEnIdFlit: 'FLIT-DEMO-1' }),
+      costoProveedorTotal: 52000,
       placa: DATOS_DEMO.placas[0], empresa: EMPRESAS_DEMO[0], titularRazonSocial: EMPRESAS_DEMO[0], titularDocumento: DATOS_DEMO.nits[0],
       vin: DATOS_DEMO.vins[0], soatConciliado: true, boletaReferencia: 'BOL-DEMO-3', soatConciliadoEn: '2026-10-15T16:00:00.000Z' }),
   ],
@@ -650,9 +677,9 @@ export const REPORTE_FACETAS_DEMO = {
 };
 
 export const REPORTE_CONSOLIDADO_DEMO = {
-  periodo: 'mes', totales: TOTALES_COSTOS,
+  periodo: 'mes', totales: { ...TOTALES_COSTOS, ...COSTOS_PROVEEDOR },
   items: EMPRESAS_DEMO.map((e, i) => ({
-    ...TOTALES_CLIENTE[i], clienteClave: String(901 + i), clienteNombre: e, periodo: '2026-10', tramites: i === 0 ? 2 : 1,
+    ...TOTALES_CLIENTE[i], ...COSTOS_PROVEEDOR_CLIENTE[i], clienteClave: String(901 + i), clienteNombre: e, periodo: '2026-10', tramites: i === 0 ? 2 : 1,
   })),
 };
 

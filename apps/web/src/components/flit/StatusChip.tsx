@@ -23,10 +23,15 @@ export type ChipTone = 'success' | 'active' | 'warning' | 'danger' | 'draft' | '
  *   neutral 4.39 → 4.52 (hereda el nuevo --flit-text-muted) · draft 4.75 (sin cambio).
  */
 const TONE: Record<ChipTone, { fg: string; dot: string; bg: string }> = {
-  success: { fg: 'var(--flit-success-ink)',      dot: 'var(--flit-success)',          bg: 'var(--flit-chip-success-bg)' },
-  active:  { fg: 'var(--flit-blue-ink)',         dot: 'var(--flit-info)',             bg: 'var(--flit-chip-active-bg)' },
-  warning: { fg: 'var(--flit-warning-ink)',      dot: 'var(--flit-warning)',          bg: 'var(--flit-chip-warning-bg)' },
-  danger:  { fg: 'var(--flit-danger-ink)',       dot: 'var(--flit-danger)',           bg: 'var(--flit-chip-danger-bg)' },
+  // Épica #13763: la tinta sale de `--flit-chip-*-ink` y no del `-ink` de marca. En claro valen lo
+  // mismo (el chip claro no cambia); en oscuro el `-ink` no tiene par a propósito (#11766), así que
+  // el chip necesitaba su propio token para pasar a fondo oscuro sin quedarse en pastel.
+  success: { fg: 'var(--flit-chip-success-ink)', dot: 'var(--flit-success)',          bg: 'var(--flit-chip-success-bg)' },
+  active:  { fg: 'var(--flit-chip-active-ink)',  dot: 'var(--flit-info)',             bg: 'var(--flit-chip-active-bg)' },
+  // El punto de `warning` toma la tinta y no `--flit-warning` (#F05A35, rojo anaranjado): junto al
+  // fondo crema, el chip de atención deja de leerse como rojo (Épica #13763).
+  warning: { fg: 'var(--flit-chip-warning-ink)', dot: 'var(--flit-chip-warning-ink)', bg: 'var(--flit-chip-warning-bg)' },
+  danger:  { fg: 'var(--flit-chip-danger-ink)',  dot: 'var(--flit-danger)',           bg: 'var(--flit-chip-danger-bg)' },
   // HU #12819: `draft` y `neutral` tenían la tinta del TEMA (`--flit-draft`, `--flit-text-muted`),
   // que en oscuro se aclara, sobre un fondo pastel que no cambia: «Pendiente» era ilegible. Tinta
   // y fondo salen ahora de tokens `--flit-chip-*`, con par oscuro y medidos por `check:contraste`.

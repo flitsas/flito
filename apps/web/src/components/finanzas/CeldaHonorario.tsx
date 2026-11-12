@@ -14,7 +14,7 @@
 // Qué NO decide: el importe. En trámite digital y logística el API ya manda el documental
 // (`COALESCE`); en servicios adicionales manda Σ catálogo. Aquí solo se dice de dónde vino.
 
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import StatusChip from '../flit/StatusChip';
 import Monto from './Monto';
 import type { Falta, Fila } from './tiposReporteCostos';
@@ -71,14 +71,16 @@ export function ChipsDocumentales({ fila, concepto }: { fila: Fila; concepto: Co
 }
 
 /**
- * Trámite digital y logística. Sin importe (`No configurado`, `Autogestiona`, `—`) la celda es la
+ * Trámite digital y logística. Sin importe (`Sin configurar`, `Autogestiona`, `—`) la celda es la
  * de siempre y sin chips: el origen solo acompaña a un importe (regla 2.1-5 del slim).
  */
-export default function CeldaHonorario({ fila, concepto, valor, falta }: {
+export default function CeldaHonorario({ fila, concepto, valor, falta, className = '', style }: {
   fila: Fila; concepto: 'tramiteDigital' | 'logistica'; valor: number | null; falta: Falta | undefined;
+  /** El borde de grupo que la tabla añade con `cloneElement` (rediseño, Épica #13763). */
+  className?: string; style?: CSSProperties;
 }) {
   return (
-    <td className="px-3 py-2 text-right tabular-nums">
+    <td className={`px-3 py-2 text-right tabular-nums ${className}`} style={style}>
       <Monto v={valor} falta={falta} />
       {valor !== null && <ChipsDocumentales fila={fila} concepto={concepto} />}
     </td>

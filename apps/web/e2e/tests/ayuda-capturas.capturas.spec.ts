@@ -1028,31 +1028,67 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-DEMO-1').first()).toBeVisible();
 
-    // Pasos 1 y 2 — Etapas, filtros y periodo.
+    // Paso 1 — Etapas, Periodo, búsqueda, «Más filtros» y los chips de lo puesto.
+    await sinFoco(page);
     await capturar(page, dir, '01-filtros-y-periodo');
 
-    // Pasos 3 y 4 — La tabla compacta con sus tres secciones y los valores.
-    await page.getByText('FLIT-DEMO-1').first().evaluate((el) => el.scrollIntoView({ block: 'center' }));
-    const mostrarBarra = await sinBarraFlotante(page); // tapaba la última fila
-    await capturar(page, dir, '02-tabla');
+    // Paso 2 — «Más filtros» abierto, con «Costo de proveedor sin configurar».
+    const masFiltros = page.locator('summary').filter({ hasText: 'Más filtros' });
+    await masFiltros.click();
+    await expect(page.getByRole('checkbox', { name: 'Costo de proveedor sin configurar' })).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '02-mas-filtros');
+    await page.keyboard.press('Escape');
+    if (await masFiltros.evaluate((el) => (el.parentElement as HTMLDetailsElement).open)) await masFiltros.click();
+
+    // Paso 3 — La tabla por defecto: Esencial y Cobro al cliente.
+    const region = page.getByRole('region', { name: 'Reporte de costos, detalle' });
+    // Recorte a la tarjeta de la tabla (con su barra y la paginación): a 1280 px, encima van los
+    // filtros, los contadores y el envío, y la página no da para dejarla bajo la barra superior.
+    const tarjetaTabla = page.locator('div.bg-flit-card').filter({ has: page.locator('summary').filter({ hasText: 'Columnas' }) }).last();
+    await tarjetaTabla.scrollIntoViewIfNeeded();
+    const mostrarBarra = await sinBarraFlotante(page); // tapaba la última fila y el pie
+    await sinFoco(page);
+    await capturar(page, dir, '03-tabla', tarjetaTabla);
+
+    // Paso 4 — El panel «Columnas», con sus grupos y «Restablecer columnas».
+    const columnas = page.locator('summary').filter({ hasText: 'Columnas' });
+    await columnas.click();
+    await expect(page.getByRole('button', { name: 'Restablecer columnas' })).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '04-columnas', columnas.locator('xpath=following-sibling::div[1]'));
+    await columnas.click();
+
+    // Paso 5 — El grupo «Costo de proveedor», con su pie de totales del filtro.
+    // Justo hasta «Costo SOAT»: las columnas fijas (casilla, Trámite, Placa) tapan lo que queda a su izquierda.
+    await region.evaluate((el) => {
+      const ths = [...el.querySelectorAll('thead tr:nth-child(2) th')] as HTMLElement[];
+      const placa = ths.find((t) => t.textContent?.trim() === 'Placa');
+      const costo = ths.find((t) => t.textContent?.trim() === 'Costo SOAT');
+      if (placa && costo) el.scrollLeft = costo.offsetLeft - (placa.offsetLeft + placa.offsetWidth);
+    });
+    await sinFoco(page);
+    await capturar(page, dir, '05-costo-de-proveedor', region);
+
+    // Paso 6 — Acciones de la fila: la acción principal y el menú ⋮.
+    await page.getByRole('button', { name: 'Más acciones de FLIT-DEMO-3', exact: true }).click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.mouse.move(2, 400);
+    await capturar(page, dir, '06-acciones-de-fila', tarjetaTabla);
+    await page.keyboard.press('Escape');
     await mostrarBarra();
 
-    // Paso 5 — Acciones de cada fila: la tabla se desplaza a la derecha hasta la columna de acciones.
-    await page.getByText('FLIT-DEMO-1').first().evaluate((el) => {
-      let p: HTMLElement | null = el.parentElement;
-      while (p && p.scrollWidth <= p.clientWidth) p = p.parentElement;
-      if (p) p.scrollLeft = p.scrollWidth;
-    });
-    await capturar(page, dir, '03-acciones-de-fila');
-
-    // Paso 6 — Consolidado por cliente y periodo.
+    // Paso 7 — Consolidado por cliente y periodo, con el grupo de costo de proveedor aparte.
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.getByRole('button', { name: 'Consolidado' }).click();
     await expect(page.locator('table').getByText(EMPRESAS_DEMO[2])).toBeVisible();
     await sinFoco(page);
-    await capturar(page, dir, '04-consolidado');
+    await capturar(page, dir, '07-consolidado');
 
-    comprobarCierre(api, dir, ['01-filtros-y-periodo.png', '02-tabla.png', '03-acciones-de-fila.png', '04-consolidado.png']);
+    comprobarCierre(api, dir, [
+      '01-filtros-y-periodo.png', '02-mas-filtros.png', '03-tabla.png', '04-columnas.png',
+      '05-costo-de-proveedor.png', '06-acciones-de-fila.png', '07-consolidado.png',
+    ]);
   });
 
   test('finanzas_gastos_diarios @capturas', async ({ page }) => {

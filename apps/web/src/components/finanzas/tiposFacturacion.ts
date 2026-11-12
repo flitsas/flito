@@ -100,9 +100,11 @@ export const TONO_CHIP_ESTADO: Record<SiigoEstadoReporte, ChipTone> = {
   en_proceso: 'active',
   emitido: 'active',
   aceptado: 'success',
-  rechazado: 'danger',
+  // Atención (ámbar) y no `danger`: el rojo no se usa en el sistema (regla del humano, Épica
+  // #13763). Es el mismo tono de «hay algo que resolver» que usa Tarifas › Proveedores.
+  rechazado: 'warning',
   anulado: 'neutral',
-  fallido: 'danger',
+  fallido: 'warning',
 };
 
 /** Fecha corta y legible. `null` se pinta como raya, nunca como «Invalid Date». */

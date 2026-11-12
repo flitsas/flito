@@ -264,6 +264,11 @@ const PARES_OBLIGATORIOS = [
   '--flit-chip-neutral-bg',
   '--flit-chip-draft-ink',
   '--flit-chip-neutral-ink',
+  // Épica #13763: tinta de los chips de color, con par oscuro.
+  '--flit-chip-success-ink',
+  '--flit-chip-active-ink',
+  '--flit-chip-warning-ink',
+  '--flit-chip-danger-ink',
   // `--flit-shadow-desborde` (HU #11900) NO está en esta lista, y no por olvido: se mide con
   // UMBRAL más abajo, en AVISO_DESBORDE. Esta lista es la de presencia —«tiene par oscuro»— y un
   // token que sólo declara eso no está medido. La medida con umbral además la subsume: sin par
@@ -674,8 +679,8 @@ for (const [clave, rClaro] of medidasSeparador.claro) {
 // Tinta sobre el fondo OPACO del propio chip, en los dos temas: el chip no depende de la superficie
 // padre (Bug #11604), así que ésta es la única medida que importa.
 const CHIPS = [
-  ['success', '--flit-success-ink'], ['active', '--flit-blue-ink'], ['warning', '--flit-warning-ink'],
-  ['danger', '--flit-danger-ink'], ['draft', '--flit-chip-draft-ink'], ['neutral', '--flit-chip-neutral-ink'],
+  ['success', '--flit-chip-success-ink'], ['active', '--flit-chip-active-ink'], ['warning', '--flit-chip-warning-ink'],
+  ['danger', '--flit-chip-danger-ink'], ['draft', '--flit-chip-draft-ink'], ['neutral', '--flit-chip-neutral-ink'],
 ];
 console.log('');
 for (const tema of TEMAS) {

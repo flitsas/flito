@@ -50,7 +50,7 @@ export default function FalloEmision({ cola }: Props) {
   return (
     <section className="rounded-lg px-3 py-2" style={{ background: '#FBE4E2' }}>
       <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide"
-        style={{ color: 'var(--flit-danger-ink)' }}>
+        style={{ color: 'var(--flit-warning-text)' }}>
         Por qué falló la emisión
       </h3>
 
