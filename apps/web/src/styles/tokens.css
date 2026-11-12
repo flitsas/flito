@@ -46,6 +46,7 @@
 /* ---------- 3. Roles derivados que el kit usa en sus piezas React (flit develop packages/ui) ---------- */
 :root {
   --kit-azul-relleno: #1d53ff;     /* relleno de botón con texto blanco: igual en los dos temas */
+  --kit-naranja-boton: #d44100;    /* botón de alerta/destructivo con texto blanco (.btn.alerta) */
   --kit-tinta-fija: #162744;       /* botón secundario (tinta) y franjas: igual en los dos temas */
   --kit-verde-texto: #4f7121;
   --kit-naranja-texto: #bd3a00;

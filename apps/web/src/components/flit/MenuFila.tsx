@@ -18,7 +18,7 @@
 
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { MoreVertical } from 'lucide-react';
+import { Icono } from './kit/Icono';
 
 export interface OpcionMenuFila {
   id: string;
@@ -177,10 +177,9 @@ export function MenuFila({ etiqueta, opciones, onAbrir }: Props) {
         aria-controls={abierto ? idPanel : undefined}
         onClick={() => (abierto ? cerrar(true) : abrir(0))}
         onKeyDown={teclaBoton}
-        className="flit-focus inline-grid h-10 w-10 shrink-0 place-items-center rounded-[999px] border bg-flit-card transition-colors hover:bg-[var(--flit-bg-hover)]"
-        style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-secondary)' }}
+        className="acciones-btn !h-10 !w-10 !min-h-0 !justify-center !p-0"
       >
-        <MoreVertical size={18} aria-hidden="true" />
+        <Icono nombre="puntos" size={18} />
       </button>
       {abierto && createPortal(
         <div
@@ -190,14 +189,11 @@ export function MenuFila({ etiqueta, opciones, onAbrir }: Props) {
           aria-label={etiqueta}
           onKeyDown={teclaPanel}
           // Hasta medir, invisible: así no parpadea en (0,0).
-          className="fixed z-[55] w-48 max-w-[calc(100vw-2rem)] overflow-hidden bg-flit-card p-1"
+          className="menu-flotante menu-acciones !fixed z-[55] w-48 max-w-[calc(100vw-2rem)] overflow-hidden !px-2 !py-1"
           style={{
             top: pos?.top ?? 0,
             left: pos?.left ?? 0,
             visibility: pos ? 'visible' : 'hidden',
-            borderRadius: 'var(--flit-radius-md)',
-            border: '1px solid var(--flit-border-soft)',
-            boxShadow: 'var(--flit-shadow-card)',
           }}
         >
           {opciones.map((o, i) => {
@@ -223,8 +219,8 @@ export function MenuFila({ etiqueta, opciones, onAbrir }: Props) {
                 onClick={() => elegir(o)}
                 onMouseEnter={() => setActivo(i)}
                 className={
-                  'flit-focus flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--flit-bg-hover)]'
-                  + (i === activo ? ' bg-[var(--flit-bg-hover)]' : '')
+                  '!flex !w-full !flex-col !items-start !gap-0.5 rounded-[7px] !px-3 !py-2 text-left text-sm transition-colors hover:!bg-[var(--kit-hover)] hover:!text-[color:var(--color-action)]'
+                  + (i === activo ? ' !bg-[var(--kit-hover)]' : '')
                   + (o.deshabilitada ? ' cursor-not-allowed' : '')
                 }
                 style={{ color: tinta }}
