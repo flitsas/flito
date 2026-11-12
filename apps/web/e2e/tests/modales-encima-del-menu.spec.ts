@@ -96,9 +96,20 @@ test.describe('Modales por encima de la barra de navegación', () => {
           tramiteDigital: 200000, gmf: 3460, total: 868460,
           sellada: false, estadoLiquidacion: null, noConfigurados: [], sinRecibo: [],
           pendientesPago: [], autogestionados: [], noAplican: [],
+          // Lo que el contrato manda siempre y la vista por defecto del rediseño pinta (Épica #13763).
+          soatConciliado: false, boletaReferencia: null, soatConciliadoEn: null,
+          totalReintegro: 668460, totalServicio: 200000,
+          serviciosAdicionales: null, serviciosAdicionalesCantidad: 0, logisticaViajesCantidad: 1,
+          origenes: { tramiteDigital: null, logistica: null },
+          valorDocumental: { tramiteDigital: null, logistica: null, serviciosAdicionales: null },
+          // Costo de proveedor (ADR-0041 §13, Épica #13763): claves siempre presentes en el contrato.
+          costoProveedorSoat: { estado: 'costo', proveedorId: 'p1', proveedor: 'Seguros Demo', vigenciaId: 'v1', valor: 48000, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+          costoProveedorLogistica: { estado: 'sin_proveedor', proveedorId: null, proveedor: null, vigenciaId: null, valor: null, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+          costoProveedorTotal: 48000,
         }],
         total: 1, page: 1, pageSize: 50,
-        totales: { soat: 0, impuesto: 0, derechoTramite: 0, logistica: 0, tramiteDigital: 0, gmf: 0, total: 0, filasIncompletas: 0 },
+        totales: { soat: 0, impuesto: 0, derechoTramite: 0, logistica: 0, tramiteDigital: 0, gmf: 0, total: 0, filasIncompletas: 0, totalReintegro: 0, totalServicio: 0, serviciosAdicionales: 0 },
+        totalesCostosProveedor: { costoProveedorSoat: 0, costoProveedorLogistica: 0, costoProveedorTotal: 0, tramitesCostoSinConfigurar: 0 },
         resumen: { listo: 1, incompleto: 0, porFacturar: 0, facturado: 0 },
       }),
     }));
@@ -106,7 +117,9 @@ test.describe('Modales por encima de la barra de navegación', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
 
     await page.goto('/finanzas/reporte-costos');
-    await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button', { name: 'Soporte' }).click();
+    // Desde el rediseño (Épica #13763) «Soporte» es una opción del ⋮ de la fila.
+    await page.getByRole('button', { name: 'Más acciones de FLIT-2001' }).click();
+    await page.getByRole('menuitem', { name: 'Soporte' }).click();
     await expect(page.getByText('Documentos de FLIT-2001')).toBeVisible();
 
     // `full` ocupa casi toda la pantalla: su cabecera cae justo en la franja de la barra.

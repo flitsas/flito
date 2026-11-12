@@ -44,6 +44,10 @@ function fila(over: Partial<Fila> = {}): Fila {
     totalReintegro: 668460, totalServicio: 200000,
     // HU #12531 — contacto del primer comprador.
     titularCorreo: null, titularTelefono: null, titularDireccion: null,
+    // ADR-0041 §13 — costo de proveedor: la fila lo trae SIEMPRE; sin datos, `sin_proveedor` y total null.
+    costoProveedorSoat: { estado: 'sin_proveedor', proveedorId: null, proveedor: null, vigenciaId: null, valor: null, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+    costoProveedorLogistica: { estado: 'sin_proveedor', proveedorId: null, proveedor: null, vigenciaId: null, valor: null, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+    costoProveedorTotal: null,
     ...over,
   } as Fila;
 }

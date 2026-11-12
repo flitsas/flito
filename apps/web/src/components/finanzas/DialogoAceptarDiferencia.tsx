@@ -144,7 +144,7 @@ export default function DialogoAceptarDiferencia({ fila, onCerrar, onHecho, onDe
                     </div>
                     <div>{l.linea1}</div>
                     {l.linea2 && <div className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{l.linea2}</div>}
-                    {errorLinea && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errorLinea}</p>}
+                    {errorLinea && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-warning-text)' }}>{errorLinea}</p>}
                   </div>
                 </div>
               </li>
@@ -165,7 +165,7 @@ export default function DialogoAceptarDiferencia({ fila, onCerrar, onHecho, onDe
           </p>
         </div>
 
-        {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>}
+        {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-warning-text)' }}>{error}</p>}
 
         <div className="flex flex-wrap items-center justify-end gap-3">
           <span id={idExigencia} role="status" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{exigencia}</span>

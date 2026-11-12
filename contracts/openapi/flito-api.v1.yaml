@@ -5904,6 +5904,8 @@ paths:
                         type:
                           - string
                           - "null"
+                      telefono:
+                        type: string
                       direccion:
                         type:
                           - string
@@ -5913,8 +5915,6 @@ paths:
                           - string
                           - "null"
                       zona:
-                        type: string
-                      telefono:
                         type: string
                       telefonoAlternativo:
                         type:
@@ -5930,10 +5930,10 @@ paths:
                       - tipo
                       - id
                       - email
+                      - telefono
                       - direccion
                       - observaciones
                       - zona
-                      - telefono
                       - telefonoAlternativo
                       - prioridad
                 required:
@@ -10479,6 +10479,14 @@ paths:
                             - tramiteDigital
                             - logistica
                             - serviciosAdicionales
+                        costoProveedorSoat:
+                          "$ref": "#/components/schemas/Forma-fee7e39b31"
+                        costoProveedorLogistica:
+                          "$ref": "#/components/schemas/Forma-fee7e39b31"
+                        costoProveedorTotal:
+                          type:
+                            - number
+                            - "null"
                       required:
                         - tramiteId
                         - idFlit
@@ -10530,6 +10538,9 @@ paths:
                         - trimestre
                         - origenes
                         - valorDocumental
+                        - costoProveedorSoat
+                        - costoProveedorLogistica
+                        - costoProveedorTotal
                   total:
                     type: number
                   page:
@@ -10554,6 +10565,8 @@ paths:
                       - incompleto
                       - porFacturar
                       - facturado
+                  totalesCostosProveedor:
+                    "$ref": "#/components/schemas/Forma-2ac05118ea"
                 required:
                   - items
                   - total
@@ -10561,6 +10574,7 @@ paths:
                   - pageSize
                   - totales
                   - resumen
+                  - totalesCostosProveedor
         "401":
           description: No autenticado.
           content:
@@ -10679,6 +10693,14 @@ paths:
                           type: number
                         filasIncompletas:
                           type: number
+                        costoProveedorSoat:
+                          type: number
+                        costoProveedorLogistica:
+                          type: number
+                        costoProveedorTotal:
+                          type: number
+                        tramitesCostoSinConfigurar:
+                          type: number
                       required:
                         - clienteClave
                         - clienteNombre
@@ -10695,8 +10717,14 @@ paths:
                         - totalReintegro
                         - totalServicio
                         - filasIncompletas
+                        - costoProveedorSoat
+                        - costoProveedorLogistica
+                        - costoProveedorTotal
+                        - tramitesCostoSinConfigurar
                   totales:
-                    "$ref": "#/components/schemas/Forma-3c54444721"
+                    allOf:
+                      - "$ref": "#/components/schemas/Forma-3c54444721"
+                      - "$ref": "#/components/schemas/Forma-2ac05118ea"
                 required:
                   - periodo
                   - items
@@ -10806,6 +10834,8 @@ paths:
                 documentacionCompleta:
                   type: boolean
                 conDiferencias:
+                  type: boolean
+                costoProveedorSinConfigurar:
                   type: boolean
                 desde:
                   type: string
@@ -10964,6 +10994,8 @@ paths:
                 documentacionCompleta:
                   type: boolean
                 conDiferencias:
+                  type: boolean
+                costoProveedorSinConfigurar:
                   type: boolean
                 desde:
                   type: string
@@ -40894,6 +40926,919 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  /api/flito/parametrizacion/tarifas-proveedores:
+    get:
+      operationId: get-api-flito-parametrizacion-tarifas-proveedores
+      tags:
+        - flito-parametrizacion
+      summary: GET /api/flito/parametrizacion/tarifas-proveedores
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-tarifas-proveedor.routes.ts. Exige la función: parametrizacion.tarifas.listar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.tarifas.listar
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    nombre:
+                      type: string
+                    servicios:
+                      type: array
+                      items:
+                        type: string
+                        enum:
+                          - soat
+                          - logistica
+                    conceptos:
+                      type: number
+                    faltan:
+                      type: number
+                  required:
+                    - id
+                    - nombre
+                    - servicios
+                    - conceptos
+                    - faltan
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/tarifas-proveedores/{proveedorId}":
+    get:
+      operationId: get-api-flito-parametrizacion-tarifas-proveedores-proveedorId
+      tags:
+        - flito-parametrizacion
+      summary: "GET /api/flito/parametrizacion/tarifas-proveedores/:proveedorId"
+      description: "`editar` exige las dos funciones de escritura porque la vista escribe por las dos rutas (POST fija, PATCH cambia/cierra). Fuente: apps/api/src/modules/flito-parametrizacion/flito-tarifas-proveedor.routes.ts. Exige la función: parametrizacion.tarifas.listar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.tarifas.listar
+      parameters:
+        - name: proveedorId
+          in: path
+          required: true
+          description: Parámetro proveedorId de la ruta.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  capacidades:
+                    type: object
+                    properties:
+                      editar:
+                        type: boolean
+                      verHistorial:
+                        type: boolean
+                    required:
+                      - editar
+                      - verHistorial
+                  filas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        servicio:
+                          type: string
+                          enum:
+                            - soat
+                            - logistica
+                        concepto:
+                          type: string
+                          enum:
+                            - logistica
+                            - soat_con_tramite
+                            - soat_sin_tramite
+                        vigencia:
+                          type:
+                            - object
+                            - "null"
+                          properties:
+                            id:
+                              type: string
+                            proveedorId:
+                              type: string
+                            servicio:
+                              type: string
+                              enum:
+                                - soat
+                                - logistica
+                            concepto:
+                              type: string
+                              enum:
+                                - logistica
+                                - soat_con_tramite
+                                - soat_sin_tramite
+                            valor:
+                              type: number
+                            vigenteDesde:
+                              type: string
+                            vigenteHasta:
+                              type:
+                                - string
+                                - "null"
+                            fijadoPor:
+                              type:
+                                - object
+                                - "null"
+                              properties:
+                                id:
+                                  type: number
+                                nombre:
+                                  type:
+                                    - string
+                                    - "null"
+                              required:
+                                - id
+                                - nombre
+                            fijadoEn:
+                              type: string
+                            cerradoPor:
+                              type:
+                                - object
+                                - "null"
+                              properties:
+                                id:
+                                  type: number
+                                nombre:
+                                  type:
+                                    - string
+                                    - "null"
+                              required:
+                                - id
+                                - nombre
+                            cerradoEn:
+                              type:
+                                - string
+                                - "null"
+                            servicioAsignado:
+                              type: boolean
+                          required:
+                            - id
+                            - proveedorId
+                            - servicio
+                            - concepto
+                            - valor
+                            - vigenteDesde
+                            - vigenteHasta
+                            - fijadoPor
+                            - fijadoEn
+                            - cerradoPor
+                            - cerradoEn
+                            - servicioAsignado
+                      required:
+                        - servicio
+                        - concepto
+                        - vigencia
+                  proveedor:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      nombre:
+                        type: string
+                      activo:
+                        type: boolean
+                      eliminado:
+                        type: boolean
+                    required:
+                      - id
+                      - nombre
+                      - activo
+                      - eliminado
+                required:
+                  - capacidades
+                  - filas
+                  - proveedor
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/tarifas-proveedores/{proveedorId}/historial":
+    get:
+      operationId: get-api-flito-parametrizacion-tarifas-proveedores-proveedorId-historial
+      tags:
+        - flito-parametrizacion
+      summary: "GET /api/flito/parametrizacion/tarifas-proveedores/:proveedorId/historial"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-tarifas-proveedor.routes.ts. Exige la función: parametrizacion.tarifas.historial."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.tarifas.historial
+      parameters:
+        - name: proveedorId
+          in: path
+          required: true
+          description: Parámetro proveedorId de la ruta.
+          schema:
+            type: string
+        - name: concepto
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - logistica
+              - soat_con_tramite
+              - soat_sin_tramite
+          description: "Parámetro concepto, validado con el esquema de Zod de la ruta."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/Forma-79f4aa2f82"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - campo
+                      - code
+                  - type: object
+                    properties:
+                      campo:
+                        type: string
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/tarifas-proveedores/{proveedorId}/vigencias":
+    post:
+      operationId: post-api-flito-parametrizacion-tarifas-proveedores-proveedorId-vigencias
+      tags:
+        - flito-parametrizacion
+      summary: "POST /api/flito/parametrizacion/tarifas-proveedores/:proveedorId/vigencias"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-tarifas-proveedor.routes.ts. Exige la función: parametrizacion.tarifas.crear."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.tarifas.crear
+      parameters:
+        - name: proveedorId
+          in: path
+          required: true
+          description: Parámetro proveedorId de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                concepto:
+                  type: string
+                  enum:
+                    - logistica
+                    - soat_con_tramite
+                    - soat_sin_tramite
+                valor:
+                  type: number
+              required:
+                - concepto
+                - valor
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "201":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Forma-79f4aa2f82"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - campo
+                      - code
+                  - type: object
+                    properties:
+                      campo:
+                        type: string
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/parametrizacion/tarifas-proveedores/vigencias/{vigenciaId}":
+    patch:
+      operationId: patch-api-flito-parametrizacion-tarifas-proveedores-vigencias-vigenciaId
+      tags:
+        - flito-parametrizacion
+      summary: "PATCH /api/flito/parametrizacion/tarifas-proveedores/vigencias/:vigenciaId"
+      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-tarifas-proveedor.routes.ts. Exige la función: parametrizacion.tarifas.editar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - parametrizacion.tarifas.editar
+      parameters:
+        - name: vigenciaId
+          in: path
+          required: true
+          description: Parámetro vigenciaId de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+        description: "[por verificar] El handler usa req.body, pero su forma no se puede derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vigencia:
+                    "$ref": "#/components/schemas/Forma-79f4aa2f82"
+                  accion:
+                    type: string
+                    enum:
+                      - cerrada
+                      - cambiada
+                      - sin_cambio
+                  valorAnterior:
+                    type: number
+                  valorNuevo:
+                    type:
+                      - number
+                      - "null"
+                required:
+                  - vigencia
+                  - accion
+                  - valorAnterior
+                  - valorNuevo
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      campo:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - campo
+                      - code
+                  - type: object
+                    properties:
+                      campo:
+                        type: string
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
   "/api/flito/parametrizacion/tarifas/{id}":
     patch:
       operationId: patch-api-flito-parametrizacion-tarifas-id
@@ -44790,7 +45735,7 @@ paths:
                 type: object
                 properties:
                   extraccion:
-                    "$ref": "#/components/schemas/Forma-a314dbd8cf"
+                    "$ref": "#/components/schemas/Forma-b8a95ca624"
                 required:
                   - extraccion
         "400":
@@ -45525,7 +46470,7 @@ paths:
                 type: object
                 properties:
                   extraccion:
-                    "$ref": "#/components/schemas/Forma-a314dbd8cf"
+                    "$ref": "#/components/schemas/Forma-b8a95ca624"
                   lectura:
                     type: string
                     enum:
@@ -54968,6 +55913,8 @@ paths:
                     type:
                       - string
                       - "null"
+                  version:
+                    type: number
                   phone:
                     type:
                       - string
@@ -54980,8 +55927,6 @@ paths:
                     type:
                       - string
                       - "null"
-                  version:
-                    type: number
                   createdBy:
                     type:
                       - number
@@ -55085,10 +56030,10 @@ paths:
                   - updatedAt
                   - id
                   - email
+                  - version
                   - phone
                   - address
                   - city
-                  - version
                   - createdBy
                   - kind
                   - docType
@@ -56844,9 +57789,9 @@ paths:
                     format: date-time
                   id:
                     type: number
-                  userId:
-                    type: number
                   version:
+                    type: number
+                  userId:
                     type: number
                   createdBy:
                     type: number
@@ -56897,8 +57842,8 @@ paths:
                   - createdAt
                   - updatedAt
                   - id
-                  - userId
                   - version
+                  - userId
                   - createdBy
                   - updatedBy
                   - observaciones
@@ -58016,10 +58961,10 @@ paths:
                     format: date-time
                   id:
                     type: number
-                  sha256:
-                    type: string
                   version:
                     type: number
+                  sha256:
+                    type: string
                   createdBy:
                     type: number
                   titulo:
@@ -58057,8 +59002,8 @@ paths:
                 required:
                   - createdAt
                   - id
-                  - sha256
                   - version
+                  - sha256
                   - createdBy
                   - titulo
                   - contenidoMd
@@ -74025,6 +74970,8 @@ paths:
                     format: date-time
                   id:
                     type: number
+                  nit:
+                    type: string
                   estado:
                     type: string
                     enum:
@@ -74038,8 +74985,6 @@ paths:
                       - string
                       - "null"
                   razonSocial:
-                    type: string
-                  nit:
                     type: string
                   contactoNombre:
                     type:
@@ -74079,11 +75024,11 @@ paths:
                   - createdAt
                   - updatedAt
                   - id
+                  - nit
                   - estado
                   - createdBy
                   - observaciones
                   - razonSocial
-                  - nit
                   - contactoNombre
                   - contactoEmail
                   - contactoTelefono
@@ -78486,6 +79431,8 @@ paths:
                     format: date-time
                   id:
                     type: number
+                  version:
+                    type: number
                   estado:
                     type: string
                     enum:
@@ -78498,8 +79445,6 @@ paths:
                     type:
                       - string
                       - "null"
-                  version:
-                    type: number
                   createdBy:
                     type: number
                   titulo:
@@ -78547,10 +79492,10 @@ paths:
                   - createdAt
                   - updatedAt
                   - id
+                  - version
                   - estado
                   - vigenciaDesde
                   - vigenciaHasta
-                  - version
                   - createdBy
                   - titulo
                   - contenidoMd
@@ -82428,6 +83373,10 @@ paths:
                         type:
                           - string
                           - "null"
+                      telefono:
+                        type:
+                          - string
+                          - "null"
                       direccion:
                         type:
                           - string
@@ -82437,10 +83386,6 @@ paths:
                           - number
                           - "null"
                       notas:
-                        type:
-                          - string
-                          - "null"
-                      telefono:
                         type:
                           - string
                           - "null"
@@ -82466,10 +83411,10 @@ paths:
                       - updatedAt
                       - id
                       - email
+                      - telefono
                       - direccion
                       - createdBy
                       - notas
-                      - telefono
                       - tipoDoc
                       - documento
                       - ciudadDane
@@ -85104,23 +86049,23 @@ paths:
                         type:
                           - string
                           - "null"
-                      clientId:
+                      telefono:
                         type:
-                          - number
+                          - string
                           - "null"
                       direccion:
                         type:
                           - string
+                          - "null"
+                      clientId:
+                        type:
+                          - number
                           - "null"
                       createdBy:
                         type:
                           - number
                           - "null"
                       notas:
-                        type:
-                          - string
-                          - "null"
-                      telefono:
                         type:
                           - string
                           - "null"
@@ -85146,11 +86091,11 @@ paths:
                       - updatedAt
                       - id
                       - email
-                      - clientId
+                      - telefono
                       - direccion
+                      - clientId
                       - createdBy
                       - notas
-                      - telefono
                       - tipoDoc
                       - documento
                       - ciudadDane
@@ -87147,6 +88092,10 @@ paths:
                         type:
                           - string
                           - "null"
+                      telefono:
+                        type:
+                          - string
+                          - "null"
                       direccion:
                         type:
                           - string
@@ -87156,10 +88105,6 @@ paths:
                           - number
                           - "null"
                       notas:
-                        type:
-                          - string
-                          - "null"
-                      telefono:
                         type:
                           - string
                           - "null"
@@ -87190,10 +88135,10 @@ paths:
                       - tipo
                       - id
                       - email
+                      - telefono
                       - direccion
                       - createdBy
                       - notas
-                      - telefono
                       - tipoDoc
                       - documento
                       - ciudadDane
@@ -89380,6 +90325,14 @@ paths:
                     format: date-time
                   id:
                     type: number
+                  telefono:
+                    type:
+                      - string
+                      - "null"
+                  contacto:
+                    type:
+                      - string
+                      - "null"
                   createdBy:
                     type:
                       - number
@@ -89392,10 +90345,6 @@ paths:
                     type:
                       - string
                       - "null"
-                  telefono:
-                    type:
-                      - string
-                      - "null"
                   routeId:
                     type:
                       - number
@@ -89403,10 +90352,6 @@ paths:
                   capacidad:
                     type:
                       - number
-                      - "null"
-                  contacto:
-                    type:
-                      - string
                       - "null"
                   protocoloMd:
                     type:
@@ -89422,13 +90367,13 @@ paths:
                   - createdAt
                   - updatedAt
                   - id
+                  - telefono
+                  - contacto
                   - createdBy
                   - lat
                   - lng
-                  - telefono
                   - routeId
                   - capacidad
-                  - contacto
                   - protocoloMd
                   - servicios
         "400":
@@ -110291,16 +111236,16 @@ paths:
                       type:
                         - string
                         - "null"
-                    companiaId:
-                      type:
-                        - number
-                        - "null"
                     deletedAt:
                       type:
                         - string
                         - "null"
                       format: date-time
                     deletedBy:
+                      type:
+                        - number
+                        - "null"
+                    companiaId:
                       type:
                         - number
                         - "null"
@@ -110317,9 +111262,9 @@ paths:
                     - allowedPages
                     - transitoCodigo
                     - flitoProveedorSoatId
-                    - companiaId
                     - deletedAt
                     - deletedBy
+                    - companiaId
         "400":
           description: Petición inválida.
           content:
@@ -111814,8 +112759,9 @@ paths:
                             - allowed_pages
                             - transito_codigo
                             - flito_proveedor_soat_id
-                            - compania_id
+                            - flito_proveedor_id
                             - deleted_at
+                            - compania_id
                             - funciones
                             - organismos_codigos
                             - conjunto
@@ -117453,6 +118399,23 @@ components:
         - proporcion
         - muestraSuficiente
         - superaUmbral
+    Forma-2ac05118ea:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        costoProveedorSoat:
+          type: number
+        costoProveedorLogistica:
+          type: number
+        costoProveedorTotal:
+          type: number
+        tramitesCostoSinConfigurar:
+          type: number
+      required:
+        - costoProveedorSoat
+        - costoProveedorLogistica
+        - costoProveedorTotal
+        - tramitesCostoSinConfigurar
     Forma-2ba038dccb:
       description: Forma que comparten varias operaciones.
       type: object
@@ -120791,6 +121754,82 @@ components:
         - valor
         - origen
         - bloquea
+    Forma-79f4aa2f82:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        proveedorId:
+          type: string
+        servicio:
+          type: string
+          enum:
+            - soat
+            - logistica
+        concepto:
+          type: string
+          enum:
+            - logistica
+            - soat_con_tramite
+            - soat_sin_tramite
+        valor:
+          type: number
+        vigenteDesde:
+          type: string
+        vigenteHasta:
+          type:
+            - string
+            - "null"
+        fijadoPor:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: number
+            nombre:
+              type:
+                - string
+                - "null"
+          required:
+            - id
+            - nombre
+        fijadoEn:
+          type: string
+        cerradoPor:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: number
+            nombre:
+              type:
+                - string
+                - "null"
+          required:
+            - id
+            - nombre
+        cerradoEn:
+          type:
+            - string
+            - "null"
+        servicioAsignado:
+          type: boolean
+      required:
+        - id
+        - proveedorId
+        - servicio
+        - concepto
+        - valor
+        - vigenteDesde
+        - vigenteHasta
+        - fijadoPor
+        - fijadoEn
+        - cerradoPor
+        - cerradoEn
+        - servicioAsignado
     Forma-7d269e222c:
       description: Forma que comparten varias operaciones.
       type: object
@@ -122546,38 +123585,6 @@ components:
         - total
         - limit
         - offset
-    Forma-a314dbd8cf:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        vin:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        placa:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        direccion:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        municipio:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        departamento:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        numeroFactura:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        fechaFactura:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        tipoDocumento:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        numeroDocumento:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        razonSocial:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        nombres:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        apellidos:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        celular:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        valorVehiculo:
-          "$ref": "#/components/schemas/Forma-2795a98920"
     Forma-a6edf62c95:
       description: Forma que comparten varias operaciones.
       type: object
@@ -123245,6 +124252,38 @@ components:
         - saldo
         - ultimaRecargaValor
         - ultimaRecargaEn
+    Forma-b8a95ca624:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        direccion:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        vin:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        placa:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        municipio:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        departamento:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        numeroFactura:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        fechaFactura:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        tipoDocumento:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        numeroDocumento:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        razonSocial:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        nombres:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        apellidos:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        celular:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        valorVehiculo:
+          "$ref": "#/components/schemas/Forma-2795a98920"
     Forma-b8ce431176:
       description: Forma que comparten varias operaciones.
       type: object
@@ -126986,3 +128025,53 @@ components:
         - evidenciaStorageKey
         - estado
         - createdAt
+    Forma-fee7e39b31:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        estado:
+          type: string
+          enum:
+            - costo
+            - sin_configurar
+            - sin_proveedor
+            - gestionado_operaciones
+            - ya_contado
+            - estimado
+        proveedorId:
+          type:
+            - string
+            - "null"
+        proveedor:
+          type:
+            - string
+            - "null"
+        vigenciaId:
+          type:
+            - string
+            - "null"
+        valor:
+          type:
+            - number
+            - "null"
+        fechaReferencia:
+          type:
+            - string
+            - "null"
+        contadoEnTramiteId:
+          type:
+            - string
+            - "null"
+        contadoEnIdFlit:
+          type:
+            - string
+            - "null"
+      required:
+        - estado
+        - proveedorId
+        - proveedor
+        - vigenciaId
+        - valor
+        - fechaReferencia
+        - contadoEnTramiteId
+        - contadoEnIdFlit

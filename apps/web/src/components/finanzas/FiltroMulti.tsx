@@ -42,21 +42,21 @@ export default function FiltroMulti({
 
   return (
     <details className="relative">
-      <summary className="flit-focus flex cursor-pointer list-none items-center gap-2 rounded-[10px] border bg-white px-3 text-sm"
+      <summary className="flit-focus flex cursor-pointer list-none items-center gap-2 rounded-[10px] border bg-flit-card px-3 text-sm transition-colors hover:bg-[var(--flit-bg-hover)]"
         style={{ ...ALTO_CONTROL, borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
         aria-label={ariaLabel}>
         <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-muted)' }}>{rotulo}</span>
         <span className="truncate">{resumen}</span>
       </summary>
-      <div className="absolute z-30 mt-1 max-h-72 w-56 overflow-auto rounded-lg border bg-white p-2 shadow-lg"
-        style={{ borderColor: 'var(--flit-border-input)' }}>
+      <div className="absolute z-30 mt-1 max-h-72 w-56 overflow-auto rounded-lg border bg-flit-card p-2"
+        style={{ borderColor: 'var(--flit-border-input)', boxShadow: 'var(--flit-shadow-card)' }}>
         {opciones.length === 0 && (
           <p className="px-1 py-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
             {cargando ? 'Cargando…' : textoVacio}
           </p>
         )}
         {opciones.map((o) => (
-          <label key={o.valor} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-slate-50">
+          <label key={o.valor} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm transition-colors hover:bg-[var(--flit-bg-hover)]">
             <input type="checkbox" checked={seleccion.includes(o.valor)} onChange={() => alternar(o.valor)} />
             <span className="truncate">{o.nombre}</span>
           </label>

@@ -8,7 +8,8 @@ export default function Monto({ v, falta, negrita, title }: {
   /** Qué conceptos faltan, para el subtotal en null (RN-02): `Falta: SOAT, Impuesto`. */
   title?: string;
 }) {
-  if (v === null) {
+  // `undefined` también: un agregado que el API no mandara no puede tumbar la pantalla entera.
+  if (v === null || v === undefined) {
     return (
       <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }} title={title}>
         {falta ? TEXTO_FALTA[falta] : '—'}

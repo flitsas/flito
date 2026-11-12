@@ -628,10 +628,11 @@ describe('AC10 — el archivo con las 32 columnas literales del Excel de Financi
 
   it('las 32 cabeceras son exactamente las literales y en ese orden (como un solo array, no «contiene»)', () => {
     // Mutante «cabecera 'Cliente' con mayúscula», «Vin como VIN», «Tramite con tilde»: el `toEqual` cae.
-    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).toEqual(CABECERA.split(';'));
-    expect(COLUMNAS_EXPORT_DETALLE).toHaveLength(32);
+    // Las 32 de Financiero primero y en su orden; ADR-0041 §13 añade 7 del costo de proveedor SOLO al final.
+    expect(COLUMNAS_EXPORT_DETALLE.slice(0, 32).map((c) => c.header)).toEqual(CABECERA.split(';'));
+    expect(COLUMNAS_EXPORT_DETALLE).toHaveLength(39);
     // Cada clave es única: dos columnas con la misma clave se pisarían en `addRow` (Placa/Placa2, Tipo Trámite/Tramite).
-    expect(new Set(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).size).toBe(32);
+    expect(new Set(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).size).toBe(39);
     // Y va PEGADA a «Modelo», no al final: el archivo se pega sobre el de Financiero (CF-10).
     const cabeceras = COLUMNAS_EXPORT_DETALLE.map((c) => c.header);
     expect(cabeceras[cabeceras.indexOf('Modelo') + 1]).toBe('Servicios adicionales');
@@ -656,6 +657,9 @@ describe('AC10 — el archivo con las 32 columnas literales del Excel de Financi
       totalReintegro: 668460, servicio: 200000, factura: 'FV-1-123', facturaTerceros: null,
       vin: 'VIN1', placa2: 'ABC123', tramiteCategoria: 'Traspaso',
       fechaAprobacion: new Date('2026-09-14T00:00:00.000Z'), filtromes: '2026-09',
+      // ADR-0041 §13 — las 7 del costo de proveedor, al final.
+      proveedorSoat: null, costoProveedorSoat: null, estadoCostoSoat: 'Sin proveedor',
+      proveedorLogistica: null, costoProveedorLogistica: null, estadoCostoLogistica: 'Sin proveedor', totalCostoProveedor: null,
     });
     // Mutante «String(soat)»: el `toEqual` de arriba ya cae; esto deja el tipo explícito.
     expect(typeof fila.soat).toBe('number');

@@ -229,6 +229,9 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['parametrizacion.proveedores.crear', 2], ['parametrizacion.proveedores.editar', 2],
       ['parametrizacion.proveedores.eliminar', 2],
       ['parametrizacion.proveedores.estado', 4], ['parametrizacion.proveedores.listar', 3],
+      // Épica #13763 (ADR-0041 D8): los costos de proveedor reutilizan las funciones de las tarifas (lista y vista con `listar`).
+      ['parametrizacion.tarifas.crear', 2], ['parametrizacion.tarifas.editar', 2], ['parametrizacion.tarifas.historial', 2],
+      ['parametrizacion.tarifas.listar', 3],
       ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.cola.ver', 2], ['soat.solicitud.crear', 8], // + 3 de la carga masiva (HU #14131)
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);

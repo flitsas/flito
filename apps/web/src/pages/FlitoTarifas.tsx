@@ -13,7 +13,7 @@
 // page="flito_tarifas"`); nunca por el nombre del rol.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError, errorMessage } from '../lib/api';
 import {
   RUTA_TARIFAS, etiquetaLlave, normalizarVista, faltantesDe, faltantesPorCompania, normalizaTexto,
@@ -27,6 +27,7 @@ import {
 } from '../components/flit/flitPageKit';
 import MatrizTarifas from './tarifas/MatrizTarifas';
 import HistorialTarifas, { type FiltroHistorial } from './tarifas/HistorialTarifas';
+import TarifasProveedores, { SelectorModo } from './tarifas/TarifasProveedores';
 
 /**
  * Lo único que la lista usa de `GET /clients`: el resto de columnas no se pinta ni se guarda.
@@ -44,7 +45,14 @@ const barra = (ancho: string, key: number) => (
   <div key={key} className={`h-5 ${ancho} animate-pulse rounded`} style={{ background: 'var(--flit-bg-table-header)' }} />
 );
 
+// Modo Proveedores (Épica #13763): `/flito/tarifas/proveedores[/:uuid]`. El modo vive en el path, y al
+// cambiarlo se desmonta el otro: el elegido de un modo no pasa al otro.
 export default function FlitoTarifas() {
+  const { pathname } = useLocation();
+  return pathname.startsWith('/flito/tarifas/proveedores') ? <TarifasProveedores /> : <TarifasClientes />;
+}
+
+function TarifasClientes() {
   const { companiaId: param } = useParams<{ companiaId?: string }>();
   const navigate = useNavigate();
   const companiaId = param && /^\d+$/.test(param) ? Number(param) : null;
@@ -165,6 +173,10 @@ export default function FlitoTarifas() {
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard title="Tarifas" subtitle={SUBTITULO} />
+      <SelectorModo modo="clientes" antesDeSalir={() => {
+        const f = enEdicion.current;
+        return !f || !vista || window.confirm(`Tienes un valor sin guardar en ${etiquetaLlave(f)} de ${vista.companiaNombre}. ¿Salir y perderlo?`);
+      }} />
       <p className="sr-only" role="status">{anuncio}</p>
 
       {errorClientes ? (
@@ -299,7 +311,7 @@ export default function FlitoTarifas() {
                 {faltan !== null && (
                   <p className="mt-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
                     {conFaltantes > 0
-                      ? `${conFaltantes === 1 ? '1 cliente tiene' : `${conFaltantes} clientes tienen`} valores sin configurar; sus trámites de esos tipos saldrán como «No configurado» en el reporte de costos y no se podrán liquidar.`
+                      ? `${conFaltantes === 1 ? '1 cliente tiene' : `${conFaltantes} clientes tienen`} valores sin configurar; sus trámites de esos tipos saldrán como «Sin configurar» en el reporte de costos y no se podrán liquidar.`
                       : `${clientes.length === 1 ? 'El único cliente tiene' : `Los ${clientes.length} clientes tienen`} sus cinco valores fijados.`}
                   </p>
                 )}

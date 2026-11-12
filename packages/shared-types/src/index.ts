@@ -157,3 +157,7 @@ export * from './flito-dr-flit-gestion.js';
 export * from './flito-dr-flit-mascara.js';
 // RUM: la ruta que se guarda en la telemetría, sin tokens (HU #14281, ADR-0036).
 export * from './rum.js';
+// Proveedores con varios servicios: lista única de servicios y contrato (Feature #14323, ADR-0039).
+export * from './flito-proveedores.js';
+// Tarifas de proveedor: costo que cada proveedor le cobra a FLIT (Épica #13763, ADR-0041).
+export * from './flito-tarifas-proveedor.js';

@@ -237,7 +237,7 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
           elección por omisión sigue siendo válida porque no dependía de esta consulta. */}
       {!cargando && fallo !== null && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <span role="alert" style={{ color: 'var(--flit-danger-ink)' }}>
+          <span role="alert" style={{ color: 'var(--flit-warning-text)' }}>
             No se pudo consultar a qué direcciones iría: {fallo}. La factura saldrá igual por correo
             a lo que diga la ficha de cada cliente al emitirse.
           </span>
@@ -311,7 +311,7 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
                     onChange={(e) => cambiarDireccion(i, e.target.value)}
                   />
                   {invalido && (
-                    <p id={`${id}-error`} className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>
+                    <p id={`${id}-error`} className="mt-1 text-xs" style={{ color: 'var(--flit-warning-text)' }}>
                       No tiene formato de correo.
                     </p>
                   )}
@@ -346,7 +346,7 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
       {/* AC6 — el problema se anuncia, no solo se pinta: `role="alert"` lo lee el lector de pantalla
           en cuanto aparece, y el botón de continuar queda bloqueado mientras esté. */}
       {problema !== null && (
-        <p role="alert" className="mt-2 text-xs font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
+        <p role="alert" className="mt-2 text-xs font-semibold" style={{ color: 'var(--flit-warning-text)' }}>
           {problema}
         </p>
       )}

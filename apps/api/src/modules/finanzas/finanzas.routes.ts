@@ -1,7 +1,7 @@
 // Finanzas (HTTP). Montado en /api/finanzas. Lectura para el rol `financiera` (+ admin/auditor).
 // Los dos exports son POST con el filtro en el cuerpo y devuelven `.xlsx` (HU #12531).
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
@@ -87,6 +87,20 @@ const fecha = (v: unknown): string | undefined => {
   return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
 };
 
+/**
+ * ADR-0041 §13 (C7) — `costoProveedorSinConfigurar` es un booleano sin PII: `true`, `false` o nada.
+ * Cualquier otro valor es 400 y no «todo el universo»: un filtro de aviso mal escrito que se ignorara
+ * en silencio diría «no hay costos sin configurar» cuando sí los hay.
+ */
+function validarFiltroCostoProveedor(req: Request, res: Response, next: NextFunction): void {
+  const v = req.query.costoProveedorSinConfigurar;
+  if (v === undefined || v === 'true' || v === 'false') { next(); return; }
+  res.status(400).json({ error: 'costoProveedorSinConfigurar debe ser true o false' });
+}
+
+// Antes de cualquier ruta del reporte: los tres GET que leen `filtrosDe` (y el resto, que no lo traen, pasan).
+router.use('/reporte-costos', validarFiltroCostoProveedor);
+
 function filtrosDe(q: Request['query']): FiltrosReporte {
   return {
     buscar: str(q.buscar), estados: lista(q.estados), empresas: lista(q.empresas), tipos: lista(q.tipos),
@@ -100,6 +114,7 @@ function filtrosDe(q: Request['query']): FiltrosReporte {
     // HU #12432 — códigos de organismo, con el mismo `lista()` que los demás. Llega a las cuatro
     // rutas porque las cuatro pasan por aquí.
     organismos: lista(q.organismos),
+    costoProveedorSinConfigurar: q.costoProveedorSinConfigurar === 'true',
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
 }
@@ -190,6 +205,7 @@ const exportDetalleSchema = z.object({
   etapa: z.enum(ETAPAS).optional(),
   documentacionCompleta: z.boolean().optional(),
   conDiferencias: z.boolean().optional(),
+  costoProveedorSinConfigurar: z.boolean().optional(),
   desde: fechaSchema.optional(), hasta: fechaSchema.optional(),
   aprobadoDesde: fechaSchema.optional(), aprobadoHasta: fechaSchema.optional(),
   estadoFacturacion: z.enum(SIIGO_ESTADOS_REPORTE).optional(),
@@ -207,6 +223,7 @@ function filtrosDeCuerpo(b: z.infer<typeof exportDetalleSchema>): FiltrosReporte
     buscar: b.buscar, estados: noVacia(b.estados), empresas: noVacia(b.empresas), tipos: noVacia(b.tipos),
     etapa: b.etapa, documentacionCompleta: b.documentacionCompleta === true,
     conDiferencias: b.conDiferencias === true,
+    costoProveedorSinConfigurar: b.costoProveedorSinConfigurar === true,
     desde: b.desde, hasta: b.hasta, aprobadoDesde: b.aprobadoDesde, aprobadoHasta: b.aprobadoHasta,
     estadoFacturacion: b.estadoFacturacion, organismos: noVacia(b.organismos),
   };

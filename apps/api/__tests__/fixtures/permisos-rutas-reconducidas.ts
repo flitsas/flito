@@ -648,6 +648,12 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'PATCH', ruta: '/:id/estado', codigo: 'parametrizacion.proveedores.estado' },
   // HU #14148: impacto y baja de proveedores de logística y listado unificado (mismas funciones que los de SOAT).
   { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'GET', ruta: '/:id/impacto', codigo: 'parametrizacion.proveedores.estado' },
+  // Épica #13763 (ADR-0041 D8): costos de proveedor, con los códigos de las tarifas.
+  { fichero: 'flito-parametrizacion/flito-tarifas-proveedor.routes.ts', metodo: 'GET', ruta: '/', codigo: 'parametrizacion.tarifas.listar' },
+  { fichero: 'flito-parametrizacion/flito-tarifas-proveedor.routes.ts', metodo: 'GET', ruta: '/:proveedorId', codigo: 'parametrizacion.tarifas.listar' },
+  { fichero: 'flito-parametrizacion/flito-tarifas-proveedor.routes.ts', metodo: 'GET', ruta: '/:proveedorId/historial', codigo: 'parametrizacion.tarifas.historial' },
+  { fichero: 'flito-parametrizacion/flito-tarifas-proveedor.routes.ts', metodo: 'POST', ruta: '/:proveedorId/vigencias', codigo: 'parametrizacion.tarifas.crear' },
+  { fichero: 'flito-parametrizacion/flito-tarifas-proveedor.routes.ts', metodo: 'PATCH', ruta: '/vigencias/:vigenciaId', codigo: 'parametrizacion.tarifas.editar' },
   { fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts', metodo: 'DELETE', ruta: '/:id', codigo: 'parametrizacion.proveedores.eliminar' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/proveedores', codigo: 'parametrizacion.proveedores.listar' },
   // HU #13960: «Eliminar proveedores» — `parametrizacion.proveedores.eliminar` nace absorbida por

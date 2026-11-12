@@ -35,8 +35,8 @@ export default function ContadoresFacturacion({
 }: Props) {
   if (cargando) {
     return (
-      <FlitCard>
-        <div className="px-4 py-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }} role="status">
+      <FlitCard className="!p-3">
+        <div className="text-sm" style={{ color: 'var(--flit-text-secondary)' }} role="status">
           Consultando el estado de la facturación electrónica…
         </div>
       </FlitCard>
@@ -45,13 +45,13 @@ export default function ContadoresFacturacion({
 
   if (error) {
     return (
-      <FlitCard>
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-          <span className="text-sm" style={{ color: 'var(--flit-danger)' }} role="alert">
+      <FlitCard className="!p-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm" style={{ color: 'var(--flit-warning-text)' }} role="alert">
             No se pudo consultar el estado de la facturación: {error}
           </span>
           <button type="button" onClick={onReintentar}
-            className="flit-focus inline-flex h-7 items-center rounded-[999px] border bg-white px-3 text-xs font-medium"
+            className="flit-focus inline-flex h-7 items-center rounded-[999px] border bg-flit-card px-3 text-xs font-medium transition-colors hover:bg-[var(--flit-bg-hover)]"
             style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
             Reintentar
           </button>
@@ -62,8 +62,8 @@ export default function ContadoresFacturacion({
 
   if (!resumen || resumen.total === 0) {
     return (
-      <FlitCard>
-        <div className="px-4 py-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+      <FlitCard className="!p-3">
+        <div className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
           Ningún trámite de este filtro se ha enviado todavía a facturación electrónica. El primer
           paso es liquidarlos: la factura se pide desde ahí.
         </div>
@@ -72,13 +72,25 @@ export default function ContadoresFacturacion({
   }
 
   return (
-    <FlitCard>
-      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+    <FlitCard className="!p-3">
+      {/*
+        Rótulo y total en su propio renglón, y las pastillas debajo (Épica #13763): con las nueve en
+        la misma línea que el rótulo y el total, a 1366 px la última caía sola a un segundo renglón.
+        Así las nueve caben en una línea en escritorio y envuelven limpias en móvil.
+        El total se muestra siempre, y no es decorativo: es lo que permite comprobar de un vistazo
+        que los grupos cuadran. Un tablero cuyos grupos no suman el total no se nota mirando los
+        grupos — se nota cuando alguien concilia y no le cuadra, tres semanas después.
+      */}
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span className="text-xs font-semibold uppercase tracking-wide"
           style={{ color: 'var(--flit-text-muted)' }}>
           Facturación electrónica
         </span>
-
+        <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          {resumen.total} trámite(s) en el filtro actual
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
         {SIIGO_ESTADOS_REPORTE.map((estado) => {
           const cuantos = resumen[estado];
           const activo = seleccionado === estado;
@@ -92,11 +104,10 @@ export default function ContadoresFacturacion({
               onClick={() => onSeleccionar(activo ? null : estado)}
               aria-pressed={activo}
               title={`${SIIGO_ESTADO_REPORTE_ETIQUETA[estado]}: ${cuantos}`}
-              className="flit-focus inline-flex items-center gap-2 rounded-[999px] border px-1 py-1 pr-3 text-xs"
-              style={{
-                borderColor: activo ? 'var(--flit-blue-text)' : 'var(--flit-border-input)',
-                background: activo ? 'rgba(79, 116, 201, 0.08)' : 'white',
-              }}
+              // Fondo de tarjeta y velo de hover del kit, no `white`: en oscuro la pastilla era una
+              // mancha blanca y la cifra (tinta del tema, clara) apenas se leía (Épica #13763).
+              className={`flit-focus inline-flex items-center gap-1.5 rounded-[999px] border py-0.5 pl-0.5 pr-2.5 text-xs transition-colors hover:bg-[var(--flit-bg-hover)] ${activo ? 'bg-[var(--flit-bg-hover)]' : 'bg-flit-card'}`}
+              style={{ borderColor: activo ? 'var(--flit-blue-text)' : 'var(--flit-border-input)' }}
             >
               <StatusChip tone={TONO_CHIP_ESTADO[estado]}>{SIIGO_ESTADO_REPORTE_ETIQUETA[estado]}</StatusChip>
               <span className="font-semibold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
@@ -105,15 +116,6 @@ export default function ContadoresFacturacion({
             </button>
           );
         })}
-
-        {/*
-          El total se muestra siempre, y no es decorativo: es lo que permite comprobar de un vistazo
-          que los grupos cuadran. Un tablero cuyos grupos no suman el total no se nota mirando los
-          grupos — se nota cuando alguien concilia y no le cuadra, tres semanas después.
-        */}
-        <span className="ml-auto text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-          {resumen.total} trámite(s) en el filtro actual
-        </span>
       </div>
     </FlitCard>
   );

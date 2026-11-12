@@ -240,13 +240,16 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // HU #13964: «Quitar» la versión vigente y el estado «retirada» del historial (v1.8).
     flito_bolsas: { version: '1.8', fecha: '2026-10-26', diagrama: 'ciclo-periodo.svg', capturas: [
       '01-cabecera-y-kpi.png', '02-companias.png', '03-crear-bolsa.png', '04-detalle-compania.png', '05-documentos.png'] },
-    flito_tarifas: { version: '1.3', fecha: '2026-10-27', diagrama: 'vigencias.svg', capturas: [
+    // Épica #13763: modo Proveedores (lo que cada proveedor cobra a FLITO) y selector «Ver tarifas de» (v2.0).
+    flito_tarifas: { version: '2.0', fecha: '2026-11-11', diagrama: 'vigencias.svg', capturas: [
       '01-elegir-compania.png', '02-fijar-valor.png', '03-historial.png'] },
     // Citadas en el orden de los pasos de la ficha (la 01 ilustra el paso 5, «Por tarifar»).
     flito_servicios_adicionales: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-tipo.svg', capturas: [
       '02-editar.png', '03-nuevo-tipo.png', '04-dados-de-baja.png', '01-catalogo.png'] },
-    finanzas_reporte_costos: { version: '1.1', fecha: '2026-10-21', diagrama: 'tres-verbos.svg', capturas: [
-      '01-filtros-y-periodo.png', '02-tabla.png', '03-acciones-de-fila.png', '04-consolidado.png'] },
+    // Épica #13763: rediseño (Columnas, Más filtros, chips, acción + menú ⋮) y costo de proveedor (v2.0).
+    finanzas_reporte_costos: { version: '2.1', fecha: '2026-11-11', diagrama: 'tres-verbos.svg', capturas: [
+      '01-filtros-y-periodo.png', '02-mas-filtros.png', '03-tabla.png', '04-columnas.png',
+      '05-costo-de-proveedor.png', '06-acciones-de-fila.png', '07-consolidado.png'] },
     finanzas_gastos_diarios: { version: '1.2', fecha: '2026-10-22', diagrama: null, capturas: [
       '01-tarjetas-y-total.png', '02-evolucion-diaria.png'] },
   };

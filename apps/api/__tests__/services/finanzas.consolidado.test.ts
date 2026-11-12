@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { readFileSync } from 'node:fs';
-import { QueryBuilder, type PgSelect } from 'drizzle-orm/pg-core';
+import { PgDialect, QueryBuilder, type PgSelect } from 'drizzle-orm/pg-core';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
 import type { GrupoConsolidado, PeriodoConsolidado } from '../../src/modules/finanzas/finanzas.consolidado.js';
@@ -101,6 +101,8 @@ function grupo(over: Partial<GrupoConsolidado> = {}): GrupoConsolidado {
     tramiteDigital: '400000', serviciosAdicionales: '0', totalReintegro: '1336920',
     totalServicio: '400000', total: '1736920',
     filasIncompletas: 0,
+    // ADR-0041 §13 — costo de proveedor, grupo aparte: sin costos, todo en cero.
+    costoProveedorSoat: '0', costoProveedorLogistica: '0', costoProveedorTotal: '0', tramitesCostoSinConfigurar: 0,
     ...over,
   };
 }
@@ -156,7 +158,8 @@ describe('AC1 — consolidado por cliente y mes (CF-12, RN-02, RN-06)', () => {
     //     seis sitios que la de viajes).
     // Si alguien convierte una de las subconsultas en un LEFT JOIN + GROUP BY, este número baja y el
     // aserto de joins byte a byte de más abajo también cae.
-    expect(select.match(/SUM\(/g)!.length).toBe(28);
+    //   · +3 `SUM(` del costo de proveedor (ADR-0041 §13): SOAT, logística y su total, en claves APARTE del cobro.
+    expect(select.match(/SUM\(/g)!.length).toBe(31);
     expect(select.match(/SUM\("flito_logistica_traslado_lts"\."precio"\)/g)!.length).toBe(6);
     // Y las seis de viajes son exactamente seis: ni una copia de `EXPR_LOGISTICA` sin viajes
     // (bajaría) ni un join (subiría a 0 aquí y cambiaría la lista de joins).
@@ -325,6 +328,7 @@ describe('AC4 — sin filas en cero y sin fecha de aprobación (CF-15)', () => {
       soat: 1150.5, impuesto: 0, derechoTramite: 0, gmf: 0, logistica: 0, tramiteDigital: 80,
       serviciosAdicionales: 120,
       totalReintegro: 1150.5, totalServicio: 200, total: 1350.5, filasIncompletas: 2,
+      costoProveedorSoat: 0, costoProveedorLogistica: 0, costoProveedorTotal: 0, tramitesCostoSinConfigurar: 0,
     });
     expect(items.reduce((s, i) => s + i.tramites, 0)).toBe(5);
     expect(items[2]).toMatchObject({ periodo: null, tramites: 3, filasIncompletas: 2 });
@@ -401,6 +405,8 @@ describe('AC6 — exportación del consolidado (CF-14; .xlsx desde la HU #12531)
     expect(COLUMNAS_EXPORT_CONSOLIDADO.map((c) => c.header)).toEqual([
       'Cliente', 'Periodo', 'Trámites', 'SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística',
       'Total reintegro', 'Trámite digital', 'Servicio', 'Total', 'Incompletos',
+      // ADR-0041 §13 — el costo de proveedor, SIEMPRE al final.
+      'Costo proveedor SOAT', 'Costo proveedor logística', 'Total costo proveedor', 'Trámites con costo sin configurar',
     ]);
     const { items, totales } = plegarConsolidado([
       grupo({ companiaId: 9, companiaNit: '900555111', periodo: '2026-10', tramites: 1, filasIncompletas: 1 }),
@@ -413,6 +419,7 @@ describe('AC6 — exportación del consolidado (CF-14; .xlsx desde la HU #12531)
       cliente: 'ACME', periodo: '2026-09', tramites: 2, soat: 900000, impuesto: 240000, tramite: 160000,
       gmf: 6920, logistica: 30000, totalReintegro: 1336920, tramiteDigital: 400000, servicio: 400000,
       total: 1736920, incompletos: 0,
+      costoProveedorSoat: 0, costoProveedorLogistica: 0, totalCostoProveedor: 0, tramitesCostoSinConfigurar: 0,
     });
     expect(filas[1]).toMatchObject({ cliente: 'BETA', periodo: '2026-10', tramites: 1, incompletos: 1 });
     // Números, no texto: es lo que hace que Excel sume.
@@ -514,5 +521,53 @@ describe('AC7 — misma guarda de lectura (CF-19)', () => {
       "exigirFuncion('finanzas.reporte_costos.ver_soportes')", "exigirFuncion('finanzas.reporte_costos.ver_viajes')",
       "exigirFuncion('finanzas.gastos_diarios.ver')",
     ]));
+  });
+});
+
+// ─────────────── ADR-0041 §13 — costo de proveedor en el consolidado (grupo aparte, sin margen) ───────────────
+
+describe('ADR-0041 §13 — costo de proveedor en el consolidado', () => {
+  it('RN-CP-01: SELECT_TOTALES (cobro) no lee el costo; el consolidado lo proyecta en CUATRO claves propias', () => {
+    const { renderizar: r } = { renderizar: (q: unknown) => new PgDialect().sqlToQuery(q as never).sql };
+    for (const [k, v] of Object.entries(SELECT_TOTALES)) {
+      expect(r(v), k).not.toContain('flito_tarifas_proveedor_vigencias');
+    }
+    const sel = selectConsolidado('mes');
+    const conCosto = Object.entries(sel).filter(([, v]) => {
+      try { return r(v).includes('flito_tarifas_proveedor_vigencias'); } catch { return false; }
+    }).map(([k]) => k).sort();
+    expect(conCosto).toEqual(['costoProveedorLogistica', 'costoProveedorSoat', 'costoProveedorTotal', 'tramitesCostoSinConfigurar']);
+  });
+
+  it('solo suman los estados con valor (costo, estimado): nunca ya_contado ni sin_configurar', () => {
+    const t = new PgDialect().sqlToQuery(selectConsolidado('mes').costoProveedorSoat as never).sql;
+    expect(t).toContain("->>'estado' IN ('costo', 'estimado') THEN");
+    expect(t).not.toMatch(/'ya_contado'\) THEN \(\(/);
+    const n = new PgDialect().sqlToQuery(selectConsolidado('mes').tramitesCostoSinConfigurar as never).sql;
+    expect(n).toMatch(/COUNT\(DISTINCT CASE WHEN/);
+    expect(n).toContain("'sin_configurar'");
+  });
+
+  it('plegar suma el costo por fila y en el total general; el contador «parcial» también; el cobro no cambia (C1)', () => {
+    const sinCosto = plegarConsolidado([grupo({ periodo: '2026-09' }), grupo({ companiaId: 9, companiaNit: '900555111' })], MAESTRO);
+    const conCosto = plegarConsolidado([
+      grupo({ periodo: '2026-09', costoProveedorSoat: '12000.5', costoProveedorLogistica: '8000', costoProveedorTotal: '20000.5', tramitesCostoSinConfigurar: 1 }),
+      grupo({ companiaId: 9, companiaNit: '900555111', costoProveedorSoat: '0', costoProveedorLogistica: '3000', costoProveedorTotal: '3000', tramitesCostoSinConfigurar: 2 }),
+    ], MAESTRO);
+    expect(conCosto.items[0]).toMatchObject({ clienteNombre: 'ACME', costoProveedorSoat: 12000.5, costoProveedorLogistica: 8000, costoProveedorTotal: 20000.5, tramitesCostoSinConfigurar: 1 });
+    expect(conCosto.totales).toMatchObject({ costoProveedorSoat: 12000.5, costoProveedorLogistica: 11000, costoProveedorTotal: 23000.5, tramitesCostoSinConfigurar: 3 });
+    const cobro = (t: Record<string, unknown>) => {
+      const { costoProveedorSoat: _a, costoProveedorLogistica: _b, costoProveedorTotal: _c, tramitesCostoSinConfigurar: _d, ...resto } = t;
+      return resto;
+    };
+    expect(cobro(conCosto.totales)).toEqual(cobro(sinCosto.totales));
+    expect(conCosto.items.map(cobro)).toEqual(sinCosto.items.map(cobro));
+  });
+
+  it('el Excel del consolidado lleva los cuatro valores al final, como número', () => {
+    const { items, totales } = plegarConsolidado([grupo({ costoProveedorSoat: '100', costoProveedorLogistica: '50', costoProveedorTotal: '150', tramitesCostoSinConfigurar: 1 })], MAESTRO);
+    const fila = filasExcelConsolidado({ periodo: 'mes', items, totales })[0]!;
+    expect(fila).toMatchObject({ costoProveedorSoat: 100, costoProveedorLogistica: 50, totalCostoProveedor: 150, tramitesCostoSinConfigurar: 1 });
+    expect(COLUMNAS_EXPORT_CONSOLIDADO.slice(-4).map((c) => c.key)).toEqual(['costoProveedorSoat', 'costoProveedorLogistica', 'totalCostoProveedor', 'tramitesCostoSinConfigurar']);
   });
 });

@@ -27,7 +27,7 @@ import FilaServicioAdicional from './FilaServicioAdicional';
 import { pesos } from './tiposReporteCostos';
 
 const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
+const PELIGRO = { color: 'var(--flit-warning-text)' } as const;
 
 /** Lo que falla al PEDIR la lista. El 403 y el 404 no se reintentan: reintentar no los arregla. */
 interface ErrorCarga { mensaje: string; reintentable: boolean; tramiteIdo: boolean }
