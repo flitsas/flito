@@ -54,3 +54,23 @@ y el catálogo de `components/flit/` en `docs/ux/rediseno-2026/README.md`.
 ## Verificación prevista
 
 `npm run typecheck -w apps/web`, `npm run lint`, specs E2E listados arriba (puerto 511), capturas Playwright MCP a 1280 px, 375 px y oscuro en `docs/ux/rediseno-2026/s1/`.
+
+## Ajustes tras `BRIEFING-KIT-flit-de.md` (manda sobre lo anterior)
+
+- **Fuente de valores:** el bloque final de `ui-kit-2026.css`, no `tokens.css`. Sin botón degradado (píldoras planas), sin modal con franja (blanco, ícono centrado), sin círculo turquesa en la cabecera.
+- **Regla k (solo visual):** no se cambian textos, aria, handlers, hooks, fetch ni estado. Por eso:
+  - nada de copy nuevo. La «barra de acción» del molde se aplica solo a avisos que ya existen (restilizados); no se inventa «Faltan N cosas»;
+  - partir `FlitoTramites` = mover JSX a subcomponentes con props, sin tocar hooks ni efectos;
+  - fichas de ayuda: solo se corrigen referencias a ubicación visual (pestaña, columna, botón) que cambien de forma.
+- **Embudo de estados** = rejilla de chips (`ChipsFiltro`), no pestañas. Pestañas (línea inferior, uppercase) solo donde hoy hay pestañas (p. ej. modal de `TransitoOrganismos`).
+- **Pasos** del wizard (`PasosHorizontal`): hecho = disco verde con check, actual = blanco con borde azul; pie Atrás tinta / Continuar azul.
+- **Tonos de etiqueta:** radicado/entregado turquesa `#00A99D`, anulado `#C1272D`, revocado amarillo; acciones destructivas (rechazar OT, anular) en botón naranja.
+- **Dock:** Trámites, Tránsito/bandeja, Traspasos y Portal público cuelgan del grupo «Trámites» (lo reviste el integrador; aquí no se toca).
+- **Tests de aspecto (error j):** actualizar el valor visual, nunca la lógica. Pendientes al migrar:
+  - `flito-tramites-sincronizacion.spec.ts:173` cuenta primarias por `style.background` con `gradient`: con píldoras planas sería un falso verde y hay que reanclarlo a la clase/variante de botón primario del kit;
+  - `:413` espera `var(--flit-blue-text)` en el carril: cambia al token del kit;
+  - `flito-tramites-estado-flit2.spec.ts:169` cuenta `.animate-pulse`: cambia al marcador de carga del kit.
+
+## Selectores E2E endurecidos (fase 1, sin tocar producto)
+
+`[role="status"]` → `getByRole('status')`, `dd` → `getByRole('definition')`, `button`+texto → `getByRole('button', { name })`, `div.tabular-nums` → `getByText(exacto)` en `flito-tramites`, `tramite-wizard`, `transito-bandeja` y `transito-organismos`. Los `data-*` (`data-testid`, `data-tono`, `data-aviso`, `data-codigo`) se quedan: son contrato, no piel. El logo de la bandeja es `alt=""` (decorativo), así que se sigue ubicando por `src`.
