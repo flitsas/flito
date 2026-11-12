@@ -178,3 +178,4 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 .dock__menu { z-index: 31; }
 .dock__fab img { width: 100%; height: 100%; }
 .menu-flotante .menu-usuario__pie .btn.alerta, .menu-flotante .menu-usuario__pie .btn.alerta:hover { background: var(--kit-naranja-boton); }
+.control-icono button svg { position: static; transform: none; color: inherit; }

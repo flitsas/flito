@@ -6,9 +6,10 @@
  * Decorativo por defecto (aria-hidden). Con `etiqueta` pasa a role="img" con nombre accesible.
  * Sin innerHTML: el glifo es un árbol de nodos generado (iconos-kit.generated.ts) que se pinta con createElement.
  */
-import { createElement, useId, type CSSProperties, type ReactNode } from 'react';
+import { useId, type CSSProperties } from 'react';
+import { pintarGlifo } from './GlifoSvg';
 import { cn } from './cn';
-import { GLIFOS, type NodoSvg, type NombreIcono } from './iconos-kit.generated';
+import { GLIFOS, type NombreIcono } from './iconos-kit.generated';
 import { MAPA_ICONO, rutaKit } from './iconos-mapas';
 
 export type { NombreIcono } from './iconos-kit.generated';
@@ -27,14 +28,6 @@ export interface IconoProps {
 
 const lado = (s: number | string | undefined, def: string) => (s === undefined ? def : typeof s === 'number' ? `${s}px` : s);
 
-function pintar(nodos: NodoSvg[], k: string, ruta = ''): ReactNode[] {
-  return nodos.map(([tag, attrs, hijos], i) => {
-    const props: Record<string, string> = { key: `${ruta}${i}` } as Record<string, string>;
-    for (const [a, v] of Object.entries(attrs)) props[a] = v.includes('__K__') ? v.replace(/__K__/g, k) : v;
-    return createElement(tag, props, ...(hijos ? pintar(hijos, k, `${ruta}${i}.`) : []));
-  });
-}
-
 export function Icono({ nombre, size, className, style, disco, etiqueta }: IconoProps) {
   const k = `k${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const g = GLIFOS[nombre] ?? GLIFOS.documento;
@@ -50,7 +43,7 @@ export function Icono({ nombre, size, className, style, disco, etiqueta }: Icono
       style={disco ? undefined : style}
       {...(disco ? { 'aria-hidden': true as const } : a11y)}
     >
-      {pintar(g.n as NodoSvg[], k)}
+      {pintarGlifo(g, k)}
     </svg>
   );
   if (!disco) return svg;

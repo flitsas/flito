@@ -10,7 +10,7 @@ const CampoClave = forwardRef<HTMLInputElement, Omit<InputHTMLAttributes<HTMLInp
     <div className="clave relative">
       <input ref={ref} type={ver ? 'text' : 'password'} className={`control pr-12 ${className}`} {...rest} />
       <button type="button" onClick={() => setVer((v) => !v)} aria-label={ver ? 'Ocultar contraseña' : 'Mostrar contraseña'} aria-pressed={ver}
-        className="absolute right-1.5 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-[9px] text-[color:var(--kit-azul)] transition-colors hover:bg-[var(--kit-hover)]">
+        className="grid place-items-center !text-[color:var(--kit-azul)] transition-colors">
         <Icono nombre={ver ? 'ojo-tachado' : 'ojo'} size={20} />
       </button>
     </div>
