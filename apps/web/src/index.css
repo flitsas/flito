@@ -67,9 +67,10 @@
   --color-cta: var(--color-cta);
   --color-cta-hover: var(--color-cta-hover);
   --color-cta-foreground: var(--color-cta-foreground);
-  --color-success: var(--color-success);
+  /* Como TEXTO las páginas usan text-success/warning: se mapean a la tinta AA del kit (el verde/naranja pleno es relleno). */
+  --color-success: var(--kit-verde-texto);
   --color-success-soft: var(--color-success-soft);
-  --color-warning: var(--color-warning);
+  --color-warning: var(--kit-naranja-texto);
   --color-warning-soft: var(--color-warning-soft);
   --color-danger: var(--color-danger);
   --color-danger-soft: var(--color-danger-soft);

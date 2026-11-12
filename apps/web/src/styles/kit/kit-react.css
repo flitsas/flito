@@ -168,3 +168,13 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 .tabla-wrap.kit-matriz table.matriz td { text-align: left; }
 .filtro-activo { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px 0 12px; border: 1px solid var(--kit-azul); border-radius: 999px; background: var(--kit-hover); color: var(--color-action); font-size: var(--text-caption); cursor: pointer; transition: filter var(--motion-fast) var(--ease); }
 .filtro-activo:hover { filter: brightness(0.96); }
+
+/* ---------- Dock: condensado medido (solo íconos) y aro de foco ---------- */
+.dock.kit-dock--iconos .dock__item { padding: 0 var(--space-4); }
+.dock.kit-dock--iconos .dock__item span.kico { width: 40px; height: 40px; }
+.dock .dock__item .kico > img { width: 24px; height: 24px; }
+.dock__entrada .kico > img, .dock__cabeza .kico > img { width: 60%; height: 60%; }
+.dock { z-index: 30; }
+.dock__menu { z-index: 31; }
+.dock__fab img { width: 100%; height: 100%; }
+.menu-flotante .menu-usuario__pie .btn.alerta, .menu-flotante .menu-usuario__pie .btn.alerta:hover { background: var(--kit-naranja-boton); }
