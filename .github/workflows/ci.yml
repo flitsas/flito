@@ -20,8 +20,42 @@ jobs:
   # dist). El camino crítico pasa a ser npm ci + el shard más lento (~4-5 min). El job
   # `build-test-gate` conserva el nombre de check «build + test» que exige la protección
   # de rama y vigila `pr-monitor-agent`: falla si cualquiera de los cuatro falla.
+  #
+  # 2026-11-12 — `alcance` decide si el PR toca código (scripts/ci-alcance.mjs). Si solo trae
+  # documentación (docs/, .claude/, .cursor/, .md fuera de apps/ y packages/), checks, test-api,
+  # build-api, build-web y e2e se omiten y «build + test» sale verde por omisión declarada. En push
+  # (develop/staging/release/main) corre siempre todo.
+  alcance:
+    name: alcance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      codigo: ${{ steps.alcance.outputs.codigo }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # En un PR, HEAD es el merge commit y HEAD^1 la punta de la base: su diff es exactamente
+          # lo que trae el PR, sin fetch adicional.
+          fetch-depth: 2
+
+      - name: Tests del cálculo de alcance
+        run: node --test scripts/ci-alcance.test.mjs
+
+      - name: ¿El PR toca código?
+        id: alcance
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Evento ${{ github.event_name }}: se corre todo."
+            echo "codigo=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only HEAD^1 HEAD > /tmp/alcance.txt || : > /tmp/alcance.txt
+          node scripts/ci-alcance.mjs --files-from /tmp/alcance.txt
+
   checks:
     name: checks
+    needs: alcance
+    if: needs.alcance.outputs.codigo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -32,13 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Install (workspaces)
-        run: npm ci
+      - uses: ./.github/actions/instalar-deps
 
       # Sin `npm run build -w @operaciones/shared-types`: el alias de
       # `apps/api/vitest.config.ts` resuelve el paquete a su FUENTE, y los checks
@@ -96,13 +124,15 @@ jobs:
           node --test scripts/check-ui.test.mjs
           node scripts/check-ui.mjs
 
-  # Suite API en shards matrix. `fileParallelism: false` (serial) es deliberado por mocks de
-  # módulo compartidos DENTRO del mismo proceso; cada shard es un proceso y un job aparte con
-  # su subconjunto de archivos en serial, así que el aislamiento se mantiene y el tiempo se
-  # divide ~4. Validado en local el 2026-10-26: los 4 shards verdes (675 archivos de test).
+  # Suite API en 4 shards matrix (2026-10-26), cada uno un job aparte con su subconjunto de
+  # archivos. 2026-11-12 — dentro de cada shard los archivos ya corren en paralelo (VITEST_PARALELO=1,
+  # ver apps/api/vitest.config.ts): cada archivo es su propio proceso, así que los mocks de
+  # módulo no se cruzan; los pocos que miran os.tmpdir() van en un grupo serial al final.
   # `fail-fast: false`: si un shard se rompe, los demás terminan y el diagnóstico es completo.
   test-api:
     name: test api (shard ${{ matrix.shard }}/4)
+    needs: alcance
+    if: needs.alcance.outputs.codigo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -114,13 +144,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
+      # HU #13207: los tests de compresión de comprobantes usan pdftotext/pdftoppm reales (poppler).
+      # Se lanza en segundo plano (7-28 s de apt) para que corra a la vez que la caché de
+      # node_modules y el build de shared-types; «Esperar poppler-utils» lo exige antes de
+      # vitest. Un proceso en segundo plano sobrevive entre pasos del mismo job (el runner lo
+      # limpia al final).
+      - name: Instalar poppler-utils (en segundo plano)
+        run: |
+          nohup bash -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils' \
+            > /tmp/poppler.log 2>&1 &
+          echo $! > /tmp/poppler.pid
 
-      - name: Install (workspaces)
-        run: npm ci
+      - uses: ./.github/actions/instalar-deps
 
       # Los tests mockean Postgres/Redis (drizzle chain + env de __tests__/setup.ts), por eso
       # NO se necesitan servicios externos. El alias de `apps/api/vitest.config.ts` resuelve
@@ -131,15 +166,22 @@ jobs:
       - name: Build shared-types (tsc)
         run: npm run build -w @operaciones/shared-types
 
-      # HU #13207: los tests de compresión de comprobantes usan pdftotext/pdftoppm reales (poppler).
-      - name: Instalar poppler-utils
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Esperar poppler-utils
+        run: |
+          while kill -0 "$(cat /tmp/poppler.pid)" 2>/dev/null; do sleep 1; done
+          if ! command -v pdftotext >/dev/null || ! command -v pdftoppm >/dev/null; then
+            echo "::error::poppler-utils no quedó instalado"; cat /tmp/poppler.log; exit 1
+          fi
 
       - name: Test API (vitest, shard ${{ matrix.shard }}/4)
+        env:
+          VITEST_PARALELO: '1'
         run: npm run test -w apps/api -- --shard=${{ matrix.shard }}/4
 
   build-api:
     name: build api
+    needs: alcance
+    if: needs.alcance.outputs.codigo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -147,13 +189,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Install (workspaces)
-        run: npm ci
+      - uses: ./.github/actions/instalar-deps
 
       - name: Build shared-types (tsc)
         run: npm run build -w @operaciones/shared-types
@@ -165,6 +201,8 @@ jobs:
 
   build-web:
     name: build web
+    needs: alcance
+    if: needs.alcance.outputs.codigo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -172,13 +210,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Install (workspaces)
-        run: npm ci
+      - uses: ./.github/actions/instalar-deps
 
       - name: Build web (typecheck + vite)
         run: npm run build:web
@@ -203,16 +235,27 @@ jobs:
   # verde; con él, el job corre siempre y sale rojo nombrando al culpable.
   build-test-gate:
     name: build + test
-    needs: [checks, test-api, build-api, build-web]
+    needs: [alcance, checks, test-api, build-api, build-web]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # `skipped` solo vale como verde cuando `alcance` corrió bien y dijo `codigo=false` (PR de
+      # solo documentación). Si `alcance` falla, sus dependientes quedan `skipped` y eso es rojo.
       - name: Veredicto agregado de checks / test-api / builds
         env:
           NEEDS: ${{ toJSON(needs) }}
+          CODIGO: ${{ needs.alcance.outputs.codigo }}
         run: |
           echo "$NEEDS" | jq -r 'to_entries[] | "  \(.key): \(.value.result)"'
+          if [ "$(echo "$NEEDS" | jq -r '.alcance.result')" != "success" ]; then
+            echo "::error::build + test en rojo: el job alcance no terminó en verde."
+            exit 1
+          fi
+          if [ "$CODIGO" = "false" ]; then
+            echo "build + test — OK por omisión: el PR solo trae documentación (ver job alcance)."
+            exit 0
+          fi
           ROTO=$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success") | "\(.key)=\(.value.result)"' | paste -sd' ' -)
           if [ -n "$ROTO" ]; then
             echo "::error::build + test en rojo por: $ROTO"
@@ -229,19 +272,28 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      # Caché de ESLint compartida por los dos pasos que analizan el repo (ESLint y el ratchet,
+      # que lee de aquí en vez de reanalizar) y guardada entre runs. Estrategia `content`: en CI
+      # el checkout reescribe los mtimes, así que la caché por fecha no acertaría nunca.
+      ESLINT_CACHE_LOCATION: .eslintcache
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
+      - uses: ./.github/actions/instalar-deps
 
-      - name: Install (workspaces)
-        run: npm ci
+      # La clave cambia en cada commit; `restore-keys` recupera la caché más reciente y ESLint
+      # solo reanaliza los archivos cuyo contenido (o config) cambió. Una caché vieja no puede dar
+      # un falso verde: ESLint invalida la entrada si cambia el archivo, el config o el plugin.
+      - name: Caché de ESLint
+        uses: actions/cache@v4
+        with:
+          path: .eslintcache
+          key: eslint-v1-${{ runner.os }}-${{ hashFiles('package-lock.json', 'eslint.config.mjs') }}-${{ github.sha }}
+          restore-keys: |
+            eslint-v1-${{ runner.os }}-${{ hashFiles('package-lock.json', 'eslint.config.mjs') }}-
 
       - name: ESLint
-        run: npm run lint
+        run: npm run lint -- --cache --cache-location "$ESLINT_CACHE_LOCATION" --cache-strategy content
 
   # Gate de seguridad SCA — precondición de merge #6 de flit-integration-ado.
   # Falla con cualquier vulnerabilidad High o Critical en dependencias de
@@ -254,13 +306,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Install (workspaces)
-        run: npm ci
+      - uses: ./.github/actions/instalar-deps
 
       - name: npm audit (dependencias de producción)
         run: node scripts/dependency-audit.mjs
@@ -386,6 +432,8 @@ jobs:
   # escuchando en el 3005 al que apunta el proxy de Vite).
   e2e-visor-pdf:
     name: e2e · visor PDF real
+    needs: alcance
+    if: needs.alcance.outputs.codigo == 'true'
     # ubuntu-latest ya resuelve a 26.04; Playwright 1.59 no instala Chromium ahí.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -395,14 +443,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Install (workspaces)
-        run: npm ci
-        working-directory: .
+      - uses: ./.github/actions/instalar-deps
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
