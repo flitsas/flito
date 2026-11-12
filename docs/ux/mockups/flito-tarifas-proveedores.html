@@ -1,0 +1,481 @@
+<!doctype html>
+<!--
+  MAQUETA DESCARTABLE — FLITO · Tarifas › modo Proveedores (Épica #13763).
+  Spec: docs/ux/flito-tarifas-proveedores.md. NO se importa a apps/web.
+  Los valores de :root/.dark son una copia de apps/web/src/styles/flit-tokens.css para que el archivo
+  sea autocontenido; el marcado solo usa var(--flit-*), nunca HEX sueltos.
+  El JS solo conmuta vistas, tema y modales (sin lógica de negocio ni red). Datos ficticios.
+  Responsive: <lg la matriz y el historial son TARJETAS (sin tabla, sin scroll horizontal de página);
+  desde lg, la tabla. Entre md y lg las tarjetas van en rejilla de 2 columnas.
+  Sin rojo: avisos y chip con el par tonal de AvisoProcesando/StatusChip; la gravedad la dice el copy.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Maqueta · Tarifas › Proveedores · FLITO</title>
+<link rel="stylesheet" href="flito-tarifas-proveedores.css">
+<script>/* Tailwind compilado localmente (Tailwind 4 del repo); dark por clase .dark */</script>
+<style>
+  :root {
+    --flit-bg-app: #EAF2FF; --flit-bg-card: #FFFFFF; --flit-bg-table-header: #F4F6FA;
+    --flit-bg-hover: rgba(22, 39, 68, 0.06); --flit-veil-press-hover: rgba(8, 18, 38, 0.12);
+    --flit-blue-text: #4D6AB2; --flit-text-primary: #162744; --flit-text-secondary: #59677D;
+    --flit-text-muted: #646E82; --flit-border-soft: #DDE5F0;
+    --flit-blue-ink: #4264B7; --flit-cyan-ink: #1E7B75;
+    --flit-gradient-primary: linear-gradient(90deg, var(--flit-cyan-ink) 0%, var(--flit-blue-ink) 100%);
+    /* Pares tonales de StatusChip / AvisoProcesando: en flit-tokens.css valen lo mismo en claro y oscuro */
+    --flit-chip-active-bg: #E6ECF7; --flit-chip-draft-bg: #E8EAED; --flit-chip-draft-ink: #59677D;
+  }
+  .dark {
+    --flit-bg-app: #0F1B2E; --flit-bg-card: #1E2F4C; --flit-bg-table-header: #18273F;
+    --flit-bg-hover: rgba(255, 255, 255, 0.08); --flit-text-primary: #E9EFF9; --flit-text-secondary: #BCC8DA;
+    --flit-text-muted: #A1AEC2; --flit-blue-text: #9DBCF7; --flit-border-soft: #3A4E78;
+  }
+  body { background: var(--flit-bg-app); color: var(--flit-text-primary); font-family: system-ui, sans-serif; }
+  .flit-focus:focus-visible { outline: 2px solid var(--flit-blue-text); outline-offset: 2px; }
+  .card { background: var(--flit-bg-card); border: 1px solid var(--flit-border-soft); border-radius: 16px; padding: 20px; min-width: 0; }
+  @media (max-width: 639px) { .card { padding: 16px; } }
+  /* Tarjeta de concepto (<lg): mismo borde y radio de las tarjetas internas, sin sombra nueva */
+  .tarjeta { border: 1px solid var(--flit-border-soft); border-radius: 12px; padding: 16px; background: var(--flit-bg-card); min-width: 0; }
+  .grupo-t { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color: var(--flit-text-muted); margin-bottom:.5rem; }
+  /* Botones: mismas medidas que flitBtnPrimary / flitBtnSecondary / flitBtnSecondarySm. Sin variante roja. */
+  .btn-p { display:inline-flex; align-items:center; justify-content:center; height:2.5rem; padding:0 1.25rem; border-radius:999px; font-size:.875rem; font-weight:600; color:#fff; background: var(--flit-gradient-primary); transition: box-shadow .15s; }
+  .btn-p:hover { box-shadow: inset 0 0 0 999px var(--flit-veil-press-hover); }
+  .btn-p:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
+  .btn-s, .btn-sm { display:inline-flex; align-items:center; justify-content:center; border-radius:999px; border:1px solid var(--flit-border-soft); background: var(--flit-bg-card); color: var(--flit-text-primary); font-weight:500; transition: background-color .15s; }
+  .btn-s { height:2.5rem; padding:0 1.25rem; font-size:.875rem; }
+  .btn-sm { height:1.75rem; padding:0 .75rem; font-size:.75rem; }
+  .btn-s:hover, .btn-sm:hover { background: var(--flit-bg-hover); }
+  .btn-s:disabled, .btn-sm:disabled { opacity:.5; cursor:not-allowed; }
+  .pill { display:inline-flex; align-items:center; padding:.5rem 1rem; border-radius:999px; font-size:.75rem; font-weight:600; color: var(--flit-text-secondary); transition: background-color .15s; }
+  .pill:hover { background: var(--flit-bg-hover); }
+  .pill[aria-pressed="true"] { background: var(--flit-bg-card); color: var(--flit-blue-text); box-shadow: 0 0 0 1px var(--flit-border-soft); }
+  .pill-wrap { display:inline-flex; flex-wrap:wrap; gap:.25rem; padding:.25rem; border-radius:1.25rem; background: var(--flit-bg-table-header); max-width:100%; }
+  .inp { height:2.5rem; width:100%; max-width:100%; border-radius:10px; border:1px solid var(--flit-border-soft); background: var(--flit-bg-card); color: var(--flit-text-primary); padding:0 .75rem; font-size:.875rem; }
+  /* Inválido: borde de 2 px en tinta secundaria (≥3:1 contra la tarjeta en los dos temas), no rojo */
+  .inp[aria-invalid="true"] { border: 2px solid var(--flit-text-secondary); }
+  /* Error de validación en línea: icono + texto en tinta primaria seminegrita (no depende del color) */
+  .msg-campo { display:flex; align-items:flex-start; gap:.375rem; font-size:.75rem; font-weight:600; color: var(--flit-text-primary); }
+  .tbl-wrap { overflow-x:auto; border:1px solid var(--flit-border-soft); border-radius:12px; }
+  table { width:100%; border-collapse:collapse; }
+  thead th { background: var(--flit-bg-table-header); color: var(--flit-text-secondary); font-size:.75rem; font-weight:600; text-align:left; padding:.625rem 1rem; }
+  tbody tr.fila { border-top:1px solid var(--flit-border-soft); }
+  td, tbody th { padding:.75rem 1rem; font-size:.875rem; vertical-align:top; text-align:left; }
+  .grupo td { padding:.75rem 1rem .25rem; border-top:1px solid var(--flit-border-soft); }
+  .grupo h3 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color: var(--flit-text-muted); }
+  /* «Vigente»: StatusChip tono active (tinta azul sobre su fondo tonal, igual en los dos temas) */
+  .chip { display:inline-flex; padding:.125rem .5rem; border-radius:999px; font-size:.75rem; font-weight:600; white-space:nowrap; background: var(--flit-chip-active-bg); color: var(--flit-blue-ink); }
+  .sk { height:1.25rem; border-radius:6px; background: var(--flit-bg-table-header); animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity:.5; } }
+  .item { display:flex; width:100%; justify-content:space-between; gap:.5rem; padding:.5rem .75rem; border-radius:8px; font-size:.875rem; text-align:left; color: var(--flit-text-primary); transition: background-color .15s; }
+  .item:hover:not(:disabled) { background: var(--flit-bg-hover); }
+  .item:disabled { color: var(--flit-text-secondary); cursor:not-allowed; }
+  .item[aria-current="true"] { background: var(--flit-bg-table-header); font-weight:600; }
+  .muted { color: var(--flit-text-muted); } .sec { color: var(--flit-text-secondary); }
+  /* Aviso de página: patrón tonal de AvisoProcesando (sin spinner). Texto ≥4.5:1 sobre su fondo en los dos temas.
+     El botón de dentro es el secundario normal: en oscuro queda tarjeta oscura con texto claro, legible igual. */
+  .aviso { display:flex; flex-wrap:wrap; align-items:flex-start; gap:.5rem .75rem; border:1px solid; border-radius:16px; padding:.75rem 1rem; font-size:.875rem; }
+  .aviso-activo { background: var(--flit-chip-active-bg); color: var(--flit-blue-ink); border-color: color-mix(in srgb, var(--flit-blue-ink) 45%, transparent); }
+  .aviso-neutro { background: var(--flit-chip-draft-bg); color: var(--flit-chip-draft-ink); border-color: color-mix(in srgb, var(--flit-chip-draft-ink) 45%, transparent); }
+  [data-vista] { display:none; } [data-vista].on { display:block; }
+  [hidden] { display:none !important; }
+  .backdrop { position:fixed; inset:0; background: rgba(8,18,38,.45); display:none; align-items:center; justify-content:center; padding:1rem; z-index:40; }
+  .backdrop.on { display:flex; }
+  .toast { position:fixed; top:1rem; right:1rem; left:auto; max-width:calc(100vw - 2rem); z-index:50; display:none; align-items:center; gap:.75rem; padding:.75rem 1rem; border-radius:12px; background: var(--flit-bg-card); color: var(--flit-text-primary); border:1px solid var(--flit-border-soft); font-size:.875rem; }
+  .toast.on { display:flex; }
+  .maqueta-bar { border-bottom:1px dashed var(--flit-border-soft); }
+</style>
+</head>
+<body>
+
+<!-- ===== Conmutadores de la maqueta (NO son producto). Envuelven: sin desborde ===== -->
+<div class="maqueta-bar flex flex-wrap items-center gap-2 px-4 py-2 text-xs sec">
+  <strong>Maqueta</strong>
+  <label for="selVista" class="shrink-0">Vista:</label>
+  <select id="selVista" class="inp min-w-0" style="width:auto;height:2rem">
+    <option value="lleno">Lleno (3 conceptos)</option>
+    <option value="edicion">Concepto en edición con error</option>
+    <option value="conflicto">Conflicto 409</option>
+    <option value="sinpermiso">Sin permiso de modificar</option>
+    <option value="inactivo">Proveedor inactivo</option>
+    <option value="sinservicios">Proveedor sin servicios</option>
+    <option value="cargando">Cargando</option>
+    <option value="error">Error con Reintentar</option>
+    <option value="vacio">Vacío: sin proveedores activos</option>
+  </select>
+  <button class="btn-sm flit-focus" onclick="toggleHistorial()">Historial</button>
+  <button class="btn-sm flit-focus" onclick="abrir('modalCero')">Modal $0</button>
+  <button class="btn-sm flit-focus" onclick="abrir('modalDejar')">Modal Dejar de cobrar</button>
+  <button class="btn-sm flit-focus" onclick="mostrarToast()">Toast</button>
+  <button class="btn-sm flit-focus" onclick="document.documentElement.classList.toggle('dark')">Tema</button>
+</div>
+
+<main class="mx-auto flex max-w-[1600px] flex-col gap-5 p-4 lg:gap-6 lg:p-6">
+  <!-- PageHeaderCard -->
+  <header class="card">
+    <h1 class="text-xl font-bold">Tarifas</h1>
+    <p class="mt-1 text-sm sec">Lo que cada proveedor le cobra a FLITO por su servicio, desde ahora.</p>
+  </header>
+
+  <!-- Selector de modo (FlitPillGroup) -->
+  <div class="flex flex-wrap items-center gap-2" role="group" aria-label="Ver tarifas de">
+    <span class="text-sm font-semibold sec">Ver tarifas de</span>
+    <div class="pill-wrap">
+      <button type="button" class="pill flit-focus" aria-pressed="false">Clientes</button>
+      <button type="button" class="pill flit-focus" aria-pressed="true">Proveedores</button>
+    </div>
+  </div>
+
+  <!-- ===== Cargando ===== -->
+  <div data-vista="cargando" role="status" aria-busy="true" aria-label="Cargando proveedores">
+    <div class="grid gap-5 lg:grid-cols-[300px_1fr] lg:gap-6">
+      <div class="card space-y-3"><div class="sk w-3/4"></div><div class="sk w-1/2"></div><div class="sk w-2/3"></div><div class="sk hidden w-3/5 lg:block"></div><div class="sk hidden w-1/2 lg:block"></div></div>
+      <div class="card space-y-3"><div class="sk w-1/3"></div><div class="sk w-full"></div><div class="sk w-full"></div><div class="sk w-full"></div></div>
+    </div>
+  </div>
+
+  <!-- ===== Error ===== -->
+  <div data-vista="error">
+    <div class="card mx-auto w-full max-w-xl">
+      <div role="alert" class="aviso aviso-activo">
+        <span aria-hidden="true" class="font-bold">!</span>
+        <div class="min-w-0 flex-1">
+          <p class="font-semibold">No se pudo cargar la lista de proveedores.</p>
+          <p>Revisa tu conexión y vuelve a intentarlo.</p>
+        </div>
+        <button type="button" class="btn-s flit-focus">Reintentar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Vacío ===== -->
+  <div data-vista="vacio">
+    <div class="card mx-auto w-full max-w-xl text-center text-sm sec">
+      <p style="color:var(--flit-text-primary)">No hay proveedores activos.</p>
+      <p class="mt-1">Activa un proveedor en Clientes y proveedores; cuando esté activo, aquí se le fijan sus valores.</p>
+      <a href="#" class="btn-s flit-focus mt-4">Ir a Clientes y proveedores</a>
+    </div>
+  </div>
+
+  <!-- ===== Lista + panel ===== -->
+  <div data-vista="panel">
+    <div class="grid gap-5 lg:grid-cols-[300px_1fr] lg:gap-6">
+      <aside class="min-w-0 lg:self-start">
+        <div class="card space-y-3">
+          <h2 class="text-sm font-bold" style="color:var(--flit-blue-text)">Proveedores (4)</h2>
+          <input type="search" class="inp flit-focus" placeholder="Buscar proveedor…" aria-label="Buscar proveedor" />
+          <!-- <lg: FlitSelect -->
+          <div class="lg:hidden">
+            <label for="selProv" class="mb-1 block text-xs font-semibold sec">Proveedor</label>
+            <select id="selProv" class="inp flit-focus">
+              <option>Grúas del Valle Ejemplo</option>
+              <option selected>Mensajería Andina Ejemplo S.A.S.</option>
+              <option>Seguros Rápidos Ejemplo</option>
+              <option>Transportes Norte Ejemplo</option>
+            </select>
+          </div>
+          <ul class="hidden max-h-[60vh] space-y-0.5 overflow-y-auto lg:block" aria-label="Proveedores">
+            <li><button type="button" class="item flit-focus">Grúas del Valle Ejemplo</button></li>
+            <li><button type="button" class="item flit-focus" aria-current="true"><span class="min-w-0 truncate">Mensajería Andina Ejemplo S.A.S.</span><span data-solo="inactivo" class="shrink-0 text-xs font-semibold sec">Inactivo</span></button></li>
+            <li><button type="button" class="item flit-focus">Seguros Rápidos Ejemplo</button></li>
+            <li><button type="button" class="item flit-focus">Transportes Norte Ejemplo</button></li>
+          </ul>
+        </div>
+      </aside>
+
+      <section class="min-w-0 space-y-5" aria-label="Valores del proveedor">
+        <div class="card">
+          <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h2 class="text-base font-bold break-words">Mensajería Andina Ejemplo S.A.S.</h2>
+              <p class="text-sm sec">Lo que este proveedor le cobra a FLITO. Valores en pesos, sin IVA.</p>
+            </div>
+            <button type="button" class="btn-s flit-focus" data-oculta-sinservicios onclick="toggleHistorial(true)">Historial del proveedor</button>
+          </div>
+
+          <!-- Sin servicios -->
+          <div data-solo="sinservicios" class="rounded-xl p-6 text-center text-sm sec" style="background:var(--flit-bg-table-header)">
+            <p style="color:var(--flit-text-primary)">Mensajería Andina Ejemplo S.A.S. no tiene servicios asignados.</p>
+            <p class="mt-1">Asígnale logística o SOAT en su ficha de Clientes y proveedores para fijarle valores.</p>
+            <a href="#" class="btn-s flit-focus mt-4">Ir a Clientes y proveedores</a>
+          </div>
+
+          <div data-oculta-sinservicios>
+            <!-- Proveedor inactivo: aviso neutro, solo lectura -->
+            <div data-solo="inactivo" role="status" class="aviso aviso-neutro mb-3">
+              <span aria-hidden="true" class="font-bold">i</span>
+              <div class="min-w-0 flex-1">
+                <p class="font-semibold">Este proveedor está inactivo.</p>
+                <p>Sus valores se pueden consultar, pero no fijar ni cambiar. Para hacerlo, actívalo en Clientes y proveedores.</p>
+              </div>
+            </div>
+            <!-- Conflicto 409: aviso tonal (activo) -->
+            <div data-solo="conflicto" role="alert" class="aviso aviso-activo mb-3 items-center">
+              <span aria-hidden="true" class="font-bold">!</span>
+              <span class="min-w-0 flex-1 font-semibold">Otro usuario cambió este valor. Recarga para ver el vigente.</span>
+              <button type="button" class="btn-s flit-focus">Recargar</button>
+            </div>
+
+            <!-- ===== <lg: TARJETAS por concepto (sin tabla, sin scroll horizontal) ===== -->
+            <div class="space-y-5 lg:hidden" role="group" aria-label="Valores de Mensajería Andina Ejemplo S.A.S.">
+              <section aria-labelledby="gLog">
+                <h3 id="gLog" class="grupo-t">Logística</h3>
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <article class="tarjeta" aria-labelledby="tLog">
+                    <h4 id="tLog" class="text-sm font-medium">Logística</h4>
+                    <p class="mt-1 text-2xl font-bold tabular-nums">$45.000</p>
+                    <p class="text-xs sec">Desde 3 nov 2026 · Ana Ejemplo</p>
+                    <div class="mt-3 flex w-full flex-wrap gap-2">
+                      <button class="btn-s flit-focus flex-1" data-escribe aria-label="Cambiar · Logística de Mensajería Andina Ejemplo S.A.S.">Cambiar</button>
+                      <button class="btn-s flit-focus flex-1" onclick="toggleHistorial(true)" aria-label="Historial · Logística">Historial</button>
+                      <button class="btn-s flit-focus flex-1" data-escribe onclick="abrir('modalDejar')" aria-label="Dejar de cobrar · Logística">Dejar de cobrar</button>
+                    </div>
+                  </article>
+                </div>
+              </section>
+              <section aria-labelledby="gSoat">
+                <h3 id="gSoat" class="grupo-t">SOAT</h3>
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <article class="tarjeta" aria-labelledby="tSct">
+                    <h4 id="tSct" class="text-sm font-medium">SOAT con trámite</h4>
+                    <p class="mt-1 text-2xl font-bold tabular-nums">$0</p>
+                    <p class="text-xs sec">Desde 5 nov 2026 · Luis Ejemplo</p>
+                    <div class="mt-3 flex w-full flex-wrap gap-2">
+                      <button class="btn-s flit-focus flex-1" data-escribe aria-label="Cambiar · SOAT con trámite">Cambiar</button>
+                      <button class="btn-s flit-focus flex-1" onclick="toggleHistorial(true)" aria-label="Historial · SOAT con trámite">Historial</button>
+                      <button class="btn-s flit-focus flex-1" data-escribe onclick="abrir('modalDejar')" aria-label="Dejar de cobrar · SOAT con trámite">Dejar de cobrar</button>
+                    </div>
+                  </article>
+                  <!-- SOAT sin trámite: reposo -->
+                  <article class="tarjeta" aria-labelledby="tSst" data-oculta-edicion>
+                    <h4 id="tSst" class="text-sm font-medium">SOAT sin trámite</h4>
+                    <p class="mt-1 text-2xl font-bold muted">Sin configurar</p>
+                    <p class="text-xs sec">Todavía no tiene valor.</p>
+                    <div class="mt-3 flex w-full flex-wrap gap-2">
+                      <button class="btn-s flit-focus flex-1" data-escribe onclick="setVista('edicion')" aria-label="Fijar valor · SOAT sin trámite">Fijar valor</button>
+                      <button class="btn-s flit-focus flex-1" onclick="toggleHistorial(true)" aria-label="Historial · SOAT sin trámite">Historial</button>
+                    </div>
+                  </article>
+                  <!-- SOAT sin trámite: campo abierto dentro de la tarjeta -->
+                  <article class="tarjeta" aria-labelledby="tSstE" data-solo="edicion">
+                    <h4 id="tSstE" class="text-sm font-medium">SOAT sin trámite</h4>
+                    <label for="valorEdM" class="mt-2 block text-xs font-semibold sec">Valor en pesos, sin IVA</label>
+                    <div class="mt-1 flex items-center gap-2">
+                      <span aria-hidden="true" class="text-lg font-semibold">$</span>
+                      <input id="valorEdM" class="inp flit-focus min-w-0 flex-1" value="-500" aria-invalid="true" aria-describedby="msgEdM" inputmode="numeric" autocomplete="off" />
+                    </div>
+                    <p id="msgEdM" role="alert" class="msg-campo mt-1"><span aria-hidden="true">⚠</span><span>El valor debe ser mayor o igual a cero.</span></p>
+                    <div class="mt-3 flex w-full flex-wrap gap-2">
+                      <button class="btn-p flit-focus flex-1" disabled aria-label="Guardar · SOAT sin trámite">Guardar</button>
+                      <button class="btn-s flit-focus flex-1" onclick="setVista('lleno')" aria-label="Cancelar · SOAT sin trámite">Cancelar</button>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+
+            <!-- ===== ≥lg: TABLA ===== -->
+            <div class="tbl-wrap hidden lg:block">
+              <table aria-label="Valores de Mensajería Andina Ejemplo S.A.S.">
+                <thead><tr><th>Servicio</th><th>Valor vigente</th><th>Desde</th><th>Quién</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+                <tbody>
+                  <tr class="grupo"><td colspan="5"><h3>Logística</h3></td></tr>
+                  <tr class="fila">
+                    <th scope="row" class="font-medium">Logística</th>
+                    <td class="tabular-nums">$45.000</td>
+                    <td class="sec">3 nov 2026</td>
+                    <td class="sec">Ana Ejemplo</td>
+                    <td><div class="flex flex-wrap justify-end gap-2">
+                      <button class="btn-sm flit-focus" data-escribe aria-label="Cambiar · Logística de Mensajería Andina Ejemplo S.A.S.">Cambiar</button>
+                      <button class="btn-sm flit-focus" onclick="toggleHistorial(true)" aria-label="Historial · Logística">Historial</button>
+                      <button class="btn-sm flit-focus" data-escribe onclick="abrir('modalDejar')" aria-label="Dejar de cobrar · Logística">Dejar de cobrar</button>
+                    </div></td>
+                  </tr>
+                  <tr class="grupo"><td colspan="5"><h3>SOAT</h3></td></tr>
+                  <tr class="fila">
+                    <th scope="row" class="font-medium">SOAT con trámite</th>
+                    <td class="tabular-nums">$0</td>
+                    <td class="sec">5 nov 2026</td>
+                    <td class="sec">Luis Ejemplo</td>
+                    <td><div class="flex flex-wrap justify-end gap-2">
+                      <button class="btn-sm flit-focus" data-escribe>Cambiar</button>
+                      <button class="btn-sm flit-focus" onclick="toggleHistorial(true)">Historial</button>
+                      <button class="btn-sm flit-focus" data-escribe onclick="abrir('modalDejar')">Dejar de cobrar</button>
+                    </div></td>
+                  </tr>
+                  <tr class="fila" data-oculta-edicion>
+                    <th scope="row" class="font-medium">SOAT sin trámite</th>
+                    <td class="muted">Sin configurar</td>
+                    <td class="sec">—</td>
+                    <td class="sec">—</td>
+                    <td><div class="flex flex-wrap justify-end gap-2">
+                      <button class="btn-sm flit-focus" data-escribe onclick="setVista('edicion')">Fijar valor</button>
+                      <button class="btn-sm flit-focus" onclick="toggleHistorial(true)">Historial</button>
+                    </div></td>
+                  </tr>
+                  <tr class="fila" data-solo="edicion">
+                    <th scope="row" class="font-medium">SOAT sin trámite</th>
+                    <td>
+                      <div class="flex flex-col gap-1">
+                        <label for="valorEd" class="sr-only">Valor de SOAT sin trámite de Mensajería Andina Ejemplo S.A.S.</label>
+                        <div class="flex items-center gap-1"><span aria-hidden="true">$</span>
+                          <input id="valorEd" class="inp flit-focus" style="width:10rem" value="-500" aria-invalid="true" aria-describedby="msgEd" inputmode="numeric" autocomplete="off" />
+                        </div>
+                        <p id="msgEd" role="alert" class="msg-campo"><span aria-hidden="true">⚠</span><span>El valor debe ser mayor o igual a cero.</span></p>
+                      </div>
+                    </td>
+                    <td class="sec">—</td>
+                    <td class="sec">—</td>
+                    <td><div class="flex flex-wrap justify-end gap-2">
+                      <button class="btn-p flit-focus" disabled aria-label="Guardar · SOAT sin trámite">Guardar</button>
+                      <button class="btn-s flit-focus" onclick="setVista('lleno')" aria-label="Cancelar · SOAT sin trámite">Cancelar</button>
+                    </div></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="mt-3 text-xs muted">Un valor rige desde su fecha. Lo ya registrado no cambia.</p>
+          </div>
+        </div>
+
+        <!-- Historial (FlitAcordeon) -->
+        <div class="card" data-oculta-sinservicios>
+          <button type="button" id="histTitulo" class="flit-focus flex w-full items-center gap-2 text-left text-sm font-bold" aria-expanded="false" aria-controls="histCuerpo" onclick="toggleHistorial()">
+            <span id="histFlecha" aria-hidden="true">▸</span> <span class="min-w-0 break-words">Historial de Mensajería Andina Ejemplo S.A.S.</span>
+          </button>
+          <div id="histCuerpo" class="mt-4 space-y-3" hidden>
+            <div class="pill-wrap" role="group" aria-label="Filtrar historial">
+              <button class="pill flit-focus" aria-pressed="true">Todos</button>
+              <button class="pill flit-focus" aria-pressed="false">Logística</button>
+              <button class="pill flit-focus" aria-pressed="false">SOAT con trámite</button>
+              <button class="pill flit-focus" aria-pressed="false">SOAT sin trámite</button>
+            </div>
+
+            <!-- <lg: lista de tarjetas -->
+            <ul class="grid grid-cols-1 gap-2 md:grid-cols-2 lg:hidden" aria-label="Historial de Mensajería Andina Ejemplo S.A.S.">
+              <li class="tarjeta">
+                <p class="text-xs muted">Logística</p>
+                <div class="flex flex-wrap items-center justify-between gap-2"><span class="text-lg font-bold tabular-nums">$45.000</span><span class="chip">Vigente</span></div>
+                <p class="text-xs sec">3 nov 2026 → Vigente</p>
+                <p class="text-xs sec">Fijó Ana Ejemplo</p>
+              </li>
+              <li class="tarjeta">
+                <p class="text-xs muted">Logística</p>
+                <span class="text-lg font-bold tabular-nums">$40.000</span>
+                <p class="text-xs sec">1 sep 2026 → 3 nov 2026</p>
+                <p class="text-xs sec">Fijó Luis Ejemplo · Cerró Ana Ejemplo</p>
+              </li>
+              <li class="tarjeta">
+                <p class="text-xs muted">SOAT con trámite</p>
+                <div class="flex flex-wrap items-center justify-between gap-2"><span class="text-lg font-bold tabular-nums">$0</span><span class="chip">Vigente</span></div>
+                <p class="text-xs sec">5 nov 2026 → Vigente</p>
+                <p class="text-xs sec">Fijó Luis Ejemplo</p>
+              </li>
+              <li class="tarjeta">
+                <p class="text-xs muted">SOAT con trámite</p>
+                <span class="text-lg font-bold tabular-nums">$12.000</span>
+                <p class="text-xs sec">1 sep 2026 → 5 nov 2026</p>
+                <p class="text-xs sec">Fijó Ana Ejemplo · Cerró Luis Ejemplo</p>
+              </li>
+              <li class="tarjeta">
+                <p class="text-xs muted">SOAT sin trámite</p>
+                <span class="text-lg font-bold tabular-nums">$15.000</span>
+                <p class="text-xs sec">1 sep 2026 → 8 nov 2026</p>
+                <p class="text-xs sec">Fijó Ana Ejemplo · Cerró Luis Ejemplo</p>
+              </li>
+            </ul>
+
+            <!-- ≥lg: tabla -->
+            <div class="tbl-wrap hidden lg:block">
+              <table aria-label="Historial de Mensajería Andina Ejemplo S.A.S.">
+                <thead><tr><th>Servicio</th><th>Valor</th><th>Desde</th><th>Hasta</th><th>Fijó</th><th>Cerró</th></tr></thead>
+                <tbody>
+                  <tr class="fila"><td>Logística</td><td class="tabular-nums">$45.000</td><td class="sec">3 nov 2026</td><td><span class="chip">Vigente</span></td><td class="sec">Ana Ejemplo</td><td class="sec">—</td></tr>
+                  <tr class="fila"><td>Logística</td><td class="tabular-nums">$40.000</td><td class="sec">1 sep 2026</td><td class="sec">3 nov 2026</td><td class="sec">Luis Ejemplo</td><td class="sec">Ana Ejemplo</td></tr>
+                  <tr class="fila"><td>SOAT con trámite</td><td class="tabular-nums">$0</td><td class="sec">5 nov 2026</td><td><span class="chip">Vigente</span></td><td class="sec">Luis Ejemplo</td><td class="sec">—</td></tr>
+                  <tr class="fila"><td>SOAT con trámite</td><td class="tabular-nums">$12.000</td><td class="sec">1 sep 2026</td><td class="sec">5 nov 2026</td><td class="sec">Ana Ejemplo</td><td class="sec">Luis Ejemplo</td></tr>
+                  <tr class="fila"><td>SOAT sin trámite</td><td class="tabular-nums">$15.000</td><td class="sec">1 sep 2026</td><td class="sec">8 nov 2026</td><td class="sec">Ana Ejemplo</td><td class="sec">Luis Ejemplo</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<!-- ===== Modal $0 (FlitModal) ===== -->
+<div class="backdrop" id="modalCero" role="dialog" aria-modal="true" aria-labelledby="tCero">
+  <div class="card w-full max-w-lg space-y-3 text-sm">
+    <h2 id="tCero" class="text-base font-bold">Cobrar $0 por SOAT con trámite</h2>
+    <p>Se cobrará $0: Mensajería Andina Ejemplo S.A.S. no le cobrará nada a FLITO por «SOAT con trámite» desde ahora.</p>
+    <p class="sec">Cero no es lo mismo que «Sin configurar». Si lo que quieres es quitar el valor, usa «Dejar de cobrar».</p>
+    <div class="flex flex-wrap justify-end gap-2 pt-1">
+      <button class="btn-s flit-focus" onclick="cerrar('modalCero')">Cancelar</button>
+      <button class="btn-p flit-focus" onclick="cerrar('modalCero');mostrarToast()">Guardar $0</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal Dejar de cobrar: primaria del kit; la gravedad la dice el copy ===== -->
+<div class="backdrop" id="modalDejar" role="dialog" aria-modal="true" aria-labelledby="tDejar">
+  <div class="card w-full max-w-lg space-y-3 text-sm">
+    <h2 id="tDejar" class="text-base font-bold">Dejar de cobrar Logística</h2>
+    <p>Logística de Mensajería Andina Ejemplo S.A.S. <strong>queda sin valor desde ahora</strong> y la fila vuelve a «Sin configurar».</p>
+    <p class="sec">La vigencia de $45.000 queda cerrada en el historial, con tu nombre y la hora. No se puede deshacer: para volver a cobrar, tendrás que fijar un valor nuevo.</p>
+    <div class="flex flex-wrap justify-end gap-2 pt-1">
+      <button class="btn-s flit-focus" onclick="cerrar('modalDejar')">Cancelar</button>
+      <button class="btn-p flit-focus" onclick="cerrar('modalDejar')">Dejar de cobrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Toast (react-hot-toast, cerrable) ===== -->
+<div class="toast" id="toast" role="status">
+  <span aria-hidden="true" class="font-bold">✓</span>
+  <span>Valor guardado.</span>
+  <button class="btn-sm flit-focus" aria-label="Cerrar aviso" onclick="document.getElementById('toast').classList.remove('on')">✕</button>
+</div>
+
+<script>
+  // Solo conmutadores de la maqueta.
+  const panelVistas = ['lleno', 'edicion', 'conflicto', 'sinpermiso', 'inactivo', 'sinservicios'];
+  function setVista(v) {
+    document.getElementById('selVista').value = v;
+    document.querySelectorAll('[data-vista]').forEach((el) => {
+      const k = el.dataset.vista;
+      el.classList.toggle('on', k === v || (k === 'panel' && panelVistas.includes(v)));
+    });
+    document.querySelectorAll('[data-solo]').forEach((el) => { el.hidden = el.dataset.solo !== v; });
+    document.querySelectorAll('[data-oculta-edicion]').forEach((el) => { el.hidden = v === 'edicion'; });
+    document.querySelectorAll('[data-oculta-sinservicios]').forEach((el) => { el.hidden = v === 'sinservicios'; });
+    document.querySelectorAll('[data-escribe]').forEach((el) => {
+      el.hidden = v === 'sinpermiso' || v === 'inactivo';
+      el.disabled = v === 'edicion';
+    });
+  }
+  function toggleHistorial(forzar) {
+    const c = document.getElementById('histCuerpo');
+    const abrirlo = forzar === true ? true : c.hidden;
+    c.hidden = !abrirlo;
+    document.getElementById('histTitulo').setAttribute('aria-expanded', String(abrirlo));
+    document.getElementById('histFlecha').textContent = abrirlo ? '▾' : '▸';
+    if (abrirlo) document.getElementById('histTitulo').focus();
+  }
+  function abrir(id) { document.getElementById(id).classList.add('on'); }
+  function cerrar(id) { document.getElementById(id).classList.remove('on'); }
+  function mostrarToast() { document.getElementById('toast').classList.add('on'); }
+  document.getElementById('selVista').addEventListener('change', (e) => setVista(e.target.value));
+  // Captura con Playwright: ?vista=lleno|edicion|conflicto|sinpermiso|inactivo|sinservicios|cargando|error|vacio
+  //                        &historial=1 &modal=modalCero|modalDejar &toast=1 &tema=oscuro
+  const q = new URLSearchParams(location.search);
+  setVista(q.get('vista') || 'lleno');
+  if (q.get('historial') === '1') toggleHistorial(true);
+  if (q.get('modal')) abrir(q.get('modal'));
+  if (q.get('toast') === '1') mostrarToast();
+  if (q.get('tema') === 'oscuro') document.documentElement.classList.add('dark');
+</script>
+</body>
+</html>
