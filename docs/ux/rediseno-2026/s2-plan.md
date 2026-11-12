@@ -92,3 +92,10 @@ Delegación prevista: `frontend-agent` por bloque (1–4) dentro del worktree, a
 - **D8** El integrador pidió modo cursor para la Paginación del kit.
 - Extraer subcomponentes nuevos con prefijo del módulo en `components/flito/` para bajar `FlitoImpuestos.tsx`: aprobado; su
   techo en `eslint.config.mjs` se ajusta **hacia abajo** (solo esa línea).
+
+## Hallazgos funcionales (no corregidos)
+
+Regla del humano (BRIEF-COMUN): aquí solo se rediseña. Un defecto de permisos, lógica o datos no se corrige ni se
+radica; se anota aquí y pasa al HANDOFF.
+
+- (ninguno por ahora)
