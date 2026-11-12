@@ -102,3 +102,11 @@ Todas las páginas usan el kit viejo: `PageHeaderCard` (24 usos), `GradientButto
   - Plan de emergencias [megafono].
   - Capacitaciones de seguridad vial [asistente].
   - Google Drive [nube-bajar].
+
+## Solo rediseño (regla del humano, 2026-11-12)
+
+Aquí no se hacen correcciones funcionales. Un defecto de permisos, lógica o datos no se corrige ni se radica: se anota en «Hallazgos funcionales (no corregidos)» del HANDOFF de S4.
+
+### Hallazgos funcionales (no corregidos)
+
+_(ninguno por ahora)_
