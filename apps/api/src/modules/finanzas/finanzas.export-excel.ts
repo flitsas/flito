@@ -34,7 +34,7 @@
 //
 // Salen del archivo: Marca, Creado, Estado factura, Trámite digital, Total, Liquidación, Qué falta
 // para liquidar, SOAT conciliado y Razón social como columna aparte (va dentro de Nombre completo).
-// El consolidado (13 columnas) no cambia.
+// El consolidado: sus 13 columnas de cobro no cambian; el costo de proveedor añade 4 al final (ADR-0041 §13).
 //
 // ── La 32.ª: «Servicios adicionales» (HU #12546) ──────────────────────────────────────────────────
 //
@@ -43,6 +43,7 @@
 // fila —los servicios entran en la base del GMF—, así que esta columna es el desglose de un sumando
 // que ya estaba, no un cobro nuevo que sumar aparte.
 
+import { ETIQUETA_ESTADO_COSTO_PROVEEDOR, type CostoProveedorConcepto } from '@operaciones/shared-types';
 import type { ExcelColumn } from '../../shared/utils/excel.js';
 import { SIN_APROBAR, type ConsolidadoReporte } from './finanzas.consolidado.js';
 import type { FilaReporte } from './finanzas.service.js';
@@ -108,7 +109,21 @@ export const COLUMNAS_EXPORT_DETALLE: readonly ExcelColumn[] = [
   { header: 'Tramite', key: 'tramiteCategoria', width: 16 },
   { header: 'fecha_aprobacion', key: 'fechaAprobacion', width: 16, numFmt: FORMATO_FECHA },
   { header: 'Filtromes', key: 'filtromes', width: 10 },
+  // Costo de proveedor (ADR-0041 §13): SIEMPRE al final. Financiero pega el libro sobre el suyo y
+  // una columna en medio le desplazaría las fórmulas. Informativo: no entra en ningún total (C1).
+  { header: 'Proveedor SOAT', key: 'proveedorSoat', width: 24 },
+  dinero('Costo proveedor SOAT', 'costoProveedorSoat'),
+  { header: 'Estado costo SOAT', key: 'estadoCostoSoat', width: 22 },
+  { header: 'Proveedor logística', key: 'proveedorLogistica', width: 24 },
+  dinero('Costo proveedor logística', 'costoProveedorLogistica'),
+  { header: 'Estado costo logística', key: 'estadoCostoLogistica', width: 22 },
+  dinero('Total costo proveedor', 'totalCostoProveedor'),
 ];
+
+/** El texto del estado de un concepto; `ya_contado` con el trámite donde se contó. */
+export function estadoCostoExcel(c: CostoProveedorConcepto): string {
+  return ETIQUETA_ESTADO_COSTO_PROVEEDOR[c.estado].replace('{idFlit}', c.contadoEnIdFlit ?? '');
+}
 
 /**
  * Un ISO de instante → `Date` del DÍA en UTC (00:00Z), o `null`.
@@ -157,13 +172,18 @@ export function filasExcelDetalle(filas: FilaReporte[]): Record<string, unknown>
     factura: f.facturaNumero, facturaTerceros: null,
     vin: f.vin, placa2: f.placa, tramiteCategoria: f.tipoTramite,
     fechaAprobacion: fechaExcel(f.fechaAprobacion), filtromes: f.mes,
+    proveedorSoat: f.costoProveedorSoat.proveedor, costoProveedorSoat: f.costoProveedorSoat.valor,
+    estadoCostoSoat: estadoCostoExcel(f.costoProveedorSoat),
+    proveedorLogistica: f.costoProveedorLogistica.proveedor, costoProveedorLogistica: f.costoProveedorLogistica.valor,
+    estadoCostoLogistica: estadoCostoExcel(f.costoProveedorLogistica),
+    totalCostoProveedor: f.costoProveedorTotal,
   }));
 }
 
 // ── Consolidado ─────────────────────────────────────────────────────────────
 
 /**
- * Las 13 columnas del consolidado: las mismas de valor y con los mismos nombres que el detalle
+ * Las 13 columnas de cobro del consolidado (más 4 del costo de proveedor al final): las mismas de valor y con los mismos nombres que el detalle
  * (CF-14). «Trámites» e «Incompletos» son enteros; «Periodo» es texto (`2026-09`, `2026-T3`).
  */
 export const COLUMNAS_EXPORT_CONSOLIDADO: readonly ExcelColumn[] = [
@@ -180,6 +200,11 @@ export const COLUMNAS_EXPORT_CONSOLIDADO: readonly ExcelColumn[] = [
   dinero('Servicio', 'servicio'),
   dinero('Total', 'total'),
   { header: 'Incompletos', key: 'incompletos', width: 12, numFmt: FORMATO_ENTERO },
+  // Costo de proveedor (grupo aparte, sin margen): SIEMPRE al final, como en el detalle.
+  dinero('Costo proveedor SOAT', 'costoProveedorSoat'),
+  dinero('Costo proveedor logística', 'costoProveedorLogistica'),
+  dinero('Total costo proveedor', 'totalCostoProveedor'),
+  { header: 'Trámites con costo sin configurar', key: 'tramitesCostoSinConfigurar', width: 16, numFmt: FORMATO_ENTERO },
 ];
 
 /** Las filas del consolidado con las claves de `COLUMNAS_EXPORT_CONSOLIDADO`, en el orden de `items`. */
@@ -189,5 +214,7 @@ export function filasExcelConsolidado(c: ConsolidadoReporte): Record<string, unk
     soat: f.soat, impuesto: f.impuesto, tramite: f.derechoTramite, gmf: f.gmf, logistica: f.logistica,
     totalReintegro: f.totalReintegro, tramiteDigital: f.tramiteDigital, servicio: f.totalServicio, total: f.total,
     incompletos: f.filasIncompletas,
+    costoProveedorSoat: f.costoProveedorSoat, costoProveedorLogistica: f.costoProveedorLogistica,
+    totalCostoProveedor: f.costoProveedorTotal, tramitesCostoSinConfigurar: f.tramitesCostoSinConfigurar,
   }));
 }

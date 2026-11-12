@@ -360,6 +360,8 @@ export const flitoTramites = pgTable('flito_tramites', {
   // Orden cronológico y filtros de antigüedad (HU #10959): antes se ordenaba por created_at sin índice.
   fechaCreacionFlitIdx: index('idx_flito_tramites_fecha_creacion_flit').on(t.fechaCreacionFlit),
   createdAtIdx: index('idx_flito_tramites_created_at').on(t.createdAt),
+  // ADR-0041 §13.8 (0301): primer trámite por SOAT compartido (costo de proveedor, C3).
+  soatOrdenIdx: index('idx_flito_tramites_soat_orden').on(t.soatId, t.createdAt, t.id).where(sql`${t.soatId} IS NOT NULL`),
   idFlit2Uq: uniqueIndex('uq_flito_tramites_id_flit2').on(t.idFlit2).where(sql`${t.idFlit2} IS NOT NULL`),
   fuenteIdFlit2Ck: check('ck_flito_tramites_fuente_id_flit2', sql`(${t.fuente} = 'flit2') = (${t.idFlit2} IS NOT NULL)`),
   syncVersionCk: check('ck_flito_tramites_flit2_sync_version', sql`${t.idFlit2} IS NULL OR ${t.syncVersion} IS NOT NULL`),

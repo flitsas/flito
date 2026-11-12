@@ -39,6 +39,10 @@ import {
 import {
   EXPR_CON_DIFERENCIAS, SELECT_VALORES_DOCUMENTALES, valoresDocumentalesDeFila, type ValoresDocumentalesDeFila,
 } from './finanzas.valores-documentales.js';
+import {
+  costosProveedorConsolidadoDe, costosProveedorDeFila, exprCostosProveedorReporte, selectCostosProveedor,
+  selectCostosProveedorConsolidado, type CostosProveedorConsolidado, type CostosProveedorDeFila,
+} from './finanzas.costos-proveedor.js';
 import { EXPR_DOC_LG, EXPR_DOC_TD } from '../flito-comprobantes/flito-comprobantes.expr.js';
 import type { SiigoEstadoReporte, SiigoResumenReporte } from '@operaciones/shared-types';
 
@@ -75,6 +79,8 @@ export interface FiltrosReporte {
   estadoFacturacion?: SiigoEstadoReporte;
   /** Códigos de organismo de tránsito (HU #12432, CF-04). Se compone con los demás, no los anula. */
   organismos?: string[];
+  /** true = solo trámites con algún costo de proveedor «sin configurar» (ADR-0041 §13, C7). No bloquea nada. */
+  costoProveedorSinConfigurar?: boolean;
   page?: number; pageSize?: number;
 }
 
@@ -86,7 +92,8 @@ export interface FiltrosReporte {
  * exija que `aFila` los rellene: son datos que la pantalla enseña en una columna propia, y una
  * columna que a veces llega vacía por olvido se lee como «este trámite no tiene factura».
  */
-export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, ColumnasDeFila, ValoresDocumentalesDeFila {
+export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, ColumnasDeFila, ValoresDocumentalesDeFila,
+  CostosProveedorDeFila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
   /** Vehículo, homologado con las demás tablas. */
   vin: string | null; marca: string | null; linea: string | null;
@@ -149,6 +156,8 @@ export interface ResumenEtapas { listo: number; incompleto: number; porFacturar:
 export interface ReporteCostos {
   items: FilaReporte[]; total: number; page: number; pageSize: number;
   totales: TotalesReporte; resumen: ResumenEtapas;
+  /** Costo de proveedor del universo filtrado: grupo APARTE, no suma a `totales` (RN-CP-01). */
+  totalesCostosProveedor: CostosProveedorConsolidado;
 }
 
 // Alias para resolver la tarifa VIGENTE EN LA FECHA DE APROBACIÓN del trámite (HU #12374, RN-07):
@@ -199,6 +208,13 @@ const EXC_LOGISTICA = sql`(${flitoExcepcionesAutogestion.id} IS NOT NULL)`;
 
 const GESTIONA_SOAT = sql`(NOT ${AUTO_SOAT} OR ${EXC_SOAT})`;
 export const GESTIONA_LOGISTICA = sql`(NOT ${AUTO_LOGISTICA} OR ${EXC_LOGISTICA})`;
+
+// Costo de proveedor (ADR-0041 §13): informativo. Ninguna `EXPR_*` de cobro lo referencia (C1).
+// Enmienda 1.1: el reporte estima la logística sin entrega con el proveedor de la compañía (join `clients`).
+export const COSTOS_PROVEEDOR = exprCostosProveedorReporte({
+  gestionaSoat: GESTIONA_SOAT, gestionaLogistica: GESTIONA_LOGISTICA,
+  proveedorLogisticaCompania: sql`${clients.flitoProveedorLogisticaId}`,
+});
 
 /**
  * RN-01 Impuestos, en SQL: es el espejo de `flitoGestionaImpuesto` de shared-types, que es la que
@@ -448,6 +464,8 @@ export function condiciones(f: FiltrosReporte): SQL[] {
   // está esta factura» acabarían discrepando, y el filtro y los números dirían cosas distintas de
   // la misma fila: un bicho que no falla, solo miente.
   if (f.estadoFacturacion) conds.push(condicionEstadoFacturacion(f.estadoFacturacion));
+  // ADR-0041 §13, C7 — solo filtra el universo; no toca etapas ni bloqueos.
+  if (f.costoProveedorSinConfigurar) conds.push(COSTOS_PROVEEDOR.sinConfigurar);
 
   // Los dos rangos son inclusivos por día: `hasta` suma un día para no dejar fuera esa jornada.
   //
@@ -550,6 +568,8 @@ export const SELECT_FILA = {
   // Origen y diferencia documental por concepto (HU #12653). Mismo patrón: se compone desde su
   // archivo y por subconsultas correlacionadas; el VALOR ya viene por el COALESCE de arriba.
   ...SELECT_VALORES_DOCUMENTALES,
+  // Costo de proveedor (ADR-0041 §13). Subconsultas correlacionadas desde su archivo; al final.
+  ...selectCostosProveedor(COSTOS_PROVEEDOR),
 } as const;
 
 const n = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -633,6 +653,7 @@ function aFila(r: Record<string, unknown>): FilaReporte {
     ...subtotalesDe(conceptos),
     logisticaViajesCantidad: n(r.logisticaViajesCantidad as number | null),
     ...valoresDocumentalesDeFila(r),
+    ...costosProveedorDeFila(r),
   };
 }
 
@@ -682,6 +703,13 @@ async function totalesDe(where: SQL | undefined): Promise<TotalesReporte> {
   };
 }
 
+/** Costo de proveedor del universo filtrado, con la MISMA expresión del consolidado (RN-CP-01: aparte de `totalesDe`). */
+async function totalesCostosProveedorDe(where: SQL | undefined): Promise<CostosProveedorConsolidado> {
+  const [t] = await conJoins(db.select(selectCostosProveedorConsolidado(COSTOS_PROVEEDOR, sql`${flitoTramites.id}`))
+    .from(flitoTramites).$dynamic()).where(where);
+  return costosProveedorConsolidadoDe(t);
+}
+
 /**
  * Cuántos trámites hay en cada etapa, con TODOS los demás filtros puestos menos la etapa misma.
  *
@@ -716,18 +744,19 @@ export async function reporteCostos(f: FiltrosReporte = {}): Promise<ReporteCost
   const condsSinEtapa = condiciones({ ...f, etapa: undefined });
   const whereSinEtapa = condsSinEtapa.length ? and(...condsSinEtapa) : undefined;
 
-  const [countRows, rows, totales, resumen] = await Promise.all([
+  const [countRows, rows, totales, resumen, totalesCostosProveedor] = await Promise.all([
     conJoins(db.select({ total: sql<number>`count(distinct ${flitoTramites.id})::int` })
       .from(flitoTramites).$dynamic()).where(where),
     conJoins(db.select(SELECT_FILA).from(flitoTramites).$dynamic()).where(where)
       .orderBy(sql`${flitoTramites.createdAt} DESC`).limit(pageSize).offset((page - 1) * pageSize),
     totalesDe(where),
     resumenDe(whereSinEtapa),
+    totalesCostosProveedorDe(where),
   ]);
 
   return {
     items: rows.map((r: Record<string, unknown>) => aFila(r)),
-    total: Number(countRows[0]?.total ?? 0), page, pageSize, totales, resumen,
+    total: Number(countRows[0]?.total ?? 0), page, pageSize, totales, resumen, totalesCostosProveedor,
   };
 }
 

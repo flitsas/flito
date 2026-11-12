@@ -7,7 +7,8 @@
 //     expresiones: el nombre normalizado y el NIT sin dígito de verificación (R8).
 //   · La vista flito_proveedor_servicios_v (proveedor_id, servicio): perfiles con deleted_at IS NULL.
 //   · Los CHECK de lista blanca de la auditoría.
-import { boolean, index, integer, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { boolean, check, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 
 export const flitoProveedores = pgTable('flito_proveedores', {
   id: uuid('id').primaryKey().defaultRandom(), // Conserva el UUID del perfil de origen (R21).
@@ -38,3 +39,29 @@ export const flitoProveedoresAuditoria = pgTable('flito_proveedores_auditoria', 
   actorId: integer('actor_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ proveedorIdx: index('idx_flito_prov_aud_proveedor').on(t.proveedorId, t.createdAt) }));
+
+// Costo que cada proveedor le cobra a FLIT por concepto (ADR-0041, Épica #13763). NO es la tarifa al cliente
+// (`flito_tarifas_vigencias`, finanzas.ts): no se mezclan ni se unen. Vigencias [vigente_desde, vigente_hasta):
+// cambiar = cerrar la abierta y abrir otra en UNA transacción con el mismo now(); dejar de cobrar = cerrar sin
+// abrir. Nunca se borra ni se pisa. Solo en SQL (0300): FK fijado_por_id/cerrado_por_id → users RESTRICT, el CHECK
+// «cerrar exige quién» y la EXCLUDE sin solapes (btree_gist).
+export const flitoTarifasProveedorVigencias = pgTable('flito_tarifas_proveedor_vigencias', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  proveedorId: uuid('proveedor_id').notNull().references(() => flitoProveedores.id, { onDelete: 'restrict' }),
+  servicio: varchar('servicio', { length: 20 }).notNull(), // Derivado del concepto; CHECK de par (R2).
+  concepto: varchar('concepto', { length: 30 }).notNull(),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  vigenteDesde: timestamp('vigente_desde', { withTimezone: true }).notNull().defaultNow(),
+  vigenteHasta: timestamp('vigente_hasta', { withTimezone: true }),
+  fijadoPorId: integer('fijado_por_id'),
+  fijadoEn: timestamp('fijado_en', { withTimezone: true }).notNull().defaultNow(),
+  cerradoPorId: integer('cerrado_por_id'),
+  cerradoEn: timestamp('cerrado_en', { withTimezone: true }),
+}, (t) => ({
+  proveedorConceptoIdx: index('idx_flito_tarifas_prov_proveedor_concepto').on(t.proveedorId, t.concepto, t.vigenteDesde),
+  abiertaUq: uniqueIndex('uq_flito_tarifas_prov_abierta').on(t.proveedorId, t.concepto).where(sql`${t.vigenteHasta} IS NULL`),
+  conceptoChk: check('flito_tarifas_prov_concepto_chk', sql`(${t.servicio} = 'logistica' AND ${t.concepto} = 'logistica') OR (${t.servicio} = 'soat' AND ${t.concepto} IN ('soat_con_tramite', 'soat_sin_tramite'))`),
+  valorChk: check('flito_tarifas_prov_valor_chk', sql`${t.valor} >= 0`),
+  rangoChk: check('flito_tarifas_prov_rango_chk', sql`${t.vigenteHasta} IS NULL OR ${t.vigenteHasta} >= ${t.vigenteDesde}`),
+  cierreChk: check('flito_tarifas_prov_cierre_chk', sql`(${t.vigenteHasta} IS NULL) = (${t.cerradoEn} IS NULL)`),
+}));
