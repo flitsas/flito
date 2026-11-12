@@ -279,7 +279,7 @@ async function sesionSoat(page: Page, funciones: string[]) {
 
 /** Los siete controles de gestión del detalle, cada uno con la función de su endpoint. */
 const ACCIONES_DETALLE = [
-  { tc: 'TC-04a', funcion: 'soat.comprobante.cargar', control: 'Cargar factura', fila: filaSoat('11', 'CAR011', 'solicitado') },
+  { tc: 'TC-04a', funcion: 'soat.comprobante.cargar', control: 'Cargar comprobante de SOAT', fila: filaSoat('11', 'CAR011', 'solicitado') },
   { tc: 'TC-04b', funcion: 'soat.solicitud.rechazar', control: 'Rechazar', fila: filaSoat('12', 'REC012', 'solicitado') },
   { tc: 'TC-04c', funcion: 'soat.solicitud.reactivar', control: 'Reactivar', fila: filaSoat('13', 'REA013', 'con_novedad') },
   { tc: 'TC-04d', funcion: 'soat.solicitud.reversar', control: 'Reversar', fila: filaSoat('14', 'REV014', 'pagado', { pagadoEn: '2026-04-05T12:00:00Z', valorPagado: 740800 }) },
@@ -288,10 +288,10 @@ const ACCIONES_DETALLE = [
   { tc: 'TC-04g', funcion: 'soat.solicitud.devolver', control: 'Devolver al proveedor', fila: filaSoat('17', 'DEV017', 'solicitado', { gestionOperaciones: true }) },
 ] as const;
 
-/** «Cargar factura» es un `<label>` con el input de archivo dentro; el resto, botones. */
+/** «Cargar comprobante de SOAT» es un `<label>` con el input de archivo dentro; el resto, botones. */
 const controlDetalle = (dialogo: ReturnType<Page['getByRole']>, nombre: string) =>
-  nombre === 'Cargar factura'
-    ? dialogo.locator('label').filter({ hasText: /^(Cargar factura|Cargando…)$/ })
+  nombre === 'Cargar comprobante de SOAT'
+    ? dialogo.locator('label').filter({ hasText: /^(Cargar comprobante de SOAT|Cargando…)$/ })
     : dialogo.getByRole('button', { name: nombre, exact: true });
 
 async function abrirDetalle(page: Page) {
@@ -337,7 +337,7 @@ test.describe('HU #12872 — AC3 · Excel y carga masiva de SOAT por su función
   test.use({ viewport: { width: 1440, height: 900 } });
 
   const botonExcel = (page: Page) => page.getByRole('button', { name: 'Exportar a Excel', exact: true });
-  const botonCarga = (page: Page) => page.getByRole('button', { name: 'Cargar facturas (masivo)', exact: true });
+  const botonCarga = (page: Page) => page.getByRole('button', { name: 'Cargar comprobantes de SOAT (masivo)', exact: true });
 
   for (const usuario of [FINANCIERA_USER, AUDITOR_USER]) {
     test(`TC-03a/c — ${usuario.role} con «Exportar a Excel» y sin la carga: ve Excel, no la carga`, async ({ page }) => {
