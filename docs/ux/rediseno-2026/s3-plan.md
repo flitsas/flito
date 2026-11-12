@@ -106,3 +106,8 @@ Gastos diarios [calendario], Reporte de costos [reportes], Siigo [integraciones]
 - **D5.** Donas y barras: ¿el port incluye `dona`/`barrasGrupo` como componentes, o los dibujo en la página con los tokens?
 - **D6.** Campos secretos (credenciales Siigo): ¿hay variante de campo clave con botón «ver» (`i-ojo` existe en la propuesta)?
 - **D7.** Reporte de costos tiene ~20 columnas configurables: en < 900 px la propuesta pasa la tabla a tarjetas. Con tantas columnas, ¿tarjetas con solo las columnas visibles o scroll horizontal del kit?
+
+## Alcance estricto (regla del humano, 2026-11-12)
+
+Aquí solo se hace el rediseño. Un defecto de permisos, lógica o datos que aparezca durante la migración **no se corrige ni se
+radica**: se anota en «Hallazgos funcionales (no corregidos)» del HANDOFF al integrador. Los prompts a `frontend-agent` lo llevan.
