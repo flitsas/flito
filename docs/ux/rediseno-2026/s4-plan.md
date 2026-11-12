@@ -88,3 +88,17 @@ Todas las páginas usan el kit viejo: `PageHeaderCard` (24 usos), `GradientButto
 4. **Estados de dominio** (apto / condicional / no apto; OT abierta / en curso / cerrada; stock bajo; documento vigente / por vencer / vencido): ¿hay tabla de tono → glifo (`GLIFO_ESTADO`) en el kit para estados nuevos, o se usa solo el tono (`ok`/`warn`/`error`/`info`)?
 5. **Hub `Maintenance.tsx`:** ¿molde de mapa de módulos de Inicio (`mapaModulos`) o lista? Propongo el mapa.
 6. **Rango de fechas:** `RangoFechaFilter` actual → ¿lo reemplaza el panel Filtros con rango y presets de la propuesta (componente del kit) o se conserva?
+
+## Respuestas del integrador (2026-11-12) y decisiones
+
+- **Fuente de valores:** `ui-kit-2026.css` (se carga al final y gana), no `tokens.css`. Briefing de la diseñadora en `rediseno-2026/BRIEFING-KIT-flit-de.md`: botones planos tipo píldora (sin degradado), modal blanco con ícono centrado (sin franja de color), sin círculo turquesa en la cabecera.
+- **Regla k (manda sobre todo este plan):** el cambio es solo visual. No se tocan textos, `aria`, handlers, hooks, `fetch` ni estado. Donde arriba dice «molde M-Asistente», eso significa *vestir* el flujo existente; no cambia su lógica ni el número de pasos.
+- **Dona, BarrasGrupo y bloque de vehículo:** los entrega S0 como componentes del kit.
+- **Estados de dominio:** van en un mapa del módulo sobre el registro ESTADO→{tono, glifo} de S0: apto=ok, condicional=warn, no apto=danger, vigente=ok, por vencer=warn, vencido=danger, stock bajo=warn, con glifos `estado-*`. Los chips propios que no son StatusBadge pasan a `etiquetaKit(tono)` (error típico c).
+- **Filtros:** el panel de Filtros con rango de fechas y presets reemplaza a `RangoFechaFilter`.
+- **Íconos fijados por la diseñadora:** Flota [carro], Vehículos [carro], Conductores [credencial], Jornadas [reloj], Mantenimiento [reintento], Órdenes de trabajo [lista], Repuestos [procesos], Checklists [doble-check], Incidentes [alerta].
+- **Íconos elegidos por S4** (glifos de `kit-iconos.js` que no usa ningún otro módulo del reparto FLITO):
+  - Alcoholimetría [biometria]: es la menos obvia (silueta con marco de lectura); si la diseñadora tiene una mejor, se cambia.
+  - Plan de emergencias [megafono].
+  - Capacitaciones de seguridad vial [asistente].
+  - Google Drive [nube-bajar].
