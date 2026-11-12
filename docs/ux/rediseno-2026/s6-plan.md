@@ -62,3 +62,19 @@ Specs del shell (`auth`, `command-palette-claro/oscuro`, `kit-flit-tema-oscuro`,
    integrador; lo aviso por si se quiere corregir en el shell (regla 10).
 7. **Specs `permisos*`**: interpreto que `flito-logistica-permisos-enviar-anular.spec.ts` es de la sesión de logística, y que
    `roles-permisos.spec.ts` y `users-permisos.spec.ts` son míos. Confirmar.
+
+## Respuestas del integrador y briefing de flit-de (2026-11-12)
+
+- La fuente de valores es `ui-kit-2026.css` (gana el último), **no** `tokens.css`. No hay botón con degradado, ni modal con
+  franja de color, ni círculo turquesa en la cabecera. El degradado queda solo para identidad (banner de Inicio, isotipo).
+- **Regla k: solo cambios visuales.** No se tocan textos, aria, handlers, hooks, fetch ni estado. Las excepciones aprobadas
+  son: las `Pestanas` que enlazan `/users` con `/roles-permisos` y el modal de contraseña en Perfil (molde `#perfil`).
+- Cerradas: (1) S0 entrega banner carrusel, Dona, BarrasGrupo, tarjeta de accesos y lista de actividad; (2) las rutas
+  quedan como están, unidas con Pestanas; (3) `/admin/tramites-metricas` sin `ProtectedRoute` es un hallazgo fuera de
+  alcance: **no se toca**, el integrador lo reporta; (4) `roles-permisos.spec` y `users-permisos.spec` son de S6, y
+  `flito-logistica-permisos-enviar-anular` es de S3.
+- Botón naranja (`#D44100`) para lo destructivo: Borrar rol, desactivar o suspender usuario, retirar acceso.
+- Menú de usuario (lo arma S0): Perfil [persona], Cambiar contraseña [ojo], Ayuda [ayuda], Salir en naranja.
+- Para no repetir los errores del briefing: c) chips propios con `etiquetaKit`; e) todos los velos van por las clases del
+  Modal (RolFormModal, BorrarRolModal, formularios de usuario, Dr. Flit); g) los íconos lucide pasan a `<Icono>`;
+  j) en los tests de aspecto se cambia el valor visual, nunca la lógica.
