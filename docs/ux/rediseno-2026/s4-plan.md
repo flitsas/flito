@@ -98,7 +98,7 @@ Todas las páginas usan el kit viejo: `PageHeaderCard` (24 usos), `GradientButto
 - **Filtros:** el panel de Filtros con rango de fechas y presets reemplaza a `RangoFechaFilter`.
 - **Íconos fijados por la diseñadora:** Flota [carro], Vehículos [carro], Conductores [credencial], Jornadas [reloj], Mantenimiento [reintento], Órdenes de trabajo [lista], Repuestos [procesos], Checklists [doble-check], Incidentes [alerta].
 - **Íconos elegidos por S4** (glifos de `kit-iconos.js` que no usa ningún otro módulo del reparto FLITO):
-  - Alcoholimetría [biometria]: es la menos obvia (silueta con marco de lectura); si la diseñadora tiene una mejor, se cambia.
+  - Alcoholimetría [biometria]: confirmado por `flit-de`. Resultado de la prueba en etiquetas: negativa = ok [check], positiva = danger [alerta], pendiente = warn [espera].
   - Plan de emergencias [megafono].
   - Capacitaciones de seguridad vial [asistente].
   - Google Drive [nube-bajar].
