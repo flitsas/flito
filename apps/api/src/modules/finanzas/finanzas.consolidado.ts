@@ -15,8 +15,9 @@ import { and, sql, type SQL } from 'drizzle-orm';
 import type { PgColumn, PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import { clients, flitoTramites } from '../../db/schema.js';
+import { selectCostosProveedorConsolidado, type CostosProveedorConsolidado } from './finanzas.costos-proveedor.js';
 import {
-  claveEmpresa, condiciones, conJoins, indiceEmpresas, SELECT_TOTALES,
+  claveEmpresa, condiciones, conJoins, COSTOS_PROVEEDOR, indiceEmpresas, SELECT_TOTALES,
   type EmpresaMaestro, type FiltrosReporte, type TotalesReporte,
 } from './finanzas.service.js';
 
@@ -31,8 +32,11 @@ export function periodoConsolidado(v: unknown): PeriodoConsolidado {
   return v === 'trimestre' ? 'trimestre' : 'mes';
 }
 
-/** Los mismos numéricos que `TotalesReporte`: el consolidado agrega exactamente lo que el detalle totaliza. */
-export type TotalesConsolidado = TotalesReporte;
+/**
+ * Los mismos numéricos que `TotalesReporte` —el consolidado agrega exactamente lo que el detalle totaliza—, más el
+ * costo de proveedor como grupo APARTE (sin margen). `TotalesReporte` no se toca (RN-CP-01).
+ */
+export type TotalesConsolidado = TotalesReporte & CostosProveedorConsolidado;
 
 export interface FilaConsolidado extends TotalesConsolidado {
   /** La clave de `claveEmpresa`: `c<id>` si hay empresa registrada, `n<raíz del NIT>` si no. */
@@ -84,6 +88,8 @@ export function selectConsolidado(periodo: PeriodoConsolidado) {
     // más «trámites» que trámites descuadraría con la tabla.
     tramites: sql<number>`COUNT(DISTINCT ${flitoTramites.id})::int`,
     ...SELECT_TOTALES,
+    // Costo de proveedor: grupo aparte, informativo. No lo lee ninguna suma de `SELECT_TOTALES` (RN-CP-01).
+    ...selectCostosProveedorConsolidado(COSTOS_PROVEEDOR, sql`${flitoTramites.id}`),
   } as const;
 }
 
@@ -114,6 +120,8 @@ export interface GrupoConsolidado {
   serviciosAdicionales: string | number;
   total: string | number; totalReintegro: string | number; totalServicio: string | number;
   filasIncompletas: number | string;
+  costoProveedorSoat: string | number; costoProveedorLogistica: string | number; costoProveedorTotal: string | number;
+  tramitesCostoSinConfigurar: number | string;
 }
 
 // `serviciosAdicionales` está en las dos listas por la MISMA razón (HU #12546): la de arriba es la
@@ -123,11 +131,13 @@ export interface GrupoConsolidado {
 const NUMERICOS = [
   'soat', 'impuesto', 'derechoTramite', 'logistica', 'tramiteDigital', 'serviciosAdicionales',
   'gmf', 'total', 'totalReintegro', 'totalServicio', 'filasIncompletas',
+  'costoProveedorSoat', 'costoProveedorLogistica', 'costoProveedorTotal', 'tramitesCostoSinConfigurar',
 ] as const satisfies ReadonlyArray<keyof TotalesConsolidado>;
 
 const totalesEnCero = (): TotalesConsolidado => ({
   soat: 0, impuesto: 0, derechoTramite: 0, logistica: 0, tramiteDigital: 0, serviciosAdicionales: 0,
   gmf: 0, total: 0, totalReintegro: 0, totalServicio: 0, filasIncompletas: 0,
+  costoProveedorSoat: 0, costoProveedorLogistica: 0, costoProveedorTotal: 0, tramitesCostoSinConfigurar: 0,
 });
 
 /** Las sumas vienen de `numeric`; al sumarlas en JS se redondea a centavos como `subtotalesDe`. */
