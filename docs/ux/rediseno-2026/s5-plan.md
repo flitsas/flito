@@ -95,15 +95,32 @@ con foco visible; `DriverDocumentsPanel` → `lista-fila`; `diagnostico-helpers`
 `privacy-smoke-vistas`, `rndc-manifiestos`, `rndc-remesas`. Criterio: se conservan selectores por rol/label; los que
 dependan de clases o textos de Aura se ajustan a la UI nueva.
 
-## Dudas abiertas para el integrador / `flit-de`
+## Decisiones fijadas (integrador + briefing `flit-de`, 2026-11-12)
 
-1. ¿El kit trae **panel lateral (drawer)**? Lo necesita `DiagnosticoEvaluacionDrawer`. Si no, propongo Modal ancho.
-2. ¿Habrá **zona de carga de archivos** en `components/flit/`? (EvidenciaUploader, carga de documentos PESV).
-3. ¿Componente de **filtros en URL**? En S5 los filtros con PII (cédula, placa, NIT) no pueden ir en la URL de la web
-   (AGENTS.md regla 14); propongo que el panel de filtros admita estado local además de URL.
-4. Ícono por módulo para PESV, LAFT, RNDC y Privacidad: la propuesta no los define (no son de FLIT 2.0). ¿Se derivan en
-   S0 o uso los genéricos (`seguridad`, `auditoria`, `documentos`, `diagnostico`)?
-5. Matriz RACI y tablas anchas: ¿tarjetas bajo 900 px (propuesta) también para matrices, o scroll horizontal del kit?
+Fuente: `/home/david/flit/rediseno-2026/BRIEFING-KIT-flit-de.md`. Manda sobre lo anterior de este plan.
+
+- **Valores del kit:** salen de `ui-kit-2026.css` (gana sobre `tokens.css`/`propuesta.css`). Sin botón degradado (píldoras
+  planas), modal blanco con ícono centrado (sin franja de color), sin círculo turquesa en la cabecera de módulo.
+- **Regla k — solo visual:** no se cambian textos, `aria-*`, handlers, hooks, `fetch` ni estado. Los specs E2E se ajustan
+  solo en el valor visual que comprueben, nunca en la lógica (regla j).
+- **Íconos:** grupo Cumplimiento [escudo]; PESV [medidor], LAFT [identidad], RNDC [fuentes-oficiales], Privacidad
+  [candado]. Subpáginas con glifos existentes de `kit-iconos.js` sin repetir los de módulo ni usar check/flechas/punto; si
+  ninguno sirve, se le pregunta a `flit-de`.
+- **Drawer:** S0 lo provee con el estilo del modal → `DiagnosticoEvaluacionDrawer` lo usa (duda 1 cerrada).
+- **Carga de archivos:** `FileDrop` del kit → `EvidenciaUploader` (duda 2 cerrada).
+- **Filtros:** el panel guarda estado en memoria/local, **nunca** en la URL (duda 3 cerrada).
+- **Matrices anchas** (RACI, maestros RNDC si aplica): modo «matriz» del `DataTable`, scroll horizontal dentro de su
+  cuadro. Listas normales → tarjetas bajo 900 px (duda 5 cerrada).
+- **Pantallas molde** (rutas hash de la propuesta): tablero → `#inicio`/`#reportes`; lista → `#tramites` (simples
+  `#usuarios`, `#log-qx`); detalle → `#tramite`; asistente → `#traspaso`; formulario en modal → «Nuevo trámite» de
+  `#tramites`; carga → paso de documentos de `#traspaso`; estados vacío/error/cargando → `.vacio` / `UiStateBoundary`.
+- **Errores típicos a evitar:** chips propios → `etiquetaKit(tono)`; velos de diálogos propios → `MODAL_VELO_CLS` /
+  `MODAL_PANEL_CLS`; pasos con la línea por el centro de los círculos; barrido final de HEX, `bg-white`, degradados y
+  sombras = 0 en la zona.
+
+## Dudas abiertas
+
+Ninguna bloqueante. Glifos de subpáginas: se eligen al migrar y, si alguno no encaja, se consulta a `flit-de`.
 
 ## Puertos y capturas
 
