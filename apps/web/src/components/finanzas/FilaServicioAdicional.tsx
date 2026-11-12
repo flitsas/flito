@@ -18,7 +18,7 @@ import { pesos } from './tiposReporteCostos';
 
 const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
 /** La TINTA roja sobre el fondo de la tarjeta, no una superficie roja: así marca esta app lo delicado. */
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
+const PELIGRO = { color: 'var(--flit-warning-text)' } as const;
 
 /** «Añadió Ana Pérez · 12 sep 2026, 9:14 a. m.»; sin nombre, solo la fecha (el usuario puede haberse ido). */
 function trazabilidad(item: TramiteServicioAdicional): string {

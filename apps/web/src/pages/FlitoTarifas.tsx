@@ -311,7 +311,7 @@ function TarifasClientes() {
                 {faltan !== null && (
                   <p className="mt-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
                     {conFaltantes > 0
-                      ? `${conFaltantes === 1 ? '1 cliente tiene' : `${conFaltantes} clientes tienen`} valores sin configurar; sus trámites de esos tipos saldrán como «No configurado» en el reporte de costos y no se podrán liquidar.`
+                      ? `${conFaltantes === 1 ? '1 cliente tiene' : `${conFaltantes} clientes tienen`} valores sin configurar; sus trámites de esos tipos saldrán como «Sin configurar» en el reporte de costos y no se podrán liquidar.`
                       : `${clientes.length === 1 ? 'El único cliente tiene' : `Los ${clientes.length} clientes tienen`} sus cinco valores fijados.`}
                   </p>
                 )}

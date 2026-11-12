@@ -69,8 +69,7 @@ export default function MarcaRevisionFactura({ requiereRevision, motivo }: Props
     // información disponible solo para quien ve el color y puede parar el ratón encima.
     <span role="note" aria-label={TEXTO_REVISION} title={TEXTO_REVISION}
       data-testid="marca-revision-factura">
-      {/* `warning` y no `danger`: el rojo del reporte está reservado a lo que salió mal —rechazada,
-          falló al emitir—, y esto no salió mal, está por comprobar. */}
+      {/* `warning`: el reporte no usa rojo (Épica #13763); esto no salió mal, está por comprobar. */}
       <StatusChip tone="warning">Pendiente de revisión</StatusChip>
     </span>
   );

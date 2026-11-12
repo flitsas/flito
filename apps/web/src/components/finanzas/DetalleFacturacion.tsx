@@ -111,7 +111,7 @@ export default function DetalleFacturacion({
     return (
       <FlitModal title={titulo} onClose={onClose} wide>
         <div className="space-y-3 text-sm">
-          <p style={{ color: 'var(--flit-danger-ink)' }} role="alert">
+          <p style={{ color: 'var(--flit-warning-text)' }} role="alert">
             No se pudo consultar la facturación electrónica de este trámite: {error}
           </p>
           {/* Con reintento, y por eso el error es un estado y no un aviso: el fallo más común aquí

@@ -17,6 +17,16 @@ const BASE = {
   gmf: 3460, total: 868460, noConfigurados: [], sinRecibo: [],
   pendientesPago: [], autogestionados: [], noAplican: [],
   estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,
+  // Lo que el contrato manda siempre y la vista por defecto del rediseño pinta (Épica #13763).
+  soatConciliado: false, boletaReferencia: null, soatConciliadoEn: null,
+  totalReintegro: 668460, totalServicio: 200000,
+  serviciosAdicionales: null, serviciosAdicionalesCantidad: 0, logisticaViajesCantidad: 1,
+  origenes: { tramiteDigital: null, logistica: null },
+  valorDocumental: { tramiteDigital: null, logistica: null, serviciosAdicionales: null },
+  // Costo de proveedor (ADR-0041 §13, Épica #13763): claves siempre presentes en el contrato.
+  costoProveedorSoat: { estado: 'costo', proveedorId: 'p1', proveedor: 'Seguros Demo', vigenciaId: 'v1', valor: 48000, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+  costoProveedorLogistica: { estado: 'sin_proveedor', proveedorId: null, proveedor: null, vigenciaId: null, valor: null, fechaReferencia: null, contadoEnTramiteId: null, contadoEnIdFlit: null },
+  costoProveedorTotal: 48000,
 };
 
 /** Sin sellar y sin nada pendiente: se puede liquidar, no se puede facturar electrónicamente. */
@@ -43,11 +53,13 @@ const ENCOLADO = {
 const TOTALES = {
   soat: 1800000, impuesto: 480000, derechoTramite: 320000, logistica: 60000,
   tramiteDigital: 600000, gmf: 10400, total: 3270400, filasIncompletas: 0,
+  totalReintegro: 2670400, totalServicio: 600000, serviciosAdicionales: 0,
 };
 
 function reporte(items: unknown[]) {
   return {
     items, total: items.length, page: 1, pageSize: 50, totales: TOTALES,
+    totalesCostosProveedor: { costoProveedorSoat: 0, costoProveedorLogistica: 0, costoProveedorTotal: 0, tramitesCostoSinConfigurar: 0 },
     resumen: { listo: 1, incompleto: 0, porFacturar: 0, facturado: 3 },
   };
 }
@@ -207,6 +219,23 @@ const RESPUESTA_MIXTA = {
 
 // ─── AC1 · acceso y permisos ─────────────────────────────────────────────────
 
+/**
+ * «Factura DIAN» está en «Más del trámite», fuera de la vista por defecto desde el rediseño del
+ * reporte (Épica #13763): este archivo la pide visible con la preferencia v2 (la vista por defecto
+ * más esa columna).
+ */
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem('flito.reporteCostos.columnas.v2', JSON.stringify([
+        'tramite', 'placa', 'empresa', 'tipo', 'aprobacion', 'liquidacion', 'falta',
+        'soat', 'impuesto', 'derecho', 'logistica', 'digital', 'adicionales', 'gmf', 'total',
+        'costoSoat', 'proveedorSoat', 'costoLogistica', 'proveedorLogistica', 'totalCostos', 'facturaDian',
+      ]));
+    } catch { /* sin storage */ }
+  });
+});
+
 test.describe('Envío a facturación — permisos', () => {
   test('auditor ve la pantalla y el estado, pero ni la tarjeta ni la acción — y no gasta la consulta', async ({ page }) => {
     await loginAs(page, AUDITOR_USER);
@@ -314,7 +343,9 @@ test.describe('Envío a facturación — los cuatro estados', () => {
 
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText(/Ninguno de los 2 trámites facturados de esta página se puede enviar/)).toBeVisible();
-    await expect(page.getByText('La compañía todavía no existe como tercero en Siigo. Sincronízala desde su ficha.').first()).toBeVisible();
+    // El texto del catálogo vigente (`MOTIVO_TRAMITE_NO_ELEGIBLE_TEXTO.tercero_sin_vincular` en
+    // shared-types), no el de antes: «no existe como tercero» se cambió por «no está vinculada».
+    await expect(page.getByText(/^La compañía todavía no está vinculada con su tercero de Siigo\. Sincronízala desde su ficha/)).toBeVisible();
     // Los que delegan el diagnóstico lo dicen: su texto de catálogo es un encabezado.
     await expect(page.getByText(/el detalle exacto está en cada fila/)).toBeVisible();
     // El corte va en su propio bloque, y NO repetido arriba.

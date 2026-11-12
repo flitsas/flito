@@ -152,8 +152,10 @@ export default function RangoFechas({ etiqueta, valor, onCambio, describedBy }: 
                 aria-pressed={extremo(d) || undefined}
                 className="rounded py-1 text-xs tabular-nums"
                 style={{
-                  backgroundColor: extremo(d) ? 'var(--flit-blue-text)' : dentro(d) ? 'var(--flit-blue-soft, #e8f0fe)' : undefined,
-                  color: extremo(d) ? '#fff' : 'var(--flit-text-primary)',
+                  // Tokens con par oscuro: `--flit-blue-soft` no existe y caía al claro `#e8f0fe`,
+                  // que en oscuro dejaba cajas blancas con texto claro encima (Épica #13763).
+                  backgroundColor: extremo(d) ? 'var(--flit-chip-active-ink)' : dentro(d) ? 'var(--flit-chip-active-bg)' : undefined,
+                  color: extremo(d) ? 'var(--flit-bg-app)' : dentro(d) ? 'var(--flit-chip-active-ink)' : 'var(--flit-text-primary)',
                   fontWeight: d === hoy ? 700 : 400,
                 }}>
                 {Number(d.slice(8))}

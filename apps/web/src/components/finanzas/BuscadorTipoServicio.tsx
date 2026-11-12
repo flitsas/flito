@@ -27,7 +27,7 @@ import { pesos } from './tiposReporteCostos';
 
 const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
 const TENUE = { color: 'var(--flit-text-muted)' } as const;
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
+const PELIGRO = { color: 'var(--flit-warning-text)' } as const;
 const AZUL = { color: 'var(--flit-blue-text)' } as const;
 const SIN_EXCLUIR: readonly string[] = [];
 

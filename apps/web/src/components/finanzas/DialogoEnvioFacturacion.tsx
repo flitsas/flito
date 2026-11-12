@@ -381,7 +381,7 @@ export default function DialogoEnvioFacturacion({
                 los cuatro bloques buscando el hueco. */}
             {incompletas.length > 0 && (
               <p role="alert" className="text-xs" style={{ color: 'var(--flit-text-primary)' }}>
-                <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+                <span aria-hidden="true" style={{ color: 'var(--flit-warning-text)' }}>⚠ </span>
                 Falta elegir con qué emitir en: {incompletas.map((e) => e.nombre).join(', ')}.
               </p>
             )}
@@ -416,7 +416,7 @@ export default function DialogoEnvioFacturacion({
 
         {fase === 'fallo' && fallo && (
           <>
-            <p role="alert" style={{ color: 'var(--flit-danger)' }}>{fallo.mensaje}</p>
+            <p role="alert" style={{ color: 'var(--flit-warning-text)' }}>{fallo.mensaje}</p>
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                 onClick={cerrar}>Cerrar</button>

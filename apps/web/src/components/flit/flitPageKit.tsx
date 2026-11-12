@@ -237,11 +237,19 @@ export function FlitCard({ children, className = '' }: { children: ReactNode; cl
  * Omitidas, se comporta exactamente igual que antes.
  */
 export function FlitPillGroup(
-  { children, role, label }: { children: ReactNode; role?: 'tablist'; label?: string },
+  { children, role, label, desplazable = false }: {
+    children: ReactNode; role?: 'tablist'; label?: string;
+    /**
+     * Opcional (Épica #13763): en vez de envolver en varias líneas —que en móvil deja una «mancha»
+     * redondeada—, el grupo se queda en una línea y se desplaza a lo ancho dentro de su caja, sin
+     * scroll de página. Las pills hijas deben llevar `shrink-0`. Sin él, el grupo es el de siempre.
+     */
+    desplazable?: boolean;
+  },
 ) {
   return (
     <div
-      className="inline-flex w-fit flex-wrap gap-1 rounded-[999px] p-1"
+      className={`inline-flex w-fit gap-1 rounded-[999px] p-1 ${desplazable ? 'max-w-full flex-nowrap overflow-x-auto' : 'flex-wrap'}`}
       style={flitPillWrap}
       role={role}
       aria-label={label}

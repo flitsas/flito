@@ -13,7 +13,7 @@
 
 import { useState } from 'react';
 import type { ElegibilidadTramite } from '@operaciones/shared-types';
-import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondarySm } from '../flit/flitPageKit';
+import { flitBtnSecondarySm } from '../flit/flitPageKit';
 
 interface Props {
   tramiteId: string;
@@ -40,7 +40,8 @@ export default function AccionEnviarFactura({
 
   return (
     <>
-      <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+      {/* Secundaria (rediseño, Épica #13763): la primaria de la visita es la acción masiva. */}
+      <button type="button" className={flitBtnSecondarySm} style={SECUNDARIO}
         disabled={!elegible}
         // El texto visible se repite en 50 filas; el nombre accesible tiene que distinguirlas,
         // igual que ya hace la casilla de selección.

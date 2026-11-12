@@ -167,7 +167,7 @@ export default function EmisionPorEmpresa({ empresas, valores, onCambio, onCatal
   if (fallo !== null) {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <span style={{ color: 'var(--flit-danger)' }}>No se pudieron cargar las opciones: {fallo}</span>
+        <span style={{ color: 'var(--flit-warning-text)' }}>No se pudieron cargar las opciones: {fallo}</span>
         <button type="button" className="text-xs underline" style={{ color: 'var(--flit-text-secondary)' }}
           onClick={() => setCatalogos(null)}>
           Reintentar
@@ -236,7 +236,7 @@ export default function EmisionPorEmpresa({ empresas, valores, onCambio, onCatal
                     {falta && elementos.length > 0 && (
                       <p id={`${id}-falta`} className="mt-1 text-xs font-semibold"
                         style={{ color: 'var(--flit-text-primary)' }}>
-                        <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+                        <span aria-hidden="true" style={{ color: 'var(--flit-warning-text)' }}>⚠ </span>
                         {c.campo === 'centroCostoCodigo'
                           ? 'El comprobante que elegiste exige centro de costo.'
                           : 'Falta elegirlo para poder enviar.'}

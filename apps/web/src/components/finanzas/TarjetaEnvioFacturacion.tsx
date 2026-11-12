@@ -77,7 +77,7 @@ function Cuerpo(p: Props) {
     // enviar: por eso aquí no se ofrece el botón de envío, solo el reintento.
     return (
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm" style={{ color: 'var(--flit-danger)' }} role="alert">
+        <span className="text-sm" style={{ color: 'var(--flit-warning-text)' }} role="alert">
           No se pudo comprobar cuáles se pueden facturar: {p.error}
         </span>
         <button type="button" className={flitBtnSecondarySm} onClick={p.onReintentar}
@@ -129,7 +129,9 @@ function Cuerpo(p: Props) {
       </p>
       {/* Nunca inhabilitado: `disabled:opacity-50` sobre el degradado baja el contraste del texto
           blanco. O hay elegibles y el botón se pinta, o no existe (regla 12). */}
-      <button type="button" className={`${flitBtnPrimary} ml-auto`} style={flitBtnPrimaryStyle}
+      {/* A 375 px el texto no cabe en una línea: el botón ocupa el ancho y su etiqueta envuelve
+          (`max-sm:h-auto`; un `h-auto` suelto pelearía con el `h-10` del kit por orden de hoja) en vez de recortarse. Desde `sm` vuelve a su sitio. */}
+      <button type="button" className={`${flitBtnPrimary} max-sm:h-auto max-sm:min-h-10 max-sm:w-full max-sm:justify-center max-sm:py-2 max-sm:text-center sm:ml-auto`} style={flitBtnPrimaryStyle}
         onClick={p.onEnviar}>
         Enviar {p.elegibles.toLocaleString('es-CO')} a facturación electrónica
       </button>
