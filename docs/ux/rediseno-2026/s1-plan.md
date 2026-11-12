@@ -74,3 +74,5 @@ y el catálogo de `components/flit/` en `docs/ux/rediseno-2026/README.md`.
 ## Selectores E2E endurecidos (fase 1, sin tocar producto)
 
 `[role="status"]` → `getByRole('status')`, `dd` → `getByRole('definition')`, `button`+texto → `getByRole('button', { name })`, `div.tabular-nums` → `getByText(exacto)` en `flito-tramites`, `tramite-wizard`, `transito-bandeja` y `transito-organismos`. Los `data-*` (`data-testid`, `data-tono`, `data-aviso`, `data-codigo`) se quedan: son contrato, no piel. El logo de la bandeja es `alt=""` (decorativo), así que se sigue ubicando por `src`.
+
+**Reanclaje acordado con el integrador (fase 2, misma lógica de aserto):** primarias por `data-variante="primario"`; color del carril por el token nuevo de la tabla «viejos → nuevos» de la guía de S0; esqueleto por `data-kit="esqueleto"`/`"cargador"` (`role=status`, `aria-busy`) en lugar de `.animate-pulse`.
