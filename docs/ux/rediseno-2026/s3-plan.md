@@ -77,7 +77,27 @@ Al final: `npm run typecheck -w apps/web` y `npm run lint` sobre el conjunto y H
 - No se toca lógica de datos (`lib/api.ts`, hooks de datos): solo presentación. Los `data-testid` y textos accesibles que usan los specs se conservan cuando el diseño lo permite; si cambian, se actualiza el spec en el mismo commit.
 - `components/flit/`, `components/shell/`, `App.tsx`, `index.css`, `styles/`, `lib/` → pedidos al integrador.
 
-## Dudas abiertas (para el integrador / `flit-de`)
+## Respuestas del integrador y briefing `flit-de` (2026-11-12)
+
+Fuente de valores: **`ui-kit-2026.css`** (gana sobre `tokens.css`). Botones píldora planos (azul avanza, tinta secundario,
+verde confirma con texto tinta, naranja `#D44100` en anular/eliminar/rechazar/desactivar), modal blanco con ícono centrado
+(sin franja), cabecera sin círculo turquesa, sombra solo en dock/menús/avisos/foco. **Regla k: solo visual.** No se tocan
+textos, aria, handlers, hooks, fetch ni estado. Chips propios → `etiquetaKit(tono)`; velos de diálogos propios →
+`MODAL_VELO_CLS`/`MODAL_PANEL_CLS`; íconos lucide → `<Icono>`; barrido de HEX/`bg-white`/degradados/sombras a 0.
+
+- **D1** → `Pestanas` con scroll horizontal en 375 px (lo hace S0).
+- **D2** → `DataTable` con selección múltiple (lo hace S0).
+- **D3** → `FlitoRuta`: molde `#seguimiento` (una columna, para teléfono) con tarjetas `lista-fila`.
+- **D4** → matriz de tarifas en **modo «matriz»** del `DataTable` (scroll horizontal en su cuadro por debajo de 900 px). La edición dentro de la celda queda en mi página, con los controles del kit (borde `#A9C9FC`, radio 9, foco azul).
+- **D5** → `Dona`/`BarrasGrupo` como componentes (lo hace S0).
+- **D6** → campo de clave con «ver» (lo hace S0).
+- **D7** → Reporte de costos: modo «matriz» (scroll en su cuadro), no tarjetas.
+
+Íconos del dock para mis módulos (para la cabecera): Logística [ruta], Ruta [marcador], Tarifas [porcentaje], Bolsas [carpeta],
+Bitácora [portapapeles], Servicios adicionales [asterisco], Comprobantes [documento], Conciliación [intercambio],
+Gastos diarios [calendario], Reporte de costos [reportes], Siigo [integraciones], Clientes [empresas].
+
+## Dudas (resueltas arriba, conservadas como registro)
 
 - **D1.** Logística tiene 7 pestañas: en 375 px la propuesta desliza las pestañas dentro de su cuadro (corte 640 px). ¿El `Pestanas` del port ya trae ese desplazamiento horizontal?
 - **D2.** La propuesta no tiene tablas con selección múltiple (viajes masivo, envío de facturación). ¿Hay variante de `DataTable` con casillas y barra-accion de selección, o la pido?
