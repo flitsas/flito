@@ -81,3 +81,10 @@ Specs del shell (`auth`, `command-palette-claro/oscuro`, `kit-flit-tema-oscuro`,
 - **Contrato con el menú de usuario (aprobado):** «Cambiar contraseña» navega a `/perfil?accion=contrasena` (sin PII).
   Perfil abre el modal de contraseña al leer el parámetro y, al cerrarlo, lo limpia con `navigate(..., { replace: true })`
   para que «atrás» no lo reabra. Lo cubre `perfil.spec.ts`.
+
+## Hallazgos funcionales (no corregidos)
+
+Regla del humano: esta Épica es solo rediseño. Los defectos de permisos, lógica o datos no se corrigen ni se radican;
+se anotan aquí y pasan al HANDOFF.
+
+1. `/admin/tramites-metricas` está montada en `App.tsx` sin `ProtectedRoute`; `/admin/rendimiento` sí lo tiene.
