@@ -36,3 +36,4 @@ playwright-report/
 # Sin esta regla dependían de que nadie escribiera `git add -A` en todo el repo — y meterlos en la
 # historia de Git no se deshace borrándolos después.
 docs/ejemplos/
+.eslintcache
