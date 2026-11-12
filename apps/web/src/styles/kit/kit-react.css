@@ -1,0 +1,5 @@
+/* Piezas del port a React que la propuesta resuelve con JS o con clases de flit develop packages/ui. Solo tokens. */
+.kit-icono { display: inline-block; flex: none; vertical-align: -0.125em; }
+.kit-disco { flex: none; display: inline-grid; place-items: center; border-radius: 50%; background: var(--kit-hover); color: var(--kit-azul); }
+.kit-disco > svg { width: 56%; height: 56%; display: block; }
+.kit-imagen { flex: none; display: inline-block; }

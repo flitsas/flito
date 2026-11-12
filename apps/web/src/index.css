@@ -1,42 +1,85 @@
 /* =============================================================
-   Operaciones — AURA 2026 (Tailwind v4 Oxide)
+   FLITO — UI Kit 2026 de FLIT (Épica #14560). Tailwind v4.
+   Orden de cascada igual que la propuesta: tokens.css → propuesta.css → ui-kit-2026.css.
+     · kit/kit-variables.css  — variables del kit (generado, sin capa)
+     · tokens.css             — fuentes, oscuro sin JS, roles derivados y alias de compatibilidad
+     · kit/kit-propuesta.css  — componentes de propuesta.css   (capa components)
+     · kit/kit-ui.css         — componentes de ui-kit-2026.css (capa components)
+     · kit/kit-react.css      — piezas propias del port a React (capa components)
+   Las utilidades de Tailwind (capa utilities) siempre ganan a las clases del kit.
+   Guía: docs/ux/rediseno-2026/README.md
    ============================================================= */
 @import 'tailwindcss';
+@import './styles/kit/kit-variables.css';
 @import './styles/tokens.css';
-/* FLIT tokens — scoped a .flit-auth (login). No afecta el tema Aura global. */
-@import './styles/flit-tokens.css';
-
-/* Inter Variable — AUTO-HOSPEDADO (FIONA PR1). Antes venía por `@import` a
-   rsms.me, encadenando CSS→CSS→woff2 a un origen tercero y bloqueando el primer
-   paint. Self-host = mismo origen, sin RTT extra, descubrible temprano
-   (+ preload en index.html). Instrument Serif eliminado: 0 usos tras migración FLIT. */
-@font-face {
-  font-family: 'Inter Variable';
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url('/fonts/InterVariable.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Inter Variable';
-  font-style: italic;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url('/fonts/InterVariable-Italic.woff2') format('woff2');
-}
+@import './styles/kit/kit-propuesta.css' layer(components);
+@import './styles/kit/kit-ui.css' layer(components);
+@import './styles/kit/kit-react.css' layer(components);
 
 /* ============================================================
-   @theme inline — referencia las CSS variables del tokens.css
-   para que las utilities Tailwind respeten el tema dinámico
-   (light/dark via [data-theme] y prefers-color-scheme).
+   @theme inline — las utilidades existentes (`bg-surface`, `text-text-primary`, `border-border`,
+   `bg-accent`, `text-success`…) apuntan a los roles del kit: las 105 páginas cambian de piel sin
+   tocarlas. Utilidades NUEVAS del kit: `bg-kit-hover`, `text-kit-azul`, `border-kit-linea`,
+   `text-action`, `text-heading`, `bg-sky`…
    ============================================================ */
 @theme inline {
-  /* Tipografía */
   --font-sans: var(--font-sans);
   --font-display: var(--font-display);
-  --font-mono: var(--font-mono);
+  --font-mono: var(--font-sans);
+  --font-placa: var(--font-placa);
 
-  /* Paleta Aura (raw — siempre fija) */
+  /* Kit en crudo */
+  --color-kit-azul: var(--kit-azul);
+  --color-kit-azul-relleno: var(--kit-azul-relleno);
+  --color-kit-turquesa: var(--kit-turquesa);
+  --color-kit-tinta: var(--kit-tinta);
+  --color-kit-verde: var(--kit-verde);
+  --color-kit-rojo: var(--kit-rojo);
+  --color-kit-amarillo: var(--kit-amarillo);
+  --color-kit-naranja: var(--kit-naranja);
+  --color-kit-gris: var(--kit-gris);
+  --color-kit-linea: var(--kit-linea);
+  --color-kit-fondo: var(--kit-fondo);
+  --color-kit-hover: var(--kit-hover);
+  --shadow-kit: var(--kit-sombra);
+
+  /* Roles */
+  --color-surface: var(--color-surface);
+  --color-surface-elevated: var(--color-surface-elevated);
+  --color-surface-sunken: var(--color-surface-sunken);
+  --color-surface-overlay: var(--color-surface-overlay);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-tertiary: var(--color-text-tertiary);
+  --color-text-on-accent: var(--color-on-accent);
+  --color-on-accent: var(--color-on-accent);
+  --color-heading: var(--color-heading);
+  --color-action: var(--color-action);
+  --color-sky: var(--color-sky);
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+  --color-border-control: var(--color-border-control);
+  --color-divider: var(--color-divider);
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-accent-foreground: var(--color-on-accent);
+  --color-cta: var(--color-cta);
+  --color-cta-hover: var(--color-cta-hover);
+  --color-cta-foreground: var(--color-cta-foreground);
+  --color-success: var(--color-success);
+  --color-success-soft: var(--color-success-soft);
+  --color-warning: var(--color-warning);
+  --color-warning-soft: var(--color-warning-soft);
+  --color-danger: var(--color-danger);
+  --color-danger-soft: var(--color-danger-soft);
+  --color-info: var(--color-info);
+  --color-info-soft: var(--color-info-soft);
+  --color-glass: var(--glass-bg);
+  --color-glass-strong: var(--glass-bg-strong);
+  --color-glass-border: var(--glass-border);
+
+  /* Alias Aura (compatibilidad) */
   --color-aura-teal: var(--aura-teal);
   --color-aura-teal-soft: var(--aura-teal-soft);
   --color-aura-teal-dark: var(--aura-teal-dark);
@@ -48,117 +91,23 @@
   --color-aura-eucalyptus: var(--aura-eucalyptus);
   --color-aura-mellow: var(--aura-mellow);
   --color-aura-mellow-soft: var(--aura-mellow-soft);
+  --color-brand-50: var(--kit-hover);
+  --color-brand-100: var(--kit-hover);
+  --color-brand-200: var(--kit-linea);
+  --color-brand-300: var(--kit-linea);
+  --color-brand-400: var(--kit-azul);
+  --color-brand-500: var(--kit-azul);
+  --color-brand-600: var(--kit-azul-relleno);
+  --color-brand-700: var(--color-action);
+  --color-brand-800: var(--kit-tinta);
+  --color-brand-900: var(--kit-tinta);
+  --color-primary-50: var(--kit-hover);
+  --color-primary-100: var(--kit-hover);
+  --color-primary-500: var(--kit-gris);
+  --color-primary-600: var(--color-text-tertiary);
+  --color-primary-700: var(--color-text-secondary);
 
-  /* Surfaces (dinámicas) */
-  --color-surface: var(--color-surface);
-  --color-surface-elevated: var(--color-surface-elevated);
-  --color-surface-sunken: var(--color-surface-sunken);
-  --color-surface-overlay: var(--color-surface-overlay);
-
-  /* Texto */
-  --color-text-primary: var(--color-text-primary);
-  --color-text-secondary: var(--color-text-secondary);
-  --color-text-tertiary: var(--color-text-tertiary);
-  --color-text-on-accent: var(--color-text-on-accent);
-
-  /* Bordes */
-  --color-border: var(--color-border);
-  --color-border-strong: var(--color-border-strong);
-  --color-divider: var(--color-divider);
-
-  /* Acentos semánticos */
-  --color-accent: var(--color-accent);
-  --color-accent-hover: var(--color-accent-hover);
-  --color-accent-soft: var(--color-accent-soft);
-  --color-accent-foreground: var(--color-accent-foreground);
-
-  --color-cta: var(--color-cta);
-  --color-cta-hover: var(--color-cta-hover);
-  --color-cta-foreground: var(--color-cta-foreground);
-
-  --color-success: var(--color-success);
-  --color-success-soft: var(--color-success-soft);
-  --color-warning: var(--color-warning);
-  --color-warning-soft: var(--color-warning-soft);
-  --color-danger: var(--color-danger);
-  --color-danger-soft: var(--color-danger-soft);
-  --color-info: var(--color-info);
-  --color-info-soft: var(--color-info-soft);
-
-  /* Glass */
-  --color-glass: var(--glass-bg);
-  --color-glass-strong: var(--glass-bg-strong);
-  --color-glass-border: var(--glass-border);
-
-  /* Sombras */
-  --shadow-xs: var(--shadow-xs);
-  --shadow-card: var(--shadow-card);
-  --shadow-card-hover: var(--shadow-card-hover);
-  --shadow-kpi: var(--shadow-kpi);
-  --shadow-floating: var(--shadow-floating);
-
-  /* Radios */
-  --radius-xs: var(--radius-xs);
-  --radius-sm: var(--radius-sm);
-  --radius-md: var(--radius-md);
-  --radius-lg: var(--radius-lg);
-  --radius-xl: var(--radius-xl);
-  --radius-2xl: var(--radius-2xl);
-  --radius-pill: var(--radius-pill);
-
-  /* Tracking arquitectónico */
-  --tracking-tighter: var(--tracking-architectural);
-  --tracking-tight: var(--tracking-tight);
-  --tracking-wide: var(--tracking-wide);
-
-  /* Container queries — registrar tipos comunes */
-  --container-3xs: 16rem;
-  --container-2xs: 18rem;
-  --container-xs: 20rem;
-  --container-sm: 24rem;
-  --container-md: 28rem;
-  --container-lg: 32rem;
-  --container-xl: 36rem;
-  --container-2xl: 42rem;
-  --container-3xl: 48rem;
-}
-
-/* ============================================================
-   Aliases legacy (compatibilidad con páginas que aún usan
-   bg-brand-500, text-success-700, etc.). Se removerán en Fase
-   final, una vez auditado el reemplazo página a página.
-   ============================================================ */
-@theme inline {
-  --color-brand-50: #e8efef;
-  --color-brand-100: #c6d6d6;
-  --color-brand-200: #a3bdbe;
-  --color-brand-300: #80a3a4;
-  --color-brand-400: #5d8a8b;
-  --color-brand-500: var(--aura-teal);
-  --color-brand-600: var(--aura-teal-dark);
-  --color-brand-700: #173638;
-  --color-brand-800: #102628;
-  --color-brand-900: #0a1818;
-
-  --color-primary-50: #eef3f8;
-  --color-primary-100: #d3e0eb;
-  --color-primary-500: var(--aura-mellow);
-  --color-primary-600: #768793;
-  --color-primary-700: #5b6b75;
-}
-
-/* ============================================================
-   Tokens FLIT expuestos como utilities. Los `--flit-*` viven en
-   flit-tokens.css y hasta ahora solo se consumían con style={{}}
-   inline, lo que impedía aplicar variantes (hover:, focus-visible:,
-   aria-[current=page]:) sobre los colores de marca. Bloque ADITIVO:
-   no altera ningún token existente, solo los hace alcanzables desde
-   clases. Prefijo `flit-` → cero colisión con la paleta Aura.
-   Se mapea el set completo aunque el dock consuma solo una parte:
-   con `inline` Tailwind no emite nada para las utilities que nadie
-   usa, así que las entradas de más no pesan en el CSS final.
-   ============================================================ */
-@theme inline {
+  /* Alias FLITO `flit-*` (compatibilidad) */
   --color-flit-cyan: var(--flit-cyan);
   --color-flit-blue: var(--flit-blue);
   --color-flit-navy: var(--flit-blue-dark);
@@ -173,216 +122,97 @@
   --color-flit-warning: var(--flit-warning);
   --color-flit-danger: var(--flit-danger);
 
+  /* Sombras: el kit solo da sombra a dock, menús, avisos y foco. */
+  --shadow-xs: var(--shadow-xs);
+  --shadow-card: var(--shadow-card);
+  --shadow-card-hover: var(--shadow-card-hover);
+  --shadow-kpi: var(--shadow-kpi);
+  --shadow-floating: var(--shadow-floating);
+
+  /* Radios: 9 px estándar del kit; `rounded-full` no cambia. */
+  --radius-xs: var(--radius-xs);
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 9px;
+  --radius-xl: 9px;
+  --radius-2xl: 9px;
+  --radius-3xl: 9px;
+  --radius-pill: var(--radius-pill);
   --radius-flit-md: var(--flit-radius-md);
   --radius-flit-lg: var(--flit-radius-lg);
   --radius-flit-card: var(--flit-radius-card);
   --radius-flit-pill: var(--flit-radius-pill);
+
+  --tracking-tighter: var(--tracking-architectural);
+  --tracking-tight: var(--tracking-tight);
+  --tracking-wide: var(--tracking-wide);
+
+  --container-3xs: 16rem;
+  --container-2xs: 18rem;
+  --container-xs: 20rem;
+  --container-sm: 24rem;
+  --container-md: 28rem;
+  --container-lg: 32rem;
+  --container-xl: 36rem;
+  --container-2xl: 42rem;
+  --container-3xl: 48rem;
 }
 
-/* ====== Body & root ====== */
+/* ====== Base ====== */
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--color-surface);
   color: var(--color-text-primary);
 }
-
 body {
   background-color: var(--color-surface);
   color: var(--color-text-primary);
   font-family: var(--font-sans);
-  font-feature-settings: 'cv11', 'ss01', 'ss03';
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
 }
-
-@supports (font-variation-settings: normal) {
-  html { font-family: 'Inter Variable', var(--font-sans); }
-}
-
-/* Tabular nums para que números en KPIs no "bailen". */
-.tabular-nums {
-  font-variant-numeric: tabular-nums;
-}
-
-/* Focus visible AURA — WCAG 2.2 */
-:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-  border-radius: var(--radius-xs);
-}
-
-/* Selection */
-::selection {
-  background: var(--color-accent-soft);
-  color: var(--color-text-primary);
-}
-
-/* Scrollbar sutil */
+.tabular-nums { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--kit-azul); outline-offset: 2px; }
+::selection { background: var(--kit-hover); color: var(--color-text-primary); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: var(--color-border-strong);
-  border-radius: var(--radius-pill);
-  border: 2px solid var(--color-surface);
-}
-::-webkit-scrollbar-thumb:hover { background: var(--color-text-tertiary); }
+::-webkit-scrollbar-thumb { background: var(--kit-linea); border-radius: 999px; border: 2px solid var(--color-surface); }
+::-webkit-scrollbar-thumb:hover { background: var(--kit-gris); }
 
-/* FLIT-CLEANUP-08 PR3 (cierre fase 8): se eliminaron las utilidades glass
-   legacy muertas (0 usos en src/ tras la migración FLIT). */
+/* Foco del kit (clases heredadas, siguen en uso en páginas). */
+.flit-focus:focus-visible { outline: 2px solid var(--kit-azul); outline-offset: 2px; }
+.flit-focus-light:focus-visible { outline: 2px solid var(--kit-sobre-relleno); outline-offset: 2px; }
+.flit-focus-inset:focus-visible { outline: 2px solid var(--kit-azul); outline-offset: -2px; }
+.flit-auth, .flit-app { font-family: var(--font-sans); background: var(--color-surface); color: var(--color-text-primary); }
+.flit-modal { font-family: var(--font-sans); color: var(--color-text-primary); }
 
-/* ============================================================
-   Movimiento de la navegación.
-   OJO: `animate-in` / `fade-in` / `slide-in-from-bottom-2` son de
-   `tailwindcss-animate`, que NO está instalado en este proyecto —
-   sus usos actuales son no-ops silenciosos. Este keyframe sí
-   existe; usar esta clase y no aquéllas.
-   ============================================================ */
-/* Paneles del dock inferior: nacen desde abajo, no desde arriba. */
+/* Paneles que nacen desde abajo (menús del dock). */
 @keyframes flit-panel-up {
-  from { opacity: 0; transform: translateY(6px) scale(0.985); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-.flit-panel-up {
-  animation: flit-panel-up var(--flit-duration-base, 180ms) var(--flit-ease, ease-out) both;
-  transform-origin: bottom center;
-}
+.flit-panel-up { animation: flit-panel-up var(--motion-base) var(--ease) both; transform-origin: bottom center; }
+@media (prefers-reduced-motion: reduce) { .flit-panel-up { animation: none; } }
 
-/* Aquí había un parche `[data-theme='dark'] .flit-nav-capsule .flit-nav-pill` que repintaba el
-   texto de los módulos del dock a `rgba(255,255,255,.78)` y su hover a un velo blanco. Existía
-   porque «los tokens de texto FLIT no tienen variante dark», y ese hueco lo cerró la HU #11899:
-   la pill usa `text-flit-secondary` / `hover:bg-flit-app` / `hover:text-flit-ink`, que ahora
-   resuelven al par oscuro solos. Mantener el parche dejaría DOS fuentes de verdad para el mismo
-   texto —el token y el hex—, que es justo lo que la spec prohíbe. Se borra, no se conserva
-   «por si acaso»: un override que empata con el token es indistinguible de uno que ha derivado.
-   `.flit-nav-pill` sigue existiendo en FlitNavBar.tsx como gancho, sin regla propia. */
-@media (prefers-reduced-motion: reduce) {
-  .flit-panel-up { animation: none; }
-}
-
-/* ============================================================
-   Named View Transitions — elementos persistentes vs. página.
-   La nav lateral (antes FloatingNav, hoy shell FLIT) usa el VT name
-   `floating-nav` cuando hay un elemento persistente con
-   data-vt="floating-nav"; el <main key={pathname}> recibe la
-   transición default (cross-fade root) en cada navegación.
-   ============================================================ */
-@supports (view-transition-name: none) {
-  [data-vt="floating-nav"] { view-transition-name: floating-nav; }
-  [data-vt="page-main"]    { view-transition-name: page-main; }
-
-  ::view-transition-old(floating-nav),
-  ::view-transition-new(floating-nav) {
-    animation-duration: 200ms;
-    animation-timing-function: var(--ease-out);
-  }
-
-  ::view-transition-old(page-main),
-  ::view-transition-new(page-main) {
-    animation-duration: var(--duration-base);
-    animation-timing-function: var(--ease-out);
-  }
-  ::view-transition-old(page-main) { animation-name: aura-fade-out; }
-  ::view-transition-new(page-main) { animation-name: aura-fade-in; }
-}
-
-/* ============================================================
-   Shell global — tokens FLIT en FlitNavBar / CommandPalette / dock (migración Aura→FLIT).
-
-   HU #11899 — REABSORCIÓN. Hasta esta HU este bloque tenía DOS mitades: unas reglas base con
-   tokens `--flit-*` (invariantes: valían lo mismo en claro y en oscuro) y, debajo, una tanda de
-   `[data-theme='dark'] …` con hex medidos a mano por los Bugs #11720 y #11767. Aquellos hex se
-   eligieron sobre un supuesto que la #11899 deroga: que bajo el overlay de la ⌘K había un shell
-   CLARO (`.flit-app` = #EAF2FF pasara lo que pasara). Ahora `.flit-app` invierte, así que esos
-   números ya no describen la pantalla y mantenerlos sería dejar el parche divergiendo del token
-   —exactamente lo que la spec (docs/ux/shell-tema-y-responsive.md, § «Parches actuales de
-   index.css») prohíbe: «o el token pinta el dock o el parche, no ambos divergentes».
-
-   Qué queda: reglas SIN prefijo de tema que consumen `var(--flit-*)`. El tema lo decide el token.
-   Qué se fue: los overrides de pills, nav, panel de la paleta, `kbd`, `::placeholder` y las
-   cuatro tintas (`muted`/`secondary`/`primary`/`accent`) en oscuro.
-
-   Lo que NO se reabre es el MODELO de capas que dejaron esos dos bugs, que sigue vigente y sigue
-   siendo lo que hay que respetar al tocar cualquier valor de aquí:
-
-     · la cadena real es `.flit-app` → overlay → panel → (barra hundida | ítem activo) → tecla, y
-       cada capa translúcida se ACUMULA sobre la anterior;
-     · la tecla tiene que quedar un escalón por debajo del panel, no por encima. En claro lo
-       consigue `--flit-bg-app` (#EAF2FF) contra el blanco del panel; en oscuro, el mismo token en
-       su par (#0F1B2E contra #1E2F4C). Es la jerarquía que el #11720 tuvo que recuperar a mano
-       oscureciendo la tecla con un `rgba(0,0,0,.14)`, y que ahora sale sola del par;
-     · `::placeholder` necesita regla propia. Sin ella lo pinta el preflight de Tailwind con
-       `currentcolor` al 50 %, que es la tinta del input a medias — el peor punto de toda la
-       paleta en los dos temas (2,98 en claro, 4,41 en oscuro) y el que nadie veía.
-
-   El oráculo del píxel sigue siendo `e2e/tests/command-palette-claro.spec.ts` y
-   `command-palette-oscuro.spec.ts`; el gate que corre en CI, `npm run check:contraste`.
-   ============================================================ */
-.flit-shell-muted { color: var(--flit-text-muted); }
-.flit-shell-primary { color: var(--flit-text-primary); }
-.flit-shell-secondary { color: var(--flit-text-secondary); }
-/* Bug #11767 — era --flit-blue (#4F74C9), que en el kit es un color de SUPERFICIE: cumple el 3:1
-   de elementos gráficos, no el 4,5:1 de texto. Y esta regla sólo pinta TEXTO (la tecla ↵ del ítem
-   activo, a 10px). El #11720 lo dio por bueno en 4,49 «sobre el fondo claro que ese kbd tenía»,
-   pero ese fondo era el `bg-white` que ese mismo bug demostró muerto: lo que pinta la tecla es
-   `.flit-shell-sunken` (#EAF2FF en claro), y ahí #4F74C9 se queda en 3,99.
-   --flit-blue-text es el token que el kit creó para esto y se eligió midiendo contra ESE fondo:
-   4,64 sobre la tecla. La distinción superficie/tinta es la misma que ya resolvió el Bug #11604
-   con los tokens `-ink`. En oscuro había un override con #8fb0f0 escrito a mano; desde la #11899
-   lo cubre el par oscuro del propio --flit-blue-text y el override sobra. */
-.flit-shell-accent { color: var(--flit-blue-text); }
-/* Dock y panel de la ⌘K comparten superficie: la tarjeta del kit. Antes era
-   `rgba(255,255,255,.94)` con un override a `rgba(22,39,68,.9)` en oscuro; ahora es el token, que
-   ya trae los dos valores. Se pierde la translucidez (el token es opaco) y con ella un matiz del
-   `backdrop-filter`, que se conserva porque el desenfoque del contenido que pasa por debajo del
-   dock flotante sigue leyéndose en los bordes redondeados. A cambio, el fondo del dock deja de
-   ser un hex que hay que acordarse de remedir cada vez que se mueve una superficie. */
-.flit-shell-nav {
-  background: var(--flit-bg-card);
-  border: 1px solid var(--flit-border-soft);
-  box-shadow: var(--flit-shadow-card);
-  backdrop-filter: blur(14px);
-}
-/* El velo de hover viene del token porque su SIGNO cambia con el tema: en claro oscurece
-   (navy al 6 %), en oscuro aclara (blanco al 8 %). Eran dos reglas divergentes; es un token. */
-.flit-shell-hover:hover { background: var(--flit-bg-hover); }
-.flit-shell-danger:hover { background: rgba(220, 38, 38, 0.1); }
-.flit-shell-divider { border-color: var(--flit-border-soft); background: var(--flit-border-soft); }
-.flit-shell-kbd {
-  color: var(--flit-text-secondary);
-  background: var(--flit-bg-app);
-  border: 1px solid var(--flit-border-input);
-}
-.flit-shell-sunken { background: var(--flit-bg-app); border-color: var(--flit-border-input); }
-/* Velo del modal, no texto: no lleva umbral y no cambia con el tema a propósito — oscurece lo que
-   haya detrás en los dos, que es lo que hace un overlay. */
-.flit-shell-overlay { background: rgba(22, 39, 68, 0.45); }
-.flit-shell-active { background: rgba(37, 99, 235, 0.12); color: var(--flit-text-primary); }
-.flit-shell-palette {
-  background: var(--flit-bg-card);
-  border: 1px solid var(--flit-border-soft);
-  box-shadow: var(--flit-shadow-card);
-}
-/* Bug #11767 — el `::placeholder` del buscador.
-   Nadie lo pintaba: hasta el retrabajo del #11720 el input llevaba `placeholder:flit-shell-muted`,
-   que NO es una utilidad de Tailwind y jamás generó regla, así que decidía el preflight
-   (`color-mix(in oklab, currentcolor 50%, transparent)`). Y `currentcolor` ahí es la tinta del
-   input —`flit-shell-primary`—, que al 50 % sobre la barra componía #808DA1: 2,98 en claro, el
-   peor punto de toda la paleta; en oscuro, 4,41 y otro override aparte.
-   --flit-text-muted es justo el token para esto y su valor se eligió midiendo contra este mismo
-   fondo (Bug #11604). `opacity: 1` neutraliza el reset de Firefox del preflight.
-   Desde la HU #11899 esta regla es ÚNICA: el par oscuro del token sustituye al override que vivía
-   en `[data-theme='dark'] .flit-shell-palette ::placeholder`. */
-.flit-shell-palette ::placeholder {
-  color: var(--flit-text-muted);
-  opacity: 1;
-}
-
-/* Componentes FLIT — sustitutos Aura en BatchValidator, ExpedienteVisor, etc. */
-.flit-tone-muted { color: var(--flit-text-muted); }
-.flit-tone-primary { color: var(--flit-text-primary); }
-.flit-tone-secondary { color: var(--flit-text-secondary); }
-.flit-tone-active-bg { background: rgba(37, 99, 235, 0.1); }
-.flit-success-bg { background: rgba(112, 207, 58, 0.14); }
-.flit-warning-bg { background: rgba(240, 90, 53, 0.12); }
-.flit-danger-bg { background: rgba(220, 38, 38, 0.1); }
+/* Clases utilitarias heredadas del shell y de componentes FLITO, sobre los roles del kit. */
+.flit-shell-muted { color: var(--color-text-tertiary); }
+.flit-shell-primary { color: var(--color-text-primary); }
+.flit-shell-secondary { color: var(--color-text-secondary); }
+.flit-shell-accent { color: var(--color-action); }
+.flit-shell-nav { background: var(--color-surface-elevated); border: 1px solid var(--color-border); box-shadow: var(--kit-sombra); }
+.flit-shell-hover:hover { background: var(--kit-hover); }
+.flit-shell-danger:hover { background: var(--flit-chip-danger-bg); }
+.flit-shell-divider { border-color: var(--color-border); background: var(--color-border); }
+.flit-shell-kbd { color: var(--color-text-primary); background: var(--kit-hover); border: 1px solid var(--color-border); }
+.flit-shell-sunken { background: var(--color-surface-sunken); border-color: var(--color-border); }
+.flit-shell-overlay { background: var(--kit-velo); backdrop-filter: blur(5px); }
+.flit-shell-active { background: var(--kit-hover); color: var(--color-action); }
+.flit-shell-palette { background: var(--color-surface-elevated); border: 1px solid var(--color-border); }
+.flit-shell-palette ::placeholder { color: var(--kit-gris); opacity: 1; }
+.flit-tone-muted { color: var(--color-text-tertiary); }
+.flit-tone-primary { color: var(--color-text-primary); }
+.flit-tone-secondary { color: var(--color-text-secondary); }
+.flit-tone-active-bg { background: var(--kit-hover); }
+.flit-success-bg { background: var(--flit-chip-success-bg); }
+.flit-warning-bg { background: var(--flit-chip-warning-bg); }
+.flit-danger-bg { background: var(--flit-chip-danger-bg); }

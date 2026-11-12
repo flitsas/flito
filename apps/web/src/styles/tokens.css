@@ -1,265 +1,203 @@
 /* =============================================================
-   AURA Design Tokens — Operaciones 2026
-   -------------------------------------------------------------
-   Filosofía: minimalismo funcional + brutalismo táctil.
-   Paleta 2026: Transformative Teal · Cloud Dancer · Divine Damson
-                Hidden Gem · Warm Eucalyptus · Mellow Flow.
-   Tema dinámico via [data-theme] + prefers-color-scheme.
+   FLITO — UI Kit 2026 (Épica #14560). Fundación S0.
+
+   Los VALORES del kit viven en `kit/kit-variables.css`, generado al pie de la letra desde la propuesta
+   (repo flit, rama propuesta-2, docs/design/propuesta-ui-kit-2026: tokens.css + ui-kit-2026.css).
+   Este archivo añade solo tres cosas, sin inventar color nuevo:
+
+     1. Fuentes autohospedadas (Poppins 300–800, JetBrains Mono 700, Barlow Condensed 600/700).
+     2. El gemelo `prefers-color-scheme` del tema oscuro para cuando el bootstrap de <head> no corre.
+     3. ALIAS de compatibilidad: los nombres viejos (`--flit-*` de FLITO, `--aura-*`, `--glass-*`…)
+        que las 105 páginas consumen en `style={{}}` apuntan ahora a los roles del kit. Así toda la app
+        cambia de piel sin tocar una página. Las sesiones de rediseño los van retirando: NO usar en
+        código nuevo (ver docs/ux/rediseno-2026/README.md, «Mapeo»).
+
+   Todo color de aquí es un var() a un rol del kit, salvo los pares claro/oscuro de las «tintas»
+   semánticas, que son literalmente los del kit (statusTones/badges de flit develop packages/ui).
    ============================================================= */
 
+/* ---------- 1. Fuentes (mismo origen; preload de Poppins 400/600 en index.html) ---------- */
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 300; font-display: swap; src: url('/fonts/poppins-latin-300-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/poppins-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/poppins-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/poppins-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/poppins-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/poppins-latin-800-normal.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/jetbrains-mono-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/barlow-condensed-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/barlow-condensed-latin-700-normal.woff2') format('woff2'); }
+
+/* ---------- 2. Oscuro sin JS: mismos valores que [data-theme="dark"] de la propuesta ---------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --kit-hover: #22385e; --kit-linea: #3a5688; --kit-fondo: #0d1a30; --kit-sombra: 3px 3px 3px #00000059;
+    --kit-azul: #8fb0ff; --kit-azul-relleno: #1d53ff; --kit-gris: #a9b8d4;
+    --color-accent: #557eff; --color-accent-hover: #4669e0; --color-accent-soft: #557eff33; --color-on-accent: #ffffff;
+    --color-action: #8fb0ff; --color-highlight: #8fb0ff; --color-highlight-display: #8fb0ff; --color-heading: #a9c9fc;
+    --color-sky: #1c3158; --color-sky-line: #3a5688;
+    --color-surface: #0d1a30; --color-surface-elevated: #162744; --color-surface-sunken: #1c3158;
+    --color-text-primary: #e6f0ff; --color-text-secondary: #e6f0ff; --color-text-tertiary: #a9b8d4;
+    --color-border: #3a5688; --color-border-strong: #3a5688; --color-border-control: #3a5688; --color-divider: #2c4470;
+    --color-warning: #ff7a40; --color-danger: #ff6b6b; --color-info: #8fb0ff; --color-success: #a6d95f;
+  }
+}
+
+/* ---------- 3. Roles derivados que el kit usa en sus piezas React (flit develop packages/ui) ---------- */
 :root {
-  /* ---------- Paleta cromática Aura 2026 (raw) ---------- */
-  --aura-teal:       #2f6364;  /* Transformative Teal — acento principal */
-  --aura-teal-soft:  #4a8f91;
-  --aura-teal-dark:  #1f4849;
-  --aura-cloud:      #f0eee9;  /* Cloud Dancer — Pantone color of the year */
-  --aura-cloud-deep: #e6e2da;
-  --aura-damson:     #3b1e20;  /* Divine Damson — CTA/dark mode */
-  --aura-damson-bright: #6b3a3d;
-  --aura-jade:       #596d69;  /* Hidden Gem */
-  --aura-eucalyptus: #7b8473;  /* Warm Eucalyptus */
-  --aura-mellow:     #95a7b4;  /* Mellow Flow */
-  --aura-mellow-soft:#bccad3;
+  --kit-azul-relleno: #1d53ff;     /* relleno de botón con texto blanco: igual en los dos temas */
+  --kit-tinta-fija: #162744;       /* botón secundario (tinta) y franjas: igual en los dos temas */
+  --kit-verde-texto: #4f7121;
+  --kit-naranja-texto: #bd3a00;
+  --kit-rojo-texto: #c10000;
+  --kit-turquesa-texto: #00736b;
+  --kit-amarillo-texto: #8b6000;
+  --kit-velo: #557eff80;           /* velo de diálogos: azul al 50 % + blur 5 px */
+  --kit-sobre-relleno: #ffffff;    /* texto sobre relleno azul/tinta/rojo */
+  --kit-alto-barra: 64px;
+  --kit-alto-dock: 96px;           /* espacio inferior que reserva el contenido para el dock flotante */
+}
+[data-theme="dark"] {
+  --kit-gris: #a9b8d4;
+  --kit-verde-texto: #a6d95f;
+  --kit-naranja-texto: #ff7a40;
+  --kit-rojo-texto: #ff6b6b;
+  --kit-turquesa-texto: #2fd6c9;
+  --kit-amarillo-texto: #f9ac00;
+  --kit-velo: #0d1a30a6;
+}
 
-  /* ---------- Neutrales (Modo CLARO por defecto — Nexora 2026 light) ---------- */
-  --color-surface:           #f6f4ee;            /* cream cálido base */
-  --color-surface-elevated:  #ffffff;            /* cards */
-  --color-surface-sunken:    #ece8df;            /* inputs / sidebar interior */
-  --color-surface-overlay:   rgba(255, 255, 255, 0.78);
+/* ---------- 4. Alias de compatibilidad (NO usar en código nuevo) ---------- */
+:root {
+  /* FLITO --flit-* (antes styles/flit-tokens.css) */
+  --flit-bg-app: var(--color-surface);
+  --flit-bg-modal: var(--color-surface);
+  --flit-bg-card: var(--color-surface-elevated);
+  --flit-bg-table-header: var(--kit-linea);
+  --flit-bg-topbar: var(--color-surface);
+  --flit-bg-hover: var(--kit-hover);
+  --flit-veil-press-hover: color-mix(in srgb, var(--kit-tinta) 12%, transparent);
+  --flit-veil-press-active: color-mix(in srgb, var(--kit-tinta) 20%, transparent);
+  --flit-cyan: var(--kit-turquesa);
+  --flit-blue: var(--kit-azul);
+  --flit-blue-dark: var(--kit-tinta-fija);
+  --flit-blue-text: var(--color-action);
+  --flit-blue-soft: var(--kit-hover);
+  --flit-green: var(--kit-verde);
+  --flit-text-primary: var(--color-text-primary);
+  --flit-text-secondary: var(--color-text-secondary);
+  --flit-text-muted: var(--color-text-tertiary);
+  --flit-text-inverse: var(--kit-sobre-relleno);
+  --flit-text-brand-title: var(--color-heading);
+  --flit-border-soft: var(--color-border);
+  --flit-border-input: var(--color-border-control);
+  --flit-border-focus: var(--kit-azul);
+  --flit-border: var(--color-border);
+  --flit-success: var(--color-success);
+  --flit-info: var(--color-info);
+  --flit-warning: var(--color-warning);
+  --flit-danger: var(--color-danger);
+  --flit-draft: var(--kit-gris);
+  --flit-muted: var(--color-text-tertiary);
+  --flit-success-ink: var(--kit-verde-texto);
+  --flit-warning-ink: var(--kit-naranja-texto);
+  --flit-danger-ink: var(--kit-rojo-texto);
+  --flit-blue-ink: var(--color-action);
+  --flit-cyan-ink: var(--kit-turquesa-texto);
+  --flit-danger-text: var(--kit-rojo-texto);
+  --flit-success-text: var(--kit-verde-texto);
+  --flit-warning-text: var(--kit-naranja-texto);
+  --flit-pill-active-ink: var(--color-action);
+  --flit-chip-success-bg: color-mix(in srgb, var(--kit-verde) 10%, var(--color-surface-elevated));
+  --flit-chip-active-bg: color-mix(in srgb, var(--kit-azul) 10%, var(--color-surface-elevated));
+  --flit-chip-warning-bg: color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated));
+  --flit-chip-danger-bg: color-mix(in srgb, var(--kit-rojo) 10%, var(--color-surface-elevated));
+  --flit-chip-draft-bg: color-mix(in srgb, var(--kit-gris) 12%, var(--color-surface-elevated));
+  --flit-chip-neutral-bg: var(--kit-hover);
+  --flit-chip-draft-ink: var(--color-text-tertiary);
+  --flit-chip-neutral-ink: var(--color-text-tertiary);
+  --flit-chip-success-ink: var(--kit-verde-texto);
+  --flit-chip-active-ink: var(--color-action);
+  --flit-chip-warning-ink: var(--kit-naranja-texto);
+  --flit-chip-danger-ink: var(--kit-rojo-texto);
+  --flit-warning-bg: var(--flit-chip-warning-bg);
+  --flit-amber-soft: color-mix(in srgb, var(--kit-amarillo) 14%, var(--color-surface-elevated));
+  --flit-serie-soat: var(--kit-azul);
+  --flit-serie-impuesto: var(--kit-turquesa);
+  --flit-serie-derecho: var(--kit-verde);
+  --flit-serie-logistica: var(--kit-naranja);
+  --flit-serie-servicios: var(--kit-gris);
+  /* El kit no lleva degradado en botones: «degradado» de acción = relleno plano. */
+  --flit-gradient-primary: linear-gradient(var(--kit-azul-relleno), var(--kit-azul-relleno));
+  --flit-gradient-success: linear-gradient(#4f7121, #4f7121);
+  --flit-gradient-danger: linear-gradient(#c10000, #c10000);
+  --flit-gradient-sidebar: var(--gradient-brand);
+  --flit-radius-sm: 7px;
+  --flit-radius-md: 9px;
+  --flit-radius-lg: 9px;
+  --flit-radius-xl: 9px;
+  --flit-radius-card: 9px;
+  --flit-radius-input: 9px;
+  --flit-radius-pill: 999px;
+  --flit-radius-sidebar: 9px;
+  --flit-input-height: 44px;
+  --flit-button-height: 44px;
+  --flit-topbar-height: var(--kit-alto-barra);
+  --flit-navbar-height: 0px;
+  --flit-fab-offset: var(--kit-alto-dock);
+  --flit-shadow-card: none;
+  --flit-shadow-modal: var(--kit-sombra);
+  --flit-shadow-button: none;
+  --flit-shadow-desborde: color-mix(in srgb, var(--kit-tinta) 58%, transparent);
+  --flit-font: var(--font-sans);
+  --flit-duration-fast: var(--motion-fast);
+  --flit-duration-base: var(--motion-base);
+  --flit-ease: var(--ease);
 
-  --color-text-primary:      #0c1416;
-  --color-text-secondary:    #4a5759;
-  --color-text-tertiary:     #5a6a6d;            /* WCAG AA pass: ~5.1:1 sobre cream */
-  --color-text-on-accent:    #051010;
-
-  --color-border:            rgba(15, 30, 30, 0.07);
-  --color-border-strong:     rgba(15, 30, 30, 0.14);
-  --color-divider:           rgba(15, 30, 30, 0.05);
-
-  /* ---------- Acento teal con GLOW (Nexora signature) ---------- */
-  --aura-teal-glow:          #2f6364;            /* teal Aura clásico para light */
-  --aura-teal-bright:        #3f8a8c;            /* teal más brillante para glows */
-  --color-accent:            var(--aura-teal-glow);
-  --color-accent-hover:      #1f4849;
-  --color-accent-soft:       rgba(47, 99, 100, 0.10);
-  --color-accent-foreground: #ffffff;
-
-  --color-cta:               var(--aura-teal-glow);
-  --color-cta-hover:         #1f4849;
-  --color-cta-foreground:    #ffffff;
-
-  --color-success: #186a45;                      /* WCAG AAA */
-  --color-success-soft: rgba(24, 106, 69, 0.10);
-  --color-warning: #8a5a0e;
-  --color-warning-soft: rgba(138, 90, 14, 0.10);
-  --color-danger:  #b13838;
-  --color-danger-soft:  rgba(177, 56, 56, 0.10);
-  --color-info:    #2f6394;
-  --color-info-soft:    rgba(47, 99, 148, 0.10);
-
-  /* ---------- Glass (Nexora light) ---------- */
-  --glass-bg:       rgba(255, 255, 255, 0.66);
-  --glass-bg-strong:rgba(255, 255, 255, 0.84);
-  --glass-border:   rgba(15, 30, 30, 0.07);
-  --glass-blur:     20px;
-
-  /* ---------- Capture overlay (fullscreen oscuro fijo — NO varía con tema) ----------
-     Para flujos biométricos / captura de cámara donde el fondo oscuro es funcional
-     (contraste necesario para el feed de la cámara). Mantenidos hardcoded fuera del
-     bloque [data-theme='dark'] porque NO deben cambiar entre temas. */
-  --color-capture-overlay-bg:        rgba(0, 0, 0, 0.92);
-  --color-capture-on-dark:           rgba(255, 255, 255, 0.85);
-  --color-capture-on-dark-soft:      rgba(255, 255, 255, 0.6);
-  --color-capture-border-on-dark:    rgba(255, 255, 255, 0.2);
-
-  /* ---------- Glow shadows (Nexora signature, sutiles en light) ---------- */
-  --shadow-glow-teal:   0 0 32px rgba(47, 99, 100, 0.16), 0 0 64px rgba(47, 99, 100, 0.06);
-  --shadow-glow-strong: 0 0 48px rgba(47, 99, 100, 0.28), 0 0 96px rgba(47, 99, 100, 0.10);
-
-  /* ---------- Sombras (Nexora light default) ---------- */
-  --shadow-xs:   0 1px 1px rgba(15, 30, 30, 0.04);
-  --shadow-card: 0 1px 2px rgba(15, 30, 30, 0.05), 0 2px 6px rgba(15, 30, 30, 0.05);
-  --shadow-card-hover: 0 6px 18px rgba(15, 30, 30, 0.08), 0 2px 6px rgba(15, 30, 30, 0.06);
-  --shadow-kpi:  inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(15, 30, 30, 0.05);
-  --shadow-floating: 0 24px 48px -16px rgba(15, 30, 30, 0.18), 0 8px 24px -12px rgba(15, 30, 30, 0.12);
-
-  /* ---------- Radio ---------- */
-  --radius-xs: 6px;
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-  --radius-xl: 28px;
-  --radius-2xl: 36px;
-  --radius-pill: 9999px;
-
-  /* ---------- Espaciado base 4px ---------- */
-  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
-  --space-4: 16px; --space-6: 24px; --space-8: 32px;
-  --space-12: 48px; --space-16: 64px; --space-24: 96px;
-
-  /* ---------- Tipografía ---------- */
-  --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-display: Georgia, 'Times New Roman', ui-serif, serif;  /* serif del sistema — Instrument Serif retirado (0 usos tras migración FLIT, evita fetch a fonts.googleapis) */
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-
-  --tracking-tight: -0.02em;
+  /* Aura (tema viejo) */
+  --aura-teal: var(--kit-azul);
+  --aura-teal-soft: var(--kit-hover);
+  --aura-teal-dark: var(--kit-azul-hover);
+  --aura-teal-glow: var(--kit-azul);
+  --aura-teal-bright: var(--kit-azul);
+  --aura-cloud: var(--color-surface);
+  --aura-cloud-deep: var(--color-surface-sunken);
+  --aura-damson: var(--kit-tinta);
+  --aura-damson-bright: var(--kit-tinta);
+  --aura-jade: var(--kit-gris);
+  --aura-eucalyptus: var(--kit-gris);
+  --aura-mellow: var(--kit-gris);
+  --aura-mellow-soft: var(--kit-linea);
+  --color-surface-overlay: color-mix(in srgb, var(--color-surface-elevated) 88%, transparent);
+  --color-text-on-accent: var(--color-on-accent);
+  --color-accent-foreground: var(--color-on-accent);
+  --color-cta: var(--kit-azul-relleno);
+  --color-cta-hover: var(--kit-azul-hover);
+  --color-cta-foreground: var(--kit-sobre-relleno);
+  --glass-bg: var(--color-surface-elevated);
+  --glass-bg-strong: var(--color-surface-elevated);
+  --glass-border: var(--color-border);
+  --glass-blur: 0px;
+  --color-capture-overlay-bg: rgba(0, 0, 0, 0.92);
+  --color-capture-on-dark: rgba(255, 255, 255, 0.85);
+  --color-capture-on-dark-soft: rgba(255, 255, 255, 0.6);
+  --color-capture-border-on-dark: rgba(255, 255, 255, 0.2);
+  --shadow-glow-teal: none;
+  --shadow-glow-strong: none;
+  --shadow-xs: none;
+  --shadow-kpi: none;
+  --shadow-floating: var(--kit-sombra);
+  --radius-xs: 5px;
+  --radius-xl: 9px;
+  --radius-2xl: 9px;
+  --space-1: 4px;
+  --tracking-tight: -0.01em;
   --tracking-normal: 0;
   --tracking-wide: 0.04em;
-  --tracking-architectural: -0.035em;
-
-  /* ---------- Motion ---------- */
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --duration-fast: 120ms;
-  --duration-base: 220ms;
+  --tracking-architectural: -0.02em;
+  --ease-out: var(--ease);
+  --ease-in-out: var(--ease);
+  --duration-fast: var(--motion-fast);
+  --duration-base: var(--motion-base);
   --duration-slow: 420ms;
-}
-
-/* ====== MODO OSCURO ======
-   Bug previo: combinaba `:root[data-theme='dark']` con un `@media` en una
-   sola lista de selectores con coma — sintaxis CSS inválida que el browser
-   ignoraba silenciosamente. Por eso el toggle "no funcionaba".
-   Ahora son 2 reglas separadas que comparten el mismo valor de tokens.    */
-
-/* --- Mixin de tokens dark (referenciado por ambas reglas via @apply-equiv) --- */
-:root[data-theme='dark'] {
-  color-scheme: dark;
-
-  --color-surface:           #0d1416;
-  --color-surface-elevated:  #161f22;
-  --color-surface-sunken:    #080d0f;
-  --color-surface-overlay:   rgba(13, 20, 22, 0.78);
-
-  --color-text-primary:      #f0eee9;
-  --color-text-secondary:    #a7b4b6;
-  --color-text-tertiary:     #7e8b8e;
-  --color-text-on-accent:    #f5f3ee;
-
-  --color-border:            rgba(240, 238, 233, 0.08);
-  --color-border-strong:     rgba(240, 238, 233, 0.18);
-  --color-divider:           rgba(240, 238, 233, 0.06);
-
-  --aura-teal-glow:          #5eead4;
-  --aura-teal-bright:        #7fdbd0;
-  --color-accent:            var(--aura-teal-glow);
-  --color-accent-hover:      var(--aura-teal-bright);
-  --color-accent-soft:       rgba(94, 234, 212, 0.16);
-  --color-accent-foreground: #051010;
-
-  --color-cta:               var(--aura-teal-glow);
-  --color-cta-hover:         var(--aura-teal-bright);
-  --color-cta-foreground:    #051010;
-
-  --color-success: #4ec18b;
-  --color-success-soft: rgba(78, 193, 139, 0.16);
-  --color-warning: #e0a566;
-  --color-warning-soft: rgba(224, 165, 102, 0.16);
-  --color-danger:  #e07a7a;
-  --color-danger-soft:  rgba(224, 122, 122, 0.16);
-  --color-info:    #7ab0d6;
-  --color-info-soft:    rgba(122, 176, 214, 0.16);
-
-  --glass-bg:        rgba(22, 31, 34, 0.66);
-  --glass-bg-strong: rgba(22, 31, 34, 0.86);
-  --glass-border:    rgba(240, 238, 233, 0.08);
-
-  --shadow-xs:   0 1px 1px rgba(0, 0, 0, 0.4);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-card-hover: 0 6px 18px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
-  --shadow-kpi:  inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-floating: 0 24px 48px -16px rgba(0, 0, 0, 0.6), 0 8px 24px -12px rgba(0, 0, 0, 0.4);
-  --shadow-glow-teal:   0 0 40px rgba(94, 234, 212, 0.30), 0 0 80px rgba(94, 234, 212, 0.12);
-  --shadow-glow-strong: 0 0 60px rgba(94, 234, 212, 0.45), 0 0 120px rgba(94, 234, 212, 0.20);
-}
-
-/* --- Auto dark cuando el OS prefiere oscuro Y el usuario NO eligió 'light' --- */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']):not([data-theme='dark']) {
-    color-scheme: dark;
-
-    --color-surface:           #0d1416;
-    --color-surface-elevated:  #161f22;
-    --color-surface-sunken:    #080d0f;
-    --color-surface-overlay:   rgba(13, 20, 22, 0.78);
-
-    --color-text-primary:      #f0eee9;
-    --color-text-secondary:    #a7b4b6;
-    --color-text-tertiary:     #7e8b8e;
-    --color-text-on-accent:    #f5f3ee;
-
-    --color-border:            rgba(240, 238, 233, 0.08);
-    --color-border-strong:     rgba(240, 238, 233, 0.18);
-    --color-divider:           rgba(240, 238, 233, 0.06);
-
-    --aura-teal-glow:          #5eead4;
-    --aura-teal-bright:        #7fdbd0;
-    --color-accent:            var(--aura-teal-glow);
-    --color-accent-hover:      var(--aura-teal-bright);
-    --color-accent-soft:       rgba(94, 234, 212, 0.16);
-    --color-accent-foreground: #051010;
-
-    --color-cta:               var(--aura-teal-glow);
-    --color-cta-hover:         var(--aura-teal-bright);
-    --color-cta-foreground:    #051010;
-
-    --color-success: #4ec18b;
-    --color-success-soft: rgba(78, 193, 139, 0.16);
-    --color-warning: #e0a566;
-    --color-warning-soft: rgba(224, 165, 102, 0.16);
-    --color-danger:  #e07a7a;
-    --color-danger-soft:  rgba(224, 122, 122, 0.16);
-    --color-info:    #7ab0d6;
-    --color-info-soft:    rgba(122, 176, 214, 0.16);
-
-    --glass-bg:        rgba(22, 31, 34, 0.66);
-    --glass-bg-strong: rgba(22, 31, 34, 0.86);
-    --glass-border:    rgba(240, 238, 233, 0.08);
-
-    --shadow-xs:   0 1px 1px rgba(0, 0, 0, 0.4);
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
-    --shadow-card-hover: 0 6px 18px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
-    --shadow-kpi:  inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-floating: 0 24px 48px -16px rgba(0, 0, 0, 0.6), 0 8px 24px -12px rgba(0, 0, 0, 0.4);
-    --shadow-glow-teal:   0 0 40px rgba(94, 234, 212, 0.30), 0 0 80px rgba(94, 234, 212, 0.12);
-    --shadow-glow-strong: 0 0 60px rgba(94, 234, 212, 0.45), 0 0 120px rgba(94, 234, 212, 0.20);
-  }
-}
-
-/* ====== Reduce motion ====== */
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --duration-fast: 0ms;
-    --duration-base: 0ms;
-    --duration-slow: 0ms;
-  }
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* ====== View Transitions API (capa progressive) ====== */
-@supports (view-transition-name: none) {
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation-duration: var(--duration-base);
-    animation-timing-function: var(--ease-out);
-  }
-  ::view-transition-old(root) {
-    animation-name: aura-fade-out;
-  }
-  ::view-transition-new(root) {
-    animation-name: aura-fade-in;
-  }
-}
-
-@keyframes aura-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes aura-fade-out {
-  from { opacity: 1; }
-  to   { opacity: 0; }
 }
