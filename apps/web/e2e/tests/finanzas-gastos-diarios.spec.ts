@@ -64,6 +64,8 @@ test.describe('FLITO — Finanzas · Gastos diarios (HU #12624)', () => {
   test.use({ viewport: { width: 1366, height: 768 } });
 
   test('AC2 — con la página: ítem «Gastos diarios» tras «Reporte de costos», ruta protegida y ⌘K', async ({ page }) => {
+    // 1920 px: el admin ve las 11 secciones en la fila; a 1366 Finanzas pasa al «Más» (Épica #14560).
+    await page.setViewportSize({ width: 1920, height: 900 });
     await loginAs(page, OPERACIONES_USER);
     await mockGastos(page);
     await page.goto('/finanzas/gastos-diarios');
