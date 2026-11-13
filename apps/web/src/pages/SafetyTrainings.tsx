@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, useCallback, FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -6,6 +6,8 @@ import { useEscape } from '../lib/hooks';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { flitInp, FlitField } from '../components/flit/flitPageKit';
 
 interface Training {
   id: number; titulo: string; descripcion: string | null; horas: string;
@@ -13,8 +15,23 @@ interface Training {
   asistentes_count: number; asistio_count: number;
 }
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const SECUNDARIO = 'text-[color:var(--color-text-secondary)]';
+
+const COLUMNAS: ColumnaTabla<Training>[] = [
+  { key: 'fecha', header: 'Fecha', etiqueta: 'Fecha', render: (t) => <span className={`text-xs ${SECUNDARIO}`}>{t.fecha}</span> },
+  { key: 'titulo', header: 'Título', etiqueta: 'Título', render: (t) => <span className="font-medium text-[color:var(--color-text-primary)]">{t.titulo}</span> },
+  { key: 'horas', header: 'Horas', etiqueta: 'Horas', render: (t) => <span className={`tabular-nums ${SECUNDARIO}`}>{Number(t.horas)} h</span> },
+  { key: 'modalidad', header: 'Modalidad', etiqueta: 'Modalidad', render: (t) => <span className={`capitalize ${SECUNDARIO}`}>{t.modalidad}</span> },
+  { key: 'instructor', header: 'Instructor', etiqueta: 'Instructor', render: (t) => <span className={SECUNDARIO}>{t.instructor || '—'}</span> },
+  {
+    key: 'asistencia', header: 'Asistencia', etiqueta: 'Asistencia',
+    render: (t) => (
+      <span className={`text-xs ${SECUNDARIO}`}>
+        <span className="font-bold tabular-nums text-[color:var(--kit-verde-texto)]">{t.asistio_count}</span> / {t.asistentes_count} registrados
+      </span>
+    ),
+  },
+];
 
 export default function SafetyTrainings() {
   const { hasFuncion } = useAuth();
@@ -33,45 +50,22 @@ export default function SafetyTrainings() {
       <PageHeaderCard
         title="Capacitaciones de seguridad vial"
         subtitle="Cursos PESV con asistencia, calificación y certificado"
+        icono="flito-capacitaciones"
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }]}
         actions={isAdmin ? <GradientButton type="button" onClick={() => setShowCreate(true)}>Nueva capacitación</GradientButton> : undefined}
       />
 
-      <div className="overflow-hidden bg-white" style={CARD}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr>
-              <Th>Fecha</Th><Th>Título</Th><Th>Horas</Th><Th>Modalidad</Th><Th>Instructor</Th><Th>Asistencia</Th>
-            </tr></thead>
-            <tbody>
-              {items.length === 0 && <tr><td colSpan={6} className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin capacitaciones</td></tr>}
-              {items.map((t) => (
-                <tr key={t.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{t.fecha}</td>
-                  <td className="px-4 py-3 font-medium" style={{ color: 'var(--flit-text-primary)' }}>{t.titulo}</td>
-                  <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{Number(t.horas)} h</td>
-                  <td className="px-4 py-3 capitalize" style={{ color: 'var(--flit-text-secondary)' }}>{t.modalidad}</td>
-                  <td className="px-4 py-3" style={{ color: 'var(--flit-text-secondary)' }}>{t.instructor || '—'}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                    <span className="font-bold tabular-nums" style={{ color: 'var(--flit-success)' }}>{t.asistio_count}</span> / {t.asistentes_count} registrados
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        ariaLabel="Capacitaciones de seguridad vial"
+        columnas={COLUMNAS}
+        filas={items}
+        getKey={(t) => String(t.id)}
+        emptyMessage="Sin capacitaciones"
+      />
 
       {showCreate && <CreateTrainingModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
     </div>
   );
-}
-
-function Th({ children }: { children?: ReactNode }) {
-  return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="block"><span className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{label}</span>{children}</label>;
 }
 
 function CreateTrainingModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
@@ -104,26 +98,26 @@ function CreateTrainingModal({ onClose, onSaved }: { onClose: () => void; onSave
   };
 
   return (
-    <FlitModal title="Nueva capacitación" onClose={onClose}>
+    <FlitModal title="Nueva capacitación" onClose={onClose} icono="mas">
       <form onSubmit={submit} className="space-y-3">
-        <Field label="Título *"><input value={titulo} onChange={(e) => setTitulo(e.target.value)} maxLength={150} className={inputCls} /></Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Horas *"><input type="number" min="0.5" step="0.5" value={horas} onChange={(e) => setHoras(e.target.value)} className={inputCls} /></Field>
-          <Field label="Fecha *"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={inputCls} /></Field>
+        <FlitField label="Título *"><input value={titulo} onChange={(e) => setTitulo(e.target.value)} maxLength={150} className={flitInp} /></FlitField>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <FlitField label="Horas *"><input type="number" min="0.5" step="0.5" value={horas} onChange={(e) => setHoras(e.target.value)} className={flitInp} /></FlitField>
+          <FlitField label="Fecha *"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={flitInp} /></FlitField>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Instructor"><input value={instructor} onChange={(e) => setInstructor(e.target.value)} maxLength={120} className={inputCls} /></Field>
-          <Field label="Modalidad">
-            <select value={modalidad} onChange={(e) => setModalidad(e.target.value as 'presencial' | 'virtual' | 'mixta')} className={inputCls}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <FlitField label="Instructor"><input value={instructor} onChange={(e) => setInstructor(e.target.value)} maxLength={120} className={flitInp} /></FlitField>
+          <FlitField label="Modalidad">
+            <select value={modalidad} onChange={(e) => setModalidad(e.target.value as 'presencial' | 'virtual' | 'mixta')} className={flitInp}>
               <option value="presencial">Presencial</option>
               <option value="virtual">Virtual</option>
               <option value="mixta">Mixta</option>
             </select>
-          </Field>
+          </FlitField>
         </div>
-        <Field label="Descripción"><textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} maxLength={2000} rows={3} className={inputCls} /></Field>
-        <div className="mt-2 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+        <FlitField label="Descripción"><textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} maxLength={2000} rows={3} className={flitInp} /></FlitField>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] pt-4">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
           <GradientButton type="submit" disabled={submitting}>{submitting ? 'Guardando…' : 'Crear'}</GradientButton>
         </div>
       </form>
