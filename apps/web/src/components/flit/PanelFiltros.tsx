@@ -35,7 +35,7 @@ export default function PanelFiltros({
           <input className="control" type="search" placeholder={placeholder} aria-label={placeholder} value={busqueda} onChange={(e) => onBusqueda(e.target.value)} />
         </div>
         {campos && (
-          <button className="btn secondary filtros__boton" type="button" aria-expanded={abierto} aria-controls={idPanel} onClick={() => setAbierto((v) => !v)}>
+          <button className="btn secondary filtros__boton" type="button" aria-expanded={abierto} aria-controls={abierto ? idPanel : undefined} onClick={() => setAbierto((v) => !v)}>
             <Icono nombre="filtro" size={20} />
             <span className="filtros__texto">Filtros</span>
             {aplicados.length > 0 && <span className="filtros__cuenta" aria-label={`${aplicados.length} activos`}>{aplicados.length}</span>}

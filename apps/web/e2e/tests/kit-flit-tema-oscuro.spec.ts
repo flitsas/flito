@@ -31,11 +31,13 @@ const LUMA_MAX_OSCURO = 0.35;
 /** Superficie FLIT clara o lienzo de documento: el par light y el PDF rasterizado viven aquí. */
 const LUMA_MIN_CLARO = 0.7;
 
+// Par claro del UI Kit 2026 (Épica #14560; tokens.css puentea --flit-* a las variables del kit): fondo #E6F0FF
+// para app y modal, tinta #162744 y cabecera de tabla #A9C9FC («línea» del kit).
 const CLARO = {
-  bgApp: '#eaf2ff',
-  bgModal: '#eef5ff',
+  bgApp: '#e6f0ff',
+  bgModal: '#e6f0ff',
   textPrimary: '#162744',
-  bgTableHeader: '#f4f6fa',
+  bgTableHeader: '#a9c9fc',
 } as const;
 
 const TABLERO_VACIO = {
@@ -304,7 +306,7 @@ test.describe('Kit FLIT · tema oscuro completo (HU #11899)', () => {
     await expect(page.getByRole('button', { name: /Cambiar a tema/i })).toHaveCount(0);
   });
 
-  test('TC-06 AC6 · drawer sigue el gradiente de marca; overlay de captura y lienzo PDF no adoptan el par oscuro de app', async ({ page }) => {
+  test('TC-06 AC6 · el gradiente de marca no se apaga en oscuro; overlay de captura y lienzo PDF no adoptan el par oscuro de app', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockSoat(page);
     await fijarTema(page, 'dark');
@@ -312,26 +314,20 @@ test.describe('Kit FLIT · tema oscuro completo (HU #11899)', () => {
     await page.goto('/flito/soat');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
+    // Kit 2026: el drawer (FlitSidebar) se retiró y en teléfono navega el dock. Lo que se conserva del AC6 es que
+    // el gradiente de marca (`--flit-gradient-sidebar` → `--gradient-brand`) sigue siendo gradiente en oscuro,
+    // no un sólido del par oscuro de la app.
     const gradienteDark = await tokenTexto(page, '--flit-gradient-sidebar');
-    expect(gradienteDark, 'el drawer es isla de marca: el token no se apaga a un sólido oscuro').toMatch(/flit-cyan-ink|1e7b75/i);
-    expect(gradienteDark).toMatch(/flit-blue-ink|4264b7/i);
-
-    await page.getByRole('button', { name: 'Abrir menú de navegación' }).click();
-    const drawer = page.getByRole('dialog', { name: 'Menú de navegación' });
-    await expect(drawer).toBeVisible();
-    // Primer `div` hijo: el panel con `background: var(--flit-gradient-sidebar)` (FlitSidebar).
-    const panel = drawer.locator(':scope > div').first();
-    const bgImage = await panel.evaluate((el) => getComputedStyle(el).backgroundImage);
-    expect(bgImage, 'FlitSidebar debe pintar --flit-gradient-sidebar, no el par --flit-bg-app').toMatch(/linear-gradient/i);
-    expect(bgImage.toLowerCase()).not.toContain(CLARO.bgApp);
+    expect(gradienteDark, 'isla de marca: el token no se apaga a un sólido oscuro').toMatch(/linear-gradient/i);
+    expect(gradienteDark.toLowerCase()).not.toContain(CLARO.bgApp);
+    await expect(page.getByRole('button', { name: 'Abrir menú de navegación' })).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeVisible();
 
     const overlayBg = await tokenTexto(page, '--color-capture-overlay-bg');
     const overlayFg = await tokenTexto(page, '--color-capture-on-dark');
     expect(overlayBg.replace(/\s+/g, '')).toMatch(/rgba?\(0,\s*0,\s*0,\s*0\.92\)/);
     expect(overlayFg.length, '--color-capture-on-dark no debe vaciarse en dark').toBeGreaterThan(0);
 
-    await page.keyboard.press('Escape');
-    await expect(drawer).toHaveCount(0);
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.route(/\/api\/flito\/derechos\/facetas/, (route) => route.fulfill({
@@ -385,7 +381,7 @@ test.describe('Kit FLIT · tema oscuro completo (HU #11899)', () => {
     const puntos: Array<[string, Locator]> = [
       ['título de página', page.getByRole('heading', { name: 'SOAT', exact: true })],
       ['subtítulo de la tarjeta de cabecera', page.getByText('Cola de adquisición del SOAT', { exact: false })],
-      ['trigger ⌘K de la topbar', topbar(page).getByRole('button', { name: /Buscar o ir a sección/ })],
+      ['trigger ⌘K de la topbar', topbar(page).getByRole('button', { name: /^Buscar placa, trámite o módulo/ })],
       ['cabecera de tabla', tabla(page).locator('th').filter({ hasText: /\S/ }).first()],
       ['celda de tabla', tabla(page).getByRole('cell').filter({ hasText: 'TST099' }).first()],
     ];
@@ -421,17 +417,19 @@ test.describe('Kit FLIT · tema oscuro completo (HU #11899)', () => {
       await irASoatConTema(page, tema);
       const buscador = page.getByPlaceholder('Buscar placa, VIN, comprador…');
       await expect(buscador).toBeVisible();
-      const tarjeta = page.locator('div.bg-flit-card').filter({ has: buscador }).first();
-      const { color: superficie } = await fondoPintado(page, tarjeta);
       const caja = await buscador.boundingBox();
       if (!caja) throw new Error(`tema ${tema}: el buscador no tiene caja.`);
 
-      // `box-shadow: 0 0 0 3px` sin desenfoque ⇒ los 3 px pegados al borde izquierdo son anillo
-      // puro. A media altura el radio de esquina no llega, así que el píxel es plano.
+      // A media altura el radio de esquina no llega, así que el píxel es plano.
       const y = caja.y + caja.height / 2 - 4;
-      const franjaAnillo = { x: caja.x - 3, y, width: 3, height: 8 };
+      // Kit 2026: el foco del `.control` es `outline: 2px solid` con `outline-offset: 2px` ⇒ el anillo ocupa
+      // los píxeles [x−4, x−2) a la izquierda del input (los 2 px pegados son el hueco del offset).
+      const franjaAnillo = { x: caja.x - 4, y, width: 2, height: 8 };
       const franjaFuera = { x: caja.x - 9, y, width: 3, height: 8 };
 
+      // Kit 2026: el buscador va sobre el lienzo de la página, no en una tarjeta; la superficie es lo que hay
+      // pintado junto a él antes de enfocar.
+      const superficie = await colorDeFranja(page, franjaFuera);
       const sinFoco = await colorDeFranja(page, franjaAnillo);
       await buscador.click();
       await expect(buscador).toBeFocused();

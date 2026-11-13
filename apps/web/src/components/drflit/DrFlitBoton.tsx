@@ -25,7 +25,7 @@ const DrFlitBoton = forwardRef<HTMLButtonElement, DrFlitBotonProps>(function DrF
       aria-label="Abrir Dr. Flit"
       title={abierto ? 'Cerrar Dr. Flit' : 'Abrir Dr. Flit'}
       aria-expanded={abierto}
-      aria-controls={panelId}
+      aria-controls={abierto ? panelId : undefined}
       onClick={onAlternar}
       className={[
         // Sobre el dock inferior del kit: nunca por debajo de su alto reservado, aunque una página fije

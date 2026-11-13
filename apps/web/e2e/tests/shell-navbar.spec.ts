@@ -1,8 +1,15 @@
-// Shell sin sidebar — FlitNavBar, dock flotante al pie (HU #11143).
-// Cubre: dónde vive el dock, apertura de módulos hacia arriba y dentro del
-// viewport, subgrupos de los módulos grandes, condensado por scroll, contrato
-// de teclado (disclosure APG + Escape que devuelve el foco), filtrado por
-// permisos y drawer mobile como única navegación en <lg.
+// Shell sin sidebar — FlitNavBar, dock flotante al pie (HU #11143), revestido con el UI Kit 2026 (Épica #14560).
+// Cubre: dónde vive el dock, apertura de grupos hacia arriba y dentro del viewport, subgrupos de los grupos
+// grandes, una sola fila y nombres por ancho, contrato de teclado (disclosure APG + Escape que devuelve el foco),
+// filtrado por permisos, e «Inicio» (el Tablero) como isotipo central solo con permiso.
+//
+// Cambios de diseño del kit 2026 que este spec recoge (docs/ux/rediseno-2026, dockGrupos.ts):
+//   · reparto 3 + 3 por grupos de trabajo (Trámites · Impuestos y SOAT · Logística | Flota · Finanzas ·
+//     Cumplimiento) en lugar de las 10 secciones del catálogo; «Tablero» pasa a ser el isotipo «Inicio» del centro;
+//   · Administración y Ayuda salen del dock y viven en el menú de usuario del topbar;
+//   · el condensado es del CSS del kit: >1100 px con nombres, ≤1100 px solo íconos (nombre en el DOM). No hay
+//     condensado por scroll ni medición por JS, y no hay `title` en las píldoras;
+//   · el dock cubre también tableta y teléfono: ya no hay hamburguesa ni drawer en <lg.
 import { test, expect } from '../helpers/fixtures';
 import {
   loginAs, ADMIN_USER, PROVEEDOR_USER, OPERACIONES_USER, GESTOR_IMPUESTOS_USER, CONDUCTOR_USER,
@@ -34,110 +41,126 @@ async function alargarPagina(page: import('@playwright/test').Page) {
   await page.evaluate(() => {
     const relleno = document.createElement('div');
     relleno.style.height = '2400px';
-    document.querySelector('main')?.appendChild(relleno);
+    // Al principio de <main>: el pie legal del kit 2026 vive al final de <main> y tiene que seguir siendo lo último.
+    document.querySelector('main')?.prepend(relleno);
   });
 }
 
 const dockLocator = (page: import('@playwright/test').Page) =>
   page.getByRole('navigation', { name: 'Navegación principal' });
 
+const GRUPOS_ADMIN = ['Trámites', 'Impuestos y SOAT', 'Logística', 'Flota', 'Finanzas', 'Cumplimiento'];
+
 test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('admin ve los 10 módulos y «Ayuda», Finanzas incluida; el panel de PESV abre, navega y cierra', async ({ page }) => {
+  test('admin ve los 6 grupos e «Inicio»; Administración y Ayuda en el menú de usuario; Cumplimiento abre, navega y cierra', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await mockApi(page);
     await page.goto('/');
 
     const nav = dockLocator(page);
     await expect(nav).toBeVisible();
-    // Módulos de 1 ítem → link directo; el resto → trigger de disclosure.
-    //
-    // HU #11900, AC8 — este bloque decía «los 9 módulos» y no nombraba Finanzas, mientras
-    // `navItems.ts` declara diez secciones desde el PR #130. Y el desfase era doble: «Tablero»
-    // figuraba como link de primer nivel, y dejó de serlo cuando «Ayuda FLITO» entró en la misma
-    // sección —dos ítems hacen de «General» un disclosure— así que el link con ese nombre pasó a
-    // vivir DENTRO del panel. Las dos cosas son deuda anterior a esta HU: el spec afirmaba un
-    // menú que ya no existía y por eso no habría visto ninguna de las dos.
-    //
-    // Se afirma también la CUENTA. Sin ella, añadir una sección undécima —o perder una— dejaría
-    // este test en verde: comprobar diez nombres no es comprobar que son diez.
-    // HU #13431: los rótulos salen del catálogo (`ARBOL_PERMISOS`): «LAFT», no «Cumplimiento» (P-13).
-    // «Ayuda» es su propio elemento, el último, y con un solo ítem se pinta como enlace directo; así
-    // «General» se queda solo con «Tablero» y vuelve a ser enlace de primer nivel.
-    await expect(nav.getByRole('button')).toHaveCount(8);
-    await expect(nav.getByRole('link')).toHaveCount(3);
-    await expect(nav.getByRole('link', { name: 'Flota', exact: true })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Tablero', exact: true })).toBeVisible();
-    await expect(nav.getByRole('link').last()).toHaveAccessibleName('Ayuda');
-    for (const label of ['Gestión', 'Tránsito', 'Mantenimiento', 'PESV', 'RNDC',
-      'LAFT', 'Finanzas', 'Administración']) {
+    // Se afirma la CUENTA además de los nombres: perder o sumar un grupo no puede dejar esto en verde.
+    await expect(nav.getByRole('button')).toHaveCount(6);
+    await expect(nav.getByRole('link')).toHaveCount(1);
+    await expect(nav.getByRole('link', { name: 'Inicio', exact: true })).toBeVisible();
+    for (const label of GRUPOS_ADMIN) {
       await expect(nav.getByRole('button', { name: label, exact: true })).toBeVisible();
     }
-    await expect(nav.getByRole('button', { name: 'Cumplimiento', exact: true })).toHaveCount(0);
-    await page.keyboard.press('Escape');
+    // Fuera del dock por diseño, pero no perdidos: viven en el menú de usuario.
+    await expect(nav.getByRole('button', { name: 'Administración', exact: true })).toHaveCount(0);
+    await expect(nav.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: /^Menú de usuario/ }).click();
+    const menuUsuario = page.getByRole('menu', { name: 'Opciones de usuario' });
+    for (const item of [/^Usuarios/, /^Roles y permisos/, /^Ayuda/]) {
+      await expect(menuUsuario.getByRole('menuitem', { name: item })).toBeVisible();
+    }
+    await page.getByRole('button', { name: /^Menú de usuario/ }).click();
+    await expect(menuUsuario).toHaveCount(0);
 
-    const pesvTrigger = nav.getByRole('button', { name: 'PESV', exact: true });
-    await pesvTrigger.click();
-    await expect(pesvTrigger).toHaveAttribute('aria-expanded', 'true');
+    const trigger = nav.getByRole('button', { name: 'Cumplimiento', exact: true });
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('link', { name: 'Alcoholimetría' })).toBeVisible();
 
     // Esc cierra y devuelve el foco al trigger.
     await page.keyboard.press('Escape');
-    await expect(pesvTrigger).toHaveAttribute('aria-expanded', 'false');
-    await expect(pesvTrigger).toBeFocused();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(trigger).toBeFocused();
 
-    // Navegar desde el panel lo cierra y marca el módulo activo.
-    await pesvTrigger.click();
-    await page.getByRole('link', { name: 'Conductores', exact: true }).click();
-    await expect(page).toHaveURL(/\/pesv\/conductores/);
-    await expect(pesvTrigger).toHaveAttribute('aria-expanded', 'false');
+    // Navegar desde el panel lo cierra y marca el grupo activo.
+    await trigger.click();
+    await page.getByRole('link', { name: 'Alcoholimetría', exact: true }).click();
+    await expect(page).toHaveURL(/\/pesv\//);
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(trigger).toHaveAttribute('aria-current', 'page');
   });
 
-  test('los módulos grandes se abren repartidos en subgrupos', async ({ page }) => {
+  test('aria-controls solo apunta a un panel que existe (axe aria-valid-attr-value)', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockApi(page);
+    await page.goto('/');
+    await dockLocator(page).waitFor();
+
+    const colgantes = () => page.evaluate(() => [...document.querySelectorAll('[aria-controls]')]
+      .filter((el) => !document.getElementById(el.getAttribute('aria-controls')!))
+      .map((el) => el.getAttribute('aria-controls')));
+    expect(await colgantes()).toEqual([]);
+    const trigger = dockLocator(page).getByRole('button', { name: 'Flota', exact: true });
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-controls', 'flit-navbar-panel-flota');
+    expect(await colgantes()).toEqual([]);
+  });
+
+  test('los grupos grandes se abren repartidos en subgrupos', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await mockApi(page);
     await page.goto('/');
 
-    // Se busca el <p> del título y no el texto a secas: hay subgrupos que se
-    // llaman igual que un ítem del propio panel (Logística es las dos cosas).
+    // Se busca el <p> del título y no el texto a secas: hay subgrupos que se llaman igual que un ítem (RNDC).
     const titulo = (panel: string, grupo: string) =>
       page.locator(`#${panel} p`).filter({ hasText: new RegExp(`^${grupo}$`) });
 
     const nav = dockLocator(page);
-    await nav.getByRole('button', { name: 'PESV', exact: true }).click();
-    for (const grupo of ['Dirección', 'Operación', 'Personas', 'Cumplimiento']) {
-      await expect(titulo('flit-navbar-panel-pesv', grupo)).toBeVisible();
+    await nav.getByRole('button', { name: 'Cumplimiento', exact: true }).click();
+    for (const grupo of ['PESV', 'LAFT', 'RNDC', 'Privacidad']) {
+      await expect(titulo('flit-navbar-panel-cumplimiento', grupo)).toBeVisible();
     }
 
-    await nav.getByRole('button', { name: 'Gestión', exact: true }).click();
-    for (const grupo of ['Trámites', 'Logística', 'Maestros']) {
-      await expect(titulo('flit-navbar-panel-gestion', grupo)).toBeVisible();
+    await nav.getByRole('button', { name: 'Flota', exact: true }).click();
+    for (const grupo of ['Activos', 'Taller']) {
+      await expect(titulo('flit-navbar-panel-flota', grupo)).toBeVisible();
+    }
+
+    await nav.getByRole('button', { name: 'Impuestos y SOAT', exact: true }).click();
+    for (const grupo of ['Obligaciones', 'Validación']) {
+      await expect(titulo('flit-navbar-panel-impuestos-soat', grupo)).toBeVisible();
     }
   });
 
-  test('proveedor solo ve Gestión (vehicles + soat) — role-gating', async ({ page }) => {
+  test('proveedor solo ve lo suyo (SOAT) — role-gating', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
     await mockApi(page);
     await page.goto('/vehicles');
 
     const nav = dockLocator(page);
-    await expect(nav.getByRole('button', { name: 'Gestión' })).toBeVisible();
-    await expect(nav.getByRole('button', { name: 'PESV' })).toHaveCount(0);
-    await expect(nav.getByRole('button', { name: 'Administración' })).toHaveCount(0);
-
-    await nav.getByRole('button', { name: 'Gestión' }).click();
-    await expect(page.getByRole('link', { name: 'Vehículos' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'SOAT' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Trámite Digital' })).toHaveCount(0);
+    // Un grupo de un solo módulo es enlace directo.
+    await expect(nav.getByRole('link', { name: 'SOAT', exact: true })).toBeVisible();
+    await expect(nav.getByRole('button')).toHaveCount(0);
+    // Sin permiso de `/`, sin «Inicio» (HU #13452: el menú no ofrece lo que el guard cierra).
+    await expect(nav.getByRole('link', { name: 'Inicio', exact: true })).toHaveCount(0);
+    await expect(nav.getByRole('link', { name: 'Trámite Digital' })).toHaveCount(0);
+    await page.getByRole('button', { name: /^Menú de usuario/ }).click();
+    await expect(page.getByRole('menuitem', { name: /^Usuarios/ })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: /^Roles y permisos/ })).toHaveCount(0);
   });
 });
 
-// El dock no ocupa sitio bajo el topbar: los offsets sticky de las páginas
-// internas suman --flit-navbar-height al alto del topbar, así que ahora el
-// token tiene que valer cero. Y desde el pie, el panel solo puede abrir hacia
-// arriba — 1024px es el ancho donde el dock va más justo, y PESV con sus cuatro
-// columnas es el panel que destapa los desbordes.
+// El dock no ocupa sitio bajo el topbar: los offsets sticky de las páginas internas suman --flit-navbar-height
+// al alto del topbar, así que el token tiene que valer cero. Y desde el pie, el panel solo puede abrir hacia
+// arriba — 1024 px es el ancho donde el dock va más justo, y Cumplimiento con sus cuatro columnas es el panel
+// que destapa los desbordes.
 for (const width of [1024, 1440]) {
   test(`${width}px · el dock vive al pie, no reserva alto arriba y abre hacia arriba`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -155,11 +178,10 @@ for (const width of [1024, 1440]) {
     const dock = (await nav.boundingBox())!;
     expect(dock.y).toBeGreaterThan(900 / 2);
 
-    await nav.getByRole('button', { name: 'PESV', exact: true }).click();
-    // Se espera a que acabe la animación de entrada: mide 6px de translateY y
-    // falsearía el rect.
+    await nav.getByRole('button', { name: 'Cumplimiento', exact: true }).click();
+    // Se espera a que acabe la animación de entrada: falsearía el rect.
     await page.waitForTimeout(300);
-    const panel = (await page.locator('#flit-navbar-panel-pesv').boundingBox())!;
+    const panel = (await page.locator('#flit-navbar-panel-cumplimiento').boundingBox())!;
     expect(panel.y + panel.height).toBeLessThanOrEqual(dock.y + 1);
     expect(panel.y).toBeGreaterThanOrEqual(0);
     expect(panel.x).toBeGreaterThanOrEqual(0);
@@ -167,7 +189,9 @@ for (const width of [1024, 1440]) {
   });
 }
 
-test('el dock se condensa al bajar, no oscila y se reexpande arriba', async ({ page }) => {
+test('el dock no cambia de alto al bajar ni al volver arriba (sin oscilación)', async ({ page }) => {
+  // El kit 2026 retiró el condensado por scroll: lo que se conserva de la intención original es que el
+  // dock no oscile con el scroll (el rebote de layout no puede moverlo).
   await page.setViewportSize({ width: 1440, height: 900 });
   await loginAs(page, ADMIN_USER);
   await mockApi(page);
@@ -182,42 +206,30 @@ test('el dock se condensa al bajar, no oscila y se reexpande arriba', async ({ p
     return el ? Math.round(el.getBoundingClientRect().height) : -1;
   });
 
-  const expandido = await alto();
-
+  const inicial = await alto();
   await page.mouse.wheel(0, 600);
-  await expect.poll(alto).toBeLessThan(expandido);
-
-  // No oscila: el rebote de scroll que provoca el propio cambio de layout no
-  // puede devolverlo a expandido.
   await page.waitForTimeout(700);
-  expect(await alto()).toBeLessThan(expandido);
-
+  expect(await alto()).toBe(inicial);
   await page.mouse.wheel(0, -900);
-  await expect.poll(alto).toBe(expandido);
+  await page.waitForTimeout(300);
+  expect(await alto()).toBe(inicial);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
-// HU #11900 · el dock se condensa por ANCHO, y eso se MIDE (AC1, AC2, AC2b, AC3)
+// HU #11900 · el dock es UNA fila y enseña los nombres según el ancho (AC1, AC2, AC2b, AC3)
 //
-// La cápsula lleva `flex-wrap`, así que «no wrappea» NO es observable a ojo: cuando no cabe, el
-// dock no desborda ni recorta — se parte en dos filas y sigue pareciendo un dock. El AC2b fija por
-// eso una medida y prohíbe inventar otra:
+// La cápsula puede partirse en dos filas sin desbordar, así que «no wrappea» NO es observable a ojo. Medida:
 //
-//   · todas las píldoras con la MISMA coordenada `y` (±1 px), y
-//   · el alto del dock es el de UNA fila: no supera el alto de una píldora más el relleno de la
-//     cápsula.
-//
-// Se afirman las dos porque el AC las exige literalmente, NO porque cubran dos fallos distintos:
-// son el mismo evento medido dos veces. Ver el comentario del bloque de 1280/1100, que lo explica
-// con la medición que lo comprobó.
+//   · todas las píldoras con el mismo CENTRO vertical (±1 px) — el isotipo central es más alto que las
+//     píldoras, así que la `y` de la caja no sirve —, y
+//   · el alto del dock es el de UNA fila: no supera el alto de la píldora más alta más el relleno de la cápsula.
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 
 /**
- * Todo lo que el AC2b manda medir, en una sola lectura del DOM.
- *
- * `nombresVisibles` no se resuelve con `toBeVisible()` sobre un rótulo: el nombre del módulo NO
- * desaparece del DOM al condensar —pasa a `sr-only`, que es lo que exige el AC2— así que la
- * pregunta es si OCUPA ancho en pantalla, no si existe.
+ * Todo lo que el AC2b manda medir, en una sola lectura del DOM. `nombresVisibles` no se resuelve con
+ * `toBeVisible()`: el nombre del grupo NO desaparece del DOM al condensar —pasa a oculto visualmente, que es lo
+ * que exige el AC2—, así que la pregunta es si OCUPA ancho en pantalla, no si existe. El isotipo «Inicio» no
+ * lleva rótulo (su nombre es el `aria-label`) y no cuenta como nombre.
  */
 async function medirDock(page: import('@playwright/test').Page) {
   return page.evaluate(() => {
@@ -226,6 +238,7 @@ async function medirDock(page: import('@playwright/test').Page) {
     const pildoras = Array.from(nav.children).map((k) => (
       (k.tagName === 'A' ? k : k.querySelector('button, a')) as HTMLElement
     ));
+    const conRotulo = pildoras.filter((p) => !p.classList.contains('dock__fab'));
     const cajas = pildoras.map((p) => p.getBoundingClientRect());
     return {
       pildoras: pildoras.length,
@@ -235,14 +248,14 @@ async function medirDock(page: import('@playwright/test').Page) {
         + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)
         + (nav.offsetHeight - nav.clientHeight),
       ),
-      ysDistintas: Array.from(new Set(cajas.map((c) => Math.round(c.y)))).length,
-      nombresVisibles: pildoras.filter((p) => {
-        const rotulo = p.querySelector('span:not(.sr-only)');
-        return rotulo instanceof HTMLElement && rotulo.offsetWidth > 0;
+      centrosDistintos: Array.from(new Set(cajas.map((c) => Math.round((c.y + c.height / 2) / 2)))).length,
+      dentro: cajas.every((c) => c.left >= 0 && c.right <= innerWidth),
+      nombresVisibles: conRotulo.filter((p) => {
+        const rotulo = p.querySelector(':scope > span:not(.kico)');
+        return rotulo instanceof HTMLElement && rotulo.offsetWidth > 1;
       }).length,
       // El nombre sigue en el DOM aunque no se vea: es el nombre accesible del trigger.
-      nombresEnElDom: pildoras.filter((p) => (p.textContent ?? '').trim().length > 0).length,
-      conTooltip: pildoras.filter((p) => (p.getAttribute('title') ?? '').length > 0).length,
+      nombresEnElDom: conRotulo.filter((p) => (p.textContent ?? '').trim().length > 0).length,
     };
   });
 }
@@ -253,22 +266,19 @@ test('1440 px · el dock del admin es UNA fila y con los nombres a la vista (AC1
   await mockApi(page);
   await page.goto('/');
   await dockLocator(page).waitFor();
-  // Con la página larga aparece la barra de desplazamiento y el hueco disponible encoge ~15 px:
-  // es el caso REAL de la pantalla del operador y el que menos margen deja al «cabe a 1440».
+  // Con la página larga aparece la barra de desplazamiento y el hueco disponible encoge ~15 px.
   await alargarPagina(page);
 
   const m = await medirDock(page);
-  expect(m.pildoras).toBe(11);
-  expect(m.ysDistintas).toBe(1);
+  expect(m.pildoras).toBe(7);
+  expect(m.centrosDistintos).toBe(1);
   expect(m.alto).toBeLessThanOrEqual(m.altoDeUnaFila);
-  // Los once nombres (HU #13431: «Ayuda» es elemento propio) a la vista: a 1440 el condensado por ancho NO debe entrar.
-  expect(m.nombresVisibles).toBe(11);
-  // Y sin tooltip: repetir en un `title` el texto que está al lado es ruido.
-  expect(m.conTooltip).toBe(0);
+  expect(m.dentro).toBe(true);
+  expect(m.nombresVisibles).toBe(6);
 });
 
-for (const width of [1280, 1100]) {
-  test(`${width} px · una fila de ICONOS, sin wrap y con el nombre en el DOM (AC2, AC2b)`, async ({ page }) => {
+for (const [width, nombres] of [[1280, 6], [1100, 0]] as const) {
+  test(`${width} px · una fila, sin wrap y con el nombre en el DOM (AC2, AC2b)`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await loginAs(page, ADMIN_USER);
     await mockApi(page);
@@ -276,62 +286,23 @@ for (const width of [1280, 1100]) {
     await dockLocator(page).waitFor();
 
     const m = await medirDock(page);
-    expect(m.pildoras).toBe(11);
-
-    // La medida del AC2b, por sus dos caras. **Y las dos caras NO son dos salvaguardas
-    // independientes**, que es justo lo que parece y lo que hay que dejar escrito para que nadie
-    // «simplifique» este bloque:
-    //
-    //   · en cualquier estado de UNA fila, `alto === altoDeUnaFila` EXACTAMENTE — el alto del dock
-    //     es el de su píldora más el relleno de la cápsula, por construcción;
-    //   · lo único que sube ese alto es el wrap, y el wrap produce necesariamente una segunda
-    //     coordenada `y`.
-    //
-    // O sea que son el MISMO evento medido dos veces. Se conservan porque el AC2b las exige
-    // literalmente («todas las píldoras comparten la misma `y`» **y** «el alto es el de una
-    // fila»), no porque cubran dos fallos distintos.
-    //
-    // Lo que de verdad NO cubren, medido: con `flex-nowrap` en la cápsula, el dock mide 1381 px en
-    // un hueco de 1068 y se sale ~300 px fuera de la pantalla — y las dos aserciones de abajo lo
-    // dan por BUENO (una sola fila, un solo alto). El caso lo mata `nombresVisibles === 0`, que es
-    // del AC2, no del AC2b. Por eso ese aserto no es decorativo y por eso la cápsula conserva su
-    // `flex-wrap`: sin él, un condensado roto se pinta como desbordamiento invisible para la
-    // medida en vez de como dos filas.
-    expect(m.ysDistintas).toBe(1);
+    expect(m.pildoras).toBe(7);
+    // Las dos caras de la medida del AC2b (mismo evento medido dos veces; el AC las exige literalmente).
+    expect(m.centrosDistintos).toBe(1);
     expect(m.alto).toBeLessThanOrEqual(m.altoDeUnaFila);
-    // Iconos: ningún rótulo ocupa ancho…
-    expect(m.nombresVisibles).toBe(0);
-    // …pero los once nombres siguen en el árbol y además hay tooltip para quien solo ve el icono.
-    expect(m.nombresEnElDom).toBe(11);
-    expect(m.conTooltip).toBe(11);
-    // El nombre accesible no cambia al condensar: es lo que hace que el `sr-only` sea la fuente
-    // del nombre y el `title` un extra. Si el rótulo se hubiera borrado del DOM, esto no pasaría.
+    // Sin desbordar la pantalla: un `nowrap` roto pasaría las dos de arriba y moriría aquí.
+    expect(m.dentro).toBe(true);
+    // Dock 3 + 3 con nombre en todo el rango >1100 px (ronda 2); ≤1100 solo íconos.
+    expect(m.nombresVisibles).toBe(nombres);
+    // Los seis nombres siguen en el árbol: el nombre accesible no cambia al condensar.
+    expect(m.nombresEnElDom).toBe(6);
     await expect(dockLocator(page).getByRole('button', { name: 'Finanzas', exact: true })).toBeVisible();
   });
 }
 
 test('1100 px · el panel abierto NO deshace el condensado por ancho (enmienda §3 de la spec)', async ({ page }) => {
-  // La spec §3 decía «un panel abierto fuerza expansión (ya existe)» sin distinguir de qué
-  // condensado hablaba, y leída literal choca con «una fila SIEMPRE» del párrafo anterior. La
-  // enmienda del 26 ago 2026 en docs/ux/shell-tema-y-responsive.md separa los dos casos: el panel
-  // deshace el condensado por SCROLL —para el que se escribió— y NUNCA el de ancho.
-  //
-  // Este TC existe porque sin él nada sujeta esa distinción: la próxima HU que lea el párrafo
-  // original «restauraría» la expansión y la suite entera seguiría verde. Lo que pasaría de verdad
-  // está medido: a 1100 px la fila expandida necesita 1381 px en un hueco de 1068, o sea
-  // `ysDistintas: 2` y 104 px de alto — el dock partido en dos CON un panel abierto encima.
-  //
-  // Qué mata este TC y qué NO, comprobado con dos mutantes en vez de suponerlo:
-  //   · `condensed = openSection ? false : (…)` —la lectura literal del párrafo original, y la
-  //     forma en que cualquiera lo implementaría— muere aquí: `ysDistintas` 1 → 2.
-  //   · añadir `setCondensadoPorAncho(false)` al efecto que abre el panel TAMBIÉN muere aquí
-  //     (`ysDistintas` 1 → 2). Una versión anterior de este comentario lo declaraba «mutante
-  //     equivalente» y explicaba que `medir()` recondensaría antes de pintar: era FALSO, y era un
-  //     modelo equivocado del código. `medir()` cierra sus dos puertas sobre
-  //     `anchoRef.current.condensado`, que ese mutante no toca: calcula `siguiente = true`, lo
-  //     compara con un `ref` que sigue en `true`, y NO llama al setter. El estado queda
-  //     desincronizado del ref y el dock se parte en dos filas. Este TC es más fuerte de lo que
-  //     aquel comentario anunciaba: mata los dos mutantes, no uno.
+  // El panel abierto no puede «restaurar» los nombres de las píldoras a 1100: partiría el dock en dos filas con
+  // el panel encima. La compensación: el panel sí enseña los nombres de sus ítems.
   await page.setViewportSize({ width: 1100, height: 900 });
   await loginAs(page, ADMIN_USER);
   await mockApi(page);
@@ -342,36 +313,25 @@ test('1100 px · el panel abierto NO deshace el condensado por ancho (enmienda �
   expect(condensado.nombresVisibles).toBe(0);
   const altoEnIconos = condensado.alto;
 
-  const pesv = dockLocator(page).getByRole('button', { name: 'PESV', exact: true });
-  await pesv.click();
-  await expect(pesv).toHaveAttribute('aria-expanded', 'true');
-  // La animación de la píldora mide 200 ms: sin esperar, un alto intermedio no probaría nada.
+  const trigger = dockLocator(page).getByRole('button', { name: 'Cumplimiento', exact: true });
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
   await page.waitForTimeout(400);
 
   const conPanel = await medirDock(page);
-  expect(conPanel.ysDistintas, 'el dock sigue en UNA fila con el panel abierto').toBe(1);
+  expect(conPanel.centrosDistintos, 'el dock sigue en UNA fila con el panel abierto').toBe(1);
   expect(conPanel.alto, 'el dock no crece al abrir el panel').toBe(altoEnIconos);
   expect(conPanel.nombresVisibles, 'las píldoras siguen en iconos').toBe(0);
-
-  // Y la compensación que hace aceptable lo anterior: el panel abierto SÍ enseña los nombres de
-  // sus ítems, que es lo que el usuario está mirando. No se pierde ningún rótulo, cambia dónde.
   await expect(page.getByRole('link', { name: 'Alcoholimetría' })).toBeVisible();
 
-  // La otra mitad de la enmienda, la que no se toca: el panel SIGUE deshaciendo el condensado por
-  // SCROLL. A 1920 px hay sitio de sobra, así que ahí el único condensado posible es el del scroll
-  // y abrir un módulo tiene que devolver los nombres.
+  // Con sitio de sobra, abrir un grupo no quita los nombres.
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1920, height: 900 });
-  await alargarPagina(page);
-  await page.mouse.wheel(0, 600);
-  await expect.poll(async () => (await medirDock(page)).nombresVisibles).toBe(0);
-
-  await dockLocator(page).getByRole('button', { name: 'PESV', exact: true }).click();
-  await expect.poll(async () => (await medirDock(page)).nombresVisibles,
-    { message: 'con sitio de sobra, el panel abierto sí reexpande' }).toBe(11);
+  await trigger.click();
+  await expect.poll(async () => (await medirDock(page)).nombresVisibles).toBe(6);
 });
 
-test('1920 px con scroll abajo · el condensado por scroll NO se pierde: se SUMA al de ancho', async ({ page }) => {
+test('1920 px con scroll abajo · el dock sigue en una fila y con nombres', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 900 });
   await loginAs(page, ADMIN_USER);
   await mockApi(page);
@@ -379,53 +339,50 @@ test('1920 px con scroll abajo · el condensado por scroll NO se pierde: se SUMA
   await dockLocator(page).waitFor();
   await alargarPagina(page);
 
-  // A 1920 sobra sitio: arriba de página el dock enseña los nombres.
-  expect((await medirDock(page)).nombresVisibles).toBe(11);
-
+  expect((await medirDock(page)).nombresVisibles).toBe(6);
   await page.mouse.wheel(0, 600);
-  await expect.poll(async () => (await medirDock(page)).nombresVisibles).toBe(0);
-  // Y sigue siendo una fila, claro.
+  await page.waitForTimeout(400);
   const m = await medirDock(page);
-  expect(m.ysDistintas).toBe(1);
+  expect(m.nombresVisibles).toBe(6);
+  expect(m.centrosDistintos).toBe(1);
   expect(m.alto).toBeLessThanOrEqual(m.altoDeUnaFila);
 });
 
-test('1100 px · un rol con pocos módulos NO se condensa: la cota es el ancho ocupado, no un breakpoint', async ({ page }) => {
-  await page.setViewportSize({ width: 1100, height: 900 });
+test('1280 px · un rol con pocos módulos: una fila, con su nombre y centrado', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
   await loginAs(page, PROVEEDOR_USER);
   await mockApi(page);
   await page.goto('/vehicles');
   await dockLocator(page).waitFor();
 
-  // Este es el test que separa «medir» de «poner un `xl:` de Tailwind»: al proveedor le sobran
-  // 800 px a 1100 y con un breakpoint ciego estaría viendo iconos sin motivo. Un `lg:`/`xl:`
-  // aplicado a todos pasaría los dos tests de arriba y moriría aquí.
   const m = await medirDock(page);
-  expect(m.pildoras).toBeLessThan(11);
+  expect(m.pildoras).toBeLessThan(7);
   expect(m.nombresVisibles).toBe(m.pildoras);
-  expect(m.ysDistintas).toBe(1);
+  expect(m.centrosDistintos).toBe(1);
+  const caja = (await dockLocator(page).boundingBox())!;
+  expect(Math.abs(caja.x + caja.width / 2 - 640)).toBeLessThanOrEqual(20);
 });
 
-test('1023 px · bajo lg no hay dock: hamburguesa y drawer, y ningún rail lateral (AC3)', async ({ page }) => {
+test('1023 px · bajo lg el dock sigue siendo la navegación: sin hamburguesa ni rail lateral (AC3)', async ({ page }) => {
   await page.setViewportSize({ width: 1023, height: 900 });
   await loginAs(page, ADMIN_USER);
   await mockApi(page);
   await page.goto('/');
 
-  // 1023 es el píxel anterior a `lg`: la frontera exacta, no «una pantalla pequeña».
-  await expect(dockLocator(page)).toBeHidden();
-  await page.getByRole('button', { name: 'Abrir menú de navegación' }).click();
-  const drawer = page.getByRole('dialog', { name: 'Menú de navegación' });
-  await expect(drawer).toBeVisible();
-  // Las secciones con NOMBRE visible — el drawer no condensa — y Finanzas entre ellas (AC8).
-  for (const label of ['General', 'Gestión', 'Finanzas', 'Administración', 'Ayuda']) {
-    await expect(drawer.getByText(label, { exact: true }).first()).toBeVisible();
-  }
-  // El rail lateral de escritorio sigue descartado (decisión PO 2026-06-12): cerrado el drawer,
-  // en <lg no queda ninguna navegación permanente en pantalla.
-  await page.keyboard.press('Escape');
-  await expect(drawer).toBeHidden();
-  await expect(dockLocator(page)).toBeHidden();
+  // 1023 es el píxel anterior a `lg`. El kit 2026 retira el drawer: el dock cubre tableta y teléfono.
+  const nav = dockLocator(page);
+  await expect(nav).toBeVisible();
+  const m = await medirDock(page);
+  expect(m.centrosDistintos).toBe(1);
+  expect(m.dentro).toBe(true);
+  expect(m.nombresEnElDom).toBe(6);
+  await expect(page.getByRole('button', { name: 'Abrir menú de navegación' })).toHaveCount(0);
+  // Y los grupos siguen abriendo dentro de la pantalla.
+  await nav.getByRole('button', { name: 'Finanzas', exact: true }).click();
+  await page.waitForTimeout(300);
+  const panel = (await page.locator('#flit-navbar-panel-finanzas').boundingBox())!;
+  expect(panel.x).toBeGreaterThanOrEqual(0);
+  expect(panel.x + panel.width).toBeLessThanOrEqual(1023);
 });
 
 test('al final de la página el dock no tapa el pie legal', async ({ page }) => {
@@ -439,12 +396,13 @@ test('al final de la página el dock no tapa el pie legal', async ({ page }) => 
   await alargarPagina(page);
 
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await page.waitForTimeout(400); // el dock se condensa al bajar
+  await page.waitForTimeout(400);
 
-  // La pregunta no es "¿se ve el pie?" —estaría pintado igual debajo del dock—
-  // sino qué elemento hay REALMENTE en ese punto de la pantalla.
+  // La pregunta no es "¿se ve el pie?" —estaría pintado igual debajo del dock— sino qué elemento hay
+  // REALMENTE en ese punto de la pantalla.
   const pie = await page.evaluate(() => {
-    const el = document.querySelector('footer');
+    // Kit 2026: el pie legal es la nota «ISO 27001 · Decreto 1079/2015» al final de <main> (AppShell).
+    const el = [...document.querySelectorAll('main p')].find((p) => p.textContent?.includes('ISO 27001'));
     if (!el) return { error: 'no hay pie legal' };
     const b = el.getBoundingClientRect();
     const encima = document.elementFromPoint(b.left + 40, b.top + 6);
@@ -453,44 +411,48 @@ test('al final de la página el dock no tapa el pie legal', async ({ page }) => 
   expect(pie).toMatchObject({ visible: true });
 });
 
-test('mobile: navbar oculta, hamburguesa abre el drawer', async ({ page }) => {
+test('mobile: el dock de íconos es la navegación, dentro de la pantalla y sin hamburguesa', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await loginAs(page, ADMIN_USER);
   await mockApi(page);
   await page.goto('/');
 
-  await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeHidden();
-  await page.getByRole('button', { name: 'Abrir menú de navegación' }).click();
-  await expect(page.getByRole('dialog', { name: 'Menú de navegación' })).toBeVisible();
+  const nav = dockLocator(page);
+  await expect(nav).toBeVisible();
+  const m = await medirDock(page);
+  expect(m.dentro).toBe(true);
+  expect(m.nombresVisibles).toBe(0);
+  await expect(page.getByRole('button', { name: 'Abrir menú de navegación' })).toHaveCount(0);
+  await nav.getByRole('button', { name: 'Trámites', exact: true }).click();
+  await expect(page.locator('#flit-navbar-panel-tramites')).toBeVisible();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HU #11151 — SOAT e Impuestos dejan de ser exclusivos de su gestor: Operaciones entra por
-// contingencia (Feature #11150). Ojo con lo que se prueba aquí: el permiso de PÁGINA ya lo tenía
-// admin (`ROLE_DEFAULT_PAGES.admin` es el catálogo entero) y el servidor nunca le aplicó frontera.
-// Lo que faltaba era la ENTRADA DE MENÚ, porque `navItems` filtraba por `roles` y admin no estaba
-// en la lista. Por eso los tests miran la puerta —menú y buscador— y no el contenido de la cola.
-const PANEL_GESTION = '#flit-navbar-panel-gestion';
+// contingencia (Feature #11150). Lo que faltaba era la ENTRADA DE MENÚ, así que los tests miran la
+// puerta —menú y buscador— y no el contenido de la cola. En el kit 2026 viven en «Impuestos y SOAT».
+const PANEL_OBLIGACIONES = '#flit-navbar-panel-impuestos-soat';
+const buscadorTopbar = (page: import('@playwright/test').Page) =>
+  page.getByRole('button', { name: /^Buscar placa, trámite o módulo/ });
 
 test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('Operaciones los ve en Gestión, sin el sufijo del gestor y bajo el subgrupo renombrado', async ({ page }) => {
+  test('Operaciones los ve en «Impuestos y SOAT», sin el sufijo del gestor ni subgrupo por quien lo atiende', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockApi(page);
     await page.goto('/');
 
-    await dockLocator(page).getByRole('button', { name: 'Gestión', exact: true }).click();
+    await dockLocator(page).getByRole('button', { name: 'Impuestos y SOAT', exact: true }).click();
 
     // `exact` es justo lo que comprueba el AC5: con «SOAT (gestor)» esto no pasaría.
     await expect(page.getByRole('link', { name: 'SOAT', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Impuestos', exact: true })).toBeVisible();
 
-    // El subgrupo dejó de llamarse por quien lo atiende y pasó a nombrar su contenido.
-    await expect(
-      page.locator(`${PANEL_GESTION} p`).filter({ hasText: /^SOAT e Impuestos$/ }),
-    ).toBeVisible();
-    await expect(page.locator(PANEL_GESTION)).not.toContainText('Colas de gestor');
+    // El subgrupo nombra su contenido, no a quien lo atiende.
+    await expect(page.locator(`${PANEL_OBLIGACIONES} p`).filter({ hasText: /^Obligaciones$/ })).toBeVisible();
+    await expect(page.locator(PANEL_OBLIGACIONES)).not.toContainText('Colas de gestor');
+    await expect(page.locator(PANEL_OBLIGACIONES)).not.toContainText('(gestor)');
   });
 
   for (const { label, url } of [
@@ -502,7 +464,7 @@ test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', ()
       await mockApi(page);
       await page.goto('/');
 
-      await dockLocator(page).getByRole('button', { name: 'Gestión', exact: true }).click();
+      await dockLocator(page).getByRole('button', { name: 'Impuestos y SOAT', exact: true }).click();
       await page.getByRole('link', { name: label, exact: true }).click();
 
       await expect(page).toHaveURL(url);
@@ -517,16 +479,13 @@ test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', ()
     await page.goto('/');
 
     const resultados = page.getByRole('listbox', { name: 'Resultados' });
-    // Se abre por el botón del topbar y no por Ctrl+K: el atajo vive en un efecto del Layout y,
-    // como primera interacción tras cargar, pierde la carrera con los efectos de montaje. El botón
-    // además solo existe con el shell ya pintado, que es justo la garantía que hace falta aquí.
-    const abrirBuscador = page.getByRole('button', { name: /^Buscar o ir a sección/ });
-
+    // Se abre por el botón del topbar y no por Ctrl+K: el atajo vive en un efecto del Layout y, como primera
+    // interacción tras cargar, pierde la carrera con los efectos de montaje.
     for (const { query, label } of [
       { query: 'soat', label: 'SOAT' },
       { query: 'impuesto', label: 'Impuestos' },
     ]) {
-      await abrirBuscador.click();
+      await buscadorTopbar(page).click();
       const buscador = page.getByPlaceholder('Buscar o ir a…');
       await expect(buscador).toBeVisible();
       await buscador.fill(query);
@@ -541,9 +500,11 @@ test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', ()
     await mockApi(page);
     await page.goto('/vehicles');
 
-    await dockLocator(page).getByRole('button', { name: 'Gestión', exact: true }).click();
-    await expect(page.getByRole('link', { name: 'SOAT', exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Impuestos', exact: true })).toHaveCount(0);
+    // Un grupo con un solo módulo se pinta como enlace directo.
+    const nav = dockLocator(page);
+    await expect(nav.getByRole('link', { name: 'SOAT', exact: true })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Impuestos', exact: true })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Impuestos y SOAT', exact: true })).toHaveCount(0);
   });
 
   test('el gestor de impuestos ve Impuestos y no SOAT', async ({ page }) => {
@@ -551,10 +512,8 @@ test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', ()
     await mockApi(page);
     await page.goto('/flito/impuestos');
 
-    // Sus permisos dejan Gestión con un solo ítem, y un módulo de un ítem el dock lo pinta como
-    // enlace directo en vez de panel desplegable: aquí no hay botón «Gestión» que abrir.
     const nav = dockLocator(page);
-    await expect(nav.getByRole('button', { name: 'Gestión', exact: true })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Impuestos y SOAT', exact: true })).toHaveCount(0);
     await expect(nav.getByRole('link', { name: 'Impuestos', exact: true })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'SOAT', exact: true })).toHaveCount(0);
   });
@@ -563,9 +522,8 @@ test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', ()
     await loginAs(page, CONDUCTOR_USER);
     await mockApi(page);
     await page.goto('/');
-    // El atajo ⌘K lo escucha `Layout`: esperar a un control suyo antes de teclear (y antes de contar
-    // ausencias, que si no pasan en verde contra una página sin pintar).
-    await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
+    // El atajo ⌘K lo escucha `Layout`: esperar a un control suyo antes de teclear.
+    await expect(buscadorTopbar(page)).toBeVisible();
 
     // Ni en el menú…
     await expect(page.getByRole('link', { name: 'SOAT', exact: true })).toHaveCount(0);

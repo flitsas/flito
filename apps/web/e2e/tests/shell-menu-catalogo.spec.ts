@@ -13,6 +13,11 @@
 //   AC7 — al volver a la pestaña, el menú deja de mostrar lo que se quitó.
 //
 //   npx playwright test e2e/tests/shell-menu-catalogo.spec.ts --reporter=line
+//
+// Shell del UI Kit 2026 (Épica #14560): el dock reparte los módulos en 6 grupos de trabajo (dockGrupos.ts), con
+// los ítems y los subgrupos rotulados con el catálogo; «Tablero» es el isotipo «Inicio»; Administración, Ayuda y
+// la cuenta (Mi perfil, Cambiar contraseña, Salir) viven en el menú de usuario. Las intenciones de cada AC se
+// conservan sobre esa estructura.
 
 import type { Page } from '@playwright/test';
 import { ARBOL_PERMISOS, ELEMENTOS_PERMISOS } from '@operaciones/shared-types';
@@ -29,8 +34,14 @@ const nombreItem = (slug: string) => ARBOL_PERMISOS.find((n) => n.tipo === 'item
 const sinPerfil = (rol: string) => FUNCIONES_POR_ROL[rol].filter((f) => !(FUNCIONES_PERFIL as readonly string[]).includes(f));
 
 async function listo(page: Page) {
-  await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Buscar placa, trámite o módulo/ })).toBeVisible();
 }
+
+/** Nombres visibles (el <strong>) de las entradas del menú de usuario, sin la línea de detalle. */
+const entradasCuenta = (menu: ReturnType<Page['getByRole']>) =>
+  menu.getByRole('menuitem').evaluateAll((els) => els
+    .filter((e) => (e as HTMLElement).offsetParent !== null)
+    .map((e) => (e.querySelector('strong')?.textContent ?? e.textContent ?? '').trim()));
 
 async function opcionesDeUsuario(page: Page) {
   await page.getByRole('button', { name: /Menú de usuario/ }).click();
@@ -40,18 +51,23 @@ async function opcionesDeUsuario(page: Page) {
 test.describe('HU #13431 — menú con los nombres del catálogo', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('AC4 — las secciones y los ítems se rotulan con el catálogo (LAFT, no «Cumplimiento»)', async ({ page }) => {
+  test('AC4 — los subgrupos y los ítems se rotulan con el catálogo (LAFT, PESV, RNDC; Administración)', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await page.goto('/');
     await listo(page);
-    for (const clave of ['gestion', 'transito', 'laft', 'finanzas', 'administracion']) {
-      await expect(nav(page).getByRole('button', { name: nombreElemento(clave), exact: true })).toBeVisible();
+    // Kit 2026: «Cumplimiento» es el GRUPO del dock; dentro, cada subgrupo lleva el nombre del elemento del catálogo.
+    await nav(page).getByRole('button', { name: 'Cumplimiento', exact: true }).click();
+    for (const clave of ['pesv', 'rndc', 'laft']) {
+      await expect(page.locator('#flit-navbar-panel-cumplimiento p').filter({ hasText: new RegExp(`^${nombreElemento(clave)}$`) })).toBeVisible();
     }
-    await expect(nav(page).getByRole('button', { name: 'Cumplimiento', exact: true })).toHaveCount(0);
-    // «General» con solo Tablero se pinta como enlace directo con el nombre del ítem.
-    await expect(nav(page).getByRole('link', { name: nombreItem('dashboard'), exact: true })).toBeVisible();
+    // El Tablero (`dashboard`) es «Inicio», el isotipo central.
+    await expect(nav(page).getByRole('link', { name: 'Inicio', exact: true })).toHaveAttribute('href', '/');
+    // Administración: en el menú de usuario, con el nombre del elemento como título de sección.
+    const menu = await opcionesDeUsuario(page);
+    await expect(menu.locator('.menu-usuario__seccion p')).toHaveText(nombreElemento('administracion'));
+    await page.getByRole('button', { name: /Menú de usuario/ }).click();
 
-    await nav(page).getByRole('button', { name: nombreElemento('gestion'), exact: true }).click();
+    await nav(page).getByRole('button', { name: 'Impuestos y SOAT', exact: true }).click();
     // El ítem lleva el nombre del catálogo, no el rótulo fijo anterior («Derechos de tránsito»).
     await expect(page.getByRole('link', { name: nombreItem('flito_derechos'), exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Derechos de tránsito', exact: true })).toHaveCount(0);
@@ -65,22 +81,27 @@ test.describe('HU #13431 — menú con los nombres del catálogo', () => {
     await listo(page);
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_bolsas'), exact: true })).toBeVisible();
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_tarifas'), exact: true })).toHaveCount(0);
-    await expect(nav(page).getByRole('button', { name: nombreElemento('administracion'), exact: true })).toHaveCount(0);
-    await expect(nav(page).getByRole('button', { name: nombreElemento('gestion'), exact: true })).toHaveCount(0);
+    // Un solo ítem visible: ningún grupo desplegable, ni «Inicio» (no tiene `dashboard`), ni Administración.
+    await expect(nav(page).getByRole('button')).toHaveCount(0);
+    const menu = await opcionesDeUsuario(page);
+    await expect(menu.locator('.menu-usuario__seccion')).toHaveCount(0);
   });
 });
 
 test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visibles', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('con capítulos visibles: «Ayuda» es el último elemento, en barra y en ⌘K', async ({ page }) => {
+  test('con capítulos visibles: «Ayuda» en el menú de usuario (último de la cuenta antes de la clave) y último en ⌘K', async ({ page }) => {
     // Financiera: rol sin enlace con capítulos de Finanzas (no admin, que lo ve todo).
     await loginAs(page, FINANCIERA_USER);
     await page.goto('/');
     await listo(page);
-    const enlace = nav(page).getByRole('link', { name: 'Ayuda', exact: true });
-    await expect(enlace).toHaveAttribute('href', '/flito/ayuda');
-    await expect(nav(page).locator('a, button').last()).toHaveAccessibleName('Ayuda');
+    // Kit 2026: Ayuda sale del dock y vive en el menú de usuario.
+    await expect(nav(page).getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
+    const menu = await opcionesDeUsuario(page);
+    await menu.getByRole('menuitem', { name: /^Ayuda/ }).click();
+    await expect(page).toHaveURL(/\/flito\/ayuda$/);
+    await listo(page);
 
     await page.keyboard.press('Control+k');
     const grupo = page.getByRole('group', { name: nombreElemento('ayuda') });
@@ -93,6 +114,9 @@ test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visible
     await page.goto('/');
     await expect(nav(page)).toBeVisible();
     await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
+    const menu = await opcionesDeUsuario(page);
+    await expect(menu.getByRole('menuitem', { name: /^Ayuda/ })).toHaveCount(0);
+    await page.getByRole('button', { name: /Menú de usuario/ }).click();
     await page.keyboard.press('Control+k');
     await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
     await expect(page.getByRole('option', { name: /^Ayuda/ })).toHaveCount(0);
@@ -103,11 +127,13 @@ test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visible
 });
 
 test.describe('HU #13431 — AC2 · Perfil por «Ver mis datos»', () => {
-  test('con la función: «Perfil» encima de «Cerrar sesión»', async ({ page }) => {
+  test('con la función: «Mi perfil» (y «Cambiar contraseña») encima de «Salir»', async ({ page }) => {
     await loginAs(page, CONDUCTOR_USER);
     await page.goto('/');
     const menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem')).toHaveText(['Perfil', 'Cerrar sesión']);
+    // «Ayuda» puede ir entre medias según los capítulos visibles (AC1); aquí se mira el orden de la cuenta.
+    const cuenta = (await entradasCuenta(menu)).filter((e) => e !== 'Ayuda');
+    expect(cuenta).toEqual(['Mi perfil', 'Cambiar contraseña', 'Salir']);
   });
 
   test('sin la función: solo «Cerrar sesión» y `/perfil` es «sin acceso» (aunque tenga la página)', async ({ page }) => {
@@ -116,8 +142,12 @@ test.describe('HU #13431 — AC2 · Perfil por «Ver mis datos»', () => {
     await page.route('**/api/auth/perfil', (r) => { pedidasPerfil += 1; return r.fulfill(json({})); });
     await page.goto('/');
     const menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem')).toHaveText(['Cerrar sesión']);
-    await page.keyboard.press('Escape');
+    const entradas = await entradasCuenta(menu);
+    // Sin «Ver mis datos»: ni «Mi perfil» ni «Cambiar contraseña» (que lleva a /perfil); «Salir» siempre, al final.
+    expect(entradas).not.toContain('Mi perfil');
+    expect(entradas).not.toContain('Cambiar contraseña');
+    expect(entradas.at(-1)).toBe('Salir');
+    await page.getByRole('button', { name: /Menú de usuario/ }).click();
     await page.goto('/perfil');
     await expect(page.getByRole('heading', { level: 1, name: 'No tienes acceso a Perfil' })).toBeVisible();
     await expect(page.getByLabel('Contraseña actual')).toHaveCount(0);
@@ -159,12 +189,15 @@ test.describe('HU #13431 — AC6 · usuario enlazado a compañía', () => {
     await loginAs(page, CLIENTE_USER);
     await page.goto('/');
     await listo(page);
-    for (const clave of ['finanzas', 'administracion', 'transito', 'pesv', 'laft', 'rndc', 'mantenimiento']) {
-      await expect(nav(page).getByRole('button', { name: nombreElemento(clave), exact: true })).toHaveCount(0);
+    // Grupos del kit 2026 que solo tienen módulos sin compañía, catálogos o configuración.
+    for (const grupo of ['Finanzas', 'Cumplimiento', 'Flota', 'Logística']) {
+      await expect(nav(page).getByRole('button', { name: grupo, exact: true })).toHaveCount(0);
+      await expect(nav(page).getByRole('link', { name: grupo, exact: true })).toHaveCount(0);
     }
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_tarifas'), exact: true })).toHaveCount(0);
     const menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem', { name: 'Perfil' })).toBeVisible();
+    await expect(menu.locator('.menu-usuario__seccion')).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: /^Mi perfil/ })).toBeVisible();
   });
 });
 
@@ -180,7 +213,7 @@ test.describe('HU #13431 — AC7 · el menú se refresca con la sesión abierta'
     });
     await page.goto('/');
     let menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem', { name: 'Perfil' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /^Mi perfil/ })).toBeVisible();
     await page.getByRole('button', { name: /Menú de usuario/ }).click();
     await expect(menu).toHaveCount(0);
 
@@ -189,7 +222,7 @@ test.describe('HU #13431 — AC7 · el menú se refresca con la sesión abierta'
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await expect.poll(() => estado.mios).toBeGreaterThan(antes);
     menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem', { name: 'Perfil' })).toHaveCount(0);
-    await expect(menu.getByRole('menuitem', { name: 'Cerrar sesión' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /^Mi perfil/ })).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: 'Salir' })).toBeVisible();
   });
 });

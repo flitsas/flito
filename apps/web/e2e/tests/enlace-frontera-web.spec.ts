@@ -52,9 +52,14 @@ const nav = (page: Page) => page.getByRole('navigation', { name: 'Navegación pr
 const enlaceMenu = (page: Page, nombre: string) => nav(page).getByRole('link', { name: nombre, exact: true });
 const casillaPago = (page: Page) => page.getByRole('checkbox', { name: 'Incluir datos de pago y trazabilidad', exact: true });
 
-async function abrirGestion(page: Page) {
-  await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
-  const boton = nav(page).getByRole('button', { name: 'Gestión', exact: true });
+// Shell del UI Kit 2026 (Épica #14560): el dock reparte los módulos en grupos («Impuestos y SOAT», «Finanzas», …) y
+// un grupo de un solo módulo se pinta como enlace directo. El buscador del topbar se llama «Buscar placa, trámite o
+// módulo» (WCAG 2.5.3: el nombre accesible empieza por el texto visible).
+const buscadorTopbar = (page: Page) => page.getByRole('button', { name: /^Buscar placa, trámite o módulo/ });
+
+async function abrirGrupo(page: Page, grupo: string) {
+  await expect(buscadorTopbar(page)).toBeVisible();
+  const boton = nav(page).getByRole('button', { name: grupo, exact: true });
   if (await boton.count()) await boton.click();
 }
 
@@ -65,9 +70,12 @@ test.describe('HU #13452 · la web no ofrece lo que el enlace cierra', () => {
     await mockColas(page);
     await loginAs(page, PRUEBA_COMPANIA);
     await page.goto('/flito/soat');
-    await abrirGestion(page);
+    await abrirGrupo(page, 'Impuestos y SOAT');
     await expect(enlaceMenu(page, 'SOAT')).toBeVisible();
+    // «Clientes y proveedores» vive en Finanzas: con el grupo abierto (si existe) tampoco aparece.
+    await abrirGrupo(page, 'Finanzas');
     await expect(enlaceMenu(page, 'Clientes y proveedores')).toHaveCount(0);
+    await page.keyboard.press('Escape');
 
     await page.keyboard.press('Control+k');
     await page.getByPlaceholder('Buscar o ir a…').fill('clientes');
@@ -90,7 +98,7 @@ test.describe('HU #13452 · la web no ofrece lo que el enlace cierra', () => {
     await mockColas(page);
     await loginAs(page, PRUEBA_SIN_ENLACE);
     await page.goto('/flito/soat');
-    await abrirGestion(page);
+    await abrirGrupo(page, 'Finanzas');
     await expect(enlaceMenu(page, 'Clientes y proveedores')).toBeVisible();
     await page.goto('/clients');
     await expect(page.getByRole('heading', { name: /No tienes acceso a/ })).toHaveCount(0);
@@ -282,7 +290,8 @@ test.describe('HU #13452 · el Tablero de General sigue abierto al enlace Compa�
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Tablero', level: 1 })).toBeVisible();
     await expect(page.getByRole('heading', { name: /No tienes acceso a/ })).toHaveCount(0);
-    await expect(nav(page).getByRole('link', { name: /^Tablero/ })).toHaveCount(1);
+    // El Tablero (`/`) es «Inicio», el isotipo del centro del dock (UI Kit 2026); solo se pinta con permiso.
+    await expect(nav(page).getByRole('link', { name: 'Inicio', exact: true })).toHaveCount(1);
     // Sin copy interno: ni la nota de Auditoría ni mención a Operaciones o a sincronizar.
     await expect(page.getByText('Revisiones pendientes')).toBeVisible();
     await expect(page.getByText(NOTA_AUDITORIA)).toHaveCount(0);
@@ -304,8 +313,8 @@ test.describe('HU #13452 · el Tablero de General sigue abierto al enlace Compa�
       await page.route(/\/api\/flito\/tablero$/, (r) => { pedidas += 1; return r.fulfill(json({ error: 'Sin permisos' }, 403)); });
       await loginAs(page, conTablero(enlace));
       await page.goto('/flito/soat');
-      await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
-      await expect(nav(page).getByRole('link', { name: /^Tablero/ })).toHaveCount(0);
+      await expect(buscadorTopbar(page)).toBeVisible();
+      await expect(nav(page).getByRole('link', { name: 'Inicio', exact: true })).toHaveCount(0);
       await page.goto('/');
       await expect(page.getByRole('heading', { name: 'Tablero', level: 1 })).toHaveCount(0);
       expect(pedidas).toBe(0);

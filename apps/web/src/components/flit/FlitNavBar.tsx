@@ -34,7 +34,9 @@ export default function FlitNavBar() {
   const grupos = useMemo(() => agruparDock(visibleItems), [visibleItems]);
   const activo = grupoDeRuta(pathname, grupos);
 
-  if (grupos.length === 0) return null;
+  // «Inicio» (el Tablero, `/`) es el isotipo del centro: solo con permiso de la página, como el resto del dock.
+  const conInicio = visibleItems.some((it) => it.to === '/');
+  if (grupos.length === 0 && !conInicio) return null;
   const izq = grupos.filter((g) => g.lado === 'izq');
   const der = grupos.filter((g) => g.lado === 'der');
 
@@ -54,7 +56,7 @@ export default function FlitNavBar() {
     const ancho = g.secciones.length > 1;
     return (
       <div key={g.id} className="dock__grupo">
-        <button type="button" className="dock__item" id={triggerId(g.id)} aria-expanded={abierto} aria-controls={panelId(g.id)}
+        <button type="button" className="dock__item" id={triggerId(g.id)} aria-expanded={abierto} aria-controls={abierto ? panelId(g.id) : undefined}
           aria-current={esActivo ? 'page' : undefined} onClick={() => toggle(g.id)}>
           {glifo}{nombre}
           <Icono nombre="arriba" className="dock__flecha" size={16} />
@@ -88,9 +90,11 @@ export default function FlitNavBar() {
       className="dock flit-nav-capsule"
       style={reservaDrFlit ? { maxWidth: 'min(calc(100vw - 16px), max(calc(100vw - 180px), 360px))' } : undefined}>
       {izq.map(pintarGrupo)}
-      <NavLink to="/" end className="dock__fab" aria-label="Inicio">
-        <img src="/kit/isotipo.svg" alt="" aria-hidden="true" />
-      </NavLink>
+      {conInicio && (
+        <NavLink to="/" end className="dock__fab" aria-label="Inicio">
+          <img src="/kit/isotipo.svg" alt="" aria-hidden="true" />
+        </NavLink>
+      )}
       {der.map(pintarGrupo)}
     </nav>
   );

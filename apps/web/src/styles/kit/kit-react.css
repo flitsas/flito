@@ -211,6 +211,11 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 }
 /* #7 Acciones de la cabecera: los botones no se estiran al alto de la fila. */
 .page-header .page-header__acciones { align-items: flex-start; }
+/* Teléfono: los botones de la cabecera ocupan el ancho (kit) y su rótulo envuelve en vez de recortarse
+   («Cargar comprobantes de SOAT (masivo)» se cortaba a 375 px). */
+@media (max-width: 640px) {
+  .page-header .page-header__acciones .btn { white-space: normal; height: auto; min-height: 44px; padding-block: var(--space-8); text-align: center; line-height: 1.25; }
+}
 
 /* #2 DataTable en modo tarjetas (≤900 px): la etiqueta envuelve dentro de su celda; la punta usa 50 % del alto. */
 @media (max-width: 900px) {
@@ -231,3 +236,13 @@ html { scroll-padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); }
 
 /* #8 El margen entre cards es del flujo de bloque: en grid/flex manda el gap. */
 :is(.grid, .inline-grid, .flex, .inline-flex, .rejilla) > .card + .card { margin-top: 0; }
+
+/* Panel ancho del dock (Cumplimiento, Flota, Impuestos y SOAT): centrado en su grupo se salía por la derecha a 1440
+   (Cumplimiento hasta x≈1874). Se ancla al dock entero (centrado en pantalla), que sí cabe. */
+@media (min-width: 1101px) { .dock .dock__grupo:has(> .dock__menu--ancho) { position: static; } }
+/* El centrado del panel del dock va en `translate` y no en `transform`: la animación `flit-panel-up` (fill both)
+   deja `transform: translateY(0)` y se comía el `translateX(-50%)` del kit, así que el panel salía corrido media
+   anchura a la derecha. ≤1100 px los paneles anchos (y ≤640 todos) son `fixed` a lo ancho: sin centrado. */
+.dock .dock__menu { transform: none; translate: -50% 0; }
+@media (max-width: 1100px) { .dock .dock__menu--ancho { translate: none; } }
+@media (max-width: 640px) { .dock .dock__menu { translate: none; } }

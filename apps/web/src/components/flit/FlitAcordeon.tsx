@@ -49,7 +49,7 @@ export default function FlitAcordeon({
       data-testid={testId}
       className="-mx-2 -my-1 flex min-w-0 flex-1 items-center gap-3 rounded-[9px] px-2 py-1 text-left transition-colors hover:bg-[var(--kit-hover)]"
       aria-expanded={abierto}
-      aria-controls={idPanel}
+      aria-controls={abierto ? idPanel : undefined}
       onClick={onToggle}
     >
       {/* El chevron es decorativo: quien no lo vea ya tiene el estado en aria-expanded. */}
