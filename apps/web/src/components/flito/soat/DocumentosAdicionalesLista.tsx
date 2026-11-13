@@ -1,4 +1,4 @@
-// FLITO — documentos adicionales de un SOAT en el detalle (HU #13363, AC6–AC8).
+// FLITO — documentos adicionales de un SOAT en el detalle (HU 13363, AC6–AC8).
 //
 // Spec: docs/ux/flito-soat-documentos-adicionales.md §4. Lista corta, sin primaria: consultar no es
 // operar. Copy **neutro** (el detalle lo abren el Cliente y la operación). 4 estados propios: el resto
@@ -7,7 +7,7 @@
 // El permiso lo decide quien la monta (`DocumentosAdicionalesSeccion`): sin
 // `soat.documentos_adicionales.ver` la sección no existe y el endpoint no se pide (AC7).
 //
-// HU #13365 (spec docs/ux/flito-soat-documentos-adicionales-detalle-cargar-eliminar.md): la sección
+// HU 13365 (spec docs/ux/flito-soat-documentos-adicionales-detalle-cargar-eliminar.md): la sección
 // suma «Cargar documentos» (`.cargar`) con su panel en línea y la papelera por fila (`.eliminar`) en
 // `accionesExtra`, con la confirmación que reemplaza la fila. Cada función por `hasFuncion`, por
 // separado. El estado de la lista vive en `useDocumentosAdicionales` para refrescar sin esqueleto.
@@ -26,9 +26,9 @@ import {
 import { useDocumentosAdicionales, type ListaAdicionales } from './useDocumentosAdicionales';
 
 export const FUNCION_VER_ADICIONALES = 'soat.documentos_adicionales.ver';
-/** HU #13365: botón «Cargar documentos» y su panel (0223: admin y proveedor). */
+/** HU 13365: botón «Cargar documentos» y su panel (0223: admin y proveedor). */
 export const FUNCION_CARGAR_ADICIONALES = 'soat.documentos_adicionales.cargar';
-/** HU #13365: papelera por fila (0223: admin y proveedor). */
+/** HU 13365: papelera por fila (0223: admin y proveedor). */
 export const FUNCION_ELIMINAR_ADICIONALES = 'soat.documentos_adicionales.eliminar';
 
 const EXTENSION_POR_MIME: Record<string, string> = {
@@ -45,16 +45,16 @@ function nombreDescarga(d: DocumentoAdicionalSoat): string {
 }
 
 const BOTON_ICONO =
-  'flit-focus grid h-10 w-10 shrink-0 place-items-center rounded-[999px] border bg-flit-card transition-colors hover:bg-[var(--flit-bg-hover)]';
+  'flit-focus grid h-10 w-10 shrink-0 place-items-center rounded-[999px] border bg-flit-card transition-colors hover:bg-[var(--kit-hover)]';
 
 export default function DocumentosAdicionalesLista({ lista, accionesExtra, reemplazoDeFila, pistaVacio, conEliminar = false }: {
   lista: ListaAdicionales;
   accionesExtra?: (documento: DocumentoAdicionalSoat) => ReactNode;
-  /** HU #13365: la confirmación de eliminar reemplaza la fila en línea (`null` = fila normal). */
+  /** HU 13365: la confirmación de eliminar reemplaza la fila en línea (`null` = fila normal). */
   reemplazoDeFila?: (documento: DocumentoAdicionalSoat) => ReactNode | null;
-  /** Segunda línea del vacío (con `.cargar` invita a cargar, spec #13365 §6). */
+  /** Segunda línea del vacío (con `.cargar` invita a cargar, spec 13365 §6). */
   pistaVacio?: string;
-  /** El esqueleto suma la caja de la papelera (spec #13365 §6). */
+  /** El esqueleto suma la caja de la papelera (spec 13365 §6). */
   conEliminar?: boolean;
 }) {
   const { estado, cargar } = lista;
@@ -86,12 +86,12 @@ export default function DocumentosAdicionalesLista({ lista, accionesExtra, reemp
         {[0, 1].map((i) => (
           <div key={i} className="flex animate-pulse items-center gap-3 motion-reduce:animate-none">
             <div className="flex-1 space-y-2">
-              <div className="h-3 w-3/4 rounded" style={{ background: 'var(--flit-bg-hover)' }} />
-              <div className="h-3 w-1/2 rounded" style={{ background: 'var(--flit-bg-hover)' }} />
+              <div className="h-3 w-3/4 rounded" style={{ background: 'var(--kit-hover)' }} />
+              <div className="h-3 w-1/2 rounded" style={{ background: 'var(--kit-hover)' }} />
             </div>
-            <div className="h-10 w-16 rounded-[999px]" style={{ background: 'var(--flit-bg-hover)' }} />
-            <div className="h-10 w-10 rounded-[999px]" style={{ background: 'var(--flit-bg-hover)' }} />
-            {conEliminar && <div className="h-10 w-10 rounded-[999px]" style={{ background: 'var(--flit-bg-hover)' }} />}
+            <div className="h-10 w-16 rounded-[999px]" style={{ background: 'var(--kit-hover)' }} />
+            <div className="h-10 w-10 rounded-[999px]" style={{ background: 'var(--kit-hover)' }} />
+            {conEliminar && <div className="h-10 w-10 rounded-[999px]" style={{ background: 'var(--kit-hover)' }} />}
           </div>
         ))}
       </div>
@@ -101,7 +101,7 @@ export default function DocumentosAdicionalesLista({ lista, accionesExtra, reemp
   if (estado.fase === 'error') {
     return (
       <div role="alert" className="flex flex-wrap items-center gap-2">
-        <p className="flex-1 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+        <p className="flex-1 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
           No se pudieron cargar los documentos adicionales.
         </p>
         <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => { void cargar(); }}>
@@ -115,8 +115,8 @@ export default function DocumentosAdicionalesLista({ lista, accionesExtra, reemp
   if (estado.documentos.length === 0) {
     return (
       <div>
-        <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>Sin documentos adicionales.</p>
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>Sin documentos adicionales.</p>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           {pistaVacio ?? 'Aquí aparecen los que se adjunten en la solicitud.'}
         </p>
       </div>
@@ -124,16 +124,16 @@ export default function DocumentosAdicionalesLista({ lista, accionesExtra, reemp
   }
 
   return (
-    <ul className="divide-y" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <ul className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
       {estado.documentos.map((d) => {
         const vista = tieneVistaPrevia(d.tipoContenido);
         const reemplazo = reemplazoDeFila?.(d);
-        if (reemplazo) return <li key={d.id} className="py-2" style={{ borderColor: 'var(--flit-border-soft)' }}>{reemplazo}</li>;
+        if (reemplazo) return <li key={d.id} className="py-2" style={{ borderColor: 'var(--color-border)' }}>{reemplazo}</li>;
         return (
-          <li key={d.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
+          <li key={d.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2" style={{ borderColor: 'var(--color-border)' }}>
             <div className="min-w-0 flex-1 basis-48">
-              <p title={d.etiqueta} className="truncate text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{d.etiqueta}</p>
-              <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+              <p title={d.etiqueta} className="truncate text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{d.etiqueta}</p>
+              <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                 {[tipoLegible(d.tipoContenido, d.etiqueta), tamanoLegible(d.tamanoBytes), fechaHoraBogota(d.subidoEn),
                   d.subidoPorNombre, ...(vista ? [] : ['Sin vista previa'])].filter(Boolean).join(' · ')}
               </p>
@@ -147,7 +147,7 @@ export default function DocumentosAdicionalesLista({ lista, accionesExtra, reemp
                 </a>
               )}
               <button type="button" aria-label={`Descargar ${d.etiqueta}`} title={`Descargar ${d.etiqueta}`}
-                className={BOTON_ICONO} style={{ color: 'var(--flit-text-secondary)', borderColor: 'var(--flit-border-input)' }}
+                className={BOTON_ICONO} style={{ color: 'var(--color-text-secondary)', borderColor: 'var(--color-border-control)' }}
                 onClick={() => { void descargar(d); }}>
                 <Download size={16} aria-hidden="true" />
               </button>
@@ -167,15 +167,15 @@ type Aviso = {
 };
 
 const BOTON_CERRAR =
-  'flit-focus grid h-8 w-8 shrink-0 place-items-center rounded transition-colors hover:bg-[var(--flit-bg-hover)]';
+  'flit-focus grid h-8 w-8 shrink-0 place-items-center rounded transition-colors hover:bg-[var(--kit-hover)]';
 
 /** Aviso de resultado de la carga (§3.4–§3.5): persistente en la sección, no toast. */
 function AvisoCarga({ aviso, onCerrar, onReintentar }: { aviso: Aviso; onCerrar: () => void; onReintentar: () => void }) {
   const { descartes } = aviso;
   return (
-    <div role="status" className="flex items-start gap-2 rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-input)' }}>
-      <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-warning-text)' }} />
-      <div className="min-w-0 flex-1 space-y-1 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+    <div role="status" className="flex items-start gap-2 rounded-lg border p-3" style={{ borderColor: 'var(--color-border-control)' }}>
+      <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--kit-naranja-texto)' }} />
+      <div className="min-w-0 flex-1 space-y-1 text-sm" style={{ color: 'var(--color-text-primary)' }}>
         {descartes && (
           <>
             <p className="font-semibold">{textoResumenDescartes(descartes.aceptados, descartes.total)}</p>
@@ -198,7 +198,7 @@ function AvisoCarga({ aviso, onCerrar, onReintentar }: { aviso: Aviso; onCerrar:
         )}
       </div>
       <button type="button" aria-label="Cerrar aviso" title="Cerrar aviso" className={BOTON_CERRAR}
-        style={{ color: 'var(--flit-text-secondary)' }} onClick={onCerrar}>
+        style={{ color: 'var(--color-text-secondary)' }} onClick={onCerrar}>
         <X size={16} aria-hidden="true" />
       </button>
     </div>
@@ -206,8 +206,8 @@ function AvisoCarga({ aviso, onCerrar, onReintentar }: { aviso: Aviso; onCerrar:
 }
 
 /**
- * La sección del detalle (§4 de la spec #13363 + spec #13365). Sin `.ver`, `null`: ni título en el
- * DOM ni petición al endpoint (AC7 de #13363), aunque se tenga `.cargar` o `.eliminar`.
+ * La sección del detalle (§4 de la spec 13363 + spec 13365). Sin `.ver`, `null`: ni título en el
+ * DOM ni petición al endpoint (AC7 de 13363), aunque se tenga `.cargar` o `.eliminar`.
  */
 export function DocumentosAdicionalesSeccion({ soatId }: { soatId: string }) {
   const { hasFuncion } = useAuth();
@@ -272,9 +272,9 @@ function SeccionConLista({ soatId, puedeCargar, puedeEliminar }: { soatId: strin
   const cancelarEliminar = (doc: DocumentoAdicionalSoat) => { setConfirmando(null); enfocar(`[data-eliminar="${doc.id}"]`); };
 
   return (
-    <section ref={raiz} aria-labelledby={idTitulo} className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <section ref={raiz} aria-labelledby={idTitulo} className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--color-border)' }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 id={idTitulo} tabIndex={-1} className="text-[11px] font-semibold uppercase tracking-wide outline-none" style={{ color: 'var(--flit-text-muted)' }}>
+        <h3 id={idTitulo} tabIndex={-1} className="text-[11px] font-semibold uppercase tracking-wide outline-none" style={{ color: 'var(--color-text-tertiary)' }}>
           Documentos adicionales
         </h3>
         {puedeCargar && !panelAbierto && (

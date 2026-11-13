@@ -1,7 +1,7 @@
-// FLITO — selector de documentos adicionales del SOAT (HU #13363).
+// FLITO — selector de documentos adicionales del SOAT (HU 13363).
 //
 // Spec: docs/ux/flito-soat-documentos-adicionales.md §3.1–§3.3, §6, §7. **Controlado**: no sabe nada
-// del alta ni del envío (§5). La HU #13365 lo monta en el detalle (`CargarDocumentosAdicionales`) con
+// del alta ni del envío (§5). La HU 13365 lo monta en el detalle (`CargarDocumentosAdicionales`) con
 // su propio botón de enviar, `contexto="detalle"` y SIN `presentes`: los cupos son por carga y el
 // repetido contra lo ya guardado lo detecta el servidor.
 //
@@ -21,7 +21,7 @@ import {
 import { MotivoDescarteDocumentoAdicional } from '@operaciones/shared-types';
 
 const BOTON_ICONO =
-  'flit-focus grid h-8 w-8 shrink-0 place-items-center rounded transition-colors hover:bg-[var(--flit-bg-hover)] disabled:cursor-not-allowed disabled:opacity-60';
+  'flit-focus grid h-8 w-8 shrink-0 place-items-center rounded transition-colors hover:bg-[var(--kit-hover)] disabled:cursor-not-allowed disabled:opacity-60';
 
 export const TITULO_BLOQUE_ADICIONALES = '4 · Documentos adicionales (opcional)';
 
@@ -38,9 +38,9 @@ export default function DocumentosAdicionalesSelector({
   /** Solo para «repetido» (la factura de venta del alta). */
   ajenos?: PresenteAdicional[];
   idBase?: string;
-  /** HU #13365: en el detalle solo cambian 3 frases (spec #13365 §4). */
+  /** HU 13365: en el detalle solo cambian 3 frases (spec 13365 §4). */
   contexto?: ContextoAdicionales;
-  /** Mientras viaja la carga del detalle: nada se edita (spec #13365 §3.3). */
+  /** Mientras viaja la carga del detalle: nada se edita (spec 13365 §3.3). */
   deshabilitado?: boolean;
 }) {
   const detalle = contexto === 'detalle';
@@ -81,14 +81,14 @@ export default function DocumentosAdicionalesSelector({
             label="Elegir archivos" hint="PDF, JPG, PNG, WEBP o HEIC · hasta 15 MB cada uno"
             state="idle" accept={ACCEPT_ADICIONALES} multiple onFiles={elegir} onFile={(f) => elegir([f])}
           />
-          <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             Si tiene otros documentos que ayuden con la solicitud, adjúntelos aquí. Hasta 20 archivos y 250 MB en
             total. No son obligatorios.
           </p>
         </>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <label className={`${flitBtnSecondary} w-full justify-center focus-within:shadow-[0_0_0_3px_var(--flit-border-focus)] sm:w-auto ${deshabilitado ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+          <label className={`${flitBtnSecondary} w-full justify-center focus-within:shadow-[0_0_0_3px_var(--kit-azul)] sm:w-auto ${deshabilitado ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
             style={flitBtnSecondaryStyle}>
             <Upload size={16} aria-hidden="true" className="shrink-0" />
             Elegir más archivos
@@ -97,7 +97,7 @@ export default function DocumentosAdicionalesSelector({
               onChange={(e) => { const l = Array.from(e.target.files ?? []); if (l.length) elegir(l); e.target.value = ''; }}
             />
           </label>
-          <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             {archivos(ok.length)} · {tamanoLegible(total)} de {MAX_TOTAL_ADICIONALES / (1024 * 1024)} MB
           </p>
         </div>
@@ -105,29 +105,29 @@ export default function DocumentosAdicionalesSelector({
 
       {ok.length > 0 && (
         <>
-          <ul className="divide-y rounded-lg border" style={{ borderColor: 'var(--flit-border-soft)' }}>
+          <ul className="divide-y rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
             {ok.map((e, i) => {
               const idNombre = `${idBase}-nombre-${e.clave}`;
               const idEtiqueta = `${idBase}-etiqueta-${e.clave}`;
               return (
-                <li key={e.clave} className="space-y-2 p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+                <li key={e.clave} className="space-y-2 p-3" style={{ borderColor: 'var(--color-border)' }}>
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
-                      <p id={idNombre} title={e.archivo.name} className="truncate text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+                      <p id={idNombre} title={e.archivo.name} className="truncate text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
                         {e.archivo.name}
                       </p>
-                      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                      <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                         {tipoLegible(e.archivo.type, e.archivo.name)} · {tamanoLegible(e.archivo.size)}
                       </p>
                     </div>
                     <button type="button" data-quitar={e.clave} aria-label={`Quitar ${e.archivo.name}`} title={`Quitar ${e.archivo.name}`}
-                      className={BOTON_ICONO} disabled={deshabilitado} style={{ color: 'var(--flit-text-secondary)' }}
+                      className={BOTON_ICONO} disabled={deshabilitado} style={{ color: 'var(--color-text-secondary)' }}
                       onClick={() => quitar(e.clave, ok)}>
                       <X size={16} aria-hidden="true" />
                     </button>
                   </div>
                   <div>
-                    <label htmlFor={idEtiqueta} className="mb-1 block text-xs font-medium" style={{ color: 'var(--flit-text-secondary)' }}>
+                    <label htmlFor={idEtiqueta} className="mb-1 block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                       Etiqueta (opcional)
                     </label>
                     <input
@@ -141,7 +141,7 @@ export default function DocumentosAdicionalesSelector({
               );
             })}
           </ul>
-          <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             Si no les pone etiqueta, se guardan con el nombre del archivo.
           </p>
         </>
@@ -149,29 +149,29 @@ export default function DocumentosAdicionalesSelector({
 
       {malos.length > 0 && (
         <div role="status" className="space-y-2">
-          <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             {detalle ? 'No se van a cargar' : 'No se van a adjuntar'} ({malos.length})
           </p>
-          <ul className="divide-y rounded-lg border" style={{ borderColor: 'var(--flit-border-soft)' }}>
+          <ul className="divide-y rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
             {malos.map((e) => (
-              <li key={e.clave} className="flex items-start gap-2 p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-danger-text)' }} />
+              <li key={e.clave} className="flex items-start gap-2 p-3" style={{ borderColor: 'var(--color-border)' }}>
+                <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--kit-rojo-texto)' }} />
                 <div className="min-w-0 flex-1">
-                  <p title={e.archivo.name} className="truncate text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+                  <p title={e.archivo.name} className="truncate text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
                     {e.archivo.name}
                     {e.motivo === MotivoDescarteDocumentoAdicional.SUPERA_TAMANO && ` · ${tamanoLegible(e.archivo.size)}`}
                   </p>
-                  <p className="text-xs" style={{ color: 'var(--flit-danger-text)' }}>{motivoEnPantalla(e.motivo ?? '', contexto)}</p>
+                  <p className="text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{motivoEnPantalla(e.motivo ?? '', contexto)}</p>
                 </div>
                 <button type="button" data-quitar={e.clave} aria-label={`Descartar ${e.archivo.name}`} title={`Descartar ${e.archivo.name}`}
-                  className={BOTON_ICONO} disabled={deshabilitado} style={{ color: 'var(--flit-text-secondary)' }}
+                  className={BOTON_ICONO} disabled={deshabilitado} style={{ color: 'var(--color-text-secondary)' }}
                   onClick={() => quitar(e.clave, malos)}>
                   <X size={16} aria-hidden="true" />
                 </button>
               </li>
             ))}
           </ul>
-          <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             {detalle ? 'Estos archivos no se cargan; los demás sí.' : 'Puede enviar la solicitud igual: estos archivos no viajan.'}
           </p>
         </div>

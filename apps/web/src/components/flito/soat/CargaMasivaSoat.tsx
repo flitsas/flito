@@ -1,4 +1,4 @@
-// Carga masiva de comprobantes de SOAT (modal). HU #12819 (§13): copy sin mecánica interna (tandas, OCR,
+// Carga masiva de comprobantes de SOAT (modal). HU 12819 (§13): copy sin mecánica interna (tandas, OCR,
 // umbral), icono en la primaria, error con token de par oscuro y hover de fila en el resultado.
 
 import { useState } from 'react';
@@ -15,7 +15,7 @@ interface ResultadoMasivo {
   duplicados: { archivo: string; detalle: string }[]; noAsociados: { archivo: string; detalle: string }[];
 }
 
-// El ZIP se abre en el navegador (HU #12056): lo que se cuenta, se pesa, se valida y se envía son
+// El ZIP se abre en el navegador (HU 12056): lo que se cuenta, se pesa, se valida y se envía son
 // sus ENTRADAS, no el ZIP. `rutas` NO se manda: la ruta solo sirve para deducir la marca de agua y
 // SOAT ni la lee (`/flito/soat/facturas` no toca `req.body`); mandarla sería peso muerto por tanda.
 export default function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () => void }) {
@@ -41,7 +41,7 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
     <FlitModal title="Carga masiva de comprobantes de SOAT" onClose={resultado ? onListo : onClose} wide>
       {!resultado ? (
         <div className="space-y-3">
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Sube varios PDF o imágenes, o un ZIP. FLITO cruza cada factura con un SOAT solicitado: las que coinciden pasan a Pagado y el resto queda en revisión.
           </p>
           <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.zip" className={flitInp} disabled={enviando}
@@ -60,7 +60,7 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
         </div>
       ) : (
         <div className="space-y-3">
-          {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
+          {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
           <div className="flex flex-wrap gap-2">
             <StatusChip tone="success">Pagados {resultado.pagados.length}</StatusChip>
             <StatusChip tone="warning">En revisión {resultado.enRevision.length}</StatusChip>
@@ -84,22 +84,22 @@ function TablaResultadoOcr({ resultado }: { resultado: ResultadoMasivo }) {
     ...resultado.duplicados.map((i) => ({ ...i, resultado: 'Duplicado', tono: 'neutral' as ChipTone })),
     ...resultado.noAsociados.map((i) => ({ ...i, resultado: 'Sin asociar', tono: 'danger' as ChipTone })),
   ];
-  if (filas.length === 0) return <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No se procesó ningún archivo.</p>;
+  if (filas.length === 0) return <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No se procesó ningún archivo.</p>;
   const th = 'px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide';
   return (
-    <div className="max-h-[55vh] overflow-auto rounded-lg border" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <div className="max-h-[55vh] overflow-auto rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
       <table className="w-full text-sm">
         <thead>
-          <tr style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
+          <tr style={{ background: 'var(--kit-linea)', color: 'var(--color-text-secondary)' }}>
             <th className={th}>Archivo</th><th className={th}>Resultado</th><th className={th}>Detalle del análisis OCR</th>
           </tr>
         </thead>
         <tbody>
           {filas.map((f, idx) => (
-            <tr key={idx} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <td className="px-3 py-2 font-medium align-top" style={{ color: 'var(--flit-text-primary)' }}>{f.archivo}</td>
+            <tr key={idx} className="border-t transition-colors hover:bg-[color:var(--color-surface)]" style={{ borderColor: 'var(--color-border)' }}>
+              <td className="px-3 py-2 font-medium align-top" style={{ color: 'var(--color-text-primary)' }}>{f.archivo}</td>
               <td className="px-3 py-2 align-top"><StatusChip tone={f.tono}>{f.resultado}</StatusChip></td>
-              <td className="px-3 py-2 align-top" style={{ color: 'var(--flit-text-secondary)' }}>{f.detalle}</td>
+              <td className="px-3 py-2 align-top" style={{ color: 'var(--color-text-secondary)' }}>{f.detalle}</td>
             </tr>
           ))}
         </tbody>

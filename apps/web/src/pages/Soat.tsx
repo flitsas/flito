@@ -26,7 +26,7 @@ interface Vehicle { id: number; vin: string; plate: string | null; ownerName: st
 interface UserOption { id: number; name: string; flitoProveedorSoatId?: number | null; }
 
 /**
- * HU #12872: asignables = usuarios ENLAZADOS a un proveedor SOAT (ámbito del usuario, la misma
+ * HU 12872: asignables = usuarios ENLAZADOS a un proveedor SOAT (ámbito del usuario, la misma
  * columna que pinta «Ámbito» en Usuarios), no quienes se llaman `proveedor` de rol.
  */
 function esUsuarioDeProveedor(u: UserOption): boolean {
@@ -80,8 +80,8 @@ const STATUS_TONE: Record<string, ChipTone> = {
   pendiente: 'warning', enviado: 'active', comprado: 'active', verificado: 'success', rechazado: 'danger',
 };
 const STATUS_COLOR: Record<string, string> = {
-  pendiente: 'var(--flit-warning)', enviado: 'var(--flit-blue)', comprado: 'var(--flit-blue)',
-  verificado: 'var(--flit-success)', rechazado: 'var(--flit-danger)',
+  pendiente: 'var(--kit-naranja)', enviado: 'var(--kit-azul)', comprado: 'var(--kit-azul)',
+  verificado: 'var(--kit-verde)', rechazado: 'var(--kit-rojo)',
 };
 
 const ESTADO_LABEL: Record<string, { label: string; desc: string }> = {
@@ -93,10 +93,10 @@ const ESTADO_LABEL: Record<string, { label: string; desc: string }> = {
 };
 
 // Input FLIT (blanco, borde, foco azul bajo .flit-app).
-const inp = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-3 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
+const inp = 'flit-focus w-full rounded-[10px] border border-[color:var(--color-border-control)] bg-white px-3 py-2.5 text-sm text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-tertiary)] outline-none transition-shadow';
 
 export default function Soat() {
-  // HU #12170: botones por función efectiva (`/permisos/mios`), no por `role === 'admin'`.
+  // HU 12170: botones por función efectiva (`/permisos/mios`), no por `role === 'admin'`.
   // El SOAT legacy aún guarda con `requireRole` en el API; en el catálogo el proxy de «operar»
   // (crear / exportar / verificar RUNT) es `soat.solicitud.enviar`, que solo trae Operaciones.
   const { hasFuncion } = useAuth();
@@ -122,7 +122,7 @@ export default function Soat() {
   useEffect(() => { load(); }, [filterStatus]);
 
   const openCreate = async () => {
-    // HU #12170: listar proveedores exige `usuarios.usuario.listar` (misma guarda que GET /users).
+    // HU 12170: listar proveedores exige `usuarios.usuario.listar` (misma guarda que GET /users).
     const [v, u] = await Promise.all([
       api.get<Vehicle[]>('/vehicles'),
       puedeListarUsuarios ? api.get<UserOption[]>('/users') : Promise.resolve([]),
@@ -220,14 +220,14 @@ export default function Soat() {
             {puedeOperarSoat && (
               <GradientButton type="button" onClick={openCreate}>Nueva solicitud</GradientButton>
             )}
-            <label className="flit-focus inline-flex cursor-pointer items-center gap-2 rounded-[999px] border bg-white px-4 py-2.5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
-              <svg className="h-4 w-4" style={{ color: 'var(--flit-success)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+            <label className="flit-focus inline-flex cursor-pointer items-center gap-2 rounded-[999px] border bg-white px-4 py-2.5 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
+              <svg className="h-4 w-4" style={{ color: 'var(--kit-verde)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
               Registrar compras
               <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUpload} />
             </label>
             {puedeOperarSoat && (
-              <button onClick={() => api.download(`/soat/export${filterStatus ? `?status=${filterStatus}` : ''}`, 'soat.xlsx')} className="flit-focus inline-flex items-center gap-2 rounded-[999px] border bg-white px-4 py-2.5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
-                <svg className="h-4 w-4" style={{ color: 'var(--flit-text-muted)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+              <button onClick={() => api.download(`/soat/export${filterStatus ? `?status=${filterStatus}` : ''}`, 'soat.xlsx')} className="flit-focus inline-flex items-center gap-2 rounded-[999px] border bg-white px-4 py-2.5 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
+                <svg className="h-4 w-4" style={{ color: 'var(--color-text-tertiary)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                 Exportar
               </button>
             )}
@@ -278,10 +278,10 @@ export default function Soat() {
       {/* Banner informativo sobre lag RUNT */}
       {requests.some((r) => r.status === 'comprado') && (
         <div className="flex items-start gap-3 rounded-[12px] px-4 py-3" style={{ background: 'rgba(79,116,201,0.08)', border: '1px solid rgba(79,116,201,0.20)' }}>
-          <svg className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--flit-blue)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <svg className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--kit-azul)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
           </svg>
-          <div className="text-xs leading-relaxed" style={{ color: 'var(--flit-blue)' }}>
+          <div className="text-xs leading-relaxed" style={{ color: 'var(--kit-azul)' }}>
             <span className="font-semibold">Los SOAT recién comprados tardan 24-72 horas hábiles en aparecer en RUNT.</span>
             {' '}Si el vehículo tuvo un traspaso reciente, la consulta por documento del propietario actual puede fallar hasta que sincronice. El sistema reintenta automáticamente por VIN.
           </div>
@@ -302,8 +302,8 @@ export default function Soat() {
       {pendientesCount > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-[12px] p-4" style={{ background: 'rgba(240,90,53,0.10)', border: '1px solid rgba(240,90,53,0.20)' }}>
           <div>
-            <p className="text-sm font-semibold" style={{ color: 'var(--flit-warning)' }}>{pendientesCount} pendientes de compra</p>
-            <p className="mt-0.5 text-xs" style={{ color: 'var(--flit-warning)' }}>Descarga el Excel y envíalo al proveedor</p>
+            <p className="text-sm font-semibold" style={{ color: 'var(--kit-naranja)' }}>{pendientesCount} pendientes de compra</p>
+            <p className="mt-0.5 text-xs" style={{ color: 'var(--kit-naranja)' }}>Descarga el Excel y envíalo al proveedor</p>
           </div>
           <button onClick={exportProveedor} className={`flit-focus inline-flex shrink-0 items-center gap-2 rounded-[999px] px-5 py-2.5 text-sm font-semibold text-white`} style={{ background: 'var(--flit-gradient-danger)' }}>
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -316,15 +316,15 @@ export default function Soat() {
 
       {/* Cards */}
       {requests.length === 0 ? (
-        <div className="p-12 text-center" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px dashed var(--flit-border-input)', background: 'var(--flit-bg-card)' }}>
-          <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No hay solicitudes SOAT</p>
+        <div className="p-12 text-center" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px dashed var(--color-border-control)', background: 'var(--color-surface-elevated)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No hay solicitudes SOAT</p>
         </div>
       ) : (
         <div className="space-y-2">
           {requests.map((r) => {
             const estadoInfo = ESTADO_LABEL[r.status];
             return (
-              <div key={r.id} className="bg-white p-4 transition-shadow hover:shadow-[0_12px_30px_rgba(22,39,68,0.12)]" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
+              <div key={r.id} className="bg-white p-4 transition-shadow hover:shadow-[0_12px_30px_rgba(22,39,68,0.12)]" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--color-border)', boxShadow: 'var(--flit-shadow-card)' }}>
                 <div className="flex items-center gap-4">
                   <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-1 lg:grid-cols-6">
                     <Field label="Placa" value={r.plate || '—'} bold />
@@ -333,11 +333,11 @@ export default function Soat() {
                     <Field label="Aseguradora" value={r.insurer || '—'} />
                     <Field label="Fecha compra" value={r.purchaseDate || '—'} />
                     <div>
-                      <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Estado</p>
+                      <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>Estado</p>
                       <div className="mt-0.5"><StatusChip tone={STATUS_TONE[r.status] ?? 'warning'}>{estadoInfo?.label || r.status}</StatusChip></div>
-                      {estadoInfo?.desc && <p className="mt-0.5 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{estadoInfo.desc}</p>}
+                      {estadoInfo?.desc && <p className="mt-0.5 text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>{estadoInfo.desc}</p>}
                       {r.soatHolder && normalizeName(r.soatHolder) && normalizeName(r.soatHolder) !== normalizeName(r.ownerName) && (
-                        <p className="mt-0.5 text-[10px]" style={{ color: 'var(--flit-blue)' }} title={`Titular RUNT: ${r.soatHolder}`}>
+                        <p className="mt-0.5 text-[10px]" style={{ color: 'var(--kit-azul)' }} title={`Titular RUNT: ${r.soatHolder}`}>
                           SOAT a nombre de otro titular
                         </p>
                       )}
@@ -394,30 +394,30 @@ export default function Soat() {
       {/* Create modal */}
       {showCreate && (
         <FlitModal title="Nueva solicitud SOAT" onClose={() => setShowCreate(false)}>
-          <p className="mb-5 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Selecciona los vehículos para generar solicitudes</p>
+          <p className="mb-5 text-sm" style={{ color: 'var(--color-text-secondary)' }}>Selecciona los vehículos para generar solicitudes</p>
           {providers.length > 0 && (
             <div className="mb-4">
-              <label className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Asignar a proveedor</label>
+              <label className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>Asignar a proveedor</label>
               <select value={selectedProvider} onChange={(e) => setSelectedProvider(e.target.value)} className={inp}>
                 <option value="">Sin asignar</option>
                 {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
           )}
-          <p className="mb-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{selectedVehicles.length} seleccionados</p>
-          <div className="max-h-60 overflow-auto rounded-[10px] bg-white" style={{ border: '1px solid var(--flit-border-soft)' }}>
+          <p className="mb-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{selectedVehicles.length} seleccionados</p>
+          <div className="max-h-60 overflow-auto rounded-[10px] bg-white" style={{ border: '1px solid var(--color-border)' }}>
             {vehicles.map((v) => (
-              <label key={v.id} className="flex cursor-pointer items-center gap-3 border-b px-4 py-2.5 last:border-0 hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                <input type="checkbox" checked={selectedVehicles.includes(v.id)} onChange={() => toggleVehicle(v.id)} className="rounded" style={{ accentColor: 'var(--flit-blue)' }} />
-                <span className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{v.plate || '—'}</span>
-                <span className="font-mono text-xs" style={{ color: 'var(--flit-text-muted)' }}>{v.vin}</span>
-                <span className="ml-auto text-sm" style={{ color: 'var(--flit-text-muted)' }}>{v.ownerName || ''}</span>
+              <label key={v.id} className="flex cursor-pointer items-center gap-3 border-b px-4 py-2.5 last:border-0 hover:bg-[color:var(--color-surface)]" style={{ borderColor: 'var(--color-border)' }}>
+                <input type="checkbox" checked={selectedVehicles.includes(v.id)} onChange={() => toggleVehicle(v.id)} className="rounded" style={{ accentColor: 'var(--kit-azul)' }} />
+                <span className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{v.plate || '—'}</span>
+                <span className="font-mono text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{v.vin}</span>
+                <span className="ml-auto text-sm" style={{ color: 'var(--color-text-tertiary)' }}>{v.ownerName || ''}</span>
               </label>
             ))}
           </div>
           <div className="mt-5 flex gap-2">
             <GradientButton type="button" onClick={handleCreate}>Crear solicitudes</GradientButton>
-            <button onClick={() => setShowCreate(false)} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+            <button onClick={() => setShowCreate(false)} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>Cancelar</button>
           </div>
         </FlitModal>
       )}
@@ -425,18 +425,18 @@ export default function Soat() {
       {/* Purchase modal */}
       {purchaseModal && (
         <FlitModal title="Registrar compra SOAT" onClose={() => { setPurchaseModal(null); setEvidenceFile(null); }}>
-          <p className="mb-4 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            <span className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{purchaseModal.plate || '—'}</span> &middot; {purchaseModal.ownerName || '—'}
+          <p className="mb-4 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+            <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{purchaseModal.plate || '—'}</span> &middot; {purchaseModal.ownerName || '—'}
           </p>
           <div className="mb-5">
-            <label className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Adjuntar SOAT (obligatorio)</label>
-            <label className="flit-focus flex cursor-pointer items-center gap-3 rounded-[12px] px-4 py-4" style={{ border: `2px dashed ${evidenceFile ? 'var(--flit-success)' : 'var(--flit-blue)'}`, background: evidenceFile ? 'rgba(112,207,58,0.08)' : '#fff' }}>
-              <svg className="h-6 w-6" style={{ color: evidenceFile ? 'var(--flit-success)' : 'var(--flit-blue)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <label className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>Adjuntar SOAT (obligatorio)</label>
+            <label className="flit-focus flex cursor-pointer items-center gap-3 rounded-[12px] px-4 py-4" style={{ border: `2px dashed ${evidenceFile ? 'var(--kit-verde)' : 'var(--kit-azul)'}`, background: evidenceFile ? 'rgba(112,207,58,0.08)' : '#fff' }}>
+              <svg className="h-6 w-6" style={{ color: evidenceFile ? 'var(--kit-verde)' : 'var(--kit-azul)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d={evidenceFile ? 'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z' : 'M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5'} />
               </svg>
               <div>
-                <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{evidenceFile ? evidenceFile.name : 'Seleccionar archivo'}</p>
-                <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{evidenceFile ? `${(evidenceFile.size / 1024).toFixed(0)} KB` : 'PDF, PNG o JPG — máx. 10 MB'}</p>
+                <p className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{evidenceFile ? evidenceFile.name : 'Seleccionar archivo'}</p>
+                <p className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>{evidenceFile ? `${(evidenceFile.size / 1024).toFixed(0)} KB` : 'PDF, PNG o JPG — máx. 10 MB'}</p>
               </div>
               <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden" onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -475,7 +475,7 @@ export default function Soat() {
             </button>
             <button
               onClick={() => { setPurchaseModal(null); setEvidenceFile(null); }}
-              className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+              className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}
             >
               Cancelar
             </button>
@@ -489,7 +489,7 @@ export default function Soat() {
 // ---------- Subcomponentes FLIT ----------
 function PillGroup({ children }: { children: React.ReactNode }) {
   return (
-    <div className="inline-flex w-fit flex-wrap gap-1 rounded-[999px] p-1" style={{ background: 'var(--flit-bg-app)', border: '1px solid var(--flit-border-soft)' }}>
+    <div className="inline-flex w-fit flex-wrap gap-1 rounded-[999px] p-1" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
       {children}
     </div>
   );
@@ -501,8 +501,8 @@ function PillButton({ active, onClick, children }: { active: boolean; onClick: (
       onClick={onClick}
       className="flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-4 py-2 text-xs font-semibold transition-colors"
       style={active
-        ? { background: '#fff', color: 'var(--flit-blue)', boxShadow: 'var(--flit-shadow-card)' }
-        : { color: 'var(--flit-text-muted)' }}
+        ? { background: '#fff', color: 'var(--kit-azul)', boxShadow: 'var(--flit-shadow-card)' }
+        : { color: 'var(--color-text-tertiary)' }}
     >
       {children}
     </button>
@@ -512,8 +512,8 @@ function PillButton({ active, onClick, children }: { active: boolean; onClick: (
 function Field({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{label}</p>
-      <p className={`truncate text-sm ${bold ? 'font-bold' : ''}`} style={{ color: bold ? 'var(--flit-text-primary)' : 'var(--flit-text-secondary)' }}>{value}</p>
+      <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>{label}</p>
+      <p className={`truncate text-sm ${bold ? 'font-bold' : ''}`} style={{ color: bold ? 'var(--color-text-primary)' : 'var(--color-text-secondary)' }}>{value}</p>
     </div>
   );
 }

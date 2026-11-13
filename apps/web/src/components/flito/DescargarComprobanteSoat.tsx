@@ -1,4 +1,4 @@
-// FLITO — descarga INDIVIDUAL del comprobante de un SOAT (HU #12816, Feature #12814).
+// FLITO — descarga INDIVIDUAL del comprobante de un SOAT (HU 12816, Feature 12814).
 //
 // La masiva es `DescargarSoportesZip` (selección de ≥2 filas → ZIP). Esta es su pareja de una sola
 // fila: un icono en la celda de «Ver» y un botón con texto al final de las acciones del detalle. Las
@@ -107,7 +107,7 @@ export function useDescargaComprobante(): EstadoDescargaComprobante {
       await api.download(ruta, nombreComprobante(soat.placa, comprobante.nombreArchivo));
     } catch (e) {
       const { texto, reintentar } = avisoDeError(e, rotuloDe(soat));
-      // El toast del kit (HU #12819): el mismo copy, «Reintentar» y «Cerrar aviso» de siempre.
+      // El toast del kit (HU 12819): el mismo copy, «Reintentar» y «Cerrar aviso» de siempre.
       toastError(texto, reintentar ? () => { void descargar(soat); } : undefined, { id: idToast });
     } finally {
       candado.current.delete(soat.id);
@@ -128,8 +128,8 @@ function useEstadoBoton(soat: SoatDescargable, descarga: EstadoDescargaComproban
     ? `${base} ${ocupado ? 'cursor-progress opacity-60' : ''}`
     : `${base} cursor-not-allowed`;
   const style = pagado
-    ? { ...flitBtnSecondaryStyle, color: 'var(--flit-blue-text)' }
-    : { ...flitBtnSecondaryStyle, color: 'var(--flit-text-muted)', borderColor: 'var(--flit-border-soft)' };
+    ? { ...flitBtnSecondaryStyle, color: 'var(--color-action)' }
+    : { ...flitBtnSecondaryStyle, color: 'var(--color-text-tertiary)', borderColor: 'var(--color-border)' };
   const props = {
     type: 'button' as const,
     'aria-label': `Descargar comprobante ${rotuloDe(soat)}`,
@@ -143,7 +143,7 @@ function useEstadoBoton(soat: SoatDescargable, descarga: EstadoDescargaComproban
 
 /** Icono de la celda de «Ver». Enfocable también en gris (`aria-disabled`) para leer el motivo. */
 export function BotonComprobanteFila({ soat, descarga }: { soat: SoatDescargable; descarga: EstadoDescargaComprobante }) {
-  // Compacto (`h-7 w-7`) desde la HU #12819: la fila no crece por su botón.
+  // Compacto (`h-7 w-7`) desde la HU 12819: la fila no crece por su botón.
   const { pagado, idMotivo, clase, style, props } = useEstadoBoton(soat, descarga, true);
   return (
     <>
@@ -166,7 +166,7 @@ export function BotonComprobanteDetalle({ soat, descarga }: { soat: SoatDescarga
         title={pagado ? undefined : MOTIVO_NO_PAGADO}>
         <Download size={16} aria-hidden="true" className="shrink-0" />{ocupado ? 'Descargando…' : 'Descargar comprobante'}
       </button>
-      {!pagado && <p id={idMotivo} className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{MOTIVO_NO_PAGADO}</p>}
+      {!pagado && <p id={idMotivo} className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{MOTIVO_NO_PAGADO}</p>}
     </div>
   );
 }
