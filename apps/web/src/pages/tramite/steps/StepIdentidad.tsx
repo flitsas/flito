@@ -31,7 +31,7 @@ export default function StepIdentidad({
 
       {/* Info comprador */}
       <div className="rounded-[9px] p-4 mb-5" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-        <div className="grid grid-cols-3 gap-3 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
           <div><span style={{ color: 'var(--color-text-tertiary)' }}>Comprador: </span><span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{comprador.nombre || '—'}</span></div>
           <div><span style={{ color: 'var(--color-text-tertiary)' }}>Documento: </span><span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{comprador.tipoDoc} {comprador.documento}</span></div>
           <div><span style={{ color: 'var(--color-text-tertiary)' }}>Email: </span><span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{comprador.email || 'Sin email'}</span></div>

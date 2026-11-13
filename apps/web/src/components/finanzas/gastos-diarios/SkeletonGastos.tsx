@@ -37,7 +37,7 @@ export default function SkeletonGastos() {
       <FlitCard>
         <div className="flex items-center justify-between">
           <div className={`${barra} h-3 w-24`} />
-          <div className={`${barra} h-9 w-[28rem]`} />
+          <div className={`${barra} h-9 w-full sm:w-[28rem]`} />
         </div>
         <div className={`${barra} mt-2 w-full`} style={{ height: ALTO_SVG }} />
         <div className={`${barra} mt-2 h-12 w-full`} />

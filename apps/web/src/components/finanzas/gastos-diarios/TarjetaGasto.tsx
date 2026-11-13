@@ -18,7 +18,8 @@ export default function TarjetaGasto({ categoria, celda }: { categoria: Categori
           style={vacia ? { color: 'var(--color-text-tertiary)' } : undefined}>
           {celda.cantidad} · <Monto v={Number(celda.valor)} />
         </span>
-        <span className="text-xs [grid-row:3]" style={{ color: 'var(--color-text-secondary)' }} title={categoria.cuando}>
+        {/* Toda la fila: auto-colocado caía en la columna `auto` de `.metrica` y medía su texto entero (407 px a 390). */}
+        <span className="min-w-0 text-xs [grid-column:1/-1] [grid-row:3]" style={{ color: 'var(--color-text-secondary)' }} title={categoria.cuando}>
           {categoria.rotulo}
         </span>
       </div>

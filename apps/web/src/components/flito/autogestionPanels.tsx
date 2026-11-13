@@ -104,7 +104,7 @@ export function PanelGestionOrganismo({ organismo, editable, onCambio }: {
 
         <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--color-border)' }}>
           <p className="text-sm font-semibold" style={{ color: 'var(--color-action)' }}>Parámetros de OCR / ANS</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FlitField label="Umbral OCR (0–1)"><input className={flitInp} type="number" step="0.01" min="0" max="1" value={umbral} disabled={!editable} onChange={(e) => setUmbral(e.target.value)} /></FlitField>
             <FlitField label="ANS pactado con el organismo (horas)"><input className={flitInp} type="number" min="1" value={sla} disabled={!editable} onChange={(e) => setSla(e.target.value)} /></FlitField>
           </div>
