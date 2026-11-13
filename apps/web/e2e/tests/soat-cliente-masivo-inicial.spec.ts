@@ -133,7 +133,7 @@ test.describe('HU #14137 · AC1 — SOAT inicial en masa', () => {
     await expect(page.getByRole('button', { name: 'Descargar rechazadas' })).toHaveCount(0);
     const otro = page.getByRole('button', { name: 'Cargar otro archivo' });
     await expect(otro).toBeVisible();
-    await expect(otro).toHaveAttribute('style', /flit-gradient-primary/);
+    await expect(otro).toHaveAttribute('data-variante', 'primario');
   });
 
   test('plantilla equivocada y archivo vacío se explican con el copy de Inicial, no con el mensaje del API', async ({ page }) => {

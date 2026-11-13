@@ -298,10 +298,18 @@ test.describe('HU #12997 · retrabajo — la pastilla resaltada es la que filtra
     const pulsadas = grupoPastillas(page).locator('button[aria-pressed="true"]');
     await expect(pulsadas).toHaveCount(1);
     await expect(pulsadas).toHaveText(nombre);
-    const conCara = await grupoPastillas(page).locator('button').evaluateAll((bs) =>
-      bs.filter((b) => getComputedStyle(b).boxShadow !== 'none'
-        || getComputedStyle(b).backgroundColor !== 'rgba(0, 0, 0, 0)').map((b) => b.textContent?.trim()));
-    expect(conCara).toEqual([nombre]);
+    // UI Kit 2026 (S0): las pastillas en reposo ya tienen fondo propio, así que «con cara» ya no es
+    // «con fondo o sombra» sino «con una cara DISTINTA de la del resto». Se aparta el puntero para
+    // no medir el hover, y se reintenta mientras dura la transición de color.
+    await page.mouse.move(0, 0);
+    await expect.poll(() => grupoPastillas(page).locator('button').evaluateAll((bs) => {
+      const cara = (b: Element) => {
+        const c = getComputedStyle(b);
+        return `${c.backgroundColor}|${c.boxShadow}|${c.color}`;
+      };
+      const caras = bs.map(cara);
+      return bs.filter((_, i) => caras.filter((c) => c === caras[i]).length === 1).map((b) => b.textContent?.trim());
+    })).toEqual([nombre]);
   }
   const listos = (page: Page) => page.getByRole('button', { name: 'Listos para enviar' });
   // «Listos para enviar» apagada en `aria-pressed` Y en la cara: el mismo borde que «Sin gestión».

@@ -98,4 +98,17 @@ Delegación prevista: `frontend-agent` por bloque (1–4) dentro del worktree, a
 Regla del humano (BRIEF-COMUN): aquí solo se rediseña. Un defecto de permisos, lógica o datos no se corrige ni se
 radica; se anota aquí y pasa al HANDOFF.
 
-- (ninguno por ahora)
+Comprobados contra `develop` (sin S0 ni S2) el 2026-11-12: fallan igual allí, así que no son del rediseño.
+
+- **Tax-reader sin permiso no redirige** (`tax-reader.spec.ts:16`): un usuario sin `tax_reader` en
+  `allowedPages` se queda en `/tax-reader` en vez de volver a `/`. Defecto de permisos/ruta preexistente.
+- **SOAT legacy, proveedor** (`soat.spec.ts:77`): la segunda mitad del test (proveedor) no encuentra la
+  pestaña «Gestión de compras». Preexistente.
+- **Envío a FLIT 1 tras reemplazo** (`flito-impuestos-envio-flit2.spec.ts:466`, AC6): durante el refresco
+  del detalle la celda «Comprobante en FLIT 1» no muestra su estado de cargando (`dd[aria-busy]`). Preexistente.
+- **Solicitud SOAT del Cliente, orden de encabezados** (`soat-vin-unico-ficha-runt.spec.ts:305`): aparece el
+  `h2` «Forma de cargar» (HU #14134, 2026-10-28), que el test (2026-10-27) no conoce. Test desactualizado.
+- **Solicitud SOAT del Cliente, foco y deshabilitados** (`soat-vin-unico-ficha-runt-a11y.spec.ts:76` y `:177`):
+  el Tab desde el título no cae en «SOAT inicial», y leyendo la factura queda un `input[disabled]`. Preexistentes.
+- **Ficha de Impuestos vs TC-25** (`flito-impuestos.spec.ts:1499`): el paso 23 de la ficha (certificar sin
+  trámite) dice «en computador», que TC-25 (HU #12615) prohíbe. Ya estaba así en `develop`; no lo introdujo la v1.9.

@@ -119,21 +119,20 @@ test.describe('FLITO — Comparendos · acceso', () => {
     });
   }
 
-  test('AC3 — con la página, el dock ofrece «Comparendos» en Gestión y navega', async ({ page }) => {
+  test('AC3 — con la página, el dock ofrece «Comparendos» en Impuestos y SOAT y navega', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await page.goto('/flito/comparendos');
     await expect(page.getByRole('heading', { name: 'Comparendos monitoreados' })).toBeVisible();
 
-    const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await nav.getByRole('button', { name: 'Gestión', exact: true }).click();
-    const enlace = page.getByRole('link', { name: 'Comparendos', exact: true });
+    // UI Kit 2026 (S0): el dock agrupa Comparendos en «Impuestos y SOAT», sección «Obligaciones».
+    await page.locator('#flit-navbar-trigger-impuestos-soat').click();
+    const panel = page.locator('#flit-navbar-panel-impuestos-soat');
+    const enlace = panel.getByRole('link', { name: /^Comparendos/ });
     await expect(enlace).toBeVisible();
     await expect(enlace).toHaveAttribute('href', '/flito/comparendos');
 
-    // Y su subgrupo, que es lo que evita que caiga en la columna sin título del final del panel.
-    await expect(
-      page.locator('#flit-navbar-panel-gestion p').filter({ hasText: /^Comparendos$/ }),
-    ).toBeVisible();
+    // Y su sección con título, que es lo que evita que caiga en una columna sin título del panel.
+    await expect(panel.getByText('Obligaciones', { exact: true })).toBeVisible();
 
     await enlace.click();
     await expect(page).toHaveURL(/\/flito\/comparendos$/);
@@ -158,9 +157,17 @@ test.describe('FLITO — Comparendos · acceso', () => {
     // El dock: el auditor tiene varias páginas de Gestión, así que el módulo se abre y se puede
     // afirmar la ausencia con el panel desplegado (con el panel cerrado los enlaces ni existen y el
     // aserto no diría nada).
-    const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await nav.getByRole('button', { name: 'Gestión', exact: true }).click();
-    await expect(page.getByRole('link', { name: 'Comparendos', exact: true })).toHaveCount(0);
+    // UI Kit 2026 (S0): Comparendos vive en el grupo «Impuestos y SOAT». Si el auditor tiene alguna
+    // página de ese grupo, se abre el panel para afirmar la ausencia con él desplegado; si no tiene
+    // ninguna, el grupo entero no existe y la ausencia es aún más fuerte.
+    // Primero que el dock esté montado: con la sesión aún «Cargando…» el conteo diría 0 por error.
+    await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeVisible();
+    const trigger = page.locator('#flit-navbar-trigger-impuestos-soat');
+    if (await trigger.count()) {
+      await trigger.click();
+      await expect(page.locator('#flit-navbar-panel-impuestos-soat')).toBeVisible();
+    }
+    await expect(page.getByRole('link', { name: /^Comparendos/ })).toHaveCount(0);
     await page.keyboard.press('Escape');
 
     // El palette es el SEGUNDO camino al slug: mismo filtrado, componente distinto, y es el que

@@ -1200,17 +1200,23 @@ test.describe('HU #12819 — los botones del kit reaccionan al puntero (§9)', (
 
     const primaria = page.getByRole('button', { name: 'Cargar comprobantes de SOAT (masivo)' });
     const secundaria = page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver', exact: true });
-    await expect(primaria).toHaveAttribute('class', /hover:shadow-\[inset_0_0_0_999px_var\(--flit-veil-press-hover\)\]/);
-    await expect(secundaria).toHaveAttribute('class', /hover:bg-\[var\(--flit-bg-hover\)\]/);
+    // UI Kit 2026 (S0): la variante se lee del marcador estable `data-variante`, no de la clase.
+    await expect(primaria).toHaveAttribute('data-variante', 'primario');
 
-    // Y la clase no es decorativa: al pasar el puntero el estilo calculado CAMBIA.
-    const sombra = () => primaria.evaluate((el) => getComputedStyle(el).boxShadow);
-    const fondo = () => secundaria.evaluate((el) => getComputedStyle(el).backgroundColor);
-    const [sombraReposo, fondoReposo] = [await sombra(), await fondo()];
+    // Y el hover no es decorativo: al pasar el puntero el estilo calculado CAMBIA (fondo, filtro o
+    // sombra: el kit decide cuál; el test exige que alguno se pinte).
+    const pintura = (el: Element) => {
+      const c = getComputedStyle(el);
+      return `${c.backgroundColor}|${c.backgroundImage}|${c.filter}|${c.boxShadow}`;
+    };
+    const estiloPrimaria = () => primaria.evaluate(pintura);
+    const estiloSecundaria = () => secundaria.evaluate(pintura);
+    await page.mouse.move(0, 0);
+    const [primariaReposo, secundariaReposo] = [await estiloPrimaria(), await estiloSecundaria()];
     await primaria.hover();
-    await expect.poll(sombra).not.toBe(sombraReposo);
+    await expect.poll(estiloPrimaria).not.toBe(primariaReposo);
     await secundaria.hover();
-    await expect.poll(fondo).not.toBe(fondoReposo);
+    await expect.poll(estiloSecundaria).not.toBe(secundariaReposo);
   });
 });
 
