@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { Icono } from '../flit/kit/Icono';
 import {
   AREAS_SOPORTE, ETIQUETAS_AREA_SOPORTE, ETIQUETAS_FRECUENCIA_SOPORTE, ETIQUETAS_PRIORIDAD_SOPORTE,
   FRECUENCIAS_SOPORTE, PRIORIDADES_SOPORTE,
@@ -21,16 +21,16 @@ import {
 /** Id del control de un campo: el asistente enfoca el primer error por aquí. */
 export const idCampoSoporte = (campo: CampoSoporte) => `drflit-soporte-${campo}`;
 
-const ROTULO = 'mb-1 block text-[11px] font-semibold text-[color:var(--flit-text-primary)]';
+const ROTULO = 'mb-1 block text-[11px] font-semibold text-[color:var(--color-text-primary)]';
 const AYUDA = 'mt-1 break-words text-xs text-flit-secondary';
 /** `flitInp` con 16 px por debajo de lg (como la caja de pregunta) y sin desbordar el panel. */
 const INPUT = `${flitInp.replace('text-sm', 'text-base lg:text-sm')} min-w-0`;
-const BORDE_ERROR = { borderColor: 'var(--flit-danger-text)' } as const;
+const BORDE_ERROR = { borderColor: 'var(--kit-rojo-texto)' } as const;
 
 function ErrorCampo({ id, texto }: { id: string; texto: string }) {
   return (
-    <p id={id} className="mt-1 flex items-start gap-1 break-words text-xs text-[color:var(--flit-danger-text)]">
-      <AlertCircle aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
+    <p id={id} className="mt-1 flex items-start gap-1 break-words text-xs text-[color:var(--kit-rojo-texto)]">
+      <Icono nombre="alerta" size={14} className="mt-px shrink-0" />
       <span className="min-w-0">{texto}</span>
     </p>
   );
@@ -129,7 +129,7 @@ function GrupoRadios<K extends 'frecuencia' | 'prioridad'>({
           return (
             <label
               key={o.valor}
-              className={`${flitPillBtnClase} cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[color:var(--flit-border-focus)]`}
+              className={`${flitPillBtnClase} cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[color:var(--kit-azul)]`}
               // `capitalize` del kit cambiaría «A veces» por «A Veces»: el copy va tal cual.
               style={{ ...flitPillBtn(marcada), textTransform: 'none' }}
             >
@@ -190,7 +190,7 @@ export function PasoCaso(p: PropsCampo) {
       {/* `FlitSelect` no admite clase: el 16 px en <lg y el borde de error llegan por el contenedor. */}
       <div
         id={`${idCampoSoporte('area')}-caja`}
-        className={`min-w-0 max-lg:[&_select]:text-base ${errorArea ? '[&_select]:border-[color:var(--flit-danger-text)]' : ''}`}
+        className={`min-w-0 max-lg:[&_select]:text-base ${errorArea ? '[&_select]:border-[color:var(--kit-rojo-texto)]' : ''}`}
       >
         <FlitSelect
           label="Área"
