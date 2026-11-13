@@ -10,7 +10,6 @@
 // de revisión que ya existe, para que Operaciones tenga una sola bandeja que atender.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
