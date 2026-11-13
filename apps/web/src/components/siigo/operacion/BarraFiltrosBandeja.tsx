@@ -178,7 +178,7 @@ export default function BarraFiltrosBandeja(
 function Grupo({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
   const id = useId();
   return (
-    <div role="group" aria-labelledby={id} className="flex flex-col gap-1">
+    <div role="group" aria-labelledby={id} className="flex min-w-0 max-w-full flex-col gap-1 max-lg:basis-full">
       <span id={id} className="text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         {etiqueta}
       </span>

@@ -190,7 +190,7 @@ export default function MatrizTarifas({ vista, refrescando, onGuardado, onHistor
       {alerta && (
         <p role="alert" className="mb-3 text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>{alerta}</p>
       )}
-      <FlitTable label={`Valores de ${companiaNombre}`}>
+      <FlitTable matriz label={`Valores de ${companiaNombre}`}>
         <thead>
           <FlitTr>
             <FlitTh>Trámite</FlitTh>

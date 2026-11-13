@@ -228,12 +228,13 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
     <MarcoComparendos
       nav={nav}
       acciones={(
-        <div className="flex flex-col items-end gap-1">
+        // Como BotonExportarCola: a ancho completo <640 px; desde `sm`, el botón y su nota alineados a la derecha.
+        <div className="flex w-full flex-col items-stretch gap-1 sm:w-auto sm:items-end">
           <BotonExportarComparendos ocupado={exportacion.ocupado} onExportar={exportacion.exportar} />
           {/* El tope se anuncia ANTES de fallar, pero SIN cifra: el máximo de filas es
               configurable por entorno y cualquier número escrito aquí puede ser falso en cualquier
               despliegue. Cuando el tope se alcanza, el 422 trae el número de verdad. */}
-          <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+          <span className="text-xs sm:text-right" style={{ color: 'var(--color-text-secondary)' }}>
             Se exporta el conjunto filtrado que estás viendo, no solo esta página.
           </span>
         </div>

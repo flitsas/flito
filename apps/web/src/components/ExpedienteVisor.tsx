@@ -511,7 +511,7 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
                             </div>
                           </div>
                           <div className="p-3">
-                            <div className="grid grid-cols-3 gap-2 mb-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
                               {[{ l: 'SELFIE', src: d.fotoRostro }, { l: 'FRENTE', src: d.fotoCedulaFrontal }, { l: 'REVERSO', src: d.fotoCedulaReverso }].map((f) => (
                                 <div key={f.l} className="text-center"><div className="aspect-[3/4] bg-[color:var(--color-surface)] rounded-[9px] overflow-hidden border border-[color:var(--color-border)]">{f.src ? <img src={f.src} alt={f.l} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-[11px] text-[color:var(--color-text-tertiary)]">Sin foto</div>}</div><p className="text-[11px] font-semibold text-[color:var(--color-text-tertiary)] mt-0.5">{f.l}</p></div>
                               ))}

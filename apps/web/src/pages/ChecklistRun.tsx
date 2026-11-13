@@ -106,7 +106,7 @@ export default function ChecklistRun() {
   void user;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 lg:gap-6">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Nuevo checklist preoperacional"
         subtitle="Inspeccione cada ítem antes de iniciar la jornada. Su PIN firma digitalmente."
@@ -114,7 +114,7 @@ export default function ChecklistRun() {
         miga={[{ etiqueta: 'PESV', to: '/pesv' }, { etiqueta: 'Checklists preoperacionales', to: '/pesv/checklists' }]}
       />
 
-      <form onSubmit={submit} className="flex flex-col gap-4">
+      <form onSubmit={submit} className="flex w-full max-w-3xl flex-col gap-4">
         <FlitCard className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <FlitField label="Plantilla *">
             <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className={flitInp}>

@@ -260,7 +260,7 @@ function DetalleDiagnostico({ id }: { id: number }) {
         {/* Sidebar fases */}
         <aside aria-label="Filtros por fase PHVA">
           <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--color-text-tertiary)]">Fases PHVA</h2>
-          <nav className="grid grid-cols-2 gap-2 sm:flex sm:flex-row sm:flex-wrap lg:flex-col">
+          <nav className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:flex sm:flex-row sm:flex-wrap lg:flex-col">
             <FaseChip activo={faseFiltro === null} onClick={() => setFaseFiltro(null)} label="Todas" count={stats.total} progreso={stats.total > 0 ? (stats.evaluados / stats.total) * 100 : 0} />
             {FASES.map((f) => {
               const fItems = detail.items.filter((i) => i.fase === f);

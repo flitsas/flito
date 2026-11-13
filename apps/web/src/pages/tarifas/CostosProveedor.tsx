@@ -211,7 +211,7 @@ export default function CostosProveedor({ vista, refrescando, onGuardado, onHist
       )}
 
       {escritorio ? (
-        <FlitTable label={`Valores de ${nombre}`}>
+        <FlitTable matriz label={`Valores de ${nombre}`}>
           <thead>
             <FlitTr>
               <FlitTh>Servicio</FlitTh>

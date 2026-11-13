@@ -248,7 +248,7 @@ export function ModalRecarga({
           El envío repetía una recarga que ya se había asentado, así que <strong>no se sumó nada al
           saldo</strong>. Este es el movimiento original:
         </p>
-        <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+        <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
           <dt style={{ color: 'var(--color-text-tertiary)' }}>Valor</dt>
           <dd className="font-semibold tabular-nums">{pesos(duplicado.movimiento.valor)}</dd>
           <dt style={{ color: 'var(--color-text-tertiary)' }}>Registrado por</dt>
@@ -618,7 +618,7 @@ function ResumenCierre({ saldoInicial, entradas, salidas, saldoFinal, movimiento
   saldoInicial?: number; entradas: number; salidas: number; saldoFinal: number; movimientos: number;
 }) {
   return (
-    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border p-4 text-sm"
+    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 rounded-lg border p-4 text-sm"
       style={{ borderColor: 'var(--color-border)' }}>
       {saldoInicial !== undefined && (
         <>

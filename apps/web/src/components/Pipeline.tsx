@@ -232,7 +232,7 @@ export default function Pipeline({ vehicles, onRefresh, rangoLabel, onOpenVehicl
                 <button
                   type="button"
                   onClick={() => setDetailTarget(v)}
-                  className="md:col-span-3 flit-focus grid grid-cols-3 items-center gap-2 rounded-[9px] text-left transition-colors hover:bg-[color:var(--kit-hover)]"
+                  className="md:col-span-3 flit-focus grid grid-cols-1 sm:grid-cols-3 items-center gap-2 rounded-[9px] text-left transition-colors hover:bg-[color:var(--kit-hover)]"
                   title="Ver etapa del propietario"
                 >
                   <span className="col-span-1 text-sm font-semibold text-[color:var(--color-text-primary)]">{v.plate || '—'}</span>

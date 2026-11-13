@@ -69,7 +69,16 @@ export default function FlitModal(
             <Icono nombre="cerrar" size={20} />
           </button>
         </div>
-        <div className={'kit-modal__cuerpo' + (full || lateral ? ' min-h-0 flex-1 overflow-y-auto' : '')}>{children}</div>
+        {/* Con scroll propio (lateral/full) el cuerpo es una región enfocable: sin ella, quien usa teclado no
+            podía desplazar un contenido sin controles (`scrollable-region-focusable`). Foco visible del kit. */}
+        <div
+          className={'kit-modal__cuerpo' + (full || lateral ? ' flit-focus-inset min-h-0 flex-1 overflow-y-auto' : '')}
+          tabIndex={full || lateral ? 0 : undefined}
+          role={full || lateral ? 'region' : undefined}
+          aria-label={full || lateral ? title : undefined}
+        >
+          {children}
+        </div>
       </div>
     </div>
     </ModalPortal>

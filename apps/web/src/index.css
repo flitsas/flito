@@ -6,6 +6,7 @@
      · kit/kit-propuesta.css  — componentes de propuesta.css   (capa components)
      · kit/kit-ui.css         — componentes de ui-kit-2026.css (capa components)
      · kit/kit-react.css      — piezas propias del port a React (capa components)
+     · kit/kit-responsive.css — correcciones responsive del rediseño, V1–V11 (capa components, después de kit-react)
    Las utilidades de Tailwind (capa utilities) siempre ganan a las clases del kit.
    Guía: docs/ux/rediseno-2026/README.md
    ============================================================= */
@@ -15,6 +16,7 @@
 @import './styles/kit/kit-propuesta.css' layer(components);
 @import './styles/kit/kit-ui.css' layer(components);
 @import './styles/kit/kit-react.css' layer(components);
+@import './styles/kit/kit-responsive.css' layer(components);
 
 /* ============================================================
    @theme inline — las utilidades existentes (`bg-surface`, `text-text-primary`, `border-border`,

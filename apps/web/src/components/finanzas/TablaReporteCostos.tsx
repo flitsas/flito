@@ -122,7 +122,7 @@ export default function TablaReporteCostos({
     <>
       <div className="mb-3">{barra(true)}</div>
       <div className="text-sm" style={varIzq} aria-busy={cargando || undefined}>
-        <FlitTable label="Reporte de costos, detalle">
+        <FlitTable matriz label="Reporte de costos, detalle">
           <thead>
             <tr>
               {puedeLiquidar && (

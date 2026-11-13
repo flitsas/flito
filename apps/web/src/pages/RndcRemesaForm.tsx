@@ -152,7 +152,7 @@ export default function RndcRemesaForm() {
   };
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-5">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
       <PageHeaderCard
         title={isEdit ? 'Editar remesa' : 'Nueva remesa'}
         subtitle="RNDC · Documento de despacho — se asocia luego a un manifiesto electrónico"
@@ -160,7 +160,7 @@ export default function RndcRemesaForm() {
         miga={[{ etiqueta: 'Cumplimiento' }, { etiqueta: 'RNDC', to: '/rndc' }, { etiqueta: 'Remesas', to: '/rndc/remesas' }]}
       />
 
-      <div className="card space-y-6 p-6">
+      <div className="card w-full max-w-4xl space-y-6 p-6">
         <Section title="Partes">
           <Field label="Cliente"><Select value={form.clientId} onChange={(v) => setForm({ ...form, clientId: v as number | null })} options={clientes.map((c) => (esInactivo({ activo: c.active }) ? [c.id, `${c.name} (${NOTA_INACTIVO})`, c.id !== form.clientId] : [c.id, c.name]))} placeholder="(Sin cliente)" /></Field>
           <Field label="Propietario de carga"><Select value={form.propietarioCargaId} onChange={(v) => setForm({ ...form, propietarioCargaId: v as number | null })} options={propietarios.map((p) => [p.id, `${p.nombre} (${p.documento})`])} placeholder="(Sin propietario)" /></Field>

@@ -38,6 +38,7 @@ import {
 } from '../components/flito/tramites/tiposTramites';
 import { FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp } from '../components/flit/flitPageKit';
 import FiltroSegmentado from '../components/flit/FiltroSegmentado';
+import FiltrosPlegables from '../components/flit/FiltrosPlegables';
 import { OPCIONES_FUENTE, VacioFuenteTramite } from '../components/flito-tramites/FuenteTramite';
 import type { FuenteTramite } from '@operaciones/shared-types';
 import {
@@ -374,6 +375,9 @@ export default function FlitoTramites() {
           <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-[color:var(--color-border)] pb-3">
             <input className={`${flitInp} w-full sm:w-72`} placeholder="Buscar placa, VIN, id o comprador…"
               value={texto} onChange={(e) => setTexto(e.target.value)} />
+            {/* Épica #14560 (b): en teléfono estos controles se pliegan tras «Filtros (n)»; solo presentación. */}
+            <FiltrosPlegables modo="linea"
+              activos={[!!(creado.desde || creado.hasta), !!(aprobado.desde || aprobado.hasta), autogestionSel !== '', fuenteSel !== ''].filter(Boolean).length}>
             <FiltrosInteligentes presets={PRESETS} activo={preset}
               onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
             <RangoFechas etiqueta="Creado" valor={creado} onCambio={(r) => { setCreado(r); setPage(1); }} />
@@ -382,6 +386,7 @@ export default function FlitoTramites() {
             <FiltroSegmentado ariaLabel="Filtrar por autogestión" valor={autogestionSel} onCambio={setAutogestionSel}
               opciones={[{ valor: '', etiqueta: 'Todas' }, { valor: 'si', etiqueta: 'Autogestionadas' }, { valor: 'no', etiqueta: 'No autogestionadas' }]} />
             <FiltroSegmentado rotulo="Fuente" ariaLabel="Filtrar por fuente" valor={fuenteSel} onCambio={setFuenteSel} opciones={OPCIONES_FUENTE} />
+            </FiltrosPlegables>
             {/* Alerta activa (llega del tablero por URL). Se muestra siempre que esté puesta, para
                 que nadie interprete un listado recortado como si fuera la maestra completa. */}
             {alertaSel && (

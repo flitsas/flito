@@ -37,6 +37,7 @@ import {
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitInp,
 } from '../../flit/flitPageKit';
 import FlitSelect, { type FlitSelectOpcion } from '../../flit/FlitSelect';
+import FiltrosPlegables from '../../flit/FiltrosPlegables';
 import { useDebounce } from '../../../lib/useDebounce';
 import {
   hayCriterios, normalizarNit,
@@ -334,6 +335,10 @@ export default function BarraFiltrosComparendos({
             meter tres paradas en medio lo partiría en dos sin que nada lo explique. Aquí, además,
             leen en el orden en que se piensa la búsqueda: primero se acota de dónde y de qué tipo,
             después se busca uno concreto. */}
+        {/* Épica #14560 (b): en teléfono los tres selectores se pliegan tras «Filtros (n)»; solo
+            presentación, siguen aplicando al cambiar. */}
+        <FiltrosPlegables
+          activos={[!!criterios.municipio, !!criterios.fuente, !!(criterios.causalId || criterios.sinCausal)].filter(Boolean).length}>
         <div className="grid gap-3 md:grid-cols-3">
           <FlitSelect
             label="Municipio"
@@ -403,6 +408,7 @@ export default function BarraFiltrosComparendos({
             textoReintento="Volver a cargar las causales"
           />
         </div>
+        </FiltrosPlegables>
 
         <div className="grid gap-3 md:grid-cols-[1.4fr_1fr_1fr_auto]">
           <div>
