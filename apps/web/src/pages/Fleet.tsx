@@ -13,8 +13,7 @@ import DataTable from '../components/flit/DataTable';
 import Placa from '../components/flit/Placa';
 import { EtiquetaEstado } from '../components/flit/Bloques';
 import { Icono } from '../components/flit/kit/Icono';
-import { claseBoton } from '../components/flit/GradientButton';
-import { flitInp, FlitField } from '../components/flit/flitPageKit';
+import { flitInp, FlitField, flitBtnSecondarySm } from '../components/flit/flitPageKit';
 import { ESTADO_FLOTA, estadoPorDias } from '../components/fleet/estados-flota';
 
 interface FleetVehicle {
@@ -167,7 +166,7 @@ export default function Fleet() {
               { key: 'promedio', header: 'Promedio día', etiqueta: 'Promedio día', render: (v) => (v.distPromedioDia ? `${v.distPromedioDia} km` : '—') },
               {
                 key: 'acciones', header: '', acciones: true, align: 'right',
-                render: (v) => <Link to={`/fleet/${v.id}`} className={claseBoton('secondary', 'sm')}>Detalle</Link>,
+                render: (v) => <Link to={`/fleet/${v.id}`} className={flitBtnSecondarySm}>Detalle</Link>,
               },
             ]}
           />
