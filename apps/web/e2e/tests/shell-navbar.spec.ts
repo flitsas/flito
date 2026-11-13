@@ -7,10 +7,10 @@
 //   · un botón por sección del catálogo de permisos, en SECTION_ORDER y con sus nombres (General, Gestión,
 //     Tránsito, Flota, Mantenimiento, PESV, RNDC, LAFT, Finanzas, Administración, Ayuda); una sección de una sola
 //     página es enlace directo con el nombre del ítem (General → Tablero). Sin isotipo central ni reagrupado;
-//   · condensado medido: si la fila con nombres no cabe, solo íconos (`dock--compacto`); ≤1100 px solo íconos por
-//     el CSS del kit. El nombre sigue en el DOM (nombre accesible);
+//   · «Más» medido (desde 1024 px): las secciones que caben van con nombre; las que no, en el panel del «Más», en el
+//     mismo orden. Ya no hay modo solo-íconos;
 //   · la barra superior no tiene Notificaciones ni la rejilla de Productos;
-//   · el dock cubre también tableta y teléfono: ya no hay hamburguesa ni drawer en <lg.
+//   · <1024 px no hay dock: ☰ en el topbar + menú lateral (lo cubre shell-menu-responsive.spec.ts).
 import { test, expect } from '../helpers/fixtures';
 import { ARBOL_PERMISOS, ELEMENTOS_PERMISOS } from '@operaciones/shared-types';
 import {
@@ -65,8 +65,9 @@ const nombresDelDock = (page: import('@playwright/test').Page) => page.evaluate(
   Array.from(document.querySelector('[data-vt="floating-nav"]')!.children)
     .map((k) => (k.querySelector('.dock__nombre')?.textContent ?? '').trim()));
 
+// A 1920 px caben las 11 secciones del admin con nombre (sin «Más»); el «Más» se prueba aparte.
 test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
-  test.use({ viewport: { width: 1440, height: 900 } });
+  test.use({ viewport: { width: 1920, height: 900 } });
 
   test('admin ve las 11 secciones del menú original en su orden, sin isotipo; PESV abre, navega y cierra', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
@@ -205,8 +206,13 @@ for (const width of [1024, 1440]) {
     const dock = (await nav.boundingBox())!;
     expect(dock.y).toBeGreaterThan(900 / 2);
 
-    for (const [nombre, id] of [['PESV', 'pesv'], ['Administración', 'admin']] as const) {
-      await nav.getByRole('button', { name: nombre, exact: true }).click();
+    // Gestión (siempre en la fila, el panel más ancho) y el «Más» (el último, pegado al borde derecho). Qué
+    // secciones quedan en el «Más» depende del ancho: lo mide el dock, el test no lo fija.
+    const mas = nav.getByRole('button', { name: 'Más', exact: true });
+    const paneles: Array<[import('@playwright/test').Locator, string]> = [[nav.getByRole('button', { name: 'Gestión', exact: true }), 'gestion']];
+    if (await mas.count()) paneles.push([mas, 'mas']);
+    for (const [trigger, id] of paneles) {
+      await trigger.click();
       // Se espera a que acabe la animación de entrada: falsearía el rect.
       await page.waitForTimeout(300);
       const panel = (await page.locator(`#flit-navbar-panel-${id}`).boundingBox())!;
@@ -283,6 +289,7 @@ async function medirDock(page: import('@playwright/test').Page) {
       }).length,
       // El nombre sigue en el DOM aunque no se vea: es el nombre accesible del trigger.
       nombresEnElDom: conRotulo.filter((p) => (p.textContent ?? '').trim().length > 0).length,
+      conMas: nav.querySelector(':scope > [data-seccion="mas"]') !== null,
     };
   });
 }
@@ -304,10 +311,10 @@ test('1920 px · el dock del admin es UNA fila y con los nombres a la vista (AC1
   expect(m.nombresVisibles).toBe(11);
 });
 
-// Con 11 secciones la fila del admin con nombres no cabe a 1440/1280 px: el dock la condensa ENTERA a íconos
-// (nunca a medias). ≤1100 px el CSS del kit condensa siempre.
-for (const [width, nombres] of [[1440, 0], [1280, 0], [1100, 0]] as const) {
-  test(`${width} px · una fila, sin wrap y con el nombre en el DOM (AC2, AC2b)`, async ({ page }) => {
+// Con 11 secciones la fila del admin con nombres no cabe a 1440/1280/1024 px: las que caben van CON nombre y el
+// resto pasa al «Más» (nunca solo íconos). Fila + «Más» = las 11, sin perder ni repetir ninguna.
+for (const width of [1440, 1280, 1024] as const) {
+  test(`${width} px · una fila, todas con nombre y el resto en «Más» (AC2, AC2b)`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await loginAs(page, ADMIN_USER);
     await mockApi(page);
@@ -315,48 +322,45 @@ for (const [width, nombres] of [[1440, 0], [1280, 0], [1100, 0]] as const) {
     await dockLocator(page).waitFor();
 
     const m = await medirDock(page);
-    expect(m.pildoras).toBe(11);
     // Las dos caras de la medida del AC2b (mismo evento medido dos veces; el AC las exige literalmente).
     expect(m.centrosDistintos).toBe(1);
     expect(m.alto).toBeLessThanOrEqual(m.altoDeUnaFila);
     // Sin desbordar la pantalla: un `nowrap` roto pasaría las dos de arriba y moriría aquí.
     expect(m.dentro).toBe(true);
-    expect(m.nombresVisibles).toBe(nombres);
-    // Los once nombres siguen en el árbol: el nombre accesible no cambia al condensar.
-    expect(m.nombresEnElDom).toBe(11);
-    await expect(dockLocator(page).getByRole('button', { name: 'Finanzas', exact: true })).toBeVisible();
+    // Toda píldora de la fila enseña su nombre, «Más» incluido.
+    expect(m.nombresVisibles).toBe(m.pildoras);
+    expect(m.conMas).toBe(true);
+    const mas = dockLocator(page).getByRole('button', { name: 'Más', exact: true });
+    await mas.click();
+    const enMas = await page.locator('#flit-navbar-panel-mas .dock__seccion').count();
+    expect(m.pildoras - 1 + enMas).toBe(11);
   });
 }
 
-test('1100 px · el panel abierto NO deshace el condensado por ancho (enmienda §3 de la spec)', async ({ page }) => {
-  // El panel abierto no puede «restaurar» los nombres de las píldoras a 1100: partiría el dock en dos filas con
-  // el panel encima. La compensación: el panel sí enseña los nombres de sus ítems.
-  await page.setViewportSize({ width: 1100, height: 900 });
+test('1280 px · abrir un panel no cambia cuántas secciones caben', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
   await loginAs(page, ADMIN_USER);
   await mockApi(page);
   await page.goto('/');
   await dockLocator(page).waitFor();
 
-  const condensado = await medirDock(page);
-  expect(condensado.nombresVisibles).toBe(0);
-  const altoEnIconos = condensado.alto;
-
-  const trigger = dockLocator(page).getByRole('button', { name: 'PESV', exact: true });
+  const antes = await medirDock(page);
+  const trigger = dockLocator(page).getByRole('button', { name: 'Gestión', exact: true });
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
   await page.waitForTimeout(400);
 
   const conPanel = await medirDock(page);
   expect(conPanel.centrosDistintos, 'el dock sigue en UNA fila con el panel abierto').toBe(1);
-  expect(conPanel.alto, 'el dock no crece al abrir el panel').toBe(altoEnIconos);
-  expect(conPanel.nombresVisibles, 'las píldoras siguen en iconos').toBe(0);
-  await expect(page.getByRole('link', { name: 'Alcoholimetría' })).toBeVisible();
+  expect(conPanel.alto, 'el dock no crece al abrir el panel').toBe(antes.alto);
+  expect(conPanel.pildoras, 'no entra ni sale ninguna sección del «Más»').toBe(antes.pildoras);
+  expect(conPanel.nombresVisibles).toBe(conPanel.pildoras);
 
-  // Con sitio de sobra, abrir una sección no quita los nombres.
+  // Con sitio de sobra, todas vuelven a la fila y el «Más» desaparece.
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1920, height: 900 });
-  await trigger.click();
   await expect.poll(async () => (await medirDock(page)).nombresVisibles).toBe(11);
+  await expect(dockLocator(page).getByRole('button', { name: 'Más', exact: true })).toHaveCount(0);
 });
 
 test('1920 px con scroll abajo · el dock sigue en una fila y con nombres', async ({ page }) => {
@@ -391,26 +395,15 @@ test('1280 px · un rol con pocos módulos: una fila, con su nombre y centrado',
   expect(Math.abs(caja.x + caja.width / 2 - 640)).toBeLessThanOrEqual(20);
 });
 
-test('1023 px · bajo lg el dock sigue siendo la navegación: sin hamburguesa ni rail lateral (AC3)', async ({ page }) => {
+test('1023 px · bajo lg no hay dock: la navegación es el ☰ del topbar (AC3)', async ({ page }) => {
   await page.setViewportSize({ width: 1023, height: 900 });
   await loginAs(page, ADMIN_USER);
   await mockApi(page);
   await page.goto('/');
 
-  // 1023 es el píxel anterior a `lg`. El kit 2026 retira el drawer: el dock cubre tableta y teléfono.
-  const nav = dockLocator(page);
-  await expect(nav).toBeVisible();
-  const m = await medirDock(page);
-  expect(m.centrosDistintos).toBe(1);
-  expect(m.dentro).toBe(true);
-  expect(m.nombresEnElDom).toBe(11);
-  await expect(page.getByRole('button', { name: 'Abrir menú de navegación' })).toHaveCount(0);
-  // Y las secciones siguen abriendo dentro de la pantalla.
-  await nav.getByRole('button', { name: 'Finanzas', exact: true }).click();
-  await page.waitForTimeout(300);
-  const panel = (await page.locator('#flit-navbar-panel-finanzas').boundingBox())!;
-  expect(panel.x).toBeGreaterThanOrEqual(0);
-  expect(panel.x + panel.width).toBeLessThanOrEqual(1023);
+  // 1023 es el píxel anterior a `lg`: sin dock, como en develop (`hidden lg:flex`).
+  await expect(page.getByRole('button', { name: 'Abrir menú de navegación' })).toBeVisible();
+  await expect(page.locator('[data-vt="floating-nav"]')).toHaveCount(0);
 });
 
 test('al final de la página el dock no tapa el pie legal', async ({ page }) => {
@@ -439,22 +432,22 @@ test('al final de la página el dock no tapa el pie legal', async ({ page }) => 
   expect(pie).toMatchObject({ visible: true });
 });
 
-for (const width of [360, 390]) test(`mobile ${width} px: el dock de íconos es la navegación, dentro de la pantalla y sin hamburguesa`, async ({ page }) => {
+for (const width of [360, 390]) test(`mobile ${width} px: sin dock; el ☰ cabe en la barra y abre el menú lateral`, async ({ page }) => {
   await page.setViewportSize({ width, height: 844 });
   await loginAs(page, ADMIN_USER);
   await mockApi(page);
   await page.goto('/');
 
-  const nav = dockLocator(page);
-  await expect(nav).toBeVisible();
-  const m = await medirDock(page);
-  expect(m.dentro).toBe(true);
-  expect(m.nombresVisibles).toBe(0);
-  await expect(page.getByRole('button', { name: 'Abrir menú de navegación' })).toHaveCount(0);
-  expect(m.pildoras).toBe(11);
-  expect(m.centrosDistintos).toBe(1);
-  await nav.getByRole('button', { name: 'Gestión', exact: true }).click();
-  await expect(page.locator('#flit-navbar-panel-gestion')).toBeVisible();
+  const boton = page.getByRole('button', { name: 'Abrir menú de navegación' });
+  await expect(boton).toBeVisible();
+  await expect(page.locator('[data-vt="floating-nav"]')).toHaveCount(0);
+  const caja = (await boton.boundingBox())!;
+  expect(caja.x).toBeGreaterThanOrEqual(0);
+  expect(caja.x + caja.width).toBeLessThanOrEqual(width);
+  await boton.click();
+  const menu = page.getByRole('dialog', { name: 'Menú de navegación' });
+  await menu.getByRole('button', { name: 'Gestión', exact: true }).click();
+  await expect(menu.locator('#flit-menu-lateral-gestion')).toBeVisible();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

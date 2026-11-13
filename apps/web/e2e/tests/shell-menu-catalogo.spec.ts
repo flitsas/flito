@@ -15,7 +15,7 @@
 //   npx playwright test e2e/tests/shell-menu-catalogo.spec.ts --reporter=line
 //
 // Shell del UI Kit 2026 (Épica #14560): el dock pinta las secciones del menú original (SECTION_ORDER) con los
-// nombres del catálogo, sin reagrupar ni isotipo; «Ayuda» es la última sección. La cuenta (Mi perfil, Ayuda,
+// nombres del catálogo, sin reagrupar ni isotipo; «Ayuda» es la última sección (las que no caben, en el «Más»). La cuenta (Mi perfil, Ayuda,
 // Cambiar contraseña, Salir) vive en el menú de usuario.
 
 import type { Page } from '@playwright/test';
@@ -48,7 +48,8 @@ async function opcionesDeUsuario(page: Page) {
 }
 
 test.describe('HU #13431 — menú con los nombres del catálogo', () => {
-  test.use({ viewport: { width: 1440, height: 900 } });
+  // 1920 px: caben todas las secciones con nombre; a 1440 las últimas pasan al «Más» (shell-menu-responsive).
+  test.use({ viewport: { width: 1920, height: 900 } });
 
   test('AC4 — las secciones y los ítems se rotulan con el catálogo (LAFT, no «Cumplimiento»)', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
@@ -87,7 +88,8 @@ test.describe('HU #13431 — menú con los nombres del catálogo', () => {
 });
 
 test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visibles', () => {
-  test.use({ viewport: { width: 1440, height: 900 } });
+  // 1920 px: caben todas las secciones con nombre; a 1440 las últimas pasan al «Más» (shell-menu-responsive).
+  test.use({ viewport: { width: 1920, height: 900 } });
 
   test('con capítulos visibles: «Ayuda» es la última sección, en el dock y en ⌘K (y en el menú de usuario)', async ({ page }) => {
     // Financiera: rol sin enlace con capítulos de Finanzas (no admin, que lo ve todo).

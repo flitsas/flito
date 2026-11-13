@@ -314,14 +314,15 @@ test.describe('Kit FLIT · tema oscuro completo (HU #11899)', () => {
     await page.goto('/flito/soat');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
-    // Kit 2026: el drawer (FlitSidebar) se retiró y en teléfono navega el dock. Lo que se conserva del AC6 es que
+    // Kit 2026 (Épica #14560): en teléfono no hay dock; navega el ☰ + menú lateral (FlitSidebar, piel del kit). Lo
+    // que se conserva del AC6 es que
     // el gradiente de marca (`--flit-gradient-sidebar` → `--gradient-brand`) sigue siendo gradiente en oscuro,
     // no un sólido del par oscuro de la app.
     const gradienteDark = await tokenTexto(page, '--flit-gradient-sidebar');
     expect(gradienteDark, 'isla de marca: el token no se apaga a un sólido oscuro').toMatch(/linear-gradient/i);
     expect(gradienteDark.toLowerCase()).not.toContain(CLARO.bgApp);
-    await expect(page.getByRole('button', { name: 'Abrir menú de navegación' })).toHaveCount(0);
-    await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Abrir menú de navegación' })).toBeVisible();
+    await expect(page.locator('[data-vt="floating-nav"]')).toHaveCount(0);
 
     const overlayBg = await tokenTexto(page, '--color-capture-overlay-bg');
     const overlayFg = await tokenTexto(page, '--color-capture-on-dark');
