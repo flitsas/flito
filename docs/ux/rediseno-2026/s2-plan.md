@@ -112,3 +112,23 @@ Comprobados contra `develop` (sin S0 ni S2) el 2026-11-12: fallan igual allí, a
   el Tab desde el título no cae en «SOAT inicial», y leyendo la factura queda un `input[disabled]`. Preexistentes.
 - **Ficha de Impuestos vs TC-25** (`flito-impuestos.spec.ts:1499`): el paso 23 de la ficha (certificar sin
   trámite) dice «en computador», que TC-25 (HU #12615) prohíbe. Ya estaba así en `develop`; no lo introdujo la v1.9.
+- **Fichas fuera de S2 en `flito-ayuda-artefactos.spec`**: `flito_logistica` y `users` fallan por la versión
+  esperada en el spec (no las tocó S2).
+
+## Defectos del kit S0 vistos en S2 (no tocados; para el integrador)
+
+- **`FiltrosInteligentes` desborda la página**: su `.menu-flotante` (`absolute left-0`, 20 rem) ocupa caja aunque
+  el `<details>` esté cerrado; con el disparador «Vista» al borde derecho (cola de Impuestos, 1280 px) el documento
+  mide 1616 px y aparece scroll horizontal. Sugerencia: anclarlo a la derecha (`right-0 left-auto`) o sacarlo del
+  flujo cerrado.
+- **`.page-header__acciones` estira los botones**: sin `align-items: flex-start`, el primario de la cabecera de SOAT
+  («Cargar comprobantes de SOAT (masivo)») toma la altura del bloque de exportar (~100 px).
+- **PageHeaderCard < lg**: el ícono queda debajo del título (Derechos a 375 px). Ya conocido.
+- **FlitModal `lateral`**: el cuerpo desborda sin `tabIndex`; axe `scrollable-region-focusable` en el panel de
+  detalle de Comparendos guardando (`flito-comparendos-visor-a11y.spec.ts:210`). O se arregla en FlitModal o el
+  panel vuelve a `wide`.
+- **Tabla con cabeceras `kit-th`** más ancha que el contenido a 2400 px (`flito-comparendos-visor.spec.ts:1432`).
+- **Barra superior fija** tapa el botón enfocado al desplazar (`soat-envio-directo-gestor-a11y.spec.ts:114`,
+  axe `target-size`).
+
+Capturas de S2 (1280 / 375, claro / oscuro, datos demo): `docs/ux/rediseno-2026/s2/<pantalla>-<ancho>-<tema>.png`.

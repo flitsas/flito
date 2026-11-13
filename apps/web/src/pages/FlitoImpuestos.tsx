@@ -405,7 +405,7 @@ export default function FlitoImpuestos() {
           cola (modal de carga, export con sus filtros), así que viven aquí, en una barra bajo las
           pestañas, y no en el shell. */}
       {(esOperaciones || esGestor || puedeExportar) && (
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-start justify-end gap-2">
           {(esOperaciones || esGestor) && (
             <GradientButton onClick={() => setCargaRecibos(true)}>
               <Icono nombre="nube-subir" size={18} />
