@@ -5,11 +5,15 @@ import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useEscape } from '../lib/hooks';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
-import { IconClose } from '../components/flit/icons';
 import ModalPortal from '../components/flit/ModalPortal';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import InlineAlert from '../components/flit/InlineAlert';
+import { FlitPillButton, FlitPillGroup } from '../components/flit/flitPageKit';
+import { EtiquetaEstado } from '../components/flit/Bloques';
+import { Icono } from '../components/flit/kit/Icono';
+import { claveEstadoIncidente, claveGravedadIncidente } from '../components/fleet/estados-incidentes';
 
 interface Incident {
   id: number; tipo: string; fecha: string; gravedad: string; estado: string;
@@ -41,8 +45,7 @@ interface IncidentDetail {
 interface Vehicle { id: number; plate: string | null; alias: string | null; }
 interface Driver { id: number; name: string; }
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const inputCls = 'control';
 
 export default function RoadIncidents() {
   const { hasFuncion } = useAuth();
@@ -62,75 +65,66 @@ export default function RoadIncidents() {
   }, [tipoFilter]);
   useEffect(() => { load(); }, [load]);
 
-  const filterBtn = (key: string, label: string, activeBg: string) => {
+  // Segmentado del kit (`.chip` con aria-pressed: activo borde y texto azul). Filtra por tipo; no son pestañas.
+  const filterBtn = (key: string, label: string) => {
     const active = tipoFilter === key;
     return (
       <button
+        type="button"
         onClick={() => setTipoFilter(key)}
         aria-pressed={active}
         aria-label={`Filtrar por ${label}`}
-        className="flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-4 py-2 text-xs font-semibold transition-colors"
-        style={active
-          ? { background: activeBg, color: '#fff' }
-          : { background: '#fff', border: '1px solid var(--flit-border-soft)', color: 'var(--flit-text-muted)' }}
+        className="chip flit-focus shrink-0 text-sm font-semibold transition-colors"
       >
-        {label}
+        <span>{label}</span>
       </button>
     );
   };
+
+  const columnas: ColumnaTabla<Incident>[] = [
+    { key: 'fecha', header: 'Fecha', render: (i) => <span className="text-xs text-[color:var(--color-text-secondary)]">{i.fecha}</span> },
+    { key: 'tipo', header: 'Tipo', render: (i) => <span className="text-xs capitalize text-[color:var(--color-text-secondary)]">{i.tipo.replace('_', ' ')}</span> },
+    { key: 'gravedad', header: 'Gravedad', render: (i) => <GravedadPill g={i.gravedad} /> },
+    { key: 'vehiculo', header: 'Vehículo', render: (i) => (i.plate ? <Link to={`/fleet/${i.vehicleId}`} className="flit-focus text-xs font-semibold text-[color:var(--color-action)] transition-colors hover:underline">{i.plate}</Link> : '—') },
+    { key: 'conductor', header: 'Conductor', render: (i) => (i.conductorId ? <Link to={`/pesv/conductores/${i.conductorId}`} className="flit-focus text-xs font-semibold text-[color:var(--color-action)] transition-colors hover:underline">{i.conductorName}</Link> : '—') },
+    { key: 'victimas', header: 'Víctimas', align: 'right', render: (i) => <span className="tabular-nums text-[color:var(--color-text-secondary)]">{i.victimasCount}</span> },
+    { key: 'dias', header: 'Días perdidos', align: 'right', render: (i) => <span className="tabular-nums text-[color:var(--color-text-secondary)]">{i.diasPerdidos}</span> },
+    { key: 'estado', header: 'Estado', render: (i) => <span className="capitalize"><EtiquetaEstado estado={claveEstadoIncidente(i.estado)}>{i.estado}</EtiquetaEstado></span> },
+    {
+      key: 'accion', header: 'Acción', etiqueta: 'Acción', acciones: true,
+      render: (i) => <GradientButton type="button" size="sm" onClick={() => setSelectedId(i.id)} aria-label={`Investigar incidente ${i.id}`}>Investigar</GradientButton>,
+    },
+  ];
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Incidentes viales"
         subtitle="Accidentes, casi-accidentes y comparendos para indicadores PESV"
+        icono="flito-incidentes"
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }]}
         actions={isAdmin ? (
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            aria-label="Reportar nuevo incidente vial"
-            className="flit-focus inline-flex items-center justify-center gap-2 rounded-[999px] px-6 text-sm font-semibold text-white transition-transform motion-safe:active:scale-[0.99]"
-            style={{ height: '44px', background: 'var(--flit-gradient-danger)', boxShadow: 'var(--flit-shadow-button)' }}
-          >
+          <GradientButton type="button" onClick={() => setShowCreate(true)} aria-label="Reportar nuevo incidente vial">
+            <Icono nombre="mas" size={20} />
             Reportar incidente
-          </button>
+          </GradientButton>
         ) : undefined}
       />
 
-      <div className="inline-flex w-fit flex-wrap gap-2">
-        {filterBtn('', 'Todos', 'var(--flit-blue)')}
-        {filterBtn('accidente', 'Accidentes', 'var(--flit-danger)')}
-        {filterBtn('casi_accidente', 'Casi-accidentes', 'var(--flit-warning)')}
-        {filterBtn('comparendo', 'Comparendos', 'var(--flit-info)')}
+      <div className="flex flex-wrap gap-2">
+        {filterBtn('', 'Todos')}
+        {filterBtn('accidente', 'Accidentes')}
+        {filterBtn('casi_accidente', 'Casi-accidentes')}
+        {filterBtn('comparendo', 'Comparendos')}
       </div>
 
-      <div className="overflow-hidden bg-white" style={CARD}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr>
-              <Th>Fecha</Th><Th>Tipo</Th><Th>Gravedad</Th><Th>Vehículo</Th><Th>Conductor</Th><Th>Víctimas</Th><Th>Días perdidos</Th><Th>Estado</Th><Th>Acción</Th>
-            </tr></thead>
-            <tbody>
-              {items.length === 0 && <tr><td colSpan={9} className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin incidentes</td></tr>}
-              {items.map((i) => (
-                <tr key={i.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{i.fecha}</td>
-                  <td className="px-4 py-3 text-xs capitalize" style={{ color: 'var(--flit-text-secondary)' }}>{i.tipo.replace('_', ' ')}</td>
-                  <td className="px-4 py-3"><GravedadPill g={i.gravedad} /></td>
-                  <td className="px-4 py-3">{i.plate ? <Link to={`/fleet/${i.vehicleId}`} className="text-xs hover:underline" style={{ color: 'var(--flit-blue)' }}>{i.plate}</Link> : '—'}</td>
-                  <td className="px-4 py-3">{i.conductorId ? <Link to={`/pesv/conductores/${i.conductorId}`} className="text-xs hover:underline" style={{ color: 'var(--flit-blue)' }}>{i.conductorName}</Link> : '—'}</td>
-                  <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{i.victimasCount}</td>
-                  <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{i.diasPerdidos}</td>
-                  <td className="px-4 py-3 text-xs capitalize" style={{ color: 'var(--flit-text-muted)' }}>{i.estado}</td>
-                  <td className="px-4 py-3">
-                    <button onClick={() => setSelectedId(i.id)} aria-label={`Investigar incidente ${i.id}`} className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-semibold text-white" style={{ background: 'var(--flit-gradient-primary)' }}>Investigar</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        ariaLabel="Incidentes viales"
+        columnas={columnas}
+        filas={items}
+        getKey={(i) => String(i.id)}
+        emptyMessage="Sin incidentes"
+      />
 
       {showCreate && <CreateIncidentModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
       {selectedId && <CausaRaizDrawer incidentId={selectedId} onClose={() => setSelectedId(null)} onSaved={() => { setSelectedId(null); load(); }} />}
@@ -138,17 +132,12 @@ export default function RoadIncidents() {
   );
 }
 
-function Th({ children }: { children?: ReactNode }) {
-  return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
-
 function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="block"><span className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{label}</span>{children}</label>;
+  return <label className="campo"><span className="etiqueta">{label}</span>{children}</label>;
 }
 
 function GravedadPill({ g }: { g: string }) {
-  const tone: Record<string, ChipTone> = { sin: 'neutral', leve: 'warning', grave: 'warning', fatal: 'danger' };
-  return <StatusChip tone={tone[g] ?? 'neutral'}>{g}</StatusChip>;
+  return <span className="capitalize"><EtiquetaEstado estado={claveGravedadIncidente(g)}>{g}</EtiquetaEstado></span>;
 }
 
 function CreateIncidentModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
@@ -175,7 +164,7 @@ function CreateIncidentModal({ onClose, onSaved }: { onClose: () => void; onSave
     api.get<{ data: Vehicle[] }>('/fleet/vehicles?limit=500')
       .then((v) => setVehicles(v.data))
       .catch((err) => toast.error(errorMessage(err)));
-    // HU #13421: la lista de conductores cuelga del ítem «Conductores». Sin él, `/drivers` responde
+    // HU 13421: la lista de conductores cuelga del ítem «Conductores». Sin él, `/drivers` responde
     // 403 y el selector degrada a «sin conductor» con un aviso, sin tumbar el resto del formulario.
     api.get<{ data: Driver[] }>('/drivers')
       .then((d) => setDrivers(d.data))
@@ -210,9 +199,9 @@ function CreateIncidentModal({ onClose, onSaved }: { onClose: () => void; onSave
   };
 
   return (
-    <FlitModal title="Reportar incidente vial" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+    <FlitModal title="Reportar incidente vial" onClose={onClose} icono="alerta" wide>
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Tipo *">
             <select value={tipo} onChange={(e) => setTipo(e.target.value as 'accidente' | 'casi_accidente' | 'comparendo')} className={inputCls}>
               <option value="accidente">Accidente</option>
@@ -229,7 +218,7 @@ function CreateIncidentModal({ onClose, onSaved }: { onClose: () => void; onSave
             </select>
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Fecha *"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={inputCls} /></Field>
           <Field label="Hora"><input type="time" value={hora} onChange={(e) => setHora(e.target.value)} className={inputCls} /></Field>
         </div>
@@ -244,31 +233,26 @@ function CreateIncidentModal({ onClose, onSaved }: { onClose: () => void; onSave
             <option value="">— sin conductor —</option>
             {drivers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
-          {driversError && <p id="incidente-conductores-aviso" role="status" className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{driversError}</p>}
+          {driversError && <p id="incidente-conductores-aviso" role="status" className="text-xs text-[color:var(--color-text-tertiary)]">{driversError}</p>}
         </Field>
         <Field label="Lugar"><input value={lugar} onChange={(e) => setLugar(e.target.value)} maxLength={300} className={inputCls} /></Field>
         <Field label="Descripción"><textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} maxLength={2000} rows={3} className={inputCls} /></Field>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Field label="Víctimas"><input type="number" min="0" value={victimas} onChange={(e) => setVictimas(e.target.value)} className={inputCls} /></Field>
           <Field label="Días perdidos"><input type="number" min="0" value={diasPerdidos} onChange={(e) => setDiasPerdidos(e.target.value)} className={inputCls} /></Field>
           <Field label="Costos"><input type="number" min="0" step="1000" value={costos} onChange={(e) => setCostos(e.target.value)} className={inputCls} /></Field>
         </div>
         {tipo === 'comparendo' && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Número comparendo"><input value={comparendoNumero} onChange={(e) => setComparendoNumero(e.target.value)} maxLength={40} className={inputCls} /></Field>
             <Field label="Valor multa"><input type="number" min="0" value={valorMulta} onChange={(e) => setValorMulta(e.target.value)} className={inputCls} /></Field>
           </div>
         )}
-        <div className="mt-2 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="flit-focus inline-flex items-center justify-center gap-2 rounded-[999px] px-6 text-sm font-semibold text-white transition-transform motion-safe:active:scale-[0.99] disabled:opacity-55"
-            style={{ height: '44px', background: 'var(--flit-gradient-danger)', boxShadow: 'var(--flit-shadow-button)' }}
-          >
+        <div className="mt-2 flex flex-wrap justify-end gap-2">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton type="submit" disabled={submitting}>
             {submitting ? 'Registrando…' : 'Registrar'}
-          </button>
+          </GradientButton>
         </div>
       </form>
     </FlitModal>
@@ -355,61 +339,52 @@ function CausaRaizDrawer({ incidentId, onClose, onSaved }: { incidentId: number;
 
   return (
     <ModalPortal>
-    <div className="flit-modal fixed inset-0 z-40 flex items-stretch justify-end" style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }} onClick={onClose}>
-      <div className="h-full w-full max-w-2xl overflow-y-auto" style={{ background: 'var(--flit-bg-modal)', borderLeft: '1px solid var(--flit-border-soft)' }} onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4" style={{ background: 'var(--flit-bg-modal)', borderBottom: '1px solid var(--flit-border-soft)' }}>
-          <div>
-            <h2 className="text-lg font-bold tracking-tight" style={{ color: 'var(--flit-blue-text)' }}>Investigación incidente #{incidentId}</h2>
-            <p className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Paso 13 PESV · Res. 40595/2022 · {detail.data.tipo} {detail.data.fecha}</p>
+    <div className="flit-modal kit-velo items-stretch justify-end" onClick={onClose}>
+      <div className="kit-modal kit-modal--lateral flex w-full max-w-2xl flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="kit-modal__cabeza">
+          <Icono nombre="consulta" disco size={52} />
+          <div className="min-w-0">
+            <h2 className="kit-modal__titulo">Investigación incidente #{incidentId}</h2>
+            <p className="mt-1 text-xs text-[color:var(--color-text-tertiary)]">Paso 13 PESV · Res. 40595/2022 · {detail.data.tipo} {detail.data.fecha}</p>
           </div>
-          <button onClick={onClose} aria-label="Cerrar drawer" className="flit-focus grid h-9 w-9 place-items-center rounded-lg transition-colors hover:bg-white" style={{ color: 'var(--flit-text-muted)' }}><IconClose className="h-5 w-5" /></button>
+          <button type="button" onClick={onClose} aria-label="Cerrar drawer" className="kit-modal__cerrar"><Icono nombre="cerrar" size={20} /></button>
         </div>
 
-        <div className="space-y-4 px-6 py-4">
+        <div className="kit-modal__cuerpo min-h-0 flex-1 space-y-4 overflow-y-auto">
           {ya && (
-            <div className="rounded-[12px] p-3 text-xs" style={{ background: 'rgba(112,207,58,0.12)', border: '1px solid rgba(112,207,58,0.25)', color: 'var(--flit-success)' }}>
+            <InlineAlert tono="ok">
               Investigación cerrada el {detail.data.investigacionCerradaAt?.slice(0, 10)}. Puedes editar la metodología pero el cierre se mantiene.
-            </div>
+            </InlineAlert>
           )}
 
-          <div className="grid grid-cols-2 gap-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-            <div><span style={{ color: 'var(--flit-text-muted)' }}>Gravedad:</span> {detail.data.gravedad}</div>
-            <div><span style={{ color: 'var(--flit-text-muted)' }}>Víctimas:</span> {detail.data.victimasCount}</div>
-            <div><span style={{ color: 'var(--flit-text-muted)' }}>Conductor:</span> {detail.data.conductorName ?? '—'}</div>
-            <div><span style={{ color: 'var(--flit-text-muted)' }}>Vehículo:</span> {detail.data.plate ?? '—'}</div>
+          <div className="grid grid-cols-1 gap-2 text-xs text-[color:var(--color-text-secondary)] sm:grid-cols-2">
+            <div><span className="text-[color:var(--color-text-tertiary)]">Gravedad:</span> {detail.data.gravedad}</div>
+            <div><span className="text-[color:var(--color-text-tertiary)]">Víctimas:</span> {detail.data.victimasCount}</div>
+            <div><span className="text-[color:var(--color-text-tertiary)]">Conductor:</span> {detail.data.conductorName ?? '—'}</div>
+            <div><span className="text-[color:var(--color-text-tertiary)]">Vehículo:</span> {detail.data.plate ?? '—'}</div>
           </div>
 
           {detail.data.descripcion && (
-            <div className="rounded-[12px] bg-white p-3 text-xs" style={{ border: '1px solid var(--flit-border-soft)', color: 'var(--flit-text-primary)' }}>
-              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>Descripción</span>
+            <div className="rounded-[9px] border border-[color:var(--color-border)] bg-[var(--kit-hover)] p-3 text-xs text-[color:var(--color-text-primary)]">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">Descripción</span>
               <p className="mt-1 whitespace-pre-wrap">{detail.data.descripcion}</p>
             </div>
           )}
 
           <div>
-            <label className="mb-2 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Metodología de análisis</label>
-            <div className="grid grid-cols-4 gap-1">
-              {(['5_porques', 'ishikawa', 'arbol_causas', 'otro'] as Metodo[]).map((m) => {
-                const on = metodo === m;
-                return (
-                  <button
-                    key={m}
-                    onClick={() => setMetodo(m)}
-                    className="flit-focus rounded-[10px] px-2 py-2 text-[11px] font-semibold transition-colors"
-                    style={on
-                      ? { background: 'var(--flit-blue)', color: '#fff' }
-                      : { background: '#fff', border: '1px solid var(--flit-border-soft)', color: 'var(--flit-text-secondary)' }}
-                  >
-                    {m.replace(/_/g, ' ')}
-                  </button>
-                );
-              })}
-            </div>
+            <label className="mb-2 block text-xs font-semibold text-[color:var(--color-text-primary)]">Metodología de análisis</label>
+            <FlitPillGroup>
+              {(['5_porques', 'ishikawa', 'arbol_causas', 'otro'] as Metodo[]).map((m) => (
+                <FlitPillButton key={m} active={metodo === m} onClick={() => setMetodo(m)}>
+                  {m.replace(/_/g, ' ')}
+                </FlitPillButton>
+              ))}
+            </FlitPillGroup>
           </div>
 
           {metodo === '5_porques' && (
             <div className="space-y-2">
-              <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Pregunta "¿por qué?" 5 veces, cada respuesta es la base del siguiente porqué. Mínimo 3.</p>
+              <p className="text-xs text-[color:var(--color-text-secondary)]">Pregunta "¿por qué?" 5 veces, cada respuesta es la base del siguiente porqué. Mínimo 3.</p>
               {porques.map((p, idx) => (
                 <input key={idx} value={p} onChange={(e) => {
                   const next = [...porques]; next[idx] = e.target.value; setPorques(next);
@@ -420,10 +395,10 @@ function CausaRaizDrawer({ incidentId, onClose, onSaved }: { incidentId: number;
 
           {metodo === 'ishikawa' && (
             <div className="space-y-3">
-              <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Diagrama Ishikawa por 4 categorías estándar (humano, vehículo, vía, entorno).</p>
+              <p className="text-xs text-[color:var(--color-text-secondary)]">Diagrama Ishikawa por 4 categorías estándar (humano, vehículo, vía, entorno).</p>
               {(['humano', 'vehiculo', 'via', 'entorno'] as const).map((cat) => (
                 <div key={cat}>
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>{cat}</p>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">{cat}</p>
                   {ishikawa[cat].map((c, idx) => (
                     <div key={idx} className="mb-1 flex gap-1">
                       <input value={c} onChange={(e) => {
@@ -432,13 +407,14 @@ function CausaRaizDrawer({ incidentId, onClose, onSaved }: { incidentId: number;
                         setIshikawa(next);
                       }} placeholder={`Causa ${cat}`} className={inputCls + ' flex-1'} />
                       {idx === ishikawa[cat].length - 1 && (
-                        <button
+                        <GradientButton
                           type="button"
+                          variant="secondary"
                           onClick={() => setIshikawa({ ...ishikawa, [cat]: [...ishikawa[cat], ''] })}
-                          className="flit-focus rounded-[10px] bg-white px-3 text-xs" style={{ border: '1px solid var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+                          className="shrink-0"
                         >
                           +
-                        </button>
+                        </GradientButton>
                       )}
                     </div>
                   ))}
@@ -449,7 +425,7 @@ function CausaRaizDrawer({ incidentId, onClose, onSaved }: { incidentId: number;
 
           {metodo === 'arbol_causas' && (
             <textarea value={arbol} onChange={(e) => setArbol(e.target.value)} rows={6}
-              className={inputCls + ' font-mono text-xs'}
+              className={inputCls + ' mono text-xs'}
               placeholder="Estructura del árbol de causas (ASCII art o texto): &#10;Evento principal&#10;├── Causa inmediata 1&#10;│   └── Causa básica 1.1&#10;└── Causa inmediata 2" />
           )}
 
@@ -458,14 +434,14 @@ function CausaRaizDrawer({ incidentId, onClose, onSaved }: { incidentId: number;
               className={inputCls} placeholder="Describir metodología y hallazgos (≥20 chars)" />
           )}
 
-          <label className="flex cursor-pointer items-center gap-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-            <input type="checkbox" checked={cerrar} onChange={(e) => setCerrar(e.target.checked)} style={{ accentColor: 'var(--flit-blue)' }} />
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-[color:var(--color-text-secondary)]">
+            <input type="checkbox" checked={cerrar} onChange={(e) => setCerrar(e.target.checked)} className="h-4 w-4 accent-[var(--kit-azul)]" />
             Cerrar investigación al guardar (registra fecha de cierre)
           </label>
         </div>
 
-        <div className="sticky bottom-0 flex justify-end gap-2 px-6 py-4" style={{ background: 'var(--flit-bg-modal)', borderTop: '1px solid var(--flit-border-soft)' }}>
-          <button onClick={onClose} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cerrar</button>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] px-6 py-4">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cerrar</GradientButton>
           <GradientButton type="button" onClick={submit} disabled={saving}>{saving ? 'Guardando…' : 'Guardar análisis'}</GradientButton>
         </div>
       </div>
