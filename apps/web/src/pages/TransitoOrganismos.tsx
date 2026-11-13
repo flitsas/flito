@@ -97,7 +97,6 @@ const inputCls = flitInp;
 const LOGO_CLS = 'rounded-[9px] border border-[var(--color-border)] object-contain';
 const ETIQUETA = 'block text-sm font-semibold text-[var(--color-text-secondary)]';
 const BLOQUE = 'rounded-[9px] border border-[var(--color-border)] p-3';
-const ENLACE = 'text-xs font-semibold text-[var(--color-action)] underline-offset-2 transition-colors hover:underline disabled:opacity-60';
 
 export default function TransitoOrganismos() {
   const { hasFuncion } = useAuth();

@@ -5,7 +5,6 @@ import { useEmbudo } from './useEmbudo';
 import TramiteEmbudoCard from './TramiteEmbudoCard';
 import RechazarOtModal from './RechazarOtModal';
 import { Cargador, ErrorVista } from '../../components/flit/Cargador';
-import { claseBoton } from '../../components/flit/GradientButton';
 import type { RangoFechas } from '../../lib/dateColombia';
 import type { TramiteEmbudoCardData } from './TramiteEmbudoCard';
 

@@ -39,7 +39,6 @@ const ESTILO_GRUPO = { borderColor: 'var(--color-border)', background: 'var(--co
 // Aviso en página del kit (`.kit-alerta`, sin data-tono: el color va en `--c`).
 const AVISO = 'kit-alerta flex-col gap-1 break-words text-sm';
 const ESTILO_AVISO = { '--c': 'var(--kit-azul)' } as CSSProperties;
-const ESTILO_ALERTA = { '--c': 'var(--kit-rojo)' } as CSSProperties;
 const BARRA = 'mt-auto flex flex-wrap items-center justify-end gap-3 pt-1';
 
 /** Valor de una fuente en el resumen de la cabecera. `null` = la fuente no se muestra (sin permiso). */
