@@ -1,5 +1,5 @@
 // FLITO — Comparendos · Sincronización: qué se le dice al operador cuando el disparo no sale
-// (HU #11635, AC3). Sin React: es una tabla y tres predicados.
+// (HU 11635, AC3). Sin React: es una tabla y tres predicados.
 //
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // TRES REGLAS QUE ESTE ARCHIVO EXISTE PARA SOSTENER
@@ -7,7 +7,7 @@
 //   1. **Se ramifica por `codigo`, nunca por el texto.** El mensaje del servidor está en español,
 //      se escribe para leerlo y va a cambiar —se afina, se le añade contexto, alguien le quita una
 //      tilde—. `sin_nits_activos` y `token_no_configurado` son contrato; su redacción no lo es.
-//      Es la misma postura de la #11559 y de `NitsComparendos.tsx`.
+//      Es la misma postura de la 11559 y de `NitsComparendos.tsx`.
 //   2. **El texto del servidor no se hace eco.** Aquí pesa más que en el resto del módulo por un
 //      caso concreto: `nits_filtro_invalido` responde con **la lista de NIT rechazados dentro del
 //      mensaje**, y un NIT es un documento de identidad (AGENTS.md §14). Repetirlo tal cual lo

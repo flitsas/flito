@@ -1,4 +1,4 @@
-// FLITO — Comparendos: las tres pestañas de la pantalla y el marco que comparten (HU #11633).
+// FLITO — Comparendos: las tres pestañas de la pantalla y el marco que comparten (HU 11633).
 //
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // POR QUÉ PESTAÑAS Y NO RUTAS
@@ -10,7 +10,7 @@
 // otro `lazy` para el mismo permiso— y no un scroll único de tres pantallas.
 //
 // Lo que sí necesita cada pestaña es un DESTINO ESTABLE: el vacío del visor va a ofrecer «Ir a la
-// sincronización» (HU #11637) y un correo interno tiene que poder apuntar a la configuración. De ahí
+// sincronización» (HU 11637) y un correo interno tiene que poder apuntar a la configuración. De ahí
 // `?vista=`, que es estado de NAVEGACIÓN y no un dato: `vista` no es PII (AGENTS.md §14) y puede
 // viajar en la URL. El NIT, el alias y la placa NO, y por eso ningún control de esta pantalla
 // escribe nada más en la query.
@@ -26,7 +26,7 @@
 //      query se conservan tal cual (se copia el `URLSearchParams` previo).
 //   3. **El marco lo pinta LA VISTA, no la página.** Es al revés de lo que parece natural, y el
 //      motivo es la cabecera: el botón de exportar del visor vive en el slot de acciones del
-//      `PageHeaderCard` (HU #11561) y solo la vista de Registros puede construirlo —necesita los
+//      `PageHeaderCard` (HU 11561) y solo la vista de Registros puede construirlo —necesita los
 //      criterios APLICADOS, que viven en su hook—. Con la cabecera en la página habría que izar
 //      `useComparendosLista` hasta ahí, y entonces entrar a Configuración dispararía una consulta
 //      del listado que nadie pidió. Así, cada vista monta el marco con SUS acciones y el resto del
@@ -42,7 +42,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import PageHeaderCard from '../../flit/PageHeaderCard';
-import { FlitPillGroup, flitPillBtn, flitPillBtnClase } from '../../flit/flitPageKit';
 
 export type VistaComparendos = 'registros' | 'sincronizacion' | 'configuracion';
 
@@ -57,7 +56,7 @@ export const PARAM_VISTA = 'vista';
 
 /**
  * El `id` del `<h2>` «Sincronizar ahora» de la consola, y por tanto el destino del foco de quien
- * llega a esa pestaña desde otra: el vacío del visor ofrece «Ir a la sincronización» (HU #11637) y
+ * llega a esa pestaña desde otra: el vacío del visor ofrece «Ir a la sincronización» (HU 11637) y
  * el AC1 pide aterrizar en la acción, no en el encabezado del panel al que apunta el `foco: 'panel'`
  * de aquí abajo.
  *
@@ -72,7 +71,7 @@ const TITULO = 'Comparendos monitoreados';
 
 /**
  * El subtítulo es lo único de la cabecera que cambia con la pestaña, y cambia porque las tres
- * pantallas responden preguntas distintas. El de Registros es el de la HU #11560, palabra por
+ * pantallas responden preguntas distintas. El de Registros es el de la HU 11560, palabra por
  * palabra: cambiarlo aquí sería reescribir el visor desde una HU que no lo toca.
  */
 const SUBTITULO: Record<VistaComparendos, string> = {
@@ -178,7 +177,9 @@ export function MarcoComparendos({ nav, acciones, children }: PropsMarco) {
     <div className="space-y-4">
       <PageHeaderCard title={TITULO} subtitle={SUBTITULO[nav.vista]} actions={acciones} />
 
-      <FlitPillGroup role="tablist" label="Secciones de comparendos">
+      {/* Pestañas de línea del kit (`.kit-pestanas`). No se usa `<Pestanas onElegir>` porque no admite
+          `id`, `aria-controls`, `tabIndex` itinerante ni el teclado ←/→ que este marco necesita. */}
+      <div role="tablist" aria-label="Secciones de comparendos" className="kit-pestanas" data-kit="pestanas">
         {VISTAS.map((v, indice) => {
           const activa = v.valor === nav.vista;
           return (
@@ -193,14 +194,13 @@ export function MarcoComparendos({ nav, acciones, children }: PropsMarco) {
               tabIndex={activa ? 0 : -1}
               onClick={() => nav.cambiar(v.valor)}
               onKeyDown={(e) => alTeclear(e, indice)}
-              className={flitPillBtnClase}
-              style={flitPillBtn(activa)}
+              className="kit-pestana"
             >
               {v.etiqueta}
             </button>
           );
         })}
-      </FlitPillGroup>
+      </div>
 
       <div
         role="tabpanel"
@@ -218,8 +218,7 @@ export function MarcoComparendos({ nav, acciones, children }: PropsMarco) {
         <h2
           ref={tituloPanelRef}
           tabIndex={-1}
-          className="flit-focus sr-only rounded focus:not-sr-only focus:block focus:text-sm focus:font-semibold"
-          style={{ color: 'var(--flit-text-primary)' }}
+          className="flit-focus sr-only rounded focus:not-sr-only focus:block focus:text-sm focus:font-semibold text-[color:var(--color-text-primary)]"
         >
           {VISTAS.find((v) => v.valor === nav.vista)?.etiqueta}
         </h2>

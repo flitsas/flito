@@ -1,4 +1,4 @@
-// FLITO — Comparendos: el historial del comparendo (HU #11562, AC2).
+// FLITO — Comparendos: el historial del comparendo (HU 11562, AC2).
 //
 // Tres reglas y las tres son sobre lo que este componente NO hace:
 //
@@ -128,7 +128,7 @@ export default function TimelineComparendo({ eventos }: { eventos: ComparendoEve
     // ya sabe nombrar. No debería pasar —todo registro nace con su `primera_llegada`— pero un panel
     // sin la sección sería un hueco sin explicación.
     return (
-      <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin movimientos registrados.</p>
+      <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Sin movimientos registrados.</p>
     );
   }
 
@@ -150,12 +150,12 @@ export default function TimelineComparendo({ eventos }: { eventos: ComparendoEve
                 <StatusChip tone={tono}>{etiqueta}</StatusChip>
                 {/* `<time>` con el instante ISO en `dateTime`: lo legible va en el texto y lo
                     exacto en el atributo, sin pedirle al usuario que lea un ISO-8601. */}
-                <time dateTime={e.ocurridoEn} className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                <time dateTime={e.ocurridoEn} className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                   {fechaHoraColombia(e.ocurridoEn)}
                 </time>
               </div>
               {lineas.map((linea) => (
-                <p key={linea} className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{linea}</p>
+                <p key={linea} className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{linea}</p>
               ))}
             </li>
           );
