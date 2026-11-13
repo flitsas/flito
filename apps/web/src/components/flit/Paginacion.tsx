@@ -1,29 +1,42 @@
-// Paginación con contador de total.
-//
-// Vivía dentro de FinanzasReporteCostos.tsx; se extrae porque las colas de SOAT e impuestos pasaron
-// a paginar en servidor (HU #10984). El contador no es decorativo: es la única forma de saber que
-// un filtro dejó fuera lo que se estaba buscando.
+import { Icono } from './kit/Icono';
 
+/**
+ * Paginador del UI Kit 2026: texto gris, flechas del kit y página actual en círculo azul.
+ * Modo cursor (`total` y `totalPaginas` omitidos): solo anterior/siguiente, con `hayAnterior`/`haySiguiente`.
+ */
 export default function Paginacion({
-  total, page, totalPaginas, onPrev, onNext, sustantivo = 'registros', singular,
+  total, page, totalPaginas, onPrev, onNext, sustantivo = 'registros', singular, hayAnterior, haySiguiente,
 }: {
-  total: number; page: number; totalPaginas: number;
+  total?: number; page: number; totalPaginas?: number;
   onPrev: () => void; onNext: () => void;
-  /** Qué se está contando: «trámites», «SOAT», «impuestos». */
   sustantivo?: string;
-  /** El sustantivo cuando `total` es 1 («1 solicitud», no «1 solicitudes»). Sin él, `sustantivo`. */
   singular?: string;
+  hayAnterior?: boolean;
+  haySiguiente?: boolean;
 }) {
-  const btn = 'rounded-lg border px-3 py-1.5 text-sm font-semibold disabled:opacity-40';
-  const btnStyle = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-blue-text)' } as const;
+  const cursor = total === undefined || totalPaginas === undefined;
+  const puedeAtras = hayAnterior ?? page > 1;
+  const puedeAdelante = haySiguiente ?? (!cursor && page < (totalPaginas ?? 1));
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-        <strong style={{ color: 'var(--flit-text-primary)' }}>{total.toLocaleString('es-CO')}</strong> {total === 1 && singular ? singular : sustantivo} · página {page} de {totalPaginas}
+    <div className="kit-paginacion paginador" data-kit="paginacion">
+      <span className="paginador__texto text-sm">
+        {cursor ? (
+          <>Página {page}</>
+        ) : (
+          <>
+            <strong className="text-[color:var(--color-text-primary)]">{total.toLocaleString('es-CO')}</strong>{' '}
+            {total === 1 && singular ? singular : sustantivo} · página {page} de {totalPaginas}
+          </>
+        )}
       </span>
-      <div className="flex gap-2">
-        <button className={btn} style={btnStyle} disabled={page <= 1} onClick={onPrev}>← Anterior</button>
-        <button className={btn} style={btnStyle} disabled={page >= totalPaginas} onClick={onNext}>Siguiente →</button>
+      <div className="flex items-center gap-1">
+        <button type="button" className="paginador__flecha grid h-9 w-9 place-items-center rounded-full transition-colors hover:bg-[var(--kit-hover)]" disabled={!puedeAtras} onClick={onPrev} aria-label="Página anterior">
+          <Icono nombre="izquierda" size={18} />
+        </button>
+        <span className="paginador__num grid h-9 min-w-9 place-items-center rounded-full px-2 text-sm font-semibold" aria-current="page">{page}</span>
+        <button type="button" className="paginador__flecha grid h-9 w-9 place-items-center rounded-full transition-colors hover:bg-[var(--kit-hover)]" disabled={!puedeAdelante} onClick={onNext} aria-label="Página siguiente">
+          <Icono nombre="derecha" size={18} />
+        </button>
       </div>
     </div>
   );
