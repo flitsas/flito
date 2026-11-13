@@ -30,7 +30,7 @@ Capturas de S0 (claro/oscuro, 1280 y 375): `docs/ux/rediseno-2026/s0/` (incluye 
 | Tema | `index.html` (bootstrap) + `src/lib/theme.tsx` | Clave **`flit-tema`** (`aura-theme` se lee como respaldo). Atributo `data-theme` siempre resuelto. |
 | Íconos | `public/kit/*.svg`, `components/flit/kit/` | 101 glifos del kit sin `innerHTML` (árbol de nodos generado). |
 
-Regenerar los CSS/íconos generados si la propuesta cambia: scripts en el HANDOFF de S0 (`gen-css.cjs`, `gen-iconos.cjs`);
+Regenerar los CSS/íconos generados si la propuesta cambia: `docs/ux/rediseno-2026/generadores/` (`node gen-css.cjs <carpeta-propuesta> apps/web/src/styles/kit`, `node gen-iconos.cjs <flit>/packages/ui/src/iconos-kit.ts apps/web/src/components/flit/kit/iconos-kit.generated.ts`);
 si se vuelven a correr, revisar el diff completo.
 
 ---
