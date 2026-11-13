@@ -28,9 +28,7 @@ import FlitModal from '../flit/FlitModal';
 import { toastOk } from '../flit/ToastFlito';
 import FlitUploadBox from '../flit/FlitUploadBox';
 import StatusChip from '../flit/StatusChip';
-import {
-  FlitCard, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { FlitCard, flitInp } from '../flit/flitPageKit';
 import GradientButton from '../flit/GradientButton';
 
 const ENLACE = 'flit-focus rounded-sm font-semibold underline transition-colors hover:text-[color:var(--color-action)]';

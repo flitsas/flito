@@ -12,7 +12,7 @@ import { bolsasDocumentosApi } from '../../lib/api';
 import { errorBolsa } from '../../lib/bolsas';
 import { nombreDocumento } from '../../lib/bolsasDocumentos';
 import FlitModal from '../flit/FlitModal';
-import { flitBtnPrimary, flitBtnSecondary, flitInp } from '../flit/flitPageKit';
+import { flitInp } from '../flit/flitPageKit';
 import { toastError, toastOk } from '../flit/ToastFlito';
 import GradientButton from '../flit/GradientButton';
 

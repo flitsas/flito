@@ -13,7 +13,6 @@ import { ApiError, api } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
 import FlitUploadBox from '../flit/FlitUploadBox';
 import StatusChip from '../flit/StatusChip';
-import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import { fecha, pesos, type ImpuestoItem } from './ImpuestoCola';
 import GradientButton from '../flit/GradientButton';
 

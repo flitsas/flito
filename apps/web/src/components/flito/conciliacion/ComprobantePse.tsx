@@ -24,7 +24,7 @@ import { api, errorMessage } from '../../../lib/api';
 import { fechaHora } from '../../../lib/bolsas';
 import { rechazoDeComprobante, type Rechazo } from '../../../lib/conciliacion';
 import FlitUploadBox from '../../flit/FlitUploadBox';
-import { FlitCard, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import { FlitCard, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 import GradientButton from '../../flit/GradientButton';
 
 const MB = 1024 * 1024;

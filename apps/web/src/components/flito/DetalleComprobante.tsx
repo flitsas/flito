@@ -30,7 +30,6 @@ import FlitModal from '../flit/FlitModal';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
 import VisorPdf from '../flit/VisorPdf';
 import VisorSoportes from '../flit/VisorSoportes';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import CorregirAplicado, { type Correccion } from './CorregirAplicado';
 import PanelAsociacion from './PanelAsociacion';
 import GradientButton from '../flit/GradientButton';

@@ -17,10 +17,7 @@ import FlitModal from '../flit/FlitModal';
 import FlitOrganismoCombobox from '../flit/FlitOrganismoCombobox';
 import FlitUploadBox from '../flit/FlitUploadBox';
 import StatusChip from '../flit/StatusChip';
-import {
-  FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitInp,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitInp } from '../flit/flitPageKit';
 import GradientButton from '../flit/GradientButton';
 
 type Accion = 'recarga' | 'manual' | 'correccion' | 'cierre' | null;

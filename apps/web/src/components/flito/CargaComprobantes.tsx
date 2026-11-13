@@ -17,7 +17,7 @@ import useSeleccionCargaMasiva from '../../lib/useSeleccionCargaMasiva';
 import RanuraCargaMasiva from './RanuraCargaMasiva';
 import FlitModal from '../flit/FlitModal';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
-import { flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import { flitInp } from '../flit/flitPageKit';
 import GradientButton from '../flit/GradientButton';
 
 const COPY_ZIP = 'FLITO no abre ZIP en esta carga: sube los PDF o las imágenes sueltos.';

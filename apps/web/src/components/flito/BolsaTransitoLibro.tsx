@@ -16,10 +16,7 @@ import {
 } from '../../lib/bolsas';
 import FlitModal from '../flit/FlitModal';
 import { toastOk } from '../flit/ToastFlito';
-import {
-  FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitInp,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitInp } from '../flit/flitPageKit';
 import GradientButton from '../flit/GradientButton';
 
 const ENLACE = 'flit-focus rounded-sm font-semibold underline transition-colors hover:text-[color:var(--color-action)]';

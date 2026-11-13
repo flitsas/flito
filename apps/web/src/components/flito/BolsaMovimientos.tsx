@@ -18,9 +18,7 @@ import FiltrosInteligentes, { type Preset } from '../flit/FiltrosInteligentes';
 import RangoFechas from '../flit/RangoFechas';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
 import ThFiltroMulti from '../flit/ThFiltroMulti';
-import {
-  FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr } from '../flit/flitPageKit';
 import GradientButton from '../flit/GradientButton';
 
 /** Cómo se nombra y se pinta el origen del movimiento. Un ajuste a mano no puede verse igual que

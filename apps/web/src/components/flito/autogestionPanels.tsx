@@ -7,9 +7,7 @@ import { MODALIDAD_ORGANISMO_LABEL, ModalidadOrganismo } from '@operaciones/shar
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
-import {
-  FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { FlitField, flitInp } from '../flit/flitPageKit';
 import GradientButton from '../flit/GradientButton';
 
 export interface Organismo {

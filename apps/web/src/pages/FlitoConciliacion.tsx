@@ -25,10 +25,7 @@ import RangoFechas from '../components/flit/RangoFechas';
 import FlitSelect from '../components/flit/FlitSelect';
 import BandejaBoletas from '../components/flito/conciliacion/BandejaBoletas';
 import CargarBoletaModal, { type ClienteOpcion } from '../components/flito/conciliacion/CargarBoletaModal';
-import {
-  FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../components/flit/flitPageKit';
+import { FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup } from '../components/flit/flitPageKit';
 import GradientButton from '../components/flit/GradientButton';
 
 export default function FlitoConciliacion() {

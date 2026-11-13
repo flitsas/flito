@@ -25,9 +25,7 @@ import FlitModal from '../../flit/FlitModal';
 import FlitSelect from '../../flit/FlitSelect';
 import { opcionesConEstado } from '../../flit/opcionesConEstado';
 import FlitUploadBox from '../../flit/FlitUploadBox';
-import {
-  FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../../flit/flitPageKit';
+import { FlitField, flitInp, flitBtnPrimaryStyle } from '../../flit/flitPageKit';
 import GradientButton from '../../flit/GradientButton';
 
 /** `active` (HU #13948): un cliente inactivo se ve pero no se elige para una boleta nueva (HU #13950). */

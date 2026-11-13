@@ -33,9 +33,7 @@ import BolsaMovimientos from './BolsaMovimientos';
 import ExpedienteDocumental from '../flito-bolsas-documentos/ExpedienteDocumental';
 import FlitModal from '../flit/FlitModal';
 import StatusChip from '../flit/StatusChip';
-import {
-  FlitCard, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { FlitCard, flitInp } from '../flit/flitPageKit';
 import GradientButton from '../flit/GradientButton';
 
 /** Cuántos meses ofrece el selector de periodo. Un año cubre cualquier cierre que siga en disputa. */

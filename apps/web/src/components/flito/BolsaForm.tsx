@@ -34,7 +34,7 @@ import FlitModal from '../flit/FlitModal';
 import { toastOk } from '../flit/ToastFlito';
 import StatusChip from '../flit/StatusChip';
 import { opcionesConEstado } from '../flit/opcionesConEstado';
-import { flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import { flitInp } from '../flit/flitPageKit';
 import GradientButton from '../flit/GradientButton';
 
 type ConceptoCompania = (typeof CONCEPTOS_BOLSA_COMPANIA)[number];

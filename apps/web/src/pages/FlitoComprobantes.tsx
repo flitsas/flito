@@ -37,10 +37,7 @@ import StatusChip from '../components/flit/StatusChip';
 import { CeldaTramite } from '../components/flit/columnasComunes';
 import CargaComprobantes from '../components/flito/CargaComprobantes';
 import DetalleComprobante from '../components/flito/DetalleComprobante';
-import {
-  FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle, flitInp,
-} from '../components/flit/flitPageKit';
+import { FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr, flitBtnSecondarySm, flitBtnSecondaryStyle, flitInp } from '../components/flit/flitPageKit';
 import GradientButton from '../components/flit/GradientButton';
 import { Icono } from '../components/flit/kit/Icono';
 

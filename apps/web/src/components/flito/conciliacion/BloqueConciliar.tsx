@@ -20,9 +20,7 @@ import { api, errorMessage } from '../../../lib/api';
 import { pesos } from '../../../lib/bolsas';
 import { codigoDe, extraDe, nombreBotonBloqueado, textoBloqueante } from '../../../lib/conciliacion';
 import FlitModal from '../../flit/FlitModal';
-import {
-  FlitCard, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../../flit/flitPageKit';
+import { FlitCard, flitBtnPrimaryStyle } from '../../flit/flitPageKit';
 import GradientButton from '../../flit/GradientButton';
 
 interface Props {

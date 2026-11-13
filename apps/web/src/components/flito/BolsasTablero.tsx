@@ -27,10 +27,7 @@ import ChipExpediente from '../flito-bolsas-documentos/ChipExpediente';
 import { useEstadoExpedientes } from '../flito-bolsas-documentos/useEstadoExpedientes';
 import FiltroSegmentado from '../flit/FiltroSegmentado';
 import FlitAcordeon from '../flit/FlitAcordeon';
-import {
-  FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitInp,
-  flitBtnSecondary, flitBtnSecondaryStyle, flitBtnSecondarySm,
-} from '../flit/flitPageKit';
+import { FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitInp, flitBtnSecondarySm } from '../flit/flitPageKit';
 import { Cargador, ErrorVista } from '../flit/Cargador';
 import KpiCard from '../flit/KpiCard';
 import PageContentSkeleton from '../flit/PageContentSkeleton';

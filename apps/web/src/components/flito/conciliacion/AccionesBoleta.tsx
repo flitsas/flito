@@ -17,7 +17,7 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import type { BoletaDetalleDto, BoletaResumenDto } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../../lib/api';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import { flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 import GradientButton from '../../flit/GradientButton';
 
 interface Props {
