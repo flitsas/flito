@@ -8,6 +8,7 @@ import { useState, type ReactNode } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
+import GradientButton from '../flit/GradientButton';
 import type { NivelEmpresa } from '../../types/pesv';
 
 interface CreateForm {
@@ -21,12 +22,12 @@ const NIVELES: { value: NivelEmpresa; label: string; criterio: string }[] = [
   { value: 'avanzado', label: 'Avanzado', criterio: '>50 vehículos · transporte público · misional · carga' },
 ];
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
+const inputCls = 'control w-full';
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-[11px] font-medium" style={{ color: 'var(--flit-text-secondary)' }}>{label}</span>
+    <label className="campo block">
+      <span className="mb-1 block text-xs font-medium text-[color:var(--color-text-secondary)]">{label}</span>
       {children}
     </label>
   );
@@ -68,10 +69,10 @@ export default function DiagnosticoCrearModal({ onClose, onCreated }: Diagnostic
   // diálogo lo provee `title` (aria-label) → "Nuevo diagnóstico PESV", igual que
   // antes (E2E `getByRole('dialog', { name: /Nuevo diagnóstico PESV/i })`).
   return (
-    <FlitModal title="Nuevo diagnóstico PESV" onClose={onClose} wide>
-        <p className="mb-5 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Res. 40595/2022 anexo metodológico · auto-clasificación con justificación opcional Ley 1581/2012.</p>
+    <FlitModal title="Nuevo diagnóstico PESV" onClose={onClose} wide icono="portapapeles">
+        <p className="mb-5 text-xs text-[color:var(--color-text-secondary)]">Res. 40595/2022 anexo metodológico · auto-clasificación con justificación opcional Ley 1581/2012.</p>
 
-        <div className="mb-3 grid grid-cols-2 gap-3">
+        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Año">
             <input type="number" min={2020} max={2100} value={form.anio} onChange={(e) => setForm({ ...form, anio: parseInt(e.target.value, 10) || form.anio })} className={inputCls} />
           </Field>
@@ -81,18 +82,18 @@ export default function DiagnosticoCrearModal({ onClose, onCreated }: Diagnostic
         </div>
 
         <fieldset className="mb-3">
-          <legend className="mb-2 block text-[11px] font-medium" style={{ color: 'var(--flit-text-secondary)' }}>Nivel de empresa</legend>
+          <legend className="mb-2 block text-xs font-medium text-[color:var(--color-text-secondary)]">Nivel de empresa</legend>
           <div className="space-y-2">
             {NIVELES.map((n) => {
               const on = form.nivelEmpresa === n.value;
               return (
-                <label key={n.value} className="flex cursor-pointer items-start gap-3 rounded-[12px] p-3 transition-colors" style={on
-                  ? { border: '1px solid var(--flit-blue)', background: 'rgba(79,116,201,0.10)' }
-                  : { border: '1px solid var(--flit-border-soft)', background: '#fff' }}>
-                  <input type="radio" name="nivelEmpresa" value={n.value} checked={on} onChange={() => setForm({ ...form, nivelEmpresa: n.value })} className="mt-1" style={{ accentColor: 'var(--flit-blue)' }} />
+                <label key={n.value} className={`flex cursor-pointer items-start gap-3 rounded-[9px] border p-3 transition-colors focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[color:var(--kit-azul)] ${on
+                  ? 'border-[color:var(--kit-azul)] bg-[color:var(--kit-hover)]'
+                  : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-elevated)] hover:bg-[color:var(--kit-hover)]'}`}>
+                  <input type="radio" name="nivelEmpresa" value={n.value} checked={on} onChange={() => setForm({ ...form, nivelEmpresa: n.value })} className="mt-1 accent-[color:var(--kit-azul)]" />
                   <div>
-                    <span className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{n.label}</span>
-                    <p className="mt-0.5 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{n.criterio}</p>
+                    <span className="text-sm font-medium text-[color:var(--color-text-primary)]">{n.label}</span>
+                    <p className="mt-0.5 text-xs text-[color:var(--color-text-tertiary)]">{n.criterio}</p>
                   </div>
                 </label>
               );
@@ -109,9 +110,9 @@ export default function DiagnosticoCrearModal({ onClose, onCreated }: Diagnostic
           </Field>
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
-          <button onClick={onClose} className="flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>Cancelar</button>
-          <button onClick={submit} disabled={busy} className="flit-focus inline-flex h-10 items-center justify-center rounded-[999px] px-5 text-sm font-semibold text-white transition-transform motion-safe:active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55" style={{ background: 'var(--flit-gradient-primary)', boxShadow: 'var(--flit-shadow-button)' }}>{busy ? 'Creando…' : 'Crear diagnóstico'}</button>
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton type="button" onClick={submit} disabled={busy}>{busy ? 'Creando…' : 'Crear diagnóstico'}</GradientButton>
         </div>
     </FlitModal>
   );

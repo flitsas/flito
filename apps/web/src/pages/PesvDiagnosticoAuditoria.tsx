@@ -18,6 +18,13 @@ import {
 import { DownloadIcon, PrinterIcon, ExternalLinkIcon, CloseXIcon } from '../components/pesv/icons';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import ModalPortal from '../components/flit/ModalPortal';
+import PageHeaderCard from '../components/flit/PageHeaderCard';
+import GradientButton from '../components/flit/GradientButton';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { ErrorVista } from '../components/flit/Cargador';
+import { Fichas } from '../components/flit/Bloques';
+import { Icono } from '../components/flit/kit/Icono';
+import type { PasoMiga } from '../components/flit/Miga';
 
 interface EvidenciaPublic {
   keyHash: string; filename: string; sizeBytes: number; mime: string;
@@ -47,8 +54,10 @@ const NIVEL_TONE: Record<NivelRubrica, ChipTone> = {
   implementado: 'active', sostenido: 'success',
 };
 
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
-const navyBtn = 'flit-focus inline-flex h-10 items-center gap-2 rounded-[999px] border bg-white px-4 text-sm font-medium';
+// Tarjeta del kit: borde, radio 9, sin sombra.
+const CARD = 'rounded-[9px] border border-[color:var(--color-border)] bg-[color:var(--color-surface-elevated)]';
+const MIGA: PasoMiga[] = [{ etiqueta: 'Cumplimiento' }, { etiqueta: 'PESV', to: '/pesv' }, { etiqueta: 'Diagnóstico', to: '/pesv/diagnostico' }];
+const H3 = 'mb-2 text-[10px] font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]';
 
 export default function PesvDiagnosticoAuditoria() {
   const { id: idParam } = useParams<{ id: string }>();
@@ -100,7 +109,7 @@ export default function PesvDiagnosticoAuditoria() {
   if (error || !detail) {
     return (
       <div className="mx-auto max-w-[1200px]">
-        <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>{error ?? 'Diagnóstico no encontrado.'}</p>
+        <ErrorVista texto={error ?? 'Diagnóstico no encontrado.'} onReintentar={load} />
       </div>
     );
   }
@@ -129,38 +138,42 @@ export default function PesvDiagnosticoAuditoria() {
   const puedeVolverEditor = puedeEditar;
 
   return (
-    <div className="mx-auto max-w-[1200px] print:p-0">
-      {/* Banner alto contraste */}
-      <div className="mb-6 rounded-[18px] p-5 print:rounded-none" style={{ border: '2px solid var(--flit-warning)', background: 'rgba(240,90,53,0.10)' }} role="region" aria-label="Aviso de modo lectura">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.3em]" style={{ color: 'var(--flit-warning)' }}>Modo auditoría · solo lectura</p>
-            <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl" style={{ color: 'var(--flit-blue-text)' }}>
-              Diagnóstico {detail.anio}
-              <span className="ml-3 text-sm font-normal" style={{ color: 'var(--flit-text-secondary)' }}>Score {parseFloat(detail.scoreGlobal).toFixed(1)}%</span>
-            </h1>
-            <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Diagnóstico cerrado el {fmtDate(detail.cerradoAt)} por responsable id {detail.responsableId ?? '—'}.</p>
-            <p className="mt-2 max-w-3xl text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cada estándar muestra evidencias originales, comentarios del responsable e historial de cambios. Res. 40595/2022 anexo metodológico.</p>
-          </div>
-          <div className="flex flex-wrap gap-2 print:hidden">
-            <button onClick={exportarExpediente} className="flit-focus inline-flex h-10 items-center gap-2 rounded-[999px] px-4 text-sm font-semibold text-white" style={{ background: 'var(--flit-gradient-primary)' }}><DownloadIcon /> Exportar expediente (ZIP)</button>
-            <button onClick={imprimir} className={navyBtn} style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}><PrinterIcon /> Imprimir</button>
-            {puedeVolverEditor && (
-              <button onClick={() => navigate(`/pesv/diagnostico/${id}`)} className={navyBtn} style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Volver al editor</button>
-            )}
+    <div className="mx-auto flex max-w-[1200px] flex-col gap-5 print:p-0 lg:gap-6">
+      {/* Cabecera + aviso de modo lectura */}
+      <div className="flex flex-col gap-3" role="region" aria-label="Aviso de modo lectura">
+        <PageHeaderCard
+          title={`Diagnóstico ${detail.anio}`}
+          subtitle={`Score ${parseFloat(detail.scoreGlobal).toFixed(1)}% · Diagnóstico cerrado el ${fmtDate(detail.cerradoAt)} por responsable id ${detail.responsableId ?? '—'}.`}
+          icono="flito-pesv"
+          miga={MIGA}
+          actions={
+            <div className="flex flex-wrap gap-2 print:hidden">
+              <GradientButton type="button" onClick={exportarExpediente}><DownloadIcon /> Exportar expediente (ZIP)</GradientButton>
+              <GradientButton type="button" variant="secondary" onClick={imprimir}><PrinterIcon /> Imprimir</GradientButton>
+              {puedeVolverEditor && (
+                <GradientButton type="button" variant="secondary" onClick={() => navigate(`/pesv/diagnostico/${id}`)}>Volver al editor</GradientButton>
+              )}
+            </div>
+          }
+        />
+        <div className="kit-alerta print:rounded-none" data-tono="warn" data-kit="alerta">
+          <img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="m-0 font-semibold">Modo auditoría · solo lectura</p>
+            <p className="mt-1 max-w-3xl text-xs text-[color:var(--color-text-secondary)]">Cada estándar muestra evidencias originales, comentarios del responsable e historial de cambios. Res. 40595/2022 anexo metodológico.</p>
           </div>
         </div>
       </div>
 
       {detail.nivelCriterioJustificacion && (
-        <div className="mb-6 bg-white p-4" style={CARD}>
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>Justificación del nivel ({detail.nivelEmpresa ?? 'avanzado'})</p>
-          <p className="whitespace-pre-wrap text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{detail.nivelCriterioJustificacion}</p>
+        <div className={`${CARD} p-4`}>
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">Justificación del nivel ({detail.nivelEmpresa ?? 'avanzado'})</p>
+          <p className="whitespace-pre-wrap text-sm text-[color:var(--color-text-secondary)]">{detail.nivelCriterioJustificacion}</p>
         </div>
       )}
 
       {/* Lista expediente */}
-      <div className="space-y-6">
+      <div className="space-y-5">
         {detail.items.map((it) => (
           <TarjetaEstandarExpediente
             key={it.estandarId}
@@ -183,6 +196,14 @@ export default function PesvDiagnosticoAuditoria() {
 // ──────────────────────────────────────────────────────────────────────────
 // Sub-componentes
 // ──────────────────────────────────────────────────────────────────────────
+type FilaHistorial = HistorialEntry & { _k: string };
+const COLUMNAS_HISTORIAL: ColumnaTabla<FilaHistorial>[] = [
+  { key: 'fecha', header: 'Fecha', etiqueta: 'Fecha', render: (h) => <span className="tabular-nums">{fmtDate(h.createdAt)}</span> },
+  { key: 'usuario', header: 'Usuario', etiqueta: 'Usuario', render: (h) => h.userId ?? '—' },
+  { key: 'accion', header: 'Acción', etiqueta: 'Acción', render: (h) => h.action },
+  { key: 'detalle', header: 'Detalle', etiqueta: 'Detalle', render: (h) => <span className="block max-w-md truncate" title={h.detail ?? ''}>{h.detail}</span> },
+];
+
 function TarjetaEstandarExpediente({ item, historial, onVerEvidencia, onExportar }: {
   item: ItemDetail; historial: HistorialEntry[];
   onVerEvidencia: (ev: EvidenciaPublic) => void; onExportar: () => void;
@@ -190,47 +211,53 @@ function TarjetaEstandarExpediente({ item, historial, onVerEvidencia, onExportar
   const score = parseFloat(item.scorePct);
   const peso = parseFloat(item.peso);
   const aporte = (score * peso) / 100;
+  const filasHistorial = historial.map((h, i) => ({ ...h, _k: String(i) }));
 
   return (
-    <article className="bg-white p-6 print:shadow-none print:break-inside-avoid" style={CARD}>
-      <header className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b pb-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>{item.fase} · paso {item.paso}</p>
-          <h2 className="mt-1 text-xl font-bold" style={{ color: 'var(--flit-text-primary)' }}><span className="font-mono text-base" style={{ color: 'var(--flit-text-secondary)' }}>{item.codigo}</span> · {item.nombre}</h2>
+    <article className={`${CARD} p-4 print:break-inside-avoid sm:p-6`}>
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-[color:var(--color-border)] pb-4">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">{item.fase} · paso {item.paso}</p>
+          <h2 className="mt-1 text-xl font-bold text-[color:var(--color-text-primary)]"><span className="text-base tabular-nums text-[color:var(--color-text-secondary)]">{item.codigo}</span> · {item.nombre}</h2>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusChip tone={NIVEL_TONE[item.nivelRubrica]}>{NIVEL_RUBRICA_LABEL[item.nivelRubrica]}</StatusChip>
-          <span className="font-mono text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Score {score.toFixed(0)}% · Peso {peso.toFixed(2)} · Aporte {aporte.toFixed(2)}</span>
-        </div>
+        <StatusChip tone={NIVEL_TONE[item.nivelRubrica]}>{NIVEL_RUBRICA_LABEL[item.nivelRubrica]}</StatusChip>
       </header>
+
+      <div className="mb-4">
+        <Fichas items={[
+          { etiqueta: 'Score', valor: `${score.toFixed(0)}%` },
+          { etiqueta: 'Peso', valor: peso.toFixed(2) },
+          { etiqueta: 'Aporte', valor: aporte.toFixed(2) },
+        ]} />
+      </div>
 
       {item.descripcion && (
         <section className="mb-4">
-          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>Descripción normativa</h3>
-          <p className="whitespace-pre-wrap text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{item.descripcion}</p>
+          <h3 className={H3}>Descripción normativa</h3>
+          <p className="whitespace-pre-wrap text-sm text-[color:var(--color-text-secondary)]">{item.descripcion}</p>
         </section>
       )}
 
       <section className="mb-4">
-        <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>Comentarios del responsable</h3>
+        <h3 className={H3}>Comentarios del responsable</h3>
         {item.comentarios
-          ? <blockquote className="border-l-2 py-1 pl-4 text-sm whitespace-pre-wrap" style={{ borderColor: 'var(--flit-blue)', color: 'var(--flit-text-primary)' }}>{item.comentarios}</blockquote>
-          : <p className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Sin comentarios</p>}
+          ? <blockquote className="whitespace-pre-wrap border-l-2 border-[color:var(--kit-azul)] py-1 pl-4 text-sm text-[color:var(--color-text-primary)]">{item.comentarios}</blockquote>
+          : <p className="text-xs italic text-[color:var(--color-text-tertiary)]">Sin comentarios</p>}
       </section>
 
       <section className="mb-4">
-        <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>Evidencias adjuntas ({item.evidencias.length})</h3>
+        <h3 className={H3}>Evidencias adjuntas ({item.evidencias.length})</h3>
         {item.evidencias.length === 0 ? (
-          <p className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Sin evidencias adjuntas.</p>
+          <p className="text-xs italic text-[color:var(--color-text-tertiary)]">Sin evidencias adjuntas.</p>
         ) : (
           <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
             {item.evidencias.map((ev) => (
               <li key={ev.keyHash}>
-                <button onClick={() => onVerEvidencia(ev)} className="flit-focus flex w-full items-center gap-3 rounded-[12px] border bg-white p-3 text-left transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
+                <button onClick={() => onVerEvidencia(ev)} className={`${CARD} flit-focus flex w-full items-center gap-3 p-3 text-left text-[color:var(--color-text-tertiary)] transition-colors hover:border-[color:var(--kit-azul)] hover:bg-[color:var(--kit-hover)]`}>
                   <IconoArchivo mime={ev.mime} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm" style={{ color: 'var(--flit-text-primary)' }}>{ev.filename}</p>
-                    <p className="font-mono text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>SHA-256 {ev.keyHash} · {fmtDate(ev.uploadedAt)}</p>
+                    <p className="truncate text-sm text-[color:var(--color-text-primary)]">{ev.filename}</p>
+                    <p className="truncate text-[10px] tabular-nums text-[color:var(--color-text-tertiary)]">SHA-256 {ev.keyHash} · {fmtDate(ev.uploadedAt)}</p>
                   </div>
                   <ExternalLinkIcon />
                 </button>
@@ -242,32 +269,19 @@ function TarjetaEstandarExpediente({ item, historial, onVerEvidencia, onExportar
 
       {historial.length > 0 && (
         <section className="mb-4">
-          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>Historial</h3>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                <th className="px-2 py-1.5 text-left font-medium" style={{ color: 'var(--flit-text-muted)' }}>Fecha</th>
-                <th className="px-2 py-1.5 text-left font-medium" style={{ color: 'var(--flit-text-muted)' }}>Usuario</th>
-                <th className="px-2 py-1.5 text-left font-medium" style={{ color: 'var(--flit-text-muted)' }}>Acción</th>
-                <th className="px-2 py-1.5 text-left font-medium" style={{ color: 'var(--flit-text-muted)' }}>Detalle</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historial.map((h, i) => (
-                <tr key={i} className="border-b last:border-0" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-2 py-1.5 font-mono" style={{ color: 'var(--flit-text-secondary)' }}>{fmtDate(h.createdAt)}</td>
-                  <td className="px-2 py-1.5" style={{ color: 'var(--flit-text-secondary)' }}>{h.userId ?? '—'}</td>
-                  <td className="px-2 py-1.5" style={{ color: 'var(--flit-text-secondary)' }}>{h.action}</td>
-                  <td className="max-w-md truncate px-2 py-1.5" style={{ color: 'var(--flit-text-secondary)' }} title={h.detail ?? ''}>{h.detail}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <h3 className={H3}>Historial</h3>
+          <DataTable
+            ariaLabel={`Historial de ${item.codigo}`}
+            columnas={COLUMNAS_HISTORIAL}
+            filas={filasHistorial}
+            getKey={(h) => h._k}
+            status="ready"
+          />
         </section>
       )}
 
-      <footer className="mt-2 flex justify-end border-t pt-3 print:hidden" style={{ borderColor: 'var(--flit-border-soft)' }}>
-        <button onClick={onExportar} className="flit-focus inline-flex h-9 items-center gap-2 rounded-[999px] border bg-white px-3 text-xs font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}><DownloadIcon /> Exportar este estándar (PDF + ZIP)</button>
+      <footer className="mt-2 flex justify-end border-t border-[color:var(--color-border)] pt-3 print:hidden">
+        <GradientButton type="button" variant="secondary" size="sm" onClick={onExportar}><DownloadIcon /> Exportar este estándar (PDF + ZIP)</GradientButton>
       </footer>
     </article>
   );
@@ -279,17 +293,20 @@ function Lightbox({ url, mime, filename, onClose }: { url: string; mime: string;
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+  // Diálogo propio (conserva su aria-label y el cierre por clic en el velo) con las clases del modal del kit.
   return (
     <ModalPortal>
-    <div className="flit-modal fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: 'rgba(22,39,68,0.45)', backdropFilter: 'blur(6px)' }} role="dialog" aria-modal="true" aria-label={`Vista previa de ${filename}`} onClick={onClose}>
-      <div className="max-h-[90vh] max-w-5xl overflow-hidden bg-white" style={{ borderRadius: 'var(--flit-radius-xl)', boxShadow: 'var(--flit-shadow-modal)' }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <p className="truncate text-sm" style={{ color: 'var(--flit-text-primary)' }}>{filename}</p>
-          <button onClick={onClose} className="flit-focus rounded-lg" style={{ color: 'var(--flit-text-muted)' }} aria-label="Cerrar"><CloseXIcon /></button>
+    <div className="kit-velo fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-[5px] sm:p-6" role="dialog" aria-modal="true" aria-label={`Vista previa de ${filename}`} onClick={onClose}>
+      <div className="kit-modal max-h-[90vh] w-auto max-w-5xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="kit-modal__cabeza flex items-center justify-between gap-3">
+          <p className="kit-modal__titulo m-0 min-w-0 truncate text-sm">{filename}</p>
+          <button onClick={onClose} className="kit-modal__cerrar flit-focus" aria-label="Cerrar"><CloseXIcon /></button>
         </div>
-        {esImagen(mime)
-          ? <img src={url} alt={filename} className="max-h-[80vh] max-w-full object-contain" style={{ background: 'var(--flit-bg-app)' }} />
-          : <p className="p-8 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Vista previa no disponible — <a href={url} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: 'var(--flit-blue)' }}>abrir en nueva pestaña</a></p>}
+        <div className="kit-modal__cuerpo">
+          {esImagen(mime)
+            ? <img src={url} alt={filename} className="max-h-[75vh] max-w-full rounded-[9px] bg-[color:var(--color-surface)] object-contain" />
+            : <p className="p-4 text-sm text-[color:var(--color-text-secondary)]">Vista previa no disponible — <a href={url} target="_blank" rel="noopener noreferrer" className="flit-focus font-semibold text-[color:var(--color-action)] underline transition-colors">abrir en nueva pestaña</a></p>}
+        </div>
       </div>
     </div>
     </ModalPortal>
@@ -299,12 +316,14 @@ function Lightbox({ url, mime, filename, onClose }: { url: string; mime: string;
 function EmptyBorrador({ id, anio, canEdit, navigate }: { id: number; anio: number; canEdit: boolean; navigate: ReturnType<typeof useNavigate> }) {
   return (
     <div className="mx-auto max-w-[800px]">
-      <div className="bg-white p-12 text-center" style={CARD}>
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full" style={{ background: 'rgba(240,90,53,0.12)', color: 'var(--flit-warning)' }} aria-hidden="true"><svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg></div>
-        <h2 className="text-2xl font-bold" style={{ color: 'var(--flit-blue-text)' }}>Diagnóstico {anio} aún en borrador</h2>
-        <p className="mx-auto mt-2 max-w-md text-sm" style={{ color: 'var(--flit-text-secondary)' }}>La vista de auditoría se habilita cuando el líder PESV cierra formalmente el diagnóstico y emite la línea base WORM.</p>
+      <div className={`${CARD} p-8 text-center sm:p-12`} data-kit="vacio">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[color:var(--kit-hover)] text-[color:var(--kit-naranja-texto)]" aria-hidden="true"><Icono nombre="espera" className="h-7 w-7" /></div>
+        <h2 className="text-2xl font-bold text-[color:var(--color-text-primary)]">Diagnóstico {anio} aún en borrador</h2>
+        <p className="mx-auto mt-2 max-w-md text-sm text-[color:var(--color-text-secondary)]">La vista de auditoría se habilita cuando el líder PESV cierra formalmente el diagnóstico y emite la línea base WORM.</p>
         {canEdit && (
-          <button onClick={() => navigate(`/pesv/diagnostico/${id}`)} className="flit-focus mt-6 inline-flex h-10 items-center rounded-[999px] px-4 text-sm font-semibold text-white" style={{ background: 'var(--flit-gradient-primary)' }}>Ir al editor</button>
+          <div className="mt-6 flex justify-center">
+            <GradientButton type="button" onClick={() => navigate(`/pesv/diagnostico/${id}`)}>Ir al editor</GradientButton>
+          </div>
         )}
       </div>
     </div>
@@ -314,9 +333,10 @@ function EmptyBorrador({ id, anio, canEdit, navigate }: { id: number; anio: numb
 function Sin403() {
   return (
     <div className="mx-auto max-w-[600px]">
-      <div className="bg-white p-8 text-center" style={CARD}>
-        <h2 className="text-2xl font-bold" style={{ color: 'var(--flit-blue-text)' }}>Sin acceso</h2>
-        <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>No tienes permisos para acceder al expediente de auditoría.</p>
+      <div className={`${CARD} p-8 text-center`}>
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[color:var(--kit-hover)] text-[color:var(--color-action)]" aria-hidden="true"><Icono nombre="rol" className="h-7 w-7" /></div>
+        <h2 className="text-2xl font-bold text-[color:var(--color-text-primary)]">Sin acceso</h2>
+        <p className="mt-2 text-sm text-[color:var(--color-text-secondary)]">No tienes permisos para acceder al expediente de auditoría.</p>
       </div>
     </div>
   );
@@ -324,9 +344,9 @@ function Sin403() {
 
 function SkeletonAuditoria() {
   return (
-    <div className="mx-auto max-w-[1200px]">
-      <div className="mb-6 h-32 animate-pulse bg-white motion-reduce:animate-none" style={CARD} />
-      <div className="space-y-4">{[0, 1, 2].map((i) => <div key={i} className="h-40 animate-pulse bg-white motion-reduce:animate-none" style={CARD} />)}</div>
+    <div className="mx-auto flex max-w-[1200px] flex-col gap-4">
+      <div className="kit-esqueleto h-32 rounded-[9px]" data-kit="esqueleto" />
+      {[0, 1, 2].map((i) => <div key={i} className="kit-esqueleto h-40 rounded-[9px]" data-kit="esqueleto" />)}
     </div>
   );
 }
@@ -344,8 +364,8 @@ function fmtDate(iso: string | null): string {
 function IconoArchivo({ mime }: { mime: string }) {
   const isPdf = mime === 'application/pdf';
   const isImg = mime.startsWith('image/');
-  const cls = 'shrink-0 w-9 h-9 rounded-lg flex items-center justify-center';
-  if (isPdf) return <span className={cls} style={{ background: 'rgba(228,61,48,0.12)', color: 'var(--flit-danger)' }} aria-hidden="true"><svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>;
-  if (isImg) return <span className={cls} style={{ background: 'rgba(79,116,201,0.12)', color: 'var(--flit-blue)' }} aria-hidden="true"><svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg></span>;
-  return <span className={cls} style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }} aria-hidden="true"><svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>;
+  const cls = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--kit-hover)]';
+  if (isPdf) return <span className={`${cls} text-[color:var(--kit-rojo-texto)]`} aria-hidden="true"><Icono nombre="documento" className="h-5 w-5" /></span>;
+  if (isImg) return <span className={`${cls} text-[color:var(--color-action)]`} aria-hidden="true"><Icono nombre="ojo" className="h-5 w-5" /></span>;
+  return <span className={`${cls} text-[color:var(--color-text-secondary)]`} aria-hidden="true"><Icono nombre="archivo" className="h-5 w-5" /></span>;
 }
