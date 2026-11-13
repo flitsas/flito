@@ -17,7 +17,7 @@ import type { CSSProperties } from 'react';
 import { ETIQUETA_ESTADO_COSTO_PROVEEDOR, type CostoProveedorConcepto } from '@operaciones/shared-types';
 import { pesos, type Fila } from './tiposReporteCostos';
 
-const TENUE = { color: 'var(--flit-text-muted)' } as const;
+const TENUE = { color: 'var(--color-text-tertiary)' } as const;
 
 export type ConceptoCosto = 'soat' | 'logistica';
 
@@ -109,7 +109,7 @@ export function CeldaTotalCostos({ fila, className = '', style }: { fila: Fila }
   }
   return (
     <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${className}`} aria-label={nombre} title={nombre}
-      style={{ color: 'var(--flit-text-primary)', ...style }}>
+      style={{ color: 'var(--color-text-primary)', ...style }}>
       {v !== null
         ? <span className="font-semibold">{pesos(v)}</span>
         : <span className="text-xs italic" style={TENUE}>{sinConfigurar.length ? 'Sin configurar' : '—'}</span>}

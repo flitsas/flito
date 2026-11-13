@@ -26,7 +26,7 @@ import { CATEGORIAS, cifra, diaCorto, type GastosDiariosCategoria } from './tipo
 
 const ID_TITULO = 'gastos-grafica-titulo';
 const ANCHO_INICIAL = 1100;
-const texto = { fontSize: 11, fill: 'var(--flit-text-muted)', fontFamily: 'inherit' } as const;
+const texto = { fontSize: 11, fill: 'var(--color-text-tertiary)', fontFamily: 'inherit' } as const;
 
 function Ejes({ escala, dias, ancho, altoPlot }: { escala: EscalaValor; dias: string[]; ancho: number; altoPlot: number }) {
   const anchoPlot = ancho - MARGEN.izq - MARGEN.der;
@@ -37,11 +37,11 @@ function Ejes({ escala, dias, ancho, altoPlot }: { escala: EscalaValor; dias: st
     <g aria-hidden="true">
       {escala.ticks.map((v) => (
         <g key={v}>
-          <line x1={MARGEN.izq} x2={ancho - MARGEN.der} y1={y(v)} y2={y(v)} stroke="var(--flit-border-soft)" strokeWidth={1} />
+          <line x1={MARGEN.izq} x2={ancho - MARGEN.der} y1={y(v)} y2={y(v)} stroke="var(--color-border)" strokeWidth={1} />
           <text x={MARGEN.izq - 8} y={y(v) + 4} textAnchor="end" style={texto}>{cifra(v)}</text>
         </g>
       ))}
-      <line x1={MARGEN.izq} x2={ancho - MARGEN.der} y1={y(0)} y2={y(0)} stroke="var(--flit-border-input)" strokeWidth={1} />
+      <line x1={MARGEN.izq} x2={ancho - MARGEN.der} y1={y(0)} y2={y(0)} stroke="var(--color-border-control)" strokeWidth={1} />
       {dias.map((d, i) => (i % paso === 0
         ? <text key={d} x={MARGEN.izq + i * ranura + ranura / 2} y={ALTO_SVG - 8} textAnchor="middle" style={texto}>{diaCorto(d, false)}</text>
         : null))}
@@ -93,8 +93,8 @@ export default function GraficaGastosDiarios({ datos, tipos, onTipo, vacio }: {
     return (
       <FlitCard>
         <figure className="m-0" aria-label={resumen}>
-          <h2 id={ID_TITULO} className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>Evolución diaria</h2>
-          <p className="flex items-center justify-center text-sm" style={{ height: ALTO_SVG, color: 'var(--flit-text-muted)' }}>
+          <h2 id={ID_TITULO} className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-tertiary)' }}>Evolución diaria</h2>
+          <p className="flex items-center justify-center text-sm" style={{ height: ALTO_SVG, color: 'var(--color-text-tertiary)' }}>
             Sin gastos en el rango
           </p>
         </figure>
@@ -106,7 +106,7 @@ export default function GraficaGastosDiarios({ datos, tipos, onTipo, vacio }: {
     <FlitCard>
       <figure className="m-0" aria-label={resumen} aria-describedby={ID_TABLA_GRAFICA}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 id={ID_TITULO} className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>Evolución diaria</h2>
+          <h2 id={ID_TITULO} className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-tertiary)' }}>Evolución diaria</h2>
           <LeyendaGrafica tipos={tipos} onTipo={onTipo} />
         </div>
         <div ref={contenedor} className="mt-2 w-full">

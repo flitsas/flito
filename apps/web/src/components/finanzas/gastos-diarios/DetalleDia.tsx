@@ -10,25 +10,25 @@ import { textoDetalleDia, type BarraDia } from './geometriaGrafica';
 export default function DetalleDia({ barra }: { barra: BarraDia | null }) {
   return (
     <>
-      <div className="mt-2 min-h-12 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <div className="mt-2 min-h-12 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
         {barra
           ? (
             <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
               <div className="flex gap-1">
                 <dt className="sr-only">Día</dt>
-                <dd className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{diaCorto(barra.dia, true)}</dd>
+                <dd className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{diaCorto(barra.dia, true)}</dd>
               </div>
               {barra.segmentos.map((s) => (
                 <div key={s.clave} className="flex gap-1">
                   <dt>{s.categoria.titulo}</dt>
-                  <dd className="tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
+                  <dd className="tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                     {s.cantidad} · <Monto v={s.valor} />
                   </dd>
                 </div>
               ))}
               <div className="flex gap-1">
                 <dt>Total del día</dt>
-                <dd className="tabular-nums" style={{ color: 'var(--flit-text-primary)' }}><Monto v={barra.total} negrita /></dd>
+                <dd className="tabular-nums" style={{ color: 'var(--color-text-primary)' }}><Monto v={barra.total} negrita /></dd>
               </div>
             </dl>
           )

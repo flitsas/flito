@@ -66,9 +66,9 @@ export const GRUPOS: Array<{ clave: Grupo; titulo: string; ayuda?: string }> = [
   { clave: 'titular', titulo: 'Titular' },
 ];
 
-const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
-const TENUE = { color: 'var(--flit-text-muted)' } as const;
-const AZUL = { color: 'var(--flit-blue-text)' } as const;
+const SECUNDARIO = { color: 'var(--color-text-secondary)' } as const;
+const TENUE = { color: 'var(--color-text-tertiary)' } as const;
+const AZUL = { color: 'var(--color-action)' } as const;
 
 const texto = (v: string | null, extra = '') =>
   <td className={`px-3 py-2 whitespace-nowrap ${extra}`}>{v ?? ''}</td>;
@@ -237,3 +237,6 @@ export const COLUMNAS: Columna[] = [
 /** Las que no se pueden ocultar (spec §3.5). */
 export const FIJAS = new Set(COLUMNAS.filter((c) => c.grupo === 'fija').map((c) => c.id));
 export const POR_DEFECTO = COLUMNAS.filter((c) => c.porDefecto).map((c) => c.id);
+
+/** Línea derecha de la última columna fija (Placa): trazo de 1 px en `::after`, que viaja con la celda `sticky`. */
+export const LINEA_FIJA = 'lg:after:pointer-events-none lg:after:absolute lg:after:inset-y-0 lg:after:right-0 lg:after:w-px lg:after:bg-[var(--color-border-control)]';

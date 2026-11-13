@@ -41,7 +41,7 @@ interface Props {
   tituloRef: RefObject<HTMLHeadingElement>;
 }
 
-const TEXTO_SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
+const TEXTO_SECUNDARIO = { color: 'var(--color-text-secondary)' } as const;
 
 /**
  * Los dos motivos que DELEGAN el diagnóstico. Su texto de catálogo es un encabezado y el detalle
@@ -55,7 +55,7 @@ export default function TarjetaEnvioFacturacion(p: Props) {
       {/* `tabIndex={-1}`: no entra en el orden de tabulación, pero puede recibir foco por código. */}
       <h3 ref={p.tituloRef} tabIndex={-1}
         className="mb-2 text-xs font-semibold uppercase tracking-wide"
-        style={{ color: 'var(--flit-text-muted)' }}>
+        style={{ color: 'var(--color-text-tertiary)' }}>
         Envío a facturación electrónica
       </h3>
       <Cuerpo {...p} />
@@ -77,11 +77,11 @@ function Cuerpo(p: Props) {
     // enviar: por eso aquí no se ofrece el botón de envío, solo el reintento.
     return (
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm" style={{ color: 'var(--flit-warning-text)' }} role="alert">
+        <span className="text-sm" style={{ color: 'var(--kit-naranja-texto)' }} role="alert">
           No se pudo comprobar cuáles se pueden facturar: {p.error}
         </span>
         <button type="button" className={flitBtnSecondarySm} onClick={p.onReintentar}
-          style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
+          style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
           Reintentar
         </button>
       </div>
@@ -93,7 +93,7 @@ function Cuerpo(p: Props) {
   if (p.candidatos === 0) {
     return (
       <div className="space-y-1 text-sm">
-        <p style={{ color: 'var(--flit-text-primary)' }}>
+        <p style={{ color: 'var(--color-text-primary)' }}>
           Ninguno de los {p.filas.toLocaleString('es-CO')} trámites de esta página está facturado
           todavía.
         </p>
@@ -101,7 +101,7 @@ function Cuerpo(p: Props) {
           {MOTIVO_TRAMITE_NO_ELEGIBLE_TEXTO.liquidacion_no_facturada}
         </p>
         <button type="button" className="text-sm font-semibold underline"
-          style={{ color: 'var(--flit-blue-text)' }} onClick={p.onVerPorFacturar}>
+          style={{ color: 'var(--color-action)' }} onClick={p.onVerPorFacturar}>
           Ver los que están por facturar
         </button>
       </div>
@@ -115,7 +115,7 @@ function Cuerpo(p: Props) {
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
         <strong>{p.elegibles.toLocaleString('es-CO')}</strong> de los{' '}
         {p.universo.toLocaleString('es-CO')}{' '}
         {p.deLaSeleccion ? 'trámites seleccionados' : 'trámites facturados de esta página'} se pueden
@@ -158,7 +158,7 @@ function SinElegibles({ candidatos, resumen, puedeVerConfiguracion }: Props & { 
 
   return (
     <div className="space-y-2 text-sm">
-      <p style={{ color: 'var(--flit-text-primary)' }}>
+      <p style={{ color: 'var(--color-text-primary)' }}>
         Ninguno de los {candidatos.toLocaleString('es-CO')} trámites facturados de esta página se
         puede enviar a facturación electrónica todavía. Esto es lo que falta:
       </p>
@@ -166,14 +166,14 @@ function SinElegibles({ candidatos, resumen, puedeVerConfiguracion }: Props & { 
       <ul className="space-y-1">
         {lineas.map((m) => (
           <li key={m} className="flex gap-2" style={TEXTO_SECUNDARIO}>
-            <strong className="tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
+            <strong className="tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
               {resumen.porMotivo[m].toLocaleString('es-CO')}
             </strong>
             {/* El texto del motivo, sin retocar: el navegador aporta el número y el orden, nada más. */}
             <span>
               {MOTIVO_TRAMITE_NO_ELEGIBLE_TEXTO[m]}
               {DELEGAN.includes(m) && (
-                <span style={{ color: 'var(--flit-text-muted)' }}>
+                <span style={{ color: 'var(--color-text-tertiary)' }}>
                   {' '}(el detalle exacto está en cada fila, en «¿Por qué no?»)
                 </span>
               )}
@@ -190,9 +190,9 @@ function SinElegibles({ candidatos, resumen, puedeVerConfiguracion }: Props & { 
 
       {resumen.anterioresAlCorte > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-t pt-2"
-          style={{ borderColor: 'var(--flit-border-soft)' }}>
+          style={{ borderColor: 'var(--color-border)' }}>
           <span style={TEXTO_SECUNDARIO}>
-            <strong style={{ color: 'var(--flit-text-primary)' }}>
+            <strong style={{ color: 'var(--color-text-primary)' }}>
               {resumen.anterioresAlCorte.toLocaleString('es-CO')}
             </strong>{' '}
             quedaron fuera por la fecha de corte del histórico. Si deben facturarse, esa fecha se
@@ -200,7 +200,7 @@ function SinElegibles({ candidatos, resumen, puedeVerConfiguracion }: Props & { 
           </span>
           {puedeVerConfiguracion && (
             <Link to="/siigo/parametrizacion" className="text-sm font-semibold underline"
-              style={{ color: 'var(--flit-blue-text)' }}>
+              style={{ color: 'var(--color-action)' }}>
               Ir a la configuración
             </Link>
           )}

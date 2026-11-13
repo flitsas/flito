@@ -21,10 +21,10 @@ import { AYUDA_CON_DIFERENCIAS, ROTULO_CON_DIFERENCIAS } from '../../lib/diferen
 export const ROTULO_COSTO_SIN_CONFIGURAR = 'Costo de proveedor sin configurar';
 const AYUDA_COSTO_SIN_CONFIGURAR = 'Trámites con al menos un costo de proveedor sin configurar. No impide liquidar.';
 
-const SUMMARY = 'flit-focus inline-flex h-10 w-full cursor-pointer list-none items-center gap-2 rounded-[10px] border bg-flit-card px-3 text-sm transition-colors hover:bg-[var(--flit-bg-hover)] sm:w-auto';
-const SUMMARY_STYLE = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' } as const;
+const SUMMARY = 'flit-focus inline-flex h-10 w-full cursor-pointer list-none items-center gap-2 rounded-[10px] border bg-flit-card px-3 text-sm transition-colors hover:bg-[var(--kit-hover)] sm:w-auto';
+const SUMMARY_STYLE = { borderColor: 'var(--color-border-control)', color: 'var(--color-text-primary)' } as const;
 const PANEL = 'absolute inset-x-3 z-30 mt-1 rounded-lg border bg-flit-card p-3';
-const PANEL_STYLE = { borderColor: 'var(--flit-border-input)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const PANEL_STYLE = { borderColor: 'var(--color-border-control)', boxShadow: 'var(--kit-sombra)' } as const;
 
 /** «1 oct – 15 oct 2026»; las fechas son `yyyy-mm-dd` y se leen sin zona horaria. */
 function textoRango(desde: string, hasta: string): string {
@@ -99,12 +99,12 @@ export default function FiltrosReporteCostos({ filtros, onCambio, facetas, facet
           {ETAPAS.map((e) => (
             <button key={e.v} type="button" title={e.ayuda} onClick={() => onCambio({ etapa: e.v })}
               aria-pressed={filtros.etapa === e.v}
-              className="flit-focus inline-flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-[999px] px-3 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
+              className="flit-focus inline-flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-[999px] px-3 text-xs font-semibold transition-colors hover:bg-[var(--kit-hover)]"
               style={flitPillBtn(filtros.etapa === e.v)}>
               {e.label}
               {resumen && e.cuenta && (
                 <span className="rounded-[999px] px-1.5 py-0.5 text-[10px] tabular-nums"
-                  style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>
+                  style={{ background: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}>
                   {e.cuenta(resumen).toLocaleString('es-CO')}
                 </span>
               )}
@@ -114,7 +114,7 @@ export default function FiltrosReporteCostos({ filtros, onCambio, facetas, facet
 
         <details className="w-full sm:w-auto" onKeyDown={cerrarConEsc}>
           <summary className={SUMMARY} style={SUMMARY_STYLE} aria-label={`Periodo: ${resumenPeriodo}`}>
-            <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-muted)' }}>Periodo</span>
+            <span className="text-xs font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>Periodo</span>
             <span>{resumenPeriodo}</span>
           </summary>
           <div className={`${PANEL} sm:right-auto sm:w-[26rem]`} style={PANEL_STYLE}>
@@ -176,19 +176,19 @@ export default function FiltrosReporteCostos({ filtros, onCambio, facetas, facet
 
       {(chips.length > 0 || hayFiltros) && (
         <div ref={chipsRef} className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-muted)' }}>Filtros:</span>
+          <span className="text-xs font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>Filtros:</span>
           {chips.map((c, i) => (
             <button key={c.clave} type="button" aria-label={`Quitar filtro ${c.texto}`} onClick={() => quitar(i, c)}
-              className="flit-focus inline-flex items-center gap-1.5 rounded-[999px] border bg-flit-card px-3 py-1 text-xs transition-colors hover:bg-[var(--flit-bg-hover)]"
-              style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>
+              className="flit-focus inline-flex items-center gap-1.5 rounded-[999px] border bg-flit-card px-3 py-1 text-xs transition-colors hover:bg-[var(--kit-hover)]"
+              style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-primary)' }}>
               {c.texto}
-              <span aria-hidden="true" style={{ color: 'var(--flit-text-muted)' }}>✕</span>
+              <span aria-hidden="true" style={{ color: 'var(--color-text-tertiary)' }}>✕</span>
             </button>
           ))}
           {hayFiltros && (
             <button type="button" onClick={onLimpiar}
-              className="flit-focus ml-auto rounded px-1 text-xs font-semibold underline transition-colors hover:bg-[var(--flit-bg-hover)]"
-              style={{ color: 'var(--flit-blue-text)' }}>
+              className="flit-focus ml-auto rounded px-1 text-xs font-semibold underline transition-colors hover:bg-[var(--kit-hover)]"
+              style={{ color: 'var(--color-action)' }}>
               Limpiar filtros
             </button>
           )}
@@ -202,7 +202,7 @@ function Casilla({ title, checked, onChange, children }: {
   title: string; checked: boolean; onChange: (v: boolean) => void; children: ReactNode;
 }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }} title={title}>
+    <label className="flex cursor-pointer items-center gap-2 text-sm" style={{ color: 'var(--color-text-secondary)' }} title={title}>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       {children}
     </label>
