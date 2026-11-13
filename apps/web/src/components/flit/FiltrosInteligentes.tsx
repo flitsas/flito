@@ -9,7 +9,9 @@
 // peor que ninguno: quien mira la lista no sabe qué se está quedando fuera.
 //
 // Es un `<details>`, el mismo patrón de `ThFiltroMulti` y `RangoFechas`: el navegador ya resuelve
-// abrir, cerrar y el foco por teclado.
+// abrir, cerrar y el foco por teclado. El menú solo se monta abierto: cerrado, su caja absoluta seguía ocupando
+// ancho de desborde (cola de 1616 px en Impuestos a 1280).
+import { useState } from 'react';
 
 export interface Preset<F> {
   /** Cómo se llama en el desplegable. En términos de trabajo, no de columnas. */
@@ -27,10 +29,11 @@ export default function FiltrosInteligentes<F>({ presets, activo, onAplicar, onQ
   onAplicar: (p: Preset<F>) => void;
   onQuitar: () => void;
 }) {
+  const [abierto, setAbierto] = useState(false);
   if (presets.length === 0) return null;
 
   return (
-    <details className="relative" name="flit-filtros-inteligentes">
+    <details className="relative" name="flit-filtros-inteligentes" onToggle={(e) => setAbierto(e.currentTarget.open)}>
       <summary
         className={`chip h-10 min-h-0 list-none gap-2 text-sm transition-colors${activo ? ' filtro-activo' : ''}`}
         aria-label="Filtros inteligentes"
@@ -40,6 +43,7 @@ export default function FiltrosInteligentes<F>({ presets, activo, onAplicar, onQ
         <span>{activo ?? 'Todo'}</span>
       </summary>
 
+      {abierto && (
       <div className="menu-flotante absolute left-0 right-auto z-30 mt-1 w-[min(20rem,calc(100vw-2rem))] p-2">
         {presets.map((p) => {
           const puesto = p.nombre === activo;
@@ -64,6 +68,7 @@ export default function FiltrosInteligentes<F>({ presets, activo, onAplicar, onQ
           </button>
         )}
       </div>
+      )}
     </details>
   );
 }

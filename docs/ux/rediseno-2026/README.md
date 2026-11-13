@@ -70,6 +70,7 @@ Los `--flit-*` **siguen funcionando** (alias), pero código nuevo usa los roles 
 |---|---|
 | `style={{ background: 'var(--flit-gradient-primary)' }}` + `text-white` | `<GradientButton>` o `className={flitBtnPrimary}` (ya plano) o `className="btn"` |
 | Botón contorno «Cancelar/Exportar» | `GradientButton variant="secondary"` (tinta) — **destructivo** (cancelar, anular, eliminar, rechazar, revocar, salir) → `variant="alerta"`; confirmar/aprobar → `variant="success"` |
+| Acción secundaria **de fila** de tabla («Ver», «Editar», «Descargar» en la celda de acciones) | **Contorno**: `className={flitBtnSecondarySm}` (32 px, borde línea, texto azul; `flitBtnIconoSm` si es solo ícono). **No** `claseBoton('secondary', 'sm')`: ese es el secundario **tinta** compacto (36 px) de pies de modal, diálogos, Dr. Flit y barras, y se queda así. Regla: en la fila, contorno; fuera de la fila, tinta. |
 | Chip de estado propio (`rounded-full px-2 … bg-…`) | `<StatusChip>`, `<EtiquetaEstado estado>` o `{...etiquetaKit('warn')}` |
 | `animate-pulse` / esqueleto propio | `<PageContentSkeleton>` o `<div className="kit-esqueleto h-4 w-40" />` |
 | `Loader2 animate-spin` | `<Girador />` (16 px) o `<Cargador texto>` (132 px) |

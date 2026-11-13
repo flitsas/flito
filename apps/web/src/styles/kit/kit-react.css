@@ -197,3 +197,37 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
   .dock__fab { margin: 0 4px; }
 }
 @media (max-width: 1280px) { .dock .dock__flecha { display: none; } }
+
+/* ---------- Correcciones de integración del rediseño (S1–S6) ---------- */
+/* #1 Cabecera: el ícono del módulo va en el flujo flex (no absoluto). Absoluto y centrado en el alto, se montaba sobre
+   la miga y la h1 cuando la cabecera envolvía (<lg). 20 + 56 + 16 de hueco = los 92 px de la propuesta. */
+.page-header .page-header__ilus { position: static; transform: none; flex: none; }
+.page-header:hover .page-header__ilus { transform: none; }
+.page-header:not(.kit-header--sin-ilus) { padding-left: var(--space-20); }
+/* ≤640 px sin ícono (lo pide el kit); `.kit-disco { display:inline-grid }` va después en la capa y lo volvía a pintar. */
+@media (max-width: 640px) {
+  .page-header:not(.kit-header--sin-ilus) { padding-left: var(--space-16); }
+  .page-header .page-header__ilus { display: none; }
+}
+/* #7 Acciones de la cabecera: los botones no se estiran al alto de la fila. */
+.page-header .page-header__acciones { align-items: flex-start; }
+
+/* #2 DataTable en modo tarjetas (≤900 px): la etiqueta envuelve dentro de su celda; la punta usa 50 % del alto. */
+@media (max-width: 900px) {
+  .tabla-wrap[data-modo="tarjetas"] .kit-etiqueta { white-space: normal; max-width: 100%; text-align: left; }
+}
+
+/* #3 Tablas con scroll propio: su ancho de contenido (cabeceras nowrap) no infla al contenedor. Sin esto, dentro de
+   una card que es hija de grid/flex (min-width:auto) la card crecía al ancho de la tabla (~2400 px) y el scroll no
+   aparecía. Con contain:inline-size la tabla toma el ancho del padre y desborda en su propio scroll. */
+.kit-tabla-flit, .tabla-wrap.kit-matriz { width: 100%; max-width: 100%; contain: inline-size; }
+/* El `.sr-only` (absoluto) de la cabecera «Acciones» se posicionaba contra el documento y, con la tabla en su scroll,
+   abría desborde horizontal de página (1427 px a 1280 en Impuestos). Con el wrap posicionado queda dentro del scroll. */
+.tabla-wrap { position: relative; }
+
+/* #5 Reserva inferior: el dock flotante (18 px + ~72 px) no tapa la última fila ni el control enfocado. */
+html { scroll-padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 641px) { .kit-main { padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); } }
+
+/* #8 El margen entre cards es del flujo de bloque: en grid/flex manda el gap. */
+:is(.grid, .inline-grid, .flex, .inline-flex, .rejilla) > .card + .card { margin-top: 0; }

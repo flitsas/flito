@@ -91,7 +91,7 @@ export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
 
         <MenuAncla clase="menu-ancla--productos" abierto={menu === 'productos'}
           boton={
-            <button type="button" className="icono-btn" data-menu="productos" aria-expanded={menu === 'productos'} aria-controls="flit-productos-menu"
+            <button type="button" className="icono-btn" data-menu="productos" aria-expanded={menu === 'productos'} aria-controls={menu === 'productos' ? 'flit-productos-menu' : undefined}
               aria-label="Productos de FLIT" data-tip="Productos de FLIT" onClick={() => alternar('productos')}>
               <span className="kico" aria-hidden="true"><Icono nombre="rejilla" /></span>
             </button>
@@ -113,7 +113,7 @@ export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
 
         <MenuAncla abierto={menu === 'avisos'}
           boton={
-            <button type="button" className="icono-btn" data-menu="avisos" aria-expanded={menu === 'avisos'} aria-controls="flit-avisos-menu"
+            <button type="button" className="icono-btn" data-menu="avisos" aria-expanded={menu === 'avisos'} aria-controls={menu === 'avisos' ? 'flit-avisos-menu' : undefined}
               aria-label="Notificaciones (próximamente)" data-tip="Notificaciones" onClick={() => alternar('avisos')}>
               <span className="kico" aria-hidden="true"><Icono nombre="campana" /></span>
             </button>
@@ -128,7 +128,7 @@ export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
 
         <MenuAncla abierto={menu === 'usuario'}
           boton={
-            <button type="button" className="usuario" data-menu="usuario" aria-expanded={menu === 'usuario'} aria-controls="flit-usuario-menu"
+            <button type="button" className="usuario" data-menu="usuario" aria-expanded={menu === 'usuario'} aria-controls={menu === 'usuario' ? 'flit-usuario-menu' : undefined}
               aria-haspopup="menu" aria-label={`Menú de usuario · ${user?.name ?? 'sesión'}`} onClick={() => alternar('usuario')}>
               <span className="usuario__avatar" aria-hidden="true">{iniciales(user?.name)}</span>
               <span className="usuario__texto"><strong className="max-w-[18ch] truncate">{nombre}</strong><small className="max-w-[22ch] truncate">{rol}</small></span>
