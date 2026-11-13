@@ -13,8 +13,8 @@ consultas:
   - cómo desactivo o doy de baja a un usuario
   - quién le cambió el rol a un usuario
   - por qué no puedo darle a un usuario la función de eliminar clientes
-version: 1.6
-fecha: 2026-11-09
+version: 1.7
+fecha: 2026-11-12
 ---
 ## Qué es
 
@@ -26,7 +26,7 @@ Quien tenga el ítem **Usuarios**. De partida, el Administrador gestiona todo; e
 
 ## Cómo se entra
 
-Menú **Administración**, ítem **Usuarios**.
+Menú **Administración**, ítem **Usuarios**. Arriba de la pantalla, las pestañas **Usuarios** y **Roles y permisos** llevan de una a otra; **Roles y permisos** solo aparece si usted puede abrir esa pantalla.
 
 ## Pasos
 

@@ -1165,7 +1165,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await page.waitForTimeout(1500); // los contadores animados terminan de subir
     const mostrarBarra = await sinBarraFlotante(page);
     await sinFoco(page);
-    await capturar(page, dir, '01-estado-operativo');
+    // Rediseño 2026: el banner con degradado no comprime; se recorta al contenido (sin la barra superior).
+    await capturar(page, dir, '01-estado-operativo', page.locator('main'));
 
     // Paso 3 — Atención operativa y la fila de atajos.
     await page.getByRole('region', { name: 'Atención operativa' }).evaluate((el) => el.scrollIntoView({ block: 'start' }));

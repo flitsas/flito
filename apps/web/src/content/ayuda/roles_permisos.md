@@ -9,8 +9,8 @@ consultas:
   - qué puede hacer cada rol
   - cómo doy acceso a una pantalla
   - por qué no puedo marcar una función en un rol
-version: 1.2
-fecha: 2026-10-25
+version: 1.3
+fecha: 2026-11-12
 ---
 ## Qué es
 
@@ -22,7 +22,7 @@ Quien tenga el permiso de ver **Roles y permisos**. Para cambiar las marcas hace
 
 ## Cómo se entra
 
-Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
+Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**. Arriba de la pantalla, las pestañas **Usuarios** y **Roles y permisos** llevan de una a otra; **Usuarios** solo aparece si usted puede abrir esa pantalla.
 
 ## Pasos
 
@@ -59,7 +59,7 @@ Algunos casos del árbol llevan su propia nota:
 
 ## Estados
 
-- **Cargando**: esqueleto de dos columnas.
+- **Cargando**: barras grises en las dos columnas mientras llegan los roles y el árbol.
 - **Error**: «No se pudo cargar el catálogo de roles y permisos. Revisa tu conexión y vuelve a intentarlo.» con **Reintentar**. Si falla solo el árbol del rol elegido, el aviso lo dice y ofrece **Reintentar** ahí mismo.
 - **Vacío**: sin roles se ofrece **Nuevo rol**; si el catálogo llega vacío se ofrece **Reintentar**; un rol sin nada marcado avisa de que quien lo tenga no verá ningún elemento del menú al entrar.
 - **Lleno**: lista de roles y árbol del rol seleccionado. La cabecera dice el enlace del rol y cuántos usuarios lo tienen. Con cambios pendientes aparece la barra **Sin guardar** con **Descartar** y **Guardar cambios**.

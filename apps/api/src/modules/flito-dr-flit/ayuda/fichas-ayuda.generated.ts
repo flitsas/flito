@@ -81,8 +81,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "dashboard",
     "etiqueta": "Tablero de control",
     "resumen": "Panel operativo de inicio con los indicadores, las alertas y los atajos de los módulos que usted puede abrir.",
-    "version": "1.0",
-    "fecha": "2026-10-22",
+    "version": "1.1",
+    "fecha": "2026-11-12",
     "palabrasClave": [
       "tablero de control",
       "panel operativo",
@@ -101,7 +101,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "que-es",
         "titulo": "Qué es",
-        "texto": "El Tablero de control es la pantalla de inicio de quien no tiene el Tablero FLITO. Arriba lo saluda con su nombre y la fecha, bajo el título Panel operativo. Reúne los indicadores de vehículos, SOAT, documentos de flota por vencer y errores de RNDC, las alertas que piden atención y atajos a Mantenimiento, RNDC y PESV. Cada bloque aparece solo si usted puede abrir la pantalla a la que lleva. Es de solo lectura: cada tarjeta lo lleva a la pantalla donde se actúa."
+        "texto": "El Tablero de control es la pantalla de inicio de quien no tiene el Tablero FLITO. Arriba, un banner lo saluda con su nombre y la fecha, bajo el título Panel operativo, y a su lado van las cuatro cifras principales. Reúne los indicadores de vehículos, SOAT, documentos de flota por vencer y errores de RNDC, las alertas que piden atención y atajos a Mantenimiento, RNDC y PESV. Cada bloque aparece solo si usted puede abrir la pantalla a la que lleva. Es de solo lectura: cada tarjeta lo lleva a la pantalla donde se actúa."
       },
       {
         "ancla": "para-quien",
@@ -116,12 +116,12 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "pasos",
         "titulo": "Pasos",
-        "texto": "Lea el bloque Estado operativo: Vehículos (en operación), SOAT vigentes (porcentaje verificado del total), Por vencer 60d (documentos de flota) y RNDC errores (manifiestos con error de envío). A la derecha, Flota y Salud SOAT resumen lo mismo y abren su pantalla al pulsarlas. Panel operativo demo con el bloque Estado operativo, sus cuatro indicadores y las tarjetas Flota y Salud SOAT Pulse Por vencer 60d para abrir Flota en la pestaña de vencimientos. Los enlaces Ver vehículos, Tablero PESV, Rendimiento (RUM) y Métricas trámites abren esas pantallas. Revise Atención operativa: cada fila dice qué está pendiente (solicitudes SOAT pendientes de compra, documentos vencidos o por vencer en 60 días) y su botón Ir a SOAT o Ver vencimientos lo lleva a resolverlo. Debajo, los atajos Mantenimiento, RNDC, PESV y Tablero ejecutivo abren cada módulo. Atención operativa demo con una solicitud SOAT pendiente y documentos vencidos y por vencer, y la fila de atajos debajo Si un bloque dice «No pudimos cargar…», pulse Reintentar: repite solo esa consulta y los demás bloques siguen como están. Diagrama de qué ve al iniciar sesión: con el Tablero FLITO, ese tablero; con el Tablero de control, el Panel operativo; sin ninguno de los dos, la primera pantalla que su usuario puede abrir"
+        "texto": "Lea las cifras junto al saludo: Vehículos (en operación), SOAT vigentes (porcentaje verificado del total), Por vencer 60d (documentos de flota) y RNDC errores (manifiestos con error de envío). Debajo, el bloque Estado operativo reúne las tarjetas Flota y Salud SOAT, que resumen lo mismo y abren su pantalla al pulsarlas. Panel operativo demo con el saludo, sus cuatro indicadores y el bloque Estado operativo con las tarjetas Flota y Salud SOAT Pulse Por vencer 60d para abrir Flota en la pestaña de vencimientos. Los enlaces Ver vehículos, Tablero PESV, Rendimiento (RUM) y Métricas trámites abren esas pantallas. Revise Atención operativa: cada fila dice qué está pendiente (solicitudes SOAT pendientes de compra, documentos vencidos o por vencer en 60 días) y su botón Ir a SOAT o Ver vencimientos lo lleva a resolverlo. Debajo, los atajos Mantenimiento, RNDC, PESV y Tablero ejecutivo abren cada módulo. Atención operativa demo con una solicitud SOAT pendiente y documentos vencidos y por vencer, y la fila de atajos debajo Si un bloque dice «No pudimos cargar…», pulse Reintentar: repite solo esa consulta y los demás bloques siguen como están. Diagrama de qué ve al iniciar sesión: con el Tablero FLITO, ese tablero; con el Tablero de control, el Panel operativo; sin ninguno de los dos, la primera pantalla que su usuario puede abrir"
       },
       {
         "ancla": "estados",
         "titulo": "Estados",
-        "texto": "Cargando: las cifras muestran un punto (·) mientras llegan. Error: por bloque, «No pudimos cargar…» con Reintentar. Si le quitaron el permiso de un bloque mientras lo miraba, ese bloque desaparece en vez de mostrar el error. Vacío: «Tu tablero no tiene indicadores con tus permisos actuales», con la indicación de usar el buscador (Ctrl K) o el menú para ir a sus secciones. Lleno: el bloque Estado operativo, las tarjetas de la derecha, Atención operativa cuando hay pendientes y la fila de atajos."
+        "texto": "Cargando: cada cifra muestra una barra gris mientras llega. Error: por bloque, «No pudimos cargar…» con Reintentar. Si le quitaron el permiso de un bloque mientras lo miraba, ese bloque desaparece en vez de mostrar el error. Vacío: «Tu tablero no tiene indicadores con tus permisos actuales», con la indicación de usar el buscador (Ctrl K) o el menú para ir a sus secciones. Lleno: el saludo con las cuatro cifras, el bloque Estado operativo con sus tarjetas, Atención operativa cuando hay pendientes y la fila de atajos."
       },
       {
         "ancla": "que-no-hace",
@@ -1279,8 +1279,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "users",
     "etiqueta": "Usuarios",
     "resumen": "Alta, edición, bloqueo y baja de las personas que entran a FLITO, con el historial de cambios.",
-    "version": "1.6",
-    "fecha": "2026-11-09",
+    "version": "1.7",
+    "fecha": "2026-11-12",
     "palabrasClave": [
       "usuarios",
       "gestión de usuarios",
@@ -1310,7 +1310,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "Menú Administración, ítem Usuarios."
+        "texto": "Menú Administración, ítem Usuarios. Arriba de la pantalla, las pestañas Usuarios y Roles y permisos llevan de una a otra; Roles y permisos solo aparece si usted puede abrir esa pantalla."
       },
       {
         "ancla": "pasos",
@@ -1334,8 +1334,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "roles_permisos",
     "etiqueta": "Roles y permisos",
     "resumen": "Qué puede hacer cada rol dentro de FLITO.",
-    "version": "1.2",
-    "fecha": "2026-10-25",
+    "version": "1.3",
+    "fecha": "2026-11-12",
     "palabrasClave": [
       "roles",
       "permisos",
@@ -1361,7 +1361,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "Menú Administración, ítem Roles y permisos, junto a Usuarios."
+        "texto": "Menú Administración, ítem Roles y permisos, junto a Usuarios. Arriba de la pantalla, las pestañas Usuarios y Roles y permisos llevan de una a otra; Usuarios solo aparece si usted puede abrir esa pantalla."
       },
       {
         "ancla": "pasos",
@@ -1371,7 +1371,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "estados",
         "titulo": "Estados",
-        "texto": "Cargando: esqueleto de dos columnas. Error: «No se pudo cargar el catálogo de roles y permisos. Revisa tu conexión y vuelve a intentarlo.» con Reintentar. Si falla solo el árbol del rol elegido, el aviso lo dice y ofrece Reintentar ahí mismo. Vacío: sin roles se ofrece Nuevo rol; si el catálogo llega vacío se ofrece Reintentar; un rol sin nada marcado avisa de que quien lo tenga no verá ningún elemento del menú al entrar. Lleno: lista de roles y árbol del rol seleccionado. La cabecera dice el enlace del rol y cuántos usuarios lo tienen. Con cambios pendientes aparece la barra Sin guardar con Descartar y Guardar cambios. Solo lectura: sin la acción Asignar permisos, un aviso lo explica y no hay casillas que cambiar. No se guardó por seguridad: si el cambio dejaría a FLITO sin ningún usuario activo que pueda administrar Usuarios y Roles y permisos, un aviso en la página lo explica, nombra lo que hay que volver a marcar con Mostrar dónde está, y sus cambios siguen ahí sin guardar. No se guardó por una función exclusiva: si el guardado intenta darle a otro rol una función exclusiva del Administrador (o quitársela al Administrador), un aviso en la página nombra la función, dice qué hacer y ofrece Mostrar dónde está; sus cambios siguen ahí sin guardar. Error al guardar: «No se pudieron guardar los permisos. Tus cambios siguen aquí; vuelve a intentarlo con «Guardar cambios».» Error al guardar el rol: el formulario muestra «No se pudo guardar el rol. Inténtalo de nuevo; si se repite, recarga la página.» sin cerrarse."
+        "texto": "Cargando: barras grises en las dos columnas mientras llegan los roles y el árbol. Error: «No se pudo cargar el catálogo de roles y permisos. Revisa tu conexión y vuelve a intentarlo.» con Reintentar. Si falla solo el árbol del rol elegido, el aviso lo dice y ofrece Reintentar ahí mismo. Vacío: sin roles se ofrece Nuevo rol; si el catálogo llega vacío se ofrece Reintentar; un rol sin nada marcado avisa de que quien lo tenga no verá ningún elemento del menú al entrar. Lleno: lista de roles y árbol del rol seleccionado. La cabecera dice el enlace del rol y cuántos usuarios lo tienen. Con cambios pendientes aparece la barra Sin guardar con Descartar y Guardar cambios. Solo lectura: sin la acción Asignar permisos, un aviso lo explica y no hay casillas que cambiar. No se guardó por seguridad: si el cambio dejaría a FLITO sin ningún usuario activo que pueda administrar Usuarios y Roles y permisos, un aviso en la página lo explica, nombra lo que hay que volver a marcar con Mostrar dónde está, y sus cambios siguen ahí sin guardar. No se guardó por una función exclusiva: si el guardado intenta darle a otro rol una función exclusiva del Administrador (o quitársela al Administrador), un aviso en la página nombra la función, dice qué hacer y ofrece Mostrar dónde está; sus cambios siguen ahí sin guardar. Error al guardar: «No se pudieron guardar los permisos. Tus cambios siguen aquí; vuelve a intentarlo con «Guardar cambios».» Error al guardar el rol: el formulario muestra «No se pudo guardar el rol. Inténtalo de nuevo; si se repite, recarga la página.» sin cerrarse."
       },
       {
         "ancla": "que-no-hace",

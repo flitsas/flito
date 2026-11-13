@@ -108,7 +108,7 @@ export default function UsersTable({ users, loading, error, onReintentar, vacioM
         // Por función (kit): editar/contraseña navegan (ghost), activar/reactivar confirman (verde),
         // desactivar y dar de baja son destructivos (naranja).
         return (
-          <div className="flex flex-wrap justify-end gap-1.5">
+          <div className="flex flex-wrap justify-end gap-1.5 lg:min-w-[18rem]">
             {u.deletedAt != null ? (
               <GradientButton type="button" size="sm" variant="success" onClick={() => onReactivar(u)}>Reactivar</GradientButton>
             ) : (
