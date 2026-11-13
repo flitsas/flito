@@ -192,6 +192,6 @@ npm run check:bundle                 # entry /login ≤ 32 KB gzip (S0: 26,4 KB)
 npx playwright test e2e/tests/<spec>.spec.ts   # el spec de la zona tocada
 ```
 
-Visual (obligatorio por pantalla): 1280 y 375, claro y oscuro (`localStorage.setItem('flit-tema','dark')` antes del
+Visual (obligatorio por pantalla): 360, 390, 768, 1024, 1280 y 1440 en claro, y 390 y 1280 en oscuro (`localStorage.setItem('flit-tema','dark')` antes del
 goto), comparando con la propuesta servida. Revisar: una altura de control por barra, hover en controles, sin
 desborde horizontal, cabecera que envuelve, 4 estados, nada ilegible en oscuro.

@@ -171,3 +171,22 @@ Lo que sí está bien y sirve de referencia: Flota, Órdenes de trabajo y Manifi
   - más anchos que el viewport: `div.absolute.z-30.mt-1 (441px)`
   - fuera: button«BUTTON», button«Mes siguiente», button«2026-11-01», button«2026-11-08», button«2026-11-15», button«2026-11-22», button«2026-11-29»
 
+
+## Estado tras los arreglos (sesión B, antes de integrar la navegación nueva)
+
+Commits 15dbcd6c → este cierre. Verificado con pasadas cortas del mismo barrido sobre Trámites, Logística, Comprobantes, Comparendos, Bolsas, Gastos diarios, Siigo Operación y Reporte de costos en los 8 tamaños: **0 desbordes, 0 controles fuera del viewport, 0 errores JS**. El barrido final de las 103 rutas lo corre la sesión A una vez sobre la base integrada (conteo global de táctiles y capturas seleccionadas).
+
+| # | Estado | Dónde |
+|---|---|---|
+| V1 | Resuelto: tiras de píldoras sin envolver, con scroll y desvanecido; la caja no ensancha la página (`contain: inline-size`) | `FlitPillGroup`, `FiltroSegmentado`, kit-responsive.css |
+| V2 / V4 | Resuelto: DataTable y FlitTable en tarjetas (1 columna <640, 2 hasta 1023), tabla desde 1024 con acciones fijas; FlitTable toma el rótulo de cada celda del encabezado (`data-etiqueta` automático). Tablas anchas (Reporte de costos, tarifas, RACI) quedan en matriz con scroll | `DataTable`, `FlitTable` (`matriz`), kit-responsive.css V12 |
+| V3 | Resuelto en Comprobantes (tarjetas); Reporte de costos sigue en matriz a propósito | — |
+| V5 | Resuelto: acciones de cabecera a la derecha desde 768, a ancho completo y apiladas <640 | kit-responsive.css, `VistaRegistrosComparendos` |
+| V6 | Resuelto: pestañas con desvanecido; el `.sr-only` del contador ya no desborda | `Pestanas`, kit-responsive.css |
+| V7 | Resuelto (solo visual): filtros plegados tras «Filtros (n)» <640 en Trámites, Comparendos y Comprobantes; se aplican igual que antes | `FiltrosPlegables` |
+| V8 | Resuelto: el calendario solo se monta abierto; <640 va en el flujo con un mes | `RangoFechas` |
+| V9 | Mejorado: 44 px bajo 1024 en botones, enlaces de control, chips, acciones de fila, íconos y campos (Trámites a 390: 93/132 → 14/55 por debajo de 44 px). Sin área ampliada: casillas y radios | kit-responsive.css V9 |
+| V10 | Resuelto: KPIs del tablero PESV en 1/2/3/5 columnas; cifras sin partir | `PesvTablero`, kit-responsive.css |
+| V11 | Resuelto: Nueva remesa y Nuevo checklist con el contenedor de las demás páginas | `RndcRemesaForm`, `ChecklistRun` |
+
+Pendiente de mirar en la integración: el menú de los filtros por columna en tarjetas (`ThFiltroMulti`) es `position: fixed` sin coordenadas; queda en su sitio y visible (comprobado abierto a 390 y 768), pero no acompaña al filtro si la página se desplaza con el menú abierto.
