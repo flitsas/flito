@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cómo consulto los comparendos de una empresa
   - qué reporta SIMIT de un NIT
-version: 1.2
-fecha: 2026-10-22
+version: 1.3
+fecha: 2026-11-12
 ---
 ## Qué es
 
