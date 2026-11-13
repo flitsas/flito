@@ -4,15 +4,14 @@ import { useAuth } from '../../lib/auth';
 import { useTheme } from '../../lib/theme';
 import { startViewTransition } from '../../lib/viewTransitions';
 import { useNavSections } from '../shell/useNavSections';
-import { entradasAdministracion } from '../shell/dockGrupos';
-import { IconoGlifo } from './kit/IconoGlifo';
-import { Icono, type NombreIcono } from './kit/Icono';
+import { Icono } from './kit/Icono';
 
 /**
  * Barra superior del UI Kit 2026 (`header.barra` de index.html de la propuesta-2; SuiteShell de flit develop):
- * marca por tema + «FLITO» · buscador «Buscar placa, trámite o módulo» (Ctrl K) · rejilla de productos ·
- * notificaciones · interruptor de tema del kit · usuario (nombre, avatar con aro turquesa, puntos y menú).
- * Solo presentación: la sesión, el perfil y la salida son los de siempre.
+ * marca por tema + «FLITO» · buscador «Buscar placa, trámite o módulo» (Ctrl K) · interruptor de tema del kit ·
+ * usuario (nombre, avatar con aro turquesa, puntos y menú: perfil, ayuda, contraseña y salir).
+ * Solo presentación: la sesión, el perfil y la salida son los de siempre. Administración vive en el dock, como
+ * sección del menú (SECTION_ORDER), no aquí.
  */
 interface FlitTopbarProps {
   onOpenPalette: () => void;
@@ -20,17 +19,7 @@ interface FlitTopbarProps {
   onOpenSidebar?: () => void;
 }
 
-/** URL de la suite FLIT para la rejilla de productos (configurable por ambiente). */
-const URL_SUITE = (import.meta.env.VITE_URL_SUITE_FLIT as string | undefined) ?? 'https://app.flitsas.com';
-
-const PRODUCTOS: Array<{ id: string; nombre: string; detalle: string; icono: NombreIcono; href?: string }> = [
-  { id: 'tramites', nombre: 'FLIT Trámites', detalle: 'Traspasos y matrículas', icono: 'tramites', href: URL_SUITE },
-  { id: 'comparendos', nombre: 'FLIT Comparendos', detalle: 'Multas de tu flota', icono: 'comparendos', href: URL_SUITE },
-  { id: 'diagnostico', nombre: 'FLIT Diagnóstico', detalle: 'Estado de cada vehículo', icono: 'consulta', href: URL_SUITE },
-  { id: 'flito', nombre: 'FLITO', detalle: 'Operación y logística', icono: 'ruta' },
-];
-
-type MenuId = 'productos' | 'avisos' | 'usuario' | null;
+type MenuId = 'usuario' | null;
 
 function iniciales(nombre: string | undefined): string {
   const partes = (nombre ?? '').trim().split(/\s+/).filter(Boolean);
@@ -66,7 +55,6 @@ export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
   const alternar = (id: Exclude<MenuId, null>) => setMenu((m) => (m === id ? null : id));
   const puedeVerPerfil = hasFuncion('perfil.datos.ver');
   const puedeVerAyuda = visibleItems.some((it) => it.to === '/flito/ayuda');
-  const administracion = useMemo(() => entradasAdministracion(visibleItems), [visibleItems]);
   const oscuro = resolvedTheme === 'dark';
   const nombre = user?.name ?? 'Sesión';
   // Rol · empresa: /auth/me no trae la empresa del usuario; se muestra el nombre de negocio del rol.
@@ -89,40 +77,6 @@ export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
           <kbd aria-hidden="true">{isMac ? '⌘ K' : 'Ctrl K'}</kbd>
         </button>
 
-        <MenuAncla clase="menu-ancla--productos" abierto={menu === 'productos'}
-          boton={
-            <button type="button" className="icono-btn" data-menu="productos" aria-expanded={menu === 'productos'} aria-controls={menu === 'productos' ? 'flit-productos-menu' : undefined}
-              aria-label="Productos de FLIT" data-tip="Productos de FLIT" onClick={() => alternar('productos')}>
-              <span className="kico" aria-hidden="true"><Icono nombre="rejilla" /></span>
-            </button>
-          }>
-          <div className="menu-flotante menu-flotante--productos" id="flit-productos-menu">
-            <ul>
-              {PRODUCTOS.map((p) => (
-                <li key={p.id}>
-                  {p.href ? (
-                    <a href={p.href} rel="noopener"><span className="kico" aria-hidden="true"><Icono nombre={p.icono} /></span><span><strong>{p.nombre}</strong><small>{p.detalle}</small></span></a>
-                  ) : (
-                    <Link to="/" aria-current="page" onClick={() => setMenu(null)}><span className="kico" aria-hidden="true"><Icono nombre={p.icono} /></span><span><strong>{p.nombre}</strong><small>{p.detalle}</small></span></Link>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </MenuAncla>
-
-        <MenuAncla abierto={menu === 'avisos'}
-          boton={
-            <button type="button" className="icono-btn" data-menu="avisos" aria-expanded={menu === 'avisos'} aria-controls={menu === 'avisos' ? 'flit-avisos-menu' : undefined}
-              aria-label="Notificaciones (próximamente)" data-tip="Notificaciones" onClick={() => alternar('avisos')}>
-              <span className="kico" aria-hidden="true"><Icono nombre="campana" /></span>
-            </button>
-          }>
-          <div className="menu-flotante menu-avisos" id="flit-avisos-menu">
-            <p className="m-0 px-3 py-2 text-[0.8125rem] text-[color:var(--color-text-tertiary)]">Aún no hay notificaciones. Aquí verás los avisos de tus trámites.</p>
-          </div>
-        </MenuAncla>
-
         <button type="button" className="tema-kit" aria-pressed={oscuro} aria-label="Tema oscuro" data-tip="Preferencias de visualización"
           onClick={() => setTheme(oscuro ? 'light' : 'dark')} />
 
@@ -141,30 +95,7 @@ export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
               <div><strong className="truncate">{user?.name ?? 'Sin nombre'}</strong><small>{rol}</small></div>
             </div>
             <ul>
-              {/* (2) Productos: solo en teléfono (≤640 px la rejilla de la barra se oculta). */}
-              {PRODUCTOS.map((p) => (
-                <li key={p.id} className="solo-movil">
-                  {p.href ? (
-                    <a role="menuitem" className="menu-usuario__entrada" href={p.href} rel="noopener">
-                      <span className="kico" aria-hidden="true"><Icono nombre={p.icono} /></span><span><strong>{p.nombre}</strong><small>{p.detalle}</small></span>
-                    </a>
-                  ) : (
-                    <Link role="menuitem" className="menu-usuario__entrada" to="/" aria-current="page" onClick={() => setMenu(null)}>
-                      <span className="kico" aria-hidden="true"><Icono nombre={p.icono} /></span><span><strong>{p.nombre}</strong><small>{p.detalle}</small></span>
-                    </Link>
-                  )}
-                </li>
-              ))}
-              {/* (3) Administración: solo con permiso (mismo árbol que el dock: useNavSections). */}
-              {administracion.length > 0 && (
-                <li className="menu-usuario__seccion" role="presentation"><p>Administración</p></li>
-              )}
-              {administracion.map(({ item, icono, descripcion }) => (
-                <li key={item.to}><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir(item.to)}>
-                  <span className="kico" aria-hidden="true"><IconoGlifo icono={icono} /></span><span><strong>{item.label}</strong>{descripcion && <small>{descripcion}</small>}</span>
-                </button></li>
-              ))}
-              {/* (4) Cuenta. */}
+              {/* Cuenta. */}
               {puedeVerPerfil && (
                 <li><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir('/perfil')}>
                   <span className="kico" aria-hidden="true"><Icono nombre="persona" /></span><span><strong>Mi perfil</strong><small>Tus datos y preferencias</small></span>
@@ -181,7 +112,7 @@ export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
                 </button></li>
               )}
             </ul>
-            {/* (5) Salir en naranja (ui-kit-2026.css pinta así el .btn del pie). */}
+            {/* Salir en naranja (ui-kit-2026.css pinta así el .btn del pie). */}
             <div className="menu-usuario__pie">
               <button type="button" role="menuitem" className="btn sm secondary" data-variante="alerta" onClick={salir}>Salir</button>
             </div>

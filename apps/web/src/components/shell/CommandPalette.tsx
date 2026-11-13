@@ -7,7 +7,7 @@ import { startViewTransition } from '../../lib/viewTransitions';
 import ModalPortal from '../flit/ModalPortal';
 import { Icono } from '../flit/kit/Icono';
 import { IconoGlifo } from '../flit/kit/IconoGlifo';
-import { iconoDeRuta } from './dockGrupos';
+import { iconoDeRuta } from './iconosNav';
 
 interface Props {
   open: boolean;

@@ -174,7 +174,6 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 .dock__entrada .kico > img, .dock__cabeza .kico > img { width: 60%; height: 60%; }
 .dock { z-index: 30; }
 .dock__menu { z-index: 31; }
-.dock__fab img { width: 100%; height: 100%; }
 .control-icono button svg { position: static; transform: none; color: inherit; }
 
 /* Menú de usuario (ronda 2): título de sección como .dock__seccion p; Salir en naranja AA (#D44100 con blanco). */
@@ -188,13 +187,23 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 /* Teléfono: el menú de usuario no se mete bajo el dock (barra 72 + dock ~96). */
 @media (max-width: 640px) { .menu-usuario { max-height: calc(100dvh - 72px - 104px); } }
 
-/* Dock 3 + 3 con nombre para todos los roles en todo el rango >1100 px (ronda 2): entre 1101 y 1440 px se compacta
-   (nombre 14 px, menos aire) y hasta 1280 px sin chevron, para que quepan los seis nombres junto a Dr. Flit.
-   ≤1100 px solo íconos (CSS del kit); el chevron se oculta también ahí. */
+/* Dock por secciones del catálogo (SECTION_ORDER, hasta 11): entre 1101 y 1440 px se compacta el aire (nombre 14 px)
+   y hasta 1280 px sin chevron. Si aun así la fila con nombres no cabe, FlitNavBar pone `dock--compacto`: solo íconos,
+   nombre en sr-only (sigue siendo el nombre accesible) y en `title`. ≤1100 px solo íconos (CSS del kit). */
 @media (min-width: 1101px) and (max-width: 1440px) {
   .dock { gap: 0; padding: 6px 8px; }
   .dock__item { gap: 6px; padding: 0 8px 0 4px; font-size: 0.875rem; }
-  .dock__fab { margin: 0 4px; }
+}
+.dock--compacto .dock__item { padding: 0 6px; }
+.dock--compacto .dock__item .dock__nombre { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.dock--compacto .dock__flecha { display: none; }
+.dock--compacto .dock__item[aria-current="page"]::after { left: 50%; }
+/* Teléfono: hasta 11 íconos en 360 px (30 px de glifo, sin aire lateral; WCAG 2.5.8 pide ≥24 px). */
+@media (max-width: 640px) {
+  .dock { max-width: calc(100vw - 12px); padding: 6px; }
+  .dock .dock__item { padding: 0; }
+  .dock .dock__item .kico { width: 30px; height: 30px; }
+  .dock .dock__item .kico svg, .dock .dock__item .kico > img { width: 22px; height: 22px; }
 }
 @media (max-width: 1280px) { .dock .dock__flecha { display: none; } }
 
@@ -237,9 +246,9 @@ html { scroll-padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); }
 /* #8 El margen entre cards es del flujo de bloque: en grid/flex manda el gap. */
 :is(.grid, .inline-grid, .flex, .inline-flex, .rejilla) > .card + .card { margin-top: 0; }
 
-/* Panel ancho del dock (Cumplimiento, Flota, Impuestos y SOAT): centrado en su grupo se salía por la derecha a 1440
-   (Cumplimiento hasta x≈1874). Se ancla al dock entero (centrado en pantalla), que sí cabe. */
-@media (min-width: 1101px) { .dock .dock__grupo:has(> .dock__menu--ancho) { position: static; } }
+/* Paneles del dock anclados al dock entero (centrado en pantalla), no a su botón: con 11 secciones el panel de una
+   sección del extremo (Administración, Gestión) centrado en su botón se salía del viewport. */
+@media (min-width: 1101px) { .dock .dock__grupo { position: static; } }
 /* El centrado del panel del dock va en `translate` y no en `transform`: la animación `flit-panel-up` (fill both)
    deja `transform: translateY(0)` y se comía el `translateX(-50%)` del kit, así que el panel salía corrido media
    anchura a la derecha. ≤1100 px los paneles anchos (y ≤640 todos) son `fixed` a lo ancho: sin centrado. */

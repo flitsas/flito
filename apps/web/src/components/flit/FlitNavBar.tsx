@@ -1,83 +1,116 @@
-import { useMemo, useRef } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { NavLink } from 'react-router-dom';
+import { SECTION_LABEL, type NavItem } from '../shell/navItems';
 import { useNavSections } from '../shell/useNavSections';
 import { useDisclosureNav } from '../shell/useDisclosureNav';
-import { agruparDock, grupoDeRuta, type GrupoDock, type GrupoDockId } from '../shell/dockGrupos';
+import { groupItems } from '../shell/sectionMeta';
+import { ICONO_SECCION, descripcionDeRuta, iconoDeRuta } from '../shell/iconosNav';
 import { Icono } from './kit/Icono';
 import { IconoGlifo } from './kit/IconoGlifo';
 import { useDrFlitVisible } from '../drflit/useDrFlitVisible';
 
 // FlitNavBar — dock inferior flotante del UI Kit 2026 (`.dock` de la propuesta-2; shell.css de flit develop).
 //
-// Es la implementación de referencia del dock de la suite (GUIA-DOCK-INFERIOR-FLOTANTE §13): se REVISTE, no se
-// reemplaza. Se conservan sus trampas (§12):
+// ESTRUCTURA = la del menú original; PIEL = la del kit. Un botón por SECCIÓN del catálogo de permisos, en
+// SECTION_ORDER (General, Gestión, Tránsito, Flota, Mantenimiento, PESV, RNDC, LAFT, Finanzas, Administración,
+// Ayuda) y con sus nombres (SECTION_LABEL). Dentro de cada panel, los ítems en el orden de NAV_ENTRADAS; Gestión
+// y PESV en columnas con sus subgrupos de siempre (`groupItems`). Nada se reagrupa aquí: así lo que el usuario ve
+// en el menú es lo que lee en Roles y permisos. Trampas que se conservan (GUIA-DOCK-INFERIOR-FLOTANTE §12):
 //   · el filtrado por permisos NO vive aquí: es `useNavSections` (mismo árbol que el buscador);
 //   · disclosure APG (button aria-expanded + lista de enlaces), SIN role="menu";
-//   · el nombre del grupo sigue en el DOM aunque se condense (sr-only): el nombre accesible no cambia;
-//   · red de seguridad «Más» (dockGrupos.ts): solo aparece si una ruta nueva queda sin grupo (hoy ninguna);
-//   · mapa de íconos inyectivo dentro de cada menú;
-//   · el panel abre HACIA ARRIBA; en tableta/teléfono el CSS del kit lo fija a lo ancho (sin recorte del scroll).
+//   · el nombre de la sección sigue en el DOM aunque se condense (sr-only): el nombre accesible no cambia;
+//   · una sección con una sola página es enlace directo;
+//   · el panel abre HACIA ARRIBA; en tableta/teléfono el CSS del kit lo fija a lo ancho.
 //
-// Reparto (briefing flit-de §3): izquierda Trámites · Impuestos y SOAT · Logística; Inicio al centro (isotipo);
-// derecha Flota · Finanzas · Cumplimiento. Un grupo con una sola página es enlace directo.
-//
-// Nombres visibles en todo el rango >1100 px para todos los roles (dock 3 + 3, decisión de diseño, ronda 2); ≤1100 px
-// solo íconos, por el CSS del kit (el nombre sigue en el DOM para lectores de pantalla). Administración no va
-// en el dock: vive en el menú de usuario (FlitTopbar).
+// Once secciones no caben con nombre en cualquier ancho. El dock MIDE si la fila con nombres cabe en el hueco
+// disponible (depende de cuántas secciones ve cada rol): si cabe, ícono + nombre; si no, solo íconos
+// (`dock--compacto`, nombre en sr-only y en `title`). Una sola fila siempre; ≤1100 px el CSS del kit ya condensa.
+
+/** Ancho que ocupa la fila del dock sumando sus hijos (no `scrollWidth`: no depende de que desborde). */
+function anchoDeLaFila(nav: HTMLElement): number {
+  const cs = getComputedStyle(nav);
+  const gap = parseFloat(cs.columnGap) || 0;
+  const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  const hijos = Array.from(nav.children) as HTMLElement[];
+  const suma = hijos.reduce((total, hijo) => total + hijo.getBoundingClientRect().width, 0);
+  return suma + gap * Math.max(0, hijos.length - 1) + padX + (nav.offsetWidth - nav.clientWidth);
+}
+
+/** Margen lateral del dock (16 px por lado) y reserva simétrica del botón de Dr. Flit (16 + 48 + 16 por lado). */
+const MARGEN = 32;
+const RESERVA_DRFLIT = 160;
 
 export default function FlitNavBar() {
-  const { visibleItems } = useNavSections();
-  const { pathname } = useLocation();
+  const { grouped, routeSection } = useNavSections();
   const panelRef = useRef<HTMLDivElement>(null);
-  const { openSection, toggle, navRef, triggerId, panelId } = useDisclosureNav<GrupoDockId>('flit-navbar', [panelRef]);
+  const { openSection, toggle, navRef, triggerId, panelId } = useDisclosureNav<NavItem['section']>('flit-navbar', [panelRef]);
   const reservaDrFlit = useDrFlitVisible();
-  const grupos = useMemo(() => agruparDock(visibleItems), [visibleItems]);
-  const activo = grupoDeRuta(pathname, grupos);
+  const [compacto, setCompacto] = useState(false);
+  // Histéresis con memoria: se mide la fila CON nombres y se guarda; condensado, se decide con esa medida
+  // (si se volviera a medir, la fila encogida «cabría» y el dock oscilaría).
+  const necesarioRef = useRef<number | null>(null);
+  const firma = grouped.map((g) => `${g.section}:${g.items.length}`).join('|');
 
-  // «Inicio» (el Tablero, `/`) es el isotipo del centro: solo con permiso de la página, como el resto del dock.
-  const conInicio = visibleItems.some((it) => it.to === '/');
-  if (grupos.length === 0 && !conInicio) return null;
-  const izq = grupos.filter((g) => g.lado === 'izq');
-  const der = grupos.filter((g) => g.lado === 'der');
+  useLayoutEffect(() => {
+    necesarioRef.current = null;
+    setCompacto(false);
+  }, [firma]);
 
-  const pintarGrupo = (g: GrupoDock) => {
-    const unico = g.total === 1 ? g.secciones[0].entradas[0] : null;
-    const esActivo = activo === g.id;
-    const glifo = <span className="kico" aria-hidden="true"><IconoGlifo icono={g.icono} /></span>;
-    const nombre = <span>{g.titulo}</span>;
-    if (unico) {
+  useLayoutEffect(() => {
+    const decidir = () => {
+      const nav = navRef.current;
+      if (!nav) return;
+      if (!compacto || necesarioRef.current === null) necesarioRef.current = anchoDeLaFila(nav);
+      const disponible = window.innerWidth - MARGEN - (reservaDrFlit ? RESERVA_DRFLIT : 0);
+      const siguiente = (necesarioRef.current ?? 0) > disponible;
+      if (siguiente !== compacto) setCompacto(siguiente);
+    };
+    decidir();
+    window.addEventListener('resize', decidir);
+    return () => window.removeEventListener('resize', decidir);
+  }, [compacto, reservaDrFlit, firma, navRef]);
+
+  if (grouped.length === 0) return null;
+
+  const pintarSeccion = ({ section, items }: (typeof grouped)[number]) => {
+    const titulo = SECTION_LABEL[section];
+    const glifo = <span className="kico" aria-hidden="true"><IconoGlifo icono={ICONO_SECCION[section]} /></span>;
+    if (items.length === 1) {
+      const unico = items[0];
       return (
-        <NavLink key={g.id} to={unico.item.to} end={unico.item.to === '/'} className="dock__item">
-          {glifo}<span>{unico.item.label}</span>
+        <NavLink key={section} to={unico.to} end={unico.to === '/'} className="dock__item" data-seccion={section}
+          title={compacto ? unico.label : undefined}>
+          {glifo}<span className="dock__nombre">{unico.label}</span>
         </NavLink>
       );
     }
-    const abierto = openSection === g.id;
-    const ancho = g.secciones.length > 1;
+    const abierto = openSection === section;
+    const subgrupos = groupItems(section, items);
+    const ancho = subgrupos.length > 1;
     return (
-      <div key={g.id} className="dock__grupo">
-        <button type="button" className="dock__item" id={triggerId(g.id)} aria-expanded={abierto} aria-controls={abierto ? panelId(g.id) : undefined}
-          aria-current={esActivo ? 'page' : undefined} onClick={() => toggle(g.id)}>
-          {glifo}{nombre}
+      <div key={section} className="dock__grupo" data-seccion={section}>
+        <button type="button" className="dock__item" id={triggerId(section)} aria-expanded={abierto} aria-controls={abierto ? panelId(section) : undefined}
+          aria-current={routeSection === section ? 'page' : undefined} title={compacto ? titulo : undefined} onClick={() => toggle(section)}>
+          {glifo}<span className="dock__nombre">{titulo}</span>
           <Icono nombre="arriba" className="dock__flecha" size={16} />
         </button>
         {abierto && (
-          <div ref={panelRef} id={panelId(g.id)} className={`dock__menu flit-panel-up${ancho ? ' dock__menu--ancho' : ''}`} data-grupo={g.id}>
+          <div ref={panelRef} id={panelId(section)} className={`dock__menu flit-panel-up${ancho ? ' dock__menu--ancho' : ''}`} data-grupo={section}>
             <div className="dock__cabeza">
-              <span className="kico" aria-hidden="true"><IconoGlifo icono={g.icono} /></span>
-              <div><strong>{g.titulo}</strong><small>{g.total} módulos</small></div>
+              <span className="kico" aria-hidden="true"><IconoGlifo icono={ICONO_SECCION[section]} /></span>
+              <div><strong>{titulo}</strong><small>{items.length} módulos</small></div>
             </div>
             {ancho ? (
               <div className="dock__secciones">
-                {g.secciones.map((s) => (
-                  <div key={s.titulo || '_'} className="dock__seccion">
-                    {s.titulo && <p>{s.titulo}</p>}
-                    <ListaEntradas entradas={s.entradas} />
+                {subgrupos.map((s) => (
+                  <div key={s.title ?? '_'} className="dock__seccion">
+                    {s.title && <p>{s.title}</p>}
+                    <ListaEntradas items={s.items} />
                   </div>
                 ))}
               </div>
             ) : (
-              <ListaEntradas entradas={g.secciones[0].entradas} />
+              <ListaEntradas items={items} />
             )}
           </div>
         )}
@@ -87,30 +120,27 @@ export default function FlitNavBar() {
 
   return (
     <nav ref={navRef} aria-label="Navegación principal" data-vt="floating-nav"
-      className="dock flit-nav-capsule"
+      className={`dock flit-nav-capsule${compacto ? ' dock--compacto' : ''}`}
       style={reservaDrFlit ? { maxWidth: 'min(calc(100vw - 16px), max(calc(100vw - 180px), 360px))' } : undefined}>
-      {izq.map(pintarGrupo)}
-      {conInicio && (
-        <NavLink to="/" end className="dock__fab" aria-label="Inicio">
-          <img src="/kit/isotipo.svg" alt="" aria-hidden="true" />
-        </NavLink>
-      )}
-      {der.map(pintarGrupo)}
+      {grouped.map(pintarSeccion)}
     </nav>
   );
 }
 
-function ListaEntradas({ entradas }: { entradas: GrupoDock['secciones'][number]['entradas'] }) {
+function ListaEntradas({ items }: { items: NavItem[] }) {
   return (
     <ul>
-      {entradas.map(({ item, icono, descripcion }) => (
-        <li key={item.to}>
-          <NavLink to={item.to} end={item.to === '/'} className="dock__entrada">
-            <span className="kico" aria-hidden="true"><IconoGlifo icono={icono} /></span>
-            <span><strong>{item.label}</strong>{descripcion && <small>{descripcion}</small>}</span>
-          </NavLink>
-        </li>
-      ))}
+      {items.map((item) => {
+        const descripcion = descripcionDeRuta(item.to);
+        return (
+          <li key={item.to}>
+            <NavLink to={item.to} end={item.to === '/'} className="dock__entrada">
+              <span className="kico" aria-hidden="true"><IconoGlifo icono={iconoDeRuta(item.to)} /></span>
+              <span><strong>{item.label}</strong>{descripcion && <small>{descripcion}</small>}</span>
+            </NavLink>
+          </li>
+        );
+      })}
     </ul>
   );
 }
