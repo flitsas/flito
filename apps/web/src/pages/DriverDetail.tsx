@@ -63,7 +63,7 @@ export default function DriverDetail() {
         title={d.user.name}
         subtitle={subtitle}
         icono="flito-conductores"
-        miga={[{ etiqueta: 'Conductores', to: '/pesv/conductores' }, { etiqueta: d.user.name }]}
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }, { etiqueta: 'Conductores', to: '/pesv/conductores' }, { etiqueta: d.user.name }]}
       />
 
       <Pestanas

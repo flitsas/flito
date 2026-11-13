@@ -74,7 +74,7 @@ export default function Checklists() {
         title="Checklists preoperacionales"
         subtitle="Inspecciones diarias del vehículo antes de salir (Res. 40595/2022 paso 21)"
         icono="flito-checklists"
-        miga={[{ etiqueta: 'PESV' }]}
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }]}
         actions={
           <Link to="/pesv/checklists/nuevo" className={claseBoton('primary')}>
             Nuevo checklist

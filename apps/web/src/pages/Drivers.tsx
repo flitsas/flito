@@ -75,7 +75,7 @@ export default function Drivers() {
         </div>
       ),
     },
-    { key: 'cedula', header: 'Cédula', render: (d) => <span className="text-[color:var(--color-text-secondary)]">{d.cedula || '—'}</span> },
+    { key: 'cedula', header: 'Cédula', render: (d) => <span className="mono text-xs text-[color:var(--color-text-secondary)]">{d.cedula || '—'}</span> },
     { key: 'licencia', header: 'Licencia', render: (d) => <span className="mono text-xs text-[color:var(--color-text-secondary)]">{d.licenciaNumero || '—'}</span> },
     { key: 'categorias', header: 'Categorías', render: (d) => <span className="text-xs text-[color:var(--color-text-secondary)]">{d.categorias?.join(', ') || '—'}</span> },
     { key: 'vigencia', header: 'Vigencia', render: (d) => <Vigencia fecha={d.licenciaVigencia} vencida={!!d.licenciaVigencia && d.licenciaVigencia <= today} /> },
@@ -93,7 +93,7 @@ export default function Drivers() {
         title="Conductores"
         subtitle="Hojas de vida con licencia, examen psicosensométrico y categorías PESV"
         icono="flito-conductores"
-        miga={[{ etiqueta: 'Conductores' }]}
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }]}
         actions={isAdmin ? <GradientButton type="button" onClick={() => setShowCreate(true)}>Promover conductor</GradientButton> : undefined}
       />
 

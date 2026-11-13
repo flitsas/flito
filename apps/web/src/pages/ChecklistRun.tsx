@@ -111,7 +111,7 @@ export default function ChecklistRun() {
         title="Nuevo checklist preoperacional"
         subtitle="Inspeccione cada ítem antes de iniciar la jornada. Su PIN firma digitalmente."
         icono="flito-checklists"
-        miga={[{ etiqueta: 'PESV' }, { etiqueta: 'Checklists preoperacionales', to: '/pesv/checklists' }]}
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }, { etiqueta: 'Checklists preoperacionales', to: '/pesv/checklists' }]}
       />
 
       <form onSubmit={submit} className="flex flex-col gap-4">

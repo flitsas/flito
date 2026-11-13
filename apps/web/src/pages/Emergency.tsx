@@ -50,7 +50,7 @@ export default function Emergency() {
         title="Plan de emergencias"
         subtitle="Contactos, protocolos y simulacros (Res. 40595/2022 — mínimo 1 simulacro anual)"
         icono="flito-emergencias"
-        miga={[{ etiqueta: 'PESV' }]}
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }]}
       />
 
       <Pestanas etiqueta="Plan de emergencias" pestanas={PESTANAS} activa={tab} onElegir={(id) => setTab(id as Tab)} />

@@ -19,7 +19,7 @@ interface AlcoholTest {
 }
 interface Driver { id: number; name: string; }
 
-const MIGA = [{ etiqueta: 'Conductores', to: '/drivers' }];
+const MIGA = [{ etiqueta: 'PESV', to: '/pesv' }];
 
 export default function AlcoholTests() {
   const { hasFuncion } = useAuth();

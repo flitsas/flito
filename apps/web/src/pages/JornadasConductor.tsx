@@ -97,7 +97,7 @@ export default function JornadasConductor() {
         title="Control de jornada"
         subtitle="Decreto 1079/2015 art. 2.2.1.7.1.10 · Tope 10h/día, 60h/sem, 4h continuas, pausa 15min cada 2h"
         icono="flito-jornadas"
-        miga={[{ etiqueta: 'Control de jornada' }]}
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }]}
       />
 
       <FlitCard className="flex flex-col gap-4">
