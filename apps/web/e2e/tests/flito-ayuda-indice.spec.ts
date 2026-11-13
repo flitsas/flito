@@ -105,7 +105,9 @@ test.describe('FLITO — Ayuda · índice', () => {
   });
 
   test('HU #13703 AC1/AC2 — versión y fecha del encabezado en la ficha; el resumen es el subtítulo; el encabezado no se pinta', async ({ page }) => {
-    const resumen = 'Saldos, recargas y cierres.';
+    // Encabezado vigente de `flito_bolsas.md` (resumen, versión y fecha los movieron las HUs de Bolsas
+    // #13908/#13950/#13964); el test garantiza dónde se pintan, no qué versión es.
+    const resumen = 'Saldos, alta de bolsas, recargas y cierres.';
     await abrirAyuda(page, FINANCIERA_USER);
     const fila = page.getByRole('link', { name: 'Abrir ficha de Bolsas' });
     await expect(fila).toContainText(resumen);
@@ -113,9 +115,9 @@ test.describe('FLITO — Ayuda · índice', () => {
 
     await fila.click();
     await expect(page).toHaveURL(/\/flito\/ayuda\/flito_bolsas$/);
-    await expect(page.getByText('Versión 1.1 · 21/10/2026', { exact: true })).toBeVisible();
+    await expect(page.getByText('Versión 1.8 · 26/10/2026', { exact: true })).toBeVisible();
     await expect(page.getByText(resumen, { exact: true })).toHaveCount(1);
-    for (const fuga of ['palabras_clave', 'consultas:', 'version: 1.1', 'fecha: 2026-10-21', 'resumen:']) {
+    for (const fuga of ['palabras_clave', 'consultas:', 'version: 1.8', 'fecha: 2026-10-26', 'resumen:']) {
       await expect(page.getByText(fuga)).toHaveCount(0);
     }
     await expect(page.getByRole('heading', { name: 'Qué es', exact: true })).toBeVisible();
@@ -296,12 +298,14 @@ test.describe('FLITO — Ayuda · índice', () => {
       return max;
     });
     expect(derechaMax).toBeLessThanOrEqual(375);
-    // Sin `bg-white`: la tarjeta toma `--flit-bg-card`, que tiene par oscuro.
+    // Sin `bg-white`: la tarjeta toma el token de superficie del kit, que tiene par oscuro.
+    // Rediseño S6 (Épica #14560): cada ficha es su propia tarjeta (el enlace de la fila) sobre
+    // `--color-surface-elevated`, el fondo de `.card` del UI Kit 2026.
     await expect(capitulos.locator('.bg-white')).toHaveCount(0);
-    const fondo = await capitulos.locator('section > div').first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    const fondo = await capitulos.locator('section li > a').first().evaluate((el) => getComputedStyle(el).backgroundColor);
     const token = await page.evaluate(() => {
       const d = document.createElement('div');
-      d.style.background = 'var(--flit-bg-card)';
+      d.style.background = 'var(--color-surface-elevated)';
       document.body.appendChild(d);
       const c = getComputedStyle(d).backgroundColor;
       d.remove();

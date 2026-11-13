@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import type { FuncionDeUsuario } from '@operaciones/shared-types';
 import { errorMessage, permisosApi } from '../../lib/api';
+import GradientButton from '../../components/flit/GradientButton';
 import FlitModal from '../../components/flit/FlitModal';
 
 const COPY_TITULO = 'Conservar excepciones con el rol nuevo';
@@ -61,10 +62,10 @@ export default function CambioRolExcepciones({
   return (
     <FlitModal title={COPY_TITULO} onClose={onCancelar}>
       <div className="space-y-3">
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{COPY_AYUDA}</p>
-        {cargando && <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }} role="status">Cargando cuadro del rol nuevo…</p>}
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{COPY_AYUDA}</p>
+        {cargando && <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }} role="status">Cargando cuadro del rol nuevo…</p>}
         {error && (
-          <p className="text-xs" role="alert" style={{ color: 'var(--flit-danger-text)' }}>
+          <p className="text-xs" role="alert" style={{ color: 'var(--kit-naranja-texto)' }}>
             No se pudo cargar el cuadro del rol. Cierra e inténtalo de nuevo.
           </p>
         )}
@@ -84,11 +85,11 @@ export default function CambioRolExcepciones({
                     onChange={(ev) => setMarcar((m) => ({ ...m, [e.codigo]: ev.target.checked }))}
                   />
                   <label htmlFor={`conservar-${e.codigo}`} className="flex-1 cursor-pointer">
-                    <span className="font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+                    <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
                       Conservar · {efectoLabel} · {nombre}
                     </span>
                     {!tieneSentido && (
-                      <span className="mt-0.5 block text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+                      <span className="mt-0.5 block text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
                         {COPY_SIN_EFECTO}
                       </span>
                     )}
@@ -99,18 +100,12 @@ export default function CambioRolExcepciones({
           </ul>
         )}
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onCancelar} className="rounded-lg px-3 py-1.5 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <GradientButton type="button" variant="secondary" size="sm" onClick={onCancelar}>
             Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={confirmar}
-            disabled={cargando || !!error}
-            className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-            style={{ background: 'var(--flit-blue)' }}
-          >
+          </GradientButton>
+          <GradientButton type="button" size="sm" onClick={confirmar} disabled={cargando || !!error}>
             Confirmar
-          </button>
+          </GradientButton>
         </div>
       </div>
     </FlitModal>

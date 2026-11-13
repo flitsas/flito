@@ -1,7 +1,8 @@
 import type { ReactNode, RefObject } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { claseBoton } from '../flit/GradientButton';
+import { Icono } from '../flit/kit/Icono';
 import type { FinalidadDrFlit } from '@operaciones/shared-types';
-import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondarySm } from '../flit/flitPageKit';
+import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary } from '../flit/flitPageKit';
 
 // Dr. Flit — vista de autorización (anexo UX F5, wireframe C), UN SOLO componente parametrizado por
 // `finalidad` (HU #13857 IA-5, spec `docs/ux/flito-dr-flit-f4-ia.md` §IA.4): `soporte` la usa el
@@ -101,7 +102,7 @@ export function vistaAutorizacion(p: DrFlitAutorizacionProps): { contenido: Reac
         {error && (
           <div role="alert" className="mt-4 rounded-flit-lg border border-flit-soft bg-flit-app p-3 text-sm text-flit-ink">
             <div className="flex items-start gap-2">
-              <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--flit-danger-text)]" />
+              <Icono nombre="alerta" size={16} className="mt-0.5 shrink-0 text-[color:var(--kit-rojo-texto)]" />
               <div className="min-w-0">
                 <p className="break-words">{error.titulo}</p>
                 <p className="mt-1 break-words text-flit-secondary">{error.detalle}</p>
@@ -110,7 +111,7 @@ export function vistaAutorizacion(p: DrFlitAutorizacionProps): { contenido: Reac
                     type="button"
                     onClick={() => { if (!inactivo) p.onReintentar?.(); }}
                     aria-disabled={inactivo || undefined}
-                    className={`${flitBtnSecondarySm} mt-3 max-lg:h-11`}
+                    className={`${claseBoton('secondary', 'sm')} mt-3 max-lg:h-11`}
                   >
                     Reintentar
                   </button>

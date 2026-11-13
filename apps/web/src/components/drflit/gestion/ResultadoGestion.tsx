@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
+import { claseBoton } from '../../flit/GradientButton';
 import { Link } from 'react-router-dom';
-import { AlertCircle } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import {
   TARJETAS_POR_MODULO, type ModuloGestion, type TarjetaDerechoGestion, type TarjetaImpuestoGestion,
   type TarjetaSoatGestion, type TarjetaTramiteGestion,
 } from '@operaciones/shared-types';
-import { flitBtnSecondarySm } from '../../flit/flitPageKit';
+
 import {
   COPY_429, faseBloque, moduloGestionWeb, textoResumen, type GrupoGestion, type MensajeResultadoGestion,
 } from '../../../lib/drFlitGestion';
@@ -29,7 +30,7 @@ const TARJETA: Partial<Record<ModuloGestion, (item: unknown) => ReactNode>> = {
   derechos: (item) => <TarjetaDerecho tarjeta={item as TarjetaDerechoGestion} />,
 };
 
-const TEXTO_ERROR = 'text-[color:var(--flit-danger-text)]';
+const TEXTO_ERROR = 'text-[color:var(--kit-rojo-texto)]';
 
 export const idTituloGestion = (id: string) => `drflit-gestion-${id}`;
 export const idGrupoGestion = (id: string, modulo: ModuloGestion) => `drflit-gestion-${id}-${modulo}`;
@@ -45,10 +46,10 @@ export interface ResultadoGestionProps {
 function AvisoError({ texto, onReintentar, alerta = false }: { texto: string; onReintentar: () => void; alerta?: boolean }) {
   return (
     <div className="mt-2 flex items-start gap-2">
-      <AlertCircle aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${TEXTO_ERROR}`} />
+      <Icono nombre="alerta" size={16} className={`mt-0.5 shrink-0 ${TEXTO_ERROR}`} />
       <div className="min-w-0">
         <p role={alerta ? 'alert' : undefined} className={`break-words ${TEXTO_ERROR}`}>{texto}</p>
-        <button type="button" onClick={onReintentar} className={`${flitBtnSecondarySm} mt-2`}>
+        <button type="button" onClick={onReintentar} className={`${claseBoton('secondary', 'sm')} mt-2`}>
           Reintentar
         </button>
       </div>
@@ -71,9 +72,9 @@ function Grupo({ id, modulo, grupo, variosVerMas, onReintentar, onNavegar }: {
         {grupo.estado === 'ok' && <p className="tabular-nums text-flit-secondary">{grupo.total} en total</p>}
       </div>
       {grupo.estado === 'cargando' && (
-        <div aria-hidden="true" className="mt-2 rounded-flit border border-flit-soft px-3 py-3">
-          <div className="h-3 w-3/4 rounded bg-flit-app" />
-          <div className="mt-2 h-3 w-1/2 rounded bg-flit-app" />
+        <div aria-hidden="true" className="mt-2 rounded-[9px] border border-[color:var(--color-border)] px-3 py-3">
+          <div className="kit-esqueleto h-3 w-3/4" />
+          <div className="kit-esqueleto mt-2 h-3 w-1/2" />
         </div>
       )}
       {grupo.estado === 'error' && (

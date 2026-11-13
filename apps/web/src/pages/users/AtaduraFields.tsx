@@ -282,11 +282,11 @@ export function OrganismosField({ organismos, seleccionados, onChange, error, ed
       {/* `<legend>` como PRIMER hijo y con solo su texto: es el nombre accesible del grupo, y meter
           el contador dentro lo cambiaría en cada clic. El contador va al lado, posicionado sobre la
           propia caja del campo —no es un panel que pueda recortarse contra el borde del modal. */}
-      <legend className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <legend className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         {ORGANISMOS_LABEL}
       </legend>
       {marcados > 0 && (
-        <span className="absolute right-0 top-0 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <span className="absolute right-0 top-0 text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
           {marcados === 1 ? '1 marcado' : `${marcados} marcados`}
         </span>
       )}
@@ -296,25 +296,24 @@ export function OrganismosField({ organismos, seleccionados, onChange, error, ed
       {lista.length > 0 && (
         <div
           ref={refCaja}
-          className="max-h-48 space-y-1 overflow-y-auto rounded-xl bg-flit-card p-3"
-          style={{ border: '1px solid var(--flit-border-soft)' }}
+          className="max-h-48 space-y-1 overflow-y-auto rounded-[9px] bg-flit-card p-3"
+          style={{ border: '1px solid var(--color-border)' }}
         >
           {lista.map((o) => {
             const marcado = seleccionados.includes(o.codigo);
             return (
               <label
                 key={o.codigo}
-                className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs hover:bg-[color:var(--flit-bg-app)] ${marcado
-                  ? 'text-[color:var(--flit-blue)] [[data-theme=dark]_&]:text-[color:var(--flit-blue-text)]'
-                  : 'text-[color:var(--flit-text-secondary)]'}`}
-                style={marcado ? { background: 'rgba(79,116,201,0.12)' } : undefined}
+                className={`flex cursor-pointer items-center gap-2 rounded-[9px] px-2 py-1 text-xs transition-colors hover:bg-[color:var(--kit-hover)] ${marcado
+                  ? 'bg-[color:var(--kit-hover)] text-[color:var(--color-action)]'
+                  : 'text-[color:var(--color-text-secondary)]'}`}
               >
                 <input
                   type="checkbox"
                   checked={marcado}
                   onChange={() => alternar(o.codigo)}
                   className="flit-focus rounded"
-                  style={{ accentColor: 'var(--flit-blue)' }}
+                  style={{ accentColor: 'var(--kit-azul)' }}
                 />
                 {/* El código va detrás SIEMPRE: dos municipios pueden llamarse igual y el DIVIPOLA
                     es lo que desempata. El matiz «(inactivo)» va en el texto, no en un color. */}
@@ -334,7 +333,7 @@ export function OrganismosField({ organismos, seleccionados, onChange, error, ed
         <span
           id={idMensaje}
           role="status"
-          style={{ color: mensaje && errorCarga ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}
+          style={{ color: mensaje && errorCarga ? 'var(--kit-naranja-texto)' : 'var(--color-text-secondary)' }}
         >
           {mensaje ?? ayuda}
         </span>
@@ -345,7 +344,7 @@ export function OrganismosField({ organismos, seleccionados, onChange, error, ed
             type="button"
             onClick={recargar}
             className="flit-focus rounded-[999px] border bg-flit-card px-2 py-0.5 text-xs font-medium"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+            style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}
           >
             {ORGANISMOS_REINTENTO}
           </button>
@@ -353,7 +352,7 @@ export function OrganismosField({ organismos, seleccionados, onChange, error, ed
       </div>
 
       {error && (
-        <p id={idError} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>
+        <p id={idError} role="alert" className="mt-1 text-xs" style={{ color: 'var(--kit-naranja-texto)' }}>
           {error}
         </p>
       )}

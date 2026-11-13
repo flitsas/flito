@@ -33,9 +33,14 @@ async function mockColaSoat(page: Page) {
 
 const nav = (page: Page) => page.getByRole('navigation', { name: 'Navegación principal' });
 
-/** Abre la sección del dock si existe (si no existe, no hay nada que abrir: es parte del aserto). */
+/**
+ * Abre el grupo del dock si existe (si no existe, no hay nada que abrir: es parte del aserto).
+ * Shell S0 (Épica #14560): el dock reparte por grupos — SOAT e Impuestos en «Impuestos y SOAT»,
+ * Mi ruta en «Logística» — en lugar de la sección «Gestión» de la barra lateral.
+ */
 async function abrirSeccion(page: Page, seccion: string) {
-  await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
+  // Shell S0 (Épica #14560): el buscador de la barra superior se llama «Buscar placa, trámite o módulo».
+  await expect(page.getByRole('button', { name: /Buscar placa, trámite o módulo/ })).toBeVisible();
   const boton = nav(page).getByRole('button', { name: seccion, exact: true });
   if (await boton.count()) await boton.click();
 }
@@ -52,7 +57,7 @@ test.describe('HU #12872 — acceso por permiso, sin nombre de rol', () => {
       funciones: [...FUNCIONES_POR_ROL.financiera, 'soat.cola.ver', 'soat.cola.filtrar', 'soat.solicitud.ver'],
     });
     await page.goto('/');
-    await abrirSeccion(page, 'Gestión');
+    await abrirSeccion(page, 'Impuestos y SOAT');
     await expect(enlaceMenu(page, 'SOAT')).toBeVisible();
     await enlaceMenu(page, 'SOAT').click();
     await expect(page).toHaveURL(/\/flito\/soat$/);
@@ -63,14 +68,14 @@ test.describe('HU #12872 — acceso por permiso, sin nombre de rol', () => {
   test('AC1 control — el mismo rol con la página pero SIN la función no ve «SOAT»', async ({ page }) => {
     await loginAs(page, { ...FINANCIERA_USER, allowedPages: ['flito_soat'] }, { funciones: FUNCIONES_POR_ROL.financiera });
     await page.goto('/');
-    await abrirSeccion(page, 'Gestión');
+    await abrirSeccion(page, 'Impuestos y SOAT');
     await expect(enlaceMenu(page, 'SOAT')).toHaveCount(0);
   });
 
   test('AC1 — otro nombre de rol (auditor) con lo mismo ve lo mismo', async ({ page }) => {
     await loginAs(page, { ...AUDITOR_USER, allowedPages: ['flito_soat'] }, { funciones: ['soat.cola.ver'] });
     await page.goto('/');
-    await abrirSeccion(page, 'Gestión');
+    await abrirSeccion(page, 'Impuestos y SOAT');
     await expect(enlaceMenu(page, 'SOAT')).toBeVisible();
   });
 
@@ -79,7 +84,7 @@ test.describe('HU #12872 — acceso por permiso, sin nombre de rol', () => {
     await page.route(/\/api\/flito\/impuestos/, (route: Route) => { pedidas += 1; return route.fulfill(json({ items: [], total: 0 })); });
     await loginAs(page, FINANCIERA_USER, { funciones: [...FUNCIONES_POR_ROL.financiera, 'impuestos.cola.ver'] });
     await page.goto('/');
-    await abrirSeccion(page, 'Gestión');
+    await abrirSeccion(page, 'Impuestos y SOAT');
     await expect(enlaceMenu(page, 'Impuestos')).toHaveCount(0);
     await page.keyboard.press('Control+k');
     await page.getByPlaceholder('Buscar o ir a…').fill('impuestos');
@@ -101,14 +106,14 @@ test.describe('HU #12872 — acceso por permiso, sin nombre de rol', () => {
       funciones: [...FUNCIONES_POR_ROL.auditor, 'logistica.ruta.ver'],
     });
     await page.goto('/');
-    await abrirSeccion(page, 'Gestión');
+    await abrirSeccion(page, 'Logística');
     await expect(enlaceMenu(page, 'Mi ruta')).toHaveAttribute('href', '/flito/ruta');
   });
 
   test('AC5 control — un mensajero con la página pero sin la función no ve «Mi ruta»', async ({ page }) => {
     await loginAs(page, MENSAJERO_USER, { funciones: [] });
     await page.goto('/');
-    await abrirSeccion(page, 'Gestión');
+    await abrirSeccion(page, 'Logística');
     await expect(enlaceMenu(page, 'Mi ruta')).toHaveCount(0);
   });
 });
@@ -239,7 +244,7 @@ test.describe('HU #12872 — AC7 · refresco de permisos en la sesión', () => {
     await volverALaPestana(page);
     await expect(page.getByRole('heading', { name: /No tienes acceso a/ })).toBeVisible();
     await expect(page).toHaveURL(/\/flito\/soat$/);
-    await abrirSeccion(page, 'Gestión');
+    await abrirSeccion(page, 'Impuestos y SOAT');
     await expect(enlaceMenu(page, 'SOAT')).toHaveCount(0);
   });
 });

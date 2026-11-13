@@ -1,11 +1,10 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { claseBoton } from '../flit/GradientButton';
+import { Icono } from '../flit/kit/Icono';
 import {
   ETIQUETAS_AREA_SOPORTE, ETIQUETAS_FRECUENCIA_SOPORTE, ETIQUETAS_PRIORIDAD_SOPORTE,
 } from '@operaciones/shared-types';
-import {
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondarySm,
-} from '../flit/flitPageKit';
+import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary } from '../flit/flitPageKit';
 import {
   aceptarAutorizacion, ahoraNo, confirmarCaso, corregir, limitesAdjuntos, pasoAnterior, reintentarPreparar,
   siguientePaso, useSoporteDrFlit, volverAlChat, type BorradorSoporte, type EstadoSoporteDrFlit, type FocoSoporte,
@@ -27,7 +26,7 @@ import { COPY_DRFLIT_FUNCIONES } from './drFlitFunciones';
 
 const TITULO_ID = 'drflit-soporte-encabezado';
 /** Botones que en <lg suben a 44 px de alto (objetivo táctil, F5.12); en lg+ la altura del kit. */
-const SM_TACTIL = `${flitBtnSecondarySm} max-lg:h-11`;
+const SM_TACTIL = `${claseBoton('secondary', 'sm')} max-lg:h-11`;
 const PRIMARIA = `${flitBtnPrimary} max-lg:h-11`;
 const SECUNDARIA = `${flitBtnSecondary} max-lg:h-11`;
 
@@ -35,7 +34,7 @@ function AvisoError({ titulo, detalle, rol = 'alert' }: { titulo: string; detall
   return (
     <div role={rol} className="mt-4 rounded-flit-lg border border-flit-soft bg-flit-app p-3 text-sm text-flit-ink">
       <div className="flex items-start gap-2">
-        <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--flit-danger-text)]" />
+        <Icono nombre="alerta" size={16} className="mt-0.5 shrink-0 text-[color:var(--kit-rojo-texto)]" />
         <div className="min-w-0">
           <p className="break-words">{titulo}</p>
           <p className="mt-1 break-words text-flit-secondary">{detalle}</p>

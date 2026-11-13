@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref, type RefObject } from 'react';
+import { Girador } from '../flit/Cargador';
+import { claseBoton } from '../flit/GradientButton';
 import { Link } from 'react-router-dom';
-import { flitBtnSecondarySm } from '../flit/flitPageKit';
+
 import { useAuth } from '../../lib/auth';
 import { capitulosEnOrdenDeIndice, entradaAyudaPorClave, puedeVerEntradaAyuda } from '../../lib/ayudaFlito';
 import type { FichaParseada } from '../../lib/ayudaFicha';
@@ -552,7 +554,7 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
       aria-disabled={inactivo || undefined}
       aria-expanded={listaAbierta}
       aria-controls={listaAbierta ? DRFLIT_MODULOS_ID : undefined}
-      className={flitBtnSecondarySm}
+      className={claseBoton('secondary', 'sm')}
     >
       Explícame un módulo
     </button>
@@ -608,7 +610,7 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     {conManuales && botonExplicame()}
                     {conPregunta && (
-                      <button type="button" onClick={() => cajaRef.current?.focus()} className={flitBtnSecondarySm}>
+                      <button type="button" onClick={() => cajaRef.current?.focus()} className={claseBoton('secondary', 'sm')}>
                         Tengo una pregunta
                       </button>
                     )}
@@ -716,7 +718,7 @@ function notasIa(enUso: boolean, cupoBajo: number | null): string[] {
 function DrFlitPensando() {
   return (
     <BurbujaDrFlit>
-      <p>Dr. Flit está pensando…</p>
+      <p className="flex items-center gap-2"><Girador className="shrink-0 text-[color:var(--color-action)]" />Dr. Flit está pensando…</p>
     </BurbujaDrFlit>
   );
 }

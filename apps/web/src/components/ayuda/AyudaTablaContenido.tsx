@@ -42,8 +42,9 @@ function Lista(
               to={{ hash: s.id }}
               onClick={onElegir}
               aria-current={activa ? 'location' : undefined}
-              className={`flit-focus block break-words rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[color:var(--flit-bg-hover)]${activa ? ' font-semibold' : ''}`}
-              style={{ color: activa ? 'var(--flit-blue-text)' : 'var(--flit-text-secondary)' }}
+              className={`flit-focus block break-words rounded-[9px] border-l-2 px-2 py-1.5 text-sm transition-colors hover:bg-[var(--kit-hover)]${activa
+                ? ' border-[color:var(--kit-azul)] font-semibold text-[color:var(--color-action)]'
+                : ' border-transparent text-[color:var(--color-text-secondary)]'}`}
             >
               {s.texto}
             </Link>
@@ -64,7 +65,7 @@ export function TablaContenidoLateral({ secciones, actual }: { secciones: Seccio
       className="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto"
       data-testid="ayuda-toc-lateral"
     >
-      <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="mb-2 px-2 text-xs font-light text-[color:var(--color-text-tertiary)]">
         {ROTULO}
       </p>
       <Lista secciones={secciones} actual={actual} />
@@ -77,12 +78,7 @@ export function TablaContenidoPlegable({ secciones, actual }: { secciones: Secci
   const [abierto, setAbierto] = useState(false);
   return (
     <div
-      className="lg:hidden"
-      style={{
-        borderRadius: 'var(--flit-radius-card)',
-        border: '1px solid var(--flit-border-soft)',
-        background: 'var(--flit-bg-card)',
-      }}
+      className="rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] lg:hidden"
     >
       <FlitAcordeon
         titulo={ROTULO}

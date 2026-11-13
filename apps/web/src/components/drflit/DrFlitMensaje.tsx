@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
+import { claseBoton } from '../flit/GradientButton';
 import { Link } from 'react-router-dom';
-import { AlertCircle } from 'lucide-react';
+import { Icono } from '../flit/kit/Icono';
 import StatusChip from '../flit/StatusChip';
-import { flitBtnSecondarySm } from '../flit/flitPageKit';
+import { Girador } from '../flit/Cargador';
+
 import { entradaAyudaPorClave, puedeVerEntradaAyuda, type UsuarioAyuda } from '../../lib/ayudaFlito';
 import type { FichaParseada } from '../../lib/ayudaFicha';
 import {
@@ -10,7 +12,6 @@ import {
 } from '../../lib/drFlitConversacion';
 import { seccionesDeFicha } from '../../lib/drFlitBusqueda';
 import { esMensajeGestion } from '../../lib/drFlitGestion';
-import { DR_FLIT_ASSETS } from './drFlitAssets';
 import { COPY_DRFLIT_FUNCIONES } from './drFlitFunciones';
 
 // Dr. Flit — pinta cada mensaje de la conversación (HU #13765; slim §4, spec UX «Explícame un
@@ -20,22 +21,15 @@ import { COPY_DRFLIT_FUNCIONES } from './drFlitFunciones';
 // segundo hijo de la fila de acciones de «sin resultados» (`DrFlitSinResultados`).
 
 export const ENLACE_DRFLIT =
-  'flit-focus inline-flex items-center gap-1 rounded-md font-medium text-[color:var(--flit-blue-text)] underline-offset-2 transition-colors hover:text-flit-ink hover:underline';
+  'flit-focus inline-flex items-center gap-1 rounded-md font-medium text-[color:var(--color-action)] underline-offset-2 transition-colors hover:text-flit-ink hover:underline';
 
-const BURBUJA_DRFLIT = 'rounded-flit-lg border border-flit-soft bg-flit-card p-4 text-sm text-flit-ink';
+// Tarjeta del kit: superficie elevada, borde 1 px y radio 9, sin sombra.
+const BURBUJA_DRFLIT = 'rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] p-4 text-sm text-flit-ink';
 
 export function BurbujaDrFlit({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-start gap-2">
-      <img
-        src={DR_FLIT_ASSETS.header}
-        alt=""
-        aria-hidden="true"
-        width={32}
-        height={32}
-        loading="lazy"
-        className="h-8 w-8 shrink-0 rounded-full object-cover"
-      />
+      <Icono nombre="asistente" disco size={32} className="shrink-0" />
       <div className={`min-w-0 flex-1 ${BURBUJA_DRFLIT}`}>
         <span className="sr-only">Dr. Flit: </span>
         {children}
@@ -46,7 +40,7 @@ export function BurbujaDrFlit({ children }: { children: ReactNode }) {
 
 function BurbujaUsuario({ children }: { children: ReactNode }) {
   return (
-    <div className="ml-8 rounded-flit-lg bg-flit-app p-3 text-sm text-flit-ink">
+    <div className="ml-8 rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface)] p-3 text-sm text-flit-ink">
       <p className="break-words">
         <span className="sr-only">Usted: </span>
         {children}
@@ -150,11 +144,11 @@ export function DrFlitAvisoFuncion({ texto }: { texto: string }) {
   );
 }
 
-/** «Dr. Flit está buscando…»: una línea, sin spinner; el `log` lo anuncia una vez (AC4). */
+/** «Dr. Flit está buscando…»: una línea con el girador del kit (decorativo); el `log` lo anuncia una vez (AC4). */
 export function DrFlitBuscando() {
   return (
     <BurbujaDrFlit>
-      <p>Dr. Flit está buscando…</p>
+      <p className="flex items-center gap-2"><Girador className="shrink-0 text-[color:var(--color-action)]" />Dr. Flit está buscando…</p>
     </BurbujaDrFlit>
   );
 }
@@ -164,11 +158,11 @@ export function DrFlitErrorModulo({ etiqueta, onReintentar }: { etiqueta: string
   return (
     <BurbujaDrFlit>
       <div className="flex items-start gap-2">
-        <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--flit-danger-ink)]" />
+        <Icono nombre="alerta" size={16} className="mt-0.5 shrink-0 text-[color:var(--kit-rojo-texto)]" />
         <div className="min-w-0">
           <p className="break-words">No pude cargar la ficha de {etiqueta}.</p>
           <p className="mt-1 text-flit-secondary">Revise su conexión e intente de nuevo.</p>
-          <button type="button" onClick={onReintentar} className={`${flitBtnSecondarySm} mt-3`}>
+          <button type="button" onClick={onReintentar} className={`${claseBoton('secondary', 'sm')} mt-3`}>
             Reintentar
           </button>
         </div>
@@ -180,7 +174,7 @@ export function DrFlitErrorModulo({ etiqueta, onReintentar }: { etiqueta: string
 export const NO_DISPONIBLE = 'Esta referencia ya no está disponible';
 
 export const CITA_DRFLIT =
-  'flit-focus flex min-h-11 w-full items-center gap-3 rounded-flit-lg border border-flit-soft px-3 py-2 transition-colors hover:bg-[var(--flit-bg-hover)] group';
+  'flit-focus flex min-h-11 w-full items-center gap-3 rounded-[9px] border border-[color:var(--color-border)] px-3 py-2 transition-colors hover:bg-[var(--kit-hover)] group';
 
 /** Una cita: título de ficha y de sección derivados de la ficha ya cargada; fail-closed sin permiso o ancla. */
 function CitaDrFlit({ refFicha, user, fichas, onNavegar }: {
@@ -201,7 +195,7 @@ function CitaDrFlit({ refFicha, user, fichas, onNavegar }: {
           {seccion.tituloSeccion}
         </span>
       </span>
-      <span aria-hidden="true" className="shrink-0 text-[color:var(--flit-blue-text)]">→</span>
+      <span aria-hidden="true" className="shrink-0 text-[color:var(--color-action)]">→</span>
     </Link>
   );
 }
@@ -231,7 +225,7 @@ export const ATRIBUTO_ABRIDOR_SOPORTE = 'data-drflit-soporte-abridor';
 /** HU #13806: «Necesito soporte» (anexo UX F5.1), mismo botón en el saludo y en «sin resultados». */
 export function BotonNecesitoSoporte({ abridor, onClick }: { abridor: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className={flitBtnSecondarySm} {...{ [ATRIBUTO_ABRIDOR_SOPORTE]: abridor }}>
+    <button type="button" onClick={onClick} className={claseBoton('secondary', 'sm')} {...{ [ATRIBUTO_ABRIDOR_SOPORTE]: abridor }}>
       Necesito soporte
     </button>
   );
@@ -267,7 +261,7 @@ function DrFlitSinResultados({ consulta, onNavegar, onSoporte, abridor }: {
         Pruebe con otras palabras, por ejemplo el nombre del módulo o de la pantalla.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <Link to="/flito/ayuda" onClick={onNavegar} className={flitBtnSecondarySm}>
+        <Link to="/flito/ayuda" onClick={onNavegar} className={claseBoton('secondary', 'sm')}>
           Abrir la Ayuda FLITO
         </Link>
         {onSoporte && <BotonNecesitoSoporte abridor={abridor} onClick={onSoporte} />}
@@ -281,11 +275,11 @@ export function DrFlitErrorPregunta({ onReintentar }: { onReintentar: () => void
   return (
     <BurbujaDrFlit>
       <div className="flex items-start gap-2">
-        <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--flit-danger-ink)]" />
+        <Icono nombre="alerta" size={16} className="mt-0.5 shrink-0 text-[color:var(--kit-rojo-texto)]" />
         <div className="min-w-0">
           <p>No pude revisar sus manuales en este momento.</p>
           <p className="mt-1 text-flit-secondary">Revise su conexión e intente de nuevo.</p>
-          <button type="button" onClick={onReintentar} className={`${flitBtnSecondarySm} mt-3`}>
+          <button type="button" onClick={onReintentar} className={`${claseBoton('secondary', 'sm')} mt-3`}>
             Reintentar
           </button>
         </div>
@@ -299,11 +293,11 @@ export function DrFlitErrorRestaurar({ onReintentar }: { onReintentar: () => voi
   return (
     <BurbujaDrFlit>
       <div className="flex items-start gap-2">
-        <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--flit-danger-ink)]" />
+        <Icono nombre="alerta" size={16} className="mt-0.5 shrink-0 text-[color:var(--kit-rojo-texto)]" />
         <div className="min-w-0">
           <p>No pude recuperar las referencias de esta conversación.</p>
           <p className="mt-1 text-flit-secondary">Revise su conexión e intente de nuevo.</p>
-          <button type="button" onClick={onReintentar} className={`${flitBtnSecondarySm} mt-3`}>
+          <button type="button" onClick={onReintentar} className={`${claseBoton('secondary', 'sm')} mt-3`}>
             Reintentar
           </button>
         </div>

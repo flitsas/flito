@@ -1,4 +1,5 @@
-import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondarySm } from '../../flit/flitPageKit';
+import { flitBtnPrimary, flitBtnPrimaryStyle } from '../../flit/flitPageKit';
+import { claseBoton } from '../../flit/GradientButton';
 import type {
   MensajeMarcadorGestion, MensajeOfertaGestion, TipoValorGestion,
 } from '../../../lib/drFlitGestion';
@@ -47,7 +48,7 @@ export function OfertaGestion({ mensaje, onConsultar, onManuales }: OfertaGestio
           >
             Consultar {valor} en sus módulos
           </button>
-          <button type="button" onClick={() => onManuales(mensaje.id)} className={flitBtnSecondarySm}>
+          <button type="button" onClick={() => onManuales(mensaje.id)} className={claseBoton('secondary', 'sm')}>
             Buscar en los manuales
           </button>
         </div>
@@ -89,13 +90,13 @@ function OfertaGestionVarios({ mensaje, onConsultar, onManuales }: OfertaGestion
       {mensaje.estado === 'viva' && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {pendientes.map((v) => (
-            <button key={v} type="button" onClick={() => onConsultar(mensaje.id, v)} className={flitBtnSecondarySm}>
+            <button key={v} type="button" onClick={() => onConsultar(mensaje.id, v)} className={claseBoton('secondary', 'sm')}>
               Consultar {v}
             </button>
           ))}
           {/* Como en F6: tras la primera consulta la Ayuda ya no se ofrece en esta burbuja. */}
           {varios.consultados.length === 0 && (
-            <button type="button" onClick={() => onManuales(mensaje.id)} className={flitBtnSecondarySm}>
+            <button type="button" onClick={() => onManuales(mensaje.id)} className={claseBoton('secondary', 'sm')}>
               Buscar en los manuales
             </button>
           )}
@@ -123,7 +124,7 @@ export function MarcadorGestion({ mensaje, onVolver }: { mensaje: MensajeMarcado
         Aquí hubo una consulta de gestión. Por seguridad, sus resultados no se guardan en el navegador.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" onClick={onVolver} className={flitBtnSecondarySm}>
+        <button type="button" onClick={onVolver} className={claseBoton('secondary', 'sm')}>
           Volver a consultar
         </button>
       </div>

@@ -467,8 +467,8 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // Épica #14560 (S5): Privacidad y Log de accesos PII suben a 1.1 al regenerar sus capturas con el UI Kit 2026; el texto no cambia.
   const ADMIN_13774: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
     privacy_log_pii: { version: '1.1', fecha: '2026-11-12', diagrama: null, capturas: ['01-resumen.png', '02-filtros.png'] },
-    users: { version: '1.5', fecha: '2026-11-06', diagrama: 'ciclo-usuario.svg', capturas: ['01-usuarios.png', '02-nuevo-usuario.png', '03-historial.png'] },
-    roles_permisos: { version: '1.2', fecha: '2026-10-25', diagrama: 'reparto-de-permisos.svg', capturas: [
+    users: { version: '1.7', fecha: '2026-11-12', diagrama: 'ciclo-usuario.svg', capturas: ['01-usuarios.png', '02-nuevo-usuario.png', '03-historial.png'] },
+    roles_permisos: { version: '1.3', fecha: '2026-11-12', diagrama: 'reparto-de-permisos.svg', capturas: [
       '01-roles.png', '02-arbol.png', '03-sin-guardar.png', '04-nuevo-rol.png'] },
     drive: { version: '1.0', diagrama: 'procesar-cuentas.svg', capturas: ['01-carpeta-raiz.png', '02-carpeta.png', '03-resultado.png'] },
     privacy: { version: '1.1', fecha: '2026-11-12', diagrama: 'derecho-al-olvido.svg', capturas: ['01-documento.png', '02-registros-afectados.png'] },
@@ -519,19 +519,20 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // HU #13775 — Tablero de control (General) y Organismos de tránsito (grupo Tránsito): misma comprobación que
   // ADMIN_13774. Las dos nacen en 1.0. «Sin rutas» admite solo el enlace interno a otra ficha de la Ayuda
   // (`/flito/ayuda/<clave>`), que es el aviso de AC2 en «Cómo se entra» del Tablero de control.
-  const TRANSITO_13775: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
-    dashboard: { version: '1.0', diagrama: 'que-ve-al-entrar.svg', capturas: ['01-estado-operativo.png', '02-atencion-y-atajos.png'] },
+  const TRANSITO_13775: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
+    // Rediseño UI Kit 2026 (Épica #14560, S6): banner de Inicio con las cifras y esqueletos al cargar.
+    dashboard: { version: '1.1', fecha: '2026-11-12', diagrama: 'que-ve-al-entrar.svg', capturas: ['01-estado-operativo.png', '02-atencion-y-atajos.png'] },
     transito_organismos: { version: '1.0', diagrama: 'cambio-de-modalidad.svg', capturas: [
       '01-organismos.png', '02-general.png', '03-autogestion.png', '04-plantilla.png'] },
   };
 
   for (const [clave, esperado] of Object.entries(TRANSITO_13775)) {
-    test(`HU #13775 — ${clave}: versión ${esperado.version} del 2026-10-22, capturas y diagrama con alt`, () => {
+    test(`HU #13775 — ${clave}: versión ${esperado.version} del ${esperado.fecha ?? '2026-10-22'}, capturas y diagrama con alt`, () => {
       const md = leer(`apps/web/src/content/ayuda/${clave}.md`);
       const { encabezado, errores } = parsearFicha(md);
       expect(errores, clave).toEqual([]);
       expect(encabezado!.version, `${clave} · version`).toBe(esperado.version);
-      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe('2026-10-22');
+      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe(esperado.fecha ?? '2026-10-22');
       // AC4 — sin rutas de API ni rutas de la app en el texto (salvo el enlace interno a otra ficha).
       const sinEnlacesAyuda = md.replace(/\]\(\/flito\/ayuda\/[a-z_]+(#[a-z0-9-]+)?\)/g, ']()');
       expect(sinEnlacesAyuda, `${clave} · sin rutas`).not.toMatch(/`\/|\/api\/|\/flito\//);
