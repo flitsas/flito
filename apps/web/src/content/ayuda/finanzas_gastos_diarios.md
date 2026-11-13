@@ -9,8 +9,8 @@ palabras_clave:
 consultas:
   - cuánto se pagó hoy
   - dónde veo los gastos de un día
-version: 1.3
-fecha: 2026-11-12
+version: 1.4
+fecha: 2026-11-13
 ---
 ## Qué es
 
@@ -22,7 +22,7 @@ Administrador y, cuando se le concede la página desde **Roles y permisos**, Fin
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Finanzas** y, en el panel que se abre, el ítem **Gastos diarios**. Si la barra deja solo los íconos, el nombre de cada grupo aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «gastos diarios».
+En la barra de navegación al pie de la pantalla, pulse **Finanzas** y, en el panel que se abre, el ítem **Gastos diarios**. Está justo después de **Reporte de costos**. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «gastos diarios».
 
 ## Pasos
 

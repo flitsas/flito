@@ -9,8 +9,8 @@ consultas:
   - cómo solicito un SOAT
   - cuándo pasa un SOAT a pagado
   - cómo cargo la factura del SOAT
-version: 1.11
-fecha: 2026-11-12
+version: 1.12
+fecha: 2026-11-13
 ---
 ## Qué es
 
@@ -22,7 +22,7 @@ Proveedor (ve **Solicitado** y **Pagado** de su cartera; nunca los **Pendiente**
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **SOAT e Impuestos** del panel que se abre, el ítem **SOAT**. En pantallas pequeñas, use el botón de menú de la barra superior; también puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «SOAT».
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **SOAT e Impuestos** del panel que se abre, el ítem **SOAT**. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «SOAT».
 
 ## Pasos
 

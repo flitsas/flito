@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cómo confirmo los campos que leyó el OCR
   - por qué un documento quedó en revisión
-version: 1.3
-fecha: 2026-11-12
+version: 1.4
+fecha: 2026-11-13
 ---
 ## Qué es
 
@@ -21,7 +21,7 @@ Administrador (confirma o descarta). Auditor (ve la cola y los soportes, pero no
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Trámites**, el ítem **Revisiones OCR**. Si la ventana es estrecha, la barra deja solo los iconos y el nombre de cada sección aparece al pasar el cursor por encima; en pantallas pequeñas, use el botón de menú de la barra superior. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «revisiones».
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Trámites**, el ítem **Revisiones OCR**. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «revisiones».
 
 ## Pasos
 

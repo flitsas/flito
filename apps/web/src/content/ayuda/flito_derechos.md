@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cuánto cobra el organismo por radicar
   - cómo registro el pago de derechos
-version: 1.2
-fecha: 2026-11-12
+version: 1.3
+fecha: 2026-11-13
 ---
 ## Qué es
 
@@ -21,7 +21,7 @@ Administrador (carga, procesa el Drive y consulta). Auditor (consulta). Financie
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **Trámites** del panel que se abre, el ítem **Derechos**. En pantallas pequeñas, use el botón de menú de la barra superior; también puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «Derechos».
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **Trámites** del panel que se abre, el ítem **Derechos**. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «Derechos».
 
 ## Pasos
 

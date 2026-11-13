@@ -11,8 +11,8 @@ consultas:
   - cómo cargo un recibo de impuestos
   - qué recibos están pendientes
   - cómo certifico un vehículo sin trámite
-version: 1.9
-fecha: 2026-11-12
+version: 1.10
+fecha: 2026-11-13
 ---
 ## Qué es
 
@@ -24,7 +24,7 @@ Gestor de Impuestos (ve **Solicitado** y **Pagado** de los organismos que el Adm
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **SOAT e Impuestos** del panel que se abre, el ítem **Impuestos**. En pantallas pequeñas, use el botón de menú de la barra superior; también puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «Impuestos».
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **SOAT e Impuestos** del panel que se abre, el ítem **Impuestos**. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «Impuestos».
 
 ## Pasos
 
