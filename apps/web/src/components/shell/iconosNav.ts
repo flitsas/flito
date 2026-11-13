@@ -17,11 +17,11 @@ export const ICONO_SECCION: Record<NavItem['section'], NombreIcono> = {
   gestion: 'tramites',
   transito: 'radicacion',
   flota: 'carro',
-  mantenimiento: 'procesos',
+  mantenimiento: 'reintento',
   pesv: 'escudo',
   rndc: 'fuentes-oficiales',
   laft: 'identidad',
-  finanzas: 'ingreso',
+  finanzas: 'pesos',
   admin: 'ajustes',
   ayuda: 'ayuda',
 };

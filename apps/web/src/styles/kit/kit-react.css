@@ -198,11 +198,11 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 .dock--compacto .dock__item .dock__nombre { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .dock--compacto .dock__flecha { display: none; }
 .dock--compacto .dock__item[aria-current="page"]::after { left: 50%; }
-/* Teléfono: hasta 11 íconos en 360 px (30 px de glifo, sin aire lateral; WCAG 2.5.8 pide ≥24 px). */
+/* Teléfono: hasta 11 íconos en 360 px (28 px de glifo, sin aire lateral ni gap; WCAG 2.5.8 pide ≥24 px). */
 @media (max-width: 640px) {
-  .dock { max-width: calc(100vw - 12px); padding: 6px; }
-  .dock .dock__item { padding: 0; }
-  .dock .dock__item .kico { width: 30px; height: 30px; }
+  .dock { max-width: calc(100vw - 12px); padding: 6px; gap: 0; }
+  .dock .dock__item { padding: 0; gap: 0; }
+  .dock .dock__item .kico { width: 28px; height: 28px; }
   .dock .dock__item .kico svg, .dock .dock__item .kico > img { width: 22px; height: 22px; }
 }
 @media (max-width: 1280px) { .dock .dock__flecha { display: none; } }
