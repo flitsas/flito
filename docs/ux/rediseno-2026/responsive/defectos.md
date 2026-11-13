@@ -6,11 +6,11 @@ Leyenda: **+Npx** = desborde horizontal del documento (`scrollWidth − clientWi
 
 **Resumen:** 103 rutas × 8 variantes = 824 capturas. Con desborde horizontal: 3. Con controles fuera del viewport: 7. Con controles recortados: 0.
 
-> **Medidas no válidas en 45 rutas.** Flota, mantenimiento, repuestos, PESV, RNDC, `/laft/unusual`, `/flito/conciliacion/:id` y `/admin/tramites-metricas` lanzaron una excepción JS en las 8 variantes (columna *err*): el mock respondió `[]` donde la pantalla espera un objeto y quedó en la pantalla de error. Su «ok» en la tabla **no** certifica nada; se re-barren con fixtures propias (`pesv-fixtures`, `laft-fixtures`…) en la recaptura final. Bolsas, SOAT e Impuestos salieron en estado vacío por falta de fixture de lista.
+> **Re-barrido con fixtures propias.** En la primera pasada, 44 rutas de flota, mantenimiento, repuestos, PESV, RNDC, `/laft/unusual`, `/flito/conciliacion/:id` y `/admin/tramites-metricas` cayeron en la pantalla de error porque el mock no tenía sus datos. Se añadieron fixtures demo para ellas (64 endpoints) y se re-barrieron: ahora cargan con datos en las 8 variantes y la tabla de abajo ya refleja esa segunda pasada. Bolsas, SOAT e Impuestos siguen en estado vacío por falta de fixture de lista.
 
 ## Revisión a ojo (lo que la métrica no mide)
 
-Páginas de más uso revisadas a 390, 768 y 1024 (claro): Tablero, Gestión Trámites, SOAT, Impuestos, Logística, Comprobantes, Comparendos, Reporte de costos, Usuarios, Bolsas. Agrupado por pieza del kit, que es donde va el arreglo:
+Páginas de más uso revisadas a 390, 768 y 1024 (claro): Tablero, Gestión Trámites, SOAT, Impuestos, Logística, Comprobantes, Comparendos, Reporte de costos, Usuarios, Bolsas; y tras el re-barrido Flota, detalle de vehículo, Órdenes de trabajo, Conductores y Tablero PESV, Nuevo checklist, Manifiestos y Nueva remesa. Agrupado por pieza del kit, que es donde va el arreglo:
 
 | # | Pieza | Defecto | Dónde se ve | Ancho |
 |---|---|---|---|---|
@@ -23,18 +23,22 @@ Páginas de más uso revisadas a 390, 768 y 1024 (claro): Tablero, Gestión Trá
 | V7 | Barra de filtros en teléfono | Cada filtro ocupa una fila: 4–6 filas de controles antes del primer dato (Trámites: buscador, Vista, Creado, Aprobado, Todas/Autogestionadas, Fuente, Orden) | Trámites, Comparendos, Comprobantes | 360–390 |
 | V8 | Calendario de `RangoFechas` | El desplegable mide 441 px y se sale a la derecha | Trámites (390), Reporte de costos (360–768) | 360–768 |
 | V9 | Objetivos táctiles | Por debajo de 1024, 60–75 % de los controles miden <44 px (chips, enlaces de tabla, paginación) | Todas | <1024 |
+| V10 | Fila de KPIs | 5 `KpiCard` en una sola fila a 768: cifras partidas («80.0 / %») y etiquetas cortadas a mitad de palabra («VERIFICA / R») | Tablero ejecutivo PESV | 768 |
+| V11 | Ancho del contenedor | En formularios (Nueva remesa, Nuevo checklist) la cabecera y el formulario usan un ancho máximo distinto del resto de páginas y quedan desalineados con la barra a 1024 | RNDC remesa nueva, PESV checklist nuevo | 1024+ |
+
+Lo que sí está bien y sirve de referencia: Flota, Órdenes de trabajo y Manifiestos pasan a tarjetas en 2 columnas a 768 y a matriz a 1024 sin cortes. V2 también se ve en Conductores PESV a 1024 (columna Contrato cortada, «LIC-DEMO-1» partido); V5 en Manifiestos a 390 (primaria sin ancho completo); V6 en el detalle de vehículo a 390 (Documentos y Pasaporte ocultas).
 
 | Ruta | 360 | 390 | 768 | 1024 | 1280 | 1440 | 390 osc. | 1280 osc. | táctil <44px (390) |
 |---|---|---|---|---|---|---|---|---|---|
 | `/` | ok | ok | ok | ok | ok | ok | ok | ok | 13/21 |
 | `/admin/rendimiento` | ok | ok | ok | ok | ok | ok | ok | ok | 17/22 |
-| `/admin/tramites-metricas` | err | err | err | err | err | err | err | err | 13/18 |
+| `/admin/tramites-metricas` | ok | ok | ok | ok | ok | ok | ok | ok | 17/22 |
 | `/clients` | ok | ok | ok | ok | ok | ok | ok | ok | 22/27 |
 | `/drive` | ok | ok | ok | ok | ok | ok | ok | ok | 14/20 |
 | `/finanzas/gastos-diarios` | ok | **+17px** | ok | ok | ok | ok | **+17px** | ok | 66/70 |
 | `/finanzas/reporte-costos` | 2 fuera | 2 fuera | 8 fuera | ok | ok | 8 fuera | 2 fuera | ok | 155/177 |
-| `/fleet` | err | err | err | err | err | err | err | err | 13/18 |
-| `/fleet/demo-1` | err | err | err | err | err | err | err | err | 13/18 |
+| `/fleet` | ok | ok | ok | ok | ok | ok | ok | ok | 20/27 |
+| `/fleet/demo-1` | ok | ok | ok | ok | ok | ok | ok | ok | 15/24 |
 | `/flito/ayuda` | ok | ok | ok | ok | ok | ok | ok | ok | 15/47 |
 | `/flito/ayuda/demo-1` | ok | ok | ok | ok | ok | ok | ok | ok | 15/20 |
 | `/flito/bitacora` | ok | ok | ok | ok | ok | ok | ok | ok | 21/25 |
@@ -43,7 +47,7 @@ Páginas de más uso revisadas a 390, 768 y 1024 (claro): Tablero, Gestión Trá
 | `/flito/comprobantes` | ok | ok | ok | ok | ok | ok | ok | ok | 22/36 |
 | `/flito/compuerta` | ok | ok | ok | ok | ok | ok | ok | ok | 14/18 |
 | `/flito/conciliacion` | ok | ok | ok | ok | ok | ok | ok | ok | 58/66 |
-| `/flito/conciliacion/demo-1` | err | err | err | err | err | err | err | err | 13/18 |
+| `/flito/conciliacion/demo-1` | ok | ok | ok | ok | ok | ok | ok | ok | 16/25 |
 | `/flito/derechos` | ok | ok | ok | ok | ok | ok | ok | ok | 20/33 |
 | `/flito/impuestos` | ok | ok | ok | ok | ok | ok | ok | ok | 15/27 |
 | `/flito/impuestos/certificar` | ok | ok | ok | ok | ok | ok | ok | ok | 13/18 |
@@ -65,56 +69,56 @@ Páginas de más uso revisadas a 390, 768 y 1024 (claro): Tablero, Gestión Trá
 | `/laft/plan-auditorias` | ok | ok | ok | ok | ok | ok | ok | ok | 15/19 |
 | `/laft/tablero` | ok | ok | ok | ok | ok | ok | ok | ok | 15/19 |
 | `/laft/trainings` | ok | ok | ok | ok | ok | ok | ok | ok | 15/20 |
-| `/laft/unusual` | err | err | err | err | err | err | err | err | 13/18 |
+| `/laft/unusual` | ok | ok | ok | ok | ok | ok | ok | ok | 18/24 |
 | `/login` | ok | ok | ok | ok | ok | ok | ok | ok | 1/4 |
-| `/maintenance` | err | err | err | err | err | err | err | err | 13/18 |
-| `/maintenance/indicators` | err | err | err | err | err | err | err | err | 13/18 |
-| `/maintenance/routines` | err | err | err | err | err | err | err | err | 13/18 |
-| `/maintenance/schedule` | err | err | err | err | err | err | err | err | 13/18 |
-| `/maintenance/work-orders` | err | err | err | err | err | err | err | err | 13/18 |
-| `/maintenance/work-orders/demo-1` | err | err | err | err | err | err | err | err | 13/18 |
-| `/parts` | err | err | err | err | err | err | err | err | 13/18 |
+| `/maintenance` | ok | ok | ok | ok | ok | ok | ok | ok | 21/29 |
+| `/maintenance/indicators` | ok | ok | ok | ok | ok | ok | ok | ok | 21/28 |
+| `/maintenance/routines` | ok | ok | ok | ok | ok | ok | ok | ok | 15/20 |
+| `/maintenance/schedule` | ok | ok | ok | ok | ok | ok | ok | ok | 25/30 |
+| `/maintenance/work-orders` | ok | ok | ok | ok | ok | ok | ok | ok | 24/29 |
+| `/maintenance/work-orders/demo-1` | ok | ok | ok | ok | ok | ok | ok | ok | 21/27 |
+| `/parts` | ok | ok | ok | ok | ok | ok | ok | ok | 19/26 |
 | `/perfil` | ok | ok | ok | ok | ok | ok | ok | ok | 14/19 |
-| `/pesv` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/alcoholimetria` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/auditorias` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/capacitaciones` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/checklists` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/checklists/nuevo` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/comite` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/comunicaciones` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/conductores` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/conductores/demo-1` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/contratistas` | err | err | err | err | err | err | err | err | 13/18 |
+| `/pesv` | ok | ok | ok | ok | ok | ok | ok | ok | 19/24 |
+| `/pesv/alcoholimetria` | ok | ok | ok | ok | ok | ok | ok | ok | 15/20 |
+| `/pesv/auditorias` | ok | ok | ok | ok | ok | ok | ok | ok | 18/23 |
+| `/pesv/capacitaciones` | ok | ok | ok | ok | ok | ok | ok | ok | 15/20 |
+| `/pesv/checklists` | ok | ok | ok | ok | ok | ok | ok | ok | 27/32 |
+| `/pesv/checklists/nuevo` | ok | ok | ok | ok | ok | ok | ok | ok | 18/27 |
+| `/pesv/comite` | ok | ok | ok | ok | ok | ok | ok | ok | 15/22 |
+| `/pesv/comunicaciones` | ok | ok | ok | ok | ok | ok | ok | ok | 21/26 |
+| `/pesv/conductores` | ok | ok | ok | ok | ok | ok | ok | ok | 23/30 |
+| `/pesv/conductores/demo-1` | ok | ok | ok | ok | ok | ok | ok | ok | 16/24 |
+| `/pesv/contratistas` | ok | ok | ok | ok | ok | ok | ok | ok | 15/20 |
 | `/pesv/diagnostico` | ok | ok | ok | ok | ok | ok | ok | ok | 15/21 |
-| `/pesv/diagnostico/demo-1` | err | err | err | err | err | err | err | err | 13/18 |
+| `/pesv/diagnostico/demo-1` | ok | ok | ok | ok | ok | ok | ok | ok | 22/53 |
 | `/pesv/diagnostico/demo-1/auditoria` | ok | ok | ok | ok | ok | ok | ok | ok | 13/17 |
-| `/pesv/emergencias` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/incidentes` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/incidentes/stats` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/jornadas` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/mi-jornada` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/normativa` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/operacion-indicadores` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/pernocta` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/plan` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/politica` | err | err | err | err | err | err | err | err | 13/18 |
+| `/pesv/emergencias` | ok | ok | ok | ok | ok | ok | ok | ok | 18/26 |
+| `/pesv/incidentes` | ok | ok | ok | ok | ok | ok | ok | ok | 27/36 |
+| `/pesv/incidentes/stats` | ok | ok | ok | ok | ok | ok | ok | ok | 16/22 |
+| `/pesv/jornadas` | ok | ok | ok | ok | ok | ok | ok | ok | 18/24 |
+| `/pesv/mi-jornada` | ok | ok | ok | ok | ok | ok | ok | ok | 13/19 |
+| `/pesv/normativa` | ok | ok | ok | ok | ok | ok | ok | ok | 16/21 |
+| `/pesv/operacion-indicadores` | ok | ok | ok | ok | ok | ok | ok | ok | 21/28 |
+| `/pesv/pernocta` | ok | ok | ok | ok | ok | ok | ok | ok | 18/23 |
+| `/pesv/plan` | ok | ok | ok | ok | ok | ok | ok | ok | 16/21 |
+| `/pesv/politica` | ok | ok | ok | ok | ok | ok | ok | ok | 16/21 |
 | `/pesv/raci` | ok | ok | ok | ok | ok | ok | ok | ok | 15/21 |
 | `/pesv/reportar` | ok | ok | ok | ok | ok | ok | ok | ok | 15/25 |
-| `/pesv/retencion` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/rutas` | err | err | err | err | err | err | err | err | 13/18 |
-| `/pesv/tablero` | err | err | err | err | err | err | err | err | 13/18 |
+| `/pesv/retencion` | ok | ok | ok | ok | ok | ok | ok | ok | 20/25 |
+| `/pesv/rutas` | ok | ok | ok | ok | ok | ok | ok | ok | 19/24 |
+| `/pesv/tablero` | ok | ok | ok | ok | ok | ok | ok | ok | 15/20 |
 | `/privacy` | ok | ok | ok | ok | ok | ok | ok | ok | 15/20 |
 | `/privacy/log-pii` | ok | ok | ok | ok | ok | ok | ok | ok | 20/25 |
-| `/rndc` | err | err | err | err | err | err | err | err | 13/18 |
+| `/rndc` | ok | ok | ok | ok | ok | ok | ok | ok | 14/21 |
 | `/rndc/admin/credenciales` | ok | ok | ok | ok | ok | ok | ok | ok | 15/20 |
-| `/rndc/maestros` | err | err | err | err | err | err | err | err | 13/18 |
-| `/rndc/manifiestos` | err | err | err | err | err | err | err | err | 13/18 |
+| `/rndc/maestros` | ok | ok | ok | ok | ok | ok | ok | ok | 23/31 |
+| `/rndc/manifiestos` | ok | ok | ok | ok | ok | ok | ok | ok | 28/32 |
 | `/rndc/manifiestos/demo-1` | ok | ok | ok | ok | ok | ok | ok | ok | 13/17 |
-| `/rndc/manifiestos/nuevo` | err | err | err | err | err | err | err | err | 13/18 |
-| `/rndc/remesas` | err | err | err | err | err | err | err | err | 13/18 |
-| `/rndc/remesas/demo-1` | err | err | err | err | err | err | err | err | 13/18 |
-| `/rndc/remesas/nueva` | err | err | err | err | err | err | err | err | 13/18 |
+| `/rndc/manifiestos/nuevo` | ok | ok | ok | ok | ok | ok | ok | ok | 16/25 |
+| `/rndc/remesas` | ok | ok | ok | ok | ok | ok | ok | ok | 26/30 |
+| `/rndc/remesas/demo-1` | ok | ok | ok | ok | ok | ok | ok | ok | 16/40 |
+| `/rndc/remesas/nueva` | ok | ok | ok | ok | ok | ok | ok | ok | 16/40 |
 | `/roles-permisos` | ok | ok | ok | ok | ok | ok | ok | ok | 16/22 |
 | `/siigo/credenciales` | ok | ok | ok | ok | ok | ok | ok | ok | 17/24 |
 | `/siigo/operacion` | ok | ok | ok | ok | ok | ok | ok | ok | 25/37 |
@@ -131,25 +135,6 @@ Páginas de más uso revisadas a 390, 768 y 1024 (claro): Tablero, Gestión Trá
 | `/vehicles` | ok | ok | ok | ok | ok | ok | ok | ok | 30/37 |
 
 ## Detalle
-
-### `/admin/tramites-metricas`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'reduce') / Cannot read properties of undefined (reading 'reduce')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'reduce') / Cannot read properties of undefined (reading 'reduce')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'reduce') / Cannot read properties of undefined (reading 'reduce')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'reduce') / Cannot read properties of undefined (reading 'reduce')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'reduce') / Cannot read properties of undefined (reading 'reduce')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'reduce') / Cannot read properties of undefined (reading 'reduce')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'reduce') / Cannot read properties of undefined (reading 'reduce')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'reduce') / Cannot read properties of undefined (reading 'reduce')
 
 ### `/finanzas/gastos-diarios`
 
@@ -173,63 +158,6 @@ Páginas de más uso revisadas a 390, 768 y 1024 (claro): Tablero, Gestión Trá
   - más anchos que el viewport: `div.absolute.z-30.mt-1 (1494px)`, `div.absolute.z-30.mt-1 (1448px)`, `div.absolute.z-30.mt-1 (1535px)`
   - fuera: button«BUTTON», button«Mes siguiente», button«2026-11-01», button«2026-11-06», button«2026-11-07», button«2026-11-08», button«2026-11-13», button«2026-11-14»
 
-### `/fleet`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/fleet/demo-1`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'alias') / Cannot read properties of undefined (reading 'alias')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'alias') / Cannot read properties of undefined (reading 'alias')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'alias') / Cannot read properties of undefined (reading 'alias')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'alias') / Cannot read properties of undefined (reading 'alias')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'alias') / Cannot read properties of undefined (reading 'alias')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'alias') / Cannot read properties of undefined (reading 'alias')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'alias') / Cannot read properties of undefined (reading 'alias')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'alias') / Cannot read properties of undefined (reading 'alias')
-
-### `/flito/conciliacion/demo-1`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-
 ### `/flito/logistica`
 
 - **360 claro** — desborde +7px
@@ -242,764 +170,4 @@ Páginas de más uso revisadas a 390, 768 y 1024 (claro): Tablero, Gestión Trá
 - **390 oscuro**
   - más anchos que el viewport: `div.absolute.z-30.mt-1 (441px)`
   - fuera: button«BUTTON», button«Mes siguiente», button«2026-11-01», button«2026-11-08», button«2026-11-15», button«2026-11-22», button«2026-11-29»
-
-### `/laft/unusual`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/maintenance`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-
-### `/maintenance/indicators`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-
-### `/maintenance/routines`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/maintenance/schedule`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/maintenance/work-orders`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/maintenance/work-orders/demo-1`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'estado') / Cannot read properties of undefined (reading 'estado')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'estado') / Cannot read properties of undefined (reading 'estado')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'estado') / Cannot read properties of undefined (reading 'estado')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'estado') / Cannot read properties of undefined (reading 'estado')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'estado') / Cannot read properties of undefined (reading 'estado')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'estado') / Cannot read properties of undefined (reading 'estado')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'estado') / Cannot read properties of undefined (reading 'estado')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'estado') / Cannot read properties of undefined (reading 'estado')
-
-### `/parts`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'toLocaleString') / Cannot read properties of undefined (reading 'toLocaleString')
-
-### `/pesv/alcoholimetria`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/auditorias`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/capacitaciones`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/checklists`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-
-### `/pesv/checklists/nuevo`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-
-### `/pesv/comite`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/comunicaciones`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/conductores`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/conductores/demo-1`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'username') / Cannot read properties of undefined (reading 'username')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'username') / Cannot read properties of undefined (reading 'username')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'username') / Cannot read properties of undefined (reading 'username')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'username') / Cannot read properties of undefined (reading 'username')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'username') / Cannot read properties of undefined (reading 'username')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'username') / Cannot read properties of undefined (reading 'username')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'username') / Cannot read properties of undefined (reading 'username')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'username') / Cannot read properties of undefined (reading 'username')
-
-### `/pesv/contratistas`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-
-### `/pesv/diagnostico/demo-1`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-
-### `/pesv/emergencias`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-
-### `/pesv/incidentes`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/incidentes/stats`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-
-### `/pesv/jornadas`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/mi-jornada`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-
-### `/pesv/normativa`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-
-### `/pesv/operacion-indicadores`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'realizadas') / Cannot read properties of undefined (reading 'realizadas')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'realizadas') / Cannot read properties of undefined (reading 'realizadas')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'realizadas') / Cannot read properties of undefined (reading 'realizadas')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'realizadas') / Cannot read properties of undefined (reading 'realizadas')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'realizadas') / Cannot read properties of undefined (reading 'realizadas')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'realizadas') / Cannot read properties of undefined (reading 'realizadas')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'realizadas') / Cannot read properties of undefined (reading 'realizadas')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'realizadas') / Cannot read properties of undefined (reading 'realizadas')
-
-### `/pesv/pernocta`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/plan`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/politica`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'find') / Cannot read properties of undefined (reading 'find')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'find') / Cannot read properties of undefined (reading 'find')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'find') / Cannot read properties of undefined (reading 'find')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'find') / Cannot read properties of undefined (reading 'find')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'find') / Cannot read properties of undefined (reading 'find')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'find') / Cannot read properties of undefined (reading 'find')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'find') / Cannot read properties of undefined (reading 'find')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'find') / Cannot read properties of undefined (reading 'find')
-
-### `/pesv/retencion`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/rutas`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/pesv/tablero`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'scoresPorFase') / Cannot read properties of undefined (reading 'scoresPorFase')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'scoresPorFase') / Cannot read properties of undefined (reading 'scoresPorFase')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'scoresPorFase') / Cannot read properties of undefined (reading 'scoresPorFase')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'scoresPorFase') / Cannot read properties of undefined (reading 'scoresPorFase')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'scoresPorFase') / Cannot read properties of undefined (reading 'scoresPorFase')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'scoresPorFase') / Cannot read properties of undefined (reading 'scoresPorFase')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'scoresPorFase') / Cannot read properties of undefined (reading 'scoresPorFase')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'scoresPorFase') / Cannot read properties of undefined (reading 'scoresPorFase')
-
-### `/rndc`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'desde') / Cannot read properties of undefined (reading 'desde')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'desde') / Cannot read properties of undefined (reading 'desde')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'desde') / Cannot read properties of undefined (reading 'desde')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'desde') / Cannot read properties of undefined (reading 'desde')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'desde') / Cannot read properties of undefined (reading 'desde')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'desde') / Cannot read properties of undefined (reading 'desde')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'desde') / Cannot read properties of undefined (reading 'desde')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'desde') / Cannot read properties of undefined (reading 'desde')
-
-### `/rndc/maestros`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/rndc/manifiestos`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'replace') / Cannot read properties of undefined (reading 'replace')
-
-### `/rndc/manifiestos/nuevo`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'filter') / Cannot read properties of undefined (reading 'filter')
-
-### `/rndc/remesas`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'length') / Cannot read properties of undefined (reading 'length')
-
-### `/rndc/remesas/demo-1`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-
-### `/rndc/remesas/nueva`
-
-- **360 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **390 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **768 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1024 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1280 oscuro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
-- **1440 claro**
-  - errores: Cannot read properties of undefined (reading 'map') / Cannot read properties of undefined (reading 'map')
 
