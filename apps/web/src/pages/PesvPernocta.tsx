@@ -5,6 +5,8 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import { FlitCard, flitInp } from '../components/flit/flitPageKit';
+import { EstadoVista } from '../components/flit/Cargador';
 
 interface Pernocta {
   id: number;
@@ -26,8 +28,7 @@ interface PernoctaBody {
 }
 
 const SERVICIOS = ['baño', 'duchas', 'cafetería', 'vigilancia', 'wifi', 'parqueadero techado', 'comida'];
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const inputCls = flitInp;
 
 export default function PesvPernocta() {
   const [items, setItems] = useState<Pernocta[]>([]);
@@ -78,36 +79,39 @@ export default function PesvPernocta() {
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
+        icono="flito-pesv"
+        miga={[{ etiqueta: 'Cumplimiento' }, { etiqueta: 'PESV', to: '/pesv' }]}
         title="Zonas de pernocta"
         subtitle="PESV · Paso 4 · Zonas certificadas con contacto y protocolos de emergencia"
         actions={<GradientButton type="button" onClick={() => setShowCreate(true)}>Nueva zona</GradientButton>}
       />
 
+      <EstadoVista status={items.length === 0 ? 'empty' : 'ready'} emptyMessage="Sin zonas registradas">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {items.length === 0 && <div className="bg-white p-8 text-center text-sm lg:col-span-2" style={{ ...CARD, color: 'var(--flit-text-muted)' }}>Sin zonas registradas</div>}
         {items.map((p) => (
-          <div key={p.id} className="bg-white p-6" style={CARD}>
-            <div className="mb-2 flex items-start justify-between">
-              <h3 className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{p.nombre}</h3>
-              <button onClick={() => archivar(p.id)} className="flit-focus text-[10px] transition-opacity hover:opacity-80" style={{ color: 'var(--flit-danger)' }}>Archivar</button>
+          <FlitCard key={p.id} className="!mt-0">
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <h3 className="font-semibold text-[color:var(--color-text-primary)]">{p.nombre}</h3>
+              <GradientButton type="button" variant="alerta" size="sm" onClick={() => archivar(p.id)}>Archivar</GradientButton>
             </div>
-            {(p.lat && p.lng) && <p className="font-mono text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{p.lat}, {p.lng}</p>}
-            {p.capacidad && <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Capacidad: <strong style={{ color: 'var(--flit-text-primary)' }}>{p.capacidad}</strong> vehículos</p>}
-            {p.contacto && <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Contacto: {p.contacto} {p.telefono && `· ${p.telefono}`}</p>}
+            {(p.lat && p.lng) && <p className="font-mono text-[11px] text-[color:var(--color-text-tertiary)]">{p.lat}, {p.lng}</p>}
+            {p.capacidad && <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">Capacidad: <strong className="text-[color:var(--color-text-primary)]">{p.capacidad}</strong> vehículos</p>}
+            {p.contacto && <p className="text-xs text-[color:var(--color-text-secondary)]">Contacto: {p.contacto} {p.telefono && `· ${p.telefono}`}</p>}
             {p.servicios.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1">
                 {p.servicios.map((s) => <StatusChip key={s} tone="success">{s}</StatusChip>)}
               </div>
             )}
-          </div>
+          </FlitCard>
         ))}
       </div>
+      </EstadoVista>
 
       {showCreate && (
         <FlitModal title="Nueva zona de pernocta" onClose={() => setShowCreate(false)}>
           <div className="space-y-3">
             <input placeholder="Nombre (Estación La Línea)" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} className={inputCls} />
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <input placeholder="Latitud" value={form.lat} onChange={(e) => setForm({ ...form, lat: e.target.value })} className={inputCls} />
               <input placeholder="Longitud" value={form.lng} onChange={(e) => setForm({ ...form, lng: e.target.value })} className={inputCls} />
             </div>
@@ -115,24 +119,23 @@ export default function PesvPernocta() {
             <input placeholder="Contacto" value={form.contacto} onChange={(e) => setForm({ ...form, contacto: e.target.value })} className={inputCls} />
             <input placeholder="Teléfono" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} className={inputCls} />
             <div>
-              <p className="mb-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Servicios</p>
+              <p className="mb-2 text-xs font-semibold text-[color:var(--color-text-secondary)]">Servicios</p>
               <div className="flex flex-wrap gap-1">
                 {SERVICIOS.map((s) => {
                   const on = form.servicios.includes(s);
                   return (
                     <button key={s} type="button" onClick={() => toggleServ(s)} aria-pressed={on} aria-label={`Servicio ${s}`}
-                      className="flit-focus inline-flex h-8 items-center rounded-[999px] px-3 text-xs font-semibold transition-colors"
-                      style={on
-                        ? { background: 'var(--flit-success)', color: '#fff' }
-                        : { background: '#fff', border: '1px solid var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>{s}</button>
+                      className={`flit-focus inline-flex h-8 items-center rounded-full border px-3 text-xs font-semibold transition-colors ${on
+                        ? 'border-[color:var(--kit-verde)] bg-[var(--kit-verde)] text-[color:var(--kit-tinta-fija)]'
+                        : 'border-[color:var(--color-border-control)] bg-[var(--color-surface-elevated)] text-[color:var(--color-text-secondary)] hover:border-[color:var(--kit-azul)] hover:text-[color:var(--color-action)]'}`}>{s}</button>
                   );
                 })}
               </div>
             </div>
             <textarea placeholder="Protocolo (markdown)" value={form.protocoloMd} onChange={(e) => setForm({ ...form, protocoloMd: e.target.value })} rows={3} className={inputCls + ' font-mono text-xs'} />
           </div>
-          <div className="mt-6 flex justify-end gap-2">
-            <button onClick={() => setShowCreate(false)} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+          <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <GradientButton type="button" variant="secondary" onClick={() => setShowCreate(false)}>Cancelar</GradientButton>
             <GradientButton type="button" onClick={create}>Crear</GradientButton>
           </div>
         </FlitModal>
