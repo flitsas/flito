@@ -299,3 +299,6 @@ html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-
 .dock .dock__menu { transform: none; translate: -50% 0; }
 @media (max-width: 1100px) { .dock .dock__menu--ancho { translate: none; } }
 @media (max-width: 640px) { .dock .dock__menu { translate: none; } }
+
+/* «Más» del dock: los puntos del kit en horizontal, para no confundirse con el glifo de Tablero (rejilla). */
+.kico--mas svg { transform: rotate(90deg); }

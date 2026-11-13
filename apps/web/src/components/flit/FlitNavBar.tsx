@@ -149,14 +149,14 @@ function Dock() {
           <div className="dock__grupo dock__grupo--mas" data-seccion="mas">
             <button type="button" className="dock__item" id={triggerId(MAS)} aria-expanded={masAbierto} aria-controls={masAbierto ? panelId(MAS) : undefined}
               aria-current={rutaEnMas ? 'page' : undefined} onClick={() => toggle(MAS)}>
-              <span className="kico" aria-hidden="true"><Icono nombre="rejilla" size={22} /></span>
+              <span className="kico kico--mas" aria-hidden="true"><Icono nombre="puntos" size={22} /></span>
               <span className="dock__nombre">Más</span>
               <Icono nombre="arriba" className="dock__flecha" size={16} />
             </button>
             {masAbierto && (
               <div ref={panelRef} id={panelId(MAS)} className="dock__menu dock__menu--ancho dock__menu--mas flit-panel-up" data-grupo="mas">
                 <div className="dock__cabeza">
-                  <span className="kico" aria-hidden="true"><Icono nombre="rejilla" size={22} /></span>
+                  <span className="kico kico--mas" aria-hidden="true"><Icono nombre="puntos" size={22} /></span>
                   <div><strong>Más secciones</strong><small>{enMas.length} {enMas.length === 1 ? 'sección' : 'secciones'}</small></div>
                 </div>
                 <div className="dock__secciones">
@@ -182,7 +182,7 @@ function Dock() {
           </span>
         ))}
         <span className="dock__item">
-          <span className="kico"><Icono nombre="rejilla" size={22} /></span>
+          <span className="kico kico--mas"><Icono nombre="puntos" size={22} /></span>
           <span className="dock__nombre">Más</span>
           <Icono nombre="arriba" className="dock__flecha" size={16} />
         </span>
