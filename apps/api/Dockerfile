@@ -48,8 +48,10 @@ WORKDIR /app
 
 # poppler-utils: el OCR local (flito-ocr-local) invoca pdftotext/pdftoppm como
 # binarios externos (fallback cuando no hay ANTHROPIC_API_KEY).
+# qpdf (Bug #14569): descifra el comprobante SOAT en PDF protegido con contraseña antes del OCR
+# (shared/pdf/pdf-cifrado.ts). Sin él la carga de un PDF cifrado falla cerrado con 503.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends poppler-utils \
+    && apt-get install -y --no-install-recommends poppler-utils qpdf \
     && rm -rf /var/lib/apt/lists/*
 
 # npm ci -w exige que TODOS los manifests del workspace estén presentes para
