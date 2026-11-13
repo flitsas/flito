@@ -80,7 +80,7 @@ export default function BandejaBoletas({
       </div>
 
       {parcial && (
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Las tres cifras son de las {items.length} boletas de esta página. Afina los filtros para que
           quepan en una sola.
         </p>
@@ -104,26 +104,26 @@ export default function BandejaBoletas({
           <tbody>
             {items.map((b) => (
               <FlitTr key={b.id}>
-                <td className="px-4 py-3 text-sm font-semibold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
+                <td className="px-4 py-3 text-sm font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                   {b.referencia}
                 </td>
-                <td className="px-4 py-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+                <td className="px-4 py-3 text-sm" style={{ color: 'var(--color-text-primary)' }}>
                   {b.companiaNombre ?? 'Cliente sin nombre'}
                 </td>
                 {/* `fechaPago` es una columna `date`: con `new Date` retrocedería un día en Colombia. */}
-                <td className="px-4 py-3 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>
+                <td className="px-4 py-3 text-sm tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
                   {fechaDia(b.fechaPago)}
                 </td>
-                <td className="px-4 py-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+                <td className="px-4 py-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                   <span className="tabular-nums">{b.filas}</span>
                   {' · '}
                   {b.sinCuadrar === 0
                     ? 'todas cuadran'
-                    : <span style={{ color: 'var(--flit-danger-ink)' }}>
+                    : <span style={{ color: 'var(--kit-rojo-texto)' }}>
                         {b.sinCuadrar === 1 ? '1 no cuadra' : `${b.sinCuadrar} no cuadran`}
                       </span>}
                 </td>
-                <td className="px-4 py-3 text-sm tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
+                <td className="px-4 py-3 text-sm tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                   {pesos(b.totalDeclarado)}
                 </td>
                 <td className="px-4 py-3 text-sm">

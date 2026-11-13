@@ -68,20 +68,20 @@ export default function EditorFechaExpedicion({ documento, onCancelar, onGuardad
   }
 
   return (
-    <form ref={form} noValidate className="rounded-lg border p-3 sm:col-span-2" style={{ borderColor: 'var(--flit-border-input)' }}
+    <form ref={form} noValidate className="rounded-lg border p-3 sm:col-span-2" style={{ borderColor: 'var(--color-border-control)' }}
       onSubmit={(e) => { e.preventDefault(); void guardar(); }}
       onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); if (!guardando) onCancelar(); } }}>
-      <label htmlFor={id} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <label htmlFor={id} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         Fecha de expedición
       </label>
       <input ref={input} id={id} type="date" className={`${flitInp} sm:max-w-56`} value={fecha} max={hoy}
         aria-describedby={`${id}-ayuda${error ? ` ${id}-error` : ''}`} aria-invalid={error ? true : undefined}
         onChange={(e) => { setFecha(e.target.value); setError(null); }} />
-      <p id={`${id}-ayuda`} className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p id={`${id}-ayuda`} className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
         Queda registrado que la digitaste tú. Vence 30 días después.
       </p>
       {error && (
-        <p id={`${id}-error`} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>
+        <p id={`${id}-error`} role="alert" className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>
       )}
       <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button type="button" className={`${flitBtnSecondarySm} w-full justify-center sm:w-auto`} disabled={guardando} onClick={onCancelar}>

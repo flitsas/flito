@@ -15,6 +15,7 @@ import FlitUploadBox from '../flit/FlitUploadBox';
 import StatusChip from '../flit/StatusChip';
 import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import { fecha, pesos, type ImpuestoItem } from './ImpuestoCola';
+import GradientButton from '../flit/GradientButton';
 
 /** Mismo tope que el servidor (`RECIBO_CAJA_MAX_BYTES`): la validación local evita la vuelta al API. */
 export const TOPE_RECIBO_CAJA_BYTES = 15 * 1024 * 1024;
@@ -135,7 +136,7 @@ export default function ModalReciboCaja({ imp, restoreFocusRef, onClose, onListo
   return (
     <FlitModal title={`Recibo de caja · ${imp.placa ?? imp.vin}`} onClose={cerrar} restoreFocusRef={restoreFocusRef}>
       <div className="space-y-3 text-sm" aria-busy={fase === 'cargando'}>
-        <p style={{ color: 'var(--flit-text-secondary)' }}>
+        <p style={{ color: 'var(--color-text-secondary)' }}>
           Placa {imp.placa ?? imp.vin} · Organismo {imp.organismoNombre ?? imp.organismoCodigo} · Valor liquidado {pesos(imp.valorLiquidado)}
         </p>
 
@@ -149,7 +150,7 @@ export default function ModalReciboCaja({ imp, restoreFocusRef, onClose, onListo
                 </div>
                 <p>Valor pagado {pesos(resultado.valorPagado)} · Fecha de pago {fecha(resultado.pagadoEn)}</p>
                 {resultado.marcadoPorDiferencia && (
-                  <p style={{ color: 'var(--flit-text-secondary)' }}>
+                  <p style={{ color: 'var(--color-text-secondary)' }}>
                     El valor pagado difiere del liquidado por encima de la tolerancia. Queda marcado para revisión.
                   </p>
                 )}
@@ -157,17 +158,17 @@ export default function ModalReciboCaja({ imp, restoreFocusRef, onClose, onListo
             ) : (
               <>
                 <StatusChip tone="warning">En revisión</StatusChip>
-                <p style={{ color: 'var(--flit-text-secondary)' }}>
+                <p style={{ color: 'var(--color-text-secondary)' }}>
                   El recibo quedó guardado. La lectura no fue concluyente y pasó a la cola de revisión; el impuesto sigue Solicitado.
                 </p>
               </>
             )}
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => onListo(resultado.resultado)}>Listo</button>
+            <GradientButton onClick={() => onListo(resultado.resultado)}>Listo</GradientButton>
           </div>
         ) : fase === 'error' && error ? (
           <div className="space-y-2">
-            <p role="alert" className="text-red-600">{error.texto}</p>
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={salirDelError}>{ROTULO_ACCION[error.accion]}</button>
+            <p role="alert" className="text-[color:var(--kit-rojo-texto)]">{error.texto}</p>
+            <GradientButton onClick={salirDelError}>{ROTULO_ACCION[error.accion]}</GradientButton>
           </div>
         ) : (
           <>
@@ -175,16 +176,16 @@ export default function ModalReciboCaja({ imp, restoreFocusRef, onClose, onListo
               state={fase === 'cargando' ? 'uploading' : archivo ? 'verified' : 'idle'}
               count={archivo ? 1 : undefined} onFile={elegir} />
             {archivo && (
-              <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{archivo.name} · {megas(archivo.size)}</p>
+              <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{archivo.name} · {megas(archivo.size)}</p>
             )}
             <div className="flex gap-2">
-              <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              <GradientButton
                 disabled={!archivo || fase === 'cargando'} onClick={cargar}>
                 {fase === 'cargando' ? 'Cargando…' : 'Cargar'}
-              </button>
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={fase === 'cargando'} onClick={onClose}>
+              </GradientButton>
+              <GradientButton variant="alerta" disabled={fase === 'cargando'} onClick={onClose}>
                 Cancelar
-              </button>
+              </GradientButton>
             </div>
           </>
         )}

@@ -31,9 +31,11 @@ import {
   FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitInp,
   flitBtnSecondary, flitBtnSecondaryStyle, flitBtnSecondarySm,
 } from '../flit/flitPageKit';
+import { Cargador, ErrorVista } from '../flit/Cargador';
 import KpiCard from '../flit/KpiCard';
 import PageContentSkeleton from '../flit/PageContentSkeleton';
 import StatusChip from '../flit/StatusChip';
+import GradientButton from '../flit/GradientButton';
 
 type FiltroEstado = 'todas' | 'activas' | 'inactivas';
 
@@ -155,12 +157,7 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
   if (errorResumen) {
     return (
       <FlitCard>
-        <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
-          No pudimos cargar las bolsas. Revisa tu conexión e intenta de nuevo.
-        </p>
-        <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={reintentar}>
-          Reintentar
-        </button>
+        <ErrorVista texto="No pudimos cargar las bolsas. Revisa tu conexión e intenta de nuevo." onReintentar={reintentar} />
       </FlitCard>
     );
   }
@@ -179,9 +176,9 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
               : 'Todavía no hay bolsas. Pídele a Financiera que cree la primera.'}
           </p>
           {onCrear && (
-            <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={onCrear}>
+            <GradientButton variant="secondary" type="button" className="mt-3" onClick={onCrear}>
               Crear bolsa
-            </button>
+            </GradientButton>
           )}
         </div>
       </FlitEmpty>
@@ -196,12 +193,12 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
   return (
     <div className="space-y-4">
       <section aria-label="Resumen de bolsas" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <KpiCard label="Saldo total" value={pesos(consolidado?.saldoTotal ?? 0)}
+        <KpiCard label="Saldo total" icono="simulador" value={pesos(consolidado?.saldoTotal ?? 0)}
           hint={`${consolidado?.clientes ?? 0} cliente(s) con bolsa.`} />
-        <KpiCard label="Bolsas en riesgo" value={enRiesgo}
+        <KpiCard label="Bolsas en riesgo" icono="errores" pendiente={enRiesgo > 0} value={enRiesgo}
           hint="Saldo crítico o agotado. Son las que frenan trámites."
           chip={enRiesgo > 0 ? { tone: 'danger', label: 'Requiere atención' } : undefined} />
-        <KpiCard label="Conciliación pendiente"
+        <KpiCard label="Conciliación pendiente" icono="flito-conciliacion" pendiente={conciliacionPendiente > 0}
           value={conciliacionPendiente}
           hint={`${alertas?.conciliacion.soportesSinTramite ?? 0} soporte(s) sin trámite · ${alertas?.conciliacion.movimientosSinSoporte ?? 0} movimiento(s) sin soporte · ${alertas?.conciliacion.boletasSinComprobante ?? 0} boleta(s) sin comprobante.`}
           chip={conciliacionPendiente > 0 ? { tone: 'warning', label: 'Revisar' } : undefined} />
@@ -210,7 +207,7 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
       <FlitCard>
         <div className="flex flex-wrap items-end gap-4">
           <label className="block w-full sm:w-80">
-            <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               Buscar
             </span>
             <input type="search" className={flitInp} value={texto} placeholder="Compañía, bolsa o NIT…"
@@ -239,10 +236,10 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
       >
         {alertas && alertas.saldo.length > 0 && (
           <div className="mb-4">
-            <h3 className="mb-1 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+            <h3 className="mb-1 text-sm font-bold" style={{ color: 'var(--color-action)' }}>
               Alertas de saldo ({alertas.saldo.length})
             </h3>
-            <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="mb-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               Las compañías que ya no están en nivel normal. Quien nunca ha recargado no aparece aquí:
               no tiene un problema de saldo, todavía no ha empezado a operar.
             </p>
@@ -250,7 +247,7 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
               {alertas.saldo.map((a) => (
                 <li key={a.companiaId}
                   className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2"
-                  style={{ borderColor: 'var(--flit-border-soft)' }}>
+                  style={{ borderColor: 'var(--color-border)' }}>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusChip tone={TONO_NIVEL[a.nivel]}>{NIVEL_RIESGO_BOLSA_LABEL[a.nivel]}</StatusChip>
@@ -258,7 +255,7 @@ export default function BolsasTablero({ onVerBolsa, onVerCompania, onVerTransito
                     </div>
                     {/* El motivo lo redacta el servidor: es el mismo texto que verá quien reciba la
                         alerta por otro canal, y reescribirlo aquí lo haría divergir. */}
-                    <p className="mt-0.5 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{a.mensaje}</p>
+                    <p className="mt-0.5 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{a.mensaje}</p>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-semibold tabular-nums">{pesos(a.saldo)}</span>
@@ -322,25 +319,18 @@ function TablaCompanias({
 
   if (error === 'permiso') {
     return (
-      <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+      <p role="alert" className="text-sm text-[color:var(--kit-rojo-texto)]">
         No tienes permiso para ver el listado de bolsas. Pídeselo a un administrador.
       </p>
     );
   }
   if (error === 'red') {
     return (
-      <div>
-        <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
-          No pudimos cargar las bolsas. Revisa tu conexión e intenta de nuevo.
-        </p>
-        <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={onReintentar}>
-          Reintentar
-        </button>
-      </div>
+      <ErrorVista texto="No pudimos cargar las bolsas. Revisa tu conexión e intenta de nuevo." onReintentar={onReintentar} />
     );
   }
   if (filas === null) {
-    return <p role="status" className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Buscando bolsas…</p>;
+    return <Cargador texto="Buscando bolsas…" />;
   }
   if (filas.length === 0) {
     if (!hayFiltro) {
@@ -358,13 +348,13 @@ function TablaCompanias({
         <div data-testid="sin-bolsas-filtro">
           <p>{texto ? `Ninguna bolsa coincide con «${texto}»${enQue}.` : `No hay bolsas${enQue}.`}</p>
           <div className="mt-3 flex flex-wrap justify-center gap-2">
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onLimpiar}>
+            <GradientButton variant="secondary" type="button" onClick={onLimpiar}>
               Limpiar filtros
-            </button>
+            </GradientButton>
             {estado === 'activas' && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onVerInactivas}>
+              <GradientButton variant="secondary" type="button" onClick={onVerInactivas}>
                 Ver también las inactivas
-              </button>
+              </GradientButton>
             )}
           </div>
         </div>
@@ -376,7 +366,7 @@ function TablaCompanias({
     <>
     {conExpediente && lote.fase === 'error' && (
       <div role="status" data-testid="aviso-expediente-lote"
-        className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
         <span>No pudimos cargar el estado de los documentos.</span>
         <button type="button" className={flitBtnSecondarySm} onClick={reintentarLote}>Reintentar</button>
       </div>
@@ -403,7 +393,7 @@ function TablaCompanias({
               <StatusChip tone={fila.activa ? 'success' : 'draft'}>{fila.activa ? 'Activa' : 'Inactiva'}</StatusChip>
             </td>
             <td className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold tabular-nums"
-              style={{ color: fila.saldo < 0 ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)' }}>
+              style={{ color: fila.saldo < 0 ? 'var(--kit-rojo-texto)' : 'var(--color-text-primary)' }}>
               {fila.saldo < 0 ? `− ${pesos(Math.abs(fila.saldo))}` : pesos(fila.saldo)}
             </td>
             <td className="px-4 py-2">
@@ -447,25 +437,18 @@ function TablaTransito({ filas, error, onReintentar, texto, estado, hayFiltro, o
 }) {
   if (error === 'permiso') {
     return (
-      <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+      <p role="alert" className="text-sm text-[color:var(--kit-rojo-texto)]">
         No tienes permiso para ver el listado de bolsas. Pídeselo a un administrador.
       </p>
     );
   }
   if (error === 'red') {
     return (
-      <div>
-        <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
-          No pudimos cargar las bolsas. Revisa tu conexión e intenta de nuevo.
-        </p>
-        <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={onReintentar}>
-          Reintentar
-        </button>
-      </div>
+      <ErrorVista texto="No pudimos cargar las bolsas. Revisa tu conexión e intenta de nuevo." onReintentar={onReintentar} />
     );
   }
   if (filas === null) {
-    return <p role="status" className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Buscando bolsas…</p>;
+    return <Cargador texto="Buscando bolsas…" />;
   }
   if (filas.length === 0) {
     if (!hayFiltro) {
@@ -483,9 +466,9 @@ function TablaTransito({ filas, error, onReintentar, texto, estado, hayFiltro, o
         <div data-testid="sin-bolsas-transito-filtro">
           <p>{texto ? `Ninguna bolsa de tránsito coincide con «${texto}»${enQue}.` : `No hay bolsas de tránsito${enQue}.`}</p>
           <div className="mt-3 flex flex-wrap justify-center gap-2">
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onLimpiar}>
+            <GradientButton variant="secondary" type="button" onClick={onLimpiar}>
               Limpiar filtros
-            </button>
+            </GradientButton>
           </div>
         </div>
       </FlitEmpty>
@@ -516,7 +499,7 @@ function TablaTransito({ filas, error, onReintentar, texto, estado, hayFiltro, o
                 <StatusChip tone={fila.activa ? 'success' : 'draft'}>{fila.activa ? 'Activa' : 'Inactiva'}</StatusChip>
               </td>
               <td className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold tabular-nums"
-                style={{ color: fila.saldo < 0 ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)' }}>
+                style={{ color: fila.saldo < 0 ? 'var(--kit-rojo-texto)' : 'var(--color-text-primary)' }}>
                 {saldoConSigno(fila.saldo)}
               </td>
               <td className="px-4 py-2">

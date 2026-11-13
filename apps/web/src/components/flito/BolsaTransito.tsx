@@ -31,8 +31,9 @@ import StatusChip from '../flit/StatusChip';
 import {
   FlitCard, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
 
-const ENLACE = 'flit-focus rounded-sm font-semibold underline transition-colors hover:text-[color:var(--flit-blue-ink)]';
+const ENLACE = 'flit-focus rounded-sm font-semibold underline transition-colors hover:text-[color:var(--color-action)]';
 
 type Carga = { tipo: 'cargando' } | { tipo: 'error' } | { tipo: 'no-existe' } | { tipo: 'lista'; bolsa: BolsaDetalleDto };
 
@@ -70,24 +71,24 @@ export default function BolsaDetalleTransito({ bolsaId, nombre, onClose, onCambi
 
         {carga.tipo === 'error' && (
           <FlitCard>
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+            <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
               No pudimos cargar la bolsa. Intenta de nuevo.
             </p>
-            <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}
+            <GradientButton variant="secondary" type="button" className="mt-3"
               onClick={() => { setCarga({ tipo: 'cargando' }); setNonce((n) => n + 1); }}>
               Reintentar
-            </button>
+            </GradientButton>
           </FlitCard>
         )}
 
         {carga.tipo === 'no-existe' && (
           <FlitCard>
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+            <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
               Esta bolsa ya no existe o no tienes acceso a ella.
             </p>
-            <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={onClose}>
+            <GradientButton variant="secondary" type="button" className="mt-3" onClick={onClose}>
               Volver al listado
-            </button>
+            </GradientButton>
           </FlitCard>
         )}
 
@@ -100,7 +101,7 @@ export default function BolsaDetalleTransito({ bolsaId, nombre, onClose, onCambi
 }
 
 function Esqueleto() {
-  const barra = (w: string, h = 'h-3') => <div className={`${h} rounded`} style={{ width: w, background: 'var(--flit-bg-app)' }} />;
+  const barra = (w: string, h = 'h-3') => <div className={`${h} rounded`} style={{ width: w, background: 'var(--color-surface)' }} />;
   return (
     <div role="status" aria-label="Cargando la bolsa" className="space-y-4">
       <FlitCard><div className="space-y-3">{barra('30%')}{barra('45%', 'h-7')}{barra('60%')}</div></FlitCard>
@@ -152,56 +153,56 @@ function Contenido({ bolsa, onRefrescar, onVerBolsa }: {
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             {bolsa.activa && puedeCargar && (
-              <button type="button" className={`${flitBtnPrimary} order-first lg:order-last`} style={flitBtnPrimaryStyle}
+              <GradientButton type="button" className="order-first lg:order-last"
                 onClick={() => setCargandoSaldo(true)}>
                 Cargar saldo
-              </button>
+              </GradientButton>
             )}
             {!bolsa.activa && puedeEstado && (
-              <button type="button" className={`${flitBtnPrimary} order-first lg:order-last`} style={flitBtnPrimaryStyle}
+              <GradientButton variant="success" type="button" className="order-first lg:order-last"
                 onClick={() => { setConflicto(null); setCambioEstado(true); }}>
                 Reactivar bolsa
-              </button>
+              </GradientButton>
             )}
             {/* Decisión del hilo (AC4): con la bolsa inactiva «Cargar saldo» se ve DESHABILITADO, con el
                 aviso como explicación, y nunca con peso de primaria junto a «Reactivar bolsa». */}
             {!bolsa.activa && puedeCargar && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled
+              <GradientButton variant="secondary" type="button" disabled
                 aria-describedby={idAvisoInactiva}>
                 Cargar saldo
-              </button>
+              </GradientButton>
             )}
             {bolsa.activa && puedeEditar && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setEditando(true)}>
+              <GradientButton variant="secondary" type="button" onClick={() => setEditando(true)}>
                 Editar cobertura
-              </button>
+              </GradientButton>
             )}
             {bolsa.activa && puedeEstado && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setCambioEstado(true)}>
+              <GradientButton variant="alerta" type="button" onClick={() => setCambioEstado(true)}>
                 Inactivar
-              </button>
+              </GradientButton>
             )}
           </div>
         </div>
 
         <p className="mt-3 text-2xl font-bold tabular-nums leading-none" data-testid="saldo-transito"
-          style={{ color: bolsa.saldo < 0 ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)' }}>
+          style={{ color: bolsa.saldo < 0 ? 'var(--kit-rojo-texto)' : 'var(--color-text-primary)' }}>
           {saldoConSigno(bolsa.saldo)}
         </p>
         {t && t.deuda > 0 && (
-          <p className="mt-1 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+          <p className="mt-1 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
             Se debe {pesos(t.deuda)} a quien opera la bolsa. La próxima carga lo neta.
           </p>
         )}
         {t && (
-          <p className="mt-1 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="mt-1 text-xs tabular-nums" style={{ color: 'var(--color-text-tertiary)' }}>
             Cargado {pesos(t.totalCargado)} · Consumido {pesos(t.totalConsumido)}
           </p>
         )}
 
-        <div className="mt-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <div className="mt-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Cobertura:</span>
+            <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>Cobertura:</span>
             {bolsa.cobertura.length === 0 ? (
               <span>Sin cobertura definida.</span>
             ) : (
@@ -209,7 +210,7 @@ function Contenido({ bolsa, onRefrescar, onVerBolsa }: {
                 <span>
                   {cobros.map(cobroTransito).join(', ')} en {secretarias.length} secretaría{secretarias.length === 1 ? '' : 's'}
                 </span>
-                <button type="button" className={ENLACE} style={{ color: 'var(--flit-blue-text)' }}
+                <button type="button" className={ENLACE} style={{ color: 'var(--color-action)' }}
                   aria-expanded={verCobertura} onClick={() => setVerCobertura((v) => !v)}>
                   {verCobertura ? 'Ocultar' : 'Ver'}
                 </button>
@@ -230,14 +231,14 @@ function Contenido({ bolsa, onRefrescar, onVerBolsa }: {
         {!bolsa.activa && (
           <div role="status" id={idAvisoInactiva} data-testid="aviso-inactiva"
             className="mt-3 rounded-lg border px-3 py-2 text-sm"
-            style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>
+            style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}>
             <p>
               Inactiva desde el {fechaHora(bolsa.inactivadaEn)}
               {bolsa.inactivadaPorNombre ? ` por ${bolsa.inactivadaPorNombre}` : ''}.
             </p>
             {bolsa.motivoInactivacion && <p>Motivo: «{bolsa.motivoInactivacion}».</p>}
             <p>No recibe descuentos ni cargas de saldo.</p>
-            <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            <p className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               {puedeEstado ? 'Reactiva la bolsa primero.' : 'Para cargarla, alguien con permiso tiene que reactivarla primero.'}
             </p>
           </div>
@@ -246,7 +247,7 @@ function Contenido({ bolsa, onRefrescar, onVerBolsa }: {
         {conflicto && conflicto.length > 0 && (
           <div role="alert" data-testid="aviso-reactivar-conflicto"
             className="mt-3 rounded-lg border px-3 py-2 text-sm"
-            style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)', color: 'var(--flit-danger-ink)' }}>
+            style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--kit-rojo-texto)' }}>
             <p>No pudimos reactivarla: otra bolsa activa ya cubre estas secretarías para el mismo cobro.</p>
             <ul className="mt-1 list-disc pl-5">
               {conflicto.map((p) => (
@@ -257,7 +258,7 @@ function Contenido({ bolsa, onRefrescar, onVerBolsa }: {
             </ul>
             <div className="mt-2 flex flex-wrap gap-3">
               {bolsasEnConflicto.map(([id, nom]) => (
-                <button key={id} type="button" className={ENLACE} style={{ color: 'var(--flit-blue-text)' }}
+                <button key={id} type="button" className={ENLACE} style={{ color: 'var(--color-action)' }}
                   onClick={() => onVerBolsa({ id, nombre: nom })}>
                   Ver «{nom}»
                 </button>
@@ -350,38 +351,38 @@ function ModalEstado({ bolsa, restoreFocusRef, onClose, onHecho, onConflicto }: 
     <FlitModal title={`${inactivar ? 'Inactivar' : 'Reactivar'} la bolsa ${bolsa.nombre}`} onClose={onClose}
       restoreFocusRef={restoreFocusRef} cierreBloqueado={enviando}>
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void confirmar(); }}>
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           {inactivar
             ? 'Mientras esté inactiva no recibe descuentos ni cargas de saldo, y sus secretarías quedan libres para otra bolsa. Lo ya asentado no cambia.'
             : 'Vuelve a recibir descuentos y cargas de saldo desde ahora, siempre que ninguna otra bolsa activa cubra ya sus secretarías para el mismo cobro.'}
         </p>
         <div>
-          <label htmlFor={idMotivo} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <label htmlFor={idMotivo} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Motivo *
           </label>
           <textarea id={idMotivo} rows={3} maxLength={1000} className={`${flitInp} h-auto py-2`} value={motivo}
             aria-describedby={idAyuda} onChange={(e) => setMotivo(e.target.value)} onBlur={() => setSalio(true)} />
-          <div id={idAyuda} className="mt-1 flex flex-wrap justify-between gap-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <div id={idAyuda} className="mt-1 flex flex-wrap justify-between gap-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             <span>Mínimo {MOTIVO_MINIMO} caracteres.</span>
             <span aria-live="polite">({Math.min(largo, MOTIVO_MINIMO)}/{MOTIVO_MINIMO})</span>
           </div>
           {salio && corto && largo > 0 && (
-            <p className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>
+            <p className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>
               Escribe un motivo de al menos {MOTIVO_MINIMO} caracteres.
             </p>
           )}
         </div>
-        {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>}
+        {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
         <div className="flex flex-wrap justify-end gap-2">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose} disabled={enviando}>
+          <GradientButton variant="alerta" type="button" onClick={onClose} disabled={enviando}>
             Cancelar
-          </button>
-          <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={corto || enviando}
+          </GradientButton>
+          <GradientButton type="submit" disabled={corto || enviando}
             aria-describedby={idAyuda}>
             {enviando
               ? (inactivar ? 'Inactivando…' : 'Reactivando…')
               : (inactivar ? 'Inactivar bolsa' : 'Reactivar bolsa')}
-          </button>
+          </GradientButton>
         </div>
       </form>
     </FlitModal>
@@ -443,7 +444,7 @@ function ModalCarga({ bolsa, onClose, onHecho, onInactiva }: {
   return (
     <FlitModal title={`Cargar saldo a ${bolsa.nombre}`} onClose={onClose} wide cierreBloqueado={enviando}>
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void guardar(); }}>
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Es dinero que FLIT transfiere por adelantado a esta bolsa. Si venía en préstamo, esta carga
           descuenta primero la deuda.
         </p>
@@ -462,18 +463,18 @@ function ModalCarga({ bolsa, onClose, onHecho, onInactiva }: {
         <div>
           <FlitUploadBox label={archivo ? archivo.name : 'Soporte de la carga (opcional)'}
             state={archivo ? 'verified' : 'idle'} count={1} onFile={setArchivo} />
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             Se puede registrar sin comprobante y adjuntarlo después.
           </p>
         </div>
-        {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>}
+        {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
         <div className="flex flex-wrap justify-end gap-2">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose} disabled={enviando}>
+          <GradientButton variant="alerta" type="button" onClick={onClose} disabled={enviando}>
             Cancelar
-          </button>
-          <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={!puedeGuardar}>
+          </GradientButton>
+          <GradientButton type="submit" disabled={!puedeGuardar}>
             {enviando ? 'Registrando…' : 'Registrar carga'}
-          </button>
+          </GradientButton>
         </div>
       </form>
     </FlitModal>

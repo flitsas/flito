@@ -21,6 +21,7 @@ import {
   FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitInp,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
 
 type Accion = 'recarga' | 'manual' | 'correccion' | 'cierre' | null;
 
@@ -66,12 +67,12 @@ function errorDeAccion(e: unknown, onRefrescar: () => void): ErrorAccion {
 function AvisoErrorAccion({ error, onCrearBolsa }: { error: ErrorAccion; onCrearBolsa?: () => void }) {
   if (!error) return null;
   return (
-    <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+    <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
       <span>{error.texto}</span>
       {error.crearBolsa && onCrearBolsa && (
-        <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCrearBolsa}>
+        <GradientButton variant="secondary" type="button" onClick={onCrearBolsa}>
           Crear bolsa
-        </button>
+        </GradientButton>
       )}
     </div>
   );
@@ -94,34 +95,34 @@ export default function BolsaAcciones({
         <div className="flex flex-wrap items-center gap-3">
           {activa && (
             <>
-              <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              <GradientButton type="button"
                 disabled={periodoCerrado} onClick={() => setAccion('recarga')}>
                 Registrar una recarga
-              </button>
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+              </GradientButton>
+              <GradientButton variant="secondary" type="button"
                 disabled={periodoCerrado} onClick={() => setAccion('manual')}>
                 Movimiento manual
-              </button>
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+              </GradientButton>
+              <GradientButton variant="secondary" type="button"
                 disabled={periodoCerrado} onClick={() => setAccion('correccion')}>
                 Corregir un movimiento
-              </button>
+              </GradientButton>
             </>
           )}
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+          <GradientButton variant="secondary" type="button"
             disabled={periodoCerrado} onClick={() => setAccion('cierre')}>
             Cerrar {etiquetaPeriodo(periodo)}
-          </button>
+          </GradientButton>
 
           {periodoCerrado && cierre && (
-            <span className="flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            <span className="flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               <StatusChip tone="neutral">Periodo cerrado</StatusChip>
               {/* Por qué están apagados los botones, sin obligar a pasar el ratón por encima. */}
               <span>
                 Cerrado por {cierre.cerradoPorNombre} el {fechaHora(cierre.cerradoEn)}. Un cierre no se
                 reabre: lo que haya que corregir se ajusta en el periodo abierto.
               </span>
-              <button type="button" className="underline" style={{ color: 'var(--flit-blue-text)' }}
+              <button type="button" className="underline" style={{ color: 'var(--color-action)' }}
                 onClick={() => descargarReporteCierre(companiaNombre, cierre)}>
                 Descargar el reporte
               </button>
@@ -246,22 +247,22 @@ export function ModalRecarga({
   if (duplicado) {
     return (
       <FlitModal title="Esta recarga ya estaba registrada" onClose={onClose} wide>
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           El envío repetía una recarga que ya se había asentado, así que <strong>no se sumó nada al
           saldo</strong>. Este es el movimiento original:
         </p>
         <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
-          <dt style={{ color: 'var(--flit-text-muted)' }}>Valor</dt>
+          <dt style={{ color: 'var(--color-text-tertiary)' }}>Valor</dt>
           <dd className="font-semibold tabular-nums">{pesos(duplicado.movimiento.valor)}</dd>
-          <dt style={{ color: 'var(--flit-text-muted)' }}>Registrado por</dt>
+          <dt style={{ color: 'var(--color-text-tertiary)' }}>Registrado por</dt>
           <dd>{duplicado.movimiento.registradoPorNombre}</dd>
-          <dt style={{ color: 'var(--flit-text-muted)' }}>Saldo de la bolsa</dt>
+          <dt style={{ color: 'var(--color-text-tertiary)' }}>Saldo de la bolsa</dt>
           <dd className="font-semibold tabular-nums">{pesos(duplicado.saldo)}</dd>
         </dl>
         <div className="mt-5 flex justify-end">
-          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onClose}>
+          <GradientButton type="button" onClick={onClose}>
             Entendido
-          </button>
+          </GradientButton>
         </div>
       </FlitModal>
     );
@@ -291,7 +292,7 @@ export function ModalRecarga({
           <FlitUploadBox label={archivo ? archivo.name : 'Comprobante de la transferencia (PDF o imagen)'}
             required state={archivo ? 'verified' : 'idle'} count={1} onFile={setArchivo} />
           {archivo === null && (
-            <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               Una entrada de dinero sin comprobante no es auditable: el soporte es obligatorio.
             </p>
           )}
@@ -300,12 +301,12 @@ export function ModalRecarga({
         <AvisoErrorAccion error={error} onCrearBolsa={onCrearBolsa} />
 
         <div className="flex justify-end gap-2">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>
+          <GradientButton variant="alerta" type="button" onClick={onClose}>
             Cancelar
-          </button>
-          <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={!puedeGuardar}>
+          </GradientButton>
+          <GradientButton type="submit" disabled={!puedeGuardar}>
             {enviando ? 'Registrando…' : 'Registrar recarga'}
-          </button>
+          </GradientButton>
         </div>
       </form>
     </FlitModal>
@@ -360,7 +361,7 @@ function ModalManual({ companiaId, onClose, onHecho, onRefrescar, onCrearBolsa }
     <FlitModal title="Registrar un movimiento manual" onClose={onClose} wide>
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); guardar(); }}>
         <fieldset>
-          <legend className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <legend className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Tipo de movimiento *
           </legend>
           <div className="flex gap-4 text-sm">
@@ -407,7 +408,7 @@ function ModalManual({ companiaId, onClose, onHecho, onRefrescar, onCrearBolsa }
         </div>
 
         <div>
-          <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Organismo de tránsito
           </span>
           <FlitOrganismoCombobox value={organismo} onChange={setOrganismo} allowEmpty
@@ -418,7 +419,7 @@ function ModalManual({ companiaId, onClose, onHecho, onRefrescar, onCrearBolsa }
           <FlitUploadBox label={archivo ? archivo.name : 'Evidencia del ajuste (PDF o imagen)'}
             required state={archivo ? 'verified' : 'idle'} count={1} onFile={setArchivo} />
           {archivo === null && (
-            <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               Un movimiento que decide una persona sin dejar respaldo no es auditable.
             </p>
           )}
@@ -427,12 +428,12 @@ function ModalManual({ companiaId, onClose, onHecho, onRefrescar, onCrearBolsa }
         <AvisoErrorAccion error={error} onCrearBolsa={onCrearBolsa} />
 
         <div className="flex justify-end gap-2">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>
+          <GradientButton variant="alerta" type="button" onClick={onClose}>
             Cancelar
-          </button>
-          <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={!puedeGuardar}>
+          </GradientButton>
+          <GradientButton type="submit" disabled={!puedeGuardar}>
             {enviando ? 'Registrando…' : 'Registrar movimiento'}
-          </button>
+          </GradientButton>
         </div>
       </form>
     </FlitModal>
@@ -485,7 +486,7 @@ function ModalCorreccion({ companiaId, movimientos, onClose, onHecho, onRefresca
         </FlitEmpty>
       ) : (
         <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); guardar(); }}>
-          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             La fila original no se toca: se asienta un ajuste que la referencia, de forma que el libro
             sigue contando lo que pasó de verdad.
           </p>
@@ -517,12 +518,12 @@ function ModalCorreccion({ companiaId, movimientos, onClose, onHecho, onRefresca
           <AvisoErrorAccion error={error} />
 
           <div className="flex justify-end gap-2">
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>
+            <GradientButton variant="alerta" type="button" onClick={onClose}>
               Cancelar
-            </button>
-            <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={!puedeGuardar}>
+            </GradientButton>
+            <GradientButton type="submit" disabled={!puedeGuardar}>
               {enviando ? 'Asentando…' : 'Asentar corrección'}
-            </button>
+            </GradientButton>
           </div>
         </form>
       )}
@@ -569,13 +570,13 @@ function ModalCierre({ companiaId, companiaNombre, periodo, movimientos, saldoAc
         <ResumenCierre saldoInicial={cerrado.saldoInicial} entradas={cerrado.totalEntradas}
           salidas={cerrado.totalSalidas} saldoFinal={cerrado.saldoFinal} movimientos={cerrado.movimientos} />
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+          <GradientButton variant="secondary" type="button"
             onClick={() => descargarReporteCierre(companiaNombre, cerrado)}>
             Descargar el reporte de cierre
-          </button>
-          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onClose}>
+          </GradientButton>
+          <GradientButton type="button" onClick={onClose}>
             Volver a la bolsa
-          </button>
+          </GradientButton>
         </div>
       </FlitModal>
     );
@@ -583,7 +584,7 @@ function ModalCierre({ companiaId, companiaNombre, periodo, movimientos, saldoAc
 
   return (
     <FlitModal title={`Cerrar ${etiquetaPeriodo(periodo)}`} onClose={onClose} wide>
-      <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
         Vas a cerrar el periodo de <strong>{companiaNombre}</strong>. El cierre congela sus movimientos
         y sella el reporte: <strong>no hay forma de reabrirlo</strong>. Lo que aparezca después se
         ajusta en el periodo siguiente.
@@ -601,16 +602,16 @@ function ModalCierre({ companiaId, companiaNombre, periodo, movimientos, saldoAc
         </Campo>
       </div>
 
-      {error && <p className="mt-3 text-sm" style={{ color: 'var(--flit-danger)' }}>{error}</p>}
+      {error && <p className="mt-3 text-sm" style={{ color: 'var(--kit-rojo)' }}>{error}</p>}
 
       <div className="mt-5 flex justify-end gap-2">
-        <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>
+        <GradientButton variant="alerta" type="button" onClick={onClose}>
           Cancelar
-        </button>
-        <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+        </GradientButton>
+        <GradientButton type="button"
           disabled={enviando} onClick={cerrarPeriodo}>
           {enviando ? 'Cerrando…' : 'Confirmar el cierre'}
-        </button>
+        </GradientButton>
       </div>
     </FlitModal>
   );
@@ -621,25 +622,25 @@ function ResumenCierre({ saldoInicial, entradas, salidas, saldoFinal, movimiento
 }) {
   return (
     <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border p-4 text-sm"
-      style={{ borderColor: 'var(--flit-border-soft)' }}>
+      style={{ borderColor: 'var(--color-border)' }}>
       {saldoInicial !== undefined && (
         <>
-          <dt style={{ color: 'var(--flit-text-muted)' }}>Saldo inicial</dt>
+          <dt style={{ color: 'var(--color-text-tertiary)' }}>Saldo inicial</dt>
           <dd className="text-right tabular-nums">{pesos(saldoInicial)}</dd>
         </>
       )}
-      <dt style={{ color: 'var(--flit-text-muted)' }}>Entradas</dt>
-      <dd className="text-right font-semibold tabular-nums" style={{ color: 'var(--flit-success)' }}>
+      <dt style={{ color: 'var(--color-text-tertiary)' }}>Entradas</dt>
+      <dd className="text-right font-semibold tabular-nums" style={{ color: 'var(--kit-verde)' }}>
         {pesos(entradas)}
       </dd>
-      <dt style={{ color: 'var(--flit-text-muted)' }}>Salidas</dt>
-      <dd className="text-right font-semibold tabular-nums" style={{ color: 'var(--flit-warning)' }}>
+      <dt style={{ color: 'var(--color-text-tertiary)' }}>Salidas</dt>
+      <dd className="text-right font-semibold tabular-nums" style={{ color: 'var(--kit-naranja)' }}>
         {pesos(salidas)}
       </dd>
-      <dt style={{ color: 'var(--flit-text-muted)' }}>Movimientos</dt>
+      <dt style={{ color: 'var(--color-text-tertiary)' }}>Movimientos</dt>
       <dd className="text-right tabular-nums">{movimientos}</dd>
-      <dt className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Saldo final</dt>
-      <dd className="text-right text-base font-bold tabular-nums" style={{ color: 'var(--flit-blue-text)' }}>
+      <dt className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>Saldo final</dt>
+      <dd className="text-right text-base font-bold tabular-nums" style={{ color: 'var(--color-action)' }}>
         {pesos(saldoFinal)}
       </dd>
     </dl>
@@ -649,7 +650,7 @@ function ResumenCierre({ saldoInicial, entradas, salidas, saldoFinal, movimiento
 function HistorialCierres({ cierres, companiaNombre }: { cierres: CierreDto[]; companiaNombre: string }) {
   return (
     <FlitCard>
-      <h3 className="mb-3 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+      <h3 className="mb-3 text-sm font-bold" style={{ color: 'var(--color-action)' }}>
         Periodos cerrados ({cierres.length})
       </h3>
       <FlitTable>
@@ -669,20 +670,20 @@ function HistorialCierres({ cierres, companiaNombre }: { cierres: CierreDto[]; c
             <FlitTr key={c.id}>
               <td className="px-4 py-2 text-sm font-medium">{etiquetaPeriodo(c.periodo)}</td>
               <td className="px-4 py-2 text-right text-sm tabular-nums">{pesos(c.saldoInicial)}</td>
-              <td className="px-4 py-2 text-right text-sm tabular-nums" style={{ color: 'var(--flit-success)' }}>
+              <td className="px-4 py-2 text-right text-sm tabular-nums" style={{ color: 'var(--kit-verde)' }}>
                 {pesos(c.totalEntradas)}
               </td>
-              <td className="px-4 py-2 text-right text-sm tabular-nums" style={{ color: 'var(--flit-warning)' }}>
+              <td className="px-4 py-2 text-right text-sm tabular-nums" style={{ color: 'var(--kit-naranja)' }}>
                 {pesos(c.totalSalidas)}
               </td>
               <td className="px-4 py-2 text-right text-sm font-semibold tabular-nums">{pesos(c.saldoFinal)}</td>
               <td className="px-4 py-2 text-xs">
                 <div>{c.cerradoPorNombre}</div>
-                <div style={{ color: 'var(--flit-text-muted)' }}>{fechaHora(c.cerradoEn)}</div>
+                <div style={{ color: 'var(--color-text-tertiary)' }}>{fechaHora(c.cerradoEn)}</div>
               </td>
               <td className="px-4 py-2 text-center">
                 <button type="button" className="text-xs font-semibold underline"
-                  style={{ color: 'var(--flit-blue)' }}
+                  style={{ color: 'var(--kit-azul)' }}
                   aria-label={`Descargar el reporte de cierre de ${etiquetaPeriodo(c.periodo)}`}
                   onClick={() => descargarReporteCierre(companiaNombre, c)}>
                   Descargar

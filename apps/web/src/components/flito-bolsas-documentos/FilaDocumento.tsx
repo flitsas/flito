@@ -2,7 +2,7 @@
 // La carga es de la fila: solo esta queda ocupada y su error se pinta aquí, junto al archivo que hay
 // que corregir (sin toast de error). El archivo fallido se guarda para «Reintentar» hasta elegir otro.
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Download, RotateCw, Upload } from 'lucide-react';
+import { Icono } from '../flit/kit/Icono';
 import type { DocumentoBolsaDto, DocumentoExpedienteDto } from '@operaciones/shared-types';
 import { bolsasDocumentosApi } from '../../lib/api';
 import { errorBolsa, fechaDia, fechaHora } from '../../lib/bolsas';
@@ -25,7 +25,7 @@ import { useDescargaDocumentoBolsa } from './useDescargaDocumentoBolsa';
 // overlay `.flit-modal` (scroll propio), el input quedaba fuera del contenedor interior y, al pulsar
 // «Cargar», el navegador desplazaba el overlay para mostrarlo y el modal subía (HU #13892, DEV).
 const ANILLO_LABEL =
-  'relative cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-[color:var(--flit-border-focus)] has-[input[aria-disabled=true]]:cursor-not-allowed has-[input[aria-disabled=true]]:opacity-50';
+  'relative cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-[color:var(--kit-azul)] has-[input[aria-disabled=true]]:cursor-not-allowed has-[input[aria-disabled=true]]:opacity-50';
 
 /** `archivo` = el que falló por red/429, para «Reintentar» con el mismo; `null` = sin reintento. */
 type ErrorCarga = { texto: string; archivo: File | null };
@@ -134,11 +134,11 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
   const puedeQuitar = puedeCargar && vigente !== null && estado !== 'pendiente';
 
   return (
-    <li ref={filaRef} className="grid grid-cols-1 gap-x-4 gap-y-2 py-3 sm:grid-cols-[1fr_auto]" style={{ borderColor: 'var(--flit-border-soft)' }}
+    <li ref={filaRef} className="grid grid-cols-1 gap-x-4 gap-y-2 py-3 sm:grid-cols-[1fr_auto]" style={{ borderColor: 'var(--color-border)' }}
       data-testid={`doc-${tipo}`}>
       <div className="min-w-0 break-words">
         <div className="flex flex-col items-start gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
-          <h4 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{tituloDocumento(tipo)}</h4>
+          <h4 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{tituloDocumento(tipo)}</h4>
           <StatusChip tone={ESTADO_DOCUMENTO[estado].tono}>{ESTADO_DOCUMENTO[estado].texto}</StatusChip>
         </div>
         {!p.editando && (
@@ -146,12 +146,12 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
         )}
         {errorCarga && (
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <p role="alert" className="min-w-0 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{errorCarga.texto}</p>
+            <p role="alert" className="min-w-0 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{errorCarga.texto}</p>
             {errorCarga.archivo && (
               <button type="button" className={flitBtnSecondarySm} disabled={subiendo}
                 aria-label={`Reintentar la carga de ${nombre}`}
                 onClick={() => { if (errorCarga.archivo) void subir(errorCarga.archivo); }}>
-                <RotateCw size={14} aria-hidden="true" className="shrink-0" />
+                <Icono nombre="reintento" size={14} className="shrink-0" />
                 Reintentar
               </button>
             )}
@@ -162,7 +162,7 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
       <div className="flex flex-wrap items-start gap-2 sm:justify-end">
         {puedeCargar && (
           <label className={`${flitBtnSecondarySm} ${ANILLO_LABEL}`} aria-busy={subiendo || undefined}>
-            <Upload size={14} aria-hidden="true" className="shrink-0" />
+            <Icono nombre="nube-subir" size={14} className="shrink-0" />
             {subiendo ? 'Cargando…' : (vigente ? 'Reemplazar' : 'Cargar')}
             <input ref={cargaRef} type="file" className="sr-only" accept={ACCEPT_DOCUMENTO_BOLSA}
               aria-disabled={subiendo || undefined}
@@ -180,7 +180,7 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
             aria-label={`Descargar ${nombre} (versión ${vigente.version})`} title={`Descargar ${nombre} (versión ${vigente.version})`}
             disabled={ocupadoDescarga} aria-busy={ocupadoDescarga || undefined}
             onClick={() => { void descargar(vigente); }}>
-            <Download size={14} aria-hidden="true" />
+            <Icono nombre="nube-bajar" size={14} />
           </button>
         )}
         {doc.tieneHistorial && (
@@ -189,7 +189,7 @@ export default function FilaDocumento(p: FilaDocumentoProps) {
             aria-label={`Ver el historial de ${nombre}`}
             onClick={() => { if (!p.historialAbierto) p.onEditar(false); p.onHistorial(!p.historialAbierto); }}>
             Historial
-            {p.historialAbierto ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+            {p.historialAbierto ? <Icono nombre="arriba" size={14} /> : <Icono nombre="abajo" size={14} />}
           </button>
         )}
         {/* Al final de la barra y sin tono de peligro: el peso de peligro va en la confirmación (HU #13964). */}
@@ -228,7 +228,7 @@ function LineaDetalle({ doc, puedeCargar, accion }: {
   doc: DocumentoExpedienteDto; puedeCargar: boolean; accion: React.ReactNode;
 }) {
   const { tipo, estado, vigente } = doc;
-  const tinta = { color: 'var(--flit-text-secondary)' };
+  const tinta = { color: 'var(--color-text-secondary)' };
   if (!vigente || estado === 'pendiente') return <p className="mt-1 text-xs" style={tinta}>Sin cargar.</p>;
 
   const cargado = `${participio(tipo, 'Cargad')}${vigente.cargadoPor ? ` por ${vigente.cargadoPor}` : ''} el ${fechaHora(vigente.cargadoEn)}`;

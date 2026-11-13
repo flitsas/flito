@@ -28,6 +28,7 @@ import FlitUploadBox from '../../flit/FlitUploadBox';
 import {
   FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../../flit/flitPageKit';
+import GradientButton from '../../flit/GradientButton';
 
 /** `active` (HU #13948): un cliente inactivo se ve pero no se elige para una boleta nueva (HU #13950). */
 export interface ClienteOpcion { id: number; name: string; active?: boolean }
@@ -114,7 +115,7 @@ export default function CargarBoletaModal(
             disabled={cargando}
             onChange={(e) => setFechaPago(e.target.value)}
           />
-          <span className="mt-1 block text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <span className="mt-1 block text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             La del pago, no la de hoy: es la que decide a qué mes contable pertenece.
           </span>
         </FlitField>
@@ -133,47 +134,44 @@ export default function CargarBoletaModal(
           // El motivo va en una región viva: el componente de carga solo dice «Rechazado», que no es
           // un motivo, y quien usa lector de pantalla no tiene por qué ir a buscar el texto.
           <div role="alert" className="text-sm">
-            <p className="font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>{rechazo.titulo}</p>
-            <p style={{ color: 'var(--flit-text-secondary)' }}>{rechazo.detalle}</p>
+            <p className="font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>{rechazo.titulo}</p>
+            <p style={{ color: 'var(--color-text-secondary)' }}>{rechazo.detalle}</p>
             {rechazo.boletaId && (
-              <button
+              <GradientButton variant="secondary"
                 type="button"
-                className={`${flitBtnSecondary} mt-2`}
-                style={flitBtnSecondaryStyle}
+                className="mt-2"
                 onClick={() => onVerBoleta(rechazo.boletaId as string)}
-              >
+>
                 Ver {rechazo.referencia ?? 'la boleta'}
-              </button>
+              </GradientButton>
             )}
           </div>
         )}
 
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Máximo {CONCILIACION_MAX_FILAS} líneas por boleta y 10 MB.
         </p>
 
         <div className="flex flex-wrap justify-end gap-2">
-          <button
+          <GradientButton variant="alerta"
             type="button"
-            className={flitBtnSecondary}
-            style={flitBtnSecondaryStyle}
             disabled={cargando}
             onClick={onCerrar}
-          >
+>
             Cancelar
-          </button>
+          </GradientButton>
           {/* `aria-disabled` y no `disabled`: así el botón conserva el foco y su nombre accesible
               —que dice QUÉ falta— se puede oír. Mismo criterio que el botón de conciliar. */}
-          <button
+          <GradientButton
             type="button"
-            className={flitBtnPrimary}
+
             style={{ ...flitBtnPrimaryStyle, opacity: falta || cargando ? 0.5 : 1 }}
             aria-disabled={falta !== null || cargando}
             aria-label={falta ? `Cargar y cruzar — ${falta}` : undefined}
             onClick={cargar}
-          >
+>
             {cargando ? 'Cruzando las líneas…' : 'Cargar y cruzar'}
-          </button>
+          </GradientButton>
         </div>
       </div>
     </FlitModal>

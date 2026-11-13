@@ -11,7 +11,7 @@
 // con tope de 2 min o 3 fallos seguidos; al tope, aviso neutro con «Actualizar». El cambio de estado
 // se anuncia por una región `aria-live` única, sin toast.
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { RotateCw } from 'lucide-react';
+import { Icono } from '../flit/kit/Icono';
 import {
   TIPOS_DOCUMENTO_BOLSA_PRINCIPALES,
   type DocumentoBolsaDto, type DocumentoExpedienteDto, type EstadoDocumentoBolsa, type ExpedienteCompaniaDto, type TipoDocumentoBolsa,
@@ -48,7 +48,7 @@ type Carga =
   | { fase: 'sin-permiso' }
   | { fase: 'lista'; expediente: ExpedienteCompaniaDto };
 
-const AVISO_NEUTRO = { borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' };
+const AVISO_NEUTRO = { borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)' };
 const PRINCIPALES = TIPOS_DOCUMENTO_BOLSA_PRINCIPALES as readonly string[];
 
 function Seccion({ companiaId, activa, onBolsaCambio, tieneCargar, puedeReactivar }: Props & {
@@ -147,10 +147,10 @@ function Seccion({ companiaId, activa, onBolsaCambio, tieneCargar, puedeReactiva
 
   const puedeCargar = tieneCargar && activa;
   const titulo = (
-    <h3 id={idTitulo} className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Documentos</h3>
+    <h3 id={idTitulo} className="text-base font-semibold" style={{ color: 'var(--color-text-primary)' }}>Documentos</h3>
   );
   const subtitulo = (
-    <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+    <p className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
       Documentos de vinculación de la compañía. Vencen 30 días después de expedidos.
     </p>
   );
@@ -171,14 +171,14 @@ function Seccion({ companiaId, activa, onBolsaCambio, tieneCargar, puedeReactiva
         {carga.fase === 'error' && (
           <>
             {titulo}
-            <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+            <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
               {carga.noExiste
                 ? 'No encontramos la compañía de esta bolsa. Cierra el detalle y vuelve a abrirlo.'
                 : 'No pudimos cargar los documentos de la compañía. Intenta de nuevo.'}
             </p>
             {!carga.noExiste && (
               <button type="button" className={`${flitBtnSecondarySm} mt-3`} onClick={() => { void leer(false); }}>
-                <RotateCw size={14} aria-hidden="true" className="shrink-0" />
+                <Icono nombre="reintento" size={14} className="shrink-0" />
                 Reintentar
               </button>
             )}
@@ -193,7 +193,7 @@ function Seccion({ companiaId, activa, onBolsaCambio, tieneCargar, puedeReactiva
             <>
               <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
                 {titulo}
-                <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                   <StatusChip tone={expediente.completo ? 'success' : 'warning'}>
                     {expediente.completo ? 'Docs completos' : 'Docs pendientes'}
                   </StatusChip>
@@ -202,7 +202,7 @@ function Seccion({ companiaId, activa, onBolsaCambio, tieneCargar, puedeReactiva
               </div>
               {subtitulo}
               {vacio && (
-                <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+                <p className="mt-2 text-sm" style={{ color: 'var(--color-text-primary)' }}>
                   {puedeCargar
                     ? 'Todavía no hay documentos. Carga los cuatro principales para dejar el expediente completo.'
                     : (!activa && tieneCargar
@@ -225,12 +225,12 @@ function Seccion({ companiaId, activa, onBolsaCambio, tieneCargar, puedeReactiva
                     La lectura de la fecha está tardando más de lo normal. Puedes seguir trabajando y actualizar en un rato.
                   </p>
                   <button type="button" className={flitBtnSecondarySm} onClick={() => { void leer(true); }}>
-                    <RotateCw size={14} aria-hidden="true" className="shrink-0" />
+                    <Icono nombre="reintento" size={14} className="shrink-0" />
                     Actualizar
                   </button>
                 </div>
               )}
-              <ul className="mt-3 divide-y border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
+              <ul className="mt-3 divide-y border-t" style={{ borderColor: 'var(--color-border)' }}>
                 {expediente.documentos.map((d) => (
                   <FilaDocumento key={d.tipo} companiaId={companiaId} doc={d} puedeCargar={puedeCargar}
                     historialAbierto={historial === d.tipo}
@@ -253,11 +253,11 @@ function Seccion({ companiaId, activa, onBolsaCambio, tieneCargar, puedeReactiva
 }
 
 function EsqueletoExpediente() {
-  const barra = (w: string, h = 'h-3') => <div className={`${h} rounded`} style={{ width: w, background: 'var(--flit-bg-app)' }} />;
+  const barra = (w: string, h = 'h-3') => <div className={`${h} rounded`} style={{ width: w, background: 'var(--color-surface)' }} />;
   return (
-    <div role="status" aria-label="Cargando el expediente" className="mt-3 divide-y border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <div role="status" aria-label="Cargando el expediente" className="mt-3 divide-y border-t" style={{ borderColor: 'var(--color-border)' }}>
       {[0, 1, 2, 3, 4].map((i) => (
-        <div key={i} className="space-y-2 py-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <div key={i} className="space-y-2 py-3" style={{ borderColor: 'var(--color-border)' }}>
           <div className="flex flex-wrap items-center gap-2">{barra('35%')}{barra('5rem', 'h-5')}</div>
           {barra('60%')}
         </div>

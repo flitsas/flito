@@ -25,6 +25,7 @@ import { fechaHora } from '../../../lib/bolsas';
 import { rechazoDeComprobante, type Rechazo } from '../../../lib/conciliacion';
 import FlitUploadBox from '../../flit/FlitUploadBox';
 import { FlitCard, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import GradientButton from '../../flit/GradientButton';
 
 const MB = 1024 * 1024;
 const TOPE_MB = Math.round(COMPROBANTE_MAX_BYTES / MB);
@@ -76,19 +77,19 @@ export default function ComprobantePse({ boleta, onComprobante }: Props) {
 
   return (
     <FlitCard>
-      <h2 className="text-sm font-bold" style={{ color: 'var(--flit-text-primary)' }}>
+      <h2 className="text-sm font-bold" style={{ color: 'var(--color-text-primary)' }}>
         Comprobante del pago PSE
       </h2>
 
       {!conciliada && (
-        <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="mt-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           El comprobante se adjunta después de conciliar la boleta.
         </p>
       )}
 
       {conciliada && comprobante && !reemplazando && (
         <div className="mt-3 space-y-2">
-          <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
             <span aria-hidden="true">📄</span> {comprobante.nombreArchivo}
             {' · '}{etiquetaTipo(comprobante.contentType)}
             {' · subido el '}{fechaHora(comprobante.subidoEn)}
@@ -104,7 +105,7 @@ export default function ComprobantePse({ boleta, onComprobante }: Props) {
               Reemplazar
             </button>
           </div>
-          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             Al reemplazarlo, el comprobante actual se descarta.
           </p>
         </div>
@@ -119,24 +120,24 @@ export default function ComprobantePse({ boleta, onComprobante }: Props) {
             onFile={(f) => { void subir(f, reemplazando); }}
           />
           {!reemplazando && !rechazo && (
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               Todavía no se ha adjuntado el comprobante de este pago. El gestor lo ve desde cada uno de
               sus SOAT.
             </p>
           )}
           {reemplazando && (
-            <button
-              type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+            <GradientButton variant="alerta"
+              type="button"
               disabled={subiendo} onClick={() => { setReemplazando(false); setRechazo(null); }}
-            >
+>
               Cancelar el reemplazo
-            </button>
+            </GradientButton>
           )}
           {rechazo && (
             <div role="alert" className="text-sm">
-              <p className="font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>{rechazo.titulo}</p>
-              <p style={{ color: 'var(--flit-text-secondary)' }}>{rechazo.detalle}</p>
-              <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+              <p className="font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>{rechazo.titulo}</p>
+              <p style={{ color: 'var(--color-text-secondary)' }}>{rechazo.detalle}</p>
+              <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                 Vuelve a elegir un archivo en la caja de arriba para reintentarlo.
               </p>
             </div>

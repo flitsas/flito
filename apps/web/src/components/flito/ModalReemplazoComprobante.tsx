@@ -16,9 +16,9 @@ import { ApiError, impuestosApi } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
 import FlitUploadBox from '../flit/FlitUploadBox';
 import StatusChip from '../flit/StatusChip';
-import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import { esReciboCajaValido } from './ModalReciboCaja';
 import type { ImpuestoItem } from './ImpuestoCola';
+import GradientButton, { claseBoton } from '../flit/GradientButton';
 
 type SinEscritura = Extract<RespuestaReemplazoComprobante, { detalle: string }>;
 type AccionError = 'cerrar' | 'elegir_otro' | 'reintentar';
@@ -68,7 +68,7 @@ function clasificarError(e: unknown): ClaveError {
 
 const megas = (bytes: number) => `${(bytes / (1024 * 1024)).toLocaleString('es-CO', { maximumFractionDigits: 1 })} MB`;
 const VIGENTE = 'El comprobante anterior sigue vigente.';
-const secundario = { color: 'var(--flit-text-secondary)' };
+const secundario = { color: 'var(--color-text-secondary)' };
 
 type Paso = 'inicial' | 'cargando' | 'resultado' | 'error';
 
@@ -147,23 +147,23 @@ export default function ModalReemplazoComprobante({ imp, envioComprobante, resto
               <p style={secundario}>{VIGENTE}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button ref={primariaRef} type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              <button ref={primariaRef} type="button" data-variante="primario" className={claseBoton('primary')}
                 onClick={() => volverAlFormulario(true)}>Elegir otro archivo</button>
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cerrar</button>
+              <GradientButton variant="secondary" type="button" onClick={onClose}>Cerrar</GradientButton>
             </div>
           </div>
         ) : paso === 'error' && error ? (
           <div className="space-y-2">
-            <p role="alert" style={{ color: 'var(--flit-danger-text)' }}>{error.texto}</p>
+            <p role="alert" style={{ color: 'var(--kit-rojo-texto)' }}>{error.texto}</p>
             <p style={secundario}>{VIGENTE}</p>
-            <button ref={primariaRef} type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={salirDelError}>
+            <button ref={primariaRef} type="button" data-variante="primario" className={claseBoton('primary')} onClick={salirDelError}>
               {ROTULO_ACCION[error.accion]}
             </button>
           </div>
         ) : (
           <>
             <div id={idAviso} className="space-y-1 rounded-md border p-3"
-              style={{ borderColor: 'var(--flit-warning)', color: 'var(--flit-text-primary)' }}>
+              style={{ borderColor: 'var(--kit-naranja)', color: 'var(--color-text-primary)' }}>
               <p>El comprobante de pago actual se descarta y queda el nuevo. El valor pagado y la fecha de pago no cambian.</p>
               {envioComprobante?.destino === 'flit2' && envioComprobante.estado === 'ya_cargado_gestor' && (
                 <p>El gestor ya cargó su comprobante en FLIT 2: el nuevo queda solo en FLITO.</p>
@@ -176,13 +176,13 @@ export default function ModalReemplazoComprobante({ imp, envioComprobante, resto
               <p className="break-all text-xs" style={secundario}>{archivo.name} · {megas(archivo.size)}</p>
             )}
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              <GradientButton type="button"
                 disabled={!archivo || cargando} aria-describedby={!archivo ? idFalta : undefined} onClick={reemplazar}>
                 {cargando ? 'Validando el comprobante…' : 'Reemplazar comprobante'}
-              </button>
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={cargando} onClick={onClose}>
+              </GradientButton>
+              <GradientButton variant="alerta" type="button" disabled={cargando} onClick={onClose}>
                 Cancelar
-              </button>
+              </GradientButton>
             </div>
             {!archivo && (
               <p id={idFalta} className="text-xs" style={secundario}>Elige el archivo del nuevo comprobante.</p>

@@ -1,7 +1,7 @@
 // Historial de versiones de un documento del expediente, en línea bajo la fila (HU #13892; spec
 // «Wireframe: historial desplegado»). Lee E2 cada vez que se abre, sin caché. `Esc` cierra solo esto.
 import { useCallback, useEffect, useState } from 'react';
-import { Download, RotateCw } from 'lucide-react';
+import { Icono } from '../flit/kit/Icono';
 import type { DocumentoBolsaVersionDto, TipoDocumentoBolsa } from '@operaciones/shared-types';
 import { bolsasDocumentosApi } from '../../lib/api';
 import { fechaDia, fechaHora } from '../../lib/bolsas';
@@ -41,46 +41,46 @@ export default function HistorialDocumento({ id, companiaId, tipo, onCerrar }: {
 
   return (
     <div id={id} role="region" aria-labelledby={idTitulo}
-      className="rounded-lg border p-3 sm:col-span-2" style={{ borderColor: 'var(--flit-border-input)' }}
+      className="rounded-lg border p-3 sm:col-span-2" style={{ borderColor: 'var(--color-border-control)' }}
       onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); onCerrar(); } }}>
-      <p id={idTitulo} className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <p id={idTitulo} className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         Historial {delDocumento(tipo)}
       </p>
 
       {estado.fase === 'cargando' && (
         <div role="status" aria-label="Cargando versiones" className="mt-2 space-y-2">
-          <div className="h-3 w-3/4 rounded" style={{ background: 'var(--flit-bg-app)' }} />
-          <div className="h-3 w-1/2 rounded" style={{ background: 'var(--flit-bg-app)' }} />
+          <div className="h-3 w-3/4 rounded" style={{ background: 'var(--color-surface)' }} />
+          <div className="h-3 w-1/2 rounded" style={{ background: 'var(--color-surface)' }} />
         </div>
       )}
 
       {estado.fase === 'error' && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <p role="alert" className="min-w-0 flex-1 basis-48 text-xs" style={{ color: 'var(--flit-danger-text)' }}>
+          <p role="alert" className="min-w-0 flex-1 basis-48 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>
             No pudimos cargar el historial. Intenta de nuevo.
           </p>
           <button type="button" className={flitBtnSecondarySm} onClick={() => { void leer({ v: true }); }}>
-            <RotateCw size={14} aria-hidden="true" className="shrink-0" />
+            <Icono nombre="reintento" size={14} className="shrink-0" />
             Reintentar
           </button>
         </div>
       )}
 
       {estado.fase === 'lista' && estado.versiones.length === 0 && (
-        <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Este documento todavía no tiene versiones.</p>
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>Este documento todavía no tiene versiones.</p>
       )}
 
       {estado.fase === 'lista' && estado.versiones.length > 0 && (
-        <ul className="mt-2 divide-y" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <ul className="mt-2 divide-y" style={{ borderColor: 'var(--color-border)' }}>
           {estado.versiones.map((v) => {
             const ocupado = enCurso.has(v.id);
             return (
-              <li key={v.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
+              <li key={v.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2" style={{ borderColor: 'var(--color-border)' }}>
                 <div className="min-w-0 flex-1 basis-56 break-words">
-                  <p className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+                  <p className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                     Versión {v.version} · {cabecera(v)}
                   </p>
-                  <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                  <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                     Cargada{v.cargadoPor ? ` por ${v.cargadoPor}` : ''} el {fechaHora(v.cargadoEn)}
                     {v.fechaExpedicion ? ` · ${participio(tipo, 'expedid')} el ${fechaDia(v.fechaExpedicion)}` : ''}
                     {!v.archivoDisponible ? ' · archivo eliminado por retención' : ''}
@@ -88,18 +88,18 @@ export default function HistorialDocumento({ id, companiaId, tipo, onCerrar }: {
                   {v.retiro && (
                     // Texto plano (HU #13964): el motivo es libre y nunca se interpreta como HTML.
                     <>
-                      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                      <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                         Retirada por {v.retiro.por.nombre ?? '—'} el {fechaHora(v.retiro.en)}
                       </p>
                       {v.retiro.motivo && (
-                        <p className="text-xs break-words" style={{ color: 'var(--flit-text-secondary)' }}>
+                        <p className="text-xs break-words" style={{ color: 'var(--color-text-secondary)' }}>
                           Motivo: «{v.retiro.motivo}»
                         </p>
                       )}
                     </>
                   )}
                   {v.fechaOrigen === 'manual' && v.fechaManual && (
-                    <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                    <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                       (fecha digitada{v.fechaManual.por ? ` por ${v.fechaManual.por}` : ''} el {fechaDia(diaBogota(v.fechaManual.en))})
                     </p>
                   )}
@@ -108,7 +108,7 @@ export default function HistorialDocumento({ id, companiaId, tipo, onCerrar }: {
                   <button type="button" className={flitBtnIconoSm}
                     aria-label={`Descargar ${nombre} (versión ${v.version})`} title={`Descargar ${nombre} (versión ${v.version})`}
                     disabled={ocupado} aria-busy={ocupado || undefined} onClick={() => { void descargar(v); }}>
-                    <Download size={14} aria-hidden="true" />
+                    <Icono nombre="nube-bajar" size={14} />
                   </button>
                 )}
               </li>

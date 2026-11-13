@@ -11,7 +11,7 @@ export default function ChipExpediente({ companiaId, lote }: { companiaId: numbe
   if (lote.fase === 'cargando') {
     return (
       <span aria-hidden="true" data-testid={`chip-expediente-cargando-${companiaId}`}
-        className="block h-5 w-28 animate-pulse rounded-full motion-reduce:animate-none" style={{ background: 'var(--flit-bg-app)' }} />
+        className="kit-esqueleto block h-5 w-28 rounded-full" />
     );
   }
   const fila = lote.fase === 'listo' ? lote.porCompania.get(companiaId) : undefined;
@@ -19,7 +19,7 @@ export default function ChipExpediente({ companiaId, lote }: { companiaId: numbe
     // Error del lote o compañía que no vino en la respuesta: «—», sin chip.
     return (
       <span aria-label="Sin dato" data-testid={`chip-expediente-sin-dato-${companiaId}`}
-        className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+        className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
         —
       </span>
     );

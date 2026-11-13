@@ -21,6 +21,7 @@ import ThFiltroMulti from '../flit/ThFiltroMulti';
 import {
   FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
 
 /** Cómo se nombra y se pinta el origen del movimiento. Un ajuste a mano no puede verse igual que
  *  una salida que generó el sistema al sellar la liquidación. */
@@ -211,10 +212,10 @@ export default function BolsaMovimientos({
   if (error) {
     return (
       <FlitCard>
-        <p className="text-sm" style={{ color: 'var(--flit-danger)' }}>{error}</p>
-        <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={onReintentar}>
+        <p className="text-sm" style={{ color: 'var(--kit-rojo)' }}>{error}</p>
+        <GradientButton variant="secondary" type="button" className="mt-3" onClick={onReintentar}>
           Reintentar
-        </button>
+        </GradientButton>
       </FlitCard>
     );
   }
@@ -222,7 +223,7 @@ export default function BolsaMovimientos({
   if (movimientos === null) {
     return (
       <FlitCard>
-        <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando los movimientos…</p>
+        <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Cargando los movimientos…</p>
       </FlitCard>
     );
   }
@@ -230,13 +231,13 @@ export default function BolsaMovimientos({
   return (
     <FlitCard>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+        <h3 className="text-sm font-bold" style={{ color: 'var(--color-action)' }}>
           Movimientos · {todosLosPeriodos ? 'todos los periodos' : etiquetaPeriodo(periodo)}
         </h3>
-        <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+        <GradientButton variant="secondary" type="button"
           disabled={filtrados.length === 0} onClick={exportar}>
           Exportar CSV ({filtrados.length})
-        </button>
+        </GradientButton>
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -264,9 +265,9 @@ export default function BolsaMovimientos({
           opciones={Object.entries(ORIGEN).map(([v, o]) => ({ value: v, label: o.label }))}
           onCambio={(v) => cambiarFiltros((f) => ({ ...f, origenes: v }))} />
         {hayFiltro && (
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={limpiar}>
+          <GradientButton variant="secondary" type="button" onClick={limpiar}>
             Limpiar filtros
-          </button>
+          </GradientButton>
         )}
       </div>
 
@@ -279,9 +280,9 @@ export default function BolsaMovimientos({
       ) : filtrados.length === 0 ? (
         <FlitEmpty>
           <p>Ningún movimiento cumple los filtros aplicados.</p>
-          <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={limpiar}>
+          <GradientButton variant="secondary" type="button" className="mt-3" onClick={limpiar}>
             Limpiar filtros
-          </button>
+          </GradientButton>
         </FlitEmpty>
       ) : (
         // Con nombre: en esta pantalla conviven tres tablas —los dos desgloses del extracto y el
@@ -311,7 +312,7 @@ export default function BolsaMovimientos({
                   <td id={`mov-${m.id}`} tabIndex={-1} className="flit-focus px-4 py-2 align-top text-sm">{companiaNombre}</td>
                   <td className="px-4 py-2 align-top text-sm whitespace-nowrap">
                     <div>{fechaDia(m.fecha)}</div>
-                    <div className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+                    <div className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
                       {fechaHora(m.createdAt)}
                     </div>
                   </td>
@@ -336,17 +337,17 @@ export default function BolsaMovimientos({
                       reversion={revertidoPor.get(m.id)} noEncontrado={noEncontrado === m.id}
                       onIr={(id) => irA(id, m.id)} />
                     {m.observacion && (
-                      <div className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{m.observacion}</div>
+                      <div className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>{m.observacion}</div>
                     )}
                   </td>
                   <td className="px-4 py-2 align-top">
                     <StatusChip tone={ORIGEN[m.origen].tono}>{ORIGEN[m.origen].label}</StatusChip>
                     {m.revierteMovimientoId && (
-                      <div className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Reversión</div>
+                      <div className="mt-1 text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>Reversión</div>
                     )}
                   </td>
                   <td className="px-4 py-2 align-top text-right text-sm font-semibold tabular-nums whitespace-nowrap"
-                    style={{ color: entrada ? 'var(--flit-success)' : 'var(--flit-warning)' }}>
+                    style={{ color: entrada ? 'var(--kit-verde)' : 'var(--kit-naranja)' }}>
                     {pesosConSigno(m.valor, entrada)}
                   </td>
                   <td className="px-4 py-2 align-top text-right text-sm tabular-nums">{pesos(m.saldoResultante)}</td>
@@ -354,14 +355,14 @@ export default function BolsaMovimientos({
                   <td className="px-4 py-2 align-top text-center">
                     {m.soporteId ? (
                       <button type="button" className="text-xs font-semibold underline"
-                        style={{ color: 'var(--flit-blue)' }}
+                        style={{ color: 'var(--kit-azul)' }}
                         aria-label={`Abrir el soporte del movimiento del ${fechaDia(m.fecha)}`}
                         onClick={() => abrirSoporteBolsa(m.soporteId!)}>
                         Ver soporte
                       </button>
                     ) : (
                       // Decirlo, no ofrecer un enlace roto (AC4).
-                      <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Sin soporte</span>
+                      <span className="text-xs italic" style={{ color: 'var(--color-text-tertiary)' }}>Sin soporte</span>
                     )}
                   </td>
                 </FlitTr>
@@ -370,15 +371,15 @@ export default function BolsaMovimientos({
           </tbody>
           <tfoot>
             <FlitTr>
-              <td className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+              <td className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
                 Totales de lo filtrado ({filtrados.length} de {lista.length})
               </td>
               <td colSpan={5} />
               <td className="px-4 py-2 text-right text-sm font-bold tabular-nums whitespace-nowrap">
-                <div style={{ color: 'var(--flit-success)' }}>{pesosConSigno(totales.entradas, true)}</div>
-                <div style={{ color: 'var(--flit-warning)' }}>{pesosConSigno(totales.salidas, false)}</div>
+                <div style={{ color: 'var(--kit-verde)' }}>{pesosConSigno(totales.entradas, true)}</div>
+                <div style={{ color: 'var(--kit-naranja)' }}>{pesosConSigno(totales.salidas, false)}</div>
               </td>
-              <td className="px-4 py-2 text-right text-sm font-bold tabular-nums" style={{ color: 'var(--flit-blue-text)' }}>
+              <td className="px-4 py-2 text-right text-sm font-bold tabular-nums" style={{ color: 'var(--color-action)' }}>
                 {pesos(totales.entradas - totales.salidas)}
               </td>
               <td colSpan={2} />
@@ -391,7 +392,7 @@ export default function BolsaMovimientos({
   );
 }
 
-const ENLACE = 'flit-focus rounded-sm text-[11px] underline transition-colors hover:text-[color:var(--flit-blue-ink)]';
+const ENLACE = 'flit-focus rounded-sm text-[11px] underline transition-colors hover:text-[color:var(--color-action)]';
 
 /**
  * Enlaces de reversión de una fila (AC4).
@@ -412,22 +413,22 @@ function EnlacesReversion({ m, original, reversion, noEncontrado, onIr }: {
   return (
     <div className="mt-0.5 flex flex-col items-start gap-0.5">
       {m.revierteMovimientoId && (
-        <button type="button" className={ENLACE} style={{ color: 'var(--flit-blue-text)' }}
+        <button type="button" className={ENLACE} style={{ color: 'var(--color-action)' }}
           onClick={() => onIr(m.revierteMovimientoId!)}>
           {original ? `Revierte el movimiento del ${fechaDia(original.fecha)}` : 'Revierte otro movimiento: ver el original'}
         </button>
       )}
       {reversion && (
-        <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <span className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
           Revertido el {fechaDia(reversion.fecha)} ·{' '}
-          <button type="button" className={ENLACE} style={{ color: 'var(--flit-blue-text)' }}
+          <button type="button" className={ENLACE} style={{ color: 'var(--color-action)' }}
             onClick={() => onIr(reversion.id)}>
             ver la reversión
           </button>
         </span>
       )}
       {noEncontrado && (
-        <span role="status" className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <span role="status" className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
           No encontramos el movimiento original.
         </span>
       )}

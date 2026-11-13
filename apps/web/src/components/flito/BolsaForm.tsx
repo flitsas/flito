@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Info } from 'lucide-react';
+import { Icono } from '../flit/kit/Icono';
 import {
   CONCEPTO_BOLSA_LABEL, CONCEPTO_BOLSA_TRANSITO_LABEL, CONCEPTOS_BOLSA_COMPANIA, CONCEPTOS_BOLSA_TRANSITO,
   CodigoErrorBolsa,
@@ -35,13 +35,14 @@ import { toastOk } from '../flit/ToastFlito';
 import StatusChip from '../flit/StatusChip';
 import { opcionesConEstado } from '../flit/opcionesConEstado';
 import { flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
 
 type ConceptoCompania = (typeof CONCEPTOS_BOLSA_COMPANIA)[number];
 
 /** Bolsa existente de una compañía, para el aviso AC3. */
 interface BolsaExistente { bolsaId: string; activa: boolean }
 
-const ENLACE = 'flit-focus rounded-sm font-semibold underline transition-colors hover:text-[color:var(--flit-blue-ink)]';
+const ENLACE = 'flit-focus rounded-sm font-semibold underline transition-colors hover:text-[color:var(--color-action)]';
 
 interface Props {
   /** `undefined` = alta. Con bolsa = edición (de compañía: sus conceptos; de tránsito: nombre y cobertura). */
@@ -77,8 +78,8 @@ export default function BolsaForm({ bolsa, companiaInicial = null, onClose, onGu
       {edicion && bolsa.alcance === 'transito' ? (
         <RamaTransito bolsa={bolsa} onClose={onClose} onGuardada={onGuardada}
           cabecera={(
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-              <span className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Alcance</span>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+              <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>Alcance</span>
               {' '}Tránsito
             </p>
           )} />
@@ -86,8 +87,8 @@ export default function BolsaForm({ bolsa, companiaInicial = null, onClose, onGu
         <RamaCompania bolsa={bolsa} companiaInicial={null} user={user} onClose={onClose}
           onGuardada={onGuardada} onVerBolsa={onVerBolsa}
           cabecera={(
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-              <span className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Alcance</span>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+              <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>Alcance</span>
               {' '}Compañía · {bolsa.nombre}
             </p>
           )} />
@@ -126,15 +127,15 @@ function BloqueAlcance({ alcance, onCambio, puedeCompania, puedeTransito }: {
   // Con una sola opción, un radio no pregunta nada: se dice como texto fijo.
   if (!(puedeCompania && puedeTransito)) {
     return (
-      <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-        <span className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Alcance</span>
+      <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+        <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>Alcance</span>
         {' '}{puedeTransito && !puedeCompania ? 'Bolsa de tránsito' : 'Bolsa de compañía'}
       </p>
     );
   }
   return (
     <fieldset>
-      <legend className="mb-2 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <legend className="mb-2 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         ¿De quién es la bolsa?
       </legend>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -142,16 +143,16 @@ function BloqueAlcance({ alcance, onCambio, puedeCompania, puedeTransito }: {
           const activa = alcance === o.valor;
           return (
             <label key={o.valor}
-              className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-[var(--flit-bg-hover)] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[color:var(--flit-blue-text)]"
+              className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-[var(--kit-hover)] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[color:var(--color-action)]"
               style={{
-                borderColor: activa ? 'var(--flit-blue-text)' : 'var(--flit-border-soft)',
-                background: activa ? 'var(--flit-bg-app)' : undefined,
+                borderColor: activa ? 'var(--color-action)' : 'var(--color-border)',
+                background: activa ? 'var(--color-surface)' : undefined,
               }}>
               <input type="radio" name="alcance-bolsa" value={o.valor} checked={activa}
                 className="mt-1" onChange={() => onCambio(o.valor)} />
               <span>
-                <span className="block text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{o.titulo}</span>
-                <span className="block text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{o.texto}</span>
+                <span className="block text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{o.titulo}</span>
+                <span className="block text-xs" style={{ color: 'var(--color-text-secondary)' }}>{o.texto}</span>
               </span>
             </label>
           );
@@ -293,22 +294,22 @@ function RamaCompania({ bolsa, companiaInicial, user, cabecera, onClose, onGuard
 
       {!edicion && (
         <div>
-          <label htmlFor={idCompania} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <label htmlFor={idCompania} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Compañía *
           </label>
           {estadoLista === 'error' ? (
-            <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+            <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
               <span>No pudimos cargar las compañías.</span>
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+              <GradientButton variant="secondary" type="button"
                 onClick={() => setReintentoLista((n) => n + 1)}>
                 Reintentar
-              </button>
+              </GradientButton>
             </div>
           ) : estadoLista === 'lista' && clientes.length === 0 ? (
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               No hay compañías registradas. Créala primero en{' '}
               {verClientes
-                ? <Link to="/clients" className={ENLACE} style={{ color: 'var(--flit-blue-text)' }}>Clientes y proveedores</Link>
+                ? <Link to="/clients" className={ENLACE} style={{ color: 'var(--color-action)' }}>Clientes y proveedores</Link>
                 : 'Clientes y proveedores'}.
             </p>
           ) : (
@@ -335,10 +336,10 @@ function RamaCompania({ bolsa, companiaInicial, user, cabecera, onClose, onGuard
       {existente && (
         <div role="alert" data-testid="aviso-bolsa-existente"
           className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-          style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>
-          <Info size={16} aria-hidden="true" />
+          style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}>
+          <Icono nombre="exclamacion" size={16} />
           <span>{existente.activa ? 'Esta compañía ya tiene bolsa.' : 'Esta compañía ya tiene bolsa (inactiva).'}</span>
-          <button type="button" className={ENLACE} style={{ color: 'var(--flit-blue-text)' }}
+          <button type="button" className={ENLACE} style={{ color: 'var(--color-action)' }}
             onClick={() => onVerBolsa(existente.bolsaId)}>
             Ver su bolsa
           </button>
@@ -346,18 +347,18 @@ function RamaCompania({ bolsa, companiaInicial, user, cabecera, onClose, onGuard
       )}
 
       <fieldset aria-describedby={tocado && conceptos.size === 0 ? idErrorConceptos : undefined}>
-        <legend className="mb-2 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <legend className="mb-2 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           ¿Qué conceptos descuenta? *
         </legend>
         {auto.tipo === 'cargando' && (
-          <p role="status" className="mb-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p role="status" className="mb-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             Consultando la autogestión de la compañía…
           </p>
         )}
         {auto.tipo === 'error' && (
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             <span>No pudimos consultar la autogestión de esta compañía.</span>
-            <button type="button" className={ENLACE} style={{ color: 'var(--flit-blue-text)' }}
+            <button type="button" className={ENLACE} style={{ color: 'var(--color-action)' }}
               onClick={() => setReintentoAuto((n) => n + 1)}>
               Reintentar
             </button>
@@ -366,7 +367,7 @@ function RamaCompania({ bolsa, companiaInicial, user, cabecera, onClose, onGuard
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {CONCEPTOS_BOLSA_COMPANIA.map((c) => (
             <label key={c}
-              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--flit-bg-hover)]">
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--kit-hover)]">
               <input type="checkbox" className="flit-focus" checked={conceptos.has(c)} onChange={() => alternar(c)} />
               <span>{CONCEPTO_BOLSA_LABEL[c]}</span>
               {autogestionados.includes(c) && <StatusChip tone="neutral">Autogestionado</StatusChip>}
@@ -374,7 +375,7 @@ function RamaCompania({ bolsa, companiaInicial, user, cabecera, onClose, onGuard
           ))}
         </div>
         {tocado && conceptos.size === 0 && (
-          <p id={idErrorConceptos} className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>
+          <p id={idErrorConceptos} className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>
             Marca al menos un concepto.
           </p>
         )}
@@ -382,13 +383,13 @@ function RamaCompania({ bolsa, companiaInicial, user, cabecera, onClose, onGuard
 
       {aviso && <AvisoAutogestion texto={aviso} verClientes={verClientes} />}
 
-      {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>}
+      {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
 
       <Pie>
-        <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
-        <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={!puedeGuardar}>
+        <GradientButton variant="alerta" type="button" onClick={onClose}>Cancelar</GradientButton>
+        <GradientButton type="submit" disabled={!puedeGuardar}>
           {edicion ? (enviando ? 'Guardando…' : 'Guardar cambios') : (enviando ? 'Creando…' : 'Crear bolsa')}
-        </button>
+        </GradientButton>
       </Pie>
     </form>
   );
@@ -399,12 +400,12 @@ export function AvisoAutogestion({ texto, verClientes }: { texto: string; verCli
   return (
     <div role="note" data-testid="aviso-autogestion"
       className="flex items-start gap-2 rounded-lg border px-3 py-2 text-sm"
-      style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>
-      <Info size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}>
+      <Icono nombre="exclamacion" size={16} className="mt-0.5 shrink-0" />
       <p className="min-w-0">
         {texto}{' '}
         {verClientes ? (
-          <Link to="/clients" className={ENLACE} style={{ color: 'var(--flit-blue-text)' }}>
+          <Link to="/clients" className={ENLACE} style={{ color: 'var(--color-action)' }}>
             Cambiarlo en Clientes y proveedores
           </Link>
         ) : (
@@ -572,7 +573,7 @@ function RamaTransito({ bolsa, cabecera, onClose, onGuardada }: {
       {cabecera}
 
       <div>
-        <label htmlFor={idNombre} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <label htmlFor={idNombre} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Nombre *
         </label>
         <input id={idNombre} type="text" className={flitInp} value={nombre} maxLength={120}
@@ -581,32 +582,32 @@ function RamaTransito({ bolsa, cabecera, onClose, onGuardada }: {
           onChange={(e) => { setNombre(e.target.value); setNombreEnUso(false); }}
           onBlur={() => setTocado((t) => ({ ...t, nombre: true }))} />
         {errNombre && (
-          <p id={idErrNombre} className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errNombre}</p>
+          <p id={idErrNombre} className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{errNombre}</p>
         )}
       </div>
 
       <fieldset aria-describedby={errCobros ? idErrCobros : undefined}>
-        <legend className="mb-2 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <legend className="mb-2 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           ¿Qué cobros descuenta? *
         </legend>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {CONCEPTOS_BOLSA_TRANSITO.map((c) => (
             <label key={c}
-              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--flit-bg-hover)]">
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--kit-hover)]">
               <input type="checkbox" className="flit-focus" checked={conceptos.has(c)} onChange={() => alternarCobro(c)} />
               <span>{CONCEPTO_BOLSA_TRANSITO_LABEL[c as ConceptoBolsaTransito]}</span>
             </label>
           ))}
         </div>
         {errCobros && (
-          <p id={idErrCobros} className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>Marca al menos un cobro.</p>
+          <p id={idErrCobros} className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>Marca al menos un cobro.</p>
         )}
       </fieldset>
 
       <fieldset aria-describedby={errSecretarias ? idErrSecretarias : undefined}>
-        <legend className="mb-2 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <legend className="mb-2 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Secretarías a las que aplica *{' '}
-          <span className="font-normal" style={{ color: 'var(--flit-text-secondary)' }}>
+          <span className="font-normal" style={{ color: 'var(--color-text-secondary)' }}>
             ({organismos.length} seleccionada{organismos.length === 1 ? '' : 's'})
           </span>
         </legend>
@@ -614,26 +615,26 @@ function RamaTransito({ bolsa, cabecera, onClose, onGuardada }: {
         <input id={idBusqueda} type="search" className={`${flitInp} mb-2`} value={busqueda}
           placeholder="Buscar secretaría…" disabled={estadoCat !== 'lista' || catalogo.length === 0}
           onChange={(e) => setBusqueda(e.target.value)} />
-        <div className="max-h-56 overflow-y-auto rounded-lg border p-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <div className="max-h-56 overflow-y-auto rounded-lg border p-2" style={{ borderColor: 'var(--color-border)' }}>
           {estadoCat === 'cargando' && (
-            <p role="status" className="p-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cargando secretarías…</p>
+            <p role="status" className="p-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Cargando secretarías…</p>
           )}
           {estadoCat === 'error' && (
-            <div role="alert" className="flex flex-wrap items-center gap-3 p-2 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+            <div role="alert" className="flex flex-wrap items-center gap-3 p-2 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
               <span>No pudimos cargar las secretarías.</span>
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+              <GradientButton variant="secondary" type="button"
                 onClick={() => setReintentoCat((n) => n + 1)}>
                 Reintentar
-              </button>
+              </GradientButton>
             </div>
           )}
           {estadoCat === 'lista' && catalogo.length === 0 && (
-            <p className="p-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="p-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               No hay secretarías configuradas. Configúralas en Tránsito.
             </p>
           )}
           {estadoCat === 'lista' && catalogo.length > 0 && visibles.length === 0 && (
-            <p className="p-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="p-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               Ninguna secretaría coincide con «{busqueda.trim()}».
             </p>
           )}
@@ -644,14 +645,14 @@ function RamaTransito({ bolsa, cabecera, onClose, onGuardada }: {
                 const idChoque = `choque-${o.codigo}`;
                 return (
                   <li key={o.codigo} data-testid={`secretaria-${o.codigo}`}>
-                    <label className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--flit-bg-hover)]">
+                    <label className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--kit-hover)]">
                       <input type="checkbox" className="flit-focus" checked={organismos.includes(o.codigo)}
                         aria-describedby={choques.length > 0 ? idChoque : undefined}
                         onChange={() => alternarSecretaria(o.codigo)} />
                       <span className="min-w-0 truncate" title={etiquetaSecretaria(o)}>{etiquetaSecretaria(o)}</span>
                     </label>
                     {choques.length > 0 && (
-                      <p id={idChoque} className="pb-1 pl-8 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>
+                      <p id={idChoque} className="pb-1 pl-8 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>
                         {choques.map((p) => `Ya la cubre «${p.bolsaNombre}» para ${cobroTransito(p.concepto)}.`).join(' ')}
                       </p>
                     )}
@@ -662,7 +663,7 @@ function RamaTransito({ bolsa, cabecera, onClose, onGuardada }: {
           )}
         </div>
         {errSecretarias && (
-          <p id={idErrSecretarias} className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>
+          <p id={idErrSecretarias} className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>
             Elige al menos una secretaría.
           </p>
         )}
@@ -670,7 +671,7 @@ function RamaTransito({ bolsa, cabecera, onClose, onGuardada }: {
 
       {vigentes.length > 0 && (
         <div role="alert" data-testid="aviso-cobertura-ocupada" className="rounded-lg border px-3 py-2 text-sm"
-          style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)', color: 'var(--flit-danger-ink)' }}>
+          style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--kit-rojo-texto)' }}>
           <p>
             Estas secretarías ya las cubre otra bolsa activa para el mismo cobro. Quítalas o desmarca ese cobro para guardar:
           </p>
@@ -686,13 +687,13 @@ function RamaTransito({ bolsa, cabecera, onClose, onGuardada }: {
 
       {avisoAuto && <AvisoAutogestionTransito texto={avisoAuto} />}
 
-      {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>}
+      {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
 
       <Pie>
-        <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
-        <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={!puedeGuardar}>
+        <GradientButton variant="alerta" type="button" onClick={onClose}>Cancelar</GradientButton>
+        <GradientButton type="submit" disabled={!puedeGuardar}>
           {edicion ? (enviando ? 'Guardando…' : 'Guardar cambios') : (enviando ? 'Creando…' : 'Crear bolsa')}
-        </button>
+        </GradientButton>
       </Pie>
     </form>
   );
@@ -703,8 +704,8 @@ export function AvisoAutogestionTransito({ texto }: { texto: string }) {
   return (
     <div role="note" data-testid="aviso-autogestion-transito"
       className="flex items-start gap-2 rounded-lg border px-3 py-2 text-sm"
-      style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>
-      <Info size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}>
+      <Icono nombre="exclamacion" size={16} className="mt-0.5 shrink-0" />
       <p className="min-w-0">{texto}</p>
     </div>
   );
