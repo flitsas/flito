@@ -4,6 +4,9 @@ import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
+import FlitWizardSidebar from '../components/flit/FlitWizardSidebar';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { PildoraTramite } from '../components/flit/Bloques';
 
 interface Vehicle { id: number; plate: string | null; alias: string | null; tipoVehiculo: string | null; }
 interface User { id: number; name: string; esConductor: boolean; }
@@ -34,8 +37,8 @@ interface Form {
   remesaIds: number[];
 }
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const inputCls = 'control w-full';
+const PASOS = ['Vehículo y conductor', 'Origen y destino', 'Remesas', 'Pago y revisión'];
 
 const initial = (): Form => ({
   vehiculoPrincipalId: null, vehiculoRemolqueId: null, conductorId: null, tenedorId: null,
@@ -116,19 +119,21 @@ export default function RndcManifiestoWizard() {
       <PageHeaderCard
         title="Nuevo manifiesto electrónico"
         subtitle="RNDC · Wizard 4 pasos · Borrador se guarda al finalizar"
+        icono="flito-rndc"
+        miga={[{ etiqueta: 'Cumplimiento' }, { etiqueta: 'RNDC', to: '/rndc' }, { etiqueta: 'Manifiestos', to: '/rndc/manifiestos' }]}
       />
 
-      <Steps current={step} />
+      <FlitWizardSidebar steps={PASOS} current={step} />
 
-      <div className="bg-white p-6" style={CARD}>
+      <div className="card p-6">
         {step === 1 && <Step1 form={form} setForm={setForm} vehicles={vehicles} conductores={conductores} tenedores={tenedores} />}
         {step === 2 && <Step2 form={form} setForm={setForm} municipios={municipios} />}
         {step === 3 && <Step3 form={form} setForm={setForm} remesas={remesasActivas} fleteTotal={fleteTotal} />}
         {step === 4 && <Step4 form={form} setForm={setForm} fleteTotal={fleteTotal} />}
 
-        <div className="mt-5 flex justify-between gap-2 border-t pt-5" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <div className="mt-5 flex flex-wrap justify-between gap-2 border-t border-[color:var(--color-border)] pt-5">
           {step > 1 ? (
-            <button onClick={() => setStep(step - 1)} className="flit-focus inline-flex h-11 items-center gap-2 rounded-[999px] border bg-white px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>← Anterior</button>
+            <GradientButton type="button" variant="secondary" onClick={() => setStep(step - 1)}>← Anterior</GradientButton>
           ) : <span />}
           {step < 4 ? (
             <GradientButton type="button" onClick={next}>Siguiente →</GradientButton>
@@ -139,28 +144,6 @@ export default function RndcManifiestoWizard() {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Steps({ current }: { current: number }) {
-  const labels = ['Vehículo y conductor', 'Origen y destino', 'Remesas', 'Pago y revisión'];
-  return (
-    <div className="flex gap-2">
-      {labels.map((l, i) => {
-        const n = i + 1;
-        const active = n === current; const done = n < current;
-        const style = active
-          ? { background: 'var(--flit-blue)', color: '#fff' }
-          : done
-            ? { background: 'rgba(112,207,58,0.14)', color: 'var(--flit-success)' }
-            : { background: 'var(--flit-bg-app)', color: 'var(--flit-text-muted)' };
-        return (
-          <div key={l} className="flex-1 rounded-[12px] px-3 py-2.5 text-xs" style={style}>
-            <span className="font-semibold">{n}.</span> {l}
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -202,7 +185,7 @@ function Step2({ form, setForm, municipios }: Step2Props) {
         <Select value={form.municipioDestinoDane} onChange={(v) => setForm({ ...form, municipioDestinoDane: v ? String(v) : '' })}
           options={municipios.map((m) => [m.codigoDane, `${m.nombre} (${m.departamentoNombre})`])} placeholder="Selecciona destino..." />
       </Field>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Fecha de expedición">
           <input type="date" value={form.fechaExpedicion} onChange={(e) => setForm({ ...form, fechaExpedicion: e.target.value })} className={inputCls} />
         </Field>
@@ -223,45 +206,41 @@ function Step3({ form, setForm, remesas, fleteTotal }: Step3Props) {
   };
   return (
     <div>
-      <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>Remesas activas sin manifiesto. Selecciona las que viajan en este despacho.</p>
-      <div className="overflow-hidden rounded-[12px]" style={{ border: '1px solid var(--flit-border-soft)' }}>
-        <table className="w-full text-sm">
-          <thead><tr>
-            <ThW10></ThW10>
-            <Th>Remesa</Th><Th>Ruta</Th><Th className="text-right">Cantidad</Th><Th className="text-right">Flete</Th>
-          </tr></thead>
-          <tbody>
-            {remesas.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-xs" style={{ color: 'var(--flit-text-muted)' }}>No hay remesas activas sin asignar</td></tr>}
-            {remesas.map((r) => (
-              <tr key={r.id} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                <td className="px-3 py-2.5"><input type="checkbox" checked={form.remesaIds.includes(r.id)} onChange={() => toggle(r.id)} style={{ accentColor: 'var(--flit-blue)' }} /></td>
-                <td className="px-3 py-2.5 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{r.numero}</td>
-                <td className="px-3 py-2.5 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.municipioOrigenDane} → {r.municipioDestinoDane}</td>
-                <td className="px-3 py-2.5 text-right text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{Number(r.cantidadCargada).toLocaleString('es-CO')}</td>
-                <td className="px-3 py-2.5 text-right text-xs font-medium" style={{ color: 'var(--flit-text-primary)' }}>$ {Number(r.valorFlete).toLocaleString('es-CO')}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot style={{ background: 'rgba(79,116,201,0.10)' }}>
-            <tr>
-              <td colSpan={4} className="px-3 py-2.5 text-right text-xs font-semibold" style={{ color: 'var(--flit-blue)' }}>Flete total seleccionado:</td>
-              <td className="px-3 py-2.5 text-right text-xs font-semibold" style={{ color: 'var(--flit-blue)' }}>$ {fleteTotal.toLocaleString('es-CO')}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      <p className="mb-3 text-xs text-[color:var(--color-text-tertiary)]">Remesas activas sin manifiesto. Selecciona las que viajan en este despacho.</p>
+      <DataTable
+        ariaLabel="Remesas activas sin manifiesto"
+        columnas={columnasRemesas(form.remesaIds, toggle)}
+        filas={remesas}
+        getKey={(r) => String(r.id)}
+        emptyMessage="No hay remesas activas sin asignar"
+      />
+      <p className="barra-accion mt-3 justify-end text-xs font-semibold">
+        <span className="text-[color:var(--color-action)]">Flete total seleccionado:</span>
+        <span className="text-[color:var(--color-action)]">$ {fleteTotal.toLocaleString('es-CO')}</span>
+      </p>
     </div>
   );
+}
+
+function columnasRemesas(sel: number[], toggle: (id: number) => void): ColumnaTabla<RemesaActiva>[] {
+  return [
+    { key: 'sel', header: '', render: (r) => (
+      <input type="checkbox" checked={sel.includes(r.id)} onChange={() => toggle(r.id)} aria-label={r.numero} className="h-4 w-4 accent-[var(--kit-azul)]" />
+    ) },
+    { key: 'remesa', header: 'Remesa', render: (r) => <span className="text-xs font-semibold text-[color:var(--color-text-primary)]">{r.numero}</span> },
+    { key: 'ruta', header: 'Ruta', render: (r) => <span className="text-xs text-[color:var(--color-text-secondary)]">{r.municipioOrigenDane} → {r.municipioDestinoDane}</span> },
+    { key: 'cantidad', header: 'Cantidad', align: 'right', render: (r) => <span className="text-xs text-[color:var(--color-text-secondary)]">{Number(r.cantidadCargada).toLocaleString('es-CO')}</span> },
+    { key: 'flete', header: 'Flete', align: 'right', render: (r) => <span className="text-xs font-medium text-[color:var(--color-text-primary)]">$ {Number(r.valorFlete).toLocaleString('es-CO')}</span> },
+  ];
 }
 
 interface Step4Props { form: Form; setForm: (f: Form) => void; fleteTotal: number; }
 function Step4({ form, setForm, fleteTotal }: Step4Props) {
   return (
     <div className="space-y-4">
-      <div className="rounded-[12px] p-4" style={{ background: 'rgba(79,116,201,0.10)' }}>
-        <p className="text-xs font-semibold" style={{ color: 'var(--flit-blue)' }}>Resumen</p>
-        <p className="mt-1 text-sm" style={{ color: 'var(--flit-blue)' }}>Flete total: <span className="font-semibold">$ {fleteTotal.toLocaleString('es-CO')}</span></p>
-        <p className="mt-0.5 text-xs opacity-80" style={{ color: 'var(--flit-blue)' }}>{form.remesaIds.length} remesas asignadas</p>
+      <div className="flex flex-col gap-2">
+        <p className="text-xs font-semibold text-[color:var(--color-action)]">Resumen</p>
+        <PildoraTramite datos={[{ etiqueta: 'Flete total:', valor: `$ ${fleteTotal.toLocaleString('es-CO')}` }]} estado={`${form.remesaIds.length} remesas asignadas`} />
       </div>
 
       <Field label="Titular de pago — tipo">
@@ -273,13 +252,13 @@ function Step4({ form, setForm, fleteTotal }: Step4Props) {
         </select>
       </Field>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Documento titular"><input value={form.titularPagoDoc} onChange={(e) => setForm({ ...form, titularPagoDoc: e.target.value })} className={inputCls} /></Field>
         <Field label="Nombre titular"><input value={form.titularPagoNombre} onChange={(e) => setForm({ ...form, titularPagoNombre: e.target.value })} className={inputCls} /></Field>
         <Field label="Cuenta bancaria"><input value={form.titularPagoCuenta} onChange={(e) => setForm({ ...form, titularPagoCuenta: e.target.value })} className={inputCls} /></Field>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Field label="Anticipo"><input type="number" value={form.valorAnticipo} onChange={(e) => setForm({ ...form, valorAnticipo: Number(e.target.value) })} className={inputCls} /></Field>
         <Field label="Retención fuente"><input type="number" value={form.retencionFuente} onChange={(e) => setForm({ ...form, retencionFuente: Number(e.target.value) })} className={inputCls} /></Field>
         <Field label="Retención ICA"><input type="number" value={form.retencionIca} onChange={(e) => setForm({ ...form, retencionIca: Number(e.target.value) })} className={inputCls} /></Field>
@@ -293,14 +272,7 @@ function Step4({ form, setForm, fleteTotal }: Step4Props) {
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <div><label className="mb-1.5 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{label}</label>{children}</div>;
-}
-
-function Th({ children, className = '' }: { children?: ReactNode; className?: string }) {
-  return <th scope="col" className={`px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide ${className}`} style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
-function ThW10({ children }: { children?: ReactNode }) {
-  return <th className="w-10 px-3 py-3" style={{ background: 'var(--flit-bg-table-header)' }}>{children}</th>;
+  return <label className="campo"><span className="etiqueta">{label}</span>{children}</label>;
 }
 
 type SelectVal = string | number | null;
