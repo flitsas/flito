@@ -57,9 +57,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  ArrowLeft, Car, CircleCheck, FileText, Loader2, RotateCw, Search, UserRound,
-} from 'lucide-react';
+import { Icono } from '../components/flit/kit/Icono';
+import { Girador } from '../components/flit/Cargador';
 import { toastOk } from '../components/flit/ToastFlito';
 import {
   CodigoErrorSolicitudSoat, PROCEDENCIA_POR_DEFECTO, ProcedenciaDato, TipoSoat,
@@ -79,9 +78,7 @@ import {
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip from '../components/flit/StatusChip';
-import {
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../components/flit/flitPageKit';
+import GradientButton, { claseBoton } from '../components/flit/GradientButton';
 import { ModalIncompletaExistente, ModalVinEnCola } from '../components/flito/soat-cliente/ModalesBloqueo';
 import TarjetaSolicitudGuardada from '../components/flito/soat-cliente/TarjetaSolicitudGuardada';
 import TarjetaSoatActivo from '../components/flito/soat-cliente/TarjetaSoatActivo';
@@ -932,18 +929,18 @@ function Alta() {
   // «Volver a consultar» baja a secundaria también cuando, con el RUNT caído, el formulario ya está
   // completo: la primaria pasa a «Guardar pendiente de validar» (UX §1, un solo relevo).
   const consultaResuelta = consulta.fase === 'ok' || consulta.fase === 'vigente' || (modoCaido && !bloqueado);
-  const IconoConsulta = cargando ? Loader2 : consulta.fase === 'inicial' ? Search : RotateCw;
+  const glifoConsulta = consulta.fase === 'inicial' ? 'buscar' as const : 'reintento' as const;
 
   const mostrarFormulario = tipo !== null && !bloqueoFlito;
   const botonConsultar = (
     <button
       type="button" ref={consultarRef}
-      className={`${consultaResuelta ? flitBtnSecondary : flitBtnPrimary} w-full justify-center sm:w-auto`}
-      style={consultaResuelta ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
+      data-variante={consultaResuelta ? 'secundario' : 'primario'}
+      className={claseBoton(consultaResuelta ? 'secondary' : 'primary', 'md', 'w-full justify-center sm:w-auto')}
       disabled={cargando}
       onClick={() => { void consultar(); }}
     >
-      <IconoConsulta size={16} aria-hidden="true" className={`shrink-0 ${cargando ? 'animate-spin motion-reduce:animate-none' : ''}`} />
+      {cargando ? <Girador className="shrink-0" /> : <Icono nombre={glifoConsulta} size={16} className="shrink-0" />}
       {ROTULO_CONSULTA[consulta.fase]}
     </button>
   );
@@ -953,9 +950,8 @@ function Alta() {
     <div className="space-y-4">
       <div>
         <button type="button" onClick={salir}
-          className="flit-focus -mx-1 mb-2 inline-flex items-center gap-1.5 rounded px-1 text-sm font-semibold underline transition-colors hover:bg-[var(--flit-bg-hover)]"
-          style={{ color: 'var(--flit-blue-text)' }}>
-          <ArrowLeft size={16} aria-hidden="true" className="shrink-0" />
+          className="flit-focus -mx-1 mb-2 inline-flex items-center gap-1.5 rounded-[9px] px-1 text-sm font-semibold text-[color:var(--color-action)] underline transition-colors hover:bg-[var(--kit-hover)]">
+          <Icono nombre="izquierda" size={16} className="shrink-0" />
           Volver a mis SOAT
         </button>
         <PageHeaderCard
@@ -963,6 +959,7 @@ function Alta() {
           title="Solicitud de SOAT"
           // Una frase (HU #12819): «entra en gestión» vive solo en la barra de envío. Cambia con el tipo (#14019).
           subtitle={subtituloSolicitud(tipo)}
+          icono="flito-soat"
         />
       </div>
 
@@ -981,9 +978,9 @@ function Alta() {
           propietario, sin tipo de documento (HU #14019, AC2). */}
       <Seccion
         titulo="1 · Vehículo"
-        icono={<Car size={18} aria-hidden="true" className="shrink-0" />}
+        icono={<Icono nombre="carro" size={18} className="shrink-0" />}
         chip={consulta.fase === 'ok' && !bloqueoFlito
-          ? <StatusChip tone="success" icono={<CircleCheck size={14} aria-hidden="true" />}>Consultado</StatusChip>
+          ? <StatusChip tone="success">Consultado</StatusChip>
           : undefined}
       >
         {renovacion ? (
@@ -1020,7 +1017,7 @@ function Alta() {
         {cargando && (
           <>
             <EsqueletoFicha />
-            <p role="status" className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p role="status" className="mt-2 text-xs text-[color:var(--color-text-secondary)]">
               La consulta puede tardar hasta un minuto. No cierre esta página.
             </p>
           </>
@@ -1033,7 +1030,7 @@ function Alta() {
         {/* `role="status"` y no `alert`: no es un fallo, es la consecuencia de lo que el usuario
             acaba de hacer. */}
         {consulta.fase === 'invalidada' && (
-          <p role="status" className="mt-3 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <p role="status" className="mt-3 text-xs font-semibold text-[color:var(--color-text-primary)]">
             {renovacion ? 'Cambió la placa o el documento: vuelva a consultar el RUNT antes de enviar.' : 'Cambió el VIN: vuelva a consultar el RUNT antes de enviar.'}
           </p>
         )}
@@ -1072,11 +1069,11 @@ function Alta() {
           lectura dice de sí misma en qué punto está. En Renovación es opcional (HU #14019). */}
       <Seccion
         titulo={renovacion ? '2 · Factura de venta (opcional)' : '2 · Factura de venta'}
-        icono={<FileText size={18} aria-hidden="true" className="shrink-0" />} chip={chipLectura(lectura)}
+        icono={<Icono nombre="documento" size={18} className="shrink-0" />} chip={chipLectura(lectura)}
       >
         <div className="space-y-3">
           {renovacion && (
-            <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-xs text-[color:var(--color-text-secondary)]">
               Si la adjunta, FLITO lee el propietario y lo llena. Si no, escríbalo.
             </p>
           )}
@@ -1099,7 +1096,7 @@ function Alta() {
       </Seccion>
 
       {/* ── Bloque 3 · Propietario ──────────────────────────────────────────────────────────── */}
-      <Seccion titulo="3 · Propietario" icono={<UserRound size={18} aria-hidden="true" className="shrink-0" />}>
+      <Seccion titulo="3 · Propietario" icono={<Icono nombre="persona" size={18} className="shrink-0" />}>
         <BloquePropietario
           valor={propietario} onCambio={cambiarPropietario} errores={errores}
           onBlur={(campo) => validarCampo(campo, propietario[campo])}
@@ -1143,14 +1140,14 @@ function Alta() {
       )}
 
       {confirmarSalida && (
-        <FlitModal title="¿Descartar la solicitud?" onClose={() => setConfirmarSalida(false)}>
+        <FlitModal title="¿Descartar la solicitud?" icono="alerta" onClose={() => setConfirmarSalida(false)}>
           <div className="space-y-3 text-sm">
             <p>Lo que escribió no se guarda: no hay borradores.</p>
             <div className="flex flex-wrap justify-end gap-2">
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                onClick={() => setConfirmarSalida(false)}>Seguir llenando</button>
-              <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-                onClick={() => navigate(COLA)}>Descartar</button>
+              <GradientButton type="button" variant="secondary"
+                onClick={() => setConfirmarSalida(false)}>Seguir llenando</GradientButton>
+              <GradientButton type="button" variant="alerta"
+                onClick={() => navigate(COLA)}>Descartar</GradientButton>
             </div>
           </div>
         </FlitModal>

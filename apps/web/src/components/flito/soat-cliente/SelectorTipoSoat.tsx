@@ -8,10 +8,11 @@
 // este componente: lo hace la página sin preguntar.
 
 import { useRef, useState } from 'react';
-import { ClipboardList } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import { TipoSoat } from '@operaciones/shared-types';
 import FlitModal from '../../flit/FlitModal';
-import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import { claseBoton } from '../../flit/GradientButton';
 import {
   ANUNCIO_TIPO, TEXTO_CAMBIAR_TIPO, TITULO_CAMBIAR_TIPO,
 } from '../../../lib/mensajesTipoSoat';
@@ -54,7 +55,7 @@ export default function SelectorTipoSoat({ valor, hayDatos, onCambiar, error }: 
 
   return (
     <>
-      <Seccion titulo="Tipo de SOAT" icono={<ClipboardList size={18} aria-hidden="true" className="shrink-0" />}>
+      <Seccion titulo="Tipo de SOAT" icono={<Icono nombre="portapapeles" size={18} className="shrink-0" />}>
         <div role="radiogroup" aria-label="Tipo de SOAT" aria-describedby={error ? 'sol-tipo-error' : undefined} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {OPCIONES.map((o) => {
             const marcada = valor === o.tipo;
@@ -64,10 +65,10 @@ export default function SelectorTipoSoat({ valor, hayDatos, onCambiar, error }: 
               // El `<label>` se estira (`after:inset-0`) para que toda la tarjeta sea objetivo táctil.
               <div
                 key={o.tipo}
-                className="relative flex min-h-[44px] items-start gap-3 rounded-[10px] p-4 transition-colors hover:bg-[var(--flit-bg-hover)] has-[:focus-visible]:shadow-[0_0_0_3px_var(--flit-border-focus)]"
+                className="relative flex min-h-[44px] items-start gap-3 rounded-[9px] p-4 transition-colors hover:bg-[var(--kit-hover)] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--kit-azul)]"
                 style={{
-                  border: marcada ? '2px solid var(--flit-blue-text)' : '1px solid var(--flit-border-soft)',
-                  background: marcada ? 'var(--flit-bg-app)' : undefined,
+                  border: marcada ? '2px solid var(--color-action)' : '1px solid var(--color-border)',
+                  background: marcada ? 'var(--color-surface)' : undefined,
                   padding: marcada ? 'calc(1rem - 1px)' : undefined,
                 }}
               >
@@ -75,31 +76,31 @@ export default function SelectorTipoSoat({ valor, hayDatos, onCambiar, error }: 
                   ref={(el) => { radios.current[o.tipo] = el; }}
                   id={`tipo-soat-${o.tipo}`} type="radio" name="tipo-soat" value={o.tipo} checked={marcada}
                   aria-describedby={idDesc} onChange={() => elegir(o.tipo)}
-                  className="relative z-10 mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[var(--flit-blue-text)] outline-none"
+                  className="relative z-10 mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[var(--color-action)] outline-none"
                 />
                 <div className="min-w-0 space-y-1">
                   <label
                     htmlFor={`tipo-soat-${o.tipo}`}
                     className="block cursor-pointer text-sm font-semibold after:absolute after:inset-0 after:content-['']"
-                    style={{ color: 'var(--flit-text-primary)' }}
+                    style={{ color: 'var(--color-text-primary)' }}
                   >
                     {o.titulo}
                   </label>
-                  <p id={idDesc} className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{o.texto}</p>
+                  <p id={idDesc} className="text-xs text-[color:var(--color-text-secondary)]">{o.texto}</p>
                 </div>
               </div>
             );
           })}
         </div>
         {error && (
-          <p id="sol-tipo-error" role="alert" className="mt-2 text-xs font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>
+          <p id="sol-tipo-error" role="alert" className="mt-2 text-xs font-semibold text-[color:var(--kit-rojo-texto)]">{error}</p>
         )}
         <p aria-live="polite" className="sr-only">{anuncio}</p>
       </Seccion>
 
       {pendiente && (
         <FlitModal
-          title={TITULO_CAMBIAR_TIPO} onClose={() => setPendiente(null)}
+          title={TITULO_CAMBIAR_TIPO} icono="alerta" onClose={() => setPendiente(null)}
           restoreFocusRef={{ current: valor ? radios.current[valor] ?? null : null }}
         >
           <div className="space-y-3 text-sm">
@@ -107,7 +108,7 @@ export default function SelectorTipoSoat({ valor, hayDatos, onCambiar, error }: 
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               <button type="button" className={`${flitBtnSecondary} justify-center`} style={flitBtnSecondaryStyle}
                 onClick={() => setPendiente(null)}>Mantener</button>
-              <button type="button" className={`${flitBtnPrimary} justify-center`} style={flitBtnPrimaryStyle}
+              <button type="button" data-variante="alerta" className={claseBoton('alerta', 'md', 'justify-center')}
                 onClick={() => { const t = pendiente; setPendiente(null); aplicar(t); }}>Cambiar el tipo</button>
             </div>
           </div>
