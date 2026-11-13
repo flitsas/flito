@@ -30,6 +30,9 @@ import {
   HISTORIAL_ACTION_LABEL,
 } from './diagnostico-helpers';
 import ModalPortal from '../flit/ModalPortal';
+import { claseBoton } from '../flit/GradientButton';
+import { ActividadLinea } from '../flit/Bloques';
+import { etiquetaKit } from '../flit/kit/tonos';
 
 interface Item {
   estandarId: number;
@@ -201,34 +204,31 @@ export default function DiagnosticoEvaluacionDrawer({
       aria-labelledby="evaluacion-drawer-title"
       // z-50: por encima del shell FLIT (sidebar/topbar). Antes z-40 empataba
       // con la barra superior y el shell interceptaba el pointer (PESV-09).
-      className="flit-modal fixed inset-0 z-50 flex justify-end"
+      className="flit-modal kit-velo items-stretch justify-end"
       onKeyDown={handleKeyDown}
     >
       <div
         className="absolute inset-0"
-        style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }}
         onClick={tryClose}
         aria-hidden="true"
       />
 
       <div
         ref={drawerRef}
-        className="relative flex h-full w-full max-w-[480px] flex-col animate-in slide-in-from-right-4 duration-300 ease-out motion-reduce:animate-none"
-        style={{ background: 'var(--flit-bg-modal)', borderLeft: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-modal)' }}
+        className="kit-modal kit-modal--lateral max-w-[min(30rem,100vw)] overflow-hidden"
       >
         {/* Header sticky */}
-        <header className="sticky top-0 z-10 flex items-start justify-between gap-3 p-5" style={{ borderBottom: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-modal)' }}>
+        <header className="kit-modal__cabeza border-b border-[color:var(--color-border)]">
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex items-center gap-2">
-              <span className="inline-flex items-center rounded-[999px] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ background: 'rgba(79,116,201,0.14)', color: 'var(--flit-blue)' }}>
+              <span {...etiquetaKit('info')}>
                 Paso {item.paso} · {FASE_LABEL[item.fase]}
               </span>
-              <span className="font-mono text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{item.codigo}</span>
+              <span className="font-mono text-xs text-[color:var(--color-text-tertiary)]">{item.codigo}</span>
             </div>
             <h2
               id="evaluacion-drawer-title"
-              className="text-lg font-bold leading-snug tracking-tight"
-              style={{ color: 'var(--flit-text-primary)' }}
+              className="kit-modal__titulo text-lg leading-snug"
             >
               {item.nombre}
             </h2>
@@ -237,27 +237,25 @@ export default function DiagnosticoEvaluacionDrawer({
             type="button"
             onClick={tryClose}
             aria-label="Cerrar evaluación"
-            className="flit-focus inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border bg-white transition-colors hover:bg-[color:var(--flit-bg-app)]"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+            className="kit-modal__cerrar"
           >
-            <CloseIcon />
+            <CloseIcon className="h-5 w-5" />
           </button>
         </header>
 
         {/* Scroll body */}
-        <div className="flex-1 space-y-6 overflow-y-auto p-5">
+        <div className="kit-modal__cuerpo min-h-0 flex-1 space-y-6 overflow-y-auto">
           {/* Qué dice la norma */}
           <section aria-labelledby="seccion-norma">
-            <h3 id="seccion-norma" className="mb-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>
+            <h3 id="seccion-norma" className="mb-2 text-xs font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">
               Qué dice la norma
             </h3>
-            <div className="rounded-[12px] p-3 text-sm leading-relaxed" style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>
-              {item.descripcion || <span className="italic" style={{ color: 'var(--flit-text-muted)' }}>Sin descripción registrada en catálogo.</span>}
+            <div className="rounded-[9px] border border-[color:var(--color-border)] bg-[color:var(--kit-hover)] p-3 text-sm leading-relaxed text-[color:var(--color-text-secondary)]">
+              {item.descripcion || <span className="italic text-[color:var(--color-text-tertiary)]">Sin descripción registrada en catálogo.</span>}
             </div>
             <a
               href="/pesv/normativa"
-              className="flit-focus mt-2 inline-flex items-center gap-1 rounded text-[11px] font-medium"
-              style={{ color: 'var(--flit-blue)' }}
+              className="mt-2 inline-flex items-center gap-1 rounded text-xs font-medium text-[color:var(--color-action)] transition-colors hover:underline"
             >
               Ver Res. 40595/2022 · {item.codigo}
               <ExternalLinkIcon />
@@ -272,7 +270,7 @@ export default function DiagnosticoEvaluacionDrawer({
               disabled={disabled || saving}
               legend="Nivel de cumplimiento"
             />
-            <p className="mt-2 text-[11px] leading-relaxed" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="mt-2 text-xs leading-relaxed text-[color:var(--color-text-tertiary)]">
               Selecciona el nivel basado en evidencia objetiva, no en intención de implementar.
             </p>
             {/* Anchor focus inicial al primer radio del fieldset adyacente */}
@@ -289,7 +287,7 @@ export default function DiagnosticoEvaluacionDrawer({
 
           {/* Evidencias */}
           <section aria-labelledby="seccion-evidencias">
-            <h3 id="seccion-evidencias" className="mb-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>
+            <h3 id="seccion-evidencias" className="mb-2 text-xs font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">
               Evidencia documental
             </h3>
             <EvidenciaUploader
@@ -304,7 +302,7 @@ export default function DiagnosticoEvaluacionDrawer({
 
           {/* Comentarios */}
           <section aria-labelledby="seccion-comentarios">
-            <label htmlFor="comentarios" className="mb-2 block text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>
+            <label htmlFor="comentarios" className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">
               Comentarios
             </label>
             <textarea
@@ -315,16 +313,15 @@ export default function DiagnosticoEvaluacionDrawer({
               value={comentarios}
               onChange={(e) => setComentarios(e.target.value)}
               placeholder="Notas, vigencia, responsable, observación auditor…"
-              className="flit-focus w-full rounded-[10px] border bg-white px-4 py-2.5 text-sm outline-none transition-shadow disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+              className="control w-full disabled:cursor-not-allowed"
             />
             <div className="mt-1 flex items-center justify-between">
               {enDesarrolloSinComentario ? (
-                <span className="text-[11px]" style={{ color: 'var(--flit-warning)' }}>
+                <span className="text-xs text-[color:var(--kit-naranja-texto)]">
                   Nivel En desarrollo requiere comentario justificativo (mínimo 10 caracteres).
                 </span>
               ) : <span />}
-              <span className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>
+              <span className="text-xs tabular-nums text-[color:var(--color-text-tertiary)]">
                 {comentarios.length} / 2000
               </span>
             </div>
@@ -332,40 +329,42 @@ export default function DiagnosticoEvaluacionDrawer({
 
           {/* Historial */}
           <section aria-labelledby="seccion-historial">
-            <h3 id="seccion-historial" className="mb-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>
+            <h3 id="seccion-historial" className="mb-2 text-xs font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">
               Historial de cambios
             </h3>
             {loadingHistorial ? (
-              <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>
+              <p className="text-xs text-[color:var(--color-text-tertiary)]">Cargando…</p>
             ) : historial.length === 0 ? (
-              <p className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Sin movimientos registrados.</p>
+              <p className="text-xs italic text-[color:var(--color-text-tertiary)]">Sin movimientos registrados.</p>
             ) : (
-              <ol className="max-h-40 space-y-1.5 overflow-y-auto">
-                {historial.map((h, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[11px] leading-relaxed">
-                    <span className="w-20 flex-shrink-0 tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>
-                      {formatRelativeTime(h.createdAt)}
-                    </span>
-                    <span className="flex-1" style={{ color: 'var(--flit-text-secondary)' }}>
-                      <span className="font-medium" style={{ color: 'var(--flit-text-primary)' }}>{HISTORIAL_ACTION_LABEL[h.action] || h.action}</span>
-                      {h.detail && <span> · {h.detail}</span>}
-                    </span>
-                  </li>
-                ))}
-              </ol>
+              <div className="max-h-40 overflow-y-auto">
+                <ActividadLinea
+                  eventos={historial.map((h, i) => ({
+                    id: String(i),
+                    cuando: formatRelativeTime(h.createdAt),
+                    fechaIso: h.createdAt,
+                    texto: (
+                      <span className="text-[color:var(--color-text-secondary)]">
+                        <span className="font-medium text-[color:var(--color-text-primary)]">{HISTORIAL_ACTION_LABEL[h.action] || h.action}</span>
+                        {h.detail && <span> · {h.detail}</span>}
+                      </span>
+                    ),
+                  }))}
+                />
+              </div>
             )}
           </section>
         </div>
 
-        <footer className="sticky bottom-0 z-10 flex items-center justify-between gap-3 p-4" style={{ borderTop: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-modal)' }}>
-          <div className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }} role="status" aria-live="polite">
+        <footer className="flex flex-none flex-wrap items-center justify-between gap-3 border-t border-[color:var(--color-border)] bg-[color:var(--color-surface-elevated)] px-6 py-4">
+          <div className="text-xs text-[color:var(--color-text-tertiary)]" role="status" aria-live="polite">
             {savedAt ? `Guardado ${formatRelativeTime(savedAt)}` : ''}
           </div>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={tryClose} className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-white px-3.5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={tryClose} data-variante="secundario" className={claseBoton('secondary', 'sm')}>
               Cancelar
             </button>
-            <button type="button" onClick={handleSave} disabled={disabled || saving || !dirty} className="flit-focus inline-flex h-9 items-center gap-2 rounded-[999px] px-4 text-sm font-semibold text-white transition-transform motion-safe:active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50" style={{ background: 'var(--flit-gradient-primary)', boxShadow: 'var(--flit-shadow-button)' }}>
+            <button type="button" onClick={handleSave} disabled={disabled || saving || !dirty} data-variante="primario" className={claseBoton('primary', 'sm', 'inline-flex items-center gap-2')}>
               {saving && <SpinnerIcon />}
               {saving ? 'Guardando…' : 'Guardar cambios'}
             </button>
@@ -384,19 +383,19 @@ export default function DiagnosticoEvaluacionDrawer({
 function ConflictDialog({ onClose, onReload }: { onClose: () => void; onReload: () => void }) {
   return (
     <div role="alertdialog" aria-modal="true" aria-labelledby="conflict-title" className="absolute inset-0 z-50 flex items-center justify-center p-6">
-      <div className="absolute inset-0" style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }} />
-      <div className="relative w-full max-w-md p-6" style={{ background: 'var(--flit-bg-modal)', borderRadius: 'var(--flit-radius-xl)', boxShadow: 'var(--flit-shadow-modal)', border: '1px solid var(--flit-border-soft)' }}>
-        <h3 id="conflict-title" className="mb-2 text-base font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+      <div className="kit-velo absolute" />
+      <div className="kit-modal max-w-md p-6">
+        <h3 id="conflict-title" className="kit-modal__titulo mb-2 text-base">
           Cambios detectados desde otra sesión
         </h3>
-        <p className="mb-5 text-sm leading-relaxed" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="mb-5 text-sm leading-relaxed text-[color:var(--color-text-secondary)]">
           Otro usuario modificó este estándar mientras lo editabas. Recarga para ver los cambios actuales y vuelve a aplicar tu edición.
         </p>
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-white px-3.5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onClose} data-variante="secundario" className={claseBoton('secondary', 'sm')}>
             Cerrar
           </button>
-          <button type="button" onClick={onReload} className="flit-focus inline-flex h-9 items-center rounded-[999px] px-4 text-sm font-semibold text-white" style={{ background: 'var(--flit-gradient-primary)', boxShadow: 'var(--flit-shadow-button)' }}>
+          <button type="button" onClick={onReload} data-variante="primario" className={claseBoton('primary', 'sm')}>
             Recargar
           </button>
         </div>
