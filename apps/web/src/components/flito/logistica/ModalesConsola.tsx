@@ -6,19 +6,20 @@ import { ESTADO_LOGISTICA_SIMPLE_LABEL, simplificarEstadoLogistica } from '@oper
 import { useAuth } from '../../../lib/auth';
 import FlitModal from '../../flit/FlitModal';
 import StatusChip from '../../flit/StatusChip';
+import { ETIQUETA_PUNTO_CLS, etiquetaKit } from '../../flit/kit/tonos';
 import { FlitField, FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../../flit/flitPageKit';
 import LineaTiempoDetalle from './LineaTiempoDetalle';
 import ViajesLogistica from './ViajesLogistica';
 import { TONO_ACTA, TONO_SIMPLE, fecha, type ActaDetalle, type TramiteDetalle } from './consolaLogistica';
 import { rotuloEvento } from './rotuloEvento';
 
-const MUTED = { color: 'var(--flit-text-muted)' } as const;
+const MUTED = { color: 'var(--color-text-tertiary)' } as const;
 
 export function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: () => void }) {
   const { hasFuncion, tipoEnlace } = useAuth();
   const esProveedor = tipoEnlace === 'proveedor';
   return (
-    <FlitModal title={`Licencia · ${doc.placa ?? doc.vin ?? ''}`} onClose={onClose} wide>
+    <FlitModal title={`Licencia · ${doc.placa ?? doc.vin ?? ''}`} onClose={onClose} wide icono="documento">
       <div className="mb-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
         <div><span className="text-xs" style={MUTED}>Trámite FLIT</span><div>{doc.idFlit}</div></div>
         <div><span className="text-xs" style={MUTED}>Empresa</span><div>{doc.companiaNombre ?? doc.companiaNit ?? '—'}</div></div>
@@ -38,15 +39,13 @@ export function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: (
   );
 }
 
-const PILL_OK = { background: 'rgba(112,207,58,0.14)', color: 'var(--flit-success-text)' } as const;
-const PILL_NO = { background: 'rgba(89,103,125,0.14)', color: 'var(--flit-text-secondary)' } as const;
 
 export function ActaDetalleModal({ detalle, onClose, onPdf }: { detalle: ActaDetalle; onClose: () => void; onPdf?: () => void }) {
   const { tipoEnlace } = useAuth();
   const esProveedor = tipoEnlace === 'proveedor';
   const { acta, documentos, bitacora, firmaEntrega, firmaRecibe, entregaNombre } = detalle;
   return (
-    <FlitModal title={`Acta · ${acta.companiaNombre ?? ''}`} onClose={onClose} wide>
+    <FlitModal title={`Acta · ${acta.companiaNombre ?? ''}`} onClose={onClose} wide icono="portapapeles">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm">
           <StatusChip tone={TONO_ACTA[acta.estado] ?? 'neutral'}>{acta.estadoLabel}</StatusChip>
@@ -58,15 +57,17 @@ export function ActaDetalleModal({ detalle, onClose, onPdf }: { detalle: ActaDet
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2 text-xs">
-        <span className="rounded-full px-2 py-1" style={firmaEntrega ? PILL_OK : PILL_NO}>
+        <span {...etiquetaKit(firmaEntrega ? 'ok' : 'neutro')}>
+          <span aria-hidden="true" className={ETIQUETA_PUNTO_CLS} />
           {firmaEntrega ? `✓ Entrega${entregaNombre ? ` · ${entregaNombre}` : ''}` : 'Entrega sin firmar'}
         </span>
-        <span className="rounded-full px-2 py-1" style={firmaRecibe ? PILL_OK : PILL_NO}>
+        <span {...etiquetaKit(firmaRecibe ? 'ok' : 'neutro')}>
+          <span aria-hidden="true" className={ETIQUETA_PUNTO_CLS} />
           {firmaRecibe ? `✓ Recibe${acta.receptorNombre ? ` · ${acta.receptorNombre}` : ''}` : 'Recibe sin firmar'}
         </span>
       </div>
 
-      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Licencias</h3>
+      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>Licencias</h3>
       <div className="mb-4">
         <FlitTable label="Licencias del acta">
           <thead>
@@ -90,14 +91,14 @@ export function ActaDetalleModal({ detalle, onClose, onPdf }: { detalle: ActaDet
         </FlitTable>
       </div>
 
-      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Bitácora del despacho</h3>
+      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>Bitácora del despacho</h3>
       <ol className="space-y-2">
         {bitacora.map((e) => (
           <li key={e.id} className="text-sm">
             <span className="tabular-nums">{e.placa ?? '—'}</span>
             <span className="ml-1 font-medium">{rotuloEvento(e)}</span>
             <span style={MUTED}> · {fecha(e.creadoEn)} · {e.actorNombre ?? (!esProveedor && e.origen === 'api' ? 'sistema' : '—')}</span>
-            {e.motivo && <div className="text-xs" style={{ color: 'var(--flit-danger-text)' }}>{e.motivo}</div>}
+            {e.motivo && <div className="text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{e.motivo}</div>}
           </li>
         ))}
       </ol>
@@ -109,11 +110,11 @@ export function MotivoModal({ tipo, busy, error, onClose, onConfirmar }: { tipo:
   const [motivo, setMotivo] = useState('');
   const titulo = tipo === 'novedad' ? 'Reportar novedad' : 'Registrar devolución';
   return (
-    <FlitModal title={titulo} onClose={onClose}>
+    <FlitModal title={titulo} onClose={onClose} icono={tipo === 'novedad' ? 'alerta' : 'devolucion'}>
       <FlitField label="Motivo (obligatorio)">
         <textarea className={flitInp} rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={tipo === 'novedad' ? 'Dañada o inconsistente…' : 'Receptor ausente o rechazó…'} />
       </FlitField>
-      {error && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
+      {error && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
       <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
         <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle} disabled={busy || !motivo.trim()} onClick={() => onConfirmar(motivo.trim())}>Confirmar</button>

@@ -75,7 +75,7 @@ test.describe('FLITO — Viajes (HU #14116)', () => {
     });
 
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await page.getByRole('tab', { name: /^Viajes(?! adicionales)/ }).click();
     await page.getByRole('button', { name: 'Registrar viaje' }).first().click();
     await page.getByRole('button', { name: 'Confirmar viaje' }).click();
     await expect.poll(() => posts.length).toBe(1);
@@ -94,7 +94,7 @@ test.describe('FLITO — Viajes (HU #14116)', () => {
     await loginAs(page, OPERACIONES_USER);
     await mockConsola(page);
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await page.getByRole('tab', { name: /^Viajes(?! adicionales)/ }).click();
     await expect(page.getByText('Cliente $12.000 por LT')).toBeVisible();
     await expect(page.getByText('FLIT $8.000 por LT')).toBeVisible();
     await expect(page.getByText('Cliente $0 por LT')).toBeVisible();
@@ -111,7 +111,7 @@ test.describe('FLITO — Viajes (HU #14116)', () => {
     await loginAs(page, OPERACIONES_USER);
     await mockConsola(page);
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await page.getByRole('tab', { name: /^Viajes(?! adicionales)/ }).click();
     await expect(page.getByText('Cliente: falta el precio')).toBeVisible();
     await expect(page.getByText('FLIT: falta el precio')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Ir a Tarifas' })).toHaveAttribute('href', '/flito/tarifas/6');
@@ -123,7 +123,7 @@ test.describe('FLITO — Viajes (HU #14116)', () => {
     await loginAs(page, { ...OPERACIONES_USER, allowedPages: ['flito_logistica'] });
     await mockConsola(page);
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await page.getByRole('tab', { name: /^Viajes(?! adicionales)/ }).click();
     await expect(page.getByText('Pídale a Finanzas que fije el precio.')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Ir a Tarifas' })).toHaveCount(0);
   });
@@ -132,13 +132,13 @@ test.describe('FLITO — Viajes (HU #14116)', () => {
     await loginAs(page, OPERACIONES_USER);
     await mockConsola(page, VACIAS);
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes$/ }).click();
+    await page.getByRole('tab', { name: /^Viajes$/ }).click();
     await expect(page.getByText(/No hay LT listas para un viaje/)).toBeVisible();
 
     await page.route(/\/api\/flito\/logistica\/facetas/, (route) =>
       route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'boom' }) }));
     await page.reload();
-    await page.getByRole('button', { name: /^Viajes$/ }).click();
+    await page.getByRole('tab', { name: /^Viajes$/ }).click();
     await expect(page.getByRole('alert').getByText('No se pudieron cargar las LT listas para viaje.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible();
 
@@ -147,7 +147,7 @@ test.describe('FLITO — Viajes (HU #14116)', () => {
     await page.reload();
     // Épica #13758: un 403 con la página abierta quita la pestaña y deja un aviso persistente.
     await expect(page.getByText('Ya no tiene acceso a esta sección. Vuelva a iniciar sesión si cree que es un error.')).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Viajes$/ })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /^Viajes$/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
   });
 
@@ -155,7 +155,7 @@ test.describe('FLITO — Viajes (HU #14116)', () => {
     await loginAs(page, AUDITOR_USER);
     await mockConsola(page);
     await page.goto('/flito/logistica');
-    await expect(page.getByRole('button', { name: /^Viajes(?! adicionales)/ })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /^Viajes(?! adicionales)/ })).toHaveCount(0);
   });
 
   test('Actas vacío apunta a Viajes', async ({ page }) => {
@@ -164,7 +164,7 @@ test.describe('FLITO — Viajes (HU #14116)', () => {
     // HU #14353: un error ya no se ve como vacío; el vacío hay que pedirlo.
     await page.route(/\/api\/flito\/logistica\/actas$/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await expect(page.getByText(/Vaya a «Viajes» y registre el viaje/)).toBeVisible();
   });
 });
@@ -191,7 +191,7 @@ test.describe('FLITO — destino del viaje y llegada a FLIT (HU #14123)', () => 
     });
 
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await page.getByRole('tab', { name: /^Viajes(?! adicionales)/ }).click();
     await page.getByRole('button', { name: 'Registrar viaje' }).first().click();
     const modal = page.getByRole('dialog');
     await modal.getByRole('group', { name: 'Destino del viaje' }).getByRole('button', { name: 'FLIT' }).click();
@@ -235,7 +235,7 @@ test.describe('FLITO — destino del viaje y llegada a FLIT (HU #14123)', () => 
     });
 
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await page.getByRole('tab', { name: /^Viajes(?! adicionales)/ }).click();
     await page.getByRole('button', { name: 'Registrar viaje' }).first().click();
     const modal = page.getByRole('dialog');
     await modal.getByRole('group', { name: 'Destino de QOX858' }).getByRole('button', { name: 'FLIT' }).click();
@@ -278,7 +278,7 @@ test.describe('FLITO — destino del viaje y llegada a FLIT (HU #14123)', () => 
     });
 
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await page.getByRole('tab', { name: /^Viajes(?! adicionales)/ }).click();
     await page.getByRole('button', { name: 'Registrar viaje' }).first().click();
     const modal = page.getByRole('dialog');
     await modal.getByRole('group', { name: 'Destino de QOX858' }).getByRole('button', { name: 'FLIT' }).click();
@@ -307,7 +307,7 @@ test.describe('FLITO — destino del viaje y llegada a FLIT (HU #14123)', () => 
 
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await page.getByRole('tab', { name: /^Viajes(?! adicionales)/ }).click();
     await expect(page.getByRole('status', { name: 'Cargando viajes…' })).toBeVisible();
 
     soltarFacetas();
@@ -412,7 +412,7 @@ test.describe('FLITO — destino del viaje y llegada a FLIT (HU #14123)', () => 
       }));
 
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await expect(page.getByRole('button', { name: 'Firmar y despachar' })).toHaveCount(1);
     await expect(page.getByRole('button', { name: 'Firmar llegada' })).toHaveCount(1);
     await page.getByRole('button', { name: 'Firmar llegada' }).click();
@@ -428,7 +428,7 @@ test.describe('FLITO — destino del viaje y llegada a FLIT (HU #14123)', () => 
     await page.route(/\/api\/flito\/logistica\/actas$/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(actas) }));
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await expect(page.getByRole('button', { name: 'Firmar y despachar' })).toHaveCount(1);
     await expect(page.getByRole('button', { name: 'Firmar llegada' })).toHaveCount(0);
   });

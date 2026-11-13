@@ -101,7 +101,7 @@ async function mockMotivos(
 
 async function entrarAMotivos(page: import('@playwright/test').Page) {
   await page.goto('/flito/logistica');
-  await page.getByRole('button', { name: 'Motivos de llegada' }).click();
+  await page.getByRole('tab', { name: 'Motivos de llegada' }).click();
 }
 
 test.describe('FLITO — Logística · Motivos de llegada (HU #14120)', () => {
@@ -110,8 +110,8 @@ test.describe('FLITO — Logística · Motivos de llegada (HU #14120)', () => {
     await mockConsola(page);
     const st = await mockMotivos(page);
     await page.goto('/flito/logistica');
-    await expect(page.getByRole('button', { name: /Trámites/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Motivos de llegada' })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /Trámites/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Motivos de llegada' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Nuevo motivo' })).toHaveCount(0);
     expect(st.gets).toBe(0);
   });
@@ -121,11 +121,11 @@ test.describe('FLITO — Logística · Motivos de llegada (HU #14120)', () => {
     await mockConsola(page);
     const st = await mockMotivos(page);
     await page.goto('/flito/logistica');
-    await expect(page.getByRole('button', { name: /Trámites/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Trámites/ })).toBeVisible();
     expect(st.gets).toBe(0);
     const tabs = page.locator('div.flex.flex-wrap.gap-1.border-b button');
     await expect(tabs.last()).toHaveText('Motivos de llegada');
-    await page.getByRole('button', { name: 'Motivos de llegada' }).click();
+    await page.getByRole('tab', { name: 'Motivos de llegada' }).click();
     await expect.poll(() => st.gets).toBeGreaterThanOrEqual(1);
     expect(st.getUrls.every((u) => !u.includes('soloActivos'))).toBe(true);
     await expect(page.getByRole('heading', { name: 'Motivos de llegada' })).toBeVisible();

@@ -7,7 +7,8 @@
 // La placa vive solo en el estado y en el body: nunca en URL, localStorage ni consola.
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { iconoComo } from '../../flit/kit/iconoComo';
+const X = iconoComo('cerrar');
 import type { MotivoViajeLogistica } from '@operaciones/shared-types';
 import { api, ApiError } from '../../../lib/api';
 import {
@@ -25,9 +26,9 @@ import {
 } from '../../flit/flitPageKit';
 import ResumenViajesMasivo from './ResumenViajesMasivo';
 
-const MUTED = { color: 'var(--flit-text-muted)' } as const;
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
-const CHECK = { accentColor: 'var(--flit-blue-text)' } as const;
+const MUTED = { color: 'var(--color-text-tertiary)' } as const;
+const PELIGRO = { color: 'var(--kit-rojo-texto)' } as const;
+const CHECK = { accentColor: 'var(--color-action)' } as const;
 
 interface Fila { id: number; placa: string; valor: string; sel: boolean; aviso?: string }
 type Foco = 'lista' | 'primaria' | 'texto' | 'titulo';
@@ -188,7 +189,7 @@ export default function ViajesMasivo() {
       <FlitCard>
         <p className="mb-3 text-sm" style={MUTED}>Registra el mismo viaje adicional a varias LT, con el valor de cada una.</p>
         <div className="mb-1 flex items-baseline justify-between gap-3">
-          <label htmlFor={idTexto} className="text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Placas</label>
+          <label htmlFor={idTexto} className="text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>Placas</label>
           <span className="text-xs tabular-nums" style={llena ? PELIGRO : MUTED} aria-live="polite">{filas.length} / {MAX_PLACAS_MASIVO}</span>
         </div>
         <textarea id={idTexto} ref={textoRef} className={flitInp} rows={filas.length ? 2 : 5} value={texto} disabled={enviando}
@@ -229,7 +230,7 @@ export default function ViajesMasivo() {
 
             <div className="flex flex-wrap items-end gap-3">
               <div className="w-full sm:w-56">
-                <label htmlFor={idComun} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+                <label htmlFor={idComun} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                   Valor para todas (COP)
                 </label>
                 <input id={idComun} className={flitInp} inputMode="numeric" value={comun} disabled={enviando}
@@ -245,7 +246,7 @@ export default function ViajesMasivo() {
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2 text-xs font-semibold" style={{ borderColor: 'var(--flit-border-soft)' }}>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2 text-xs font-semibold" style={{ borderColor: 'var(--color-border)' }}>
               <label className="inline-flex items-center gap-2">
                 <input ref={todasRef} type="checkbox" className="flit-focus size-4" style={CHECK} disabled={enviando}
                   checked={filas.length > 0 && seleccionadas.length === filas.length}
@@ -263,8 +264,8 @@ export default function ViajesMasivo() {
                 const msg = f.aviso ?? err;
                 return (
                   <li key={f.id}
-                    className="flex flex-wrap items-start gap-x-3 gap-y-1 rounded-lg border p-3 transition-colors hover:bg-[var(--flit-bg-hover)] sm:border-0 sm:px-2 sm:py-1.5"
-                    style={{ borderColor: 'var(--flit-border-soft)' }}>
+                    className="flex flex-wrap items-start gap-x-3 gap-y-1 rounded-[9px] border p-3 transition-colors hover:bg-[var(--kit-hover)] sm:border-0 sm:px-2 sm:py-1.5"
+                    style={{ borderColor: 'var(--color-border)' }}>
                     <label className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium tabular-nums sm:h-10 sm:w-40 sm:flex-none">
                       <input type="checkbox" className="flit-focus size-4" style={CHECK} checked={f.sel} disabled={enviando}
                         data-nueva={f.id === nuevoId.current || undefined}
@@ -290,7 +291,7 @@ export default function ViajesMasivo() {
             </ul>
 
             {fallo && (
-              <div role="alert" className="rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--flit-danger-ink)', ...PELIGRO }}>
+              <div role="alert" className="rounded-[9px] border p-3 text-sm" style={{ borderColor: 'var(--kit-rojo-texto)', ...PELIGRO }}>
                 <p>{fallo.mensaje}</p>
                 {fallo.reintentable && (
                   <button type="button" className={`${flitBtnSecondary} mt-2`} style={flitBtnSecondaryStyle} onClick={() => void enviar()}>
