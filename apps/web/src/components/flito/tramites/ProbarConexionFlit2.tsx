@@ -146,7 +146,7 @@ export function BotonProbarConexion({ probando, onProbar }: { probando: boolean;
         type="button"
         className={`${flitBtnSecondary} w-full sm:w-auto`}
         style={flitBtnSecondaryStyle}
-        data-variante="secundario" data-variante="secundario"
+        data-variante="secundario"
         onClick={onProbar}
         disabled={probando}
         aria-busy={probando}

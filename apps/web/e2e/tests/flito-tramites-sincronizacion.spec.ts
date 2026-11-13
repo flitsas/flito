@@ -170,10 +170,8 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     await expect(grupo(page, 'flit2').getByTestId('linea-estado-flit2')).toBeVisible();
     await expect(grupo(page, 'flit2').getByTestId('conexion-flit2')).toBeVisible();
     // HU #13680: la sección se queda sin primaria (dos secundarios gemelos; «Guardar» vive en la modal).
-    const primarias = await seccion(page).locator('button').evaluateAll(
-      (bs) => bs.filter((b) => (b as HTMLElement).style.background.includes('gradient')).length,
-    );
-    expect(primarias).toBe(0);
+    // Kit 2026: la primaria se reconoce por data-variante="primario" (píldoras planas, sin degradado).
+    await expect(seccion(page).locator('button[data-variante="primario"]')).toHaveCount(0);
     // Lado a lado y con las barras alineadas (mismo borde inferior), una sola altura de control.
     const b1 = (await botonParams(page).boundingBox())!;
     const b2 = (await botonAcceso(page).boundingBox())!;
@@ -407,11 +405,11 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await expect.poll(borde).not.toBe(bordeReposo);
       await campo.focus();
       expect(await anillo(campo)).toBe(true);
-      // Los colores del carril salen de tokens (con par oscuro), nunca de HEX.
+      // Kit 2026: el interruptor se pinta con la clase del kit (glifos SVG con par oscuro), nunca con estilo/HEX en línea.
       await page.keyboard.press('Escape');
       await expect(modalParams(page)).toHaveCount(0);
-      const carril = await s.locator('span').first().getAttribute('style');
-      expect(carril).toContain('var(--flit-blue-text)');
+      await expect(s).toHaveClass(/\bkit-interruptor\b/);
+      expect(await s.getAttribute('style')).toBeNull();
     });
   }
 
