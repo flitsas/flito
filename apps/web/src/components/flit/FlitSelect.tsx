@@ -141,7 +141,7 @@ interface Props {
  * ya cumple contraste y es la que el usuario reconoce como «esto se despliega».
  */
 const CLASE_SELECT = `${flitInp} disabled:cursor-not-allowed `
-  + 'disabled:bg-[color:var(--flit-bg-table-header)] disabled:text-[color:var(--flit-text-secondary)]';
+  + 'appearance-none bg-[url(/kit/flecha-select.svg)] bg-[length:16px] bg-[right_14px_center] bg-no-repeat pr-10';
 
 export default function FlitSelect({
   label, value, opciones, onChange, ayuda, mensaje, fallo, disabled, onReintentar, textoReintento,
@@ -160,7 +160,7 @@ export default function FlitSelect({
   const etiqueta = (
     <label
       htmlFor={id}
-      className={`${accesorio ? '' : 'mb-1 '}block text-[11px] font-semibold`}
+      className={`${accesorio ? '' : 'mb-1.5 '}block text-[0.8125rem] font-semibold`}
       style={{ color: 'var(--flit-text-primary)' }}
     >
       {label}
