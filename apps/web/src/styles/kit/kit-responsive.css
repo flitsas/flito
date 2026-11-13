@@ -12,10 +12,29 @@
    La máscara solo usa el canal alfa: `black` aquí no es un color de superficie. */
 .kit-segmentado { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
 .kit-segmentado::-webkit-scrollbar { display: none; }
-.kit-pestanas { overscroll-behavior-x: contain; }
+/* `position: relative`: el `.sr-only` (absoluto) del contador de una pestaña escapaba del recorte del scroll y desbordaba la página (+7 px a 360 en Logística). */
+.kit-pestanas { overscroll-behavior-x: contain; position: relative; }
+.kit-segmentado { position: relative; }
 .kit-pestanas[data-desborda], .kit-segmentado[data-desborda] {
   -webkit-mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
   mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+}
+/* Caja de la tira (FlitPillGroup y FiltroSegmentado), <1024: la fila sin envolver aportaba su ancho ENTERO al
+   min-content de los ancestros (`flex-wrap`, `flex-col`, pistas `auto`), y el documento desbordaba aunque la tira
+   recortara dentro de su tarjeta: +406 px en Gastos diarios y +341 en Siigo Operación a 360. `contain: inline-size`
+   corta esa aportación; el ancho intrínseco declarado (14rem) evita que un padre ajustado al contenido la colapse a
+   cero. Ocupa la línea disponible (`flex: 1 1 14rem` en una barra flex; 100 % en bloque o columna) y la tira, dentro,
+   conserva su ancho natural con `max-width: 100%`. ≥1024 la caja de FlitPillGroup es `display: contents`: nada cambia
+   en escritorio (FiltroSegmentado ya es una caja flex propia y la conserva). */
+.kit-segmentado-caja { display: contents; }
+@media (max-width: 1023.98px) {
+  .kit-segmentado-caja {
+    display: flex; align-items: center; min-width: 0; max-width: 100%; width: 100%; flex: 1 1 14rem;
+    contain: inline-size; contain-intrinsic-inline-size: 14rem;
+  }
+  .kit-segmentado-caja > .kit-segmentado { max-width: 100%; min-width: 0; }
+  /* Pestañas (Pestanas.tsx): la misma aportación de min-content (Logística +7 px a 360). Bloque a lo ancho. */
+  .kit-pestanas { contain: inline-size; min-width: 0; }
 }
 /* ≥768 el filtro segmentado envuelve (md:flex-wrap): sin scroll propio no recorta el foco de sus chips. */
 @media (min-width: 768px) { .kit-segmentado.md\:flex-wrap { overflow: visible; } }
@@ -91,16 +110,29 @@
   .page-header .page-header__acciones > * > :is(button, a) { width: 100% !important; justify-content: center; }
 }
 
-/* ---------- V9 Objetivos táctiles (<1024): 44 px en controles del kit ----------
-   Los campos de la página suben a la misma altura, para que una barra siga teniendo una sola altura de control.
-   `!important` en el alto mínimo: los chips llevan `min-h-0` de utilidad. */
+/* ---------- V9 Objetivos táctiles (<1024): 44 px en TODO control interactivo ----------
+   Botones (incluidos `flitBtn*` con `h-10`/`h-8`, que por utilidad están en una capa superior: de ahí el
+   `!important`), enlaces con forma de control, chips, píldoras, pestañas, `summary`, paginación y acciones de fila.
+   Los campos de la misma barra suben igual (inputs y selects), así una barra sigue teniendo UNA sola altura de
+   control. `min-height` no afecta a un enlace en línea dentro de un párrafo (un `a` inline ignora el alto), así
+   que el texto corrido no cambia. Ámbito: el contenido (`.kit-main`) y los diálogos (`.kit-modal`, que se
+   montan fuera de él); el armazón (topbar, barra lateral, navegación) tiene sus propias medidas. */
 @media (max-width: 1023.98px) {
-  .kit-main :is(.btn, .chip, .kit-pestana, .filtro-activo),
-  .kit-main .kit-segmentado > button,
-  .kit-main .kit-paginacion :is(button, a),
-  .kit-main .tabla-wrap td.fila-abrir :is(a, button),
-  .kit-main :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]), select) {
+  :is(.kit-main, .kit-modal) :is(button, summary, [role="button"], [role="tab"], .btn, .chip, .kit-pestana, .filtro-activo),
+  :is(.kit-main, .kit-modal) a:is([class*="inline-flex"], [class*="rounded"], .btn, .chip),
+  :is(.kit-main, .kit-modal) .kit-segmentado > *,
+  :is(.kit-main, .kit-modal) .kit-paginacion :is(button, a),
+  :is(.kit-main, .kit-modal) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]), select) {
     min-height: 44px !important;
+  }
+  /* Botón de solo ícono (llevan `aria-label` porque no tienen texto): área de 44 × 44 aunque el ícono siga
+     pequeño. Un botón con texto y `aria-label` ya mide más de 44 de ancho: la regla no lo cambia. Fuera: los días
+     del calendario (siete por fila; el ancho lo reparte su rejilla) y los ítems de la tira segmentada. */
+  :is(.kit-main, .kit-modal) button[aria-label]:not(.kit-rango__dia),
+  :is(.kit-main, .kit-modal) a[aria-label]:is([class*="inline-flex"], [class*="rounded"]) { min-width: 44px; }
+  /* Acciones de fila (DataTable y FlitTable en tarjetas): el enlace en línea pasa a caja para que el alto cuente. */
+  :is(.kit-main, .kit-modal) :is(td.fila-abrir, td[data-celda-kit="acciones"]) :is(a, button) {
+    display: inline-flex; align-items: center; justify-content: center; min-height: 44px !important;
   }
   .kit-modal__cerrar { width: 44px; height: 44px; }
   .kit-main .kit-paginacion :is(button, a) { min-width: 44px; }
@@ -195,4 +227,14 @@
   .kit-plegable[data-modo-plegable="bloque"][data-abierto] > .kit-plegable__cuerpo { margin-top: var(--space-12); }
   .kit-plegable[data-modo-plegable="linea"] > .kit-plegable__cuerpo > label { flex: 1 1 100%; min-width: 0; }
   .kit-plegable[data-modo-plegable="linea"] > .kit-plegable__cuerpo > label > select { width: 100% !important; }
+}
+
+/* ---------- V14 Cabecera: acción-enlace con texto largo (Siigo Operación) ----------
+   `flitBtnSecondarySm` no envuelve (`whitespace-nowrap`, `h-8`): a 360 «¿Buscas una factura concreta? Ve al reporte
+   de costos» salía por los dos lados del botón a ancho completo. <768 el texto envuelve y la píldora crece en alto. */
+@media (max-width: 767.98px) {
+  .page-header .page-header__acciones a {
+    max-width: 100%; height: auto !important; white-space: normal !important; text-align: center;
+    padding-block: var(--space-8);
+  }
 }

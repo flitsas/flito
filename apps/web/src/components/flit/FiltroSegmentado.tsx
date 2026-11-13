@@ -29,7 +29,7 @@ const CHIP = 'chip chip--sm h-10 min-h-0 whitespace-nowrap transition-colors';
 export default function FiltroSegmentado<T extends string>({ opciones, valor, onCambio, ariaLabel, rotulo }: Props<T>) {
   const grupoRef = useDesbordeScroll<HTMLDivElement>();
   return (
-    <div className="flex min-w-0 flex-nowrap items-center gap-1">
+    <div className="kit-segmentado-caja flex min-w-0 flex-nowrap items-center gap-1">
       {rotulo && (
         <span className="mr-1 text-xs font-semibold text-[color:var(--color-text-tertiary)]" aria-hidden="true">
           {rotulo}

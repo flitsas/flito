@@ -321,16 +321,22 @@ export function FlitPillGroup(
   // óvalo deforme o cortaba la última pill; ahora es siempre una fila con scroll táctil propio y el
   // desvanecido de `.kit-segmentado` (kit-responsive.css) mientras quede algo oculto a la derecha.
   // `desplazable` se conserva en el tipo por compatibilidad: ya es el comportamiento de todos.
+  // `.kit-segmentado-caja` (kit-responsive.css): bajo 1024 acota el ANCHO INTRÍNSECO del grupo. Sin ella,
+  // la fila sin envolver aportaba su ancho entero al min-content de los ancestros (un `flex-wrap`, un
+  // `flex-col`, una pista `auto`) y el documento desbordaba aunque el grupo recortara (Gastos diarios
+  // +406 px a 360, Siigo Operación +341). ≥1024 es `display: contents`: el grupo queda como siempre.
   const grupoRef = useDesbordeScroll<HTMLDivElement>();
   return (
-    <div
-      ref={grupoRef}
-      className="kit-segmentado inline-flex w-fit max-w-full flex-nowrap gap-1 overflow-x-auto rounded-[999px] p-1"
-      style={flitPillWrap}
-      role={role}
-      aria-label={label}
-    >
-      {children}
+    <div className="kit-segmentado-caja">
+      <div
+        ref={grupoRef}
+        className="kit-segmentado inline-flex w-fit max-w-full flex-nowrap gap-1 overflow-x-auto rounded-[999px] p-1"
+        style={flitPillWrap}
+        role={role}
+        aria-label={label}
+      >
+        {children}
+      </div>
     </div>
   );
 }

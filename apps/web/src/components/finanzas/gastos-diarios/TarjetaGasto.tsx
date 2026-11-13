@@ -14,7 +14,7 @@ export default function TarjetaGasto({ categoria, celda }: { categoria: Categori
       {/* La pieza `.metrica` del kit (la de KpiCard), sin enlace: aquí la tarjeta solo informa. */}
       <div className="metrica h-full cursor-default" data-kit="metrica" aria-hidden="true">
         <span className="metrica__etiqueta">{categoria.titulo}</span>
-        <span className="metrica__cifra whitespace-nowrap text-2xl tabular-nums"
+        <span className="metrica__cifra whitespace-nowrap text-xl tabular-nums sm:text-2xl"
           style={vacia ? { color: 'var(--color-text-tertiary)' } : undefined}>
           {celda.cantidad} · <Monto v={Number(celda.valor)} />
         </span>
