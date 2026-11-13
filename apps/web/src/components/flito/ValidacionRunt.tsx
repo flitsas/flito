@@ -1,15 +1,14 @@
-// FLITO — Impuestos: validación factura de venta ↔ RUNT en la cola (HU #12830, Épica #12809).
+// FLITO — Impuestos: validación factura de venta ↔ RUNT en la cola (HU 12830, Épica 12809).
 // Vive fuera de `FlitoImpuestos.tsx` porque la página está al borde de `max-lines`
 // (docs/ux/impuestos-analisis-factura-runt.md, «Reparto de archivos»). La página solo monta lo de aquí.
 //
-// La HU #12830 trae la marca de la fila (`LineaValidacion`), el aviso tras el envío masivo
-// (`AvisoAnalisis`) y el preset «Con alertas». La HU #12831 trae el modal comparativo
+// La HU 12830 trae la marca de la fila (`LineaValidacion`), el aviso tras el envío masivo
+// (`AvisoAnalisis`) y el preset «Con alertas». La HU 12831 trae el modal comparativo
 // (`ModalValidacion`, abierto desde el icono de la fila) y la sección del detalle
 // (`SeccionValidacion`), que comparten `TablaFacturaRunt`. «Reintentar validación» es de la HU
-// #12832: `ReintentarValidacion`, que la página engancha en el hueco `accionReintento`.
+// 12832: `ReintentarValidacion`, que la página engancha en el hueco `accionReintento`.
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { CircleCheck, CircleHelp, CircleX, LoaderCircle, RotateCw, TriangleAlert, X } from 'lucide-react';
 import {
   ANALISIS_ESTADO_IMPUESTO_LABEL, CAMPO_COMPARACION_FACTURA_RUNT_LABEL, MOTIVO_SEMAFORO_ROJO_LABEL,
   SEMAFORO_IMPUESTO_LABEL,
@@ -17,12 +16,23 @@ import {
   type DireccionCompradorImpuesto, type EnvioComprobante, type EnvioComprobanteFlit2, type MotivoSemaforoRojo, type SemaforoImpuesto,
 } from '@operaciones/shared-types';
 import { ApiError, api } from '../../lib/api';
+import { Girador } from '../flit/Cargador';
 import FlitModal from '../flit/FlitModal';
+import GradientButton from '../flit/GradientButton';
+import { Icono } from '../flit/kit/Icono';
 import StatusChip from '../flit/StatusChip';
 import { toastOk } from '../flit/ToastFlito';
-import {
-  FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { FlitTable, FlitTh, FlitTr } from '../flit/flitPageKit';
+
+// Roles de texto del UI Kit 2026 (par oscuro en tokens.css). Un glifo del kit por resultado.
+const OK = 'var(--kit-verde-texto)';
+const WARN = 'var(--kit-naranja-texto)';
+const DANGER = 'var(--kit-rojo-texto)';
+const SECUNDARIO = 'var(--color-text-secondary)';
+const PRIMARIO = 'var(--color-text-primary)';
+const GLIFO_OK = 'check' as const;
+const GLIFO_WARN = 'alerta' as const;
+const GLIFO_ROJO = 'exclamacion' as const;
 
 /** Lo que la fila de la cola trae del análisis post-envío. `undefined` se trata como `null`. */
 export interface ValidacionFila {
@@ -56,24 +66,24 @@ function marcaDe(v: ValidacionFila): Marca | 'analizando' | null {
   if (estado === 'en_curso') return 'analizando';
   if (estado === 'error_analisis') {
     return {
-      clave: 'error_analisis', color: 'var(--flit-danger-text)', icono: <CircleX size={18} aria-hidden="true" />,
+      clave: 'error_analisis', color: DANGER, icono: <Icono nombre={GLIFO_ROJO} size={18} />,
       texto: 'Sin validar: la validación no terminó. Ver opciones',
     };
   }
   switch (v.semaforo ?? null) {
     case 'verde':
       return {
-        clave: 'verde', color: 'var(--flit-success-text)', icono: <CircleCheck size={18} aria-hidden="true" />,
+        clave: 'verde', color: OK, icono: <Icono nombre={GLIFO_OK} size={18} />,
         texto: `${SEMAFORO_IMPUESTO_LABEL.verde}. Ver comparación`,
       };
     case 'naranja':
       return {
-        clave: 'naranja', color: 'var(--flit-warning-text)', icono: <TriangleAlert size={18} aria-hidden="true" />,
+        clave: 'naranja', color: WARN, icono: <Icono nombre={GLIFO_WARN} size={18} />,
         texto: 'Con diferencias frente al RUNT. Ver comparación',
       };
     case 'rojo':
       return {
-        clave: 'rojo', color: 'var(--flit-danger-text)', icono: <CircleX size={18} aria-hidden="true" />,
+        clave: 'rojo', color: DANGER, icono: <Icono nombre={GLIFO_ROJO} size={18} />,
         texto: v.motivoSemaforo ? `Sin validar: ${MOTIVO_SEMAFORO_ROJO_LABEL[v.motivoSemaforo]}` : 'Sin validar. Ver comparación',
       };
     default:
@@ -92,7 +102,7 @@ export function LineaValidacion({ fila, onAbrir }: { fila: ValidacionFila; onAbr
     return (
       <span data-testid="validacion-analizando">
         <StatusChip tone="active"
-          icono={<LoaderCircle size={12} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />}>
+          icono={<Girador className="shrink-0" />}>
           {ANALISIS_ESTADO_IMPUESTO_LABEL.en_curso}
         </StatusChip>
       </span>
@@ -101,7 +111,7 @@ export function LineaValidacion({ fila, onAbrir }: { fila: ValidacionFila; onAbr
   return (
     <button type="button" aria-label={marca.texto} title={marca.texto} onClick={onAbrir}
       data-semaforo={marca.clave}
-      className="grid h-7 w-7 shrink-0 place-items-center rounded flit-focus transition-colors hover:bg-[var(--flit-bg-hover)]"
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-full flit-focus transition-colors hover:bg-[var(--kit-hover)]"
       style={{ color: marca.color }}>
       {marca.icono}
     </button>
@@ -135,34 +145,32 @@ export function AvisoAnalisis({ envio, onActualizar, onCerrar }: {
     + `${n} ${uno ? 'queda' : 'quedan'} en análisis contra el RUNT; el semáforo aparece en cada fila al terminar.`;
   return (
     <div role="status" data-testid="aviso-analisis"
-      className="flex flex-wrap items-center justify-between gap-3 bg-flit-card px-6 py-4"
-      style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
-      <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{texto}</p>
+      className="flex flex-wrap items-center justify-between gap-3 rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] px-6 py-4">
+      <p className="text-sm font-semibold" style={{ color: PRIMARIO }}>{texto}</p>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={onActualizar}>
+        <GradientButton type="button" variant="secondary" size="sm" onClick={onActualizar}>
           Actualizar la cola
-        </button>
+        </GradientButton>
         <button type="button" aria-label="Cerrar aviso" title="Cerrar aviso" onClick={onCerrar}
-          className="grid h-7 w-7 place-items-center rounded flit-focus transition-colors hover:bg-[var(--flit-bg-hover)]"
-          style={{ color: 'var(--flit-text-secondary)' }}>
-          <X size={16} aria-hidden="true" />
+          className="grid h-9 w-9 place-items-center rounded-full flit-focus text-[color:var(--color-text-secondary)] transition-colors hover:bg-[var(--kit-hover)] hover:text-[color:var(--color-action)]">
+          <Icono nombre="cerrar" size={16} />
         </button>
       </div>
     </div>
   );
 }
 
-// ─────────────────── HU #12831: modal comparativo y sección del detalle ───────────────────
+// ─────────────────── HU 12831: modal comparativo y sección del detalle ───────────────────
 
 /** Lo que el modal y la sección leen de `GET /flito/impuestos/:id`. */
 export interface DetalleValidacion extends ValidacionFila {
   comparacion: ComparacionFacturaRunt | null;
   direccionComprador: DireccionCompradorImpuesto | null;
-  /** HU #13270: estado del envío del comprobante a FLIT 2; `null` = el trámite no es de FLIT 2 o no hay envío. */
+  /** HU 13270: estado del envío del comprobante a FLIT 2; `null` = el trámite no es de FLIT 2 o no hay envío. */
   envioFlit2?: EnvioComprobanteFlit2 | null;
-  /** HU #13312: el envío del comprobante con su destino (FLIT 1 o FLIT 2); `null` = sin envío. La UI lee solo este. */
+  /** HU 13312: el envío del comprobante con su destino (FLIT 1 o FLIT 2); `null` = sin envío. La UI lee solo este. */
   envioComprobante?: EnvioComprobante | null;
-  /** Soportes no descartados del impuesto (HU #13270: decide si hay comprobante de pago que reemplazar). */
+  /** Soportes no descartados del impuesto (HU 13270: decide si hay comprobante de pago que reemplazar). */
   soportes?: Array<{ id: string; tipo: string }>;
 }
 
@@ -181,7 +189,7 @@ export function useDetalleValidacion(id: string, activo: boolean, version?: stri
   useEffect(() => {
     if (!activo) return;
     let vivo = true;
-    // HU #12827: si cambia `version` (el `analisisEstado` de la fila que parchea el sondeo) se vuelve
+    // HU 12827: si cambia `version` (el `analisisEstado` de la fila que parchea el sondeo) se vuelve
     // a pedir SIN pasar por «cargando»: lo ya pintado se queda hasta que llega lo nuevo.
     setCarga((c) => c.fase === 'listo' ? c : { fase: 'cargando' });
     api.get<DetalleValidacion>(`/flito/impuestos/${id}`)
@@ -231,14 +239,14 @@ export function resumenComparacion(campos: ComparacionCampoFacturaRunt[]): strin
 }
 
 const RESULTADO: Record<ComparacionCampoFacturaRunt['resultado'], { texto: string; color: string; icono: ReactNode }> = {
-  coincide: { texto: 'Coincide', color: 'var(--flit-success-text)', icono: <CircleCheck size={18} aria-hidden="true" /> },
-  difiere: { texto: 'No coincide', color: 'var(--flit-warning-text)', icono: <TriangleAlert size={18} aria-hidden="true" /> },
+  coincide: { texto: 'Coincide', color: OK, icono: <Icono nombre={GLIFO_OK} size={18} /> },
+  difiere: { texto: 'No coincide', color: WARN, icono: <Icono nombre={GLIFO_WARN} size={18} /> },
   // Neutro, no naranja: falta el dato de un lado; no es una diferencia (shared-types, `no_verificable`).
-  no_verificable: { texto: 'No se pudo verificar', color: 'var(--flit-text-secondary)', icono: <CircleHelp size={18} aria-hidden="true" /> },
+  no_verificable: { texto: 'No se pudo verificar', color: SECUNDARIO, icono: <Icono nombre="ayuda" size={18} /> },
 };
 
 const td = 'px-4 py-2 align-top text-sm';
-const SIN_DATO = <span style={{ color: 'var(--flit-text-secondary)' }}>Sin dato</span>;
+const SIN_DATO = <span style={{ color: SECUNDARIO }}>Sin dato</span>;
 
 function textoDireccion(d: DireccionCompradorImpuesto | null): string | null {
   if (!d?.direccion) return null;
@@ -268,7 +276,7 @@ export function TablaFacturaRunt({ campos, direccion }: {
               <td className={td}>
                 {c.valorFactura ?? SIN_DATO}
                 {c.nota === 'electrico' && (
-                  <span className="block text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Vehículo eléctrico</span>
+                  <span className="block text-xs" style={{ color: SECUNDARIO }}>Vehículo eléctrico</span>
                 )}
               </td>
               <td className={td}>{c.valorRunt ?? SIN_DATO}</td>
@@ -288,8 +296,8 @@ export function TablaFacturaRunt({ campos, direccion }: {
               <span className="mt-1 block"><StatusChip tone="warning">Sin confirmar</StatusChip></span>
             )}
           </td>
-          <td className={td} style={{ color: 'var(--flit-text-secondary)' }}>No aplica</td>
-          <td className={`${td} text-center`} style={{ color: 'var(--flit-text-secondary)' }}>
+          <td className={td} style={{ color: SECUNDARIO }}>No aplica</td>
+          <td className={`${td} text-center`} style={{ color: SECUNDARIO }}>
             <span aria-label="No se compara" role="img">—</span>
           </td>
         </FlitTr>
@@ -298,7 +306,7 @@ export function TablaFacturaRunt({ campos, direccion }: {
   );
 }
 
-const texto = (color = 'var(--flit-text-primary)') => ({ color });
+const texto = (color: string = PRIMARIO) => ({ color });
 
 /**
  * El cuerpo común de la validación según el estado. Lo pintan el modal y la sección; los 4 estados
@@ -310,13 +318,13 @@ function CuerpoValidacion({ datos, accionReintento, sinPermiso }: {
   const estado = datos.analisisEstado ?? null;
   const cmp = datos.comparacion;
   if (estado === null) {
-    return <p style={texto('var(--flit-text-secondary)')}>Este impuesto aún no se ha validado contra el RUNT. Se valida al enviarlo al gestor.</p>;
+    return <p style={texto(SECUNDARIO)}>Este impuesto aún no se ha validado contra el RUNT. Se valida al enviarlo al gestor.</p>;
   }
   if (estado === 'en_curso') {
     return (
       <div className="flex flex-wrap items-center gap-2">
         <LineaValidacion fila={{ analisisEstado: 'en_curso' }} />
-        <p style={texto('var(--flit-text-secondary)')}>La validación está en curso. El resultado aparece aquí en cuanto termine.</p>
+        <p style={texto(SECUNDARIO)}>La validación está en curso. El resultado aparece aquí en cuanto termine.</p>
       </div>
     );
   }
@@ -324,7 +332,7 @@ function CuerpoValidacion({ datos, accionReintento, sinPermiso }: {
   if (motivo) {
     return (
       <div className="space-y-3" data-testid="validacion-sin-validar">
-        <StatusChip tone="danger" icono={<CircleX size={12} aria-hidden="true" />}>{SEMAFORO_IMPUESTO_LABEL.rojo}</StatusChip>
+        <StatusChip tone="danger" icono={<Icono nombre={GLIFO_ROJO} />}>{SEMAFORO_IMPUESTO_LABEL.rojo}</StatusChip>
         <p style={texto()}>{TEXTO_SIN_VALIDAR[motivo][0]} {sinPermiso ? CIERRE_SIN_PERMISO : TEXTO_SIN_VALIDAR[motivo][1]}</p>
         {cmp && cmp.campos.length > 0 && <TablaFacturaRunt campos={cmp.campos} direccion={datos.direccionComprador} />}
         {accionReintento && <div className="flex flex-wrap items-center gap-2">{accionReintento}</div>}
@@ -332,7 +340,7 @@ function CuerpoValidacion({ datos, accionReintento, sinPermiso }: {
     );
   }
   if (!cmp || cmp.campos.length === 0) {
-    return <p style={texto('var(--flit-text-secondary)')}>No hay comparación guardada para este impuesto. Actualiza la cola para ver el último resultado.</p>;
+    return <p style={texto(SECUNDARIO)}>No hay comparación guardada para este impuesto. Actualiza la cola para ver el último resultado.</p>;
   }
   // Manda el semáforo guardado. Fallback (fila sin semáforo): la regla del backend —verde = el VIN
   // coincide y ningún dato verificable difiere—; `no_verificable` no es diferencia (HU 12831).
@@ -344,8 +352,8 @@ function CuerpoValidacion({ datos, accionReintento, sinPermiso }: {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         {conDiferencias
-          ? <StatusChip tone="warning" icono={<TriangleAlert size={12} aria-hidden="true" />}>{SEMAFORO_IMPUESTO_LABEL.naranja}</StatusChip>
-          : <StatusChip tone="success" icono={<CircleCheck size={12} aria-hidden="true" />}>{SEMAFORO_IMPUESTO_LABEL.verde}</StatusChip>}
+          ? <StatusChip tone="warning" icono={<Icono nombre={GLIFO_WARN} />}>{SEMAFORO_IMPUESTO_LABEL.naranja}</StatusChip>
+          : <StatusChip tone="success" icono={<Icono nombre={GLIFO_OK} />}>{SEMAFORO_IMPUESTO_LABEL.verde}</StatusChip>}
         <p className="font-semibold" data-testid="validacion-resumen" style={texto()}>{resumenComparacion(cmp.campos)}</p>
       </div>
       <TablaFacturaRunt campos={cmp.campos} direccion={datos.direccionComprador} />
@@ -357,8 +365,8 @@ function CuerpoValidacion({ datos, accionReintento, sinPermiso }: {
 function EstadosCarga({ carga, recargar, children }: { carga: Carga; recargar: () => void; children: (d: DetalleValidacion) => ReactNode }) {
   if (carga.fase === 'cargando') {
     return (
-      <p role="status" className="flex items-center gap-2" style={texto('var(--flit-text-secondary)')}>
-        <LoaderCircle size={16} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
+      <p role="status" className="flex items-center gap-2" style={texto(SECUNDARIO)}>
+        <Girador />
         Cargando la validación…
       </p>
     );
@@ -366,8 +374,8 @@ function EstadosCarga({ carga, recargar, children }: { carga: Carga; recargar: (
   if (carga.fase === 'error') {
     return (
       <div role="alert" className="flex flex-wrap items-center gap-3">
-        <p style={texto('var(--flit-danger-text)')}>No se pudo cargar la validación. Inténtalo de nuevo.</p>
-        <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={recargar}>Volver a cargar</button>
+        <p style={texto(DANGER)}>No se pudo cargar la validación. Inténtalo de nuevo.</p>
+        <GradientButton type="button" variant="secondary" size="sm" onClick={recargar}>Volver a cargar</GradientButton>
       </div>
     );
   }
@@ -379,7 +387,7 @@ export interface FilaValidacion extends ValidacionFila { id: string; placa: stri
 
 /**
  * Modal del semáforo (AC1, AC3). Visita de consulta: en verde o naranja no hay primaria.
- * `accionReintento` es el hueco de la HU #12832 («Reintentar validación», la única primaria en rojo).
+ * `accionReintento` es el hueco de la HU 12832 («Reintentar validación», la única primaria en rojo).
  */
 export function ModalValidacion({ imp, onClose, onVerDetalle, accionReintento, sinPermiso }: {
   imp: FilaValidacion; onClose: () => void; onVerDetalle: () => void; accionReintento?: ReactNode; sinPermiso?: boolean;
@@ -392,8 +400,8 @@ export function ModalValidacion({ imp, onClose, onVerDetalle, accionReintento, s
           {(datos) => <CuerpoValidacion datos={{ ...imp, ...datos }} sinPermiso={sinPermiso} />}
         </EstadosCarga>
         <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onVerDetalle}>Ver detalle</button>
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cerrar</button>
+          <GradientButton type="button" variant="secondary" onClick={onVerDetalle}>Ver detalle</GradientButton>
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cerrar</GradientButton>
           {accionReintento}
         </div>
       </div>
@@ -408,7 +416,7 @@ export function ModalValidacion({ imp, onClose, onVerDetalle, accionReintento, s
 export function SeccionValidacion({ imp, accionReintento, sinPermiso, detalle }: {
   imp: FilaValidacion; accionReintento?: ReactNode; sinPermiso?: boolean;
   /**
-   * El detalle ya pedido por quien monta la sección (HU #12834: `DetalleImpuesto` lo comparte con
+   * El detalle ya pedido por quien monta la sección (HU 12834: `DetalleImpuesto` lo comparte con
    * la dirección del comprador y lo parchea tras guardarla). Sin él, la sección lo pide sola.
    */
   detalle?: { carga: Carga; recargar: () => void };
@@ -419,7 +427,7 @@ export function SeccionValidacion({ imp, accionReintento, sinPermiso, detalle }:
   const { carga, recargar } = detalle ?? propio;
   return (
     <section aria-labelledby={`validacion-${imp.id}`} className="space-y-2" data-testid="seccion-validacion">
-      <h3 id={`validacion-${imp.id}`} className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>
+      <h3 id={`validacion-${imp.id}`} className="text-xs font-semibold uppercase tracking-wide text-[color:var(--color-text-tertiary)]">
         Validación factura ↔ RUNT
       </h3>
       {terminado
@@ -433,7 +441,7 @@ export function SeccionValidacion({ imp, accionReintento, sinPermiso, detalle }:
   );
 }
 
-// ─────────────────── HU #12832: «Reintentar validación» ───────────────────
+// ─────────────────── HU 12832: «Reintentar validación» ───────────────────
 
 /** Lo que el reintento mira de la fila: la validación y si ya hay certificación vigente. */
 export interface FilaReintento extends ValidacionFila { id: string; certificacion?: unknown }
@@ -503,20 +511,15 @@ export function ReintentarValidacion({ fila, principal, onEncolado, onYaCertific
   return (
     <>
       {fallo && (
-        <p role="alert" data-testid="reintento-error" className="order-first basis-full text-sm" style={texto('var(--flit-danger-text)')}>
+        <p role="alert" data-testid="reintento-error" className="order-first basis-full text-sm" style={texto(DANGER)}>
           {fallo.texto}
         </p>
       )}
       {!fallo?.efecto && (
-        <button type="button" onClick={reintentar} disabled={enviando} aria-busy={enviando}
-          data-variante={principal ? 'primario' : 'secundario'}
-          className={principal ? flitBtnPrimary : flitBtnSecondary}
-          style={principal ? flitBtnPrimaryStyle : flitBtnSecondaryStyle}>
-          {enviando
-            ? <LoaderCircle size={16} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />
-            : <RotateCw size={16} aria-hidden="true" className="shrink-0" />}
+        <GradientButton type="button" onClick={reintentar} ocupado={enviando} variant={principal ? 'primary' : 'secondary'}>
+          {!enviando && <Icono nombre="reintento" size={16} className="shrink-0" />}
           {enviando ? 'Reintentando…' : 'Reintentar validación'}
-        </button>
+        </GradientButton>
       )}
     </>
   );

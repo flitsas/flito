@@ -3,6 +3,7 @@
 // entrega. Sin dependencias: Pointer Events + canvas nativo.
 
 import { useEffect, useRef, useState } from 'react';
+import GradientButton from '../flit/GradientButton';
 
 export default function FirmaCanvas({ onChange, label = 'Firma del receptor' }: { onChange: (dataUrl: string | null) => void; label?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -21,7 +22,10 @@ export default function FirmaCanvas({ onChange, label = 'Firma del receptor' }: 
     ctx.scale(dpr, dpr);
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
-    ctx.strokeStyle = '#162744';
+    // Tinta fija del kit (igual en claro y oscuro): la firma exportada conserva el mismo color de
+    // trazo en los dos temas, porque viaja a la entrega y se pinta sobre papel.
+    const tinta = getComputedStyle(canvas).getPropertyValue('--kit-tinta-fija').trim();
+    ctx.strokeStyle = tinta || 'rgb(22, 39, 68)';
   }, []);
 
   const pos = (e: React.PointerEvent) => {
@@ -59,20 +63,21 @@ export default function FirmaCanvas({ onChange, label = 'Firma del receptor' }: 
 
   return (
     <div>
+      {/* Lienzo = papel: blanco y tinta fija en los dos temas, para que el trazo se lea igual en pantalla
+          que en la imagen exportada (blanco fijo del kit, --kit-sobre-relleno, igual en los dos temas). */}
       <canvas
         ref={ref}
         role="img"
         aria-label={label}
-        className="h-48 w-full touch-none rounded-lg border bg-white"
-        style={{ borderColor: 'var(--flit-border-input)' }}
+        className="h-48 w-full touch-none rounded-[9px] border border-[color:var(--color-border-control)] bg-[var(--kit-sobre-relleno)]"
         onPointerDown={start}
         onPointerMove={move}
         onPointerUp={end}
         onPointerLeave={end}
       />
-      <div className="mt-1 flex items-center justify-between">
-        <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{vacia ? 'Firme aquí' : 'Firmado'}</span>
-        <button type="button" className="flit-focus rounded px-1 py-1 text-xs font-semibold transition-colors hover:underline" style={{ color: 'var(--flit-blue-text)' }} onClick={limpiar}>Limpiar</button>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <span className="text-xs text-[color:var(--color-text-tertiary)]">{vacia ? 'Firme aquí' : 'Firmado'}</span>
+        <GradientButton type="button" variant="ghost" size="sm" onClick={limpiar}>Limpiar</GradientButton>
       </div>
     </div>
   );

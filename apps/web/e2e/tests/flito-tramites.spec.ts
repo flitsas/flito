@@ -361,7 +361,7 @@ test.describe('FLITO — Trámites unificado', () => {
       await page.goto('/flito/tramites');
 
       const doc = page.getByRole('row').filter({ hasText: caso.titular })
-        .getByRole('cell').filter({ hasText: caso.titular }).locator('div.tabular-nums');
+        .getByRole('cell').filter({ hasText: caso.titular }).getByText(caso.esperado, { exact: true });
       await expect(doc).toBeVisible();
       expect(await doc.textContent()).toBe(caso.esperado);
     });

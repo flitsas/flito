@@ -170,10 +170,8 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     await expect(grupo(page, 'flit2').getByTestId('linea-estado-flit2')).toBeVisible();
     await expect(grupo(page, 'flit2').getByTestId('conexion-flit2')).toBeVisible();
     // HU #13680: la sección se queda sin primaria (dos secundarios gemelos; «Guardar» vive en la modal).
-    const primarias = await seccion(page).locator('button').evaluateAll(
-      (bs) => bs.filter((b) => (b as HTMLElement).style.background.includes('gradient')).length,
-    );
-    expect(primarias).toBe(0);
+    // Kit 2026: la primaria se reconoce por data-variante="primario" (píldoras planas, sin degradado).
+    await expect(seccion(page).locator('button[data-variante="primario"]')).toHaveCount(0);
     // Lado a lado y con las barras alineadas (mismo borde inferior), una sola altura de control.
     const b1 = (await botonParams(page).boundingBox())!;
     const b2 = (await botonAcceso(page).boundingBox())!;
@@ -183,7 +181,8 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     const g1 = (await grupo(page, 'flit1').boundingBox())!;
     const g2 = (await grupo(page, 'flit2').boundingBox())!;
     expect(g2.x).toBeGreaterThan(g1.x + g1.width - 1);
-    expect((await sw(page, 'flit1').boundingBox())!.height).toBe(40);
+    // Kit 2026: el interruptor mide 68×36 (kit-interruptor).
+    expect((await sw(page, 'flit1').boundingBox())!.height).toBe(36);
     await expect(grupo(page, 'flit1').getByText('Elegir fecha')).toHaveCount(0);
     await expect(grupo(page, 'flit1').getByText('Desde', { exact: true })).toHaveCount(0);
     await abrirParams(page);
@@ -267,7 +266,7 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     const error = page.getByTestId('error-interruptores');
     await expect(error).toContainText('No se pudo consultar los interruptores de sincronización.');
     await expect(error).toHaveAttribute('role', 'alert');
-    expect(await error.getAttribute('style')).toContain('--flit-danger-text');
+    expect(await error.getAttribute('style')).toContain('--kit-rojo-texto');
     await expect(page.getByRole('switch')).toHaveCount(0);
     await expect(page.getByText(CRUDO)).toHaveCount(0);
     // Resumen neutro: no adivina el valor; el error con reintento vive dentro.
@@ -374,7 +373,8 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await mockear(page);
       await abrir(page);
       const s = sw(page, 'flit1');
-      const fondo = () => s.evaluate((e) => getComputedStyle(e).backgroundColor);
+      // Kit 2026: el hover del interruptor oscurece el glifo con filter (no cambia el fondo).
+      const fondo = () => s.evaluate((e) => getComputedStyle(e).filter);
       const reposo = await fondo();
       await s.hover();
       await expect.poll(fondo).not.toBe(reposo);
@@ -391,7 +391,8 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       expect(await anillo(s)).toBe(true);
       // HU #13680 (AC2): «Parámetros de lectura» con hover sutil y foco visible.
       const bp = botonParams(page);
-      const aspecto = () => bp.evaluate((e) => { const c = getComputedStyle(e); return `${c.backgroundColor}|${c.borderColor}|${c.color}`; });
+      // Kit 2026: el hover de la píldora es brightness (filter); se compara junto con los colores.
+      const aspecto = () => bp.evaluate((e) => { const c = getComputedStyle(e); return `${c.backgroundColor}|${c.borderColor}|${c.color}|${c.filter}`; });
       const aspectoReposo = await aspecto();
       await bp.hover();
       await expect.poll(aspecto).not.toBe(aspectoReposo);
@@ -407,11 +408,11 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await expect.poll(borde).not.toBe(bordeReposo);
       await campo.focus();
       expect(await anillo(campo)).toBe(true);
-      // Los colores del carril salen de tokens (con par oscuro), nunca de HEX.
+      // Kit 2026: el interruptor se pinta con la clase del kit (glifos SVG con par oscuro), nunca con estilo/HEX en línea.
       await page.keyboard.press('Escape');
       await expect(modalParams(page)).toHaveCount(0);
-      const carril = await s.locator('span').first().getAttribute('style');
-      expect(carril).toContain('var(--flit-blue-text)');
+      await expect(s).toHaveClass(/\bkit-interruptor\b/);
+      expect(await s.getAttribute('style')).toBeNull();
     });
   }
 

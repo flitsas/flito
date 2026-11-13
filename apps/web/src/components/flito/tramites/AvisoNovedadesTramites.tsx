@@ -30,10 +30,9 @@ export default function AvisoNovedadesTramites({ aviso, anuncio, onVer }: Props)
   return (
     <div role="status" aria-live="polite" data-testid="aviso-novedades-tramites">
       {aviso ? (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-sm"
-          style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' }}>
+        <div className="kit-alerta mb-3 flex-wrap items-center justify-between gap-2 text-sm">
           <span>{textoNovedades(aviso)}</span>
-          <button type="button" className={`${flitBtnSecondary} ml-auto`} style={flitBtnSecondaryStyle}
+          <button type="button" className={`${flitBtnSecondary} ml-auto`} style={flitBtnSecondaryStyle} data-variante="secundario"
             aria-label={etiquetaVer(aviso)} onClick={onVer}>
             Ver
           </button>

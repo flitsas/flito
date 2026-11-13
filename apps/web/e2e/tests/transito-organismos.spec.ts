@@ -73,7 +73,7 @@ test.describe('Tránsito · Organismos STT (admin)', () => {
     await page.getByPlaceholder('Medellín').fill('STT Medellín');
     await page.getByRole('button', { name: /^guardar$/i }).click();
 
-    await expect(page.locator('[role="status"]', { hasText: /actualizado/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /actualizado/i })).toBeVisible();
     expect(putBody?.alias).toBe('STT Medellín');
   });
 
@@ -113,7 +113,7 @@ test.describe('Tránsito · Organismos STT (admin)', () => {
     await page.getByLabel(/ocultar/i).first().click();
     await page.getByRole('button', { name: /guardar plantilla/i }).click();
 
-    await expect(page.locator('[role="status"]', { hasText: /plantilla guardada/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /plantilla guardada/i })).toBeVisible();
     expect(putChecklist?.hide).toEqual(expect.arrayContaining(['contrato_compraventa']));
   });
 

@@ -10,6 +10,12 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { parseLicenciaTransito } from '@operaciones/shared-types';
 import { ocrListo, ocrNumeroLt, precargarOcr } from '../../lib/ocrLt';
+import GradientButton from '../flit/GradientButton';
+
+// Visor de cámara: fondo tinta fija del kit (igual en los dos temas) y rótulos sobre velo tinta; las
+// píldoras de estado van sobre la superficie del kit para leerse encima del video en claro y oscuro.
+const VELO = 'bg-[color-mix(in_srgb,var(--kit-tinta-fija)_80%,transparent)] text-white';
+const PILDORA = 'rounded-full border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] px-4 py-2 text-center text-sm font-semibold';
 
 export function escaneoDisponible(): boolean {
   if (typeof window === 'undefined') return false;
@@ -155,33 +161,32 @@ export default function Escaner({ onScan, onClose }: { onScan: (code: string, nu
   }, []);
 
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex flex-col bg-black">
+    <div className="fixed inset-0 z-[70] flex flex-col bg-[var(--kit-tinta-fija)]">
       <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-      <div className="pointer-events-none absolute left-1/2 top-1/2 h-40 w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border-2 border-white/80" />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 h-40 w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-[9px] border-2 border-white/80" />
       {/* Franja superior: estado a la izquierda y «Listo» a la derecha en la MISMA fila (flex), así no se pisan en pantallas angostas. */}
       <div className="absolute inset-x-0 top-0 flex items-start gap-3 px-4 pb-2" style={{ paddingTop: 'max(1rem, calc(env(safe-area-inset-top) + 0.5rem))' }}>
         <div className="flex min-w-0 flex-1 justify-center">
           {error && (
-            <div role="alert" className="rounded-xl bg-black/70 px-3 py-2 text-center text-sm text-white">
+            <div role="alert" className={`rounded-[9px] px-3 py-2 text-center text-sm ${VELO}`}>
               {error}
               <span className="mt-1 block text-white/90">Pulsa «Cerrar» y pega el contenido del código a mano.</span>
             </div>
           )}
-          {!error && !listo && <div role="status" className="rounded-full bg-black/70 px-4 py-2 text-center text-sm text-white">Abriendo cámara…</div>}
+          {!error && !listo && <div role="status" className={`rounded-full px-4 py-2 text-center text-sm ${VELO}`}>Abriendo cámara…</div>}
           {leyendo && (
-            <div role="status" className="rounded-full bg-white/90 px-4 py-2 text-center text-sm font-semibold" style={{ color: 'var(--flit-blue-dark)' }}>Leyendo N.º de LT…</div>
+            <div role="status" className={`${PILDORA} text-[color:var(--color-action)]`}>Leyendo N.º de LT…</div>
           )}
           {conteo > 0 && !leyendo && (
-            <div role="status" className="max-w-full break-words rounded-full bg-white/90 px-4 py-2 text-center text-sm font-semibold" style={{ color: 'var(--flit-success)' }}>✓ {conteo} escaneada(s){ultima ? ` · última ${ultima}` : ''}</div>
+            <div role="status" className={`max-w-full break-words ${PILDORA} text-[color:var(--kit-verde-texto)]`}>✓ {conteo} escaneada(s){ultima ? ` · última ${ultima}` : ''}</div>
           )}
         </div>
-        <button type="button" onClick={onClose}
-          className="flit-focus min-h-11 min-w-11 shrink-0 rounded-lg bg-white px-4 py-2 text-sm font-semibold transition-colors hover:bg-white/90" style={{ color: 'var(--flit-blue-dark)' }}>
+        <GradientButton type="button" onClick={onClose} className="min-h-11 min-w-11 shrink-0">
           {error ? 'Cerrar' : 'Listo'}{conteo > 0 ? ` (${conteo})` : ''}
-        </button>
+        </GradientButton>
       </div>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-4" style={{ paddingBottom: 'max(2rem, calc(env(safe-area-inset-bottom) + 1rem))' }}>
-        <p className="max-w-md rounded-xl bg-black/70 px-4 py-2.5 text-center text-sm font-medium text-white">
+        <p className={`max-w-md rounded-[9px] px-4 py-2.5 text-center text-sm font-medium ${VELO}`}>
           Ubica el código de barras y el N.º de LT (debajo del código) dentro del recuadro blanco.
         </p>
       </div>
