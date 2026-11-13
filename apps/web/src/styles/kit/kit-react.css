@@ -169,13 +169,31 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 .filtro-activo { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px 0 12px; border: 1px solid var(--kit-azul); border-radius: 999px; background: var(--kit-hover); color: var(--color-action); font-size: var(--text-caption); cursor: pointer; transition: filter var(--motion-fast) var(--ease); }
 .filtro-activo:hover { filter: brightness(0.96); }
 
-/* ---------- Dock: condensado medido (solo íconos) y aro de foco ---------- */
-.dock.kit-dock--iconos .dock__item { padding: 0 var(--space-4); }
-.dock.kit-dock--iconos .dock__item span.kico { width: 40px; height: 40px; }
+/* ---------- Dock: íconos de imagen y capas (≤1100 px solo íconos lo resuelve el CSS del kit) ---------- */
 .dock .dock__item .kico > img { width: 24px; height: 24px; }
 .dock__entrada .kico > img, .dock__cabeza .kico > img { width: 60%; height: 60%; }
 .dock { z-index: 30; }
 .dock__menu { z-index: 31; }
 .dock__fab img { width: 100%; height: 100%; }
-.menu-flotante .menu-usuario__pie .btn.alerta, .menu-flotante .menu-usuario__pie .btn.alerta:hover { background: var(--kit-naranja-boton); }
 .control-icono button svg { position: static; transform: none; color: inherit; }
+
+/* Menú de usuario (ronda 2): título de sección como .dock__seccion p; Salir en naranja AA (#D44100 con blanco). */
+.menu-usuario__seccion p { margin: var(--space-6) 0 var(--space-4); padding: 0 12px; font-size: var(--text-micro); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--kit-gris); }
+.menu-usuario__seccion + li > .menu-usuario__entrada { border-top: 0; }
+.menu-flotante .menu-usuario__pie .btn, .menu-flotante .menu-usuario__pie .btn:hover { background: var(--kit-naranja-boton); color: var(--kit-sobre-relleno); }
+.menu-usuario { max-height: calc(100dvh - 84px); overflow-y: auto; }
+/* Cabeceras azules (menú de usuario y menús del dock): relleno #1D53FF en los dos temas, para que el texto blanco
+   cumpla AA también en oscuro (--kit-azul allí es #8FB0FF, color de texto, no de relleno). */
+.dock__cabeza, .menu-usuario__cabeza { background: var(--kit-azul-relleno); }
+/* Teléfono: el menú de usuario no se mete bajo el dock (barra 72 + dock ~96). */
+@media (max-width: 640px) { .menu-usuario { max-height: calc(100dvh - 72px - 104px); } }
+
+/* Dock 3 + 3 con nombre para todos los roles en todo el rango >1100 px (ronda 2): entre 1101 y 1440 px se compacta
+   (nombre 14 px, menos aire) y hasta 1280 px sin chevron, para que quepan los seis nombres junto a Dr. Flit.
+   ≤1100 px solo íconos (CSS del kit); el chevron se oculta también ahí. */
+@media (min-width: 1101px) and (max-width: 1440px) {
+  .dock { gap: 0; padding: 6px 8px; }
+  .dock__item { gap: 6px; padding: 0 8px 0 4px; font-size: 0.875rem; }
+  .dock__fab { margin: 0 4px; }
+}
+@media (max-width: 1280px) { .dock .dock__flecha { display: none; } }

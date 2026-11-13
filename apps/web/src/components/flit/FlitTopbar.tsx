@@ -4,6 +4,8 @@ import { useAuth } from '../../lib/auth';
 import { useTheme } from '../../lib/theme';
 import { startViewTransition } from '../../lib/viewTransitions';
 import { useNavSections } from '../shell/useNavSections';
+import { entradasAdministracion } from '../shell/dockGrupos';
+import { IconoGlifo } from './kit/IconoGlifo';
 import { Icono, type NombreIcono } from './kit/Icono';
 
 /**
@@ -64,9 +66,11 @@ export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
   const alternar = (id: Exclude<MenuId, null>) => setMenu((m) => (m === id ? null : id));
   const puedeVerPerfil = hasFuncion('perfil.datos.ver');
   const puedeVerAyuda = visibleItems.some((it) => it.to === '/flito/ayuda');
+  const administracion = useMemo(() => entradasAdministracion(visibleItems), [visibleItems]);
   const oscuro = resolvedTheme === 'dark';
   const nombre = user?.name ?? 'Sesión';
-  const rol = user?.role ?? '—';
+  // Rol · empresa: /auth/me no trae la empresa del usuario; se muestra el nombre de negocio del rol.
+  const rol = user?.rolNombre ?? user?.role ?? '—';
 
   const ir = (to: string) => { setMenu(null); startViewTransition(() => navigate(to)); };
   const salir = () => { setMenu(null); startViewTransition(() => navigate('/login')); logout(); };
@@ -127,24 +131,43 @@ export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
             <button type="button" className="usuario" data-menu="usuario" aria-expanded={menu === 'usuario'} aria-controls="flit-usuario-menu"
               aria-haspopup="menu" aria-label={`Menú de usuario · ${user?.name ?? 'sesión'}`} onClick={() => alternar('usuario')}>
               <span className="usuario__avatar" aria-hidden="true">{iniciales(user?.name)}</span>
-              <span className="usuario__texto"><strong className="max-w-[18ch] truncate">{nombre}</strong><small className="capitalize">{rol}</small></span>
+              <span className="usuario__texto"><strong className="max-w-[18ch] truncate">{nombre}</strong><small className="max-w-[22ch] truncate">{rol}</small></span>
               <span className="usuario__puntos" aria-hidden="true"><Icono nombre="puntos" /></span>
             </button>
           }>
           <div className="menu-flotante menu-usuario" id="flit-usuario-menu" role="menu" aria-label="Opciones de usuario">
             <div className="menu-usuario__cabeza">
               <span className="menu-usuario__avatar" aria-hidden="true">{iniciales(user?.name)}</span>
-              <div><strong className="truncate">{user?.name ?? 'Sin nombre'}</strong><small className="capitalize">{rol}</small></div>
+              <div><strong className="truncate">{user?.name ?? 'Sin nombre'}</strong><small>{rol}</small></div>
             </div>
             <ul>
+              {/* (2) Productos: solo en teléfono (≤640 px la rejilla de la barra se oculta). */}
+              {PRODUCTOS.map((p) => (
+                <li key={p.id} className="solo-movil">
+                  {p.href ? (
+                    <a role="menuitem" className="menu-usuario__entrada" href={p.href} rel="noopener">
+                      <span className="kico" aria-hidden="true"><Icono nombre={p.icono} /></span><span><strong>{p.nombre}</strong><small>{p.detalle}</small></span>
+                    </a>
+                  ) : (
+                    <Link role="menuitem" className="menu-usuario__entrada" to="/" aria-current="page" onClick={() => setMenu(null)}>
+                      <span className="kico" aria-hidden="true"><Icono nombre={p.icono} /></span><span><strong>{p.nombre}</strong><small>{p.detalle}</small></span>
+                    </Link>
+                  )}
+                </li>
+              ))}
+              {/* (3) Administración: solo con permiso (mismo árbol que el dock: useNavSections). */}
+              {administracion.length > 0 && (
+                <li className="menu-usuario__seccion" role="presentation"><p>Administración</p></li>
+              )}
+              {administracion.map(({ item, icono, descripcion }) => (
+                <li key={item.to}><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir(item.to)}>
+                  <span className="kico" aria-hidden="true"><IconoGlifo icono={icono} /></span><span><strong>{item.label}</strong>{descripcion && <small>{descripcion}</small>}</span>
+                </button></li>
+              ))}
+              {/* (4) Cuenta. */}
               {puedeVerPerfil && (
                 <li><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir('/perfil')}>
-                  <span className="kico" aria-hidden="true"><Icono nombre="persona" /></span><span><strong>Perfil</strong><small>Tus datos y preferencias</small></span>
-                </button></li>
-              )}
-              {puedeVerPerfil && (
-                <li><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir('/perfil?accion=contrasena')}>
-                  <span className="kico" aria-hidden="true"><Icono nombre="ojo" /></span><span><strong>Cambiar contraseña</strong><small>Actualiza tu clave de acceso</small></span>
+                  <span className="kico" aria-hidden="true"><Icono nombre="persona" /></span><span><strong>Mi perfil</strong><small>Tus datos y preferencias</small></span>
                 </button></li>
               )}
               {puedeVerAyuda && (
@@ -152,9 +175,15 @@ export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
                   <span className="kico" aria-hidden="true"><Icono nombre="ayuda" /></span><span><strong>Ayuda</strong><small>Manual y preguntas frecuentes</small></span>
                 </button></li>
               )}
+              {puedeVerPerfil && (
+                <li><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir('/perfil?accion=contrasena')}>
+                  <span className="kico" aria-hidden="true"><Icono nombre="ojo" /></span><span><strong>Cambiar contraseña</strong><small>Actualiza tu clave de acceso</small></span>
+                </button></li>
+              )}
             </ul>
+            {/* (5) Salir en naranja (ui-kit-2026.css pinta así el .btn del pie). */}
             <div className="menu-usuario__pie">
-              <button type="button" role="menuitem" className="btn sm alerta" onClick={salir}>Cerrar sesión</button>
+              <button type="button" role="menuitem" className="btn sm secondary" data-variante="alerta" onClick={salir}>Salir</button>
             </div>
           </div>
         </MenuAncla>

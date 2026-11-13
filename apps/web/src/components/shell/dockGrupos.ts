@@ -2,8 +2,9 @@
  * Reparto del dock inferior del UI Kit 2026 para FLITO (briefing de diseño flit-de §3).
  *
  * SOLO PRESENTACIÓN: los ítems visibles siguen saliendo de `useNavSections` (permisos, slugs, funciones). Aquí se
- * decide en qué GRUPO del dock cae cada ruta y con qué ícono se pinta. Una ruta que ningún grupo reclama cae en el
- * cubo «Más» (trampa §12 de la guía del dock: nunca se pierde un ítem por no estar en el reparto).
+ * decide en qué GRUPO del dock cae cada ruta y con qué ícono se pinta. Dock 3 + 3 (ronda 2): hoy todas las rutas
+ * tienen grupo y el cubo «Más» no se pinta; queda solo como red de seguridad para una ruta NUEVA sin reparto
+ * (trampa §12 de la guía del dock: nunca se pierde un ítem por no estar en el reparto).
  *
  * Íconos: inyectivos dentro de cada menú y sin check/flechas/punto (regla del kit).
  */
@@ -11,7 +12,7 @@ import type { NavItem } from './navItems';
 import type { NombreIcono } from '../flit/kit/Icono';
 
 export type GrupoDockId =
-  | 'tramites' | 'impuestos-soat' | 'logistica' | 'flota' | 'finanzas' | 'cumplimiento' | 'administracion' | 'mas';
+  | 'tramites' | 'impuestos-soat' | 'logistica' | 'flota' | 'finanzas' | 'cumplimiento' | 'mas';
 
 interface Regla { prefijo: string; icono: NombreIcono | `@${string}`; seccion?: string; descripcion?: string }
 interface DefGrupo { id: GrupoDockId; titulo: string; icono: NombreIcono; lado: 'izq' | 'der'; reglas: Regla[] }
@@ -63,6 +64,7 @@ export const GRUPOS_DOCK: DefGrupo[] = [
     { prefijo: '/finanzas', icono: 'pesos' },
     { prefijo: '/siigo/operacion', icono: 'integraciones' },
     { prefijo: '/siigo/parametrizacion', icono: 'ajustes' },
+    { prefijo: '/siigo/credenciales', icono: 'candado-abierto' },
     { prefijo: '/clients', icono: 'empresas' },
   ] },
   { id: 'cumplimiento', titulo: 'Cumplimiento', icono: 'escudo', lado: 'der', reglas: [
@@ -71,17 +73,27 @@ export const GRUPOS_DOCK: DefGrupo[] = [
     { prefijo: '/rndc', icono: 'fuentes-oficiales', seccion: 'RNDC' },
     { prefijo: '/privacy', icono: 'candado', seccion: 'Privacidad' },
   ] },
-  { id: 'administracion', titulo: 'Administración', icono: 'ajustes', lado: 'der', reglas: [
-    { prefijo: '/users', icono: 'usuarios' },
-    { prefijo: '/roles-permisos', icono: 'rol' },
-    { prefijo: '/drive', icono: 'nube-subir' },
-    { prefijo: '/siigo/credenciales', icono: 'candado' },
-    { prefijo: '/admin', icono: 'medidor' },
-  ] },
 ];
 
-/** Rutas que no van en el dock: Inicio es el botón central y Ayuda vive en el menú de usuario. */
-const FUERA_DEL_DOCK = new Set(['/', '/flito/ayuda']);
+/**
+ * Administración NO va en el dock (decisión de diseño, ronda 2): vive en el menú de usuario, solo con permiso.
+ * Usuarios y Roles son las entradas del manual; Drive y Rendimiento caen aquí por ser su grupo natural.
+ */
+export const ADMINISTRACION: Regla[] = [
+  { prefijo: '/users', icono: 'usuarios', descripcion: 'Quién entra y qué puede hacer' },
+  { prefijo: '/roles-permisos', icono: 'rol', descripcion: 'Qué ve y hace cada rol' },
+  { prefijo: '/drive', icono: 'nube-bajar', descripcion: 'Carpetas y archivos de Drive' },
+  { prefijo: '/admin/rendimiento', icono: 'medidor', descripcion: 'Velocidad de la plataforma' },
+];
+
+/** Entradas de Administración visibles para el usuario (mismo árbol de permisos que el dock). */
+export function entradasAdministracion(items: NavItem[]): EntradaDock[] {
+  return ADMINISTRACION.flatMap((r) => items.filter((it) => coincide(it.to, r.prefijo)).map((item) => ({ item, icono: r.icono, descripcion: r.descripcion })));
+}
+
+/** Rutas que no van en el dock: Inicio es el botón central; Ayuda y Administración, el menú de usuario. */
+const esDeAdministracion = (to: string) => ADMINISTRACION.some((r) => coincide(to, r.prefijo));
+const FUERA_DEL_DOCK = { has: (to: string) => to === '/' || to === '/flito/ayuda' || esDeAdministracion(to) };
 
 const coincide = (to: string, prefijo: string) => to === prefijo || to.startsWith(`${prefijo}/`);
 
@@ -97,7 +109,7 @@ function reglaDe(to: string): { grupo: DefGrupo; regla: Regla } | null {
 export function iconoDeRuta(to: string): NombreIcono | `@${string}` {
   if (to === '/') return 'rejilla';
   if (to === '/flito/ayuda') return 'ayuda';
-  return reglaDe(to)?.regla.icono ?? 'documento';
+  return reglaDe(to)?.regla.icono ?? ADMINISTRACION.find((r) => coincide(to, r.prefijo))?.icono ?? 'documento';
 }
 
 export interface EntradaDock { item: NavItem; icono: NombreIcono | `@${string}`; descripcion?: string }
