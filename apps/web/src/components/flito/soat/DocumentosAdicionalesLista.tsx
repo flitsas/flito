@@ -12,7 +12,7 @@
 // `accionesExtra`, con la confirmación que reemplaza la fila. Cada función por `hasFuncion`, por
 // separado. El estado de la lista vive en `useDocumentosAdicionales` para refrescar sin esqueleto.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { Download, Eye, RotateCw, TriangleAlert, Upload, X } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import type { DocumentoAdicionalSoat, ResultadoDocumentosAdicionales } from '@operaciones/shared-types';
 import { api } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
@@ -84,7 +84,7 @@ export default function DocumentosAdicionalesLista({ lista, accionesExtra, reemp
     return (
       <div role="status" aria-busy="true" aria-label="Cargando documentos adicionales" className="space-y-3">
         {[0, 1].map((i) => (
-          <div key={i} className="flex animate-pulse items-center gap-3 motion-reduce:animate-none">
+          <div key={i} className="flex items-center gap-3">
             <div className="flex-1 space-y-2">
               <div className="h-3 w-3/4 rounded" style={{ background: 'var(--kit-hover)' }} />
               <div className="h-3 w-1/2 rounded" style={{ background: 'var(--kit-hover)' }} />
@@ -105,7 +105,7 @@ export default function DocumentosAdicionalesLista({ lista, accionesExtra, reemp
           No se pudieron cargar los documentos adicionales.
         </p>
         <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => { void cargar(); }}>
-          <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+          <Icono nombre="reintento" size={16} className="shrink-0" />
           Reintentar
         </button>
       </div>
@@ -142,14 +142,14 @@ export default function DocumentosAdicionalesLista({ lista, accionesExtra, reemp
               {vista && (
                 <a href={d.url} target="_blank" rel="noopener noreferrer" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                   aria-label={`Ver ${d.etiqueta}`}>
-                  <Eye size={16} aria-hidden="true" className="shrink-0" />
+                  <Icono nombre="ojo" size={16} className="shrink-0" />
                   Ver
                 </a>
               )}
               <button type="button" aria-label={`Descargar ${d.etiqueta}`} title={`Descargar ${d.etiqueta}`}
                 className={BOTON_ICONO} style={{ color: 'var(--color-text-secondary)', borderColor: 'var(--color-border-control)' }}
                 onClick={() => { void descargar(d); }}>
-                <Download size={16} aria-hidden="true" />
+                <Icono nombre="nube-bajar" size={16} />
               </button>
               {accionesExtra?.(d)}
             </div>
@@ -174,7 +174,7 @@ function AvisoCarga({ aviso, onCerrar, onReintentar }: { aviso: Aviso; onCerrar:
   const { descartes } = aviso;
   return (
     <div role="status" className="flex items-start gap-2 rounded-lg border p-3" style={{ borderColor: 'var(--color-border-control)' }}>
-      <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--kit-naranja-texto)' }} />
+      <Icono nombre="alerta" size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--kit-naranja-texto)' }} />
       <div className="min-w-0 flex-1 space-y-1 text-sm" style={{ color: 'var(--color-text-primary)' }}>
         {descartes && (
           <>
@@ -191,7 +191,7 @@ function AvisoCarga({ aviso, onCerrar, onReintentar }: { aviso: Aviso; onCerrar:
           <div className="flex flex-wrap items-center gap-2">
             <p className="min-w-0 flex-1 basis-48">Los documentos se guardaron, pero la lista no se pudo actualizar.</p>
             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>
-              <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="reintento" size={16} className="shrink-0" />
               Reintentar
             </button>
           </div>
@@ -199,7 +199,7 @@ function AvisoCarga({ aviso, onCerrar, onReintentar }: { aviso: Aviso; onCerrar:
       </div>
       <button type="button" aria-label="Cerrar aviso" title="Cerrar aviso" className={BOTON_CERRAR}
         style={{ color: 'var(--color-text-secondary)' }} onClick={onCerrar}>
-        <X size={16} aria-hidden="true" />
+        <Icono nombre="cerrar" size={16} />
       </button>
     </div>
   );
@@ -280,7 +280,7 @@ function SeccionConLista({ soatId, puedeCargar, puedeEliminar }: { soatId: strin
         {puedeCargar && !panelAbierto && (
           <button type="button" data-abrir-carga className={flitBtnSecondary} style={flitBtnSecondaryStyle}
             aria-expanded={false} onClick={abrirPanel}>
-            <Upload size={16} aria-hidden="true" className="shrink-0" />
+            <Icono nombre="nube-subir" size={16} className="shrink-0" />
             Cargar documentos
           </button>
         )}

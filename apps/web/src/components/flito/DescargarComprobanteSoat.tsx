@@ -19,7 +19,7 @@
 // mensaje crudo del API.
 import { useCallback, useId, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Download } from 'lucide-react';
+import { Icono } from '../flit/kit/Icono';
 import { EstadoSoat } from '@operaciones/shared-types';
 import { api, ApiError } from '../../lib/api';
 import type { Soporte } from '../flit/VisorSoportes';
@@ -149,7 +149,7 @@ export function BotonComprobanteFila({ soat, descarga }: { soat: SoatDescargable
     <>
       <button {...props} className={`${clase} w-7 justify-center !px-0`} style={style}
         title={pagado ? props['aria-label'] : MOTIVO_NO_PAGADO}>
-        <Download size={16} aria-hidden="true" className="shrink-0" />
+        <Icono nombre="nube-bajar" size={16} className="shrink-0" />
       </button>
       {!pagado && <span id={idMotivo} className="sr-only">{MOTIVO_NO_PAGADO}</span>}
     </>
@@ -164,7 +164,7 @@ export function BotonComprobanteDetalle({ soat, descarga }: { soat: SoatDescarga
     <div className="flex flex-col items-start gap-1">
       <button {...props} aria-label={undefined} className={`${clase} gap-2`} style={style}
         title={pagado ? undefined : MOTIVO_NO_PAGADO}>
-        <Download size={16} aria-hidden="true" className="shrink-0" />{ocupado ? 'Descargando…' : 'Descargar comprobante'}
+        <Icono nombre="nube-bajar" size={16} className="shrink-0" />{ocupado ? 'Descargando…' : 'Descargar comprobante'}
       </button>
       {!pagado && <p id={idMotivo} className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{MOTIVO_NO_PAGADO}</p>}
     </div>

@@ -2,7 +2,7 @@
 // umbral), icono en la primaria, error con token de par oscuro y hover de fila en el resultado.
 
 import { useState } from 'react';
-import { Upload } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import { enviarCargaEnTandas, validarCargaMasiva } from '../../../lib/carga-masiva';
 import useSeleccionCargaMasiva from '../../../lib/useSeleccionCargaMasiva';
 import RanuraCargaMasiva from '../RanuraCargaMasiva';
@@ -52,7 +52,7 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
           <div className="flex flex-wrap gap-2">
             <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
               disabled={enviando || abriendo !== null || seleccion.items.length === 0 || !!errorValidacion} onClick={subir}>
-              <Upload size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="nube-subir" size={16} className="shrink-0" />
               {enviando ? 'Procesando…' : 'Subir y procesar'}
             </button>
             <button type="button" className={flitBtnSecondary} disabled={enviando} onClick={onClose}>Cancelar</button>

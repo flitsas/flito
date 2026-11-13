@@ -12,7 +12,8 @@
 // sitio; si pasó a Solicitado con un SOAT próximo a vencer, la `TarjetaSoatActivo` variante aviso.
 
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { CircleSlash, Loader2, RotateCw, ShieldQuestion } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
+import { Girador } from '../../flit/Cargador';
 import {
   EstadoSoat,
   type MotivoDescarteSoat, type SolicitudIncompletaDetalle, type SolicitudIncompletaFila, type VigenciaProximaSoat,
@@ -51,8 +52,8 @@ const CAJA = { background: 'var(--color-surface)', borderColor: 'var(--color-bor
 
 function Insignia({ tono, children }: { tono: 'warning' | 'draft'; children: ReactNode }) {
   const estilo = tono === 'warning'
-    ? { background: 'var(--flit-chip-warning-bg)', color: 'var(--kit-naranja-texto)' }
-    : { background: 'var(--flit-chip-draft-bg)', color: 'var(--color-text-tertiary)' };
+    ? { background: 'color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated))', color: 'var(--kit-naranja-texto)' }
+    : { background: 'var(--kit-hover)', color: 'var(--color-text-tertiary)' };
   return (
     <span aria-hidden="true" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full" style={estilo}>
       {children}
@@ -140,7 +141,7 @@ export default function DetalleIncompletaSoat({
         {!completada && d.estado === 'incompleta' && !porCompletar && (
           <section className="space-y-2 rounded-lg border p-3" style={CAJA} aria-labelledby="incompleta-pendiente">
             <h3 id="incompleta-pendiente" className="flex items-center gap-2 font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-              <Insignia tono="warning"><ShieldQuestion size={16} /></Insignia>
+              <Insignia tono="warning"><Icono nombre="escudo" size={16} /></Insignia>
               Pendiente de validar con el RUNT
             </h3>
             <p style={{ color: 'var(--color-text-secondary)' }}>
@@ -157,8 +158,8 @@ export default function DetalleIncompletaSoat({
                   style={flitBtnPrimaryStyle} aria-describedby="incompleta-vin" disabled={consultando}
                   aria-busy={consultando || undefined} onClick={() => { void reintentar(); }}>
                   {consultando
-                    ? <Loader2 size={16} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />
-                    : <RotateCw size={16} aria-hidden="true" className="shrink-0" />}
+                    ? <Girador className="shrink-0" />
+                    : <Icono nombre="reintento" size={16} className="shrink-0" />}
                   {consultando ? 'Consultando…' : 'Reintentar consulta'}
                 </button>
               </div>
@@ -187,7 +188,7 @@ export default function DetalleIncompletaSoat({
         {!completada && d.estado === 'descartada' && d.descarte && (
           <section className="space-y-2 rounded-lg border p-3" style={CAJA} aria-labelledby="incompleta-descartada">
             <h3 id="incompleta-descartada" className="flex items-center gap-2 font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-              <Insignia tono="draft"><CircleSlash size={16} /></Insignia>
+              <Insignia tono="draft"><Icono nombre="distinto" size={16} /></Insignia>
               Solicitud descartada
             </h3>
             <dl className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-[auto_1fr]">
@@ -215,7 +216,8 @@ export default function DetalleIncompletaSoat({
         </dl>
 
         {!det && !error && (
-          <p role="status" aria-busy="true" className="animate-pulse motion-reduce:animate-none" style={{ color: 'var(--color-text-tertiary)' }}>
+          <p role="status" aria-busy="true" className="flex items-center gap-2" style={{ color: 'var(--color-text-tertiary)' }}>
+            <Girador className="shrink-0" />
             Cargando el propietario y la factura…
           </p>
         )}
@@ -223,7 +225,7 @@ export default function DetalleIncompletaSoat({
           <div className="flex flex-wrap items-center gap-3">
             <p role="alert" style={{ color: 'var(--kit-rojo-texto)' }}>No pudimos cargar el propietario y la factura.</p>
             <button type="button" className={flitBtnSecondary} onClick={() => setIntento((n) => n + 1)}>
-              <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="reintento" size={16} className="shrink-0" />
               Reintentar
             </button>
           </div>

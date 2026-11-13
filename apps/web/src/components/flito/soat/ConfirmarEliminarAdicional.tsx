@@ -7,7 +7,7 @@
 // No hay borrado optimista: la fila solo se va con el 204 (o el 404 «ya no estaba»). Con error la
 // confirmación sigue abierta y la lista no cambia (AC6). Candado por `ref` (AC7).
 import { useEffect, useId, useRef, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import type { DocumentoAdicionalSoat } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
@@ -27,7 +27,7 @@ export function BotonEliminarAdicional({ documento, onAbrir }: { documento: Docu
       aria-label={`Eliminar ${documento.etiqueta}`} title={`Eliminar ${documento.etiqueta}`}
       className={BOTON_ICONO} style={{ color: 'var(--color-text-secondary)', borderColor: 'var(--color-border-control)' }}
       onClick={onAbrir}>
-      <Trash2 size={16} aria-hidden="true" />
+      <Icono nombre="papelera" size={16} />
     </button>
   );
 }
@@ -91,7 +91,7 @@ export default function ConfirmarEliminarAdicional({ soatId, documento, onCancel
         {(!error || error.reintentable) && (
           <button type="button" className={BOTON} style={PELIGRO} aria-disabled={enviando || undefined} aria-busy={enviando || undefined}
             onClick={() => { void eliminar(); }}>
-            <Trash2 size={16} aria-hidden="true" className="shrink-0" />
+            <Icono nombre="papelera" size={16} className="shrink-0" />
             {enviando ? 'Eliminando…' : error ? 'Reintentar' : 'Eliminar'}
           </button>
         )}

@@ -11,7 +11,8 @@
 //    el cuerpo; nunca en URL, storage, consola ni toasts.
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { CircleAlert, Info, Loader2, RotateCw } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
+import { Girador } from '../../flit/Cargador';
 import type { ExtraccionFacturaVenta, PropietarioSolicitudIncompleta, SolicitudIncompletaFila } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 import { camposLeidos, esNit } from '../../../lib/soatCliente';
@@ -54,11 +55,11 @@ function inicial(p: PropietarioSolicitudIncompleta | null): Propietario {
 
 function Aviso({ tono, children, id }: { tono: 'warning' | 'neutro'; children: ReactNode; id?: string }) {
   const estilo = tono === 'warning'
-    ? { background: 'var(--flit-chip-warning-bg)', color: 'var(--kit-naranja-texto)' }
-    : { background: 'var(--flit-chip-draft-bg)', color: 'var(--color-text-tertiary)' };
+    ? { background: 'color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated))', color: 'var(--kit-naranja-texto)' }
+    : { background: 'var(--kit-hover)', color: 'var(--color-text-tertiary)' };
   return (
     <div id={id} role="status" className="flex items-start gap-2 rounded-lg px-3 py-2 text-sm font-medium" style={estilo}>
-      <Info size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+      <Icono nombre="ayuda" size={16} className="mt-0.5 shrink-0" />
       <div className="min-w-0 space-y-0.5">{children}</div>
     </div>
   );
@@ -210,7 +211,7 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
           </p>
           {errorFactura === 'red' && archivo && (
             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => { void enviarFactura(archivo); }}>
-              <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="reintento" size={16} className="shrink-0" />
               Reintentar
             </button>
           )}
@@ -258,7 +259,7 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
         <form id={ID_FORM} ref={formRef} aria-label="Datos del propietario" noValidate onSubmit={onSubmit} aria-busy={creando || undefined}>
           {errorCrear && (
             <div role="alert" className="mb-3 flex flex-wrap items-center gap-3 text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
-              <CircleAlert size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="exclamacion" size={16} className="shrink-0" />
               <p className="min-w-0 flex-1 basis-48">
                 {errorCrear === 'runt'
                   ? 'El documento no corresponde al registrado en el RUNT para este vehículo. Revise el número de documento.'
@@ -266,7 +267,7 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
               </p>
               {errorCrear === 'red' && (
                 <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} disabled={creando} onClick={() => { void crear(); }}>
-                  <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+                  <Icono nombre="reintento" size={16} className="shrink-0" />
                   Reintentar
                 </button>
               )}
@@ -292,7 +293,7 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
               aria-disabled={!completo || creando || undefined} aria-busy={creando || undefined}
               aria-describedby={!completo ? 'completar-razon' : undefined}
               onClick={(ev) => { if (!completo || creando) { ev.preventDefault(); if (!creando) void crear(); } }}>
-              {creando && <Loader2 size={16} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />}
+              {creando && <Girador className="shrink-0" />}
               {creando ? 'Creando solicitud…' : 'Crear solicitud'}
             </button>
           </div>)}

@@ -8,7 +8,7 @@
 // Los inválidos no viajan, no bloquean el envío y no suman a la frase de faltantes del alta (AC3):
 // se pintan aparte, con su motivo, y se pueden descartar de la vista. Copy del alta: **usted**.
 import { useRef } from 'react';
-import { Paperclip, TriangleAlert, Upload, X } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import FlitUploadBox from '../../flit/FlitUploadBox';
 import StatusChip from '../../flit/StatusChip';
 import { flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../../flit/flitPageKit';
@@ -88,9 +88,9 @@ export default function DocumentosAdicionalesSelector({
         </>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <label className={`${flitBtnSecondary} w-full justify-center focus-within:shadow-[0_0_0_3px_var(--kit-azul)] sm:w-auto ${deshabilitado ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+          <label className={`${flitBtnSecondary} w-full justify-center focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[color:var(--kit-azul)] sm:w-auto ${deshabilitado ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
             style={flitBtnSecondaryStyle}>
-            <Upload size={16} aria-hidden="true" className="shrink-0" />
+            <Icono nombre="nube-subir" size={16} className="shrink-0" />
             Elegir más archivos
             <input
               type="file" multiple accept={ACCEPT_ADICIONALES} className="sr-only" disabled={deshabilitado}
@@ -123,7 +123,7 @@ export default function DocumentosAdicionalesSelector({
                     <button type="button" data-quitar={e.clave} aria-label={`Quitar ${e.archivo.name}`} title={`Quitar ${e.archivo.name}`}
                       className={BOTON_ICONO} disabled={deshabilitado} style={{ color: 'var(--color-text-secondary)' }}
                       onClick={() => quitar(e.clave, ok)}>
-                      <X size={16} aria-hidden="true" />
+                      <Icono nombre="cerrar" size={16} />
                     </button>
                   </div>
                   <div>
@@ -155,7 +155,7 @@ export default function DocumentosAdicionalesSelector({
           <ul className="divide-y rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
             {malos.map((e) => (
               <li key={e.clave} className="flex items-start gap-2 p-3" style={{ borderColor: 'var(--color-border)' }}>
-                <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--kit-rojo-texto)' }} />
+                <Icono nombre="alerta" size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--kit-rojo-texto)' }} />
                 <div className="min-w-0 flex-1">
                   <p title={e.archivo.name} className="truncate text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
                     {e.archivo.name}
@@ -166,7 +166,7 @@ export default function DocumentosAdicionalesSelector({
                 <button type="button" data-quitar={e.clave} aria-label={`Descartar ${e.archivo.name}`} title={`Descartar ${e.archivo.name}`}
                   className={BOTON_ICONO} disabled={deshabilitado} style={{ color: 'var(--color-text-secondary)' }}
                   onClick={() => quitar(e.clave, malos)}>
-                  <X size={16} aria-hidden="true" />
+                  <Icono nombre="cerrar" size={16} />
                 </button>
               </li>
             ))}
@@ -188,7 +188,7 @@ export function BloqueDocumentosAdicionales({ value, onChange, factura }: {
   return (
     <Seccion
       titulo={TITULO_BLOQUE_ADICIONALES}
-      icono={<Paperclip size={18} aria-hidden="true" className="shrink-0" />}
+      icono={<Icono nombre="archivo" size={18} className="shrink-0" />}
       chip={n > 0 ? <StatusChip tone="neutral">{`${n} para adjuntar`}</StatusChip> : undefined}
     >
       <DocumentosAdicionalesSelector

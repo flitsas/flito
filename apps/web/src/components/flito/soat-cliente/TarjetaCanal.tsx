@@ -3,7 +3,7 @@
 // ── Tarjeta NEUTRA, no banda de error, y nunca `NoAccess` ───────────────────────────────────────
 //
 // Que la compañía no tenga el canal encendido **no es un fallo del usuario ni del sistema**: es una
-// opción comercial de su empresa. Por eso tinta `--flit-text-secondary`, cero rojo y cero icono de
+// opción comercial de su empresa. Por eso tinta el rol de texto secundario, cero rojo y cero icono de
 // alerta — y por eso tampoco es `NoAccess`, cuyo «No tienes acceso a SOAT» sería sencillamente
 // falso: el permiso lo tiene, lo que no tiene su compañía es el canal.
 //

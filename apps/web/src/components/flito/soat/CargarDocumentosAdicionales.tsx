@@ -8,7 +8,7 @@
 // Nada aquí es primario (§2): el detalle ya tiene la primaria del caso. Error = el panel sigue
 // abierto con la elección intacta (AC6). Candado por `ref` contra el doble envío (AC7).
 import { useEffect, useId, useRef, useState } from 'react';
-import { RotateCw, Upload } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import type { ResultadoDocumentosAdicionales } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
@@ -83,7 +83,7 @@ export default function CargarDocumentosAdicionales({ soatId, onCancelar, onCarg
           <p className="min-w-0 flex-1 basis-48 break-words text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error.texto}</p>
           {error.reintentable && (
             <button type="button" className={BOTON} style={flitBtnSecondaryStyle} disabled={enviando} onClick={() => { void cargar(); }}>
-              <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="reintento" size={16} className="shrink-0" />
               Reintentar
             </button>
           )}
@@ -103,7 +103,7 @@ export default function CargarDocumentosAdicionales({ soatId, onCancelar, onCarg
           aria-label={enviando ? undefined : n === 1 ? 'Cargar 1 documento' : `Cargar ${n} documentos`}
           onClick={() => { void cargar(); }}
         >
-          <Upload size={16} aria-hidden="true" className="shrink-0" />
+          <Icono nombre="nube-subir" size={16} className="shrink-0" />
           {enviando ? 'Cargando…' : `Cargar ${n}`}
         </button>
       </div>

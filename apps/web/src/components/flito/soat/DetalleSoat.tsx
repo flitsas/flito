@@ -15,7 +15,7 @@ import FlitSelect from '../../flit/FlitSelect';
 import { opcionesConEstado } from '../../flit/opcionesConEstado';
 import { SOAT_REINTENTO, mensajeSelectorSoat, type CatalogoSelector } from '../../clientes/proveedoresDatos';
 import { useState, type ReactNode, type RefObject } from 'react';
-import { Eye, FileUp, Lock, TriangleAlert } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import { ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { api, ApiError } from '../../../lib/api';
 import FlitModal from '../../flit/FlitModal';
@@ -149,7 +149,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
         {soat.motivoRechazo && (
           <div className="rounded-lg border p-3" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
             <p className="flex items-center gap-2 font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
-              <TriangleAlert size={18} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="alerta" size={18} className="shrink-0" />
               Motivo de la novedad
             </p>
             <p className="mt-1" style={{ color: 'var(--color-text-primary)' }}>{soat.motivoRechazo}</p>
@@ -163,7 +163,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
         {soloLectura && (
           <div role="status" className="flex items-center gap-2 rounded-lg p-3"
             style={{ background: 'var(--color-surface)', color: 'var(--color-action)' }}>
-            <Lock size={16} aria-hidden="true" className="shrink-0" />
+            <Icono nombre="candado" size={16} className="shrink-0" />
             Solo lectura · Auditoría observa, no ejecuta acciones.
           </div>
         )}
@@ -180,7 +180,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
               // podía enfocar y la acción primaria del gestor no se alcanzaba sin ratón (D6).
               <label className={`${flitBtnPrimary} cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-[color:var(--kit-azul)]`}
                 style={flitBtnPrimaryStyle}>
-                <FileUp size={16} aria-hidden="true" className="shrink-0" />
+                <Icono nombre="archivo-subir" size={16} className="shrink-0" />
                 {enviando ? 'Cargando…' : 'Cargar comprobante de SOAT'}
                 <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="sr-only" disabled={enviando}
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) subirFactura(f); e.target.value = ''; }} />
@@ -203,7 +203,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
         <Seccion titulo="Comprobante">
           <div className="flex flex-wrap items-start gap-2">
             <button type="button" className={flitBtnSecondary} onClick={() => setVerSoportes(true)}>
-              <Eye size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="ojo" size={16} className="shrink-0" />
               Ver soporte
             </button>
             {descarga && <BotonComprobanteDetalle soat={soat} descarga={descarga} />}
