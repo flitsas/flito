@@ -181,7 +181,8 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     const g1 = (await grupo(page, 'flit1').boundingBox())!;
     const g2 = (await grupo(page, 'flit2').boundingBox())!;
     expect(g2.x).toBeGreaterThan(g1.x + g1.width - 1);
-    expect((await sw(page, 'flit1').boundingBox())!.height).toBe(40);
+    // Kit 2026: el interruptor mide 68×36 (kit-interruptor).
+    expect((await sw(page, 'flit1').boundingBox())!.height).toBe(36);
     await expect(grupo(page, 'flit1').getByText('Elegir fecha')).toHaveCount(0);
     await expect(grupo(page, 'flit1').getByText('Desde', { exact: true })).toHaveCount(0);
     await abrirParams(page);
@@ -265,7 +266,7 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     const error = page.getByTestId('error-interruptores');
     await expect(error).toContainText('No se pudo consultar los interruptores de sincronización.');
     await expect(error).toHaveAttribute('role', 'alert');
-    expect(await error.getAttribute('style')).toContain('--flit-danger-text');
+    expect(await error.getAttribute('style')).toContain('--kit-rojo-texto');
     await expect(page.getByRole('switch')).toHaveCount(0);
     await expect(page.getByText(CRUDO)).toHaveCount(0);
     // Resumen neutro: no adivina el valor; el error con reintento vive dentro.
@@ -372,7 +373,8 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await mockear(page);
       await abrir(page);
       const s = sw(page, 'flit1');
-      const fondo = () => s.evaluate((e) => getComputedStyle(e).backgroundColor);
+      // Kit 2026: el hover del interruptor oscurece el glifo con filter (no cambia el fondo).
+      const fondo = () => s.evaluate((e) => getComputedStyle(e).filter);
       const reposo = await fondo();
       await s.hover();
       await expect.poll(fondo).not.toBe(reposo);
@@ -389,7 +391,8 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       expect(await anillo(s)).toBe(true);
       // HU #13680 (AC2): «Parámetros de lectura» con hover sutil y foco visible.
       const bp = botonParams(page);
-      const aspecto = () => bp.evaluate((e) => { const c = getComputedStyle(e); return `${c.backgroundColor}|${c.borderColor}|${c.color}`; });
+      // Kit 2026: el hover de la píldora es brightness (filter); se compara junto con los colores.
+      const aspecto = () => bp.evaluate((e) => { const c = getComputedStyle(e); return `${c.backgroundColor}|${c.borderColor}|${c.color}|${c.filter}`; });
       const aspectoReposo = await aspecto();
       await bp.hover();
       await expect.poll(aspecto).not.toBe(aspectoReposo);
