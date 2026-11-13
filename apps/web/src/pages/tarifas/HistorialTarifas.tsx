@@ -15,7 +15,7 @@ import FlitAcordeon from '../../components/flit/FlitAcordeon';
 import RangoFechas, { type Rango } from '../../components/flit/RangoFechas';
 import StatusChip from '../../components/flit/StatusChip';
 import {
-  FlitEmpty, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr, flitBtnSecondary, flitBtnSecondaryStyle,
+  FlitEmpty, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr, flitBtnSecondary,
 } from '../../components/flit/flitPageKit';
 
 export type FiltroHistorial = LlaveTarifa | 'todos';
@@ -102,12 +102,12 @@ export default function HistorialTarifas({ companiaId, companiaNombre, abierto, 
 
           {error ? (
             <div className="flex flex-wrap items-center gap-3">
-              <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>No se pudo cargar el historial. {error}</p>
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setReintento((n) => n + 1)}>Reintentar</button>
+              <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>No se pudo cargar el historial. {error}</p>
+              <button type="button" className={flitBtnSecondary} onClick={() => setReintento((n) => n + 1)}>Reintentar</button>
             </div>
           ) : filas === null ? (
             <div role="status" aria-busy="true" aria-label="Cargando el historial" className="space-y-2">
-              {[0, 1, 2].map((i) => <div key={i} className="h-8 animate-pulse rounded" style={{ background: 'var(--flit-bg-table-header)' }} />)}
+              {[0, 1, 2].map((i) => <div key={i} className="kit-esqueleto h-8" />)}
             </div>
           ) : filas.length === 0 ? (
             <FlitEmpty>
@@ -119,16 +119,16 @@ export default function HistorialTarifas({ companiaId, companiaNombre, abierto, 
                   </p>
                   <div className="flex flex-wrap justify-center gap-2">
                     {rango.desde && (
-                      <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setRango(SIN_RANGO)}>Quitar el rango</button>
+                      <button type="button" className={flitBtnSecondary} onClick={() => setRango(SIN_RANGO)}>Quitar el rango</button>
                     )}
                     {!conTodos && (
-                      <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => onFiltro('todos')}>Ver todos los trámites</button>
+                      <button type="button" className={flitBtnSecondary} onClick={() => onFiltro('todos')}>Ver todos los trámites</button>
                     )}
                   </div>
                 </div>
               ) : (
                 <>
-                  <p style={{ color: 'var(--flit-text-primary)' }}>Este cliente todavía no tiene ninguna vigencia.</p>
+                  <p style={{ color: 'var(--color-text-primary)' }}>Este cliente todavía no tiene ninguna vigencia.</p>
                   <p className="mt-1">Cuando se fije un valor, aquí quedará cada cambio con quién lo hizo y cuándo.</p>
                 </>
               )}
@@ -148,10 +148,10 @@ export default function HistorialTarifas({ companiaId, companiaNombre, abierto, 
               <tbody>
                 {filas.map((v) => (
                   <FlitTr key={v.id}>
-                    {conTodos && <td className={`${celda} font-medium`} style={{ color: 'var(--flit-text-primary)' }}>{etiquetaLlave(v)}</td>}
-                    <td className={`${celda} tabular-nums`} style={{ color: 'var(--flit-text-primary)' }}>{pesosTarifa(v.valor)}</td>
-                    <td className={celda} style={{ color: 'var(--flit-text-secondary)' }}>{fechaHoraCorta(v.vigenteDesde)}</td>
-                    <td className={celda} style={{ color: 'var(--flit-text-secondary)' }}>
+                    {conTodos && <td className={`${celda} font-medium`} style={{ color: 'var(--color-text-primary)' }}>{etiquetaLlave(v)}</td>}
+                    <td className={`${celda} tabular-nums`} style={{ color: 'var(--color-text-primary)' }}>{pesosTarifa(v.valor)}</td>
+                    <td className={celda} style={{ color: 'var(--color-text-secondary)' }}>{fechaHoraCorta(v.vigenteDesde)}</td>
+                    <td className={celda} style={{ color: 'var(--color-text-secondary)' }}>
                       {v.vigenteHasta === null ? <StatusChip tone="success">Vigente</StatusChip> : fechaHoraCorta(v.vigenteHasta)}
                     </td>
                     <td className={celda}>
@@ -159,7 +159,7 @@ export default function HistorialTarifas({ companiaId, companiaNombre, abierto, 
                     </td>
                     <td className={celda}>
                       {v.cerradoPor === null && v.cerradoEn === null
-                        ? <span style={{ color: 'var(--flit-text-muted)' }}>—</span>
+                        ? <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
                         : <Persona ref_={v.cerradoPor} cuando={v.cerradoEn} />}
                     </td>
                   </FlitTr>
@@ -178,8 +178,8 @@ function Persona({ ref_, cuando }: { ref_: VigenciaHistorial['fijadoPor']; cuand
   const retirado = ref_ !== null && ref_.nombre === null;
   return (
     <div className="flex flex-col">
-      <span style={{ color: retirado ? 'var(--flit-text-muted)' : 'var(--flit-text-primary)' }}>{nombreUsuario(ref_)}</span>
-      <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{fechaHoraCorta(cuando)}</span>
+      <span style={{ color: retirado ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)' }}>{nombreUsuario(ref_)}</span>
+      <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{fechaHoraCorta(cuando)}</span>
     </div>
   );
 }

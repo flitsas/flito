@@ -19,7 +19,7 @@ import {
 import FlitModal from '../../components/flit/FlitModal';
 import { GrupoLogistica, SIN_CONFIGURAR, type Edicion, type PanelProps } from './PanelLogistica';
 import {
-  flitInp, FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+  flitInp, FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnSecondary, flitBtnDanger,
   flitBtnSecondarySm,
 } from '../../components/flit/flitPageKit';
 
@@ -188,7 +188,7 @@ export default function MatrizTarifas({ vista, refrescando, onGuardado, onHistor
   return (
     <>
       {alerta && (
-        <p role="alert" className="mb-3 text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>{alerta}</p>
+        <p role="alert" className="mb-3 text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>{alerta}</p>
       )}
       <FlitTable label={`Valores de ${companiaNombre}`}>
         <thead>
@@ -236,27 +236,27 @@ export default function MatrizTarifas({ vista, refrescando, onGuardado, onHistor
         </tbody>
       </FlitTable>
       {panelesLogistica.length > 0 && <GrupoLogistica gestionaFlito={gestionaFlito} paneles={panelesLogistica} />}
-      <p className="mt-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{NOTA_PIE}</p>
+      <p className="mt-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{NOTA_PIE}</p>
 
       {modalCero && (
         <FlitModal
           title={`Cobrar cero por ${etiquetaLlave(modalCero.fila)}`}
           onClose={() => { setModalCero(null); requestAnimationFrame(() => input.current?.focus()); }}
         >
-          <div className="space-y-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <div className="space-y-3 text-sm" style={{ color: 'var(--color-text-primary)' }}>
             <p>
               {companiaNombre} pasará a pagar $0 por «{etiquetaLlave(modalCero.fila)}» desde ahora.
             </p>
-            <p style={{ color: 'var(--flit-text-secondary)' }}>
+            <p style={{ color: 'var(--color-text-secondary)' }}>
               Cero no es lo mismo que «Sin configurar»: con $0 el trámite se liquida y suma cero; sin configurar,
               no se puede liquidar. Si lo que quieres es no cobrar este trámite, usa «Dejar de cobrar».
             </p>
             <div className="flex flex-wrap justify-end gap-2 pt-1">
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+              <button type="button" className={flitBtnSecondary}
                 onClick={() => { setModalCero(null); requestAnimationFrame(() => input.current?.focus()); }}>
                 Cancelar
               </button>
-              <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              <button type="button" className={flitBtnPrimary}
                 onClick={() => { const m = modalCero; setModalCero(null); void guardar(m.fila, 0, true); }}>
                 Cobrar $0
               </button>
@@ -319,18 +319,18 @@ function FilaTarifa(p: FilaProps) {
         // Cabecera de grupo como TÍTULO y no como `<th scope="rowgroup">`: Chromium expone ese `th`
         // como `rowheader`, y la matriz dejaría de tener «exactamente cuatro» cabeceras de fila
         // (nota 1 de QA). Un encabezado de nivel 3 se navega igual y no se confunde con una fila.
-        <tr className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <tr className="border-t" style={{ borderColor: 'var(--color-border)' }}>
           <td colSpan={5} className="px-4 pb-1 pt-3">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{p.grupo}</h3>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>{p.grupo}</h3>
           </td>
         </tr>
       )}
       <FlitTr>
         <th scope="row" tabIndex={-1} ref={p.registrarCabecera} data-vigencia={fila.vigenciaId ?? undefined}
-          className={`${celdaTexto} flit-focus text-left font-medium`} style={{ color: 'var(--flit-text-primary)' }}>
+          className={`${celdaTexto} flit-focus text-left font-medium`} style={{ color: 'var(--color-text-primary)' }}>
           {etiqueta}
         </th>
-        <td className={`${celdaTexto} tabular-nums`} style={{ color: tieneValor ? 'var(--flit-text-primary)' : 'var(--flit-text-muted)' }}>
+        <td className={`${celdaTexto} tabular-nums`} style={{ color: tieneValor ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
           {enEdicion ? (
             <div className="flex flex-col gap-1">
               <label htmlFor={`${idMensaje}-valor`} className="sr-only">Valor de {sujeto}</label>
@@ -353,25 +353,25 @@ function FilaTarifa(p: FilaProps) {
                 />
               </div>
               {tieneValor && (
-                <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Antes: {pesosTarifa(fila.valor as number)}</span>
+                <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Antes: {pesosTarifa(fila.valor as number)}</span>
               )}
               {mensaje && (
-                <p id={idMensaje} role="alert" className="text-xs font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>{mensaje}</p>
+                <p id={idMensaje} role="alert" className="text-xs font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>{mensaje}</p>
               )}
             </div>
           ) : tieneValor ? pesosTarifa(fila.valor as number) : SIN_CONFIGURAR}
         </td>
-        <td className={celdaTexto} style={{ color: 'var(--flit-text-secondary)' }}>{tieneValor ? textoColumnaDesde(fila.vigenteDesde) : '—'}</td>
-        <td className={celdaTexto} style={{ color: 'var(--flit-text-secondary)' }}>{tieneValor ? nombreUsuario(fila.fijadoPor) : '—'}</td>
+        <td className={celdaTexto} style={{ color: 'var(--color-text-secondary)' }}>{tieneValor ? textoColumnaDesde(fila.vigenteDesde) : '—'}</td>
+        <td className={celdaTexto} style={{ color: 'var(--color-text-secondary)' }}>{tieneValor ? nombreUsuario(fila.fijadoPor) : '—'}</td>
         <td className={celdaTexto}>
           <div className="flex flex-wrap justify-end gap-2">
             {enEdicion ? (
               <>
-                <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={!guardable}
+                <button type="button" className={flitBtnPrimary} disabled={!guardable}
                   aria-label={`Guardar · ${sujeto}`} onClick={p.onGuardar}>
                   {enEdicion.guardando ? 'Guardando…' : 'Guardar'}
                 </button>
-                <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enEdicion.guardando}
+                <button type="button" className={flitBtnSecondary} disabled={enEdicion.guardando}
                   aria-label={`Cancelar · ${sujeto}`} onClick={p.onCancelar}>
                   Cancelar
                 </button>
@@ -379,19 +379,19 @@ function FilaTarifa(p: FilaProps) {
             ) : (
               <>
                 {p.editar && (
-                  <button type="button" ref={p.registrarBoton} className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}
+                  <button type="button" ref={p.registrarBoton} className={flitBtnSecondarySm}
                     disabled={p.bloqueado} aria-label={`${tieneValor ? 'Cambiar' : 'Fijar valor'} · ${sujeto}`} onClick={p.onAbrir}>
                     {tieneValor ? 'Cambiar' : 'Fijar valor'}
                   </button>
                 )}
                 {p.verHistorial && (
-                  <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}
+                  <button type="button" className={flitBtnSecondarySm}
                     disabled={p.bloqueado} aria-label={`Historial · ${sujeto}`} onClick={p.onHistorial}>
                     Historial
                   </button>
                 )}
                 {p.editar && tieneValor && (
-                  <button type="button" className={flitBtnSecondarySm} style={{ ...flitBtnSecondaryStyle, color: 'var(--flit-danger-ink)' }}
+                  <button type="button" className={flitBtnSecondarySm} style={{ color: 'var(--kit-naranja-texto)' }}
                     disabled={p.bloqueado} aria-label={`Dejar de cobrar · ${sujeto}`} onClick={p.onDejarDeCobrar}>
                     Dejar de cobrar
                   </button>
@@ -414,21 +414,20 @@ function ModalDejarDeCobrar({ fila, companiaNombre, restoreFocusRef, onClose, on
   const esLogistica = esConceptoLogistica(fila.concepto);
   return (
     <FlitModal title={`Dejar de cobrar ${etiqueta}`} onClose={onClose} restoreFocusRef={restoreFocusRef}>
-      <div className="space-y-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <div className="space-y-3 text-sm" style={{ color: 'var(--color-text-primary)' }}>
         <p>
           {companiaNombre} deja de tener valor de «{etiqueta}» desde ahora. La vigencia de {pesosTarifa(fila.valor ?? 0)} queda
           cerrada en el historial, con tu nombre y la hora.
         </p>
-        <p style={{ color: 'var(--flit-text-secondary)' }}>
+        <p style={{ color: 'var(--color-text-secondary)' }}>
           {esLogistica ? 'Sus entregas nuevas' : 'Sus trámites nuevos de este tipo'} saldrán como «Sin configurar» en el reporte de costos y no se
           podrán liquidar hasta que se fije un valor otra vez. Lo ya liquidado no cambia.
         </p>
         <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose} disabled={enviando}>Cancelar</button>
-          {/* Rojo y no gradiente: desde este clic los trámites dejan de poder liquidarse. Es la variante
-              TINTA del rojo (`--flit-danger-ink`) y no la superficie: con texto blanco, `--flit-danger`
-              se queda en 3,9:1 y axe lo marca como serio (misma lección del Bug #11604). */}
-          <button type="button" className={flitBtnPrimary} style={{ background: 'var(--flit-danger-ink)' }} disabled={enviando}
+          <button type="button" className={flitBtnSecondary} onClick={onClose} disabled={enviando}>Cancelar</button>
+          {/* Botón destructivo del kit (naranja `--kit-naranja-boton`, texto blanco AA): desde este clic
+              los trámites dejan de poder liquidarse. */}
+          <button type="button" className={flitBtnDanger} disabled={enviando}
             onClick={() => { setEnviando(true); onConfirmar(); }}>
             Dejar de cobrar
           </button>
