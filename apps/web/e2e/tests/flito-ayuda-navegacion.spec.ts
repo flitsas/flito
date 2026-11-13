@@ -428,7 +428,7 @@ test.describe('FLITO — Ayuda · árbol lateral de fichas (HU #13896)', () => {
     expect(await page.evaluate(() => (window as unknown as { __sinRecarga?: number }).__sinRecarga)).toBe(1);
     await expect(arbol(page).locator('[aria-current="page"]')).toHaveText(entrada(destino).etiqueta);
 
-    await expect(page.getByRole('link', { name: '← Volver al índice' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Volver al índice', exact: true })).toBeVisible();
     const i = claves.indexOf(destino);
     const nav = page.getByRole('navigation', { name: 'Navegación entre fichas' });
     if (i > 0) await expect(nav.getByRole('link', { name: `Ficha anterior: ${entrada(claves[i - 1]).etiqueta}` })).toBeVisible();
@@ -472,7 +472,7 @@ test.describe('FLITO — Ayuda · árbol lateral de fichas (HU #13896)', () => {
     // Plegar el grupo actual está permitido; al volver a abrir una ficha de Gestión se fuerza desplegado.
     await grupoBtn(page, 'Gestión').click();
     await expect(grupoBtn(page, 'Gestión')).toHaveAttribute('aria-expanded', 'false');
-    await page.getByRole('link', { name: '← Volver al índice' }).click();
+    await page.getByRole('link', { name: 'Volver al índice', exact: true }).click();
     await expect(arbol(page)).toHaveCount(0);
     await page.getByRole('link', { name: `Abrir ficha de ${entrada(gestion).etiqueta}`, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/flito/ayuda/${gestion}$`));

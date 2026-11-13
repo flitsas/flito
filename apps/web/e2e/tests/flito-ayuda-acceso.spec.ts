@@ -5,6 +5,17 @@ import {
   loginAs, abrirAyuda, buscarFichas, OPERACIONES_USER, PROVEEDOR_USER, CONDUCTOR_USER, COMPLIANCE_USER, FINANCIERA_USER, SIN_CATALOGO,
 } from '../helpers/ayuda-fixtures';
 
+// Rediseño S6 / shell S0 (Épica #14560): la barra lateral pasó a barra superior + dock inferior. El
+// dock reparte los módulos e Inicio; «Ayuda» vive en el menú de usuario de la barra superior (última
+// entrada antes de «Cerrar sesión»). El buscador de la barra se llama «Buscar placa, trámite o módulo».
+const BUSCADOR = /Buscar placa, trámite o módulo/;
+
+/** Abre el menú de usuario y devuelve su entrada «Ayuda». */
+async function entradaAyuda(page: import('@playwright/test').Page) {
+  await page.getByRole('button', { name: /Menú de usuario/ }).click();
+  return page.getByRole('menu', { name: 'Opciones de usuario' }).getByRole('menuitem', { name: /^Ayuda/ });
+}
+
 test.describe('FLITO — Ayuda · acceso', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -13,13 +24,16 @@ test.describe('FLITO — Ayuda · acceso', () => {
   test('AC1 — proveedor ve Ayuda FLITO como último elemento del menú y navega', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/');
-    await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: BUSCADOR })).toBeVisible();
 
+    // No se duplica en el dock: está en el menú de usuario, como su última entrada antes de salir.
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    const enlace = nav.getByRole('link', { name: 'Ayuda', exact: true });
+    await expect(nav.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
+    const enlace = await entradaAyuda(page);
     await expect(enlace).toBeVisible();
-    await expect(nav.getByRole('link').last()).toHaveAccessibleName('Ayuda');
-    await expect(enlace).toHaveAttribute('href', '/flito/ayuda');
+    const entradas = page.getByRole('menu', { name: 'Opciones de usuario' }).getByRole('menuitem');
+    await expect(entradas.last()).toHaveText('Cerrar sesión');
+    await expect(entradas.nth(-2)).toHaveText(/^Ayuda/);
     await enlace.click();
     await expect(page).toHaveURL(/\/flito\/ayuda$/);
     await expect(page.getByRole('heading', { name: 'Ayuda FLITO', exact: true })).toBeVisible();
@@ -28,7 +42,7 @@ test.describe('FLITO — Ayuda · acceso', () => {
   test('AC1 — proveedor también la encuentra en el Command Palette', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/');
-    await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: BUSCADOR })).toBeVisible();
     await page.keyboard.press('Control+k');
     await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
     await expect(page.getByRole('option', { name: /^Ayuda/ })).toBeVisible();
@@ -37,8 +51,7 @@ test.describe('FLITO — Ayuda · acceso', () => {
   test('AC1 — admin ve el ítem (Object.keys no es el gate; el helper sí)', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await page.goto('/');
-    const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await expect(nav.getByRole('link', { name: 'Ayuda', exact: true })).toBeVisible();
+    await expect(await entradaAyuda(page)).toBeVisible();
   });
 
   // HU #13775: la ficha «Tablero de control» cuelga de `dashboard`, que todos los roles del sistema salvo `cliente`
@@ -48,8 +61,8 @@ test.describe('FLITO — Ayuda · acceso', () => {
     test(`HU #13775 — ${usuario.role} ya ve Ayuda: el ítem y la ficha «Tablero de control»`, async ({ page }) => {
       await loginAs(page, usuario);
       await page.goto('/flito/ayuda');
-      const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-      await expect(nav.getByRole('link', { name: 'Ayuda', exact: true })).toBeVisible();
+      await expect(await entradaAyuda(page)).toBeVisible();
+      await page.keyboard.press('Escape');
       await expect(page.getByText('Su usuario aún no tiene módulos con ayuda')).toHaveCount(0);
       await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero de control' })).toBeVisible();
     });
@@ -72,6 +85,8 @@ test.describe('FLITO — Ayuda · acceso', () => {
     await expect(page.getByRole('searchbox', { name: 'Buscar fichas' })).toHaveCount(0);
     await expect(page).toHaveURL(/\/flito\/ayuda$/);
     await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
+    await expect(await entradaAyuda(page)).toHaveCount(0);
+    await page.keyboard.press('Escape');
 
     await page.keyboard.press('Control+k');
     await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
@@ -100,7 +115,8 @@ test.describe('FLITO — Ayuda · usuarios con enlace (HU #13914)', () => {
     await page.goto('/flito/ayuda');
     await expect(page.getByRole('link', { name: 'Abrir ficha de SOAT', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Gestión', exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toBeVisible();
+    await expect(await entradaAyuda(page)).toBeVisible();
+    await page.keyboard.press('Escape');
     await page.keyboard.press('Control+k');
     await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
     await expect(page.getByRole('option', { name: /^Ayuda/ })).toBeVisible();
