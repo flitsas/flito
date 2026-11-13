@@ -485,7 +485,7 @@ test.describe('FLITO — Comparendos · export a Excel (HU #11561, AC3..AC6)', (
     await selMunicipio(page).selectOption({ label: 'Itagüí' });
     await page.getByLabel('N.º de comparendo').fill('110010');
     await page.getByLabel('NIT monitoreado').fill('900.123.456');
-    await page.getByLabel('Placa').fill('ABC123');
+    await page.getByLabel(/^Placa/).fill('ABC123');
     await boton(page, 'Buscar').click();
     await expect.poll(() => listado.busquedas.at(-1)).toContain('q=110010');
 

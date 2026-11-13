@@ -109,6 +109,10 @@ async function mock(page: import('@playwright/test').Page, fuente: () => readonl
   });
 }
 
+/** UI Kit 2026: los filtros de la cola viven en el panel que abre «Filtros» (`PanelFiltros`). */
+const abrirFiltros = (page: import('@playwright/test').Page) =>
+  page.getByRole('button', { name: /^Filtros/ }).click();
+
 test.describe('FLITO — Impuestos', () => {
   test('operaciones lista, filtra y abre detalle', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
@@ -189,6 +193,7 @@ test.describe('FLITO — Impuestos', () => {
     await page.goto('/flito/impuestos');
     await expect(page.getByText('ABC123')).toBeVisible();
 
+    await abrirFiltros(page);
     await page.getByLabel('Gestiona').selectOption('operaciones');
     await expect(page.getByText('OPS001')).toBeVisible();
     await expect(page.getByText('ABC123')).toHaveCount(0);
@@ -258,7 +263,9 @@ test.describe('FLITO — Impuestos', () => {
     });
 
     await page.goto('/flito/impuestos');
+    await abrirFiltros(page);
     await page.getByLabel('Gestiona').selectOption('operaciones');
+    await page.getByRole('button', { name: 'Aplicar filtros' }).click();
     await page.getByRole('row').filter({ hasText: 'OPS001' }).getByRole('button', { name: 'Ver' }).click();
     const modal = page.getByRole('dialog');
     await modal.getByRole('button', { name: 'Devolver al gestor' }).click();
@@ -305,7 +312,10 @@ test.describe('FLITO — Impuestos', () => {
 
     await page.goto('/flito/impuestos');
     await expect(page.getByRole('button', { name: 'Gestionar en Operaciones' })).toHaveCount(0);
+    // Con el panel de filtros ABIERTO: cerrado, el select no existiría para nadie y el aserto no diría nada.
+    await abrirFiltros(page);
     await expect(page.getByLabel('Gestiona')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Aplicar filtros' }).click();
 
     await page.getByRole('button', { name: 'Ver' }).first().click();
     const modal = page.getByRole('dialog');
@@ -1044,6 +1054,7 @@ test.describe('FLITO — Impuestos · fases del recibo (HU #12592)', () => {
     await expect(page.getByText('ABC123')).toBeVisible();
     await expect(page.getByText(/^6 impuestos/).first()).toBeVisible();
 
+    await abrirFiltros(page);
     const casilla = page.getByRole('checkbox', { name: 'Liquidado, pendiente de pago' });
     await casilla.check();
     await expect(page.getByText('ABC123')).toHaveCount(0);

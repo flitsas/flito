@@ -1,5 +1,5 @@
-// FLITO — Comparendos: la vista de REGISTROS, que es el visor del Feature 17b (HU #11560, #11561,
-// #11562), sacado de `pages/FlitoComparendos.tsx` por la HU #11633.
+// FLITO — Comparendos: la vista de REGISTROS, que es el visor del Feature 17b (HU 11560, 11561,
+// 11562), sacado de `pages/FlitoComparendos.tsx` por la HU 11633.
 //
 // El traslado es literal: ni una línea del visor cambia de comportamiento. Lo único que se movió es
 // el marco —cabecera y pills—, que ahora lo pinta `MarcoComparendos` para que las tres pestañas de
@@ -7,7 +7,7 @@
 // la página pasa a ser el orquestador de `?vista=` y no puede además llevar el cableado del visor
 // sin acercarse al techo de 800 líneas útiles con tres vistas dentro.
 //
-// La HU #11637 cerró lo que aquí faltaba: el vacío A —«todavía no hay comparendos»— ya ofrece «Ir a
+// La HU 11637 cerró lo que aquí faltaba: el vacío A —«todavía no hay comparendos»— ya ofrece «Ir a
 // la sincronización», que es un cambio de pestaña dentro de la misma página (`irASincronizacion`,
 // más abajo). El botón vive SOLO en ese vacío y nunca en el de búsqueda: ver `irASincronizacion` y
 // el comentario del vacío B.
@@ -19,7 +19,7 @@
 // cuatro estados resueltos en un orden que importa (el ERROR antes que el vacío). La especificación,
 // columna a columna, está en `docs/ux/flito-comparendos-visor.md`.
 //
-// La HU #11559 dejó dos decisiones que esta vista HEREDA y no revisa:
+// La HU 11559 dejó dos decisiones que esta vista HEREDA y no revisa:
 //
 //   1. **La guarda de permiso vive en `App.tsx`, fuera de este componente.** `ProtectedRoute`
 //      devuelve `NoAccess` en lugar de sus hijos, así que sin la página este componente no se monta
@@ -45,7 +45,7 @@
 //     el AC no dice: al cambiar de criterio se vacía TAMBIÉN la pila, o «Anterior» desde la nueva
 //     primera página devolvería una página del listado viejo.
 //
-// La HU #11562 enganchó aquí el panel de detalle, y con él tres decisiones de cableado:
+// La HU 11562 enganchó aquí el panel de detalle, y con él tres decisiones de cableado:
 //
 //   · **El número de comparendo pasó de texto a botón.** Deja de ser cierto que «un botón que no
 //     abre nada es peor que ninguno»: ya abre. Sigue siendo UNO por fila y ninguno más, que es lo
@@ -57,7 +57,7 @@
 //     panel ya no está en el DOM al cerrarlo. Sin él, `.focus()` sobre ese nodo desmontado no hace
 //     nada y el foco se queda en `<body>` (nota QA #63).
 //
-// La HU #11561 cerró el Feature colgando de aquí lo que faltaba —los cuatro filtros de la #11555 y
+// La HU 11561 cerró el Feature colgando de aquí lo que faltaba —los cuatro filtros de la 11555 y
 // la descarga en Excel— y con ello dos decisiones de cableado:
 //
 //   · **El export lee `criterios`, que es lo APLICADO, no lo escrito en la barra.** Si hay un NIT a
@@ -95,7 +95,7 @@ import {
  * Resumen de lo que estaba puesto cuando no hubo resultados. Es lo que convierte «no hay nada» en
  * «no hay nada DE ESTO», que es una conclusión muy distinta y la única accionable.
  *
- * **Enumera los OCHO criterios, no cuatro.** Hasta la HU #11561 listaba solo estado, número, NIT y
+ * **Enumera los OCHO criterios, no cuatro.** Hasta la HU 11561 listaba solo estado, número, NIT y
  * placa, que era todo lo que la barra sabía poner; con los cuatro filtros nuevos en pantalla, un
  * vacío provocado por un municipio o una causal se anunciaba como «Filtros puestos:» seguido de
  * nada, o —peor— repitiendo solo los otros, que es afirmar que se buscó algo distinto de lo que se
@@ -116,7 +116,7 @@ function resumenCriterios(c: CriteriosComparendos, catalogos: CatalogosComparend
 }
 
 /**
- * «Ir a la sincronización» (HU #11637): cambia de pestaña y deja el foco en «Sincronizar ahora».
+ * «Ir a la sincronización» (HU 11637): cambia de pestaña y deja el foco en «Sincronizar ahora».
  *
  * Dos cosas que no se ven en el JSX:
  *
@@ -166,7 +166,7 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
   const exportacion = useExportComparendos(criterios);
 
   /**
-   * «Quitar los filtros» del vacío por búsqueda (Bug #11648).
+   * «Quitar los filtros» del vacío por búsqueda (Bug 11648).
    *
    * No basta con vaciar los criterios. Los borradores de la barra son estado SUYO: se inicializan
    * desde `criterios` al montarse y no se resincronizan después. Llamando solo a `limpiar`, el
@@ -222,7 +222,7 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
           : 'No hay comparendos registrados.';
 
   return (
-    // La cabecera y las pills las pinta el marco (HU #11633); el título y el subtítulo de esta
+    // La cabecera y las pills las pinta el marco (HU 11633); el título y el subtítulo de esta
     // vista viven allí porque son los de la pantalla, no los del listado. Lo que sigue siendo de
     // aquí es el slot de ACCIONES: el export lee `criterios`, que es estado de esta vista.
     <MarcoComparendos
@@ -233,7 +233,7 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
           {/* El tope se anuncia ANTES de fallar, pero SIN cifra: el máximo de filas es
               configurable por entorno y cualquier número escrito aquí puede ser falso en cualquier
               despliegue. Cuando el tope se alcanza, el 422 trae el número de verdad. */}
-          <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             Se exporta el conjunto filtrado que estás viendo, no solo esta página.
           </span>
         </div>
@@ -265,7 +265,7 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
           ref={encabezadoResultadosRef}
           tabIndex={-1}
           className="flit-focus sr-only rounded focus:not-sr-only focus:mb-3 focus:block focus:text-sm focus:font-semibold"
-          style={{ color: 'var(--flit-text-primary)' }}
+          style={{ color: 'var(--color-text-primary)' }}
         >
           Lista de comparendos
         </h2>
@@ -275,10 +275,10 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
             comprobó. Por el mismo motivo, bajo el error no se deja pintada una tabla anterior. */}
         {error && (
           <div role="alert" className="flex flex-wrap items-center justify-between gap-3">
-            {/* `--flit-danger` es color de superficie: como texto de 14px sobre la tarjeta blanca
-                se queda en 4,19 (axe lo marca `serious`). La variante tinta del bug #11604 sube a
+            {/* `--kit-rojo` es color de superficie: como texto de 14px sobre la tarjeta blanca
+                se queda en 4,19 (axe lo marca `serious`). La variante tinta del bug 11604 sube a
                 5,71 sin cambiar la lectura del mensaje: sigue siendo rojo de error. */}
-            <p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error.texto}</p>
+            <p className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error.texto}</p>
             {error.accion && (
               <button
                 type="button"
@@ -292,7 +292,7 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
           </div>
         )}
 
-        {/* El esqueleto recibe el MISMO `mostrarInactivado` que la tabla llena (HU #11713, AC6):
+        {/* El esqueleto recibe el MISMO `mostrarInactivado` que la tabla llena (HU 11713, AC6):
             el filtro se conoce antes de que la petición responda, y sin él el encabezado saltaría de
             trece a catorce columnas al llegar los datos con «Inactivos» puesto. */}
         {cargando && <TablaComparendosCargando mostrarInactivado={criterios.estado === 'inactivo'} />}
@@ -301,10 +301,10 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
           <FlitEmpty>
             {filtrado ? (
               // Vacío B: el filtro no arroja nada. **Sin «Ir a la sincronización»** (AC2 de la HU
-              // #11637): aquí sí hay comparendos en el módulo, lo que no hay es coincidencias, y
+              // 11637): aquí sí hay comparendos en el módulo, lo que no hay es coincidencias, y
               // mandar a sincronizar sería proponer una corrida de dos minutos para arreglar un
               // filtro. La acción de este vacío es quitarlo.
-              <div className="space-y-3" style={{ color: 'var(--flit-text-secondary)' }}>
+              <div className="space-y-3" style={{ color: 'var(--color-text-secondary)' }}>
                 <p className="font-semibold">Ningún comparendo coincide con lo que buscaste.</p>
                 <p>Filtros puestos: {resumenCriterios(criterios, catalogos)}</p>
                 {/* Solo con NIT o placa: con un filtro de estado o de número, esta frase sería ruido.
@@ -330,12 +330,12 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
                     comparendo sí busca por fragmento.
                   </p>
                 )}
-                {/* Solo con el filtro de MUNICIPIO puesto (HU #11795), y condicionada por la misma
+                {/* Solo con el filtro de MUNICIPIO puesto (HU 11795), y condicionada por la misma
                     razón que la frase de arriba: con cualquier otro filtro esto es ruido.
 
-                    Lo que decía hasta la HU #11879 —«los comparendos que solo reportó SIMIT no
+                    Lo que decía hasta la HU 11879 —«los comparendos que solo reportó SIMIT no
                     tienen municipio, así que no aparecen con este filtro»— era la consecuencia
-                    contraintuitiva de la #11795 y es FALSO desde la #11878: el filtro compara
+                    contraintuitiva de la 11795 y es FALSO desde la 11878: el filtro compara
                     `municipioComparendo`, que el sync deriva del organismo cuando no hubo consulta
                     municipal, y esas filas SÍ salen.
 
@@ -369,10 +369,10 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
             ) : (
               // Vacío A: no hay datos en el módulo, no es que la búsqueda no encuentre nada. Aquí
               // —y solo aquí— el CTA tiene sentido: lo que falta es una corrida, y la pestaña que la
-              // dispara existe desde la HU #11633. Va en PRIMARIO porque es la única acción posible
+              // dispara existe desde la HU 11633. Va en PRIMARIO porque es la única acción posible
               // en esta pantalla mientras no haya datos (el vacío B tiene la suya, «Quitar los
               // filtros», y son excluyentes porque lo son las dos ramas de este ternario).
-              <div className="space-y-3" style={{ color: 'var(--flit-text-secondary)' }}>
+              <div className="space-y-3" style={{ color: 'var(--color-text-secondary)' }}>
                 <p>
                   Todavía no hay comparendos registrados. Aparecen aquí después de una sincronización
                   con SIMIT y con los municipios configurados; si acabas de dar de alta los NIT que se

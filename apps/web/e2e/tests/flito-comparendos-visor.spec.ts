@@ -200,7 +200,7 @@ const boton = (page: Page, nombre: string) => page.getByRole('button', { name: n
 
 const campoNumero = (page: Page) => page.getByLabel('N.º de comparendo');
 const campoNit = (page: Page) => page.getByLabel('NIT monitoreado');
-const campoPlaca = (page: Page) => page.getByLabel('Placa');
+const campoPlaca = (page: Page) => page.getByLabel(/^Placa/);
 
 test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
   test.use({ viewport: { width: 1600, height: 900 } });

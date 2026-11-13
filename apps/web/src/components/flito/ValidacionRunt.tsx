@@ -509,6 +509,7 @@ export function ReintentarValidacion({ fila, principal, onEncolado, onYaCertific
       )}
       {!fallo?.efecto && (
         <button type="button" onClick={reintentar} disabled={enviando} aria-busy={enviando}
+          data-variante={principal ? 'primario' : 'secundario'}
           className={principal ? flitBtnPrimary : flitBtnSecondary}
           style={principal ? flitBtnPrimaryStyle : flitBtnSecondaryStyle}>
           {enviando

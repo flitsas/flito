@@ -1,4 +1,4 @@
-// FLITO — Comparendos: el estado de la lista (HU #11560, Feature #11495 17b).
+// FLITO — Comparendos: el estado de la lista (HU 11560, Feature 11495 17b).
 //
 // Aquí vive todo lo que la pantalla necesita saber para pedir una página y nada de cómo se pinta:
 // los criterios, la elección de ruta `GET`/`POST`, el cursor y los cuatro estados. La spec de UX
@@ -11,7 +11,7 @@
 //   · **El cursor se manda tal cual llegó**: opaco, sin construir, sin decodificar y sin recortar.
 //   · **Ni el NIT ni la placa tocan la URL** (AGENTS.md §14, AC4): cuando alguno está puesto, la
 //     consulta pasa por `POST /registros/buscar` con los dos en el CUERPO. La query sigue llevando
-//     solo lo que no identifica a nadie —estado, `q`, los filtros de la #11555 y el cursor—.
+//     solo lo que no identifica a nadie —estado, `q`, los filtros de la 11555 y el cursor—.
 //   · **Cambiar cualquier criterio descarta el cursor Y LA PILA ENTERA** (AC6). Lo segundo no lo
 //     dice el AC y es la mitad que rompe: si la pila sobrevive, «Anterior» desde la primera página
 //     del listado nuevo devuelve una página del listado viejo, con otros filtros, sin avisar. Aquí
@@ -32,15 +32,15 @@ import type {
 } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 
-/** Base del módulo. La exporta para el export a Excel (HU #11561), que sale del mismo sitio. */
+/** Base del módulo. La exporta para el export a Excel (HU 11561), que sale del mismo sitio. */
 export const RUTA_COMPARENDOS = '/flito/comparendos';
 const RUTA = RUTA_COMPARENDOS;
 
 /**
  * Lo que el operador ha pedido ver.
  *
- * Los cuatro primeros son de esta HU. Los cuatro últimos son los filtros que la HU #11555 abrió en
- * el API (`municipio`, `fuente`, `causalId`, `sinCausal`) y que la **HU #11561** pondrá en pantalla:
+ * Los cuatro primeros son de esta HU. Los cuatro últimos son los filtros que la HU 11555 abrió en
+ * el API (`municipio`, `fuente`, `causalId`, `sinCausal`) y que la **HU 11561** pondrá en pantalla:
  * están aquí, opcionales y ya cableados en la query, para que esa HU sea una barra de filtros nueva
  * y no un rediseño de este hook. Ningún control de esta HU los escribe.
  *
@@ -85,7 +85,7 @@ export function normalizarNit(valor: string): string {
 /**
  * Error de la consulta: qué se le dice al usuario y qué se le ofrece hacer.
  *
- * **El texto del servidor NO se hace eco**, y esta HU hereda la regla tal cual la dejó la #11559:
+ * **El texto del servidor NO se hace eco**, y esta HU hereda la regla tal cual la dejó la 11559:
  * el copy se deriva del código de estado. El filtro que intentaba sanear ese texto en el cliente
  * dejaba pasar un NIT con separadores («900.123.456-7», que es como lo escriben SIMIT y los
  * organismos), cédulas con puntos, placas, hosts internos e IPs privadas — y un filtro por forma
@@ -255,7 +255,7 @@ export interface ListaComparendos {
   /** Vuelve a la primera página tirando la pila. Es la salida del `cursor_invalido`. */
   volverAlPrincipio: () => void;
   /**
-   * Reemplaza UNA fila con el registro que devolvió el `PATCH` de gestión (HU #11562, AC3).
+   * Reemplaza UNA fila con el registro que devolvió el `PATCH` de gestión (HU 11562, AC3).
    *
    * **No vuelve a pedir la página, y eso es el requisito, no un atajo.** Volver a pedirla movería la
    * lista bajo los pies de quien acaba de gestionar —con cursor, una fila reordenada puede
@@ -387,13 +387,13 @@ export function useComparendosLista(): ListaComparendos {
 
 /**
  * Catálogos de municipio, causal y alias del NIT. Dos oficios en el mismo sitio, y desde la
- * HU #11561 el segundo manda más que el primero.
+ * HU 11561 el segundo manda más que el primero.
  *
- *   1. **Etiquetas de la tabla** (HU #11560): traducen «ITAGUI» a «Itagüí» y el id de una causal a
+ *   1. **Etiquetas de la tabla** (HU 11560): traducen «ITAGUI» a «Itagüí» y el id de una causal a
  *      su nombre. Para eso su fallo NUNCA puede bloquear nada —una pantalla que no muestra ni un
  *      comparendo porque no pudo traducir un código estaría cambiando información por cosmética—, y
  *      por eso la celda cae al valor crudo, que sigue siendo cierto.
- *   2. **Opciones de los selectores de filtro** (HU #11561, AC2). Aquí el fallo SÍ se nota: un
+ *   2. **Opciones de los selectores de filtro** (HU 11561, AC2). Aquí el fallo SÍ se nota: un
  *      selector sin opciones no es un selector, es un control que miente. El AC pide que un catálogo
  *      caído deshabilite **su** selector con **su** mensaje y sin tumbar la página.
  *
@@ -416,7 +416,7 @@ export interface CatalogosComparendos {
   /** NIT → alias. */
   alias: Record<string, string>;
   /**
-   * El catálogo de causales SIN aplanar (HU #11562).
+   * El catálogo de causales SIN aplanar (HU 11562).
    *
    * La tabla solo necesita el nombre, pero el selector del formulario de gestión necesita además
    * `orden` —que existe para que la lista no se ordene alfabéticamente— y `activo` —para dejar en
@@ -426,7 +426,7 @@ export interface CatalogosComparendos {
    */
   listaCausales: ComparendosCausal[];
   /**
-   * El catálogo de municipios SIN aplanar (HU #11561), por el mismo motivo que el de causales: el
+   * El catálogo de municipios SIN aplanar (HU 11561), por el mismo motivo que el de causales: el
    * selector de filtro necesita `activo` para no ofrecer fuentes dadas de baja, y `codigoFuente`
    * —que es el valor que viaja al API— además del nombre que se enseña.
    */

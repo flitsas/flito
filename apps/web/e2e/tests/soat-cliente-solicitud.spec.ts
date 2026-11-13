@@ -351,7 +351,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await page.keyboard.press('Tab');
     await expect(btnConsultar(page)).toBeFocused();
     // Y la placa no se teclea en NINGÚN sitio: no cambió de bloque, se fue.
-    await expect(page.getByLabel('Placa')).toHaveCount(0);
+    await expect(page.getByLabel(/^Placa/)).toHaveCount(0);
 
     // Marca, línea, modelo y organismo no se teclean. Los DOS asertos hacen falta: un
     // `<input disabled>` conserva el rol `textbox` en varios motores, así que el primero solo no
@@ -925,7 +925,9 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
     await expect(page).toHaveURL(/\/flito\/soat\/solicitud$/);
 
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await expect(nav.getByRole('link')).toHaveCount(1);
+    // UI Kit 2026 (S0): el dock lleva siempre el enlace «Inicio»; el menú del módulo sigue siendo UNO.
+    await expect(nav.getByRole('link', { name: 'Inicio', exact: true })).toHaveCount(1);
+    await expect(nav.getByRole('link')).toHaveCount(2);
     await expect(nav.getByRole('link', { name: 'SOAT' })).toHaveAttribute('aria-current', 'page');
   });
 

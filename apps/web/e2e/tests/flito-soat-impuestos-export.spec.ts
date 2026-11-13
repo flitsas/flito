@@ -241,14 +241,20 @@ const panelRango = (page: Page, etiqueta: string) =>
 /** Deja puesto el rango del filtro nuevo, pinchando los dos extremos del mes visible. */
 /**
  * HU #12819: en la cola SOAT los filtros secundarios viven en el panel plegable «Más filtros»;
- * Impuestos no lo tiene y ahí no hace nada. Idempotente: si ya está abierto no lo cierra.
+ * en Impuestos (UI Kit 2026) todos viven en el panel «Filtros». Idempotente: si ya está abierto no lo cierra.
  */
 async function abrirMasFiltrosSoat(page: Page) {
-  if (!new URL(page.url()).pathname.startsWith('/flito/soat')) return;
-  const boton = page.getByRole('button', { name: /^Más filtros/ });
+  const ruta = new URL(page.url()).pathname;
+  // UI Kit 2026: en Impuestos TODOS los filtros viven en el panel que abre «Filtros» (`PanelFiltros`).
+  const enImpuestos = ruta.startsWith('/flito/impuestos');
+  if (!enImpuestos && !ruta.startsWith('/flito/soat')) return;
+  const boton = enImpuestos
+    ? page.getByRole('button', { name: /^Filtros/ })
+    : page.getByRole('button', { name: /^Más filtros/ });
   // Primero que la cola haya pintado: durante la carga inicial la pantalla se vuelve a montar
   // (sesión y permisos) y un panel abierto antes se cerraría con ella.
-  await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+  if (enImpuestos) await expect(page.getByText('ABC123').first()).toBeVisible();
+  else await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
   // `toPass`: un clic antes de que React enganche el manejador no abre nada; se reintenta hasta
   // que el botón DIGA que está abierto, que es lo que se comprueba y no el clic.
   await expect(async () => {
@@ -277,7 +283,8 @@ async function ponerRangoCreado(page: Page) {
  * coincidencias y el fallo no habla de lo que se estaba comprobando.
  */
 const contador = (page: Page, texto: string) => page.getByText(texto).first();
-const siguiente = (page: Page) => page.getByRole('button', { name: 'Siguiente →' }).first();
+// UI Kit 2026 (S0): la flecha de la paginación se llama «Página siguiente».
+const siguiente = (page: Page) => page.getByRole('button', { name: 'Página siguiente' }).first();
 
 /** Lo que la cola pidió la última vez, como pares ordenados. */
 const pares = (search: string) => [...new URLSearchParams(search).entries()]

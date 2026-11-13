@@ -1,4 +1,4 @@
-// FLITO — Comparendos: el formulario de gestión, dentro del panel (HU #11562, AC3, AC4 y AC6).
+// FLITO — Comparendos: el formulario de gestión, dentro del panel (HU 11562, AC3, AC4 y AC6).
 //
 // Es la ÚNICA escritura de todo el módulo: dos campos de veintitantos, y el resto del registro es
 // dato de fuente que no se edita (RN-04). Cuatro cosas que definen su comportamiento:
@@ -14,7 +14,7 @@
 //   · **Lo escrito no se borra nunca por un error.** Una observación es texto que alguien redactó
 //     mirando un caso; perderla por un 500 es la clase de cosa que hace que la gente deje de usar
 //     el campo.
-//   · **El texto del servidor no se pinta**, igual que en el resto del módulo desde la #11559. El
+//   · **El texto del servidor no se pinta**, igual que en el resto del módulo desde la 11559. El
 //     copy sale del código de estado y, cuando lo hay, del `codigo` estable del cuerpo —nunca del
 //     mensaje—. Este formulario trabaja sobre un comparendo concreto e identificado: es de los
 //     peores sitios donde reinstalar el eco. El caso que el AC6 nombra —«la causal que el servidor
@@ -77,7 +77,7 @@ interface Props {
    * Buzón de «hay algo escrito sin guardar», que el panel lee cuando le piden cerrar.
    *
    * **Es una `ref` y no un `onSucio(boolean)` que suba a un `useState`, y el motivo es un fallo
-   * medido, no una preferencia** (gate de QA de la HU #11562, TC del AC8, rojo 4 de cada 20).
+   * medido, no una preferencia** (gate de QA de la HU 11562, TC del AC8, rojo 4 de cada 20).
    * Por el camino del estado, el aviso tenía que atravesar DOS efectos pasivos antes de llegar a
    * quien atiende la tecla:
    *
@@ -194,7 +194,7 @@ export default function FormularioGestion({ registro, causales, onGuardado, suci
       {/* AC5 — quién hizo la última gestión y cuándo. Sale de la FILA (`gestionActualizadaEn` /
           `gestionActualizadaPor`), no del timeline: el evento no publica su actor y no va a
           publicarlo (es PII y la lista blanca de RN-35 no se amplía). */}
-      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
         {registro.gestionActualizadaEn
           ? `Última gestión: ${fechaHoraColombia(registro.gestionActualizadaEn)}`
             + `${registro.gestionActualizadaPor ? ` · ${registro.gestionActualizadaPor.nombre}` : ''}`
@@ -236,14 +236,14 @@ export default function FormularioGestion({ registro, causales, onGuardado, suci
         id={idContador}
         aria-live="polite"
         className="text-xs"
-        style={{ color: excedida ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}
+        style={{ color: excedida ? 'var(--kit-rojo-texto)' : 'var(--color-text-secondary)' }}
       >
         {`${observacion.length} / ${COMPARENDOS_OBSERVACION_MAX} caracteres`}
         {excedida && ` · La observación admite hasta ${COMPARENDOS_OBSERVACION_MAX} caracteres.`}
       </p>
 
       {error && (
-        <p id={idError} role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+        <p id={idError} role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
           {error}
         </p>
       )}

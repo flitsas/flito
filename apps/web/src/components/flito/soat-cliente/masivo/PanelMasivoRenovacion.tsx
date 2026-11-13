@@ -2,7 +2,7 @@
 // «Reintentar» en cada paso. Al desmontarse (salir de la vista o pasar a Individual) el polling se
 // cancela; el procesamiento sigue en el servidor y no hay pantalla para retomarlo (AC6).
 import { useEffect } from 'react';
-import { FileSpreadsheet } from 'lucide-react';
+import { Icono } from '../../../flit/kit/Icono';
 import AvisoProcesando from '../../../flit/AvisoProcesando';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../../flit/flitPageKit';
 import { Seccion } from '../bloques';
@@ -27,7 +27,7 @@ export default function PanelMasivoRenovacion({ tipo, companiaId, faltaCompania,
   useEffect(() => { onEnCurso(l.enCurso); }, [l.enCurso, onEnCurso]);
   useEffect(() => () => onEnCurso(false), [onEnCurso]);
 
-  const icono = <FileSpreadsheet size={18} aria-hidden="true" className="shrink-0" />;
+  const icono = <Icono nombre="archivo" size={18} className="shrink-0" />;
 
   if (!l.loteId) {
     return (
@@ -57,7 +57,7 @@ export default function PanelMasivoRenovacion({ tipo, companiaId, faltaCompania,
       <Seccion titulo={l.terminado ? (tipo === 'inicial' ? 'Detalle por VIN' : 'Filas de la carga') : copy.tituloSeccion} icono={l.terminado ? undefined : icono}>
         <div className="space-y-3">
           {l.errorAvance === 'red' && (
-            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold text-[color:var(--kit-rojo-texto)]">
               <p className="min-w-0">{COPY_COMUN.falloAvance}</p>
               <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={l.reintentarAvance}>
                 Reintentar
@@ -65,7 +65,7 @@ export default function PanelMasivoRenovacion({ tipo, companiaId, faltaCompania,
             </div>
           )}
           {l.errorAvance === 'no_encontrado' && (
-            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold text-[color:var(--kit-rojo-texto)]">
               <p className="min-w-0">{copy.noEncontrada}</p>
               <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={l.reiniciar}>
                 Cargar otro archivo

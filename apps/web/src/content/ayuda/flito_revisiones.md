@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cómo confirmo los campos que leyó el OCR
   - por qué un documento quedó en revisión
-version: 1.2
-fecha: 2026-10-22
+version: 1.3
+fecha: 2026-11-12
 ---
 ## Qué es
 

@@ -1,6 +1,7 @@
 // HU #14134 — los dos pasos de la carga masiva: descargar la plantilla y subir el archivo.
 import type { ReactNode } from 'react';
-import { Download, Loader2 } from 'lucide-react';
+import { Icono } from '../../../flit/kit/Icono';
+import { Girador } from '../../../flit/Cargador';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../../flit/flitPageKit';
 import { COPY_MASIVO } from './copyMasivo';
 import type { TipoMasivo } from './tiposMasivo';
@@ -17,11 +18,11 @@ export default function PasoPlantilla({ tipo, descargando, onDescargar, children
     <ol className="space-y-4">
       <li className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="text-sm text-[color:var(--color-text-primary)]">
             <span className="font-semibold">1. </span>{copy.paso1}
           </p>
           {copy.notaPaso1 && (
-            <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{copy.notaPaso1}</p>
+            <p className="text-xs text-[color:var(--color-text-secondary)]">{copy.notaPaso1}</p>
           )}
         </div>
         <button
@@ -29,13 +30,13 @@ export default function PasoPlantilla({ tipo, descargando, onDescargar, children
           aria-disabled={descargando || undefined} onClick={() => { if (!descargando) onDescargar(); }}
         >
           {descargando
-            ? <Loader2 size={16} aria-hidden="true" className="animate-spin" />
-            : <Download size={16} aria-hidden="true" />}
+            ? <Girador />
+            : <Icono nombre="nube-bajar" size={16} />}
           {descargando ? 'Descargando…' : 'Descargar plantilla'}
         </button>
       </li>
       <li className="space-y-2">
-        <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="text-sm text-[color:var(--color-text-primary)]">
           <span className="font-semibold">2. </span>{copy.paso2}
         </p>
         {children}

@@ -93,12 +93,12 @@ test.describe('HU #14134 — carga masiva de renovaciones', () => {
     await expect(page.getByRole('radiogroup', { name: 'Forma de cargar' })).toBeVisible();
     await page.getByRole('radio', { name: /Renovación/ }).check();
     await expect(page.getByRole('radiogroup', { name: 'Forma de cargar' })).toBeVisible();
-    await page.getByLabel('Placa').fill('XYZ123');
+    await page.getByLabel(/^Placa/).fill('XYZ123');
     await page.getByRole('radio', { name: 'Masiva' }).check();
     await expect(page.getByRole('button', { name: 'Enviar solicitud' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Descargar plantilla' })).toBeVisible();
     await page.getByRole('radio', { name: 'Individual' }).check();
-    await expect(page.getByLabel('Placa')).toHaveValue('XYZ123');
+    await expect(page.getByLabel(/^Placa/)).toHaveValue('XYZ123');
   });
 
   test('AC4: un archivo que no es .xlsx se explica y no se sube', async ({ page }) => {

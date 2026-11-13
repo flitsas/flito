@@ -1551,7 +1551,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await mostrarBarraCarga();
 
     // Paso 4 — Drive · Medellín: consolidados del día, Procesar o Reprocesar y el registro de pasadas.
-    await page.getByRole('button', { name: 'Drive · Medellín' }).click();
+    await page.getByRole('tab', { name: 'Drive · Medellín' }).click();
     await page.getByRole('button', { name: /^Ver el registro/ }).click();
     await expect(page.getByText('Registro de procesamientos')).toBeVisible();
     await page.getByRole('button', { name: 'Reprocesar' }).evaluate((el) => el.scrollIntoView({ block: 'end' }));
@@ -1562,7 +1562,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await mostrarBarraDrive();
 
     // Paso 5 — Registrados: buscar, filtrar, abrir el soporte o los documentos; la fila con advertencia.
-    await page.getByRole('button', { name: /^Registrados/ }).click();
+    await page.getByRole('tab', { name: /^Registrados/ }).click();
     await page.getByText('FLIT-DEMO-103').evaluate((el) => el.scrollIntoView({ block: 'center' }));
     const mostrarBarra = await sinBarraFlotante(page);
     await sinFoco(page);

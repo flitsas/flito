@@ -117,7 +117,7 @@ async function mockCatalogosVacios(page: Page) {
 const boton = (page: Page, nombre: string) => page.getByRole('button', { name: nombre, exact: true });
 const campoNumero = (page: Page) => page.getByLabel('N.º de comparendo');
 const campoNit = (page: Page) => page.getByLabel('NIT monitoreado');
-const campoPlaca = (page: Page) => page.getByLabel('Placa');
+const campoPlaca = (page: Page) => page.getByLabel(/^Placa/);
 
 /**
  * `es-CO` separa el símbolo con un espacio **duro** (U+00A0) y la versión de ICU decide si lo pone.

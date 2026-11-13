@@ -1,4 +1,4 @@
-// Datos de las pastillas «Por validar» / «Descartadas» y de la cabeza de «Todos» (HU #12997).
+// Datos de las pastillas «Por validar» / «Descartadas» y de la cabeza de «Todos» (HU 12997).
 //
 // `POST /flito/soat/cliente/incompletas/buscar`: POST y no GET porque `texto` puede ser un VIN o un
 // documento, y eso no va en la query (AGENTS.md §14). Solo por `api.ts`.

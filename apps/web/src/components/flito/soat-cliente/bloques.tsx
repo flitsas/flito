@@ -10,7 +10,7 @@
 // El ORDEN de los tres —vehículo, factura, propietario— lo decide la página, que es quien los monta.
 
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
-import { CircleAlert, X } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import FlitSelect from '../../flit/FlitSelect';
 import FlitUploadBox from '../../flit/FlitUploadBox';
 import StatusChip from '../../flit/StatusChip';
@@ -96,11 +96,10 @@ export function Seccion({ titulo, chip, icono, children }: {
   return (
     <section
       aria-label={titulo}
-      className="bg-flit-card p-5"
-      style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
+      className="rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] p-4 sm:p-6"
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+        <h2 className="flex items-center gap-2 text-base font-bold text-[color:var(--color-action)]">
           {icono}
           {titulo}
         </h2>
@@ -242,7 +241,7 @@ export function Campo({
     />
   );
   const etiqueta = (
-    <label htmlFor={id} className="block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+    <label htmlFor={id} className="block text-[11px] font-semibold text-[color:var(--color-text-primary)]">
       {label}{opcional ? ' (opcional)' : ' *'}
     </label>
   );
@@ -260,18 +259,18 @@ export function Campo({
         ? <div className="flex flex-wrap items-center gap-3"><div className="min-w-0 flex-1 basis-64">{input}</div>{accion}</div>
         : input}
       {ayuda && (
-        <div id={idAyuda} className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
+        <div id={idAyuda} className="mt-1 text-[11px] text-[color:var(--color-text-secondary)]">
           {ayuda}
         </div>
       )}
       {porRevisar && (
-        <p id={idRevision} className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p id={idRevision} className="mt-1 text-[11px] text-[color:var(--color-text-secondary)]">
           {AYUDA_REVISION}
         </p>
       )}
       {error && (
-        <p id={idError} role="alert" className={`mt-1 text-xs ${codigo ? 'flex items-start gap-1.5' : ''}`} style={{ color: 'var(--flit-danger-text)' }}>
-          {codigo && <CircleAlert size={14} aria-hidden="true" className="mt-px shrink-0" />}
+        <p id={idError} role="alert" className={`mt-1 text-xs ${codigo ? 'flex items-start gap-1.5' : ''}`} style={{ color: 'var(--kit-naranja-texto)' }}>
+          {codigo && <Icono nombre="alerta" size={14} className="mt-px shrink-0" />}
           {error}
         </p>
       )}
@@ -415,7 +414,7 @@ export function BloquePropietario({ valor, onCambio, errores, onBlur, referencia
     <div className="space-y-3">
       {/* El vacío útil del bloque: qué se escribe aquí y para qué sirve. Con la factura leída, el
           verbo cambia de «escribir» a «revisar» (HU #12094). */}
-      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="text-xs text-[color:var(--color-text-secondary)]">
         {prellenado
           ? 'Estos datos los tomamos de su factura de venta. Revíselos y corrija lo que no cuadre: son los que van en la póliza. El correo electrónico sí lo tiene que escribir usted.'
           : 'Escriba el propietario como aparece en la factura de venta: son los datos que van en la póliza.'}
@@ -424,7 +423,7 @@ export function BloquePropietario({ valor, onCambio, errores, onBlur, referencia
       <CamposDocumento valor={valor} onCambio={onCambio} errores={errores} onBlur={onBlur} revision={revision} />
 
       {referenciaRunt && (
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs text-[color:var(--color-text-secondary)]">
           El RUNT reporta como propietario: {referenciaRunt}. Escríbalo como aparece en la factura de venta.
         </p>
       )}
@@ -547,23 +546,23 @@ export function BloqueFactura({ archivo, error, rotulo, onElegir, onQuitar }: {
       {/* Ya se puede prometer: la #12091 lo prohibía porque entonces habría sido mentira. Explica por
           qué el bloque 2 va delante del 3. */}
       {!archivo && !rotulo && (
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs text-[color:var(--color-text-secondary)]">
           Al adjuntarla, FLITO la lee y llena los datos del propietario. Usted los revisa y corrige lo
           que no cuadre.
         </p>
       )}
       {archivo && (
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+          <span className="text-xs font-medium text-[color:var(--color-text-primary)]">
             {archivo.name} · {tamanoMb(archivo.size)}
           </span>
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onQuitar}>
-            <X size={16} aria-hidden="true" className="shrink-0" />
+            <Icono nombre="cerrar" size={16} className="shrink-0" />
             Quitar el archivo
           </button>
         </div>
       )}
-      {error && <p role="alert" className="text-xs" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
+      {error && <p role="alert" className="text-xs text-[color:var(--kit-rojo-texto)]">{error}</p>}
     </div>
   );
 }
@@ -646,7 +645,7 @@ export function AvisoLectura({ lectura, onVolverALeer }: {
 
   if (lectura.fase === 'leyendo') {
     return (
-      <p role="status" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p role="status" className="text-xs text-[color:var(--color-text-secondary)]">
         ⟳ Leyendo la factura… Puede tardar hasta un minuto. Mientras tanto puede seguir llenando el
         formulario.
       </p>
@@ -656,13 +655,13 @@ export function AvisoLectura({ lectura, onVolverALeer }: {
   if (lectura.fase === 'fallo') {
     return (
       <div
-        role="alert" className="space-y-1 rounded-[10px] p-3"
-        style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
+        role="alert" className="space-y-1 rounded-[9px] p-3"
+        style={{ border: '1px solid var(--color-border)', background: 'var(--color-surface)' }}
       >
-        <p className="text-sm font-semibold" style={{ color: 'var(--flit-warning-ink)' }}>
+        <p className="text-sm font-semibold text-[color:var(--kit-naranja-texto)]">
           {lectura.desenlace.titulo}
         </p>
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{lectura.desenlace.detalle}</p>
+        <p className="text-xs text-[color:var(--color-text-secondary)]">{lectura.desenlace.detalle}</p>
         {onVolverALeer && (
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onVolverALeer}>
             Volver a leer la factura
@@ -674,7 +673,7 @@ export function AvisoLectura({ lectura, onVolverALeer }: {
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <p role="status" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p role="status" className="text-xs text-[color:var(--color-text-secondary)]">
         {lectura.fase === 'vacia'
           // No miente y no alarma: la factura se leyó, lo que no salió son los datos.
           ? 'No pudimos sacar los datos del propietario de esta factura. Escríbalos a mano: la solicitud se puede enviar igual.'
@@ -724,27 +723,27 @@ export function BandaSobrescritura({ filas, marcados, onAlternar, onReemplazar, 
   const rotulo = n === 0 ? 'Reemplazar lo marcado' : n === 1 ? 'Reemplazar 1 dato' : `Reemplazar ${n} datos`;
   return (
     <div
-      role="status" className="space-y-2 rounded-[10px] p-3"
-      style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
+      role="status" className="space-y-2 rounded-[9px] p-3"
+      style={{ border: '1px solid var(--color-border)', background: 'var(--color-surface)' }}
     >
-      <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <p className="text-sm font-semibold text-[color:var(--color-text-primary)]">
         {filas.length === 1
           ? 'Esta factura dice otra cosa en 1 dato que usted escribió.'
           : `Esta factura dice otra cosa en ${filas.length} datos que usted escribió.`}
       </p>
-      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="text-xs text-[color:var(--color-text-secondary)]">
         Marque los que quiere reemplazar. Lo que deje sin marcar se queda como está.
       </p>
       <div className="text-xs">
         <div
           className="grid grid-cols-[minmax(9rem,1fr)_1fr_1fr] gap-2 border-b pb-1 font-semibold"
-          style={{ color: 'var(--flit-text-muted)', borderColor: 'var(--flit-border-soft)' }}
+          style={{ color: 'var(--color-text-tertiary)', borderColor: 'var(--color-border)' }}
         >
           <span>Campo</span><span>Usted escribió</span><span>La factura dice</span>
         </div>
         {filas.map((f) => (
           <div key={f.campo} className="grid grid-cols-[minmax(9rem,1fr)_1fr_1fr] items-center gap-2 py-1">
-            <label className="flex items-center gap-2" style={{ color: 'var(--flit-text-primary)' }}>
+            <label className="flex items-center gap-2 text-[color:var(--color-text-primary)]">
               <input
                 type="checkbox" className="flit-focus h-4 w-4"
                 checked={marcados[f.campo] === true}
@@ -752,8 +751,8 @@ export function BandaSobrescritura({ filas, marcados, onAlternar, onReemplazar, 
               />
               {f.etiqueta}
             </label>
-            <span style={{ color: 'var(--flit-text-secondary)' }}>{f.actual}</span>
-            <span style={{ color: 'var(--flit-text-primary)' }}>{f.leido}</span>
+            <span className="text-[color:var(--color-text-secondary)]">{f.actual}</span>
+            <span className="text-[color:var(--color-text-primary)]">{f.leido}</span>
           </div>
         ))}
       </div>

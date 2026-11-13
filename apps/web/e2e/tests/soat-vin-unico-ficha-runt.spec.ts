@@ -192,7 +192,7 @@ test.describe('HU #12091 · AC1 — un solo campo en el bloque 1', () => {
       await expect(vehiculo.getByLabel(etiqueta), etiqueta).toHaveCount(0);
     }
     // La placa no se teclea en NINGÚN sitio de la pantalla: esa sí se fue entera.
-    await expect(page.getByLabel('Placa')).toHaveCount(0);
+    await expect(page.getByLabel(/^Placa/)).toHaveCount(0);
   });
 
   test('tipo y número se editan en el bloque 3, y el eco «se cambia en el bloque 1» desapareció', async ({ page }) => {

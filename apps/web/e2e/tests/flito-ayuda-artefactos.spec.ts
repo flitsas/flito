@@ -298,15 +298,15 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // son de solo lectura y de tres pasos o menos: sin diagrama.
   const SOAT_13771: Record<string, { version: string; capturas: string[]; diagrama: string | null; fecha?: string }> = {
     // HU #13968: SOAT sin trámite por proveedor (soat y clients cambiaron de nuevo).
-    soat: { version: '1.9', fecha: '2026-11-06', diagrama: 'ciclo-soat.svg', capturas: [
+    soat: { version: '1.11', fecha: '2026-11-12', diagrama: 'ciclo-soat.svg', capturas: [
       '01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png'] },
     // Bug #14532: Liquidación y Pagado en la ventana del ZIP (04-documentos-del-zip regenerada).
     flito_tramites: { version: '1.4', fecha: '2026-11-11', diagrama: 'camino-a-entregar.svg', capturas: [
       '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-seleccion.png', '04-documentos-del-zip.png'] },
-    flito_revisiones: { version: '1.2', diagrama: 'resolver-o-descartar.svg', capturas: [
+    flito_revisiones: { version: '1.3', fecha: '2026-11-12', diagrama: 'resolver-o-descartar.svg', capturas: [
       '01-cola-y-documento.png', '02-revisar-campos.png', '03-constancia.png'] },
     flito_bitacora: { version: '1.2', diagrama: null, capturas: ['01-movimientos.png'] },
-    flito_comparendos: { version: '1.2', diagrama: 'ciclo-monitoreo.svg', capturas: [
+    flito_comparendos: { version: '1.3', fecha: '2026-11-12', diagrama: 'ciclo-monitoreo.svg', capturas: [
       '01-registros.png', '02-detalle.png', '03-sincronizacion.png', '04-configuracion.png'] },
     // HU #13935: la ficha de Clientes cambió después (checks «FLITO gestiona»); HU #13948: Estado y filtro;
     // HU #13949: menú ⋮ para desactivar y activar (capturas sin cambio: el ⋮ queda fuera del encuadre).
@@ -364,9 +364,9 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // Las dos fichas describen procesos de más de 3 pasos o con decisiones: las dos llevan diagrama.
   const IMPUESTOS_13772: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
     // Bug #14532: Liquidación y Pagado, y descarga individual por fila (01-cola y 02-seleccion regeneradas).
-    flito_impuestos: { version: '1.8', fecha: '2026-11-11', diagrama: 'ciclo-impuesto.svg', capturas: [
+    flito_impuestos: { version: '1.9', fecha: '2026-11-12', diagrama: 'ciclo-impuesto.svg', capturas: [
       '01-cola.png', '02-seleccion.png', '03-carga-masiva.png', '04-validacion-runt.png', '05-detalle.png'] },
-    flito_derechos: { version: '1.1', diagrama: 'canastas-de-carga.svg', capturas: [
+    flito_derechos: { version: '1.2', fecha: '2026-11-12', diagrama: 'canastas-de-carga.svg', capturas: [
       '01-resultado-de-la-carga.png', '02-drive.png', '03-registrados.png'] },
   };
 

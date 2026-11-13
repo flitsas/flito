@@ -1,13 +1,15 @@
 // Editor de «Certificar sin trámite»: la factura a la izquierda (ficha, estado de la lectura y vista
 // previa) y los datos a la derecha, en un solo formulario con tres bloques. Presentación pura: la
 // lectura, el guardado y las consultas viven en FlitoImpuestosCertificar.
-import { ScanText, TriangleAlert, ZoomIn, ZoomOut } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import AvisoProcesando from '../components/flit/AvisoProcesando';
 import FlitUploadBox from '../components/flit/FlitUploadBox';
+import GradientButton from '../components/flit/GradientButton';
+import InlineAlert from '../components/flit/InlineAlert';
 import StatusChip from '../components/flit/StatusChip';
 import VisorPdf from '../components/flit/VisorPdf';
-import { FlitCard, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary } from '../components/flit/flitPageKit';
+import { FlitCard, flitInp } from '../components/flit/flitPageKit';
+import { Icono } from '../components/flit/kit/Icono';
 import { OPCIONES_TIPO_DOC } from '../lib/soatCliente';
 
 export interface Borrador {
@@ -21,7 +23,7 @@ export interface Catalogo {
 export type CampoLeido = 'vin' | 'marca' | 'linea' | 'anio' | 'color' | 'cilindrada';
 const CAMPOS_LEIDOS: CampoLeido[] = ['vin', 'marca', 'linea', 'anio', 'color', 'cilindrada'];
 
-const CONTROL = 'flit-focus h-10 w-full rounded-lg border bg-flit-card px-3 text-sm';
+const CONTROL = `${flitInp} h-10 !py-0`;
 const OBLIGATORIOS: (keyof Borrador)[] = [
   'organismoCodigo', 'placa', 'vin', 'marca', 'linea', 'anio', 'color', 'cilindrada',
 ];
@@ -168,7 +170,7 @@ export default function CertificarEditor(p: Props) {
         <div className="flex flex-col gap-4">
           <div className="max-w-xl">{subir}</div>
           <div className="flex justify-end">
-            <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled>Guardar</button>
+            <GradientButton type="button" disabled>Guardar</GradientButton>
           </div>
         </div>
       </FlitCard>
@@ -185,35 +187,24 @@ export default function CertificarEditor(p: Props) {
       <aside className="lg:sticky lg:top-4" aria-label="Factura de venta">
         <FlitCard>
           <div className="flex flex-col gap-3">
-            <h4 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Factura de venta</h4>
+            <h3 className="m-0 text-base font-semibold text-[color:var(--color-text-primary)]">Factura de venta</h3>
             {p.pdf && (
-              <p className="text-xs break-all" style={{ color: 'var(--flit-text-secondary)' }}>
+              <p className="m-0 break-all text-xs text-[color:var(--color-text-tertiary)]">
                 PDF · {p.pdf.name} · {Math.max(1, Math.round(p.pdf.size / 1024))} KB
               </p>
             )}
             {chipLectura && <div>{chipLectura}</div>}
-            {p.fallaLectura && (
-              <p role="status" className="rounded-lg px-3 py-2 text-xs" style={{ color: 'var(--flit-text-primary)', border: '1px solid var(--flit-border-soft)' }}>
-                {p.fallaLectura}
-              </p>
-            )}
-            {sinVista && (
-              <p role="status" className="rounded-lg px-3 py-2 text-xs" style={{ color: 'var(--flit-text-primary)', border: '1px solid var(--flit-border-soft)' }}>
-                No pudimos mostrar la vista previa de esta factura.
-              </p>
-            )}
+            {p.fallaLectura && <InlineAlert tono="info">{p.fallaLectura}</InlineAlert>}
+            {sinVista && <InlineAlert tono="info">No pudimos mostrar la vista previa de esta factura.</InlineAlert>}
             {alta && hayDiferencias && (
-              <p
-                role="status"
-                className="flex items-start gap-2 rounded-xl border px-3 py-2 text-sm"
-                style={{ background: 'var(--flit-chip-warning-bg)', color: 'var(--flit-warning-ink)', borderColor: 'var(--flit-warning)' }}
-              >
-                <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
-                <span className="min-w-0">Algunos datos del formulario no coinciden con esta factura.</span>
-              </p>
+              // Advertencia que no interrumpe: piel del aviso naranja del kit con `role="status"` (InlineAlert warn sería `alert`).
+              <div className="kit-alerta" data-tono="warn" data-kit="alerta" role="status">
+                <img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+                <span className="min-w-0 flex-1 text-sm">Algunos datos del formulario no coinciden con esta factura.</span>
+              </div>
             )}
             {urlVista && escritorio && !sinVista && (
-              <div className={`relative overflow-hidden rounded-lg border border-flit-soft ${ampliada ? 'h-[max(24rem,calc(100vh-24rem))]' : 'h-80'}`}>
+              <div className={`relative overflow-hidden rounded-[9px] border border-[color:var(--color-border)] ${ampliada ? 'h-[max(24rem,calc(100vh-24rem))]' : 'h-80'}`}>
                 <VisorPdf url={urlVista} nombre={p.pdf?.name ?? 'la factura'} />
                 <button
                   type="button"
@@ -221,23 +212,24 @@ export default function CertificarEditor(p: Props) {
                   title={ampliada ? 'Reducir factura' : 'Ampliar factura'}
                   aria-pressed={ampliada}
                   onClick={() => setAmpliar((v) => !v)}
-                  className="flit-focus absolute bottom-3 right-6 inline-grid h-10 w-10 place-items-center rounded-full border border-flit-soft bg-flit-card/80 backdrop-blur-sm transition-colors hover:bg-flit-card"
-                  style={{ color: 'var(--flit-text-primary)' }}
+                  className="flit-focus absolute bottom-3 right-6 inline-grid h-10 w-10 place-items-center rounded-full border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] text-[color:var(--color-action)] transition-colors hover:bg-[var(--kit-hover)]"
                 >
-                  {ampliada ? <ZoomOut size={18} aria-hidden="true" /> : <ZoomIn size={18} aria-hidden="true" />}
+                  <Icono nombre={ampliada ? 'menos' : 'mas'} size={18} />
                 </button>
               </div>
             )}
             {quiereRemota && remota.cargando && <AvisoProcesando texto="Cargando la factura…" />}
             {quiereRemota && remota.error && (
-              <p role="status" className="rounded-lg px-3 py-2 text-xs" style={{ color: 'var(--flit-text-primary)', border: '1px solid var(--flit-border-soft)' }}>
-                No pudimos cargar la factura.{' '}
-                <button type="button" className="flit-focus underline" onClick={() => setReintento((n) => n + 1)}>Reintentar</button>
-              </p>
+              <InlineAlert
+                tono="info"
+                accion={<GradientButton type="button" variant="ghost" size="sm" onClick={() => setReintento((n) => n + 1)}>Reintentar</GradientButton>}
+              >
+                No pudimos cargar la factura.
+              </InlineAlert>
             )}
             <div className="flex flex-wrap gap-2">
               {p.fallaLectura && alta && (
-                <button type="button" className={flitBtnSecondary} disabled={bloqueado || !p.pdf} onClick={p.onReintentar}>Reintentar lectura</button>
+                <GradientButton type="button" variant="secondary" size="sm" disabled={bloqueado || !p.pdf} onClick={p.onReintentar}>Reintentar lectura</GradientButton>
               )}
             </div>
             {!certificado && <div>{subir}</div>}
@@ -273,21 +265,20 @@ export default function CertificarEditor(p: Props) {
             </Bloque>
 
             {!certificado && (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-flit-soft pt-4">
-                <p aria-live="polite" className="text-sm" style={{ color: faltan ? 'var(--flit-warning-ink)' : 'var(--flit-text-primary)' }}>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--color-border)] pt-4">
+                <p aria-live="polite" className={`m-0 text-sm ${faltan ? 'text-[color:var(--kit-naranja-texto)]' : 'text-[color:var(--color-text-primary)]'}`}>
                   {faltan ? `Faltan ${faltan} ${faltan === 1 ? 'dato' : 'datos'} para guardar.` : 'Listo para guardar.'}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {!alta && p.onConsultar && (
-                    <button type="button" className={consultarPrimaria ? flitBtnPrimary : flitBtnSecondary}
-                      style={consultarPrimaria ? flitBtnPrimaryStyle : undefined} disabled={bloqueado || faltan > 0} onClick={p.onConsultar}>
+                    <GradientButton type="button" variant={consultarPrimaria ? 'primary' : 'secondary'}
+                      disabled={bloqueado || faltan > 0} onClick={p.onConsultar}>
                       Consultar RUNT
-                    </button>
+                    </GradientButton>
                   )}
-                  <button type="submit" className={guardarPrimaria ? flitBtnPrimary : flitBtnSecondary}
-                    style={guardarPrimaria ? flitBtnPrimaryStyle : undefined} disabled={bloqueado || faltan > 0 || !hayCambios}>
+                  <GradientButton type="submit" variant={guardarPrimaria ? 'primary' : 'secondary'} disabled={bloqueado || faltan > 0 || !hayCambios}>
                     {alta ? 'Guardar' : 'Guardar cambios'}
-                  </button>
+                  </GradientButton>
                 </div>
               </div>
             )}
@@ -303,8 +294,8 @@ function Bloque({ titulo, nota, notaId, cols = '', children }: { titulo: string;
   return (
     <section className="flex flex-col gap-3">
       <div>
-        <h4 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{titulo}</h4>
-        {nota && <p id={notaId} className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{nota}</p>}
+        <h3 className="m-0 text-base font-semibold text-[color:var(--color-text-primary)]">{titulo}</h3>
+        {nota && <p id={notaId} className="m-0 mt-1 text-xs text-[color:var(--color-text-tertiary)]">{nota}</p>}
       </div>
       <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${cols}`}>{children}</div>
     </section>
@@ -313,14 +304,15 @@ function Bloque({ titulo, nota, notaId, cols = '', children }: { titulo: string;
 
 function Etiqueta({ id, texto, leido }: { id: string; texto: string; leido?: boolean }) {
   return (
-    <div className="mb-1 flex items-center gap-2">
-      <label htmlFor={id} className="text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{texto}</label>
+    <div className="flex min-h-6 items-center gap-2">
+      <label htmlFor={id}>{texto}</label>
       {leido && <StatusChip tone="success">Leído</StatusChip>}
     </div>
   );
 }
 
-const borde = (vacio: boolean) => ({ borderColor: vacio ? 'var(--flit-warning)' : 'var(--flit-border-soft)' });
+// Obligatorio vacío: borde naranja del kit (el mismo del campo inválido).
+const borde = (vacio: boolean) => (vacio ? { borderColor: 'var(--kit-naranja)' } : undefined);
 
 function Campo({ id, etiqueta, valor, disabled, onChange, leido, ayuda, opcional, maxLength, describidoPor }: {
   id: string; etiqueta: string; valor: string; disabled?: boolean; onChange: (v: string) => void; leido?: boolean;
@@ -329,35 +321,20 @@ function Campo({ id, etiqueta, valor, disabled, onChange, leido, ayuda, opcional
 }) {
   const idAyuda = `${id}-ayuda`;
   return (
-    <div>
+    <div className="campo">
       <Etiqueta id={id} texto={etiqueta} leido={leido} />
       <input id={id} className={CONTROL} required={!opcional} maxLength={maxLength} value={valor} disabled={disabled}
         aria-describedby={ayuda ? idAyuda : describidoPor}
         // Diferencia pendiente con la factura: borde PUNTEADO en advertencia (el «obligatorio vacío» es continuo).
-        style={ayuda && !disabled ? { borderColor: 'var(--flit-warning)', borderStyle: 'dashed' } : borde(!opcional && !valor.trim())}
+        style={ayuda && !disabled ? { borderColor: 'var(--kit-naranja)', borderStyle: 'dashed' } : borde(!opcional && !valor.trim())}
         onChange={(ev) => onChange(ev.target.value)} />
       {ayuda && !disabled && (
-        <div
-          id={idAyuda}
-          role="status"
-          className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl border px-3 py-2 text-sm"
-          style={{ background: 'var(--flit-chip-warning-bg)', color: 'var(--flit-warning-ink)', borderColor: 'var(--flit-warning)' }}
-        >
-          <span className="flex min-w-0 items-center gap-2">
-            <ScanText size={16} aria-hidden="true" className="shrink-0" />
-            <span className="min-w-0 break-all">La factura dice: <strong className="font-semibold">{ayuda.valor}</strong></span>
-          </span>
-          <button
-            type="button"
-            // La franja es de color FIJO (`--flit-chip-warning-bg` no cambia en oscuro), así que el botón usa solo
-            // tokens que tampoco cambian: fondo de la franja, tinta y borde `--flit-warning-ink`. El hover NO
-            // toca el fondo (nada translúcido): engrosa el borde con un anillo interior.
-            className="flit-focus inline-flex h-8 shrink-0 items-center rounded-full border px-3 text-sm font-medium transition-shadow hover:shadow-[inset_0_0_0_1px_var(--flit-warning-ink)] active:shadow-[inset_0_0_0_2px_var(--flit-warning-ink)]"
-            style={{ background: 'var(--flit-chip-warning-bg)', color: 'var(--flit-warning-ink)', borderColor: 'var(--flit-warning-ink)' }}
-            onClick={ayuda.onUsar}
-          >
+        <div id={idAyuda} role="status" className="kit-alerta" data-tono="warn" data-kit="alerta">
+          <Icono nombre="documento" size={18} className="shrink-0" />
+          <span className="min-w-0 flex-1 break-all text-sm">La factura dice: <strong className="font-semibold">{ayuda.valor}</strong></span>
+          <GradientButton type="button" variant="secondary" size="sm" className="shrink-0" onClick={ayuda.onUsar}>
             Usar este dato
-          </button>
+          </GradientButton>
         </div>
       )}
     </div>
@@ -369,7 +346,7 @@ function Sel({ id, etiqueta, valor, disabled, onChange, opciones, obligatorio = 
   obligatorio?: boolean; describidoPor?: string;
 }) {
   return (
-    <div>
+    <div className="campo">
       <Etiqueta id={id} texto={etiqueta} />
       <select id={id} className={CONTROL} style={borde(obligatorio && !disabled && !valor)} required={obligatorio} aria-describedby={describidoPor} disabled={disabled} value={valor} onChange={(ev) => onChange(ev.target.value)}>
         {/* Un certificado anterior a esta corrección no tiene tipo y ya no se edita: nada que seleccionar. */}

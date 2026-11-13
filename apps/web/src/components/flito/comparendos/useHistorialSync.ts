@@ -1,4 +1,4 @@
-// FLITO — Comparendos · Sincronización: las corridas anteriores (HU #11636, AC1 y AC3).
+// FLITO — Comparendos · Sincronización: las corridas anteriores (HU 11636, AC1 y AC3).
 //
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // ESTE HOOK NO SONDEA. Y esa es su decisión de diseño principal.
@@ -11,7 +11,7 @@
 //     sondeo aquí duplicaría exactamente las mismas peticiones sobre el mismo dato, contra un
 //     limitador que cuenta 500 por 15 min **y por IP** —la de toda la oficina detrás del NAT—.
 //   · Cada lectura de `/sync/runs` escribe una fila de `pii_access_log` (el `scope_nits` de una
-//     corrida son NIT, HU #11511). Duplicar el sondeo es duplicar la bitácora de accesos a datos
+//     corrida son NIT, HU 11511). Duplicar el sondeo es duplicar la bitácora de accesos a datos
 //     personales, que existe para poder auditar quién miró qué y deja de servir en cuanto el grueso
 //     de sus filas es una pantalla mirándose a sí misma.
 //
