@@ -21,14 +21,14 @@ interface Props<T extends string> {
   rotulo?: string;
 }
 
-const BASE = 'flit-focus h-9 whitespace-nowrap rounded-lg border px-3 text-xs font-semibold';
-const REPOSO = `${BASE} hover:bg-[var(--flit-bg-hover)] hover:transition-colors`;
+// Chips de filtro del UI Kit 2026 (`.chip--sm`): borde línea, activo borde azul + fondo hover + texto azul.
+const CHIP = 'chip chip--sm h-10 min-h-0 whitespace-nowrap transition-colors';
 
 export default function FiltroSegmentado<T extends string>({ opciones, valor, onCambio, ariaLabel, rotulo }: Props<T>) {
   return (
     <div className="flex min-w-0 flex-nowrap items-center gap-1">
       {rotulo && (
-        <span className="mr-1 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }} aria-hidden="true">
+        <span className="mr-1 text-xs font-semibold text-[color:var(--color-text-tertiary)]" aria-hidden="true">
           {rotulo}
         </span>
       )}
@@ -39,10 +39,7 @@ export default function FiltroSegmentado<T extends string>({ opciones, valor, on
           const activa = o.valor === valor;
           return (
             <button key={o.valor || 'todas'} type="button" aria-pressed={activa} onClick={() => onCambio(o.valor)}
-              className={activa ? BASE : REPOSO}
-              style={activa
-                ? { background: 'var(--flit-bg-app)', color: 'var(--flit-pill-active-ink)', borderColor: 'var(--flit-pill-active-ink)' }
-                : { background: 'transparent', color: 'var(--flit-text-secondary)', borderColor: 'var(--flit-border-input)' }}>
+              className={CHIP}>
               {o.etiqueta}
             </button>
           );
