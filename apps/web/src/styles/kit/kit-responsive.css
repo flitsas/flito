@@ -177,3 +177,22 @@
 @media (min-width: 640px) and (max-width: 1023.98px) {
   .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ---------- V13 FiltrosPlegables: filtros plegados solo en teléfono (decisión b) ----------
+   ≥640 el envoltorio no existe a la vista: `linea` = `display: contents` (los controles siguen siendo ítems de la
+   barra flex de la página), `bloque` = bloque sin caja. <640 aparece el botón «Filtros (n)» (mismo `.btn secondary`
+   del botón Filtros del kit, 44 px por V9) y el cuerpo se oculta hasta abrirlo. Plegado = `display: none`, los
+   controles siguen montados. */
+.kit-plegable[data-modo-plegable="linea"],
+.kit-plegable[data-modo-plegable="linea"] > .kit-plegable__cuerpo { display: contents; }
+.kit-plegable__boton { display: none; }
+@media (max-width: 639.98px) {
+  .kit-plegable__boton { display: inline-flex; align-items: center; gap: var(--space-8); min-height: 44px; }
+  .kit-plegable:not([data-abierto]) > .kit-plegable__cuerpo { display: none !important; }
+  .kit-plegable[data-modo-plegable="linea"][data-abierto] > .kit-plegable__cuerpo {
+    display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: center; gap: var(--space-12); min-width: 0;
+  }
+  .kit-plegable[data-modo-plegable="bloque"][data-abierto] > .kit-plegable__cuerpo { margin-top: var(--space-12); }
+  .kit-plegable[data-modo-plegable="linea"] > .kit-plegable__cuerpo > label { flex: 1 1 100%; min-width: 0; }
+  .kit-plegable[data-modo-plegable="linea"] > .kit-plegable__cuerpo > label > select { width: 100% !important; }
+}

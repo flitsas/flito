@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import FiltrosPlegables from '../components/flit/FiltrosPlegables';
 import {
   CONCEPTO_COSTO_LABEL, CONCEPTOS_COSTO, MOTIVO_PENDIENTE_COMPROBANTE_LABEL, MOTIVOS_PENDIENTE_COMPROBANTE,
   TIPO_DOCUMENTO_COMPROBANTE_LABEL, type AsociacionComprobante, type ComprobanteListaDto, type ConceptoCosto, type EstadoComprobante,
@@ -231,6 +232,9 @@ export default function FlitoComprobantes() {
             </FlitPillButton>
           ))}
         </FlitPillGroup>
+        {/* Épica #14560 (b): en teléfono los desplegables se pliegan tras «Filtros (n)»; solo presentación. */}
+        <FiltrosPlegables modo="linea"
+          activos={[asociacion !== '', concepto !== '', pill === 'pendiente' && motivo !== ''].filter(Boolean).length}>
         <label className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           <span className="sr-only">Estado de asociación</span>
           <select className={`${flitInp} w-auto py-1.5`} value={asociacion} onChange={(e) => cambiarAsociacion(e.target.value as AsociacionComprobante | '')}>
@@ -254,6 +258,7 @@ export default function FlitoComprobantes() {
             </select>
           </label>
         )}
+        </FiltrosPlegables>
         {chipCarga && (
           <span className="inline-flex items-center gap-1">
             <StatusChip tone="active">{chipCarga.etiqueta}{data && ` · ${data.total} documentos`}</StatusChip>
