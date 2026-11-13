@@ -23,8 +23,7 @@ export default class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="mx-auto max-w-xl px-4 py-16 text-center">
         <div
-          className="rounded-[var(--flit-radius-card)] bg-white p-6"
-          style={{ boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' }}
+          className="card"
         >
           <h1 className="text-lg font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
             No se pudo mostrar esta vista
@@ -35,8 +34,7 @@ export default class ErrorBoundary extends Component<Props, State> {
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="mt-4 inline-flex h-10 items-center rounded-[999px] px-5 text-sm font-semibold text-white"
-            style={{ background: 'var(--flit-gradient-primary)' }}
+            className="btn mt-4"
           >
             Recargar
           </button>
