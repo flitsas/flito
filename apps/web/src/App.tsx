@@ -377,13 +377,16 @@ export default function App() {
           <AppRoutes />
           <Toaster
             position="top-right"
+            // Avisos del UI Kit 2026: arriba a la derecha bajo la barra (top 84; 72 en teléfono), sombra del kit.
+            containerStyle={{ top: 84, right: 16 }}
             toastOptions={{
               style: {
-                background: 'var(--color-surface-elevated)',
+                background: 'color-mix(in srgb, var(--kit-azul) 10%, var(--color-surface-elevated))',
                 color: 'var(--color-text-primary)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: 'var(--shadow-floating)',
+                border: '1px solid var(--kit-azul)',
+                borderRadius: '9px',
+                boxShadow: 'var(--kit-sombra)',
+                maxWidth: 380,
               },
             }}
           />
