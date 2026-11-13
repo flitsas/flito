@@ -24,7 +24,7 @@ Si su rol tiene enlace **Compañía**, el tablero cuenta solo los trámites de s
 
 ## Cómo se entra
 
-Es lo primero que ve al iniciar sesión. Para volver a él, en la barra de navegación al pie de la pantalla pulse el primer ícono, **General**, que lleva directo al **Tablero**. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «tablero». No lo confunda con **Tablero ejecutivo PESV**.
+Es lo primero que ve al iniciar sesión. Para volver a él, en la barra de navegación al pie de la pantalla pulse el primer ícono: sección **General**, ítem **Tablero**, que es enlace directo. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «tablero». No lo confunda con **Tablero ejecutivo PESV**.
 
 ## Pasos
 

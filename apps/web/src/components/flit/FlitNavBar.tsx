@@ -19,7 +19,7 @@ import { useDrFlitVisible } from '../drflit/useDrFlitVisible';
 //   · el filtrado por permisos NO vive aquí: es `useNavSections` (mismo árbol que el buscador);
 //   · disclosure APG (button aria-expanded + lista de enlaces), SIN role="menu";
 //   · el nombre de la sección sigue en el DOM aunque se condense (sr-only): el nombre accesible no cambia;
-//   · una sección con una sola página es enlace directo con el nombre de la sección (General → Tablero);
+//   · una sección con una sola página es enlace directo con el nombre del ítem, como en el menú original (General → Tablero);
 //   · el panel abre HACIA ARRIBA; en tableta/teléfono el CSS del kit lo fija a lo ancho.
 //
 // Once secciones no caben con nombre en cualquier ancho. El dock MIDE si la fila con nombres cabe en el hueco
@@ -79,8 +79,8 @@ export default function FlitNavBar() {
       const unico = items[0];
       return (
         <NavLink key={section} to={unico.to} end={unico.to === '/'} className="dock__item" data-seccion={section}
-          title={unico.label}>
-          {glifo}<span className="dock__nombre">{titulo}</span>
+          title={compacto ? `${unico.label} (${titulo})` : undefined}>
+          {glifo}<span className="dock__nombre">{unico.label}</span>
         </NavLink>
       );
     }
