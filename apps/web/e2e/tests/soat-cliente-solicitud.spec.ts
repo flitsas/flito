@@ -925,9 +925,7 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
     await expect(page).toHaveURL(/\/flito\/soat\/solicitud$/);
 
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    // UI Kit 2026 (S0): el dock lleva siempre el enlace «Inicio»; el menú del módulo sigue siendo UNO.
-    await expect(nav.getByRole('link', { name: 'Inicio', exact: true })).toHaveCount(1);
-    await expect(nav.getByRole('link')).toHaveCount(2);
+    await expect(nav.getByRole('link')).toHaveCount(1);
     await expect(nav.getByRole('link', { name: 'SOAT' })).toHaveAttribute('aria-current', 'page');
   });
 

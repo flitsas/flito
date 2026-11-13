@@ -14,10 +14,9 @@
 //
 //   npx playwright test e2e/tests/shell-menu-catalogo.spec.ts --reporter=line
 //
-// Shell del UI Kit 2026 (Épica #14560): el dock reparte los módulos en 6 grupos de trabajo (dockGrupos.ts), con
-// los ítems y los subgrupos rotulados con el catálogo; «Tablero» es el isotipo «Inicio»; Administración, Ayuda y
-// la cuenta (Mi perfil, Cambiar contraseña, Salir) viven en el menú de usuario. Las intenciones de cada AC se
-// conservan sobre esa estructura.
+// Shell del UI Kit 2026 (Épica #14560): el dock pinta las secciones del menú original (SECTION_ORDER) con los
+// nombres del catálogo, sin reagrupar ni isotipo; «Ayuda» es la última sección. La cuenta (Mi perfil, Ayuda,
+// Cambiar contraseña, Salir) vive en el menú de usuario.
 
 import type { Page } from '@playwright/test';
 import { ARBOL_PERMISOS, ELEMENTOS_PERMISOS } from '@operaciones/shared-types';
@@ -51,23 +50,22 @@ async function opcionesDeUsuario(page: Page) {
 test.describe('HU #13431 — menú con los nombres del catálogo', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('AC4 — los subgrupos y los ítems se rotulan con el catálogo (LAFT, PESV, RNDC; Administración)', async ({ page }) => {
+  test('AC4 — las secciones y los ítems se rotulan con el catálogo (LAFT, no «Cumplimiento»)', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await page.goto('/');
     await listo(page);
-    // Kit 2026: «Cumplimiento» es el GRUPO del dock; dentro, cada subgrupo lleva el nombre del elemento del catálogo.
-    await nav(page).getByRole('button', { name: 'Cumplimiento', exact: true }).click();
-    for (const clave of ['pesv', 'rndc', 'laft']) {
-      await expect(page.locator('#flit-navbar-panel-cumplimiento p').filter({ hasText: new RegExp(`^${nombreElemento(clave)}$`) })).toBeVisible();
+    for (const clave of ['gestion', 'transito', 'laft', 'finanzas', 'administracion']) {
+      await expect(nav(page).getByRole('button', { name: nombreElemento(clave), exact: true })).toBeVisible();
     }
-    // El Tablero (`dashboard`) es «Inicio», el isotipo central.
-    await expect(nav(page).getByRole('link', { name: 'Inicio', exact: true })).toHaveAttribute('href', '/');
-    // Administración: en el menú de usuario, con el nombre del elemento como título de sección.
+    await expect(nav(page).getByRole('button', { name: 'Cumplimiento', exact: true })).toHaveCount(0);
+    // «General» con solo Tablero se pinta como enlace directo con el nombre del ítem.
+    await expect(nav(page).getByRole('link', { name: nombreItem('dashboard'), exact: true })).toHaveAttribute('href', '/');
+    // Administración es sección del dock, no del menú de usuario.
     const menu = await opcionesDeUsuario(page);
-    await expect(menu.locator('.menu-usuario__seccion p')).toHaveText(nombreElemento('administracion'));
+    await expect(menu.locator('.menu-usuario__seccion')).toHaveCount(0);
     await page.getByRole('button', { name: /Menú de usuario/ }).click();
 
-    await nav(page).getByRole('button', { name: 'Impuestos y SOAT', exact: true }).click();
+    await nav(page).getByRole('button', { name: nombreElemento('gestion'), exact: true }).click();
     // El ítem lleva el nombre del catálogo, no el rótulo fijo anterior («Derechos de tránsito»).
     await expect(page.getByRole('link', { name: nombreItem('flito_derechos'), exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Derechos de tránsito', exact: true })).toHaveCount(0);
@@ -81,7 +79,7 @@ test.describe('HU #13431 — menú con los nombres del catálogo', () => {
     await listo(page);
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_bolsas'), exact: true })).toBeVisible();
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_tarifas'), exact: true })).toHaveCount(0);
-    // Un solo ítem visible: ningún grupo desplegable, ni «Inicio» (no tiene `dashboard`), ni Administración.
+    // Un solo ítem visible: ninguna sección desplegable, ni Tablero (no tiene `dashboard`), ni Administración.
     await expect(nav(page).getByRole('button')).toHaveCount(0);
     const menu = await opcionesDeUsuario(page);
     await expect(menu.locator('.menu-usuario__seccion')).toHaveCount(0);
@@ -91,13 +89,14 @@ test.describe('HU #13431 — menú con los nombres del catálogo', () => {
 test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visibles', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('con capítulos visibles: «Ayuda» en el menú de usuario (último de la cuenta antes de la clave) y último en ⌘K', async ({ page }) => {
+  test('con capítulos visibles: «Ayuda» es la última sección, en el dock y en ⌘K (y en el menú de usuario)', async ({ page }) => {
     // Financiera: rol sin enlace con capítulos de Finanzas (no admin, que lo ve todo).
     await loginAs(page, FINANCIERA_USER);
     await page.goto('/');
     await listo(page);
-    // Kit 2026: Ayuda sale del dock y vive en el menú de usuario.
-    await expect(nav(page).getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
+    const enlace = nav(page).getByRole('link', { name: 'Ayuda', exact: true });
+    await expect(enlace).toHaveAttribute('href', '/flito/ayuda');
+    await expect(nav(page).locator('a, button').last()).toHaveAccessibleName('Ayuda');
     const menu = await opcionesDeUsuario(page);
     await menu.getByRole('menuitem', { name: /^Ayuda/ }).click();
     await expect(page).toHaveURL(/\/flito\/ayuda$/);
@@ -189,10 +188,9 @@ test.describe('HU #13431 — AC6 · usuario enlazado a compañía', () => {
     await loginAs(page, CLIENTE_USER);
     await page.goto('/');
     await listo(page);
-    // Grupos del kit 2026 que solo tienen módulos sin compañía, catálogos o configuración.
-    for (const grupo of ['Finanzas', 'Cumplimiento', 'Flota', 'Logística']) {
-      await expect(nav(page).getByRole('button', { name: grupo, exact: true })).toHaveCount(0);
-      await expect(nav(page).getByRole('link', { name: grupo, exact: true })).toHaveCount(0);
+    // Secciones que solo tienen módulos sin compañía, catálogos o configuración.
+    for (const clave of ['finanzas', 'administracion', 'transito', 'pesv', 'laft', 'rndc', 'mantenimiento']) {
+      await expect(nav(page).getByRole('button', { name: nombreElemento(clave), exact: true })).toHaveCount(0);
     }
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_tarifas'), exact: true })).toHaveCount(0);
     const menu = await opcionesDeUsuario(page);

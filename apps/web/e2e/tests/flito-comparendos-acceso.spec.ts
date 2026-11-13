@@ -119,20 +119,20 @@ test.describe('FLITO — Comparendos · acceso', () => {
     });
   }
 
-  test('AC3 — con la página, el dock ofrece «Comparendos» en Impuestos y SOAT y navega', async ({ page }) => {
+  test('AC3 — con la página, el dock ofrece «Comparendos» en Gestión y navega', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await page.goto('/flito/comparendos');
     await expect(page.getByRole('heading', { name: 'Comparendos monitoreados' })).toBeVisible();
 
-    // UI Kit 2026 (S0): el dock agrupa Comparendos en «Impuestos y SOAT», sección «Obligaciones».
-    await page.locator('#flit-navbar-trigger-impuestos-soat').click();
-    const panel = page.locator('#flit-navbar-panel-impuestos-soat');
+    // Dock del UI Kit 2026: secciones del menú original; Comparendos vive en Gestión, subgrupo «Comparendos».
+    await page.locator('#flit-navbar-trigger-gestion').click();
+    const panel = page.locator('#flit-navbar-panel-gestion');
     const enlace = panel.getByRole('link', { name: /^Comparendos/ });
     await expect(enlace).toBeVisible();
     await expect(enlace).toHaveAttribute('href', '/flito/comparendos');
 
-    // Y su sección con título, que es lo que evita que caiga en una columna sin título del panel.
-    await expect(panel.getByText('Obligaciones', { exact: true })).toBeVisible();
+    // Y su subgrupo, que es lo que evita que caiga en la columna sin título del final del panel.
+    await expect(panel.locator('p').filter({ hasText: /^Comparendos$/ })).toBeVisible();
 
     await enlace.click();
     await expect(page).toHaveURL(/\/flito\/comparendos$/);
@@ -157,15 +157,15 @@ test.describe('FLITO — Comparendos · acceso', () => {
     // El dock: el auditor tiene varias páginas de Gestión, así que el módulo se abre y se puede
     // afirmar la ausencia con el panel desplegado (con el panel cerrado los enlaces ni existen y el
     // aserto no diría nada).
-    // UI Kit 2026 (S0): Comparendos vive en el grupo «Impuestos y SOAT». Si el auditor tiene alguna
-    // página de ese grupo, se abre el panel para afirmar la ausencia con él desplegado; si no tiene
-    // ninguna, el grupo entero no existe y la ausencia es aún más fuerte.
+    // Comparendos vive en la sección Gestión. Si el auditor tiene alguna
+    // página de esa sección, se abre el panel para afirmar la ausencia con él desplegado; si no tiene
+    // ninguna, la sección entera no existe y la ausencia es aún más fuerte.
     // Primero que el dock esté montado: con la sesión aún «Cargando…» el conteo diría 0 por error.
     await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeVisible();
-    const trigger = page.locator('#flit-navbar-trigger-impuestos-soat');
+    const trigger = page.locator('#flit-navbar-trigger-gestion');
     if (await trigger.count()) {
       await trigger.click();
-      await expect(page.locator('#flit-navbar-panel-impuestos-soat')).toBeVisible();
+      await expect(page.locator('#flit-navbar-panel-gestion')).toBeVisible();
     }
     await expect(page.getByRole('link', { name: /^Comparendos/ })).toHaveCount(0);
     await page.keyboard.press('Escape');

@@ -111,8 +111,8 @@ test.describe('FLITO — Derechos de tránsito', () => {
     // cargados; hasta ahora tenía que irse al reporte de costos para averiguarlo.
     await expect(page.getByText('Documentos de FLIT-1001')).toBeVisible();
     await expect(page.getByText('3 documento(s)')).toBeVisible();
-    // El dock del UI Kit 2026 tiene un grupo «Impuestos y SOAT»: cada documento se ancla por su
-    // concepto + archivo para no confundirlo con ese botón.
+    // Cada documento se ancla por su concepto + archivo para no confundirlo con otro botón de la
+    // pantalla o del dock que nombre SOAT o Impuesto.
     await expect(page.getByRole('button', { name: /^SOAT soat\.pdf/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Impuesto impuesto\.pdf/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Derecho de tránsito derecho\.pdf/ })).toBeVisible();
