@@ -43,7 +43,7 @@ test.describe('Vehicles · Pipeline progreso global', () => {
 
     await page.goto('/vehicles');
     // Pipeline es el tab por defecto; lo seleccionamos explícitamente por robustez.
-    await page.getByRole('button', { name: 'Pipeline', exact: true }).click();
+    await page.getByRole('tab', { name: 'Pipeline', exact: true }).click();
 
     // Resumen «Progreso global».
     await expect(page.getByText('Progreso global')).toBeVisible();
@@ -87,7 +87,7 @@ test.describe('Vehicles · Pipeline progreso global', () => {
     });
 
     await page.goto('/vehicles');
-    await page.getByRole('button', { name: 'Pipeline', exact: true }).click();
+    await page.getByRole('tab', { name: 'Pipeline', exact: true }).click();
     await page.getByRole('button', { name: /Propietario Pipeline E2E/ }).click();
 
     const stageDialog = page.getByRole('dialog');

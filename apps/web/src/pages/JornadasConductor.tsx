@@ -1,9 +1,14 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
-import { IconClose } from '../components/flit/icons';
+import GradientButton from '../components/flit/GradientButton';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import PanelFiltros from '../components/flit/PanelFiltros';
+import { EtiquetaEstado, Fichas } from '../components/flit/Bloques';
+import { FlitCard, flitInp, flitBtnSecondarySm, flitBtnIconoSm } from '../components/flit/flitPageKit';
+import { Icono } from '../components/flit/kit/Icono';
+import '../components/fleet/estados-conductores';
 
 interface Jornada {
   id: number;
@@ -38,9 +43,6 @@ const ALARMA_LABEL: Record<Alarma['tipo'], string> = {
   mas_60h_semanal: 'Semana > 60h',
   sin_pausa_obligatoria: 'Sin pausa obligatoria (15min cada 2h)',
 };
-
-const inputCls = 'flit-focus rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-3 py-2 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
 
 export default function JornadasConductor() {
   const [items, setItems] = useState<Jornada[]>([]);
@@ -78,99 +80,114 @@ export default function JornadasConductor() {
     } catch (e) { toast.error(errorMessage(e)); }
   };
 
+  const fecha = (iso: string | null) => <span className="text-xs text-[color:var(--color-text-secondary)]">{iso ? iso.slice(0, 16).replace('T', ' ') : '—'}</span>;
+  const columnas: ColumnaTabla<Jornada>[] = [
+    { key: 'id', header: 'ID', render: (j) => <span className="mono text-xs text-[color:var(--color-text-secondary)]">#{j.id}</span> },
+    { key: 'conductor', header: 'Conductor', render: (j) => <span className="text-xs text-[color:var(--color-text-secondary)]">{j.conductorId}</span> },
+    { key: 'inicio', header: 'Inicio', render: (j) => fecha(j.inicioAt) },
+    { key: 'fin', header: 'Fin', render: (j) => fecha(j.finAt) },
+    { key: 'horas', header: 'Horas', render: (j) => <span className="text-xs font-medium tabular-nums text-[color:var(--color-text-primary)]">{j.horasConduccion ?? '—'}</span> },
+    { key: 'estado', header: 'Estado', render: (j) => <EstadoPill j={j} /> },
+    { key: 'accion', header: 'Acción', acciones: true, render: (j) => <button type="button" onClick={() => openDetail(j.id)} className={flitBtnSecondarySm}>Ver</button> },
+  ];
+
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Control de jornada"
         subtitle="Decreto 1079/2015 art. 2.2.1.7.1.10 · Tope 10h/día, 60h/sem, 4h continuas, pausa 15min cada 2h"
+        icono="flito-jornadas"
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }]}
       />
 
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-        <input type="date" value={filter.from} onChange={(e) => setFilter({ ...filter, from: e.target.value })} className={inputCls} placeholder="Desde" />
-        <input type="date" value={filter.to} onChange={(e) => setFilter({ ...filter, to: e.target.value })} className={inputCls} placeholder="Hasta" />
-        <input value={filter.conductorId} onChange={(e) => setFilter({ ...filter, conductorId: e.target.value })} className={inputCls} placeholder="ID conductor" />
-      </div>
-
-      <div className="overflow-hidden bg-white" style={CARD}>
-        {loading && <div className="p-6 text-center text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</div>}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr>
-              <Th>ID</Th><Th>Conductor</Th><Th>Inicio</Th><Th>Fin</Th><Th>Horas</Th><Th>Estado</Th><Th>Acción</Th>
-            </tr></thead>
-            <tbody>
-              {!loading && items.length === 0 && <tr><td colSpan={7} className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin jornadas</td></tr>}
-              {items.map((j) => (
-                <tr key={j.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--flit-text-secondary)' }}>#{j.id}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{j.conductorId}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{j.inicioAt.slice(0, 16).replace('T', ' ')}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{j.finAt?.slice(0, 16).replace('T', ' ') ?? '—'}</td>
-                  <td className="px-4 py-3 text-xs font-medium tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{j.horasConduccion ?? '—'}</td>
-                  <td className="px-4 py-3"><EstadoPill j={j} /></td>
-                  <td className="px-4 py-3"><button onClick={() => openDetail(j.id)} className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-semibold text-white" style={{ background: 'var(--flit-gradient-primary)' }}>Ver</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <FlitCard className="flex flex-col gap-4">
+        <PanelFiltros
+          busqueda={filter.conductorId}
+          onBusqueda={(v) => setFilter({ ...filter, conductorId: v })}
+          placeholder="ID conductor"
+          campos={(
+            <>
+              <label className="campo">
+                <span>Desde</span>
+                <input type="date" value={filter.from} onChange={(e) => setFilter({ ...filter, from: e.target.value })} className={flitInp} placeholder="Desde" />
+              </label>
+              <label className="campo">
+                <span>Hasta</span>
+                <input type="date" value={filter.to} onChange={(e) => setFilter({ ...filter, to: e.target.value })} className={flitInp} placeholder="Hasta" />
+              </label>
+            </>
+          )}
+        />
+        <DataTable
+          ariaLabel="Jornadas"
+          columnas={columnas}
+          filas={items}
+          getKey={(j) => String(j.id)}
+          status={loading ? 'loading' : undefined}
+          emptyMessage="Sin jornadas"
+        />
+      </FlitCard>
 
       {selected && (
-        <section className="bg-white p-5" style={CARD}>
-          <div className="mb-4 flex items-start justify-between">
-            <h2 className="text-lg font-bold tracking-tight" style={{ color: 'var(--flit-blue-text)' }}>Jornada #{selected.id} · {selected.horasConduccion ?? '—'}h conducción</h2>
-            <button onClick={() => setSelected(null)} aria-label="Cerrar detalle" className="flit-focus grid h-9 w-9 place-items-center rounded-lg transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ color: 'var(--flit-text-muted)' }}><IconClose className="h-5 w-5" /></button>
+        <FlitCard className="flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-lg font-bold tracking-tight text-[color:var(--color-action)]">Jornada #{selected.id} · {selected.horasConduccion ?? '—'}h conducción</h2>
+            <button type="button" onClick={() => setSelected(null)} aria-label="Cerrar detalle" className={flitBtnIconoSm}><Icono nombre="cerrar" size={18} /></button>
           </div>
-          <div className="mb-4 grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
-            <div><span style={{ color: 'var(--flit-text-muted)' }}>Conductor:</span> {selected.conductorId}</div>
-            <div><span style={{ color: 'var(--flit-text-muted)' }}>Vehículo:</span> {selected.vehicleId ?? '—'}</div>
-            <div><span style={{ color: 'var(--flit-text-muted)' }}>Inicio:</span> {selected.inicioAt}</div>
-            <div><span style={{ color: 'var(--flit-text-muted)' }}>Fin:</span> {selected.finAt ?? 'En curso'}</div>
-            <div><span style={{ color: 'var(--flit-text-muted)' }}>Descanso previo:</span> {selected.horasDescansoPre ?? '—'}h</div>
-            <div><span style={{ color: 'var(--flit-text-muted)' }}>Cierre automático:</span> {selected.cerradaAutomatica ? 'sí' : 'no'}</div>
-          </div>
-          <h3 className="mb-2 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Pausas ({selected.pausas.length})</h3>
-          {selected.pausas.length === 0 && <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin pausas registradas</p>}
-          {selected.pausas.map((p) => (
-            <div key={p.id} className="flex gap-3 border-b py-1 text-xs" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <span className="font-mono" style={{ color: 'var(--flit-text-secondary)' }}>{p.inicioAt.slice(11, 16)} → {p.finAt?.slice(11, 16) ?? '...'}</span>
-              <span className="capitalize" style={{ color: 'var(--flit-text-secondary)' }}>{p.motivo}</span>
-              {p.duracionMin && <span style={{ color: 'var(--flit-text-muted)' }}>{p.duracionMin}min</span>}
-            </div>
-          ))}
-          <h3 className="mb-2 mt-4 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Alarmas ({selected.alarmas.length})</h3>
-          {selected.alarmas.length === 0 && <p className="text-xs font-medium" style={{ color: 'var(--flit-success)' }}>Sin alarmas — cumple norma</p>}
-          {selected.alarmas.map((a) => (
-            <div key={a.id} className="mb-1 rounded-[12px] p-3" style={a.ackAt
-              ? { border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }
-              : { border: '1px solid rgba(228,61,48,0.30)', background: 'rgba(228,61,48,0.10)' }}>
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-medium" style={{ color: 'var(--flit-text-primary)' }}>{ALARMA_LABEL[a.tipo]}</p>
-                  <p className="text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>Observado: <strong>{a.valorObservado} {a.unidad}</strong> · Límite: {a.valorLimite} {a.unidad}</p>
-                </div>
-                {!a.ackAt && (
-                  <button onClick={() => ackAlarma(a.id)} aria-label="Reconocer alarma" className="flit-focus rounded-[999px] px-3 py-1.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--flit-warning)' }}>Reconocer</button>
-                )}
-                {a.ackAt && <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Ack {a.ackAt.slice(0, 10)}</span>}
+          <Fichas items={[
+            { etiqueta: 'Conductor', valor: selected.conductorId },
+            { etiqueta: 'Vehículo', valor: selected.vehicleId ?? '—' },
+            { etiqueta: 'Inicio', valor: selected.inicioAt },
+            { etiqueta: 'Fin', valor: selected.finAt ?? 'En curso' },
+            { etiqueta: 'Descanso previo', valor: `${selected.horasDescansoPre ?? '—'}h` },
+            { etiqueta: 'Cierre automático', valor: selected.cerradaAutomatica ? 'sí' : 'no' },
+          ]} />
+          <div>
+            <h3 className="mb-2 text-sm font-semibold text-[color:var(--color-text-primary)]">Pausas ({selected.pausas.length})</h3>
+            {selected.pausas.length === 0 && <p className="text-xs text-[color:var(--color-text-tertiary)]">Sin pausas registradas</p>}
+            {selected.pausas.map((p) => (
+              <div key={p.id} className="flex flex-wrap gap-3 border-b border-[color:var(--color-border)] py-1.5 text-xs">
+                <span className="mono text-[color:var(--color-text-secondary)]">{p.inicioAt.slice(11, 16)} → {p.finAt?.slice(11, 16) ?? '...'}</span>
+                <span className="capitalize text-[color:var(--color-text-secondary)]">{p.motivo}</span>
+                {p.duracionMin && <span className="text-[color:var(--color-text-tertiary)]">{p.duracionMin}min</span>}
               </div>
+            ))}
+          </div>
+          <div>
+            <h3 className="mb-2 text-sm font-semibold text-[color:var(--color-text-primary)]">Alarmas ({selected.alarmas.length})</h3>
+            {selected.alarmas.length === 0 && <p className="text-xs font-medium text-[color:var(--kit-verde-texto)]">Sin alarmas — cumple norma</p>}
+            <div className="flex flex-col gap-2">
+              {selected.alarmas.map((a) => (
+                <div key={a.id} className={a.ackAt
+                  ? 'rounded-[9px] border border-[color:var(--color-border)] bg-[var(--kit-hover)] p-3'
+                  : 'rounded-[9px] border border-[color:var(--kit-rojo)] bg-[color-mix(in_srgb,var(--kit-rojo)_10%,transparent)] p-3'}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-start gap-2">
+                      <Icono nombre="alerta" size={18} className={a.ackAt ? 'shrink-0 text-[color:var(--color-text-tertiary)]' : 'shrink-0 text-[color:var(--kit-rojo-texto)]'} />
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-[color:var(--color-text-primary)]">{ALARMA_LABEL[a.tipo]}</p>
+                        <p className="text-[0.6875rem] text-[color:var(--color-text-secondary)]">Observado: <strong>{a.valorObservado} {a.unidad}</strong> · Límite: {a.valorLimite} {a.unidad}</p>
+                      </div>
+                    </div>
+                    {!a.ackAt && (
+                      <GradientButton type="button" size="sm" variant="success" onClick={() => ackAlarma(a.id)} aria-label="Reconocer alarma">Reconocer</GradientButton>
+                    )}
+                    {a.ackAt && <span className="text-[0.625rem] text-[color:var(--color-text-tertiary)]">Ack {a.ackAt.slice(0, 10)}</span>}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </section>
+          </div>
+        </FlitCard>
       )}
     </div>
   );
 }
 
-function Th({ children }: { children: ReactNode }) {
-  return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
-
 function EstadoPill({ j }: { j: Jornada }) {
-  let tone: ChipTone = 'success';
+  let estado = 'jornada-cerrada';
   let label = 'Cerrada';
-  if (!j.cerrada) { tone = 'active'; label = 'En curso'; }
-  else if (j.cerradaAutomatica) { tone = 'warning'; label = 'Cierre auto'; }
-  return <StatusChip tone={tone}>{label}</StatusChip>;
+  if (!j.cerrada) { estado = 'jornada-en-curso'; label = 'En curso'; }
+  else if (j.cerradaAutomatica) { estado = 'jornada-cierre-auto'; label = 'Cierre auto'; }
+  return <EtiquetaEstado estado={estado}>{label}</EtiquetaEstado>;
 }

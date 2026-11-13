@@ -3,15 +3,36 @@
 import { useCallback, useEffect, useState, FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../../lib/api';
-import StatusChip, { type ChipTone } from '../flit/StatusChip';
 import FlitModal from '../flit/FlitModal';
+import GradientButton from '../flit/GradientButton';
+import DataTable, { type ColumnaTabla } from '../flit/DataTable';
+import { Cargador } from '../flit/Cargador';
+import { EtiquetaEstado } from '../flit/Bloques';
+import { ESTADO_LIQUIDACION } from './estados-mantenimiento';
 
 interface Pago { id: number; monto: number; metodo: string; nota: string | null; createdAt: string }
 interface Liquidacion { id: number; estado: string; total: number; nota: string | null; pagos: Pago[] }
 
-const ESTADO_TONE: Record<string, ChipTone> = { borrador: 'warning', confirmada: 'success', anulada: 'neutral' };
 const fmt = (n: number) => `$${(n ?? 0).toLocaleString('es-CO')}`;
-const cardStyle: React.CSSProperties = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' };
+const claveEstado = (estado: string) => ESTADO_LIQUIDACION[estado as keyof typeof ESTADO_LIQUIDACION] ?? estado;
+
+const COLUMNAS: ColumnaTabla<Liquidacion>[] = [
+  { key: 'estado', header: 'Estado', etiqueta: 'Estado', render: (l) => <EtiquetaEstado estado={claveEstado(l.estado)}>{l.estado}</EtiquetaEstado> },
+  { key: 'total', header: 'Total', etiqueta: 'Total', align: 'right', render: (l) => <span className="mono tabular-nums font-semibold text-[color:var(--color-text-primary)]">{fmt(l.total)}</span> },
+  { key: 'nota', header: 'Nota', etiqueta: 'Nota', render: (l) => <span className="text-xs text-[color:var(--color-text-tertiary)]">{l.nota}</span> },
+  {
+    key: 'pagos', header: 'Pagos', etiqueta: 'Pagos',
+    render: (l) => (l.pagos.length > 0 ? (
+      <ul className="space-y-0.5">
+        {l.pagos.map((p) => (
+          <li key={p.id} className="text-xs text-[color:var(--color-text-secondary)]">
+            Pago <span className="mono tabular-nums">{fmt(p.monto)}</span> · {p.metodo} · {(p.createdAt || '').slice(0, 10)}
+          </li>
+        ))}
+      </ul>
+    ) : null),
+  },
+];
 
 export default function LiquidacionPanel({ woId, isAdmin }: { woId: number; isAdmin: boolean }) {
   const [liqs, setLiqs] = useState<Liquidacion[]>([]);
@@ -28,45 +49,26 @@ export default function LiquidacionPanel({ woId, isAdmin }: { woId: number; isAd
   useEffect(() => { load(); }, [load]);
 
   return (
-    <section aria-label="Liquidación y pago" className="bg-white p-5" style={cardStyle}>
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Liquidación / pago manual</p>
+    <section aria-label="Liquidación y pago" className="card flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-base font-semibold text-[color:var(--color-text-primary)]">Liquidación / pago manual</p>
         {isAdmin && (
-          <button type="button" onClick={() => setModal(true)}
-            className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-semibold"
-            style={{ color: 'var(--flit-blue)', background: 'rgba(79, 116, 201, 0.12)' }}>
+          <GradientButton type="button" variant="secondary" size="sm" onClick={() => setModal(true)}>
             Registrar pago manual
-          </button>
+          </GradientButton>
         )}
       </div>
 
       {loading ? (
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>
-      ) : liqs.length === 0 ? (
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin liquidaciones registradas.</p>
+        <Cargador texto="Cargando…" />
       ) : (
-        <ul className="flex flex-col gap-2">
-          {liqs.map((l) => (
-            <li key={l.id} className="rounded-[10px] border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <StatusChip tone={ESTADO_TONE[l.estado] ?? 'neutral'}>{l.estado}</StatusChip>
-                  <span className="text-sm font-semibold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{fmt(l.total)}</span>
-                </div>
-                {l.nota && <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{l.nota}</span>}
-              </div>
-              {l.pagos.length > 0 && (
-                <ul className="mt-1.5 space-y-0.5">
-                  {l.pagos.map((p) => (
-                    <li key={p.id} className="text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
-                      Pago {fmt(p.monto)} · {p.metodo} · {(p.createdAt || '').slice(0, 10)}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>
+        <DataTable
+          ariaLabel="Liquidaciones de la orden"
+          columnas={COLUMNAS}
+          filas={liqs}
+          getKey={(l) => String(l.id)}
+          emptyMessage="Sin liquidaciones registradas."
+        />
       )}
 
       {modal && (
@@ -80,7 +82,6 @@ function PagoModal({ woId, onClose, onSaved }: { woId: number; onClose: () => vo
   const [monto, setMonto] = useState('');
   const [nota, setNota] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const inputCls = 'flit-focus mt-1 w-full rounded-[10px] border bg-white px-3 py-2.5 text-sm outline-none';
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -100,24 +101,23 @@ function PagoModal({ woId, onClose, onSaved }: { woId: number; onClose: () => vo
   };
 
   return (
-    <FlitModal title="Registrar pago manual" onClose={onClose}>
+    <FlitModal title="Registrar pago manual" icono="pago" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
-        <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-          Monto (COP)
-          <input type="number" min={1} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} required
-            className={inputCls} style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }} placeholder="0" />
-        </label>
-        <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-          Nota / referencia (opcional)
-          <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={2} maxLength={500}
-            className={`${inputCls} resize-none`} style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
-            placeholder="Ej: efectivo, transferencia Bancolombia ref 12345" />
-        </label>
-        <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} className="flit-focus rounded-[999px] px-4 py-2 text-sm font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Cancelar</button>
-          <button type="submit" disabled={submitting} className="flit-focus inline-flex h-10 items-center rounded-[999px] px-4 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'var(--flit-gradient-primary)' }}>
+        <div className="campo">
+          <label htmlFor="pago-manual-monto">Monto (COP)</label>
+          <input id="pago-manual-monto" type="number" min={1} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} required
+            className="control mono" placeholder="0" />
+        </div>
+        <div className="campo">
+          <label htmlFor="pago-manual-nota">Nota / referencia (opcional)</label>
+          <textarea id="pago-manual-nota" value={nota} onChange={(e) => setNota(e.target.value)} rows={2} maxLength={500}
+            className="control resize-none" placeholder="Ej: efectivo, transferencia Bancolombia ref 12345" />
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 pt-1">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton type="submit" variant="success" disabled={submitting} ocupado={submitting}>
             {submitting ? 'Registrando…' : 'Confirmar pago'}
-          </button>
+          </GradientButton>
         </div>
       </form>
     </FlitModal>

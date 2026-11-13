@@ -1,12 +1,16 @@
-import { useEffect, useState, useCallback, FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, useCallback, FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useEscape } from '../lib/hooks';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import InlineAlert from '../components/flit/InlineAlert';
+import { EtiquetaEstado } from '../components/flit/Bloques';
+import { flitInp, FlitField } from '../components/flit/flitPageKit';
+import { estadoAlcohol } from '../components/fleet/estados-conductores';
 
 interface AlcoholTest {
   id: number; conductorId: number; conductorName: string | null;
@@ -15,8 +19,7 @@ interface AlcoholTest {
 }
 interface Driver { id: number; name: string; }
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const MIGA = [{ etiqueta: 'PESV', to: '/pesv' }];
 
 export default function AlcoholTests() {
   const { hasFuncion } = useAuth();
@@ -30,63 +33,39 @@ export default function AlcoholTests() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  const columnas: ColumnaTabla<AlcoholTest>[] = [
+    { key: 'fecha', header: 'Fecha', etiqueta: 'Fecha', render: (t) => <span className="text-xs tabular-nums text-[color:var(--color-text-secondary)]">{(t.fechaHora as string).slice(0, 16).replace('T', ' ')}</span> },
+    { key: 'conductor', header: 'Conductor', etiqueta: 'Conductor', render: (t) => <span className="font-medium text-[color:var(--color-text-primary)]">{t.conductorName}</span> },
+    { key: 'tipo', header: 'Tipo', etiqueta: 'Tipo', render: (t) => <span className="text-xs capitalize text-[color:var(--color-text-secondary)]">{t.tipo.replace('_', ' ')}</span> },
+    { key: 'valor', header: 'Valor (mg/L)', etiqueta: 'Valor (mg/L)', render: (t) => <span className="tabular-nums text-[color:var(--color-text-secondary)]">{Number(t.valorMg).toFixed(2)}</span> },
+    { key: 'grado', header: 'Grado', etiqueta: 'Grado', render: (t) => <span className="tabular-nums text-[color:var(--color-text-secondary)]">{t.gradoAlcohol}</span> },
+    { key: 'resultado', header: 'Resultado', etiqueta: 'Resultado', render: (t) => <EtiquetaEstado estado={estadoAlcohol(t.resultado)}>{t.resultado}</EtiquetaEstado> },
+    { key: 'accion', header: 'Acción', etiqueta: 'Acción', render: (t) => <span className="text-xs text-[color:var(--color-text-secondary)]">{t.accionTomada || '—'}</span> },
+  ];
+
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Pruebas de alcoholimetría"
         subtitle="Política cero alcohol. Resultado positivo suspende automáticamente al conductor."
+        icono="flito-alcoholimetria"
+        miga={MIGA}
         actions={isAdmin ? (
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="flit-focus inline-flex items-center justify-center gap-2 rounded-[999px] px-6 text-sm font-semibold text-white transition-transform motion-safe:active:scale-[0.99]"
-            style={{ height: '44px', background: 'var(--flit-gradient-danger)', boxShadow: 'var(--flit-shadow-button)' }}
-          >
-            Registrar prueba
-          </button>
+          <GradientButton type="button" onClick={() => setShowCreate(true)}>Registrar prueba</GradientButton>
         ) : undefined}
       />
 
-      <div className="overflow-hidden bg-white" style={CARD}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr>
-              <Th>Fecha</Th><Th>Conductor</Th><Th>Tipo</Th><Th>Valor (mg/L)</Th><Th>Grado</Th><Th>Resultado</Th><Th>Acción</Th>
-            </tr></thead>
-            <tbody>
-              {items.length === 0 && <tr><td colSpan={7} className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin pruebas registradas</td></tr>}
-              {items.map((t) => (
-                <tr key={t.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{(t.fechaHora as string).slice(0, 16).replace('T', ' ')}</td>
-                  <td className="px-4 py-3 font-medium" style={{ color: 'var(--flit-text-primary)' }}>{t.conductorName}</td>
-                  <td className="px-4 py-3 text-xs capitalize" style={{ color: 'var(--flit-text-secondary)' }}>{t.tipo.replace('_', ' ')}</td>
-                  <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{Number(t.valorMg).toFixed(2)}</td>
-                  <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{t.gradoAlcohol}</td>
-                  <td className="px-4 py-3"><ResultadoPill r={t.resultado} /></td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{t.accionTomada || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        ariaLabel="Pruebas de alcoholimetría"
+        columnas={columnas}
+        filas={items}
+        getKey={(t) => String(t.id)}
+        emptyMessage="Sin pruebas registradas"
+      />
 
       {showCreate && <CreateAlcoholModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
     </div>
   );
-}
-
-function Th({ children }: { children?: ReactNode }) {
-  return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
-
-function ResultadoPill({ r }: { r: string }) {
-  const tone: Record<string, ChipTone> = { negativo: 'success', positivo: 'danger', inconcluso: 'warning' };
-  return <StatusChip tone={tone[r] ?? 'neutral'}>{r}</StatusChip>;
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="block"><span className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{label}</span>{children}</label>;
 }
 
 function CreateAlcoholModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
@@ -137,24 +116,24 @@ function CreateAlcoholModal({ onClose, onSaved }: { onClose: () => void; onSaved
   };
 
   return (
-    <FlitModal title="Registrar prueba de alcoholimetría" onClose={onClose}>
+    <FlitModal title="Registrar prueba de alcoholimetría" onClose={onClose} icono="biometria">
       <form onSubmit={submit} className="space-y-3">
-        <Field label="Conductor *">
-          <select value={conductorId} onChange={(e) => setConductorId(e.target.value)} className={inputCls} disabled={driversError !== null} aria-describedby={driversError ? 'alcohol-conductores-aviso' : undefined}>
+        <FlitField label="Conductor *">
+          <select value={conductorId} onChange={(e) => setConductorId(e.target.value)} className={flitInp} disabled={driversError !== null} aria-describedby={driversError ? 'alcohol-conductores-aviso' : undefined}>
             <option value="">— seleccione —</option>
             {drivers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
-          {driversError && <p id="alcohol-conductores-aviso" role="status" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{driversError}</p>}
-        </Field>
-        <Field label="Tipo">
-          <select value={tipo} onChange={(e) => setTipo(e.target.value as AlcoholTipo)} className={inputCls}>
+          {driversError && <p id="alcohol-conductores-aviso" role="status" className="mt-1 text-xs text-[color:var(--kit-rojo-texto)]">{driversError}</p>}
+        </FlitField>
+        <FlitField label="Tipo">
+          <select value={tipo} onChange={(e) => setTipo(e.target.value as AlcoholTipo)} className={flitInp}>
             <option value="preoperacional">Preoperacional</option>
             <option value="aleatoria">Aleatoria</option>
             <option value="post_incidente">Post-incidente</option>
             <option value="periodica">Periódica</option>
           </select>
-        </Field>
-        <Field label="Valor (mg/L) *">
+        </FlitField>
+        <FlitField label="Valor (mg/L) *">
           <input
             type="number"
             step="0.01"
@@ -162,31 +141,19 @@ function CreateAlcoholModal({ onClose, onSaved }: { onClose: () => void; onSaved
             max="9.99"
             value={valorMg}
             onChange={(e) => setValorMg(e.target.value)}
-            className={inputCls}
-            style={seraPositivo ? { borderColor: 'var(--flit-danger)', background: 'rgba(228,61,48,0.08)' } : undefined}
+            className={seraPositivo ? `${flitInp} !border-[color:var(--kit-rojo)]` : flitInp}
           />
-        </Field>
+        </FlitField>
         {seraPositivo && (
-          <div className="rounded-[12px] p-3 text-xs" style={{ background: 'rgba(228,61,48,0.10)', border: '1px solid rgba(228,61,48,0.30)', color: 'var(--flit-danger)' }}>
+          <InlineAlert tono="danger">
             <strong>Atención:</strong> cualquier valor &gt; 0 mg/L es POSITIVO según política cero alcohol. El conductor será suspendido automáticamente.
-          </div>
+          </InlineAlert>
         )}
-        <Field label="Equipo (serial)"><input value={equipoSerial} onChange={(e) => setEquipoSerial(e.target.value)} maxLength={60} className={inputCls} /></Field>
-        <Field label="Acción tomada"><textarea value={accionTomada} onChange={(e) => setAccionTomada(e.target.value)} maxLength={2000} rows={2} className={inputCls} /></Field>
-        <div className="mt-2 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
-          {seraPositivo ? (
-            <button
-              type="submit"
-              disabled={submitting}
-              className="flit-focus inline-flex items-center justify-center gap-2 rounded-[999px] px-6 text-sm font-semibold text-white transition-transform motion-safe:active:scale-[0.99] disabled:opacity-55"
-              style={{ height: '44px', background: 'var(--flit-gradient-danger)', boxShadow: 'var(--flit-shadow-button)' }}
-            >
-              {submitting ? 'Registrando…' : 'Registrar'}
-            </button>
-          ) : (
-            <GradientButton type="submit" disabled={submitting}>{submitting ? 'Registrando…' : 'Registrar'}</GradientButton>
-          )}
+        <FlitField label="Equipo (serial)"><input value={equipoSerial} onChange={(e) => setEquipoSerial(e.target.value)} maxLength={60} className={flitInp} /></FlitField>
+        <FlitField label="Acción tomada"><textarea value={accionTomada} onChange={(e) => setAccionTomada(e.target.value)} maxLength={2000} rows={2} className={flitInp} /></FlitField>
+        <div className="mt-2 flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] pt-4">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton type="submit" variant={seraPositivo ? 'alerta' : 'primary'} disabled={submitting}>{submitting ? 'Registrando…' : 'Registrar'}</GradientButton>
         </div>
       </form>
     </FlitModal>
