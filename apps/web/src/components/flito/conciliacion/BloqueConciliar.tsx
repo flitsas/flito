@@ -20,9 +20,8 @@ import { api, errorMessage } from '../../../lib/api';
 import { pesos } from '../../../lib/bolsas';
 import { codigoDe, extraDe, nombreBotonBloqueado, textoBloqueante } from '../../../lib/conciliacion';
 import FlitModal from '../../flit/FlitModal';
-import {
-  FlitCard, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../../flit/flitPageKit';
+import { FlitCard, flitBtnPrimaryStyle } from '../../flit/flitPageKit';
+import GradientButton from '../../flit/GradientButton';
 
 interface Props {
   boleta: BoletaDetalleDto;
@@ -79,7 +78,7 @@ export default function BloqueConciliar(
               role="alert"
               tabIndex={-1}
               className="rounded-[12px] p-3 outline-none"
-              style={{ background: '#FDE8E3', color: 'var(--flit-warning-ink)' }}
+              style={{ background: 'color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated))', color: 'var(--kit-naranja-texto)' }}
             >
               <p className="text-sm font-semibold">{aviso.titulo}</p>
               <p className="text-sm">{aviso.detalle}</p>
@@ -92,16 +91,16 @@ export default function BloqueConciliar(
               id="conciliar-bloqueante"
               tabIndex={-1}
               className="text-sm outline-none"
-              style={{ color: 'var(--flit-danger-ink)' }}
+              style={{ color: 'var(--kit-rojo-texto)' }}
             >
               {textoBloqueante(boleta.filas, boleta.sinCuadrar)}
             </p>
           )}
 
           <div className="flex flex-wrap items-center gap-3">
-            <button
+            <GradientButton variant="success"
               type="button"
-              className={flitBtnPrimary}
+
               style={{ ...flitBtnPrimaryStyle, opacity: bloqueado ? 0.5 : 1 }}
               aria-disabled={bloqueado}
               aria-label={bloqueado ? nombreBotonBloqueado(boleta.filas, boleta.sinCuadrar) : undefined}
@@ -109,10 +108,10 @@ export default function BloqueConciliar(
               // Bloqueado, el clic NO dispara ninguna petición: lleva el foco al motivo, que es la
               // única acción útil que queda.
               onClick={() => (bloqueado ? bloqueanteRef.current?.focus() : setConfirmando(true))}
-            >
+>
               Conciliar boleta
-            </button>
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            </GradientButton>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               Total de la boleta: <strong className="tabular-nums">{pesos(boleta.totalDeclarado)}</strong>
               {' · '}Suma de los SOAT que cruzaron:{' '}
               <strong className="tabular-nums">
@@ -122,7 +121,7 @@ export default function BloqueConciliar(
           </div>
 
           {bloqueado && (
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               Faltan líneas por cruzar, así que todavía no se puede comparar el total.
             </p>
           )}
@@ -139,30 +138,30 @@ export default function BloqueConciliar(
           wide
         >
           <div className="space-y-4">
-            <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
               Vas a conciliar <strong>{boleta.filas === 1 ? '1 SOAT' : `${boleta.filas} SOAT`}</strong> de{' '}
               <strong>{boleta.companiaNombre ?? 'este cliente'}</strong> por{' '}
               <strong className="tabular-nums">{pesos(boleta.totalCruzado ?? boleta.totalDeclarado)}</strong>.
             </p>
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               Al confirmar, ese valor sale de la bolsa del cliente y de la bolsa de tránsito.{' '}
-              <strong style={{ color: 'var(--flit-danger-ink)' }}>No se puede deshacer</strong>: si más
+              <strong style={{ color: 'var(--kit-rojo-texto)' }}>No se puede deshacer</strong>: si más
               adelante el trámite cambia de estado, el dinero no vuelve.
             </p>
             <div className="flex flex-wrap justify-end gap-2">
-              <button
-                type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+              <GradientButton variant="alerta"
+                type="button"
                 disabled={enVuelo} onClick={() => setConfirmando(false)}
-              >
+>
                 Cancelar
-              </button>
+              </GradientButton>
               {/* El botón dice el VERBO, no «Aceptar»: es lo último que se lee antes de mover dinero. */}
-              <button
-                type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              <GradientButton
+                type="button"
                 disabled={enVuelo} onClick={conciliar}
-              >
+>
                 {enVuelo ? 'Conciliando…' : 'Sí, conciliar'}
-              </button>
+              </GradientButton>
             </div>
           </div>
         </FlitModal>

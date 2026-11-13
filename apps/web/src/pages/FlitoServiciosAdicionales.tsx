@@ -20,9 +20,10 @@ import {
 } from '../lib/serviciosAdicionales';
 import NoAccess from '../components/NoAccess';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import {
-  FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../components/flit/flitPageKit';
+import { FlitCard } from '../components/flit/flitPageKit';
+import GradientButton from '../components/flit/GradientButton';
+import { Vacio } from '../components/flit/Cargador';
+import InlineAlert from '../components/flit/InlineAlert';
 import TablaServiciosAdicionales from '../components/servicios-adicionales/TablaServiciosAdicionales';
 import FormularioTipoServicio from '../components/servicios-adicionales/FormularioTipoServicio';
 import DialogoBajaTipoServicio from '../components/servicios-adicionales/DialogoBajaTipoServicio';
@@ -34,7 +35,7 @@ const DURACION_TOAST = 6000;
 type Modal = { modo: 'crear' } | { modo: 'editar'; tipo: ServicioAdicionalTipo } | { modo: 'baja'; tipo: ServicioAdicionalTipo };
 
 const barra = (ancho: string, key: number) => (
-  <div key={key} className={`h-5 ${ancho} animate-pulse rounded`} style={{ background: 'var(--flit-bg-table-header)' }} />
+  <div key={key} data-kit="esqueleto" className={`kit-esqueleto h-5 ${ancho}`} />
 );
 
 export default function FlitoServiciosAdicionales() {
@@ -114,40 +115,45 @@ export default function FlitoServiciosAdicionales() {
   if (error?.status === 403) return <NoAccess page="flito_servicios_adicionales" />;
 
   const nuevoTipo = puedeCrear && (
-    <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setModal({ modo: 'crear' })}>
+    <GradientButton type="button" onClick={() => setModal({ modo: 'crear' })}>
       Nuevo tipo
-    </button>
+    </GradientButton>
   );
   const nuevoTipoVacio = puedeCrear && (
-    <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={() => setModal({ modo: 'crear' })}>
+    <GradientButton type="button" variant="secondary" onClick={() => setModal({ modo: 'crear' })}>
       Nuevo tipo
-    </button>
+    </GradientButton>
   );
 
   return (
     <div className="mx-auto flex max-w-[1200px] flex-col gap-5 lg:gap-6">
-      <PageHeaderCard title="Servicios adicionales" subtitle={SUBTITULO} actions={nuevoTipo || undefined} />
+      <PageHeaderCard
+        title="Servicios adicionales" subtitle={SUBTITULO} actions={nuevoTipo || undefined}
+        icono="flito-servicios-adicionales" miga={[{ etiqueta: 'Logística', to: '/flito/logistica' }]}
+      />
       <p className="sr-only" role="status">{anuncio}</p>
 
       {error && tipos === null ? (
         <FlitCard className="mx-auto w-full max-w-xl text-center">
-          <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
-            No se pudo cargar el catálogo de servicios adicionales.
-          </p>
-          <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{error.mensaje}</p>
-          <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={() => void cargar(incluirBajas, 'inicial')}>
-            Reintentar
-          </button>
+          <div data-testid="ui-error" data-kit="error" className="grid justify-items-center gap-2">
+            <p role="alert" className="text-sm font-semibold text-[color:var(--kit-rojo-texto)]">
+              No se pudo cargar el catálogo de servicios adicionales.
+            </p>
+            <p className="text-sm text-[color:var(--color-text-secondary)]">{error.mensaje}</p>
+            <GradientButton type="button" variant="secondary" className="mt-2" onClick={() => void cargar(incluirBajas, 'inicial')}>
+              Reintentar
+            </GradientButton>
+          </div>
         </FlitCard>
       ) : (
         <FlitCard>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <h2 ref={tituloLista} tabIndex={-1} className="flit-focus text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+            <h2 ref={tituloLista} tabIndex={-1} className="flit-focus text-base font-semibold text-[color:var(--color-action)]">
               {tipos ? tituloTipos(tipos) : 'Tipos'}
             </h2>
-            <label className="inline-flex cursor-pointer items-center gap-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-[color:var(--color-text-secondary)]">
               <input
-                type="checkbox" className="flit-focus h-4 w-4" checked={incluirBajas} disabled={tipos === null}
+                type="checkbox" className="flit-focus h-4 w-4 accent-[var(--kit-azul)]" checked={incluirBajas} disabled={tipos === null}
                 onChange={(e) => setIncluirBajas(e.target.checked)}
               />
               Mostrar dados de baja
@@ -155,10 +161,12 @@ export default function FlitoServiciosAdicionales() {
           </div>
 
           {error && (
-            <p role="alert" className="mb-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
-              No se pudo actualizar el catálogo. {error.mensaje}{' '}
-              <button type="button" className="underline" onClick={refrescar}>Reintentar</button>
-            </p>
+            <div className="mb-3">
+              <InlineAlert tono="danger">
+                No se pudo actualizar el catálogo. {error.mensaje}{' '}
+                <button type="button" className="font-semibold text-[color:var(--color-action)] underline transition-colors hover:opacity-80" onClick={refrescar}>Reintentar</button>
+              </InlineAlert>
+            </div>
           )}
 
           {tipos === null ? (
@@ -166,21 +174,21 @@ export default function FlitoServiciosAdicionales() {
               {['w-full', 'w-full', 'w-full', 'w-full'].map(barra)}
             </div>
           ) : tipos.length === 0 ? (
-            <FlitEmpty>
+            <div data-testid="ui-empty">
               {incluirBajas ? (
-                <p style={{ color: 'var(--flit-text-primary)' }}>Ningún tipo, ni activo ni dado de baja.</p>
+                <Vacio icono="asterisco" texto="Ningún tipo, ni activo ni dado de baja." accion={nuevoTipoVacio || undefined} />
               ) : (
-                <>
-                  <p style={{ color: 'var(--flit-text-primary)' }}>Aún no hay tipos de servicio adicional.</p>
-                  <p className="mt-1">Crea el primero: un nombre, una descripción si hace falta y su valor en pesos.</p>
-                </>
+                <Vacio
+                  icono="asterisco" texto="Aún no hay tipos de servicio adicional."
+                  detalle="Crea el primero: un nombre, una descripción si hace falta y su valor en pesos."
+                  accion={nuevoTipoVacio || undefined}
+                />
               )}
-              {nuevoTipoVacio}
-            </FlitEmpty>
+            </div>
           ) : (
             <>
               {porTarifar > 0 && (
-                <p className="mb-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{lineaPorTarifar(porTarifar)}</p>
+                <p className="mb-3 text-sm text-[color:var(--color-text-secondary)]">{lineaPorTarifar(porTarifar)}</p>
               )}
               <TablaServiciosAdicionales
                 tipos={tipos}

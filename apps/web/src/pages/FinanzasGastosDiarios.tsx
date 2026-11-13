@@ -15,7 +15,8 @@ import { useAuth } from '../lib/auth';
 import { entradaAyudaPorClave, puedeVerEntradaAyuda } from '../lib/ayudaFlito';
 import NoAccess from '../components/NoAccess';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import { FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import GradientButton from '../components/flit/GradientButton';
+import { FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
 import FiltrosGastosDiarios from '../components/finanzas/gastos-diarios/FiltrosGastosDiarios';
 import TarjetaGasto from '../components/finanzas/gastos-diarios/TarjetaGasto';
 import TotalPeriodo from '../components/finanzas/gastos-diarios/TotalPeriodo';
@@ -60,14 +61,14 @@ export default function FinanzasGastosDiarios() {
 
   const puedeVerAyuda = ENTRADA_AYUDA !== undefined && puedeVerEntradaAyuda(user, ENTRADA_AYUDA);
   const enlaceAyuda = puedeVerAyuda && (
-    <Link to={`/flito/ayuda/${SLUG}`} className="flit-focus text-sm underline" style={{ color: 'var(--flit-blue-text)' }}>
+    <Link to={`/flito/ayuda/${SLUG}`} className="flit-focus text-sm underline" style={{ color: 'var(--color-action)' }}>
       ¿Qué cuenta cada categoría?
     </Link>
   );
 
   return (
     <div className="space-y-4">
-      <PageHeaderCard title="Gastos diarios"
+      <PageHeaderCard title="Gastos diarios" icono="flito-gastos-diarios" miga={[{ etiqueta: 'Finanzas' }]}
         subtitle="Cuánto se pagó cada día por SOAT, impuestos, derechos, logística y servicios adicionales."
         actions={enlaceAyuda || undefined} />
 
@@ -80,15 +81,17 @@ export default function FinanzasGastosDiarios() {
       {g.cargando && <SkeletonGastos />}
 
       {!g.cargando && g.error && (
-        <FlitCard>
-          <div role="alert" className="flex flex-col items-start gap-2">
-            <p className="text-sm font-semibold" style={{ color: 'var(--flit-danger)' }}>No se pudo cargar el gasto diario.</p>
-            <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{g.error}</p>
+        <div role="alert" className="kit-alerta" data-tono="warn" data-kit="alerta">
+          <img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+          <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
+            <p className="text-sm font-semibold">No se pudo cargar el gasto diario.</p>
+            <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{g.error}</p>
+            {/* Botón nativo con la clase del kit: necesita la `ref` para devolver el foco al reintentar. */}
             <button ref={reintentarRef} type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={reintentar}>
               Reintentar
             </button>
           </div>
-        </FlitCard>
+        </div>
       )}
 
       {!g.cargando && !g.error && datos && vacio && (
@@ -97,7 +100,7 @@ export default function FinanzasGastosDiarios() {
             ? (
               <div className="flex flex-col items-center gap-3">
                 <p>Sin gastos {rango} para <strong>{g.nombreEmpresa}</strong>.</p>
-                <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={g.ultimos30}>Últimos 30 días</button>
+                <GradientButton type="button" variant="secondary" onClick={g.ultimos30}>Últimos 30 días</GradientButton>
               </div>
             )
             : <p>Sin gastos en los últimos 30 días. Cambia el rango o la empresa arriba.</p>}
@@ -106,7 +109,7 @@ export default function FinanzasGastosDiarios() {
 
       {!g.cargando && !g.error && datos && !vacio && total && (
         <>
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Gastos {rango} · {g.nombreEmpresa}
           </p>
           {visibles.length === 0
@@ -114,12 +117,12 @@ export default function FinanzasGastosDiarios() {
               <FlitEmpty>
                 <div className="flex flex-col items-center gap-3">
                   <p>Ningún tipo de gasto marcado.</p>
-                  <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={g.verLosCinco}>Ver los cinco</button>
+                  <GradientButton type="button" variant="secondary" onClick={g.verLosCinco}>Ver los cinco</GradientButton>
                 </div>
               </FlitEmpty>
             )
             : (
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+              <div className="metricas !mb-0">
                 {visibles.map((c) => <TarjetaGasto key={c.clave} categoria={c} celda={datos.totales[c.clave]} />)}
               </div>
             )}

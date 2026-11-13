@@ -7,8 +7,8 @@ palabras_clave:
 consultas:
   - cómo configuro las credenciales de Siigo
   - por qué falla la conexión con Siigo
-version: 1.1
-fecha: 2026-10-22
+version: 1.2
+fecha: 2026-11-12
 ---
 ## Qué es
 
@@ -20,7 +20,7 @@ Quien tenga el ítem **Integración con Siigo**. De partida, solo el Administrad
 
 ## Cómo se entra
 
-En el menú lateral, sección **Administración**, ítem **Integración con Siigo**. También desde este capítulo de la ayuda, con **Ir a la pantalla**. Distíngala de **Credenciales RNDC**, que vive en la sección RNDC y es otra integración, y de **Facturación electrónica · Parametrización** y **Operación**, que están en Finanzas.
+En la barra de navegación al pie de la pantalla, pulse **Administración** y, en el panel que se abre, el ítem **Integración con Siigo**. También desde este capítulo de la ayuda, con **Ir a la pantalla**. Distíngala de **Credenciales RNDC**, que está en el grupo **Cumplimiento** y es otra integración, y de **Facturación electrónica · Parametrización** y **Operación**, que están en **Finanzas**. Si la barra deja solo los íconos, el nombre de cada grupo aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «siigo».
 
 ## Pasos
 

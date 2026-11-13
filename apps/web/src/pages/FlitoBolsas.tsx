@@ -21,7 +21,8 @@ import { useCallback, useState } from 'react';
 import { useAuth } from '../lib/auth';
 import NoAccess from '../components/NoAccess';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import { flitBtnPrimary, flitBtnPrimaryStyle } from '../components/flit/flitPageKit';
+import GradientButton from '../components/flit/GradientButton';
+import { Icono } from '../components/flit/kit/Icono';
 import BolsaDetalleCompania, { type EntradaDetalle } from '../components/flito/BolsaDetalleCompania';
 import BolsaForm from '../components/flito/BolsaForm';
 import BolsaDetalleTransito from '../components/flito/BolsaTransito';
@@ -61,12 +62,13 @@ function Bolsas() {
     <div className="space-y-4">
       <PageHeaderCard
         title="Bolsas"
+        icono="flito-bolsas"
         subtitle="El saldo que cada cliente tiene precargado y el que FLIT mantiene en las secretarías."
         actions={puedeCrear ? (
-          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => abrirAlta()}>
-            <span aria-hidden="true" className="text-base leading-none">+</span>
+          <GradientButton type="button" onClick={() => abrirAlta()}>
+            <Icono nombre="mas" size={18} />
             Crear bolsa
-          </button>
+          </GradientButton>
         ) : undefined}
       />
 

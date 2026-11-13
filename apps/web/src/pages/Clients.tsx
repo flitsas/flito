@@ -31,10 +31,11 @@ import { useAuth } from '../lib/auth';
 import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
-import {
-  flitInp, FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitPillGroup, FlitPillButton,
-  flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../components/flit/flitPageKit';
+import Pestanas from '../components/flit/Pestanas';
+import FlitModal from '../components/flit/FlitModal';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { EstadoVista, Vacio, type EstadoUi } from '../components/flit/Cargador';
+import { flitInp, FlitCard } from '../components/flit/flitPageKit';
 import { ChipsServicios, ModalCliente, sinProveedorLogistica, type Client } from '../components/clientes/ServiciosCliente';
 // Ficha fiscal (HU #11298). Vive en su propio componente desde el primer commit: esta pantalla ya
 // tiene dos pestañas, un modal y dos formularios, y no cabe más sin acercarse al techo de 800.
@@ -88,12 +89,16 @@ export default function Clients() {
       <PageHeaderCard
         title="Clientes y proveedores"
         subtitle="Compañías con los servicios que gestiona FLITO y sus tarifas negociadas, y los proveedores de SOAT y de logística."
+        icono="flito-clientes"
+        miga={[{ etiqueta: 'Finanzas' }]}
       />
 
-      <FlitPillGroup>
-        <FlitPillButton active={tab === 'clientes'} onClick={() => setTab('clientes')}>Clientes</FlitPillButton>
-        <FlitPillButton active={tab === 'proveedores'} onClick={() => setTab('proveedores')}>Proveedores</FlitPillButton>
-      </FlitPillGroup>
+      <Pestanas
+        etiqueta="Clientes y proveedores"
+        pestanas={[{ id: 'clientes', etiqueta: 'Clientes' }, { id: 'proveedores', etiqueta: 'Proveedores' }]}
+        activa={tab}
+        onElegir={(id) => setTab(id as Tab)}
+      />
 
       {tab === 'clientes'
         ? <TabClientes editaAutogestion={editaAutogestion} editaSinTramite={editaSinTramite} puedeCrearProveedor={puedeCrearProveedor} veTarifas={veTarifas} editaEstado={editaEstado} />
@@ -209,6 +214,43 @@ function TabClientes({ editaAutogestion, editaSinTramite, puedeCrearProveedor, v
     }
   };
 
+  const estadoVista: EstadoUi = errorCarga ? 'error' : clients === null ? 'loading' : clients.length === 0 ? 'empty' : 'ready';
+  const columnas: ColumnaTabla<Client>[] = [
+    {
+      key: 'empresa', header: 'Empresa',
+      render: (c) => (
+        <span className="font-semibold text-[color:var(--color-text-primary)]">
+          {c.name}
+          <div className="mt-1"><ChipEstado activo={c.active} /></div>
+        </span>
+      ),
+    },
+    {
+      key: 'documento', header: 'Documento',
+      render: (c) => <span className="text-sm text-[color:var(--color-text-secondary)]">{c.documentType ?? 'NIT'} {c.document || '—'}</span>,
+    },
+    // Un chip por servicio: SOAT, Impuestos y Logística son los tres servicios.
+    {
+      key: 'servicios', header: 'Servicios', className: 'min-[901px]:min-w-[280px]',
+      render: (c) => (
+        <ChipsServicios c={c} nombreProveedorLogistica={nombreProveedor(c)}
+          editaSinTramite={editaSinTramite} puedeAbrir={editaAutogestion} onAbrir={() => setEditarDe(c)} />
+      ),
+    },
+    { key: 'facturacion', header: 'Facturación', render: (c) => <ChipFacturable veredicto={veredictos.get(c.id)} /> },
+    {
+      key: 'acciones', header: '', etiqueta: 'Acciones', acciones: true,
+      // La celda no envuelve (UX #13949): un solo «Editar» y el ⋮ de estado.
+      render: (c) => (
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          <GradientButton type="button" variant="secondary" size="sm"
+            aria-label={`Editar ${c.name}`} onClick={() => setEditarDe(c)}>Editar</GradientButton>
+          <MenuFila etiqueta={`Acciones de ${c.name}`} opciones={opcionesFila(c)} onAbrir={() => eliminar.comprobar(c)} />
+        </div>
+      ),
+    },
+  ];
+
   return (
     <>
       {editaAutogestion && (
@@ -216,10 +258,9 @@ function TabClientes({ editaAutogestion, editaSinTramite, puedeCrearProveedor, v
       )}
 
       {showForm && (
-        <FlitCard>
-          <h3 className="mb-3 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Nuevo cliente</h3>
+        <FlitModal title="Nuevo cliente" icono="empresas" wide onClose={() => { setShowForm(false); setErrorNit(null); }}>
           <form onSubmit={handleCreate}>
-            <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 md:grid-cols-4">
+            <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2">
               <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nombre o razón social *" className={flitInp} />
               <div>
                 <input ref={refNit} value={form.document} aria-label="NIT / Cédula" placeholder="NIT / Cédula" className={flitInp}
@@ -234,103 +275,67 @@ function TabClientes({ editaAutogestion, editaSinTramite, puedeCrearProveedor, v
               <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Ciudad" className={flitInp} />
               <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Dirección" className={`${flitInp} sm:col-span-2`} />
             </div>
-            <div className="mt-4 flex gap-2">
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <GradientButton type="button" variant="secondary" onClick={() => { setShowForm(false); setErrorNit(null); }}>Cancelar</GradientButton>
               <GradientButton type="submit">Guardar</GradientButton>
-              <button type="button" onClick={() => { setShowForm(false); setErrorNit(null); }} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Cancelar</button>
             </div>
           </form>
-        </FlitCard>
+        </FlitModal>
       )}
 
       <FlitCard>
-        {errorCarga ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>No pudimos cargar los clientes.</p>
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={load}>Reintentar</button>
-          </div>
-        ) : clients === null ? (
-          <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando compañías…</p>
-        ) : clients.length === 0 ? (
+        <EstadoVista
+          status={estadoVista}
+          cargando="Cargando compañías…"
+          errorMessage="No pudimos cargar los clientes."
+          onRetry={load}
           // Vacío total: filtro y pie ocultos (filtrar una lista vacía no ayuda).
-          <FlitEmpty>No hay clientes.{editaAutogestion && ' Cree el primero con «Nuevo cliente».'}</FlitEmpty>
-        ) : (<>
+          emptyMessage={`No hay clientes.${editaAutogestion ? ' Cree el primero con «Nuevo cliente».' : ''}`}
+        >
           {sinProveedor.length > 0 && (
-            <div role="status" className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg px-3 py-2 text-sm font-semibold"
-              style={{ background: 'var(--flit-chip-warning-bg)', color: 'var(--flit-warning-ink)' }}>
-              <span>
+            <div role="status" className="kit-alerta mb-3" data-tono="warn" data-kit="alerta">
+              <img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+              <span className="min-w-0 flex-1 text-sm font-semibold">
                 {sinProveedor.length === 1
                   ? '1 compañía con logística no tiene proveedor asignado. Asígnele uno para que pueda registrar viajes.'
                   : `${sinProveedor.length} compañías con logística no tienen proveedor asignado. Asígneles uno para que puedan registrar viajes.`}
               </span>
               {editaAutogestion && !soloSinProveedor && (
-                <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setSoloSinProveedor(true)}>Ver compañías</button>
+                <GradientButton type="button" variant="secondary" size="sm" onClick={() => setSoloSinProveedor(true)}>Ver compañías</GradientButton>
               )}
             </div>
           )}
-          <div className="mb-3 flex flex-wrap items-end gap-x-6 gap-y-3" ref={refFiltro}>
+          <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-3" ref={refFiltro}>
             <FiltroEstadoPills valor={filtroEstado} onCambio={setFiltroEstado} />
             {sinProveedor.length > 0 && (
-              <div role="group" aria-label="Logística" className="flex flex-col gap-1.5">
-                <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Logística</span>
-                <FlitPillGroup>
-                  <FlitPillButton active={soloSinProveedor} pressed={soloSinProveedor} onClick={() => setSoloSinProveedor(!soloSinProveedor)}>
-                    <span style={{ textTransform: 'none' }}>{`Sin proveedor (${sinProveedor.length})`}</span>
-                  </FlitPillButton>
-                </FlitPillGroup>
+              <div className="flex items-center gap-1">
+                <span className="mr-1 text-xs font-semibold text-[color:var(--color-text-tertiary)]" aria-hidden="true">Logística</span>
+                <div role="group" aria-label="Logística" className="flex items-center gap-1">
+                  <button type="button" aria-pressed={soloSinProveedor} onClick={() => setSoloSinProveedor(!soloSinProveedor)}
+                    className="chip chip--sm h-10 min-h-0 whitespace-nowrap transition-colors">
+                    {`Sin proveedor (${sinProveedor.length})`}
+                  </button>
+                </div>
               </div>
             )}
           </div>
           {visibles.length === 0 ? (
             soloSinProveedor
               ? (
-                <FlitEmpty>
-                  Todas las compañías con logística tienen proveedor.{' '}
-                  <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setSoloSinProveedor(false)}>Ver todas</button>
-                </FlitEmpty>
+                <Vacio
+                  texto="Todas las compañías con logística tienen proveedor."
+                  icono="check"
+                  accion={<GradientButton type="button" variant="secondary" size="sm" onClick={() => setSoloSinProveedor(false)}>Ver todas</GradientButton>}
+                />
               )
               : <VacioFiltro onVerTodos={() => setFiltroEstado('todos')} />
           ) : (
-          <FlitTable>
-            <thead>
-              <FlitTr>
-                <FlitTh>Empresa</FlitTh>
-                <FlitTh>Documento</FlitTh>
-                {/* Un chip por servicio: SOAT, Impuestos y Logística son los tres servicios. */}
-                <FlitTh>Servicios</FlitTh>
-                <FlitTh>Facturación</FlitTh>
-                <FlitTh />
-              </FlitTr>
-            </thead>
-            <tbody>
-              {visibles.map((c) => (
-                <FlitTr key={c.id}>
-                  <td className="px-3 py-2 font-medium" style={{ color: 'var(--flit-text-primary)' }}>
-                    {c.name}
-                    <div className="mt-1"><ChipEstado activo={c.active} /></div>
-                  </td>
-                  <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.documentType ?? 'NIT'} {c.document || '—'}</td>
-                  <td className="min-w-[280px] px-3 py-2">
-                    <ChipsServicios c={c} nombreProveedorLogistica={nombreProveedor(c)}
-                      editaSinTramite={editaSinTramite} puedeAbrir={editaAutogestion} onAbrir={() => setEditarDe(c)} />
-                  </td>
-                  <td className="px-3 py-2"><ChipFacturable veredicto={veredictos.get(c.id)} /></td>
-                  <td className="px-3 py-2">
-                    {/* La celda no envuelve (UX #13949): un solo «Editar» y el ⋮ de estado. */}
-                    <div className="flex gap-2 whitespace-nowrap">
-                      <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                        aria-label={`Editar ${c.name}`} onClick={() => setEditarDe(c)}>Editar</button>
-                      <MenuFila etiqueta={`Acciones de ${c.name}`} opciones={opcionesFila(c)} onAbrir={() => eliminar.comprobar(c)} />
-                    </div>
-                  </td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </FlitTable>
+            <DataTable ariaLabel="Clientes" columnas={columnas} filas={visibles} getKey={(c) => String(c.id)} />
           )}
-          <PieConteo visibles={visibles.length} total={clients.length} />
-        </>)}
+          <PieConteo visibles={visibles.length} total={clients?.length ?? 0} />
+        </EstadoVista>
         {editaAutogestion && (
-          <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="mt-2 text-xs text-[color:var(--color-text-tertiary)]">
             En «Editar» se marca «SOAT», «Impuestos» o «Logística» cuando FLITO gestiona ese servicio para la compañía; desmarcado, la compañía lo hace por su cuenta.
           </p>
         )}

@@ -11,7 +11,7 @@ export default function Monto({ v, falta, negrita, title }: {
   // `undefined` también: un agregado que el API no mandara no puede tumbar la pantalla entera.
   if (v === null || v === undefined) {
     return (
-      <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }} title={title}>
+      <span className="text-xs italic" style={{ color: 'var(--color-text-tertiary)' }} title={title}>
         {falta ? TEXTO_FALTA[falta] : '—'}
       </span>
     );

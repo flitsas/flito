@@ -73,21 +73,21 @@ export default function ModalEnviarACliente({ grupo, onClose, onRegistrado }: Pr
   return (
     <FlitModal title={`Enviar a cliente · ${nombre}`} onClose={cerrar} cierreBloqueado={busy}>
       <div className="space-y-3" aria-busy={busy || undefined}>
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Estas LT ya están en FLIT. Se enviarán al cliente.
         </p>
-        {tipoEnlace !== 'proveedor' && <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>Este tramo no tiene costo.</p>}
+        {tipoEnlace !== 'proveedor' && <p className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>Este tramo no tiene costo.</p>}
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }} aria-live="polite">
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }} aria-live="polite">
             {marcadas.size} {marcadas.size === 1 ? 'marcada' : 'marcadas'}
           </p>
           <button
             type="button"
             disabled={busy}
             onClick={() => setMarcadas(todas ? new Set() : new Set(lts.map((l) => l.documentoId)))}
-            className="flit-focus rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
-            style={{ color: 'var(--flit-blue-text)', minHeight: 40 }}
+            className="flit-focus rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors hover:bg-[var(--kit-hover)]"
+            style={{ color: 'var(--color-action)', minHeight: 40 }}
           >
             {todas ? 'Desmarcar todas' : 'Marcar todas'}
           </button>
@@ -98,7 +98,7 @@ export default function ModalEnviarACliente({ grupo, onClose, onRegistrado }: Pr
             const id = `enviar-lt-${lt.documentoId}`;
             return (
               <li key={lt.documentoId}>
-                <label htmlFor={id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm tabular-nums transition-colors hover:bg-[var(--flit-bg-hover)]" style={{ color: 'var(--flit-text-secondary)' }}>
+                <label htmlFor={id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm tabular-nums transition-colors hover:bg-[var(--kit-hover)]" style={{ color: 'var(--color-text-secondary)' }}>
                   <input
                     id={id}
                     type="checkbox"
@@ -116,7 +116,7 @@ export default function ModalEnviarACliente({ grupo, onClose, onRegistrado }: Pr
         </ul>
 
         {error && (
-          <div role="alert" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-text)', background: 'var(--flit-bg-card)' }}>
+          <div role="alert" className="rounded-[9px] border px-3 py-2 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--kit-rojo-texto)', background: 'var(--color-surface-elevated)' }}>
             {error}
           </div>
         )}

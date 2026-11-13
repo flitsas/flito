@@ -33,6 +33,7 @@ import BloqueConciliar from '../components/flito/conciliacion/BloqueConciliar';
 import ComprobantePse from '../components/flito/conciliacion/ComprobantePse';
 import TablaCuadre from '../components/flito/conciliacion/TablaCuadre';
 import { FlitCard, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import GradientButton from '../components/flit/GradientButton';
 
 const VOLVER = '/flito/conciliacion';
 
@@ -113,22 +114,22 @@ function Boleta({ userId }: { userId: number }) {
       <div className="space-y-4">
         <VolverALaBandeja />
         <FlitCard>
-          <p className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
             {error?.noExiste ? 'Esa boleta no existe o se descartó.' : 'No se pudo cargar la boleta.'}
           </p>
           {!error?.noExiste && error && (
-            <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{error.mensaje}</p>
+            <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>{error.mensaje}</p>
           )}
           <div className="mt-3 flex flex-wrap gap-2">
             {/* Reintentar un 404 no sirve de nada, así que ahí no está. Lo que sí está siempre es la
                 salida: sin ella, un 500 persistente deja al usuario encerrado en una URL que no carga. */}
             {!error?.noExiste && (
-              <button
-                type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+              <GradientButton variant="secondary"
+                type="button"
                 onClick={() => setNonce((n) => n + 1)}
-              >
+>
                 Reintentar
-              </button>
+              </GradientButton>
             )}
             <Link to={VOLVER} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>
               Volver a Conciliación
@@ -157,6 +158,8 @@ function Boleta({ userId }: { userId: number }) {
 
       <PageHeaderCard
         titleRef={tituloRef}
+        icono="flito-conciliacion"
+        miga={[{ etiqueta: 'Finanzas' }, { etiqueta: 'Conciliación', to: '/flito/conciliacion' }]}
         title={`${boleta.referencia} · ${boleta.companiaNombre ?? 'Cliente sin nombre'}`}
         subtitle={`Pagada el ${fechaDia(boleta.fechaPago)} · ${boleta.filas === 1 ? '1 línea' : `${boleta.filas} líneas`} `
           + `· ${pesos(boleta.totalDeclarado)} · cargada por ${boleta.cargadaPorNombre}`}
@@ -179,7 +182,7 @@ function Boleta({ userId }: { userId: number }) {
           declarado, y quien acaba de cargar tiene que poder verlo. */}
       {traspaso.filasOmitidas ? (
         <FlitCard>
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             {traspaso.filasOmitidas === 1
               ? 'Se ignoró 1 fila del Excel porque no traía número de póliza.'
               : `Se ignoraron ${traspaso.filasOmitidas} filas del Excel porque no traían número de póliza.`}
@@ -190,10 +193,10 @@ function Boleta({ userId }: { userId: number }) {
 
       {boleta.estado === EstadoBoleta.DESCARTADA && (
         <FlitCard>
-          <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Esta boleta está descartada.
           </p>
-          <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             No se descontó nada de ninguna bolsa. Su archivo se puede volver a cargar desde la bandeja.
           </p>
         </FlitCard>
@@ -225,7 +228,7 @@ function VolverALaBandeja() {
     <Link
       to={VOLVER}
       className="flit-focus inline-flex items-center text-sm font-medium"
-      style={{ color: 'var(--flit-blue-text)' }}
+      style={{ color: 'var(--color-action)' }}
     >
       ‹ Volver a Conciliación
     </Link>

@@ -17,7 +17,8 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import type { BoletaDetalleDto, BoletaResumenDto } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../../lib/api';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import { flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import GradientButton from '../../flit/GradientButton';
 
 interface Props {
   boletaId: string;
@@ -58,40 +59,40 @@ export default function AccionesBoleta({ boletaId, onCuadreActualizado, onDescar
   if (confirmaDescarte) {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           ¿Descartar? Se pierde el cruce; el archivo se podrá volver a cargar.
         </span>
-        <button
-          type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+        <GradientButton variant="secondary"
+          type="button"
           disabled={descartando} onClick={() => setConfirmaDescarte(false)}
-        >
+>
           No
-        </button>
-        <button
-          type="button" className={flitBtnSecondary}
-          style={{ ...flitBtnSecondaryStyle, color: 'var(--flit-danger-ink)' }}
+        </GradientButton>
+        <GradientButton variant="secondary"
+          type="button"
+          style={{ ...flitBtnSecondaryStyle, color: 'var(--kit-rojo-texto)' }}
           disabled={descartando} onClick={descartar}
-        >
+>
           {descartando ? 'Descartando…' : 'Sí, descartar'}
-        </button>
+        </GradientButton>
       </div>
     );
   }
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <button
-        type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+      <GradientButton variant="alerta"
+        type="button"
         disabled={recruzando} onClick={() => setConfirmaDescarte(true)}
-      >
+>
         Descartar
-      </button>
-      <button
-        type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+      </GradientButton>
+      <GradientButton variant="secondary"
+        type="button"
         disabled={recruzando} onClick={recruzar}
-      >
+>
         {recruzando ? 'Volviendo a cruzar…' : 'Volver a cruzar'}
-      </button>
+      </GradientButton>
     </div>
   );
 }

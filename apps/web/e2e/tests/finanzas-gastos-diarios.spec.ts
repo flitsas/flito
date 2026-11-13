@@ -373,7 +373,7 @@ test.describe('FLITO — Finanzas · Gastos diarios: gráfica de evolución diar
     // Sin hex fijo: las series y los ejes se pintan con tokens del tema (AC5).
     const trazos = await figura(page).locator('svg pattern *, svg line').evaluateAll((els) => els.map((e) => `${e.getAttribute('fill') ?? ''}|${e.getAttribute('stroke') ?? ''}`));
     expect(trazos.every((t) => !/#[0-9a-f]{3,8}/i.test(t))).toBe(true);
-    expect(trazos.some((t) => t.includes('var(--flit-serie-soat)'))).toBe(true);
+    expect(trazos.some((t) => t.includes('var(--kit-azul)'))).toBe(true);
   });
 
   test('AC2 — la leyenda es el filtro: ocultar «Logística» quita el segmento, atenúa, reescala el eje y NO consulta', async ({ page }) => {

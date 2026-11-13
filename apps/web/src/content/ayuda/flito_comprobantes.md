@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cómo cargo un comprobante
   - qué leyó FLITO del comprobante
-version: 1.3
-fecha: 2026-10-24
+version: 1.4
+fecha: 2026-11-12
 ---
 ## Qué es
 
@@ -26,7 +26,7 @@ Financiera y Administrador. El Auditor no entra a esta pantalla.
 
 ## Cómo se entra
 
-En el menú lateral, sección **Finanzas**, ítem **Comprobantes**.
+En la barra de navegación al pie de la pantalla, pulse **Finanzas** y, en el panel que se abre, el ítem **Comprobantes**. Si la barra deja solo los íconos, el nombre de cada grupo aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «comprobantes».
 
 ## Pasos
 

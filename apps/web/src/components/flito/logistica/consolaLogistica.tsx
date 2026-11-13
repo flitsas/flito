@@ -1,6 +1,6 @@
 // FLITO Logística — piezas compartidas de la consola (HU #14353): tipos del detalle, tonos, botón de fila,
 // avisos y esqueletos. Salieron de `FlitoLogistica.tsx` para que la página no pase de 800 líneas.
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { ActaFilaLogistica, EstadoLogisticaSimple, TramiteFilaLogistica } from '@operaciones/shared-types';
 import type { ChipTone } from '../../flit/StatusChip';
 import { FlitCard, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
@@ -38,8 +38,7 @@ export function useDesdeLg(): boolean {
 export function BotonFila({ children, peligro, aria, onClick }: { children: ReactNode; peligro?: boolean; aria: string; onClick: () => void }) {
   return (
     <button type="button" aria-label={aria} onClick={onClick}
-      className="flit-focus rounded-lg px-2 py-1 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
-      style={{ color: peligro ? 'var(--flit-danger-text)' : 'var(--flit-blue-text)' }}>
+      className={`flit-focus rounded-full px-2.5 py-1 text-xs font-semibold transition-colors hover:bg-[var(--kit-hover)] ${peligro ? 'text-[color:var(--kit-naranja-texto)]' : 'text-[color:var(--color-action)]'}`}>
       {children}
     </button>
   );
@@ -49,8 +48,7 @@ export function BotonFila({ children, peligro, aria, onClick }: { children: Reac
 export function BotonTarjetaPeligro({ children, aria, onClick }: { children: ReactNode; aria: string; onClick: () => void }) {
   return (
     <button type="button" aria-label={aria} onClick={onClick}
-      className="flit-focus rounded-lg px-3 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
-      style={{ color: 'var(--flit-danger-text)', minHeight: 44 }}>
+      className="flit-focus min-h-11 rounded-full px-3 text-sm font-semibold text-[color:var(--kit-naranja-texto)] transition-colors hover:bg-[var(--kit-hover)]">
       {children}
     </button>
   );
@@ -59,7 +57,7 @@ export function BotonTarjetaPeligro({ children, aria, onClick }: { children: Rea
 export function TarjetaError({ texto, onReintentar }: { texto: string; onReintentar: () => void }) {
   return (
     <FlitCard>
-      <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+      <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
         <p className="flex-1">{texto}</p>
         <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>Reintentar</button>
       </div>
@@ -71,7 +69,7 @@ export function TarjetaError({ texto, onReintentar }: { texto: string; onReinten
 export function AvisoNoActualizado({ onReintentar }: { onReintentar: () => void }) {
   return (
     <FlitCard>
-      <div role="status" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+      <div role="status" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
         <p className="flex-1">No se pudo actualizar.</p>
         <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>Reintentar</button>
       </div>
@@ -79,10 +77,8 @@ export function AvisoNoActualizado({ onReintentar }: { onReintentar: () => void 
   );
 }
 
-const BARRA: CSSProperties = { background: 'var(--flit-border-soft)' };
-
 export function BarraEsqueleto({ w }: { w: string }) {
-  return <div className={`h-3 rounded ${w}`} style={BARRA} />;
+  return <div className={`kit-esqueleto h-3 ${w}`} />;
 }
 
 /** Tres tarjetas de esqueleto para móvil. */
@@ -90,7 +86,7 @@ export function EsqueletoTarjetas() {
   return (
     <div className="space-y-3">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="rounded-xl border p-3" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' }}>
+        <div key={i} className="rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
           <BarraEsqueleto w="w-1/3" />
           <div className="mt-3"><BarraEsqueleto w="w-2/3" /></div>
           <div className="mt-2"><BarraEsqueleto w="w-1/2" /></div>

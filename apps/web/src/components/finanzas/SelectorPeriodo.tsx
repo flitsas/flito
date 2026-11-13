@@ -95,8 +95,8 @@ export default function SelectorPeriodo({ tipo, onTipo, valor, onCambio }: {
 
   return (
     <fieldset className="flex min-w-0 flex-wrap items-center gap-2 rounded-[10px] border px-2 pb-1"
-      style={{ borderColor: 'var(--flit-border-input)' }}>
-      <legend className="px-1 text-xs font-semibold" style={{ color: 'var(--flit-text-muted)' }}>Periodo</legend>
+      style={{ borderColor: 'var(--color-border-control)' }}>
+      <legend className="px-1 text-xs font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>Periodo</legend>
       <FlitPillGroup label="Tipo de periodo">
         <FlitPillButton active={tipo === 'mes'} pressed={tipo === 'mes'} onClick={() => cambiarTipo('mes')}>Mes</FlitPillButton>
         <FlitPillButton active={tipo === 'trimestre'} pressed={tipo === 'trimestre'} onClick={() => cambiarTipo('trimestre')}>Trimestre</FlitPillButton>
@@ -115,7 +115,7 @@ export default function SelectorPeriodo({ tipo, onTipo, valor, onCambio }: {
         {indices.map((n, i) => <option key={n} value={i}>{n}</option>)}
       </select>
       {/* Lo que hay puesto, dicho de una vez y anunciado al cambiar. */}
-      <span className="text-xs" role="status" aria-live="polite" style={{ color: 'var(--flit-text-secondary)' }}>
+      <span className="text-xs" role="status" aria-live="polite" style={{ color: 'var(--color-text-secondary)' }}>
         {textoPeriodo(tipo, valor)}
       </span>
     </fieldset>

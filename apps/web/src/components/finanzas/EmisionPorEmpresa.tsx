@@ -161,14 +161,14 @@ export default function EmisionPorEmpresa({ empresas, valores, onCambio, onCatal
   };
 
   if (cargando) {
-    return <p style={{ color: 'var(--flit-text-secondary)' }}>Cargando las opciones de emisión…</p>;
+    return <p style={{ color: 'var(--color-text-secondary)' }}>Cargando las opciones de emisión…</p>;
   }
 
   if (fallo !== null) {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <span style={{ color: 'var(--flit-warning-text)' }}>No se pudieron cargar las opciones: {fallo}</span>
-        <button type="button" className="text-xs underline" style={{ color: 'var(--flit-text-secondary)' }}
+        <span style={{ color: 'var(--kit-naranja-texto)' }}>No se pudieron cargar las opciones: {fallo}</span>
+        <button type="button" className="text-xs underline" style={{ color: 'var(--color-text-secondary)' }}
           onClick={() => setCatalogos(null)}>
           Reintentar
         </button>
@@ -178,7 +178,7 @@ export default function EmisionPorEmpresa({ empresas, valores, onCambio, onCatal
 
   return (
     <div className="space-y-3">
-      <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+      <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
         Sale de los catálogos de Siigo, leídos ahora mismo. Lo que elijas se recordará para el
         próximo envío de esa empresa.
       </p>
@@ -190,10 +190,10 @@ export default function EmisionPorEmpresa({ empresas, valores, onCambio, onCatal
         const centroObligatorio = exigeCentroCosto(v, comprobantes);
         return (
           <fieldset key={empresa.clienteId} className="rounded-lg border p-3"
-            style={{ borderColor: 'var(--flit-border-input)' }}>
-            <legend className="px-1 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            style={{ borderColor: 'var(--color-border-control)' }}>
+            <legend className="px-1 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               {empresa.nombre}
-              <span className="ml-2 text-xs font-normal" style={{ color: 'var(--flit-text-muted)' }}>
+              <span className="ml-2 text-xs font-normal" style={{ color: 'var(--color-text-tertiary)' }}>
                 {empresa.tramites} trámite(s)
               </span>
             </legend>
@@ -207,13 +207,13 @@ export default function EmisionPorEmpresa({ empresas, valores, onCambio, onCatal
                 return (
                   <div key={c.campo}>
                     <label htmlFor={id} className="mb-1 block text-xs font-semibold"
-                      style={{ color: 'var(--flit-text-muted)' }}>
+                      style={{ color: 'var(--color-text-tertiary)' }}>
                       {c.etiqueta}{obligatorio ? '' : ' (opcional)'}
                     </label>
                     {elementos.length === 0 ? (
                       // Vacío no es un desplegable sin opciones: se dice qué pasó y dónde se
                       // arregla, que ahora es Siigo Nube y no una sincronización de FLITO.
-                      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                      <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                         Siigo no devolvió ninguna opción activa para este catálogo. Revísalo en Siigo Nube.
                       </p>
                     ) : (
@@ -235,8 +235,8 @@ export default function EmisionPorEmpresa({ empresas, valores, onCambio, onCatal
                     )}
                     {falta && elementos.length > 0 && (
                       <p id={`${id}-falta`} className="mt-1 text-xs font-semibold"
-                        style={{ color: 'var(--flit-text-primary)' }}>
-                        <span aria-hidden="true" style={{ color: 'var(--flit-warning-text)' }}>⚠ </span>
+                        style={{ color: 'var(--color-text-primary)' }}>
+                        <span aria-hidden="true" style={{ color: 'var(--kit-naranja-texto)' }}>⚠ </span>
                         {c.campo === 'centroCostoCodigo'
                           ? 'El comprobante que elegiste exige centro de costo.'
                           : 'Falta elegirlo para poder enviar.'}

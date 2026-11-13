@@ -32,17 +32,17 @@ export default function AvisoConciliada(
   return (
     <FlitCard>
       <div ref={ref} role="status" tabIndex={-1} className="space-y-3 outline-none">
-        <p className="flex items-center gap-2 text-base font-bold" style={{ color: 'var(--flit-success-ink)' }}>
+        <p className="flex items-center gap-2 text-base font-bold" style={{ color: 'var(--kit-verde-texto)' }}>
           <span aria-hidden="true">✔</span> Boleta conciliada
         </p>
 
-        <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
           Se conciliaron <strong>{soat(aviso.soatConciliados)}</strong> por{' '}
           <strong className="tabular-nums">{pesos(aviso.totalConciliado)}</strong>.
         </p>
 
         {saldosConocidos ? (
-          <ul className="space-y-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <ul className="space-y-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             <li>
               Bolsa de <strong>{aviso.cliente.nombre ?? 'el cliente'}</strong>:{' '}
               <strong className="tabular-nums">− {pesos(aviso.cliente.descontado)}</strong>
@@ -63,14 +63,14 @@ export default function AvisoConciliada(
         ) : (
           // El detalle no trae los saldos de las bolsas y no se inventan. Quien los necesite los mira
           // en Bolsas, que es el libro.
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Los saldos que quedaron en las bolsas se consultan en Bolsas: esta pantalla solo guarda el
             desglose mientras dura la sesión en que se concilió.
           </p>
         )}
 
         {aviso.adoptados > 0 && saldosConocidos && (
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             {aviso.adoptados === 1
               ? '1 de esos SOAT ya se había descontado'
               : `${aviso.adoptados} de esos SOAT ya se habían descontado`}
@@ -80,13 +80,13 @@ export default function AvisoConciliada(
           </p>
         )}
 
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Este descuento no se revierte si el trámite cambia de estado. Corregirlo exige un ajuste
           manual en la bolsa del cliente.
         </p>
 
         {boleta.conciliadaEn && (
-          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             Conciliada por {boleta.conciliadaPorNombre ?? 'un usuario de FLITO'} el{' '}
             {fechaHora(boleta.conciliadaEn)}.
           </p>

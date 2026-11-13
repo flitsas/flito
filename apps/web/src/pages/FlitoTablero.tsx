@@ -9,6 +9,8 @@ import {
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import KpiCard from '../components/flit/KpiCard';
+import { Dona, SERIE_KIT } from '../components/flit/Graficos';
+import { ErrorVista } from '../components/flit/Cargador';
 import { FlitCard } from '../components/flit/flitPageKit';
 import type { ChipTone } from '../components/flit/StatusChip';
 
@@ -32,24 +34,39 @@ const PISTA_ALERTA: Record<AlertaOperativa, string> = {
 };
 
 
-function ConteosPorEstado({ titulo, conteos, etiquetas, destino }: {
+/** Paleta del manual en orden fijo: cada estado toma el siguiente color de la serie. */
+const PALETA_DONA = [
+  SERIE_KIT.azul, SERIE_KIT.turquesa, SERIE_KIT.amarillo, SERIE_KIT.verde,
+  SERIE_KIT.naranja, SERIE_KIT.rojo, SERIE_KIT.gris, SERIE_KIT.tinta,
+];
+/** Ícono de módulo (mapa flito-*) de cada alerta: dónde vive lo que está en riesgo. */
+const ICONO_ALERTA: Record<AlertaOperativa, string> = {
+  borrador_5d: 'flito-tramites',
+  sin_aprobar_ans: 'flito-tramites',
+  soat_sin_gestion: 'flito-soat',
+  impuesto_sin_gestion: 'flito-impuestos',
+};
+
+function ConteosPorEstado({ titulo, conteos, etiquetas }: {
   titulo: string; conteos: Record<string, number>; etiquetas: Record<string, string>; destino: string;
 }) {
   const entradas = Object.entries(conteos);
   const total = entradas.reduce((s, [, n]) => s + n, 0);
   return (
     <FlitCard>
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{titulo}</h2>
-        <span className="text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{total} en total</span>
+      <div className="card__cabeza">
+        <h2 className="text-base font-semibold text-[color:var(--color-action)]">{titulo}</h2>
+        <span className="text-xs tabular-nums text-[color:var(--color-text-tertiary)]">{total} en total</span>
       </div>
-      <div className="mt-2 space-y-1">
-        {entradas.map(([estado, n]) => (
-          <div key={estado} className="flex items-center justify-between rounded-md px-2 py-1 text-sm">
-            <span style={{ color: 'var(--flit-text-secondary)' }}>{etiquetas[estado] ?? estado}</span>
-            <span className="font-medium tabular-nums">{n}</span>
-          </div>
-        ))}
+      <div>
+        <Dona
+          etiqueta={titulo}
+          pie="en total"
+          vacio="Sin registros por estado."
+          partes={entradas.map(([estado, n], i) => ({
+            t: etiquetas[estado] ?? estado, v: n, c: PALETA_DONA[i % PALETA_DONA.length],
+          }))}
+        />
       </div>
     </FlitCard>
   );
@@ -84,46 +101,48 @@ export default function FlitoTablero() {
   };
   useEffect(cargar, []);
 
-  const kpi = (label: string, value: number, hint: string, tone: ChipTone | null) => (
-    <KpiCard label={label} value={value} hint={hint}
+  const kpi = (label: string, value: number, hint: string, tone: ChipTone | null, icono: string) => (
+    <KpiCard label={label} value={value} hint={hint} icono={icono} pendiente={Boolean(tone && value > 0)}
       chip={tone && value > 0 ? { tone, label: 'atención' } : undefined} />
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeaderCard
         title="Tablero"
+        icono="flito-inicio"
         subtitle="Lo que el proceso por Excel y correo no dejaba ver: retenciones, estancamientos y diferencias."
       />
 
-      {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
+      {error && <ErrorVista texto={error} onReintentar={cargar} />}
 
       {data && (
         <>
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {kpi('Revisiones pendientes', ...porModulo(data.revisionesPendientes), 'warning')}
-            {kpi('Fuera de ANS', ...porModulo(data.estancados), 'warning')}
-            {kpi('Diferencias de valor', data.diferenciasDeValor, 'Pagados cuyo recibo no cuadra con lo liquidado.', 'warning')}
-            {kpi('Habilitados para entrega', data.compuertaHabilitados, 'SOAT e impuestos resueltos. Falta ejecutar.', null)}
+          <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {kpi('Revisiones pendientes', ...porModulo(data.revisionesPendientes), 'warning', 'flito-revisiones')}
+            {kpi('Fuera de ANS', ...porModulo(data.estancados), 'warning', 'flito-jornadas')}
+            {kpi('Diferencias de valor', data.diferenciasDeValor, 'Pagados cuyo recibo no cuadra con lo liquidado.', 'warning', 'flito-impuestos')}
+            {kpi('Habilitados para entrega', data.compuertaHabilitados, 'SOAT e impuestos resueltos. Falta ejecutar.', null, 'flito-compuerta')}
           </section>
 
           {/* Alertas operativas: cada tarjeta lleva a Gestión Trámites con su filtro ya aplicado,
               para no obligar a rearmar a mano la búsqueda de lo que está en riesgo. */}
           {data.alertas && (
-            <section aria-label="Alertas operativas" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <section aria-label="Alertas operativas" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {ALERTAS_OPERATIVAS.map((a) => {
                 const n = data.alertas?.[a] ?? 0;
                 return (
                   <KpiCard key={a} to={`/flito/tramites?alerta=${a}`}
                     ariaLabel={`${ALERTA_OPERATIVA_LABEL[a]}: ${n} trámites`}
                     label={ALERTA_OPERATIVA_LABEL[a]} value={n} hint={PISTA_ALERTA[a]}
+                    icono={ICONO_ALERTA[a]} pendiente={n > 0}
                     chip={n > 0 ? { tone: 'danger', label: 'Requiere atención' } : undefined} />
                 );
               })}
             </section>
           )}
 
-          <section className="grid gap-3 md:grid-cols-2">
+          <section className="rejilla rejilla--2">
             {data.soat && <ConteosPorEstado titulo="SOAT por estado" conteos={data.soat} etiquetas={ESTADO_SOAT_LABEL as Record<EstadoSoat, string>} destino="/flito/soat" />}
             {data.impuestos && <ConteosPorEstado titulo="Impuestos por estado" conteos={data.impuestos} etiquetas={ESTADO_IMPUESTO_LABEL as Record<EstadoImpuesto, string>} destino="/flito/impuestos" />}
           </section>

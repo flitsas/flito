@@ -2,7 +2,9 @@
 // (`GET /recogidas/:firmanteId`). La cédula del funcionario llega enmascarada (••••1234); el mensajero no la revela.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { iconoComo } from '../../flit/kit/iconoComo';
+const ChevronLeft = iconoComo('izquierda');
+const ChevronRight = iconoComo('derecha');
 import { ESTADO_DOCUMENTO_LOGISTICA_LABEL, EstadoDocumentoLogistica } from '@operaciones/shared-types';
 import { api } from '../../../lib/api';
 import StatusChip from '../../flit/StatusChip';
@@ -21,14 +23,14 @@ const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno
 function Esqueleto({ filas }: { filas: number }) {
   return (
     <div className="space-y-2" aria-busy="true" aria-label="Cargando">
-      {Array.from({ length: filas }, (_, i) => <div key={i} className="h-16 animate-pulse rounded-xl" style={{ background: 'var(--flit-bg-hover)' }} />)}
+      {Array.from({ length: filas }, (_, i) => <div key={i} className="kit-esqueleto h-16" />)}
     </div>
   );
 }
 
 function Fallo({ texto, onReintentar }: { texto: string; onReintentar: () => void }) {
   return (
-    <div role="alert" className="space-y-2 rounded-xl border p-4 text-sm" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-danger-ink)' }}>
+    <div role="alert" className="space-y-2 rounded-xl border p-4 text-sm" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)', color: 'var(--kit-rojo-texto)' }}>
       <p>{texto}</p>
       <button type="button" className={flitBtnSecondary} onClick={onReintentar}>Reintentar</button>
     </div>
@@ -69,13 +71,13 @@ export default function MisRecogidas({ onVolver, onEscanear, puedeConfirmar }: {
   return (
     <section className="space-y-3" aria-labelledby="mis-rec-titulo">
       <div className="flex items-center gap-2">
-        <button type="button" onClick={onVolver} className="flit-focus -ml-1 inline-flex items-center gap-1 rounded-lg px-2 py-2 text-sm font-medium transition-colors hover:bg-[var(--flit-bg-hover)]"
-          style={{ color: 'var(--flit-text-secondary)', minHeight: 44 }}>
+        <button type="button" onClick={onVolver} className="flit-focus -ml-1 inline-flex items-center gap-1 rounded-full px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--kit-hover)]"
+          style={{ color: 'var(--color-text-secondary)', minHeight: 44 }}>
           <ChevronLeft size={18} aria-hidden="true" /> Mi ruta
         </button>
-        <h2 id="mis-rec-titulo" className="text-base font-bold" style={{ color: 'var(--flit-blue-text)' }}>Mis recogidas</h2>
+        <h2 id="mis-rec-titulo" className="text-lg font-bold" style={{ color: 'var(--color-action)' }}>Mis recogidas</h2>
       </div>
-      {aviso && <p role="status" className="rounded-xl border p-3.5 text-sm" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' }}>{aviso}</p>}
+      {aviso && <p role="status" className="rounded-xl border p-3.5 text-sm" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)', color: 'var(--color-text-primary)' }}>{aviso}</p>}
       {error && <Fallo texto="No pudimos cargar tus recogidas." onReintentar={cargar} />}
       {!error && lista === null && <Esqueleto filas={3} />}
       {lista && !hayLista && (
@@ -87,7 +89,7 @@ export default function MisRecogidas({ onVolver, onEscanear, puedeConfirmar }: {
       {lista && pendientes.length > 0 && (
         <div className="space-y-2" aria-labelledby="pend-firma-titulo" role="group">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 id="pend-firma-titulo" className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            <h3 id="pend-firma-titulo" className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               Pendientes de firma <StatusChip tone="warning">Falta firma · {contador}</StatusChip>
             </h3>
           </div>
@@ -96,15 +98,15 @@ export default function MisRecogidas({ onVolver, onEscanear, puedeConfirmar }: {
               const enFlit = p.estado === EstadoDocumentoLogistica.EN_FLIT ? ESTADO_DOCUMENTO_LOGISTICA_LABEL.en_flit : null;
               return (
                 <li key={p.documentoId}>
-                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border bg-flit-card px-4 py-3 transition-colors hover:bg-[var(--flit-bg-hover)]"
-                    style={{ borderColor: 'var(--flit-border-soft)', minHeight: 64 }}>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border bg-flit-card px-4 py-3 transition-colors hover:bg-[var(--kit-hover)]"
+                    style={{ borderColor: 'var(--color-border)', minHeight: 64 }}>
                     {puedeConfirmar && (
                       <input type="checkbox" className="flit-focus mt-1 size-5 shrink-0" checked={elegidas.has(p.documentoId)} onChange={() => alternar(p.documentoId)}
                         aria-label={`Firmar la LT ${p.numeroLt ?? ''} de la placa ${p.placa ?? ''}`.replace(/\s+/g, ' ').trim()} />
                     )}
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{p.placa ?? 'Sin placa'} · {p.numeroLt ?? 'Sin N.º LT'}</span>
-                      <span className="block text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                      <span className="block text-sm font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{p.placa ?? 'Sin placa'} · {p.numeroLt ?? 'Sin N.º LT'}</span>
+                      <span className="block text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                         {p.pendienteTramite ? 'Pendiente de trámite' : (p.companiaNombre ?? 'Compañía sin nombre')} · Org. {p.organismoCodigo} · {fecha(p.fecha)}
                       </span>
                     </span>
@@ -123,7 +125,7 @@ export default function MisRecogidas({ onVolver, onEscanear, puedeConfirmar }: {
               {aFirmar.length === 0 ? 'Elige LT para firmar' : `Firmar ${aFirmar.length} LT`}
             </button>
           ) : (
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Tu usuario no puede confirmar recogidas. Pide a Operaciones de FLITO que las firme.</p>
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Tu usuario no puede confirmar recogidas. Pide a Operaciones de FLITO que las firme.</p>
           )}
         </div>
       )}
@@ -132,15 +134,15 @@ export default function MisRecogidas({ onVolver, onEscanear, puedeConfirmar }: {
           {lista.map((r) => (
             <li key={r.firmanteId}>
               <button type="button" onClick={() => setAbierta(r.firmanteId)}
-                className="flit-focus flex w-full items-center justify-between gap-2 rounded-xl border bg-flit-card px-4 py-3 text-left transition-colors hover:bg-[var(--flit-bg-hover)]"
-                style={{ borderColor: 'var(--flit-border-soft)', minHeight: 64 }}>
+                className="flit-focus flex w-full items-center justify-between gap-2 rounded-xl border bg-flit-card px-4 py-3 text-left transition-colors hover:bg-[var(--kit-hover)]"
+                style={{ borderColor: 'var(--color-border)', minHeight: 64 }}>
                 <span className="min-w-0">
-                  <span className="block text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{fecha(r.firmadoEn)} · Org. {r.organismoCodigo}</span>
-                  <span className="block text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                  <span className="block text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{fecha(r.firmadoEn)} · Org. {r.organismoCodigo}</span>
+                  <span className="block text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                     {plural(r.actas, 'acta', 'actas')}{r.pendientesTramite ? ` · ${plural(r.pendientesTramite, 'LT pendiente', 'LT pendientes')}` : ''}
                   </span>
                 </span>
-                <span className="flex shrink-0 items-center gap-1"><StatusChip tone="success">Firmada</StatusChip><ChevronRight size={16} aria-hidden="true" style={{ color: 'var(--flit-text-muted)' }} /></span>
+                <span className="flex shrink-0 items-center gap-1"><StatusChip tone="success">Firmada</StatusChip><ChevronRight size={16} aria-hidden="true" style={{ color: 'var(--color-text-tertiary)' }} /></span>
               </button>
             </li>
           ))}
@@ -161,29 +163,29 @@ function DetalleRecogida({ id, onVolver }: { id: string; onVolver: () => void })
   return (
     <section className="space-y-3" aria-labelledby="det-rec-titulo">
       <div className="flex items-center gap-2">
-        <button type="button" onClick={onVolver} className="flit-focus -ml-1 inline-flex items-center gap-1 rounded-lg px-2 py-2 text-sm font-medium transition-colors hover:bg-[var(--flit-bg-hover)]"
-          style={{ color: 'var(--flit-text-secondary)', minHeight: 44 }}>
+        <button type="button" onClick={onVolver} className="flit-focus -ml-1 inline-flex items-center gap-1 rounded-full px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--kit-hover)]"
+          style={{ color: 'var(--color-text-secondary)', minHeight: 44 }}>
           <ChevronLeft size={18} aria-hidden="true" /> Mis recogidas
         </button>
-        <h2 id="det-rec-titulo" className="text-base font-bold" style={{ color: 'var(--flit-blue-text)' }}>{d ? `Recogida del ${fecha(d.firmadoEn)}` : 'Recogida'}</h2>
+        <h2 id="det-rec-titulo" className="text-lg font-bold" style={{ color: 'var(--color-action)' }}>{d ? `Recogida del ${fecha(d.firmadoEn)}` : 'Recogida'}</h2>
       </div>
       {error && <Fallo texto="No pudimos cargar esta recogida." onReintentar={cargar} />}
       {!error && !d && <Esqueleto filas={2} />}
       {d && (
         <div className="space-y-3">
-          <div className="rounded-xl border bg-flit-card p-3.5 text-sm" style={{ borderColor: 'var(--flit-border-soft)' }}>
-            <p style={{ color: 'var(--flit-text-primary)' }}>Funcionario: <span className="font-semibold">{d.nombre}</span></p>
-            <p style={{ color: 'var(--flit-text-secondary)' }}>Cédula <span className="tabular-nums">{d.documentoEnmascarado ?? '—'}</span> · Org. {d.organismoCodigo}</p>
+          <div className="rounded-xl border bg-flit-card p-3.5 text-sm" style={{ borderColor: 'var(--color-border)' }}>
+            <p style={{ color: 'var(--color-text-primary)' }}>Funcionario: <span className="font-semibold">{d.nombre}</span></p>
+            <p style={{ color: 'var(--color-text-secondary)' }}>Cédula <span className="tabular-nums">{d.documentoEnmascarado ?? '—'}</span> · Org. {d.organismoCodigo}</p>
             <div className="mt-2"><StatusChip tone="success">Firmada</StatusChip></div>
           </div>
           {d.actas.map((a, i) => (
-            <div key={a.actaId} className="rounded-xl border bg-flit-card p-3.5 text-sm" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Acta {i + 1} · {a.companiaNombre ?? 'Compañía'}</p>
-              <p style={{ color: 'var(--flit-text-muted)' }}>{plural(a.documentoIds.length, 'LT', 'LT')}</p>
+            <div key={a.actaId} className="rounded-xl border bg-flit-card p-3.5 text-sm" style={{ borderColor: 'var(--color-border)' }}>
+              <p className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>Acta {i + 1} · {a.companiaNombre ?? 'Compañía'}</p>
+              <p style={{ color: 'var(--color-text-tertiary)' }}>{plural(a.documentoIds.length, 'LT', 'LT')}</p>
             </div>
           ))}
           {d.pendientesTramite.length > 0 && (
-            <p className="rounded-xl border p-3.5 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-secondary)' }}>
+            <p className="rounded-xl border p-3.5 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}>
               Pendientes de trámite: {d.pendientesTramite.length}. Quedaron firmadas, sin acta, hasta que Operaciones de FLITO elija el trámite.
             </p>
           )}

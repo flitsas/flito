@@ -48,31 +48,31 @@ const QUE_HACER: Record<SiigoColaItem['estado'], string> = {
 
 export default function FalloEmision({ cola }: Props) {
   return (
-    <section className="rounded-lg px-3 py-2" style={{ background: '#FBE4E2' }}>
+    <section className="rounded-lg px-3 py-2" style={{ background: 'color-mix(in srgb, var(--kit-rojo) 10%, var(--color-surface-elevated))' }}>
       <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide"
-        style={{ color: 'var(--flit-warning-text)' }}>
+        style={{ color: 'var(--kit-naranja-texto)' }}>
         Por qué falló la emisión
       </h3>
 
       {cola === null ? (
-        <p style={{ color: 'var(--flit-text-primary)' }}>
+        <p style={{ color: 'var(--color-text-primary)' }}>
           Este trámite no tiene trabajo registrado en la cola de emisión, así que aquí no hay motivo
           que mostrar. El recorrido completo está en la línea de tiempo del trámite.
         </p>
       ) : (
         <>
-          <p style={{ color: 'var(--flit-text-primary)' }}>
+          <p style={{ color: 'var(--color-text-primary)' }}>
             {cola.errorDetalle ?? 'La cola no guardó motivo de este fallo.'}
           </p>
 
-          <p className="mt-1" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>
             <strong>{SIIGO_COLA_ESTADO_ETIQUETA[cola.estado]}.</strong> {QUE_HACER[cola.estado]}
           </p>
 
           {/* Los intentos, con su techo: «lleva 4» no dice nada sin saber que el quinto es el
               último. Y el último intento, no el próximo: la pregunta de quien abre esto es desde
               cuándo lleva así. */}
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             Intentos: <strong className="tabular-nums">{cola.intentos}</strong> de{' '}
             <span className="tabular-nums">{cola.maxIntentos}</span>
             {' · '}Último intento: {fechaCorta(cola.ultimoIntentoAt)}
@@ -84,7 +84,7 @@ export default function FalloEmision({ cola }: Props) {
               secundario da 4,72). Lo que baja el peso de esta línea es el tamaño, no un gris que
               no se lee. */}
           {cola.errorCode && (
-            <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="mt-1 text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>
               Código de Siigo: {cola.errorCode}
             </p>
           )}

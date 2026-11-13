@@ -141,8 +141,8 @@ const filaDe = (page: Page, nombre: string) =>
 const nombreDe = (page: Page) => page.getByRole('textbox', { name: 'Nombre' });
 const descripcionDe = (page: Page) => page.getByRole('textbox', { name: 'Descripción (opcional)' });
 const valorDe = (page: Page) => page.getByRole('textbox', { name: 'Valor en pesos' });
-/** Primarias (gradiente de marca) dentro del contenido: la del shell no cuenta. Los modales cuelgan de body. */
-const primarias = (page: Page) => page.locator('main button[style*="flit-gradient-primary"], [role="dialog"] button[style*="flit-gradient-primary"]');
+/** Primarias (variante azul del kit) dentro del contenido: la del shell no cuenta. Los modales cuelgan de body. */
+const primarias = (page: Page) => page.locator('main button[data-variante="primario"], [role="dialog"] button[data-variante="primario"]');
 
 async function abrirPagina(page: Page) {
   await page.goto('/flito/servicios-adicionales');

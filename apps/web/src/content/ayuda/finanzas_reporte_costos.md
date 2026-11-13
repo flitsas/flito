@@ -11,8 +11,8 @@ consultas:
   - cuánto le pagamos al proveedor por un trámite
   - cómo elijo las columnas del reporte
   - cómo exporto el reporte de costos
-version: 2.1
-fecha: 2026-11-11
+version: 2.2
+fecha: 2026-11-12
 ---
 ## Qué es
 
@@ -24,7 +24,7 @@ Financiera y Administrador (liquidan, facturan y envían a emisión). Auditor (s
 
 ## Cómo se entra
 
-En el menú lateral, sección **Finanzas**, ítem **Reporte de costos**. También desde **Facturación electrónica · Operación**, con el enlace **¿Buscas una factura concreta? Ve al reporte de costos**.
+En la barra de navegación al pie de la pantalla, pulse **Finanzas** y, en el panel que se abre, el ítem **Reporte de costos**. También desde **Facturación electrónica · Operación**, con el enlace **¿Buscas una factura concreta? Ve al reporte de costos**. Si la barra deja solo los íconos, el nombre de cada grupo aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «reporte de costos».
 
 ## Pasos
 

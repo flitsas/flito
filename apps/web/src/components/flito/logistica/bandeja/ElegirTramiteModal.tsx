@@ -13,7 +13,7 @@ export interface ResultadoModal {
 }
 
 const ROT = 'text-xs';
-const mutedStyle = { color: 'var(--flit-text-muted)' } as const;
+const mutedStyle = { color: 'var(--color-text-tertiary)' } as const;
 
 function Dato({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
   return <div><span className={ROT} style={mutedStyle}>{rotulo}</span><div className="text-sm font-medium">{children}</div></div>;
@@ -21,8 +21,8 @@ function Dato({ rotulo, children }: { rotulo: string; children: React.ReactNode 
 
 function Alerta({ children, onReintentar }: { children: React.ReactNode; onReintentar?: () => void }) {
   return (
-    <div role="alert" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"
-      style={{ borderColor: 'var(--flit-danger-ink)', color: 'var(--flit-danger-ink)', background: 'var(--flit-bg-card)' }}>
+    <div role="alert" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[9px] border p-3 text-sm"
+      style={{ borderColor: 'var(--kit-rojo-texto)', color: 'var(--kit-rojo-texto)', background: 'var(--color-surface-elevated)' }}>
       <span>{children}</span>
       {onReintentar && <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>Reintentar</button>}
     </div>
@@ -92,7 +92,7 @@ export default function ElegirTramiteModal({ lt, restoreFocusRef, onTerminar }: 
     <FlitModal title={titulo} onClose={() => onTerminar({ tipo: 'cancelar' })} cierreBloqueado={enviando} restoreFocusRef={restoreFocusRef}>
       <h3 ref={tituloRef} tabIndex={-1} className="sr-only">{titulo}</h3>
       {resumen}
-      <hr className="my-3 border-0 border-t" style={{ borderColor: 'var(--flit-border-soft)' }} />
+      <hr className="my-3 border-0 border-t" style={{ borderColor: 'var(--color-border)' }} />
 
       {paso === 1 && (
         <>
@@ -100,7 +100,7 @@ export default function ElegirTramiteModal({ lt, restoreFocusRef, onTerminar }: 
           {alerta && <Alerta>{alerta}</Alerta>}
           {candidatos === null && !errorCarga && (
             <div aria-busy="true" aria-label="Cargando trámites" className="mt-2 space-y-2">
-              {[0, 1].map((i) => <div key={i} className="h-20 animate-pulse rounded-lg" style={{ background: 'var(--flit-border-soft)' }} />)}
+              {[0, 1].map((i) => <div key={i} className="kit-esqueleto h-20" />)}
             </div>
           )}
           {sinCandidatos && (
@@ -120,8 +120,8 @@ export default function ElegirTramiteModal({ lt, restoreFocusRef, onTerminar }: 
                   const aprob = fechaCorta(c.fechaAprobacion);
                   return (
                     <label key={c.tramiteId}
-                      className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-[var(--flit-bg-hover)] has-[:focus-visible]:outline has-[:focus-visible]:outline-[3px] has-[:focus-visible]:outline-[var(--flit-border-focus)]"
-                      style={{ borderColor: activo ? 'var(--flit-blue-text)' : 'var(--flit-border-input)', boxShadow: activo ? 'inset 0 0 0 1px var(--flit-blue-text)' : undefined, background: activo ? 'var(--flit-bg-app)' : undefined }}>
+                      className="flex cursor-pointer items-start gap-3 rounded-[9px] border p-3 transition-colors hover:bg-[var(--kit-hover)] has-[:focus-visible]:outline has-[:focus-visible]:outline-[3px] has-[:focus-visible]:outline-[var(--kit-azul)]"
+                      style={{ borderColor: activo ? 'var(--color-action)' : 'var(--color-border-control)', boxShadow: activo ? 'inset 0 0 0 1px var(--color-action)' : undefined, background: activo ? 'var(--color-surface)' : undefined }}>
                       <input type="radio" name="candidato-lt" className="mt-1" checked={activo} onChange={() => setSel(c.tramiteId)} />
                       <span className="min-w-0">
                         <span className="block text-sm font-medium">{c.companiaNombre ?? 'Compañía sin nombre'}</span>
@@ -148,11 +148,11 @@ export default function ElegirTramiteModal({ lt, restoreFocusRef, onTerminar }: 
         <>
           <p className="text-sm">Vas a asignar esta LT a:</p>
           <p className="mt-1 text-sm font-semibold">{elegido.companiaNombre ?? 'Compañía sin nombre'}</p>
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Trámite <span className="tabular-nums">{elegido.idFlit}</span>{elegido.tipoTramite ? ` · ${elegido.tipoTramite}` : ''}
             {fechaCorta(elegido.fechaAprobacion) ? ` · Aprobado ${fechaCorta(elegido.fechaAprobacion)}` : ''} · {elegido.organismoCodigo ?? lt.organismoCodigo}
           </p>
-          <h4 className="mb-1 mt-4 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Qué pasará con el acta</h4>
+          <h4 className="mb-1 mt-4 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>Qué pasará con el acta</h4>
           <p className="text-sm">
             {lt.firmada
               ? `Como la LT ya tiene la firma del organismo, entrará al acta de organismo de ${elegido.companiaNombre ?? 'la compañía'} con esa misma firma. No se pide otra.`

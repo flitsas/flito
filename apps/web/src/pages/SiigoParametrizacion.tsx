@@ -1,4 +1,4 @@
-// Facturación electrónica — parametrización (HU #11287, Feature #11240).
+// Facturación electrónica — parametrización (HU 11287, Feature 11240).
 //
 // Queda una sola pregunta que parametrizar: **a qué producto de Siigo corresponde cada concepto de
 // la liquidación**. Todo lo demás que vivía aquí desapareció el 2026-08-13, y conviene saber por qué
@@ -11,10 +11,10 @@
 //     leen de Siigo en el momento de elegir, así que no hay copia que refrescar a mano.
 //   · El **tratamiento tributario** se fue antes (A7): lo aplica Siigo desde el producto.
 //
-// Por eso ya no hubo pestañas entre la #11287 y la #11299. Cuando solo queda una sección, una barra
+// Por eso ya no hubo pestañas entre la 11287 y la 11299. Cuando solo queda una sección, una barra
 // de pestañas es un adorno que sugiere que hay algo más en alguna parte.
 //
-// **Vuelven a estar, y ese razonamiento no se contradice: se cumple.** La HU #11299 añade la
+// **Vuelven a estar, y ese razonamiento no se contradice: se cumple.** La HU 11299 añade la
 // revisión y sincronización de los terceros de Siigo, así que otra vez son dos secciones de verdad.
 // Reutilizan ruta, slug (`siigo_parametrizacion`) y guarda: ni ítem de menú nuevo ni migración de
 // otorgamientos. `?seccion=terceros` es estado de NAVEGACIÓN —no es un dato de nadie (AGENTS.md
@@ -68,7 +68,7 @@ interface EstadoCompuerta {
 
 export default function SiigoParametrizacion() {
   const { hasFuncion } = useAuth();
-  // HU #13427: el mapeo de conceptos lo da la acción «Mapeo de conceptos» (`siigo.conceptos.administrar`).
+  // HU 13427: el mapeo de conceptos lo da la acción «Mapeo de conceptos» (`siigo.conceptos.administrar`).
   const puedeEditar = hasFuncion('siigo.conceptos.administrar');
 
   const [ambiente, setAmbiente] = useState<Ambiente>('pruebas');
@@ -131,10 +131,12 @@ export default function SiigoParametrizacion() {
     <div className="space-y-5">
       <PageHeaderCard
         title="Facturación electrónica — Parametrización"
+        icono="flito-siigo"
+        miga={[{ etiqueta: 'Finanzas' }]}
         subtitle="Catálogos, mapeo de conceptos y configuración de emisión de la integración con Siigo."
         actions={(
           <div className="flex items-center gap-3">
-            <label htmlFor="ambiente-siigo" className="text-sm font-medium" style={{ color: 'var(--flit-text-muted)' }}>
+            <label htmlFor="ambiente-siigo" className="text-sm font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
               Ambiente
             </label>
             <select
@@ -154,23 +156,23 @@ export default function SiigoParametrizacion() {
       {compuerta?.modo === 'mock' && (
         <div
           role="status"
-          className="flex items-start gap-3 bg-white px-5 py-4 text-sm"
-          style={{ ...CARD, borderLeft: '4px solid var(--flit-warning)' }}
+          className="flex items-start gap-3 bg-[var(--color-surface-elevated)] px-5 py-4 text-sm"
+          style={{ ...CARD, borderLeft: '4px solid var(--kit-naranja)' }}
         >
           <span aria-hidden="true" className="text-lg leading-none">🧪</span>
           <div>
-            <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            <p className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               Modo simulado: los datos vienen del simulador, no de Siigo.
             </p>
-            <p style={{ color: 'var(--flit-text-muted)' }}>
+            <p style={{ color: 'var(--color-text-tertiary)' }}>
               Nada de lo que se haga aquí llega a Siigo ni a la DIAN, y la compuerta que impide
               emitir sin confirmación de contabilidad <strong>no aplica</strong> en este modo.
             </p>
-            {/* AC7 de la #11299 — la frase depende de la pestaña porque la mentira que hay que
+            {/* AC7 de la 11299 — la frase depende de la pestaña porque la mentira que hay que
                 impedir es de esta: un «Creado en Siigo» abajo y un banner genérico arriba, en una
                 captura recortada, dicen cosas opuestas. El banner es de la página y no se duplica. */}
             {seccion === 'terceros' && (
-              <p style={{ color: 'var(--flit-text-muted)' }}>
+              <p style={{ color: 'var(--color-text-tertiary)' }}>
                 Los terceros que aparezcan como creados o vinculados <strong>no existen en Siigo
                 Nube</strong>: no se creó ni se modificó nada allá. Cuando se conecte el ambiente
                 real habrá que volver a sincronizarlos.
@@ -184,11 +186,11 @@ export default function SiigoParametrizacion() {
       {compuerta && !compuerta.emisionRealHabilitada && (
         <section
           aria-labelledby="compuerta-titulo"
-          className="bg-white px-5 py-4"
-          style={{ ...CARD, borderLeft: '4px solid var(--flit-danger)' }}
+          className="bg-[var(--color-surface-elevated)] px-5 py-4"
+          style={{ ...CARD, borderLeft: '4px solid var(--kit-rojo)' }}
         >
-          <h2 id="compuerta-titulo" className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-            <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+          <h2 id="compuerta-titulo" className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+            <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>
             La emisión en producción está bloqueada
           </h2>
           <ul className="mt-2 space-y-1.5">
@@ -198,7 +200,7 @@ export default function SiigoParametrizacion() {
             {/* Ya no hay «ir a corregirlo»: al quedar una sola sección, el sitio donde se corrige
                 es lo que hay justo debajo de este aviso. */}
             {(compuerta.motivos ?? []).map((m) => (
-              <li key={m.tipo} className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              <li key={m.tipo} className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
                 {m.detalle}
               </li>
             ))}
@@ -209,16 +211,16 @@ export default function SiigoParametrizacion() {
       {compuerta?.emisionRealHabilitada && compuerta.compuertaActiva && (
         <p
           role="status"
-          className="bg-white px-5 py-4 text-sm font-semibold"
-          style={{ ...CARD, borderLeft: '4px solid var(--flit-success)', color: 'var(--flit-text-primary)' }}
+          className="bg-[var(--color-surface-elevated)] px-5 py-4 text-sm font-semibold"
+          style={{ ...CARD, borderLeft: '4px solid var(--kit-verde)', color: 'var(--color-text-primary)' }}
         >
           La parametrización está completa: la emisión en producción está habilitada.
         </p>
       )}
 
       {errorCompuerta && (
-        <p role="alert" className="bg-white px-5 py-4 text-sm" style={{ ...CARD, color: 'var(--flit-text-primary)' }}>
-          <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+        <p role="alert" className="bg-[var(--color-surface-elevated)] px-5 py-4 text-sm" style={{ ...CARD, color: 'var(--color-text-primary)' }}>
+          <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>
           No se pudo consultar el estado de la emisión: {errorCompuerta}
         </p>
       )}
@@ -264,7 +266,7 @@ export default function SiigoParametrizacion() {
           ref={tituloPanel}
           tabIndex={-1}
           className="flit-focus sr-only rounded focus:not-sr-only focus:block focus:text-sm focus:font-semibold"
-          style={{ color: 'var(--flit-text-primary)' }}
+          style={{ color: 'var(--color-text-primary)' }}
         >
           {SECCIONES.find((s) => s.valor === seccion)?.etiqueta}
         </h2>

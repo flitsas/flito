@@ -103,7 +103,7 @@ async function montar(page: Page, m: Montaje = {}) {
     return json(route, r.status, r.body);
   });
   await page.goto('/clients');
-  await page.getByRole('button', { name: 'Proveedores', exact: true }).click();
+  await page.getByRole('tab', { name: 'Proveedores', exact: true }).click();
   await expect(filas(page)).toHaveCount(4);
   return { lista, deletes, impactos, envios, listados: () => listados };
 }

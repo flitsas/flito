@@ -11,8 +11,8 @@ import {
   FlitCard, FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../../flit/flitPageKit';
 
-const MUTED = { color: 'var(--flit-text-muted)' } as const;
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
+const MUTED = { color: 'var(--color-text-tertiary)' } as const;
+const PELIGRO = { color: 'var(--kit-rojo-texto)' } as const;
 
 const ResumenViajesMasivo = forwardRef<HTMLHeadingElement, {
   resultado: RespuestaMasivo;
@@ -29,7 +29,7 @@ const ResumenViajesMasivo = forwardRef<HTMLHeadingElement, {
   return (
     <FlitCard>
       <div role="status" className="space-y-3">
-        <h2 ref={ref} tabIndex={-1} className="text-base font-semibold outline-none" style={{ color: 'var(--flit-text-primary)' }}>
+        <h2 ref={ref} tabIndex={-1} className="text-base font-semibold outline-none" style={{ color: 'var(--color-text-primary)' }}>
           Resultado del registro
         </h2>
         {titulo ? (
@@ -49,9 +49,9 @@ const ResumenViajesMasivo = forwardRef<HTMLHeadingElement, {
         )}
         <button type="button" onClick={onNueva}
           className={corregibles > 0
-            ? 'flit-focus rounded-lg px-2 py-1 text-sm font-medium transition-colors hover:bg-[var(--flit-bg-hover)]'
+            ? 'flit-focus rounded-lg px-2 py-1 text-sm font-medium transition-colors hover:bg-[var(--kit-hover)]'
             : flitBtnSecondary}
-          style={corregibles > 0 ? { color: 'var(--flit-blue-text)' } : flitBtnSecondaryStyle}>
+          style={corregibles > 0 ? { color: 'var(--color-action)' } : flitBtnSecondaryStyle}>
           Nueva carga
         </button>
       </div>
@@ -61,7 +61,7 @@ const ResumenViajesMasivo = forwardRef<HTMLHeadingElement, {
           <h3 id="mx-rechazadas" className="mb-2 text-sm font-semibold">No se registraron</h3>
           <ul className="space-y-2 sm:hidden">
             {rechazados.map((r, i) => (
-              <li key={`${r.placa}-${i}`} className="rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--flit-border-soft)' }}>
+              <li key={`${r.placa}-${i}`} className="rounded-[9px] border p-3 text-sm" style={{ borderColor: 'var(--color-border)' }}>
                 <div className="font-bold tabular-nums">{r.placa || '—'}</div>
                 <div style={MUTED}>{textoDeRechazo(r)}</div>
               </li>

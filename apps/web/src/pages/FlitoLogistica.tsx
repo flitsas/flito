@@ -18,6 +18,7 @@ import NoAccess from '../components/NoAccess';
 import { vacioConEnlace } from '../lib/copyEnlace';
 import { esRechazoDeAlcance, mensajeEscrituraLogistica, mensajeLecturaLogistica, mensajePdfLogistica } from '../lib/mensajesLogisticaHttp';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
+import Pestanas from '../components/flit/Pestanas';
 import { FlitCard } from '../components/flit/flitPageKit';
 import { toastError } from '../components/flit/ToastFlito';
 import ViajesACliente from '../components/flito/logistica/ViajesACliente';
@@ -246,7 +247,7 @@ export default function FlitoLogistica() {
   }, [tab]);
 
   if (funciones === null) {
-    return <div role="status" aria-busy="true" aria-label="Cargando Logística…" className="h-24 rounded-xl" style={{ background: 'var(--flit-border-soft)' }} />;
+    return <div role="status" aria-busy="true" aria-label="Cargando Logística…" data-kit="esqueleto" className="kit-esqueleto h-24 rounded-[9px]" />;
   }
   if (TABS.length === 0) return <NoAccess page="flito_logistica" />;
 
@@ -257,6 +258,8 @@ export default function FlitoLogistica() {
     <div className="space-y-4">
       <PageHeaderCard
         title="Logística"
+        icono="flito-logistica"
+        miga={[]}
         subtitle={esProveedor
           ? 'Trámites, licencias y actas de su operación: de la recogida en el organismo a la entrega firmada.'
           : 'Trámites aprobados a la espera de su licencia de tránsito: de la recogida en el organismo a la entrega firmada.'}
@@ -264,33 +267,32 @@ export default function FlitoLogistica() {
 
       {/* Pestañas: con una sola visible no se pinta la barra. */}
       {TABS.length > 1 && (
-        <div className="flex flex-wrap gap-1 border-b" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          {TABS.map((t) => {
-            const activa = tab === t.key;
-            return (
-              <button key={t.key} type="button" onClick={() => setTab(t.key)}
-                aria-label={t.badge != null ? `${t.label}, ${t.badge}` : undefined}
-                className="flit-focus relative -mb-px rounded-t-lg px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
-                style={{
-                  color: activa ? 'var(--flit-blue-text)' : 'var(--flit-text-secondary)',
-                  borderBottom: `2px solid ${activa ? 'var(--flit-blue-text)' : 'transparent'}`,
-                }}>
+        <Pestanas
+          etiqueta="Secciones de Logística"
+          activa={tab ?? undefined}
+          onElegir={(id) => setTab(id as Tab)}
+          pestanas={TABS.map((t) => ({
+            id: t.key,
+            etiqueta: (
+              <>
                 {t.label}
                 {t.badge != null && (
-                  <span className="ml-2 rounded-full px-1.5 py-0.5 text-[11px] tabular-nums"
-                    style={{ background: activa ? 'rgba(48,102,190,0.12)' : 'var(--flit-border-soft)', color: activa ? 'var(--flit-blue-text)' : 'var(--flit-text-secondary)' }}>
-                    {t.badge.toLocaleString('es-CO')}
-                  </span>
+                  <>
+                    <span className="sr-only">{`, ${t.badge}`}</span>
+                    <span aria-hidden="true" className="acordeon__cuenta !h-6 !min-w-6 text-xs tabular-nums">
+                      {t.badge.toLocaleString('es-CO')}
+                    </span>
+                  </>
                 )}
-              </button>
-            );
-          })}
-        </div>
+              </>
+            ),
+          }))}
+        />
       )}
 
       {avisoPerdida && (
         <FlitCard>
-          <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+          <p role="alert" className="text-sm text-[color:var(--kit-rojo-texto)]">
             Ya no tiene acceso a esta sección. Vuelva a iniciar sesión si cree que es un error.
           </p>
         </FlitCard>

@@ -1,6 +1,6 @@
 // Los cinco patrones de relleno de la gráfica de Gastos diarios (HU #12625, AC1): el color es
 // secundario y cada categoría se distingue también sin él —sólido, rayas, puntos, líneas, cruz—
-// además del rótulo. Se trazan con `var(--flit-serie-*)`, que sigue el tema; ningún hex aquí.
+// además del rótulo. Se trazan con los colores de serie del kit (`--kit-*`, `SERIE_KIT`), que sigue el tema; ningún hex aquí.
 // Van en un `<defs>` del svg de la gráfica; la leyenda los referencia por `url(#…)`.
 
 import { CATEGORIAS, type GastosDiariosCategoria, type PatronSerie } from './tiposGastosDiarios';

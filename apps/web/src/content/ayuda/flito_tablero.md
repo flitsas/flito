@@ -9,8 +9,8 @@ consultas:
   - qué muestra el tablero
   - dónde veo los trámites retenidos
   - por qué un trámite está estancado
-version: 1.2
-fecha: 2026-10-22
+version: 1.3
+fecha: 2026-11-12
 ---
 ## Qué es
 
@@ -24,7 +24,7 @@ Si su rol tiene enlace **Compañía**, el tablero cuenta solo los trámites de s
 
 ## Cómo se entra
 
-Es lo primero que ve al iniciar sesión. Para volver a él, en la barra de navegación al pie de la pantalla pulse el primer icono: sección **General**, ítem **Tablero** (en pantallas pequeñas, use el botón de menú de la barra superior). No lo confunda con **Tablero ejecutivo PESV**.
+Es lo primero que ve al iniciar sesión. Para volver a él, en la barra de navegación al pie de la pantalla pulse **Más** y, en el panel que se abre, el ítem **Tablero**. Si la barra deja solo los íconos, el nombre de cada grupo aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «tablero». No lo confunda con **Tablero ejecutivo PESV**.
 
 ## Pasos
 

@@ -370,7 +370,7 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     await mockConsola(page);
     await mockViajes(page);
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await page.getByRole('row', { name: /Concesionario Norte/ }).getByRole('button', { name: 'Ver' }).click();
     const acta = page.getByRole('dialog');
     await expect(acta).toContainText('Licencias');
@@ -387,7 +387,7 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     await mockConsola(page);
     await mockViajes(page);
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await page.getByRole('row', { name: /Concesionario Norte/ }).getByRole('button', { name: 'Ver' }).click();
     const lineas = page.getByRole('dialog').getByRole('listitem');
     await expect(lineas).toHaveCount(3);
