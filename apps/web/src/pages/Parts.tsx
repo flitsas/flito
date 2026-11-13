@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, useCallback, FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -6,7 +6,11 @@ import { useEscape } from '../lib/hooks';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
-import { flitInp, FlitTh, FlitTr, FlitTable, FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import PanelFiltros from '../components/flit/PanelFiltros';
+import { EtiquetaEstado } from '../components/flit/Bloques';
+import { flitInp, FlitField } from '../components/flit/flitPageKit';
+import { ESTADO_STOCK_BAJO } from '../components/maintenance/estados-mantenimiento';
 
 interface Part {
   id: number; codigo: string; nombre: string;
@@ -41,57 +45,64 @@ export default function Parts() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { api.get<{ data: Location[] }>('/parts/locations').then((r) => setLocations(r.data)).catch(() => {}); }, []);
 
+  const columnas: ColumnaTabla<Part>[] = [
+    { key: 'codigo', header: 'Código', etiqueta: 'Código', render: (p) => <span className="font-mono text-xs text-[color:var(--color-text-secondary)]">{p.codigo}</span> },
+    { key: 'nombre', header: 'Nombre', etiqueta: 'Nombre', render: (p) => <span className="font-medium text-[color:var(--color-text-primary)]">{p.nombre}</span> },
+    { key: 'unidad', header: 'Unidad', etiqueta: 'Unidad', render: (p) => <span className="text-[color:var(--color-text-secondary)]">{p.unidadMedida}</span> },
+    {
+      key: 'stock', header: 'Stock', etiqueta: 'Stock',
+      render: (p) => {
+        const stock = Number(p.stockTotal);
+        const low = stock < Number(p.existenciaMin);
+        return low
+          ? <EtiquetaEstado estado={ESTADO_STOCK_BAJO}><span className="tabular-nums font-semibold">{stock}</span></EtiquetaEstado>
+          : <span className="tabular-nums font-semibold text-[color:var(--color-text-primary)]">{stock}</span>;
+      },
+    },
+    { key: 'min', header: 'Mín', etiqueta: 'Mín', render: (p) => <span className="tabular-nums text-[color:var(--color-text-tertiary)]">{Number(p.existenciaMin) || '—'}</span> },
+    {
+      key: 'costo', header: 'Costo prom.', etiqueta: 'Costo prom.',
+      render: (p) => <span className="tabular-nums text-[color:var(--color-text-secondary)]">{Number(p.valorPromedio).toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 })}</span>,
+    },
+    {
+      key: 'acciones', header: '', acciones: true, align: 'right',
+      render: (p) => (isAdmin ? (
+        <GradientButton type="button" variant="secondary" size="sm" onClick={() => setShowMovement(p)}>Movimiento</GradientButton>
+      ) : null),
+    },
+  ];
+
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Repuestos"
         subtitle="Inventario con costo promedio ponderado y kardex automático"
+        icono="flito-repuestos"
+        miga={[{ etiqueta: 'Mantenimiento', to: '/maintenance' }]}
         actions={isAdmin ? <GradientButton type="button" onClick={() => setShowCreate(true)}>Nuevo repuesto</GradientButton> : undefined}
       />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por código o nombre"
-          className={`min-w-[240px] flex-1 ${flitInp}`}
-        />
-        <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-          <input type="checkbox" checked={conStockBajo} onChange={(e) => setConStockBajo(e.target.checked)} />
-          Solo stock bajo
-        </label>
-      </div>
+      <PanelFiltros
+        busqueda={search}
+        onBusqueda={setSearch}
+        placeholder="Buscar por código o nombre"
+        aplicados={conStockBajo ? [{ id: 'stock-bajo', etiqueta: 'Solo stock bajo' }] : []}
+        onQuitar={() => setConStockBajo(false)}
+        campos={(
+          <label className="flex min-h-10 items-center gap-2 text-sm text-[color:var(--color-text-secondary)]">
+            <input type="checkbox" className="h-4 w-4 accent-[var(--kit-azul)]" checked={conStockBajo} onChange={(e) => setConStockBajo(e.target.checked)} />
+            Solo stock bajo
+          </label>
+        )}
+      />
 
-      <FlitTable>
-        <table className="w-full text-sm">
-          <thead><tr>
-            <FlitTh>Código</FlitTh><FlitTh>Nombre</FlitTh><FlitTh>Unidad</FlitTh><FlitTh>Stock</FlitTh><FlitTh>Mín</FlitTh><FlitTh>Costo prom.</FlitTh><FlitTh></FlitTh>
-          </tr></thead>
-          <tbody>
-            {items.length === 0 && <tr><td colSpan={7} className="py-8 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin repuestos</td></tr>}
-            {items.map((p) => {
-              const stock = Number(p.stockTotal);
-              const min = Number(p.existenciaMin);
-              const low = stock < min;
-              return (
-                <FlitTr key={p.id}>
-                  <td className="px-4 py-2.5 font-mono text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{p.codigo}</td>
-                  <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--flit-text-primary)' }}>{p.nombre}</td>
-                  <td className="px-4 py-2.5" style={{ color: 'var(--flit-text-secondary)' }}>{p.unidadMedida}</td>
-                  <td className="px-4 py-2.5 tabular-nums font-semibold" style={{ color: low ? '#dc2626' : 'var(--flit-text-primary)' }}>{stock}</td>
-                  <td className="px-4 py-2.5 tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{min || '—'}</td>
-                  <td className="px-4 py-2.5 tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{Number(p.valorPromedio).toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 })}</td>
-                  <td className="px-4 py-2.5 text-right">
-                    {isAdmin && (
-                      <button type="button" onClick={() => setShowMovement(p)} className="text-xs hover:underline" style={{ color: 'var(--flit-blue)' }}>Movimiento</button>
-                    )}
-                  </td>
-                </FlitTr>
-              );
-            })}
-          </tbody>
-        </table>
-      </FlitTable>
+      <DataTable
+        ariaLabel="Repuestos"
+        columnas={columnas}
+        filas={items}
+        getKey={(p) => String(p.id)}
+        emptyMessage="Sin repuestos"
+      />
 
       {showCreate && <PartForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
       {showMovement && (
@@ -131,17 +142,17 @@ function PartForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
   };
 
   return (
-    <FlitModal title="Nuevo repuesto" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3 px-6 pb-6">
+    <FlitModal title="Nuevo repuesto" onClose={onClose} icono="mas">
+      <form onSubmit={submit} className="space-y-3">
         <FlitField label="Código *"><input value={codigo} onChange={(e) => setCodigo(e.target.value)} maxLength={30} className={flitInp} /></FlitField>
         <FlitField label="Nombre *"><input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={150} className={flitInp} /></FlitField>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <FlitField label="Unidad"><select value={unidad} onChange={(e) => setUnidad(e.target.value)} className={flitInp}>{UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}</select></FlitField>
           <FlitField label="Stock mínimo"><input type="number" min="0" step="0.01" value={existenciaMin} onChange={(e) => setExistenciaMin(e.target.value)} className={flitInp} /></FlitField>
         </div>
-        <div className="flex justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <button type="button" onClick={onClose} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Cancelar</button>
-          <button type="submit" disabled={submitting} className={flitBtnPrimary} style={flitBtnPrimaryStyle}>{submitting ? 'Guardando…' : 'Crear'}</button>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] pt-4">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton type="submit" disabled={submitting}>{submitting ? 'Guardando…' : 'Crear'}</GradientButton>
         </div>
       </form>
     </FlitModal>
@@ -185,8 +196,8 @@ function MovementForm({ part, locations, onClose, onSaved }: { part: Part; locat
   };
 
   return (
-    <FlitModal title={`Movimiento — ${part.codigo}`} onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3 px-6 pb-6">
+    <FlitModal title={`Movimiento — ${part.codigo}`} onClose={onClose} icono="intercambio">
+      <form onSubmit={submit} className="space-y-3">
           <FlitField label="Tipo">
             <select value={tipo} onChange={(e) => setTipo(e.target.value as MovementTipo)} className={flitInp}>
               <option value="entrada">Entrada (compra)</option>
@@ -195,7 +206,7 @@ function MovementForm({ part, locations, onClose, onSaved }: { part: Part; locat
               <option value="ajuste">Ajuste de inventario</option>
             </select>
           </FlitField>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <FlitField label="Cantidad *"><input type="number" min="0.001" step="0.001" value={cantidad} onChange={(e) => setCantidad(e.target.value)} className={flitInp} /></FlitField>
             {tipo === 'entrada' && (
               <FlitField label="Valor unitario *"><input type="number" min="0" step="0.01" value={valorUnit} onChange={(e) => setValorUnit(e.target.value)} className={flitInp} /></FlitField>
@@ -219,9 +230,9 @@ function MovementForm({ part, locations, onClose, onSaved }: { part: Part; locat
           )}
           {tipo === 'entrada' && <FlitField label="Factura"><input value={factura} onChange={(e) => setFactura(e.target.value)} maxLength={50} className={flitInp} /></FlitField>}
           <FlitField label="Observaciones"><input value={observaciones} onChange={(e) => setObservaciones(e.target.value)} maxLength={500} className={flitInp} /></FlitField>
-        <div className="flex justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <button type="button" onClick={onClose} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Cancelar</button>
-          <button type="submit" disabled={submitting} className={flitBtnPrimary} style={flitBtnPrimaryStyle}>{submitting ? 'Guardando…' : 'Registrar'}</button>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] pt-4">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton type="submit" disabled={submitting}>{submitting ? 'Guardando…' : 'Registrar'}</GradientButton>
         </div>
       </form>
     </FlitModal>
