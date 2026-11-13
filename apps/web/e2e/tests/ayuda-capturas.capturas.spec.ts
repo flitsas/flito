@@ -418,21 +418,21 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await expect(detalle).toBeHidden();
 
     // Paso 6 — Viajes: precio de Cliente y de FLIT (HU #14123).
-    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await page.getByRole('tab', { name: /^Viajes(?! adicionales)/ }).click();
     await expect(page.getByText(/Cliente \$12\.000 por LT/)).toBeVisible();
     await expect(page.getByText(/FLIT \$8\.000 por LT/)).toBeVisible();
     await sinFoco(page);
     await capturar(page, dir, '04-viajes-a-cliente');
 
     // Paso 7 — Entregas (HU #14125): tabla de seguimiento, sin acciones de destino.
-    await page.getByRole('button', { name: 'Entregas' }).click();
+    await page.getByRole('tab', { name: 'Entregas' }).click();
     await expect(page.getByRole('columnheader', { name: 'Compañía' })).toBeVisible();
     await expect(page.getByRole('cell', { name: 'Concesionario Demo Norte' })).toBeVisible();
     await sinFoco(page);
     await capturar(page, dir, '08-entregas');
 
     // Paso 6 — Actas: Generada, Despachada y Entregada con sus acciones.
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await expect(page.getByRole('button', { name: 'Firmar y despachar' })).toBeVisible();
     await sinFoco(page);
     await capturar(page, dir, '05-actas');
@@ -453,7 +453,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await page.keyboard.press('Escape');
 
     // Paso 11 — Motivos de llegada (HU #14120): catálogo en orden, sin badge.
-    await page.getByRole('button', { name: 'Motivos de llegada' }).click();
+    await page.getByRole('tab', { name: 'Motivos de llegada' }).click();
     await expect(page.getByText('Sin dirección de entrega al recoger')).toBeVisible();
     const mostrarBarraMotivos = await sinBarraFlotante(page);
     await sinFoco(page);
@@ -1056,7 +1056,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     const region = page.getByRole('region', { name: 'Reporte de costos, detalle' });
     // Recorte a la tarjeta de la tabla (con su barra y la paginación): a 1280 px, encima van los
     // filtros, los contadores y el envío, y la página no da para dejarla bajo la barra superior.
-    const tarjetaTabla = page.locator('div.bg-flit-card').filter({ has: page.locator('summary').filter({ hasText: 'Columnas' }) }).last();
+    const tarjetaTabla = page.locator('div.card').filter({ has: page.locator('summary').filter({ hasText: 'Columnas' }) }).last();
     await tarjetaTabla.scrollIntoViewIfNeeded();
     const mostrarBarra = await sinBarraFlotante(page); // tapaba la última fila y el pie
     await sinFoco(page);
@@ -1308,10 +1308,12 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await sinFoco(page);
 
     // Paso 6 — Proveedores.
-    await page.getByRole('button', { name: 'Proveedores', exact: true }).click();
+    await page.getByRole('tab', { name: 'Proveedores', exact: true }).click();
     await expect(page.getByText(ASEGURADORAS_DEMO[1])).toBeVisible();
+    const mostrarBarraProv = await sinBarraFlotante(page); // tapaba la nota del ANS al pie
     await sinFoco(page);
     await capturar(page, dir, '03-proveedores');
+    await mostrarBarraProv();
 
     comprobarCierre(api, dir, ['01-clientes.png', '02-soat-sin-tramite.png', '03-proveedores.png']);
   });

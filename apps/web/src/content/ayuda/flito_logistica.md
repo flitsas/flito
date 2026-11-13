@@ -18,8 +18,8 @@ consultas:
   - dónde está un documento enviado
   - qué significa el estado en flit
   - cómo veo el recorrido de una licencia
-version: 3.0
-fecha: 2026-11-09
+version: 3.1
+fecha: 2026-11-12
 ---
 ## Qué es
 
@@ -33,7 +33,7 @@ Logística muestra la operación de su empresa desde que empezó a operar en FLI
 
 ## Cómo se entra
 
-En el menú lateral, sección **Gestión**, ítem **Logística**. Un usuario con rol **Proveedor** lo tiene de partida si su proveedor presta Logística.
+En la barra de navegación al pie de la pantalla, pulse **Logística** y, en el panel que se abre, el ítem **Logística**. Un usuario con rol **Proveedor** lo tiene de partida si su proveedor presta Logística. Si la barra deja solo los íconos, el nombre de cada grupo aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «logística».
 
 ## Pasos
 
