@@ -383,8 +383,8 @@ export default function DiagnosticoEvaluacionDrawer({
 function ConflictDialog({ onClose, onReload }: { onClose: () => void; onReload: () => void }) {
   return (
     <div role="alertdialog" aria-modal="true" aria-labelledby="conflict-title" className="absolute inset-0 z-50 flex items-center justify-center p-6">
-      <div className="kit-velo absolute" />
-      <div className="kit-modal max-w-md p-6">
+      <div className="kit-velo absolute inset-0 z-0" />
+      <div className="kit-modal relative z-10 max-w-md p-6">
         <h3 id="conflict-title" className="kit-modal__titulo mb-2 text-base">
           Cambios detectados desde otra sesión
         </h3>
