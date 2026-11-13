@@ -110,3 +110,70 @@
    kit-ui.css pone `overflow-wrap: anywhere`, que a 768 px partía «80.0 / %» y «VERIFICA / R». */
 .metrica__cifra { white-space: nowrap; overflow-wrap: normal; }
 .metrica__etiqueta, .metrica__pie { overflow-wrap: break-word; }
+
+/* ---------- V12 FlitTable en tarjetas: 1 columna <640, 2 columnas 640–1023, tabla ≥1024 (decisión a) ----------
+   `FlitTable` escribe en cada `td` el rótulo de su columna (`data-etiqueta`, el mismo atributo de la tarjeta de
+   DataTable) y marca las celdas sin rótulo con `data-celda-kit`: `seleccion` (casilla), `acciones` (al pie, a la
+   derecha) o `completa` (fila entera). `data-modo-kit="matriz"` (prop `matriz`) se queda en tabla con scroll.
+   Las páginas pintan sus `td`/`th` con utilidades de Tailwind (capa `utilities`, que vence a `components`): por eso
+   aquí display, relleno, alineación y corte de línea van con `!important`. Las celdas con `hidden`/`*:hidden`
+   se excluyen para no reaparecer lo que la página oculta. */
+@media (max-width: 1023.98px) {
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] { overflow: visible; border: 0; border-radius: 0; background: transparent; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] > div { overflow: visible; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] table,
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead,
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody,
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tfoot { display: block; width: 100%; }
+  /* Encabezado fuera de la vista (sigue en el árbol de accesibilidad)… */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  /* …salvo que lleve controles («seleccionar todo», filtro por columna, orden): entonces queda una barra que envuelve
+     con SOLO los encabezados que tienen control, para no perder la función en teléfono (p. ej. Gestión Trámites). */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) {
+    position: static; width: auto; height: auto; overflow: visible; clip: auto; margin-bottom: var(--space-8);
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) tr {
+    display: flex; flex-wrap: wrap; gap: var(--space-8); border: 0; background: transparent; box-shadow: none;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) tr:hover { background: transparent; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) th { display: none !important; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) th:has(input, button, select) {
+    display: flex !important; align-items: center; gap: var(--space-8); min-height: 44px;
+    padding: 0 var(--space-12) !important; border-radius: 9px;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody { display: grid; gap: var(--space-10); }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr {
+    display: flex; flex-direction: column; min-width: 0;
+    border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-elevated);
+    padding: var(--space-4) var(--space-14) var(--space-8);
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr:hover { border-color: var(--color-border-control); }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr[data-marcada] { background: var(--kit-hover); }
+  /* Fila de una sola celda que abarca toda la tabla (vacío, detalle expandido): ancho completo de la rejilla. */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr:has(> td:only-child[colspan]) { grid-column: 1 / -1; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td:not(.hidden):not([class*=":hidden"]) {
+    display: flex !important; justify-content: space-between; align-items: center; gap: var(--space-12);
+    min-width: 0; width: auto !important; border: 0; background: transparent;
+    padding: 5px 0 !important; text-align: right !important; white-space: normal !important; overflow-wrap: anywhere;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td + td { border-top: 1px solid var(--color-divider); }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-etiqueta]::before {
+    content: attr(data-etiqueta); flex: 0 0 auto; max-width: 45%; text-align: left;
+    color: var(--color-text-tertiary); font-size: var(--text-micro); font-weight: 500; text-transform: none;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-celda-kit="completa"]:not(.hidden):not([class*=":hidden"]) {
+    display: block !important; text-align: left !important;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-celda-kit="seleccion"]:not(.hidden):not([class*=":hidden"]) {
+    order: -1; justify-content: flex-start; min-height: 44px; border-top: 0;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-celda-kit="acciones"]:not(.hidden):not([class*=":hidden"]) {
+    order: 99; justify-content: flex-end; flex-wrap: wrap; padding-top: var(--space-8) !important;
+  }
+}
+@media (max-width: 639.98px) {
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody { grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

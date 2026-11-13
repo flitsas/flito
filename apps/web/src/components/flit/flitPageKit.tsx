@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { Icono } from './kit/Icono';
 import { useDesbordeScroll } from './kit/useDesbordeScroll';
@@ -89,12 +89,22 @@ function useDesbordaX(ref: RefObject<HTMLElement | null>): boolean {
  *
  * `data-desborde` es el asidero de QA: el degradado no tiene texto que buscar y su presencia es
  * justo lo que el AC7 pide medir en los dos sentidos.
+ *
+ * Épica #14560: por debajo de 1024 px la tabla se pinta en tarjetas (`data-modo-kit="tarjetas-auto"`,
+ * CSS en kit-responsive.css V12). `matriz` la deja en tabla con scroll horizontal también en teléfono:
+ * solo para tablas anchas de verdad (reporte de costos, matrices de tarifas, RACI).
  */
-export function FlitTable({ children, label }: { children: ReactNode; label?: string }) {
+export function FlitTable({ children, label, matriz = false }: { children: ReactNode; label?: string; matriz?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const desborda = useDesbordaX(scrollRef);
+  const tablaRef = useRef<HTMLTableElement>(null);
+  useRotulosDeColumna(tablaRef, !matriz);
   return (
-    <div className="kit-tabla-flit relative overflow-hidden" data-kit="tabla">
+    <div
+      className="kit-tabla-flit relative overflow-hidden"
+      data-kit="tabla"
+      data-modo-kit={matriz ? 'matriz' : 'tarjetas-auto'}
+    >
       <div
         ref={scrollRef}
         className="flit-focus-inset overflow-x-auto"
@@ -102,7 +112,7 @@ export function FlitTable({ children, label }: { children: ReactNode; label?: st
         role={label ? 'region' : undefined}
         aria-label={label}
       >
-        <table className="w-full">{children}</table>
+        <table ref={tablaRef} className="w-full">{children}</table>
       </div>
       {desborda && (
         <div
@@ -114,6 +124,96 @@ export function FlitTable({ children, label }: { children: ReactNode; label?: st
       )}
     </div>
   );
+}
+
+const limpiar = (t: string) => t.replace(/\s+/g, ' ').trim();
+
+/**
+ * Rótulo de una celda de encabezado. Primero su texto propio (nodos de texto hijos directos): así un
+ * `<th>Ciudad <ThFiltroMulti …/></th>` da «Ciudad» y no el texto del filtro. Si no tiene (encabezado
+ * con botón de orden), el texto completo sin controles de formulario, listas ni lo `aria-hidden`.
+ */
+function textoDeCabecera(th: HTMLTableCellElement): string {
+  let propio = '';
+  th.childNodes.forEach((n) => { if (n.nodeType === Node.TEXT_NODE) propio += n.textContent ?? ''; });
+  if (limpiar(propio)) return limpiar(propio);
+  const copia = th.cloneNode(true) as HTMLElement;
+  copia.querySelectorAll('input, select, textarea, [role="listbox"], [role="dialog"], [role="menu"], [aria-hidden="true"]')
+    .forEach((el) => el.remove());
+  return limpiar(copia.textContent ?? '');
+}
+
+/**
+ * Épica #14560 (decisión a): FlitTable pasa a tarjetas por debajo de 1024 px sin migrar páginas.
+ * El rótulo de cada celda sale del encabezado de su columna: tras pintar, y cada vez que cambian
+ * filas o columnas, se escribe `data-etiqueta` en cada `td` directamente en el DOM (sin re-render),
+ * con el mismo atributo que ya pinta la tarjeta de DataTable. Encabezados de varias filas: manda la
+ * última fila, resolviendo `rowSpan`/`colSpan` en una rejilla. Celda sin rótulo → `data-celda-kit`:
+ * `seleccion` (casilla), `acciones` (última columna) o `completa` (ocupa la fila de la tarjeta).
+ * Un `data-etiqueta` puesto a mano por la página se respeta (solo se reescribe el marcado `-auto`).
+ */
+function useRotulosDeColumna(ref: RefObject<HTMLTableElement | null>, activo: boolean) {
+  useLayoutEffect(() => {
+    const tabla = ref.current;
+    if (!activo || !tabla) return;
+    const pintar = () => {
+      const rotulos: string[] = [];
+      const filasCab = tabla.tHead ? Array.from(tabla.tHead.rows) : [];
+      if (filasCab.length > 0) {
+        const rejilla: string[][] = filasCab.map(() => []);
+        filasCab.forEach((fila, r) => {
+          let c = 0;
+          for (const th of Array.from(fila.cells)) {
+            while (rejilla[r][c] !== undefined) c += 1;
+            const texto = textoDeCabecera(th);
+            const ancho = Math.max(1, th.colSpan || 1);
+            const alto = Math.max(1, th.rowSpan || 1);
+            for (let dr = 0; dr < alto && r + dr < rejilla.length; dr += 1) {
+              for (let dc = 0; dc < ancho; dc += 1) rejilla[r + dr][c + dc] = texto;
+            }
+            c += ancho;
+          }
+        });
+        const ultima = rejilla[rejilla.length - 1];
+        for (let c = 0; c < ultima.length; c += 1) rotulos.push(ultima[c] ?? '');
+      }
+      const totalCols = rotulos.length;
+      for (const cuerpo of Array.from(tabla.tBodies)) {
+        for (const fila of Array.from(cuerpo.rows)) {
+          let col = 0;
+          for (const celda of Array.from(fila.cells)) {
+            const ancho = Math.max(1, celda.colSpan || 1);
+            if (celda.tagName === 'TD') {
+              const manual = celda.hasAttribute('data-etiqueta') && !celda.hasAttribute('data-etiqueta-auto');
+              if (!manual) {
+                const rotulo = ancho === 1 ? (rotulos[col] ?? '') : '';
+                if (rotulo) {
+                  if (celda.getAttribute('data-etiqueta') !== rotulo) celda.setAttribute('data-etiqueta', rotulo);
+                  celda.setAttribute('data-etiqueta-auto', '');
+                  celda.removeAttribute('data-celda-kit');
+                } else {
+                  celda.removeAttribute('data-etiqueta');
+                  celda.removeAttribute('data-etiqueta-auto');
+                  const tipo = celda.querySelector('input[type="checkbox"]') && ancho === 1
+                    ? 'seleccion'
+                    : ancho === 1 && totalCols > 1 && col === totalCols - 1
+                      ? 'acciones'
+                      : 'completa';
+                  if (celda.getAttribute('data-celda-kit') !== tipo) celda.setAttribute('data-celda-kit', tipo);
+                }
+              }
+            }
+            col += ancho;
+          }
+        }
+      }
+    };
+    pintar();
+    // Solo childList/characterData: escribir atributos no vuelve a disparar el observador.
+    const observador = new MutationObserver(pintar);
+    observador.observe(tabla, { childList: true, subtree: true, characterData: true });
+    return () => observador.disconnect();
+  }, [ref, activo]);
 }
 
 /**

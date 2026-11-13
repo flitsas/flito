@@ -93,7 +93,7 @@ export default function ConsolidadoReporteCostos({ data, cargando, error, onRein
         <strong style={{ color: 'var(--color-text-primary)' }}>{clientes.toLocaleString('es-CO')}</strong> {clientes === 1 ? 'cliente' : 'clientes'} ·{' '}
         <strong style={{ color: 'var(--color-text-primary)' }}>{periodos.toLocaleString('es-CO')}</strong> {periodos === 1 ? 'periodo' : 'periodos'}
       </p>
-        <FlitTable label="Consolidado por cliente y periodo">
+        <FlitTable matriz label="Consolidado por cliente y periodo">
           <thead>
             <tr>
               <ThGrupo colSpan={3} />

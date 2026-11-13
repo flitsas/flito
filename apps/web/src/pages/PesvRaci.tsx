@@ -158,7 +158,7 @@ export default function PesvRaci() {
       {editProc && (
         <FlitModal title={`Editar matriz · ${editProc.codigo}`} onClose={() => setEditProc(null)}>
           <p className="mb-5 text-xs text-[color:var(--color-text-secondary)]">{editProc.nombre}</p>
-          <FlitTable label={`Asignaciones RACI · ${editProc.codigo}`}>
+          <FlitTable matriz label={`Asignaciones RACI · ${editProc.codigo}`}>
             <thead><tr>
               <FlitTh>Rol</FlitTh>{TIPOS.map((t) => <FlitTh key={t} center>{t}</FlitTh>)}
             </tr></thead>
