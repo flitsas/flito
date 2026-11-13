@@ -1,4 +1,4 @@
-// Qué le falta a un cliente para poder facturarse, en dos grupos (HU #11299, AC4).
+// Qué le falta a un cliente para poder facturarse, en dos grupos (HU 11299, AC4).
 //
 // Lo comparten el detalle de la lista (bloque B) y la fila fallida de la sincronización (bloque D),
 // y por eso vive suelto: el 422 de `POST /siigo/terceros/cliente/:id` devuelve EXACTAMENTE el mismo
@@ -31,15 +31,15 @@ function Grupo({ titulo, faltantes, pie }: {
   if (faltantes.length === 0) return null;
   return (
     <div>
-      <h5 className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <h5 className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         {titulo} ({faltantes.length})
       </h5>
-      <ul className="mt-1 list-disc space-y-1 pl-5 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-xs" style={{ color: 'var(--color-text-primary)' }}>
         {faltantes.map((f) => (
           <li key={f.motivo}>
             {f.detalle}
             {f.motivo === 'ubicacion_faltante' && (
-              <span className="block" style={{ color: 'var(--flit-text-muted)' }}>
+              <span className="block" style={{ color: 'var(--color-text-tertiary)' }}>
                 Se confirma abajo, en «Equivalencias de ciudad».
               </span>
             )}
@@ -64,7 +64,7 @@ export default function FaltantesCliente({ faltantes, mensajeSinLista }: {
 
   if (faltantes.length === 0) {
     return mensajeSinLista === undefined ? null : (
-      <p className="text-xs" style={{ color: 'var(--flit-text-primary)' }}>{mensajeSinLista}</p>
+      <p className="text-xs" style={{ color: 'var(--color-text-primary)' }}>{mensajeSinLista}</p>
     );
   }
 
@@ -74,7 +74,7 @@ export default function FaltantesCliente({ faltantes, mensajeSinLista }: {
         titulo="Hay que decidir"
         faltantes={decidir}
         pie={(
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             Al clasificarlo pueden aparecer datos nuevos que ahora no se pueden evaluar: el nombre
             solo se revisa cuando ya se sabe qué es.
           </p>

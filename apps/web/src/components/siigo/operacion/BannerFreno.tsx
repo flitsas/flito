@@ -54,15 +54,15 @@ export default function BannerFreno(
       role="status"
       className="flex flex-col gap-2 p-4"
       style={{
-        borderRadius: 'var(--flit-radius-card)',
-        border: '1px solid var(--flit-warning-ink)',
-        background: '#FDE8E3',
+        borderRadius: '9px',
+        border: '1px solid var(--kit-naranja-texto)',
+        background: 'color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated))',
       }}
     >
-      <p className="text-sm font-semibold" style={{ color: 'var(--flit-warning-ink)' }}>
+      <p className="text-sm font-semibold" style={{ color: 'var(--kit-naranja-texto)' }}>
         <span aria-hidden="true">⚠ </span>La integración con Siigo está frenada
       </p>
-      <p id={ID_FRENO} className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <p id={ID_FRENO} className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
         {freno.frenadaDesde ? `Desde el ${fecha(freno.frenadaDesde)}. ` : ''}
         Falló el {porcentaje} % de las últimas {freno.total.toLocaleString('es-CO')} operaciones y el
         umbral es {umbral} %. Mientras esté frenada no se puede reintentar la emisión ni reenviar
@@ -70,7 +70,7 @@ export default function BannerFreno(
         {esAdmin ? '' : ' Levantarlo lo hace un administrador.'}
       </p>
       {error && (
-        <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>
+        <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>
       )}
       {esAdmin && (
         <div>

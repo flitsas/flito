@@ -1,4 +1,4 @@
-// Facturación electrónica — credenciales de la integración con Siigo (HU #11890, Feature #11240).
+// Facturación electrónica — credenciales de la integración con Siigo (HU 11890, Feature 11240).
 //
 // Es la pantalla del ENTORNO, no la del día a día: se entra tres veces —cuando se conecta pruebas,
 // cuando se conecta producción y cuando Siigo rota una llave— y el resto del año no se abre. Lo que
@@ -14,13 +14,13 @@
 // saco de «no se pudo cargar», que ofrecería reintentar algo que va a fallar igual.
 //
 // Diseño completo, con los cuatro wireframes y el copy: `docs/ux/siigo-credenciales-integracion.md`.
-// El backend NO se toca en esta HU: los cuatro endpoints existen desde la #11247.
+// El backend NO se toca en esta HU: los cuatro endpoints existen desde la 11247.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
-import { CARD } from '../components/siigo/estilos';
+import InlineAlert from '../components/flit/InlineAlert';
+import { claseBoton } from '../components/flit/GradientButton';
 import TarjetaAmbiente from '../components/siigo/credenciales/TarjetaAmbiente';
 import {
   AMBIENTES, ID_BANNER_LLAVE,
@@ -79,6 +79,8 @@ export default function SiigoCredenciales() {
     <div className="mx-auto flex max-w-5xl flex-col gap-5">
       <PageHeaderCard
         title="Integración con Siigo"
+        icono="flito-siigo"
+        miga={[{ etiqueta: 'Finanzas' }]}
         subtitle="Con qué usuario se conecta FLITO a Siigo en cada ambiente. La access key se cifra al guardar y no se puede volver a consultar desde aquí."
       />
 
@@ -86,9 +88,9 @@ export default function SiigoCredenciales() {
           cuando hay algo que decir —patrón del resto del módulo— para no dejar una región viva
           permanente compitiendo con el esqueleto y con el panel de resultado, que también lo son. */}
       {aviso && (
-        <p role="status" className="bg-white px-5 py-3 text-sm font-semibold" style={{ ...CARD, borderLeft: '4px solid var(--flit-success)', color: 'var(--flit-text-primary)' }}>
-          {aviso}
-        </p>
+        <InlineAlert tono="ok">
+          <p className="m-0 font-semibold">{aviso}</p>
+        </InlineAlert>
       )}
 
       {/* CARGANDO — dos esqueletos de tarjeta y no un spinner: la forma de lo que viene ya se conoce
@@ -96,17 +98,17 @@ export default function SiigoCredenciales() {
       {cargando && (
         <div role="status" aria-busy="true" className="flex flex-col gap-5">
           {AMBIENTES.map((a) => (
-            <div key={a} className="bg-white px-5 py-4" style={CARD}>
+            <div key={a} className="rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] px-5 py-4">
               <div className="flex items-center justify-between gap-4">
-                <span className="block h-4 w-32 rounded animate-pulse" style={{ background: 'var(--flit-bg-app)' }} />
-                <span className="block h-5 w-24 rounded animate-pulse" style={{ background: 'var(--flit-bg-app)' }} />
+                <span className="kit-esqueleto block h-4 w-32" />
+                <span className="kit-esqueleto block h-5 w-24" />
               </div>
-              <span className="mt-4 block h-3 w-2/3 rounded animate-pulse" style={{ background: 'var(--flit-bg-app)' }} />
-              <span className="mt-2 block h-3 w-1/2 rounded animate-pulse" style={{ background: 'var(--flit-bg-app)' }} />
-              <span className="mt-2 block h-3 w-1/3 rounded animate-pulse" style={{ background: 'var(--flit-bg-app)' }} />
+              <span className="kit-esqueleto mt-4 block h-3 w-2/3" />
+              <span className="kit-esqueleto mt-2 block h-3 w-1/2" />
+              <span className="kit-esqueleto mt-2 block h-3 w-1/3" />
             </div>
           ))}
-          <p className="text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="text-center text-sm text-[color:var(--color-text-tertiary)]">
             Consultando las credenciales configuradas…
           </p>
         </div>
@@ -115,26 +117,22 @@ export default function SiigoCredenciales() {
       {/* ERROR — no se pinta NINGUNA tarjeta. Si la consulta falló no se sabe si hay credenciales, y
           dibujar dos «Sin configurar» empujaría a registrar una encima de una activa que sí existe. */}
       {!cargando && error && (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center justify-between gap-3 bg-white px-5 py-4 text-sm"
-          style={{ ...CARD, borderLeft: '4px solid var(--flit-danger)', color: 'var(--flit-text-primary)' }}
-        >
-          <p className="font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
-            <span aria-hidden="true">⚠ </span>{error.mensaje}
-          </p>
-          {!error.esPermiso && (
+        <InlineAlert
+          tono="danger"
+          accion={!error.esPermiso ? (
             <button
               type="button"
               ref={refReintentar}
               onClick={() => { void cargar(); }}
-              className={flitBtnSecondary}
-              style={flitBtnSecondaryStyle}
+              className={claseBoton('secondary', 'sm')}
+              data-variante="secundario"
             >
               Reintentar
             </button>
-          )}
-        </div>
+          ) : undefined}
+        >
+          <p className="m-0 font-semibold">{error.mensaje}</p>
+        </InlineAlert>
       )}
 
       {/* AC5 — el banner de entorno encabeza las tarjetas. `role="status"` y no `alert`: es una
@@ -145,11 +143,14 @@ export default function SiigoCredenciales() {
           id={ID_BANNER_LLAVE}
           role="status"
           aria-labelledby={`${ID_BANNER_LLAVE}-titulo`}
-          className="bg-white px-5 py-4 text-sm"
-          style={{ ...CARD, borderLeft: '4px solid var(--flit-danger)', color: 'var(--flit-text-primary)' }}
+          className="kit-alerta"
+          data-kit="alerta"
+          data-tono="danger"
         >
-          <h2 id={`${ID_BANNER_LLAVE}-titulo`} className="font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
-            <span aria-hidden="true">⚠ </span>No se pueden registrar credenciales
+          <img src="/kit/aviso-error.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+          <div className="min-w-0 flex-1 text-sm">
+          <h2 id={`${ID_BANNER_LLAVE}-titulo`} className="m-0 text-sm font-semibold">
+            No se pueden registrar credenciales
           </h2>
           {/* «no lo causa lo que escribiste» y no «no es un problema de tus datos»: un banner de
               ENTORNO que contiene la palabra «datos» se confunde —a ojo y en una búsqueda de
@@ -170,6 +171,7 @@ export default function SiigoCredenciales() {
           <p className="mt-2">
             Lo resuelve quien administra el servidor. Desde esta pantalla no hay nada que corregir.
           </p>
+          </div>
         </section>
       )}
 

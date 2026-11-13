@@ -1,4 +1,4 @@
-// Contratos y catálogos de la pestaña «Terceros» de la parametrización (HU #11299, Feature #11241).
+// Contratos y catálogos de la pestaña «Terceros» de la parametrización (HU 11299, Feature 11241).
 //
 // Vive aparte de los cuatro bloques porque los cuatro comparten los mismos motivos y las mismas
 // formas de respuesta: duplicar la etiqueta de un motivo en dos archivos es cómo se llega a que la

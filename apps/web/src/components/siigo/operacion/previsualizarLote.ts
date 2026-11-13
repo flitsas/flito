@@ -1,4 +1,4 @@
-// AC4 — la aritmética del lote, SIN React y SIN una sola petición (HU #11345).
+// AC4 — la aritmética del lote, SIN React y SIN una sola petición (HU 11345).
 //
 // TRES CONSECUENCIAS BUSCADAS, y ninguna es un detalle de implementación:
 //
