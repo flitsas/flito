@@ -1226,8 +1226,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "privacy",
     "etiqueta": "Log accesos PII",
     "resumen": "Quién consultó datos personales, cuándo, qué campos y desde qué equipo. Solo se consulta.",
-    "version": "1.0",
-    "fecha": "2026-10-22",
+    "version": "1.1",
+    "fecha": "2026-11-12",
     "palabrasClave": [
       "log de accesos PII",
       "accesos a datos personales",
@@ -1437,8 +1437,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "privacy",
     "etiqueta": "Privacidad y datos",
     "resumen": "Derecho al olvido de la Ley 1581. Previsualice qué datos guarda FLITO de un documento y, si procede, anonimícelos.",
-    "version": "1.0",
-    "fecha": "2026-10-22",
+    "version": "1.1",
+    "fecha": "2026-11-12",
     "palabrasClave": [
       "privacidad y datos",
       "derecho al olvido",

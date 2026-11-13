@@ -132,4 +132,19 @@ declaro). Capturas en `docs/ux/rediseno-2026/s5/` a 1280 px, 375 px y tema oscur
 Regla del humano (2026-11-12): aquí solo se rediseña. Un defecto de permisos, lógica o datos no se corrige ni se radica;
 se anota aquí y pasa a la sección del mismo nombre del HANDOFF.
 
-- (ninguno aún)
+- **Diagnóstico PESV · drawer de evaluación (a11y):** axe marca en la zona de carga de evidencias un `input[type=file]`
+  sin label (crítico) y controles interactivos anidados (el `role="button"` contiene el input). Ya ocurría antes de S5
+  (comprobado con la versión previa de `EvidenciaUploader`, que además tenía un contraste insuficiente que S5 corrigió).
+  No se toca por la regla k (no cambiar `aria-*`). Spec: `pesv-diagnostico-a11y` «drawer abierto» (con `QA_AXE_CDN=1`).
+- **Diagnóstico PESV · vista auditor:** `pesv-diagnostico-auditor-readonly` (3 tests) falla igual con y sin el rediseño:
+  el fixture `COMPLIANCE_USER` (`e2e/helpers/pesv-fixtures.ts`) no trae `funciones`, y desde la HU #12872 la redirección
+  a `/auditoria` depende de la función `pesv.diagnostico_consulta.administrar`. Deriva del fixture, no del producto.
+- **Ayuda · `flito-ayuda-artefactos`:** `soat`, `flito_logistica` y `users` fallan por versión/fecha esperadas que no
+  coinciden con su ficha. Fichas ajenas a S5; no se tocan.
+
+## Capturas (2026-11-12)
+
+`docs/ux/rediseno-2026/s5/` — 21 pantallas × (1280 claro, 1280 oscuro, 375 claro), datos con `page.route`. Ninguna
+desborda en ancho. `/rndc` necesita mock de `/rndc/indicadores/resumen` (el catch-all `[]` de los E2E la tumba, igual
+que antes del rediseño). Pendiente del componente compartido de S0 (`PageHeaderCard`): a 375 px el disco del ícono se
+monta sobre la miga de pan (se ve en todas las cabeceras con `icono`).

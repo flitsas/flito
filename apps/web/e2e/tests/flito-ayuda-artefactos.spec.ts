@@ -464,13 +464,14 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // accesos PII describe una consulta de 3 pasos: sin diagrama. Privacidad no tiene captura del diálogo de
   // anonimización ni de su resultado (AC4).
   // HU #13951: Roles y permisos sube a 1.2 (funciones exclusivas del Administrador); sus capturas no cambian.
+  // Épica #14560 (S5): Privacidad y Log de accesos PII suben a 1.1 al regenerar sus capturas con el UI Kit 2026; el texto no cambia.
   const ADMIN_13774: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
-    privacy_log_pii: { version: '1.0', diagrama: null, capturas: ['01-resumen.png', '02-filtros.png'] },
+    privacy_log_pii: { version: '1.1', fecha: '2026-11-12', diagrama: null, capturas: ['01-resumen.png', '02-filtros.png'] },
     users: { version: '1.5', fecha: '2026-11-06', diagrama: 'ciclo-usuario.svg', capturas: ['01-usuarios.png', '02-nuevo-usuario.png', '03-historial.png'] },
     roles_permisos: { version: '1.2', fecha: '2026-10-25', diagrama: 'reparto-de-permisos.svg', capturas: [
       '01-roles.png', '02-arbol.png', '03-sin-guardar.png', '04-nuevo-rol.png'] },
     drive: { version: '1.0', diagrama: 'procesar-cuentas.svg', capturas: ['01-carpeta-raiz.png', '02-carpeta.png', '03-resultado.png'] },
-    privacy: { version: '1.0', diagrama: 'derecho-al-olvido.svg', capturas: ['01-documento.png', '02-registros-afectados.png'] },
+    privacy: { version: '1.1', fecha: '2026-11-12', diagrama: 'derecho-al-olvido.svg', capturas: ['01-documento.png', '02-registros-afectados.png'] },
     siigo_credenciales: { version: '1.1', diagrama: 'ciclo-credencial.svg', capturas: [
       '01-ambientes.png', '02-registrar.png', '03-probar-conexion.png', '04-historial.png'] },
   };
