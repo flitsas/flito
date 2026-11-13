@@ -1,191 +1,109 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useRef, useState, type RefObject } from 'react';
 import { NavLink } from 'react-router-dom';
-import { FLIT_PRODUCT_NAME } from '../../lib/flitBrand';
-import { SECTION_LABEL, SECTION_ORDER, type NavItem } from '../shell/navItems';
+import { SECTION_LABEL, type NavItem } from '../shell/navItems';
 import { useNavSections } from '../shell/useNavSections';
-import { SECTION_ICON } from '../shell/sectionMeta';
-import { IconShield, IconClose, IconDot, IconChevronDown } from './icons';
+import { ICONO_SECCION, iconoDeRuta } from '../shell/iconosNav';
+import { useEscape, useFocusTrap } from '../../lib/hooks';
 import ModalPortal from './ModalPortal';
+import { Icono } from './kit/Icono';
+import { IconoGlifo } from './kit/IconoGlifo';
 
-// FlitSidebar — drawer de navegación MOBILE (off-canvas, gradiente FLIT).
-// Decisión PO 2026-06-12: el rail fijo desktop se eliminó; en lg+ la navegación
-// vive en FlitNavBar (horizontal, patrón Academy ADR-0023 / CIA NavBar). Este
-// drawer cubre <lg vía la hamburguesa del topbar.
-//
-// La navegación se filtra por permisos con EXACTAMENTE la misma lógica que
-// CommandPalette/FlitNavBar (effectivePages → NAV_ITEMS.filter). No se altera
-// `allowedPages` ni `ProtectedRoute`.
+// FlitSidebar — menú lateral de navegación por debajo de 1024 px (Épica #14560), donde no hay dock. Lo abre el ☰ del
+// topbar. ESTRUCTURA = la del dock: las secciones de `useNavSections` en SECTION_ORDER y sus ítems en el orden de
+// NAV_ENTRADAS; una sección con una sola página es enlace directo con el nombre del ítem (General → Tablero).
+// PIEL = la del modal del kit (`kit-velo` + `kit-modal--lateral`), anclado a la izquierda, junto al ☰.
+// Comportamiento: diálogo modal con trampa de foco (la de FlitModal, `useFocusTrap`); Escape y «Cerrar» lo cierran y
+// el foco vuelve al ☰; pulsar el velo lo cierra (es navegación, no un formulario); navegar lo cierra (AppShell).
+// El filtrado por permisos NO vive aquí: es `useNavSections`, el mismo árbol que el dock y el buscador.
 
-const SIDEBAR_OPEN_KEY = 'flit-sidebar-open-sections';
-
-function loadOpenSections(): Set<NavItem['section']> | null {
-  try {
-    const raw = sessionStorage.getItem(SIDEBAR_OPEN_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return null;
-    return new Set(parsed.filter((s): s is NavItem['section'] => SECTION_ORDER.includes(s as NavItem['section'])));
-  } catch {
-    return null;
-  }
-}
+export const MENU_LATERAL_ID = 'flit-menu-lateral';
 
 interface FlitSidebarProps {
-  open: boolean;       // estado del drawer mobile
-  onClose: () => void; // cerrar drawer (click overlay / item / Esc)
+  open: boolean;
+  onClose: () => void;
+  /** El ☰: respaldo del foco si el elemento que abrió el menú ya no existe. */
+  botonRef?: RefObject<HTMLButtonElement>;
 }
 
-export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
-  // Mismo filtrado por permisos que la barra horizontal y la CommandPalette.
-  const { grouped, routeSection } = useNavSections();
+export default function FlitSidebar({ open, onClose, botonRef }: FlitSidebarProps) {
+  if (!open) return null;
+  return <MenuLateral onClose={onClose} botonRef={botonRef} />;
+}
 
-  const [openSections, setOpenSections] = useState<Set<NavItem['section']>>(() => {
-    // HU #12872: sin nombre de rol. Sin estado guardado, todas las secciones visibles abiertas (lo
-    // que antes solo veía `admin`); con estado guardado, lo guardado ∪ la sección de la ruta.
-    const saved = loadOpenSections();
-    if (saved && saved.size > 0) {
-      if (routeSection) saved.add(routeSection);
-      return saved;
-    }
-    return new Set(SECTION_ORDER);
+function MenuLateral({ onClose, botonRef }: Omit<FlitSidebarProps, 'open'>) {
+  const { grouped, routeSection } = useNavSections();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  // Abierta de entrada solo la sección de la página actual: once secciones desplegadas no caben en un teléfono.
+  const [abiertas, setAbiertas] = useState<Set<NavItem['section']>>(() => new Set(routeSection ? [routeSection] : []));
+
+  useEscape(() => {
+    const abiertos = document.querySelectorAll('[data-flit-modal]');
+    if (abiertos.length === 0 || abiertos[abiertos.length - 1] === overlayRef.current) onClose();
+  });
+  useFocusTrap(dialogRef, true, botonRef);
+
+  const alternar = (section: NavItem['section']) => setAbiertas((prev) => {
+    const next = new Set(prev);
+    if (next.has(section)) next.delete(section);
+    else next.add(section);
+    return next;
   });
 
-  // Al cambiar de ruta, abrir el módulo que contiene la página activa.
-  useEffect(() => {
-    if (!routeSection) return;
-    setOpenSections((prev) => {
-      if (prev.has(routeSection)) return prev;
-      const next = new Set(prev);
-      next.add(routeSection);
-      return next;
-    });
-  }, [routeSection]);
-
-  useEffect(() => {
-    try {
-      sessionStorage.setItem(SIDEBAR_OPEN_KEY, JSON.stringify([...openSections]));
-    } catch {
-      // sessionStorage bloqueado — sin persistencia.
-    }
-  }, [openSections]);
-
-  const toggleSection = useCallback((section: NavItem['section']) => {
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(section)) next.delete(section);
-      else next.add(section);
-      return next;
-    });
-  }, []);
-
-  const content = (
-    <nav aria-label="Navegación principal" className="flex h-full flex-col">
-      {/* Logo / marca */}
-      <div className="flex items-center gap-3 px-5 py-5 text-white">
-        <span className="grid h-10 w-10 place-items-center rounded-xl bg-white/15">
-          <IconShield className="h-5 w-5" />
-        </span>
-        <span className="text-base font-semibold tracking-tight">{FLIT_PRODUCT_NAME}</span>
-        {/* Cerrar (solo mobile) */}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Cerrar menú"
-          className="flit-focus-light ml-auto grid h-9 w-9 place-items-center rounded-lg text-white hover:bg-white/15 lg:hidden"
-        >
-          <IconClose className="h-5 w-5" />
-        </button>
-      </div>
-
-      {/* Módulos */}
-      <div className="flex-1 overflow-y-auto px-3 pb-6">
-        {grouped.map(({ section, items }) => {
-          const SectionIcon = SECTION_ICON[section];
-          const isOpen = openSections.has(section);
-          const panelId = `flit-nav-section-${section}`;
-          return (
-            <div key={section} className="mb-1">
-              <button
-                type="button"
-                id={`${panelId}-trigger`}
-                aria-expanded={isOpen}
-                aria-controls={panelId}
-                onClick={() => toggleSection(section)}
-                className="flit-focus-light flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-white transition-colors hover:bg-white/10"
-              >
-                <SectionIcon className="h-4 w-4 shrink-0" />
-                <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.18em]">
-                  {SECTION_LABEL[section]}
-                </span>
-                <span className="tabular-nums text-[10px] text-white" aria-hidden="true">
-                  {items.length}
-                </span>
-                <IconChevronDown
-                  className={`h-4 w-4 shrink-0 text-white transition-transform duration-200 motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}
-                />
-              </button>
-              <div
-                id={panelId}
-                role="region"
-                aria-labelledby={`${panelId}-trigger`}
-                hidden={!isOpen}
-                className={isOpen ? 'pb-2' : undefined}
-              >
-                <ul className="flex flex-col gap-0.5 pl-1">
-                  {items.map((it) => (
-                    <li key={it.to}>
-                      <NavLink
-                        to={it.to}
-                        end={it.to === '/'}
-                        onClick={onClose}
-                        className="flit-focus-light group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-white transition-colors hover:bg-white/10 aria-[current=page]:bg-white/20 aria-[current=page]:font-semibold aria-[current=page]:text-white"
-                      >
-                        <IconDot className="h-3 w-3 shrink-0 opacity-70 group-aria-[current=page]:opacity-100" />
-                        <span className="truncate">{it.label}</span>
+  return (
+    <ModalPortal>
+      <div ref={overlayRef} data-flit-modal="" className="flit-modal kit-velo menu-lateral__velo"
+        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+        <div ref={dialogRef} id={MENU_LATERAL_ID} role="dialog" aria-modal="true" aria-label="Menú de navegación" tabIndex={-1}
+          className="kit-modal kit-modal--lateral menu-lateral outline-none">
+          <div className="kit-modal__cabeza">
+            <h2 className="kit-modal__titulo">Menú</h2>
+            <button type="button" onClick={onClose} aria-label="Cerrar menú" className="kit-modal__cerrar">
+              <Icono nombre="cerrar" size={20} />
+            </button>
+          </div>
+          <nav aria-label="Navegación principal" className="menu-lateral__cuerpo">
+            <ul className="menu-lateral__secciones">
+              {grouped.map(({ section, items }) => {
+                const titulo = SECTION_LABEL[section];
+                const glifo = <span className="kico" aria-hidden="true"><IconoGlifo icono={ICONO_SECCION[section]} /></span>;
+                if (items.length === 1) {
+                  const unico = items[0];
+                  return (
+                    <li key={section} data-seccion={section}>
+                      <NavLink to={unico.to} end={unico.to === '/'} onClick={onClose} className="menu-lateral__fila">
+                        {glifo}<span className="menu-lateral__nombre">{unico.label}</span>
                       </NavLink>
                     </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          );
-        })}
+                  );
+                }
+                const abierta = abiertas.has(section);
+                const panelId = `${MENU_LATERAL_ID}-${section}`;
+                return (
+                  <li key={section} data-seccion={section}>
+                    <button type="button" className="menu-lateral__fila" id={`${panelId}-boton`} aria-expanded={abierta} aria-controls={panelId}
+                      aria-current={routeSection === section ? 'true' : undefined} onClick={() => alternar(section)}>
+                      {glifo}<span className="menu-lateral__nombre">{titulo}</span>
+                      <span className="menu-lateral__cuenta" aria-hidden="true">{items.length}</span>
+                      <Icono nombre="abajo" className="menu-lateral__flecha" size={16} />
+                    </button>
+                    <ul id={panelId} className="menu-lateral__entradas" hidden={!abierta}>
+                      {items.map((item) => (
+                        <li key={item.to}>
+                          <NavLink to={item.to} end={item.to === '/'} onClick={onClose} className="menu-lateral__entrada">
+                            <span className="kico" aria-hidden="true"><IconoGlifo icono={iconoDeRuta(item.to)} /></span>
+                            <span>{item.label}</span>
+                          </NavLink>
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+        </div>
       </div>
-
-      {/* Pie legal */}
-      <div className="px-5 py-4 text-[10px] leading-relaxed text-white">
-        ISO 27001 · Decreto 1079/2015
-      </div>
-    </nav>
-  );
-
-  return (
-    <>
-      {/* Drawer mobile (en lg+ la navegación es FlitNavBar) */}
-      {open && (
-        <ModalPortal>
-          {/* Sin `flit-modal` a propósito: esa clase repone la tinta OSCURA de las superficies
-              claras, y este drawer es el gradiente de marca con texto blanco. */}
-          <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú de navegación">
-            <button
-              type="button"
-              aria-label="Cerrar menú"
-              onClick={onClose}
-              className="absolute inset-0 bg-[rgba(22,39,68,0.45)] backdrop-blur-sm"
-            />
-            <div
-              className="absolute inset-y-0 left-0 w-[min(84vw,300px)] shadow-2xl"
-              style={{
-                background: 'var(--flit-gradient-sidebar)',
-                borderTopRightRadius: 'var(--flit-radius-xl)',
-                borderBottomRightRadius: 'var(--flit-radius-xl)',
-              }}
-            >
-              {content}
-            </div>
-          </div>
-        </ModalPortal>
-      )}
-    </>
+    </ModalPortal>
   );
 }

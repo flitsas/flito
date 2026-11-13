@@ -187,25 +187,61 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 /* Teléfono: el menú de usuario no se mete bajo el dock (barra 72 + dock ~96). */
 @media (max-width: 640px) { .menu-usuario { max-height: calc(100dvh - 72px - 104px); } }
 
-/* Dock por secciones del catálogo (SECTION_ORDER, hasta 11): entre 1101 y 1440 px se compacta el aire (nombre 14 px)
-   y hasta 1280 px sin chevron. Si aun así la fila con nombres no cabe, FlitNavBar pone `dock--compacto`: solo íconos,
-   nombre en sr-only (sigue siendo el nombre accesible) y en `title`. ≤1100 px solo íconos (CSS del kit). */
-@media (min-width: 1101px) and (max-width: 1440px) {
+/* Dock por secciones del catálogo (SECTION_ORDER, hasta 11), solo ≥1024 px. Entre 1024 y 1440 px se compacta el
+   aire (nombre 14 px) y hasta 1280 px sin chevron. Las secciones que no caben con nombre las lleva el «Más» (lo mide
+   FlitNavBar con su fila espejo): ya no hay modo solo-íconos. <1024 px no hay dock (☰ + menú lateral). */
+@media (min-width: 1024px) and (max-width: 1440px) {
   .dock { gap: 0; padding: 6px 8px; }
-  .dock__item { gap: 6px; padding: 0 8px 0 4px; font-size: 0.875rem; }
+  .dock .dock__item { gap: 6px; padding: 0 8px 0 4px; font-size: 0.875rem; }
+  .dock .dock__item[aria-current="page"]::after { left: 22px; }
 }
-.dock--compacto .dock__item { padding: 0 6px; }
-.dock--compacto .dock__item .dock__nombre { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.dock--compacto .dock__flecha { display: none; }
-.dock--compacto .dock__item[aria-current="page"]::after { left: 50%; }
-/* Teléfono: hasta 11 íconos en 360 px (28 px de glifo, sin aire lateral ni gap; WCAG 2.5.8 pide ≥24 px). */
-@media (max-width: 640px) {
-  .dock { max-width: calc(100vw - 12px); padding: 6px; gap: 0; }
-  .dock .dock__item { padding: 0; gap: 0; }
-  .dock .dock__item .kico { width: 28px; height: 28px; }
-  .dock .dock__item .kico svg, .dock .dock__item .kico > img { width: 22px; height: 22px; }
+/* 1024–1100 px: el kit de la propuesta (tableta) oculta el nombre y agranda el glifo; aquí el nombre se ve siempre. */
+@media (min-width: 1024px) and (max-width: 1100px) {
+  .dock .dock__item span { position: static; width: auto; height: auto; overflow: visible; clip: auto; white-space: nowrap; }
+  .dock .dock__item .kico { width: 36px; height: 36px; }
 }
 @media (max-width: 1280px) { .dock .dock__flecha { display: none; } }
+@media (max-width: 1023.98px) { .dock { display: none; } }
+/* Fila espejo con la que FlitNavBar mide cuántas secciones caben: misma piel, fuera de pantalla e invisible. */
+.dock.dock--medida { visibility: hidden; pointer-events: none; top: 0; bottom: auto; left: 0; right: auto; translate: 0 -200%;
+  max-width: none; width: max-content; z-index: -1; }
+/* Panel del «Más»: varias secciones en columnas; si no caben en alto, se desplaza dentro del panel. */
+.dock .dock__menu--mas { overflow-y: auto; max-height: calc(100dvh - var(--kit-alto-barra) - var(--kit-alto-dock) - 32px); }
+
+/* ---------- ☰ del topbar (<1024 px) y menú lateral (FlitSidebar) ---------- */
+.barra__menu { flex: none; display: inline-grid; place-items: center; width: 40px; height: 40px; margin-right: var(--space-8);
+  border: 0; border-radius: 9px; background: transparent; color: var(--color-text-primary); cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease); }
+.barra__menu:hover { background: var(--kit-hover); }
+.barra__menu:focus-visible { outline: 2px solid var(--color-action); outline-offset: 2px; }
+@media (min-width: 1024px) { .barra__menu { display: none; } }
+
+.kit-velo.menu-lateral__velo { justify-content: flex-start; align-items: stretch; overflow: hidden; }
+.kit-modal.menu-lateral { width: min(22rem, 88vw); max-width: 100vw; overflow: hidden; border-radius: 0 9px 9px 0; }
+.menu-lateral .kit-modal__cabeza { padding: var(--space-16) 56px var(--space-8) var(--space-20); }
+.menu-lateral__cuerpo { min-height: 0; flex: 1; overflow-y: auto; padding: var(--space-4) var(--space-8) var(--space-24); }
+.menu-lateral__secciones, .menu-lateral__entradas { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.menu-lateral__entradas { padding: 2px 0 var(--space-8) var(--space-20); }
+.menu-lateral__entradas[hidden] { display: none; }
+.menu-lateral__fila, .menu-lateral__entrada { display: flex; align-items: center; gap: var(--space-10); width: 100%; min-height: 44px;
+  padding: 4px 12px 4px 4px; border: 0; border-radius: 9px; background: transparent; color: var(--color-text-primary);
+  font: inherit; font-weight: 600; text-align: left; text-decoration: none; cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease); }
+.menu-lateral__entrada { min-height: 40px; font-weight: 400; font-size: 0.875rem; }
+.menu-lateral__fila .kico { width: 36px; height: 36px; flex: none; }
+.menu-lateral__entrada .kico { width: 28px; height: 28px; flex: none; }
+.menu-lateral__fila .kico svg { width: 22px; height: 22px; }
+.menu-lateral__entrada .kico svg { width: 18px; height: 18px; }
+.menu-lateral__fila .kico > img, .menu-lateral__entrada .kico > img { width: 60%; height: 60%; }
+.menu-lateral__fila:hover, .menu-lateral__entrada:hover { background: var(--kit-hover); color: var(--kit-azul); }
+.menu-lateral__fila:focus-visible, .menu-lateral__entrada:focus-visible { outline: 2px solid var(--color-action); outline-offset: -2px; }
+.menu-lateral__fila[aria-current], .menu-lateral__entrada[aria-current="page"] { color: var(--kit-azul); }
+.menu-lateral__entrada[aria-current="page"] { background: var(--kit-hover); font-weight: 600; }
+.menu-lateral__nombre { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-lateral__cuenta { color: var(--kit-gris); font-size: var(--text-micro); font-variant-numeric: tabular-nums; }
+.menu-lateral__flecha { flex: none; transition: transform var(--motion-fast) var(--ease); }
+.menu-lateral__fila[aria-expanded="true"] .menu-lateral__flecha { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .menu-lateral__flecha { transition: none; } }
 
 /* ---------- Correcciones de integración del rediseño (S1–S6) ---------- */
 /* #1 Cabecera: el ícono del módulo va en el flujo flex (no absoluto). Absoluto y centrado en el alto, se montaba sobre
@@ -239,9 +275,17 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
    abría desborde horizontal de página (1427 px a 1280 en Impuestos). Con el wrap posicionado queda dentro del scroll. */
 .tabla-wrap { position: relative; }
 
-/* #5 Reserva inferior: el dock flotante (18 px + ~72 px) no tapa la última fila ni el control enfocado. */
-html { scroll-padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); }
-@media (min-width: 641px) { .kit-main { padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); } }
+/* #5 Reserva inferior: el dock flotante (18 px + ~72 px) no tapa la última fila ni el control enfocado. Solo ≥1024 px,
+   donde hay dock; por debajo solo se reserva el botón de Dr. Flit cuando está (`kit-main--drflit`, 16 + 48 + 16 px).
+   La barra superior fija no tapa el control enfocado (`scroll-padding-top`). */
+html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 1024px) { .kit-main { padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); } }
+@media (max-width: 1023.98px) {
+  :root:root { --kit-alto-dock: 0px; }
+  html { scroll-padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  .kit-main { padding-bottom: calc(var(--space-24) + env(safe-area-inset-bottom, 0px)); }
+  .kit-main.kit-main--drflit { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px) + var(--flit-fab-offset, 0px)); }
+}
 
 /* #8 El margen entre cards es del flujo de bloque: en grid/flex manda el gap. */
 :is(.grid, .inline-grid, .flex, .inline-flex, .rejilla) > .card + .card { margin-top: 0; }

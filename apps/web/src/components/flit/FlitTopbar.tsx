@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
 import { useTheme } from '../../lib/theme';
@@ -11,12 +11,16 @@ import { Icono } from './kit/Icono';
  * marca por tema + «FLITO» · buscador «Buscar placa, trámite o módulo» (Ctrl K) · interruptor de tema del kit ·
  * usuario (nombre, avatar con aro turquesa, puntos y menú: perfil, ayuda, contraseña y salir).
  * Solo presentación: la sesión, el perfil y la salida son los de siempre. Administración vive en el dock, como
- * sección del menú (SECTION_ORDER), no aquí.
+ * sección del menú (SECTION_ORDER), no aquí. Por debajo de 1024 px (sin dock) el ☰ abre el menú lateral.
  */
 interface FlitTopbarProps {
   onOpenPalette: () => void;
-  /** Ya no hay cajón lateral (el dock cubre el teléfono); se acepta por compatibilidad. */
+  /** Abre el menú lateral (<1024 px, donde no hay dock). Sin él no se pinta el ☰. */
   onOpenSidebar?: () => void;
+  /** Estado del menú lateral, para `aria-expanded` del ☰. */
+  sidebarAbierto?: boolean;
+  /** Ref del ☰: el menú lateral devuelve el foco aquí al cerrarse. */
+  menuBotonRef?: RefObject<HTMLButtonElement>;
 }
 
 type MenuId = 'usuario' | null;
@@ -27,7 +31,7 @@ function iniciales(nombre: string | undefined): string {
   return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : '')).toUpperCase();
 }
 
-export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
+export default function FlitTopbar({ onOpenPalette, onOpenSidebar, sidebarAbierto = false, menuBotonRef }: FlitTopbarProps) {
   const { user, logout, hasFuncion } = useAuth();
   const { resolvedTheme, setTheme } = useTheme();
   const { visibleItems } = useNavSections();
@@ -65,6 +69,13 @@ export default function FlitTopbar({ onOpenPalette }: FlitTopbarProps) {
 
   return (
     <header ref={barraRef} className="barra flit-app" role="banner" data-kit="barra">
+      {/* ☰ solo <1024 px (el CSS del kit lo oculta desde lg, donde la navegación es el dock). */}
+      {onOpenSidebar && (
+        <button ref={menuBotonRef} type="button" className="barra__menu" aria-label="Abrir menú de navegación"
+          aria-expanded={sidebarAbierto} aria-controls={sidebarAbierto ? 'flit-menu-lateral' : undefined} aria-haspopup="dialog" onClick={onOpenSidebar}>
+          <Icono nombre="lista" size={22} />
+        </button>
+      )}
       <Link className="barra__marca" to="/" aria-label="FLITO, ir al inicio">
         <img className="logo logo--claro" src="/kit/logo-claro.svg" alt="FLIT" />
         <img className="logo logo--oscuro" src="/kit/logo-oscuro.svg" alt="FLIT" />

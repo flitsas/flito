@@ -8,6 +8,7 @@ import { ICONO_SECCION, descripcionDeRuta, iconoDeRuta } from '../shell/iconosNa
 import { Icono } from './kit/Icono';
 import { IconoGlifo } from './kit/IconoGlifo';
 import { useDrFlitVisible } from '../drflit/useDrFlitVisible';
+import { useDesdeLg } from '../shell/useDesdeLg';
 
 // FlitNavBar — dock inferior flotante del UI Kit 2026 (`.dock` de la propuesta-2; shell.css de flit develop).
 //
@@ -18,59 +19,81 @@ import { useDrFlitVisible } from '../drflit/useDrFlitVisible';
 // en el menú es lo que lee en Roles y permisos. Trampas que se conservan (GUIA-DOCK-INFERIOR-FLOTANTE §12):
 //   · el filtrado por permisos NO vive aquí: es `useNavSections` (mismo árbol que el buscador);
 //   · disclosure APG (button aria-expanded + lista de enlaces), SIN role="menu";
-//   · el nombre de la sección sigue en el DOM aunque se condense (sr-only): el nombre accesible no cambia;
 //   · una sección con una sola página es enlace directo con el nombre del ítem, como en el menú original (General → Tablero);
-//   · el panel abre HACIA ARRIBA; en tableta/teléfono el CSS del kit lo fija a lo ancho.
+//   · el panel abre HACIA ARRIBA; los paneles anchos (y el del «Más») ≤1100 px el CSS del kit los fija a lo ancho.
 //
-// Once secciones no caben con nombre en cualquier ancho. El dock MIDE si la fila con nombres cabe en el hueco
-// disponible (depende de cuántas secciones ve cada rol): si cabe, ícono + nombre; si no, solo íconos
-// (`dock--compacto`, nombre en sr-only y en `title`). Una sola fila siempre; ≤1100 px el CSS del kit ya condensa.
+// Once secciones no caben con nombre en cualquier ancho. Desde 1024 px el dock MIDE cuántas secciones caben CON
+// nombre (depende de cuántas ve cada rol y del ancho): esas van en la fila, en SECTION_ORDER; las que no, en un botón
+// «Más» al final cuyo panel las lista en el mismo orden. Ya no hay modo solo-íconos. Por debajo de 1024 px no hay
+// dock: la navegación es el ☰ del topbar y el menú lateral (FlitSidebar), como en develop (`hidden lg:flex`).
 
-/** Ancho que ocupa la fila del dock sumando sus hijos (no `scrollWidth`: no depende de que desborde). */
-function anchoDeLaFila(nav: HTMLElement): number {
-  const cs = getComputedStyle(nav);
-  const gap = parseFloat(cs.columnGap) || 0;
-  const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
-  const hijos = Array.from(nav.children) as HTMLElement[];
-  const suma = hijos.reduce((total, hijo) => total + hijo.getBoundingClientRect().width, 0);
-  return suma + gap * Math.max(0, hijos.length - 1) + padX + (nav.offsetWidth - nav.clientWidth);
-}
+type ClaveDock = NavItem['section'] | 'mas';
+const MAS: ClaveDock = 'mas';
 
 /** Margen lateral del dock (16 px por lado) y reserva simétrica del botón de Dr. Flit (16 + 48 + 16 por lado). */
 const MARGEN = 32;
 const RESERVA_DRFLIT = 160;
 
+/**
+ * Cuántas secciones caben con nombre. Mide una fila ESPEJO (fuera de pantalla, `aria-hidden`, siempre con todas las
+ * secciones y el «Más»), no la fila real: así la medida no depende de cuántas se muestran y el dock no oscila al
+ * recortar (la memoria anti-parpadeo que antes guardaba `anchoDeLaFila` queda implícita en el espejo). Misma suma
+ * que `anchoDeLaFila`: anchos de los hijos + gaps + padding + borde.
+ */
+function seccionesQueCaben(espejo: HTMLElement, disponible: number): number {
+  const cs = getComputedStyle(espejo);
+  const gap = parseFloat(cs.columnGap) || 0;
+  const fijo = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + (espejo.offsetWidth - espejo.clientWidth);
+  const hijos = Array.from(espejo.children) as HTMLElement[];
+  const mas = hijos.pop();
+  const anchos = hijos.map((h) => h.getBoundingClientRect().width);
+  const anchoMas = mas?.getBoundingClientRect().width ?? 0;
+  const fila = (n: number, conMas: boolean) => {
+    const piezas = anchos.slice(0, n).reduce((t, w) => t + w, 0) + (conMas ? anchoMas : 0);
+    const cuantas = n + (conMas ? 1 : 0);
+    return piezas + gap * Math.max(0, cuantas - 1) + fijo;
+  };
+  if (fila(anchos.length, false) <= disponible) return anchos.length;
+  let n = anchos.length - 1;
+  while (n > 0 && fila(n, true) > disponible) n -= 1;
+  return n;
+}
+
 export default function FlitNavBar() {
+  const desdeLg = useDesdeLg();
+  if (!desdeLg) return null;
+  return <Dock />;
+}
+
+function Dock() {
   const { grouped, routeSection } = useNavSections();
   const panelRef = useRef<HTMLDivElement>(null);
-  const { openSection, toggle, navRef, triggerId, panelId } = useDisclosureNav<NavItem['section']>('flit-navbar', [panelRef]);
+  const espejoRef = useRef<HTMLDivElement>(null);
+  const { openSection, toggle, navRef, triggerId, panelId } = useDisclosureNav<ClaveDock>('flit-navbar', [panelRef]);
   const reservaDrFlit = useDrFlitVisible();
-  const [compacto, setCompacto] = useState(false);
-  // Histéresis con memoria: se mide la fila CON nombres y se guarda; condensado, se decide con esa medida
-  // (si se volviera a medir, la fila encogida «cabría» y el dock oscilaría).
-  const necesarioRef = useRef<number | null>(null);
+  const [caben, setCaben] = useState(grouped.length);
   const firma = grouped.map((g) => `${g.section}:${g.items.length}`).join('|');
 
   useLayoutEffect(() => {
-    necesarioRef.current = null;
-    setCompacto(false);
-  }, [firma]);
-
-  useLayoutEffect(() => {
     const decidir = () => {
-      const nav = navRef.current;
-      if (!nav) return;
-      if (!compacto || necesarioRef.current === null) necesarioRef.current = anchoDeLaFila(nav);
+      const espejo = espejoRef.current;
+      if (!espejo) return;
       const disponible = window.innerWidth - MARGEN - (reservaDrFlit ? RESERVA_DRFLIT : 0);
-      const siguiente = (necesarioRef.current ?? 0) > disponible;
-      if (siguiente !== compacto) setCompacto(siguiente);
+      setCaben(seccionesQueCaben(espejo, disponible));
     };
     decidir();
     window.addEventListener('resize', decidir);
+    // Las fuentes web cambian el ancho de los nombres al terminar de cargar.
+    void document.fonts?.ready.then(decidir);
     return () => window.removeEventListener('resize', decidir);
-  }, [compacto, reservaDrFlit, firma, navRef]);
+  }, [reservaDrFlit, firma]);
 
   if (grouped.length === 0) return null;
+
+  const enFila = grouped.slice(0, caben);
+  const enMas = grouped.slice(caben);
+  const masAbierto = openSection === MAS;
+  const rutaEnMas = enMas.some((g) => g.section === routeSection);
 
   const pintarSeccion = ({ section, items }: (typeof grouped)[number]) => {
     const titulo = SECTION_LABEL[section];
@@ -78,8 +101,7 @@ export default function FlitNavBar() {
     if (items.length === 1) {
       const unico = items[0];
       return (
-        <NavLink key={section} to={unico.to} end={unico.to === '/'} className="dock__item" data-seccion={section}
-          title={compacto ? `${unico.label} (${titulo})` : undefined}>
+        <NavLink key={section} to={unico.to} end={unico.to === '/'} className="dock__item" data-seccion={section}>
           {glifo}<span className="dock__nombre">{unico.label}</span>
         </NavLink>
       );
@@ -90,7 +112,7 @@ export default function FlitNavBar() {
     return (
       <div key={section} className="dock__grupo" data-seccion={section}>
         <button type="button" className="dock__item" id={triggerId(section)} aria-expanded={abierto} aria-controls={abierto ? panelId(section) : undefined}
-          aria-current={routeSection === section ? 'page' : undefined} title={compacto ? titulo : undefined} onClick={() => toggle(section)}>
+          aria-current={routeSection === section ? 'page' : undefined} onClick={() => toggle(section)}>
           {glifo}<span className="dock__nombre">{titulo}</span>
           <Icono nombre="arriba" className="dock__flecha" size={16} />
         </button>
@@ -119,11 +141,53 @@ export default function FlitNavBar() {
   };
 
   return (
-    <nav ref={navRef} aria-label="Navegación principal" data-vt="floating-nav"
-      className={`dock flit-nav-capsule${compacto ? ' dock--compacto' : ''}`}
-      style={reservaDrFlit ? { maxWidth: 'min(calc(100vw - 16px), max(calc(100vw - 180px), 360px))' } : undefined}>
-      {grouped.map(pintarSeccion)}
-    </nav>
+    <>
+      <nav ref={navRef} aria-label="Navegación principal" data-vt="floating-nav" className="dock flit-nav-capsule"
+        style={reservaDrFlit ? { maxWidth: 'min(calc(100vw - 16px), max(calc(100vw - 180px), 360px))' } : undefined}>
+        {enFila.map(pintarSeccion)}
+        {enMas.length > 0 && (
+          <div className="dock__grupo dock__grupo--mas" data-seccion="mas">
+            <button type="button" className="dock__item" id={triggerId(MAS)} aria-expanded={masAbierto} aria-controls={masAbierto ? panelId(MAS) : undefined}
+              aria-current={rutaEnMas ? 'page' : undefined} onClick={() => toggle(MAS)}>
+              <span className="kico" aria-hidden="true"><Icono nombre="rejilla" size={22} /></span>
+              <span className="dock__nombre">Más</span>
+              <Icono nombre="arriba" className="dock__flecha" size={16} />
+            </button>
+            {masAbierto && (
+              <div ref={panelRef} id={panelId(MAS)} className="dock__menu dock__menu--ancho dock__menu--mas flit-panel-up" data-grupo="mas">
+                <div className="dock__cabeza">
+                  <span className="kico" aria-hidden="true"><Icono nombre="rejilla" size={22} /></span>
+                  <div><strong>Más secciones</strong><small>{enMas.length} {enMas.length === 1 ? 'sección' : 'secciones'}</small></div>
+                </div>
+                <div className="dock__secciones">
+                  {enMas.map(({ section, items }) => (
+                    <div key={section} className="dock__seccion" data-seccion={section}>
+                      <p>{SECTION_LABEL[section]}</p>
+                      <ListaEntradas items={items} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </nav>
+      {/* Espejo de medida: todas las secciones con nombre + «Más», invisible e inerte. */}
+      <div ref={espejoRef} className="dock dock--medida" aria-hidden="true">
+        {grouped.map(({ section, items }) => (
+          <span key={section} className="dock__item">
+            <span className="kico"><IconoGlifo icono={ICONO_SECCION[section]} /></span>
+            <span className="dock__nombre">{items.length === 1 ? items[0].label : SECTION_LABEL[section]}</span>
+            {items.length > 1 && <Icono nombre="arriba" className="dock__flecha" size={16} />}
+          </span>
+        ))}
+        <span className="dock__item">
+          <span className="kico"><Icono nombre="rejilla" size={22} /></span>
+          <span className="dock__nombre">Más</span>
+          <Icono nombre="arriba" className="dock__flecha" size={16} />
+        </span>
+      </div>
+    </>
   );
 }
 
