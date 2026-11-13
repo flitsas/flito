@@ -62,6 +62,7 @@ export default function RangoFechas({ etiqueta, valor, onCambio, describedBy }: 
   describedBy?: string;
 }) {
   const hoy = hoyIso();
+  const [alDerecha, setAlDerecha] = useState(false);
   // El mes que se ve al abrir: el del inicio elegido, o el actual.
   const [ancla, setAncla] = useState(() => {
     const base = valor.desde || hoy;
@@ -111,7 +112,16 @@ export default function RangoFechas({ etiqueta, valor, onCambio, describedBy }: 
     // `name` agrupa todos los rangos de la pantalla: abrir uno cierra el otro, que si no se
     // solapan. Es progresivo — en un navegador que no lo soporte quedan los dos abiertos, que es
     // el comportamiento de siempre, no un fallo.
-    <details className="relative" name="flit-rango-fechas">
+    <details
+      className="relative"
+      name="flit-rango-fechas"
+      // V8: el calendario se ancla a la derecha si el disparador está en la mitad derecha de la
+      // ventana; si no, a la izquierda. Solo presentación: medida al abrir.
+      onToggle={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        setAlDerecha(r.left + r.width / 2 > window.innerWidth / 2);
+      }}
+    >
       <summary
         className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border bg-flit-card px-3 text-sm"
         style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
@@ -122,7 +132,7 @@ export default function RangoFechas({ etiqueta, valor, onCambio, describedBy }: 
         <span className="tabular-nums">{resumen}</span>
       </summary>
 
-      <div className="absolute z-30 mt-1 w-72 rounded-lg border bg-flit-card p-3 shadow-lg"
+      <div className={`absolute z-30 mt-1 w-72 max-w-[calc(100vw-2rem)] ${alDerecha ? 'right-0' : 'left-0'} rounded-lg border bg-flit-card p-3 shadow-lg`}
         style={{ borderColor: 'var(--flit-border-input)' }}>
         <div className="mb-2 flex flex-wrap gap-1">
           {atajos.map(([txt, r]) => (

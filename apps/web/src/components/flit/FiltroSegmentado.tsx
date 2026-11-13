@@ -6,6 +6,8 @@
 // claro y el contraste cae a ~1,8:1. La transición es solo del hover (lección de la HU #12997): el
 // cambio de activo no se anima.
 
+import { useDesbordeScroll } from './kit/useDesbordeScroll';
+
 export interface OpcionSegmento<T extends string> {
   valor: T;
   etiqueta: string;
@@ -25,6 +27,7 @@ interface Props<T extends string> {
 const CHIP = 'chip chip--sm h-10 min-h-0 whitespace-nowrap transition-colors';
 
 export default function FiltroSegmentado<T extends string>({ opciones, valor, onCambio, ariaLabel, rotulo }: Props<T>) {
+  const grupoRef = useDesbordeScroll<HTMLDivElement>();
   return (
     <div className="flex min-w-0 flex-nowrap items-center gap-1">
       {rotulo && (
@@ -32,9 +35,10 @@ export default function FiltroSegmentado<T extends string>({ opciones, valor, on
           {rotulo}
         </span>
       )}
-      {/* Envuelve solo si el grupo no cabe ni en su propia línea (autogestión a 360 px); el de
-          fuente (~230 px) nunca se parte. */}
-      <div className="flex flex-wrap items-center gap-1" role="group" aria-label={ariaLabel}>
+      {/* <768 px una sola fila con scroll táctil y desvanecido a la derecha mientras quede algo oculto
+          (`.kit-segmentado` en kit-responsive.css); ≥768 px envuelve. Sin contenedor píldora: al
+          envolver, un `rounded-full` quedaba como un óvalo deforme (V1). */}
+      <div ref={grupoRef} className="kit-segmentado -m-0.5 flex min-w-0 flex-nowrap items-center gap-1 p-0.5 md:flex-wrap" role="group" aria-label={ariaLabel}>
         {opciones.map((o) => {
           const activa = o.valor === valor;
           return (

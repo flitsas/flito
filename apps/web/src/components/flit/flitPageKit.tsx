@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { Icono } from './kit/Icono';
+import { useDesbordeScroll } from './kit/useDesbordeScroll';
 
 export const flitInp =
   // Campo del UI Kit 2026 (`.control`): borde línea 1 px, radio 9, foco borde azul + sombra del kit, inválido naranja.
@@ -206,7 +207,7 @@ export function FlitCard({ children, className = '' }: { children: ReactNode; cl
  * Omitidas, se comporta exactamente igual que antes.
  */
 export function FlitPillGroup(
-  { children, role, label, desplazable = false }: {
+  { children, role, label }: {
     children: ReactNode; role?: 'tablist'; label?: string;
     /**
      * Opcional (Épica #13763): en vez de envolver en varias líneas —que en móvil deja una «mancha»
@@ -216,9 +217,15 @@ export function FlitPillGroup(
     desplazable?: boolean;
   },
 ) {
+  // V1 (Épica #14560): el grupo NUNCA envuelve. Envolviendo, la caja `rounded-[999px]` quedaba como un
+  // óvalo deforme o cortaba la última pill; ahora es siempre una fila con scroll táctil propio y el
+  // desvanecido de `.kit-segmentado` (kit-responsive.css) mientras quede algo oculto a la derecha.
+  // `desplazable` se conserva en el tipo por compatibilidad: ya es el comportamiento de todos.
+  const grupoRef = useDesbordeScroll<HTMLDivElement>();
   return (
     <div
-      className={`inline-flex w-fit gap-1 rounded-[999px] p-1 ${desplazable ? 'max-w-full flex-nowrap overflow-x-auto' : 'flex-wrap'}`}
+      ref={grupoRef}
+      className="kit-segmentado inline-flex w-fit max-w-full flex-nowrap gap-1 overflow-x-auto rounded-[999px] p-1"
       style={flitPillWrap}
       role={role}
       aria-label={label}
@@ -242,7 +249,7 @@ export function FlitPillGroup(
 // puesta, y en una pestaña sin cuadros (captura, segundo plano) la cara de activa se quedaba en la
 // anterior mientras la lista ya era la nueva — HU #12997, retrabajo. Cambiar de pill es instantáneo.
 export const flitPillBtnClase =
-  'inline-flex min-h-9 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[0.8125rem] font-semibold transition-colors hover:bg-[var(--kit-hover)] aria-pressed:hover:brightness-95';
+  'inline-flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[0.8125rem] font-semibold transition-colors hover:bg-[var(--kit-hover)] aria-pressed:hover:brightness-95';
 
 export function FlitPillButton(
   { active, onClick, children, pressed }:

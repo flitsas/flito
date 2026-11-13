@@ -1,0 +1,112 @@
+/* =============================================================
+   FLITO — UI Kit 2026 · correcciones responsive (Épica #14560, sesión B «páginas responsive»).
+   Va DESPUÉS de kit-react.css en la misma capa `components`: a igual especificidad gana esta hoja.
+   Solo presentación: ninguna regla cambia qué se muestra ni cómo se comporta un control.
+   Inventario: docs/ux/rediseno-2026/responsive/defectos.md («Revisión a ojo», V1–V11).
+   Cortes del kit: 640 (sm) · 768 (md) · 1024 (lg). «<640» = max-width 639.98px, igual que `sm:`.
+   ============================================================= */
+
+/* ---------- V1 · V6 Tiras con scroll horizontal: pestañas y filtros segmentados ----------
+   Una sola fila con scroll táctil y sin barra visible. Mientras quede contenido oculto a la derecha,
+   `useDesbordeScroll` pone `data-desborda` y el borde derecho se desvanece como pista de «hay más».
+   La máscara solo usa el canal alfa: `black` aquí no es un color de superficie. */
+.kit-segmentado { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+.kit-segmentado::-webkit-scrollbar { display: none; }
+.kit-pestanas { overscroll-behavior-x: contain; }
+.kit-pestanas[data-desborda], .kit-segmentado[data-desborda] {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+}
+/* ≥768 el filtro segmentado envuelve (md:flex-wrap): sin scroll propio no recorta el foco de sus chips. */
+@media (min-width: 768px) { .kit-segmentado.md\:flex-wrap { overflow: visible; } }
+
+/* ---------- V2 · V4 DataTable en modo tarjetas: 1 columna <640, 2 columnas 640–1023, tabla ≥1024 ----------
+   El kit (kit-propuesta.css) pasaba a tabla en 901 px y repartía tarjetas con auto-fill de 300 px: a 768 px, con el
+   contenido de la página más estrecho que 600 px, salía una sola tarjeta a todo el ancho; entre 901 y 1023 px salía la
+   tabla con 7–9 columnas partiendo textos. Aquí el tramo 901–1023 también es de tarjetas y el reparto es explícito.
+   `matriz` (data-modo="matriz") no se toca: sigue con scroll horizontal en todos los anchos. */
+@media (min-width: 901px) and (max-width: 1023.98px) {
+  .tabla-wrap[data-modo="tarjetas"] { overflow: visible; border: 0; border-radius: 0; background: transparent; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz),
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) thead,
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody,
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tr,
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td { display: block; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody { display: grid; gap: var(--space-10); }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody tr {
+    border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-elevated);
+    padding: var(--space-4) var(--space-14) var(--space-8);
+  }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td,
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td:first-child,
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td:last-child {
+    display: flex; justify-content: space-between; align-items: center; gap: var(--space-12);
+    border: 0; border-radius: 0; padding: 5px 0; background: transparent; font-size: var(--text-caption);
+  }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td:first-child {
+    padding: var(--space-10) 0; margin-bottom: var(--space-4); border-bottom: 1px solid var(--color-divider);
+    font-size: var(--text-body); font-weight: 600;
+  }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td::before { content: attr(data-etiqueta); color: var(--color-text-tertiary); font-size: var(--text-micro); font-weight: 500; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td.solo-escritorio { display: none; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td.fila-abrir { justify-content: flex-end; padding-top: 2px; width: auto; white-space: normal; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td.fila-abrir::before { content: none; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody tr:hover td { background: transparent; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody tr:hover { border-color: var(--color-border-control); }
+}
+@media (max-width: 639.98px) {
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody { grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Tabla ≥1024: las celdas envuelven entre palabras pero nunca dentro de una palabra; cabeceras en una línea. Si la
+   tabla no cabe, desplaza dentro de su contenedor (sin inflar la card) y la columna de acciones queda fija a la
+   derecha: antes se cortaba. */
+@media (min-width: 1024px) {
+  .tabla-wrap[data-modo="tarjetas"] { overflow-x: auto; width: 100%; max-width: 100%; contain: inline-size; }
+  .tabla-wrap[data-modo="tarjetas"] th { white-space: nowrap; }
+  .tabla-wrap[data-modo="tarjetas"] td { overflow-wrap: normal; word-break: normal; }
+  .tabla-wrap[data-modo="tarjetas"] td.fila-abrir,
+  .tabla-wrap[data-modo="tarjetas"] table:has(td.fila-abrir) th:last-child { position: sticky; right: 0; z-index: 1; }
+  .tabla-wrap[data-modo="tarjetas"] td.fila-abrir { background: var(--color-surface-elevated); }
+  .tabla-wrap[data-modo="tarjetas"] tbody tr:hover td.fila-abrir { background: linear-gradient(var(--kit-hover), var(--kit-hover)), var(--color-surface-elevated); }
+}
+/* FlitTable (Trámites, Comprobantes…): ya desplaza en su contenedor; que tampoco parta palabras. */
+.kit-tabla-flit td { overflow-wrap: normal; word-break: normal; }
+
+/* ---------- V5 Acciones de la cabecera ----------
+   ≥768 a la derecha del título, como Usuarios y Flota; la nota del export queda bajo su botón (ExportarCola).
+   <640 todas a ancho completo y apiladas. `!important` en el ancho: varios bloques llegan con utilidades
+   (`w-auto`, `items-end`), que están en una capa superior y ganarían a esta regla. */
+@media (min-width: 768px) {
+  .page-header .page-header__acciones { margin-left: auto; justify-content: flex-end; }
+}
+@media (max-width: 639.98px) {
+  .page-header .page-header__acciones { width: 100%; flex-wrap: wrap; align-items: stretch; }
+  .page-header .page-header__acciones > *,
+  .page-header .page-header__acciones .btn { flex: 1 1 100%; width: 100% !important; max-width: none; }
+  .page-header .page-header__acciones > :is(button, a),
+  .page-header .page-header__acciones > * > :is(button, a) { width: 100% !important; justify-content: center; }
+}
+
+/* ---------- V9 Objetivos táctiles (<1024): 44 px en controles del kit ----------
+   Los campos de la página suben a la misma altura, para que una barra siga teniendo una sola altura de control.
+   `!important` en el alto mínimo: los chips llevan `min-h-0` de utilidad. */
+@media (max-width: 1023.98px) {
+  .kit-main :is(.btn, .chip, .kit-pestana, .filtro-activo),
+  .kit-main .kit-segmentado > button,
+  .kit-main .kit-paginacion :is(button, a),
+  .kit-main .tabla-wrap td.fila-abrir :is(a, button),
+  .kit-main :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]), select) {
+    min-height: 44px !important;
+  }
+  .kit-modal__cerrar { width: 44px; height: 44px; }
+  .kit-main .kit-paginacion :is(button, a) { min-width: 44px; }
+}
+
+/* ---------- V10 Métricas (KpiCard / .metrica): la cifra no se parte; la etiqueta solo envuelve entre palabras ----------
+   kit-ui.css pone `overflow-wrap: anywhere`, que a 768 px partía «80.0 / %» y «VERIFICA / R». */
+.metrica__cifra { white-space: nowrap; overflow-wrap: normal; }
+.metrica__etiqueta, .metrica__pie { overflow-wrap: break-word; }
