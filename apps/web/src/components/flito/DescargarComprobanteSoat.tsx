@@ -127,9 +127,14 @@ function useEstadoBoton(soat: SoatDescargable, descarga: EstadoDescargaComproban
   const clase = pagado
     ? `${base} ${ocupado ? 'cursor-progress opacity-60' : ''}`
     : `${base} cursor-not-allowed`;
-  const style = pagado
-    ? { ...flitBtnSecondaryStyle, color: 'var(--color-action)' }
-    : { ...flitBtnSecondaryStyle, color: 'var(--color-text-tertiary)', borderColor: 'var(--color-border)' };
+  // El color a mano solo vale para el compacto, que es de contorno. El del detalle es la secundaria
+  // RELLENA del kit (tinta con texto blanco): pintarle encima el texto azul o gris lo dejaba sin
+  // contraste. Su estado inhabilitado (`aria-disabled`) ya lo pinta el kit.
+  const style = !compacto
+    ? flitBtnSecondaryStyle
+    : pagado
+      ? { ...flitBtnSecondaryStyle, color: 'var(--color-action)' }
+      : { ...flitBtnSecondaryStyle, color: 'var(--color-text-tertiary)', borderColor: 'var(--color-border)' };
   const props = {
     type: 'button' as const,
     'aria-label': `Descargar comprobante ${rotuloDe(soat)}`,

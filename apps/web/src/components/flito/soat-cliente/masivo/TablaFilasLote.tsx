@@ -52,10 +52,11 @@ export default function TablaFilasLote({ tipo, filas }: { tipo: TipoMasivo; fila
       render: (f) => detalle(f),
     },
   ];
+  const etiqueta = tipo === 'inicial' ? 'Detalle por VIN' : 'Filas de la carga en masa';
+  // La región con nombre la daba `FlitTable label`: se conserva al pasar a `DataTable` (solo piel).
   return (
-    <DataTable
-      ariaLabel={tipo === 'inicial' ? 'Detalle por VIN' : 'Filas de la carga en masa'}
-      columnas={columnas} filas={filas} getKey={(f) => String(f.nFila)}
-    />
+    <div role="region" aria-label={etiqueta}>
+      <DataTable ariaLabel={etiqueta} columnas={columnas} filas={filas} getKey={(f) => String(f.nFila)} />
+    </div>
   );
 }

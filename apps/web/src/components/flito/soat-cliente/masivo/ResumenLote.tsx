@@ -46,7 +46,8 @@ export default function ResumenLote({
   // Sin rechazadas y con pendientes por completar, lo que queda por hacer es completarlas (HU #14137).
   const irAPorValidar = resumen.rechazadas === 0 && resumen.porValidarFactura + resumen.porValidarPropietario > 0;
   const btnOtro = (primaria: boolean) => (
-    <button type="button" className={`${primaria ? flitBtnPrimary : flitBtnSecondary} w-full justify-center sm:w-auto`}
+    <button type="button" data-variante={primaria ? 'primario' : 'secundario'}
+      className={`${primaria ? flitBtnPrimary : flitBtnSecondary} w-full justify-center sm:w-auto`}
       style={primaria ? flitBtnPrimaryStyle : undefined} onClick={onOtro}>Cargar otro archivo</button>
   );
 

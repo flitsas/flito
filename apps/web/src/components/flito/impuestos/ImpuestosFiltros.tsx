@@ -55,8 +55,11 @@ export default function ImpuestosFiltros<F>(p: ImpuestosFiltrosProps<F>) {
     ...(p.liquidadoPendiente ? [{ id: 'liquidado', etiqueta: 'Liquidado, pendiente de pago', quitar: () => p.setLiquidadoPendiente(false) }] : []),
   ];
 
+  // `campo--ancho`: la rejilla propia ocupa todo el panel. Sin él caía en UNA celda de 220 px de
+  // `.filtros__campos` y los rangos (`<summary>` sin partir) desbordaban sobre «Riesgo» y tapaban
+  // sus casillas.
   const campos = (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="campo--ancho grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
       <Grupo titulo="Quién">
         <ThFiltroMulti seleccion={p.companiasSel} onCambio={p.setCompaniasSel} placeholder="Compañía"
           vacio="Sin compañías en la cola"
