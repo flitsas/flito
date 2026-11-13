@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth';
 import toast from 'react-hot-toast';
 import BatchValidator from '../components/BatchValidator';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import GradientButton from '../components/flit/GradientButton';
+import GradientButton, { claseBoton } from '../components/flit/GradientButton';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
 
@@ -93,7 +93,7 @@ const ESTADO_LABEL: Record<string, { label: string; desc: string }> = {
 };
 
 // Input FLIT (blanco, borde, foco azul bajo .flit-app).
-const inp = 'flit-focus w-full rounded-[10px] border border-[color:var(--color-border-control)] bg-white px-3 py-2.5 text-sm text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-tertiary)] outline-none transition-shadow';
+const inp = 'flit-focus w-full rounded-[10px] border border-[color:var(--color-border-control)] bg-[color:var(--color-surface-elevated)] px-3 py-2.5 text-sm text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-tertiary)] outline-none transition-shadow';
 
 export default function Soat() {
   // HU 12170: botones por función efectiva (`/permisos/mios`), no por `role === 'admin'`.
@@ -220,14 +220,14 @@ export default function Soat() {
             {puedeOperarSoat && (
               <GradientButton type="button" onClick={openCreate}>Nueva solicitud</GradientButton>
             )}
-            <label className="flit-focus inline-flex cursor-pointer items-center gap-2 rounded-[999px] border bg-white px-4 py-2.5 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
-              <svg className="h-4 w-4" style={{ color: 'var(--kit-verde)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+            <label data-variante="secundario" className={claseBoton('secondary', 'md', 'flit-focus cursor-pointer')}>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
               Registrar compras
               <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUpload} />
             </label>
             {puedeOperarSoat && (
-              <button onClick={() => api.download(`/soat/export${filterStatus ? `?status=${filterStatus}` : ''}`, 'soat.xlsx')} className="flit-focus inline-flex items-center gap-2 rounded-[999px] border bg-white px-4 py-2.5 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
-                <svg className="h-4 w-4" style={{ color: 'var(--color-text-tertiary)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+              <button onClick={() => api.download(`/soat/export${filterStatus ? `?status=${filterStatus}` : ''}`, 'soat.xlsx')} data-variante="secundario" className={claseBoton('secondary', 'md', 'flit-focus')}>
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                 Exportar
               </button>
             )}
@@ -277,7 +277,7 @@ export default function Soat() {
       {soatTab === 'manage' && (<>
       {/* Banner informativo sobre lag RUNT */}
       {requests.some((r) => r.status === 'comprado') && (
-        <div className="flex items-start gap-3 rounded-[12px] px-4 py-3" style={{ background: 'rgba(79,116,201,0.08)', border: '1px solid rgba(79,116,201,0.20)' }}>
+        <div className="flex items-start gap-3 rounded-[9px] px-4 py-3" style={{ background: 'var(--kit-hover)', border: '1px solid var(--color-border)' }}>
           <svg className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--kit-azul)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
           </svg>
@@ -300,23 +300,23 @@ export default function Soat() {
 
       {/* Download for provider */}
       {pendientesCount > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-[12px] p-4" style={{ background: 'rgba(240,90,53,0.10)', border: '1px solid rgba(240,90,53,0.20)' }}>
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-[9px] p-4" style={{ background: 'color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated))', border: '1px solid var(--kit-naranja)' }}>
           <div>
-            <p className="text-sm font-semibold" style={{ color: 'var(--kit-naranja)' }}>{pendientesCount} pendientes de compra</p>
-            <p className="mt-0.5 text-xs" style={{ color: 'var(--kit-naranja)' }}>Descarga el Excel y envíalo al proveedor</p>
+            <p className="text-sm font-semibold" style={{ color: 'var(--kit-naranja-texto)' }}>{pendientesCount} pendientes de compra</p>
+            <p className="mt-0.5 text-xs" style={{ color: 'var(--kit-naranja-texto)' }}>Descarga el Excel y envíalo al proveedor</p>
           </div>
-          <button onClick={exportProveedor} className={`flit-focus inline-flex shrink-0 items-center gap-2 rounded-[999px] px-5 py-2.5 text-sm font-semibold text-white`} style={{ background: 'var(--flit-gradient-danger)' }}>
+          <GradientButton type="button" onClick={exportProveedor} className="flit-focus shrink-0">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
             Descargar Excel para proveedor
-          </button>
+          </GradientButton>
         </div>
       )}
 
       {/* Cards */}
       {requests.length === 0 ? (
-        <div className="p-12 text-center" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px dashed var(--color-border-control)', background: 'var(--color-surface-elevated)' }}>
+        <div className="rounded-[9px] p-12 text-center" style={{ border: '1px dashed var(--color-border-control)', background: 'var(--color-surface-elevated)' }}>
           <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No hay solicitudes SOAT</p>
         </div>
       ) : (
@@ -324,7 +324,7 @@ export default function Soat() {
           {requests.map((r) => {
             const estadoInfo = ESTADO_LABEL[r.status];
             return (
-              <div key={r.id} className="bg-white p-4 transition-shadow hover:shadow-[0_12px_30px_rgba(22,39,68,0.12)]" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--color-border)', boxShadow: 'var(--flit-shadow-card)' }}>
+              <div key={r.id} className="rounded-[9px] p-4" style={{ border: '1px solid var(--color-border)', background: 'var(--color-surface-elevated)' }}>
                 <div className="flex items-center gap-4">
                   <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-1 lg:grid-cols-6">
                     <Field label="Placa" value={r.plate || '—'} bold />
@@ -345,16 +345,18 @@ export default function Soat() {
                   </div>
                   <div className="flex shrink-0 gap-2">
                     {r.status === 'pendiente' && (
-                      <button
+                      <GradientButton
+                        type="button"
+                        variant="success"
+                        size="sm"
                         onClick={() => { setPurchaseForm({ policyNumber: '', insurer: '', purchaseDate: '', expiryDate: '' }); setEvidenceFile(null); setPurchaseModal(r); }}
-                        className="flit-focus rounded-[999px] px-4 py-2 text-xs font-semibold text-white"
-                        style={{ background: 'var(--flit-gradient-success)' }}
+                        className="flit-focus"
                       >
                         Registrar compra
-                      </button>
+                      </GradientButton>
                     )}
                     {r.status === 'comprado' && puedeOperarSoat && isPolicyPlaceholder(r.policyNumber) && (
-                      <button onClick={async () => {
+                      <GradientButton type="button" size="sm" onClick={async () => {
                         const t = toast.loading('Consultando RUNT...');
                         try {
                           const res = await fetch(`/api/soat/${r.id}/refresh-runt`, { method: 'PATCH', headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
@@ -364,12 +366,12 @@ export default function Soat() {
                           toast.success(`Póliza ${d.policyNumber} · ${d.insurer || 'sin aseguradora'}`);
                           load();
                         } catch { toast.dismiss(t); toast.error('Error de red'); }
-                      }} className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-bold text-white" style={{ background: 'var(--flit-gradient-primary)' }}>
+                      }} className="flit-focus">
                         Actualizar desde RUNT
-                      </button>
+                      </GradientButton>
                     )}
                     {r.status === 'comprado' && puedeOperarSoat && !isPolicyPlaceholder(r.policyNumber) && (
-                      <button onClick={async () => {
+                      <GradientButton type="button" variant="success" size="sm" onClick={async () => {
                         try {
                           const res = await fetch(`/api/soat/${r.id}/verify`, { method: 'PATCH', headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
                           const d = await res.json();
@@ -377,9 +379,9 @@ export default function Soat() {
                           toast.success('SOAT verificado en RUNT');
                           load();
                         } catch { toast.error('Error de red'); }
-                      }} className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-bold text-white" style={{ background: 'var(--flit-gradient-success)' }}>
+                      }} className="flit-focus">
                         Verificar RUNT
-                      </button>
+                      </GradientButton>
                     )}
                   </div>
                 </div>
@@ -405,9 +407,9 @@ export default function Soat() {
             </div>
           )}
           <p className="mb-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{selectedVehicles.length} seleccionados</p>
-          <div className="max-h-60 overflow-auto rounded-[10px] bg-white" style={{ border: '1px solid var(--color-border)' }}>
+          <div className="max-h-60 overflow-auto rounded-[9px]" style={{ border: '1px solid var(--color-border)', background: 'var(--color-surface-elevated)' }}>
             {vehicles.map((v) => (
-              <label key={v.id} className="flex cursor-pointer items-center gap-3 border-b px-4 py-2.5 last:border-0 hover:bg-[color:var(--color-surface)]" style={{ borderColor: 'var(--color-border)' }}>
+              <label key={v.id} className="flex cursor-pointer items-center gap-3 border-b px-4 py-2.5 last:border-0 transition-colors hover:bg-[color:var(--kit-hover)]" style={{ borderColor: 'var(--color-border)' }}>
                 <input type="checkbox" checked={selectedVehicles.includes(v.id)} onChange={() => toggleVehicle(v.id)} className="rounded" style={{ accentColor: 'var(--kit-azul)' }} />
                 <span className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{v.plate || '—'}</span>
                 <span className="font-mono text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{v.vin}</span>
@@ -417,7 +419,7 @@ export default function Soat() {
           </div>
           <div className="mt-5 flex gap-2">
             <GradientButton type="button" onClick={handleCreate}>Crear solicitudes</GradientButton>
-            <button onClick={() => setShowCreate(false)} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>Cancelar</button>
+            <GradientButton type="button" variant="alerta" onClick={() => setShowCreate(false)} className="flit-focus">Cancelar</GradientButton>
           </div>
         </FlitModal>
       )}
@@ -430,8 +432,8 @@ export default function Soat() {
           </p>
           <div className="mb-5">
             <label className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>Adjuntar SOAT (obligatorio)</label>
-            <label className="flit-focus flex cursor-pointer items-center gap-3 rounded-[12px] px-4 py-4" style={{ border: `2px dashed ${evidenceFile ? 'var(--kit-verde)' : 'var(--kit-azul)'}`, background: evidenceFile ? 'rgba(112,207,58,0.08)' : '#fff' }}>
-              <svg className="h-6 w-6" style={{ color: evidenceFile ? 'var(--kit-verde)' : 'var(--kit-azul)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <label data-kit="carga" data-estado={evidenceFile ? 'verified' : 'empty'} className={`carga kit-carga flit-focus cursor-pointer${evidenceFile ? ' carga--lista' : ''}`}>
+              <svg className="h-6 w-6" style={{ color: evidenceFile ? 'var(--kit-verde-texto)' : 'var(--color-action)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d={evidenceFile ? 'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z' : 'M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5'} />
               </svg>
               <div>
@@ -446,7 +448,9 @@ export default function Soat() {
             </label>
           </div>
           <div className="flex gap-2">
-            <button
+            <GradientButton
+              type="button"
+              variant="success"
               disabled={!evidenceFile}
               onClick={async () => {
                 if (!evidenceFile) { toast.error('Debes adjuntar el SOAT'); return; }
@@ -468,17 +472,18 @@ export default function Soat() {
                   setPurchaseModal(null); setEvidenceFile(null); load();
                 } catch (err) { toast.error(errorMessage(err)); }
               }}
-              className="flit-focus flex-1 rounded-[999px] py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ background: 'var(--flit-gradient-success)' }}
+              className="flit-focus flex-1"
             >
               Guardar compra
-            </button>
-            <button
+            </GradientButton>
+            <GradientButton
+              type="button"
+              variant="alerta"
               onClick={() => { setPurchaseModal(null); setEvidenceFile(null); }}
-              className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}
+              className="flit-focus"
             >
               Cancelar
-            </button>
+            </GradientButton>
           </div>
         </FlitModal>
       )}
@@ -499,10 +504,10 @@ function PillButton({ active, onClick, children }: { active: boolean; onClick: (
   return (
     <button
       onClick={onClick}
-      className="flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-4 py-2 text-xs font-semibold transition-colors"
+      className="flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-4 py-2 text-xs font-semibold transition-colors hover:bg-[color:var(--kit-hover)]"
       style={active
-        ? { background: '#fff', color: 'var(--kit-azul)', boxShadow: 'var(--flit-shadow-card)' }
-        : { color: 'var(--color-text-tertiary)' }}
+        ? { background: 'var(--color-surface-elevated)', color: 'var(--color-action)', border: '1px solid var(--kit-azul)' }
+        : { color: 'var(--color-text-tertiary)', border: '1px solid transparent' }}
     >
       {children}
     </button>

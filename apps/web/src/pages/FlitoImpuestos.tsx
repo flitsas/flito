@@ -5,10 +5,8 @@
 // nunca los Pendiente; Auditoría es solo lectura.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight } from 'lucide-react';
 import {
-  ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
-  TOPE_LOTE_CERTIFICACION,
+  ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion, TOPE_LOTE_CERTIFICACION,
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../lib/api';
 import {
@@ -17,13 +15,15 @@ import {
 } from '../components/flit/CertificacionRunt';
 import { useAuth } from '../lib/auth';
 import { conEnlace, vacioConEnlace } from '../lib/copyEnlace';
-import PageHeaderCard from '../components/flit/PageHeaderCard';
-import StatusChip from '../components/flit/StatusChip';
-import AntiguedadPill from '../components/flit/AntiguedadPill';
-import ThFiltroMulti from '../components/flit/ThFiltroMulti';
-import ChipSinGestion from '../components/flit/ChipSinGestion';
-import RangoFechas from '../components/flit/RangoFechas';
-import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
+import GradientButton, { claseBoton } from '../components/flit/GradientButton';
+import DataTable from '../components/flit/DataTable';
+import InlineAlert from '../components/flit/InlineAlert';
+import { BarraAccion } from '../components/flit/Bloques';
+import { Icono } from '../components/flit/kit/Icono';
+import type { Preset } from '../components/flit/FiltrosInteligentes';
+import { columnasImpuestos } from '../components/flito/impuestos/ImpuestosColumnas';
+import ImpuestosEmbudo from '../components/flito/impuestos/ImpuestosEmbudo';
+import ImpuestosFiltros from '../components/flito/impuestos/ImpuestosFiltros';
 import {
   AvisoExportCola, BotonExportarCola, COLA_IMPUESTOS, useExportCola, type FiltrosExportCola,
 } from '../components/flito/ExportarCola';
@@ -36,8 +36,6 @@ import {
 import {
   AvisoCertificadosZip, DescargarCertificadosZip, useDescargaCertificados,
 } from '../components/flito/DescargarCertificadosZip';
-import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
-import Paginacion from '../components/flit/Paginacion';
 import DetalleImpuesto from '../components/flito/DetalleImpuesto';
 import useSondeoAnalisis from '../components/flito/useSondeoAnalisis';
 import CargaRecibosImpuestos from '../components/flito/CargaRecibosImpuestos';
@@ -45,12 +43,8 @@ import {
   AccionesTramite, AvisoAnalisis, ModalValidacion, PRESET_CON_ALERTAS, ReintentarValidacion, SEMAFOROS_ALERTA, VACIO_CON_ALERTAS,
   type EnvioAnalisis,
 } from '../components/flito/ValidacionRunt';
-import { ChipDocumentos, TONO_IMPUESTO as TONO, fecha, pesos, type ImpuestoItem } from '../components/flito/ImpuestoCola';
+import type { ImpuestoItem } from '../components/flito/ImpuestoCola';
 import useDebounce from '../lib/useDebounce';
-import {
-  FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitPillGroup, FlitPillButton,
-  flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitBtnSecondarySm,
-} from '../components/flit/flitPageKit';
 
 interface ColaImpuestos { items: ImpuestoItem[]; total: number; page: number; pageSize: number }
 interface FacetasImpuestos {
@@ -362,32 +356,75 @@ export default function FlitoImpuestos() {
     }
   };
 
+  const columnas = columnasImpuestos({
+    // Cuelga del PERMISO, no de «hay filas accionables» (AC7).
+    seleccion: puedeSeleccionar ? {
+      todas: seleccion.size > 0 && seleccion.size === filas.length,
+      onTodas: (marcar) => setSeleccion(marcar ? new Set(filas.map((f) => f.id)) : new Set()),
+      marcada: (f) => seleccion.has(f.id),
+      onFila: (f) => toggle(f.id),
+    } : null,
+    accionTramite: (f) => (
+      <AccionesTramite fila={f} onAbrir={() => setValidacionId(f.id)}>
+        <AccionCertificacion
+          certificacion={f.certificacion}
+          puedeDescargar={puedeDescargarCertificados}
+          puedeCertificar={puedeCertificarFila(f)}
+          cargando={certificandoId === f.id}
+          onCertificar={() => certificar(f)}
+          onDescargar={() => descargarCertificado(f)}
+        />
+      </AccionesTramite>
+    ),
+    // Misma composición que la cola SOAT (TablaColaSoat): icono de descarga y «Ver» compactos en la
+    // última columna (Bug #14532).
+    acciones: (f) => (
+      <div className="flex items-center gap-2 whitespace-nowrap">
+        {puedeDescargarSoportes && <BotonSoporteImpuestoFila fila={f} descarga={descargaFila} />}
+        <button type="button" className={claseBoton('secondary', 'sm')} data-variante="secundario" onClick={() => setDetalleId(f.id)}>
+          Ver
+          <Icono nombre="derecha" size={16} />
+        </button>
+      </div>
+    ),
+  });
+
+  // HU #13452: con enlace, sin instrucciones internas (cargar masivo, sincronizar).
+  const vacio = liquidadoPendiente
+    ? conEnlace(tipoEnlace)
+      ? 'No hay impuestos liquidados pendientes de pago con estos filtros.'
+      : 'No hay impuestos liquidados pendientes de pago con estos filtros. Quita el filtro o carga liquidaciones desde «Cargar recibos (masivo)».'
+    : soloAlertas ? VACIO_CON_ALERTAS : hayFiltros || texto.trim()
+      ? 'Ningún impuesto coincide con los filtros.'
+      : vacioConEnlace('impuestos', tipoEnlace)
+        ?? 'No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.';
+
   return (
-    <div className="space-y-4">
-      <PageHeaderCard
-        title="Impuestos"
-        subtitle="Gestión del impuesto vehicular por organismo. La factura de venta es precondición del envío; el pago deriva del recibo validado."
-        actions={(
-          <>
-            {(esOperaciones || esGestor) && (
-              <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCargaRecibos(true)}>
-                Cargar recibos (masivo)
-              </button>
-            )}
-            {/* Secundario y después del primario: la acción del día de esta cola es cargar recibos,
-                no descargar. La guarda va aparte de la del primario —aunque hoy sean la misma— para
-                que quitarle a alguien la carga masiva no le quite de paso la descarga. Al auditor NO
-                se le pinta deshabilitado: no se pinta. */}
-            {puedeExportar && (
-              <BotonExportarCola
-                ocupado={exportacion.ocupado}
-                onExportar={exportacion.exportar}
-                incluirPago={ofrecerExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
-              />
-            )}
-          </>
-        )}
-      />
+    <div className="flex flex-col gap-4">
+      {/* La cabecera del módulo es del shell (decisión D1). Sus acciones dependen del estado de esta
+          cola (modal de carga, export con sus filtros), así que viven aquí, en una barra bajo las
+          pestañas, y no en el shell. */}
+      {(esOperaciones || esGestor || puedeExportar) && (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {(esOperaciones || esGestor) && (
+            <GradientButton onClick={() => setCargaRecibos(true)}>
+              <Icono nombre="nube-subir" size={18} />
+              Cargar recibos (masivo)
+            </GradientButton>
+          )}
+          {/* Secundario y después del primario: la acción del día de esta cola es cargar recibos,
+              no descargar. La guarda va aparte de la del primario —aunque hoy sean la misma— para
+              que quitarle a alguien la carga masiva no le quite de paso la descarga. Al auditor NO
+              se le pinta deshabilitado: no se pinta. */}
+          {puedeExportar && (
+            <BotonExportarCola
+              ocupado={exportacion.ocupado}
+              onExportar={exportacion.exportar}
+              incluirPago={ofrecerExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
+            />
+          )}
+        </div>
+      )}
 
       {/* La banda se monta solo donde se monta el botón: un `role="alert"` colgado en la pantalla
           del auditor no puede dispararse, pero sí sale en el árbol de accesibilidad. */}
@@ -403,74 +440,30 @@ export default function FlitoImpuestos() {
         />
       )}
 
-      <FlitCard>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <FlitPillGroup>
-            {!esGestor && (
-              <FlitPillButton active={estado === 'todos'} onClick={() => setEstado('todos')}>Todos</FlitPillButton>
-            )}
-            {estadosDisponibles.map((e) => (
-              <FlitPillButton key={e} active={estado === e} onClick={() => setEstado(e)}>{ESTADO_IMPUESTO_LABEL[e]}</FlitPillButton>
-            ))}
-          </FlitPillGroup>
-          <input className={`${flitInp} max-w-xs`} placeholder="Buscar placa, VIN, trámite, comprador…"
-            value={texto} onChange={(e) => setTexto(e.target.value)} />
-        </div>
+      <ImpuestosEmbudo estados={estadosDisponibles} conTodos={!esGestor} activo={estado} onElegir={setEstado} />
 
-        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3">
-          <ThFiltroMulti seleccion={companiasSel} onCambio={setCompaniasSel} placeholder="Compañía"
-            vacio="Sin compañías en la cola"
-            opciones={(facetas?.companias ?? []).map((c) => ({ value: String(c.id), label: c.nombre }))} />
-          {/* Al gestor no se le ofrece: ya está atado a su organismo y elegir otro solo vaciaría la cola. */}
-          {!esGestor && (
-            <ThFiltroMulti seleccion={organismosSel} onCambio={setOrganismosSel} placeholder="Organismo"
-              vacio="Sin organismos en la cola"
-              opciones={(facetas?.organismos ?? []).map((o) => ({ value: o.codigo, label: o.nombre ?? o.codigo }))} />
-          )}
+      <ImpuestosFiltros<FiltrosPreset>
+        esGestor={esGestor}
+        texto={texto} setTexto={setTexto}
+        facetas={facetas}
+        companiasSel={companiasSel} setCompaniasSel={setCompaniasSel}
+        organismosSel={organismosSel} setOrganismosSel={setOrganismosSel}
+        gestionSel={gestionSel} setGestionSel={setGestionSel}
+        presets={PRESETS} preset={preset} onAplicarPreset={aplicarPreset}
+        creado={{ desde: creadoDesde, hasta: creadoHasta }}
+        setCreado={(r) => { setCreadoDesde(r.desde); setCreadoHasta(r.hasta); }}
+        solicitado={{ desde: solicitadoDesde, hasta: solicitadoHasta }}
+        setSolicitado={(r) => { setSolicitadoDesde(r.desde); setSolicitadoHasta(r.hasta); }}
+        pagado={{ desde: pagadoDesde, hasta: pagadoHasta }}
+        setPagado={(r) => { setPagadoDesde(r.desde); setPagadoHasta(r.hasta); }}
+        soloEstancado={soloEstancado} setSoloEstancado={setSoloEstancado}
+        liquidadoPendiente={liquidadoPendiente} setLiquidadoPendiente={setLiquidadoPendiente}
+        hayFiltros={hayFiltros} limpiarFiltros={limpiarFiltros}
+      />
 
-          {/* Al gestor tampoco: dentro de su frontera todo lo gestiona él, así que solo tendría
-              una opción con resultados y otra siempre vacía. */}
-          {!esGestor && (
-            <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-              Gestiona
-              <select className={`${flitInp} max-w-[11rem]`} value={gestionSel}
-                onChange={(e) => setGestionSel(e.target.value as '' | 'operaciones' | 'organismo')}>
-                <option value="">Cualquiera</option>
-                <option value="operaciones">Operaciones</option>
-                <option value="organismo">El organismo</option>
-              </select>
-            </label>
-          )}
-
-          <FiltrosInteligentes presets={PRESETS} activo={preset}
-            onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
-
-          {/* Antes de «Solicitado» y «Pagado»: es el orden del ciclo (creado → solicitado → pagado).
-              El rótulo es además su `aria-label`, así que los tres rangos de la pantalla tienen
-              nombres accesibles distintos. */}
-          <RangoFechas etiqueta="Creado en FLITO" valor={{ desde: creadoDesde, hasta: creadoHasta }}
-            onCambio={(r) => { setCreadoDesde(r.desde); setCreadoHasta(r.hasta); }} />
-          <RangoFechas etiqueta="Solicitado" valor={{ desde: solicitadoDesde, hasta: solicitadoHasta }}
-            onCambio={(r) => { setSolicitadoDesde(r.desde); setSolicitadoHasta(r.hasta); }} />
-          <RangoFechas etiqueta="Pagado" valor={{ desde: pagadoDesde, hasta: pagadoHasta }}
-            onCambio={(r) => { setPagadoDesde(r.desde); setPagadoHasta(r.hasta); }} />
-
-          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-            <input type="checkbox" checked={soloEstancado} onChange={(e) => setSoloEstancado(e.target.checked)} />
-            Solo sin gestión
-          </label>
-          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-            <input type="checkbox" checked={liquidadoPendiente} onChange={(e) => setLiquidadoPendiente(e.target.checked)} />
-            Liquidado, pendiente de pago
-          </label>
-
-          {(hayFiltros || !!texto) && (
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={limpiarFiltros}>Limpiar filtros</button>
-          )}
-        </div>
-      </FlitCard>
-
-      {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
+      {/* Con la cola ya pintada, un fallo (una acción, una descarga) va en aviso sobre ella; sin
+          cola, el error es el estado de la propia tabla, con su reintento. */}
+      {error && data && <InlineAlert tono="danger">{error}</InlineAlert>}
 
       {/* Ya no es exclusiva de Operaciones: el gestor certifica en bloque su organismo (HU #11169).
           Qué acción se ofrece lo decide la propia barra según lo seleccionado. */}
@@ -531,113 +524,20 @@ export default function FlitoImpuestos() {
         />
       )}
 
-      {data && filas.length === 0 && (
-        <FlitCard>
-          <FlitEmpty>
-            {/* HU #13452: con enlace, sin instrucciones internas (cargar masivo, sincronizar). */}
-            {liquidadoPendiente
-              ? conEnlace(tipoEnlace)
-                ? 'No hay impuestos liquidados pendientes de pago con estos filtros.'
-                : 'No hay impuestos liquidados pendientes de pago con estos filtros. Quita el filtro o carga liquidaciones desde «Cargar recibos (masivo)».'
-              : soloAlertas ? VACIO_CON_ALERTAS : hayFiltros || texto.trim()
-                ? 'Ningún impuesto coincide con los filtros.'
-                : vacioConEnlace('impuestos', tipoEnlace)
-                  ?? 'No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
-          </FlitEmpty>
-        </FlitCard>
-      )}
-
-      {filas.length > 0 && (
-        <FlitCard>
-          <div className="mb-3">
-            <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="impuestos"
-              onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
-          </div>
-          <FlitTable>
-            <thead>
-              <FlitTr>
-                {/* Cuelga del PERMISO, no de «hay filas accionables» (AC7). El nombre accesible
-                    cambia con el sentido: ya no marca «los que admiten acción masiva». */}
-                {puedeSeleccionar && (
-                  <FlitTh>
-                    <input type="checkbox" aria-label="Seleccionar las filas de esta página"
-                      checked={seleccion.size > 0 && seleccion.size === filas.length}
-                      onChange={(e) => setSeleccion(e.target.checked ? new Set(filas.map((f) => f.id)) : new Set())} />
-                  </FlitTh>
-                )}
-                {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
-                <FlitTh>Compañía</FlitTh>
-                <FlitTh>Organismo</FlitTh><FlitTh>Gestiona</FlitTh><FlitTh>Estado</FlitTh>
-                <FlitTh>Solicitado</FlitTh><FlitTh>Fecha pago</FlitTh>
-                <FlitTh>Liquidado</FlitTh><FlitTh>Pagado</FlitTh>
-                <FlitTh />
-              </FlitTr>
-            </thead>
-            <tbody>
-              {filas.map((f) => (
-                <FlitTr key={f.id}>
-                  {puedeSeleccionar && (
-                    <td className="px-3 py-2">
-                      <input type="checkbox" aria-label={`Seleccionar ${f.placa}`}
-                        checked={seleccion.has(f.id)} onChange={() => toggle(f.id)} />
-                    </td>
-                  )}
-                  <CeldaTramite idFlit={f.idFlit} tipoTramite={f.tipoTramite}
-                    accion={(<AccionesTramite fila={f} onAbrir={() => setValidacionId(f.id)}>
-                      <AccionCertificacion
-                        certificacion={f.certificacion}
-                        puedeDescargar={puedeDescargarCertificados}
-                        puedeCertificar={puedeCertificarFila(f)}
-                        cargando={certificandoId === f.id}
-                        onCertificar={() => certificar(f)}
-                        onDescargar={() => descargarCertificado(f)}
-                      />
-                    </AccionesTramite>)} />
-                  <CeldaVehiculo placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea} />
-                  <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
-                  <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
-                  <td className="px-3 py-2 text-sm">{f.organismoNombre ?? f.organismoCodigo}</td>
-                  <CeldaGestion imp={f} />
-                  <td className="px-3 py-2">
-                    <div className="flex flex-col items-start gap-1">
-                      <StatusChip tone={TONO[f.estado]}>{ESTADO_IMPUESTO_LABEL[f.estado]}</StatusChip>
-                      {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
-                      {f.marcadoPorDiferencia && <StatusChip tone="warning">Diferencia de valor</StatusChip>}
-                      <ChipDocumentos imp={f} />
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-sm">
-                    <div className="tabular-nums">{f.enviadoEn ? fecha(f.enviadoEn) : '—'}</div>
-                    {/* Ya pagado: los días desde la solicitud dejan de ser señal de riesgo y solo
-                        ensucian. El chip de sin gestión ya desaparece al pagar. */}
-                    {f.enviadoEn && f.estado !== EstadoImpuesto.PAGADO && (
-                      <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
-                  <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorLiquidado)}</td>
-                  <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>
-                  <td className="px-3 py-2">
-                    {/* Misma composición que la cola SOAT (TablaColaSoat): icono de descarga y «Ver»
-                        compactos (`h-7`) en la última columna (Bug #14532). */}
-                    <div className="flex items-center gap-2 whitespace-nowrap">
-                      {puedeDescargarSoportes && <BotonSoporteImpuestoFila fila={f} descarga={descargaFila} />}
-                      <button type="button" className={flitBtnSecondarySm} onClick={() => setDetalleId(f.id)}>
-                        Ver
-                        <ChevronRight size={16} aria-hidden="true" className="-mr-1 shrink-0" />
-                      </button>
-                    </div>
-                  </td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </FlitTable>
-          <div className="mt-3">
-            <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="impuestos"
-              onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
-          </div>
-        </FlitCard>
-      )}
+      <DataTable
+        ariaLabel="Cola de impuestos"
+        columnas={columnas}
+        filas={filas}
+        getKey={(f) => f.id}
+        status={data ? 'ready' : error ? 'error' : 'loading'}
+        errorMessage={error ?? undefined}
+        onRetry={refrescar}
+        emptyMessage={vacio}
+        paginacion={data ? {
+          total: data.total, page: data.page, totalPaginas, sustantivo: 'impuestos',
+          onPrev: () => setPage((p) => Math.max(1, p - 1)), onNext: () => setPage((p) => p + 1),
+        } : undefined}
+      />
 
       {puedeDescargarSoportes && <DialogoSoporteImpuesto descarga={descargaFila} />}
 
@@ -745,25 +645,29 @@ function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFi
 
   const placaDe = (id: string) => filasSeleccionadas.find((f) => f.id === id)?.placa ?? null;
 
+  // Solo cuando hay desajuste. Sustituye al «La selección mezcla estados con acciones distintas» de
+  // antes, que era la cara visible de la regla «toda la selección»: aquel mensaje aparecía **en vez**
+  // de las acciones; este aparece **junto a** ellas.
+  const desajuste = (enviables.length > 0 || certificables.length > 0)
+    && (enviables.length < marcadas || certificables.length < marcadas);
+
   return (
     <>
-      <FlitCard>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{marcadas} seleccionado(s)</span>
-
+      <BarraAccion accion={(
+        <div className="flex flex-wrap items-center gap-2">
           {enviables.length > 0 && (
             <>
-              <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={ocupado} onClick={() => enviar(false)}>
+              <GradientButton disabled={ocupado} onClick={() => enviar(false)}>
                 {enviando === 'gestor' ? 'Enviando…' : `Enviar al gestor (${cuenta(enviables.length)})`}
-              </button>
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={ocupado} onClick={() => enviar(true)}>
+              </GradientButton>
+              <GradientButton variant="secondary" disabled={ocupado} onClick={() => enviar(true)}>
                 {enviando === 'operaciones' ? 'Enviando…' : `Gestionar en Operaciones (${cuenta(enviables.length)})`}
-              </button>
+              </GradientButton>
             </>
           )}
 
           {certificables.length > 0 && (
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+            <GradientButton
               disabled={ocupado || sobreElTope} onClick={certificarLote}
               // Con concurrencia 2 y 90 s de timeout por consulta, un lote lleno puede tardar
               // minutos. Sin este aviso la pantalla parece colgada (AC3).
@@ -771,54 +675,35 @@ function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFi
               {certificando
                 ? `Certificando ${certificables.length}… consultando RUNT`
                 : `Certificar (${cuenta(certificables.length)})`}
-            </button>
+            </GradientButton>
           )}
 
           {descarga}
-
-          {sobreElTope && (
-            <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-              Máximo {TOPE_LOTE_CERTIFICACION} por lote. De las {marcadas} marcadas, {certificables.length} se certifican.
-            </span>
-          )}
         </div>
-
-        {/* Solo cuando hay desajuste. Sustituye al «La selección mezcla estados con acciones
-            distintas» de antes, que era la cara visible de la regla «toda la selección»: aquel
-            mensaje aparecía **en vez** de las acciones; este aparece **junto a** ellas. */}
-        {(enviables.length > 0 || certificables.length > 0)
-          && (enviables.length < marcadas || certificables.length < marcadas) && (
-          <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+      )}>
+        <strong>{marcadas} seleccionado(s)</strong>
+        {sobreElTope && (
+          <span className="block">
+            Máximo {TOPE_LOTE_CERTIFICACION} por lote. De las {marcadas} marcadas, {certificables.length} se certifican.
+          </span>
+        )}
+        {desajuste && (
+          <span className="block">
             De las {marcadas} filas marcadas
             {enviables.length > 0 && enviables.length < marcadas
               && `, ${enviables.length} están Pendientes y son las únicas que se envían`}
             {certificables.length > 0 && certificables.length < marcadas
               && `, ${certificables.length} admiten certificación y son las únicas que se certifican`}
             . {descargas} las {marcadas}.
-          </p>
+          </span>
         )}
-      </FlitCard>
+      </BarraAccion>
 
       {resultado && (
         <ModalResultadoLote resultado={resultado} placaDe={placaDe}
           onClose={() => { setResultado(null); onListo(); }} />
       )}
     </>
-  );
-}
-
-/**
- * Quién gestiona el impuesto. Va en columna propia y no sobre la de organismo: el organismo se
- * sigue viendo en los dos casos, porque el impuesto se paga ante él igual. El distintivo lleva
- * texto y no solo color.
- */
-function CeldaGestion({ imp }: { imp: ImpuestoItem }) {
-  return (
-    <td className="px-3 py-2 text-sm">
-      {imp.gestionOperaciones
-        ? <StatusChip tone="warning">Operaciones</StatusChip>
-        : <span style={{ color: 'var(--flit-text-secondary)' }}>Gestor del organismo</span>}
-    </td>
   );
 }
 

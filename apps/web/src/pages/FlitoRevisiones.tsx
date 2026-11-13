@@ -234,7 +234,7 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
               disabled={enviando || !motivo.trim() || (modo === 'descartar' && motivo.trim().length < 5)} onClick={enviar}>
               {enviando ? 'Enviando…' : modo === 'resolver' ? 'Resolver' : 'Descartar'}
             </GradientButton>
-            <GradientButton type="button" variant="secondary" onClick={() => { setModo('idle'); setError(null); }}>Cancelar</GradientButton>
+            <GradientButton type="button" variant="alerta" onClick={() => { setModo('idle'); setError(null); }}>Cancelar</GradientButton>
           </div>
         </div>
       )}
