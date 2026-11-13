@@ -128,7 +128,7 @@ export default function FlitOrganismoCombobox({
         aria-controls={listboxId}
         onClick={() => !disabled && setOpen((o) => !o)}
         onKeyDown={onKeyDown}
-        className="flit-focus flex w-full items-center justify-between gap-2 rounded-[10px] border border-[color:var(--flit-border-input)] bg-flit-card px-4 py-2.5 text-left text-sm text-[color:var(--flit-text-primary)] outline-none transition-shadow disabled:cursor-not-allowed disabled:opacity-50"
+        className="flit-focus flex w-full items-center justify-between gap-2 rounded-[9px] border border-[color:var(--color-border-control)] hover:border-[color:var(--kit-azul)] bg-flit-card px-4 py-2.5 text-left text-sm text-[color:var(--flit-text-primary)] outline-none transition-shadow disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span className={`min-w-0 truncate ${!selected && !allowEmpty ? 'text-[color:var(--flit-text-muted)]' : ''}`}>
           {triggerLabel}
@@ -162,8 +162,7 @@ export default function FlitOrganismoCombobox({
 
       {open && (
         <div
-          className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border bg-flit-card shadow-lg"
-          style={{ borderColor: 'var(--flit-border-input)', boxShadow: 'var(--flit-shadow-card)' }}
+          className="absolute z-50 mt-1 w-full overflow-hidden rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] shadow-[var(--kit-sombra)]"
         >
           <div className="border-b p-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
             <input
