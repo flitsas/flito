@@ -111,3 +111,20 @@ Gastos diarios [calendario], Reporte de costos [reportes], Siigo [integraciones]
 
 Aquí solo se hace el rediseño. Un defecto de permisos, lógica o datos que aparezca durante la migración **no se corrige ni se
 radica**: se anota en «Hallazgos funcionales (no corregidos)» del HANDOFF al integrador. Los prompts a `frontend-agent` lo llevan.
+
+## Cierre de S3 (2026-11-12)
+
+Capturas de las 15 pantallas a 1280/375 en claro y oscuro (60, datos demo de las fichas de ayuda) en `docs/ux/rediseno-2026/s3/`,
+`<pantalla>-<ancho>-<tema>.png`. Fichas de ayuda de las 15 claves con capturas regeneradas y «Cómo se entra» por el dock.
+
+### Defectos del kit S0 vistos (no tocados: los corrige el integrador)
+
+- **`PageHeaderCard` < lg:** el disco del ícono se monta sobre la miga y el h1 en 375 (todas las páginas; p. ej. `clientes-375-claro.png`, `tarifas-375-claro.png`).
+- **`.kit-etiqueta` con `nowrap`:** en modo tarjetas, los chips largos de Servicios en Clientes («SOAT · FLITO gestiona · Proveedor…») salen del cuadro y dan desborde horizontal en 375 (`clientes-375-claro.png`).
+- **`.card + .card { margin-top }`** también aplica dentro de rejillas de Tailwind: la segunda tarjeta de una fila baja 16–24 px. En Tablero lo resolví con `rejilla rejilla--2` (la clase del kit que lo anula); otras páginas con `FlitCard` hermanas en `grid` pueden tenerlo.
+- **Dock flotante** tapa la última fila / la nota al pie en 1280×800 (Clientes · Proveedores, Tablero). En las capturas de ayuda se oculta con `sinBarraFlotante`.
+
+### Fuera de alcance (anotado, no corregido)
+
+- `flito-ayuda-artefactos.spec.ts`: 2 rojos ajenos a S3 — `soat · version` (espera 1.9, la ficha está en 1.10) y `users · version` (espera 1.5, está en 1.6). Son fichas de S2/S6.
+- Hallazgos funcionales (permisos, lógica, datos): ninguno nuevo en el bloque 5 (Clientes).

@@ -142,7 +142,7 @@ export default function FlitoTablero() {
             </section>
           )}
 
-          <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <section className="rejilla rejilla--2">
             {data.soat && <ConteosPorEstado titulo="SOAT por estado" conteos={data.soat} etiquetas={ESTADO_SOAT_LABEL as Record<EstadoSoat, string>} destino="/flito/soat" />}
             {data.impuestos && <ConteosPorEstado titulo="Impuestos por estado" conteos={data.impuestos} etiquetas={ESTADO_IMPUESTO_LABEL as Record<EstadoImpuesto, string>} destino="/flito/impuestos" />}
           </section>
