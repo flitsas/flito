@@ -13,6 +13,9 @@
 // texto con los mismos chips de la columna «Rol», no tarjetas nuevas.
 
 import StatusChip from '../../components/flit/StatusChip';
+import GradientButton from '../../components/flit/GradientButton';
+import { flitInp } from '../../components/flit/flitPageKit';
+import { Icono } from '../../components/flit/kit/Icono';
 import { ROLES, ROLE_TONE, etiquetaRol, type ResumenUsuarios, type RolOpcion, type VistaBajas } from './types';
 
 const VISTAS_BAJA: { value: VistaBajas; label: string }[] = [
@@ -40,37 +43,34 @@ export default function UsersToolbar({ rol, onRol, vistaBajas, onVistaBajas, rol
 
   return (
     <div
-      className="flex flex-col gap-4 bg-flit-card px-4 py-4"
-      style={{ borderRadius: 'var(--flit-radius-card)', boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' }}
+      className="flex flex-col gap-4 rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] px-4 py-4"
     >
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="filtro-rol" className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
+        <div className="flex w-full flex-wrap items-end gap-3 sm:w-auto">
+          <div className="flex w-full flex-col gap-1 sm:w-auto">
+            <label htmlFor="filtro-rol" className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>
               Rol
             </label>
             <select
               id="filtro-rol"
               value={rol}
               onChange={(e) => onRol(e.target.value)}
-              className="flit-focus min-w-[220px] rounded-[10px] border px-3 py-2 text-sm"
-              style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-primary)' }}
+              className={`${flitInp} h-10 w-full py-0 sm:w-[220px]`}
             >
               <option value="">Todos los roles</option>
               {fallback.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </div>
 
-          <div className="flex flex-col gap-1">
-            <label htmlFor="filtro-vista-bajas" className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
+          <div className="flex w-full flex-col gap-1 sm:w-auto">
+            <label htmlFor="filtro-vista-bajas" className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>
               Vista
             </label>
             <select
               id="filtro-vista-bajas"
               value={vistaBajas}
               onChange={(e) => onVistaBajas(e.target.value as VistaBajas)}
-              className="flit-focus min-w-[180px] rounded-[10px] border px-3 py-2 text-sm"
-              style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-primary)' }}
+              className={`${flitInp} h-10 w-full py-0 sm:w-[180px]`}
             >
               {VISTAS_BAJA.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
             </select>
@@ -81,20 +81,21 @@ export default function UsersToolbar({ rol, onRol, vistaBajas, onVistaBajas, rol
             obedece. Si no la tiene, el botón no se pinta: no se pinta deshabilitado. */}
         {puedeExportar && (
           <div className="flex flex-col items-end gap-1">
-            <button
+            <GradientButton
               type="button"
+              variant="secondary"
+              size="sm"
               onClick={onDescargar}
               disabled={descargando}
               aria-describedby="alcance-descarga"
-              className="flit-focus rounded-[10px] border px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-secondary)' }}
             >
+              <Icono nombre="nube-bajar" size={16} />
               {descargando ? 'Generando...' : 'Descargar Excel'}
-            </button>
+            </GradientButton>
             {/* El archivo NO es «lo que veo»: `GET /users/export` ignora la paginación a propósito y
                 baja el filtro COMPLETO. El texto lo dice porque el botón, solo, se leería como que
                 trae las filas visibles — y ese malentendido se descubre abriendo el archivo. */}
-            <span id="alcance-descarga" className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+            <span id="alcance-descarga" className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
               Todas las coincidencias del filtro
             </span>
           </div>
@@ -127,17 +128,17 @@ function ConteoPorRol({ resumen, total, filtrado, rolesCatalogo }: {
     .sort((a, b) => a.label.localeCompare(b.label, 'es'));
   return (
     <div className="flex flex-wrap items-center gap-2" aria-label="Usuarios por rol">
-      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
+      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>
         Usuarios por rol
       </span>
       {conUsuarios.length === 0
-        ? <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin usuarios registrados</span>
+        ? <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Sin usuarios registrados</span>
         : conUsuarios.map((r) => (
           <StatusChip key={r.codigo} tone={ROLE_TONE[r.codigo] ?? 'neutral'}>
             {r.label}: {r.n}
           </StatusChip>
         ))}
-      <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+      <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
         {resumen.activos} activos · {resumen.inactivos} inactivos
         {filtrado && total !== null && ` · ${total} coinciden con el filtro`}
       </span>

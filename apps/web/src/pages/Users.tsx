@@ -12,12 +12,15 @@
 // (HU #12175). El archivo llegó a 680 líneas efectivas contra el techo `max-lines: 800`.
 
 import { useAuth } from '../lib/auth';
+import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import UsersGestion from './users/UsersGestion';
 import HistorialPermisos from './users/HistorialPermisos';
+import PestanasAdministracion from './users/PestanasAdministracion';
+import { MIGA_USUARIOS } from './users/types';
 
 export default function Users() {
-  const { hasFuncion } = useAuth();
+  const { hasFuncion, user } = useAuth();
 
   /**
    * Quién gestiona y quién exporta. Las condiciones están AQUÍ, con nombre y una sola definición,
@@ -28,14 +31,20 @@ export default function Users() {
   const puedeGestionar = hasFuncion('usuarios.usuario.crear');
   const puedeExportar = hasFuncion('usuarios.usuario.exportar');
 
-  if (puedeGestionar) return <UsersGestion puedeExportar={puedeExportar} />;
+  /** Rediseño 2026: la pestaña «Roles y permisos» solo si esa ruta le abriría (misma guarda que `App.tsx`). */
+  const verRoles = Boolean(user && hasPage(user, 'roles_permisos'));
+
+  if (puedeGestionar) return <UsersGestion puedeExportar={puedeExportar} verRoles={verRoles} />;
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Usuarios"
         subtitle="Historial de cambios en usuarios, roles y permisos"
+        icono="flito-usuarios"
+        miga={MIGA_USUARIOS}
       />
+      <PestanasAdministracion verRoles={verRoles} />
       <HistorialPermisos />
     </div>
   );

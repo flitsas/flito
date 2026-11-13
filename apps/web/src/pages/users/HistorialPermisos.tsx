@@ -25,10 +25,12 @@ import {
 import { api } from '../../lib/api';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitPillGroup, FlitPillButton,
-  flitBtnSecondary, flitBtnSecondaryStyle,
+  flitInp,
 } from '../../components/flit/flitPageKit';
 import FlitSelect from '../../components/flit/FlitSelect';
 import Paginacion from '../../components/flit/Paginacion';
+import GradientButton from '../../components/flit/GradientButton';
+import { Icono } from '../../components/flit/kit/Icono';
 import StatusChip from '../../components/flit/StatusChip';
 import { formatErrors } from './UserFormShared';
 
@@ -164,7 +166,7 @@ export default function HistorialPermisos() {
       {/* Suelo temporal: lo que hace que un historial corto no se lea como un fallo. No se pinta
           bajo el error ni durante la carga. */}
       {!cargando && !error && datos?.desdeCuando && (
-        <p className="mb-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="mb-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           El historial comienza el {fechaLarga(datos.desdeCuando)}. Los cambios anteriores a esa fecha no se registraron con este detalle.
         </p>
       )}
@@ -179,7 +181,7 @@ export default function HistorialPermisos() {
           />
         </div>
         <div role="group" aria-label="Recurso" className="flex flex-col gap-1">
-          <span className="text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Recurso</span>
+          <span className="text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>Recurso</span>
           <FlitPillGroup>
             {RECURSOS.map((r) => (
               <FlitPillButton
@@ -193,26 +195,24 @@ export default function HistorialPermisos() {
             ))}
           </FlitPillGroup>
         </div>
-        <label className="flex flex-col gap-1 text-xs font-medium" style={{ color: 'var(--flit-text-secondary)' }}>
+        <label className="flex flex-col gap-1 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
           Desde
           <input
             type="date"
             value={filtros.desde}
             max={filtros.hasta || undefined}
             onChange={(e) => cambiarFiltro({ desde: e.target.value })}
-            className="flit-focus h-8 rounded-[10px] border px-2 text-xs"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+            className={`${flitInp} h-10 py-0`}
           />
         </label>
-        <label className="flex flex-col gap-1 text-xs font-medium" style={{ color: 'var(--flit-text-secondary)' }}>
+        <label className="flex flex-col gap-1 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
           Hasta
           <input
             type="date"
             value={filtros.hasta}
             min={filtros.desde || undefined}
             onChange={(e) => cambiarFiltro({ hasta: e.target.value })}
-            className="flit-focus h-8 rounded-[10px] border px-2 text-xs"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+            className={`${flitInp} h-10 py-0`}
           />
         </label>
       </div>
@@ -228,9 +228,9 @@ export default function HistorialPermisos() {
       {vacio && hayFiltros && (
         <FlitEmpty>
           <p>Ningún cambio coincide con estos filtros. Amplía el rango de fechas o quita el filtro de usuario o de recurso.</p>
-          <button type="button" onClick={quitarFiltros} className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}>
+          <GradientButton type="button" variant="secondary" size="sm" className="mt-4" onClick={quitarFiltros}>
             Quitar filtros
-          </button>
+          </GradientButton>
         </FlitEmpty>
       )}
 
@@ -243,20 +243,16 @@ export default function HistorialPermisos() {
           </thead>
           <tbody>
             {cargando && (
-              <tr><td colSpan={4} role="status" className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando el historial…</td></tr>
+              <tr><td colSpan={4} role="status" className="py-10 text-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Cargando el historial…</td></tr>
             )}
             {!cargando && error && (
               <tr><td colSpan={4} role="alert" className="px-4 py-10 text-center">
-                <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>No se pudo cargar el historial.</p>
-                <p className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>
-                <button
-                  type="button"
-                  onClick={() => setIntento((n) => n + 1)}
-                  className="flit-focus mt-3 rounded-[10px] border px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-80"
-                  style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-secondary)' }}
-                >
+                <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>No se pudo cargar el historial.</p>
+                <p className="mt-1 text-xs" style={{ color: 'var(--kit-naranja-texto)' }}>{error}</p>
+                <GradientButton type="button" variant="secondary" size="sm" className="mt-3" onClick={() => setIntento((n) => n + 1)}>
+                  <Icono nombre="reintento" size={16} />
                   Reintentar
-                </button>
+                </GradientButton>
               </td></tr>
             )}
             {lleno && items.map((i) => <Fila key={i.id} item={i} />)}
@@ -297,12 +293,12 @@ function Fila({ item }: { item: ItemAuditoriaPermisos }) {
   const esRol = item.entidad === 'rol' || item.entidad === 'rol_funcion';
   return (
     <FlitTr>
-      <td className="whitespace-nowrap px-4 py-3 align-top text-xs" style={{ color: 'var(--flit-text-muted)' }}>{fechaHora(item.creadoEn)}</td>
-      <td className="px-4 py-3 align-top text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <td className="whitespace-nowrap px-4 py-3 align-top text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{fechaHora(item.creadoEn)}</td>
+      <td className="px-4 py-3 align-top text-sm" style={{ color: 'var(--color-text-primary)' }}>
         {item.actor.userId === null ? <StatusChip tone="draft">Sistema</StatusChip> : (item.actor.email ?? '—')}
         {item.origen === 'auditoria' && (
           <>
-            <span aria-hidden="true" title="Reconstruido desde la auditoría al implantar el historial; no se registró en el momento." style={{ color: 'var(--flit-text-muted)' }}> · reconstruido</span>
+            <span aria-hidden="true" title="Reconstruido desde la auditoría al implantar el historial; no se registró en el momento." style={{ color: 'var(--color-text-tertiary)' }}> · reconstruido</span>
             <span className="sr-only"> · reconstruido desde la auditoría al implantar el historial; no se registró en el momento.</span>
           </>
         )}
@@ -311,16 +307,16 @@ function Fila({ item }: { item: ItemAuditoriaPermisos }) {
         <div className="flex items-center gap-2">
           <StatusChip tone="neutral">{esRol ? 'Rol' : 'Usuario'}</StatusChip>
           {esRol
-            ? <span style={{ color: 'var(--flit-text-primary)' }}>{etiquetaRol(item.rolAfectado ?? '')}</span>
+            ? <span style={{ color: 'var(--color-text-primary)' }}>{etiquetaRol(item.rolAfectado ?? '')}</span>
             : item.titular?.username
-              ? <span className="font-mono text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{item.titular.username}</span>
-              : <span style={{ color: 'var(--flit-text-muted)' }}>usuario eliminado</span>}
+              ? <span className="font-mono text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>{item.titular.username}</span>
+              : <span style={{ color: 'var(--color-text-tertiary)' }}>usuario eliminado</span>}
         </div>
-        <div className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{lineaQue(item, esRol)}</div>
+        <div className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{lineaQue(item, esRol)}</div>
       </td>
-      <td className="px-4 py-3 align-top text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <td className="px-4 py-3 align-top text-sm" style={{ color: 'var(--color-text-primary)' }}>
         <Cambio item={item} />
-        {item.motivo && <div className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Motivo: {item.motivo}</div>}
+        {item.motivo && <div className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>Motivo: {item.motivo}</div>}
       </td>
     </FlitTr>
   );
@@ -357,7 +353,7 @@ function Cambio({ item }: { item: ItemAuditoriaPermisos }) {
   return (
     <span>
       {escalar(item.campo, item.valorAntes)}
-      <span style={{ color: 'var(--flit-text-muted)' }}> → </span>
+      <span style={{ color: 'var(--color-text-tertiary)' }}> → </span>
       {escalar(item.campo, item.valorDespues)}
     </span>
   );
@@ -387,10 +383,10 @@ const MAX_LISTADOS = 12;
  * Diff legible de un conjunto: «Añadidas (n): …» / «Quitadas (n): …» / «Quedan n». La palabra hace
  * el trabajo entero. Un alta (sin antes) lista lo asignado, cortado a 12.
  *
- * Sin tinta de color en los rótulos: la ficha pedía `--flit-success` / `--flit-danger-ink` «si
- * llegan a 4,5:1 sobre la tarjeta en claro y oscuro, y si no, `--flit-text-primary`». Medido:
- * `--flit-success` (#70CF3A) da 1,97 sobre blanco; las tintas `-ink` pasan en claro (5,14 y 5,72)
- * pero no tienen variante oscura y sobre `#1E2F4C` dan 2,61 y 2,35. Se aplica la salida que la
+ * Sin tinta de color en los rótulos: la ficha pedía el verde y la tinta de peligro «si
+ * llegan a 4,5:1 sobre la tarjeta en claro y oscuro, y si no, la tinta principal». Medido: el verde
+ * de relleno da 1,97 sobre blanco; las tintas `-ink` pasan en claro (5,14 y 5,72) pero no tenían
+ * variante oscura y sobre la tarjeta oscura dan 2,61 y 2,35. Se aplica la salida que la
  * ficha dejó escrita.
  */
 function Conjunto({ antes, despues, campo, entidad }: {
@@ -409,13 +405,13 @@ function Conjunto({ antes, despues, campo, entidad }: {
   ));
 
   if (concedidas.length === 0 && revocadas.length === 0) {
-    if (antes !== null) return <span style={{ color: 'var(--flit-text-muted)' }}>Sin cambios en el conjunto</span>;
+    if (antes !== null) return <span style={{ color: 'var(--color-text-tertiary)' }}>Sin cambios en el conjunto</span>;
     const todos = [...despues.conjunto].sort();
     const resto = todos.length - MAX_LISTADOS;
     return (
       <span>
         <span className="font-semibold">Asignadas ({todos.length}):</span> {etiquetar(todos.slice(0, MAX_LISTADOS))}
-        {resto > 0 && <span style={{ color: 'var(--flit-text-muted)' }}> … y {resto} más</span>}
+        {resto > 0 && <span style={{ color: 'var(--color-text-tertiary)' }}> … y {resto} más</span>}
       </span>
     );
   }
@@ -428,7 +424,7 @@ function Conjunto({ antes, despues, campo, entidad }: {
       {revocadas.length > 0 && (
         <li><span className="font-semibold">{labelRetiradas} ({revocadas.length}):</span> {etiquetar(revocadas)}</li>
       )}
-      <li style={{ color: 'var(--flit-text-muted)' }}>Quedan {despues.conjunto.length}</li>
+      <li style={{ color: 'var(--color-text-tertiary)' }}>Quedan {despues.conjunto.length}</li>
     </ul>
   );
 }

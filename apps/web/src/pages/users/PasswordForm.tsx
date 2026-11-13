@@ -7,6 +7,7 @@ import { useState, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '../../lib/api';
 import FlitModal from '../../components/flit/FlitModal';
+import InlineAlert from '../../components/flit/InlineAlert';
 import type { User } from './types';
 import { Field, Footer, formatErrors, inputCls, PASSWORD_PATTERN, PASSWORD_TITLE } from './UserFormShared';
 
@@ -32,7 +33,7 @@ export default function PasswordForm({ user, isSelf, onClose, onSaved }: { user:
   };
 
   return (
-    <FlitModal title={`Contraseña — ${user.username}`} onClose={onClose}>
+    <FlitModal title={`Contraseña — ${user.username}`} onClose={onClose} icono="candado">
       <form onSubmit={submit} className="space-y-4">
         {isSelf && (
           <Field label="Contraseña actual">
@@ -40,14 +41,14 @@ export default function PasswordForm({ user, isSelf, onClose, onSaved }: { user:
           </Field>
         )}
         {!isSelf && (
-          <p className="rounded-xl p-3 text-xs" style={{ color: 'var(--flit-warning)', background: 'rgba(240,90,53,0.10)', border: '1px solid rgba(240,90,53,0.30)' }}>
+          <InlineAlert tono="warn">
             Como administrador, está restableciendo la contraseña de otro usuario. Quedará registrado en auditoría.
-          </p>
+          </InlineAlert>
         )}
         <Field label="Contraseña nueva">
           <input required type="password" minLength={8} pattern={PASSWORD_PATTERN} title={PASSWORD_TITLE}
             value={f.newPassword} onChange={(e) => setF({ ...f, newPassword: e.target.value })} className={inputCls} />
-          <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{PASSWORD_TITLE}</p>
+          <p className="mt-1 text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>{PASSWORD_TITLE}</p>
         </Field>
         <Field label="Confirmar nueva">
           <input required type="password" minLength={8} value={f.confirmPassword} onChange={(e) => setF({ ...f, confirmPassword: e.target.value })} className={inputCls} />

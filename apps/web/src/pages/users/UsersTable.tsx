@@ -9,6 +9,10 @@
 // **Esto NO es kit.** Props tipadas, sin estado global, un único consumidor: la página de usuarios.
 
 import StatusChip from '../../components/flit/StatusChip';
+import DataTable, { type ColumnaTabla } from '../../components/flit/DataTable';
+import GradientButton from '../../components/flit/GradientButton';
+import { EstadoVista } from '../../components/flit/Cargador';
+import { Icono } from '../../components/flit/kit/Icono';
 import { etiquetaRol, ROLE_TONE, tipoEnlaceDe, type RolOpcion, type User } from './types';
 import { AmbitoCelda } from './Ambito';
 import type { CatalogoOrganismos } from './AtaduraFields';
@@ -32,147 +36,106 @@ export default function UsersTable({ users, loading, error, onReintentar, vacioM
   onDarDeBaja: (u: User) => void;
   onReactivar: (u: User) => void;
 }) {
-  return (
-    <div
-      className="overflow-hidden bg-flit-card"
-      style={{ borderRadius: 'var(--flit-radius-card)', boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' }}
-    >
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr>
-              <Th>Usuario</Th>
-              <Th>Nombre</Th>
-              <Th>Email</Th>
-              <Th>Rol</Th>
-              {/* Se RENOMBRA en vez de añadir columnas: la celda ya ramificaba por rol para
-                  decir «a qué ámbito está atado este usuario», y las tres columnas de la
-                  disposición B nacerían vacías para 9 de los 12 roles. Siguen siendo SIETE.
-                  «Ámbito» se lee en pareja con «Rol», que tiene justo a la izquierda: el rol dice
-                  de qué tipo es el ámbito y esta celda dice cuál. */}
-              <Th>Ámbito</Th>
-              <Th>Estado</Th>
-              <ThRight>Acciones</ThRight>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</td></tr>}
-            {/* El ERROR va ANTES del vacío y lo excluye: una carga fallida deja `users` en `[]`, así
-                que sin esta rama el fallo se leería como «Sin usuarios» —un dato falso— y el usuario
-                se quedaría sin nada que pulsar. Antes de la HU #12172 ese caso solo salía por
-                `toast.error`, que se va solo a los pocos segundos. */}
-            {!loading && error && (
-              <tr><td colSpan={7} className="px-4 py-10 text-center">
-                <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>No se pudo cargar la lista de usuarios</p>
-                <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{error}</p>
-                <button
-                  type="button"
-                  onClick={onReintentar}
-                  className="flit-focus mt-3 rounded-[10px] border px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-80"
-                  style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-secondary)' }}
-                >
-                  Reintentar
-                </button>
-              </td></tr>
-            )}
-            {!loading && !error && users.length === 0 && (
-              <tr>
-                <td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>
-                  {vacioMensaje ?? 'Sin usuarios'}
-                </td>
-              </tr>
-            )}
-            {!loading && !error && users.map((u) => {
-              const roleLabel = etiquetaRol(u.role, rolesCatalogo);
-              const isMe = u.id === meId;
-              const dadoDeBaja = u.deletedAt != null;
-              return (
-                <tr key={u.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3 font-mono text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-                    {u.username}
-                    {isMe && <span className={`ml-1.5 text-[9px] font-bold ${TINTA_BOTON.active}`}>(tú)</span>}
-                  </td>
-                  <td className="px-4 py-3" style={{ color: 'var(--flit-text-primary)' }}>{u.name}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{u.email || '—'}</td>
-                  <td className="px-4 py-3">
-                    <StatusChip tone={ROLE_TONE[u.role] ?? 'neutral'}>{roleLabel}</StatusChip>
-                  </td>
-                  <AmbitoCelda
-                    user={u}
-                    tipoEnlace={tipoEnlaceDe(u.role, rolesCatalogo)}
-                    nombreCompania={nombreCompania}
-                    organismos={organismos}
-                  />
-                  <td className="px-4 py-3">
-                    {dadoDeBaja
-                      ? <StatusChip tone="danger">Dado de baja</StatusChip>
-                      : <StatusChip tone={u.active ? 'success' : 'danger'}>{u.active ? 'Activo' : 'Inactivo'}</StatusChip>}
-                  </td>
-                  <td className="space-x-1 px-4 py-3 text-right">
-                    {dadoDeBaja ? (
-                      <RowButton onClick={() => onReactivar(u)} tone="success">Reactivar</RowButton>
-                    ) : (
-                      <>
-                        <RowButton onClick={() => onEditar(u)} tone="active">Editar</RowButton>
-                        <RowButton onClick={() => onContrasena(u)} tone="neutral">Contraseña</RowButton>
-                        <RowButton onClick={() => onAlternar(u)} disabled={isMe} tone={u.active ? 'danger' : 'success'}>
-                          {u.active ? 'Desactivar' : 'Activar'}
-                        </RowButton>
-                        <RowButton onClick={() => onDarDeBaja(u)} disabled={isMe} tone="danger">
-                          Dar de baja
-                        </RowButton>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+  // Rediseño 2026 (molde `#usuarios`): `DataTable` del kit — tarjetas ≤900 px, cabecera del kit, hover de fila.
+  // El ERROR va ANTES del vacío y lo excluye: una carga fallida deja `users` en `[]`, así que sin esta
+  // rama el fallo se leería como «Sin usuarios» —un dato falso— y el usuario se quedaría sin nada que
+  // pulsar. Antes de la HU #12172 ese caso solo salía por `toast.error`, que se va solo. Se pinta
+  // aparte (no con el `errorMessage` de `DataTable`) porque lleva título Y el detalle del servidor.
+  if (!loading && error) {
+    return (
+      <div className="tabla-wrap" data-kit="tabla" data-testid="ui-error">
+        <div className="kit-vacio" role="alert" data-kit="error">
+          <span className="kit-disco h-[72px] w-[72px] !text-[color:var(--kit-naranja)]"><Icono nombre="nube-alerta" size={36} /></span>
+          <p className="!text-[color:var(--color-text-primary)]">No se pudo cargar la lista de usuarios</p>
+          <small>{error}</small>
+          <GradientButton type="button" variant="secondary" size="sm" onClick={onReintentar}>
+            <Icono nombre="reintento" size={16} />
+            Reintentar
+          </GradientButton>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
+  if (loading) {
+    return (
+      <div className="tabla-wrap" data-kit="tabla">
+        <EstadoVista status="loading" cargando="Cargando..." />
+      </div>
+    );
+  }
 
-function Th({ children }: { children: React.ReactNode }) {
+  const columnas: ColumnaTabla<User>[] = [
+    {
+      key: 'usuario', header: 'Usuario',
+      render: (u) => (
+        <span className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+          {u.username}
+          {u.id === meId && <span className="ml-1.5 text-[11px] font-bold text-[color:var(--color-action)]">(tú)</span>}
+        </span>
+      ),
+    },
+    { key: 'nombre', header: 'Nombre', render: (u) => <span style={{ color: 'var(--color-text-primary)' }}>{u.name}</span> },
+    { key: 'email', header: 'Email', render: (u) => <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{u.email || '—'}</span> },
+    {
+      key: 'rol', header: 'Rol',
+      render: (u) => <StatusChip tone={ROLE_TONE[u.role] ?? 'neutral'}>{etiquetaRol(u.role, rolesCatalogo)}</StatusChip>,
+    },
+    // Se RENOMBRA en vez de añadir columnas: la celda ya ramificaba por rol para decir «a qué ámbito
+    // está atado este usuario», y las tres columnas de la disposición B nacerían vacías para 9 de los
+    // 12 roles. Siguen siendo SIETE. «Ámbito» se lee en pareja con «Rol», que tiene justo a la
+    // izquierda: el rol dice de qué tipo es el ámbito y esta celda dice cuál.
+    {
+      key: 'ambito', header: 'Ámbito',
+      render: (u) => (
+        <AmbitoCelda
+          user={u}
+          tipoEnlace={tipoEnlaceDe(u.role, rolesCatalogo)}
+          nombreCompania={nombreCompania}
+          organismos={organismos}
+        />
+      ),
+    },
+    {
+      key: 'estado', header: 'Estado',
+      render: (u) => (u.deletedAt != null
+        ? <StatusChip tone="danger">Dado de baja</StatusChip>
+        : <StatusChip tone={u.active ? 'success' : 'danger'}>{u.active ? 'Activo' : 'Inactivo'}</StatusChip>),
+    },
+    {
+      key: 'acciones', header: 'Acciones', align: 'right', acciones: true,
+      render: (u) => {
+        const isMe = u.id === meId;
+        // Por función (kit): editar/contraseña navegan (ghost), activar/reactivar confirman (verde),
+        // desactivar y dar de baja son destructivos (naranja).
+        return (
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {u.deletedAt != null ? (
+              <GradientButton type="button" size="sm" variant="success" onClick={() => onReactivar(u)}>Reactivar</GradientButton>
+            ) : (
+              <>
+                <GradientButton type="button" size="sm" variant="ghost" onClick={() => onEditar(u)}>Editar</GradientButton>
+                <GradientButton type="button" size="sm" variant="ghost" onClick={() => onContrasena(u)}>Contraseña</GradientButton>
+                <GradientButton type="button" size="sm" variant={u.active ? 'alerta' : 'success'} onClick={() => onAlternar(u)} disabled={isMe}>
+                  {u.active ? 'Desactivar' : 'Activar'}
+                </GradientButton>
+                <GradientButton type="button" size="sm" variant="alerta" onClick={() => onDarDeBaja(u)} disabled={isMe}>
+                  Dar de baja
+                </GradientButton>
+              </>
+            )}
+          </div>
+        );
+      },
+    },
+  ];
+
   return (
-    <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>
-      {children}
-    </th>
-  );
-}
-
-function ThRight({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>
-      {children}
-    </th>
-  );
-}
-
-// `--flit-danger` y `--flit-blue` miden 3,2 y 3,0:1 sobre la tarjeta oscura: en oscuro van sus tintas de texto. En claro
-// se conservan tal cual; pasarlas a `*-text` cambiaría el tono de estos botones también allí.
-const TINTA_BOTON = {
-  danger: 'text-[color:var(--flit-danger)] [[data-theme=dark]_&]:text-[color:var(--flit-danger-text)]',
-  active: 'text-[color:var(--flit-blue)] [[data-theme=dark]_&]:text-[color:var(--flit-blue-text)]',
-  success: 'text-[color:var(--flit-success)]',
-  neutral: 'text-[color:var(--flit-text-secondary)]',
-} as const;
-
-function RowButton({ children, onClick, disabled, tone }: {
-  children: React.ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
-  tone: 'active' | 'neutral' | 'danger' | 'success';
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`flit-focus rounded px-2 py-1 text-xs font-semibold transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40 ${TINTA_BOTON[tone]}`}
-    >
-      {children}
-    </button>
+    <DataTable
+      ariaLabel="Lista de usuarios"
+      columnas={columnas}
+      filas={users}
+      getKey={(u) => String(u.id)}
+      emptyMessage={vacioMensaje ?? 'Sin usuarios'}
+    />
   );
 }
