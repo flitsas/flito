@@ -1385,8 +1385,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "drive",
     "etiqueta": "Google Drive",
     "resumen": "Carpetas y archivos de Google Drive compartidos con FLITO, y lectura de los PDF de cuentas de cobro.",
-    "version": "1.0",
-    "fecha": "2026-10-22",
+    "version": "1.1",
+    "fecha": "2026-11-13",
     "palabrasClave": [
       "Google Drive",
       "carpetas",
