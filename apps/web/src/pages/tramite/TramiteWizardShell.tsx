@@ -6,6 +6,8 @@ import { getAdquirente, vendedorRequerido } from '@operaciones/shared-types';
 import { STEPS } from '../../constants/tramite';
 import FlitModal from '../../components/flit/FlitModal';
 import GradientButton from '../../components/flit/GradientButton';
+import { PildoraTramite } from '../../components/flit/Bloques';
+import { Icono } from '../../components/flit/kit/Icono';
 import FlitWizardSidebar from '../../components/flit/FlitWizardSidebar';
 import CedulaCaptureOverlay from '../../components/identidad/CedulaCaptureOverlay';
 import { FLIT_CARD } from './wizard/flitStepKit';
@@ -19,22 +21,21 @@ import type { TramiteWizardApi } from './useTramiteWizard';
 export default function TramiteWizardShell({ w }: { w: TramiteWizardApi }) {
   const { step } = w;
   return (
-    <div className="flex flex-col gap-5 lg:flex-row lg:gap-6">
-      {/* Sidebar lateral de pasos (FlitWizardSidebar) */}
-      <aside className="shrink-0 lg:w-60">
-        {/* Offset sticky = topbar + --flit-navbar-height (0px desde que la
-            navegación es un dock al pie) + 1rem de margen. */}
-        <div className={`${FLIT_CARD} lg:sticky lg:top-[calc(var(--flit-topbar-height)_+_var(--flit-navbar-height)_+_1rem)]`}>
-          <button onClick={w.closeWizard} aria-label="Volver a la lista" className="flit-focus mb-4 inline-flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--flit-text-secondary)' }}>
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
-            Volver
-          </button>
-          <FlitWizardSidebar steps={STEPS} current={step} />
-        </div>
-      </aside>
+    <div className="flex flex-col gap-5 lg:gap-6">
+      {/* Avance horizontal del asistente (molde #traspaso): pasos + píldora de datos del trámite. */}
+      <div className={`${FLIT_CARD} flex flex-col gap-4`}>
+        <button onClick={w.closeWizard} aria-label="Volver a la lista" className="btn ghost sm self-start">
+          <Icono nombre="izquierda" size={16} />
+          Volver
+        </button>
+        <FlitWizardSidebar steps={STEPS} current={step} />
+        {w.tramiteId && (
+          <PildoraTramite datos={[{ etiqueta: 'Trámite', valor: `#${w.tramiteId}` }, { etiqueta: 'VIN', valor: w.vin || '—' }]} />
+        )}
+      </div>
 
       {/* Contenido del paso actual */}
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0">
         {step === 1 && (
           <StepVinRunt
             vin={w.vin}
@@ -155,31 +156,31 @@ export default function TramiteWizardShell({ w }: { w: TramiteWizardApi }) {
           onClose={w.cerrarConflictoDuplicado}
         >
           <div className="space-y-4 px-6 py-5">
-            <p className="text-sm leading-relaxed" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
               {w.duplicateConflict.message}
             </p>
-            <dl className="grid grid-cols-2 gap-3 rounded-xl border px-4 py-3 text-sm" style={{ borderColor: 'var(--flit-border-soft)' }}>
+            <dl className="grid grid-cols-1 gap-3 rounded-[9px] border px-4 py-3 text-sm min-[381px]:grid-cols-2" style={{ borderColor: 'var(--color-border)' }}>
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Placa</dt>
-                <dd className="font-semibold" style={{ color: 'var(--flit-blue-text)' }}>
+                <dt className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>Placa</dt>
+                <dd className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                   {w.duplicateConflict.existingTramite.placa || '—'}
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Estado</dt>
-                <dd className="font-semibold capitalize" style={{ color: 'var(--flit-blue-text)' }}>
+                <dt className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>Estado</dt>
+                <dd className="font-semibold capitalize" style={{ color: 'var(--color-action)' }}>
                   {w.duplicateConflict.existingTramite.estado.replace(/_/g, ' ')}
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Paso</dt>
-                <dd className="font-semibold" style={{ color: 'var(--flit-blue-text)' }}>
+                <dt className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>Paso</dt>
+                <dd className="font-semibold" style={{ color: 'var(--color-action)' }}>
                   {w.duplicateConflict.existingTramite.paso}/5
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>ID trámite</dt>
-                <dd className="font-semibold" style={{ color: 'var(--flit-blue-text)' }}>
+                <dt className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>ID trámite</dt>
+                <dd className="font-semibold" style={{ color: 'var(--color-action)' }}>
                   #{w.duplicateConflict.existingTramite.id}
                 </dd>
               </div>
@@ -188,8 +189,8 @@ export default function TramiteWizardShell({ w }: { w: TramiteWizardApi }) {
               <button
                 type="button"
                 onClick={w.cerrarConflictoDuplicado}
-                className="flit-focus inline-flex h-10 items-center rounded-[999px] border px-4 text-sm font-medium"
-                style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+                className="btn secondary"
+                data-variante="secundario"
               >
                 Cerrar
               </button>

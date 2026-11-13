@@ -12,6 +12,10 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { flitInp } from '../components/flit/flitPageKit';
+import { Icono } from '../components/flit/kit/Icono';
+import { Girador } from '../components/flit/Cargador';
 import { useAuth } from '../lib/auth';
 import { PanelGestionOrganismo, MODALIDAD_TONO, type Organismo } from '../components/flito/autogestionPanels';
 
@@ -81,16 +85,19 @@ function LogoThumb({ logoUrl, fallback, className, style }: {
   }
   return (
     <span
-      className={`flex items-center justify-center text-[10px] font-bold ${className ?? ''}`}
-      style={{ background: 'rgba(79,116,201,0.12)', color: 'var(--flit-blue)', ...style }}
+      className={`flex items-center justify-center bg-[var(--kit-hover)] text-xs font-bold text-[var(--color-action)] ${className ?? ''}`}
+      style={style}
     >
       {fallback.slice(0, 2).toUpperCase()}
     </span>
   );
 }
 
-const inputCls =
-  'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none';
+const inputCls = flitInp;
+const LOGO_CLS = 'rounded-[9px] border border-[var(--color-border)] object-contain';
+const ETIQUETA = 'block text-sm font-semibold text-[var(--color-text-secondary)]';
+const BLOQUE = 'rounded-[9px] border border-[var(--color-border)] p-3';
+const ENLACE = 'text-xs font-semibold text-[var(--color-action)] underline-offset-2 transition-colors hover:underline disabled:opacity-60';
 
 export default function TransitoOrganismos() {
   const { hasFuncion } = useAuth();
@@ -133,89 +140,71 @@ export default function TransitoOrganismos() {
 
   const configuredCount = rows.filter((r) => r.alias || r.logoUrl || r.logoStorageKey).length;
 
+  // Molde #organismos: lista con logo/nombre (columna «personas»), código, etiqueta de modalidad y acción por fila.
+  const columnas: ColumnaTabla<Fila>[] = [
+    {
+      key: 'municipio', header: 'Municipio', render: (r) => (
+        <div className="flex items-center gap-3">
+          <LogoThumb logoUrl={r.logoUrl} fallback={r.ciudad} className={`h-10 w-10 shrink-0 ${LOGO_CLS}`} />
+          <div className="min-w-0">
+            <p className="font-semibold text-[var(--color-text-primary)]">{r.alias || r.ciudad}</p>
+            <p className="text-xs text-[var(--color-text-tertiary)]">{r.nombre}</p>
+          </div>
+        </div>
+      ),
+    },
+    { key: 'codigo', header: 'Código', render: (r) => <span className="mono text-xs text-[var(--color-text-secondary)]">{r.codigo}</span> },
+    { key: 'alias', header: 'Alias', render: (r) => r.alias || '—' },
+    {
+      key: 'modalidad', header: 'Modalidad FLITO', render: (r) => (
+        <StatusChip tone={MODALIDAD_TONO[organismoParaPanel(r).modalidadVigente]}>
+          {MODALIDAD_ORGANISMO_LABEL[organismoParaPanel(r).modalidadVigente]}
+        </StatusChip>
+      ),
+    },
+    { key: 'usuarios', header: 'Usuarios', render: (r) => <span className="tabular-nums">{r.userCount}</span> },
+    { key: 'estado', header: 'Estado', render: (r) => <StatusChip tone={r.activo ? 'success' : 'neutral'}>{r.activo ? 'Activo' : 'Inactivo'}</StatusChip> },
+    {
+      key: 'acciones', header: 'Acciones', acciones: true, align: 'right', render: (r) => (
+        <GradientButton type="button" size="sm" variant="secondary" onClick={() => setEditing(r)}>
+          <Icono nombre="lapiz" size={16} />
+          Editar
+        </GradientButton>
+      ),
+    },
+  ];
+
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-5 lg:gap-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Organismos de tránsito"
         subtitle={`Configuración FLIT por secretaría · ${configuredCount} con personalización`}
+        icono="flito-transito"
+        miga={[]}
       />
 
-      <input
-        type="search"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        placeholder="Buscar por ciudad, nombre o código…"
-        className={inputCls}
-        aria-label="Búsqueda de organismos"
-      />
-
-      <div
-        className="overflow-hidden bg-white"
-        style={{ borderRadius: 'var(--flit-radius-card)', boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' }}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <Th>Municipio</Th>
-                <Th>Código</Th>
-                <Th>Alias</Th>
-                <Th>Modalidad FLITO</Th>
-                <Th>Usuarios</Th>
-                <Th>Estado</Th>
-                <ThRight>Acciones</ThRight>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && (
-                <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</td></tr>
-              )}
-              {!loading && filtered.length === 0 && (
-                <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Sin resultados</td></tr>
-              )}
-              {!loading && filtered.map((r) => (
-                <tr key={r.codigo} className="border-t hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <LogoThumb
-                        logoUrl={r.logoUrl}
-                        fallback={r.ciudad}
-                        className="h-8 w-8 rounded-lg object-contain"
-                        style={{ border: '1px solid var(--flit-border-soft)' }}
-                      />
-                      <div>
-                        <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{r.alias || r.ciudad}</p>
-                        <p className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{r.nombre}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.codigo}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{r.alias || '—'}</td>
-                  <td className="px-4 py-3">
-                    <StatusChip tone={MODALIDAD_TONO[organismoParaPanel(r).modalidadVigente]}>
-                      {MODALIDAD_ORGANISMO_LABEL[organismoParaPanel(r).modalidadVigente]}
-                    </StatusChip>
-                  </td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.userCount}</td>
-                  <td className="px-4 py-3">
-                    <StatusChip tone={r.activo ? 'success' : 'neutral'}>{r.activo ? 'Activo' : 'Inactivo'}</StatusChip>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setEditing(r)}
-                      className="flit-focus rounded-[999px] px-2.5 py-1 text-xs font-semibold"
-                      style={{ color: 'var(--flit-blue)', background: 'rgba(79, 116, 201, 0.12)' }}
-                    >
-                      Editar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="relative max-w-xl">
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" aria-hidden="true">
+          <Icono nombre="buscar" size={18} />
+        </span>
+        <input
+          type="search"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Buscar por ciudad, nombre o código…"
+          className={`${inputCls} !pl-10`}
+          aria-label="Búsqueda de organismos"
+        />
       </div>
+
+      <DataTable
+        ariaLabel="Organismos de tránsito"
+        columnas={columnas}
+        filas={filtered}
+        getKey={(r) => r.codigo}
+        status={loading ? 'loading' : undefined}
+        emptyMessage="Sin resultados"
+      />
 
       {editing && (
         <EditModal
@@ -301,21 +290,18 @@ function EditModal({ row, editable, onClose, onSaved, onReload }: { row: Fila; e
     <button
       type="button"
       onClick={() => setTab(id)}
-      className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-semibold transition-colors"
-      style={tab === id
-        ? { background: 'var(--flit-gradient-primary)', color: 'white' }
-        : { background: 'rgba(79,116,201,0.1)', color: 'var(--flit-blue)' }}
+      className={`kit-pestana${tab === id ? ' kit-pestana--activa' : ''}`}
     >
       {label}
     </button>
   );
 
   return (
-    <FlitModal title={`Editar — ${row.ciudad}`} onClose={onClose}>
-      <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+    <FlitModal title={`Editar — ${row.ciudad}`} onClose={onClose} icono="ajustes" wide>
+      <p className="mb-3 text-center text-sm text-[var(--color-text-tertiary)]">
         {row.nombre} · Código {row.codigo}
       </p>
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="kit-pestanas">
         {tabBtn('general', 'General')}
         {tabBtn('autogestion', 'Autogestión')}
         {tabBtn('plantilla', 'Plantilla documentos')}
@@ -327,24 +313,21 @@ function EditModal({ row, editable, onClose, onSaved, onReload }: { row: Fila; e
 
       {tab === 'general' && (
         <form onSubmit={submitGeneral} className="space-y-4">
-          <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+          <label className={ETIQUETA}>
             Alias (nombre corto en bandeja)
             <input className={`${inputCls} mt-1`} maxLength={120} value={alias} onChange={(e) => setAlias(e.target.value)} placeholder={row.ciudad} />
           </label>
-          <div className="rounded-xl border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-            <p className="mb-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Logo subido</p>
+          <div className={BLOQUE}>
+            <p className="mb-2 text-sm font-semibold text-[var(--color-text-secondary)]">Logo subido</p>
             <div className="flex items-center gap-3">
               <LogoThumb
                 logoUrl={cfg.logoStorageKey ? cfg.logoUrl : null}
                 fallback={cfg.ciudad}
-                className="h-14 w-14 rounded-lg object-contain"
-                style={{ border: '1px solid var(--flit-border-soft)' }}
+                className={`h-14 w-14 ${LOGO_CLS}`}
               />
               <div className="flex flex-col gap-1.5">
-                <label
-                  className="flit-focus inline-flex w-fit cursor-pointer items-center rounded-[999px] px-3 py-1.5 text-xs font-semibold"
-                  style={{ background: 'rgba(79,116,201,0.12)', color: 'var(--flit-blue)', opacity: uploading ? 0.6 : 1 }}
-                >
+                <label className={`btn secondary sm w-fit cursor-pointer focus-within:outline focus-within:outline-2 focus-within:outline-[var(--kit-azul)]${uploading ? ' opacity-60' : ''}`}>
+                  <Icono nombre="nube-subir" size={16} />
                   {uploading ? 'Procesando…' : cfg.logoStorageKey ? 'Reemplazar logo' : 'Subir logo'}
                   <input type="file" accept={LOGO_ACCEPT} className="sr-only" onChange={onPickLogo} disabled={uploading} />
                 </label>
@@ -353,40 +336,39 @@ function EditModal({ row, editable, onClose, onSaved, onReload }: { row: Fila; e
                     type="button"
                     onClick={removeLogo}
                     disabled={uploading}
-                    className="flit-focus w-fit text-[11px] font-semibold"
-                    style={{ color: 'var(--flit-warning)' }}
+                    className="w-fit text-xs font-semibold text-[var(--kit-naranja-texto)] underline-offset-2 transition-colors hover:underline disabled:opacity-60"
                   >
                     Quitar logo subido
                   </button>
                 )}
               </div>
             </div>
-            <p className="mt-2 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="nota mt-2 text-[var(--color-text-tertiary)]">
               PNG, JPEG, WEBP o SVG · máx. 512 KB. El logo subido tiene prioridad sobre la URL externa.
             </p>
           </div>
 
-          <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+          <label className={ETIQUETA}>
             URL del logo externo (https o /ruta) — opcional
             <input className={`${inputCls} mt-1`} maxLength={500} value={logoUrlExterno} onChange={(e) => setLogoUrlExterno(e.target.value)} placeholder="https://…" />
           </label>
           {logoUrlExterno.trim() && !cfg.logoStorageKey && (
-            <div className="flex items-center gap-3 rounded-xl border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+            <div className={`flex items-center gap-3 ${BLOQUE}`}>
               <img src={logoUrlExterno.trim()} alt="" className="h-12 w-12 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-              <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Vista previa (URL externa)</span>
+              <span className="nota text-[var(--color-text-tertiary)]">Vista previa (URL externa)</span>
             </div>
           )}
-          <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-            <input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} className="flit-focus h-4 w-4 rounded" />
+          <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+            <input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} className="h-4 w-4 accent-[var(--kit-azul)]" />
             Organismo activo en FLIT
           </label>
-          <p className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="nota text-[var(--color-text-tertiary)]">
             Usuarios tránsito asignados: {row.userCount}. Asignar más en Usuarios → Rol Tránsito.
           </p>
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="flit-focus rounded-[999px] px-4 py-2 text-sm font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <GradientButton type="button" variant="alerta" onClick={onClose}>
               Cancelar
-            </button>
+            </GradientButton>
             <GradientButton type="submit" disabled={submitting}>{submitting ? 'Guardando…' : 'Guardar'}</GradientButton>
           </div>
         </form>
@@ -477,7 +459,7 @@ function PlantillaDocumentosTab({ organismoCodigo, onClose }: { organismoCodigo:
 
   return (
     <div className="space-y-4">
-      <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+      <label className={ETIQUETA}>
         Tipología
         <select className={`${inputCls} mt-1`} value={tipologia} onChange={(e) => setTipologia(e.target.value)}>
           {TRAMITE_TIPOLOGIAS.map((t) => (
@@ -487,23 +469,23 @@ function PlantillaDocumentosTab({ organismoCodigo, onClose }: { organismoCodigo:
       </label>
 
       {loading ? (
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cargando plantilla…</p>
+        <p className="flex items-center gap-2 text-sm text-[var(--color-text-tertiary)]" role="status"><Girador />Cargando plantilla…</p>
       ) : (
         <>
-          <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="nota text-[var(--color-text-tertiary)]">
             Ajusta el checklist nacional para este STT. Los cambios aplican al wizard y al gate de envío a tránsito.
           </p>
-          <ul className="max-h-48 space-y-1 overflow-y-auto rounded-xl border p-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
+          <ul className="max-h-48 space-y-1 overflow-y-auto rounded-[9px] border border-[var(--color-border)] p-2">
             {base.map((item) => (
-              <li key={item.id} className="flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 text-xs" style={{ background: 'var(--flit-bg-app)' }}>
-                <span className="min-w-0 flex-1 font-medium" style={{ color: 'var(--flit-text-primary)' }}>{item.label}</span>
-                <label className="flex items-center gap-1" style={{ color: 'var(--flit-text-muted)' }}>
-                  <input type="checkbox" checked={hidden.has(item.id)} onChange={() => toggleHide(item.id)} className="flit-focus h-3.5 w-3.5" />
+              <li key={item.id} className="flex flex-wrap items-center gap-2 rounded-[9px] px-2 py-1.5 text-sm transition-colors hover:bg-[var(--kit-hover)]">
+                <span className="min-w-0 flex-1 font-medium text-[var(--color-text-primary)]">{item.label}</span>
+                <label className="flex items-center gap-1 text-xs text-[var(--color-text-tertiary)]">
+                  <input type="checkbox" checked={hidden.has(item.id)} onChange={() => toggleHide(item.id)} className="h-4 w-4 accent-[var(--kit-azul)]" />
                   Ocultar
                 </label>
                 {!item.obligatorio && (
-                  <label className="flex items-center gap-1" style={{ color: 'var(--flit-text-muted)' }}>
-                    <input type="checkbox" checked={required.has(item.id)} onChange={() => toggleRequire(item.id)} className="flit-focus h-3.5 w-3.5" />
+                  <label className="flex items-center gap-1 text-xs text-[var(--color-text-tertiary)]">
+                    <input type="checkbox" checked={required.has(item.id)} onChange={() => toggleRequire(item.id)} className="h-4 w-4 accent-[var(--kit-azul)]" />
                     Obligatorio
                   </label>
                 )}
@@ -513,59 +495,41 @@ function PlantillaDocumentosTab({ organismoCodigo, onClose }: { organismoCodigo:
 
           {(override.add ?? []).length > 0 && (
             <div>
-              <p className="mb-1 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Anexos adicionales STT</p>
+              <p className="mb-1 text-sm font-semibold text-[var(--color-text-secondary)]">Anexos adicionales STT</p>
               <ul className="space-y-1">
                 {(override.add ?? []).map((item) => (
-                  <li key={item.id} className="flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-xs" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                    <span style={{ color: 'var(--flit-text-primary)' }}>{item.label} <span style={{ color: 'var(--flit-text-muted)' }}>({item.id})</span></span>
-                    <button type="button" onClick={() => removeAdd(item.id)} className="text-[10px] font-semibold" style={{ color: 'var(--flit-warning)' }}>Quitar</button>
+                  <li key={item.id} className="flex items-center justify-between gap-2 rounded-[9px] border border-[var(--color-border)] px-2 py-1.5 text-sm">
+                    <span className="text-[var(--color-text-primary)]">{item.label} <span className="text-[var(--color-text-tertiary)]">({item.id})</span></span>
+                    <button type="button" onClick={() => removeAdd(item.id)} className="text-xs font-semibold text-[var(--kit-naranja-texto)] underline-offset-2 transition-colors hover:underline">Quitar</button>
                   </li>
                 ))}
               </ul>
             </div>
           )}
 
-          <div className="rounded-xl border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-            <p className="mb-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Agregar anexo STT</p>
+          <div className={BLOQUE}>
+            <p className="mb-2 text-sm font-semibold text-[var(--color-text-secondary)]">Agregar anexo STT</p>
             <div className="grid gap-2 sm:grid-cols-2">
               <input className={inputCls} placeholder="id_estable" value={addId} onChange={(e) => setAddId(e.target.value)} maxLength={80} />
               <input className={inputCls} placeholder="Etiqueta visible" value={addLabel} onChange={(e) => setAddLabel(e.target.value)} maxLength={200} />
             </div>
-            <label className="mt-2 flex items-center gap-2 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
-              <input type="checkbox" checked={addObligatorio} onChange={(e) => setAddObligatorio(e.target.checked)} className="flit-focus h-3.5 w-3.5" />
+            <label className="mt-2 flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+              <input type="checkbox" checked={addObligatorio} onChange={(e) => setAddObligatorio(e.target.checked)} className="h-4 w-4 accent-[var(--kit-azul)]" />
               Obligatorio para enviar a tránsito
             </label>
-            <button type="button" onClick={addItem} className="mt-2 text-xs font-semibold" style={{ color: 'var(--flit-blue)' }}>Agregar a la lista</button>
+            <GradientButton type="button" size="sm" variant="secondary" onClick={addItem} className="mt-2">Agregar a la lista</GradientButton>
           </div>
         </>
       )}
 
-      <div className="flex justify-end gap-2 pt-2">
-        <button type="button" onClick={onClose} className="flit-focus rounded-[999px] px-4 py-2 text-sm font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+      <div className="flex flex-wrap justify-end gap-2 pt-2">
+        <GradientButton type="button" variant="secondary" onClick={onClose}>
           Cerrar
-        </button>
+        </GradientButton>
         <GradientButton type="button" onClick={save} disabled={submitting || loading}>
           {submitting ? 'Guardando…' : 'Guardar plantilla'}
         </GradientButton>
       </div>
     </div>
-  );
-}
-
-function Th({ children }: { children: React.ReactNode }) {
-  return (
-    <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide"
-      style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
-      {children}
-    </th>
-  );
-}
-
-function ThRight({ children }: { children: React.ReactNode }) {
-  return (
-    <th scope="col" className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide"
-      style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
-      {children}
-    </th>
   );
 }

@@ -20,22 +20,22 @@ export default function TipologiaContextBanner({ codigo, paso, className = '' }:
 
   const tono = compliance?.tono ?? 'info';
   const boxStyle = tono === 'warn'
-    ? { border: '1px solid rgba(240,90,53,0.35)', background: 'rgba(240,90,53,0.08)' }
-    : { border: '1px solid rgba(79,116,201,0.30)', background: 'rgba(79,116,201,0.08)' };
-  const titleColor = tono === 'warn' ? 'var(--flit-warning)' : 'var(--flit-blue-text)';
+    ? { border: '1px solid color-mix(in srgb, var(--kit-naranja) 35%, transparent)', background: 'color-mix(in srgb, var(--kit-naranja) 8%, transparent)' }
+    : { border: '1px solid color-mix(in srgb, var(--kit-azul) 30%, transparent)', background: 'color-mix(in srgb, var(--kit-azul) 8%, transparent)' };
+  const titleColor = tono === 'warn' ? 'var(--kit-naranja)' : 'var(--color-action)';
 
   return (
-    <div className={`rounded-[12px] p-3 ${className}`} style={boxStyle} role="note">
+    <div className={`rounded-[9px] p-3 ${className}`} style={boxStyle} role="note">
       <p className="text-xs font-bold" style={{ color: titleColor }}>
         {compliance?.titulo ?? journey?.nombre ?? codigo}
       </p>
       {compliance && (
-        <p className="mt-1 text-[11px] leading-relaxed" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
           {compliance.cuerpo}
         </p>
       )}
       {nota && (
-        <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mt-1.5 text-xs leading-relaxed" style={{ color: 'var(--color-text-tertiary)' }}>
           {nota}
         </p>
       )}

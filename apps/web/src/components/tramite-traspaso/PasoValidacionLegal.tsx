@@ -19,14 +19,14 @@ export default function PasoValidacionLegal({
   return (
     <div>
       {pasoSoloLectura(2) && <PasoCerradoBanner />}
-      <p className="mb-3 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>2. Validación legal (RUNT/SIMIT)</p>
+      <p className="m-0 mb-3 text-base font-bold" style={{ color: 'var(--color-action)' }}>2. Validación legal (RUNT/SIMIT)</p>
       {!preflight && preflightLoading && (
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Consultando RUNT, SIMIT e impuesto… (puede tardar ~30 s)</p>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Consultando RUNT, SIMIT e impuesto… (puede tardar ~30 s)</p>
       )}
       {preflightError && !preflight && (
-        <div className="mb-3 rounded-[10px] border p-3" style={{ borderColor: 'var(--flit-danger)', background: 'rgba(228,61,48,0.06)' }}>
-          <p className="text-xs font-semibold" style={{ color: 'var(--flit-danger)' }}>No se pudo completar el pre-vuelo</p>
-          <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>{preflightError}</p>
+        <div className="mb-3 rounded-[9px] border p-3" style={{ borderColor: 'var(--kit-rojo)', background: 'color-mix(in srgb, var(--kit-rojo) 6%, transparent)' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>No se pudo completar el pre-vuelo</p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{preflightError}</p>
           <GradientButton type="button" className="mt-2" onClick={reintentarPreflight} disabled={preflightLoading}>
             Reintentar pre-vuelo
           </GradientButton>
@@ -35,54 +35,50 @@ export default function PasoValidacionLegal({
       {preflight ? (
         <ul className="flex flex-col gap-2">
           {preflight.checks.map((c) => (
-            <li key={c.key} className="flex items-start gap-2 rounded-[10px] border p-2.5" style={{ borderColor: 'var(--flit-border-soft)' }}>
+            <li key={c.key} className="flex flex-wrap items-start gap-2 rounded-[9px] border p-2.5 sm:flex-nowrap" style={{ borderColor: 'var(--color-border)' }}>
               <StatusChip tone={c.status === 'ok' ? 'success' : c.status === 'fail' ? 'danger' : c.status === 'warn' ? 'warning' : 'neutral'}>{c.status}</StatusChip>
-              <div><p className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{c.label}</p><p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{c.message}</p></div>
+              <div className="min-w-0"><p className="m-0 text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>{c.label}</p><p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{c.message}</p></div>
             </li>
           ))}
         </ul>
       ) : !preflightLoading && !preflightError ? (
         <GradientButton type="button" onClick={ejecutarPreflight} disabled={busy || preflightLoading || pasoSoloLectura(2)}>Ejecutar pre-vuelo</GradientButton>
       ) : null}
-      {preflightBloquea && !forzarActivo && <p className="mt-3 text-xs font-semibold" style={{ color: 'var(--flit-danger)' }}>Hay bloqueos críticos (SOAT/RTM). Subsana antes de continuar.</p>}
+      {preflightBloquea && !forzarActivo && <p className="mt-3 text-xs font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>Hay bloqueos críticos (SOAT/RTM). Subsana antes de continuar.</p>}
       {forzarActivo && (
-        <p className="mt-3 rounded-[8px] px-3 py-2 text-[11px] font-semibold" style={{ background: 'rgba(240,90,53,0.08)', color: 'var(--flit-warning)' }}>
+        <p className="mt-3 rounded-[9px] px-3 py-2 text-xs font-semibold" style={{ background: 'color-mix(in srgb, var(--kit-naranja) 8%, transparent)', color: 'var(--kit-naranja-texto)' }}>
           Modo admin: forzar continuar activo — bloqueos de pre-vuelo/SIMIT ignorados.
         </p>
       )}
       {isAdmin && (preflightBloquea || (impuestoUnknown && !pazSalvoOk)) && !forzarActivo && !pasoSoloLectura(2) && (
-        <button type="button" onClick={() => activarForzarContinuar()} disabled={busy}
-          className="flit-focus mt-2 rounded-[999px] px-3 py-1.5 text-[11px] font-semibold"
-          style={{ color: 'var(--flit-warning)', background: 'rgba(240,90,53,0.12)' }}>
+        <GradientButton type="button" variant="alerta" size="sm" className="mt-2" onClick={() => activarForzarContinuar()} disabled={busy}>
           Forzar continuar (admin)
-        </button>
+        </GradientButton>
       )}
       {isAdmin && forzarActivo && (
-        <button type="button" onClick={() => desactivarForzarContinuar()} disabled={busy}
-          className="flit-focus mt-2 rounded-[999px] px-3 py-1.5 text-[11px] font-semibold"
-          style={{ color: 'var(--flit-text-muted)', background: 'var(--flit-bg-app)' }}>
+        <GradientButton type="button" variant="secondary" size="sm" className="mt-2" onClick={() => desactivarForzarContinuar()} disabled={busy}>
           Desactivar forzar continuar
-        </button>
+        </GradientButton>
       )}
       {impuestoUnknown && (
-        <div className="mt-4 rounded-[12px] border p-3" style={{ borderColor: pazSalvoOk ? 'rgba(112,207,58,0.35)' : 'var(--flit-warning)', background: pazSalvoOk ? 'rgba(112,207,58,0.08)' : 'rgba(240,90,53,0.06)' }}>
-          <p className="text-xs font-bold" style={{ color: pazSalvoOk ? 'var(--flit-success)' : 'var(--flit-warning)' }}>Impuesto vehicular — paz y salvo</p>
-          <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
+        <div className="mt-4 rounded-[9px] border p-3" style={{ borderColor: pazSalvoOk ? 'color-mix(in srgb, var(--kit-verde) 35%, transparent)' : 'var(--kit-naranja)', background: pazSalvoOk ? 'color-mix(in srgb, var(--kit-verde) 8%, transparent)' : 'color-mix(in srgb, var(--kit-naranja) 6%, transparent)' }}>
+          <p className="text-xs font-bold" style={{ color: pazSalvoOk ? 'var(--kit-verde-texto)' : 'var(--kit-naranja-texto)' }}>Impuesto vehicular — paz y salvo</p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             Consulta la gobernación departamental o confirma manualmente. También puedes subir el paz y salvo en el paso 6.
           </p>
           {impuestoConsulta && (
-            <div className="mt-2 rounded-[8px] border px-2.5 py-2 text-[11px]" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
-              <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            <div className="mt-2 rounded-[9px] border px-2.5 py-2 text-xs" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+              <p className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                 Fuente: {impuestoConsulta.fuente}
                 {impuestoConsulta.datos.estadoPago ? ` · ${String(impuestoConsulta.datos.estadoPago)}` : ''}
               </p>
               {typeof impuestoConsulta.datos.totalPagar === 'number' && (
-                <p style={{ color: 'var(--flit-text-muted)' }}>
+                <p style={{ color: 'var(--color-text-tertiary)' }}>
                   Total vigencia: ${Number(impuestoConsulta.datos.totalPagar).toLocaleString('es-CO')}
                 </p>
               )}
               {impuestoConsulta.advertencia && (
-                <p className="mt-0.5" style={{ color: 'var(--flit-warning)' }}>{impuestoConsulta.advertencia}</p>
+                <p className="mt-0.5" style={{ color: 'var(--kit-naranja-texto)' }}>{impuestoConsulta.advertencia}</p>
               )}
             </div>
           )}
@@ -92,16 +88,14 @@ export default function PasoValidacionLegal({
                 <GradientButton type="button" onClick={consultarImpuesto} disabled={busy}>
                   {busy ? 'Consultando…' : 'Consultar impuesto'}
                 </GradientButton>
-                <button type="button" onClick={confirmarPazSalvoManual} disabled={busy}
-                  className="flit-focus rounded-[999px] px-3 py-1.5 text-[11px] font-semibold"
-                  style={{ color: 'var(--flit-blue)', background: 'rgba(79,116,201,0.12)' }}>
+                <GradientButton type="button" variant="success" onClick={confirmarPazSalvoManual} disabled={busy}>
                   Confirmar verificación manual
-                </button>
+                </GradientButton>
               </>
             )}
           </div>
           {pazSalvoOk && (
-            <p className="mt-2 text-[11px] font-semibold" style={{ color: 'var(--flit-success)' }}>
+            <p className="mt-2 text-xs font-semibold" style={{ color: 'var(--kit-verde-texto)' }}>
               Paz y salvo registrado ({pazSalvoImpuesto?.metodo === 'upload' ? 'documento' : pazSalvoImpuesto?.metodo === 'consulta' ? 'consulta gobernación' : 'manual'}).
             </p>
           )}

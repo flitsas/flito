@@ -45,8 +45,8 @@ const ESTADOS_TRANSITO = ['enviado_transito', 'recibido_transito', 'placa_preasi
 function Field({ label, value }: { label: string; value?: string | null }) {
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{label}</p>
-      <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>{value || '—'}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>{label}</p>
+      <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>{value || '—'}</p>
     </div>
   );
 }
@@ -60,16 +60,16 @@ export default function MatriculaResumen({ estado, vehiculo, comprador, vin, arc
   const soatTxt = ok
     ? `Vigente${soat?.fechaVencimSoat ? ` · vence ${String(soat.fechaVencimSoat).split('T')[0]}` : ''}`
     : enTransito ? 'Pendiente de póliza' : '—';
-  const tone = ok ? 'var(--flit-success)' : enTransito ? 'var(--flit-blue)' : 'var(--flit-text-muted)';
+  const tone = ok ? 'var(--kit-verde)' : enTransito ? 'var(--kit-azul)' : 'var(--color-text-tertiary)';
 
   return (
-    <section aria-label="Resumen de la matrícula" className="mb-4 rounded-[12px] border p-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <section aria-label="Resumen de la matrícula" className="mb-4 rounded-[9px] border p-4" style={{ borderColor: 'var(--color-border)' }}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="h-5 w-1.5 rounded-full" style={{ background: tone }} />
-          <h3 className="text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'var(--flit-text-primary)' }}>Resumen de la matrícula</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'var(--color-text-primary)' }}>Resumen de la matrícula</h3>
         </div>
-        <span className="rounded-full px-3 py-1 text-[11px] font-semibold" style={{ background: `color-mix(in srgb, ${tone} 14%, transparent)`, color: tone }}>
+        <span className="rounded-full px-3 py-1 text-xs font-semibold" style={{ background: `color-mix(in srgb, ${tone} 14%, transparent)`, color: tone }}>
           {ESTADO_LABEL[estado] || estado}
         </span>
       </div>
@@ -77,7 +77,7 @@ export default function MatriculaResumen({ estado, vehiculo, comprador, vin, arc
       {placa && (
         <div className="mb-3 flex items-center gap-3">
           <span className="font-mono text-2xl font-bold tracking-widest" style={{ color: tone }}>{placa}</span>
-          <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>SOAT: {soatTxt}</span>
+          <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>SOAT: {soatTxt}</span>
         </div>
       )}
 
@@ -93,7 +93,7 @@ export default function MatriculaResumen({ estado, vehiculo, comprador, vin, arc
         {soat?.razonSocialAsegur || soat?.aseguradora ? <Field label="Aseguradora" value={soat.razonSocialAsegur || soat.aseguradora} /> : null}
       </div>
 
-      <p className="mt-3 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+      <p className="mt-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
         El detalle completo (documentos, fotos de identidad, FUR, certificación) está en el expediente, abajo.
       </p>
     </section>

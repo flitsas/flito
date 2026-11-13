@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../../components/flit/FlitModal';
+import GradientButton from '../../components/flit/GradientButton';
+import { Cargador } from '../../components/flit/Cargador';
 import ExpedienteVisor from '../../components/ExpedienteVisor';
 import type { ArchivoData } from './wizard/types';
 
@@ -53,21 +55,20 @@ export default function TransitoExpedienteMatriculaModal({ tramiteId, onClose }:
     || { nombre: '', ciudad: '', codigo: '' };
 
   return (
-    <FlitModal title={`Expediente MI-${String(tramiteId).padStart(4, '0')}`} onClose={onClose}>
+    <FlitModal title={`Expediente MI-${String(tramiteId).padStart(4, '0')}`} onClose={onClose} icono="carpeta">
       {loading || !data ? (
-        <div className="py-8 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando expediente…</div>
+        <Cargador texto="Cargando expediente…" className="py-8" />
       ) : (
         <div className="flex flex-col gap-3">
           <div className="flex justify-end">
-            <button
+            <GradientButton
               type="button"
+              variant="secondary"
               onClick={descargarExpediente}
               disabled={descargando}
-              className="flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-4 text-sm font-medium disabled:opacity-50"
-              style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
             >
               {descargando ? 'Descargando…' : 'Descargar expediente PDF'}
-            </button>
+            </GradientButton>
           </div>
           <ExpedienteVisor
             tramiteId={tramiteId}

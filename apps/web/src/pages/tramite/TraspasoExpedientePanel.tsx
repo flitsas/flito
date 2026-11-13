@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import ExpedienteVisor from '../../components/ExpedienteVisor';
+import GradientButton from '../../components/flit/GradientButton';
 import StatusChip from '../../components/flit/StatusChip';
 import type { ArchivoData, CompradorData, OrgTransito, ValidationStatus, VehiculoData } from './wizard/types';
 import { extractPartesTraspasoFromTramite, resolverValidacionTraspasoParte } from '@operaciones/shared-types';
@@ -59,16 +60,16 @@ export default function TraspasoExpedientePanel({
   const checklistTotal = Object.keys(checklistEstado).length;
 
   return (
-    <section aria-label="Expediente del traspaso" className="rounded-[12px] border" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <section aria-label="Expediente del traspaso" className="rounded-[9px] border" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)' }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flit-focus flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+        className="flit-focus flex w-full flex-wrap items-center justify-between gap-3 rounded-[9px] px-4 py-3 text-left transition-colors hover:bg-[var(--kit-hover)]"
         aria-expanded={open}
       >
         <div>
-          <p className="text-xs font-bold" style={{ color: 'var(--flit-blue-text)' }}>Expediente del traspaso</p>
-          <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="text-xs font-bold" style={{ color: 'var(--color-action)' }}>Expediente del traspaso</p>
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             {radicado ? `Radicado ${radicado}` : 'Sin radicado'} · {docsCount} documento(s)
             {checklistTotal > 0 ? ` · checklist ${checklistDone}/${checklistTotal}` : ''}
           </p>
@@ -77,8 +78,8 @@ export default function TraspasoExpedientePanel({
       </button>
 
       {open && (
-        <div className="border-t px-4 pb-4 pt-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <div className="mb-3 flex flex-wrap gap-2 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
+        <div className="border-t px-4 pb-4 pt-3" style={{ borderColor: 'var(--color-border)' }}>
+          <div className="mb-3 flex flex-wrap gap-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             {checklistPct != null && <span>Checklist {checklistPct}%</span>}
             {validationStatus?.estado && <span>Identidad: {validationStatus.estado}</span>}
             {orgTransito.nombre && <span>Org: {orgTransito.ciudad}</span>}
@@ -93,14 +94,9 @@ export default function TraspasoExpedientePanel({
             emailSent={false}
             orgTransito={orgTransito.nombre ? orgTransito : undefined}
           />
-          <button
-            type="button"
-            onClick={() => cargar()}
-            className="flit-focus mt-3 rounded-[999px] px-3 py-1.5 text-[11px] font-semibold"
-            style={{ color: 'var(--flit-blue)', background: 'rgba(79,116,201,0.12)' }}
-          >
+          <GradientButton type="button" variant="secondary" size="sm" className="mt-3" onClick={() => cargar()}>
             Actualizar expediente
-          </button>
+          </GradientButton>
         </div>
       )}
     </section>
