@@ -1,3 +1,5 @@
+import { Icono } from './kit/Icono';
+
 // FlitUploadBox — caja de carga de documentos del prototipo FLIT (p.15): borde
 // punteado azul, icono centrado, texto azul, fondo blanco. Estados: idle /
 // uploading / verified / rejected. Encapsula solo el contenedor visual + el
@@ -48,48 +50,25 @@ interface FlitUploadBoxProps {
 const ACCEPT_POR_DEFECTO = '.pdf,.png,.jpg,.jpeg';
 
 /** Hover (velo) y foco del kit sobre la caja cuando el input es alcanzable por teclado. */
-const MULTIPLE_FEEDBACK =
-  'hover:shadow-[inset_0_0_0_999px_var(--flit-bg-hover)] focus-within:shadow-[0_0_0_3px_var(--flit-border-focus)]';
-
+// Zona de carga del UI Kit 2026 (`.carga` → `.carga--lista`): borde discontinuo azul de 1,5 px, al quedar lista
+// borde verde sólido y fondo verde al 10 %; rechazada, borde naranja. Íconos del kit.
 export default function FlitUploadBox(
   { label, required, state, count, onFile, accept = ACCEPT_POR_DEFECTO, hint, describedBy, multiple, onFiles, alcanzable }: FlitUploadBoxProps,
 ) {
   const conTeclado = multiple || alcanzable;
-  const color =
-    state === 'rejected' ? 'var(--flit-danger)'
-    : state === 'verified' ? 'var(--flit-success)'
-    : 'var(--flit-blue)';
-  const bg =
-    state === 'rejected' ? 'rgba(228,61,48,0.06)'
-    : state === 'verified' ? 'rgba(112,207,58,0.08)'
-    // Antes '#fff' fijo: el recuadro en reposo se quedaba blanco con la app en oscuro.
-    // Los tintes de verified/rejected son translúcidos y sí componen sobre el nuevo fondo.
-    : 'var(--flit-bg-card)';
-  const icon =
-    state === 'rejected' ? 'M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z'
-    : state === 'verified' ? 'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
-    : 'M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5';
-
+  const glifo = state === 'rejected' ? 'nube-alerta' : state === 'verified' ? 'check' : 'nube-subir';
   return (
     <label
-      className={`flit-focus relative block cursor-pointer rounded-[12px] p-4 transition-colors ${conTeclado ? MULTIPLE_FEEDBACK : ''} ${state === 'uploading' ? 'pointer-events-none opacity-60' : ''}`}
-      style={{ border: `2px dashed ${color}`, background: bg }}
+      data-kit="carga"
+      data-estado={state}
+      className={`carga kit-carga${state === 'verified' ? ' carga--lista' : ''}${state === 'rejected' ? ' kit-carga--rechazada' : ''}${conTeclado ? ' focus-within:outline focus-within:outline-2 focus-within:outline-[var(--kit-azul)]' : ''}${state === 'uploading' ? ' pointer-events-none opacity-60' : ''}`}
     >
-      <div className="text-center">
-        <svg className="mx-auto mb-2 h-8 w-8" style={{ color }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" d={icon} />
-        </svg>
-        <p className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{label}{required ? ' *' : ''}</p>
-        {hint && <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>{hint}</p>}
-        {/* Tinta y no SUPERFICIE en las tres líneas de estado (doctrina del Bug #11604): con
-            `--flit-success` —el lima de marca— este texto de 10 px medía por debajo de 4,5:1 sobre el
-            propio tinte de la caja, y axe lo marca `serious`. El defecto es anterior a la HU #12094;
-            lo destapa ella porque es la primera que corre axe con un archivo ADJUNTO. El borde, el
-            icono y el tinte del fondo conservan el color de marca: son decorativos y están exentos. */}
-        {state === 'rejected' && <p className="mt-1 text-[10px] font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>Rechazado — cargar otro</p>}
-        {state === 'verified' && <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-success-ink)' }}>{count} archivo(s)</p>}
-        {state === 'uploading' && <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-blue-ink)' }}>Analizando...</p>}
-      </div>
+      <Icono nombre={glifo} size={36} />
+      <span className="text-sm font-semibold text-[color:var(--color-text-primary)]">{label}{required ? ' *' : ''}</span>
+      {hint && <small>{hint}</small>}
+      {state === 'rejected' && <small className="font-semibold !text-[color:var(--flit-danger-ink)]">Rechazado — cargar otro</small>}
+      {state === 'verified' && <small className="!text-[color:var(--flit-success-ink)]">{count} archivo(s)</small>}
+      {state === 'uploading' && <small className="!text-[color:var(--color-action)]">Analizando...</small>}
       <input
         type="file"
         accept={accept}
