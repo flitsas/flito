@@ -1,6 +1,6 @@
 // FLITO Logística — piezas compartidas de la consola (HU #14353): tipos del detalle, tonos, botón de fila,
 // avisos y esqueletos. Salieron de `FlitoLogistica.tsx` para que la página no pase de 800 líneas.
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { ActaFilaLogistica, EstadoLogisticaSimple, TramiteFilaLogistica } from '@operaciones/shared-types';
 import type { ChipTone } from '../../flit/StatusChip';
 import { FlitCard, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
@@ -19,20 +19,8 @@ export const TONO_ACTA: Record<string, ChipTone> = { generada: 'neutral', despac
 
 export const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
-const LG = '(min-width: 1024px)';
-
-/** Desde `lg` tabla; por debajo, tarjetas. Se pinta una sola de las dos para no duplicar filas en el DOM. */
-export function useDesdeLg(): boolean {
-  const [desde, setDesde] = useState(() => typeof window === 'undefined' || window.matchMedia(LG).matches);
-  useEffect(() => {
-    const m = window.matchMedia(LG);
-    const alCambiar = () => setDesde(m.matches);
-    alCambiar();
-    m.addEventListener('change', alCambiar);
-    return () => m.removeEventListener('change', alCambiar);
-  }, []);
-  return desde;
-}
+/** Desde `lg` tabla; por debajo, tarjetas. Vive en el shell; se re-exporta para TabTramites/TabActas. */
+export { useDesdeLg } from '../../shell/useDesdeLg';
 
 /** Botón de texto de una fila, con el hover y el foco que la tabla no le daba. */
 export function BotonFila({ children, peligro, aria, onClick }: { children: ReactNode; peligro?: boolean; aria: string; onClick: () => void }) {
