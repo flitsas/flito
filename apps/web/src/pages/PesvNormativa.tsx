@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import KpiCard from '../components/flit/KpiCard';
+import { flitInp } from '../components/flit/flitPageKit';
 
 type Tipo = 'ley' | 'decreto' | 'resolucion' | 'concepto' | 'circular' | 'norma_tecnica';
 interface Norm {
@@ -23,9 +25,24 @@ interface NormBody {
 }
 
 const TIPOS: Tipo[] = ['ley', 'decreto', 'resolucion', 'concepto', 'circular', 'norma_tecnica'];
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
-const cancelBtn = 'flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-4 text-sm font-medium';
+const inputCls = flitInp;
+const MIGA = [{ etiqueta: 'Cumplimiento' }, { etiqueta: 'PESV', to: '/pesv' }];
+const TENUE = 'text-[color:var(--color-text-tertiary)]';
+const TREINTA_DIAS = 30 * 24 * 60 * 60 * 1000;
+
+const COLUMNAS: ColumnaTabla<Norm>[] = [
+  { key: 'codigo', header: 'Código', render: (n) => <span className="font-mono text-xs font-semibold text-[color:var(--color-text-primary)]">{n.codigo}</span> },
+  { key: 'tipo', header: 'Tipo', render: (n) => <StatusChip tone="active">{n.tipo.replace('_', ' ')}</StatusChip> },
+  { key: 'titulo', header: 'Título', render: (n) => <span className="block max-w-md truncate text-sm text-[color:var(--color-text-primary)]">{n.titulo}</span> },
+  { key: 'emisor', header: 'Emisor', render: (n) => <span className="text-xs text-[color:var(--color-text-secondary)]">{n.emisor}</span> },
+  {
+    key: 'prox', header: 'Próxima rev.', render: (n) => {
+      const prox = new Date(n.proximaRevisionAt).getTime() <= Date.now() + TREINTA_DIAS;
+      return <span className={`font-mono text-xs ${prox ? 'font-semibold text-[color:var(--kit-naranja-texto)]' : 'text-[color:var(--color-text-secondary)]'}`}>{n.proximaRevisionAt.slice(0, 10)}</span>;
+    },
+  },
+  { key: 'vigente', header: 'Vigente', render: (n) => (n.vigente ? <span className="text-xs text-[color:var(--kit-verde-texto)]">●</span> : <span className={`text-xs ${TENUE}`}>○</span>) },
+];
 
 export default function PesvNormativa() {
   const [items, setItems] = useState<Norm[]>([]);
@@ -98,62 +115,48 @@ export default function PesvNormativa() {
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Tracker normativo"
+        icono="flito-pesv"
+        miga={MIGA}
         subtitle="Seguimiento de regulaciones aplicables · Paso 1.7 · Res. 40595"
         actions={<GradientButton type="button" onClick={() => setShowCreate(true)}>Nueva norma</GradientButton>}
       />
 
       {proximas > 0 && (
-        <div className="rounded-[18px] p-5" style={{ background: 'rgba(240,90,53,0.10)', border: '1px solid rgba(240,90,53,0.20)' }}>
-          <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-warning)' }}>Próximas a revisar (≤30 días)</p>
-          <div className="mt-1 text-3xl font-bold" style={{ color: 'var(--flit-warning)' }}>{proximas}</div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <KpiCard label="Próximas a revisar (≤30 días)" value={proximas} pendiente />
         </div>
       )}
 
-      <div className="flex items-center gap-2">
-        <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} className={`${inputCls} w-auto min-w-[200px]`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} className={`${inputCls} h-10 w-full sm:w-auto sm:min-w-[200px]`}>
           <option value="">Todos los tipos</option>
           {TIPOS.map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
         </select>
       </div>
 
-      <div className="overflow-hidden bg-white" style={CARD}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr>
-              <Th>Código</Th><Th>Tipo</Th><Th>Título</Th><Th>Emisor</Th><Th>Próxima rev.</Th><Th>Vigente</Th>
-            </tr></thead>
-            <tbody>
-              {loading && <tr><td colSpan={6} className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</td></tr>}
-              {!loading && items.length === 0 && <tr><td colSpan={6} className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin normativa registrada</td></tr>}
-              {items.map((n) => {
-                const prox = new Date(n.proximaRevisionAt).getTime() <= Date.now() + 30 * 24 * 60 * 60 * 1000;
-                return (
-                  <tr key={n.id} className="cursor-pointer border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }} onClick={() => openDetalle(n)}>
-                    <td className="px-4 py-3 font-mono text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{n.codigo}</td>
-                    <td className="px-4 py-3"><StatusChip tone="active">{n.tipo.replace('_', ' ')}</StatusChip></td>
-                    <td className="max-w-md truncate px-4 py-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>{n.titulo}</td>
-                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{n.emisor}</td>
-                    <td className="px-4 py-3 font-mono text-xs" style={{ color: prox ? 'var(--flit-warning)' : 'var(--flit-text-secondary)', fontWeight: prox ? 600 : 400 }}>{n.proximaRevisionAt.slice(0, 10)}</td>
-                    <td className="px-4 py-3 text-xs">{n.vigente ? <span style={{ color: 'var(--flit-success)' }}>●</span> : <span style={{ color: 'var(--flit-text-muted)' }}>○</span>}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <section className="card p-0">
+        <DataTable<Norm>
+          ariaLabel="Tracker normativo"
+          columnas={COLUMNAS}
+          filas={items}
+          getKey={(n) => String(n.id)}
+          status={loading ? 'loading' : undefined}
+          emptyMessage="Sin normativa registrada"
+          onFilaClick={openDetalle}
+        />
+      </section>
 
       {showCreate && (
         <FlitModal title="Nueva normativa" onClose={() => setShowCreate(false)}>
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <input placeholder="Código (ej. RES-40595-2022)" value={form.codigo} onChange={(e) => setForm({ ...form, codigo: e.target.value })} className={inputCls} />
               <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value as Tipo })} className={inputCls}>
                 {TIPOS.map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
               </select>
             </div>
             <input placeholder="Título" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} className={inputCls} />
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <input placeholder="Emisor" value={form.emisor} onChange={(e) => setForm({ ...form, emisor: e.target.value })} className={inputCls} />
               <input type="date" value={form.fechaPublicacion} onChange={(e) => setForm({ ...form, fechaPublicacion: e.target.value })} className={inputCls} />
             </div>
@@ -162,8 +165,8 @@ export default function PesvNormativa() {
             <input type="date" placeholder="Próxima revisión" value={form.proximaRevisionAt} onChange={(e) => setForm({ ...form, proximaRevisionAt: e.target.value })} className={inputCls} />
             <textarea placeholder="Resumen markdown" value={form.resumenMd} onChange={(e) => setForm({ ...form, resumenMd: e.target.value })} rows={4} className={inputCls} />
           </div>
-          <div className="mt-6 flex justify-end gap-2">
-            <button onClick={() => setShowCreate(false)} className={cancelBtn} style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+          <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <GradientButton type="button" variant="secondary" onClick={() => setShowCreate(false)}>Cancelar</GradientButton>
             <GradientButton type="button" onClick={create}>Registrar</GradientButton>
           </div>
         </FlitModal>
@@ -171,21 +174,21 @@ export default function PesvNormativa() {
 
       {detalle && (
         <FlitModal title={detalle.norm.codigo} onClose={() => setDetalle(null)}>
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{detalle.norm.titulo}</p>
-              <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{detalle.norm.emisor} · {detalle.norm.fechaPublicacion?.slice(0, 10)}</p>
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm text-[color:var(--color-text-secondary)]">{detalle.norm.titulo}</p>
+              <p className={`mt-1 text-xs ${TENUE}`}>{detalle.norm.emisor} · {detalle.norm.fechaPublicacion?.slice(0, 10)}</p>
             </div>
-            <button onClick={() => revisar(detalle.norm)} aria-label="Marcar normativa como revisada" className="flit-focus inline-flex h-9 shrink-0 items-center rounded-[999px] px-3 text-xs font-semibold text-white" style={{ background: 'var(--flit-gradient-success)' }}>Marcar como revisada</button>
+            <GradientButton type="button" variant="success" size="sm" onClick={() => revisar(detalle.norm)} aria-label="Marcar normativa como revisada">Marcar como revisada</GradientButton>
           </div>
-          {detalle.norm.urlOficial && <a href={detalle.norm.urlOficial} target="_blank" rel="noreferrer" className="text-xs underline" style={{ color: 'var(--flit-blue)' }}>Ver fuente oficial</a>}
-          {detalle.norm.resumenMd && <pre className="mt-3 whitespace-pre-wrap rounded-[10px] p-3 font-sans text-xs" style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>{detalle.norm.resumenMd}</pre>}
-          <h4 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-secondary)' }}>Historial de revisiones</h4>
-          {detalle.revisiones.length === 0 && <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin revisiones aún.</p>}
+          {detalle.norm.urlOficial && <a href={detalle.norm.urlOficial} target="_blank" rel="noreferrer" className="flit-focus rounded-sm text-xs text-[color:var(--color-action)] underline transition-colors hover:no-underline">Ver fuente oficial</a>}
+          {detalle.norm.resumenMd && <pre className="mt-3 whitespace-pre-wrap rounded-[9px] bg-[var(--color-surface)] p-3 font-sans text-xs text-[color:var(--color-text-secondary)]">{detalle.norm.resumenMd}</pre>}
+          <h4 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wider text-[color:var(--color-text-secondary)]">Historial de revisiones</h4>
+          {detalle.revisiones.length === 0 && <p className={`text-xs ${TENUE}`}>Sin revisiones aún.</p>}
           {detalle.revisiones.map((r) => (
-            <div key={r.id} className="mb-2 border-l-2 py-2 pl-3" style={{ borderColor: 'var(--flit-blue)' }}>
-              <p className="font-mono text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.revisadaAt.slice(0, 10)} → próxima {r.proximaRevisionAt.slice(0, 10)}</p>
-              {r.cambiosObservados && <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-primary)' }}>{r.cambiosObservados}</p>}
+            <div key={r.id} className="mb-2 border-l-2 border-[color:var(--kit-azul)] py-2 pl-3">
+              <p className="font-mono text-xs text-[color:var(--color-text-secondary)]">{r.revisadaAt.slice(0, 10)} → próxima {r.proximaRevisionAt.slice(0, 10)}</p>
+              {r.cambiosObservados && <p className="mt-1 text-xs text-[color:var(--color-text-primary)]">{r.cambiosObservados}</p>}
             </div>
           ))}
         </FlitModal>
@@ -194,6 +197,5 @@ export default function PesvNormativa() {
   );
 }
 
-function Th({ children }: { children: ReactNode }) { return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>; }
 function today(): string { return new Date().toISOString().slice(0, 10); }
 function addDays(iso: string, n: number): string { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }

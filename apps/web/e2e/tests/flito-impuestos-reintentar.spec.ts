@@ -139,10 +139,11 @@ test.describe('FLITO — Impuestos · reintentar validación (HU #12832)', () =>
     const boton = modal.getByRole('button', { name: 'Reintentar validación' });
     await expect(boton).toBeVisible();
     await expect(boton).toBeEnabled();
-    // Única primaria: el gradiente del kit solo lo lleva «Reintentar validación».
-    await expect(boton).toHaveCSS('background-image', /gradient/);
+    // Única primaria: la variante primaria del kit (marcador `data-variante`, UI Kit 2026) solo la
+    // lleva «Reintentar validación».
+    await expect(boton).toHaveAttribute('data-variante', 'primario');
     for (const otro of ['Ver detalle', 'Cerrar']) {
-      await expect(modal.getByRole('button', { name: otro, exact: true }).last()).not.toHaveCSS('background-image', /gradient/);
+      await expect(modal.getByRole('button', { name: otro, exact: true }).last()).not.toHaveAttribute('data-variante', 'primario');
     }
     await expect(modal.getByTestId('validacion-sin-validar')).toContainText('Reintenta la validación en unos minutos.');
     await page.keyboard.press('Escape');
@@ -164,7 +165,7 @@ test.describe('FLITO — Impuestos · reintentar validación (HU #12832)', () =>
     const seccion = page.getByRole('region', { name: 'Validación factura ↔ RUNT' });
     await expect(seccion.getByRole('button', { name: 'Reintentar validación' })).toBeVisible();
     // En el detalle es secundaria.
-    await expect(seccion.getByRole('button', { name: 'Reintentar validación' })).not.toHaveCSS('background-image', /gradient/);
+    await expect(seccion.getByRole('button', { name: 'Reintentar validación' })).not.toHaveAttribute('data-variante', 'primario');
   });
 
   test('AC2 · sin el permiso de certificar no aparece el botón y el copy manda a quien certifica', async ({ page }) => {

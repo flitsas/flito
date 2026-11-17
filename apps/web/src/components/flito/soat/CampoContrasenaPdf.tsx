@@ -1,4 +1,4 @@
-// Campo de la contraseña de un PDF protegido (BUG #14569).
+// Campo de la contraseña de un PDF protegido (BUG 14569).
 //
 // La clave vive SOLO en el estado del componente que lo usa y viaja en el cuerpo multipart: nunca
 // en la URL, en `localStorage` ni en `console`. `autoComplete="off"` para que el navegador no la
@@ -23,7 +23,7 @@ export default function CampoContrasenaPdf({ label, rotulo, valor, onCambio, dis
   const idAyuda = `${id}-ayuda`;
   return (
     <div className="block">
-      <label htmlFor={id} className="mb-1 block break-all text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <label htmlFor={id} className="mb-1 block break-all text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         {rotulo ?? label}
       </label>
       <input id={id} aria-label={rotulo ? label : undefined} type="password" autoComplete="off" spellCheck={false} maxLength={128}
@@ -31,7 +31,7 @@ export default function CampoContrasenaPdf({ label, rotulo, valor, onCambio, dis
         aria-describedby={ayuda ? idAyuda : undefined} aria-invalid={ayuda ? true : undefined}
         onChange={(e) => onCambio(e.target.value)} />
       {ayuda && (
-        <p id={idAyuda} className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{ayuda}</p>
+        <p id={idAyuda} className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{ayuda}</p>
       )}
     </div>
   );

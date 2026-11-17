@@ -3,6 +3,9 @@ import { resolverValidacionVigentePorDocumento, validacionesVigentesPorDocumento
 import { PDF_WORKER_SRC } from '../lib/pdfWorker';
 import { COPY_PDF_PROTEGIDO, esPdfProtegido, mensajeErrorPdf } from '../lib/pdf-protegido';
 import { flitBtnSecondary } from './flit/flitPageKit';
+import GradientButton from './flit/GradientButton';
+import { Girador } from './flit/Cargador';
+import { etiquetaKit, ETIQUETA_PUNTO_CLS } from './flit/kit/tonos';
 
 /** Respuesta HTTP no exitosa. `message` conserva el texto que el FUR ya mostraba; el aviso usa `status`. */
 class ErrorHttpVisor extends Error {
@@ -37,10 +40,11 @@ function AvisoErrorVisor({ mensaje, onReintentar }: { mensaje: string; onReinten
   return (
     <div
       role="alert"
-      className="flex flex-col items-start gap-3 rounded-xl border bg-flit-card p-3 sm:flex-row sm:items-center sm:justify-between"
-      style={{ borderColor: 'color-mix(in srgb, var(--flit-danger-text) 45%, transparent)' }}
+      data-kit="alerta"
+      data-tono="danger"
+      className="flex flex-col items-start gap-3 rounded-[9px] border border-[color:var(--kit-rojo)] bg-[color:color-mix(in_srgb,var(--kit-rojo)_10%,var(--color-surface-elevated))] p-3 sm:flex-row sm:items-center sm:justify-between"
     >
-      <p className="text-xs font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{mensaje}</p>
+      <p className="text-xs font-semibold text-[color:var(--kit-rojo-texto)]">{mensaje}</p>
       <button type="button" onClick={onReintentar} className={`${flitBtnSecondary} shrink-0`}>Reintentar</button>
     </div>
   );
@@ -86,18 +90,18 @@ function CedulaCropper({ fotoCedulaFrontal, fotoCedulaReverso, nombre, tipoDoc, 
   }, [fotoCedulaFrontal, fotoCedulaReverso, cropImage]);
   return (
     <div>
-      <div className="mb-3 p-2.5 flit-tone-active-bg rounded-xl border border-[color:var(--flit-blue)]/30">
-        <p className="text-xs font-semibold text-[color:var(--flit-blue)]">{nombre || '—'}</p>
-        <p className="text-[10px] text-[color:var(--flit-blue)] opacity-80">{tipoDoc} {documento}</p>
+      <div className="mb-3 p-2.5 bg-[color:var(--kit-hover)] rounded-[9px] border border-[color:var(--kit-azul)]">
+        <p className="text-xs font-semibold text-[color:var(--color-action)]">{nombre || '—'}</p>
+        <p className="text-[10px] text-[color:var(--color-action)] opacity-80">{tipoDoc} {documento}</p>
       </div>
-      {loading ? <div className="text-center py-6"><div className="inline-block w-7 h-7 border-4 border-[color:var(--flit-border-soft)] border-t-[color:var(--flit-blue)] rounded-full animate-spin motion-reduce:animate-none" /><p className="text-[10px] flit-tone-muted mt-2">Recortando...</p></div> : (
+      {loading ? <div className="text-center py-6"><Girador /><p className="text-[10px] text-[color:var(--color-text-tertiary)] mt-2">Recortando...</p></div> : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[{ l: 'DOC. IDENTIDAD — FRENTE', src: croppedFront }, { l: 'DOC. IDENTIDAD — REVERSO', src: croppedBack }].map((f) => (
             <div key={f.l} className="text-center">
-              <div className="bg-[color:var(--flit-bg-app)] rounded-xl overflow-hidden border border-[color:var(--flit-border-soft)]">
-                {f.src ? <img src={f.src} alt={f.l} className="w-full h-auto object-contain" /> : <div className="flex items-center justify-center h-28 text-xs flit-tone-muted">Sin foto</div>}
+              <div className="bg-[color:var(--color-surface)] rounded-[9px] overflow-hidden border border-[color:var(--color-border)]">
+                {f.src ? <img src={f.src} alt={f.l} className="w-full h-auto object-contain" /> : <div className="flex items-center justify-center h-28 text-xs text-[color:var(--color-text-tertiary)]">Sin foto</div>}
               </div>
-              <p className="text-[9px] font-semibold flit-tone-muted mt-1 tracking-wide">{f.l}</p>
+              <p className="text-[11px] font-semibold text-[color:var(--color-text-tertiary)] mt-1 tracking-wide">{f.l}</p>
             </div>
           ))}
         </div>
@@ -299,57 +303,57 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
 
   const D = ({ label, value }: { label: string; value: string | undefined }) => (
     <div>
-      <p className="text-[9px] sm:text-[10px] font-semibold flit-tone-muted uppercase tracking-[0.3em]">{label}</p>
-      <p className="text-xs sm:text-sm font-medium flit-tone-primary break-words">{value || '—'}</p>
+      <p className="text-[10px] sm:text-xs font-semibold text-[color:var(--color-text-tertiary)] uppercase tracking-[0.3em]">{label}</p>
+      <p className="text-xs sm:text-sm font-medium text-[color:var(--color-text-primary)] break-words">{value || '—'}</p>
     </div>
   );
 
   const PdfToolbar = ({ loading: ld, pages, blobUrl, onLoad, onDownload, label }: { loading: boolean; pages: string[]; blobUrl: string | null; onLoad: () => void; onDownload: () => void; label: string }) => (
-    <div className="px-3 py-2 bg-text-primary flex flex-wrap items-center gap-2">
-      <button onClick={onLoad} disabled={ld} className={`inline-flex items-center h-9 px-3 rounded-xl text-[11px] font-medium text-[color:var(--flit-blue)]-foreground ${ld ? 'bg-[color:var(--flit-text-muted)]' : 'bg-[color:var(--flit-blue)] hover:bg-[color:var(--flit-blue)]-hover'} transition-colors`}>
+    <div className="px-3 py-2 bg-[color:var(--kit-tinta-fija)] flex flex-wrap items-center gap-2">
+      <GradientButton onClick={onLoad} disabled={ld} size="sm">
         {ld ? 'Generando...' : pages.length > 0 ? 'Regenerar' : label}
-      </button>
+      </GradientButton>
       {blobUrl && <>
-        <button onClick={onDownload} className="inline-flex items-center h-9 px-3 rounded-xl text-[11px] font-medium text-white bg-[color:var(--flit-text-secondary)] hover:opacity-90 transition-opacity">Descargar</button>
-        <button onClick={() => window.open(blobUrl, '_blank')} className="inline-flex items-center h-9 px-3 rounded-xl text-[11px] font-medium text-white bg-[color:var(--flit-text-secondary)] hover:opacity-90 transition-opacity">Abrir</button>
+        <GradientButton onClick={onDownload} variant="secondary" size="sm">Descargar</GradientButton>
+        <GradientButton onClick={() => window.open(blobUrl, '_blank')} variant="secondary" size="sm">Abrir</GradientButton>
       </>}
-      <span className="text-[10px] flit-tone-muted ml-auto">{ld ? 'generando...' : pages.length > 0 ? `${pages.length} pág.` : ''}</span>
+      <span className="text-xs text-[color:var(--kit-sobre-relleno)] opacity-80 ml-auto">{ld ? 'generando...' : pages.length > 0 ? `${pages.length} pág.` : ''}</span>
     </div>
   );
 
   const PdfPages = ({ pages, loading: ld, error: err, msg }: { pages: string[]; loading: boolean; error?: string; msg: string }) => (
-    <div className="p-2 sm:p-3 bg-[color:var(--flit-bg-app)]">
-      {err && <div className="px-3 py-2 bg-danger text-[color:var(--flit-danger)]-foreground text-[10px] font-mono mb-2 rounded-xl">{err}</div>}
-      {pages.length > 0 ? <div className="flex flex-col items-center gap-3">{pages.map((p, i) => <div key={i} className="bg-white rounded-xl shadow-[var(--flit-shadow-card)] overflow-hidden w-full"><img src={p} alt={`P${i + 1}`} className="block w-full h-auto" /></div>)}</div>
-        : ld ? <div className="text-center py-8"><div className="inline-block w-8 h-8 border-4 border-[color:var(--flit-border-soft)] border-t-[color:var(--flit-blue)] rounded-full animate-spin motion-reduce:animate-none" /></div>
-          : <div className="text-center py-8 flit-tone-muted text-xs">{msg}</div>}
+    <div className="p-2 sm:p-3 bg-[color:var(--color-surface)]">
+      {err && <div className="mono px-3 py-2 border border-[color:var(--kit-rojo)] bg-[color:color-mix(in_srgb,var(--kit-rojo)_10%,var(--color-surface-elevated))] text-[color:var(--kit-rojo-texto)] text-xs mb-2 rounded-[9px]">{err}</div>}
+      {pages.length > 0 ? <div className="flex flex-col items-center gap-3">{pages.map((p, i) => <div key={i} className="bg-[color:var(--color-surface-elevated)] rounded-[9px] overflow-hidden w-full"><img src={p} alt={`P${i + 1}`} className="block w-full h-auto" /></div>)}</div>
+        : ld ? <div className="text-center py-8"><Girador /></div>
+          : <div className="text-center py-8 text-[color:var(--color-text-tertiary)] text-xs">{msg}</div>}
     </div>
   );
 
   return (
     <div>
-      <div className="rounded-t-xl sm:rounded-t-2xl px-3 py-3 sm:px-5 sm:py-4 bg-text-primary">
+      <div className="rounded-t-[9px] px-3 py-3 sm:px-5 sm:py-4 bg-[color:var(--kit-tinta-fija)]">
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-[9px] bg-[color:color-mix(in_srgb,var(--kit-sobre-relleno)_12%,transparent)] flex items-center justify-center flex-shrink-0">
             <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[8px] sm:text-[10px] font-semibold text-[color:var(--flit-blue)] uppercase tracking-[0.4em]">Expediente digital · Res. 17145/2023</p>
+            <p className="text-[10px] sm:text-xs font-semibold text-[color:var(--kit-sobre-relleno)] opacity-80 uppercase tracking-[0.2em]">Expediente digital · Res. 17145/2023</p>
             <h2 className="text-sm sm:text-base font-semibold text-white leading-tight">{tituloTramite}</h2>
           </div>
         </div>
         <div className="flex items-center gap-1.5 mt-3 flex-wrap">
-          <span className="px-2 py-1 rounded-full bg-white/10 text-[9px] sm:text-[10px] font-medium text-white/90">{radicadoVisor}</span>
-          <span className="px-2 py-1 rounded-full bg-white/10 text-[9px] sm:text-[10px] font-medium text-white/90 font-mono">{placa || 'SIN PLACA'}</span>
-          <span className="px-2 py-1 rounded-full bg-white/10 text-[9px] sm:text-[10px] font-medium text-white/90">{fecha}</span>
-          <span className="px-2 py-1 rounded-full bg-[color:var(--flit-success)]/20 text-[9px] sm:text-[10px] font-semibold text-[color:var(--flit-success)] flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[color:var(--flit-success)]" />EN PROCESO</span>
+          <span className="px-2 py-1 rounded-full bg-[color:color-mix(in_srgb,var(--kit-sobre-relleno)_12%,transparent)] text-[11px] sm:text-xs font-medium text-white/90">{radicadoVisor}</span>
+          <span className="px-2 py-1 rounded-full bg-[color:color-mix(in_srgb,var(--kit-sobre-relleno)_12%,transparent)] text-[11px] sm:text-xs font-medium text-white/90 mono">{placa || 'SIN PLACA'}</span>
+          <span className="px-2 py-1 rounded-full bg-[color:color-mix(in_srgb,var(--kit-sobre-relleno)_12%,transparent)] text-[11px] sm:text-xs font-medium text-white/90">{fecha}</span>
+          <span {...etiquetaKit('ok')}><span className={ETIQUETA_PUNTO_CLS} aria-hidden="true" />EN PROCESO</span>
         </div>
       </div>
 
-      <div className="flex bg-white border-b border-[color:var(--flit-border-soft)]">
+      <div className="flex bg-[color:var(--color-surface-elevated)] border-b border-[color:var(--color-border)]">
         {mainTabs.map((t) => (
           <button key={t.key} onClick={() => setMainTab(t.key)}
-            className={`flex-1 sm:flex-none flex items-center justify-center sm:justify-start gap-1.5 px-3 sm:px-5 py-3 text-[11px] sm:text-sm font-semibold border-b-2 transition-all ${mainTab === t.key ? 'border-[color:var(--flit-blue)] text-[color:var(--flit-blue)]' : 'border-transparent flit-tone-muted hover:flit-tone-secondary'}`}>
+            className={`flex-1 sm:flex-none flex items-center justify-center sm:justify-start gap-1.5 px-3 sm:px-5 py-3 text-[11px] sm:text-sm font-semibold border-b-2 transition-colors ${mainTab === t.key ? 'border-[color:var(--kit-azul)] text-[color:var(--color-action)]' : 'border-transparent text-[color:var(--color-text-tertiary)] hover:text-[color:var(--color-text-secondary)]'}`}>
             <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d={t.d} /></svg>
             <span className="hidden sm:inline">{t.label}</span>
           </button>
@@ -357,23 +361,23 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
       </div>
 
       {mainTab === 'vehiculo' && (
-        <div className="bg-white rounded-b-xl sm:rounded-b-2xl border border-t-0 border-[color:var(--flit-border-soft)] p-3 sm:p-5">
-          <div className="rounded-xl p-3 sm:p-4 mb-4 bg-warning">
+        <div className="bg-[color:var(--color-surface-elevated)] rounded-b-[9px] border border-t-0 border-[color:var(--color-border)] p-3 sm:p-5">
+          <div className="rounded-[9px] p-3 sm:p-4 mb-4 border border-[color:var(--color-border)] bg-[color:var(--color-surface)]">
             <div className="flex items-center gap-3 sm:gap-5">
-              <div className="bg-white rounded-xl px-3 py-2 sm:px-5 sm:py-3 shadow-[var(--flit-shadow-card)] border-2 border-[color:var(--flit-text-primary)] flex-shrink-0">
-                <p className="text-[6px] sm:text-[8px] font-semibold text-center flit-tone-secondary tracking-[0.3em]">REPÚBLICA DE COLOMBIA</p>
-                <p className="text-xl sm:text-3xl font-semibold flit-tone-primary tracking-[0.15em] sm:tracking-[0.2em] text-center font-mono">{placa || 'NUEVA'}</p>
+              <div className="bg-[color:var(--color-surface-elevated)] rounded-[9px] px-3 py-2 sm:px-5 sm:py-3 border-2 border-[color:var(--color-text-primary)] flex-shrink-0">
+                <p className="text-[8px] sm:text-[10px] font-semibold text-center text-[color:var(--color-text-secondary)] tracking-[0.3em]">REPÚBLICA DE COLOMBIA</p>
+                <p className="text-xl sm:text-3xl font-semibold text-[color:var(--color-text-primary)] tracking-[0.15em] sm:tracking-[0.2em] text-center">{placa || 'NUEVA'}</p>
               </div>
-              <div className="text-[color:var(--flit-warning)]-foreground min-w-0">
-                <p className="text-[8px] sm:text-[10px] font-semibold uppercase tracking-[0.3em] opacity-80">{v.marca || '—'}</p>
+              <div className="text-[color:var(--color-text-primary)] min-w-0">
+                <p className="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.3em] opacity-80">{v.marca || '—'}</p>
                 <p className="text-base sm:text-xl font-semibold truncate">{v.linea || '—'}</p>
                 <p className="text-[10px] sm:text-sm font-medium opacity-90">Modelo {v.modelo || '—'} · {v.color || '—'}</p>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 mb-2"><div className="w-1 h-4 rounded-full bg-[color:var(--flit-blue)]" /><h4 className="text-xs sm:text-sm font-semibold flit-tone-primary uppercase tracking-[0.2em]">Especificaciones técnicas</h4></div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-[color:var(--flit-bg-app)] rounded-xl border border-[color:var(--flit-border-soft)] mb-4">
+          <div className="flex items-center gap-2 mb-2"><div className="w-1 h-4 rounded-full bg-[color:var(--kit-azul)]" /><h4 className="text-xs sm:text-sm font-semibold text-[color:var(--color-text-primary)] uppercase tracking-[0.2em]">Especificaciones técnicas</h4></div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-[color:var(--color-surface)] rounded-[9px] border border-[color:var(--color-border)] mb-4">
             <D label="Clase" value={v.claseVehiculo || v.clase} />
             <D label="Servicio" value={v.tipoServicio || 'Particular'} />
             <D label="Cilindraje" value={v.cilindraje ? `${v.cilindraje} cc` : ''} />
@@ -384,8 +388,8 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
             <D label="Estado" value="ACTIVO" />
           </div>
 
-          <div className="flex items-center gap-2 mb-2"><div className="w-1 h-4 rounded-full bg-[color:var(--flit-blue)]" /><h4 className="text-xs sm:text-sm font-semibold flit-tone-primary uppercase tracking-[0.2em]">Identificación interna</h4></div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-[color:var(--flit-bg-app)] rounded-xl border border-[color:var(--flit-border-soft)]">
+          <div className="flex items-center gap-2 mb-2"><div className="w-1 h-4 rounded-full bg-[color:var(--kit-azul)]" /><h4 className="text-xs sm:text-sm font-semibold text-[color:var(--color-text-primary)] uppercase tracking-[0.2em]">Identificación interna</h4></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-[color:var(--color-surface)] rounded-[9px] border border-[color:var(--color-border)]">
             <D label="VIN" value={vin} />
             <D label="N. Motor" value={v.numMotor} />
             <D label="N. Chasis" value={v.numChasis} />
@@ -395,9 +399,9 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
       )}
 
       {mainTab === 'comprador' && (
-        <div className="bg-white rounded-b-xl sm:rounded-b-2xl border border-t-0 border-[color:var(--flit-border-soft)] p-3 sm:p-5">
-          <div className="flex items-center gap-2 mb-2"><div className="w-1 h-4 rounded-full bg-[color:var(--flit-blue)]" /><h4 className="text-xs sm:text-sm font-semibold flit-tone-primary uppercase tracking-[0.2em]">Datos del comprador</h4></div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-[color:var(--flit-bg-app)] rounded-xl border border-[color:var(--flit-border-soft)] mb-4">
+        <div className="bg-[color:var(--color-surface-elevated)] rounded-b-[9px] border border-t-0 border-[color:var(--color-border)] p-3 sm:p-5">
+          <div className="flex items-center gap-2 mb-2"><div className="w-1 h-4 rounded-full bg-[color:var(--kit-azul)]" /><h4 className="text-xs sm:text-sm font-semibold text-[color:var(--color-text-primary)] uppercase tracking-[0.2em]">Datos del comprador</h4></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-[color:var(--color-surface)] rounded-[9px] border border-[color:var(--color-border)] mb-4">
             <D label="Nombre" value={comprador?.nombre} />
             <D label="Tipo doc" value={comprador?.tipoDoc || 'CC'} />
             <D label="Número" value={comprador?.documento} />
@@ -407,19 +411,19 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
             <D label="Ciudad" value={comprador?.ciudad} />
           </div>
 
-          <div className="flex items-center gap-2 mb-2"><div className="w-1 h-4 rounded-full bg-[color:var(--flit-blue)]" /><h4 className="text-xs sm:text-sm font-semibold flit-tone-primary uppercase tracking-[0.2em]">Validación de identidad</h4></div>
-          <div className="p-3 bg-[color:var(--flit-bg-app)] rounded-xl border border-[color:var(--flit-border-soft)] mb-4">
+          <div className="flex items-center gap-2 mb-2"><div className="w-1 h-4 rounded-full bg-[color:var(--kit-azul)]" /><h4 className="text-xs sm:text-sm font-semibold text-[color:var(--color-text-primary)] uppercase tracking-[0.2em]">Validación de identidad</h4></div>
+          <div className="p-3 bg-[color:var(--color-surface)] rounded-[9px] border border-[color:var(--color-border)] mb-4">
             <div className="flex items-center gap-3">
-              {valId?.estado === 'aprobado' ? (<><div className="w-8 h-8 rounded-full flit-success-bg flex items-center justify-center flex-shrink-0"><svg className="w-4 h-4 text-[color:var(--flit-success)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><div><p className="text-xs font-semibold text-[color:var(--flit-success)]">Validada</p><p className="text-[10px] flit-tone-muted">Score: {valId.score}/100</p></div></>)
-                : valId?.estado === 'rechazado' ? (<><div className="w-8 h-8 rounded-full flit-danger-bg flex items-center justify-center flex-shrink-0"><svg className="w-4 h-4 text-[color:var(--flit-danger)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h-14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" /></svg></div><div><p className="text-xs font-semibold text-[color:var(--flit-danger)]">Rechazada</p></div></>)
-                  : emailSent ? (<><div className="w-8 h-8 rounded-full flit-warning-bg flex items-center justify-center flex-shrink-0"><svg className="w-4 h-4 text-[color:var(--flit-warning)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><div><p className="text-xs font-semibold text-[color:var(--flit-warning)]">Pendiente</p><p className="text-[10px] flit-tone-muted">Enlace enviado</p></div></>)
-                    : (<><div className="w-8 h-8 rounded-full bg-[color:var(--flit-bg-app)] flex items-center justify-center flex-shrink-0"><svg className="w-4 h-4 flit-tone-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><div><p className="text-xs font-semibold flit-tone-muted">Sin validación</p></div></>)}
+              {valId?.estado === 'aprobado' ? (<><div className="w-8 h-8 rounded-full bg-[color:color-mix(in_srgb,var(--kit-verde)_12%,transparent)] flex items-center justify-center flex-shrink-0"><svg className="w-4 h-4 text-[color:var(--kit-verde-texto)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><div><p className="text-xs font-semibold text-[color:var(--kit-verde-texto)]">Validada</p><p className="text-[10px] text-[color:var(--color-text-tertiary)]">Score: {valId.score}/100</p></div></>)
+                : valId?.estado === 'rechazado' ? (<><div className="w-8 h-8 rounded-full bg-[color:color-mix(in_srgb,var(--kit-rojo)_12%,transparent)] flex items-center justify-center flex-shrink-0"><svg className="w-4 h-4 text-[color:var(--kit-rojo-texto)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h-14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" /></svg></div><div><p className="text-xs font-semibold text-[color:var(--kit-rojo-texto)]">Rechazada</p></div></>)
+                  : emailSent ? (<><div className="w-8 h-8 rounded-full bg-[color:color-mix(in_srgb,var(--kit-naranja)_12%,transparent)] flex items-center justify-center flex-shrink-0"><svg className="w-4 h-4 text-[color:var(--kit-naranja-texto)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><div><p className="text-xs font-semibold text-[color:var(--kit-naranja-texto)]">Pendiente</p><p className="text-[10px] text-[color:var(--color-text-tertiary)]">Enlace enviado</p></div></>)
+                    : (<><div className="w-8 h-8 rounded-full bg-[color:var(--color-surface)] flex items-center justify-center flex-shrink-0"><svg className="w-4 h-4 text-[color:var(--color-text-tertiary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><div><p className="text-xs font-semibold text-[color:var(--color-text-tertiary)]">Sin validación</p></div></>)}
             </div>
           </div>
 
           {orgTransito?.nombre && (<>
-            <div className="flex items-center gap-2 mb-2"><div className="w-1 h-4 rounded-full bg-[color:var(--flit-blue)]" /><h4 className="text-xs sm:text-sm font-semibold flit-tone-primary uppercase tracking-[0.2em]">Organismo de tránsito</h4></div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-[color:var(--flit-bg-app)] rounded-xl border border-[color:var(--flit-border-soft)]">
+            <div className="flex items-center gap-2 mb-2"><div className="w-1 h-4 rounded-full bg-[color:var(--kit-azul)]" /><h4 className="text-xs sm:text-sm font-semibold text-[color:var(--color-text-primary)] uppercase tracking-[0.2em]">Organismo de tránsito</h4></div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-[color:var(--color-surface)] rounded-[9px] border border-[color:var(--color-border)]">
               <D label="Nombre" value={orgTransito.nombre} />
               <D label="Ciudad" value={orgTransito.ciudad} />
               <D label="Código" value={orgTransito.codigo} />
@@ -429,18 +433,18 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
       )}
 
       {mainTab === 'documentos' && (
-        <div className="bg-white rounded-b-xl sm:rounded-b-2xl border border-t-0 border-[color:var(--flit-border-soft)]">
-          <div className="flex overflow-x-auto border-b border-[color:var(--flit-border-soft)] px-1 -mb-px">
+        <div className="bg-[color:var(--color-surface-elevated)] rounded-b-[9px] border border-t-0 border-[color:var(--color-border)]">
+          <div className="flex overflow-x-auto border-b border-[color:var(--color-border)] px-1 -mb-px">
             {docTabs.map((t) => (
               <button key={t.key} onClick={() => setDocTab(t.key)}
-                className={`px-3 py-2.5 text-[10px] sm:text-xs font-semibold border-b-2 whitespace-nowrap transition-all ${docTab === t.key ? 'border-[color:var(--flit-blue)] text-[color:var(--flit-blue)]' : 'border-transparent flit-tone-muted hover:flit-tone-secondary'}`}>
+                className={`px-3 py-2.5 text-[10px] sm:text-xs font-semibold border-b-2 whitespace-nowrap transition-colors ${docTab === t.key ? 'border-[color:var(--kit-azul)] text-[color:var(--color-action)]' : 'border-transparent text-[color:var(--color-text-tertiary)] hover:text-[color:var(--color-text-secondary)]'}`}>
                 {t.label}
               </button>
             ))}
           </div>
 
           {docTab === 'fur' && (
-            <div className="bg-text-primary rounded-b-xl sm:rounded-b-2xl overflow-hidden">
+            <div className="bg-[color:var(--kit-tinta-fija)] rounded-b-[9px] overflow-hidden">
               <PdfToolbar loading={furLoading} pages={furPages} blobUrl={furBlobUrl} onLoad={cargarFur} onDownload={() => download(furBlobUrl!, `FUR_${placa || 'vehiculo'}.pdf`)} label="Cargar FUR" />
               <PdfPages pages={furPages} loading={furLoading} error={furError} msg="Haz clic en Cargar FUR" />
             </div>
@@ -452,7 +456,7 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
                 <div className="flex gap-1 flex-wrap mb-3">
                   {archivos.map((a) => (
                     <button key={a.id} onClick={() => setSelectedDoc(selectedDoc === a.id ? null : a.id)}
-                      className={`px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-semibold capitalize transition-colors ${selectedDoc === a.id ? 'flit-tone-active-bg text-[color:var(--flit-blue)] ring-1 ring-accent/30' : 'bg-[color:var(--flit-bg-app)] flit-tone-secondary hover:bg-divider'}`}>
+                      className={`px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-semibold capitalize transition-colors border ${selectedDoc === a.id ? 'border-[color:var(--kit-azul)] bg-[color:var(--kit-hover)] text-[color:var(--color-action)]' : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-elevated)] text-[color:var(--color-text-secondary)] hover:bg-[color:var(--kit-hover)]'}`}>
                       {a.tipo}
                     </button>
                   ))}
@@ -460,35 +464,35 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
                 {selectedDoc && (() => {
                   const doc = archivos.find((a) => a.id === selectedDoc); if (!doc) return null;
                   const isPdf = doc.mimetype === 'application/pdf' || doc.originalName?.endsWith('.pdf');
-                  return (<div className="rounded-xl border border-[color:var(--flit-border-soft)] overflow-hidden">
-                    <div className="px-3 py-2.5 bg-[color:var(--flit-bg-app)] border-b border-[color:var(--flit-border-soft)]"><p className="text-xs font-semibold flit-tone-primary capitalize">{doc.tipo}</p><p className="text-[10px] flit-tone-muted">{doc.originalName}</p></div>
-                    <div className={isPdf ? 'bg-[color:var(--flit-bg-app)]' : 'bg-[color:var(--flit-bg-app)]'}>
-                      {docLoading ? <div className="text-center py-8"><div className="inline-block w-7 h-7 border-4 border-[color:var(--flit-border-soft)] border-t-[color:var(--flit-blue)] rounded-full animate-spin motion-reduce:animate-none" /></div>
-                        : docPages.length > 0 ? <div className="p-2 sm:p-3 flex flex-col items-center gap-2">{docPages.map((s, i) => <div key={i} className="bg-white rounded-xl shadow-[var(--flit-shadow-card)] overflow-hidden w-full"><img src={s} alt="" className="block w-full h-auto" /></div>)}</div>
-                          : <div className="text-center py-6 px-3 text-xs flit-tone-muted">{docProtegido ? `${COPY_PDF_PROTEGIDO}.` : 'Sin vista previa'}</div>}
+                  return (<div className="rounded-[9px] border border-[color:var(--color-border)] overflow-hidden">
+                    <div className="px-3 py-2.5 bg-[color:var(--color-surface)] border-b border-[color:var(--color-border)]"><p className="text-xs font-semibold text-[color:var(--color-text-primary)] capitalize">{doc.tipo}</p><p className="text-[10px] text-[color:var(--color-text-tertiary)]">{doc.originalName}</p></div>
+                    <div className={isPdf ? 'bg-[color:var(--color-surface)]' : 'bg-[color:var(--color-surface)]'}>
+                      {docLoading ? <div className="text-center py-8"><Girador /></div>
+                        : docPages.length > 0 ? <div className="p-2 sm:p-3 flex flex-col items-center gap-2">{docPages.map((s, i) => <div key={i} className="bg-[color:var(--color-surface-elevated)] rounded-[9px] overflow-hidden w-full"><img src={s} alt="" className="block w-full h-auto" /></div>)}</div>
+                          : <div className="text-center py-6 px-3 text-xs text-[color:var(--color-text-tertiary)]">{docProtegido ? `${COPY_PDF_PROTEGIDO}.` : 'Sin vista previa'}</div>}
                     </div>
                   </div>);
                 })()}
                 {!selectedDoc && (<div className="space-y-1.5">{archivos.map((a) => (
-                  <div key={a.id} className="flex items-center gap-2.5 p-2 bg-[color:var(--flit-bg-app)] rounded-xl border border-[color:var(--flit-border-soft)] cursor-pointer hover:bg-divider transition-colors" onClick={() => setSelectedDoc(a.id)}>
-                    <div className="w-7 h-7 rounded-xl flit-success-bg flex items-center justify-center flex-shrink-0"><svg className="w-3 h-3 text-[color:var(--flit-success)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg></div>
-                    <div className="flex-1 min-w-0"><p className="text-xs sm:text-sm font-semibold flit-tone-primary capitalize truncate">{a.tipo}</p><p className="text-[10px] flit-tone-muted truncate">{a.originalName}</p></div>
-                    <svg className="w-3.5 h-3.5 flit-tone-muted flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+                  <div key={a.id} className="flex items-center gap-2.5 p-2 bg-[color:var(--color-surface)] rounded-[9px] border border-[color:var(--color-border)] cursor-pointer hover:bg-[color:var(--kit-hover)] transition-colors" onClick={() => setSelectedDoc(a.id)}>
+                    <div className="w-7 h-7 rounded-[9px] bg-[color:color-mix(in_srgb,var(--kit-verde)_12%,transparent)] flex items-center justify-center flex-shrink-0"><svg className="w-3 h-3 text-[color:var(--kit-verde-texto)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg></div>
+                    <div className="flex-1 min-w-0"><p className="text-xs sm:text-sm font-semibold text-[color:var(--color-text-primary)] capitalize truncate">{a.tipo}</p><p className="text-[10px] text-[color:var(--color-text-tertiary)] truncate">{a.originalName}</p></div>
+                    <svg className="w-3.5 h-3.5 text-[color:var(--color-text-tertiary)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
                   </div>
                 ))}</div>)}
-              </div>) : (<p className="text-xs flit-tone-muted text-center py-6">No se han cargado documentos</p>)}
+              </div>) : (<p className="text-xs text-[color:var(--color-text-tertiary)] text-center py-6">No se han cargado documentos</p>)}
             </div>
           )}
 
           {docTab === 'cedula' && (
             <div className="p-3 sm:p-4">
               {!idDocs && !idDocsLoading && idDocsError ? <AvisoErrorVisor mensaje={idDocsError} onReintentar={loadIdDocs} />
-                : !idDocs && !idDocsLoading ? <div className="text-center py-5"><button onClick={loadIdDocs} className="inline-flex items-center h-10 px-4 rounded-xl text-xs font-medium text-[color:var(--flit-blue)]-foreground bg-[color:var(--flit-blue)] hover:bg-[color:var(--flit-blue)]-hover transition-colors">Cargar documento de identidad</button></div>
-                : idDocsLoading ? <div className="text-center py-6"><div className="inline-block w-7 h-7 border-4 border-[color:var(--flit-border-soft)] border-t-[color:var(--flit-blue)] rounded-full animate-spin motion-reduce:animate-none" /></div>
-                  : idDocs && idDocs.length === 0 ? <p className="text-xs flit-tone-muted text-center py-5">{emailSent ? 'Pendiente' : 'Sin validación'}</p>
+                : !idDocs && !idDocsLoading ? <div className="text-center py-5"><GradientButton onClick={loadIdDocs}>Cargar documento de identidad</GradientButton></div>
+                : idDocsLoading ? <div className="text-center py-6"><Girador /></div>
+                  : idDocs && idDocs.length === 0 ? <p className="text-xs text-[color:var(--color-text-tertiary)] text-center py-5">{emailSent ? 'Pendiente' : 'Sin validación'}</p>
                     : idDocs && idDocs.length > 0 ? (() => {
                       const last = resolverValidacionVigentePorDocumento(idDocs, comprador?.documento);
-                      if (!last) return <p className="text-xs flit-tone-muted text-center py-5">Sin validación del comprador actual</p>;
+                      if (!last) return <p className="text-xs text-[color:var(--color-text-tertiary)] text-center py-5">Sin validación del comprador actual</p>;
                       return <CedulaCropper fotoCedulaFrontal={last.fotoCedulaFrontal ?? null} fotoCedulaReverso={last.fotoCedulaReverso ?? null} nombre={last.nombre ?? ''} tipoDoc={last.tipoDoc ?? ''} documento={last.documento ?? ''} />;
                     })() : null}
             </div>
@@ -497,40 +501,40 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
           {docTab === 'identidad' && (
             <div className="p-3 sm:p-4">
               {!idDocs && !idDocsLoading && idDocsError ? <AvisoErrorVisor mensaje={idDocsError} onReintentar={loadIdDocs} />
-                : !idDocs && !idDocsLoading ? <div className="text-center py-5"><button onClick={loadIdDocs} className="inline-flex items-center h-10 px-4 rounded-xl text-xs font-medium text-[color:var(--flit-warning)]-foreground bg-warning hover:opacity-90 transition-opacity">Cargar validación</button></div>
-                : idDocsLoading ? <div className="text-center py-6"><div className="inline-block w-7 h-7 border-4 border-[color:var(--flit-border-soft)] border-t-warning rounded-full animate-spin motion-reduce:animate-none" /></div>
-                  : idDocs && idDocs.length === 0 ? <p className="text-xs flit-tone-muted text-center py-5">{emailSent ? 'Pendiente' : 'Sin validación'}</p>
+                : !idDocs && !idDocsLoading ? <div className="text-center py-5"><GradientButton onClick={loadIdDocs}>Cargar validación</GradientButton></div>
+                : idDocsLoading ? <div className="text-center py-6"><Girador /></div>
+                  : idDocs && idDocs.length === 0 ? <p className="text-xs text-[color:var(--color-text-tertiary)] text-center py-5">{emailSent ? 'Pendiente' : 'Sin validación'}</p>
                     : idDocs && idDocs.length > 0 ? (() => {
                       const vigentes = validacionesVigentesPorDocumento(idDocs, { documento: comprador?.documento, soloDocumento: !esTraspaso });
-                      if (vigentes.length === 0) return <p className="text-xs flit-tone-muted text-center py-5">Sin validación del comprador actual</p>;
+                      if (vigentes.length === 0) return <p className="text-xs text-[color:var(--color-text-tertiary)] text-center py-5">Sin validación del comprador actual</p>;
                       return vigentes.map((d) => {
                       const ok = d.estado === 'aprobado'; const det = d.detalle || {};
                       return (
-                        <div key={d.id} className={`rounded-xl border overflow-hidden mb-3 ${ok ? 'border-[color:var(--flit-success)]/30' : 'border-[color:var(--flit-danger)]/30'}`}>
-                          <div className={`px-3 py-2.5 ${ok ? 'bg-[color:var(--flit-success)]' : 'bg-danger'}`}>
+                        <div key={d.id} className={`rounded-[9px] border overflow-hidden mb-3 ${ok ? 'border-[color:var(--kit-verde)]' : 'border-[color:var(--kit-rojo)]'}`}>
+                          <div className={`px-3 py-2.5 ${ok ? 'bg-[color:color-mix(in_srgb,var(--kit-verde)_10%,var(--color-surface-elevated))]' : 'bg-[color:color-mix(in_srgb,var(--kit-rojo)_10%,var(--color-surface-elevated))]'}`}>
                             <div className="flex items-center justify-between">
-                              <div><p className="text-[9px] font-semibold uppercase opacity-80 text-[color:var(--flit-success)]-foreground">COMPRADOR</p><p className="text-xs font-semibold text-[color:var(--flit-success)]-foreground">{d.nombre || '—'}</p></div>
-                              <div className="text-right"><span className="px-2 py-0.5 rounded-full text-[9px] font-semibold bg-white/20 text-[color:var(--flit-success)]-foreground">{ok ? 'APROBADO' : 'RECHAZADO'}</span>{d.score != null && <p className="text-sm font-semibold mt-0.5 text-[color:var(--flit-success)]-foreground">{d.score}/100</p>}</div>
+                              <div><p className="text-[11px] font-semibold uppercase opacity-80 text-[color:var(--color-text-primary)]">COMPRADOR</p><p className="text-xs font-semibold text-[color:var(--color-text-primary)]">{d.nombre || '—'}</p></div>
+                              <div className="text-right"><span {...etiquetaKit(ok ? 'ok' : 'danger')}><span className={ETIQUETA_PUNTO_CLS} aria-hidden="true" />{ok ? 'APROBADO' : 'RECHAZADO'}</span>{d.score != null && <p className="text-sm font-semibold mt-0.5 text-[color:var(--color-text-primary)]">{d.score}/100</p>}</div>
                             </div>
                           </div>
                           <div className="p-3">
-                            <div className="grid grid-cols-3 gap-2 mb-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
                               {[{ l: 'SELFIE', src: d.fotoRostro }, { l: 'FRENTE', src: d.fotoCedulaFrontal }, { l: 'REVERSO', src: d.fotoCedulaReverso }].map((f) => (
-                                <div key={f.l} className="text-center"><div className="aspect-[3/4] bg-[color:var(--flit-bg-app)] rounded-xl overflow-hidden border border-[color:var(--flit-border-soft)]">{f.src ? <img src={f.src} alt={f.l} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-[8px] flit-tone-muted">Sin foto</div>}</div><p className="text-[8px] font-semibold flit-tone-muted mt-0.5">{f.l}</p></div>
+                                <div key={f.l} className="text-center"><div className="aspect-[3/4] bg-[color:var(--color-surface)] rounded-[9px] overflow-hidden border border-[color:var(--color-border)]">{f.src ? <img src={f.src} alt={f.l} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-[11px] text-[color:var(--color-text-tertiary)]">Sin foto</div>}</div><p className="text-[11px] font-semibold text-[color:var(--color-text-tertiary)] mt-0.5">{f.l}</p></div>
                               ))}
                             </div>
                             {det.resultado_general && (
-                              <div className="bg-[color:var(--flit-bg-app)] rounded-xl p-2 text-[10px] space-y-0.5 mb-2">
-                                <p className="font-semibold flit-tone-primary text-[9px] uppercase">Resultado forense</p>
-                                {det.comparacion_facial && <div><span className="flit-tone-muted">Facial: </span><span className={`font-semibold ${(det.comparacion_facial.score || 0) >= 60 ? 'text-[color:var(--flit-success)]' : 'text-[color:var(--flit-danger)]'}`}>{det.comparacion_facial.score}/100</span></div>}
-                                {det.liveness && <div><span className="flit-tone-muted">Persona real: </span><span className={`font-semibold ${det.liveness.es_persona_real ? 'text-[color:var(--flit-success)]' : 'text-[color:var(--flit-danger)]'}`}>{det.liveness.es_persona_real ? 'Sí' : 'No'}</span></div>}
-                                <div><span className="flit-tone-muted">Motivo: </span><span className="font-medium flit-tone-primary">{det.resultado_general.motivo}</span></div>
+                              <div className="bg-[color:var(--color-surface)] rounded-[9px] p-2 text-[10px] space-y-0.5 mb-2">
+                                <p className="font-semibold text-[color:var(--color-text-primary)] text-[11px] uppercase">Resultado forense</p>
+                                {det.comparacion_facial && <div><span className="text-[color:var(--color-text-tertiary)]">Facial: </span><span className={`font-semibold ${(det.comparacion_facial.score || 0) >= 60 ? 'text-[color:var(--kit-verde-texto)]' : 'text-[color:var(--kit-rojo-texto)]'}`}>{det.comparacion_facial.score}/100</span></div>}
+                                {det.liveness && <div><span className="text-[color:var(--color-text-tertiary)]">Persona real: </span><span className={`font-semibold ${det.liveness.es_persona_real ? 'text-[color:var(--kit-verde-texto)]' : 'text-[color:var(--kit-rojo-texto)]'}`}>{det.liveness.es_persona_real ? 'Sí' : 'No'}</span></div>}
+                                <div><span className="text-[color:var(--color-text-tertiary)]">Motivo: </span><span className="font-medium text-[color:var(--color-text-primary)]">{det.resultado_general.motivo}</span></div>
                               </div>
                             )}
-                            <div className="bg-[color:var(--flit-bg-app)] rounded-xl p-2 text-[9px] flit-tone-muted space-y-0.5">
-                              {d.validadoAt && <div><strong className="flit-tone-secondary">Validado:</strong> {new Date(d.validadoAt).toLocaleString('es-CO')}</div>}
-                              {d.ipAddress && <div><strong className="flit-tone-secondary">IP:</strong> {d.ipAddress}</div>}
-                              {d.ciudadGeo && <div><strong className="flit-tone-secondary">Ubicación:</strong> {d.ciudadGeo}</div>}
+                            <div className="bg-[color:var(--color-surface)] rounded-[9px] p-2 text-[11px] text-[color:var(--color-text-tertiary)] space-y-0.5">
+                              {d.validadoAt && <div><strong className="text-[color:var(--color-text-secondary)]">Validado:</strong> {new Date(d.validadoAt).toLocaleString('es-CO')}</div>}
+                              {d.ipAddress && <div><strong className="text-[color:var(--color-text-secondary)]">IP:</strong> {d.ipAddress}</div>}
+                              {d.ciudadGeo && <div><strong className="text-[color:var(--color-text-secondary)]">Ubicación:</strong> {d.ciudadGeo}</div>}
                             </div>
                           </div>
                         </div>
@@ -541,17 +545,17 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
           )}
 
           {docTab === 'certificacion' && (
-            <div className="bg-text-primary rounded-b-xl sm:rounded-b-2xl overflow-hidden">
+            <div className="bg-[color:var(--kit-tinta-fija)] rounded-b-[9px] overflow-hidden">
               <PdfToolbar loading={certLoading} pages={certPages} blobUrl={certBlobUrl} onLoad={cargarCert} onDownload={() => download(certBlobUrl!, `Cert_${placa || 'vehiculo'}.pdf`)} label="Generar" />
               {certError
-                ? <div className="p-2 sm:p-3 bg-[color:var(--flit-bg-app)]"><AvisoErrorVisor mensaje={certError} onReintentar={cargarCert} /></div>
+                ? <div className="p-2 sm:p-3 bg-[color:var(--color-surface)]"><AvisoErrorVisor mensaje={certError} onReintentar={cargarCert} /></div>
                 : <PdfPages pages={certPages} loading={certLoading} msg="Haz clic en Generar" />}
             </div>
           )}
         </div>
       )}
 
-      <div className="flex items-center justify-between mt-1 px-1"><p className="text-[9px] flit-tone-muted">Expediente digital · FLIT Operaciones</p></div>
+      <div className="flex items-center justify-between mt-1 px-1"><p className="text-[11px] text-[color:var(--color-text-tertiary)]">Expediente digital · FLIT Operaciones</p></div>
     </div>
   );
 }

@@ -351,7 +351,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await page.keyboard.press('Tab');
     await expect(btnConsultar(page)).toBeFocused();
     // Y la placa no se teclea en NINGÚN sitio: no cambió de bloque, se fue.
-    await expect(page.getByLabel('Placa')).toHaveCount(0);
+    await expect(page.getByLabel(/^Placa/)).toHaveCount(0);
 
     // Marca, línea, modelo y organismo no se teclean. Los DOS asertos hacen falta: un
     // `<input disabled>` conserva el rol `textbox` en varios motores, así que el primero solo no
@@ -925,7 +925,9 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
     await expect(page).toHaveURL(/\/flito\/soat\/solicitud$/);
 
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await expect(nav.getByRole('link')).toHaveCount(1);
+    // UN ítem de módulo. «Ayuda» también es enlace del menú: el Cliente abre `flito_soat`, que tiene ficha
+    // (HU #13431 + #13914, igual en develop), así que se descuenta; no es un segundo módulo.
+    await expect(nav.getByRole('link').filter({ hasNotText: /^Ayuda$/ })).toHaveCount(1);
     await expect(nav.getByRole('link', { name: 'SOAT' })).toHaveAttribute('aria-current', 'page');
   });
 

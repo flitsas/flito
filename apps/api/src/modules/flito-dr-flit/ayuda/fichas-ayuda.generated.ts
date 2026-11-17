@@ -30,8 +30,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_tablero",
     "etiqueta": "Tablero",
     "resumen": "Retenciones, estancamientos y diferencias de operación.",
-    "version": "1.2",
-    "fecha": "2026-10-22",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "tablero",
       "retenciones",
@@ -57,7 +57,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "Es lo primero que ve al iniciar sesión. Para volver a él, en la barra de navegación al pie de la pantalla pulse el primer icono: sección General, ítem Tablero (en pantallas pequeñas, use el botón de menú de la barra superior). No lo confunda con Tablero ejecutivo PESV."
+        "texto": "Es lo primero que ve al iniciar sesión. Para volver a él, en la barra de navegación al pie de la pantalla pulse el primer ícono: sección General, ítem Tablero, que es enlace directo. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «tablero». No lo confunda con Tablero ejecutivo PESV."
       },
       {
         "ancla": "pasos",
@@ -81,8 +81,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "dashboard",
     "etiqueta": "Tablero de control",
     "resumen": "Panel operativo de inicio con los indicadores, las alertas y los atajos de los módulos que usted puede abrir.",
-    "version": "1.0",
-    "fecha": "2026-10-22",
+    "version": "1.1",
+    "fecha": "2026-11-12",
     "palabrasClave": [
       "tablero de control",
       "panel operativo",
@@ -101,7 +101,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "que-es",
         "titulo": "Qué es",
-        "texto": "El Tablero de control es la pantalla de inicio de quien no tiene el Tablero FLITO. Arriba lo saluda con su nombre y la fecha, bajo el título Panel operativo. Reúne los indicadores de vehículos, SOAT, documentos de flota por vencer y errores de RNDC, las alertas que piden atención y atajos a Mantenimiento, RNDC y PESV. Cada bloque aparece solo si usted puede abrir la pantalla a la que lleva. Es de solo lectura: cada tarjeta lo lleva a la pantalla donde se actúa."
+        "texto": "El Tablero de control es la pantalla de inicio de quien no tiene el Tablero FLITO. Arriba, un banner lo saluda con su nombre y la fecha, bajo el título Panel operativo, y a su lado van las cuatro cifras principales. Reúne los indicadores de vehículos, SOAT, documentos de flota por vencer y errores de RNDC, las alertas que piden atención y atajos a Mantenimiento, RNDC y PESV. Cada bloque aparece solo si usted puede abrir la pantalla a la que lleva. Es de solo lectura: cada tarjeta lo lleva a la pantalla donde se actúa."
       },
       {
         "ancla": "para-quien",
@@ -116,12 +116,12 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "pasos",
         "titulo": "Pasos",
-        "texto": "Lea el bloque Estado operativo: Vehículos (en operación), SOAT vigentes (porcentaje verificado del total), Por vencer 60d (documentos de flota) y RNDC errores (manifiestos con error de envío). A la derecha, Flota y Salud SOAT resumen lo mismo y abren su pantalla al pulsarlas. Panel operativo demo con el bloque Estado operativo, sus cuatro indicadores y las tarjetas Flota y Salud SOAT Pulse Por vencer 60d para abrir Flota en la pestaña de vencimientos. Los enlaces Ver vehículos, Tablero PESV, Rendimiento (RUM) y Métricas trámites abren esas pantallas. Revise Atención operativa: cada fila dice qué está pendiente (solicitudes SOAT pendientes de compra, documentos vencidos o por vencer en 60 días) y su botón Ir a SOAT o Ver vencimientos lo lleva a resolverlo. Debajo, los atajos Mantenimiento, RNDC, PESV y Tablero ejecutivo abren cada módulo. Atención operativa demo con una solicitud SOAT pendiente y documentos vencidos y por vencer, y la fila de atajos debajo Si un bloque dice «No pudimos cargar…», pulse Reintentar: repite solo esa consulta y los demás bloques siguen como están. Diagrama de qué ve al iniciar sesión: con el Tablero FLITO, ese tablero; con el Tablero de control, el Panel operativo; sin ninguno de los dos, la primera pantalla que su usuario puede abrir"
+        "texto": "Lea las cifras junto al saludo: Vehículos (en operación), SOAT vigentes (porcentaje verificado del total), Por vencer 60d (documentos de flota) y RNDC errores (manifiestos con error de envío). Debajo, el bloque Estado operativo reúne las tarjetas Flota y Salud SOAT, que resumen lo mismo y abren su pantalla al pulsarlas. Panel operativo demo con el saludo, sus cuatro indicadores y el bloque Estado operativo con las tarjetas Flota y Salud SOAT Pulse Por vencer 60d para abrir Flota en la pestaña de vencimientos. Los enlaces Ver vehículos, Tablero PESV, Rendimiento (RUM) y Métricas trámites abren esas pantallas. Revise Atención operativa: cada fila dice qué está pendiente (solicitudes SOAT pendientes de compra, documentos vencidos o por vencer en 60 días) y su botón Ir a SOAT o Ver vencimientos lo lleva a resolverlo. Debajo, los atajos Mantenimiento, RNDC, PESV y Tablero ejecutivo abren cada módulo. Atención operativa demo con una solicitud SOAT pendiente y documentos vencidos y por vencer, y la fila de atajos debajo Si un bloque dice «No pudimos cargar…», pulse Reintentar: repite solo esa consulta y los demás bloques siguen como están. Diagrama de qué ve al iniciar sesión: con el Tablero FLITO, ese tablero; con el Tablero de control, el Panel operativo; sin ninguno de los dos, la primera pantalla que su usuario puede abrir"
       },
       {
         "ancla": "estados",
         "titulo": "Estados",
-        "texto": "Cargando: las cifras muestran un punto (·) mientras llegan. Error: por bloque, «No pudimos cargar…» con Reintentar. Si le quitaron el permiso de un bloque mientras lo miraba, ese bloque desaparece en vez de mostrar el error. Vacío: «Tu tablero no tiene indicadores con tus permisos actuales», con la indicación de usar el buscador (Ctrl K) o el menú para ir a sus secciones. Lleno: el bloque Estado operativo, las tarjetas de la derecha, Atención operativa cuando hay pendientes y la fila de atajos."
+        "texto": "Cargando: cada cifra muestra una barra gris mientras llega. Error: por bloque, «No pudimos cargar…» con Reintentar. Si le quitaron el permiso de un bloque mientras lo miraba, ese bloque desaparece en vez de mostrar el error. Vacío: «Tu tablero no tiene indicadores con tus permisos actuales», con la indicación de usar el buscador (Ctrl K) o el menú para ir a sus secciones. Lleno: el saludo con las cuatro cifras, el bloque Estado operativo con sus tarjetas, Atención operativa cuando hay pendientes y la fila de atajos."
       },
       {
         "ancla": "que-no-hace",
@@ -135,8 +135,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "clients",
     "etiqueta": "Clientes y proveedores",
     "resumen": "Empresas, servicios que gestiona FLITO y datos comerciales.",
-    "version": "3.2",
-    "fecha": "2026-11-06",
+    "version": "3.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "clientes",
       "proveedores",
@@ -188,7 +188,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Maestros, el ítem Clientes y proveedores. Si la ventana es estrecha, la barra deja solo los iconos y el nombre de cada sección aparece al pasar el cursor por encima; en pantallas pequeñas, use el botón de menú de la barra superior. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «clientes»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Maestros, el ítem Clientes y proveedores. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «clientes»."
       },
       {
         "ancla": "pasos",
@@ -212,8 +212,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_tramites",
     "etiqueta": "Gestión Trámites",
     "resumen": "Cómo despachar SOAT, impuestos y entregas.",
-    "version": "1.4",
-    "fecha": "2026-11-11",
+    "version": "1.6",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "trámites",
       "despachar",
@@ -240,7 +240,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo Trámites del panel que se abre, el ítem Gestión Trámites. En pantallas pequeñas, use el botón de menú de la barra superior; también puede pulsar Ctrl + K (Command + K en Mac) y escribir «trámites». También se entra desde el Tablero, al pulsar una alerta operativa (el listado llega con el filtro ya aplicado)."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo Trámites del panel que se abre, el ítem Gestión Trámites. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «trámites». También se entra desde el Tablero, al pulsar una alerta operativa (el listado llega con el filtro ya aplicado)."
       },
       {
         "ancla": "pasos",
@@ -269,8 +269,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_derechos",
     "etiqueta": "Derechos",
     "resumen": "Lo que el organismo cobra por radicar.",
-    "version": "1.1",
-    "fecha": "2026-10-22",
+    "version": "1.4",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "derechos",
       "organismo de tránsito",
@@ -295,12 +295,12 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo Trámites del panel que se abre, el ítem Derechos. En pantallas pequeñas, use el botón de menú de la barra superior; también puede pulsar Ctrl + K (Command + K en Mac) y escribir «Derechos»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo Trámites del panel que se abre, el ítem Derechos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «Derechos»."
       },
       {
         "ancla": "pasos",
         "titulo": "Pasos",
-        "texto": "En Cargar recibos, elija uno o varios archivos: PDF, imagen, ZIP o un PDF con varios recibos. El Organismo (opcional) es el código del organismo (por ejemplo, 05001) y solo afina la lectura; el trámite se determina por la placa del recibo. Pulse Cargar; el botón dice cuántos archivos eligió, por ejemplo Cargar (1), y mientras lee dice Procesando…. Al terminar, un aviso le dice cuántos derechos quedaron registrados y aparece Resultado de la carga: cada archivo en su canasta —Registrados, En revisión, Sin trámite asociado, Duplicados, Páginas omitidas o Fallidos—, con el archivo, la placa, el trámite, el valor y el detalle. Cerrar oculta el panel cuando termine. Resultado de la carga de un recibo demo: canastas Registrados, En revisión y Duplicados, cada una con archivo, placa, trámite, valor y detalle Lo En revisión (por ejemplo, una placa con varios trámites) se resuelve en Revisiones OCR, no aquí. En la pestaña Drive · Medellín están los consolidados que publica la secretaría en su Drive, con quién los modificó, el tamaño y si ya se procesaron (la fecha, Nunca o Dado por visto). Pulse Procesar, o Reprocesar si ya se había procesado; el resultado aparece en el mismo panel Resultado de la carga. Ver el registro muestra cada pasada, aunque el archivo ya no esté en el Drive. El barrido automático diario de las 9:00 no sustituye este botón. Pestaña Drive · Medellín con el registro de procesamientos abierto y la lista de consolidados demo con Procesar y Reprocesar En la pestaña Registrados, busque por placa o trámite y filtre por Secretaría, Origen o el rango Pagado; en Vista, Con advertencia deja solo los recibos cuyo concepto no coincide con el del trámite. Bajo el origen va el archivo y la página de donde salió cada recibo (o Archivo no registrado en los antiguos). Ver PDF abre el soporte y Ver todos abre los documentos del trámite (derecho, SOAT e impuesto). Una fila con duda muestra Con advertencia. Pestaña Registrados con el buscador, los filtros y tres derechos demo, uno de ellos Con advertencia Diagrama: los recibos entran por Cargar recibos o por Drive · Medellín, el sistema lee placa, fecha y valor, y cada uno cae en Registrados, En revisión, Sin trámite asociado, Duplicados, Páginas omitidas o Fallidos; lo En revisión se resuelve en Revisiones OCR"
+        "texto": "En Cargar recibos, elija uno o varios archivos: PDF, imagen, ZIP o un PDF con varios recibos. El Organismo (opcional) es el código del organismo (por ejemplo, 05001) y solo afina la lectura; el trámite se determina por la placa del recibo. Pulse Cargar; el botón dice cuántos archivos eligió, por ejemplo Cargar (1), y mientras lee dice Procesando…. Al terminar, un aviso le dice cuántos derechos quedaron registrados y aparece Resultado de la carga: cada archivo en su canasta —Registrados, En revisión, Sin trámite asociado, Duplicados, Páginas omitidas o Fallidos—, con el archivo, la placa, el trámite, el valor y el detalle. Cerrar oculta el panel cuando termine. Resultado de la carga de un recibo demo: canastas Registrados, En revisión y Duplicados, cada una con archivo, placa, trámite, valor y detalle Lo En revisión (por ejemplo, una placa con varios trámites) se resuelve en Revisiones OCR, no aquí. En la pestaña Drive · Medellín están los consolidados que publica la secretaría en su Drive, con quién los modificó, el tamaño y si ya se procesaron (la fecha, Nunca o Dado por visto). Pulse Procesar, o Reprocesar si ya se había procesado; el resultado aparece en el mismo panel Resultado de la carga. Ver el registro muestra cada pasada, aunque el archivo ya no esté en el Drive. El barrido automático diario de las 9:00 no sustituye este botón. Pestaña Drive · Medellín con el registro de procesamientos abierto y la lista de consolidados demo con Procesar y Reprocesar En la pestaña Registrados, busque por placa o trámite y, en Filtros, filtre por Secretaría, Origen o el rango Pagado (cada filtro puesto aparece debajo del buscador con su X para quitarlo); en Vista, Con advertencia deja solo los recibos cuyo concepto no coincide con el del trámite. Bajo el origen va el archivo y la página de donde salió cada recibo (o Archivo no registrado en los antiguos). Ver PDF abre el soporte y Ver todos abre los documentos del trámite (derecho, SOAT e impuesto). Una fila con duda muestra Con advertencia. Pestaña Registrados con el buscador, los filtros y tres derechos demo, uno de ellos Con advertencia Diagrama: los recibos entran por Cargar recibos o por Drive · Medellín, el sistema lee placa, fecha y valor, y cada uno cae en Registrados, En revisión, Sin trámite asociado, Duplicados, Páginas omitidas o Fallidos; lo En revisión se resuelve en Revisiones OCR"
       },
       {
         "ancla": "estados",
@@ -319,7 +319,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_revisiones",
     "etiqueta": "Revisiones OCR",
     "resumen": "Cola de confirmación de campos leídos.",
-    "version": "1.4",
+    "version": "1.6",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "revisiones",
@@ -347,7 +347,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Trámites, el ítem Revisiones OCR. Si la ventana es estrecha, la barra deja solo los iconos y el nombre de cada sección aparece al pasar el cursor por encima; en pantallas pequeñas, use el botón de menú de la barra superior. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «revisiones»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Trámites, el ítem Revisiones OCR. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «revisiones»."
       },
       {
         "ancla": "pasos",
@@ -371,8 +371,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_bitacora",
     "etiqueta": "Bitácora",
     "resumen": "Rastro de movimientos de un trámite.",
-    "version": "1.2",
-    "fecha": "2026-10-22",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "bitácora",
       "historial",
@@ -397,7 +397,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Auditoría, el ítem Bitácora. Si la ventana es estrecha, la barra deja solo los iconos y el nombre de cada sección aparece al pasar el cursor por encima; en pantallas pequeñas, use el botón de menú de la barra superior. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «bitácora»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Auditoría, el ítem Bitácora. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «bitácora»."
       },
       {
         "ancla": "pasos",
@@ -421,8 +421,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_comparendos",
     "etiqueta": "Comparendos",
     "resumen": "Lo que SIMIT y los municipios reportan de los NIT vigilados.",
-    "version": "1.2",
-    "fecha": "2026-10-22",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "comparendos",
       "SIMIT",
@@ -447,7 +447,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Comparendos, el ítem Comparendos. Si la ventana es estrecha, la barra deja solo los iconos y el nombre de cada sección aparece al pasar el cursor por encima; en pantallas pequeñas, use el botón de menú de la barra superior. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «comparendos». La pantalla tiene tres pestañas: Registros (el visor, la que se abre), Sincronización y Configuración."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Comparendos, el ítem Comparendos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «comparendos». La pantalla tiene tres pestañas: Registros (el visor, la que se abre), Sincronización y Configuración."
       },
       {
         "ancla": "pasos",
@@ -471,8 +471,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_logistica",
     "etiqueta": "Logística",
     "resumen": "Viajes a FLIT o al cliente, despacho y seguimiento de los viajes.",
-    "version": "3.0",
-    "fecha": "2026-11-09",
+    "version": "3.3",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "logística",
       "viajes",
@@ -507,7 +507,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú lateral, sección Gestión, ítem Logística. Un usuario con rol Proveedor lo tiene de partida si su proveedor presta Logística."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Logística, el ítem Logística. Un usuario con rol Proveedor lo tiene de partida si su proveedor presta Logística. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «logística»."
       },
       {
         "ancla": "pasos",
@@ -531,8 +531,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_logistica_ruta",
     "etiqueta": "Mi ruta",
     "resumen": "Recogidas y entregas asignadas al mensajero.",
-    "version": "2.5",
-    "fecha": "2026-11-06",
+    "version": "2.8",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "mi ruta",
       "recogidas",
@@ -560,7 +560,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú lateral, sección Gestión, ítem Mi ruta (visible para quien tenga el permiso de Mi ruta; de partida, el Mensajero)."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Logística, el ítem Mi ruta. (Visible para quien tenga el permiso de Mi ruta; de partida, el Mensajero.) Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «mi ruta»."
       },
       {
         "ancla": "pasos",
@@ -584,7 +584,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_soat",
     "etiqueta": "SOAT",
     "resumen": "Cola de pólizas del proveedor.",
-    "version": "1.13",
+    "version": "1.15",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "SOAT",
@@ -613,7 +613,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo SOAT e Impuestos del panel que se abre, el ítem SOAT. En pantallas pequeñas, use el botón de menú de la barra superior; también puede pulsar Ctrl + K (Command + K en Mac) y escribir «SOAT»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo SOAT e Impuestos del panel que se abre, el ítem SOAT. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «SOAT»."
       },
       {
         "ancla": "pasos",
@@ -637,8 +637,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_impuestos",
     "etiqueta": "Impuestos",
     "resumen": "Cola de recibos del gestor de impuestos.",
-    "version": "1.8",
-    "fecha": "2026-11-11",
+    "version": "1.11",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "impuestos",
       "recibos",
@@ -666,12 +666,12 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo SOAT e Impuestos del panel que se abre, el ítem Impuestos. En pantallas pequeñas, use el botón de menú de la barra superior; también puede pulsar Ctrl + K (Command + K en Mac) y escribir «Impuestos»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo SOAT e Impuestos del panel que se abre, el ítem Impuestos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «Impuestos»."
       },
       {
         "ancla": "pasos",
         "titulo": "Pasos",
-        "texto": "Filtre con Todos, Pendiente, Solicitado, Con novedad o Pagado. El gestor no ve Todos ni Pendiente. Busque placa, VIN, trámite o comprador. Use Compañía, Organismo y Gestiona (Cualquiera, Operaciones o El organismo); en Vista, Listos para enviar, Sin gestión o Con alertas; los rangos Solicitado y Pagado, y Solo sin gestión si aplica. El gestor no ve Organismo, Gestiona ni Listos para enviar. Limpiar filtros los quita todos. Para acotar por la fecha en que el impuesto quedó registrado en FLITO, use el rango Creado en FLITO; es distinto de la columna Creado de la tabla, que muestra la fecha del trámite en FLIT. Cola de Impuestos con las pastillas de estado, el buscador, los filtros y cuatro impuestos demo con su estado, el documento cargado y el semáforo de la validación contra el RUNT Para llevarse la cola a Excel, pulse Exportar a Excel en el encabezado. El archivo trae el conjunto filtrado completo, no solo la página que está viendo ni las filas que haya marcado. Mientras se genera, el botón dice Preparando el archivo…; al terminar, un aviso le confirma el nombre del archivo descargado y se quita con Cerrar el aviso. Si el filtro trae más filas de las que admite un archivo, no se descarga nada: verá un aviso pidiéndole acotar la búsqueda. El Auditor no ve esta acción. Si su usuario tiene la función de exportar datos de pago (de partida, solo el Administrador; se reparte desde Roles y permisos), verá junto al botón la casilla Incluir datos de pago y trazabilidad: márquela y el archivo añadirá al final, después de las columnas del vehículo y el titular, el estado, la fecha de solicitud, la fecha y el valor de la liquidación, el valor y la fecha del pago, si quedó marcado por diferencia, la modalidad, el gestor, el motivo de la novedad y la fecha de creación. Las celdas de pago van vacías mientras el impuesto no esté pagado. Sin la casilla, o sin esa función, el archivo es el de siempre. Los usuarios con enlace (compañía u organismos) no ven esta casilla: es de uso interno. Con la casilla marcada, si el archivo incluye impuestos cuya dirección del comprador aún no se ha confirmado, el aviso de la descarga lo dice (por ejemplo, El archivo incluye 3 impuestos con dirección sin confirmar. Revísalos en su detalle antes de usar el archivo.). El archivo trae igual todas las filas; el aviso se quita con Cerrar el aviso. Si no hay ninguna, el aviso es el de siempre. Marque las filas que necesite: la casilla ya no se limita a las que admiten una acción. Enviar al gestor, Gestionar en Operaciones y Certificar siguen aplicando solo a las filas que ya las admitían, y el botón se lo dice: con ocho marcadas de las que tres son enviables, verá Enviar al gestor (3 de 8). Cuatro impuestos demo marcados: la barra ofrece Enviar al gestor (1 de 4), Gestionar en Operaciones (1 de 4), Certificar (2 de 4), Descargar soportes y Descargar certificados Con filas marcadas, pulse Descargar soportes (N). Se abre Documentos del ZIP, donde elige Factura de venta, Liquidación (el documento del organismo sin sello de pago), Pagado (el recibo con el sello PAGADO) o varios a la vez, y obtiene un solo archivo ZIP con lo elegido. Dentro del ZIP hay una carpeta por cada documento elegido: facturas de venta, liquidaciones y liquidaciones pagadas; en cada una, un PDF por placa (por ejemplo, liquidaciones pagadas/ABC123.pdf). Solo aparecen las carpetas que tienen algún documento; si eligió Pagado y un registro solo tiene la liquidación, FLITO no la pone en su lugar. Si un documento viene protegido, va aparte, tal cual, en su carpeta como ABC123-2.pdf. Si un documento está dañado y no se puede leer, queda fuera y el aviso final le dice cuántos. Mientras se prepara verá Preparando el archivo…; con muchas filas puede tardar unos minutos. Si ninguna de las filas marcadas tiene el documento que eligió, no se descarga un ZIP vacío: verá un aviso. Si lo marcado pesa más de lo que admite una descarga, marque menos filas y repita. Para descargar los documentos de un solo impuesto, pulse el icono de descarga de su fila, en la última columna, junto a Ver. Lo ven el Administrador y el Gestor de Impuestos; el Auditor no. Se abre la misma ventana de documentos, con Factura de venta, Liquidación y Pagado marcados; desmarque lo que no necesite y pulse Descargar. Recibe un PDF por cada documento marcado, nombrado con la placa: ABC123-factura-venta.pdf, ABC123-liquidacion.pdf y ABC123-pagado.pdf. Si el impuesto no tiene alguno de los documentos que marcó, se descargan los que sí tiene y un aviso le dice cuál faltó (por ejemplo, el impuesto de ABC123 no tiene soporte de pagado). Si falla la conexión, el aviso trae Reintentar. Con filas marcadas, pulse Descargar certificados (N), al lado de Descargar soportes, para llevarse en un solo ZIP el certificado RUNT en PDF de cada registro marcado, hasta 300 a la vez. Cada certificado se llama con la placa (por ejemplo, ABC123.pdf; una placa repetida sale como ABC123-2.pdf). Mientras se prepara, el botón dice Preparando certificados…. Al terminar, un aviso en la página le dice cuántas de las filas marcadas tenían certificado; las que no lo tenían quedan fuera y el ZIP trae el archivo omitidos.csv con cuáles y por qué. Si ninguna de las filas marcadas tiene certificado, no se descarga nada: el aviso le lista las que no tienen certificación vigente (certifíquelas y vuelva a descargar) y las que ya no están en su cola (actualice la página y vuelva a marcarlas). Si marca más de 300, el aviso le pide marcar menos; si descarga varias veces seguidas, le pide esperar un minuto y le ofrece Reintentar la descarga. Solo lo ve quien tiene la función de descargar certificados. El recibo del organismo se carga en dos fases. La liquidación es el documento de la hacienda sin sello: deja el impuesto Solicitado con su valor y su fecha de liquidación, sin pagarlo. El pago es el mismo documento con el sello de pagado: es la única vía a Pagado. En el encabezado, Cargar recibos (masivo) admite PDF, imágenes o un ZIP: hasta 150 archivos sueltos o 300 dentro de un ZIP, de máximo 15 MB cada uno. Elija la Fase del recibo (Pago viene marcado), elija los archivos y pulse Subir y procesar. Dentro de un ZIP manda la carpeta de cada recibo: liquidaciones_originales o sin marca es Liquidación; liquidaciones_pagadas, pagadas o con marca es Pago. Si una carpeta no dice ninguna de las dos, FLITO se lo avisa antes de enviar y esos recibos toman la fase que usted eligió. FLITO no adivina la fase por el documento. Al terminar, el resumen dice cuántos quedaron Liquidados, Conciliados, En revisión, Complementos, Duplicados, Sin asociar y Fase no coincide, y la lista indica el resultado de cada archivo. Fase no coincide significa que el sello del documento contradice la fase elegida (un pago sin sello, una liquidación con sello, o dos documentos de la misma placa que no se distinguen): esos recibos no se guardaron; vuelva a subirlos con la fase que el detalle le indica. Ventana Carga masiva de recibos de impuesto con los límites de archivos, la Fase del recibo en Pago y el botón Subir y procesar En la columna Estado, cada fila dice qué documento tiene el impuesto: Liquidación (falta el pago), Pago o Ambos; sin documento no muestra nada. Al posar el cursor sobre Liquidación ve la fecha en que se cargó. Para ver solo los Solicitados con liquidación cargada y sin pagar, marque Liquidado, pendiente de pago; se combina con los demás filtros y Limpiar filtros lo desmarca. Si combina esa casilla con Pagado no verá filas: el aviso se lo explica. Para pagar un impuesto puntual en ventanilla, abra su detalle con Ver y pulse Cargar recibo de caja, al lado de Ver soporte. Solo lo ve el Administrador (o quien tenga la función de recibos de caja), y solo en un impuesto Solicitado; si el impuesto no tiene liquidación cargada, el botón aparece deshabilitado y le dice por qué. Elija un solo archivo PDF, JPG o PNG de hasta 15 MB y pulse Cargar. Si FLITO lee el valor, el impuesto pasa a Pagado y verá el valor y la fecha leídos; si el valor pagado difiere del liquidado, la fila queda con Diferencia de valor. Si el valor no se pudo leer, el recibo queda guardado y pasa a Revisiones OCR; el impuesto sigue Solicitado hasta que se resuelva la revisión. Un archivo repetido, un impuesto que ya no está en gestión o un lector que no responde se le avisan en el mismo cuadro, con la opción de reintentar o de elegir otro archivo. Para cargar la liquidación o el pago de un impuesto puntual sin armar una carga masiva, abra su detalle con Ver y pulse Cargar comprobante, al lado de Ver soporte. Lo ve el Administrador y el Gestor de Impuestos (o quien tenga la función de cargar recibos), en un impuesto Solicitado o Pagado que aún no tenga los dos documentos; el Auditor no lo ve. En Fase del comprobante elija Liquidación o Pago: no viene ninguna marcada y la fase que ya está cargada aparece como Ya cargada. Elija un solo archivo PDF, JPG o PNG de hasta 15 MB y pulse Cargar; hasta tener la fase y el archivo, el botón le indica Elige la fase y el archivo para cargar. Mientras FLITO lee el documento, el botón dice Leyendo el comprobante…. El resultado aparece en el mismo cuadro: Liquidación cargada (con el valor liquidado; el impuesto sigue Solicitado), Pagado (con el valor pagado y, si difiere del liquidado, Diferencia de valor), En revisión (el pago quedó guardado pero el sello o el valor no se leyeron con claridad; pasa a Revisiones OCR) o Comprobante agregado (en un impuesto ya Pagado). Pulse Listo y el detalle se actualiza sin cerrarse. Si el cuadro dice No se guardó, el comprobante ya estaba registrado o es de otro vehículo (pulse Elegir otro archivo), o el documento no corresponde a la fase elegida (pulse Cambiar fase). Sin liquidación cargada, el botón Cargar recibo de caja le indica Este impuesto no tiene liquidación cargada. Cárgala primero con «Cargar comprobante». En una fila, pulse Ver. Revise Factura de venta (En FLIT · Ver / descargar o Sin factura en FLIT) y Liquidado el (la fecha de la liquidación, o — si no se ha cargado). Según el caso: Rechazar, Reactivar, Asumir en Operaciones, Devolver al gestor, Reversar o Ver soporte. Después de enviar un impuesto, FLITO compara su factura de venta con el RUNT. Mientras lo hace, la celda del trámite muestra Analizando con un indicador de carga; la fila se puede seguir usando. Al terminar aparece un icono de semáforo, sin recargar la página (la fila se actualiza sola en unos segundos; si tiene abierto el detalle, también se actualiza): ✓ verde (la factura cuadra con el RUNT), △ naranja (Con diferencias frente al RUNT) o ✕ rojo (Sin validar). Pase el cursor sobre el icono para leer el detalle; en rojo le dice el motivo: El RUNT no respondió o no tiene registro del vehículo o No se pudo leer la factura. Si el análisis no terminó, el icono rojo dice Sin validar: la validación no terminó. Al enviar varios a la vez, un aviso en la página le dice cuántos quedaron en análisis contra el RUNT. Pulse Actualizar la cola para ver los semáforos cuando terminen, o cierre el aviso con Cerrar aviso. Para ver solo los que tienen alertas, elija Con alertas en Vista: muestra los de semáforo naranja o rojo y se combina con los demás filtros. Limpiar filtros lo quita. Haga clic en el icono del semáforo para abrir la Validación factura ↔ RUNT sin salir de la cola. En verde o naranja verá un resumen (por ejemplo, 2 datos no coinciden: Color, Cilindraje.) y una tabla con lo que dice la factura (En factura) y lo que dice el RUNT (En RUNT) para VIN, Marca, Modelo (línea), Año, Color y Cilindraje, con un icono por fila: ✓ si coincide, △ si no. La fila Dirección del comprador muestra la dirección de la factura; en la columna del RUNT dice No aplica, porque ese dato no se compara. En rojo, la ventana le explica el motivo en lugar de la tabla. Desde ahí, Ver detalle abre el impuesto completo. Ventana Validación factura ↔ RUNT de un impuesto demo con diferencias: 2 datos no coinciden, Color y Cilindraje, con lo que dice la factura y lo que dice el RUNT El detalle del impuesto (Ver) incluye la sección Validación factura ↔ RUNT con el mismo resumen y la misma tabla. Si el impuesto aún no se ha enviado, la sección le indica que se valida al enviarlo al gestor. Detalle de un impuesto demo Solicitado con su liquidación: datos del trámite, factura de venta en FLIT, Ver soporte, Cargar comprobante, Cargar recibo de caja y la sección de validación contra el RUNT Si el semáforo quedó en rojo o la validación no terminó, y el impuesto no está certificado, pulse Reintentar validación: está en la ventana del semáforo (como botón principal) y en la sección Validación factura ↔ RUNT del detalle; no está en la fila, que conserva Certificar. Mientras se envía, el botón dice Reintentando…. Al quedar en cola, la ventana del semáforo se cierra (en el detalle, la sección pasa a La validación está en curso. El resultado aparece aquí en cuanto termine.), la fila pasa a Analizando y un aviso breve le dice Validación en cola. El semáforo se actualiza solo en cuanto termine.; ciérrelo con Cerrar aviso. Si no se pudo, el motivo aparece en la misma ventana o sección (por ejemplo, Esta validación ya está en curso. El semáforo se actualiza solo en cuanto termine. o Este impuesto no tiene una validación que reintentar., que es el caso de los impuestos enviados antes de que existiera la validación) y puede volver a pulsar el botón. Solo lo ve quien tiene la función de certificar impuestos; sin ella, el texto del rojo le indica Pide a quien certifica en tu equipo que reintente la validación. Cuando la validación sale bien, FLITO puede certificar el impuesto por su cuenta. La fila muestra entonces el chip Certificado en lugar de Certificar; al pasar el cursor dice Certificado automáticamente el y la fecha, y al pulsarlo descarga el certificado en PDF, igual que una certificación hecha por una persona. El certificado incluye el bloque Registro del vehículo (RUNT) (clasificación, color, cilindraje, servicio, organismo, estado, fecha de matrícula, motor, chasis y serie; lo que el RUNT no reporte sale como No reportado por el RUNT) y la fecha y hora de Consulta RUNT y certificación. Sin la función de descargar certificados, el chip se ve pero no descarga. Si la dirección del comprador leída de la factura está pendiente de revisión, el detalle del impuesto muestra arriba el aviso Dirección sin confirmar — revísala y guárdala. Pulse Revisar dirección para ir al campo. En la sección Dirección del comprador, revise Dirección, Municipio y Departamento (vienen con lo leído de la factura; los tres son obligatorios) y pulse Guardar dirección. Al guardar, un aviso breve le confirma Dirección guardada., el aviso de arriba desaparece y la sección indica que la confirmó usted (Confirmada por) y la tabla de la validación muestra la dirección nueva. Si no se pudo guardar, el motivo aparece bajo el botón y puede volver a pulsarlo. Mientras tenga abierta otra acción del detalle (Rechazar, Reversar…), la dirección no se puede editar: termine o cancele esa acción primero. Solo lo hace quien tiene la función de corregir la dirección del comprador (de partida, solo el Administrador); sin ella verá la dirección y el aviso Dirección sin confirmar. Debe revisarla alguien con permiso para corregir direcciones. Si el trámite viene de FLIT 2, el detalle del impuesto (Ver) muestra, junto a Soporte, la celda Comprobante en FLIT 2: le dice si FLITO ya le entregó el comprobante de pago al trámite en FLIT 2. El envío es automático cuando el impuesto queda Pagado; usted no tiene que pulsar nada. Los estados son Pendiente (en cola para enviarse), En espera de FLIT 2 (el trámite aún no admite el comprobante; FLITO lo enviará solo cuando lo admita), Enviado a FLIT 2 (con la fecha del envío), Ya lo cargó el gestor (el gestor de FLIT 2 subió el suyo antes y ese es el que vale), Error de envío (FLITO no pudo enviarlo; si el archivo estaba mal, reemplácelo) y Sin comprobante (se enviará cuando se cargue el comprobante de pago). Bajo el estado verá la fecha del último intento cuando la hay. Si el trámite viene de FLIT 1, la celda se llama Comprobante en FLIT 1 y funciona igual: FLITO deja el comprobante como documentación del trámite en FLIT 1 cuando el impuesto queda Pagado. Sus estados son Pendiente, Enviado a FLIT 1 (con la fecha del envío), Error de envío (FLITO no pudo enviarlo tras 3 intentos; si el archivo estaba mal, reemplácelo) y Sin comprobante. Si el trámite no viene de FLIT 1 ni de FLIT 2, la celda no aparece. Si no se pudo consultar, la celda dice No se pudo consultar el envío a FLIT 2. (o a FLIT 1.; al abrir el detalle por primera vez, No se pudo consultar el envío del comprobante.) y ofrece reintentar. Para corregir un comprobante de pago equivocado o ilegible, abra el detalle con Ver y pulse Reemplazar comprobante, en la celda Soporte. Solo aparece en un impuesto Pagado que ya tiene comprobante de pago (no basta con el recibo de caja) y solo si su usuario tiene la función de reemplazar comprobantes, que nace sin asignar a ningún rol, ni siquiera al Administrador: se concede desde Roles y permisos. En el cuadro, el aviso le recuerda que El comprobante de pago actual se descarta y queda el nuevo. El valor pagado y la fecha de pago no cambian. Elija un solo archivo PDF, JPG o PNG de hasta 15 MB y pulse Reemplazar comprobante. FLITO lo valida igual que Cargar comprobante. Si todo va bien, un aviso breve le confirma el reemplazo (por ejemplo, Comprobante reemplazado. FLITO enviará el nuevo a FLIT 2.), el detalle se actualiza y la celda Comprobante en FLIT 2 vuelve a Pendiente. En un trámite de FLIT 1 el aviso dice Comprobante reemplazado. FLITO enviará el nuevo a FLIT 1. y el nuevo pasa a ser el comprobante del trámite allá. Si el gestor ya había cargado el suyo en FLIT 2, el aviso le dice que el nuevo no se envía. Si el trámite no viene de FLIT 1 ni de FLIT 2, el aviso le dice que el comprobante queda solo en FLITO. Si el archivo es de otro vehículo, ya estaba cargado o no es un comprobante de pago, el cuadro se lo dice y El comprobante anterior sigue vigente. Para certificar un vehículo que no viene de un trámite de FLIT, pulse la pestaña Certificar sin trámite, que está sobre la cola, al lado de Impuestos. La pestaña solo aparece si su usuario tiene la función de certificar sin trámite (de partida, solo el Administrador; se reparte desde Roles y permisos). Es una lista aparte: los certificados que genere aquí no entran a la cola de Impuestos, no registran liquidación ni pago y no se envían a ningún trámite. Pulse Nueva certificación; lo primero que verá es la caja Factura de venta (PDF). Elija el PDF y FLITO lo lee solo, sin ningún botón: mientras lo hace verá Leyendo la factura…. Al terminar, el aviso le dice Leímos la factura. Revisa los datos antes de guardar. y cada dato leído lleva la marca Leído. A la izquierda de la pantalla (en computador) queda la factura con su vista previa; pulse la lupa de la esquina inferior derecha de la vista previa para ampliarla (Ampliar factura) o volver a su tamaño (Reducir factura) sin perder lo que lleva escrito. En pantallas pequeñas no se muestra la vista previa. A la derecha complete el Organismo de tránsito y los datos del Vehículo (placa, VIN, marca, línea, año, color y cilindraje). En Propietario, el documento y el nombre son opcionales: si escribe el documento, elija también su Tipo de documento y el RUNT se consulta por placa y documento; si no, por VIN. Con documento y sin tipo no se puede guardar, y si borra el documento el tipo se limpia. La pantalla le dice cuántos datos obligatorios faltan (Faltan N datos para guardar.) y Guardar se habilita cuando están todos. Si FLITO no pudo leer algunos datos, el aviso los nombra (por ejemplo, No pudimos leer: año, color, cilindraje.) y puede pulsar Reintentar lectura. Si cambia la factura y un dato que usted escribió difiere de lo que dice el documento, bajo ese campo verá La factura dice: con el valor leído y el botón Usar este dato; FLITO nunca cambia por sí solo lo que usted escribió. Después de Guardar (el registro queda Guardado), pulse Consultar RUNT. FLITO consulta por placa, tipo de documento y documento si diligenció el documento del propietario, o por VIN si no lo hizo, y compara seis datos con la factura (VIN, marca, modelo, año, color y cilindraje). Si todo coincide, el registro queda Certificado y aparece Descargar certificado, que baja el PDF con los datos de FLITO, el resultado de la comparación y el registro del vehículo en el RUNT. Si hay diferencias, queda No coincide y la tabla le muestra qué dato difiere: corrija el dato o reemplace la factura con Reemplazar factura (PDF, opcional), guarde y consulte de nuevo. Si el RUNT no encuentra el vehículo o no responde, el registro queda No encontrado (consultó con documento: el RUNT no encontró el vehículo con esa placa y ese documento, aunque el vehículo puede existir; corrija el documento o bórrelo para consultar por VIN), Sin vehículo (consultó sin documento: el RUNT no tiene registro de ese VIN) o Sin respuesta (el RUNT no respondió) y puede volver a consultar. El aviso con lo que puede hacer reaparece cada vez que abre un registro No encontrado, Sin vehículo, Sin respuesta o No coincide; al abrir uno Guardado o Certificado no aparece aviso. FLITO no cambia de consulta por su cuenta: si la consulta por placa y documento no certifica, corrija el tipo o el documento, o borre el documento y guarde para consultar por VIN. Un registro que tiene documento pero no tipo, guardado antes de que se pidiera, cuenta el tipo entre los datos que faltan y Consultar RUNT queda deshabilitado hasta que lo elija. Un intento que no certifica no deja un certificado guardado. Un VIN o una placa que ya tiene certificado no se puede registrar otra vez. Si cambia la factura o los datos de un registro que aún no está certificado, vuelve a Guardado y debe consultarse de nuevo. La consulta al RUNT se limita a 10 por minuto por usuario. Diagrama: un impuesto Pendiente pasa a Solicitado al enviarlo; la liquidación lo deja Solicitado con su valor y el pago con sello lo lleva a Pagado; Rechazar lo deja Con novedad; al enviarlo, la factura se compara con el RUNT y el semáforo queda verde, naranja o rojo"
+        "texto": "Filtre con las fases de arriba de la cola: Todos, Pendiente, Solicitado, Con novedad o Pagado. El gestor no ve Todos ni Pendiente. Busque placa, VIN, trámite o comprador en el buscador. Los demás filtros están en Filtros, que abre un panel agrupado en Quién (Compañía, Organismo y Gestiona: Cualquiera, Operaciones o El organismo), Cuándo (los rangos Creado en FLITO, Solicitado y Pagado) y Riesgo (Solo sin gestión y Liquidado, pendiente de pago); Aplicar filtros cierra el panel. El botón Filtros muestra cuántos tiene puestos, y debajo del buscador cada filtro aplicado sale como una etiqueta con su X para quitarlo solo. En Vista, Listos para enviar, Sin gestión o Con alertas. El gestor no ve Organismo, Gestiona ni Listos para enviar. Limpiar filtros los quita todos. Para acotar por la fecha en que el impuesto quedó registrado en FLITO, use el rango Creado en FLITO; es distinto de la columna Creado de la tabla, que muestra la fecha del trámite en FLIT. Cola de Impuestos con las fases, el buscador, el botón Filtros y cuatro impuestos demo con su estado, el documento cargado y el semáforo de la validación contra el RUNT Para llevarse la cola a Excel, pulse Exportar a Excel, arriba de la cola. El archivo trae el conjunto filtrado completo, no solo la página que está viendo ni las filas que haya marcado. Mientras se genera, el botón dice Preparando el archivo…; al terminar, un aviso le confirma el nombre del archivo descargado y se quita con Cerrar el aviso. Si el filtro trae más filas de las que admite un archivo, no se descarga nada: verá un aviso pidiéndole acotar la búsqueda. El Auditor no ve esta acción. Si su usuario tiene la función de exportar datos de pago (de partida, solo el Administrador; se reparte desde Roles y permisos), verá junto al botón la casilla Incluir datos de pago y trazabilidad: márquela y el archivo añadirá al final, después de las columnas del vehículo y el titular, el estado, la fecha de solicitud, la fecha y el valor de la liquidación, el valor y la fecha del pago, si quedó marcado por diferencia, la modalidad, el gestor, el motivo de la novedad y la fecha de creación. Las celdas de pago van vacías mientras el impuesto no esté pagado. Sin la casilla, o sin esa función, el archivo es el de siempre. Los usuarios con enlace (compañía u organismos) no ven esta casilla: es de uso interno. Con la casilla marcada, si el archivo incluye impuestos cuya dirección del comprador aún no se ha confirmado, el aviso de la descarga lo dice (por ejemplo, El archivo incluye 3 impuestos con dirección sin confirmar. Revísalos en su detalle antes de usar el archivo.). El archivo trae igual todas las filas; el aviso se quita con Cerrar el aviso. Si no hay ninguna, el aviso es el de siempre. Marque las filas que necesite: la casilla ya no se limita a las que admiten una acción. Enviar al gestor, Gestionar en Operaciones y Certificar siguen aplicando solo a las filas que ya las admitían, y el botón se lo dice: con ocho marcadas de las que tres son enviables, verá Enviar al gestor (3 de 8). Cuatro impuestos demo marcados: la barra ofrece Enviar al gestor (1 de 4), Gestionar en Operaciones (1 de 4), Certificar (2 de 4), Descargar soportes y Descargar certificados Con filas marcadas, pulse Descargar soportes (N). Se abre Documentos del ZIP, donde elige Factura de venta, Liquidación (el documento del organismo sin sello de pago), Pagado (el recibo con el sello PAGADO) o varios a la vez, y obtiene un solo archivo ZIP con lo elegido. Dentro del ZIP hay una carpeta por cada documento elegido: facturas de venta, liquidaciones y liquidaciones pagadas; en cada una, un PDF por placa (por ejemplo, liquidaciones pagadas/ABC123.pdf). Solo aparecen las carpetas que tienen algún documento; si eligió Pagado y un registro solo tiene la liquidación, FLITO no la pone en su lugar. Si un documento viene protegido, va aparte, tal cual, en su carpeta como ABC123-2.pdf. Si un documento está dañado y no se puede leer, queda fuera y el aviso final le dice cuántos. Mientras se prepara verá Preparando el archivo…; con muchas filas puede tardar unos minutos. Si ninguna de las filas marcadas tiene el documento que eligió, no se descarga un ZIP vacío: verá un aviso. Si lo marcado pesa más de lo que admite una descarga, marque menos filas y repita. Para descargar los documentos de un solo impuesto, pulse el icono de descarga de su fila, en la última columna, junto a Ver. Lo ven el Administrador y el Gestor de Impuestos; el Auditor no. Se abre la misma ventana de documentos, con Factura de venta, Liquidación y Pagado marcados; desmarque lo que no necesite y pulse Descargar. Recibe un PDF por cada documento marcado, nombrado con la placa: ABC123-factura-venta.pdf, ABC123-liquidacion.pdf y ABC123-pagado.pdf. Si el impuesto no tiene alguno de los documentos que marcó, se descargan los que sí tiene y un aviso le dice cuál faltó (por ejemplo, el impuesto de ABC123 no tiene soporte de pagado). Si falla la conexión, el aviso trae Reintentar. Con filas marcadas, pulse Descargar certificados (N), al lado de Descargar soportes, para llevarse en un solo ZIP el certificado RUNT en PDF de cada registro marcado, hasta 300 a la vez. Cada certificado se llama con la placa (por ejemplo, ABC123.pdf; una placa repetida sale como ABC123-2.pdf). Mientras se prepara, el botón dice Preparando certificados…. Al terminar, un aviso en la página le dice cuántas de las filas marcadas tenían certificado; las que no lo tenían quedan fuera y el ZIP trae el archivo omitidos.csv con cuáles y por qué. Si ninguna de las filas marcadas tiene certificado, no se descarga nada: el aviso le lista las que no tienen certificación vigente (certifíquelas y vuelva a descargar) y las que ya no están en su cola (actualice la página y vuelva a marcarlas). Si marca más de 300, el aviso le pide marcar menos; si descarga varias veces seguidas, le pide esperar un minuto y le ofrece Reintentar la descarga. Solo lo ve quien tiene la función de descargar certificados. El recibo del organismo se carga en dos fases. La liquidación es el documento de la hacienda sin sello: deja el impuesto Solicitado con su valor y su fecha de liquidación, sin pagarlo. El pago es el mismo documento con el sello de pagado: es la única vía a Pagado. Arriba de la cola, Cargar recibos (masivo) admite PDF, imágenes o un ZIP: hasta 150 archivos sueltos o 300 dentro de un ZIP, de máximo 15 MB cada uno. Elija la Fase del recibo (Pago viene marcado), elija los archivos y pulse Subir y procesar. Dentro de un ZIP manda la carpeta de cada recibo: liquidaciones_originales o sin marca es Liquidación; liquidaciones_pagadas, pagadas o con marca es Pago. Si una carpeta no dice ninguna de las dos, FLITO se lo avisa antes de enviar y esos recibos toman la fase que usted eligió. FLITO no adivina la fase por el documento. Al terminar, el resumen dice cuántos quedaron Liquidados, Conciliados, En revisión, Complementos, Duplicados, Sin asociar y Fase no coincide, y la lista indica el resultado de cada archivo. Fase no coincide significa que el sello del documento contradice la fase elegida (un pago sin sello, una liquidación con sello, o dos documentos de la misma placa que no se distinguen): esos recibos no se guardaron; vuelva a subirlos con la fase que el detalle le indica. Ventana Carga masiva de recibos de impuesto con los límites de archivos, la Fase del recibo en Pago y el botón Subir y procesar En la columna Estado, cada fila dice qué documento tiene el impuesto: Liquidación (falta el pago), Pago o Ambos; sin documento no muestra nada. Al posar el cursor sobre Liquidación ve la fecha en que se cargó. Para ver solo los Solicitados con liquidación cargada y sin pagar, marque Liquidado, pendiente de pago; se combina con los demás filtros y Limpiar filtros lo desmarca. Si combina esa casilla con Pagado no verá filas: el aviso se lo explica. Para pagar un impuesto puntual en ventanilla, abra su detalle con Ver y pulse Cargar recibo de caja, al lado de Ver soporte. Solo lo ve el Administrador (o quien tenga la función de recibos de caja), y solo en un impuesto Solicitado; si el impuesto no tiene liquidación cargada, el botón aparece deshabilitado y le dice por qué. Elija un solo archivo PDF, JPG o PNG de hasta 15 MB y pulse Cargar. Si FLITO lee el valor, el impuesto pasa a Pagado y verá el valor y la fecha leídos; si el valor pagado difiere del liquidado, la fila queda con Diferencia de valor. Si el valor no se pudo leer, el recibo queda guardado y pasa a Revisiones OCR; el impuesto sigue Solicitado hasta que se resuelva la revisión. Un archivo repetido, un impuesto que ya no está en gestión o un lector que no responde se le avisan en el mismo cuadro, con la opción de reintentar o de elegir otro archivo. Para cargar la liquidación o el pago de un impuesto puntual sin armar una carga masiva, abra su detalle con Ver y pulse Cargar comprobante, al lado de Ver soporte. Lo ve el Administrador y el Gestor de Impuestos (o quien tenga la función de cargar recibos), en un impuesto Solicitado o Pagado que aún no tenga los dos documentos; el Auditor no lo ve. En Fase del comprobante elija Liquidación o Pago: no viene ninguna marcada y la fase que ya está cargada aparece como Ya cargada. Elija un solo archivo PDF, JPG o PNG de hasta 15 MB y pulse Cargar; hasta tener la fase y el archivo, el botón le indica Elige la fase y el archivo para cargar. Mientras FLITO lee el documento, el botón dice Leyendo el comprobante…. El resultado aparece en el mismo cuadro: Liquidación cargada (con el valor liquidado; el impuesto sigue Solicitado), Pagado (con el valor pagado y, si difiere del liquidado, Diferencia de valor), En revisión (el pago quedó guardado pero el sello o el valor no se leyeron con claridad; pasa a Revisiones OCR) o Comprobante agregado (en un impuesto ya Pagado). Pulse Listo y el detalle se actualiza sin cerrarse. Si el cuadro dice No se guardó, el comprobante ya estaba registrado o es de otro vehículo (pulse Elegir otro archivo), o el documento no corresponde a la fase elegida (pulse Cambiar fase). Sin liquidación cargada, el botón Cargar recibo de caja le indica Este impuesto no tiene liquidación cargada. Cárgala primero con «Cargar comprobante». En una fila, pulse Ver. Revise Factura de venta (En FLIT · Ver / descargar o Sin factura en FLIT) y Liquidado el (la fecha de la liquidación, o — si no se ha cargado). Según el caso: Rechazar, Reactivar, Asumir en Operaciones, Devolver al gestor, Reversar o Ver soporte. Después de enviar un impuesto, FLITO compara su factura de venta con el RUNT. Mientras lo hace, la celda del trámite muestra Analizando con un indicador de carga; la fila se puede seguir usando. Al terminar aparece un icono de semáforo, sin recargar la página (la fila se actualiza sola en unos segundos; si tiene abierto el detalle, también se actualiza): ✓ verde (la factura cuadra con el RUNT), △ naranja (Con diferencias frente al RUNT) o ✕ rojo (Sin validar). Pase el cursor sobre el icono para leer el detalle; en rojo le dice el motivo: El RUNT no respondió o no tiene registro del vehículo o No se pudo leer la factura. Si el análisis no terminó, el icono rojo dice Sin validar: la validación no terminó. Al enviar varios a la vez, un aviso en la página le dice cuántos quedaron en análisis contra el RUNT. Pulse Actualizar la cola para ver los semáforos cuando terminen, o cierre el aviso con Cerrar aviso. Para ver solo los que tienen alertas, elija Con alertas en Vista: muestra los de semáforo naranja o rojo y se combina con los demás filtros. Limpiar filtros lo quita. Haga clic en el icono del semáforo para abrir la Validación factura ↔ RUNT sin salir de la cola. En verde o naranja verá un resumen (por ejemplo, 2 datos no coinciden: Color, Cilindraje.) y una tabla con lo que dice la factura (En factura) y lo que dice el RUNT (En RUNT) para VIN, Marca, Modelo (línea), Año, Color y Cilindraje, con un icono por fila: ✓ si coincide, △ si no. La fila Dirección del comprador muestra la dirección de la factura; en la columna del RUNT dice No aplica, porque ese dato no se compara. En rojo, la ventana le explica el motivo en lugar de la tabla. Desde ahí, Ver detalle abre el impuesto completo. Ventana Validación factura ↔ RUNT de un impuesto demo con diferencias: 2 datos no coinciden, Color y Cilindraje, con lo que dice la factura y lo que dice el RUNT El detalle del impuesto (Ver) incluye la sección Validación factura ↔ RUNT con el mismo resumen y la misma tabla. Si el impuesto aún no se ha enviado, la sección le indica que se valida al enviarlo al gestor. Detalle de un impuesto demo Solicitado con su liquidación: datos del trámite, factura de venta en FLIT, Ver soporte, Cargar comprobante, Cargar recibo de caja y la sección de validación contra el RUNT Si el semáforo quedó en rojo o la validación no terminó, y el impuesto no está certificado, pulse Reintentar validación: está en la ventana del semáforo (como botón principal) y en la sección Validación factura ↔ RUNT del detalle; no está en la fila, que conserva Certificar. Mientras se envía, el botón dice Reintentando…. Al quedar en cola, la ventana del semáforo se cierra (en el detalle, la sección pasa a La validación está en curso. El resultado aparece aquí en cuanto termine.), la fila pasa a Analizando y un aviso breve le dice Validación en cola. El semáforo se actualiza solo en cuanto termine.; ciérrelo con Cerrar aviso. Si no se pudo, el motivo aparece en la misma ventana o sección (por ejemplo, Esta validación ya está en curso. El semáforo se actualiza solo en cuanto termine. o Este impuesto no tiene una validación que reintentar., que es el caso de los impuestos enviados antes de que existiera la validación) y puede volver a pulsar el botón. Solo lo ve quien tiene la función de certificar impuestos; sin ella, el texto del rojo le indica Pide a quien certifica en tu equipo que reintente la validación. Cuando la validación sale bien, FLITO puede certificar el impuesto por su cuenta. La fila muestra entonces el chip Certificado en lugar de Certificar; al pasar el cursor dice Certificado automáticamente el y la fecha, y al pulsarlo descarga el certificado en PDF, igual que una certificación hecha por una persona. El certificado incluye el bloque Registro del vehículo (RUNT) (clasificación, color, cilindraje, servicio, organismo, estado, fecha de matrícula, motor, chasis y serie; lo que el RUNT no reporte sale como No reportado por el RUNT) y la fecha y hora de Consulta RUNT y certificación. Sin la función de descargar certificados, el chip se ve pero no descarga. Si la dirección del comprador leída de la factura está pendiente de revisión, el detalle del impuesto muestra arriba el aviso Dirección sin confirmar — revísala y guárdala. Pulse Revisar dirección para ir al campo. En la sección Dirección del comprador, revise Dirección, Municipio y Departamento (vienen con lo leído de la factura; los tres son obligatorios) y pulse Guardar dirección. Al guardar, un aviso breve le confirma Dirección guardada., el aviso de arriba desaparece y la sección indica que la confirmó usted (Confirmada por) y la tabla de la validación muestra la dirección nueva. Si no se pudo guardar, el motivo aparece bajo el botón y puede volver a pulsarlo. Mientras tenga abierta otra acción del detalle (Rechazar, Reversar…), la dirección no se puede editar: termine o cancele esa acción primero. Solo lo hace quien tiene la función de corregir la dirección del comprador (de partida, solo el Administrador); sin ella verá la dirección y el aviso Dirección sin confirmar. Debe revisarla alguien con permiso para corregir direcciones. Si el trámite viene de FLIT 2, el detalle del impuesto (Ver) muestra, junto a Soporte, la celda Comprobante en FLIT 2: le dice si FLITO ya le entregó el comprobante de pago al trámite en FLIT 2. El envío es automático cuando el impuesto queda Pagado; usted no tiene que pulsar nada. Los estados son Pendiente (en cola para enviarse), En espera de FLIT 2 (el trámite aún no admite el comprobante; FLITO lo enviará solo cuando lo admita), Enviado a FLIT 2 (con la fecha del envío), Ya lo cargó el gestor (el gestor de FLIT 2 subió el suyo antes y ese es el que vale), Error de envío (FLITO no pudo enviarlo; si el archivo estaba mal, reemplácelo) y Sin comprobante (se enviará cuando se cargue el comprobante de pago). Bajo el estado verá la fecha del último intento cuando la hay. Si el trámite viene de FLIT 1, la celda se llama Comprobante en FLIT 1 y funciona igual: FLITO deja el comprobante como documentación del trámite en FLIT 1 cuando el impuesto queda Pagado. Sus estados son Pendiente, Enviado a FLIT 1 (con la fecha del envío), Error de envío (FLITO no pudo enviarlo tras 3 intentos; si el archivo estaba mal, reemplácelo) y Sin comprobante. Si el trámite no viene de FLIT 1 ni de FLIT 2, la celda no aparece. Si no se pudo consultar, la celda dice No se pudo consultar el envío a FLIT 2. (o a FLIT 1.; al abrir el detalle por primera vez, No se pudo consultar el envío del comprobante.) y ofrece reintentar. Para corregir un comprobante de pago equivocado o ilegible, abra el detalle con Ver y pulse Reemplazar comprobante, en la celda Soporte. Solo aparece en un impuesto Pagado que ya tiene comprobante de pago (no basta con el recibo de caja) y solo si su usuario tiene la función de reemplazar comprobantes, que nace sin asignar a ningún rol, ni siquiera al Administrador: se concede desde Roles y permisos. En el cuadro, el aviso le recuerda que El comprobante de pago actual se descarta y queda el nuevo. El valor pagado y la fecha de pago no cambian. Elija un solo archivo PDF, JPG o PNG de hasta 15 MB y pulse Reemplazar comprobante. FLITO lo valida igual que Cargar comprobante. Si todo va bien, un aviso breve le confirma el reemplazo (por ejemplo, Comprobante reemplazado. FLITO enviará el nuevo a FLIT 2.), el detalle se actualiza y la celda Comprobante en FLIT 2 vuelve a Pendiente. En un trámite de FLIT 1 el aviso dice Comprobante reemplazado. FLITO enviará el nuevo a FLIT 1. y el nuevo pasa a ser el comprobante del trámite allá. Si el gestor ya había cargado el suyo en FLIT 2, el aviso le dice que el nuevo no se envía. Si el trámite no viene de FLIT 1 ni de FLIT 2, el aviso le dice que el comprobante queda solo en FLITO. Si el archivo es de otro vehículo, ya estaba cargado o no es un comprobante de pago, el cuadro se lo dice y El comprobante anterior sigue vigente. Para certificar un vehículo que no viene de un trámite de FLIT, pulse la pestaña Certificar sin trámite, que está sobre la cola, al lado de Impuestos. La pestaña solo aparece si su usuario tiene la función de certificar sin trámite (de partida, solo el Administrador; se reparte desde Roles y permisos). Es una lista aparte: los certificados que genere aquí no entran a la cola de Impuestos, no registran liquidación ni pago y no se envían a ningún trámite. Pulse Nueva certificación; lo primero que verá es la caja Factura de venta (PDF). Elija el PDF y FLITO lo lee solo, sin ningún botón: mientras lo hace verá Leyendo la factura…. Al terminar, el aviso le dice Leímos la factura. Revisa los datos antes de guardar. y cada dato leído lleva la marca Leído. A la izquierda de la pantalla (en computador) queda la factura con su vista previa; pulse la lupa de la esquina inferior derecha de la vista previa para ampliarla (Ampliar factura) o volver a su tamaño (Reducir factura) sin perder lo que lleva escrito. En pantallas pequeñas no se muestra la vista previa. A la derecha complete el Organismo de tránsito y los datos del Vehículo (placa, VIN, marca, línea, año, color y cilindraje). En Propietario, el documento y el nombre son opcionales: si escribe el documento, elija también su Tipo de documento y el RUNT se consulta por placa y documento; si no, por VIN. Con documento y sin tipo no se puede guardar, y si borra el documento el tipo se limpia. La pantalla le dice cuántos datos obligatorios faltan (Faltan N datos para guardar.) y Guardar se habilita cuando están todos. Si FLITO no pudo leer algunos datos, el aviso los nombra (por ejemplo, No pudimos leer: año, color, cilindraje.) y puede pulsar Reintentar lectura. Si cambia la factura y un dato que usted escribió difiere de lo que dice el documento, bajo ese campo verá La factura dice: con el valor leído y el botón Usar este dato; FLITO nunca cambia por sí solo lo que usted escribió. Después de Guardar (el registro queda Guardado), pulse Consultar RUNT. FLITO consulta por placa, tipo de documento y documento si diligenció el documento del propietario, o por VIN si no lo hizo, y compara seis datos con la factura (VIN, marca, modelo, año, color y cilindraje). Si todo coincide, el registro queda Certificado y aparece Descargar certificado, que baja el PDF con los datos de FLITO, el resultado de la comparación y el registro del vehículo en el RUNT. Si hay diferencias, queda No coincide y la tabla le muestra qué dato difiere: corrija el dato o reemplace la factura con Reemplazar factura (PDF, opcional), guarde y consulte de nuevo. Si el RUNT no encuentra el vehículo o no responde, el registro queda No encontrado (consultó con documento: el RUNT no encontró el vehículo con esa placa y ese documento, aunque el vehículo puede existir; corrija el documento o bórrelo para consultar por VIN), Sin vehículo (consultó sin documento: el RUNT no tiene registro de ese VIN) o Sin respuesta (el RUNT no respondió) y puede volver a consultar. El aviso con lo que puede hacer reaparece cada vez que abre un registro No encontrado, Sin vehículo, Sin respuesta o No coincide; al abrir uno Guardado o Certificado no aparece aviso. FLITO no cambia de consulta por su cuenta: si la consulta por placa y documento no certifica, corrija el tipo o el documento, o borre el documento y guarde para consultar por VIN. Un registro que tiene documento pero no tipo, guardado antes de que se pidiera, cuenta el tipo entre los datos que faltan y Consultar RUNT queda deshabilitado hasta que lo elija. Un intento que no certifica no deja un certificado guardado. Un VIN o una placa que ya tiene certificado no se puede registrar otra vez. Si cambia la factura o los datos de un registro que aún no está certificado, vuelve a Guardado y debe consultarse de nuevo. La consulta al RUNT se limita a 10 por minuto por usuario. Diagrama: un impuesto Pendiente pasa a Solicitado al enviarlo; la liquidación lo deja Solicitado con su valor y el pago con sello lo lleva a Pagado; Rechazar lo deja Con novedad; al enviarlo, la factura se compara con el RUNT y el semáforo queda verde, naranja o rojo"
       },
       {
         "ancla": "estados",
@@ -744,8 +744,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "finanzas_reporte_costos",
     "etiqueta": "Reporte de costos",
     "resumen": "Lo que se cobra al cliente y lo que se paga al proveedor, trámite por trámite.",
-    "version": "2.1",
-    "fecha": "2026-11-11",
+    "version": "2.4",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "reporte de costos",
       "costos por trámite",
@@ -773,7 +773,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú lateral, sección Finanzas, ítem Reporte de costos. También desde Facturación electrónica · Operación, con el enlace ¿Buscas una factura concreta? Ve al reporte de costos."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Reporte de costos. También desde Facturación electrónica · Operación, con el enlace ¿Buscas una factura concreta? Ve al reporte de costos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «reporte de costos»."
       },
       {
         "ancla": "pasos",
@@ -797,8 +797,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "finanzas_gastos_diarios",
     "etiqueta": "Gastos diarios",
     "resumen": "Cuánto se pagó cada día por SOAT, impuestos, derechos, logística y servicios adicionales.",
-    "version": "1.2",
-    "fecha": "2026-10-22",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "gastos diarios",
       "pagos del día",
@@ -824,7 +824,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú lateral, sección Finanzas, ítem Gastos diarios, justo después de Reporte de costos."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Gastos diarios. Está justo después de Reporte de costos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «gastos diarios»."
       },
       {
         "ancla": "pasos",
@@ -848,8 +848,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_bolsas",
     "etiqueta": "Bolsas",
     "resumen": "Saldos, alta de bolsas, recargas y cierres.",
-    "version": "1.8",
-    "fecha": "2026-10-26",
+    "version": "1.11",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "bolsas",
       "saldos",
@@ -893,7 +893,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú lateral, sección Finanzas, ítem Bolsas."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Bolsas. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «bolsas»."
       },
       {
         "ancla": "pasos",
@@ -917,8 +917,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_tarifas",
     "etiqueta": "Tarifas",
     "resumen": "Cuánto se le cobra a cada cliente y cuánto cobra cada proveedor por su servicio.",
-    "version": "2.0",
-    "fecha": "2026-11-11",
+    "version": "2.3",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "tarifas",
       "precios",
@@ -947,7 +947,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú, Finanzas → Tarifas. También desde Clientes y proveedores, con el botón Tarifas de la fila de una compañía, que abre esta pantalla con esa compañía ya elegida."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Tarifas. También desde Clientes y proveedores, con el botón Tarifas de la fila de una compañía, que abre esta pantalla con esa compañía ya elegida. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «tarifas»."
       },
       {
         "ancla": "pasos",
@@ -971,8 +971,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_servicios_adicionales",
     "etiqueta": "Servicios adicionales",
     "resumen": "Catálogo de servicios cobrados aparte del trámite y su valor.",
-    "version": "1.1",
-    "fecha": "2026-10-21",
+    "version": "1.4",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "servicios adicionales",
       "catálogo de servicios",
@@ -996,7 +996,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú, Finanzas → Servicios adicionales, junto a Tarifas."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Servicios adicionales. Está junto a Tarifas. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «servicios adicionales»."
       },
       {
         "ancla": "pasos",
@@ -1020,8 +1020,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_comprobantes",
     "etiqueta": "Comprobantes",
     "resumen": "Cargue cualquier comprobante y revise lo que FLITO leyó.",
-    "version": "1.3",
-    "fecha": "2026-10-24",
+    "version": "1.6",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "comprobantes",
       "cargar comprobante",
@@ -1046,7 +1046,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú lateral, sección Finanzas, ítem Comprobantes."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Comprobantes. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «comprobantes»."
       },
       {
         "ancla": "pasos",
@@ -1080,8 +1080,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_conciliacion",
     "etiqueta": "Conciliación",
     "resumen": "Cruce del recaudo SOAT contra lo emitido.",
-    "version": "1.2",
-    "fecha": "2026-10-25",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "conciliación",
       "recaudo",
@@ -1106,7 +1106,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú lateral, sección Finanzas, ítem Conciliación. El detalle de una boleta abre en su propia página (con Abrir), no en una ventana encima, para que el reporte de costos pueda enlazarla."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Conciliación. El detalle de una boleta abre en su propia página (con Abrir), no en una ventana encima, para que el reporte de costos pueda enlazarla. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «conciliación»."
       },
       {
         "ancla": "pasos",
@@ -1130,8 +1130,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "siigo_parametrizacion",
     "etiqueta": "Facturación electrónica · Parametrización",
     "resumen": "Catálogos, mapeo de conceptos y emisión.",
-    "version": "1.1",
-    "fecha": "2026-10-21",
+    "version": "1.4",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "facturación electrónica",
       "Siigo",
@@ -1156,7 +1156,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú lateral, sección Finanzas, ítem Facturación electrónica · Parametrización. Las pestañas Mapeo de conceptos y Terceros son secciones de la misma pantalla."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Facturación electrónica · Parametrización. Las pestañas Mapeo de conceptos y Terceros son secciones de la misma pantalla. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «parametrización»."
       },
       {
         "ancla": "pasos",
@@ -1180,8 +1180,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "siigo_operacion",
     "etiqueta": "Facturación electrónica · Operación",
     "resumen": "Bandeja de facturas y acciones del día a día.",
-    "version": "1.2",
-    "fecha": "2026-10-21",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "facturación electrónica",
       "Siigo",
@@ -1206,7 +1206,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú lateral, sección Finanzas, ítem Facturación electrónica · Operación. En la cabecera: ¿Buscas una factura concreta? Ve al reporte de costos."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Facturación electrónica · Operación. En la cabecera: ¿Buscas una factura concreta? Ve al reporte de costos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «facturación»."
       },
       {
         "ancla": "pasos",
@@ -1230,8 +1230,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "privacy",
     "etiqueta": "Log accesos PII",
     "resumen": "Quién consultó datos personales, cuándo, qué campos y desde qué equipo. Solo se consulta.",
-    "version": "1.0",
-    "fecha": "2026-10-22",
+    "version": "1.1",
+    "fecha": "2026-11-12",
     "palabrasClave": [
       "log de accesos PII",
       "accesos a datos personales",
@@ -1283,8 +1283,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "users",
     "etiqueta": "Usuarios",
     "resumen": "Alta, edición, bloqueo y baja de las personas que entran a FLITO, con el historial de cambios.",
-    "version": "1.6",
-    "fecha": "2026-11-09",
+    "version": "1.7",
+    "fecha": "2026-11-12",
     "palabrasClave": [
       "usuarios",
       "gestión de usuarios",
@@ -1314,7 +1314,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "Menú Administración, ítem Usuarios."
+        "texto": "Menú Administración, ítem Usuarios. Arriba de la pantalla, las pestañas Usuarios y Roles y permisos llevan de una a otra; Roles y permisos solo aparece si usted puede abrir esa pantalla."
       },
       {
         "ancla": "pasos",
@@ -1338,8 +1338,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "roles_permisos",
     "etiqueta": "Roles y permisos",
     "resumen": "Qué puede hacer cada rol dentro de FLITO.",
-    "version": "1.2",
-    "fecha": "2026-10-25",
+    "version": "1.3",
+    "fecha": "2026-11-12",
     "palabrasClave": [
       "roles",
       "permisos",
@@ -1365,7 +1365,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "Menú Administración, ítem Roles y permisos, junto a Usuarios."
+        "texto": "Menú Administración, ítem Roles y permisos, junto a Usuarios. Arriba de la pantalla, las pestañas Usuarios y Roles y permisos llevan de una a otra; Usuarios solo aparece si usted puede abrir esa pantalla."
       },
       {
         "ancla": "pasos",
@@ -1375,7 +1375,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "estados",
         "titulo": "Estados",
-        "texto": "Cargando: esqueleto de dos columnas. Error: «No se pudo cargar el catálogo de roles y permisos. Revisa tu conexión y vuelve a intentarlo.» con Reintentar. Si falla solo el árbol del rol elegido, el aviso lo dice y ofrece Reintentar ahí mismo. Vacío: sin roles se ofrece Nuevo rol; si el catálogo llega vacío se ofrece Reintentar; un rol sin nada marcado avisa de que quien lo tenga no verá ningún elemento del menú al entrar. Lleno: lista de roles y árbol del rol seleccionado. La cabecera dice el enlace del rol y cuántos usuarios lo tienen. Con cambios pendientes aparece la barra Sin guardar con Descartar y Guardar cambios. Solo lectura: sin la acción Asignar permisos, un aviso lo explica y no hay casillas que cambiar. No se guardó por seguridad: si el cambio dejaría a FLITO sin ningún usuario activo que pueda administrar Usuarios y Roles y permisos, un aviso en la página lo explica, nombra lo que hay que volver a marcar con Mostrar dónde está, y sus cambios siguen ahí sin guardar. No se guardó por una función exclusiva: si el guardado intenta darle a otro rol una función exclusiva del Administrador (o quitársela al Administrador), un aviso en la página nombra la función, dice qué hacer y ofrece Mostrar dónde está; sus cambios siguen ahí sin guardar. Error al guardar: «No se pudieron guardar los permisos. Tus cambios siguen aquí; vuelve a intentarlo con «Guardar cambios».» Error al guardar el rol: el formulario muestra «No se pudo guardar el rol. Inténtalo de nuevo; si se repite, recarga la página.» sin cerrarse."
+        "texto": "Cargando: barras grises en las dos columnas mientras llegan los roles y el árbol. Error: «No se pudo cargar el catálogo de roles y permisos. Revisa tu conexión y vuelve a intentarlo.» con Reintentar. Si falla solo el árbol del rol elegido, el aviso lo dice y ofrece Reintentar ahí mismo. Vacío: sin roles se ofrece Nuevo rol; si el catálogo llega vacío se ofrece Reintentar; un rol sin nada marcado avisa de que quien lo tenga no verá ningún elemento del menú al entrar. Lleno: lista de roles y árbol del rol seleccionado. La cabecera dice el enlace del rol y cuántos usuarios lo tienen. Con cambios pendientes aparece la barra Sin guardar con Descartar y Guardar cambios. Solo lectura: sin la acción Asignar permisos, un aviso lo explica y no hay casillas que cambiar. No se guardó por seguridad: si el cambio dejaría a FLITO sin ningún usuario activo que pueda administrar Usuarios y Roles y permisos, un aviso en la página lo explica, nombra lo que hay que volver a marcar con Mostrar dónde está, y sus cambios siguen ahí sin guardar. No se guardó por una función exclusiva: si el guardado intenta darle a otro rol una función exclusiva del Administrador (o quitársela al Administrador), un aviso en la página nombra la función, dice qué hacer y ofrece Mostrar dónde está; sus cambios siguen ahí sin guardar. Error al guardar: «No se pudieron guardar los permisos. Tus cambios siguen aquí; vuelve a intentarlo con «Guardar cambios».» Error al guardar el rol: el formulario muestra «No se pudo guardar el rol. Inténtalo de nuevo; si se repite, recarga la página.» sin cerrarse."
       },
       {
         "ancla": "que-no-hace",
@@ -1389,8 +1389,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "drive",
     "etiqueta": "Google Drive",
     "resumen": "Carpetas y archivos de Google Drive compartidos con FLITO, y lectura de los PDF de cuentas de cobro.",
-    "version": "1.0",
-    "fecha": "2026-10-22",
+    "version": "1.1",
+    "fecha": "2026-11-13",
     "palabrasClave": [
       "Google Drive",
       "carpetas",
@@ -1441,8 +1441,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "privacy",
     "etiqueta": "Privacidad y datos",
     "resumen": "Derecho al olvido de la Ley 1581. Previsualice qué datos guarda FLITO de un documento y, si procede, anonimícelos.",
-    "version": "1.0",
-    "fecha": "2026-10-22",
+    "version": "1.1",
+    "fecha": "2026-11-12",
     "palabrasClave": [
       "privacidad y datos",
       "derecho al olvido",
@@ -1494,8 +1494,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "siigo_credenciales",
     "etiqueta": "Integración con Siigo",
     "resumen": "Credenciales de la integración. Solo administración.",
-    "version": "1.1",
-    "fecha": "2026-10-22",
+    "version": "1.4",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "Siigo",
       "credenciales",
@@ -1519,7 +1519,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En el menú lateral, sección Administración, ítem Integración con Siigo. También desde este capítulo de la ayuda, con Ir a la pantalla. Distíngala de Credenciales RNDC, que vive en la sección RNDC y es otra integración, y de Facturación electrónica · Parametrización y Operación, que están en Finanzas."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Administración y, en el panel que se abre, el ítem Integración con Siigo. También desde este capítulo de la ayuda, con Ir a la pantalla. Distíngala de Credenciales RNDC, que vive en la sección RNDC y es otra integración, y de Facturación electrónica · Parametrización y Operación, que están en Finanzas. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «siigo»."
       },
       {
         "ancla": "pasos",

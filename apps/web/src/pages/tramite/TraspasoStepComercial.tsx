@@ -8,6 +8,7 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../../lib/api';
 import GradientButton from '../../components/flit/GradientButton';
+import { flitInp } from '../../components/flit/flitPageKit';
 
 const METODOS_PAGO = ['Efectivo', 'Transferencia', 'Tarjeta débito', 'Tarjeta crédito', 'Datafono', 'Cheque'];
 
@@ -25,7 +26,7 @@ interface Props {
   onGuardar: (d: ComercialData) => void;
 }
 
-const inputCls = 'flit-focus mt-1 w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-3 py-2 text-sm text-[color:var(--flit-text-primary)] outline-none';
+const inputCls = `mt-1 ${flitInp}`;
 const fmtCOP = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 
 export default function TraspasoStepComercial({ vehiculo, inicial, busy, readOnly, onGuardar }: Props) {
@@ -114,73 +115,67 @@ export default function TraspasoStepComercial({ vehiculo, inicial, busy, readOnl
   };
 
   const roStyle: React.CSSProperties | undefined = readOnly
-    ? { background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }
+    ? { background: 'var(--kit-hover)', color: 'var(--color-text-secondary)' }
     : undefined;
 
   return (
     <div>
-      <p className="mb-3 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>5. Datos comerciales</p>
+      <p className="m-0 mb-3 text-base font-bold" style={{ color: 'var(--color-action)' }}>5. Datos comerciales</p>
 
       {/* Fasecolda + MercadoLibre (solo en edición) */}
       {!readOnly && (
       <div className="mb-4 grid gap-3 lg:grid-cols-2">
-        <section aria-label="Valor Fasecolda" className="rounded-[12px] border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-bold" style={{ color: 'var(--flit-success)' }}>Valor Fasecolda (oficial)</p>
-            <button type="button" onClick={consultarFasecolda} disabled={fasecoldaLoading}
-              className="flit-focus rounded-[999px] px-3 py-1 text-[11px] font-semibold disabled:opacity-50"
-              style={{ color: 'white', background: 'var(--flit-gradient-success)' }}>
+        <section aria-label="Valor Fasecolda" className="rounded-[9px] border p-3" style={{ borderColor: 'var(--color-border)' }}>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-bold" style={{ color: 'var(--kit-verde-texto)' }}>Valor Fasecolda (oficial)</p>
+            <GradientButton type="button" variant="secondary" size="sm" onClick={consultarFasecolda} disabled={fasecoldaLoading}>
               {fasecoldaLoading ? 'Consultando…' : 'Traer valor'}
-            </button>
+            </GradientButton>
           </div>
           {fasecolda?.mejorMatch ? (
-            <div className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-              <p className="text-sm font-bold" style={{ color: 'var(--flit-text-primary)' }}>{fmtCOP(fasecolda.mejorMatch.valorCOP)}</p>
-              <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Código {fasecolda.mejorMatch.codigo} · {fasecolda.mejorMatch.descripcion}</p>
+            <div className="text-xs" style={{ color: 'var(--color-text-primary)' }}>
+              <p className="text-sm font-bold" style={{ color: 'var(--color-text-primary)' }}>{fmtCOP(fasecolda.mejorMatch.valorCOP)}</p>
+              <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Código {fasecolda.mejorMatch.codigo} · {fasecolda.mejorMatch.descripcion}</p>
             </div>
           ) : fasecoldaError ? (
-            <p className="text-[11px] font-semibold" style={{ color: 'var(--flit-danger)' }} role="alert">{fasecoldaError}</p>
-          ) : <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Trae el valor comercial oficial del vehículo desde Fasecolda.</p>}
+            <p className="text-xs font-semibold" style={{ color: 'var(--kit-rojo-texto)' }} role="alert">{fasecoldaError}</p>
+          ) : <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Trae el valor comercial oficial del vehículo desde Fasecolda.</p>}
         </section>
 
-        <section aria-label="Precio MercadoLibre" className="rounded-[12px] border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-bold" style={{ color: '#d97706' }}>Precio mercado (MercadoLibre)</p>
-            <button type="button" onClick={consultarML} disabled={mlLoading}
-              aria-label="Consultar MercadoLibre"
-              className="flit-focus rounded-[999px] px-3 py-1 text-[11px] font-semibold disabled:opacity-50"
-              style={{ color: '#d97706', background: 'rgba(217,119,6,.12)', border: '1px solid rgba(217,119,6,.4)' }}>
+        <section aria-label="Precio MercadoLibre" className="rounded-[9px] border p-3" style={{ borderColor: 'var(--color-border)' }}>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-bold" style={{ color: 'var(--kit-naranja-texto)' }}>Precio mercado (MercadoLibre)</p>
+            <GradientButton type="button" variant="secondary" size="sm" onClick={consultarML} disabled={mlLoading}
+              aria-label="Consultar MercadoLibre">
               {mlLoading ? 'Consultando…' : 'Consultar MercadoLibre'}
-            </button>
+            </GradientButton>
           </div>
           {ml?.ok ? (
-            <div className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-              <div className="flex justify-between gap-2">
+            <div className="text-xs" style={{ color: 'var(--color-text-primary)' }}>
+              <div className="flex flex-wrap justify-between gap-2">
                 <span>Mín {fmtCOP(ml.precioMin)}</span>
-                <strong style={{ color: '#d97706' }}>Prom {fmtCOP(ml.precioPromedio)}</strong>
+                <strong style={{ color: 'var(--kit-naranja-texto)' }}>Prom {fmtCOP(ml.precioPromedio)}</strong>
                 <span>Máx {fmtCOP(ml.precioMax)}</span>
               </div>
-              <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{ml.total} publicaciones analizadas</p>
-              <button type="button" onClick={() => setValorVenta(String(ml.precioPromedio))}
-                className="flit-focus mt-1 w-full rounded-[8px] px-2 py-1 text-[10px] font-bold"
-                style={{ color: '#d97706', background: 'rgba(217,119,6,.12)', border: '1px solid rgba(217,119,6,.4)' }}>
+              <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{ml.total} publicaciones analizadas</p>
+              <GradientButton type="button" variant="secondary" size="sm" className="mt-2 w-full justify-center" onClick={() => setValorVenta(String(ml.precioPromedio))}>
                 Usar precio promedio
-              </button>
+              </GradientButton>
             </div>
           ) : mlError ? (
-            <p className="text-[11px] font-semibold" style={{ color: 'var(--flit-danger)' }} role="alert">{mlError}</p>
-          ) : <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Compara contra el precio real de mercado.</p>}
+            <p className="text-xs font-semibold" style={{ color: 'var(--kit-rojo-texto)' }} role="alert">{mlError}</p>
+          ) : <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Compara contra el precio real de mercado.</p>}
         </section>
       </div>
       )}
 
       {/* Campos comerciales */}
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+        <label className="block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Valor de venta (COP)
           <input value={valorVenta} onChange={(e) => setValorVenta(e.target.value)} readOnly={readOnly} type="number" min={0} className={inputCls} style={roStyle} aria-label="Valor de venta" />
         </label>
-        <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+        <label className="block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Causal
           <select value={causal} onChange={(e) => setCausal(e.target.value)} disabled={readOnly} className={inputCls} style={roStyle}>
             <option value="COMPRAVENTA">Compraventa</option>
@@ -189,43 +184,43 @@ export default function TraspasoStepComercial({ vehiculo, inicial, busy, readOnl
             <option value="ADJUDICACION">Adjudicación</option>
           </select>
         </label>
-        <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+        <label className="block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Tasa impuesto traspaso (%)
           <input value={tasaImpuesto} onChange={(e) => setTasaImpuesto(e.target.value)} readOnly={readOnly} type="number" step={0.1} min={0} className={inputCls} style={roStyle} aria-label="Tasa impuesto" aria-describedby="comercial-tasa-hint" />
-          <p id="comercial-tasa-hint" className="mt-1 text-[10px] font-normal" style={{ color: 'var(--flit-text-muted)' }}>
+          <p id="comercial-tasa-hint" className="mt-1 text-xs font-normal" style={{ color: 'var(--color-text-tertiary)' }}>
             Verifica la tasa vigente del departamento de matrícula (por defecto 1%).
           </p>
         </label>
-        <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+        <label className="block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Derechos del trámite (COP)
           <input value={valorTramite} onChange={(e) => setValorTramite(e.target.value)} readOnly={readOnly} type="number" min={0} className={inputCls} style={roStyle} aria-label="Derechos del trámite" />
         </label>
-        <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+        <label className="block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Forma de pago
           <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} disabled={readOnly} className={inputCls} style={roStyle} aria-label="Forma de pago">
             {METODOS_PAGO.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
         </label>
       </div>
-      <label className="mt-3 block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+      <label className="mt-3 block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         Observaciones
         <textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} readOnly={readOnly} rows={2} maxLength={500} className={`${inputCls} resize-none`} style={roStyle} />
       </label>
 
       {/* Cálculo total (paridad CEA) */}
-      <section aria-label="Cálculo total" aria-live="polite" aria-atomic="true" className="mt-4 rounded-[12px] border p-3" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
-        <div className="flex justify-between border-b border-dashed py-1 text-xs" style={{ borderColor: 'var(--flit-border-soft)' }}>
+      <section aria-label="Cálculo total" aria-live="polite" aria-atomic="true" className="mt-4 rounded-[9px] border p-3" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+        <div className="flex justify-between border-b border-dashed py-1 text-xs" style={{ borderColor: 'var(--color-border)' }}>
           <span>Impuesto traspaso ({tasa}% del valor de venta)</span><strong>{fmtCOP(valorImpuesto)}</strong>
         </div>
-        <div className="flex justify-between border-b border-dashed py-1 text-xs" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <div className="flex justify-between border-b border-dashed py-1 text-xs" style={{ borderColor: 'var(--color-border)' }}>
           <span>Derechos del trámite</span><strong>{fmtCOP(derechos)}</strong>
         </div>
-        <div className="flex justify-between py-1.5 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+        <div className="flex justify-between py-1.5 text-sm font-bold" style={{ color: 'var(--color-action)' }}>
           <span>Total a cobrar</span><span data-testid="comercial-total">{fmtCOP(total)}</span>
         </div>
       </section>
 
-      <p className="mt-4 rounded-[10px] border px-3 py-2 text-[11px]" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-secondary)' }}>
+      <p className="mt-4 rounded-[9px] border px-3 py-2 text-xs" style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}>
         El <strong>contrato de compraventa</strong> no se genera aquí. Al continuar, en el paso <strong>6. Documentos y firma</strong> usa el botón <strong>Generar Contrato de compraventa</strong> (queda guardado en el expediente y puedes verlo o descargarlo).
       </p>
 

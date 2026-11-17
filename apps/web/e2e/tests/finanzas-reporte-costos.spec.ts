@@ -1778,6 +1778,9 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     expect(new URL(consolidado[1]).searchParams.get('periodo')).toBe('trimestre');
     expect(consolidado[1]).toContain('aprobadoDesde=2026-07-01');
     await expect(page.getByRole('row').filter({ hasText: 'ACME SAS' })).toContainText('2026-T3');
+    // El panel de Periodo sigue abierto y, con el ancho del kit 2026, cae encima del summary de «Más
+    // filtros»: se pliega desde su propio summary, como haría el usuario, antes de abrir el otro.
+    await page.locator('summary').filter({ hasText: /^Periodo/ }).click();
 
     // De vuelta al detalle con los mismos filtros.
     await page.getByRole('tablist', { name: 'Vista del reporte' }).getByRole('button', { name: 'Detalle' }).click();
@@ -3154,8 +3157,9 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await expect(aceptada).toHaveText('Diferencia aceptada −$20.000');
     await expect(aceptada).toHaveAttribute('aria-label', /aceptada por ana\.perez el 16 sep 2026: «Factura del proveedor con IVA»/);
     // Tonos del kit: warning (pendiente) vs neutral (aceptada); el fondo del chip es el que los distingue.
-    await expect(pendiente.locator('span').first()).toHaveCSS('background-color', 'rgb(253, 240, 224)'); // --flit-chip-warning-bg: crema, no rosa (Épica #13763)
-    await expect(aceptada.locator('span').first()).toHaveCSS('background-color', 'rgb(239, 241, 243)');
+    // Marcador estable del kit 2026 (README §6), no el color: el relleno de la etiqueta va en `::after`.
+    await expect(pendiente.locator('span').first()).toHaveAttribute('data-tono', 'warn');
+    await expect(aceptada.locator('span').first()).toHaveAttribute('data-tono', 'neutro');
     // La aceptada NO ofrece el botón, aunque financiera tenga la función.
     await expect(await botonAceptar(page, 'FLIT-2103')).toHaveCount(0);
 

@@ -18,11 +18,11 @@ export default function GuiaCaso(
     <div className="flex flex-col gap-1">
       {descarte && <MarcaDescartado descarte={descarte} />}
       {!guia.sirveReintentar && <MarcaNoReintentable />}
-      <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>{guia.descripcion}</p>
-      <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>→ {guia.accion}</p>
-      {/* `--flit-text-secondary` y no `--flit-text-muted`: el responsable hay que leerlo, y el gris
+      <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>{guia.descripcion}</p>
+      <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>→ {guia.accion}</p>
+      {/* `--color-text-secondary` y no `--color-text-tertiary`: el responsable hay que leerlo, y el gris
           de las ausencias no llega al 4,5:1 sobre la fila cuando el ratón la tiñe. */}
-      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
         Responsable: {guia.responsableEtiqueta}
       </p>
     </div>
@@ -40,7 +40,7 @@ export function MarcaNoCatalogado({ guia }: { guia: GuiaErrorSiigo }) {
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold"
-      style={{ color: 'var(--flit-text-muted)', background: '#EFF1F3', borderRadius: 'var(--flit-radius-pill)' }}
+      style={{ color: 'var(--color-text-tertiary)', background: 'var(--kit-hover)', borderRadius: '999px' }}
     >
       Motivo no catalogado
     </span>
@@ -54,7 +54,7 @@ export function MarcaNoCatalogado({ guia }: { guia: GuiaErrorSiigo }) {
  */
 function MarcaNoReintentable() {
   return (
-    <p className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
+    <p className="text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
       <span aria-hidden="true">⊘ </span>No se arregla reintentando
     </p>
   );
@@ -63,10 +63,10 @@ function MarcaNoReintentable() {
 function MarcaDescartado({ descarte }: { descarte: SiigoBandejaDescarte }) {
   return (
     <div>
-      <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         <span aria-hidden="true">⚑ </span>Dado por perdido el {fecha(descarte.marcadoEn)}
       </p>
-      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
         {descarte.motivoEtiqueta}
         {descarte.nota ? ` · «${descarte.nota}»` : ''}
       </p>

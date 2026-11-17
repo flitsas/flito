@@ -60,11 +60,10 @@ export default function BarraFiltrosBandeja(
 
   return (
     <div
-      className="flex flex-col gap-4 bg-white p-4"
+      className="flex flex-col gap-4 bg-[var(--color-surface-elevated)] p-4"
       style={{
-        borderRadius: 'var(--flit-radius-card)',
-        border: '1px solid var(--flit-border-soft)',
-        boxShadow: 'var(--flit-shadow-card)',
+        borderRadius: '9px',
+        border: '1px solid var(--color-border)',
       }}
     >
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -160,7 +159,7 @@ export default function BarraFiltrosBandeja(
         </div>
       </div>
 
-      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
         Los filtros no viajan en la dirección del navegador.
       </p>
     </div>
@@ -179,8 +178,8 @@ export default function BarraFiltrosBandeja(
 function Grupo({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
   const id = useId();
   return (
-    <div role="group" aria-labelledby={id} className="flex flex-col gap-1">
-      <span id={id} className="text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+    <div role="group" aria-labelledby={id} className="flex min-w-0 max-w-full flex-col gap-1 max-lg:basis-full">
+      <span id={id} className="text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         {etiqueta}
       </span>
       <FlitPillGroup>{children}</FlitPillGroup>

@@ -112,8 +112,8 @@ export default function TabEntregas({ onViajeAnulado }: TabEntregasProps = {}) {
 
   return (
     <FlitCard>
-      <h2 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Entregas</h2>
-      <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+      <h2 className="text-lg font-bold" style={{ color: 'var(--color-action)' }}>Entregas</h2>
+      <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
         Viajes registrados, para ver a dónde van y en qué estado están.
       </p>
 
@@ -164,23 +164,23 @@ export default function TabEntregas({ onViajeAnulado }: TabEntregasProps = {}) {
       {cargando && (
         <div role="status" aria-label="Cargando viajes…" className="mt-4 space-y-3">
           {[0, 1].map((i) => (
-            <div key={i} className="rounded-xl border p-4" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' }}>
-              <div className="h-4 w-1/3 rounded" style={{ background: 'var(--flit-border-soft)' }} />
-              <div className="mt-3 h-3 w-2/3 rounded" style={{ background: 'var(--flit-border-soft)' }} />
-              <div className="mt-2 h-3 w-1/2 rounded" style={{ background: 'var(--flit-border-soft)' }} />
+            <div key={i} className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)' }}>
+              <div className="h-4 w-1/3 rounded" style={{ background: 'var(--color-border)' }} />
+              <div className="mt-3 h-3 w-2/3 rounded" style={{ background: 'var(--color-border)' }} />
+              <div className="mt-2 h-3 w-1/2 rounded" style={{ background: 'var(--color-border)' }} />
             </div>
           ))}
         </div>
       )}
 
       {carga === 'error403' && (
-        <p className="mt-4 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+        <p className="mt-4 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
           No tiene permiso para ver los viajes.
         </p>
       )}
 
       {carga === 'error' && (
-        <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+        <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
           <p className="flex-1">No se pudieron cargar los viajes. Inténtelo de nuevo.</p>
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setIntento((n) => n + 1)}>
             Reintentar
@@ -204,8 +204,8 @@ export default function TabEntregas({ onViajeAnulado }: TabEntregasProps = {}) {
             <p>Ningún viaje coincide con estos filtros. Pruebe otra placa o quite un filtro.</p>
             <button
               type="button"
-              className="flit-focus mt-3 rounded-lg px-2 py-1 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
-              style={{ color: 'var(--flit-blue-text)' }}
+              className="flit-focus mt-3 rounded-lg px-2 py-1 text-sm font-semibold transition-colors hover:bg-[var(--kit-hover)]"
+              style={{ color: 'var(--color-action)' }}
               onClick={limpiar}
             >
               Limpiar filtros
@@ -243,8 +243,8 @@ export default function TabEntregas({ onViajeAnulado }: TabEntregasProps = {}) {
                         <button
                           type="button"
                           aria-label={`Anular viaje de ${nombreCompania(v.companiaNombre, v.companiaId)}, ${v.cantidadLt} LT`}
-                          className="flit-focus rounded-lg px-2 py-1 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
-                          style={{ color: 'var(--flit-danger-text)' }}
+                          className="flit-focus rounded-lg px-2 py-1 text-xs font-semibold transition-colors hover:bg-[var(--kit-hover)]"
+                          style={{ color: 'var(--kit-rojo-texto)' }}
                           onClick={(e) => { disparador.current = e.currentTarget; setAnulando(v); }}
                         >
                           Anular viaje

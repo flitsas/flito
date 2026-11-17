@@ -63,41 +63,40 @@ export default function HistorialEstados({ concepto, registroId }: {
 
   return (
     <div>
-      <button type="button" className="text-xs font-semibold underline"
-        style={{ color: 'var(--flit-blue-text)' }}
+      <button type="button" className="btn ghost sm !px-0"
         onClick={() => setAbierto((v) => !v)}>
         {abierto ? 'Ocultar el historial' : 'Ver el historial de estados'}
       </button>
 
       {abierto && (
-        <div className="mt-2 rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          {error && <p className="text-xs text-red-600">{error}</p>}
-          {!items && !error && <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
+        <div className="mt-2 rounded-[9px] border border-[color:var(--color-border)] p-3" data-kit="historial">
+          {error && <p role="alert" className="error text-xs !text-[color:var(--flit-danger-ink)]">{error}</p>}
+          {!items && !error && <p className="text-xs text-[color:var(--color-text-tertiary)]">Cargando…</p>}
           {items && items.length === 0 && (
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="text-xs text-[color:var(--color-text-tertiary)]">
               Sin movimientos registrados.
             </p>
           )}
           {items && items.length > 0 && (
-            <ol className="space-y-2">
+            <ol className="actividad-linea">
               {items.map((i) => (
-                <li key={i.id} className="flex flex-col gap-0.5 text-xs">
+                <li key={i.id} className="!grid-cols-1 !gap-0.5 text-xs">
                   <div className="flex flex-wrap items-center gap-1.5">
                     {/* El alta no tiene estado de partida: se rotula, en vez de dejar un hueco. */}
                     {i.estadoAnterior
                       ? <StatusChip tone={TONO[i.estadoAnterior] ?? 'neutral'}>{ETIQUETA[i.estadoAnterior] ?? i.estadoAnterior}</StatusChip>
-                      : <span style={{ color: 'var(--flit-text-muted)' }}>Alta</span>}
-                    <span style={{ color: 'var(--flit-text-muted)' }}>→</span>
+                      : <span className="text-[color:var(--color-text-tertiary)]">Alta</span>}
+                    <span className="text-[color:var(--color-text-tertiary)]">→</span>
                     <StatusChip tone={TONO[i.estadoNuevo] ?? 'neutral'}>{ETIQUETA[i.estadoNuevo] ?? i.estadoNuevo}</StatusChip>
                   </div>
-                  <div style={{ color: 'var(--flit-text-secondary)' }}>
+                  <div className="text-[color:var(--color-text-secondary)]">
                     {fechaHora(i.creadoEn)} · {autor(i)}
                     {i.origen === 'auditoria' && (
                       <span title="Reconstruido desde la auditoría al implantar el historial; no se registró en el momento."
-                        style={{ color: 'var(--flit-text-muted)' }}> · reconstruido</span>
+                        className="text-[color:var(--color-text-tertiary)]"> · reconstruido</span>
                     )}
                   </div>
-                  {i.motivo && <div style={{ color: 'var(--flit-text-muted)' }}>{i.motivo}</div>}
+                  {i.motivo && <div className="text-[color:var(--color-text-tertiary)]">{i.motivo}</div>}
                 </li>
               ))}
             </ol>

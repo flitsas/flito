@@ -1,5 +1,6 @@
 // TRAM-OPS-01/02 — tarjeta FLIT reutilizable en embudo y lista.
 
+import { claseBoton } from '../../components/flit/GradientButton';
 import StatusChip, { type ChipTone } from '../../components/flit/StatusChip';
 import MotivoRechazoChip from './MotivoRechazoChip';
 import { canRechazarOt } from './rechazoOt';
@@ -49,33 +50,33 @@ export default function TramiteEmbudoCard({ tramite: t, onOpen, onRechazar, comp
 
   return (
     <div
-      className="bg-white p-4 transition-shadow hover:shadow-[0_12px_30px_rgba(22,39,68,0.12)]"
-      style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
+      className="bg-[var(--color-surface-elevated)] p-4 transition-colors hover:bg-[var(--kit-hover)]"
+      style={{ borderRadius: '9px', border: '1px solid var(--color-border)' }}
     >
       <button type="button" onClick={onOpen} className="flit-focus w-full text-left">
         <div className="flex flex-wrap items-start gap-2">
-          <p className="font-mono text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="font-mono text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             {t.modalidadEntrada === 'traspaso' ? (t.numeroRadicado || t.placa || '—') : (t.vin || '—')}
           </p>
           {t.modalidadEntrada === 'traspaso' ? (
-            t.placa && <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{t.placa}</span>
+            t.placa && <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{t.placa}</span>
           ) : t.placa ? (
-            <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{t.placa}</span>
+            <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{t.placa}</span>
           ) : null}
           {t.modalidadEntrada === 'traspaso' && (
             <StatusChip tone="active">Traspaso</StatusChip>
           )}
         </div>
         {!compact && (
-          <p className="mt-1 truncate text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-1 truncate text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             {[v.marca, v.linea].filter(Boolean).join(' ') || '—'}
           </p>
         )}
         {t.comprador?.nombre && (
-          <p className="mt-1 truncate text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-1 truncate text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             {t.comprador.nombre}
             {t.comprador.documento && (
-              <span className="ml-1 font-mono text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>· {t.comprador.documento}</span>
+              <span className="ml-1 font-mono text-xs" style={{ color: 'var(--color-text-tertiary)' }}>· {t.comprador.documento}</span>
             )}
           </p>
         )}
@@ -86,7 +87,7 @@ export default function TramiteEmbudoCard({ tramite: t, onOpen, onRechazar, comp
           )}
           <MotivoRechazoChip codigo={t.motivoRechazoCodigo} />
         </div>
-        <p className="mt-2 text-[10px] uppercase" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mt-2 text-xs uppercase" style={{ color: 'var(--color-text-tertiary)' }}>
           Paso {t.paso}/{t.modalidadEntrada === 'traspaso' ? 6 : 5} — {t.modalidadEntrada === 'traspaso' ? 'Traspaso' : (STEPS[t.paso - 1] ?? '—')}
         </p>
       </button>
@@ -94,8 +95,8 @@ export default function TramiteEmbudoCard({ tramite: t, onOpen, onRechazar, comp
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onRechazar(); }}
-          className="flit-focus mt-3 w-full rounded-[999px] border px-3 py-2 text-xs font-medium"
-          style={{ borderColor: 'var(--flit-danger)', color: 'var(--flit-danger)' }}
+          className={claseBoton('alerta', 'sm', 'mt-3 w-full')}
+          data-variante="alerta"
         >
           Registrar rechazo OT
         </button>

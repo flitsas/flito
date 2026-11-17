@@ -1,7 +1,7 @@
 // Ayuda FLITO — accesibilidad (HU #11893, AC5).
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, abrirAyuda, PROVEEDOR_USER, FINANCIERA_USER, CONDUCTOR_USER, OPERACIONES_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, abrirAyuda, PROVEEDOR_USER, FINANCIERA_USER, OPERACIONES_USER } from '../helpers/ayuda-fixtures';
 import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 import { aHex, contraste, fondoPintado, tintaEfectiva } from '../helpers/pixeles';
 
@@ -92,7 +92,9 @@ test.describe('FLITO — Ayuda · AC5 accesibilidad', () => {
   });
 
   test('HU #13704 AC7 — sin fichas visibles por URL directa: vacío con contraste y axe', async ({ page }) => {
-    await abrirAyuda(page, CONDUCTOR_USER);
+    // Desde la HU #13775 el conductor ya ve la ficha «Tablero de control»; el vacío solo lo ve un rol
+    // propio sin ninguna pantalla con ficha (mismo caso que `flito-ayuda-acceso` AC2).
+    await abrirAyuda(page, { id: 25, username: 'e2e_ayuda_rol_propio', name: 'Rol propio Ayuda E2E', role: 'rol_propio_e2e', allowedPages: ['pesv'] });
     const titulo = page.getByRole('heading', { name: 'Su usuario aún no tiene módulos con ayuda' });
     await expect(titulo).toBeVisible();
     await expect(page.getByRole('link', { name: 'Volver al inicio' })).toBeVisible();
@@ -130,7 +132,9 @@ test.describe('FLITO — Ayuda · AC6 búsqueda (HU #11901)', () => {
     const campo = page.getByRole('searchbox', { name: 'Buscar fichas' });
     await expect(campo).toBeVisible();
     await expect(campo).toHaveAttribute('type', 'search');
-    const etiqueta = page.locator('label').filter({ has: campo }).locator('span');
+    // Rediseño S6: el campo lleva el ícono del kit dentro de un `span` envolvente; la etiqueta es el
+    // `span` con el texto.
+    const etiqueta = page.locator('label').filter({ has: campo }).getByText('Buscar fichas', { exact: true });
     await expect(etiqueta).toHaveText('Buscar fichas');
     expect(await ratioDe(page, etiqueta)).toBeGreaterThanOrEqual(MINIMO);
     await campo.focus();

@@ -1,4 +1,4 @@
-// Bloque C — equivalencias de ciudad, confirmadas una a una (HU #11299, AC2 y AC5).
+// Bloque C — equivalencias de ciudad, confirmadas una a una (HU 11299, AC2 y AC5).
 //
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // LO QUE NO HAY, Y ES LA DECISIÓN PRINCIPAL DEL BLOQUE
@@ -188,7 +188,7 @@ export default function EquivalenciasCiudad({ version, puedeConfirmar, onConfirm
   return (
     <FlitCard>
       <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h3 className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <h3 className="text-base font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Equivalencias de ciudad
         </h3>
         <button
@@ -204,22 +204,22 @@ export default function EquivalenciasCiudad({ version, puedeConfirmar, onConfirm
       </div>
 
       {estado !== null && (
-        <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="mt-1 text-sm" style={{ color: 'var(--color-text-primary)' }}>
           Ciudad en códigos de Siigo · {estado.pendientes} clientes sin confirmar
-          <span className="block" style={{ color: 'var(--flit-text-muted)' }}>
+          <span className="block" style={{ color: 'var(--color-text-tertiary)' }}>
             {estado.proponibles} con propuesta directa · {estado.ambiguos} ambiguas ·{' '}
             {estado.sinEquivalencia} sin equivalencia
           </span>
         </p>
       )}
 
-      <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+      <p className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
         No hay «confirmar todas»: cada municipio sale impreso en una factura ante la DIAN.
       </p>
 
       {/* La explicación del permiso se escribe UNA vez por bloque; los botones la referencian. */}
       {!puedeConfirmar && (
-        <p id={ID_EXPLICACION_PERMISO} className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p id={ID_EXPLICACION_PERMISO} className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Confirmar una ciudad fija el municipio que se imprime en la factura ante la DIAN: lo hace
           administración. Tu rol puede revisar las propuestas y avisar qué falta.
         </p>
@@ -227,17 +227,17 @@ export default function EquivalenciasCiudad({ version, puedeConfirmar, onConfirm
 
       {abierto && (
         <div className="mt-4">
-          <p aria-live="polite" role="status" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <p aria-live="polite" role="status" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
             {anuncio}
           </p>
           {confirmadasSesion > 0 && (
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               Confirmadas en esta sesión: {confirmadasSesion}
             </p>
           )}
 
           {cargando && (
-            <p role="status" className="mt-3 text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+            <p role="status" className="mt-3 text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
               Comparando las ciudades escritas con el catálogo…
             </p>
           )}
@@ -247,8 +247,8 @@ export default function EquivalenciasCiudad({ version, puedeConfirmar, onConfirm
               corregir cuatrocientas fichas a mano en vez de a cargar un archivo. */}
           {!cargando && error !== null && (
             <div className="mt-3">
-              <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-                <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+              <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
+                <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>
                 {error.catalogoVacio
                   ? 'El catálogo de ubicaciones no tiene ciudades activas. Cárgalo antes de proponer equivalencias.'
                   : `No se pudieron calcular las equivalencias: ${error.mensaje}`}
@@ -260,7 +260,7 @@ export default function EquivalenciasCiudad({ version, puedeConfirmar, onConfirm
           )}
 
           {!cargando && error === null && propuestas !== null && propuestas.length === 0 && (
-            <p className="mt-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            <p className="mt-3 text-sm" style={{ color: 'var(--color-text-primary)' }}>
               Todas las ciudades están confirmadas en códigos de Siigo.
             </p>
           )}
@@ -268,7 +268,7 @@ export default function EquivalenciasCiudad({ version, puedeConfirmar, onConfirm
           {!cargando && error === null && propuestas !== null && propuestas.length > 0 && (
             <ul className="mt-3 space-y-2">
               {propuestas.map((p) => (
-                <li key={p.clienteId} className="rounded-[10px] border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+                <li key={p.clienteId} className="rounded-[10px] border p-3" style={{ borderColor: 'var(--color-border)' }}>
                   <FilaPropuesta
                     propuesta={p}
                     estado={filas[p.clienteId]}
@@ -286,14 +286,14 @@ export default function EquivalenciasCiudad({ version, puedeConfirmar, onConfirm
               apuntando a la anterior y el síntoma es una factura con el municipio viejo. */}
           {obsoletas.length > 0 && (
             <details className="mt-4 text-sm">
-              <summary className="flit-focus cursor-pointer rounded" style={{ color: 'var(--flit-text-primary)' }}>
+              <summary className="flit-focus cursor-pointer rounded" style={{ color: 'var(--color-text-primary)' }}>
                 {obsoletas.length} clientes cambiaron su ciudad escrita después de confirmarse
               </summary>
-              <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+              <p className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                 Los códigos que viajan a Siigo son los viejos. Vuelve a confirmarlos desde la ficha
                 de cada cliente.
               </p>
-              <ul className="mt-2 list-disc pl-5 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+              <ul className="mt-2 list-disc pl-5 text-xs" style={{ color: 'var(--color-text-primary)' }}>
                 {obsoletas.map((o) => (
                   <li key={o.clienteId}>
                     {o.nombre}: dice «{o.ciudadActual ?? ''}», se confirmó con «{o.textoConfirmado ?? ''}»
@@ -333,8 +333,8 @@ function FilaPropuesta({ propuesta: p, estado, elegida, onElegir, puedeConfirmar
 
   if (estado?.fase === 'confirmada') {
     return (
-      <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-        <span aria-hidden="true" style={{ color: 'var(--flit-success)' }}>✓ </span>
+      <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
+        <span aria-hidden="true" style={{ color: 'var(--kit-verde)' }}>✓ </span>
         {p.nombre} → {estado.cityName} (confirmada)
       </p>
     );
@@ -343,30 +343,30 @@ function FilaPropuesta({ propuesta: p, estado, elegida, onElegir, puedeConfirmar
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{p.nombre}</span>
-        <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>«{p.ciudadTexto ?? ''}»</span>
+        <span className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{p.nombre}</span>
+        <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>«{p.ciudadTexto ?? ''}»</span>
         <StatusChip tone={certeza.tono}>
           {p.propuesta.certeza === 'ambigua'
             ? `Hay ${p.propuesta.candidatas.length} posibles`
             : certeza.etiqueta}
         </StatusChip>
       </div>
-      <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{certeza.frase}</p>
+      <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{certeza.frase}</p>
 
       {directa && candidata !== undefined && (
-        <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="mt-2 text-sm" style={{ color: 'var(--color-text-primary)' }}>
           <span aria-hidden="true">→ </span>{candidata.cityName} · {candidata.stateName}
         </p>
       )}
 
       {p.propuesta.certeza === 'ambigua' && (
         <fieldset className="mt-2">
-          <legend className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <legend className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Municipio de {p.nombre}
           </legend>
           <div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">
             {p.propuesta.candidatas.map((c) => (
-              <label key={`${c.stateCode}-${c.cityCode}`} className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              <label key={`${c.stateCode}-${c.cityCode}`} className="flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-primary)' }}>
                 <input
                   type="radio"
                   className="flit-focus"
@@ -398,15 +398,15 @@ function FilaPropuesta({ propuesta: p, estado, elegida, onElegir, puedeConfirmar
           {estado?.fase === 'corriendo' ? 'Confirmando…' : estado?.fase === 'error' ? 'Reintentar' : 'Confirmar'}
         </BotonAccion>
         {candidata === undefined && (
-          <span id={idFaltaElegir} className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <span id={idFaltaElegir} className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             Elige un municipio para poder confirmar.
           </span>
         )}
       </div>
 
       {estado?.fase === 'error' && (
-        <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
-          <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+        <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--color-text-primary)' }}>
+          <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>
           No se pudo confirmar: {estado.mensaje}
         </p>
       )}
@@ -453,7 +453,7 @@ function BuscadorMunicipio({ clienteId, elegida, onElegir }: {
   const idCampo = `buscar-municipio-${clienteId}`;
   return (
     <div className="mt-2">
-      <label htmlFor={idCampo} className="block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <label htmlFor={idCampo} className="block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         Buscar el municipio en el catálogo
       </label>
       <div className="mt-1 flex flex-wrap gap-2">
@@ -477,19 +477,19 @@ function BuscadorMunicipio({ clienteId, elegida, onElegir }: {
       </div>
 
       {error !== null && (
-        <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+        <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--color-text-primary)' }}>
           No se pudo buscar: {error}
         </p>
       )}
 
       {resultados.length > 0 && (
         <fieldset className="mt-2">
-          <legend className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <legend className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Resultados
           </legend>
           <div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">
             {resultados.map((c) => (
-              <label key={`${c.stateCode}-${c.cityCode}`} className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              <label key={`${c.stateCode}-${c.cityCode}`} className="flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-primary)' }}>
                 <input
                   type="radio"
                   className="flit-focus"
@@ -505,7 +505,7 @@ function BuscadorMunicipio({ clienteId, elegida, onElegir }: {
       )}
 
       {!buscando && error === null && resultados.length === 0 && buscado && (
-        <p role="status" className="mt-1 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+        <p role="status" className="mt-1 text-xs" style={{ color: 'var(--color-text-primary)' }}>
           Ningún municipio del catálogo coincide con «{q.trim()}». Prueba con menos letras.
         </p>
       )}

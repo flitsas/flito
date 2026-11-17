@@ -12,8 +12,9 @@ import { bolsasDocumentosApi } from '../../lib/api';
 import { errorBolsa } from '../../lib/bolsas';
 import { nombreDocumento } from '../../lib/bolsasDocumentos';
 import FlitModal from '../flit/FlitModal';
-import { flitBtnPrimary, flitBtnSecondary, flitInp } from '../flit/flitPageKit';
+import { flitInp } from '../flit/flitPageKit';
 import { toastError, toastOk } from '../flit/ToastFlito';
+import GradientButton from '../flit/GradientButton';
 
 type ErrorRetiro = { texto: string; bloquea: boolean };
 
@@ -88,42 +89,42 @@ export default function ModalRetirarDocumento(p: ModalRetirarDocumentoProps) {
       restoreFocusRef={p.focoRespaldoRef}>
       <form noValidate data-testid="modal-retirar-documento"
         onSubmit={(e) => { e.preventDefault(); void confirmar(); }}>
-        <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
           {nombre} queda pendiente hasta que cargues una nueva. La versión {vigente.version} se conserva en el
           historial como retirada y la puedes seguir descargando.
         </p>
         {!doc.opcional && (
-          <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="mt-2 text-sm" style={{ color: 'var(--color-text-primary)' }}>
             El expediente de la compañía queda incompleto.
           </p>
         )}
 
-        <label htmlFor={`${id}-motivo`} className="mb-1 mt-4 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <label htmlFor={`${id}-motivo`} className="mb-1 mt-4 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Motivo (opcional)
         </label>
         <textarea ref={textarea} id={`${id}-motivo`} rows={3} maxLength={MAX} className={`${flitInp} resize-y`}
           value={motivo} readOnly={enviando}
           aria-describedby={describedBy} aria-invalid={error && !error.bloquea ? true : undefined}
           onChange={(e) => setMotivo(e.target.value.slice(0, MAX))} />
-        <div className="mt-1 flex flex-wrap items-start justify-between gap-x-3 gap-y-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <div className="mt-1 flex flex-wrap items-start justify-between gap-x-3 gap-y-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           <p id={idAyuda} className="min-w-0 flex-1">Queda registrado en el historial. No escribas datos personales.</p>
           <p id={idContador} className="shrink-0 tabular-nums" data-testid="contador-motivo">{motivo.length}/{MAX}</p>
         </div>
 
         {error && (
-          <p id={idError} role="alert" className="mt-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error.texto}</p>
+          <p id={idError} role="alert" className="mt-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error.texto}</p>
         )}
 
         <div className="mt-4 flex flex-wrap justify-end gap-2">
-          <button type="button" className={flitBtnSecondary} disabled={enviando} onClick={p.onCerrar}>
+          <GradientButton variant="secondary" type="button" disabled={enviando} onClick={p.onCerrar}>
             Cancelar
-          </button>
-          <button type="submit" className={flitBtnPrimary} style={{ background: 'var(--flit-gradient-danger)' }}
+          </GradientButton>
+          <GradientButton variant="alerta" type="submit"
             // `aria-disabled` y no `disabled` mientras envía: así el foco se queda en el botón (spec) y
             // el candado de `confirmar` impide el doble envío.
             disabled={error?.bloquea ?? false} aria-disabled={enviando || undefined} aria-busy={enviando || undefined}>
             {enviando ? 'Quitando…' : 'Quitar versión'}
-          </button>
+          </GradientButton>
         </div>
       </form>
     </FlitModal>

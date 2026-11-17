@@ -16,7 +16,7 @@ import { ApiError, api } from '../../../lib/api';
 import FlitModal from '../../flit/FlitModal';
 import FlitSwitch from '../../flit/FlitSwitch';
 import { toastError, toastOk } from '../../flit/ToastFlito';
-import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import { flitBtnDanger, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 
 export const FUNCION_CONFIGURAR = 'tramites.sincronizacion.configurar';
 const RUTA = '/flito/sync/interruptores';
@@ -164,11 +164,11 @@ function DialogoApagar({ fuente, onCancelar, onConfirmar, restoreFocusRef }: {
   const nombre = NOMBRE_FUENTE[fuente];
   return (
     <FlitModal title={`¿Apagar ${nombre}?`} onClose={onCancelar} restoreFocusRef={restoreFocusRef}>
-      <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{CUERPO_APAGAR[fuente]}</p>
+      <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{CUERPO_APAGAR[fuente]}</p>
       <div className="mt-5 flex flex-wrap justify-end gap-3">
-        <button ref={cancelarRef} type="button" className={`${flitBtnSecondary} w-full sm:w-auto`} style={flitBtnSecondaryStyle}
+        <button ref={cancelarRef} type="button" className={`${flitBtnSecondary} w-full sm:w-auto`} style={flitBtnSecondaryStyle} data-variante="secundario"
           onClick={onCancelar}>Cancelar</button>
-        <button type="button" className={`${flitBtnPrimary} w-full sm:w-auto`} style={flitBtnPrimaryStyle}
+        <button type="button" className={`${flitBtnDanger} w-full sm:w-auto`} data-variante="alerta"
           onClick={onConfirmar}>Apagar {nombre}</button>
       </div>
     </FlitModal>
@@ -205,7 +205,7 @@ export function CabeceraFuente({ fuente, uso, editable, efectiva, idMotivo }: Pr
   let linea: React.ReactNode = null;
   if (editable) {
     if (e.fase === 'cargando') {
-      control = <span aria-hidden="true" className="inline-block h-6 w-11 animate-pulse rounded-full" style={{ background: 'var(--flit-bg-hover)' }} data-testid={`esqueleto-switch-${fuente}`} />;
+      control = <span aria-hidden="true" data-kit="esqueleto" className="kit-esqueleto inline-block h-9 w-[68px]" data-testid={`esqueleto-switch-${fuente}`} />;
     } else if (inter) {
       textoEstado = ocupado ? 'Guardando…' : inter.encendido ? (maestroApagado ? 'Encendida · apagada en el servidor' : 'Encendida') : 'Apagada';
       control = (
@@ -214,7 +214,7 @@ export function CabeceraFuente({ fuente, uso, editable, efectiva, idMotivo }: Pr
           onToggle={(siguiente) => { if (siguiente) uso.cambiar(fuente, true); else setConfirmar(true); }} />
       );
       const qc = quienCuando(inter);
-      if (qc) linea = <p className={LINEA_MUTED} style={{ color: 'var(--flit-text-muted)' }} data-testid={`quien-cuando-${fuente}`}>{qc}</p>;
+      if (qc) linea = <p className={LINEA_MUTED} style={{ color: 'var(--color-text-tertiary)' }} data-testid={`quien-cuando-${fuente}`}>{qc}</p>;
     }
     // error: el hueco queda vacío (no se adivina el valor); la línea de error vive bajo el subtítulo.
   } else if (efectiva !== null) {
@@ -224,11 +224,11 @@ export function CabeceraFuente({ fuente, uso, editable, efectiva, idMotivo }: Pr
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <h3 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{nombre}</h3>
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{nombre}</h3>
         <div className="flex min-w-0 items-center gap-x-2">
           {control}
           {textoEstado && (
-            <span id={idEstado} className="min-w-0 break-words text-sm font-medium" style={{ color: 'var(--flit-text-secondary)' }}
+            <span id={idEstado} className="min-w-0 break-words text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}
               data-testid={`estado-fuente-${fuente}`} aria-live={editable ? 'polite' : undefined}>
               {!editable && <span className="sr-only">{nombre}: </span>}{textoEstado}
             </span>

@@ -52,8 +52,8 @@ export default function BarrasDias({ barras, escala, anchoPlot, altoPlot, activa
             onFocus={() => onFoco(b.indice)} onBlur={onSalirFoco} style={{ outline: 'none' }}>
             {/* La ranura entera: da caja al día en 0 y resalta el activo. El foco se ve como en el kit. */}
             <rect x={x} y={MARGEN.arriba} width={ranura} height={altoPlot} rx={2}
-              fill={esActiva ? 'var(--flit-bg-hover)' : 'transparent'}
-              stroke={esActiva && modo === 'foco' ? 'var(--flit-border-focus)' : 'none'} strokeWidth={2} />
+              fill={esActiva ? 'var(--kit-hover)' : 'transparent'}
+              stroke={esActiva && modo === 'foco' ? 'var(--kit-azul)' : 'none'} strokeWidth={2} />
             {b.segmentos.map((s) => {
               const alto = y(s.desde) - y(s.hasta);
               if (alto <= 0) return null;

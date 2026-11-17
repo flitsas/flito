@@ -8,7 +8,7 @@
 // repetir la consulta; sin él, que FLITO la repetirá. El VIN se pinta en mono y **nunca** entra a un `aria-label` ni a la URL.
 
 import { useEffect, useRef } from 'react';
-import { ArrowRight, RotateCw, ShieldQuestion } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import {
   FlitCard, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../../flit/flitPageKit';
@@ -42,19 +42,19 @@ export default function TarjetaSolicitudGuardada(
           <span
             aria-hidden="true"
             className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-            style={{ background: 'var(--flit-chip-warning-bg)', color: 'var(--flit-warning-ink)' }}
+            style={{ background: 'color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated))', color: 'var(--kit-naranja-texto)' }}
           >
-            <ShieldQuestion size={18} />
+            <Icono nombre="espera" size={18} />
           </span>
           <h2
             ref={tituloRef} tabIndex={-1}
             className="flit-focus rounded text-base font-semibold"
-            style={{ color: 'var(--flit-text-primary)' }}
+            style={{ color: 'var(--color-text-primary)' }}
           >
             {TITULO_GUARDADA}
           </h2>
         </div>
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm text-[color:var(--color-text-secondary)]">
           El RUNT no respondió, así que todavía no la enviamos al gestor.{' '}
           {vin ? 'Guardamos el VIN, la factura y los datos del propietario' : 'Guardamos la placa y los datos del propietario'}
           : no tiene que volver a escribirlos.{' '}
@@ -62,15 +62,15 @@ export default function TarjetaSolicitudGuardada(
             ? 'Cuando el RUNT responda, la consulta se repite desde «Mis SOAT» con «Reintentar consulta».'
             : 'FLITO volverá a consultar el RUNT y usted verá el cambio de estado en «Mis SOAT».'}
         </p>
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm text-[color:var(--color-text-secondary)]">
           {vin ? 'VIN' : 'Placa'}{' '}
-          <span className="break-all font-mono font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{vin ?? placa}</span>
+          <span className="break-all font-mono font-semibold text-[color:var(--color-text-primary)]">{vin ?? placa}</span>
         </p>
         {adicionales && adicionales.aceptados.length > 0 && (
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{textoGuardados(adicionales.aceptados.length)}</p>
+          <p className="text-sm text-[color:var(--color-text-secondary)]">{textoGuardados(adicionales.aceptados.length)}</p>
         )}
         {adicionales && adicionales.descartados.length > 0 && (
-          <div className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <div className="text-sm text-[color:var(--color-text-secondary)]">
             <p>No se adjuntaron:</p>
             <ul className="mt-1 list-disc space-y-0.5 pl-5">
               {adicionales.descartados.map((d, i) => (
@@ -83,13 +83,13 @@ export default function TarjetaSolicitudGuardada(
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle}
             onClick={onSolicitarOtro}>
-            <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+            <Icono nombre="reintento" size={16} className="shrink-0" />
             Solicitar otro SOAT
           </button>
           <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
             onClick={onIrACola}>
             Ir a mis SOAT
-            <ArrowRight size={16} aria-hidden="true" className="shrink-0" />
+            <Icono nombre="derecha" size={16} className="shrink-0" />
           </button>
         </div>
       </div>

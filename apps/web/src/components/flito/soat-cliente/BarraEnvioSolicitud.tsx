@@ -13,7 +13,7 @@
 
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Save, Send } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import {
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../../flit/flitPageKit';
@@ -61,12 +61,12 @@ export default function BarraEnvioSolicitud({
     <div data-barra-envio className="sticky bottom-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 lg:bottom-[5.5rem]">
       <div
         className={`bg-flit-card px-4 py-3 sm:px-6 lg:px-8 ${reservaDrFlit ? 'max-lg:pr-20' : ''}`}
-        style={{ borderTop: '1px solid var(--flit-border-soft)', borderBottom: '1px solid var(--flit-border-soft)' }}
+        style={{ borderTop: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)' }}
       >
         {envioIncierto
           ? (
             <div className="space-y-2">
-              <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
+              <p role="alert" className="text-sm font-semibold text-[color:var(--kit-rojo-texto)]">
                 No sabemos si la solicitud llegó a FLITO. Vuelva a sus SOAT y busque ese VIN antes de volver a enviarla.
               </p>
               <Link to={colaHref} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Volver a mis SOAT</Link>
@@ -75,10 +75,10 @@ export default function BarraEnvioSolicitud({
           : (
             <div className="space-y-2">
               {avisoEnvio && (
-                <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{avisoEnvio}</p>
+                <p role="alert" className="text-sm font-semibold text-[color:var(--kit-rojo-texto)]">{avisoEnvio}</p>
               )}
               {enviando && (textoEnviandoAdicionales
-                ? <p role="status" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{textoEnviandoAdicionales}</p>
+                ? <p role="status" className="text-xs text-[color:var(--color-text-secondary)]">{textoEnviandoAdicionales}</p>
                 : <span role="status" className="sr-only">{modoCaido ? 'Guardando…' : 'Enviando…'}</span>)}
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
                 {/* **Texto plano con `id`, no una región viva.** El botón la referencia con
@@ -88,12 +88,12 @@ export default function BarraEnvioSolicitud({
                     tecla del formulario. En <lg va al final (order-3); en lg, a la izquierda. */}
                 <div className="order-3 min-w-0 space-y-0.5 lg:order-1 lg:flex-1">
                   {fraseFaltantes && (
-                    <p id={ID_FALTANTES} className="line-clamp-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+                    <p id={ID_FALTANTES} className="line-clamp-2 text-xs font-semibold text-[color:var(--color-text-secondary)]">
                       {fraseFaltantes}
                     </p>
                   )}
                   {!modoCaido && (
-                    <p className="hidden text-[11px] sm:block" style={{ color: 'var(--flit-text-secondary)' }}>
+                    <p className="hidden text-[11px] sm:block text-[color:var(--color-text-secondary)]">
                       No se guarda como borrador: al enviarla, entra en gestión.
                     </p>
                   )}
@@ -118,8 +118,8 @@ export default function BarraEnvioSolicitud({
                     disabled={enviando} onClick={onEnviar}
                   >
                     {modoCaido
-                      ? <Save size={16} aria-hidden="true" className="shrink-0" />
-                      : <Send size={16} aria-hidden="true" className="shrink-0" />}
+                      ? <Icono nombre="archivo-subir" size={16} className="shrink-0" />
+                      : <Icono nombre="derecha" size={16} className="shrink-0" />}
                     {enviando ? (modoCaido ? 'Guardando…' : 'Enviando…') : (modoCaido ? ROTULO_GUARDAR : ROTULO_ENVIAR)}
                   </button>
                 </div>

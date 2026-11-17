@@ -1,6 +1,7 @@
-import { PASOS, WIZARD_VERSION } from './constantes';
+import { PASOS, WIZARD_VERSION, cardStyle } from './constantes';
 
-// Barra de progreso del wizard (pills): cerrado / activo / pendiente.
+// Progreso del wizard con la forma `.pasos` del UI Kit 2026 (cerrado = hecho, activo = actual, resto pendiente).
+// Visible en < lg; en >= lg lo sustituye TraspasoPasosNav (un solo asistente por ancho).
 export default function ProgresoTraspasoPills({ step, pasoActivo, pasoSoloLectura, pasoNavHabilitado, onIrPaso }: {
   step: number;
   pasoActivo: number;
@@ -9,39 +10,36 @@ export default function ProgresoTraspasoPills({ step, pasoActivo, pasoSoloLectur
   onIrPaso: (n: number) => void;
 }) {
   return (
-    <div className="rounded-[12px] border px-3 py-2.5 lg:col-span-2"
-      style={{ borderColor: 'var(--flit-border-soft)', background: 'white', boxShadow: 'var(--flit-shadow-card)' }}>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
+    <div className="min-w-0 px-3 py-3 lg:hidden" style={cardStyle}>
+      <div className="flex items-center justify-between gap-2 px-1">
+        <p className="m-0 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--color-text-primary)' }}>
           Progreso del traspaso
         </p>
-        <span className="font-mono text-[9px]" style={{ color: 'var(--flit-text-muted)' }} title="Versión del wizard">
+        <span className="mono text-xs" style={{ color: 'var(--color-text-tertiary)' }} title="Versión del wizard">
           {WIZARD_VERSION}
         </span>
       </div>
-      <div className="flex gap-1 overflow-x-auto pb-1">
+      <ol className="kit-pasos !px-0" data-kit="pasos">
         {PASOS.map((label, i) => {
           const n = i + 1;
           const cerrado = pasoSoloLectura(n);
           const activo = n === pasoActivo;
           const actual = n === step;
           const navOk = pasoNavHabilitado(n);
-          const estilo: React.CSSProperties = cerrado
-            ? { borderColor: 'var(--flit-success)', color: 'var(--flit-success)', background: 'rgba(112,207,58,0.10)' }
-            : activo
-              ? { borderColor: 'var(--flit-blue)', color: 'var(--flit-blue)', background: 'var(--flit-blue-soft)', fontWeight: 700 }
-              : { borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-muted)', background: 'var(--flit-bg-app)' };
+          const estadoPaso = actual ? 'actual' : cerrado ? 'hecho' : 'pendiente';
           return (
-            <button key={label} type="button" disabled={!navOk} onClick={() => onIrPaso(n)}
-              title={cerrado ? `${label} — cerrado` : activo ? `${label} — editable` : label}
-              className="flit-focus shrink-0 rounded-[999px] border px-2.5 py-1 text-[10px] disabled:opacity-40"
-              style={{ ...estilo, outline: actual ? '2px solid var(--flit-blue)' : undefined }}>
-              {cerrado ? '✓' : `${n}.`} {label}
-            </button>
+            <li key={label} className="kit-paso" data-estado={estadoPaso}>
+              <button type="button" disabled={!navOk} onClick={() => onIrPaso(n)}
+                title={cerrado ? `${label} — cerrado` : activo ? `${label} — editable` : label}
+                className="kit-paso__boton flit-focus px-1 py-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50">
+                <span className="kit-paso__num">{cerrado ? '✓' : `${n}.`}</span>
+                <span className="kit-paso__etiqueta"> {label}</span>
+              </button>
+            </li>
           );
         })}
-      </div>
-      <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>
+      </ol>
+      <p className="m-0 mt-1 px-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
         ✓ = cerrado (solo lectura) · paso {pasoActivo} editable · {pasoActivo > 1 ? `${pasoActivo - 1} paso(s) ya cerrados` : 'Aún no hay pasos cerrados'}
       </p>
     </div>

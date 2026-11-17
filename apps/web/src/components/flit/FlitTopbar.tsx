@@ -1,261 +1,144 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
-import { useTheme, type ThemeMode } from '../../lib/theme';
+import { useTheme } from '../../lib/theme';
 import { startViewTransition } from '../../lib/viewTransitions';
-import { FLIT_PRODUCT_NAME } from '../../lib/flitBrand';
-import { IconBell, IconSearch, IconMenu, IconLogout, IconChevronDown, IconShield, IconUser } from './icons';
+import { useNavSections } from '../shell/useNavSections';
+import { Icono } from './kit/Icono';
 
-// FlitTopbar — topbar FLIT: marca a la izquierda (antes vivía en el sidebar,
-// eliminado por decisión PO 2026-06-12), trigger ⌘K al centro y a la derecha
-// toggle (tema), campana y dropdown de sesión. En mobile, hamburguesa que abre
-// el drawer de navegación (FlitSidebar).
+/**
+ * Barra superior del UI Kit 2026 (`header.barra` de index.html de la propuesta-2; SuiteShell de flit develop):
+ * marca por tema + «FLITO» · buscador «Buscar o ir a sección» (Ctrl K) · interruptor de tema del kit ·
+ * usuario (nombre, avatar con aro turquesa, puntos y menú: perfil, ayuda, contraseña y salir).
+ * Solo presentación: la sesión, el perfil y la salida son los de siempre. Administración vive en el dock, como
+ * sección del menú (SECTION_ORDER), no aquí. Por debajo de 1024 px (sin dock) el ☰ abre el menú lateral.
+ */
 interface FlitTopbarProps {
   onOpenPalette: () => void;
-  onOpenSidebar: () => void;
+  /** Abre el menú lateral (<1024 px, donde no hay dock). Sin él no se pinta el ☰. */
+  onOpenSidebar?: () => void;
+  /** Estado del menú lateral, para `aria-expanded` del ☰. */
+  sidebarAbierto?: boolean;
+  /** Ref del ☰: el menú lateral devuelve el foco aquí al cerrarse. */
+  menuBotonRef?: RefObject<HTMLButtonElement>;
 }
 
-export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarProps) {
+type MenuId = 'usuario' | null;
+
+function iniciales(nombre: string | undefined): string {
+  const partes = (nombre ?? '').trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return '·';
+  return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : '')).toUpperCase();
+}
+
+export default function FlitTopbar({ onOpenPalette, onOpenSidebar, sidebarAbierto = false, menuBotonRef }: FlitTopbarProps) {
   const { user, logout, hasFuncion } = useAuth();
+  const { resolvedTheme, setTheme } = useTheme();
+  const { visibleItems } = useNavSections();
   const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<MenuId>(null);
+  const barraRef = useRef<HTMLElement>(null);
 
-  const isMac = useMemo(() => {
-    if (typeof navigator === 'undefined') return false;
-    return /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
-  }, []);
+  const isMac = useMemo(() => typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || ''), []);
 
+  // Un menú a la vez; se cierra al pulsar fuera o con Escape (y devuelve el foco a su botón).
   useEffect(() => {
-    if (!menuOpen) return;
-    const onClick = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    if (!menu) return undefined;
+    const fuera = (e: MouseEvent) => { if (!barraRef.current?.contains(e.target as Node)) setMenu(null); };
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const boton = barraRef.current?.querySelector<HTMLButtonElement>(`[data-menu="${menu}"]`);
+      setMenu(null);
+      boton?.focus();
     };
-    window.addEventListener('mousedown', onClick);
-    return () => window.removeEventListener('mousedown', onClick);
-  }, [menuOpen]);
+    window.addEventListener('mousedown', fuera);
+    window.addEventListener('keydown', tecla);
+    return () => { window.removeEventListener('mousedown', fuera); window.removeEventListener('keydown', tecla); };
+  }, [menu]);
 
-  const initial = user?.name?.charAt(0).toUpperCase() ?? '·';
-
-  // HU #13431 (AC2): Perfil se ve con «Ver mis datos». La función ya implica la cadena del catálogo
-  // (elemento Perfil → ítem Perfil): el resolutor solo la entrega si los dos están efectivos.
+  const alternar = (id: Exclude<MenuId, null>) => setMenu((m) => (m === id ? null : id));
   const puedeVerPerfil = hasFuncion('perfil.datos.ver');
+  const puedeVerAyuda = visibleItems.some((it) => it.to === '/flito/ayuda');
+  const oscuro = resolvedTheme === 'dark';
+  const nombre = user?.name ?? 'Sesión';
+  // Rol · empresa: /auth/me no trae la empresa del usuario; se muestra el nombre de negocio del rol.
+  const rol = user?.rolNombre ?? user?.role ?? '—';
 
-  const handlePerfil = (): void => {
-    setMenuOpen(false);
-    startViewTransition(() => navigate('/perfil'));
-  };
-
-  const handleLogout = (): void => {
-    setMenuOpen(false);
-    startViewTransition(() => navigate('/login'));
-    logout();
-  };
+  const ir = (to: string) => { setMenu(null); startViewTransition(() => navigate(to)); };
+  const salir = () => { setMenu(null); startViewTransition(() => navigate('/login')); logout(); };
 
   return (
-    <header
-      className="flit-app sticky top-0 z-30 flex items-center gap-2 border-b px-3 sm:gap-3 sm:px-6"
-      role="banner"
-      style={{
-        height: 'var(--flit-topbar-height)',
-        // Era este mismo valor escrito a mano: --flit-bg-app al 85 %. Un hex en línea no tiene
-        // par oscuro, así que la barra se quedaba celeste con el resto de la app ya invertido
-        // (HU #11899, AC1). El alfa vive ahora en el token, que lo trae en los dos temas.
-        background: 'var(--flit-bg-topbar)',
-        backdropFilter: 'blur(8px)',
-        borderColor: 'var(--flit-border-soft)',
-      }}
-    >
-      {/* Hamburguesa — abre sidebar drawer (solo mobile) */}
-      <button
-        type="button"
-        onClick={onOpenSidebar}
-        aria-label="Abrir menú de navegación"
-        className="flit-focus grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-colors hover:bg-flit-card lg:hidden"
-        style={{ color: 'var(--flit-text-secondary)' }}
-      >
-        <IconMenu className="h-5 w-5" />
-      </button>
-
-      {/* Marca FLIT (antes en el sidebar) */}
-      <div className="flex shrink-0 items-center gap-2.5 sm:pr-3">
-        <span
-          className="grid h-9 w-9 place-items-center rounded-xl text-white"
-          style={{ background: 'var(--flit-gradient-primary)' }}
-          aria-hidden="true"
-        >
-          <IconShield className="h-[18px] w-[18px]" />
-        </span>
-        <span
-          className="hidden whitespace-nowrap text-sm font-semibold tracking-tight md:block"
-          style={{ color: 'var(--flit-text-primary)' }}
-        >
-          {FLIT_PRODUCT_NAME}
-        </span>
-      </div>
-
-      {/* Trigger ⌘K — botón con look de input. `min-w-0` + `overflow-hidden`: sin ellos su ancho mínimo
-          es el texto completo y en un teléfono (<sm) la barra desbordaba y ensanchaba el layout viewport
-          (iPhone 12: innerWidth 453 vs 390 visibles), dejando fuera de pantalla el «Cerrar» de Dr. Flit
-          (retrabajo HU #13764, AC7). Los vecinos van `shrink-0`: el que cede es el buscador. */}
-      <button
-        type="button"
-        onClick={onOpenPalette}
-        aria-label={`Buscar o ir a sección (${isMac ? 'Command' : 'Control'} K)`}
-        className="flit-focus group flex h-10 min-w-0 max-w-xl flex-1 items-center gap-2 overflow-hidden bg-flit-card px-3 text-left text-sm transition-colors sm:gap-3 sm:px-4"
-        style={{
-          borderRadius: 'var(--flit-radius-input)',
-          border: '1px solid var(--flit-border-input)',
-          color: 'var(--flit-text-muted)',
-        }}
-      >
-        <IconSearch className="h-4 w-4 shrink-0" />
-        {/* <360 px no cabe ni «Buscar…»: queda la lupa (el nombre accesible lo da el aria-label). */}
-        <span className="flex-1 truncate max-[359px]:hidden">Buscar o ir a sección…</span>
-        <kbd
-          aria-hidden="true"
-          className="hidden items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-medium sm:inline-flex"
-          style={{ border: '1px solid var(--flit-border-input)', color: 'var(--flit-text-muted)' }}
-        >
-          <span>{isMac ? '⌘' : 'Ctrl'}</span><span>K</span>
-        </kbd>
-      </button>
-
-      <div className="hidden flex-1 lg:block" aria-hidden="true" />
-
-      {/* Grupo derecho: toggle tema, campana, usuario */}
-      <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-        <ThemeCycleButton />
-
-        <button
-          type="button"
-          aria-label="Notificaciones (próximamente)"
-          className="flit-focus grid h-10 w-10 place-items-center rounded-xl transition-colors hover:bg-flit-card"
-          style={{ color: 'var(--flit-text-secondary)' }}
-        >
-          <IconBell className="h-[18px] w-[18px]" />
+    <header ref={barraRef} className="barra flit-app" role="banner" data-kit="barra">
+      {/* ☰ solo <1024 px (el CSS del kit lo oculta desde lg, donde la navegación es el dock). */}
+      {onOpenSidebar && (
+        <button ref={menuBotonRef} type="button" className="barra__menu" aria-label="Abrir menú de navegación"
+          aria-expanded={sidebarAbierto} aria-controls={sidebarAbierto ? 'flit-menu-lateral' : undefined} aria-haspopup="dialog" onClick={onOpenSidebar}>
+          <Icono nombre="lista" size={22} />
+        </button>
+      )}
+      <Link className="barra__marca" to="/" aria-label="FLITO, ir al inicio">
+        <img className="logo logo--claro" src="/kit/logo-claro.svg" alt="FLIT" />
+        <img className="logo logo--oscuro" src="/kit/logo-oscuro.svg" alt="FLIT" />
+        <span className="barra__producto">FLITO</span>
+      </Link>
+      <div className="barra__acciones">
+        <button type="button" className="buscar" onClick={onOpenPalette} aria-label={`Buscar o ir a sección (${isMac ? 'Command' : 'Control'} K)`}>
+          <Icono nombre="buscar" size={20} />
+          <span>Buscar o ir a sección…</span>
+          <kbd aria-hidden="true">{isMac ? '⌘ K' : 'Ctrl K'}</kbd>
         </button>
 
-        {/* Usuario: avatar + rol + menú ⋮ */}
-        <div className="relative" ref={menuRef}>
-          <button
-            type="button"
-            onClick={() => setMenuOpen((v) => !v)}
-            aria-label={`Menú de usuario · ${user?.name ?? 'sesión'}`}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            className="flit-focus flex items-center gap-2 rounded-xl py-1 pl-1 pr-2 transition-colors hover:bg-flit-card"
-          >
-            <span
-              className="grid h-9 w-9 place-items-center rounded-lg text-[11px] font-semibold text-white"
-              style={{ background: 'var(--flit-gradient-primary)' }}
-              aria-hidden="true"
-            >
-              {initial}
-            </span>
-            <span className="hidden text-left sm:block">
-              <span className="block max-w-[14ch] truncate text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-                {user?.name ?? 'Sesión'}
-              </span>
-              <span className="block text-[11px] capitalize" style={{ color: 'var(--flit-text-muted)' }}>
-                {user?.role ?? '—'}
-              </span>
-            </span>
-            <IconChevronDown className="hidden h-4 w-4 sm:block" style={{ color: 'var(--flit-text-muted)' }} />
-          </button>
+        <button type="button" className="tema-kit" aria-pressed={oscuro} aria-label="Tema oscuro" data-tip="Preferencias de visualización"
+          onClick={() => setTheme(oscuro ? 'light' : 'dark')} />
 
-          {menuOpen && (
-            <div
-              role="menu"
-              aria-label="Opciones de usuario"
-              className="absolute right-0 top-full mt-2 w-64 overflow-hidden bg-flit-card"
-              style={{
-                borderRadius: 'var(--flit-radius-md)',
-                border: '1px solid var(--flit-border-soft)',
-                boxShadow: 'var(--flit-shadow-card)',
-              }}
-            >
-              <div className="border-b px-4 pt-3 pb-2.5" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: 'var(--flit-text-muted)' }}>Sesión</p>
-                <p className="mt-1 truncate text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{user?.name ?? 'Sin nombre'}</p>
-                <p className="text-[11px] capitalize" style={{ color: 'var(--flit-text-secondary)' }}>{user?.role ?? '—'}</p>
-              </div>
-              <div className="p-1.5">
-                {/* Perfil (HU #13256): mismo bloque que «Cerrar sesión», encima. Sin «Ver mis datos» no se pinta (HU #13431). */}
-                {puedeVerPerfil && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={handlePerfil}
-                    className="flit-focus flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-[color:var(--flit-text-secondary)] transition-colors hover:bg-[var(--flit-bg-hover)] hover:text-[color:var(--flit-text-primary)]"
-                  >
-                    <IconUser className="h-4 w-4" />
-                    Perfil
-                  </button>
-                )}
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={handleLogout}
-                  className="flit-focus flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[rgba(228,61,48,0.08)]"
-                  style={{ color: 'var(--flit-text-secondary)' }}
-                >
-                  <IconLogout className="h-4 w-4" />
-                  Cerrar sesión
-                </button>
-              </div>
+        <MenuAncla abierto={menu === 'usuario'}
+          boton={
+            <button type="button" className="usuario" data-menu="usuario" aria-expanded={menu === 'usuario'} aria-controls={menu === 'usuario' ? 'flit-usuario-menu' : undefined}
+              aria-haspopup="menu" aria-label={`Menú de usuario · ${user?.name ?? 'sesión'}`} onClick={() => alternar('usuario')}>
+              <span className="usuario__avatar" aria-hidden="true">{iniciales(user?.name)}</span>
+              <span className="usuario__texto"><strong className="max-w-[18ch] truncate">{nombre}</strong><small className="max-w-[22ch] truncate">{rol}</small></span>
+              <span className="usuario__puntos" aria-hidden="true"><Icono nombre="puntos" /></span>
+            </button>
+          }>
+          <div className="menu-flotante menu-usuario" id="flit-usuario-menu" role="menu" aria-label="Opciones de usuario">
+            <div className="menu-usuario__cabeza">
+              <span className="menu-usuario__avatar" aria-hidden="true">{iniciales(user?.name)}</span>
+              <div><strong className="truncate">{user?.name ?? 'Sin nombre'}</strong><small>{rol}</small></div>
             </div>
-          )}
-        </div>
+            <ul>
+              {/* Cuenta. */}
+              {puedeVerPerfil && (
+                <li><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir('/perfil')}>
+                  <span className="kico" aria-hidden="true"><Icono nombre="persona" /></span><span><strong>Perfil</strong><small>Tus datos y preferencias</small></span>
+                </button></li>
+              )}
+              {puedeVerPerfil && (
+                <li><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir('/perfil?accion=contrasena')}>
+                  <span className="kico" aria-hidden="true"><Icono nombre="ojo" /></span><span><strong>Cambiar contraseña</strong><small>Actualiza tu clave de acceso</small></span>
+                </button></li>
+              )}
+              {puedeVerAyuda && (
+                <li><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir('/flito/ayuda')}>
+                  <span className="kico" aria-hidden="true"><Icono nombre="ayuda" /></span><span><strong>Ayuda</strong><small>Manual y preguntas frecuentes</small></span>
+                </button></li>
+              )}
+            </ul>
+            {/* Salir en naranja (ui-kit-2026.css pinta así el .btn del pie). */}
+            <div className="menu-usuario__pie">
+              <button type="button" role="menuitem" className="btn sm secondary" data-variante="alerta" onClick={salir}>Cerrar sesión</button>
+            </div>
+          </div>
+        </MenuAncla>
       </div>
     </header>
   );
 }
 
-/* Theme toggle — conserva la lógica existente (useTheme.cycleTheme). */
-function ThemeCycleButton() {
-  const { theme, cycleTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  const labels: Record<ThemeMode, { aria: string; title: string }> = {
-    light: { aria: 'Cambiar a tema oscuro', title: 'Tema claro' },
-    dark: { aria: 'Cambiar a tema del sistema', title: 'Tema oscuro' },
-    system: { aria: 'Cambiar a tema claro', title: 'Tema del sistema' },
-  };
-  const current = mounted ? theme : 'light';
-  const { aria, title } = labels[current];
-
+function MenuAncla({ boton, abierto, children, clase = '' }: { boton: ReactNode; abierto: boolean; children: ReactNode; clase?: string }) {
   return (
-    <button
-      type="button"
-      onClick={cycleTheme}
-      aria-label={aria}
-      title={title}
-      className="flit-focus relative grid h-10 w-10 place-items-center overflow-hidden rounded-xl transition-colors hover:bg-flit-card"
-      style={{ color: 'var(--flit-text-secondary)' }}
-    >
-      <ThemeIcon mode="light" active={current === 'light'} />
-      <ThemeIcon mode="dark" active={current === 'dark'} />
-      <ThemeIcon mode="system" active={current === 'system'} />
-    </button>
+    <div className={`menu-ancla ${clase}`}>
+      {boton}
+      {abierto && children}
+    </div>
   );
 }
-
-function ThemeIcon({ mode, active }: { mode: ThemeMode; active: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`absolute inset-0 grid place-items-center transition-all duration-200 ${active ? 'scale-100 opacity-100' : 'scale-75 opacity-0'}`}
-    >
-      {mode === 'light' && <SunIcon />}
-      {mode === 'dark' && <MoonIcon />}
-      {mode === 'system' && <MonitorIcon />}
-    </span>
-  );
-}
-
-const sw = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const;
-const SunIcon = () => (<svg {...sw} className="h-[18px] w-[18px]"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" /></svg>);
-const MoonIcon = () => (<svg {...sw} className="h-[18px] w-[18px]"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" /></svg>);
-const MonitorIcon = () => (<svg {...sw} className="h-[18px] w-[18px]"><rect x="2.5" y="4" width="19" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>);

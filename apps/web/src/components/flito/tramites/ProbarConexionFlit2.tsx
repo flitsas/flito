@@ -10,8 +10,7 @@
 //   · mientras prueba, un segundo clic no sale (AC3): guarda por `ref` además del `disabled`, porque
 //     dos clics en el mismo tick llegan antes de que React repinte.
 
-import { useCallback, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
+import { useCallback, useRef, useState, type CSSProperties } from 'react';
 import type { Flit2PruebaResultado } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
@@ -115,24 +114,26 @@ export function usePruebaConexion(alTerminar: () => void) {
   return { probando, aviso, probar, limpiar };
 }
 
-const ESTILO: Record<TonoPrueba, { tinta: string; fondo: string; Icono: typeof CheckCircle2 }> = {
-  ok: { tinta: 'var(--flit-success-ink)', fondo: 'var(--flit-chip-success-bg)', Icono: CheckCircle2 },
-  advertencia: { tinta: 'var(--flit-warning-ink)', fondo: 'var(--flit-chip-warning-bg)', Icono: AlertTriangle },
-  error: { tinta: 'var(--flit-danger-ink)', fondo: 'var(--flit-chip-danger-bg)', Icono: XCircle },
+// Aviso en página del kit (`.kit-alerta`): `--c` lleva el color del tono; `data-tono` conserva los valores
+// propios de la prueba (ok/advertencia/error), que son contrato E2E.
+const ESTILO: Record<TonoPrueba, { color: string; icono: string }> = {
+  ok: { color: 'var(--kit-verde)', icono: '/kit/aviso-ok.svg' },
+  advertencia: { color: 'var(--kit-naranja)', icono: '/kit/aviso-alerta.svg' },
+  error: { color: 'var(--kit-rojo)', icono: '/kit/aviso-error.svg' },
 };
 
 /** Aviso del resultado: el tono va en icono + texto, no solo en color. Error = `alert`. */
 export function AvisoPruebaFlit2({ aviso }: { aviso: AvisoPrueba }) {
-  const { tinta, fondo, Icono } = ESTILO[aviso.tono];
+  const { color, icono } = ESTILO[aviso.tono];
   return (
     <div
       role={aviso.tono === 'error' ? 'alert' : 'status'}
       data-tono={aviso.tono}
-      className="flex items-start gap-2 rounded-lg px-3 py-2.5 text-sm"
-      style={{ border: '1px solid var(--flit-border-soft)', background: fondo, color: tinta }}
+      className="kit-alerta text-sm"
+      style={{ '--c': color } as CSSProperties}
     >
-      <Icono aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
-      <p>{aviso.texto}</p>
+      <img src={icono} alt="" aria-hidden="true" className="kit-alerta__icono" />
+      <p className="min-w-0 flex-1">{aviso.texto}</p>
     </div>
   );
 }
@@ -145,6 +146,7 @@ export function BotonProbarConexion({ probando, onProbar }: { probando: boolean;
         type="button"
         className={`${flitBtnSecondary} w-full sm:w-auto`}
         style={flitBtnSecondaryStyle}
+        data-variante="secundario"
         onClick={onProbar}
         disabled={probando}
         aria-busy={probando}

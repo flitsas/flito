@@ -6,7 +6,7 @@ import { useId, type KeyboardEvent, type RefObject } from 'react';
 import { etiquetaLlave, nombreUsuario, pesosTarifa, frasePrecioDesde, validarValorTarifa, type FilaVistaTarifa } from '../../lib/tarifas';
 import StatusChip from '../../components/flit/StatusChip';
 import {
-  flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitBtnSecondarySm,
+  flitInp, flitBtnPrimary, flitBtnSecondary, flitBtnSecondarySm,
 } from '../../components/flit/flitPageKit';
 
 export const SIN_CONFIGURAR = 'Sin configurar';
@@ -49,7 +49,7 @@ export function GrupoLogistica({ gestionaFlito, paneles }: { gestionaFlito: bool
   return (
     <div className="mt-5">
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Logística</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>Logística</h3>
         <StatusChip tone={gestionaFlito ? 'active' : 'neutral'}>
           {gestionaFlito ? 'Gestiona FLITO' : 'Autogestiona el cliente'}
         </StatusChip>
@@ -82,12 +82,12 @@ function PanelPrecio(p: PanelProps) {
       ref={p.registrarCabecera}
       tabIndex={-1}
       data-vigencia={fila.vigenciaId ?? undefined}
-      className="flit-focus flex min-w-0 flex-col gap-3 rounded-xl border p-4"
-      style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' }}
+      className="flit-focus flex min-w-0 flex-col gap-3 rounded-[9px] border p-4"
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)' }}
     >
-      <h4 id={idTitulo} className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{etiqueta}</h4>
+      <h4 id={idTitulo} className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{etiqueta}</h4>
       {fila.concepto === 'logistica_flit' && (
-        <p className="-mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{NOTA_FLIT}.</p>
+        <p className="-mt-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{NOTA_FLIT}.</p>
       )}
 
       {enEdicion ? (
@@ -112,37 +112,37 @@ function PanelPrecio(p: PanelProps) {
             />
           </div>
           {tieneValor && (
-            <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Antes: {pesosTarifa(fila.valor as number)}</span>
+            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Antes: {pesosTarifa(fila.valor as number)}</span>
           )}
           {mensaje && (
-            <p id={idMensaje} role="alert" className="text-xs font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>{mensaje}</p>
+            <p id={idMensaje} role="alert" className="text-xs font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>{mensaje}</p>
           )}
         </div>
       ) : tieneValor ? (
         <div>
-          <p className="text-xl font-semibold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{pesosTarifa(fila.valor as number)}</p>
-          <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-xl font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{pesosTarifa(fila.valor as number)}</p>
+          <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             {frasePrecioDesde(fila.vigenteDesde)} · {nombreUsuario(fila.fijadoPor)}
           </p>
         </div>
       ) : (
         <div className="space-y-1">
-          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold" style={{ color: 'var(--flit-warning-ink)' }}>
+          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold" style={{ color: 'var(--kit-naranja-texto)' }}>
             {SIN_CONFIGURAR}
             <StatusChip tone="warning">Falta</StatusChip>
           </p>
-          <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{fila.concepto === 'logistica_flit' ? AVISO_FALTA_FLIT : AVISO_FALTA}</p>
+          <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{fila.concepto === 'logistica_flit' ? AVISO_FALTA_FLIT : AVISO_FALTA}</p>
         </div>
       )}
 
       <div className="flex flex-wrap gap-2">
         {enEdicion ? (
           <>
-            <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={!guardable}
+            <button type="button" className={flitBtnPrimary} disabled={!guardable}
               aria-label={`Guardar · ${sujeto}`} onClick={p.onGuardar}>
               {enEdicion.guardando ? 'Guardando…' : 'Guardar'}
             </button>
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enEdicion.guardando}
+            <button type="button" className={flitBtnSecondary} disabled={enEdicion.guardando}
               aria-label={`Cancelar · ${sujeto}`} onClick={p.onCancelar}>
               Cancelar
             </button>
@@ -150,20 +150,20 @@ function PanelPrecio(p: PanelProps) {
         ) : (
           <>
             {p.editar && (
-              <button type="button" ref={p.registrarBoton} className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}
+              <button type="button" ref={p.registrarBoton} className={flitBtnSecondarySm}
                 disabled={p.bloqueado} aria-label={`${tieneValor ? 'Cambiar' : 'Fijar valor'} · ${sujeto}`} onClick={p.onAbrir}>
                 {tieneValor ? 'Cambiar' : 'Fijar valor'}
               </button>
             )}
             {p.verHistorial && (
-              <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}
+              <button type="button" className={flitBtnSecondarySm}
                 disabled={p.bloqueado} aria-label={`Historial · ${sujeto}`} onClick={p.onHistorial}>
                 Historial
               </button>
             )}
             {p.editar && (
               <button type="button" className={flitBtnSecondarySm}
-                style={{ ...flitBtnSecondaryStyle, color: tieneValor ? 'var(--flit-danger-ink)' : undefined }}
+                style={{ color: tieneValor ? 'var(--kit-naranja-texto)' : undefined }}
                 disabled={p.bloqueado || !tieneValor}
                 aria-label={tieneValor ? `Dejar de cobrar · ${sujeto}` : `Dejar de cobrar · ${sujeto} (disponible cuando haya un valor)`}
                 onClick={p.onDejarDeCobrar}>

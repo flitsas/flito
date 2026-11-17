@@ -1,19 +1,19 @@
 // FLITO — Comparendos: cómo se pinta un dato del registro. Nada de React aquí.
 //
-// Vivían dentro de `TablaComparendos.tsx` (HU #11560). Salen a un módulo propio en la HU #11562
+// Vivían dentro de `TablaComparendos.tsx` (HU 11560). Salen a un módulo propio en la HU 11562
 // porque el panel de detalle pinta los MISMOS datos y no tiene por qué importar de un componente de
 // tabla para formatear un monto — y sobre todo porque aquí se ve de un vistazo la distinción que la
-// HU #11562 tuvo que introducir y que el nombre viejo escondía:
+// HU 11562 tuvo que introducir y que el nombre viejo escondía:
 //
 //   · `fechaCorta` / `fechaLarga` — una fecha de CALENDARIO (`date`, sin hora).
 //   · `fechaColombia`             — un INSTANTE, del que solo se pinta el día.
 //   · `fechaHoraColombia`         — el mismo instante CON su hora.
-//   · `fechaHoraCortaColombia`    — ese instante con hora pero SIN año (HU #11636, tablas).
+//   · `fechaHoraCortaColombia`    — ese instante con hora pero SIN año (HU 11636, tablas).
 //
 // El nombre `fechaHoraColombia` lo llevaba, hasta esta HU, la función que NO pinta hora: usaba
 // `toLocaleDateString` con `{day, month, year}`. La tabla no necesita la hora —trece columnas y una
 // corrida diaria— y el panel sí (el wireframe pide «2 jul 2026, 03:12»). Corregir la vieja en
-// sitio habría cambiado tres columnas de la tabla y las aserciones vigentes de la #11560, así que
+// sitio habría cambiado tres columnas de la tabla y las aserciones vigentes de la 11560, así que
 // se parte en dos: la de siempre se renombra a lo que hace y la de la hora nace nueva.
 
 import type {
@@ -24,7 +24,7 @@ import type {
 export const SIN_DATO = '—';
 
 /**
- * Monto en pesos colombianos (HU #11560, AC1). Se formatea sobre `Number(monto)` **solo para
+ * Monto en pesos colombianos (HU 11560, AC1). Se formatea sobre `Number(monto)` **solo para
  * mostrar**: la columna es `numeric(14,2)` y en el cliente no se suma nada.
  */
 export function pesos(monto: string | null): string {
@@ -56,7 +56,7 @@ export function fechaCorta(fecha: string | null): string {
 }
 
 /**
- * `YYYY-MM-DD` → «12 de julio de 2026». La del panel de detalle (HU #11562), donde hay sitio.
+ * `YYYY-MM-DD` → «12 de julio de 2026». La del panel de detalle (HU 11562), donde hay sitio.
  *
  * Mismo parseo de calendario que `fechaCorta` y por el mismo motivo: lo único que cambia es el mes.
  */
@@ -84,7 +84,7 @@ export function fechaColombia(instante: string | null): string {
 }
 
 /**
- * El mismo instante **con su hora**, en hora de Colombia: «2 jul 2026, 03:12» (HU #11562).
+ * El mismo instante **con su hora**, en hora de Colombia: «2 jul 2026, 03:12» (HU 11562).
  *
  * Es la del panel de detalle, donde la hora sí se lee: distinguir dos corridas del mismo día, o
  * saber si una gestión se registró antes o después de la sincronización de la madrugada, es
@@ -110,7 +110,7 @@ export function fechaHoraColombia(instante: string | null): string {
 /**
  * Cuánto tardó algo, en la unidad que se lee de un vistazo: «840 ms», «1,2 s», «2 min 5 s».
  *
- * La usa el detalle por fuente de una corrida (HU #11635): cada paso trae su `duracionMs` y la
+ * La usa el detalle por fuente de una corrida (HU 11635): cada paso trae su `duracionMs` y la
  * columna existe para responder «¿cuál de las fuentes nos está frenando?». Con milisegundos crudos
  * —«8004»— esa pregunta obliga a contar cifras en cada fila.
  *
@@ -166,7 +166,7 @@ export function etiquetaOrigen(origen: ComparendoRegistro['origenMerge']): strin
 }
 
 /**
- * El mismo instante, **sin el año**: «14 de ago, 15:02». La de la TABLA del historial (HU #11636).
+ * El mismo instante, **sin el año**: «14 de ago, 15:02». La de la TABLA del historial (HU 11636).
  *
  * Es la tercera forma de pintar un instante en este módulo y la enmienda de UX del 20 ago 2026
  * (decisión 15) explica por qué hacían falta las tres: el instante completo
@@ -192,7 +192,7 @@ export function fechaHoraCortaColombia(instante: string | null): string {
 }
 
 /**
- * Qué es la fila HOY ante la autoridad (HU #11712). Lo deriva el merge del número de resolución;
+ * Qué es la fila HOY ante la autoridad (HU 11712). Lo deriva el merge del número de resolución;
  * **no lo dice ningún campo del proveedor** y no se puede inferir de `estadoFuente`.
  */
 const ETIQUETA_TIPO_REGISTRO: Record<ComparendosTipoRegistro, string> = {
@@ -206,7 +206,7 @@ const ETIQUETA_TIPO_REGISTRO: Record<ComparendosTipoRegistro, string> = {
  * le escriba su texto, y el respaldo al valor crudo evita el «undefined» cuando un backend un paso
  * por delante de esta pestaña manda un valor que este mapa todavía no tiene.
  *
- * **El `null` se pinta {@link SIN_DATO}, nunca «Comparendo»** (HU #11713, AC3). `null` es «no se
+ * **El `null` se pinta {@link SIN_DATO}, nunca «Comparendo»** (HU 11713, AC3). `null` es «no se
  * sabe»: es lo que devuelve todo el histórico anterior a la migración 0160, cuyo dato ya no está en
  * ninguna parte, y en las filas `inactivo` es permanente porque ningún sync vuelve a visitarlas
  * (CF-10). Rellenar el hueco con la palabra convertiría una ausencia en un dato verificado que nadie
@@ -216,7 +216,7 @@ const ETIQUETA_TIPO_REGISTRO: Record<ComparendosTipoRegistro, string> = {
 export function etiquetaTipoRegistro(tipo: ComparendoRegistro['tipoRegistro']): string {
   // `==` A PROPÓSITO, no un descuido que haya que «corregir» a `===`: cubre `null` y `undefined` con
   // una sola rama. El tipo promete `null`, pero el valor llega por la red y una pestaña cacheada
-  // contra un backend anterior a la HU #11712 recibe la clave AUSENTE — que es justo el caso que el
+  // contra un backend anterior a la HU 11712 recibe la clave AUSENTE — que es justo el caso que el
   // párrafo de arriba dice cubrir. Con `===` el lookup daría `undefined`, el `?? tipo` devolvería
   // `undefined` y React pintaría la celda VACÍA: exactamente lo que el AC3 prohíbe.
   if (tipo == null) return SIN_DATO;
@@ -225,7 +225,7 @@ export function etiquetaTipoRegistro(tipo: ComparendoRegistro['tipoRegistro']): 
 
 /**
  * El texto que las corridas YA PERSISTIDAS llevan en `sync_steps.mensaje` para el 200 vacío no
- * concluyente del UTS. Copiado literal de la constante que el backend usó hasta la HU #11796.
+ * concluyente del UTS. Copiado literal de la constante que el backend usó hasta la HU 11796.
  *
  * Está aquí porque hay que RECONOCERLO, no porque se vaya a emitir nunca más.
  */
@@ -235,7 +235,7 @@ const HISTORICO_VACIO_NO_CONCLUYENTE = 'El UTS respondió sin veredicto (codigoE
 
 /**
  * El copy vigente (decisión 18 de la enmienda de UX del 24 ago 2026). Lo emite ya el backend desde
- * la HU #11796, así que una corrida NUEVA llega con esta cadena y el alias no la toca: entra, no
+ * la HU 11796, así que una corrida NUEVA llega con esta cadena y el alias no la toca: entra, no
  * encuentra entrada en la tabla —una clave no se aliasa a sí misma— y sale tal cual, una sola vez.
  */
 const VACIO_NO_CONCLUYENTE = 'La consulta salió bien y no trajo registros. Eso no confirma que el '
@@ -266,7 +266,7 @@ const ALIAS_MENSAJE_PASO = new Map<string, string>([
 ]);
 
 /**
- * Qué texto se pinta bajo el chip de un paso, o `null` si no se pinta ninguno (HU #11797).
+ * Qué texto se pinta bajo el chip de un paso, o `null` si no se pinta ninguno (HU 11797).
  *
  * Tres reglas, y las tres son el AC:
  *

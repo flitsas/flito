@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cómo concilio el recaudo SOAT
   - por qué no cuadra la conciliación
-version: 1.2
-fecha: 2026-10-25
+version: 1.5
+fecha: 2026-11-17
 ---
 ## Qué es
 
@@ -21,7 +21,7 @@ Financiera y Administrador. Quien entra puede cargar y conciliar: no hay modo de
 
 ## Cómo se entra
 
-En el menú lateral, sección **Finanzas**, ítem **Conciliación**. El detalle de una boleta abre en su propia página (con **Abrir**), no en una ventana encima, para que el reporte de costos pueda enlazarla.
+En la barra de navegación al pie de la pantalla, pulse **Finanzas** y, en el panel que se abre, el ítem **Conciliación**. El detalle de una boleta abre en su propia página (con **Abrir**), no en una ventana encima, para que el reporte de costos pueda enlazarla. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «conciliación».
 
 ## Pasos
 

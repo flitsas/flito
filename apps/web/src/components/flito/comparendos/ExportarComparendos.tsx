@@ -1,4 +1,4 @@
-// FLITO — Comparendos: la descarga en Excel del conjunto filtrado (HU #11561, AC3..AC6).
+// FLITO — Comparendos: la descarga en Excel del conjunto filtrado (HU 11561, AC3..AC6).
 //
 // Es la única acción de la pantalla con datos propios, así que tiene sus cuatro estados —reposo,
 // ocupado, error y hecho— como cualquier otra superficie. Cuatro cosas la definen:
@@ -167,7 +167,7 @@ export interface AvisoExport {
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * **Aquí SÍ se hace eco del texto del servidor, en dos casos y solo en dos.** El módulo tiene la
- * regla contraria desde la #11559 (`errorDeVista`, en el hook) y esto es una excepción razonada, no
+ * regla contraria desde la 11559 (`errorDeVista`, en el hook) y esto es una excepción razonada, no
  * un olvido de quien no leyó aquel comentario:
  *
  *   · La regla existe para no **reflejar en pantalla lo que vino de la consulta del titular**: el
@@ -180,7 +180,7 @@ export interface AvisoExport {
  *     efectivo es `COMPARENDOS_EXPORT_MAX_FILAS` del ENTORNO (mín. 1, máx. 20 000), el cuerpo del 422
  *     es `{ error, codigo }` sin campo `tope`, y `shared-types` advierte expresamente de que su
  *     constante es solo el valor POR DEFECTO. Escribir aquí el número del día —fuera «5.000», hoy
- *     «2.000» tras la recalibración de la HU #11651— sería escribir una cifra que cualquier
+ *     «2.000» tras la recalibración de la HU 11651— sería escribir una cifra que cualquier
  *     despliegue puede desmentir sin que nadie se entere, y que además caduca cuando el tope se
  *     mueve. Por eso esta línea no cita ninguna: el número lo trae el mensaje del 422.
  *
@@ -247,7 +247,7 @@ export interface EstadoExport {
  * El estado de la descarga, con el candado del AC4.
  *
  * **El candado es una `ref` y no el `disabled` del botón**, y la diferencia es la lección que costó
- * un rojo intermitente en la HU #11562: `disabled` es una propiedad que React escribe en el DOM en
+ * un rojo intermitente en la HU 11562: `disabled` es una propiedad que React escribe en el DOM en
  * el commit SIGUIENTE al clic. Entre el primer clic y ese commit cabe un segundo clic —un doble clic
  * humano, un `click()` desde el teclado, un lector de pantalla que reenvía el evento— y ese segundo
  * clic encontraría el botón todavía habilitado y saldría a la red. «No admite un segundo clic» es
@@ -346,18 +346,15 @@ function AvisoVisible(
   return (
     <div
       role={esError ? 'alert' : undefined}
-      className="flex flex-wrap items-center justify-between gap-3 bg-white px-6 py-4"
-      style={{
-        borderRadius: 'var(--flit-radius-card)',
-        border: '1px solid var(--flit-border-soft)',
-        boxShadow: 'var(--flit-shadow-card)',
-      }}
+      data-kit="alerta"
+      data-tono={esError ? 'danger' : 'info'}
+      className="flex flex-wrap items-center justify-between gap-3 rounded-[9px] border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-6 py-4"
     >
-      {/* Tinta y no color de superficie: `--flit-danger` como letra de 14px sobre blanco se queda
-          en 4,19 y axe lo marca `serious` (Bug #11604). */}
+      {/* Tinta y no color de superficie: `--kit-rojo` como letra de 14px sobre blanco se queda
+          en 4,19 y axe lo marca `serious` (Bug 11604). */}
       <p
         className="text-sm"
-        style={{ color: esError ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)' }}
+        style={{ color: esError ? 'var(--kit-rojo-texto)' : 'var(--color-text-primary)' }}
       >
         {aviso.texto}
       </p>

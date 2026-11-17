@@ -1,15 +1,15 @@
-// FLITO — panel de asociación de un comprobante PENDIENTE (HU #12634, Feature #12606, Épica #12245).
+// FLITO — panel de asociación de un comprobante PENDIENTE (HU 12634, Feature 12606, Épica 12245).
 // Las tres decisiones (¿pago o documentación? · trámite · concepto) pre-llenadas con lo que leyó el
 // servidor, los campos editables con su chip de confianza, el motivo cuando hay algo que justificar,
 // y el pie con UNA primaria (Aplicar / Adjuntar) y Descartar. Lo que no es de aquí (cabecera del
 // detalle, visor, Releer) lo pinta `DetalleComprobante` y entra como `children`.
 //
 // Reglas que se certifican aquí:
-//  · La primaria NUNCA se apaga por validación (criterio #11915): se valida al pulsar, con
+//  · La primaria NUNCA se apaga por validación (criterio 11915): se valida al pulsar, con
 //    `aria-invalid` + `<p role="alert">` y foco al primer campo con error. Única excepción, por
-//    spec (UX slim Bug #12913): en un PAGO de servicios adicionales «Aplicar» espera al tipo de
+//    spec (UX slim Bug 12913): en un PAGO de servicios adicionales «Aplicar» espera al tipo de
 //    servicio, con la razón escrita bajo el botón.
-//  · Bug #12913: ese pago elige su tipo de servicio (`servicioTipoId`) y el valor del comprobante
+//  · Bug 12913: ese pago elige su tipo de servicio (`servicioTipoId`) y el valor del comprobante
 //    entra a la puente del trámite. El campo solo existe en ese caso; en cualquier otro NO viaja
 //    (el API da 400 si llega de más).
 //  · Se decide por `codigo` del `ErrorComprobanteDto`, nunca por texto. Un 409 con `puedeAdjuntar`
@@ -35,7 +35,8 @@ import {
   alertasSaldo, descartarComprobante, errorComprobante, esCampoEditable, labelCampo, llaveSugerido, pesosComprobante, type AlertaSaldoBolsa,
 } from '../../lib/comprobantes';
 import StatusChip from '../flit/StatusChip';
-import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../flit/flitPageKit';
+import GradientButton, { claseBoton } from '../flit/GradientButton';
+import { flitInp } from '../flit/flitPageKit';
 import ComboboxTramite, { type Sugerido } from './ComboboxTramite';
 
 // Copy exacto de la ficha UX §7.6 / slim §5 (AC3, AC4, AC5, AC7).
@@ -56,8 +57,14 @@ const COPY_SIN_BUSCAR_NI_SUGERIDOS = 'No hay trámites sugeridos para este docum
 const COPY_NOTA_DESCARTE = 'El documento queda como descartado y su archivo deja de contar como duplicado: se podrá volver a cargar.';
 const COPY_FALLO = 'No se pudo aplicar. Vuelve a intentarlo.';
 const AYUDA_VALOR = 'Pesos, sin puntos ni signo';
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
-const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
+// UI Kit 2026: error de campo naranja con aviso-alerta 14 px delante; fallo de la petición en rojo; ayuda gris AA.
+const ERROR_CAMPO = 'flex items-start gap-1 text-xs text-[color:var(--kit-naranja-texto)]';
+const AvisoIcono = () => <img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />;
+const SECUNDARIO = 'text-[color:var(--color-text-secondary)]';
+const AYUDA = 'text-xs text-[color:var(--color-text-tertiary)]';
+const ROTULO = 'text-xs font-semibold text-[color:var(--color-text-primary)]';
+const PRIMARIO = 'text-[color:var(--color-text-primary)]';
+const CAJA = 'space-y-2 rounded-[9px] border border-[color:var(--color-border-control)] p-3 text-sm';
 
 /** «Ese {SOAT | impuesto | derecho de tránsito} ya está pagado.» (AC4, aviso anticipado D6). */
 const COSA_PAGADA: Partial<Record<ConceptoCosto, string>> = { soat: 'SOAT', impuesto: 'impuesto', derecho: 'derecho de tránsito' };
@@ -109,7 +116,7 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
   detalle: ComprobanteDetalleDto;
   /** La cabecera del detalle (estado, carga, «Leído») y, si toca, el bloque de Releer: van dentro del área que desplaza. */
   children: ReactNode;
-  /** 200 de aplicar o descartar: el texto del toast; el detalle cierra y la página refresca. HU #13904 (AC6): con aplicar, las alertas de saldo negativo de la respuesta. */
+  /** 200 de aplicar o descartar: el texto del toast; el detalle cierra y la página refresca. HU 13904 (AC6): con aplicar, las alertas de saldo negativo de la respuesta. */
   onResuelto: (toast: string, alertas?: AlertaSaldoBolsa[]) => void;
   /** `ya_resuelto` / 404: cierra y refresca la cola. */
   onActualizarCola: () => void;
@@ -133,7 +140,7 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
   const [descarte, setDescarte] = useState<{ motivo: string; error: string | null; enviando: boolean } | null>(null);
   const [servicioTipo, setServicioTipo] = useState<ServicioAdicionalTipo | null>(null);
   const [recargaCatalogo, setRecargaCatalogo] = useState(0);
-  // Bug #12913: MANUALES se corrigen (upsert); los que vinieron de un COMPROBANTE no admiten otro (409).
+  // Bug 12913: MANUALES se corrigen (upsert); los que vinieron de un COMPROBANTE no admiten otro (409).
   const [asignadosTramite, setAsignadosTramite] = useState<string[]>([]);
   const [conComprobanteTramite, setConComprobanteTramite] = useState<string[]>([]);
 
@@ -236,7 +243,7 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
       case CodigoErrorComprobante.VALOR_REQUERIDO:
         setErrores({ valorTotal: MSG_VALOR }); requestAnimationFrame(() => refs.valorTotal.current?.focus()); return;
       case CodigoErrorComprobante.DATOS_INVALIDOS:
-        // Los dos 400 del tipo de servicio (Bug #12913) se distinguen por el texto del API, que es
+        // Los dos 400 del tipo de servicio (Bug 12913) se distinguen por el texto del API, que es
         // contrato del addendum de ADR-0018; ninguno de los dos se pinta crudo.
         if (sa && /ya no está disponible/i.test(err.error ?? '')) {
           setServicioTipo(null); setRecargaCatalogo((n) => n + 1);
@@ -319,7 +326,7 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
 
   const rotuloPrimaria = esPago === false ? 'Adjuntar' : 'Aplicar';
   const errorId = (k: Clave) => `${id}-err-${k}`;
-  const alerta = (k: Clave) => errores[k] && <p id={errorId(k)} role="alert" className="text-xs" style={PELIGRO}>{errores[k]}</p>;
+  const alerta = (k: Clave) => errores[k] && <p id={errorId(k)} role="alert" className={ERROR_CAMPO}><AvisoIcono />{errores[k]}</p>;
 
   return (
     <form className="flex min-h-0 flex-1 flex-col" noValidate onSubmit={onSubmit} aria-label="Asociar comprobante">
@@ -328,15 +335,15 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
 
         {/* (1) ¿Pago o documentación? — preseleccionado solo si `detalle.esPago` es confiable (D-6). */}
         <fieldset className="space-y-1">
-          <legend className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <legend className={`flex items-center gap-2 ${ROTULO}`}>
             ¿Qué es este documento? <ChipCampo campos={detalle.campos} campo="esComprobantePago" />
           </legend>
           <div className="flex flex-wrap gap-4">
             {([['pago', true, 'Comprobante de pago'], ['doc', false, 'Documentación del trámite']] as const).map(([k, v, rotulo], i) => (
-              <label key={k} className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              <label key={k} className={`flex cursor-pointer items-center gap-2 text-sm ${PRIMARIO}`}>
                 <input ref={i === 0 ? refs.esPago : undefined} type="radio" name={`${id}-esPago`} value={k} checked={esPago === v}
                   aria-invalid={errores.esPago ? true : undefined} aria-describedby={errores.esPago ? errorId('esPago') : undefined}
-                  onChange={() => { setEsPago(v); setRespuesta(null); if (!v) setServicioTipo(null); }} className="flit-focus" />
+                  onChange={() => { setEsPago(v); setRespuesta(null); if (!v) setServicioTipo(null); }} className="flit-focus h-4 w-4 accent-[var(--kit-azul)]" />
                 {rotulo}
               </label>
             ))}
@@ -346,9 +353,9 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
 
         {/* (2) Trámite */}
         <div className="space-y-1">
-          <label htmlFor={`${id}-tramite`} className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Trámite <span aria-hidden="true">*</span></label>
+          <label htmlFor={`${id}-tramite`} className={ROTULO}>Trámite <span aria-hidden="true">*</span></label>
           {sinCombobox
-            ? <p className="text-xs" style={SECUNDARIO}>{COPY_SIN_BUSCAR_NI_SUGERIDOS}</p>
+            ? <p className={`text-xs ${SECUNDARIO}`}>{COPY_SIN_BUSCAR_NI_SUGERIDOS}</p>
             : <ComboboxTramite inputId={`${id}-tramite`} sugeridos={sugeridos} elegido={tramite} onElegir={(c) => { setTramite(c); setRespuesta(null); }} concepto={concepto || null}
                 puedeBuscar={puedeBuscar} abrirAlMontar={!detalle.tramite && sugeridos.length > 0} inputRef={refs.tramite} invalido={!!errores.tramite} errorId={errorId('tramite')} />}
           {alerta('tramite')}
@@ -356,7 +363,7 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
 
         {/* (3) Concepto — sufijo « · {admisión}» según el trámite elegido, SIN apagar opciones (D6). */}
         <div className="space-y-1">
-          <label htmlFor={`${id}-concepto`} className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <label htmlFor={`${id}-concepto`} className={`flex items-center gap-2 ${ROTULO}`}>
             Concepto <span aria-hidden="true">*</span> <ChipCampo campos={detalle.campos} campo="concepto" />
           </label>
           <select id={`${id}-concepto`} ref={refs.concepto} className={flitInp} value={concepto} aria-required="true"
@@ -371,7 +378,7 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
           {alerta('concepto')}
         </div>
 
-        {/* (3b) Tipo de servicio — solo en un PAGO de servicios adicionales (Bug #12913). */}
+        {/* (3b) Tipo de servicio — solo en un PAGO de servicios adicionales (Bug 12913). */}
         {pideTipo && (
           <div className="space-y-1">
             <BuscadorTipoServicio modo="elegir" inputId={`${id}-servicio-tipo`} asignados={asignadosTramite} conComprobante={conComprobanteTramite} elegido={servicioTipo}
@@ -382,14 +389,14 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
         )}
 
         {avisoYaPagado && (
-          <div role="status" aria-live="polite" className="space-y-2 rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--flit-border-input)', ...SECUNDARIO }}>
+          <div role="status" aria-live="polite" className={`${CAJA} ${SECUNDARIO}`}>
             <p>Ese {cosaPagada(concepto as ConceptoCosto)} ya está pagado.</p>
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => { setEsPago(false); setRespuesta(null); }}>Adjuntar como documentación</button>
+            <GradientButton type="button" variant="secondary" size="sm" onClick={() => { setEsPago(false); setRespuesta(null); }}>Adjuntar como documentación</GradientButton>
           </div>
         )}
 
         {/* Campos de §7.5: solo los `campos[]` que trae el servidor (D-5), cada uno con su chip. */}
-        <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Datos leídos</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--color-text-tertiary)]">Datos leídos</p>
         <div className="space-y-2">
           {camposVisibles.map((c) => {
             const chip = chipConfianza(c);
@@ -399,11 +406,11 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
             const ayudaId = esValor ? `${id}-ayuda-valor` : undefined;
             const describedBy = [ayudaId, errores.valorTotal && esValor ? errorId('valorTotal') : undefined].filter(Boolean).join(' ') || undefined;
             return (
-              <div key={c.campo} className="space-y-0.5 border-b pb-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
+              <div key={c.campo} className="space-y-1 border-b border-[color:var(--color-border)] pb-2">
                 <div className="flex items-center justify-between gap-2">
                   {editable
-                    ? <label htmlFor={inputId} className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{esValor ? 'Valor' : labelCampo(c.campo)}</label>
-                    : <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{labelCampo(c.campo)}</span>}
+                    ? <label htmlFor={inputId} className={ROTULO}>{esValor ? 'Valor' : labelCampo(c.campo)}</label>
+                    : <span className={ROTULO}>{labelCampo(c.campo)}</span>}
                   <StatusChip tone={chip.tono}>{chip.texto}</StatusChip>
                 </div>
                 {editable ? (
@@ -411,11 +418,11 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
                     <input id={inputId} ref={esValor ? refs.valorTotal : undefined} className={flitInp} value={valores[c.campo] ?? ''}
                       inputMode={esValor ? 'numeric' : undefined} aria-describedby={describedBy} aria-invalid={esValor && errores.valorTotal ? true : undefined}
                       onChange={(e) => { setValores((v) => ({ ...v, [c.campo]: e.target.value })); setRespuesta(null); }} />
-                    {esValor && <p id={ayudaId} className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{AYUDA_VALOR}</p>}
+                    {esValor && <p id={ayudaId} className={AYUDA}>{AYUDA_VALOR}</p>}
                     {esValor && alerta('valorTotal')}
                   </>
                 ) : (
-                  <p className="min-h-[1.25rem] break-words text-sm" style={{ color: 'var(--flit-text-primary)' }}>{c.valor ?? ''}</p>
+                  <p className={`min-h-[1.25rem] break-words text-sm ${PRIMARIO}`}>{c.valor ?? ''}</p>
                 )}
               </div>
             );
@@ -424,42 +431,41 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
 
         {motivoMontado && (
           <div className="space-y-1">
-            <label htmlFor={`${id}-motivo`} className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Por qué cambias lo leído</label>
+            <label htmlFor={`${id}-motivo`} className={ROTULO}>Por qué cambias lo leído</label>
             <textarea id={`${id}-motivo`} ref={refs.motivo} className={`${flitInp} min-h-[64px]`} value={motivo} maxLength={MOTIVO_MAX}
               aria-describedby={`${id}-ayuda-motivo${errores.motivo ? ` ${errorId('motivo')}` : ''}`} aria-invalid={errores.motivo ? true : undefined}
               onChange={(e) => setMotivo(e.target.value)} />
-            <p id={`${id}-ayuda-motivo`} className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{AYUDA_MOTIVO}</p>
+            <p id={`${id}-ayuda-motivo`} className={AYUDA}>{AYUDA_MOTIVO}</p>
             {alerta('motivo')}
           </div>
         )}
 
         {respuesta && (
-          <div role="alert" className="space-y-2 rounded-lg border p-3 text-sm"
-            style={respuesta.tipo === 'camino' ? { borderColor: 'var(--flit-border-input)', ...SECUNDARIO } : { borderColor: 'var(--flit-border-input)', color: 'var(--flit-danger-ink)' }}>
+          <div role="alert" className={`${CAJA} ${respuesta.tipo === 'camino' ? SECUNDARIO : 'text-[color:var(--kit-rojo-texto)]'}`}>
             <p>{respuesta.texto}{respuesta.tipo === 'camino' && respuesta.puedeAdjuntar ? ' Puedes adjuntar este documento como documentación del trámite.' : ''}</p>
             {respuesta.tipo === 'camino' && respuesta.puedeAdjuntar && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando} onClick={adjuntarComoDocumentacion}>Adjuntar como documentación</button>
+              <GradientButton type="button" variant="secondary" size="sm" disabled={enviando} onClick={adjuntarComoDocumentacion}>Adjuntar como documentación</GradientButton>
             )}
             {respuesta.tipo === 'actualizar' && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onActualizarCola}>Actualizar la cola</button>
+              <GradientButton type="button" variant="secondary" size="sm" onClick={onActualizarCola}>Actualizar la cola</GradientButton>
             )}
             {respuesta.tipo === 'liquidado' && veReporteCostos && (
-              <Link to="/finanzas/reporte-costos" className="flit-focus inline-block text-sm underline" style={{ color: 'var(--flit-blue-text)' }}>Ir al reporte de costos</Link>
+              <Link to="/finanzas/reporte-costos" className="flit-focus inline-block rounded text-sm font-semibold text-[color:var(--color-action)] underline transition-colors hover:text-[color:var(--kit-azul)]">Ir al reporte de costos</Link>
             )}
             {respuesta.tipo === 'documentado' && respuesta.anteriorId && !reemplazo && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setReemplazo({ motivo: '', error: null })}>Reemplazar</button>
+              <GradientButton type="button" variant="secondary" size="sm" onClick={() => setReemplazo({ motivo: '', error: null })}>Reemplazar</GradientButton>
             )}
             {respuesta.tipo === 'documentado' && reemplazo && (
               <div className="space-y-1">
-                <label htmlFor={`${id}-motivo-anterior`} className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Motivo para descartar el anterior</label>
+                <label htmlFor={`${id}-motivo-anterior`} className={ROTULO}>Motivo para descartar el anterior</label>
                 <textarea id={`${id}-motivo-anterior`} className={`${flitInp} min-h-[64px]`} value={reemplazo.motivo} maxLength={MOTIVO_MAX}
                   aria-describedby={`${id}-ayuda-anterior${reemplazo.error ? ` ${id}-err-anterior` : ''}`} aria-invalid={reemplazo.error ? true : undefined}
                   onChange={(e) => setReemplazo({ motivo: e.target.value, error: null })} />
-                <p id={`${id}-ayuda-anterior`} className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{AYUDA_MOTIVO}</p>
-                {reemplazo.error && <p id={`${id}-err-anterior`} role="alert" className="text-xs" style={PELIGRO}>{reemplazo.error}</p>}
-                <button type="button" className={flitBtnSecondary} style={{ ...flitBtnSecondaryStyle, ...PELIGRO }} disabled={enviando} onClick={descartarAnteriorYAplicar}>
+                <p id={`${id}-ayuda-anterior`} className={AYUDA}>{AYUDA_MOTIVO}</p>
+                {reemplazo.error && <p id={`${id}-err-anterior`} role="alert" className={ERROR_CAMPO}><AvisoIcono />{reemplazo.error}</p>}
+                <GradientButton type="button" variant="alerta" size="sm" disabled={enviando} onClick={descartarAnteriorYAplicar}>
                   {enviando ? 'Aplicando…' : 'Descartar el anterior y aplicar'}
-                </button>
+                </GradientButton>
               </div>
             )}
           </div>
@@ -467,38 +473,39 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
       </div>
 
       {/* Pie fijo (slim §6). Con el bloque de descarte abierto, el bloque ES el pie. */}
-      <div className="shrink-0 border-t pt-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+      <div className="shrink-0 border-t border-[color:var(--color-border)] pt-3">
         {descarte ? (
           <div className="space-y-2" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cerrarDescarte(); } }}>
-            <label htmlFor={`${id}-motivo-descarte`} className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Motivo del descarte (mínimo 5 caracteres)</label>
+            <label htmlFor={`${id}-motivo-descarte`} className={ROTULO}>Motivo del descarte (mínimo 5 caracteres)</label>
             <textarea id={`${id}-motivo-descarte`} autoFocus className={`${flitInp} min-h-[64px]`} value={descarte.motivo} maxLength={MOTIVO_MAX}
               aria-describedby={`${id}-ayuda-descarte${descarte.error ? ` ${id}-err-descarte` : ''}`} aria-invalid={descarte.error ? true : undefined}
               onChange={(e) => setDescarte({ ...descarte, motivo: e.target.value, error: null })} />
-            <p id={`${id}-ayuda-descarte`} className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{AYUDA_MOTIVO}</p>
-            <p className="text-xs" style={SECUNDARIO}>{COPY_NOTA_DESCARTE}</p>
-            {descarte.error && <p id={`${id}-err-descarte`} role="alert" className="text-xs" style={PELIGRO}>{descarte.error}</p>}
+            <p id={`${id}-ayuda-descarte`} className={AYUDA}>{AYUDA_MOTIVO}</p>
+            <p className={`text-xs ${SECUNDARIO}`}>{COPY_NOTA_DESCARTE}</p>
+            {descarte.error && <p id={`${id}-err-descarte`} role="alert" className={ERROR_CAMPO}><AvisoIcono />{descarte.error}</p>}
             <div className="flex flex-wrap items-center justify-end gap-3">
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={cerrarDescarte}>Cancelar</button>
-              <button type="button" className={flitBtnSecondary} style={{ ...flitBtnSecondaryStyle, ...PELIGRO }} disabled={descarte.enviando} onClick={confirmarDescarte}>
+              <GradientButton type="button" variant="secondary" onClick={cerrarDescarte}>Cancelar</GradientButton>
+              <GradientButton type="button" variant="alerta" disabled={descarte.enviando} onClick={confirmarDescarte}>
                 {descarte.enviando ? 'Descartando…' : 'Descartar'}
-              </button>
+              </GradientButton>
             </div>
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-end gap-3">
-            {!puedeAplicar && <p className="mr-auto text-xs" style={SECUNDARIO}>{COPY_NO_APLICAR}</p>}
+            {!puedeAplicar && <p className={`mr-auto text-xs ${SECUNDARIO}`}>{COPY_NO_APLICAR}</p>}
             {puedeAplicar && !sinCombobox && faltaTipo && (
-              <p id={`${id}-razon-aplicar`} className="mr-auto text-xs" style={{ color: 'var(--flit-text-muted)' }}>{RAZON_SIN_TIPO}</p>
+              <p id={`${id}-razon-aplicar`} className={`mr-auto ${AYUDA}`}>{RAZON_SIN_TIPO}</p>
             )}
             {puedeDescartar && (
-              <button ref={botonDescartarRef} type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando}
+              // Botón nativo (no `GradientButton`): necesita `ref` para devolver el foco al cerrar el descarte.
+              <button ref={botonDescartarRef} type="button" className={claseBoton('alerta')} data-variante="alerta" disabled={enviando}
                 onClick={() => setDescarte({ motivo: '', error: null, enviando: false })}>Descartar</button>
             )}
             {puedeAplicar && !sinCombobox && (
-              <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || faltaTipo}
+              <GradientButton type="submit" disabled={enviando || faltaTipo}
                 aria-describedby={faltaTipo ? `${id}-razon-aplicar` : undefined}>
                 {enviando ? `${rotuloPrimaria === 'Adjuntar' ? 'Adjuntando' : 'Aplicando'}…` : rotuloPrimaria}
-              </button>
+              </GradientButton>
             )}
           </div>
         )}

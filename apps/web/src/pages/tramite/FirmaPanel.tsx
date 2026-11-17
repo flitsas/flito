@@ -52,21 +52,21 @@ export default function FirmaPanel({ tramiteId, disabled, disabledHint, onFirmas
   const activaDe = (rol: string) => firmas.find((f) => f.rol === rol && ACTIVOS.includes(f.estado));
 
   return (
-    <section aria-label="Firma electrónica" className="rounded-[12px] border p-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-      <p className="mb-2 text-xs font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+    <section aria-label="Firma electrónica" className="rounded-[9px] border p-4" style={{ borderColor: 'var(--color-border)' }}>
+      <p className="mb-2 text-xs font-bold" style={{ color: 'var(--color-action)' }}>
         Firma electrónica del contrato de compraventa
       </p>
-      <p className="mb-2 rounded-[8px] px-3 py-2 text-[11px]" style={{ background: 'rgba(79,116,201,0.08)', color: 'var(--flit-text-secondary)' }}>
+      <p className="mb-2 rounded-[9px] px-3 py-2 text-xs" style={{ background: 'color-mix(in srgb, var(--kit-azul) 8%, transparent)', color: 'var(--color-text-secondary)' }}>
         <strong>Firma electrónica ≠ validación biométrica.</strong> La biometría (arriba) valida identidad para RUNT/FUR. La firma es un paso aparte sobre el PDF del contrato.
       </p>
       {disabled && (
-        <p className="mb-2 rounded-[8px] px-3 py-2 text-xs" role="status"
-          style={{ background: 'var(--flit-amber-soft, #fff7e6)', color: 'var(--flit-text-secondary)' }}>
+        <p className="mb-2 rounded-[9px] px-3 py-2 text-xs" role="status"
+          style={{ background: 'color-mix(in srgb, var(--kit-amarillo) 10%, var(--color-surface-elevated))', color: 'var(--color-text-secondary)' }}>
           {disabledHint || 'Genera o sube el contrato de compraventa antes de solicitar la firma.'}
         </p>
       )}
       {loading ? (
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Cargando…</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {ROLES.map((rol) => {
@@ -74,7 +74,7 @@ export default function FirmaPanel({ tramiteId, disabled, disabledHint, onFirmas
             return (
               <li key={rol} className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm capitalize" style={{ color: 'var(--flit-text-primary)' }}>{rol}</span>
+                  <span className="text-sm capitalize" style={{ color: 'var(--color-text-primary)' }}>{rol}</span>
                   {f
                     ? <StatusChip tone={ESTADO_TONE[f.estado] ?? 'neutral'}>{ESTADO_LABEL[f.estado] ?? f.estado}</StatusChip>
                     : <StatusChip tone="neutral">Sin solicitar</StatusChip>}
@@ -84,7 +84,7 @@ export default function FirmaPanel({ tramiteId, disabled, disabledHint, onFirmas
                     type="button" onClick={() => solicitar(rol)} disabled={submitting === rol || disabled}
                     title={disabled ? (disabledHint || 'Requiere contrato de compraventa') : undefined}
                     className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
-                    style={{ color: 'var(--flit-blue)', background: 'rgba(79, 116, 201, 0.12)' }}
+                    style={{ color: 'var(--color-action)', background: 'color-mix(in srgb, var(--kit-azul) 12%, transparent)' }}
                   >
                     {submitting === rol ? 'Solicitando…' : 'Solicitar firma'}
                   </button>

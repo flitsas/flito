@@ -26,7 +26,7 @@ export default function TablaGrafica({ filas, visibles, abierta, onAlternar }: {
       <div className={abierta ? 'flit-focus-inset mt-3 max-h-80 overflow-auto' : 'sr-only'}
         role={abierta ? 'region' : undefined} aria-label={abierta ? 'Tabla de gastos por día' : undefined}
         tabIndex={abierta ? 0 : undefined}
-        style={abierta ? { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)' } : undefined}>
+        style={abierta ? { borderRadius: '9px', border: '1px solid var(--color-border)' } : undefined}>
         <table id={ID_TABLA_GRAFICA} className="w-full text-sm">
           <caption className="sr-only">Gastos por día y categoría, con el total de cada día</caption>
           <thead>
@@ -39,15 +39,15 @@ export default function TablaGrafica({ filas, visibles, abierta, onAlternar }: {
           <tbody>
             {filas.map((f) => (
               <FlitTr key={f.dia}>
-                <th scope="row" className="px-3 py-1.5 text-left font-normal tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
+                <th scope="row" className="px-3 py-1.5 text-left font-normal tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                   {f.diaTexto}
                 </th>
                 {f.celdas.map((c) => (
-                  <td key={c.clave} className="px-3 py-1.5 text-right tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
+                  <td key={c.clave} className="px-3 py-1.5 text-right tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                     {c.cantidad} · <Monto v={c.valor} />
                   </td>
                 ))}
-                <td className="px-3 py-1.5 text-right tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
+                <td className="px-3 py-1.5 text-right tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                   <Monto v={f.total} negrita />
                 </td>
               </FlitTr>

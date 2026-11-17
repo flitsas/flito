@@ -1,5 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// PW_PORT permite correr E2E contra un dev server propio (p. ej. varios worktrees a la vez) sin
+// reutilizar el que ya ocupe el 5175, que sería código de otra rama. Sin la variable, todo igual.
+const PORT = process.env.PW_PORT ?? '5175';
+const BASE_URL = `http://localhost:${PORT}`;
+
 export default defineConfig({
   testDir: './e2e/tests',
   timeout: 30_000,
@@ -9,7 +14,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
-    baseURL: 'http://localhost:5175',
+    baseURL: BASE_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     actionTimeout: 10_000,
@@ -33,8 +38,8 @@ export default defineConfig({
     }] : []),
   ],
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5175',
+    command: process.env.PW_PORT ? `npm run dev -- --port ${PORT} --strictPort` : 'npm run dev',
+    url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },

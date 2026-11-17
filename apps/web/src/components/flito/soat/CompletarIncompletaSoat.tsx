@@ -1,4 +1,4 @@
-// HU #14137 — completar una solicitud pendiente de la carga masiva, dentro del modal de
+// HU 14137 — completar una solicitud pendiente de la carga masiva, dentro del modal de
 // `DetalleIncompletaSoat` (docs/ux/flito-soat-inicial-masiva-y-pendientes.md, «Completar»).
 //
 //  · Inicial («Falta la factura de venta»): caja de PDF que se envía sola al elegir el archivo; el
@@ -11,7 +11,8 @@
 //    el cuerpo; nunca en URL, storage, consola ni toasts.
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { CircleAlert, Info, Loader2, RotateCw } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
+import { Girador } from '../../flit/Cargador';
 import type { ExtraccionFacturaVenta, PropietarioSolicitudIncompleta, SolicitudIncompletaFila } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 import { camposLeidos, esNit } from '../../../lib/soatCliente';
@@ -24,7 +25,7 @@ import { normalizarDocumentoOcr } from './normalizarDocumentoOcr';
 import { codigoDe } from '../soat-cliente/masivo/copyMasivo';
 import { ORDEN_FOCO_BASE, validador } from '../soat-cliente/validacionSolicitud';
 
-const CAJA = { background: 'var(--flit-bg-app)', borderColor: 'var(--flit-border-soft)' } as const;
+const CAJA = { background: 'var(--color-surface)', borderColor: 'var(--color-border)' } as const;
 const MAX_BYTES = 15 * 1024 * 1024;
 const RAZON = 'Complete los datos del propietario para crear la solicitud.';
 
@@ -54,11 +55,11 @@ function inicial(p: PropietarioSolicitudIncompleta | null): Propietario {
 
 function Aviso({ tono, children, id }: { tono: 'warning' | 'neutro'; children: ReactNode; id?: string }) {
   const estilo = tono === 'warning'
-    ? { background: 'var(--flit-chip-warning-bg)', color: 'var(--flit-warning-ink)' }
-    : { background: 'var(--flit-chip-draft-bg)', color: 'var(--flit-chip-draft-ink)' };
+    ? { background: 'color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated))', color: 'var(--kit-naranja-texto)' }
+    : { background: 'var(--kit-hover)', color: 'var(--color-text-tertiary)' };
   return (
     <div id={id} role="status" className="flex items-start gap-2 rounded-lg px-3 py-2 text-sm font-medium" style={estilo}>
-      <Info size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+      <Icono nombre="ayuda" size={16} className="mt-0.5 shrink-0" />
       <div className="min-w-0 space-y-0.5">{children}</div>
     </div>
   );
@@ -169,7 +170,7 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
 
   const onSubmit = (ev: FormEvent) => { ev.preventDefault(); if (!creando) void crear(); };
   const pie = 'mt-4 flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:flex-wrap sm:justify-end';
-  const bordePie = { borderColor: 'var(--flit-border-soft)' } as const;
+  const bordePie = { borderColor: 'var(--color-border)' } as const;
   const enPie = (nodo: ReactNode) => (destinoPie ? createPortal(nodo, destinoPie) : nodo);
   const botonCerrar = (
     <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle}
@@ -179,7 +180,7 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
   if (yaCambio) {
     return (
       <section className="space-y-2 rounded-lg border p-3" style={CAJA} aria-label="Solicitud ya completada">
-        <p role="alert" className="font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
+        <p role="alert" className="font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
           Esta solicitud ya fue completada por otra persona. Actualice la lista para verla.
         </p>
         <div className={pie} style={bordePie}>
@@ -205,12 +206,12 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
       {leyendo && <AvisoProcesando texto="Leyendo la factura…" />}
       {errorFactura && !leyendo && (
         <div className="flex flex-wrap items-center gap-3">
-          <p id="completar-error-factura" role="alert" className="min-w-0 text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
+          <p id="completar-error-factura" role="alert" className="min-w-0 text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
             {TEXTO_ERROR_FACTURA[errorFactura]}
           </p>
           {errorFactura === 'red' && archivo && (
             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => { void enviarFactura(archivo); }}>
-              <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="reintento" size={16} className="shrink-0" />
               Reintentar
             </button>
           )}
@@ -222,10 +223,10 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
   return (
     <div className="space-y-4">
       <section className="space-y-3 rounded-lg border p-3" style={CAJA} aria-labelledby="completar-titulo">
-        <h3 id="completar-titulo" className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <h3 id="completar-titulo" className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           {lectura ? 'Revise los datos del propietario' : titulo}
         </h3>
-        <p style={{ color: 'var(--flit-text-secondary)' }}>
+        <p style={{ color: 'var(--color-text-secondary)' }}>
           {lectura
             ? (lectura.lectura === 'ok'
               ? `Los leímos de la factura de venta (${lectura.nombre}). Revíselos antes de crear la solicitud.`
@@ -257,8 +258,8 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
       {hayFormulario ? (
         <form id={ID_FORM} ref={formRef} aria-label="Datos del propietario" noValidate onSubmit={onSubmit} aria-busy={creando || undefined}>
           {errorCrear && (
-            <div role="alert" className="mb-3 flex flex-wrap items-center gap-3 text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
-              <CircleAlert size={16} aria-hidden="true" className="shrink-0" />
+            <div role="alert" className="mb-3 flex flex-wrap items-center gap-3 text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
+              <Icono nombre="exclamacion" size={16} className="shrink-0" />
               <p className="min-w-0 flex-1 basis-48">
                 {errorCrear === 'runt'
                   ? 'El documento no corresponde al registrado en el RUNT para este vehículo. Revise el número de documento.'
@@ -266,7 +267,7 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
               </p>
               {errorCrear === 'red' && (
                 <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} disabled={creando} onClick={() => { void crear(); }}>
-                  <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+                  <Icono nombre="reintento" size={16} className="shrink-0" />
                   Reintentar
                 </button>
               )}
@@ -282,17 +283,17 @@ export default function CompletarIncompletaSoat({ fila, renovacion, propietario,
               }}
             />
           </fieldset>
-          <p className="mt-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             Al pulsar «Crear solicitud», la solicitud sale al gestor.
           </p>
-          {!completo && !creando && <p id="completar-razon" className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{RAZON}</p>}
+          {!completo && !creando && <p id="completar-razon" className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{RAZON}</p>}
           {enPie(<div className={pie} style={bordePie}>
             {botonCerrar}
             <button type="submit" form={ID_FORM} className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
               aria-disabled={!completo || creando || undefined} aria-busy={creando || undefined}
               aria-describedby={!completo ? 'completar-razon' : undefined}
               onClick={(ev) => { if (!completo || creando) { ev.preventDefault(); if (!creando) void crear(); } }}>
-              {creando && <Loader2 size={16} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />}
+              {creando && <Girador className="shrink-0" />}
               {creando ? 'Creando solicitud…' : 'Crear solicitud'}
             </button>
           </div>)}

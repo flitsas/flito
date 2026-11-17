@@ -1,6 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react';
+import { claseBoton } from '../flit/GradientButton';
 import StatusChip from '../flit/StatusChip';
-import { flitBtnSecondarySm } from '../flit/flitPageKit';
+
 import { GRUPO_AYUDA_LABEL, GRUPOS_ORDEN, type EntradaAyuda } from '../../content/ayuda/catalogo';
 import { existeFichaMd } from '../../content/ayuda/cargarFichas';
 
@@ -17,7 +18,7 @@ export interface DrFlitModulosProps {
 }
 
 const BOTON_MODULO =
-  'flit-focus flex min-h-11 w-full min-w-0 flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-flit-ink transition-colors hover:bg-[var(--flit-bg-hover)]';
+  'flit-focus flex min-h-11 w-full min-w-0 flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-flit-ink transition-colors hover:bg-[var(--kit-hover)]';
 
 export default function DrFlitModulos({ modulos, onElegir, onCancelar }: DrFlitModulosProps) {
   const tituloRef = useRef<HTMLParagraphElement>(null);
@@ -50,7 +51,7 @@ export default function DrFlitModulos({ modulos, onElegir, onCancelar }: DrFlitM
         <p id="drflit-modulos-titulo" ref={tituloRef} tabIndex={-1} className="flit-focus rounded-md font-semibold">
           ¿Qué módulo quiere conocer?
         </p>
-        <button type="button" onClick={onCancelar} className={flitBtnSecondarySm}>
+        <button type="button" onClick={onCancelar} data-variante="alerta" className={claseBoton('alerta', 'sm')}>
           Cancelar
         </button>
       </div>

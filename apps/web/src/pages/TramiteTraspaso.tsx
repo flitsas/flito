@@ -2,7 +2,7 @@
 // 6 pasos: Vehículo → Validación legal → Vendedor → Comprador → Comercial → Documentos.
 // NO redirige al wizard VIN-first de matrícula inicial. Reusa RUNT, pre-vuelo,
 // firma B3 y radicado/STT de F1.
-// HU #13988: esta página solo orquesta; estado y efectos en useTramiteTraspaso, cada paso en su componente.
+// HU 13988: esta página solo orquesta; estado y efectos en useTramiteTraspaso, cada paso en su componente.
 
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import { ultimaNotaSubsanacion } from '@operaciones/shared-types';
@@ -23,10 +23,8 @@ export default function TramiteTraspaso() {
   const { step, tramiteId, radicado, estado, workflow, maxPaso, gestionCerrada, isTransito, pasoSoloLectura, pasoNavHabilitado, irPaso } = t;
 
   return (
-    <div className="mx-auto grid max-w-4xl gap-5 lg:grid-cols-[200px_1fr] lg:gap-6">
-      <div className="lg:col-span-2">
-        <PageHeaderCard title="Traspaso de vehículo" subtitle={radicado ? `Radicado ${radicado}` : 'Trámite de traspaso por placa (Res. 12379/2012)'} />
-      </div>
+    <div className="mx-auto grid min-w-0 max-w-5xl gap-4 lg:gap-5">
+      <PageHeaderCard title="Traspaso de vehículo" icono="flito-traspasos" miga={[{ etiqueta: 'Trámites', to: '/tramite' }]} subtitle={radicado ? `Radicado ${radicado}` : 'Trámite de traspaso por placa (Res. 12379/2012)'} />
 
       {tramiteId && estado === 'subsanacion' && <SubsanacionBanner nota={ultimaNotaSubsanacion(workflow)} />}
       {tramiteId && gestionCerrada && <GestionCerradaBanner estado={estado} isTransito={isTransito} />}
@@ -40,10 +38,10 @@ export default function TramiteTraspaso() {
         />
       )}
 
-      {/* Sidebar de pasos (FLIT) */}
+      {/* Asistente de pasos del kit (>= lg) */}
       <TraspasoPasosNav step={step} maxPaso={maxPaso} radicado={radicado} estado={estado} pasoSoloLectura={pasoSoloLectura} pasoNavHabilitado={pasoNavHabilitado} irPaso={irPaso} />
 
-      <section className="bg-white p-6" style={cardStyle} aria-label={`Paso ${step}: ${PASOS[step - 1]}`}>
+      <section className="min-w-0 p-4 sm:p-6" style={cardStyle} aria-label={`Paso ${step}: ${PASOS[step - 1]}`}>
         {tramiteId && step === maxPaso && !pasoSoloLectura(step) && step < 6 && <PasoEditableBanner paso={step} />}
         {step === 1 && (
           <PasoVehiculo

@@ -1,7 +1,8 @@
 // FLITO Logística — llegada a FLIT (HU #14123). Lienzo de la sesión, sin cédula ni nombre.
 // El paso de Mi ruta y el modal de Actas comparten estos bloques. La entrega a cliente no vive aquí.
 import { useEffect, useRef, useState } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { iconoComo } from '../../flit/kit/iconoComo';
+const ChevronLeft = iconoComo('izquierda');
 import { api } from '../../../lib/api';
 import { obtenerUbicacion } from '../../../lib/geo';
 import { MAX_FIRMA, mensajeLlegadaFlit, nuevaKey } from '../../../lib/viajesCliente';
@@ -71,40 +72,40 @@ export function LlegadaFlitForm({ companiaNombre, documentos, trasladoId, onCanc
       {onAtras && (
         <div className="flex items-center gap-2">
           <button type="button" onClick={onAtras} disabled={enviando}
-            className="flit-focus -ml-1 inline-flex items-center gap-1 rounded-lg px-2 py-2 text-sm font-medium transition-colors hover:bg-[var(--flit-bg-hover)] disabled:opacity-50"
-            style={{ color: 'var(--flit-text-secondary)', minHeight: 44 }}>
+            className="flit-focus -ml-1 inline-flex items-center gap-1 rounded-full px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--kit-hover)] disabled:opacity-50"
+            style={{ color: 'var(--color-text-secondary)', minHeight: 44 }}>
             <ChevronLeft size={18} aria-hidden="true" /> Entregas
           </button>
         </div>
       )}
       <div>
         {onAtras && (
-          <h2 id="llegada-flit-titulo" className="text-base font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+          <h2 id="llegada-flit-titulo" className="text-lg font-bold" style={{ color: 'var(--color-action)' }}>
             {companiaNombre ?? 'Empresa'}
           </h2>
         )}
-        <p id={onAtras ? undefined : 'llegada-flit-titulo'} className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p id={onAtras ? undefined : 'llegada-flit-titulo'} className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Llegada a FLIT · {n} LT
         </p>
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Su nombre queda el de esta sesión.</p>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Su nombre queda el de esta sesión.</p>
       </div>
 
-      <ul className="space-y-0.5 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>
+      <ul className="space-y-0.5 text-sm tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
         {documentos.map((d) => <li key={d.id}>{linea(d)}</li>)}
       </ul>
 
       <div>
-        <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Firma de quien recibe en FLIT *
         </span>
         <div className={enviando ? 'pointer-events-none opacity-60' : 'w-full'}>
           <FirmaCanvas onChange={setFirma} label={firma ? 'Firma de quien recibe en FLIT, capturada' : 'Firma de quien recibe en FLIT, vacía'} />
         </div>
-        {errFirma && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errFirma}</p>}
+        {errFirma && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{errFirma}</p>}
       </div>
 
       {error && (
-        <div role="alert" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-ink)', background: 'var(--flit-bg-card)' }}>
+        <div role="alert" className="rounded-[9px] border px-3 py-2 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--kit-rojo-texto)', background: 'var(--color-surface-elevated)' }}>
           {error}
         </div>
       )}
@@ -157,10 +158,10 @@ export function LlegadaFlitModal({ actaId, companiaNombre, trasladoId, onClose, 
   return (
     <FlitModal title={companiaNombre ?? 'Empresa'} onClose={onClose}>
       {carga === 'cargando' && (
-        <p role="status" className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando el viaje…</p>
+        <p role="status" className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Cargando el viaje…</p>
       )}
       {carga === 'error' && (
-        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
           <p className="flex-1">No se pudo cargar el viaje. Vuelva a intentarlo.</p>
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setTick((n) => n + 1)}>Reintentar</button>
         </div>

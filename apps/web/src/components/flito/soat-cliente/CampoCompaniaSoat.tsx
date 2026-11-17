@@ -13,7 +13,7 @@
 // de `FlitoSoatSolicitud.tsx` porque esa página está en el techo de `max-lines`.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Building2 } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import type { CompaniasCanalSoat } from '@operaciones/shared-types';
 import { api } from '../../../lib/api';
 import FlitSelect from '../../flit/FlitSelect';
@@ -91,7 +91,7 @@ export function CampoCompaniaSoat({ compania, onCambio }: {
   }, [toque]);
 
   return (
-    <Seccion titulo="Compañía" icono={<Building2 size={18} aria-hidden="true" className="shrink-0" />}>
+    <Seccion titulo="Compañía" icono={<Icono nombre="empresas" size={18} className="shrink-0" />}>
       <div ref={contenedor} className="max-w-xl">
         {estado.fase === 'ok' && estado.fija
           ? <CompaniaFija nombre={estado.companias[0]?.nombre ?? null} />
@@ -133,9 +133,9 @@ function mensajeDe(estado: EstadoCompanias): string | null {
 function CompaniaFija({ nombre }: { nombre: string | null }) {
   return (
     <dl>
-      <dt className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Compañía</dt>
-      <dd className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{nombre ?? '—'}</dd>
-      <dd className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <dt className="mb-1 text-[11px] font-semibold text-[color:var(--color-text-primary)]">Compañía</dt>
+      <dd className="text-sm font-semibold text-[color:var(--color-text-primary)]">{nombre ?? '—'}</dd>
+      <dd className="mt-1 text-xs text-[color:var(--color-text-secondary)]">
         {nombre
           ? 'La solicitud se radica a nombre de su compañía.'
           : 'Su compañía no tiene habilitado el SOAT sin trámite.'}

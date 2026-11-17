@@ -92,7 +92,7 @@ function lineaFecha(envio: EnvioComprobante): string | null {
   return envio.estado === 'enviado' ? `Enviado el ${fecha(envio.ultimoIntentoEn)}` : `Último intento: ${fecha(envio.ultimoIntentoEn)}`;
 }
 
-const secundario = { color: 'var(--flit-text-secondary)' };
+const secundario = { color: 'var(--color-text-secondary)' };
 
 /**
  * Celda del `<dl>`; con `envioComprobante === null` no existe (AC5). Recuerda el destino de la última
@@ -117,7 +117,7 @@ export function CeldaEnvioComprobante({ impId, carga, recargar, hayCargarComprob
     'data-destino': copy ? destino : undefined,
   };
   const dt = (
-    <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>
+    <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>
       {copy?.rotulo ?? NEUTRO.rotulo}
     </dt>
   );
@@ -126,7 +126,7 @@ export function CeldaEnvioComprobante({ impId, carga, recargar, hayCargarComprob
       <div {...atributos}>
         {dt}
         <dd aria-busy="true" className="text-sm">
-          <span className="block h-5 w-32 animate-pulse rounded-full" style={{ background: 'var(--flit-bg-hover)' }} />
+          <span className="kit-esqueleto block h-5 w-32 rounded-full" />
         </dd>
       </div>
     );
@@ -138,8 +138,8 @@ export function CeldaEnvioComprobante({ impId, carga, recargar, hayCargarComprob
         <dd className="text-xs" style={secundario}>
           {copy?.errorConsulta ?? NEUTRO.errorConsulta}{' '}
           <button type="button" onClick={recargar}
-            className="flit-focus rounded px-1 font-semibold underline transition-colors hover:bg-[var(--flit-bg-hover)]"
-            style={{ color: 'var(--flit-blue-text)' }}>
+            className="flit-focus rounded px-1 font-semibold underline transition-colors hover:bg-[var(--kit-hover)]"
+            style={{ color: 'var(--color-action)' }}>
             Reintentar
           </button>
         </dd>

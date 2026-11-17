@@ -90,11 +90,11 @@ export default function SelectorProducto({ valor, onCambio, id }: Props) {
           aria-describedby={formatoValido ? undefined : `${id}-error`}
         />
         {!formatoValido && (
-          <p id={`${id}-error`} className="mt-1 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <p id={`${id}-error`} className="mt-1 text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Alfanumérico (admite punto, guion y guion bajo), sin espacios y máximo 30 caracteres.
           </p>
         )}
-        <button type="button" className="mt-2 text-xs underline" style={{ color: 'var(--flit-text-secondary)' }}
+        <button type="button" className="mt-2 text-xs underline" style={{ color: 'var(--color-text-secondary)' }}
           onClick={() => setAMano(false)}>
           Elegir de la lista de Siigo
         </button>
@@ -115,7 +115,7 @@ export default function SelectorProducto({ valor, onCambio, id }: Props) {
 
       {/* Estado 1 — cargando. */}
       {cargando && (
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Consultando el catálogo de Siigo…
         </p>
       )}
@@ -123,10 +123,10 @@ export default function SelectorProducto({ valor, onCambio, id }: Props) {
       {/* Estado 2 — error, con reintento. El mensaje es el que tradujo el servidor. */}
       {!cargando && fallo !== null && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm" style={{ color: 'var(--flit-danger)' }}>
+          <span className="text-sm" style={{ color: 'var(--kit-rojo)' }}>
             No se pudo consultar el catálogo: {fallo}
           </span>
-          <button type="button" className="text-xs underline" style={{ color: 'var(--flit-text-secondary)' }}
+          <button type="button" className="text-xs underline" style={{ color: 'var(--color-text-secondary)' }}
             onClick={() => void cargar(busqueda)}>
             Reintentar
           </button>
@@ -135,7 +135,7 @@ export default function SelectorProducto({ valor, onCambio, id }: Props) {
 
       {/* Estado 3 — vacío. Se distingue «no hay nada» de «nada coincide»: llevan a acciones opuestas. */}
       {!cargando && fallo === null && (listado?.items.length ?? 0) === 0 && (
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           {busqueda === ''
             ? 'El catálogo de productos de Siigo está vacío en este ambiente.'
             : `Ningún producto de Siigo coincide con «${busqueda}».`}
@@ -169,14 +169,14 @@ export default function SelectorProducto({ valor, onCambio, id }: Props) {
       {listado?.truncado === true && (
         // Sin este aviso, un catálogo cortado se lee como el catálogo entero, y quien no encuentre
         // su producto va a concluir que no está en Siigo.
-        <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Se están mostrando los primeros productos del catálogo
           {listado.total !== null ? ` de ${listado.total.toLocaleString('es-CO')}` : ''}. Si el que
           buscas no aparece, escribe parte de su nombre.
         </p>
       )}
 
-      <button type="button" className="mt-2 text-xs underline" style={{ color: 'var(--flit-text-secondary)' }}
+      <button type="button" className="mt-2 text-xs underline" style={{ color: 'var(--color-text-secondary)' }}
         onClick={() => setAMano(true)}>
         Escribir el código a mano
       </button>

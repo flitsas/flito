@@ -1,4 +1,4 @@
-// FLITO — Comparendos · Configuración: bloque 1, NITs monitoreados (HU #11633, AC3 y AC4).
+// FLITO — Comparendos · Configuración: bloque 1, NITs monitoreados (HU 11633, AC3 y AC4).
 //
 // El catálogo que decide a QUIÉN se le consultan comparendos. Tres reglas de dominio se ven en el
 // marcado y conviene leerlas juntas, porque explican por qué esta tabla tiene tres botones por fila
@@ -23,7 +23,7 @@
 //      alguien está mirando. El orden se mantiene ordenando por `nit`, que es el mismo criterio con
 //      el que responde `GET /nits`.
 //   2. **Se ramifica por el `codigo` del cuerpo de error, jamás por su texto** (misma postura que la
-//      #11559). El mensaje del servidor está en español y va a cambiar; `nit_duplicado` y
+//      11559). El mensaje del servidor está en español y va a cambiar; `nit_duplicado` y
 //      `nit_en_uso` son contrato. Y ningún mensaje del servidor se pinta tal cual: el copy es
 //      nuestro, incluido el del 429 del limitador de altas.
 //
@@ -38,7 +38,7 @@ import type { ComparendosNit } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 import FlitModal from '../../flit/FlitModal';
 import {
-  FlitField, FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnPrimaryStyle,
+  FlitField, FlitTable, FlitTh, FlitTr, flitBtnDanger, flitBtnPrimary, flitBtnPrimaryStyle,
   flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle, flitInp,
 } from '../../flit/flitPageKit';
 import {
@@ -130,7 +130,7 @@ export default function NitsComparendos() {
         etiquetaCarga="Cargando NITs monitoreados"
         onReintentar={recargar}
         vacio={(
-          <div className="space-y-1" style={{ color: 'var(--flit-text-secondary)' }}>
+          <div className="space-y-1" style={{ color: 'var(--color-text-secondary)' }}>
             <p className="font-semibold">Todavía no hay NIT monitoreados.</p>
             <p>Agrega al menos uno antes de sincronizar.</p>
           </div>
@@ -152,10 +152,10 @@ export default function NitsComparendos() {
           <tbody>
             {items.map((n) => (
               <FlitTr key={n.id}>
-                <td className="px-4 py-2.5 text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+                <td className="px-4 py-2.5 text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
                   {n.nit}
                 </td>
-                <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+                <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                   {n.alias ?? '—'}
                 </td>
                 <td className="px-4 py-2.5"><ChipEstadoConfig activo={n.activo} /></td>
@@ -233,7 +233,7 @@ export default function NitsComparendos() {
       {confirmandoBaja && (
         <FlitModal title="Desactivar NIT" onClose={() => setConfirmandoBaja(null)}>
           <div className="space-y-4">
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               Dejará de consultarse en la próxima sincronización. Los comparendos ya registrados se
               conservan.
             </p>
@@ -248,8 +248,8 @@ export default function NitsComparendos() {
               </button>
               <button
                 type="button"
-                className={flitBtnPrimary}
-                style={flitBtnPrimaryStyle}
+                className={flitBtnDanger}
+                data-variante="alerta"
                 onClick={() => { const fila = confirmandoBaja; setConfirmandoBaja(null); void cambiarActivo(fila, false); }}
               >
                 Desactivar
@@ -315,7 +315,7 @@ function ModalNit({ onCerrar, onCreado }: { onCerrar: () => void; onCreado: (n: 
             required
           />
         </FlitField>
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           Solo dígitos. Los puntos y espacios se quitan al guardar; el guion del dígito de
           verificación se conserva tal cual lo escribas.
         </p>
@@ -379,7 +379,7 @@ function ModalAlias(
             maxLength={ALIAS_MAX}
           />
         </FlitField>
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           Es solo la etiqueta con la que reconoces el NIT en pantalla. Déjalo vacío para quitarlo.
         </p>
         {error && <ErrorFormulario>{error}</ErrorFormulario>}
@@ -450,7 +450,7 @@ function ModalEliminarNit(
   return (
     <FlitModal title={`Eliminar NIT ${fila.nit}`} onClose={onCerrar}>
       <div className="space-y-4">
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Se borra del catálogo de monitoreo. Solo es posible mientras el NIT no haya traído ningún
           comparendo; si ya trajo, hay que desactivarlo para conservar el histórico.
         </p>
@@ -462,8 +462,8 @@ function ModalEliminarNit(
           {enUso ? (
             <button
               type="button"
-              className={flitBtnPrimary}
-              style={flitBtnPrimaryStyle}
+              className={flitBtnDanger}
+              data-variante="alerta"
               onClick={() => onDesactivar(fila)}
             >
               Desactivar
@@ -471,8 +471,8 @@ function ModalEliminarNit(
           ) : (
             <button
               type="button"
-              className={flitBtnPrimary}
-              style={flitBtnPrimaryStyle}
+              className={flitBtnDanger}
+              data-variante="alerta"
               disabled={ocupado}
               aria-busy={ocupado}
               onClick={() => { void eliminar(); }}

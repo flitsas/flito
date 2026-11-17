@@ -18,12 +18,10 @@
 // sección sale del `h3`, que no interpola ningún dato.
 
 import { useId, type Ref } from 'react';
-import { CalendarClock, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import type { SoatActivoRunt, SoatFlitoContexto } from '@operaciones/shared-types';
 import StatusChip from '../../flit/StatusChip';
-import {
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../../flit/flitPageKit';
+import GradientButton from '../../flit/GradientButton';
 import { copyRenovar } from '../../../lib/mensajesTipoSoat';
 import {
   AVISO_VIGENCIA_CHIP, avisoVigenciaProxima, fechaLargaOGuion, fraseBloqueoVigente,
@@ -35,15 +33,15 @@ const VARIANTE = {
     titulo: 'Este vehículo ya tiene SOAT activo',
     chip: 'No hace falta comprar otro',
     tono: 'success' as const,
-    Icono: ShieldCheck,
-    insignia: { background: 'var(--flit-chip-success-bg)', color: 'var(--flit-success-ink)' },
+    glifo: 'escudo' as const,
+    insignia: { background: 'color-mix(in srgb, var(--kit-verde) 10%, var(--color-surface-elevated))', color: 'var(--kit-verde-texto)' },
   },
   aviso: {
     titulo: 'Este vehículo todavía tiene SOAT activo',
     chip: AVISO_VIGENCIA_CHIP,
     tono: 'active' as const,
-    Icono: CalendarClock,
-    insignia: { background: 'var(--flit-chip-active-bg)', color: 'var(--flit-blue-ink)' },
+    glifo: 'calendario' as const,
+    insignia: { background: 'var(--kit-hover)', color: 'var(--color-action)' },
   },
 };
 
@@ -79,42 +77,41 @@ function TarjetaRenovar({ flito, onRenovar, onConsultarOtro, tituloRef }: PropsR
   const idTitulo = useId();
   const c = copyRenovar(flito);
   const vencido = c.tono === 'warning';
-  const Icono = vencido ? TriangleAlert : CalendarClock;
   return (
     <section
       aria-labelledby={idTitulo} role="status" data-variante="renovar"
-      className="mt-3 rounded-[10px] p-4 sm:p-5"
-      style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
+      className="mt-3 rounded-[9px] p-4 sm:p-5"
+      style={{ border: '1px solid var(--color-border)', background: 'var(--color-surface)' }}
     >
       <div className="flex items-start gap-3">
         <span
           aria-hidden="true"
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
           style={vencido
-            ? { background: 'var(--flit-chip-warning-bg)', color: 'var(--flit-warning-ink)' }
-            : { background: 'var(--flit-chip-active-bg)', color: 'var(--flit-blue-ink)' }}
+            ? { background: 'color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated))', color: 'var(--kit-naranja-texto)' }
+            : { background: 'var(--kit-hover)', color: 'var(--color-action)' }}
         >
-          <Icono size={18} />
+          <Icono nombre={vencido ? 'alerta' : 'calendario'} size={18} />
         </span>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h3 id={idTitulo} ref={tituloRef} tabIndex={-1} className="flit-focus rounded text-base font-semibold outline-none" style={{ color: 'var(--flit-text-primary)' }}>
+            <h3 id={idTitulo} ref={tituloRef} tabIndex={-1} className="flit-focus rounded text-base font-semibold outline-none text-[color:var(--color-text-primary)]">
               {c.titulo}
             </h3>
             {c.chip && <StatusChip tone={c.tono}>{c.chip}</StatusChip>}
           </div>
-          {c.frase && <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.frase}</p>}
-          {c.detalle && <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.detalle}</p>}
+          {c.frase && <p className="text-sm text-[color:var(--color-text-secondary)]">{c.frase}</p>}
+          {c.detalle && <p className="text-sm text-[color:var(--color-text-secondary)]">{c.detalle}</p>}
         </div>
       </div>
       <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-        <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={onConsultarOtro}>
+        <GradientButton type="button" variant="secondary" className="w-full justify-center sm:w-auto" onClick={onConsultarOtro}>
           Consultar otro vehículo
-        </button>
+        </GradientButton>
         {c.puedeRenovar && onRenovar && (
-          <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle} onClick={onRenovar}>
+          <GradientButton type="button" className="w-full justify-center sm:w-auto" onClick={onRenovar}>
             Renovar
-          </button>
+          </GradientButton>
         )}
       </div>
     </section>
@@ -140,8 +137,8 @@ function TarjetaRunt({ variante, datos, venceEl, onConsultarOtro, tituloRef, hoy
       // porque el foco ya va al `h3` y dos anuncios del mismo título se pisarían.
       role={esAviso ? 'status' : undefined}
       data-variante={variante}
-      className="mt-3 rounded-[10px] p-4 sm:p-5"
-      style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
+      className="mt-3 rounded-[9px] p-4 sm:p-5"
+      style={{ border: '1px solid var(--color-border)', background: 'var(--color-surface)' }}
     >
       <div className="flex items-start gap-3">
         <span
@@ -149,22 +146,21 @@ function TarjetaRunt({ variante, datos, venceEl, onConsultarOtro, tituloRef, hoy
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
           style={v.insignia}
         >
-          <v.Icono size={18} />
+          <Icono nombre={v.glifo} size={18} />
         </span>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h3
               id={idTitulo} ref={tituloRef} tabIndex={-1}
-              className="flit-focus rounded text-base font-semibold outline-none"
-              style={{ color: 'var(--flit-text-primary)' }}
+              className="flit-focus rounded text-base font-semibold text-[color:var(--color-text-primary)] outline-none"
             >
               {v.titulo}
             </h3>
             <StatusChip tone={v.tono}>{v.chip}</StatusChip>
           </div>
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{frase}</p>
+          <p className="text-sm text-[color:var(--color-text-secondary)]">{frase}</p>
           {aviso?.detalle && (
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{aviso.detalle}</p>
+            <p className="text-sm text-[color:var(--color-text-secondary)]">{aviso.detalle}</p>
           )}
         </div>
       </div>
@@ -173,7 +169,7 @@ function TarjetaRunt({ variante, datos, venceEl, onConsultarOtro, tituloRef, hoy
           que decide y lo que identifica; fila 2 en peso normal: el contexto. */}
       <dl
         className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 pt-4 sm:grid-cols-3"
-        style={{ borderTop: '1px solid var(--flit-border-soft)' }}
+        style={{ borderTop: '1px solid var(--color-border)' }}
       >
         <Dato k="Aseguradora" v={dato(datos.aseguradora)} clase="col-span-2 sm:col-span-1" claseValor="font-semibold break-words" />
         <Dato k="Vence" v={fechaLargaOGuion(datos.vencimiento)} claseValor="font-semibold" />
@@ -185,14 +181,9 @@ function TarjetaRunt({ variante, datos, venceEl, onConsultarOtro, tituloRef, hoy
 
       {!esAviso && onConsultarOtro && (
         <div className="mt-4 flex flex-wrap justify-end">
-          <button
-            type="button"
-            className={`${flitBtnSecondary} w-full justify-center sm:w-auto`}
-            style={flitBtnSecondaryStyle}
-            onClick={onConsultarOtro}
-          >
+          <GradientButton type="button" variant="secondary" className="w-full justify-center sm:w-auto" onClick={onConsultarOtro}>
             Consultar otro vehículo
-          </button>
+          </GradientButton>
         </div>
       )}
     </section>

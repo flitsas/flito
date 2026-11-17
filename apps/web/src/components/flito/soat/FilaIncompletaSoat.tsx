@@ -1,4 +1,4 @@
-// Fila de una solicitud aparcada porque el RUNT no respondió (HU #12997, UX §3.1).
+// Fila de una solicitud aparcada porque el RUNT no respondió (HU 12997, UX §3.1).
 //
 // Tiene las MISMAS columnas que la fila de un SOAT, para que la tabla no cambie de forma, pero lo
 // que no existe se dice: la incompleta no se ha enviado (Solicitado y Pagado «—»), no tiene placa ni
@@ -8,12 +8,13 @@
 //
 // El VIN se pinta en la celda, como el de cualquier SOAT de la cola; nunca entra en un `aria-label`.
 //
-// HU #12998: «Reintentar consulta» (UX §3.3) solo en la incompleta y solo con el permiso — sin él no
+// HU 12998: «Reintentar consulta» (UX §3.3) solo en la incompleta y solo con el permiso — sin él no
 // se pinta. El botón se describe con la celda del vehículo (`aria-describedby`), no con el VIN en su
 // nombre. En vuelo: `disabled` + `aria-busy` + «Consultando…», solo en ESTA fila.
 
 import EtiquetaTipoSoat from './EtiquetaTipoSoat';
-import { ChevronRight, Loader2, RotateCw } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
+import { Girador } from '../../flit/Cargador';
 import type { SolicitudIncompletaFila } from '@operaciones/shared-types';
 import { FlitTr, flitBtnSecondarySm } from '../../flit/flitPageKit';
 import { ChipIncompletaSoat } from './ChipEstadoSoat';
@@ -27,16 +28,16 @@ export default function FilaIncompletaSoat({
   /** `soat.incompleta.ver`: sin ella no hay «Ver» (no se pinta deshabilitado). */
   puedeVer: boolean;
   onVer: (f: SolicitudIncompletaFila) => void;
-  /** `soat.solicitud.reintentar_runt` (HU #12998). */
+  /** `soat.solicitud.reintentar_runt` (HU 12998). */
   puedeReintentar?: boolean;
   /** La consulta de ESTA fila está en vuelo. */
   consultando?: boolean;
   onReintentar?: (f: SolicitudIncompletaFila) => void;
-  /** `soat.solicitud.crear` (HU #14137): con ella, las pendientes de la carga masiva dicen «Completar». */
+  /** `soat.solicitud.crear` (HU 14137): con ella, las pendientes de la carga masiva dicen «Completar». */
   puedeCompletar?: boolean;
 }) {
   const incompleta = fila.estado === 'incompleta';
-  // HU #14137: el RUNT SÍ respondió; lo que falta es la factura o el propietario. Otra fila, otra acción.
+  // HU 14137: el RUNT SÍ respondió; lo que falta es la factura o el propietario. Otra fila, otra acción.
   const porCompletar = incompleta && (fila.motivoPendiente === 'falta_factura_venta' || fila.motivoPendiente === 'faltan_datos_propietario');
   const motivoTexto = fila.motivoPendiente === 'falta_factura_venta' ? 'Falta factura de venta' : 'Faltan datos del propietario';
   const idVehiculo = `inc-vehiculo-${fila.id}`;
@@ -46,24 +47,24 @@ export default function FilaIncompletaSoat({
           invita a preguntar por qué. Mantiene alineadas las columnas. */}
       {conCasillas && <td className="px-3 py-2" />}
       <td id={idVehiculo} className="px-4 py-2 align-top">
-        {/* Renovación con RUNT caído: `vin` es null y el identificador es la PLACA (HU #14019, AC7/AC9). */}
+        {/* Renovación con RUNT caído: `vin` es null y el identificador es la PLACA (HU 14019, AC7/AC9). */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="whitespace-nowrap font-mono text-sm font-semibold">{fila.vin ?? fila.placa ?? '—'}</span>
           <EtiquetaTipoSoat tipo={fila.tipoSoat} />
         </div>
-        {!porCompletar && <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Datos del RUNT pendientes</div>}
+        {!porCompletar && <div className="text-xs text-[color:var(--color-text-tertiary)]">Datos del RUNT pendientes</div>}
       </td>
       <td className="px-3 py-2">
         <div className="flex flex-col items-start gap-1">
           <ChipIncompletaSoat estado={fila.estado} />
-          {porCompletar && <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{motivoTexto}</span>}
+          {porCompletar && <span className="text-xs text-[color:var(--color-text-secondary)]">{motivoTexto}</span>}
           {incompleta && !porCompletar && (
-            <span className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>
+            <span className="text-xs tabular-nums text-[color:var(--color-text-tertiary)]">
               Último intento: {fecha(fila.ultimoIntentoRuntEn)}
             </span>
           )}
           {incompleta && fila.motivoPendiente === 'runt_sin_respuesta' && (
-            <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>El RUNT no respondió</span>
+            <span className="text-xs text-[color:var(--color-text-tertiary)]">El RUNT no respondió</span>
           )}
         </div>
       </td>
@@ -78,15 +79,15 @@ export default function FilaIncompletaSoat({
             <button type="button" className={flitBtnSecondarySm} aria-describedby={idVehiculo}
               disabled={consultando} aria-busy={consultando || undefined} onClick={() => onReintentar(fila)}>
               {consultando
-                ? <Loader2 size={16} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />
-                : <RotateCw size={16} aria-hidden="true" className="shrink-0" />}
+                ? <Girador className="shrink-0" />
+                : <Icono nombre="reintento" size={16} className="shrink-0" />}
               {consultando ? 'Consultando…' : 'Reintentar consulta'}
             </button>
           )}
           {puedeVer && (
             <button type="button" className={flitBtnSecondarySm} data-ver-incompleta={fila.id} onClick={() => onVer(fila)}>
               {porCompletar && puedeCompletar ? 'Completar' : 'Ver'}
-              <ChevronRight size={16} aria-hidden="true" className="-mr-1 shrink-0" />
+              <Icono nombre="derecha" size={16} className="-mr-1 shrink-0" />
             </button>
           )}
         </div>

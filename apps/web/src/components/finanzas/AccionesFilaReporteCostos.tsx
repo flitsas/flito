@@ -83,7 +83,7 @@ export default function AccionesFilaReporteCostos({
       {reversando && (
         <FlitModal title={`Reversar la liquidación de ${fila.idFlit}`} onClose={() => { setReversando(false); setMotivo(''); }}>
           <label className="block text-sm font-medium" htmlFor={`motivo-reverso-${fila.tramiteId}`}
-            style={{ color: 'var(--flit-text-primary)' }}>
+            style={{ color: 'var(--color-text-primary)' }}>
             Motivo del reverso
           </label>
           <input id={`motivo-reverso-${fila.tramiteId}`} className={`${flitInp} mt-1`} value={motivo}

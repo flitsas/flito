@@ -108,9 +108,9 @@ export default function FichaFacturacion(
             {SIIGO_ESTADO_REPORTE_ETIQUETA[ficha.estado]}
           </StatusChip>
           {ficha.numero && (
-            <span style={{ color: 'var(--flit-text-secondary)' }}>Factura {ficha.numero}</span>
+            <span style={{ color: 'var(--color-text-secondary)' }}>Factura {ficha.numero}</span>
           )}
-          <span className="ml-auto text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <span className="ml-auto text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             {!ficha.timbrada
               ? 'Sin enviar a la DIAN'
               : ficha.verificadoEn
@@ -128,7 +128,7 @@ export default function FichaFacturacion(
             porque los dos son mutuamente excluyentes: o se está verificando, o no se envió. */}
         {emitida && !ficha.timbrada && (
           <p className="rounded-lg px-3 py-2 text-xs"
-            style={{ background: 'var(--flit-warning-bg, rgba(201, 154, 79, 0.10))', color: 'var(--flit-text-secondary)' }}>
+            style={{ background: 'color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated))', color: 'var(--color-text-secondary)' }}>
             Esta factura se creó en Siigo pero <strong>no se envió a la DIAN</strong>, porque no se
             emitió desde producción. No tiene CUFE ni validación, y no se le entrega al cliente.
             Sirve para comprobar que la factura se arma bien, no para cobrar.
@@ -138,7 +138,7 @@ export default function FichaFacturacion(
         {/* AC3 — se dice que la comprobación corre sola, en vez de ofrecer un botón que espera. */}
         {emitida && ficha.timbrada && ficha.estadoDian !== 'aceptada' && ficha.estadoDian !== 'rechazada' && (
           <p className="rounded-lg px-3 py-2 text-xs"
-            style={{ background: 'rgba(79, 116, 201, 0.08)', color: 'var(--flit-blue-text)' }}>
+            style={{ background: 'color-mix(in srgb, var(--kit-azul) 10%, var(--color-surface-elevated))', color: 'var(--color-action)' }}>
             La verificación ante la DIAN está en curso y se repite sola cada pocos minutos. La DIAN
             no responde al instante, así que el estado se actualizará aquí en cuanto conteste — no
             hace falta esperar en esta pantalla.
@@ -148,21 +148,21 @@ export default function FichaFacturacion(
         {/* AC4 — un rechazo se explica; si el motivo no está, se dice. */}
         {ficha.estado === 'rechazado' && (
           <section className="rounded-lg px-3 py-2"
-            style={{ background: 'rgba(228, 61, 48, 0.08)' }}>
-            <div className="mb-1 text-xs font-semibold" style={{ color: 'var(--flit-warning-text)' }}>
+            style={{ background: 'color-mix(in srgb, var(--kit-rojo) 10%, var(--color-surface-elevated))' }}>
+            <div className="mb-1 text-xs font-semibold" style={{ color: 'var(--kit-naranja-texto)' }}>
               Motivo del rechazo
             </div>
             {ficha.motivo
-              ? <p style={{ color: 'var(--flit-text-primary)' }}>{ficha.motivo}</p>
+              ? <p style={{ color: 'var(--color-text-primary)' }}>{ficha.motivo}</p>
               : ficha.motivoPendiente
                 ? (
-                  <p style={{ color: 'var(--flit-text-secondary)' }}>
+                  <p style={{ color: 'var(--color-text-secondary)' }}>
                     El detalle todavía no se ha podido consultar en Siigo. Se reintenta solo; si
                     urge, el motivo está en Siigo Nube.
                   </p>
                 )
                 : (
-                  <p style={{ color: 'var(--flit-text-secondary)' }}>
+                  <p style={{ color: 'var(--color-text-secondary)' }}>
                     La DIAN la rechazó sin devolver detalle del error.
                   </p>
                 )}
@@ -172,22 +172,22 @@ export default function FichaFacturacion(
         {/* AC5 — reenviar el correo, diciendo antes a dónde va. */}
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide"
-            style={{ color: 'var(--flit-text-muted)' }}>Entrega al cliente</h3>
+            style={{ color: 'var(--color-text-tertiary)' }}>Entrega al cliente</h3>
 
-          {cargandoEnvios && <p style={{ color: 'var(--flit-text-secondary)' }}>Consultando envíos…</p>}
+          {cargandoEnvios && <p style={{ color: 'var(--color-text-secondary)' }}>Consultando envíos…</p>}
 
           {errorEnvios && (
             <div className="flex items-center gap-2">
-              <span style={{ color: 'var(--flit-warning-text)' }}>No se pudo consultar: {errorEnvios}</span>
+              <span style={{ color: 'var(--kit-naranja-texto)' }}>No se pudo consultar: {errorEnvios}</span>
               <button type="button" className={flitBtnSecondarySm}
-                style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+                style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}
                 onClick={() => void cargarEnvios()}>Reintentar</button>
             </div>
           )}
 
           {!cargandoEnvios && !errorEnvios && envios && (
             <>
-              <p style={{ color: 'var(--flit-text-secondary)' }}>
+              <p style={{ color: 'var(--color-text-secondary)' }}>
                 {envios.vecesEnviado > 0
                   ? `Enviada ${envios.vecesEnviado} vez(ces). La última, el ${fechaCorta(envios.ultimoEnviado?.creadoEn ?? null)}.`
                   : 'Todavía no se ha entregado por correo.'}
@@ -197,15 +197,15 @@ export default function FichaFacturacion(
                   Sin timbrar no se anuncia destinatario: no hay a dónde, y nombrar el correo de un
                   cliente al lado de un botón que no va a enviar nada invita a probar «a ver». */}
               {!ficha.timbrada ? (
-                <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                   El correo al cliente solo sale desde producción.
                 </p>
               ) : envios.ultimo?.destinatarios?.length ? (
-                <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                   Se enviará a: {envios.ultimo.destinatarios.map((d) => d.correo).join(', ')}
                 </p>
               ) : (
-                <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                   Se enviará al correo registrado en la ficha del cliente.
                 </p>
               )}
@@ -214,7 +214,7 @@ export default function FichaFacturacion(
                 <button
                   type="button"
                   className={`${flitBtnSecondarySm} mt-2`}
-                  style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+                  style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}
                   disabled={!emitida || !ficha.timbrada || enviando}
                   // El motivo del deshabilitado va en el `title`: un botón apagado sin explicación
                   // obliga a adivinar, y quien adivina suele culpar al sistema.
@@ -230,7 +230,7 @@ export default function FichaFacturacion(
               )}
 
               {aviso && (
-                <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }} role="status">
+                <p className="mt-2 text-xs" style={{ color: 'var(--color-text-secondary)' }} role="status">
                   {aviso}
                 </p>
               )}
@@ -241,16 +241,16 @@ export default function FichaFacturacion(
         {/* AC6 — los documentos, o por qué todavía no están. */}
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide"
-            style={{ color: 'var(--flit-text-muted)' }}>Documentos</h3>
+            style={{ color: 'var(--color-text-tertiary)' }}>Documentos</h3>
 
           {sinDocumentos ? (
-            <p style={{ color: 'var(--flit-text-secondary)' }}>
+            <p style={{ color: 'var(--color-text-secondary)' }}>
               {ficha.estado === 'aceptado'
                 ? 'La DIAN ya la aceptó; el PDF y el XML se archivan solos en los próximos minutos.'
                 : 'El PDF y el XML se archivan cuando la DIAN acepta la factura.'}
             </p>
           ) : (
-            <p style={{ color: 'var(--flit-text-secondary)' }}>
+            <p style={{ color: 'var(--color-text-secondary)' }}>
               Archivados como soportes del trámite: {[
                 ficha.documentos.pdf ? 'PDF' : null,
                 ficha.documentos.xml ? 'XML' : null,
@@ -260,7 +260,7 @@ export default function FichaFacturacion(
         </section>
 
         {ficha.cufe && (
-          <p className="break-all text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="break-all text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             CUFE: {ficha.cufe}
           </p>
         )}

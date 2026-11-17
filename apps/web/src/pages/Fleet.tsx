@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, useCallback, FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
@@ -6,7 +6,15 @@ import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
-import StatusChip from '../components/flit/StatusChip';
+import KpiCard from '../components/flit/KpiCard';
+import Pestanas from '../components/flit/Pestanas';
+import PanelFiltros, { type FiltroAplicado } from '../components/flit/PanelFiltros';
+import DataTable from '../components/flit/DataTable';
+import Placa from '../components/flit/Placa';
+import { EtiquetaEstado } from '../components/flit/Bloques';
+import { Icono } from '../components/flit/kit/Icono';
+import { flitInp, FlitField, flitBtnSecondarySm } from '../components/flit/flitPageKit';
+import { ESTADO_FLOTA, estadoPorDias } from '../components/fleet/estados-flota';
 
 interface FleetVehicle {
   id: number;
@@ -39,10 +47,6 @@ const TIPO_LABEL: Record<string, string> = {
 const FUEL_LABEL: Record<string, string> = {
   acpm: 'ACPM', gasolina: 'Gasolina', gas: 'Gas', electrico: 'Eléctrico', hibrido: 'Híbrido',
 };
-
-type KpiTone = 'neutral' | 'warning' | 'danger';
-
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-3 py-2 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
 
 export default function Fleet() {
   const { hasFuncion } = useAuth();
@@ -82,83 +86,90 @@ export default function Fleet() {
   const expVencidos = expiring.filter((d) => d.estado === 'vencido').length;
   const expProximos = expiring.filter((d) => d.estado !== 'vencido').length;
 
+  const tiposAplicados: FiltroAplicado[] = tipoFilter ? [{ id: 'tipo', etiqueta: TIPO_LABEL[tipoFilter] ?? tipoFilter }] : [];
+
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Flota"
         subtitle="Vehículos operativos, mediciones, vinculaciones y documentación"
+        icono="flito-flota"
+        miga={[]}
         actions={isAdmin ? (
           <GradientButton type="button" onClick={() => setShowCreate(true)} aria-label="Crear nuevo vehículo">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            <Icono nombre="mas" size={18} />
             Nuevo vehículo
           </GradientButton>
         ) : undefined}
       />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <KpiTile label="Total flota" value={vehicles.length} tone="neutral" />
-        <KpiTile label="Documentos por vencer" value={expProximos} tone="warning" />
-        <KpiTile label="Documentos vencidos" value={expVencidos} tone="danger" />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <KpiCard label="Total flota" value={vehicles.length} icono="flito-flota" />
+        <KpiCard label="Documentos por vencer" value={expProximos} pendiente />
+        <KpiCard label="Documentos vencidos" value={expVencidos} pendiente />
       </div>
 
-      <div className="border-b" style={{ borderColor: 'var(--flit-border-soft)' }}>
-        <nav className="-mb-px flex gap-6">
-          <TabBtn active={tab === 'vehiculos'} onClick={() => setTab('vehiculos')}>Vehículos ({vehicles.length})</TabBtn>
-          <TabBtn active={tab === 'vencimientos'} onClick={() => setTab('vencimientos')}>Vencimientos ({expiring.length})</TabBtn>
-        </nav>
-      </div>
+      <Pestanas
+        etiqueta="Secciones de flota"
+        activa={tab}
+        onElegir={(id) => setTab(id as 'vehiculos' | 'vencimientos')}
+        pestanas={[
+          { id: 'vehiculos', etiqueta: 'Vehículos', cuenta: vehicles.length },
+          { id: 'vencimientos', etiqueta: 'Vencimientos', cuenta: expiring.length },
+        ]}
+      />
 
       {tab === 'vehiculos' && (
         <>
-          <div className="flex gap-3">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Placa, alias, marca o modelo"
-              className="flit-focus min-w-0 flex-1 rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-3 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow"
-            />
-            <select value={tipoFilter} onChange={(e) => setTipoFilter(e.target.value)} className="flit-focus shrink-0 rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-3 py-2.5 text-sm text-[color:var(--flit-text-primary)] outline-none transition-shadow">
-              <option value="">Todos los tipos</option>
-              {Object.entries(TIPO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-          </div>
+          <PanelFiltros
+            busqueda={search}
+            onBusqueda={setSearch}
+            placeholder="Placa, alias, marca o modelo"
+            aplicados={tiposAplicados}
+            onQuitar={() => setTipoFilter('')}
+            campos={(
+              <FlitField label="Tipo de vehículo">
+                <select value={tipoFilter} onChange={(e) => setTipoFilter(e.target.value)} className={flitInp}>
+                  <option value="">Todos los tipos</option>
+                  {Object.entries(TIPO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </FlitField>
+            )}
+          />
 
-          <TableCard>
-            <table className="w-full text-sm">
-              <thead>
-                <tr>
-                  <Th>Placa / Alias</Th>
-                  <Th>Tipo</Th>
-                  <Th>Marca / Modelo</Th>
-                  <Th>Combustible</Th>
-                  <Th>Promedio día</Th>
-                  <Th></Th>
-                </tr>
-              </thead>
-              <tbody>
-                {vehicles.length === 0 && (
-                  <tr><td colSpan={6} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin vehículos en la flota</td></tr>
-                )}
-                {vehicles.map((v) => (
-                  <Tr key={v.id}>
-                    <td className="px-4 py-3">
-                      <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{v.plate || '—'}</p>
-                      {v.alias && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{v.alias}</p>}
-                    </td>
-                    <td className="px-4 py-3" style={{ color: 'var(--flit-text-secondary)' }}>{v.tipoVehiculo ? TIPO_LABEL[v.tipoVehiculo] : '—'}</td>
-                    <td className="px-4 py-3" style={{ color: 'var(--flit-text-secondary)' }}>
-                      {v.brand || '—'} {v.model && <span style={{ color: 'var(--flit-text-muted)' }}>/ {v.model}</span>} {v.year && <span style={{ color: 'var(--flit-text-muted)' }}>({v.year})</span>}
-                    </td>
-                    <td className="px-4 py-3" style={{ color: 'var(--flit-text-secondary)' }}>{v.combustiblePrincipal ? FUEL_LABEL[v.combustiblePrincipal] : '—'}</td>
-                    <td className="px-4 py-3" style={{ color: 'var(--flit-text-secondary)' }}>{v.distPromedioDia ? `${v.distPromedioDia} km` : '—'}</td>
-                    <td className="px-4 py-3 text-right">
-                      <Link to={`/fleet/${v.id}`} className="text-xs font-semibold hover:underline" style={{ color: 'var(--flit-blue)' }}>Detalle</Link>
-                    </td>
-                  </Tr>
-                ))}
-              </tbody>
-            </table>
-          </TableCard>
+          <DataTable<FleetVehicle>
+            ariaLabel="Vehículos de la flota"
+            filas={vehicles}
+            getKey={(v) => String(v.id)}
+            status={vehicles.length === 0 ? 'empty' : 'ready'}
+            emptyMessage="Sin vehículos en la flota"
+            columnas={[
+              {
+                key: 'placa', header: 'Placa / Alias', etiqueta: 'Placa',
+                render: (v) => (
+                  <div className="flex flex-col items-start gap-1">
+                    {v.plate ? <Placa placa={v.plate} /> : <span className="text-[color:var(--color-text-primary)]">—</span>}
+                    {v.alias && <span className="text-xs text-[color:var(--color-text-tertiary)]">{v.alias}</span>}
+                  </div>
+                ),
+              },
+              { key: 'tipo', header: 'Tipo', render: (v) => (v.tipoVehiculo ? TIPO_LABEL[v.tipoVehiculo] : '—') },
+              {
+                key: 'marca', header: 'Marca / Modelo', etiqueta: 'Marca / Modelo',
+                render: (v) => (
+                  <span className="text-[color:var(--color-text-secondary)]">
+                    {v.brand || '—'} {v.model && <span className="text-[color:var(--color-text-tertiary)]">/ {v.model}</span>} {v.year && <span className="text-[color:var(--color-text-tertiary)]">({v.year})</span>}
+                  </span>
+                ),
+              },
+              { key: 'combustible', header: 'Combustible', render: (v) => (v.combustiblePrincipal ? FUEL_LABEL[v.combustiblePrincipal] : '—') },
+              { key: 'promedio', header: 'Promedio día', etiqueta: 'Promedio día', render: (v) => (v.distPromedioDia ? `${v.distPromedioDia} km` : '—') },
+              {
+                key: 'acciones', header: '', acciones: true, align: 'right',
+                render: (v) => <Link to={`/fleet/${v.id}`} className={flitBtnSecondarySm}>Detalle</Link>,
+              },
+            ]}
+          />
         </>
       )}
 
@@ -169,88 +180,39 @@ export default function Fleet() {
   );
 }
 
-function KpiTile({ label, value, tone }: { label: string; value: number; tone: KpiTone }) {
-  const color = tone === 'warning' ? 'var(--flit-warning)' : tone === 'danger' ? 'var(--flit-danger)' : 'var(--flit-text-primary)';
-  return (
-    <div className="bg-white p-5" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--flit-text-muted)' }}>{label}</p>
-      <p className="mt-2 text-4xl font-bold tabular-nums leading-none" style={{ color }}>{value}</p>
-    </div>
-  );
-}
-
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className="flit-focus border-b-2 pb-2 text-sm font-semibold transition-colors"
-      style={active ? { borderColor: 'var(--flit-blue)', color: 'var(--flit-blue)' } : { borderColor: 'transparent', color: 'var(--flit-text-muted)' }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function TableCard({ children }: { children: ReactNode }) {
-  return (
-    <div className="overflow-hidden bg-white" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
-      <div className="overflow-x-auto">{children}</div>
-    </div>
-  );
-}
-
-function Th({ children }: { children?: ReactNode }) {
-  return <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
-
-function Tr({ children }: { children: ReactNode }) {
-  return <tr className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>{children}</tr>;
-}
-
 function VencimientosPanel({ docs }: { docs: ExpiringDoc[] }) {
-  if (docs.length === 0) {
-    return <div className="p-8 text-center text-sm" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px dashed var(--flit-border-input)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-muted)' }}>Sin documentos por vencer en los próximos 60 días</div>;
-  }
   const today = new Date().toISOString().slice(0, 10);
+  const diasDe = (d: ExpiringDoc) => Math.round((new Date(d.vigenciaHasta).getTime() - new Date(today).getTime()) / 86_400_000);
   return (
-    <TableCard>
-      <table className="w-full text-sm">
-        <thead>
-          <tr>
-            <Th>Vehículo</Th>
-            <Th>Documento</Th>
-            <Th>Vence</Th>
-            <Th>Estado</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {docs.map((d) => {
-            const dias = Math.round((new Date(d.vigenciaHasta).getTime() - new Date(today).getTime()) / 86_400_000);
-            return (
-              <Tr key={d.id}>
-                <td className="px-4 py-3">
-                  <Link to={`/fleet/${d.vehicleId}`} className="font-semibold hover:underline" style={{ color: 'var(--flit-text-primary)' }}>
-                    {d.plate || `#${d.vehicleId}`}
-                  </Link>
-                  {d.alias && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{d.alias}</p>}
-                </td>
-                <td className="px-4 py-3" style={{ color: 'var(--flit-text-secondary)' }}>{d.tipoNombre}</td>
-                <td className="px-4 py-3" style={{ color: 'var(--flit-text-secondary)' }}>{d.vigenciaHasta}</td>
-                <td className="px-4 py-3"><ExpiryPill estado={d.estado} dias={dias} /></td>
-              </Tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </TableCard>
+    <DataTable<ExpiringDoc>
+      ariaLabel="Documentos por vencer"
+      filas={docs}
+      getKey={(d) => String(d.id)}
+      status={docs.length === 0 ? 'empty' : 'ready'}
+      emptyMessage="Sin documentos por vencer en los próximos 60 días"
+      columnas={[
+        {
+          key: 'vehiculo', header: 'Vehículo', etiqueta: 'Vehículo',
+          render: (d) => (
+            <div className="flex flex-col items-start gap-1">
+              <Link to={`/fleet/${d.vehicleId}`} className="rounded-[9px] font-semibold text-[color:var(--color-action)] transition-colors hover:underline">
+                {d.plate ? <Placa placa={d.plate} /> : `#${d.vehicleId}`}
+              </Link>
+              {d.alias && <span className="text-xs text-[color:var(--color-text-tertiary)]">{d.alias}</span>}
+            </div>
+          ),
+        },
+        { key: 'documento', header: 'Documento', render: (d) => d.tipoNombre },
+        { key: 'vence', header: 'Vence', render: (d) => d.vigenciaHasta },
+        { key: 'estado', header: 'Estado', render: (d) => <ExpiryPill estado={d.estado} dias={diasDe(d)} /> },
+      ]}
+    />
   );
 }
 
 function ExpiryPill({ estado, dias }: { estado: string; dias: number }) {
-  if (estado === 'vencido' || dias <= 0) return <StatusChip tone="danger">Vencido</StatusChip>;
-  if (dias <= 7) return <StatusChip tone="danger">{dias}d</StatusChip>;
-  if (dias <= 30) return <StatusChip tone="warning">{dias}d</StatusChip>;
-  return <StatusChip tone="success">{dias}d</StatusChip>;
+  if (estado === 'vencido' || dias <= 0) return <EtiquetaEstado estado={ESTADO_FLOTA.docVencido}>Vencido</EtiquetaEstado>;
+  return <EtiquetaEstado estado={estadoPorDias(dias)}>{dias}d</EtiquetaEstado>;
 }
 
 interface CreateForm {
@@ -301,59 +263,50 @@ function FleetCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   };
 
   return (
-    <FlitModal title="Nuevo vehículo de flota" onClose={onClose}>
+    <FlitModal title="Nuevo vehículo de flota" onClose={onClose} icono="carro">
       <form onSubmit={submit}>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Field label="Placa *"><input value={f.plate} onChange={(e) => setF({ ...f, plate: e.target.value })} maxLength={10} className={inputCls} /></Field>
-          <Field label="Alias"><input value={f.alias} onChange={(e) => setF({ ...f, alias: e.target.value })} maxLength={80} className={inputCls} /></Field>
-          <Field label="Marca"><input value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} className={inputCls} /></Field>
-          <Field label="Modelo"><input value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} className={inputCls} /></Field>
-          <Field label="Año"><input type="number" value={f.year} onChange={(e) => setF({ ...f, year: e.target.value })} className={inputCls} /></Field>
-          <Field label="Color"><input value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} className={inputCls} /></Field>
-          <Field label="Tipo de vehículo">
-            <select value={f.tipoVehiculo} onChange={(e) => setF({ ...f, tipoVehiculo: e.target.value })} className={inputCls}>
+          <FlitField label="Placa *"><input value={f.plate} onChange={(e) => setF({ ...f, plate: e.target.value })} maxLength={10} className={flitInp} /></FlitField>
+          <FlitField label="Alias"><input value={f.alias} onChange={(e) => setF({ ...f, alias: e.target.value })} maxLength={80} className={flitInp} /></FlitField>
+          <FlitField label="Marca"><input value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} className={flitInp} /></FlitField>
+          <FlitField label="Modelo"><input value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} className={flitInp} /></FlitField>
+          <FlitField label="Año"><input type="number" value={f.year} onChange={(e) => setF({ ...f, year: e.target.value })} className={flitInp} /></FlitField>
+          <FlitField label="Color"><input value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} className={flitInp} /></FlitField>
+          <FlitField label="Tipo de vehículo">
+            <select value={f.tipoVehiculo} onChange={(e) => setF({ ...f, tipoVehiculo: e.target.value })} className={flitInp}>
               <option value="">— seleccione —</option>
               {Object.entries(TIPO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-          </Field>
-          <Field label="Combustible principal">
-            <select value={f.combustiblePrincipal} onChange={(e) => setF({ ...f, combustiblePrincipal: e.target.value })} className={inputCls}>
+          </FlitField>
+          <FlitField label="Combustible principal">
+            <select value={f.combustiblePrincipal} onChange={(e) => setF({ ...f, combustiblePrincipal: e.target.value })} className={flitInp}>
               <option value="">— seleccione —</option>
               {Object.entries(FUEL_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-          </Field>
-          <Field label="Tipo de medición">
-            <select value={f.tipoMedicion} onChange={(e) => setF({ ...f, tipoMedicion: e.target.value as CreateForm['tipoMedicion'] })} className={inputCls}>
+          </FlitField>
+          <FlitField label="Tipo de medición">
+            <select value={f.tipoMedicion} onChange={(e) => setF({ ...f, tipoMedicion: e.target.value as CreateForm['tipoMedicion'] })} className={flitInp}>
               <option value="km">Kilómetros</option>
               <option value="horas">Horas</option>
               <option value="ambos">Ambos</option>
             </select>
-          </Field>
-          <Field label="Medición principal">
-            <select value={f.medicionPrincipal} onChange={(e) => setF({ ...f, medicionPrincipal: e.target.value as CreateForm['medicionPrincipal'] })} className={inputCls}>
+          </FlitField>
+          <FlitField label="Medición principal">
+            <select value={f.medicionPrincipal} onChange={(e) => setF({ ...f, medicionPrincipal: e.target.value as CreateForm['medicionPrincipal'] })} className={flitInp}>
               <option value="km">Kilómetros</option>
               <option value="horas">Horas</option>
             </select>
-          </Field>
-          <Field label="Número de motor"><input value={f.numMotor} onChange={(e) => setF({ ...f, numMotor: e.target.value })} className={inputCls} /></Field>
-          <Field label="Número de serie (chasis)"><input value={f.numSerie} onChange={(e) => setF({ ...f, numSerie: e.target.value })} className={inputCls} /></Field>
-          <Field label="Promedio km/día"><input type="number" value={f.distPromedioDia} onChange={(e) => setF({ ...f, distPromedioDia: e.target.value })} className={inputCls} /></Field>
-          <Field label="Rendimiento ideal (km/gal)"><input type="number" step="0.01" value={f.rendimientoIdeal} onChange={(e) => setF({ ...f, rendimientoIdeal: e.target.value })} className={inputCls} /></Field>
+          </FlitField>
+          <FlitField label="Número de motor"><input value={f.numMotor} onChange={(e) => setF({ ...f, numMotor: e.target.value })} className={flitInp} /></FlitField>
+          <FlitField label="Número de serie (chasis)"><input value={f.numSerie} onChange={(e) => setF({ ...f, numSerie: e.target.value })} className={flitInp} /></FlitField>
+          <FlitField label="Promedio km/día"><input type="number" value={f.distPromedioDia} onChange={(e) => setF({ ...f, distPromedioDia: e.target.value })} className={flitInp} /></FlitField>
+          <FlitField label="Rendimiento ideal (km/gal)"><input type="number" step="0.01" value={f.rendimientoIdeal} onChange={(e) => setF({ ...f, rendimientoIdeal: e.target.value })} className={flitInp} /></FlitField>
         </div>
-        <div className="mt-5 flex justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <button type="button" onClick={onClose} disabled={submitting} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium disabled:opacity-50" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+        <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] pt-4">
+          <GradientButton type="button" variant="secondary" onClick={onClose} disabled={submitting}>Cancelar</GradientButton>
           <GradientButton type="submit" disabled={submitting}>{submitting ? 'Guardando…' : 'Crear vehículo'}</GradientButton>
         </div>
       </form>
     </FlitModal>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{label}</span>
-      {children}
-    </label>
   );
 }

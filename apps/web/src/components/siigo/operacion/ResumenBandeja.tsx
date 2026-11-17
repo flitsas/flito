@@ -11,23 +11,22 @@ import type { ResponsableError, SiigoBandejaResumen } from '@operaciones/shared-
 import { flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 
 const CARD = {
-  borderRadius: 'var(--flit-radius-card)',
-  border: '1px solid var(--flit-border-soft)',
-  boxShadow: 'var(--flit-shadow-card)',
+  borderRadius: '9px',
+  border: '1px solid var(--color-border)',
 } as const;
 
 function Tarjeta({ rotulo, valor }: { rotulo: string; valor: string }) {
   return (
-    <div className="bg-white p-4" style={CARD}>
+    <div className="bg-[var(--color-surface-elevated)] p-4" style={CARD}>
       <p
         className="text-[11px] font-semibold uppercase tracking-[0.12em]"
-        style={{ color: 'var(--flit-text-secondary)' }}
+        style={{ color: 'var(--color-text-secondary)' }}
       >
         {rotulo}
       </p>
       <p
         className="mt-2 text-3xl font-bold tabular-nums leading-none"
-        style={{ color: 'var(--flit-text-primary)' }}
+        style={{ color: 'var(--color-text-primary)' }}
       >
         {valor}
       </p>
@@ -41,7 +40,7 @@ function Responsables({ por }: { por: Record<ResponsableError, number> }) {
     .filter(([, n]) => n > 0);
   if (conCarga.length === 0) return null;
   return (
-    <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+    <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
       Quién lo resuelve:{' '}
       {conCarga.map(([r, n]) => `${n} · ${ETIQUETA_RESPONSABLE[r]}`).join(' — ')}
     </p>
@@ -58,9 +57,9 @@ export default function ResumenBandeja(
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" role="status" aria-busy="true">
         <span className="sr-only">Contando lo que está detenido…</span>
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="bg-white p-4" style={CARD}>
-            <div className="h-3 w-24 rounded" style={{ background: 'var(--flit-bg-app)' }} />
-            <div className="mt-3 h-8 w-16 rounded" style={{ background: 'var(--flit-bg-app)' }} />
+          <div key={i} className="bg-[var(--color-surface-elevated)] p-4" style={CARD}>
+            <div className="h-3 w-24 rounded" style={{ background: 'var(--color-surface)' }} />
+            <div className="mt-3 h-8 w-16 rounded" style={{ background: 'var(--color-surface)' }} />
           </div>
         ))}
       </div>
@@ -70,8 +69,8 @@ export default function ResumenBandeja(
   // El fallo del resumen NO tumba la lista: es una consulta accesoria con su propio reintento.
   if (error || !resumen) {
     return (
-      <div className="flex flex-wrap items-center gap-3 bg-white p-4" style={CARD}>
-        <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <div className="flex flex-wrap items-center gap-3 bg-[var(--color-surface-elevated)] p-4" style={CARD}>
+        <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
           No se pudo calcular el resumen: {error ?? 'sin datos'}. La lista de abajo no depende de esto.
         </p>
         <button

@@ -13,11 +13,9 @@ import { pesos } from '../../../lib/pesos';
 import {
   etiquetaFijacion, falloDeEscritura, rutaViajesDeTramite, textoConfirmarQuitar, textoMotivo, type FalloEscritura,
 } from '../../../lib/viajesLogistica';
-import { flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import { flitBtnDanger, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 
-const MUTED = { color: 'var(--flit-text-muted)' } as const;
-/** La TINTA roja sobre el fondo de la tarjeta, no una superficie roja: así marca esta app lo delicado. */
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
+const MUTED = { color: 'var(--color-text-tertiary)' } as const;
 
 export default function FilaViajeLogistica({
   viaje, tramiteId, puedeQuitar, abierta, fecha, onAbrir, onCancelar, onQuitado, onFallo,
@@ -70,14 +68,14 @@ export default function FilaViajeLogistica({
         // `useEscape` escucha en `window`: parar la propagación aquí hace que Esc cancele la
         // confirmación y NO cierre el detalle.
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancelar(); } }}>
-        <div className="rounded-lg border p-2" style={{ borderColor: 'var(--flit-border-input)' }}>
+        <div className="rounded-[9px] border border-[color:var(--color-border-control)] p-2">
           <p className="text-sm">{textoConfirmarQuitar(viaje)}</p>
           <div className="mt-2 flex flex-wrap justify-end gap-2">
             <button type="button" ref={cancelarRef} className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}
               disabled={enviando} onClick={onCancelar}>
               Cancelar
             </button>
-            <button type="button" className={flitBtnSecondarySm} style={{ ...flitBtnSecondaryStyle, ...PELIGRO }}
+            <button type="button" className={flitBtnDanger}
               disabled={enviando} onClick={confirmar}>
               Quitar viaje
             </button>

@@ -1,4 +1,4 @@
-// FLITO — Comparendos · Sincronización: el seguimiento de la corrida (HU #11635, AC1..AC4).
+// FLITO — Comparendos · Sincronización: el seguimiento de la corrida (HU 11635, AC1..AC4).
 //
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // EL PROBLEMA QUE ESTE ARCHIVO RESUELVE
@@ -37,7 +37,7 @@
 //     NAT de la oficina. Un sondeo cada 2,5 s durante los 10 min de tope son 240 peticiones de UNA
 //     pestaña: la mitad de la cuota de todo el edificio, mientras el resto del equipo usa la app.
 //   · Cada sondeo de `/sync/runs` escribe una fila en `pii_access_log` (el `scope_nits` de las
-//     corridas es PII, HU #11511). 240 filas por corrida convierten la bitácora de accesos —que
+//     corridas es PII, HU 11511). 240 filas por corrida convierten la bitácora de accesos —que
 //     existe para poder auditar quién miró qué— en un log de polling donde el acceso humano no se
 //     encuentra.
 //
@@ -546,7 +546,7 @@ export function useComparendosSync(): SyncEnVivo {
     // En desarrollo, `StrictMode` monta, limpia y vuelve a montar los efectos sobre la MISMA
     // instancia —las refs sobreviven, que es lo que hace fiable esta bandera—. Sin ella, entrar a la
     // pestaña dispara dos `GET /sync/runs`, y esa lectura no es gratis: escribe una fila de
-    // `pii_access_log` con los NIT del alcance de las corridas listadas (HU #11511). Duplicar
+    // `pii_access_log` con los NIT del alcance de las corridas listadas (HU 11511). Duplicar
     // accesos a datos personales en la bitácora es peor que duplicar una petición.
     if (!c.hidratado) {
       c.hidratado = true;

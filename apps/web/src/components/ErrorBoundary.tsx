@@ -1,4 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import GradientButton from './flit/GradientButton';
+import { Icono } from './flit/kit/Icono';
 
 // Aísla el crash de una página: sin esto, un error de render en cualquier vista deja TODO el SPA
 // en blanco (incl. la barra de navegación). Se resetea al cambiar de ruta (Layout lo keyea por
@@ -21,25 +23,25 @@ export default class ErrorBoundary extends Component<Props, State> {
   render(): ReactNode {
     if (!this.state.error) return this.props.children;
     return (
-      <div className="mx-auto max-w-xl px-4 py-16 text-center">
-        <div
-          className="rounded-[var(--flit-radius-card)] bg-white p-6"
-          style={{ boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' }}
-        >
-          <h1 className="text-lg font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <div className="mx-auto max-w-xl px-4 py-16">
+        <div className="card kit-vacio" data-kit="error">
+          <span className="kit-disco h-[72px] w-[72px] !text-[color:var(--kit-naranja)]" aria-hidden="true">
+            <Icono nombre="nube-alerta" size={36} />
+          </span>
+          <h1 className="m-0 text-xl font-bold text-[color:var(--color-text-primary)]">
             No se pudo mostrar esta vista
           </h1>
-          <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm font-normal text-[color:var(--color-text-secondary)]">
             Ocurrió un error al cargar el contenido. Puedes ir a otra sección desde el menú, o recargar.
           </p>
-          <button
+          <GradientButton
             type="button"
             onClick={() => window.location.reload()}
-            className="mt-4 inline-flex h-10 items-center rounded-[999px] px-5 text-sm font-semibold text-white"
-            style={{ background: 'var(--flit-gradient-primary)' }}
+            className="mt-2"
           >
+            <Icono nombre="reintento" size={16} />
             Recargar
-          </button>
+          </GradientButton>
         </div>
       </div>
     );

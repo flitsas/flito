@@ -5,9 +5,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import PageHeaderCard from '../../components/flit/PageHeaderCard';
 import StatusChip from '../../components/flit/StatusChip';
-import {
-  FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../../components/flit/flitPageKit';
+import GradientButton from '../../components/flit/GradientButton';
+import KpiCard from '../../components/flit/KpiCard';
+import { Cargador, Vacio } from '../../components/flit/Cargador';
+import { Icono } from '../../components/flit/kit/Icono';
+import { FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr } from '../../components/flit/flitPageKit';
 
 interface RumGroup {
   metric: string;
@@ -94,10 +96,12 @@ export default function RumSummary() {
   const grupos = data?.groups ?? [];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col">
       <PageHeaderCard
         title="Rendimiento en campo (RUM)"
         subtitle={`Percentil 75 de Core Web Vitals · ventana ${days} días · muestreo ~20% en producción`}
+        icono="flito-reporte-costos"
+        miga={[{ etiqueta: 'Administración' }]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <FlitPillGroup>
@@ -107,68 +111,73 @@ export default function RumSummary() {
                 </FlitPillButton>
               ))}
             </FlitPillGroup>
-            <button type="button" onClick={() => void load()} disabled={loading} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>
+            <GradientButton variant="secondary" onClick={() => void load()} disabled={loading}>
               {loading ? 'Cargando…' : 'Actualizar'}
-            </button>
+            </GradientButton>
           </div>
         }
       />
 
       {loading && (
-        <p role="status" className="text-sm" style={{ color: 'var(--flit-text-muted)' }} data-estado="cargando">Cargando métricas…</p>
+        <div className="card" data-estado="cargando"><Cargador texto="Cargando métricas…" /></div>
       )}
 
       {!loading && error && (
-        <FlitCard className="mx-auto w-full max-w-xl text-center">
-          <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{COPY_ERROR_RUM}</p>
-          <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={() => void load()}>Reintentar</button>
-        </FlitCard>
+        <div className="card">
+          <div className="kit-vacio" data-kit="error">
+            <span className="kit-disco h-[72px] w-[72px] !text-[color:var(--kit-naranja)]"><Icono nombre="nube-alerta" size={36} /></span>
+            <p role="alert" className="!text-[color:var(--color-text-primary)]">{COPY_ERROR_RUM}</p>
+            <GradientButton variant="secondary" size="sm" onClick={() => void load()}>Reintentar</GradientButton>
+          </div>
+        </div>
       )}
 
       {!loading && !error && grupos.length === 0 && (
-        <FlitEmpty>
-          <p data-estado="vacio">{COPY_VACIO_RUM}</p>
-          {data?.note && <p className="mt-2">{data.note}</p>}
-        </FlitEmpty>
+        <div className="card" data-estado="vacio">
+          <Vacio icono="reportes" texto={COPY_VACIO_RUM} detalle={data?.note} />
+        </div>
       )}
 
       {!loading && !error && grupos.length > 0 && (
         <>
-          {data?.note && <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{data.note}</p>}
-          <FlitTable label="Resumen de rendimiento por métrica, ruta y dispositivo">
-            <thead>
-              <tr>{COLUMNAS.map((h) => <FlitTh key={h}>{h}</FlitTh>)}</tr>
-            </thead>
-            <tbody className="text-sm">
-              {grupos.map((row, i) => (
-                <FlitTr key={`${row.metric}-${row.route}-${row.device}-${i}`}>
-                  <td className="px-4 py-3 font-medium" style={{ color: 'var(--flit-text-primary)' }}>{row.metric}</td>
-                  <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{row.route}</td>
-                  <td className="px-4 py-3" style={{ color: 'var(--flit-text-primary)' }}>{row.device}</td>
-                  <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{row.samples}</td>
-                  <td className="px-4 py-3">
-                    <StatusChip tone={p75Tone(row.metric, row.p75)}>
-                      {formatMetricValue(row.metric, row.p75)}
-                    </StatusChip>
-                  </td>
-                  <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>
-                    {formatMetricValue(row.metric, row.avg)}
-                  </td>
-                  <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color: 'var(--flit-text-muted)' }}>
-                    {row.first_at ? new Date(row.first_at).toLocaleString('es-CO') : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color: 'var(--flit-text-muted)' }}>
-                    {row.last_at ? new Date(row.last_at).toLocaleString('es-CO') : '—'}
-                  </td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </FlitTable>
           {data && (
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-              Total filas en ventana: {data.totalRows} · umbral de agrupación: ≥{data.minSamples} muestras
-            </p>
+            <div className="metricas">
+              <KpiCard label="Total filas en ventana" value={data.totalRows} icono="flito-reporte-costos" />
+              <KpiCard label="Umbral de agrupación" value={`≥${data.minSamples}`} hint="muestras" icono="flito-checklists" />
+            </div>
           )}
+          <section className="card">
+            {data?.note && <p className="mb-3 text-sm text-[color:var(--color-text-secondary)]">{data.note}</p>}
+            <FlitTable label="Resumen de rendimiento por métrica, ruta y dispositivo">
+              <thead>
+                <tr>{COLUMNAS.map((h) => <FlitTh key={h}>{h}</FlitTh>)}</tr>
+              </thead>
+              <tbody className="text-sm">
+                {grupos.map((row, i) => (
+                  <FlitTr key={`${row.metric}-${row.route}-${row.device}-${i}`}>
+                    <td className="px-4 py-3 font-medium text-[color:var(--color-text-primary)]">{row.metric}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-[color:var(--color-text-secondary)]">{row.route}</td>
+                    <td className="px-4 py-3 text-[color:var(--color-text-primary)]">{row.device}</td>
+                    <td className="px-4 py-3 tabular-nums text-[color:var(--color-text-primary)]">{row.samples}</td>
+                    <td className="px-4 py-3">
+                      <StatusChip tone={p75Tone(row.metric, row.p75)}>
+                        {formatMetricValue(row.metric, row.p75)}
+                      </StatusChip>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-[color:var(--color-text-secondary)]">
+                      {formatMetricValue(row.metric, row.avg)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs text-[color:var(--color-text-tertiary)]">
+                      {row.first_at ? new Date(row.first_at).toLocaleString('es-CO') : '—'}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs text-[color:var(--color-text-tertiary)]">
+                      {row.last_at ? new Date(row.last_at).toLocaleString('es-CO') : '—'}
+                    </td>
+                  </FlitTr>
+                ))}
+              </tbody>
+            </FlitTable>
+          </section>
         </>
       )}
     </div>

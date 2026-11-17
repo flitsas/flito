@@ -109,6 +109,10 @@ async function mock(page: import('@playwright/test').Page, fuente: () => readonl
   });
 }
 
+/** UI Kit 2026: los filtros de la cola viven en el panel que abre «Filtros» (`PanelFiltros`). */
+const abrirFiltros = (page: import('@playwright/test').Page) =>
+  page.getByRole('button', { name: /^Filtros/ }).click();
+
 test.describe('FLITO — Impuestos', () => {
   test('operaciones lista, filtra y abre detalle', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
@@ -189,6 +193,7 @@ test.describe('FLITO — Impuestos', () => {
     await page.goto('/flito/impuestos');
     await expect(page.getByText('ABC123')).toBeVisible();
 
+    await abrirFiltros(page);
     await page.getByLabel('Gestiona').selectOption('operaciones');
     await expect(page.getByText('OPS001')).toBeVisible();
     await expect(page.getByText('ABC123')).toHaveCount(0);
@@ -258,7 +263,9 @@ test.describe('FLITO — Impuestos', () => {
     });
 
     await page.goto('/flito/impuestos');
+    await abrirFiltros(page);
     await page.getByLabel('Gestiona').selectOption('operaciones');
+    await page.getByRole('button', { name: 'Aplicar filtros' }).click();
     await page.getByRole('row').filter({ hasText: 'OPS001' }).getByRole('button', { name: 'Ver' }).click();
     const modal = page.getByRole('dialog');
     await modal.getByRole('button', { name: 'Devolver al gestor' }).click();
@@ -305,7 +312,10 @@ test.describe('FLITO — Impuestos', () => {
 
     await page.goto('/flito/impuestos');
     await expect(page.getByRole('button', { name: 'Gestionar en Operaciones' })).toHaveCount(0);
+    // Con el panel de filtros ABIERTO: cerrado, el select no existiría para nadie y el aserto no diría nada.
+    await abrirFiltros(page);
     await expect(page.getByLabel('Gestiona')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Aplicar filtros' }).click();
 
     await page.getByRole('button', { name: 'Ver' }).first().click();
     const modal = page.getByRole('dialog');
@@ -1044,6 +1054,7 @@ test.describe('FLITO — Impuestos · fases del recibo (HU #12592)', () => {
     await expect(page.getByText('ABC123')).toBeVisible();
     await expect(page.getByText(/^6 impuestos/).first()).toBeVisible();
 
+    await abrirFiltros(page);
     const casilla = page.getByRole('checkbox', { name: 'Liquidado, pendiente de pago' });
     await casilla.check();
     await expect(page.getByText('ABC123')).toHaveCount(0);
@@ -1516,7 +1527,9 @@ test.describe('FLITO — Impuestos · ficha de ayuda (HU #12592, AC7)', () => {
     // HU #12615 (AC5, TC-13): la ficha dice qué subir, las carpetas reales y la categoría nueva, y
     // ya no describe el proceso. *Mutante:* dejar el paso 6 anterior → cae por «5 en 5» y
     // «computador» presentes y «Fase no coincide» ausente.
-    expect(md).not.toMatch(/5 en 5|computador|comprimido|tanda/i);
+    // «(en computador)» es legítimo: lo trae el paso de **Certificar sin trámite** (vista previa de la factura,
+    // ya en develop), no el proceso viejo del paso 6. Se excluye esa frase y el resto de la prohibición sigue.
+    expect(md.replace(/\(en computador\)/g, '')).not.toMatch(/5 en 5|computador|comprimido|tanda/i);
     expect(md).toMatch(/\*\*150 archivos sueltos\*\*/);
     expect(md).toMatch(/\*\*300 dentro de un ZIP\*\*/);
     expect(md).toMatch(/\*\*liquidaciones_originales\*\* o \*\*sin marca\*\* es Liquidación/);
@@ -1525,11 +1538,15 @@ test.describe('FLITO — Impuestos · ficha de ayuda (HU #12592, AC7)', () => {
     expect(md).toMatch(/\*\*Sin asociar\*\* y \*\*Fase no coincide\*\*/);
     expect(md).toMatch(/\*\*Fase no coincide\*\* significa que el sello del documento contradice la fase elegida/);
     expect(md).toMatch(/\*\*no se guardaron\*\*; vuelva a subirlos/);
-    // Sigue en plantilla: 6 secciones, forma «usted», sin tabla ni captura ni endpoint.
+    // Sigue en plantilla: 6 secciones, forma «usted», sin tabla ni endpoint. Desde la HU #13707 las capturas con
+    // datos demo están permitidas: toda imagen es local a su carpeta y lleva alt.
     for (const h of ['Qué es', 'Para quién', 'Cómo se entra', 'Pasos', 'Estados', 'Qué no hace']) expect(md).toContain(`## ${h}`);
     expect(md).toMatch(/\busted\b/i);
     expect(md).not.toMatch(/\btú\b/);
-    expect(md).not.toMatch(/!\[[^\]]*\]\(/);
+    for (const [, alt, ruta] of md.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)) {
+      expect(alt.trim().length, ruta).toBeGreaterThan(0);
+      expect(ruta).toMatch(/^\.\/flito_impuestos\/[\w-]+\.(png|svg)$/);
+    }
     expect(md).not.toMatch(/\/api\//);
     expect(md).not.toMatch(/\|[-:]+\|/);
   });

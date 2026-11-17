@@ -1,4 +1,4 @@
-// FLITO — combobox de trámite del panel de asociación (HU #12634, UX slim §2 y wireframe).
+// FLITO — combobox de trámite del panel de asociación (HU 12634, UX slim §2 y wireframe).
 //
 // Un solo control: el `<input role="combobox">` escribe y elige. La lista va EN FLUJO (empuja
 // «Concepto» hacia abajo mientras está abierta; una lista flotante se recorta dentro de la columna
@@ -18,10 +18,15 @@ import {
   ADMISION_LABEL, BUSCAR_MAX, BUSCAR_MIN, buscarTramites, coincideCandidato, errorComprobante, type LlaveSugerido,
 } from '../../lib/comprobantes';
 import { useDebounce } from '../../lib/useDebounce';
+import { Girador } from '../flit/Cargador';
 import StatusChip from '../flit/StatusChip';
 import { flitInp } from '../flit/flitPageKit';
+import { Icono } from '../flit/kit/Icono';
 
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
+// Error del campo en naranja (UI Kit 2026, formularios); la ayuda en gris AA.
+const ERROR_CLS = 'flex items-start gap-1 text-xs text-[color:var(--kit-naranja-texto)]';
+const AYUDA_CLS = 'text-xs text-[color:var(--color-text-tertiary)]';
+const AvisoIcono = () => <img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />;
 
 export const COPY_SIN_FUNCION_BUSCAR = 'Tu usuario no puede buscar trámites: solo puedes elegir uno de los sugeridos. Pídele a un administrador la función “Buscar trámites para un comprobante”.';
 export const COPY_SIN_SUGERIDOS = 'Ningún trámite coincide con lo leído. Busca por ID FLIT, placa o VIN.';
@@ -137,26 +142,24 @@ export default function ComboboxTramite({ inputId, sugeridos, elegido, onElegir,
         />
         {elegido && (
           <button type="button" aria-label="Quitar trámite" onClick={quitar}
-            className="flit-focus absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-base leading-none"
-            style={{ color: 'var(--flit-text-muted)' }}>
-            ✕
+            className="flit-focus absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-[color:var(--color-text-tertiary)] transition-colors hover:bg-[var(--kit-hover)] hover:text-[color:var(--color-action)]">
+            <Icono nombre="cerrar" size={16} />
           </button>
         )}
       </div>
 
-      {sinFuncionAlEscribir && <p role="alert" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{COPY_SIN_FUNCION_BUSCAR}</p>}
-      {!elegido && busqueda.estado === 'buscando' && <p role="status" aria-live="polite" className="text-xs">Buscando…</p>}
-      {!elegido && busqueda.estado === 'error' && <p role="alert" className="text-xs" style={PELIGRO}>{busqueda.texto}</p>}
+      {sinFuncionAlEscribir && <p role="alert" className={AYUDA_CLS}>{COPY_SIN_FUNCION_BUSCAR}</p>}
+      {!elegido && busqueda.estado === 'buscando' && <p role="status" aria-live="polite" className={`flex items-center gap-1.5 ${AYUDA_CLS}`}><Girador />Buscando…</p>}
+      {!elegido && busqueda.estado === 'error' && <p role="alert" className={ERROR_CLS}><AvisoIcono />{busqueda.texto}</p>}
       {!elegido && busqueda.estado === 'lista' && opciones.length === 0 && (
-        <p role="status" aria-live="polite" className="text-xs">Ningún trámite coincide con «{busqueda.texto}».</p>
+        <p role="status" aria-live="polite" className={AYUDA_CLS}>Ningún trámite coincide con «{busqueda.texto}».</p>
       )}
       {!elegido && !sugeridos.length && !buscable && puedeBuscar && busqueda.estado === 'inactiva' && (
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{COPY_SIN_SUGERIDOS}</p>
+        <p className={AYUDA_CLS}>{COPY_SIN_SUGERIDOS}</p>
       )}
 
       {hayLista && (
-        <ul id={listboxId} role="listbox" aria-label="Trámites" className="max-h-52 overflow-auto rounded-lg border bg-flit-card py-1"
-          style={{ borderColor: 'var(--flit-border-input)' }}>
+        <ul id={listboxId} role="listbox" aria-label="Trámites" className="max-h-52 overflow-auto rounded-[9px] border border-[color:var(--color-border-control)] bg-[var(--color-surface-elevated)] py-1">
           {opciones.map((o, i) => {
             const c = o.candidato;
             const esActivo = i === activo;
@@ -164,13 +167,12 @@ export default function ComboboxTramite({ inputId, sugeridos, elegido, onElegir,
             return (
               <li key={c.tramiteId} id={idOpcion(i)} role="option" aria-selected={esActivo}
                 onMouseEnter={() => setActivo(i)} onMouseDown={(e) => { e.preventDefault(); elegir(c); }}
-                className="cursor-pointer border-b px-3 py-2 text-sm last:border-0"
-                style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-primary)', background: esActivo ? 'var(--flit-bg-app)' : undefined }}>
+                className={`cursor-pointer border-b border-[color:var(--color-border)] px-3 py-2 text-sm text-[color:var(--color-text-primary)] transition-colors last:border-0 ${esActivo ? 'bg-[var(--kit-hover)]' : ''}`}>
                 <span className="flex flex-wrap items-center gap-2">
                   {(o.llave || idsSugeridos.has(c.tramiteId)) && <StatusChip tone="active">{o.llave ? `Sugerido · por ${o.llave}` : 'Sugerido'}</StatusChip>}
                   <span className="font-medium">{c.idFlit}{c.placa ? ` · ${c.placa}` : ''}</span>
                 </span>
-                <span className="flex items-center justify-between gap-2 text-[10px]" style={{ color: 'var(--flit-text-secondary)' }}>
+                <span className="flex items-center justify-between gap-2 text-xs text-[color:var(--color-text-tertiary)]">
                   <span className="truncate">{[c.tipoTramite, c.empresa].filter(Boolean).join(' · ') || '—'}</span>
                   {concepto && admision && <span className="shrink-0">{CONCEPTO_COSTO_LABEL[concepto]}: {ADMISION_LABEL[admision]}</span>}
                 </span>

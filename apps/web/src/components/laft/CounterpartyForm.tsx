@@ -2,7 +2,8 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '../../lib/api';
 import { useEscape, useBackdropClose } from '../../lib/hooks';
-import { IconClose } from '../flit/icons';
+import { Icono } from '../flit/kit/Icono';
+import GradientButton from '../flit/GradientButton';
 import ModalPortal from '../flit/ModalPortal';
 
 const DOC_TYPES = [
@@ -61,9 +62,10 @@ function previewRisk(f: FormState): { level: string; tone: Semantic; review: str
   return { level: 'BAJO', tone: 'success', review: '24 meses' };
 }
 
-const TONE_COLOR: Record<Semantic, string> = { success: 'var(--flit-success)', warning: 'var(--flit-warning)', danger: 'var(--flit-danger)' };
-const TONE_BG: Record<Semantic, string> = { success: 'rgba(112,207,58,0.10)', warning: 'rgba(240,90,53,0.10)', danger: 'rgba(228,61,48,0.10)' };
-const TONE_BORDER: Record<Semantic, string> = { success: 'rgba(112,207,58,0.30)', warning: 'rgba(240,90,53,0.30)', danger: 'rgba(228,61,48,0.30)' };
+/** Vista previa del riesgo con la pieza `.kit-alerta` (sin `role`: cambia con cada factor y no debe interrumpir). */
+const TONO_ALERTA: Record<Semantic, 'ok' | 'warn' | 'danger'> = { success: 'ok', warning: 'warn', danger: 'danger' };
+const ICONO_ALERTA: Record<Semantic, string> = { success: '/kit/aviso-ok.svg', warning: '/kit/aviso-alerta.svg', danger: '/kit/aviso-error.svg' };
+const SECCION = 'mb-2 text-[0.8125rem] font-semibold text-text-primary';
 
 export default function CounterpartyForm({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [f, setF] = useState<FormState>(initial);
@@ -111,25 +113,25 @@ export default function CounterpartyForm({ onClose, onCreated }: { onClose: () =
 
   return (
     <ModalPortal>
-    <div className="flit-modal fixed inset-0 z-40 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }} {...useBackdropClose(onClose)}>
+    <div className="flit-modal kit-velo items-start justify-center p-3 sm:p-6" {...useBackdropClose(onClose)}>
       <form
         onClick={(e) => e.stopPropagation()}
         onSubmit={submit}
         role="dialog"
         aria-modal="true"
         aria-label="Nueva contraparte"
-        className="my-8 w-full max-w-3xl"
-        style={{ background: 'var(--flit-bg-modal)', borderRadius: 'var(--flit-radius-xl)', boxShadow: 'var(--flit-shadow-modal)', border: '1px solid var(--flit-border-soft)' }}
+        className="kit-modal my-auto max-w-3xl"
       >
-        <div className="flex items-center justify-between px-8 py-4" style={{ borderBottom: '1px solid var(--flit-border-soft)' }}>
-          <h2 className="text-lg font-bold tracking-tight" style={{ color: 'var(--flit-blue-text)' }}>Nueva contraparte</h2>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="flit-focus grid h-9 w-9 place-items-center rounded-lg transition-colors hover:bg-white" style={{ color: 'var(--flit-text-muted)' }}>
-            <IconClose className="h-5 w-5" />
+        <div className="kit-modal__cabeza">
+          <Icono nombre="persona" disco size={52} />
+          <h2 className="kit-modal__titulo">Nueva contraparte</h2>
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="kit-modal__cerrar">
+            <Icono nombre="cerrar" size={20} />
           </button>
         </div>
 
-        <div className="max-h-[70vh] space-y-4 overflow-y-auto px-8 py-5">
-          <div className="grid grid-cols-3 gap-3">
+        <div className="kit-modal__cuerpo space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Tipo">
               <select value={f.kind} onChange={(e) => set('kind', e.target.value as 'PN' | 'PJ')} className={inputCls}>
                 <option value="PN">Persona Natural</option>
@@ -150,11 +152,11 @@ export default function CounterpartyForm({ onClose, onCreated }: { onClose: () =
             <input value={f.fullName} onChange={(e) => set('fullName', e.target.value)} required minLength={2} maxLength={200} className={inputCls} />
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Email"><input type="email" value={f.email} onChange={(e) => set('email', e.target.value)} maxLength={150} className={inputCls} /></Field>
             <Field label="Teléfono"><input value={f.phone} onChange={(e) => set('phone', e.target.value)} maxLength={20} className={inputCls} /></Field>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Ciudad"><input value={f.city} onChange={(e) => set('city', e.target.value)} maxLength={100} className={inputCls} /></Field>
             <Field label="País"><input value={f.country} onChange={(e) => set('country', e.target.value)} maxLength={80} className={inputCls} /></Field>
             <Field label="CIIU"><input value={f.ciiu} onChange={(e) => set('ciiu', e.target.value)} maxLength={10} placeholder="6202" className={inputCls} /></Field>
@@ -176,13 +178,13 @@ export default function CounterpartyForm({ onClose, onCreated }: { onClose: () =
             />
           </Field>
 
-          <div className="rounded-[12px] p-4" style={{ background: TONE_BG.warning, border: `1px solid ${TONE_BORDER.warning}` }}>
-            <label className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--flit-warning)' }}>
-              <input type="checkbox" checked={f.isPep} onChange={(e) => set('isPep', e.target.checked)} style={{ accentColor: 'var(--flit-warning)' }} />
+          <div className="rounded-[9px] border border-[color:var(--kit-naranja)] p-4">
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-[color:var(--kit-naranja-texto)]">
+              <input type="checkbox" checked={f.isPep} onChange={(e) => set('isPep', e.target.checked)} className="h-4 w-4 accent-[var(--kit-naranja)]" />
               Persona Expuesta Políticamente (PEP)
             </label>
             {f.isPep && (
-              <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Cargo público">
                   <input value={f.pepRole} onChange={(e) => set('pepRole', e.target.value)} maxLength={200} className={inputCls} />
                 </Field>
@@ -200,60 +202,57 @@ export default function CounterpartyForm({ onClose, onCreated }: { onClose: () =
           </div>
 
           <div>
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Matriz de riesgo</p>
-            <div className="grid grid-cols-2 gap-3">
+            <p className={SECCION}>Matriz de riesgo</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <FactorSel label="Contraparte" value={f.factorCounterparty} onChange={(v) => set('factorCounterparty', v)} />
               <FactorSel label="Producto/servicio" value={f.factorProduct} onChange={(v) => set('factorProduct', v)} />
               <FactorSel label="Canal" value={f.factorChannel} onChange={(v) => set('factorChannel', v)} />
               <FactorSel label="Jurisdicción" value={f.factorJurisdiction} onChange={(v) => set('factorJurisdiction', v)} />
             </div>
-            <div className="mt-4 rounded-[12px] p-4" style={{ background: TONE_BG[risk.tone], border: `1px solid ${TONE_BORDER[risk.tone]}` }}>
-              <p className="text-sm font-semibold" style={{ color: TONE_COLOR[risk.tone] }}>Riesgo {risk.level}</p>
-              <p className="mt-0.5 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Próxima revisión obligatoria en {risk.review}</p>
+            <div className="kit-alerta mt-4" data-tono={TONO_ALERTA[risk.tone]} data-kit="alerta">
+              <img src={ICONO_ALERTA[risk.tone]} alt="" aria-hidden="true" className="kit-alerta__icono" />
+              <div className="min-w-0 flex-1 text-sm">
+                <p className="m-0 font-semibold">Riesgo {risk.level}</p>
+                <p className="mt-0.5 text-xs text-text-secondary">Próxima revisión obligatoria en {risk.review}</p>
+              </div>
             </div>
           </div>
 
           {f.kind === 'PJ' && (
             <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Beneficiarios finales (5% o más)</p>
-                <button
-                  type="button"
-                  onClick={addBO}
-                  className="flit-focus inline-flex h-7 items-center rounded-[999px] px-2.5 text-xs font-semibold"
-                  style={{ background: 'rgba(79,116,201,0.14)', color: 'var(--flit-blue)' }}
-                >
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="m-0 text-[0.8125rem] font-semibold text-text-primary">Beneficiarios finales (5% o más)</p>
+                <GradientButton type="button" variant="secondary" size="sm" onClick={addBO}>
                   Agregar
-                </button>
+                </GradientButton>
               </div>
               {f.beneficialOwners.length === 0 && (
-                <p className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Agregue al menos uno</p>
+                <p className="text-xs italic text-text-tertiary">Agregue al menos uno</p>
               )}
               {f.beneficialOwners.map((bo, i) => (
-                <div key={i} className="mb-2 grid grid-cols-12 items-center gap-2">
-                  <div className="col-span-2">
+                <div key={i} className="mb-3 grid grid-cols-2 items-center gap-2 sm:grid-cols-12">
+                  <div className="col-span-1 sm:col-span-2">
                     <select value={bo.docType} onChange={(e) => updateBO(i, { docType: e.target.value })} className={inputCls}>
                       {DOC_TYPES.filter((d) => d.v !== 'NIT').map((d) => <option key={d.v} value={d.v}>{d.v}</option>)}
                     </select>
                   </div>
-                  <div className="col-span-3">
+                  <div className="col-span-1 sm:col-span-3">
                     <input placeholder="Documento" value={bo.docNumber} onChange={(e) => updateBO(i, { docNumber: e.target.value })} className={inputCls} />
                   </div>
-                  <div className="col-span-5">
+                  <div className="col-span-2 sm:col-span-5">
                     <input placeholder="Nombre" value={bo.fullName} onChange={(e) => updateBO(i, { fullName: e.target.value })} className={inputCls} />
                   </div>
-                  <div className="col-span-1">
+                  <div className="col-span-1 sm:col-span-1">
                     <input type="number" min={5} max={100} value={bo.ownershipPct} onChange={(e) => updateBO(i, { ownershipPct: Number(e.target.value) })} className={inputCls} />
                   </div>
-                  <div className="col-span-1">
+                  <div className="col-span-1 sm:col-span-1">
                     <button
                       type="button"
                       onClick={() => removeBO(i)}
-                      className="flit-focus grid h-9 w-9 place-items-center rounded-lg transition-colors hover:bg-white"
-                      style={{ color: 'var(--flit-danger)' }}
+                      className="flit-focus grid h-10 w-10 place-items-center rounded-full text-[color:var(--kit-naranja-texto)] transition-colors hover:bg-[var(--kit-hover)]"
                       aria-label="Eliminar beneficiario"
                     >
-                      <IconClose className="h-4 w-4" />
+                      <Icono nombre="papelera" size={18} />
                     </button>
                   </div>
                 </div>
@@ -262,36 +261,26 @@ export default function CounterpartyForm({ onClose, onCreated }: { onClose: () =
           )}
         </div>
 
-        <div className="flex justify-end gap-2 px-8 py-4" style={{ borderTop: '1px solid var(--flit-border-soft)' }}>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-4 text-sm font-medium"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
-          >
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="flit-focus inline-flex h-11 items-center justify-center rounded-[999px] px-6 text-sm font-semibold text-white transition-transform motion-safe:active:scale-[0.99] disabled:opacity-55"
-            style={{ background: 'var(--flit-gradient-primary)', boxShadow: 'var(--flit-shadow-button)' }}
-          >
-            {submitting ? 'Guardando...' : 'Registrar contraparte'}
-          </button>
-        </div>
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <GradientButton type="button" variant="alerta" onClick={onClose}>
+              Cancelar
+            </GradientButton>
+            <GradientButton type="submit" disabled={submitting}>
+              {submitting ? 'Guardando...' : 'Registrar contraparte'}
+            </GradientButton>
+          </div>
       </form>
     </div>
     </ModalPortal>
   );
 }
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
+const inputCls = 'control';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{label}</span>
+    <label className="campo">
+      <span className="etiqueta">{label}</span>
       {children}
     </label>
   );

@@ -35,11 +35,11 @@ export default function ZonaCargaExcel({ tipo, archivo, errorArchivo, subiendo, 
         />
       </div>
       {aviso && (
-        <p id="masivo-aviso-archivo" role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{aviso}</p>
+        <p id="masivo-aviso-archivo" role="alert" className="text-sm font-semibold text-[color:var(--kit-rojo-texto)]">{aviso}</p>
       )}
       {subiendo && <AvisoProcesando texto={COPY_COMUN.recibiendo} />}
       <div className="flex flex-wrap items-center justify-end gap-3">
-        {razon && !subiendo && <p id="masivo-razon" className="min-w-0 flex-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{razon}</p>}
+        {razon && !subiendo && <p id="masivo-razon" className="min-w-0 flex-1 text-xs text-[color:var(--color-text-secondary)]">{razon}</p>}
         {errorSubida?.accion === 'reintentar' && !subiendo && (
           <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={onCargar}>
             Reintentar

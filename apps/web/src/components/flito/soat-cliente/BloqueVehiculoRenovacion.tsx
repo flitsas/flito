@@ -6,7 +6,7 @@
 // esqueleto) lo pinta la página debajo, como en el VIN.
 
 import type { ReactNode, RefObject } from 'react';
-import { Info } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import { normalizarPlaca } from '../../../lib/mensajesTipoSoat';
 import { Campo } from './bloques';
 
@@ -42,7 +42,7 @@ export default function BloqueVehiculoRenovacion({
         onCambio={onDocumento} onBlur={onBlurDocumento} error={errorDocumento}
         ayuda={(
           <span className="flex items-start gap-1.5">
-            <Info size={14} aria-hidden="true" className="mt-px shrink-0" />
+            <Icono nombre="exclamacion" size={14} className="mt-px shrink-0" />
             Sin tipo de documento: el RUNT valida el número contra la placa.
           </span>
         )}

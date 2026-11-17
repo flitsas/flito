@@ -29,7 +29,7 @@ export default function FiltrosGastosDiarios({
     <FlitCard className="!p-3">
       <div className="flex flex-wrap items-start gap-3">
         <div className="flex items-center gap-2">
-          <label htmlFor="gastos-empresa" className="text-xs font-semibold" style={{ color: 'var(--flit-text-muted)' }}>Empresa</label>
+          <label htmlFor="gastos-empresa" className="text-xs font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>Empresa</label>
           <select id="gastos-empresa" className={flitInp} style={ALTO_CONTROL} value={filtros.empresas}
             onChange={(e) => onEmpresa(e.target.value)}>
             <option value="">{empresasCargando ? 'Cargando empresas…' : 'Todas las empresas'}</option>
@@ -40,7 +40,7 @@ export default function FiltrosGastosDiarios({
           <RangoFechas etiqueta="Periodo" valor={rangoVisible} onCambio={onRango}
             describedBy={errorRango ? ID_ERROR_RANGO : undefined} />
           {errorRango && (
-            <p id={ID_ERROR_RANGO} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger)' }}>{errorRango}</p>
+            <p id={ID_ERROR_RANGO} role="alert" className="mt-1 text-xs" style={{ color: 'var(--kit-rojo)' }}>{errorRango}</p>
           )}
         </div>
         <button type="button" className={`${flitBtnSecondary} ml-auto`} style={flitBtnSecondaryStyle}
@@ -51,7 +51,7 @@ export default function FiltrosGastosDiarios({
       {/* `role="group"` con nombre: el grupo de pills del kit solo sabe ser `tablist`, y aquí son
           conmutadores (`aria-pressed`), no pestañas. */}
       <div role="group" aria-labelledby="gastos-tipo-rotulo" className="mt-3 flex flex-wrap items-center gap-2">
-        <span id="gastos-tipo-rotulo" className="text-xs font-semibold" style={{ color: 'var(--flit-text-muted)' }}>Tipo de gasto</span>
+        <span id="gastos-tipo-rotulo" className="text-xs font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>Tipo de gasto</span>
         <FlitPillGroup>
           {CATEGORIAS.map((c) => {
             const marcada = filtros.tipos.includes(c.clave);

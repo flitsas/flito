@@ -16,12 +16,10 @@ import {
 } from '../../lib/bolsas';
 import FlitModal from '../flit/FlitModal';
 import { toastOk } from '../flit/ToastFlito';
-import {
-  FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitInp,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr, flitInp } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
 
-const ENLACE = 'flit-focus rounded-sm font-semibold underline transition-colors hover:text-[color:var(--flit-blue-ink)]';
+const ENLACE = 'flit-focus rounded-sm font-semibold underline transition-colors hover:text-[color:var(--color-action)]';
 
 /** Meses que ofrece «Cerrar un mes»: los 12 anteriores al actual (el mes en curso no se cierra). */
 const MESES_CERRABLES = 12;
@@ -47,7 +45,7 @@ function FilasEsqueleto({ filas, etiqueta }: { filas: number; etiqueta: string }
   return (
     <div role="status" aria-label={etiqueta} className="space-y-2">
       {Array.from({ length: filas }, (_, i) => (
-        <div key={i} className="h-8 rounded" style={{ background: 'var(--flit-bg-app)' }} />
+        <div key={i} className="h-8 rounded" style={{ background: 'var(--color-surface)' }} />
       ))}
     </div>
   );
@@ -56,10 +54,10 @@ function FilasEsqueleto({ filas, etiqueta }: { filas: number; etiqueta: string }
 function ErrorSeccion({ texto, onReintentar }: { texto: string; onReintentar: () => void }) {
   return (
     <div>
-      <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{texto}</p>
-      <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={onReintentar}>
+      <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{texto}</p>
+      <GradientButton variant="secondary" type="button" className="mt-3" onClick={onReintentar}>
         Reintentar
-      </button>
+      </GradientButton>
     </div>
   );
 }
@@ -89,10 +87,10 @@ export function MovimientosTransito({ bolsaId, nonce, siguientePaso }: {
 
   return (
     <FlitCard>
-      <h3 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+      <h3 className="text-sm font-bold" style={{ color: 'var(--color-action)' }}>
         Movimientos{movs ? ` (${movs.length})` : ''}
       </h3>
-      <p className="mb-3 mt-1 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+      <p className="mb-3 mt-1 text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
         Nada se edita ni se borra: una corrección es un movimiento nuevo.
       </p>
       {error ? (
@@ -127,31 +125,31 @@ export function MovimientosTransito({ bolsaId, nonce, siguientePaso }: {
               <FlitTr key={m.id}>
                 <td className="whitespace-nowrap px-4 py-2 text-sm">
                   <div>{fechaDia(m.fecha)}</div>
-                  <div className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{fechaHora(m.createdAt)}</div>
+                  <div className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>{fechaHora(m.createdAt)}</div>
                 </td>
                 <td className="px-4 py-2 text-sm">{tipoMovimiento(m)}</td>
                 <td className="px-4 py-2 text-sm">{m.organismoCodigo ? nombreSecretaria(m.organismoCodigo) : '—'}</td>
                 <td className="px-4 py-2 text-sm tabular-nums">
                   {m.tramiteId
-                    ? <a className={ENLACE} style={{ color: 'var(--flit-blue-text)' }}
+                    ? <a className={ENLACE} style={{ color: 'var(--color-action)' }}
                         href={`/flito/tramites/${m.tramiteId}`}>{m.idFlit ?? 'Ver trámite'}</a>
                     : '—'}
                 </td>
                 <td className="whitespace-nowrap px-4 py-2 text-right text-sm font-semibold tabular-nums"
-                  style={{ color: m.tipo === 'entrada' ? 'var(--flit-success-text)' : 'var(--flit-text-primary)' }}>
+                  style={{ color: m.tipo === 'entrada' ? 'var(--kit-verde-texto)' : 'var(--color-text-primary)' }}>
                   {m.tipo === 'entrada' ? '+' : '−'} {pesos(m.valor)}
                 </td>
                 <td className="whitespace-nowrap px-4 py-2 text-right text-sm tabular-nums">{saldoConSigno(m.saldoResultante)}</td>
                 <td className="px-4 py-2 text-xs">{m.registradoPorNombre}</td>
                 <td className="px-4 py-2 text-center">
                   {m.soporteId ? (
-                    <button type="button" className={`${ENLACE} text-xs`} style={{ color: 'var(--flit-blue-text)' }}
+                    <button type="button" className={`${ENLACE} text-xs`} style={{ color: 'var(--color-action)' }}
                       aria-label={`Abrir el soporte del movimiento del ${fechaDia(m.fecha)}`}
                       onClick={() => abrirSoporteBolsa(m.soporteId!)}>
                       Ver soporte
                     </button>
                   ) : (
-                    <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Sin soporte</span>
+                    <span className="text-xs italic" style={{ color: 'var(--color-text-tertiary)' }}>Sin soporte</span>
                   )}
                 </td>
               </FlitTr>
@@ -197,11 +195,11 @@ export function CierresTransito({ bolsaId, nombre, nonce, puedeCerrar }: {
   return (
     <FlitCard>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Cierres del mes</h3>
+        <h3 className="text-sm font-bold" style={{ color: 'var(--color-action)' }}>Cierres del mes</h3>
         {puedeCerrar && (
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setCerrando(true)}>
+          <GradientButton variant="secondary" type="button" onClick={() => setCerrando(true)}>
             Cerrar un mes
-          </button>
+          </GradientButton>
         )}
       </div>
       <div className="mt-3">
@@ -243,7 +241,7 @@ export function CierresTransito({ bolsaId, nombre, nonce, puedeCerrar }: {
                   <td className="px-4 py-2 text-right text-sm tabular-nums">{c.movimientos}</td>
                   <td className="px-4 py-2 text-xs">
                     <div>{c.cerradoPorNombre}</div>
-                    <div style={{ color: 'var(--flit-text-muted)' }}>{fechaHora(c.cerradoEn)}</div>
+                    <div style={{ color: 'var(--color-text-tertiary)' }}>{fechaHora(c.cerradoEn)}</div>
                   </td>
                 </FlitTr>
               ))}
@@ -311,13 +309,13 @@ function ModalCerrarMes({ bolsaId, nombre, cerrados, onClose, onHecho, onYaCerra
     <FlitModal title={`Cerrar un mes de ${nombre}`} onClose={onClose} cierreBloqueado={enviando}>
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void confirmar(); }}>
         {opciones.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Los últimos {MESES_CERRABLES} meses ya están cerrados.
           </p>
         ) : (
           <>
             <div>
-              <label htmlFor={idMes} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+              <label htmlFor={idMes} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                 Mes *
               </label>
               <select id={idMes} className={flitInp} value={elegido}
@@ -325,20 +323,20 @@ function ModalCerrarMes({ bolsaId, nombre, cerrados, onClose, onHecho, onYaCerra
                 {opciones.map((p) => <option key={p} value={p}>{mayuscula(etiquetaPeriodo(p))}</option>)}
               </select>
             </div>
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               Se guardan el saldo inicial, las entradas, las salidas y el saldo final de {etiqueta} tal como están hoy.
             </p>
           </>
         )}
-        {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>}
+        {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
         <div className="flex flex-wrap justify-end gap-2">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose} disabled={enviando}>
+          <GradientButton variant="alerta" type="button" onClick={onClose} disabled={enviando}>
             Cancelar
-          </button>
+          </GradientButton>
           {opciones.length > 0 && (
-            <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando}>
+            <GradientButton type="submit" disabled={enviando}>
               {enviando ? 'Cerrando…' : `Cerrar ${etiqueta}`}
-            </button>
+            </GradientButton>
           )}
         </div>
       </form>

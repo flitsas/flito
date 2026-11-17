@@ -5,10 +5,18 @@ import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
-import StatusChip from '../components/flit/StatusChip';
-import { flitInp, FlitTh, FlitTr, FlitTable, FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { EtiquetaEstado } from '../components/flit/Bloques';
+import { flitInp, FlitField } from '../components/flit/flitPageKit';
 
 interface Routine { id: number; codigo: string; nombre: string; descripcion: string | null; activo: boolean; }
+
+const COLUMNAS: ColumnaTabla<Routine>[] = [
+  { key: 'codigo', header: 'Código', etiqueta: 'Código', render: (r) => <span className="font-mono text-xs text-[color:var(--color-text-secondary)]">{r.codigo}</span> },
+  { key: 'nombre', header: 'Nombre', etiqueta: 'Nombre', render: (r) => <span className="font-medium text-[color:var(--color-text-primary)]">{r.nombre}</span> },
+  { key: 'descripcion', header: 'Descripción', etiqueta: 'Descripción', render: (r) => <span className="text-xs text-[color:var(--color-text-secondary)]">{r.descripcion || '—'}</span> },
+  { key: 'estado', header: 'Estado', etiqueta: 'Estado', render: (r) => <EtiquetaEstado estado={r.activo ? 'activo' : 'inactivo'}>{r.activo ? 'Activa' : 'Inactiva'}</EtiquetaEstado> },
+];
 
 export default function Routines() {
   const { hasFuncion } = useAuth();
@@ -27,29 +35,18 @@ export default function Routines() {
       <PageHeaderCard
         title="Rutinas de mantenimiento"
         subtitle="Plantillas de trabajos+repuestos con periodicidad por km/horas/días"
+        icono="flito-mantenimiento"
+        miga={[{ etiqueta: 'Mantenimiento', to: '/maintenance' }]}
         actions={isAdmin ? <GradientButton type="button" onClick={() => setShowCreate(true)}>Nueva rutina</GradientButton> : undefined}
       />
 
-      <FlitTable>
-        <table className="w-full text-sm">
-          <thead><tr>
-            <FlitTh>Código</FlitTh><FlitTh>Nombre</FlitTh><FlitTh>Descripción</FlitTh><FlitTh>Estado</FlitTh>
-          </tr></thead>
-          <tbody>
-            {items.length === 0 && <tr><td colSpan={4} className="py-8 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin rutinas registradas</td></tr>}
-            {items.map((r) => (
-              <FlitTr key={r.id}>
-                <td className="px-4 py-2.5 font-mono text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.codigo}</td>
-                <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--flit-text-primary)' }}>{r.nombre}</td>
-                <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.descripcion || '—'}</td>
-                <td className="px-4 py-2.5">
-                  <StatusChip tone={r.activo ? 'success' : 'neutral'}>{r.activo ? 'Activa' : 'Inactiva'}</StatusChip>
-                </td>
-              </FlitTr>
-            ))}
-          </tbody>
-        </table>
-      </FlitTable>
+      <DataTable
+        ariaLabel="Rutinas de mantenimiento"
+        columnas={COLUMNAS}
+        filas={items}
+        getKey={(r) => String(r.id)}
+        emptyMessage="Sin rutinas registradas"
+      />
 
       {showCreate && <RoutineForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
     </div>
@@ -79,14 +76,14 @@ function RoutineForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
   };
 
   return (
-    <FlitModal title="Nueva rutina" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3 px-6 pb-6">
+    <FlitModal title="Nueva rutina" onClose={onClose} icono="mas">
+      <form onSubmit={submit} className="space-y-3">
         <FlitField label="Código *"><input value={codigo} onChange={(e) => setCodigo(e.target.value)} maxLength={20} className={flitInp} /></FlitField>
         <FlitField label="Nombre *"><input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={150} className={flitInp} /></FlitField>
         <FlitField label="Descripción"><textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} maxLength={500} rows={3} className={flitInp} /></FlitField>
-        <div className="flex justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <button type="button" onClick={onClose} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Cancelar</button>
-          <button type="submit" disabled={submitting} className={flitBtnPrimary} style={flitBtnPrimaryStyle}>{submitting ? 'Guardando…' : 'Crear'}</button>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] pt-4">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton type="submit" disabled={submitting}>{submitting ? 'Guardando…' : 'Crear'}</GradientButton>
         </div>
       </form>
     </FlitModal>

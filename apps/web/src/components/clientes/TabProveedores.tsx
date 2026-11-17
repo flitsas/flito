@@ -26,10 +26,11 @@ import { api, ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import FlitModal from '../flit/FlitModal';
 import StatusChip from '../flit/StatusChip';
-import {
-  FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitPillGroup, FlitPillButton,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
+import FiltroSegmentado from '../flit/FiltroSegmentado';
+import DataTable, { type ColumnaTabla } from '../flit/DataTable';
+import { EstadoVista, type EstadoUi } from '../flit/Cargador';
+import { FlitCard } from '../flit/flitPageKit';
 import {
   FiltroEstadoPills, ChipEstado, PieConteo, VacioFiltro, filtrarPorEstado, type FiltroEstado,
 } from './EstadoRegistro';
@@ -44,18 +45,17 @@ import {
 type Fila = ProveedorListaItemDto;
 type CambioEstado = { p: Fila; accion: 'desactivar' | 'activar'; impacto?: ImpactoProveedorDto };
 type FiltroServicio = 'todos' | ServicioProveedor;
-const SERVICIOS: { valor: FiltroServicio; texto: string }[] = [
-  { valor: 'todos', texto: 'Todos' },
-  { valor: 'soat', texto: SERVICIO_PROVEEDOR_LABEL.soat },
-  { valor: 'logistica', texto: SERVICIO_PROVEEDOR_LABEL.logistica },
+const SERVICIOS: { valor: FiltroServicio; etiqueta: string }[] = [
+  { valor: 'todos', etiqueta: 'Todos' },
+  { valor: 'soat', etiqueta: SERVICIO_PROVEEDOR_LABEL.soat },
+  { valor: 'logistica', etiqueta: SERVICIO_PROVEEDOR_LABEL.logistica },
 ];
 
 // Inactivar siempre invalida las sesiones de sus usuarios (ADR-0039 §4.2): una sola frase para todos los servicios.
 const CONSECUENCIA_DESACTIVAR = 'Mientras esté inactivo, sus usuarios no podrán ingresar a FLITO y no aparecerá entre los proveedores a elegir.';
 const CONSECUENCIA_ACTIVAR = 'Sus usuarios vuelven a ingresar a FLITO y vuelve a aparecer entre los proveedores a elegir.';
 
-const celda = 'px-3 py-2 text-sm tabular-nums';
-const colorCelda = { color: 'var(--flit-text-secondary)' };
+const celda = 'text-sm tabular-nums text-[color:var(--color-text-secondary)]';
 
 export default function TabProveedores({ editaEstado }: { editaEstado: boolean }) {
   const { hasFuncion } = useAuth();
@@ -125,91 +125,77 @@ export default function TabProveedores({ editaEstado }: { editaEstado: boolean }
     { frase: fraseImpacto(i), usuariosAfectados: i.sesionesAfectadas }
   );
 
+  const estadoVista: EstadoUi = errorCarga ? 'error' : data === null ? 'loading' : data.length === 0 ? 'empty' : 'ready';
+  const columnas: ColumnaTabla<Fila>[] = [
+    {
+      key: 'nombre', header: 'Nombre',
+      render: (p) => (
+        <span className="font-semibold text-[color:var(--color-text-primary)]">
+          {p.nombre}
+          {!p.datosCompletos && <div className="text-xs font-normal text-[color:var(--color-text-tertiary)]">Datos por completar</div>}
+        </span>
+      ),
+    },
+    {
+      key: 'servicios', header: 'Servicios',
+      render: (p) => (
+        <span className="flex flex-wrap gap-1">
+          {serviciosEnOrden(p.servicios).map((s) => <span key={s} className="whitespace-nowrap"><StatusChip tone="neutral">{SERVICIO_PROVEEDOR_LABEL[s]}</StatusChip></span>)}
+        </span>
+      ),
+    },
+    { key: 'nit', header: 'NIT', render: (p) => <span className={`${celda} whitespace-nowrap`}>{p.nit ?? '—'}</span> },
+    { key: 'companias', header: 'Compañías asignadas', render: (p) => <span className={celda}>{textoCompanias(p)}</span> },
+    ...(conSoat ? [
+      { key: 'umbral', header: 'Umbral OCR', render: (p: Fila) => <span className={celda}>{textoUmbral(p.umbralOcr)}</span> },
+      { key: 'ans', header: 'ANS pactado', render: (p: Fila) => <span className={celda}>{p.slaHoras != null ? `${p.slaHoras} h` : '—'}</span> },
+    ] : []),
+    { key: 'estado', header: 'Estado', render: (p) => <ChipEstado activo={p.activo} /> },
+    {
+      key: 'acciones', header: '', etiqueta: 'Acciones', acciones: true,
+      render: (p) => {
+        const opciones = opcionesFila(p);
+        return (
+          <div className="flex items-center gap-2 whitespace-nowrap">
+            <GradientButton type="button" variant="secondary" size="sm"
+              aria-label={`Ver detalle de ${p.nombre}`} onClick={() => setVer(p)}>Ver detalle</GradientButton>
+            {puedeEditar && (
+              <GradientButton type="button" variant="secondary" size="sm"
+                aria-label={`Editar ${p.nombre}`} onClick={() => setEditar(p)}>Editar</GradientButton>
+            )}
+            {opciones.length > 0 && (
+              <MenuFila etiqueta={`Acciones de ${p.nombre}`} opciones={opciones} onAbrir={() => eliminar.comprobar(p)} />
+            )}
+          </div>
+        );
+      },
+    },
+  ];
+
   return (
     <>
       {puedeCrear && (
-        <div><button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCrear(true)}>Nuevo proveedor</button></div>
+        <div><GradientButton type="button" onClick={() => setCrear(true)}>Nuevo proveedor</GradientButton></div>
       )}
       <FlitCard>
-        {errorCarga ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>No pudimos cargar los proveedores.</p>
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={load}>Reintentar</button>
-          </div>
-        ) : data === null ? (
-          <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando proveedores…</p>
-        ) : data.length === 0 ? (
+        <EstadoVista
+          status={estadoVista}
+          cargando="Cargando proveedores…"
+          errorMessage="No pudimos cargar los proveedores."
+          onRetry={load}
           // Vacío total: filtro y pie ocultos (filtrar una lista vacía no ayuda).
-          <FlitEmpty>
-            {puedeCrear ? 'No hay proveedores. Cree el primero con «Nuevo proveedor».' : 'No hay proveedores. Pida a un administrador que los registre.'}
-          </FlitEmpty>
-        ) : (<>
-          <div className="mb-3 flex flex-wrap items-end gap-x-6 gap-y-3" ref={refFiltro}>
+          emptyMessage={puedeCrear ? 'No hay proveedores. Cree el primero con «Nuevo proveedor».' : 'No hay proveedores. Pida a un administrador que los registre.'}
+        >
+          <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-3" ref={refFiltro}>
             <FiltroEstadoPills valor={filtroEstado} onCambio={setFiltroEstado} />
-            <div role="group" aria-label="Servicio" className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Servicio</span>
-              <FlitPillGroup>
-                {SERVICIOS.map((t) => (
-                  <FlitPillButton key={t.valor} active={filtroServicio === t.valor} pressed={filtroServicio === t.valor} onClick={() => setFiltroServicio(t.valor)}>{t.texto}</FlitPillButton>
-                ))}
-              </FlitPillGroup>
-            </div>
+            <FiltroSegmentado opciones={SERVICIOS} valor={filtroServicio} onCambio={setFiltroServicio} ariaLabel="Servicio" rotulo="Servicio" />
           </div>
-          {visibles.length === 0 ? <VacioFiltro onVerTodos={() => { setFiltroEstado('todos'); setFiltroServicio('todos'); }} /> : (
-            <FlitTable>
-              <thead>
-                <FlitTr>
-                  <FlitTh>Nombre</FlitTh>
-                  <FlitTh>Servicios</FlitTh>
-                  <FlitTh>NIT</FlitTh>
-                  <FlitTh>Compañías asignadas</FlitTh>
-                  {conSoat && <FlitTh>Umbral OCR</FlitTh>}
-                  {conSoat && <FlitTh>ANS pactado</FlitTh>}
-                  <FlitTh>Estado</FlitTh>
-                  <FlitTh />
-                </FlitTr>
-              </thead>
-              <tbody>
-                {visibles.map((p) => {
-                  const opciones = opcionesFila(p);
-                  return (
-                    <FlitTr key={p.id}>
-                      <td className="px-3 py-2 font-medium" style={{ color: 'var(--flit-text-primary)' }}>
-                        {p.nombre}
-                        {!p.datosCompletos && <div className="text-xs font-normal" style={{ color: 'var(--flit-text-muted)' }}>Datos por completar</div>}
-                      </td>
-                      <td className="px-3 py-2">
-                        <span className="flex flex-wrap gap-1">
-                          {serviciosEnOrden(p.servicios).map((s) => <span key={s} className="whitespace-nowrap"><StatusChip tone="neutral">{SERVICIO_PROVEEDOR_LABEL[s]}</StatusChip></span>)}
-                        </span>
-                      </td>
-                      <td className={`${celda} whitespace-nowrap`} style={colorCelda}>{p.nit ?? '—'}</td>
-                      <td className={celda} style={colorCelda}>{textoCompanias(p)}</td>
-                      {conSoat && <td className={celda} style={colorCelda}>{textoUmbral(p.umbralOcr)}</td>}
-                      {conSoat && <td className={celda} style={colorCelda}>{p.slaHoras != null ? `${p.slaHoras} h` : '—'}</td>}
-                      <td className="px-3 py-2"><ChipEstado activo={p.activo} /></td>
-                      <td className="px-3 py-2">
-                        <div className="flex gap-2 whitespace-nowrap">
-                          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                            aria-label={`Ver detalle de ${p.nombre}`} onClick={() => setVer(p)}>Ver detalle</button>
-                          {puedeEditar && (
-                            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                              aria-label={`Editar ${p.nombre}`} onClick={() => setEditar(p)}>Editar</button>
-                          )}
-                          {opciones.length > 0 && (
-                            <MenuFila etiqueta={`Acciones de ${p.nombre}`} opciones={opciones} onAbrir={() => eliminar.comprobar(p)} />
-                          )}
-                        </div>
-                      </td>
-                    </FlitTr>
-                  );
-                })}
-              </tbody>
-            </FlitTable>
-          )}
-          <PieConteo visibles={visibles.length} total={data.length} />
-        </>)}
-        <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          {visibles.length === 0
+            ? <VacioFiltro onVerTodos={() => { setFiltroEstado('todos'); setFiltroServicio('todos'); }} />
+            : <DataTable ariaLabel="Proveedores" columnas={columnas} filas={visibles} getKey={(p) => String(p.id)} />}
+          <PieConteo visibles={visibles.length} total={data?.length ?? 0} />
+        </EstadoVista>
+        <p className="mt-2 text-xs text-[color:var(--color-text-tertiary)]">
           El ANS de gestión es único para toda la operación: un día desde que se envía la solicitud.
           Estas horas quedan como referencia de lo pactado con cada proveedor, pero ya no deciden
           cuándo un SOAT se marca sin gestión en la cola. El proveedor se elige al enviarlo al gestor.
@@ -260,13 +246,13 @@ export default function TabProveedores({ editaEstado }: { editaEstado: boolean }
       )}
 
       {bloqueo && (
-        <FlitModal title="No se puede inactivar" onClose={() => setBloqueo(null)} restoreFocusRef={refRespaldoFoco}>
+        <FlitModal title="No se puede inactivar" icono="alerta" onClose={() => setBloqueo(null)} restoreFocusRef={refRespaldoFoco}>
           <div className="space-y-4">
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            <p role="alert" className="text-sm text-[color:var(--color-text-primary)]">
               {bloqueo}
             </p>
             <div className="flex justify-end">
-              <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setBloqueo(null)}>Entendido</button>
+              <GradientButton type="button" onClick={() => setBloqueo(null)}>Entendido</GradientButton>
             </div>
           </div>
         </FlitModal>

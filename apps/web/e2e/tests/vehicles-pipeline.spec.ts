@@ -43,7 +43,7 @@ test.describe('Vehicles · Pipeline progreso global', () => {
 
     await page.goto('/vehicles');
     // Pipeline es el tab por defecto; lo seleccionamos explícitamente por robustez.
-    await page.getByRole('button', { name: 'Pipeline', exact: true }).click();
+    await page.getByRole('tab', { name: 'Pipeline', exact: true }).click();
 
     // Resumen «Progreso global».
     await expect(page.getByText('Progreso global')).toBeVisible();
@@ -54,7 +54,10 @@ test.describe('Vehicles · Pipeline progreso global', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText('Etapa actual')).toBeVisible();
-    await expect(dialog.getByText('SOAT pendiente')).toBeVisible();
+    // Rediseño (Épica #14560): el modal suma la línea de pasos del kit, así que la etapa sale dos veces:
+    // como valor de «Etapa actual» y como el paso actual de la línea.
+    await expect(dialog.getByRole('paragraph').filter({ hasText: /^SOAT pendiente$/ })).toBeVisible();
+    await expect(dialog.locator('[data-kit="pasos"] [data-estado="actual"]')).toContainText('SOAT pendiente');
 
     // Cerrar modal (Esc).
     await page.keyboard.press('Escape');
@@ -87,7 +90,7 @@ test.describe('Vehicles · Pipeline progreso global', () => {
     });
 
     await page.goto('/vehicles');
-    await page.getByRole('button', { name: 'Pipeline', exact: true }).click();
+    await page.getByRole('tab', { name: 'Pipeline', exact: true }).click();
     await page.getByRole('button', { name: /Propietario Pipeline E2E/ }).click();
 
     const stageDialog = page.getByRole('dialog');

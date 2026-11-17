@@ -4,6 +4,9 @@ import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import StatusChip from '../components/flit/StatusChip';
+import KpiCard from '../components/flit/KpiCard';
+import { Accesos, ListaFila } from '../components/flit/Bloques';
+import { Vacio } from '../components/flit/Cargador';
 
 interface ScheduleRow {
   id: number;
@@ -21,7 +24,8 @@ interface PartLowStock {
   existenciaMin: string; stockTotal: string; unidadMedida: string;
 }
 
-type KpiTone = 'neutral' | 'warning' | 'danger';
+const ICONO_PROGRAMACION = 'flito-mantenimiento';
+const ICONO_RUTINAS = 'flito-checklists';
 
 export default function Maintenance() {
   const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
@@ -49,101 +53,85 @@ export default function Maintenance() {
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
-      <PageHeaderCard title="Mantenimiento" subtitle="Programación, rutinas, repuestos e inventario" />
+      <PageHeaderCard title="Mantenimiento" subtitle="Programación, rutinas, repuestos e inventario" icono="flito-mantenimiento" />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiTile label="Vencidas hoy" value={vencidasHoy} tone="danger" />
-        <KpiTile label="Próximas (7 días)" value={proximas7} tone="warning" />
-        <KpiTile label="Programadas (60 días)" value={schedule.length} tone="neutral" />
-        <KpiTile label="Repuestos con stock bajo" value={lowStock.length} tone="danger" />
+      <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 lg:grid-cols-4">
+        <KpiCard label="Vencidas hoy" value={vencidasHoy} pendiente={vencidasHoy > 0} icono="flito-mantenimiento" />
+        <KpiCard label="Próximas (7 días)" value={proximas7} pendiente={proximas7 > 0} icono="flito-mantenimiento" />
+        <KpiCard label="Programadas (60 días)" value={schedule.length} icono="flito-mantenimiento" />
+        <KpiCard label="Repuestos con stock bajo" value={lowStock.length} pendiente={lowStock.length > 0} icono="flito-repuestos" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <ActionCard to="/maintenance/work-orders" label="Órdenes de trabajo" desc="OT de taller, repuestos y cierre con inventario" />
-        <ActionCard to="/maintenance/schedule" label="Programación" desc="Calendario de mantenimiento preventivo" />
-        <ActionCard to="/maintenance/routines" label="Rutinas" desc="Catálogos de mantenimiento agrupado" />
-        <ActionCard to="/parts" label="Repuestos e inventario" desc="Stock por ubicación y kardex" />
-      </div>
+      <Accesos
+        items={[
+          { to: '/maintenance/work-orders', titulo: 'Órdenes de trabajo', detalle: 'OT de taller, repuestos y cierre con inventario', icono: 'flito-ordenes-trabajo' },
+          { to: '/maintenance/schedule', titulo: 'Programación', detalle: 'Calendario de mantenimiento preventivo', icono: ICONO_PROGRAMACION },
+          { to: '/maintenance/routines', titulo: 'Rutinas', detalle: 'Catálogos de mantenimiento agrupado', icono: ICONO_RUTINAS },
+          { to: '/parts', titulo: 'Repuestos e inventario', detalle: 'Stock por ubicación y kardex', icono: 'flito-repuestos' },
+        ]}
+      />
 
-      <Section title={`Programación próxima (${schedule.length})`}>
-        {schedule.length === 0 ? (
-          <Empty msg="Sin programaciones en los próximos 60 días" />
-        ) : (
-          <ul className="overflow-hidden bg-white" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
-            {schedule.slice(0, 10).map((s, i) => {
-              const dias = Math.round((new Date(s.fechaProgramada).getTime() - Date.now()) / 86_400_000);
-              return (
-                <li key={s.id} className="flex items-center justify-between px-4 py-2.5 text-sm transition-colors hover:bg-[color:var(--flit-bg-app)]" style={i > 0 ? { borderTop: '1px solid var(--flit-border-soft)' } : undefined}>
-                  <div>
-                    <Link to={`/fleet/${s.vehicleId}`} className="font-semibold hover:underline" style={{ color: 'var(--flit-text-primary)' }}>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Section title={`Programación próxima (${schedule.length})`}>
+          {schedule.length === 0 ? (
+            <Vacio texto="Sin programaciones en los próximos 60 días" icono="calendario" />
+          ) : (
+            <ListaFila
+              filas={schedule.slice(0, 10).map((s) => {
+                const dias = Math.round((new Date(s.fechaProgramada).getTime() - Date.now()) / 86_400_000);
+                return {
+                  id: String(s.id),
+                  titulo: (
+                    <Link to={`/fleet/${s.vehicleId}`} className={ENLACE}>
                       {s.plate || `#${s.vehicleId}`}
                     </Link>
-                    <span className="ml-2" style={{ color: 'var(--flit-text-muted)' }}>— {s.routineNombre || s.jobNombre || 'Mantenimiento'}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{s.fechaProgramada}</span>
-                    <ExpiryPill dias={dias} />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Section>
+                  ),
+                  detalle: s.routineNombre || s.jobNombre || 'Mantenimiento',
+                  extra: (
+                    <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                      <span className="mono text-xs text-[color:var(--color-text-tertiary)]">{s.fechaProgramada}</span>
+                      <ExpiryPill dias={dias} />
+                    </span>
+                  ),
+                };
+              })}
+            />
+          )}
+        </Section>
 
-      <Section title={`Repuestos con stock bajo (${lowStock.length})`}>
-        {lowStock.length === 0 ? (
-          <Empty msg="Sin repuestos por debajo del mínimo" />
-        ) : (
-          <ul className="overflow-hidden bg-white" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
-            {lowStock.slice(0, 10).map((p, i) => (
-              <li key={p.id} className="flex items-center justify-between px-4 py-2.5 text-sm" style={i > 0 ? { borderTop: '1px solid var(--flit-border-soft)' } : undefined}>
-                <Link to="/parts" className="font-medium hover:underline" style={{ color: 'var(--flit-text-primary)' }}>
-                  {p.codigo} <span className="font-normal" style={{ color: 'var(--flit-text-muted)' }}>— {p.nombre}</span>
-                </Link>
-                <span className="text-xs">
-                  <span className="font-semibold" style={{ color: 'var(--flit-danger)' }}>{Number(p.stockTotal)}</span>
-                  <span style={{ color: 'var(--flit-text-muted)' }}> / mín {Number(p.existenciaMin)} {p.unidadMedida}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Section>
+        <Section title={`Repuestos con stock bajo (${lowStock.length})`}>
+          {lowStock.length === 0 ? (
+            <Vacio texto="Sin repuestos por debajo del mínimo" icono="procesos" />
+          ) : (
+            <ListaFila
+              filas={lowStock.slice(0, 10).map((p) => ({
+                id: String(p.id),
+                titulo: <Link to="/parts" className={ENLACE}>{p.codigo}</Link>,
+                detalle: p.nombre,
+                extra: (
+                  <span className="shrink-0 text-xs">
+                    <span className="font-semibold tabular-nums text-[color:var(--kit-rojo-texto)]">{Number(p.stockTotal)}</span>
+                    <span className="text-[color:var(--color-text-tertiary)]"> / mín {Number(p.existenciaMin)} {p.unidadMedida}</span>
+                  </span>
+                ),
+              }))}
+            />
+          )}
+        </Section>
+      </div>
     </div>
   );
 }
 
-function KpiTile({ label, value, tone }: { label: string; value: number; tone: KpiTone }) {
-  const color = tone === 'warning' ? 'var(--flit-warning)' : tone === 'danger' ? 'var(--flit-danger)' : 'var(--flit-text-primary)';
-  return (
-    <div className="bg-white p-5" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--flit-text-muted)' }}>{label}</p>
-      <p className="mt-2 text-4xl font-bold tabular-nums leading-none" style={{ color }}>{value}</p>
-    </div>
-  );
-}
-
-function ActionCard({ to, label, desc }: { to: string; label: string; desc: string }) {
-  return (
-    <Link to={to} className="flit-focus block bg-white p-5 transition-shadow hover:shadow-[0_12px_30px_rgba(22,39,68,0.12)]" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
-      <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{label}</p>
-      <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{desc}</p>
-    </Link>
-  );
-}
+const ENLACE = 'flit-focus rounded-[4px] font-semibold text-[color:var(--color-text-primary)] transition-colors hover:text-[color:var(--color-action)] hover:underline';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{title}</h2>
+    <section className="flex min-w-0 flex-col gap-3 rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] p-5">
+      <h2 className="text-sm font-semibold text-[color:var(--color-text-primary)]">{title}</h2>
       {children}
     </section>
   );
-}
-
-function Empty({ msg }: { msg: string }) {
-  return <div className="p-6 text-center text-sm" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px dashed var(--flit-border-input)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-muted)' }}>{msg}</div>;
 }
 
 function ExpiryPill({ dias }: { dias: number }) {
