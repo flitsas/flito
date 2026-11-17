@@ -2,19 +2,22 @@
 // Todo documento con OCR que no superó la coincidencia cae aquí. Nada se da por válido sin que una
 // persona lo confirme (RN-04/RN-05): los campos pre-llenados vienen marcados como no confiables.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import {
   CAMPO_DERECHO_TRAMITE_LABEL, CAMPO_FACTURA_VENTA_LABEL, CAMPO_IMPUESTO_LABEL, CAMPO_SOAT_LABEL,
-  EstadoImpuesto, MOTIVO_REVISION_LABEL, type FlujoRevision,
+  CANDIDATOS_REVISION_TEXTO_MAX, MOTIVO_CANDIDATO_YA_TIENE_DERECHO, MOTIVO_REVISION_LABEL,
+  type CandidatoRevisionDto, type FlujoRevision,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { normLlave, useCandidatosRevision } from '../lib/revisiones';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import {
   FlitCard, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton, flitInp,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
 import StatusChip from '../components/flit/StatusChip';
+import FlitComboboxBuscable, { type OpcionBuscable } from '../components/flit/FlitComboboxBuscable';
 
 type Grupo = 'soat' | 'impuestos' | 'derechos';
 type CampoExtraido = { valor: string | null; confianza: number; confiable: boolean };
@@ -24,11 +27,6 @@ interface RevisionItem {
   placaSugerida: string | null; extraccion: Record<string, CampoExtraido | undefined>; resuelto: boolean;
   creadoEn: string; soporte: { id: string; nombreArchivo: string };
 }
-interface SoatItem { id: string; vin: string; placa: string | null; marca: string | null; linea: string | null }
-interface ImpItem { id: string; idFlit: string; placa: string | null; vin: string; estado: string }
-// Derechos de tránsito (HU #10951): los candidatos NO son todos los registros del módulo sino los
-// trámites vivos de ESA placa — el caso que llega aquí es "una placa con varios trámites".
-interface DerechoCandidato { tramiteId: string; idFlit: string; tipoTramite: string | null; organismoCodigo: string | null; yaTieneDerecho: boolean }
 
 const ETIQUETA_MODULO: Record<FlujoRevision, string> = {
   soat: 'Comprobante SOAT', impuestos: 'Recibo de impuestos', factura_venta: 'Factura de venta',
@@ -43,12 +41,6 @@ const labelCampo = (modulo: FlujoRevision, clave: string): string => {
 };
 const norm = (v: string | null | undefined) => (v ?? '').toUpperCase().replace(/[\s-]/g, '');
 const fechaHora = (iso: string) => new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
-
-/** Las colas SOAT/impuestos responden paginado `{ items }`; defensivo si algún día vuelve el array plano. */
-function itemsDeLista<T>(r: T[] | { items?: T[] } | null | undefined): T[] {
-  if (Array.isArray(r)) return r;
-  return Array.isArray(r?.items) ? r.items : [];
-}
 
 function useRevisiones(modulo: FlujoRevision, incluirResueltas: boolean, nonce: number) {
   const [data, setData] = useState<RevisionItem[]>([]);
@@ -78,69 +70,134 @@ function useSoporteUrl(soporteId: string | undefined) {
   return url;
 }
 
+const ult6 = (v: string | null | undefined) => (v ? v.slice(-6) : '');
+type OrigenEleccion = 'auto' | 'manual' | 'previo' | null;
+type Aviso = { tono: 'info' | 'warning'; texto: string; accion?: { label: string; onClick: () => void } };
+
+function chipCandidato(c: CandidatoRevisionDto): OpcionBuscable['chip'] {
+  if (!c.seleccionable) return { texto: c.motivoNoSeleccionable ?? MOTIVO_CANDIDATO_YA_TIENE_DERECHO, tone: 'neutral' };
+  if (c.coincide.placa && c.coincide.vin) return { texto: 'Coincide placa y VIN', tone: 'success' };
+  if (c.coincide.placa) return { texto: 'Coincide placa', tone: 'success' };
+  if (c.coincide.vin) return { texto: 'Coincide VIN', tone: 'success' };
+  return null;
+}
+
+/** Derechos: «tipo · organismo» (sin VIN). El resto: «detalle · VIN …6». */
+const detalleCandidato = (modulo: FlujoRevision, c: CandidatoRevisionDto): string | null =>
+  modulo === 'derechos' ? c.detalle
+    : [c.detalle, c.vin ? `VIN …${ult6(c.vin)}` : null].filter(Boolean).join(' · ') || null;
+
+const COPY_BUSCADOR = {
+  pista: 'Escribe al menos 3 caracteres de la placa, el VIN o el número FLIT para buscar el trámite.',
+  cargando: 'Buscando trámites…',
+  error: 'No pudimos buscar los trámites.',
+  truncado: 'Hay más trámites que coinciden. Escribe más de la placa, el VIN o el número FLIT para afinar.',
+  anuncio: (n: number, truncado: boolean) => (truncado ? `Hay más de ${n} trámites; afina la búsqueda` : n === 1 ? '1 trámite' : `${n} trámites`),
+};
+
 function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionItem; soloLectura: boolean; onResuelta: () => void }) {
   const [valores, setValores] = useState<Record<string, string>>({});
-  const [registroId, setRegistroId] = useState('');
-  const [soats, setSoats] = useState<SoatItem[]>([]);
-  const [impuestos, setImpuestos] = useState<ImpItem[]>([]);
-  const [derechos, setDerechos] = useState<DerechoCandidato[]>([]);
   const [claves, setClaves] = useState<string[]>([]);
   const [motivo, setMotivo] = useState('');
   const [modo, setModo] = useState<'idle' | 'resolver' | 'descartar'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  // Trámite elegido: se guarda el OBJETO (no solo el id) para que la tabla de comparación no se vacíe
+  // cuando la lista cambia. `origen` decide si una corrección de la placa puede moverlo (spec §85).
+  const [elegido, setElegido] = useState<CandidatoRevisionDto | null>(null);
+  const [origen, setOrigen] = useState<OrigenEleccion>(revision.registroId ? 'previo' : null);
+  const [retirada, setRetirada] = useState(false);
+  const [texto, setTexto] = useState('');
+  const [abierto, setAbierto] = useState(false);
+  const base = useId();
 
   const modulo = revision.modulo;
   const mostrarVin = modulo === 'soat' || modulo === 'factura_venta';
+  const bloqueado = soloLectura || revision.resuelto;
 
   useEffect(() => {
     const iniciales: Record<string, string> = {};
     for (const [clave, campo] of Object.entries(revision.extraccion)) if (campo?.valor) iniciales[clave] = campo.valor;
     setValores(iniciales);
-    setRegistroId(revision.registroId ?? '');
     setMotivo(''); setModo('idle'); setError(null);
     api.get<string[]>(`/flito/revisiones/campos/${modulo}`).then(setClaves).catch(() => setClaves([]));
-    // SOAT e impuestos ya no son arrays planos: traen `{ items, page, … }`. Tomar `.items` evita el
-    // crash `*.map is not a function` que tumba toda la vista (ErrorBoundary) al abrir una revisión.
-    if (modulo === 'soat') {
-      api.get<{ items: SoatItem[] }>('/flito/soat?estado=solicitado&pageSize=200')
-        .then((r) => setSoats(itemsDeLista(r)))
-        .catch(() => setSoats([]));
-    } else if (modulo === 'derechos') {
-      // Sin placa leída no hay a quién ofrecer: la revisión será de tipo "sin llave de cruce" y el
-      // operador tendrá que resolverla desde el trámite, no desde aquí.
-      const placa = revision.placaSugerida;
-      if (placa) api.get<DerechoCandidato[]>(`/flito/derechos/candidatos/${encodeURIComponent(placa)}`).then(setDerechos).catch(() => setDerechos([]));
-      else setDerechos([]);
-    } else {
-      api.get<{ items: ImpItem[] }>('/flito/impuestos?pageSize=200')
-        .then((r) => setImpuestos(itemsDeLista(r)))
-        .catch(() => setImpuestos([]));
-    }
   }, [revision, modulo]);
 
-  const candidatos = useMemo(() => {
-    if (modulo === 'soat') {
-      return soats.map((s) => ({
-        id: s.id, placa: s.placa, vin: s.vin,
-        etiqueta: `${s.placa} · ${s.marca ?? ''} ${s.linea ?? ''}`.trim(),
-      }));
-    }
-    if (modulo === 'derechos') {
-      // Los que ya tienen su derecho se excluyen: el registro es uno por trámite y ofrecerlos solo
-      // llevaría a un error al guardar.
-      return derechos.filter((d) => !d.yaTieneDerecho).map((d) => ({
-        id: d.tramiteId, placa: revision.placaSugerida, vin: '',
-        etiqueta: `${d.idFlit} · ${d.tipoTramite ?? 'sin tipo'}${d.organismoCodigo ? ` · ${d.organismoCodigo}` : ''}`,
-      }));
-    }
-    const estado = modulo === 'factura_venta' ? EstadoImpuesto.PENDIENTE : EstadoImpuesto.SOLICITADO;
-    return impuestos.filter((i) => i.estado === estado).map((i) => ({
-      id: i.id, placa: i.placa, vin: i.vin, etiqueta: `${i.placa} · ${i.idFlit}`,
-    }));
-  }, [modulo, soats, impuestos, derechos, revision.placaSugerida]);
+  // Auto-filtro: lo que está AHORA en los campos (corregido o leído). El auditor no busca (403).
+  const placaFiltro = valores.placa || revision.extraccion.placa?.valor || revision.placaSugerida || '';
+  const vinFiltro = valores.vin || revision.extraccion.vin?.valor || '';
+  const cand = useCandidatosRevision(revision.id, {
+    texto, placa: placaFiltro, vin: vinFiltro, habilitado: !soloLectura, conRegistro: !!revision.registroId,
+  });
+  const registroId = elegido?.id ?? (origen === 'previo' ? revision.registroId ?? '' : '');
 
-  const seleccionado = candidatos.find((c) => c.id === registroId);
+  useEffect(() => {
+    if (origen === 'previo' && !elegido && cand.registroActual) setElegido(cand.registroActual);
+  }, [origen, elegido, cand.registroActual]);
+
+  // Preselección: solo sobre el auto-filtro (sin texto), nunca sobre una elección manual o previa.
+  useEffect(() => {
+    if (bloqueado || !cand.claveRespuesta || cand.consulta.texto) return;
+    if (origen === 'manual' || origen === 'previo') return;
+    const elegibles = cand.items.filter((c) => c.seleccionable);
+    const unico = elegibles.length === 1 && (elegibles[0].coincide.placa || elegibles[0].coincide.vin) ? elegibles[0] : null;
+    if (unico) { setElegido(unico); setOrigen('auto'); setRetirada(false); }
+    else if (origen === 'auto') { setElegido(null); setOrigen(null); setRetirada(true); }
+    // Se reevalúa una vez por respuesta nueva, no en cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cand.claveRespuesta]);
+
+  const elegirManual = (id: string) => {
+    const c = cand.items.find((x) => x.id === id);
+    if (!c || !c.seleccionable) return;
+    setElegido(c); setOrigen('manual'); setRetirada(false); setTexto('');
+  };
+  const buscarConCampos = () => { setTexto(''); setAbierto(true); };
+
+  let aviso: Aviso | null = null;
+  if (!bloqueado && elegido && origen === 'auto') {
+    aviso = {
+      tono: 'info',
+      texto: elegido.coincide.placa
+        ? `Elegido automáticamente: es el único trámite con la placa ${elegido.placa}.`
+        : `Elegido automáticamente: es el único trámite con el VIN …${ult6(elegido.vin)}.`,
+      accion: { label: 'Cambiar', onClick: () => setAbierto(true) },
+    };
+  } else if (!bloqueado && !elegido && retirada) {
+    aviso = { tono: 'info', texto: 'Cambiaste la placa y ya no hay un único trámite que coincida. Elige uno.' };
+  } else if (!bloqueado && elegido) {
+    const pc = normLlave(placaFiltro); const pt = normLlave(elegido.placa);
+    const vc = normLlave(vinFiltro); const vt = normLlave(elegido.vin);
+    if (pc && pt && pc !== pt) {
+      aviso = {
+        tono: 'warning',
+        texto: `La placa de los campos (${pc}) no es la del trámite elegido (${pt}). Revisa cuál corresponde.`,
+        accion: { label: `Buscar con ${pc}`, onClick: buscarConCampos },
+      };
+    } else if (mostrarVin && vc && vt && vc !== vt) {
+      aviso = {
+        tono: 'warning',
+        texto: `El VIN de los campos (…${ult6(vc)}) no es el del trámite elegido (…${ult6(vt)}). Revisa cuál corresponde.`,
+        accion: { label: `Buscar con …${ult6(vc)}`, onClick: buscarConCampos },
+      };
+    }
+  }
+  const avisoId = `${base}-aviso`;
+
+  const { consulta } = cand;
+  const encabezado = consulta.texto ? null
+    : consulta.placa && consulta.vin ? `Filtrado por la placa ${consulta.placa} y el VIN del documento`
+    : consulta.placa ? `Filtrado por la placa ${consulta.placa} del documento`
+    : consulta.vin ? `Filtrado por el VIN …${ult6(consulta.vin)} del documento`
+    : null;
+  const termino = consulta.texto || consulta.placa || consulta.vin;
+  const opciones: OpcionBuscable[] = cand.items.map((c) => ({
+    id: c.id, principal: c.idFlit ?? 'Sin N.º FLIT', secundario: c.placa ?? 'sin placa',
+    detalle: detalleCandidato(modulo, c), chip: chipCandidato(c), deshabilitada: !c.seleccionable,
+  }));
+  const etiquetaSeleccion = elegido
+    ? `${elegido.etiqueta}${elegido.detalle ? ` · ${elegido.detalle}` : ''}`
+    : bloqueado ? (revision.registroId ? 'Trámite asociado' : 'Sin trámite asociado') : null;
 
   const enviar = async () => {
     setError(null); setEnviando(true);
@@ -163,29 +220,68 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
         <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{revision.detalle}</p>
       </div>
 
-      <FlitField label="Trámite contra el que se concilia *">
-        <select value={registroId} disabled={soloLectura || revision.resuelto} onChange={(e) => setRegistroId(e.target.value)} className={flitInp}>
-          <option value="">Selecciona el trámite…</option>
-          {candidatos.map((c) => (
-            <option key={c.id} value={c.id}>{c.etiqueta}{revision.placaSugerida && c.placa === revision.placaSugerida ? '  (coincide con la placa leída)' : ''}</option>
-          ))}
-        </select>
+      <FlitField label="Trámite contra el que se concilia *" inputId={`${base}-tramite`}>
+        <FlitComboboxBuscable
+          id={`${base}-tramite`}
+          etiquetaSeleccion={etiquetaSeleccion}
+          placeholder="Selecciona el trámite…"
+          seleccionadoId={elegido?.id ?? null}
+          onElegir={elegirManual}
+          abierto={abierto}
+          onAbiertoChange={setAbierto}
+          texto={texto}
+          onTextoChange={setTexto}
+          estado={cand.estado === 'inactivo' ? 'pista' : cand.estado}
+          opciones={opciones}
+          truncado={cand.truncado}
+          onReintentar={cand.reintentar}
+          encabezado={encabezado}
+          disabled={bloqueado}
+          required
+          describedBy={aviso ? avisoId : undefined}
+          placeholderBusqueda="Placa, VIN o número FLIT"
+          ariaLabelBusqueda="Buscar trámite por placa, VIN o número FLIT"
+          ariaLabelLista="Trámites"
+          maxLength={CANDIDATOS_REVISION_TEXTO_MAX}
+          copy={{
+            ...COPY_BUSCADOR,
+            sinResultados: <>
+              <p>No hay trámites por elegir con «{termino}».</p>
+              <p>Revisa la placa o busca por el número FLIT. Si el documento no es de ningún trámite, descártalo.</p>
+            </>,
+          }}
+        />
       </FlitField>
 
-      {seleccionado && (
+      {aviso && (
+        <div id={avisoId} role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-3 py-2 text-sm"
+          style={{ borderColor: 'var(--flit-border-soft)', color: aviso.tono === 'warning' ? 'var(--flit-warning-ink)' : 'var(--flit-text-secondary)' }}>
+          <span aria-hidden>{aviso.tono === 'warning' ? '⚠' : 'ⓘ'}</span>
+          <span className="min-w-0 flex-1 basis-48">{aviso.texto}</span>
+          {aviso.accion && (
+            <button type="button" onClick={aviso.accion.onClick}
+              className="flit-focus min-h-[44px] rounded-md px-2 text-sm font-medium underline-offset-2 transition-colors hover:bg-[color:var(--flit-bg-hover)] hover:underline lg:min-h-8"
+              style={{ color: 'var(--flit-blue-text)' }}>
+              {aviso.accion.label}
+            </button>
+          )}
+        </div>
+      )}
+
+      {elegido && (
         <div className="rounded-lg border text-sm" style={{ borderColor: 'var(--flit-border-soft)' }}>
           <div className="grid grid-cols-[70px_1fr_1fr] gap-2 border-b px-3 py-1.5 text-xs font-semibold" style={{ color: 'var(--flit-text-muted)', borderColor: 'var(--flit-border-soft)' }}>
             <span>Campo</span><span>Trámite</span><span>Leído del PDF</span>
           </div>
-          {[{ e: 'Placa', t: seleccionado.placa ?? '—', l: revision.extraccion.placa?.valor ?? null },
-            ...(mostrarVin ? [{ e: 'VIN', t: seleccionado.vin ?? '—', l: revision.extraccion.vin?.valor ?? null }] : [])
+          {[{ e: 'Placa', t: elegido.placa ?? '—', l: revision.extraccion.placa?.valor ?? null },
+            ...(mostrarVin ? [{ e: 'VIN', t: elegido.vin ?? '—', l: revision.extraccion.vin?.valor ?? null }] : [])
           ].map((f) => {
             const cruza = f.l !== null && norm(f.t) === norm(f.l);
             return (
               <div key={f.e} className="grid grid-cols-[70px_1fr_1fr] items-center gap-2 px-3 py-1.5">
                 <span style={{ color: 'var(--flit-text-muted)' }}>{f.e}</span>
-                <span className="font-medium tabular-nums">{f.t}</span>
-                <span className={cruza ? '' : 'text-red-600'}>{f.l ? `${cruza ? '✓ ' : '✗ '}${f.l}` : 'No leído'}</span>
+                <span className="break-all font-medium tabular-nums">{f.t}</span>
+                <span className="break-all" style={cruza ? undefined : { color: 'var(--flit-danger-ink)' }}>{f.l ? `${cruza ? '✓ ' : '✗ '}${f.l}` : 'No leído'}</span>
               </div>
             );
           })}
@@ -227,7 +323,7 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
         <div className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
           <p className="text-sm font-medium">{modo === 'resolver' ? 'Deja constancia de qué validaste' : 'Motivo del descarte (mín. 5 caracteres)'}</p>
           <textarea className={`${flitInp} mt-2 min-h-[64px]`} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
-          {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+          {error && <p className="mt-1 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>}
           <div className="mt-2 flex gap-2">
             <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
               disabled={enviando || !motivo.trim() || (modo === 'descartar' && motivo.trim().length < 5)} onClick={enviar}>
@@ -286,7 +382,7 @@ export default function FlitoRevisiones() {
       {data.length === 0 ? (
         <FlitCard><FlitEmpty>No hay nada en revisión. Cuando una extracción no supere el umbral o su llave no cruce, el documento aparecerá aquí.</FlitEmpty></FlitCard>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[280px_1fr_1fr]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr_1fr]">
           <FlitCard>
             <p className="mb-2 text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>Cola ({data.length})</p>
             <div className="space-y-1.5">
