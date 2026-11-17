@@ -240,7 +240,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
             {cargaFactura && (
               <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-1 text-sm transition-colors hover:bg-[var(--flit-bg-hover)] lg:min-h-10"
                 style={{ color: 'var(--flit-text-primary)' }}>
-                <input type="checkbox" className="flit-focus h-4 w-4 shrink-0 cursor-pointer" checked={usarNombre}
+                <input type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer" checked={usarNombre}
                   disabled={enviando} onChange={(e) => setUsarNombre(e.target.checked)} />
                 Usar el nombre del archivo como contraseña
               </label>

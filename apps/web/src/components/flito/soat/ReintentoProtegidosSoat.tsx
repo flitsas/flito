@@ -163,7 +163,7 @@ export default function ReintentoProtegidosSoat({ resultado, itemsProtegidos, it
         </p>
       </div>
       <label htmlFor={idTodos} className={`${CASILLA} font-semibold`} style={{ color: 'var(--flit-text-primary)' }}>
-        <input id={idTodos} type="checkbox" className="flit-focus h-4 w-4 shrink-0 cursor-pointer"
+        <input id={idTodos} type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer"
           checked={todos} disabled={enviando !== null}
           ref={(el) => { if (el) el.indeterminate = mezcla; }}
           onChange={(e) => marcar(filas.map((f) => f.idx), e.target.checked)} />
@@ -182,7 +182,7 @@ export default function ReintentoProtegidosSoat({ resultado, itemsProtegidos, it
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                 <span className="min-w-0 break-all text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{nombre}</span>
                 <label className={CASILLA} style={{ color: 'var(--flit-text-primary)' }}>
-                  <input type="checkbox" className="flit-focus h-4 w-4 shrink-0 cursor-pointer" checked={marcada}
+                  <input type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer" checked={marcada}
                     disabled={enviando !== null} onChange={(e) => marcar([f.idx], e.target.checked)} />
                   Usar el nombre<span className="sr-only"> de {nombre}</span>
                 </label>
