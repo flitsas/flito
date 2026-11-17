@@ -12,6 +12,7 @@ export interface FiltroAplicado { id: string; etiqueta: string }
 
 export default function PanelFiltros({
   busqueda, onBusqueda, placeholder, campos, aplicados = [], onQuitar, onLimpiar, onAplicar, acciones,
+  onEnviarBusqueda, textoBoton = 'Filtros', etiquetaBusqueda, describedBy,
 }: {
   busqueda: string;
   onBusqueda: (v: string) => void;
@@ -23,6 +24,14 @@ export default function PanelFiltros({
   onAplicar?: () => void;
   /** Botones extra a la derecha de la barra (exportar…). */
   acciones?: ReactNode;
+  /** Enter en el buscador (Torre de Control: abre la ficha de la placa en vez de filtrar). Opcional y aditiva. */
+  onEnviarBusqueda?: (texto: string) => void;
+  /** Rótulo del botón del panel; por defecto «Filtros». */
+  textoBoton?: string;
+  /** `aria-label` del buscador cuando debe decir más que el placeholder. Por defecto, el placeholder. */
+  etiquetaBusqueda?: string;
+  /** `aria-describedby` del buscador (p. ej. un error en línea bajo la barra). */
+  describedBy?: string;
 }) {
   const [abierto, setAbierto] = useState(false);
   const idPanel = useId();
@@ -32,12 +41,14 @@ export default function PanelFiltros({
       <div className="filtros__barra">
         <div className="control-icono filtros__buscar">
           <Icono nombre="buscar" size={18} />
-          <input className="control" type="search" placeholder={placeholder} aria-label={placeholder} value={busqueda} onChange={(e) => onBusqueda(e.target.value)} />
+          <input className="control" type="search" placeholder={placeholder} aria-label={etiquetaBusqueda ?? placeholder} value={busqueda}
+            aria-describedby={describedBy} onChange={(e) => onBusqueda(e.target.value)}
+            onKeyDown={onEnviarBusqueda ? (e) => { if (e.key === 'Enter') { e.preventDefault(); onEnviarBusqueda(busqueda); } } : undefined} />
         </div>
         {campos && (
           <button className="btn secondary filtros__boton" type="button" aria-expanded={abierto} aria-controls={abierto ? idPanel : undefined} onClick={() => setAbierto((v) => !v)}>
             <Icono nombre="filtro" size={20} />
-            <span className="filtros__texto">Filtros</span>
+            <span className="filtros__texto">{textoBoton}</span>
             {aplicados.length > 0 && <span className="filtros__cuenta" aria-label={`${aplicados.length} activos`}>{aplicados.length}</span>}
           </button>
         )}

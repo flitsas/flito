@@ -3,8 +3,10 @@
 //     del «Más», en el mismo orden. Fila + «Más» = el menú completo, sin perder ni repetir ninguna.
 //   · <1024 px: sin dock; el ☰ del topbar abre el menú lateral con las mismas secciones en el mismo orden. Escape lo
 //     cierra y devuelve el foco al ☰; navegar lo cierra.
-// La referencia del orden es el propio dock a 1920 px, donde caben las 11 secciones del admin (shell-navbar.spec.ts
-// ya compara esa fila con los nombres del catálogo): así este spec no fija a mano las claves de sección.
+// La referencia del orden es el propio dock a 1920 px: fila + «Más» con las 12 secciones del admin (shell-navbar.spec.ts
+// ya compara esos nombres con el catálogo): así este spec no fija a mano las claves de sección.
+// Épica #14590: la Torre de Control es una sección propia por decisión humana; con ella el admin tiene 12 y a 1920 px
+// las del final pasan al «Más».
 import type { Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
@@ -42,9 +44,16 @@ async function ordenDeReferencia(page: Page): Promise<string[]> {
   await mockApi(page);
   await page.goto('/');
   await expect(dock(page)).toBeVisible();
-  await expect(dock(page).getByRole('button', { name: 'Más', exact: true })).toHaveCount(0);
-  const orden = await seccionesDeLaFila(page);
-  expect(orden).toHaveLength(11);
+  // Épica #14590 (decisión humana: Torre como sección propia): 12 secciones; a 1920 px las del final van al «Más».
+  const mas = dock(page).getByRole('button', { name: 'Más', exact: true });
+  await expect(mas).toBeVisible();
+  const enFila = await seccionesDeLaFila(page);
+  await mas.click();
+  const enMas = await page.locator('#flit-navbar-panel-mas .dock__seccion').evaluateAll((els) => els.map((e) => e.getAttribute('data-seccion') ?? ''));
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#flit-navbar-panel-mas')).toHaveCount(0);
+  const orden = [...enFila, ...enMas];
+  expect(orden).toHaveLength(12);
   return orden;
 }
 
@@ -59,7 +68,8 @@ test.describe('Shell · dock con «Más» (≥1024 px)', () => {
       await expect(mas).toHaveAttribute('aria-expanded', 'false');
       const enFila = await seccionesDeLaFila(page);
       expect(enFila.length).toBeGreaterThan(0);
-      expect(enFila.length).toBeLessThan(11);
+      // Épica #14590 (decisión humana): 12 secciones con la Torre de Control.
+      expect(enFila.length).toBeLessThan(12);
       // Las de la fila, con su nombre a la vista (no hay modo solo-íconos).
       const nombresOcultos = await page.evaluate(() =>
         Array.from(document.querySelectorAll('[data-vt="floating-nav"] .dock__nombre'))

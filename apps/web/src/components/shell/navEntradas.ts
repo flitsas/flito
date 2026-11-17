@@ -18,13 +18,13 @@ export interface NavItem {
    * funciones (OR). Nunca el nombre del rol: lo decide el cuadro de permisos.
    */
   funcion?: string | readonly string[];
-  section: 'general' | 'gestion' | 'transito' | 'flota' | 'mantenimiento' | 'pesv' | 'rndc' | 'laft' | 'finanzas' | 'admin' | 'ayuda';
+  section: 'general' | 'torre' | 'gestion' | 'transito' | 'flota' | 'mantenimiento' | 'pesv' | 'rndc' | 'laft' | 'finanzas' | 'admin' | 'ayuda';
   keywords?: string;  // términos de búsqueda alternativos para Command Palette
 }
 
 // Orden estable de secciones en la navegación (no depende del orden de NAV_ITEMS).
 export const SECTION_ORDER: NavItem['section'][] = [
-  'general', 'gestion', 'transito', 'flota', 'mantenimiento', 'pesv', 'rndc', 'laft', 'finanzas', 'admin', 'ayuda',
+  'general', 'torre', 'gestion', 'transito', 'flota', 'mantenimiento', 'pesv', 'rndc', 'laft', 'finanzas', 'admin', 'ayuda',
 ];
 
 /** Sección del ítem de nav que mejor coincide con la ruta actual (prefijo más largo). */
@@ -187,4 +187,16 @@ export const NAV_ENTRADAS: NavItemDecl[] = [
   { page: 'siigo_credenciales', to: '/siigo/credenciales',        section: 'admin',         keywords: 'siigo credenciales access key llave token integracion facturacion electronica dian ambiente pruebas produccion conexion probar cifrado' },
   // HU #13589 (P-35..P-37): «Rendimiento» es un ítem de Administración (antes el resumen RUM era un permiso suelto).
   { page: 'admin_rendimiento', to: '/admin/rendimiento',          section: 'admin',         keywords: 'rendimiento rum web vitals lcp inp cls velocidad' },
+  // Torre de Control (Épica #14590). Van AL FINAL a propósito: `rutaInicio` aterriza en la PRIMERA entrada
+  // permitida, y así un rol que ya tenía otras páginas (financiera, admin) conserva su inicio; las gerencias,
+  // que solo ven la Torre, entran por su primera página (360° la general, Comercial la comercial). En el menú
+  // la sección se pinta después de General por `SECTION_ORDER`, no por este orden. `etiqueta` propia: el
+  // catálogo las nombra «Torre · …» para el cuadro de permisos; dentro de la sección «Torre de Control» el
+  // prefijo sobra.
+  { page: 'torre_360',        to: '/flito/torre/resumen',          section: 'torre',         etiqueta: 'Resumen 360°', keywords: 'torre control gerencia resumen 360 ejecutivo proyeccion riesgos' },
+  { page: 'torre_comercial',  to: '/flito/torre/comercial',        section: 'torre',         etiqueta: 'Comercial',    keywords: 'torre control gerencia comercial clientes caida fuga concentracion venta cruzada' },
+  { page: 'torre_operativa',  to: '/flito/torre/operativa',        section: 'torre',         etiqueta: 'Operativa',    keywords: 'torre control gerencia operativa estancamiento ans organismos carga logistica' },
+  { page: 'torre_financiera', to: '/flito/torre/financiera',       section: 'torre',         etiqueta: 'Financiera',   keywords: 'torre control gerencia financiera bolsas cobertura sin facturar margen conciliacion' },
+  { page: 'torre_explorador', to: '/flito/torre/explorador',       section: 'torre',         etiqueta: 'Explorador',   keywords: 'torre control explorador metricas consulta preguntas placa tiempos costos' },
+  { page: 'torre_umbrales',   to: '/flito/torre/umbrales',         section: 'admin',         etiqueta: 'Umbrales y alertas', keywords: 'torre control umbrales alertas limites ans meta cobertura' },
 ];
