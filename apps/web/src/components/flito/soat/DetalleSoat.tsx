@@ -30,6 +30,7 @@ import {
   FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary,
 } from '../../flit/flitPageKit';
 import ChipEstadoSoat from './ChipEstadoSoat';
+import CampoContrasenaPdf from './CampoContrasenaPdf';
 import { DocumentosAdicionalesSeccion } from './DocumentosAdicionalesLista';
 import { ESTADOS_DESTINO_REVERSA, fecha, fechaDia, pesos, type SoatItem } from './tipos';
 
@@ -46,6 +47,15 @@ function textoError(e: unknown, queSeIntento: string): string {
 }
 
 const ROTULO = 'text-[11px] font-semibold uppercase tracking-wide';
+
+/** BUG #14569: los dos `codigo` del API que piden la contraseña del PDF en vez de un error. */
+function pideContrasena(e: unknown): 'cifrado' | 'incorrecta' | null {
+  if (!(e instanceof ApiError)) return null;
+  const codigo = (e.rawDetails as { codigo?: unknown } | null | undefined)?.codigo;
+  if (codigo === 'PDF_CIFRADO') return 'cifrado';
+  if (codigo === 'PDF_CONTRASENA_INCORRECTA') return 'incorrecta';
+  return null;
+}
 
 /**
  * HU #12872 (AC4): una entrada por acción del detalle, cada una con la función de SU endpoint. El
@@ -86,6 +96,10 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
   const [enviando, setEnviando] = useState(false);
   // Visor de los comprobantes de ESTE SOAT (la factura de la aseguradora), encima del detalle.
   const [verSoportes, setVerSoportes] = useState(false);
+  // BUG #14569: el PDF que el API devolvió por cifrado, a la espera de su contraseña. La clave solo
+  // vive aquí y en el cuerpo del reenvío; se limpia al cargar, al cancelar y tras cada intento.
+  const [protegido, setProtegido] = useState<{ archivo: File; incorrecta: boolean } | null>(null);
+  const [contrasena, setContrasena] = useState('');
 
   const placa = soat.placa ?? 'el SOAT';
   const enAdquisicion = soat.estado === EstadoSoat.SOLICITADO;
@@ -116,10 +130,24 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
     finally { setEnviando(false); }
   };
 
-  const subirFactura = (file: File) => ejecutar(() => {
-    const form = new FormData(); form.append('archivo', file);
-    return api.post(`/flito/soat/${soat.id}/factura`, form);
-  }, 'cargar el comprobante de SOAT', `Comprobante de SOAT cargado para ${placa}.`);
+  const subirFactura = async (file: File, clave?: string) => {
+    setEnviando(true); setError(null);
+    try {
+      const form = new FormData(); form.append('archivo', file);
+      if (clave) form.append('contrasena', clave);
+      await api.post(`/flito/soat/${soat.id}/factura`, form);
+      setProtegido(null); setContrasena('');
+      toastOk(`Comprobante de SOAT cargado para ${placa}.`); onCambio();
+    } catch (e) {
+      const motivoClave = pideContrasena(e);
+      if (motivoClave) {
+        setProtegido({ archivo: file, incorrecta: motivoClave === 'incorrecta' }); setContrasena('');
+      } else {
+        setError(textoError(e, 'cargar el comprobante de SOAT'));
+      }
+    } finally { setEnviando(false); }
+  };
+  const cancelarProtegido = () => { setProtegido(null); setContrasena(''); setError(null); };
 
   const formMotivo = (etiqueta: string, ruta: string, cuerpo: Record<string, unknown>, queSeIntento: string, exito: string,
     opciones: { minLen?: number; deshabilitado?: boolean } = {}) => (
@@ -173,7 +201,26 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
 
         {/* 3 · la acción del estado: UNA primaria («Cargar comprobante de SOAT»). En `con_novedad`, «Reactivar»
             va secundaria: la decisión entre reactivar, devolver o reversar la toma la persona. */}
-        {hayAccionDelEstado && accion === 'idle' && (
+        {cargaFactura && accion === 'idle' && protegido && (
+          <div className="space-y-3 rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
+            <p className="flex items-start gap-2" style={{ color: 'var(--flit-text-primary)' }}>
+              <Lock size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+              <span>Este PDF está protegido. Escribe la contraseña para cargarlo.</span>
+            </p>
+            <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (contrasena) void subirFactura(protegido.archivo, contrasena); }}>
+              <CampoContrasenaPdf label={`Contraseña de ${protegido.archivo.name}`} valor={contrasena} onCambio={setContrasena}
+                disabled={enviando} autoFocus ayuda={protegido.incorrecta ? 'La contraseña no abre este PDF.' : null} />
+              <div className="flex flex-wrap gap-2">
+                <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || !contrasena}>
+                  <FileUp size={16} aria-hidden="true" className="shrink-0" />
+                  {enviando ? 'Cargando…' : 'Cargar con contraseña'}
+                </button>
+                <button type="button" className={flitBtnSecondary} disabled={enviando} onClick={cancelarProtegido}>Cancelar</button>
+              </div>
+            </form>
+          </div>
+        )}
+        {hayAccionDelEstado && accion === 'idle' && !protegido && (
           <div className="flex flex-wrap gap-2">
             {cargaFactura && (
               // `<label>` con el input `sr-only` y no `hidden`: con `display:none` el input no se
@@ -183,7 +230,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
                 <FileUp size={16} aria-hidden="true" className="shrink-0" />
                 {enviando ? 'Cargando…' : 'Cargar comprobante de SOAT'}
                 <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="sr-only" disabled={enviando}
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) subirFactura(f); e.target.value = ''; }} />
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void subirFactura(f); e.target.value = ''; }} />
               </label>
             )}
             {rechazable && (

@@ -9,11 +9,7 @@ import RanuraCargaMasiva from '../RanuraCargaMasiva';
 import FlitModal from '../../flit/FlitModal';
 import StatusChip, { type ChipTone } from '../../flit/StatusChip';
 import { flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary } from '../../flit/flitPageKit';
-
-interface ResultadoMasivo {
-  pagados: { archivo: string; detalle: string }[]; enRevision: { archivo: string; detalle: string }[];
-  duplicados: { archivo: string; detalle: string }[]; noAsociados: { archivo: string; detalle: string }[];
-}
+import ReintentoProtegidosSoat, { emparejarProtegidos, type ResultadoMasivoSoat as ResultadoMasivo } from './ReintentoProtegidosSoat';
 
 // El ZIP se abre en el navegador (HU #12056): lo que se cuenta, se pesa, se valida y se envía son
 // sus ENTRADAS, no el ZIP. `rutas` NO se manda: la ruta solo sirve para deducir la marca de agua y
@@ -22,6 +18,8 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
   const { seleccion, abriendo, error, setError, elegir } = useSeleccionCargaMasiva();
   const [progreso, setProgreso] = useState<{ desde: number; total: number } | null>(null);
   const [resultado, setResultado] = useState<ResultadoMasivo | null>(null);
+  // BUG #14569: índice en `seleccion.items` de cada fila de `resultado.protegidos` (mismo orden).
+  const [itemsProtegidos, setItemsProtegidos] = useState<(number | null)[]>([]);
   const errorValidacion = validarCargaMasiva(seleccion);
   const enviando = progreso !== null;
 
@@ -32,7 +30,10 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
       '/flito/soat/facturas', seleccion.items, (desde, total) => setProgreso({ desde, total }),
       undefined, { conRutas: false },
     );
-    if (r) setResultado(r);
+    if (r) {
+      setResultado(r);
+      setItemsProtegidos(emparejarProtegidos(r.protegidos ?? [], seleccion.items, seleccion.items.map((_, i) => i)));
+    }
     if (err) setError(err);
     setProgreso(null);
   };
@@ -66,7 +67,12 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
             <StatusChip tone="warning">En revisión {resultado.enRevision.length}</StatusChip>
             <StatusChip tone="neutral">Duplicados {resultado.duplicados.length}</StatusChip>
             <StatusChip tone="danger">Sin asociar {resultado.noAsociados.length}</StatusChip>
+            {(resultado.protegidos?.length ?? 0) > 0 && (
+              <StatusChip tone="warning">Protegidos con contraseña {resultado.protegidos?.length}</StatusChip>
+            )}
           </div>
+          <ReintentoProtegidosSoat resultado={resultado} itemsProtegidos={itemsProtegidos} items={seleccion.items}
+            onActualizar={(r, idx) => { setResultado(r); setItemsProtegidos(idx); }} />
           <TablaResultadoOcr resultado={resultado} />
           <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onListo}>Listo</button>
         </div>
@@ -83,6 +89,7 @@ function TablaResultadoOcr({ resultado }: { resultado: ResultadoMasivo }) {
     ...resultado.enRevision.map((i) => ({ ...i, resultado: 'En revisión', tono: 'warning' as ChipTone })),
     ...resultado.duplicados.map((i) => ({ ...i, resultado: 'Duplicado', tono: 'neutral' as ChipTone })),
     ...resultado.noAsociados.map((i) => ({ ...i, resultado: 'Sin asociar', tono: 'danger' as ChipTone })),
+    ...(resultado.protegidos ?? []).map((i) => ({ archivo: i.archivo, detalle: i.detalle, resultado: 'Protegido', tono: 'warning' as ChipTone })),
   ];
   if (filas.length === 0) return <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No se procesó ningún archivo.</p>;
   const th = 'px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide';
