@@ -149,6 +149,10 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${REV} GET /campos/:modulo`, 'revisiones.campos.ver', 'Ver los campos revisables de un módulo', 'Consultar qué campos entran a revisión en cada módulo.'),
   op(`${REV} GET /soporte/:soporteId/archivo`, 'revisiones.soporte.descargar', 'Abrir el documento en revisión', 'Ver el archivo original del que salió el dato dudoso.'),
   op(`${REV} POST /:id/resolver`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
+  // Bug #14569 (punto 8): el buscador de trámite solo sirve a resolver → misma función, nombre y descripción byte a byte.
+  op(`${REV} POST /:id/candidatos/buscar`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
+  // Bug #14569 (punto 9): reintentar la lectura OCR solo sirve a resolver → misma función, nombre y descripción byte a byte.
+  op(`${REV} POST /:id/reintentar-lectura`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
   op(`${REV} POST /:id/descartar`, 'revisiones.revision.descartar', 'Descartar una revisión OCR', 'Cerrar la revisión sin cambiar el dato.'),
 
   // ── Compuerta de entrega ──────────────────────────────────────────────────────────────────────

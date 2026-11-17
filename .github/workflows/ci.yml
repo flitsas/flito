@@ -132,8 +132,9 @@ jobs:
         run: npm run build -w @operaciones/shared-types
 
       # HU #13207: los tests de compresión de comprobantes usan pdftotext/pdftoppm reales (poppler).
+      # Bug #14569: qpdf en la misma línea; el test real de shared/pdf/pdf-cifrado.ts lo usa.
       - name: Instalar poppler-utils
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils qpdf
 
       - name: Test API (vitest, shard ${{ matrix.shard }}/4)
         run: npm run test -w apps/api -- --shard=${{ matrix.shard }}/4
