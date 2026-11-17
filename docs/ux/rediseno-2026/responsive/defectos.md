@@ -190,3 +190,17 @@ Commits 15dbcd6c → este cierre. Verificado con pasadas cortas del mismo barrid
 | V11 | Resuelto: Nueva remesa y Nuevo checklist con el contenedor de las demás páginas | `RndcRemesaForm`, `ChecklistRun` |
 
 Pendiente de mirar en la integración: el menú de los filtros por columna en tarjetas (`ThFiltroMulti`) es `position: fixed` sin coordenadas; queda en su sitio y visible (comprobado abierto a 390 y 768), pero no acompaña al filtro si la página se desplaza con el menú abierto.
+
+## Barrido final sobre la base integrada (sesión A, 2026-11-17)
+
+Las 103 rutas en 360/390/768/1024/1280/1440 claro y 390/1280 oscuro (824 medidas, `/api` mockeado), sobre `3c6f707b` (S0 + S1–S6 + responsive):
+**0 desbordes, 0 controles fuera del viewport, 0 recortados, 0 errores JS.**
+
+Táctiles por debajo de 44 px bajo 1024: 1984 de 6685 controles (máx. 13 por página, en `/pesv/incidentes`). Son el residual
+de V9: enlaces en línea de las tarjetas de fila (placa, conductor; uno por registro, por eso PESV, RNDC y Mantenimiento
+suman más), migas, casillas y radios y el interruptor de tema. Todos superan los 24 px de WCAG 2.5.8 (AA) o caen en su
+excepción de enlace en línea; 44 px es AAA (2.5.5). Queda como Nota, no bloquea.
+
+`ThFiltroMulti` en tarjetas (menú `position: fixed` que no acompaña el desplazamiento): sigue como Nota; visible y usable.
+
+El barrido temporal (`e2e/tests/zz-barrido-*.ts`) se retira con este cierre.
