@@ -4,7 +4,7 @@
 //   npm run permisos:seed -w apps/api        → escupe el bloque SQL por stdout
 //   npm run permisos:seed -w apps/api -- --reagrupar
 //       → solo el UPDATE de `modulo` de la HU #12716 (lo pegado en 0205_permisos_reagrupar_modulos.sql)
-//   npm run permisos:seed -w apps/api -- --arbol gestion|finanzas|administracion|legado|dr-flit [--reparto]
+//   npm run permisos:seed -w apps/api -- --arbol gestion|finanzas|administracion|legado|dr-flit|torre [--reparto]
 //       → HU #12873 (ADR-0025): la siembra del árbol (0232) o su reparto «todos» (0233); `legado` (HU #13429):
 //         elementos, cadena e ítems antiguos (0238) y su reparto con el retiro de transitorios (0239)
 //
@@ -26,6 +26,7 @@ import { reagrupaciones } from '../modules/permisos/catalogo-agrupacion.js';
 import { sqlRepartoArbol, sqlSiembraArbol } from '../modules/permisos/arbol/sql-arbol.js';
 import { sqlRepartoLegado, sqlSiembraLegado } from '../modules/permisos/arbol/sql-legado.js';
 import { sqlRepartoDrFlit, sqlSiembraDrFlit } from '../modules/permisos/arbol/sql-dr-flit.js';
+import { sqlRepartoTorre, sqlSiembraTorre } from '../modules/permisos/arbol/sql-torre.js';
 
 /** Literal SQL de una cadena: comilla simple doblada. Sin concatenar nada más (regla 3 de AGENTS). */
 const lit = (s: string): string => `'${s.replace(/'/g, "''")}'`;
@@ -99,8 +100,10 @@ function arbol(): string {
   if (area === 'legado') return process.argv.includes('--reparto') ? sqlRepartoLegado() : sqlSiembraLegado();
   // HU #13941: `dr-flit` (0254) estrena su ítem y reparte sin grupo: generador propio.
   if (area === 'dr-flit') return process.argv.includes('--reparto') ? sqlRepartoDrFlit() : sqlSiembraDrFlit();
+  // Épica #14590: `torre` (0303) estrena sus ítems y reparte literal: generador propio.
+  if (area === 'torre') return process.argv.includes('--reparto') ? sqlRepartoTorre() : sqlSiembraTorre();
   if (area !== 'gestion' && area !== 'finanzas' && area !== 'administracion') {
-    throw new Error(`--arbol: área no soportada «${area}» (soportadas: gestion, finanzas, administracion, legado, dr-flit).`);
+    throw new Error(`--arbol: área no soportada «${area}» (soportadas: gestion, finanzas, administracion, legado, dr-flit, torre).`);
   }
   return process.argv.includes('--reparto') ? sqlRepartoArbol(area) : sqlSiembraArbol(area);
 }

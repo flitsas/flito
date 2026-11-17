@@ -32,6 +32,7 @@ import {
 import { ITEMS_LEGADO_OPS } from './arbol/acciones-legado.js';
 import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA, OPERACIONES_NACIDAS_EN_EL_ARBOL } from './arbol/acciones-finanzas.js';
 import { ITEMS_ADMINISTRACION_OPS } from './arbol/acciones-administracion.js';
+import { REPARTO_TORRE } from './arbol/acciones-torre.js';
 import { NOMBRES_LEGADO } from './catalogo-operaciones.legado.js';
 
 export interface FuncionCatalogo {
@@ -83,7 +84,11 @@ export function moduloDeGrupo(label: string): string {
  * `catalogoPlano()` (que sigue siendo exactamente lo sembrado por las migraciones ≤ 0231) y entran en
  * `catalogoCompleto()` como ítem del árbol.
  */
-export const PAGINAS_NACIDAS_EN_EL_ARBOL: readonly PageSlug[] = ['admin_rendimiento', 'flito_dr_flit']; // HU #13941: la 0254
+export const PAGINAS_NACIDAS_EN_EL_ARBOL: readonly PageSlug[] = [
+  'admin_rendimiento', 'flito_dr_flit', // HU #13941: la 0254
+  // Épica #14590: la Torre de Control (la 0303).
+  'torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales',
+];
 
 /**
  * Las funciones de tipo `pagina`: una por slug CONCEDIBLE, con el label de `PAGES` como nombre.
@@ -359,6 +364,8 @@ const REPARTO_POSTERIOR_AL_ARBOL: ReadonlyArray<readonly [string, readonly strin
     'logistica.actas.descargar', 'logistica.actas.despachar', 'logistica.actas.operar_ajenas',
     'logistica.recogida.confirmar', 'logistica.traslado.registrar', 'logistica.traslado.anular',
   ]],
+  // Épica #14590 (0303): la Torre de Control a financiera, auditor y las dos gerencias (`acciones-torre.ts`).
+  ...REPARTO_TORRE,
 ];
 
 /**

@@ -6,7 +6,7 @@
 // que contara registros que ninguna cola muestra estaría mintiendo (CA-01). El SQL de estancados vive
 // en la BD para no traer toda la tabla a memoria.
 
-import { and, count, eq, isNotNull, notInArray, sql, type SQL } from 'drizzle-orm';
+import { and, count, eq, inArray, isNotNull, notInArray, sql, type SQL } from 'drizzle-orm';
 import { ANS_OPERATIVO,
   ALERTAS_OPERATIVAS, EstadoImpuesto, EstadoSoat, ESTADOS_TRAMITE_FLITO_TERMINADOS, FlujoRevision,
   type AlertaOperativa,
@@ -97,13 +97,26 @@ async function diferenciasDeValor(): Promise<number> {
  * no se contaban nunca — justo los que menos vigilados están.
  */
 async function contarEstancados(): Promise<{ soat: number; impuestos: number }> {
+  return contarSinGestion(ANS_OPERATIVO.SIN_GESTION_HORAS);
+}
+
+/**
+ * Épica #14590 (Torre de Control, radar operativo): el MISMO predicado de «fuera de ANS» con las horas como
+ * parámetro (el umbral configurable `horas_soat_impuesto_sin_soporte`) y el alcance de la compañía. El tablero
+ * operativo lo llama con `ANS_OPERATIVO.SIN_GESTION_HORAS`, así que ambos no pueden discrepar con el umbral de fábrica.
+ */
+export async function contarSinGestion(
+  horas: number, alcance: AlcanceResuelto = { enlace: 'ninguno' }, companiaIds?: readonly number[],
+): Promise<{ soat: number; impuestos: number }> {
   const [soat] = await db.select({ n: count() }).from(flitoSoat)
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .where(and(
       eq(flitoSoat.estado, EstadoSoat.SOLICITADO),
       eq(clients.soatAutogestionable, false),
       isNotNull(flitoSoat.enviadoEn),
-      sql`${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS})`,
+      sql`${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${horas})`,
+      condicionPorCompania(flitoSoat.companiaId, alcance),
+      companiaIds?.length ? inArray(flitoSoat.companiaId, [...companiaIds]) : undefined,
     ));
 
   const [impuestos] = await db.select({ n: count() }).from(flitoImpuestos)
@@ -112,7 +125,9 @@ async function contarEstancados(): Promise<{ soat: number; impuestos: number }> 
       eq(flitoImpuestos.estado, EstadoImpuesto.SOLICITADO),
       eq(clients.impuestosAutogestionable, false),
       isNotNull(flitoImpuestos.enviadoEn),
-      sql`${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS})`,
+      sql`${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${horas})`,
+      condicionPorCompania(flitoImpuestos.companiaId, alcance),
+      companiaIds?.length ? inArray(flitoImpuestos.companiaId, [...companiaIds]) : undefined,
     ));
 
   return { soat: Number(soat.n), impuestos: Number(impuestos.n) };

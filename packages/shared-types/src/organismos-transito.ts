@@ -383,3 +383,31 @@ export function resolverCodigoOrganismoRunt(nombreRunt: string | null | undefine
   }
   return null;
 }
+
+// ── DIVIPOLA: departamento de un organismo (Torre de Control, Épica #14590) ─────────────────────
+/**
+ * Los 33 códigos DANE de departamento (2 dígitos): los 32 departamentos más Bogotá D.C. (11), que es
+ * distrito capital y no pertenece a Cundinamarca. Son los dos primeros dígitos del código DIVIPOLA
+ * de un municipio, y por eso también del `organismo_codigo` de un trámite.
+ */
+export const DEPARTAMENTO_POR_CODIGO: Readonly<Record<string, string>> = {
+  '05': 'Antioquia', '08': 'Atlántico', '11': 'Bogotá D.C.', '13': 'Bolívar', '15': 'Boyacá',
+  '17': 'Caldas', '18': 'Caquetá', '19': 'Cauca', '20': 'Cesar', '23': 'Córdoba',
+  '25': 'Cundinamarca', '27': 'Chocó', '41': 'Huila', '44': 'La Guajira', '47': 'Magdalena',
+  '50': 'Meta', '52': 'Nariño', '54': 'Norte de Santander', '63': 'Quindío', '66': 'Risaralda',
+  '68': 'Santander', '70': 'Sucre', '73': 'Tolima', '76': 'Valle del Cauca', '81': 'Arauca',
+  '85': 'Casanare', '86': 'Putumayo', '88': 'San Andrés y Providencia', '91': 'Amazonas',
+  '94': 'Guainía', '95': 'Guaviare', '97': 'Vaupés', '99': 'Vichada',
+};
+
+/**
+ * Departamento de un código de organismo (DIVIPOLA de 5 dígitos). `null` si el código está vacío,
+ * no empieza por dos dígitos o su prefijo no es un departamento: la Torre lo agrupa en «Sin secretaría».
+ */
+export function departamentoDeOrganismo(codigo: string | null | undefined): { codigo: string; nombre: string } | null {
+  const c = codigo?.trim() ?? '';
+  if (!/^\d{2}/.test(c)) return null;
+  const pref = c.slice(0, 2);
+  const nombre = DEPARTAMENTO_POR_CODIGO[pref];
+  return nombre ? { codigo: pref, nombre } : null;
+}

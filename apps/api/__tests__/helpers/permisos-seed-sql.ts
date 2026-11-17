@@ -88,6 +88,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0297_flito_logistica_permiso_dejar_pendiente.sql', // HU #14348: dejar una LT pendiente al escanear; solo admin
   '0299_permisos_rol_proveedor_logistica.sql', // ADR-0040 (HU #14351, #14353): el rol proveedor trae el perfil Coordinador de logística
   '0274_flito_impuesto_certificacion_directa.sql', // Certificar impuesto sin trámite: acción solo a admin
+  '0303_flito_torre_fundacion.sql', // Épica #14590: Torre de Control — 6 ítems + 9 acciones; roles gerencia_* (con lo universal)
 ] as const;
 
 /**

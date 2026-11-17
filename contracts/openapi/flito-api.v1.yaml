@@ -71,6 +71,8 @@ tags:
     description: Módulo flito-sync de apps/api.
   - name: flito-tablero
     description: Módulo flito-tablero de apps/api.
+  - name: flito-torre
+    description: Módulo flito-torre de apps/api.
   - name: flito-tramites
     description: Módulo flito-tramites de apps/api.
   - name: integraciones
@@ -229,6 +231,12 @@ paths:
                             - roles_permisos
                             - admin_rendimiento
                             - flito_dr_flit
+                            - torre_360
+                            - torre_comercial
+                            - torre_operativa
+                            - torre_financiera
+                            - torre_explorador
+                            - torre_umbrales
                             - flito_ayuda
                       funciones:
                         type: array
@@ -456,6 +464,12 @@ paths:
                         - roles_permisos
                         - admin_rendimiento
                         - flito_dr_flit
+                        - torre_360
+                        - torre_comercial
+                        - torre_operativa
+                        - torre_financiera
+                        - torre_explorador
+                        - torre_umbrales
                         - flito_ayuda
                   funciones:
                     type: array
@@ -51724,6 +51738,2399 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  /api/flito/torre/metricas/consultar:
+    post:
+      operationId: post-api-flito-torre-metricas-consultar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/metricas/consultar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.routes.ts. Exige la función: torre.metricas.consultar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.metricas.consultar
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/Forma-d768e877c7"
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrica:
+                    type: string
+                    enum:
+                      - tramites_creados
+                      - tramites_aprobados
+                      - tiempo_creacion_aprobacion
+                      - costo_logistica
+                      - impuestos_pagados
+                      - derechos_pagados
+                      - ingreso_liquidado
+                      - wip_activo
+                      - tasa_aprobacion
+                      - sin_facturar
+                  unidad:
+                    type: string
+                    enum:
+                      - horas
+                      - conteo
+                      - cop
+                      - pct
+                  total:
+                    type: object
+                    properties:
+                      valor:
+                        type: number
+                      "n":
+                        type: number
+                      mediana:
+                        type: number
+                      p90:
+                        type: number
+                      max:
+                        type: number
+                      lapsoHoras:
+                        type: number
+                      maximo:
+                        type:
+                          - object
+                          - "null"
+                        properties:
+                          placa:
+                            type:
+                              - string
+                              - "null"
+                          tramiteUuid:
+                            type: string
+                        required:
+                          - placa
+                          - tramiteUuid
+                    required:
+                      - valor
+                      - "n"
+                  filas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        clave:
+                          type: string
+                        etiqueta:
+                          type: string
+                        valor:
+                          type: number
+                        "n":
+                          type: number
+                        participacion:
+                          type: number
+                        mediana:
+                          type: number
+                        p90:
+                          type: number
+                        max:
+                          type: number
+                      required:
+                        - clave
+                        - etiqueta
+                        - valor
+                        - "n"
+                        - participacion
+                  baseFecha:
+                    type: object
+                    properties:
+                      campo:
+                        type: string
+                      excluidosSinFecha:
+                        type: number
+                      nBaseSincronizacion:
+                        type: number
+                    required:
+                      - campo
+                      - excluidosSinFecha
+                      - nBaseSincronizacion
+                  truncado:
+                    type: boolean
+                  generadoEn:
+                    type: string
+                required:
+                  - metrica
+                  - unidad
+                  - total
+                  - filas
+                  - baseFecha
+                  - truncado
+                  - generadoEn
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/metricas/exportar:
+    post:
+      operationId: post-api-flito-torre-metricas-exportar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/metricas/exportar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.routes.ts. Exige la función: torre.metricas.exportar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.metricas.exportar
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                consulta:
+                  "$ref": "#/components/schemas/Forma-d768e877c7"
+                formato:
+                  type: string
+                  enum:
+                    - pdf
+                    - xlsx
+              required:
+                - consulta
+                - formato
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/opciones:
+    get:
+      operationId: get-api-flito-torre-opciones
+      tags:
+        - flito-torre
+      summary: GET /api/flito/torre/opciones
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.routes.ts. Exige la función: torre.metricas.consultar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.metricas.consultar
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  companias:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: number
+                        nombre:
+                          type: string
+                      required:
+                        - id
+                        - nombre
+                  organismos:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        codigo:
+                          type: string
+                        nombre:
+                          type: string
+                      required:
+                        - codigo
+                        - nombre
+                  tiposTramite:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        valor:
+                          type: string
+                        etiqueta:
+                          type: string
+                      required:
+                        - valor
+                        - etiqueta
+                  flitEstados:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        valor:
+                          type: string
+                        etiqueta:
+                          type: string
+                      required:
+                        - valor
+                        - etiqueta
+                required:
+                  - companias
+                  - organismos
+                  - tiposTramite
+                  - flitEstados
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                  campo:
+                    type: string
+                required:
+                  - error
+                  - code
+                  - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/placa/buscar:
+    post:
+      operationId: post-api-flito-torre-placa-buscar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/placa/buscar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.routes.ts. Exige la función: torre.placa.buscar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.placa.buscar
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                placa:
+                  type: string
+                  pattern: "^[A-Za-z0-9]{5,7}$"
+              required:
+                - placa
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  placa:
+                    type: string
+                  tramites:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tramiteUuid:
+                          type: string
+                        placa:
+                          type: string
+                        tipoTramite:
+                          type:
+                            - string
+                            - "null"
+                        vinMascara:
+                          type:
+                            - string
+                            - "null"
+                        compania:
+                          type: object
+                          properties:
+                            id:
+                              type:
+                                - number
+                                - "null"
+                            nombre:
+                              type:
+                                - string
+                                - "null"
+                          required:
+                            - id
+                            - nombre
+                        organismo:
+                          type: object
+                          properties:
+                            codigo:
+                              type:
+                                - string
+                                - "null"
+                            nombre:
+                              type:
+                                - string
+                                - "null"
+                          required:
+                            - codigo
+                            - nombre
+                        flitEstado:
+                          type:
+                            - string
+                            - "null"
+                        fechaCreacion:
+                          type:
+                            - string
+                            - "null"
+                        fechaAprobacion:
+                          type:
+                            - string
+                            - "null"
+                        duracionHoras:
+                          type:
+                            - number
+                            - "null"
+                        baseFecha:
+                          type: object
+                          properties:
+                            campo:
+                              type: string
+                            conFallback:
+                              type: boolean
+                          required:
+                            - campo
+                            - conFallback
+                        pasos:
+                          type: object
+                          properties:
+                            creado:
+                              type:
+                                - string
+                                - "null"
+                            radicado:
+                              type:
+                                - string
+                                - "null"
+                            aprobado:
+                              type:
+                                - string
+                                - "null"
+                            facturado:
+                              type:
+                                - string
+                                - "null"
+                          required:
+                            - creado
+                            - radicado
+                            - aprobado
+                            - facturado
+                        lineaTiempo:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              estado:
+                                type: string
+                              anterior:
+                                type:
+                                  - string
+                                  - "null"
+                              desde:
+                                type: string
+                            required:
+                              - estado
+                              - anterior
+                              - desde
+                        soat:
+                          type: object
+                          properties:
+                            estado:
+                              type: string
+                            fecha:
+                              type:
+                                - string
+                                - "null"
+                          required:
+                            - estado
+                        impuesto:
+                          type: object
+                          properties:
+                            estado:
+                              type: string
+                            fecha:
+                              type:
+                                - string
+                                - "null"
+                          required:
+                            - estado
+                        derecho:
+                          type: object
+                          properties:
+                            estado:
+                              type: string
+                            fecha:
+                              type:
+                                - string
+                                - "null"
+                          required:
+                            - estado
+                        logistica:
+                          type: object
+                          properties:
+                            estado:
+                              type: string
+                            fecha:
+                              type:
+                                - string
+                                - "null"
+                          required:
+                            - estado
+                      required:
+                        - tramiteUuid
+                        - placa
+                        - tipoTramite
+                        - vinMascara
+                        - compania
+                        - organismo
+                        - flitEstado
+                        - fechaCreacion
+                        - fechaAprobacion
+                        - duracionHoras
+                        - baseFecha
+                        - pasos
+                        - lineaTiempo
+                        - soat
+                        - impuesto
+                        - derecho
+                        - logistica
+                required:
+                  - placa
+                  - tramites
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/comercial:
+    post:
+      operationId: post-api-flito-torre-tableros-comercial
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/comercial
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_comercial.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_comercial.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filtro:
+                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+              required:
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/comercial/exportar:
+    post:
+      operationId: post-api-flito-torre-tableros-comercial-exportar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/comercial/exportar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.metricas.exportar, torre.tablero_comercial.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.metricas.exportar
+        - torre.tablero_comercial.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filtro:
+                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+              required:
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/ejecutivo:
+    post:
+      operationId: post-api-flito-torre-tableros-ejecutivo
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/ejecutivo
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_ejecutivo.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_ejecutivo.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filtro:
+                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+              required:
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/ejecutivo/exportar:
+    post:
+      operationId: post-api-flito-torre-tableros-ejecutivo-exportar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/ejecutivo/exportar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.metricas.exportar, torre.tablero_ejecutivo.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.metricas.exportar
+        - torre.tablero_ejecutivo.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filtro:
+                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+              required:
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/financiera:
+    post:
+      operationId: post-api-flito-torre-tableros-financiera
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/financiera
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_financiero.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_financiero.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filtro:
+                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+              required:
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/financiera/exportar:
+    post:
+      operationId: post-api-flito-torre-tableros-financiera-exportar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/financiera/exportar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.metricas.exportar, torre.tablero_financiero.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.metricas.exportar
+        - torre.tablero_financiero.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filtro:
+                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+              required:
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/operativa:
+    post:
+      operationId: post-api-flito-torre-tableros-operativa
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/operativa
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_operativo.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_operativo.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filtro:
+                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+              required:
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/operativa/exportar:
+    post:
+      operationId: post-api-flito-torre-tableros-operativa-exportar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/operativa/exportar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.metricas.exportar, torre.tablero_operativo.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.metricas.exportar
+        - torre.tablero_operativo.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filtro:
+                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+              required:
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/umbrales:
+    get:
+      operationId: get-api-flito-torre-umbrales
+      tags:
+        - flito-torre
+      summary: GET /api/flito/torre/umbrales
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.routes.ts. Exige la función: torre.umbrales.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.umbrales.ver
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/Forma-5cc16499b9"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                  campo:
+                    type: string
+                required:
+                  - error
+                  - code
+                  - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  "/api/flito/torre/umbrales/{clave}":
+    put:
+      operationId: put-api-flito-torre-umbrales-clave
+      tags:
+        - flito-torre
+      summary: "PUT /api/flito/torre/umbrales/:clave"
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.routes.ts. Exige la función: torre.umbrales.editar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.umbrales.editar
+      parameters:
+        - name: clave
+          in: path
+          required: true
+          description: Parámetro clave de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                valor:
+                  type: number
+                  minimum: 0
+              required:
+                - valor
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Forma-5cc16499b9"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
   /api/flito/tramites:
     get:
       operationId: get-api-flito-tramites
@@ -72597,6 +75004,12 @@ paths:
                             - roles_permisos
                             - admin_rendimiento
                             - flito_dr_flit
+                            - torre_360
+                            - torre_comercial
+                            - torre_operativa
+                            - torre_financiera
+                            - torre_explorador
+                            - torre_umbrales
                             - flito_ayuda
                         legado:
                           type: boolean
@@ -73631,6 +76044,12 @@ paths:
                             - roles_permisos
                             - admin_rendimiento
                             - flito_dr_flit
+                            - torre_360
+                            - torre_comercial
+                            - torre_operativa
+                            - torre_financiera
+                            - torre_explorador
+                            - torre_umbrales
                             - flito_ayuda
                         legado:
                           type: boolean
@@ -112733,6 +115152,8 @@ paths:
               - mensajero
               - financiera
               - cliente
+              - gerencia_comercial
+              - gerencia_general
           description: "Parámetro rol, validado con el esquema de Zod de la ruta."
         - name: activo
           in: query
@@ -113704,6 +116125,12 @@ paths:
                             - roles_permisos
                             - admin_rendimiento
                             - flito_dr_flit
+                            - torre_360
+                            - torre_comercial
+                            - torre_operativa
+                            - torre_financiera
+                            - torre_explorador
+                            - torre_umbrales
                             - flito_ayuda
                         derivado:
                           type: boolean
@@ -114777,6 +117204,8 @@ paths:
               - mensajero
               - financiera
               - cliente
+              - gerencia_comercial
+              - gerencia_general
           description: "Parámetro rol, validado con el esquema de Zod de la ruta."
         - name: activo
           in: query
@@ -114935,6 +117364,8 @@ paths:
               - mensajero
               - financiera
               - cliente
+              - gerencia_comercial
+              - gerencia_general
           description: "Parámetro rol, validado con el esquema de Zod de la ruta."
         - name: activo
           in: query
@@ -121808,6 +124239,49 @@ components:
         - aprobadoPor
         - createdAt
         - updatedAt
+    Forma-5cc16499b9:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        clave:
+          type: string
+        valor:
+          type: number
+        unidad:
+          type: string
+          enum:
+            - horas
+            - conteo
+            - cop
+            - dias
+            - porcentaje
+        descripcion:
+          type: string
+        actualizadoPor:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: number
+            nombre:
+              type:
+                - string
+                - "null"
+          required:
+            - id
+            - nombre
+        actualizadoEn:
+          type:
+            - string
+            - "null"
+      required:
+        - clave
+        - valor
+        - unidad
+        - descripcion
+        - actualizadoPor
+        - actualizadoEn
     Forma-5cfefb5e56:
       description: Forma que comparten varias operaciones.
       type: object
@@ -126100,6 +128574,57 @@ components:
         - investigacionCerradaAt
         - createdAt
         - closedAt
+    Forma-bb259fe94c:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        rango:
+          anyOf:
+            - type: object
+              properties:
+                preset:
+                  type: string
+                  enum:
+                    - anio
+                    - mes
+                    - trimestre
+                    - semana
+                    - hoy
+                    - ayer
+                    - mes_anterior
+              required:
+                - preset
+            - type: object
+              properties:
+                desde:
+                  type: string
+                hasta:
+                  type: string
+              required:
+                - desde
+                - hasta
+        companiaIds:
+          type: array
+          items:
+            type: number
+        organismos:
+          type: array
+          items:
+            type: string
+        departamentos:
+          type: array
+          items:
+            type: string
+        tiposTramite:
+          type: array
+          items:
+            type: string
+        flitEstados:
+          type: array
+          items:
+            type: string
+      required:
+        - rango
     Forma-bb81eb8403:
       description: Forma que comparten varias operaciones.
       type: object
@@ -127551,6 +130076,43 @@ components:
         - notes
         - createdAt
         - updatedAt
+    Forma-d768e877c7:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        metrica:
+          type: string
+          enum:
+            - tramites_creados
+            - tramites_aprobados
+            - tiempo_creacion_aprobacion
+            - costo_logistica
+            - impuestos_pagados
+            - derechos_pagados
+            - ingreso_liquidado
+            - wip_activo
+            - tasa_aprobacion
+            - sin_facturar
+        agrupacion:
+          type: string
+          enum:
+            - flit_estado
+            - tipo_tramite
+            - departamento
+            - organismo
+            - mes
+            - trimestre
+            - dia
+            - compania
+            - semana
+        filtro:
+          "$ref": "#/components/schemas/Forma-bb259fe94c"
+        limite:
+          type: integer
+          exclusiveMinimum: 0
+      required:
+        - metrica
+        - filtro
     Forma-d7af05d1a3:
       description: Forma que comparten varias operaciones.
       type: object

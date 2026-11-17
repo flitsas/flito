@@ -56,6 +56,11 @@ export const USER_ROLES = [
   // NO reabre el difunto rol `operaciones`: aquel era un superusuario del dominio y se fusionó en
   // `admin`; este es lo contrario, el rol más acotado del sistema.
   'cliente',
+  // Torre de Control Gerencial (Épica #14590): lectura agregada para la gerencia. Ninguno de los dos muta
+  // nada: ven las páginas de la Torre, consultan, exportan agregados y buscan una placa (sin PII del
+  // comprador). Los umbrales solo los escribe `admin`. Sus filas en `permisos_roles` las siembra la 0303.
+  'gerencia_comercial',
+  'gerencia_general',
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
@@ -93,6 +98,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   financiera: 'Financiera',
   // Etiqueta exacta del copy de UX (docs/ux/identidad-rol-cliente-y-soat-sin-tramite.md §1.4).
   cliente: 'Cliente',
+  gerencia_comercial: 'Gerencia Comercial',
+  gerencia_general: 'Gerencia General',
 };
 
 // ============================================================================
@@ -274,6 +281,15 @@ export const PAGES = {
   // siembra la 0254: todos los roles con el ítem + «ver manuales», `admin` con las cuatro. No es una ruta
   // de la web (el panel flota sobre todas): sin fila en `ROLE_DEFAULT_PAGES`.
   flito_dr_flit: 'Dr. Flit',
+  // Torre de Control Gerencial (Épica #14590): cuatro tableros, el Explorador y los umbrales. Ítems del árbol
+  // nacidos en la 0303 (General y, los umbrales, Administración); cada uno con su acción, que es la operación
+  // que exige su ruta (`torre.*`).
+  torre_360: 'Torre · Vista 360°',
+  torre_comercial: 'Torre · Comercial',
+  torre_operativa: 'Torre · Operativa',
+  torre_financiera: 'Torre · Financiera',
+  torre_explorador: 'Torre · Explorador',
+  torre_umbrales: 'Torre · Umbrales',
   // Ayuda FLITO (HU #11893): contenedor del índice in-app. El slug existe SOLO para el label de
   // NoAccess y el ítem de nav. NO entra en `PAGE_GROUPS` (Users no debe ofrecer concederlo a mano)
   // ni en ninguna fila de `ROLE_DEFAULT_PAGES`: la visibilidad es derivada (`hasPage` de ≥1 slug
@@ -320,7 +336,8 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   // grupos —una rareza que nadie sabía explicar— porque el portal la tenía prestada.
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'finanzas_gastos_diarios', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales', 'flito_comprobantes'] },
-  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos', 'admin_rendimiento'] },
+  { label: 'Torre de Control', pages: ['torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador'] },
+  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos', 'admin_rendimiento', 'torre_umbrales'] },
 ];
 
 // ============================================================================
@@ -371,7 +388,9 @@ const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> 
     // usuarios y el auditor tiene que poder abrirlo (AC3). La PÁGINA sí; las operaciones de listar
     // usuarios y ver el resumen NO (son PII de todo el censo, AC4): la 0185 le siembra solo
     // `usuarios.auditoria.ver` y `usuarios.auditoria.filtrar`, y la pantalla le monta solo el historial.
-    'users'],
+    'users',
+    // Torre de Control (Épica #14590, 0303): los cuatro tableros, el Explorador (sin exportar) y ver los umbrales.
+    'torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales'],
   // FLITO — el operador del dominio ES el admin (despliegue FLITO-only): admin ya obtiene TODAS
   // las páginas arriba, así que no hay una fila `operaciones` aparte.
   // FLITO — Gestor de Impuestos: solo su portal (filtrado por organismo en el servidor).
@@ -400,7 +419,9 @@ const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> 
   // El catálogo de servicios adicionales (HU #12542) va aquí por lo mismo que las tarifas: la 0191
   // reparte `parametrizacion.servicios_adicionales.*` a `admin` y `financiera`, y la 0192 siembra la
   // página a los mismos dos roles; sin esta línea la paridad con el catálogo del código se rompe.
-  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'flito_conciliacion', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales', 'flito_comprobantes'],
+  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'flito_conciliacion', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales', 'flito_comprobantes',
+    // Torre de Control (Épica #14590, 0303): su tablero y el Explorador.
+    'torre_financiera', 'torre_explorador'],
   // FLITO — Cliente (Feature #11912): UNA sola página, y a propósito SIN `dashboard`.
   //
   // El tablero es de la operación: consolida trámites, SOAT e impuestos de TODAS las compañías, así
@@ -412,6 +433,11 @@ const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> 
   // #11913 le niega. Esto se aparta de una línea del refinamiento —que decía `['soat']`— y la
   // desviación está razonada y aceptada en el ADR-0008 §4.
   cliente: ['flito_soat'],
+  // Torre de Control (Épica #14590): SOLO páginas de la Torre, y a propósito sin `dashboard` (el tablero de la
+  // operación lista trámites de todas las compañías; su inicio es la primera página permitida, como `cliente`).
+  // Sin datos del titular, sin usuarios, sin mutaciones. La 0303 siembra lo mismo y además sus acciones.
+  gerencia_comercial: ['torre_comercial', 'torre_explorador'],
+  gerencia_general: ['torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales'],
 };
 
 /**

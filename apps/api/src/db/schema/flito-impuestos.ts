@@ -98,6 +98,8 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
 }, (t) => ({
   estadoIdx: index('idx_flito_impuestos_estado').on(t.estado),
   organismoIdx: index('idx_flito_impuestos_organismo').on(t.organismoCodigo),
+  // Épica #14590 (0303): impuestos pagados por compañía y periodo (Torre de Control).
+  companiaPagadoIdx: index('idx_flito_impuestos_compania_pagado').on(t.companiaId, t.pagadoEn),
   analisisEnCursoIdx: index('idx_flito_impuestos_analisis_en_curso').on(t.analisisEncoladoEn)
     .where(sql`${t.analisisEstado} = 'en_curso'`),
 }));
