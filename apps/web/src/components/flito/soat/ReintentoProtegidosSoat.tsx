@@ -57,7 +57,7 @@ function nombreDe(item: ItemCarga, repetido: boolean, n: number): string {
   return `${item.nombre} (${origen || `archivo ${n}`})`;
 }
 
-const AYUDA_NOMBRE_NO_ABRE = 'El nombre del archivo no abre este PDF. Escribe la contraseña.';
+export const AYUDA_NOMBRE_NO_ABRE = 'El nombre del archivo no abre este PDF. Escribe la contraseña.';
 const CASILLA = 'inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-[9px] px-1 text-sm transition-colors hover:bg-[color:var(--kit-hover)] lg:min-h-8';
 
 export default function ReintentoProtegidosSoat({ resultado, itemsProtegidos, items, onActualizar }: {
