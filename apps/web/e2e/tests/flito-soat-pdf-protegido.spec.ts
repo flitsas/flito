@@ -149,7 +149,7 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
 
     await expect(dialogo.getByText('Protegidos con contraseña 2')).toBeVisible();
     // Sin el nombre: se desmarca «en todos» y aparecen los campos de clave.
-    await dialogo.getByLabel('Usar el nombre en todos').uncheck();
+    await dialogo.getByLabel('Usar el nombre como contraseña', { exact: true }).uncheck();
     await expect(dialogo.getByLabel('Contraseña de b.pdf')).toBeVisible();
     await expect(dialogo.getByLabel('Contraseña de c.pdf')).toBeVisible();
     await expect(dialogo.getByLabel('Contraseña de a.pdf')).toHaveCount(0);
@@ -216,13 +216,13 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
     return { dialogo, peticiones, responder: (fn: (route: Route) => Promise<void>) => { respuestaSegunda = fn; } };
   }
 
-  test('masiva: casillas marcadas por defecto, «en todos» marca y desmarca, y la tanda alinea nombres y claves', async ({ page }) => {
+  test('masiva: casillas marcadas por defecto, «Usar el nombre como contraseña» marca y desmarca, y la tanda alinea nombres y claves', async ({ page }) => {
     const { dialogo, peticiones, responder } = await masivaConProtegidos(page, ['a.pdf', 'b.pdf', 'c.pdf']);
     responder((route) => json(route, {
       ...VACIO, pagados: [{ archivo: 'a.pdf', detalle: 'Pagado.' }, { archivo: 'c.pdf', detalle: 'Pagado.' }],
       protegidos: [PROTEGIDO('b.pdf')],
     }));
-    const todos = dialogo.getByLabel('Usar el nombre en todos');
+    const todos = dialogo.getByLabel('Usar el nombre como contraseña', { exact: true });
     for (const n of ['a.pdf', 'b.pdf', 'c.pdf']) await expect(dialogo.getByLabel(`Usar el nombre de ${n}`)).toBeChecked();
     await expect(todos).toBeChecked();
     // Marcada = sin campo de clave.
@@ -270,7 +270,7 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
     const { dialogo } = await masivaConProtegidos(page, ['a.pdf', largo]);
     await dialogo.getByLabel(`Usar el nombre de ${largo}`).uncheck();
     await expect(dialogo.getByLabel(`Contraseña de ${largo}`)).toBeVisible();
-    const casilla = dialogo.getByText('Usar el nombre en todos');
+    const casilla = dialogo.getByText('Usar el nombre como contraseña', { exact: true });
     const caja = await casilla.boundingBox();
     expect(caja!.x + caja!.width).toBeLessThanOrEqual(375);
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
