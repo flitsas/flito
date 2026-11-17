@@ -16,7 +16,7 @@ export { SECTION_ORDER, activeSectionForPath, navItemPermitido, type NavItem } f
 
 /** Elemento del catálogo (nivel 1) de cada sección. «Ayuda» es derivado: sin permiso propio. */
 const ELEMENTO_DE_SECCION: Record<NavItem['section'], string> = {
-  general: 'menu.general', gestion: 'menu.gestion', transito: 'menu.transito', flota: 'menu.flota',
+  general: 'menu.general', torre: 'menu.torre', gestion: 'menu.gestion', transito: 'menu.transito', flota: 'menu.flota',
   mantenimiento: 'menu.mantenimiento', pesv: 'menu.pesv', rndc: 'menu.rndc', laft: 'menu.laft',
   finanzas: 'menu.finanzas', admin: 'menu.administracion', ayuda: 'menu.ayuda',
 };
@@ -26,9 +26,15 @@ const NOMBRE_ITEM = new Map(
   ARBOL_PERMISOS.filter((n) => n.tipo === 'item' && n.slug).map((n) => [n.slug as string, n.nombre]),
 );
 
+/**
+ * Secciones de presentación sin elemento propio en el catálogo. La Torre de Control (Épica #14590) cuelga sus
+ * ítems de `menu.general` en Roles y permisos, pero en el menú es una sección aparte (spec UX §1).
+ */
+const ROTULO_SIN_ELEMENTO: Partial<Record<NavItem['section'], string>> = { torre: 'Torre de Control' };
+
 /** Rótulo de cada sección = nombre de su elemento en el catálogo (HU #13431, AC4). */
 export const SECTION_LABEL = Object.fromEntries(
-  SECTION_ORDER.map((s) => [s, NOMBRE_ELEMENTO.get(ELEMENTO_DE_SECCION[s]) ?? ELEMENTO_DE_SECCION[s]]),
+  SECTION_ORDER.map((s) => [s, NOMBRE_ELEMENTO.get(ELEMENTO_DE_SECCION[s]) ?? ROTULO_SIN_ELEMENTO[s] ?? ELEMENTO_DE_SECCION[s]]),
 ) as Record<NavItem['section'], string>;
 
 /**

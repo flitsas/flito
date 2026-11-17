@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import {
   IconHome, IconClipboard, IconRoad, IconTruck, IconWrench, IconShield,
-  IconPackage, IconScale, IconCog, IconWallet, IconHelp, type IconProps,
+  IconPackage, IconScale, IconCog, IconWallet, IconHelp, IconBell, type IconProps,
 } from '../flit/icons';
 import type { NavItem } from './navItems';
 
@@ -13,6 +13,8 @@ import type { NavItem } from './navItems';
 /** Icono por módulo. Antes vivía dentro de FlitSidebar.tsx. */
 export const SECTION_ICON: Record<NavItem['section'], ComponentType<IconProps>> = {
   general: IconHome,
+  // Torre de Control (Épica #14590): sin glifo propio en `flit/icons`; el dock del kit usa `ICONO_SECCION`.
+  torre: IconBell,
   gestion: IconClipboard,
   transito: IconRoad,
   flota: IconTruck,
@@ -30,6 +32,7 @@ export const SECTION_ICON: Record<NavItem['section'], ComponentType<IconProps>> 
 /** Color de acento del módulo. Siempre un token de marca, nunca un HEX suelto. */
 export const SECTION_ACCENT: Record<NavItem['section'], string> = {
   general:       'var(--flit-cyan)',
+  torre:         'var(--flit-blue)',
   gestion:       'var(--flit-blue)',
   transito:      'var(--flit-blue-text)',
   flota:         'var(--flit-cyan)',

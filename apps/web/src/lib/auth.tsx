@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, useEffect, ReactNode } from 'react';
 import { api, permisosApi, setToken, clearToken, SESSION_ENDED_EVENT } from './api';
 import { limpiarAvisos } from './conciliacionAviso';
+import { limpiarFiltrosTorre } from './torreFiltros';
 import { limpiarConversacionDrFlit } from './drFlitAlmacen';
 import { hasFuncion as hasFuncionDe, type UserRole } from './permissions';
 import type { TipoEnlace } from '@operaciones/shared-types';
@@ -147,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // igual, porque `localStorage` se comparte entre pestañas y `sessionStorage` no: cerrar sesión
       // en OTRA pestaña se lleva el token de esta —es el mismo— pero no sus avisos, y nadie escucha
       // el evento `storage`. Sin token no hay sesión cuyo aviso convenga preservar.
-      limpiarAvisos();
+      limpiarAvisos(); limpiarFiltrosTorre();
       limpiarConversacionDrFlit();
       setFunciones(null);
       setTipoEnlace(null);
@@ -163,7 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // arranca con un token que ya no sirve, y la sesión anterior no llegó a cerrarse por ninguno de
       // esos dos caminos —el 401 emite el evento, pero un 502 del proxy o la API caída no—. Sin esto,
       // los avisos de conciliación (importes y saldos de bolsa) se quedan en la pestaña.
-      .catch(() => { clearToken(); limpiarAvisos(); limpiarConversacionDrFlit(); setFunciones(null); })
+      .catch(() => { clearToken(); limpiarAvisos(); limpiarFiltrosTorre(); limpiarConversacionDrFlit(); setFunciones(null); })
       .finally(() => setLoading(false));
   }, [cargarMios]);
 
@@ -178,7 +179,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onSessionEnded = () => {
       clearToken();
-      limpiarAvisos();
+      limpiarAvisos(); limpiarFiltrosTorre();
       limpiarConversacionDrFlit();
       setUser(null);
       setFunciones(null);
@@ -200,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     clearToken();
-    limpiarAvisos();
+    limpiarAvisos(); limpiarFiltrosTorre();
     limpiarConversacionDrFlit();
     setUser(null);
     setFunciones(null);
