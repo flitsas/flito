@@ -154,15 +154,34 @@ describe('flito-soat carga factura — RBAC y validación', () => {
 });
 
 describe('flito-soat carga factura — reglas del flujo', () => {
-  it('factura que no cruza → 400 y no se archiva (no se cuelga del registro equivocado)', async () => {
+  it('factura que no cruza → 422 con el motivo y no se archiva (no se cuelga del registro equivocado; Bug #14569)', async () => {
     selectMock.mockReturnValueOnce(chain([soatEnAdquisicion])); // buscarConAcceso
     selectMock.mockReturnValueOnce(chain(datosCarga));          // datosCargaPorId
     extraerMock.mockResolvedValueOnce({ ...extraccionCruza, [CampoSoat.PLACA]: campo('XYZ999', 0.95), [CampoSoat.VIN]: campo('OTRO', 0.95) });
 
     const r = await request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`)
       .set('Authorization', await auth('admin')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
-    expect(r.status).toBe(400);
+    expect(r.status).toBe(422);
+    expect(r.body).toEqual({ error: expect.stringContaining('No corresponde a este SOAT, así que no se guardó.') });
+    expect(r.body.error).toContain('XYZ999'); // el motivo nombra la placa leída en el comprobante
     expect(uploadMock).not.toHaveBeenCalled(); // no se subió nada
+    expect(insertMock).not.toHaveBeenCalled(); // ni soporte ni pago
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('factura sin placa ni VIN legibles → 422 con el motivo y no se archiva (Bug #14569)', async () => {
+    selectMock.mockReturnValueOnce(chain([soatEnAdquisicion]));
+    selectMock.mockReturnValueOnce(chain(datosCarga));
+    const { [CampoSoat.PLACA]: _p, [CampoSoat.VIN]: _v, ...sinLlave } = extraccionCruza;
+    extraerMock.mockResolvedValueOnce(sinLlave);
+
+    const r = await request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`)
+      .set('Authorization', await auth('admin')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
+    expect(r.status).toBe(422);
+    expect(r.body.error).toContain('ni placa ni VIN');
+    expect(r.body.error).toContain('No corresponde a este SOAT, así que no se guardó.');
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(insertMock).not.toHaveBeenCalled();
   });
 
   it('factura duplicada (mismo hash) → 409 (CA-08)', async () => {
