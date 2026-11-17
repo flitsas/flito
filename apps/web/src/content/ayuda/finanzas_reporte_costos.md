@@ -11,7 +11,7 @@ consultas:
   - cuánto le pagamos al proveedor por un trámite
   - cómo elijo las columnas del reporte
   - cómo exporto el reporte de costos
-version: 2.4
+version: 2.5
 fecha: 2026-11-17
 ---
 ## Qué es

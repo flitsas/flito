@@ -8,7 +8,7 @@ palabras_clave:
 consultas:
   - cómo concilio el recaudo SOAT
   - por qué no cuadra la conciliación
-version: 1.5
+version: 1.6
 fecha: 2026-11-17
 ---
 ## Qué es

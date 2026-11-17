@@ -30,7 +30,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_tablero",
     "etiqueta": "Tablero",
     "resumen": "Retenciones, estancamientos y diferencias de operación.",
-    "version": "1.5",
+    "version": "1.6",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "tablero",
@@ -81,8 +81,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "dashboard",
     "etiqueta": "Tablero de control",
     "resumen": "Panel operativo de inicio con los indicadores, las alertas y los atajos de los módulos que usted puede abrir.",
-    "version": "1.1",
-    "fecha": "2026-11-12",
+    "version": "1.2",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "tablero de control",
       "panel operativo",
@@ -135,7 +135,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "clients",
     "etiqueta": "Clientes y proveedores",
     "resumen": "Empresas, servicios que gestiona FLITO y datos comerciales.",
-    "version": "3.5",
+    "version": "3.6",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "clientes",
@@ -212,7 +212,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_tramites",
     "etiqueta": "Gestión Trámites",
     "resumen": "Cómo despachar SOAT, impuestos y entregas.",
-    "version": "1.6",
+    "version": "1.7",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "trámites",
@@ -269,7 +269,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_derechos",
     "etiqueta": "Derechos",
     "resumen": "Lo que el organismo cobra por radicar.",
-    "version": "1.4",
+    "version": "1.5",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "derechos",
@@ -319,7 +319,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_revisiones",
     "etiqueta": "Revisiones OCR",
     "resumen": "Cola de confirmación de campos leídos.",
-    "version": "1.6",
+    "version": "1.7",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "revisiones",
@@ -371,7 +371,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_bitacora",
     "etiqueta": "Bitácora",
     "resumen": "Rastro de movimientos de un trámite.",
-    "version": "1.5",
+    "version": "1.6",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "bitácora",
@@ -421,7 +421,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_comparendos",
     "etiqueta": "Comparendos",
     "resumen": "Lo que SIMIT y los municipios reportan de los NIT vigilados.",
-    "version": "1.5",
+    "version": "1.6",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "comparendos",
@@ -471,7 +471,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_logistica",
     "etiqueta": "Logística",
     "resumen": "Viajes a FLIT o al cliente, despacho y seguimiento de los viajes.",
-    "version": "3.3",
+    "version": "3.4",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "logística",
@@ -584,7 +584,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_soat",
     "etiqueta": "SOAT",
     "resumen": "Cola de pólizas del proveedor.",
-    "version": "1.16",
+    "version": "1.17",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "SOAT",
@@ -637,7 +637,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_impuestos",
     "etiqueta": "Impuestos",
     "resumen": "Cola de recibos del gestor de impuestos.",
-    "version": "1.11",
+    "version": "1.12",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "impuestos",
@@ -690,8 +690,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "transito_organismos",
     "etiqueta": "Organismos de tránsito",
     "resumen": "Configuración de cada secretaría de tránsito, con su alias, su logo, la modalidad de gestión FLITO y la plantilla de documentos.",
-    "version": "1.0",
-    "fecha": "2026-10-22",
+    "version": "1.1",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "organismos de tránsito",
       "secretaría de movilidad",
@@ -744,7 +744,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "finanzas_reporte_costos",
     "etiqueta": "Reporte de costos",
     "resumen": "Lo que se cobra al cliente y lo que se paga al proveedor, trámite por trámite.",
-    "version": "2.4",
+    "version": "2.5",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "reporte de costos",
@@ -797,7 +797,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "finanzas_gastos_diarios",
     "etiqueta": "Gastos diarios",
     "resumen": "Cuánto se pagó cada día por SOAT, impuestos, derechos, logística y servicios adicionales.",
-    "version": "1.5",
+    "version": "1.6",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "gastos diarios",
@@ -848,7 +848,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_bolsas",
     "etiqueta": "Bolsas",
     "resumen": "Saldos, alta de bolsas, recargas y cierres.",
-    "version": "1.11",
+    "version": "1.12",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "bolsas",
@@ -917,7 +917,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_tarifas",
     "etiqueta": "Tarifas",
     "resumen": "Cuánto se le cobra a cada cliente y cuánto cobra cada proveedor por su servicio.",
-    "version": "2.3",
+    "version": "2.4",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "tarifas",
@@ -971,7 +971,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_servicios_adicionales",
     "etiqueta": "Servicios adicionales",
     "resumen": "Catálogo de servicios cobrados aparte del trámite y su valor.",
-    "version": "1.4",
+    "version": "1.5",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "servicios adicionales",
@@ -1020,7 +1020,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_comprobantes",
     "etiqueta": "Comprobantes",
     "resumen": "Cargue cualquier comprobante y revise lo que FLITO leyó.",
-    "version": "1.6",
+    "version": "1.7",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "comprobantes",
@@ -1080,7 +1080,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_conciliacion",
     "etiqueta": "Conciliación",
     "resumen": "Cruce del recaudo SOAT contra lo emitido.",
-    "version": "1.5",
+    "version": "1.6",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "conciliación",
@@ -1130,7 +1130,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "siigo_parametrizacion",
     "etiqueta": "Facturación electrónica · Parametrización",
     "resumen": "Catálogos, mapeo de conceptos y emisión.",
-    "version": "1.4",
+    "version": "1.5",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "facturación electrónica",
@@ -1180,7 +1180,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "siigo_operacion",
     "etiqueta": "Facturación electrónica · Operación",
     "resumen": "Bandeja de facturas y acciones del día a día.",
-    "version": "1.5",
+    "version": "1.6",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "facturación electrónica",
@@ -1230,8 +1230,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "privacy",
     "etiqueta": "Log accesos PII",
     "resumen": "Quién consultó datos personales, cuándo, qué campos y desde qué equipo. Solo se consulta.",
-    "version": "1.1",
-    "fecha": "2026-11-12",
+    "version": "1.2",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "log de accesos PII",
       "accesos a datos personales",
@@ -1283,8 +1283,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "users",
     "etiqueta": "Usuarios",
     "resumen": "Alta, edición, bloqueo y baja de las personas que entran a FLITO, con el historial de cambios.",
-    "version": "1.7",
-    "fecha": "2026-11-12",
+    "version": "1.8",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "usuarios",
       "gestión de usuarios",
@@ -1338,8 +1338,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "roles_permisos",
     "etiqueta": "Roles y permisos",
     "resumen": "Qué puede hacer cada rol dentro de FLITO.",
-    "version": "1.3",
-    "fecha": "2026-11-12",
+    "version": "1.4",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "roles",
       "permisos",
@@ -1389,8 +1389,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "drive",
     "etiqueta": "Google Drive",
     "resumen": "Carpetas y archivos de Google Drive compartidos con FLITO, y lectura de los PDF de cuentas de cobro.",
-    "version": "1.1",
-    "fecha": "2026-11-13",
+    "version": "1.2",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "Google Drive",
       "carpetas",
@@ -1441,8 +1441,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "privacy",
     "etiqueta": "Privacidad y datos",
     "resumen": "Derecho al olvido de la Ley 1581. Previsualice qué datos guarda FLITO de un documento y, si procede, anonimícelos.",
-    "version": "1.1",
-    "fecha": "2026-11-12",
+    "version": "1.2",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "privacidad y datos",
       "derecho al olvido",
@@ -1494,7 +1494,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "siigo_credenciales",
     "etiqueta": "Integración con Siigo",
     "resumen": "Credenciales de la integración. Solo administración.",
-    "version": "1.4",
+    "version": "1.5",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "Siigo",

@@ -11,7 +11,7 @@ consultas:
   - cómo cargo un recibo de impuestos
   - qué recibos están pendientes
   - cómo certifico un vehículo sin trámite
-version: 1.11
+version: 1.12
 fecha: 2026-11-17
 ---
 ## Qué es

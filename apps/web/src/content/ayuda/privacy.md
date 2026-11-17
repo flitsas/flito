@@ -11,8 +11,8 @@ consultas:
   - cómo atiendo una solicitud de derecho al olvido
   - cómo anonimizo los datos de una persona
   - qué datos guarda FLITO de un documento
-version: 1.1
-fecha: 2026-11-12
+version: 1.2
+fecha: 2026-11-17
 ---
 ## Qué es
 

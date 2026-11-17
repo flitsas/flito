@@ -10,8 +10,8 @@ consultas:
   - cómo proceso un PDF de cuentas de cobro
   - dónde veo los archivos de Google Drive
   - por qué no veo una carpeta de Drive
-version: 1.1
-fecha: 2026-11-13
+version: 1.2
+fecha: 2026-11-17
 ---
 ## Qué es
 
