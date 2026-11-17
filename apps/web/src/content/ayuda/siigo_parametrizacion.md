@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cómo mapeo un concepto en Siigo
   - cómo configuro la emisión de facturas
-version: 1.3
-fecha: 2026-11-13
+version: 1.4
+fecha: 2026-11-17
 ---
 ## Qué es
 
@@ -21,7 +21,7 @@ Financiera (consulta el mapeo; sincroniza terceros). Administrador (edita el map
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Finanzas** y, en el panel que se abre, el ítem **Facturación electrónica · Parametrización**. Las pestañas **Mapeo de conceptos** y **Terceros** son secciones de la misma pantalla. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «parametrización».
+En la barra de navegación al pie de la pantalla, pulse **Finanzas** y, en el panel que se abre, el ítem **Facturación electrónica · Parametrización**. Las pestañas **Mapeo de conceptos** y **Terceros** son secciones de la misma pantalla. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «parametrización».
 
 ## Pasos
 

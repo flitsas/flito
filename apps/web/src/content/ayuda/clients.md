@@ -35,8 +35,8 @@ consultas:
   - por qué no puedo eliminar un proveedor
   - por qué dice que ya existe un proveedor con ese nombre o ese NIT
   - qué hago si otro usuario cambió el proveedor mientras yo editaba
-version: 3.4
-fecha: 2026-11-13
+version: 3.5
+fecha: 2026-11-17
 ---
 ## Qué es
 
@@ -48,7 +48,7 @@ Administrador (crea compañías, marca los servicios que gestiona FLITO y edita 
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Maestros**, el ítem **Clientes y proveedores**. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «clientes».
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Maestros**, el ítem **Clientes y proveedores**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «clientes».
 
 ## Pasos
 

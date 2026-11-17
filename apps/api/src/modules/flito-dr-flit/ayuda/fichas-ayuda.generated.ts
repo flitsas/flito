@@ -30,8 +30,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_tablero",
     "etiqueta": "Tablero",
     "resumen": "Retenciones, estancamientos y diferencias de operación.",
-    "version": "1.4",
-    "fecha": "2026-11-13",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "tablero",
       "retenciones",
@@ -57,7 +57,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "Es lo primero que ve al iniciar sesión. Para volver a él, en la barra de navegación al pie de la pantalla pulse el primer ícono: sección General, ítem Tablero, que es enlace directo. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «tablero». No lo confunda con Tablero ejecutivo PESV."
+        "texto": "Es lo primero que ve al iniciar sesión. Para volver a él, en la barra de navegación al pie de la pantalla pulse el primer ícono: sección General, ítem Tablero, que es enlace directo. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «tablero». No lo confunda con Tablero ejecutivo PESV."
       },
       {
         "ancla": "pasos",
@@ -135,8 +135,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "clients",
     "etiqueta": "Clientes y proveedores",
     "resumen": "Empresas, servicios que gestiona FLITO y datos comerciales.",
-    "version": "3.4",
-    "fecha": "2026-11-13",
+    "version": "3.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "clientes",
       "proveedores",
@@ -188,7 +188,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Maestros, el ítem Clientes y proveedores. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «clientes»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Maestros, el ítem Clientes y proveedores. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «clientes»."
       },
       {
         "ancla": "pasos",
@@ -212,8 +212,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_tramites",
     "etiqueta": "Gestión Trámites",
     "resumen": "Cómo despachar SOAT, impuestos y entregas.",
-    "version": "1.5",
-    "fecha": "2026-11-13",
+    "version": "1.6",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "trámites",
       "despachar",
@@ -240,7 +240,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo Trámites del panel que se abre, el ítem Gestión Trámites. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «trámites». También se entra desde el Tablero, al pulsar una alerta operativa (el listado llega con el filtro ya aplicado)."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo Trámites del panel que se abre, el ítem Gestión Trámites. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «trámites». También se entra desde el Tablero, al pulsar una alerta operativa (el listado llega con el filtro ya aplicado)."
       },
       {
         "ancla": "pasos",
@@ -269,8 +269,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_derechos",
     "etiqueta": "Derechos",
     "resumen": "Lo que el organismo cobra por radicar.",
-    "version": "1.3",
-    "fecha": "2026-11-13",
+    "version": "1.4",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "derechos",
       "organismo de tránsito",
@@ -295,7 +295,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo Trámites del panel que se abre, el ítem Derechos. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «Derechos»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo Trámites del panel que se abre, el ítem Derechos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «Derechos»."
       },
       {
         "ancla": "pasos",
@@ -319,8 +319,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_revisiones",
     "etiqueta": "Revisiones OCR",
     "resumen": "Cola de confirmación de campos leídos.",
-    "version": "1.4",
-    "fecha": "2026-11-13",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "revisiones",
       "OCR",
@@ -345,7 +345,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Trámites, el ítem Revisiones OCR. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «revisiones»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Trámites, el ítem Revisiones OCR. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «revisiones»."
       },
       {
         "ancla": "pasos",
@@ -369,8 +369,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_bitacora",
     "etiqueta": "Bitácora",
     "resumen": "Rastro de movimientos de un trámite.",
-    "version": "1.4",
-    "fecha": "2026-11-13",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "bitácora",
       "historial",
@@ -395,7 +395,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Auditoría, el ítem Bitácora. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «bitácora»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Auditoría, el ítem Bitácora. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «bitácora»."
       },
       {
         "ancla": "pasos",
@@ -419,8 +419,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_comparendos",
     "etiqueta": "Comparendos",
     "resumen": "Lo que SIMIT y los municipios reportan de los NIT vigilados.",
-    "version": "1.4",
-    "fecha": "2026-11-13",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "comparendos",
       "SIMIT",
@@ -445,7 +445,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Comparendos, el ítem Comparendos. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «comparendos». La pantalla tiene tres pestañas: Registros (el visor, la que se abre), Sincronización y Configuración."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Comparendos, el ítem Comparendos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «comparendos». La pantalla tiene tres pestañas: Registros (el visor, la que se abre), Sincronización y Configuración."
       },
       {
         "ancla": "pasos",
@@ -469,8 +469,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_logistica",
     "etiqueta": "Logística",
     "resumen": "Viajes a FLIT o al cliente, despacho y seguimiento de los viajes.",
-    "version": "3.2",
-    "fecha": "2026-11-13",
+    "version": "3.3",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "logística",
       "viajes",
@@ -505,7 +505,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Logística, el ítem Logística. Un usuario con rol Proveedor lo tiene de partida si su proveedor presta Logística. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «logística»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Logística, el ítem Logística. Un usuario con rol Proveedor lo tiene de partida si su proveedor presta Logística. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «logística»."
       },
       {
         "ancla": "pasos",
@@ -529,8 +529,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_logistica_ruta",
     "etiqueta": "Mi ruta",
     "resumen": "Recogidas y entregas asignadas al mensajero.",
-    "version": "2.7",
-    "fecha": "2026-11-13",
+    "version": "2.8",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "mi ruta",
       "recogidas",
@@ -558,7 +558,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Logística, el ítem Mi ruta. (Visible para quien tenga el permiso de Mi ruta; de partida, el Mensajero.) Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «mi ruta»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el panel que se abre, en el grupo Logística, el ítem Mi ruta. (Visible para quien tenga el permiso de Mi ruta; de partida, el Mensajero.) Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «mi ruta»."
       },
       {
         "ancla": "pasos",
@@ -582,7 +582,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_soat",
     "etiqueta": "SOAT",
     "resumen": "Cola de pólizas del proveedor.",
-    "version": "1.13",
+    "version": "1.14",
     "fecha": "2026-11-17",
     "palabrasClave": [
       "SOAT",
@@ -610,7 +610,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo SOAT e Impuestos del panel que se abre, el ítem SOAT. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «SOAT»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo SOAT e Impuestos del panel que se abre, el ítem SOAT. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «SOAT»."
       },
       {
         "ancla": "pasos",
@@ -634,8 +634,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_impuestos",
     "etiqueta": "Impuestos",
     "resumen": "Cola de recibos del gestor de impuestos.",
-    "version": "1.10",
-    "fecha": "2026-11-13",
+    "version": "1.11",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "impuestos",
       "recibos",
@@ -663,7 +663,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo SOAT e Impuestos del panel que se abre, el ítem Impuestos. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «Impuestos»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Gestión y, en el grupo SOAT e Impuestos del panel que se abre, el ítem Impuestos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «Impuestos»."
       },
       {
         "ancla": "pasos",
@@ -741,8 +741,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "finanzas_reporte_costos",
     "etiqueta": "Reporte de costos",
     "resumen": "Lo que se cobra al cliente y lo que se paga al proveedor, trámite por trámite.",
-    "version": "2.3",
-    "fecha": "2026-11-13",
+    "version": "2.4",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "reporte de costos",
       "costos por trámite",
@@ -770,7 +770,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Reporte de costos. También desde Facturación electrónica · Operación, con el enlace ¿Buscas una factura concreta? Ve al reporte de costos. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «reporte de costos»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Reporte de costos. También desde Facturación electrónica · Operación, con el enlace ¿Buscas una factura concreta? Ve al reporte de costos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «reporte de costos»."
       },
       {
         "ancla": "pasos",
@@ -794,8 +794,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "finanzas_gastos_diarios",
     "etiqueta": "Gastos diarios",
     "resumen": "Cuánto se pagó cada día por SOAT, impuestos, derechos, logística y servicios adicionales.",
-    "version": "1.4",
-    "fecha": "2026-11-13",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "gastos diarios",
       "pagos del día",
@@ -821,7 +821,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Gastos diarios. Está justo después de Reporte de costos. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «gastos diarios»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Gastos diarios. Está justo después de Reporte de costos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «gastos diarios»."
       },
       {
         "ancla": "pasos",
@@ -845,8 +845,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_bolsas",
     "etiqueta": "Bolsas",
     "resumen": "Saldos, alta de bolsas, recargas y cierres.",
-    "version": "1.10",
-    "fecha": "2026-11-13",
+    "version": "1.11",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "bolsas",
       "saldos",
@@ -890,7 +890,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Bolsas. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «bolsas»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Bolsas. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «bolsas»."
       },
       {
         "ancla": "pasos",
@@ -914,8 +914,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_tarifas",
     "etiqueta": "Tarifas",
     "resumen": "Cuánto se le cobra a cada cliente y cuánto cobra cada proveedor por su servicio.",
-    "version": "2.2",
-    "fecha": "2026-11-13",
+    "version": "2.3",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "tarifas",
       "precios",
@@ -944,7 +944,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Tarifas. También desde Clientes y proveedores, con el botón Tarifas de la fila de una compañía, que abre esta pantalla con esa compañía ya elegida. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «tarifas»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Tarifas. También desde Clientes y proveedores, con el botón Tarifas de la fila de una compañía, que abre esta pantalla con esa compañía ya elegida. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «tarifas»."
       },
       {
         "ancla": "pasos",
@@ -968,8 +968,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_servicios_adicionales",
     "etiqueta": "Servicios adicionales",
     "resumen": "Catálogo de servicios cobrados aparte del trámite y su valor.",
-    "version": "1.3",
-    "fecha": "2026-11-13",
+    "version": "1.4",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "servicios adicionales",
       "catálogo de servicios",
@@ -993,7 +993,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Servicios adicionales. Está junto a Tarifas. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «servicios adicionales»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Servicios adicionales. Está junto a Tarifas. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «servicios adicionales»."
       },
       {
         "ancla": "pasos",
@@ -1017,8 +1017,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_comprobantes",
     "etiqueta": "Comprobantes",
     "resumen": "Cargue cualquier comprobante y revise lo que FLITO leyó.",
-    "version": "1.5",
-    "fecha": "2026-11-13",
+    "version": "1.6",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "comprobantes",
       "cargar comprobante",
@@ -1043,7 +1043,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Comprobantes. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «comprobantes»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Comprobantes. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «comprobantes»."
       },
       {
         "ancla": "pasos",
@@ -1077,8 +1077,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "flito_conciliacion",
     "etiqueta": "Conciliación",
     "resumen": "Cruce del recaudo SOAT contra lo emitido.",
-    "version": "1.4",
-    "fecha": "2026-11-13",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "conciliación",
       "recaudo",
@@ -1103,7 +1103,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Conciliación. El detalle de una boleta abre en su propia página (con Abrir), no en una ventana encima, para que el reporte de costos pueda enlazarla. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «conciliación»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Conciliación. El detalle de una boleta abre en su propia página (con Abrir), no en una ventana encima, para que el reporte de costos pueda enlazarla. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «conciliación»."
       },
       {
         "ancla": "pasos",
@@ -1127,8 +1127,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "siigo_parametrizacion",
     "etiqueta": "Facturación electrónica · Parametrización",
     "resumen": "Catálogos, mapeo de conceptos y emisión.",
-    "version": "1.3",
-    "fecha": "2026-11-13",
+    "version": "1.4",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "facturación electrónica",
       "Siigo",
@@ -1153,7 +1153,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Facturación electrónica · Parametrización. Las pestañas Mapeo de conceptos y Terceros son secciones de la misma pantalla. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «parametrización»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Facturación electrónica · Parametrización. Las pestañas Mapeo de conceptos y Terceros son secciones de la misma pantalla. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «parametrización»."
       },
       {
         "ancla": "pasos",
@@ -1177,8 +1177,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "siigo_operacion",
     "etiqueta": "Facturación electrónica · Operación",
     "resumen": "Bandeja de facturas y acciones del día a día.",
-    "version": "1.4",
-    "fecha": "2026-11-13",
+    "version": "1.5",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "facturación electrónica",
       "Siigo",
@@ -1203,7 +1203,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Facturación electrónica · Operación. En la cabecera: ¿Buscas una factura concreta? Ve al reporte de costos. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «facturación»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Finanzas y, en el panel que se abre, el ítem Facturación electrónica · Operación. En la cabecera: ¿Buscas una factura concreta? Ve al reporte de costos. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «facturación»."
       },
       {
         "ancla": "pasos",
@@ -1491,8 +1491,8 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     "permiso": "siigo_credenciales",
     "etiqueta": "Integración con Siigo",
     "resumen": "Credenciales de la integración. Solo administración.",
-    "version": "1.3",
-    "fecha": "2026-11-13",
+    "version": "1.4",
+    "fecha": "2026-11-17",
     "palabrasClave": [
       "Siigo",
       "credenciales",
@@ -1516,7 +1516,7 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
       {
         "ancla": "como-se-entra",
         "titulo": "Cómo se entra",
-        "texto": "En la barra de navegación al pie de la pantalla, pulse Administración y, en el panel que se abre, el ítem Integración con Siigo. También desde este capítulo de la ayuda, con Ir a la pantalla. Distíngala de Credenciales RNDC, que vive en la sección RNDC y es otra integración, y de Facturación electrónica · Parametrización y Operación, que están en Finanzas. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «siigo»."
+        "texto": "En la barra de navegación al pie de la pantalla, pulse Administración y, en el panel que se abre, el ítem Integración con Siigo. También desde este capítulo de la ayuda, con Ir a la pantalla. Distíngala de Credenciales RNDC, que vive en la sección RNDC y es otra integración, y de Facturación electrónica · Parametrización y Operación, que están en Finanzas. Si la sección no cabe en la barra, está en Más, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar Ctrl + K (Command + K en Mac) y escribir «siigo»."
       },
       {
         "ancla": "pasos",

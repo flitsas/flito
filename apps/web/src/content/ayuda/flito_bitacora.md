@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - dónde veo el historial de un trámite
   - quién cambió el estado de un trámite
-version: 1.4
-fecha: 2026-11-13
+version: 1.5
+fecha: 2026-11-17
 ---
 ## Qué es
 
@@ -21,7 +21,7 @@ Administrador y Auditor. Nadie edita ni borra movimientos desde esta pantalla.
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Auditoría**, el ítem **Bitácora**. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «bitácora».
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Auditoría**, el ítem **Bitácora**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «bitácora».
 
 ## Pasos
 

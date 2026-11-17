@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cómo consulto los comparendos de una empresa
   - qué reporta SIMIT de un NIT
-version: 1.4
-fecha: 2026-11-13
+version: 1.5
+fecha: 2026-11-17
 ---
 ## Qué es
 
@@ -21,7 +21,7 @@ Administrador. El Auditor, el Proveedor, el Gestor de Impuestos y el Mensajero n
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Comparendos**, el ítem **Comparendos**. Si la barra deja solo los íconos, el nombre de cada sección aparece al pasar el cursor por encima. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «comparendos».
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Comparendos**, el ítem **Comparendos**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «comparendos».
 
 La pantalla tiene tres pestañas: **Registros** (el visor, la que se abre), **Sincronización** y **Configuración**.
 
