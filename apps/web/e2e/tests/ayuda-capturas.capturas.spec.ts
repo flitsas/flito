@@ -1237,12 +1237,35 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
 
   test('flito_revisiones @capturas', async ({ page }) => {
     const dir = prepararCarpeta('flito_revisiones');
+    // BUG #14569: la primera póliza tiene DOS trámites con su placa (no se elige solo) y la segunda uno
+    // solo (se elige automáticamente): así 01 y 02 muestran pasos distintos.
+    const [rev1, rev2] = REVISIONES_DEMO;
+    const candidatos = [
+      ...REVISION_CANDIDATOS_SOAT,
+      { ...REVISION_CANDIDATOS_SOAT[0], id: 'soat-demo-3', idFlit: 'FLIT-DEMO-3', vin: rev2.extraccion.vin.valor.replace(/.$/, '0'),
+        etiqueta: `FLIT-DEMO-3 · ${rev1.placaSugerida}`, detalle: 'Chevrolet Onix' },
+      { ...REVISION_CANDIDATOS_SOAT[1], id: 'soat-demo-4', idFlit: 'FLIT-DEMO-4', placa: rev2.placaSugerida, vin: rev2.extraccion.vin.valor,
+        etiqueta: `FLIT-DEMO-4 · ${rev2.placaSugerida}`, detalle: 'Mazda 2' },
+    ];
+    // Punto 9: «Reintentar lectura» devuelve la segunda póliza con la confianza nueva.
+    const releida = { ...rev2, extraccion: Object.fromEntries(Object.entries(rev2.extraccion as Record<string, { valor: string }>)
+      .map(([k, c]) => [k, { valor: c.valor, confianza: 0.96, confiable: true }])) };
     const api = await interceptarApiDemo(page, [
       [/\/api\/flito\/revisiones$/, (route) => ({
         body: new URL(route.request().url()).searchParams.get('modulo') === 'soat' ? REVISIONES_DEMO : [],
       })],
       [/\/api\/flito\/revisiones\/campos\/soat$/, () => ({ body: REVISION_CAMPOS_SOAT })],
-      [/\/api\/flito\/soat$/, () => ({ body: REVISION_CANDIDATOS_SOAT })],
+      // BUG #14569: el buscador recibe placa/VIN en el body y devuelve las coincidencias exactas.
+      [/\/api\/flito\/revisiones\/[^/]+\/candidatos\/buscar$/, (route) => {
+        const b = (route.request().postDataJSON() ?? {}) as { placa?: string; vin?: string };
+        const items = candidatos
+          .map((c) => ({ ...c, coincide: { placa: !!b.placa && c.placa === b.placa, vin: !!b.vin && c.vin === b.vin } }))
+          .filter((c) => c.coincide.placa || c.coincide.vin);
+        return { body: { items, total: items.length, truncado: false, registroActual: null } };
+      }],
+      [/\/api\/flito\/revisiones\/[^/]+\/reintentar-lectura$/, () => ({
+        body: { revision: releida, sinLectura: false, camposLeidos: Object.keys(releida.extraccion).length },
+      })],
       [/\/api\/flito\/revisiones\/soporte\/[^/]+\/archivo$/, () => ({ body: PDF_DEMO, contentType: 'application/pdf' })],
     ]);
     await entrarComoAdminDemo(page);
@@ -1250,23 +1273,36 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await page.goto('/flito/revisiones');
     await expect(page.getByText(`poliza-${DATOS_DEMO.placas[0]}.pdf`).first()).toBeVisible();
     await expect(page.getByText('Número de póliza')).toBeVisible();
+    // Dos trámites con la placa leída: el campo queda por elegir.
+    await expect(page.getByLabel('Trámite contra el que se concilia *')).toHaveText('Selecciona el trámite…');
+    await page.waitForTimeout(500);
+    await expect(page.getByLabel('Trámite contra el que se concilia *')).toHaveText('Selecciona el trámite…');
 
     // Pasos 1 y 2 — Grupo, cola y documento.
+    await sinFoco(page);
     await capturar(page, dir, '01-cola-y-documento');
 
-    // Paso 3 — Elegir el trámite y revisar los campos.
-    await page.getByLabel('Trámite contra el que se concilia *').selectOption('soat-demo-1');
+    // Paso 3 — Elegir el trámite y revisar los campos (segunda póliza: un único trámite, elegido solo).
+    await page.getByRole('button', { name: new RegExp(`poliza-${DATOS_DEMO.placas[1]}\\.pdf`) }).click();
+    await expect(page.getByText(/Elegido automáticamente/)).toBeVisible();
     await expect(page.getByText('Leído del PDF')).toBeVisible();
     await sinFoco(page);
     await capturar(page, dir, '02-revisar-campos');
 
-    // Paso 4 — Confirmar y resolver deja constancia.
+    // Paso 4 — Reintentar lectura: vuelve a leer el documento sin resolver la revisión.
+    await page.getByRole('button', { name: 'Reintentar lectura' }).click();
+    await expect(page.getByText(/Lectura actualizada/)).toBeVisible();
+    await page.getByText(/Lectura actualizada/).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await sinFoco(page);
+    await capturar(page, dir, '04-reintentar-lectura');
+
+    // Paso 5 — Confirmar y resolver deja constancia.
     await page.getByRole('button', { name: 'Confirmar y resolver' }).click();
     await page.getByText('Deja constancia de qué validaste').evaluate((el) => el.scrollIntoView({ block: 'center' }));
     await sinFoco(page);
     await capturar(page, dir, '03-constancia');
 
-    comprobarCierre(api, dir, ['01-cola-y-documento.png', '02-revisar-campos.png', '03-constancia.png']);
+    comprobarCierre(api, dir, ['01-cola-y-documento.png', '02-revisar-campos.png', '03-constancia.png', '04-reintentar-lectura.png']);
   });
 
   test('clients @capturas', async ({ page }) => {

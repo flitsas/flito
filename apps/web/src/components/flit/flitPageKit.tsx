@@ -250,7 +250,20 @@ export function FlitTr({ children, marcada = false }: { children: ReactNode; mar
   );
 }
 
-export function FlitField({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * Con `inputId` el rótulo es un `<label htmlFor>` hermano del control en vez de envolverlo: lo
+ * necesitan los controles compuestos (un botón que abre un panel con su propio input y su lista),
+ * porque un `<label>` envolvente reenvía al botón cada clic hecho dentro del panel.
+ */
+export function FlitField({ label, children, inputId }: { label: string; children: ReactNode; inputId?: string }) {
+  if (inputId) {
+    return (
+      <div>
+        <label htmlFor={inputId} className="mb-1.5 block text-[0.8125rem] font-semibold text-[color:var(--color-text-primary)]">{label}</label>
+        {children}
+      </div>
+    );
+  }
   return (
     <label className="block">
       <span className="mb-1.5 block text-[0.8125rem] font-semibold text-[color:var(--color-text-primary)]">{label}</span>

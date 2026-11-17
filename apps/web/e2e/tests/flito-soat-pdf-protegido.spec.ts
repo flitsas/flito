@@ -61,15 +61,19 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
     await loginAs(page, USUARIO);
     await montar(page);
     const contrasenas: (string | null)[] = [];
+    const flags: (string | null)[] = [];
     await page.route(/\/api\/flito\/soat\/s2\/factura$/, (route) => {
       const clave = campo(route.request(), 'contrasena');
       contrasenas.push(clave);
+      flags.push(campo(route.request(), 'usarNombreComoClave'));
       if (clave === null) return json(route, { error: 'Este PDF está protegido con contraseña. Escríbela para cargarlo.', codigo: 'PDF_CIFRADO' }, 422);
       if (clave !== 'clave-buena') return json(route, { error: 'La contraseña no abre este PDF.', codigo: 'PDF_CONTRASENA_INCORRECTA' }, 422);
       return json(route, { ok: true });
     });
     await page.goto('/flito/soat');
     const dialogo = await abrirDetalle(page);
+    // Antes de elegir el archivo: probar el nombre como contraseña viene marcado.
+    await expect(dialogo.getByLabel('Usar el nombre del archivo como contraseña')).toBeChecked();
 
     await dialogo.locator('input[type="file"]').setInputFiles({ name: 'factura.pdf', mimeType: 'application/pdf', buffer: PDF_PLANO });
     await expect(dialogo.getByText('Este PDF está protegido. Escribe la contraseña para cargarlo.')).toBeVisible();
@@ -86,6 +90,7 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
     await dialogo.getByRole('button', { name: 'Cargar con contraseña' }).click();
     await expect(page.getByText('Comprobante de SOAT cargado para XYZ789.')).toBeVisible();
     expect(contrasenas).toEqual([null, 'clave-mala', 'clave-buena']);
+    expect(flags).toEqual(['true', 'true', 'true']);
     // La clave no viaja nunca en la URL ni queda en el almacenamiento local.
     expect(page.url()).not.toContain('clave');
     expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('clave-buena');
@@ -108,12 +113,12 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
   test('masiva: una clave por protegido y el reintento manda solo esos, con `contrasenas` alineado', async ({ page }) => {
     await loginAs(page, USUARIO);
     await montar(page);
-    const peticiones: { contrasenas: string | null; archivos: number }[] = [];
+    const peticiones: { contrasenas: string | null; nombres: string | null; archivos: number }[] = [];
     await page.route(/\/api\/flito\/soat\/facturas$/, (route) => {
       const req = route.request();
       const cuerpo = req.postDataBuffer()?.toString('latin1') ?? '';
       const contrasenas = campo(req, 'contrasenas');
-      peticiones.push({ contrasenas, archivos: (cuerpo.match(/name="archivos"/g) ?? []).length });
+      peticiones.push({ contrasenas, nombres: campo(req, 'nombresComoClave'), archivos: (cuerpo.match(/name="archivos"/g) ?? []).length });
       const vacio = { pagados: [], enRevision: [], duplicados: [], noAsociados: [], protegidos: [] };
       if (contrasenas === null) {
         return json(route, {
@@ -143,6 +148,8 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
     await dialogo.getByRole('button', { name: 'Subir y procesar' }).click();
 
     await expect(dialogo.getByText('Protegidos con contraseña 2')).toBeVisible();
+    // Sin el nombre: se desmarca «en todos» y aparecen los campos de clave.
+    await dialogo.getByLabel('Usar el nombre como contraseña', { exact: true }).uncheck();
     await expect(dialogo.getByLabel('Contraseña de b.pdf')).toBeVisible();
     await expect(dialogo.getByLabel('Contraseña de c.pdf')).toBeVisible();
     await expect(dialogo.getByLabel('Contraseña de a.pdf')).toHaveCount(0);
@@ -159,9 +166,115 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
     await expect(dialogo.getByText('Pagados 2')).toBeVisible();
 
     expect(peticiones).toEqual([
-      { contrasenas: null, archivos: 3 },
-      { contrasenas: JSON.stringify(['buena', 'mala']), archivos: 2 },
+      { contrasenas: null, nombres: null, archivos: 3 },
+      { contrasenas: JSON.stringify(['buena', 'mala']), nombres: null, archivos: 2 },
     ]);
+  });
+
+  test('detalle: desmarcar la casilla manda `usarNombreComoClave=false`', async ({ page }) => {
+    await loginAs(page, USUARIO);
+    await montar(page);
+    const flags: (string | null)[] = [];
+    await page.route(/\/api\/flito\/soat\/s2\/factura$/, (route) => {
+      flags.push(campo(route.request(), 'usarNombreComoClave'));
+      return json(route, { ok: true });
+    });
+    await page.goto('/flito/soat');
+    const dialogo = await abrirDetalle(page);
+    await dialogo.getByLabel('Usar el nombre del archivo como contraseña').uncheck();
+    await dialogo.locator('input[type="file"]').setInputFiles({ name: 'factura.pdf', mimeType: 'application/pdf', buffer: PDF_PLANO });
+    await expect(page.getByText('Comprobante de SOAT cargado para XYZ789.')).toBeVisible();
+    expect(flags).toEqual(['false']);
+  });
+
+  const PROTEGIDO = (archivo: string, detalle = 'Protegido con contraseña.') => ({ archivo, placa: null, soatId: null, detalle });
+  const VACIO = { pagados: [], enRevision: [], duplicados: [], noAsociados: [], protegidos: [] };
+
+  /** Abre la masiva, sube `nombres` y deja la primera respuesta con todos protegidos. */
+  async function masivaConProtegidos(page: Page, nombres: string[]) {
+    await loginAs(page, USUARIO);
+    await montar(page);
+    const peticiones: { contrasenas: string | null; nombres: string | null; archivos: number }[] = [];
+    let respuestaSegunda: (route: Route) => Promise<void> = (route) => json(route, VACIO);
+    await page.route(/\/api\/flito\/soat\/facturas$/, async (route) => {
+      const req = route.request();
+      const cuerpo = req.postDataBuffer()?.toString('latin1') ?? '';
+      peticiones.push({
+        contrasenas: campo(req, 'contrasenas'), nombres: campo(req, 'nombresComoClave'),
+        archivos: (cuerpo.match(/name="archivos"/g) ?? []).length,
+      });
+      if (peticiones.length === 1) return json(route, { ...VACIO, protegidos: nombres.map((n) => PROTEGIDO(n)) });
+      return respuestaSegunda(route);
+    });
+    await page.goto('/flito/soat');
+    await page.getByRole('button', { name: 'Cargar comprobantes de SOAT (masivo)' }).click();
+    const dialogo = page.getByRole('dialog');
+    await dialogo.getByLabel('Facturas o ZIP de la carga masiva').setInputFiles(
+      nombres.map((name) => ({ name, mimeType: 'application/pdf', buffer: PDF_PLANO })));
+    await dialogo.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(dialogo.getByText(`Protegidos con contraseña ${nombres.length}`)).toBeVisible();
+    return { dialogo, peticiones, responder: (fn: (route: Route) => Promise<void>) => { respuestaSegunda = fn; } };
+  }
+
+  test('masiva: casillas marcadas por defecto, «Usar el nombre como contraseña» marca y desmarca, y la tanda alinea nombres y claves', async ({ page }) => {
+    const { dialogo, peticiones, responder } = await masivaConProtegidos(page, ['a.pdf', 'b.pdf', 'c.pdf']);
+    responder((route) => json(route, {
+      ...VACIO, pagados: [{ archivo: 'a.pdf', detalle: 'Pagado.' }, { archivo: 'c.pdf', detalle: 'Pagado.' }],
+      protegidos: [PROTEGIDO('b.pdf')],
+    }));
+    const todos = dialogo.getByLabel('Usar el nombre como contraseña', { exact: true });
+    for (const n of ['a.pdf', 'b.pdf', 'c.pdf']) await expect(dialogo.getByLabel(`Usar el nombre de ${n}`)).toBeChecked();
+    await expect(todos).toBeChecked();
+    // Marcada = sin campo de clave.
+    await expect(dialogo.getByLabel('Contraseña de a.pdf')).toHaveCount(0);
+
+    await todos.uncheck();
+    for (const n of ['a.pdf', 'b.pdf', 'c.pdf']) await expect(dialogo.getByLabel(`Usar el nombre de ${n}`)).not.toBeChecked();
+    await expect(dialogo.getByRole('button', { name: 'Reintentar con contraseña' })).toBeDisabled();
+    await todos.check();
+    for (const n of ['a.pdf', 'b.pdf', 'c.pdf']) await expect(dialogo.getByLabel(`Usar el nombre de ${n}`)).toBeChecked();
+
+    await dialogo.getByLabel('Usar el nombre de c.pdf').uncheck();
+    expect(await todos.evaluate((el) => (el as HTMLInputElement).indeterminate)).toBe(true);
+    await dialogo.getByLabel('Contraseña de c.pdf').fill('x');
+    await dialogo.getByRole('button', { name: 'Reintentar con contraseña' }).click();
+
+    await expect(dialogo.getByText('Protegidos con contraseña 1')).toBeVisible();
+    // b.pdf no abrió con su nombre: vuelve desmarcada, con el campo y la ayuda.
+    await expect(dialogo.getByLabel('Usar el nombre de b.pdf')).not.toBeChecked();
+    await expect(dialogo.getByLabel('Contraseña de b.pdf')).toBeVisible();
+    await expect(dialogo.getByText('El nombre del archivo no abre este PDF. Escribe la contraseña.')).toBeVisible();
+    await expect(dialogo.getByRole('button', { name: 'Reintentar con contraseña' })).toBeDisabled();
+
+    expect(peticiones).toEqual([
+      { contrasenas: null, nombres: null, archivos: 3 },
+      { contrasenas: JSON.stringify(['', '', 'x']), nombres: JSON.stringify([true, true, false]), archivos: 3 },
+    ]);
+  });
+
+  test('masiva: el reintento solo por nombre no manda `contrasenas` y el 429 se muestra en el aviso', async ({ page }) => {
+    const { dialogo, peticiones, responder } = await masivaConProtegidos(page, ['a.pdf', 'b.pdf']);
+    responder((route) => json(route, {
+      error: 'Demasiados intentos de abrir PDFs protegidos con el nombre del archivo. Espera unos minutos e intenta de nuevo.',
+    }, 429));
+    await dialogo.getByRole('button', { name: 'Reintentar con contraseña' }).click();
+    await expect(dialogo.getByRole('alert').filter({
+      hasText: 'Demasiados intentos de abrir PDFs protegidos con el nombre del archivo. Espera unos minutos e intenta de nuevo.',
+    })).toBeVisible();
+    expect(peticiones[1]).toEqual({ contrasenas: null, nombres: JSON.stringify([true, true]), archivos: 2 });
+  });
+
+  test('masiva a 375 px: la sección de protegidos con filas mezcladas no desborda', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    const largo = 'factura-soat-aseguradora-alfa-placa-XYZ789-2026-11-17.pdf';
+    const { dialogo } = await masivaConProtegidos(page, ['a.pdf', largo]);
+    await dialogo.getByLabel(`Usar el nombre de ${largo}`).uncheck();
+    await expect(dialogo.getByLabel(`Contraseña de ${largo}`)).toBeVisible();
+    const casilla = dialogo.getByText('Usar el nombre como contraseña', { exact: true });
+    const caja = await casilla.boundingBox();
+    expect(caja!.x + caja!.width).toBeLessThanOrEqual(375);
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(desborde).toBeLessThanOrEqual(0);
   });
 
   async function abrirVisorProtegido(page: Page) {

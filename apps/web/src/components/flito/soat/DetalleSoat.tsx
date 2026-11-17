@@ -38,7 +38,8 @@ type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'proveedor' | 'as
 
 /** Si el servidor contestó un 409/422 con una frase de NEGOCIO, esa; si no, la del botón. */
 function textoError(e: unknown, queSeIntento: string): string {
-  if (e instanceof ApiError && (e.status === 409 || e.status === 422)) {
+  // 429: el límite de abrir PDF con el nombre del archivo trae su propio copy (BUG #14569).
+  if (e instanceof ApiError && (e.status === 409 || e.status === 422 || e.status === 429)) {
     const cuerpo = e.rawDetails as { error?: unknown } | null | undefined;
     const texto = typeof cuerpo?.error === 'string' ? cuerpo.error.trim() : '';
     if (texto) return texto;
@@ -100,6 +101,8 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
   // vive aquí y en el cuerpo del reenvío; se limpia al cargar, al cancelar y tras cada intento.
   const [protegido, setProtegido] = useState<{ archivo: File; incorrecta: boolean } | null>(null);
   const [contrasena, setContrasena] = useState('');
+  // BUG #14569: probar el nombre del archivo como contraseña antes de pedirla. Marcada por defecto.
+  const [usarNombre, setUsarNombre] = useState(true);
 
   const placa = soat.placa ?? 'el SOAT';
   const enAdquisicion = soat.estado === EstadoSoat.SOLICITADO;
@@ -135,6 +138,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
     try {
       const form = new FormData(); form.append('archivo', file);
       if (clave) form.append('contrasena', clave);
+      form.append('usarNombreComoClave', usarNombre ? 'true' : 'false');
       await api.post(`/flito/soat/${soat.id}/factura`, form);
       setProtegido(null); setContrasena('');
       toastOk(`Comprobante de SOAT cargado para ${placa}.`); onCambio();
@@ -231,6 +235,14 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
                 {enviando ? 'Cargando…' : 'Cargar comprobante de SOAT'}
                 <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="sr-only" disabled={enviando}
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) void subirFactura(f); e.target.value = ''; }} />
+              </label>
+            )}
+            {cargaFactura && (
+              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-[9px] px-1 text-sm transition-colors hover:bg-[color:var(--kit-hover)] lg:min-h-10"
+                style={{ color: 'var(--color-text-primary)' }}>
+                <input type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer accent-[var(--kit-azul)]" checked={usarNombre}
+                  disabled={enviando} onChange={(e) => setUsarNombre(e.target.checked)} />
+                Usar el nombre del archivo como contraseña
               </label>
             )}
             {rechazable && (

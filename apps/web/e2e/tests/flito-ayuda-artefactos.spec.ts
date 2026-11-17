@@ -298,13 +298,14 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // son de solo lectura y de tres pasos o menos: sin diagrama.
   const SOAT_13771: Record<string, { version: string; capturas: string[]; diagrama: string | null; fecha?: string }> = {
     // HU #13968: SOAT sin trámite por proveedor (soat y clients cambiaron de nuevo).
-    soat: { version: '1.14', fecha: '2026-11-17', diagrama: 'ciclo-soat.svg', capturas: [
+    soat: { version: '1.15', fecha: '2026-11-17', diagrama: 'ciclo-soat.svg', capturas: [
       '01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png'] },
     // Bug #14532: Liquidación y Pagado en la ventana del ZIP (04-documentos-del-zip regenerada).
     flito_tramites: { version: '1.6', fecha: '2026-11-17', diagrama: 'camino-a-entregar.svg', capturas: [
       '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-seleccion.png', '04-documentos-del-zip.png'] },
-    flito_revisiones: { version: '1.5', fecha: '2026-11-17', diagrama: 'resolver-o-descartar.svg', capturas: [
-      '01-cola-y-documento.png', '02-revisar-campos.png', '03-constancia.png'] },
+    // BUG #14569: buscador de trámite (1.3) y Reintentar lectura (1.4, 04-reintentar-lectura nueva); 1.6 = merge con el rediseño.
+    flito_revisiones: { version: '1.6', fecha: '2026-11-17', diagrama: 'resolver-o-descartar.svg', capturas: [
+      '01-cola-y-documento.png', '02-revisar-campos.png', '04-reintentar-lectura.png', '03-constancia.png'] },
     flito_bitacora: { version: '1.5', fecha: '2026-11-17', diagrama: null, capturas: ['01-movimientos.png'] },
     flito_comparendos: { version: '1.5', fecha: '2026-11-17', diagrama: 'ciclo-monitoreo.svg', capturas: [
       '01-registros.png', '02-detalle.png', '03-sincronizacion.png', '04-configuracion.png'] },
