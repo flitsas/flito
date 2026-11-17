@@ -111,7 +111,11 @@ test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visible
   });
 
   test('sin capítulos visibles: no hay «Ayuda» y la ruta directa es «sin acceso»', async ({ page }) => {
-    await loginAs(page, CONDUCTOR_USER);
+    // Desde las HU #13775 (ficha «Tablero de control», permiso `dashboard`) y #13914 (cada usuario ve las
+    // fichas de las pantallas que abre), el Conductor YA tiene un capítulo: `dashboard` le llega por los
+    // defaults de su rol. El caso «sin capítulos» exige un rol sin defaults (creado por el admin, HU #12169)
+    // con una sola página que no tiene ficha (`pesv`).
+    await loginAs(page, { ...CONDUCTOR_USER, role: 'e2e_sin_fichas', allowedPages: ['pesv'] });
     await page.goto('/');
     await expect(nav(page)).toBeVisible();
     await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
@@ -122,8 +126,10 @@ test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visible
     await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
     await expect(page.getByRole('option', { name: /^Ayuda/ })).toHaveCount(0);
     await page.keyboard.press('Escape');
+    // El índice sin capítulos ya no es NoAccess (gate de App.tsx, igual en develop): es el vacío con su
+    // siguiente paso. La puerta sigue cerrada: ni enlace, ni ⌘K, ni capítulo que abrir.
     await page.goto('/flito/ayuda');
-    await expect(page.getByRole('heading', { name: /no tienes acceso a ayuda flito/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Su usuario aún no tiene módulos con ayuda' })).toBeVisible();
   });
 });
 
