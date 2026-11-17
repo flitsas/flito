@@ -7,6 +7,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import JSZip from 'jszip';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
 import { CampoSoat, MotivoRevision } from '@operaciones/shared-types';
@@ -366,6 +369,27 @@ describe('flito-soat carga factura — PDF protegido con contraseña (Bug #14569
       expect(r.body.protegidos).toEqual([]);
       expect(r.body.noAsociados.map((i: { archivo: string }) => i.archivo)).toEqual(['protegido.pdf', 'normal.pdf']);
       expect(extraerMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('ZIP con un PDF cifrado + uno normal → el cifrado sale en `protegidos` con el nombre de su entrada; el otro sigue', async () => {
+      const FIXTURE = readFileSync(fileURLToPath(new URL('../fixtures/soat/factura-cifrada.pdf', import.meta.url)));
+      const zip = new JSZip();
+      zip.file('lote/factura-cifrada.pdf', FIXTURE);
+      zip.file('lote/normal.pdf', NORMAL);
+      const contenidoZip = await zip.generateAsync({ type: 'nodebuffer' });
+      normalSinCruce();
+      // El detector simulado reconoce los bytes del fixture: prueba que la entrada llega intacta del ZIP.
+      abrirPdfMock.mockImplementation(async (buf: Buffer) => (buf.equals(FIXTURE)
+        ? { estado: 'requiere-contrasena' } as never
+        : { estado: 'abierto' as const, buffer: buf }));
+      const r = await request(await buildApp()).post('/api/flito/soat/facturas').set('Authorization', await auth('admin'))
+        .attach('archivos', contenidoZip, { filename: 'lote.zip', contentType: 'application/zip' });
+      expect(r.status).toBe(200);
+      expect(r.body.protegidos).toEqual([{ archivo: 'factura-cifrada.pdf', placa: null, soatId: null, detalle: 'Protegido con contraseña.' }]);
+      expect(r.body.noAsociados.map((i: { archivo: string }) => i.archivo)).toEqual(['normal.pdf']);
+      expect(abrirPdfMock).toHaveBeenCalledTimes(2);
+      expect(extraerMock).toHaveBeenCalledTimes(1); // solo el normal pasó por OCR
+      expect(uploadMock).not.toHaveBeenCalled();
     });
 
     it('contrasenas con largo distinto al de archivos → 400 sin repetir el valor ni procesar nada', async () => {
