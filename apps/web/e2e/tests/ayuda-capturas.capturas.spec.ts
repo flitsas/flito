@@ -1241,7 +1241,14 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
         body: new URL(route.request().url()).searchParams.get('modulo') === 'soat' ? REVISIONES_DEMO : [],
       })],
       [/\/api\/flito\/revisiones\/campos\/soat$/, () => ({ body: REVISION_CAMPOS_SOAT })],
-      [/\/api\/flito\/soat$/, () => ({ body: REVISION_CANDIDATOS_SOAT })],
+      // BUG #14569: el buscador recibe placa/VIN en el body y devuelve las coincidencias exactas.
+      [/\/api\/flito\/revisiones\/[^/]+\/candidatos\/buscar$/, (route) => {
+        const b = (route.request().postDataJSON() ?? {}) as { placa?: string; vin?: string };
+        const items = REVISION_CANDIDATOS_SOAT
+          .map((c) => ({ ...c, coincide: { placa: !!b.placa && c.placa === b.placa, vin: !!b.vin && c.vin === b.vin } }))
+          .filter((c) => c.coincide.placa || c.coincide.vin);
+        return { body: { items, total: items.length, truncado: false, registroActual: null } };
+      }],
       [/\/api\/flito\/revisiones\/soporte\/[^/]+\/archivo$/, () => ({ body: PDF_DEMO, contentType: 'application/pdf' })],
     ]);
     await entrarComoAdminDemo(page);
@@ -1254,7 +1261,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '01-cola-y-documento');
 
     // Paso 3 — Elegir el trámite y revisar los campos.
-    await page.getByLabel('Trámite contra el que se concilia *').selectOption('soat-demo-1');
+    // BUG #14569: con un único trámite que coincide con la placa leída, viene elegido solo.
+    await expect(page.getByText(/Elegido automáticamente/)).toBeVisible();
     await expect(page.getByText('Leído del PDF')).toBeVisible();
     await sinFoco(page);
     await capturar(page, dir, '02-revisar-campos');

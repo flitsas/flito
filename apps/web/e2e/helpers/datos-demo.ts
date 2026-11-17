@@ -766,9 +766,11 @@ export const REVISIONES_DEMO = [
 ];
 export const REVISION_CAMPOS_SOAT = ['placa', 'vin', 'numeroPoliza', 'vigenciaDesde', 'vigenciaHasta', 'valorTotal', 'aseguradora'];
 /** Candidatos del selector «Trámite contra el que se concilia» (lista corta de la cola SOAT). */
+// BUG #14569: forma de `CandidatoRevisionDto` (buscador `POST /flito/revisiones/:id/candidatos/buscar`).
+// `coincide` se calcula en el interceptor contra la placa/VIN del body, como hace el servidor.
 export const REVISION_CANDIDATOS_SOAT = [
-  { id: 'soat-demo-1', vin: V[0], placa: P[0], marca: 'Chevrolet', linea: 'Onix' },
-  { id: 'soat-demo-2', vin: V[2], placa: P[2], marca: 'Renault', linea: 'Duster' },
+  { id: 'soat-demo-1', idFlit: 'FLIT-DEMO-1', vin: V[0], placa: P[0], etiqueta: `FLIT-DEMO-1 · ${P[0]}`, detalle: 'Chevrolet Onix', seleccionable: true, motivoNoSeleccionable: null },
+  { id: 'soat-demo-2', idFlit: 'FLIT-DEMO-2', vin: V[2], placa: P[2], etiqueta: `FLIT-DEMO-2 · ${P[2]}`, detalle: 'Renault Duster', seleccionable: true, motivoNoSeleccionable: null },
 ];
 /** PDF mínimo del soporte (una página con texto «documento demo»). */
 export const PDF_DEMO = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n'
