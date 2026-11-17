@@ -11,8 +11,8 @@ consultas:
   - qué entregas tengo asignadas
   - cómo marco una recogida como hecha
   - qué significa el aviso en flit en una recogida
-version: 2.5
-fecha: 2026-11-06
+version: 2.8
+fecha: 2026-11-17
 ---
 ## Qué es
 
@@ -24,7 +24,7 @@ Quien tenga el permiso de **Mi ruta**; de partida, el Mensajero (se reparte desd
 
 ## Cómo se entra
 
-En el menú lateral, sección **Gestión**, ítem **Mi ruta** (visible para quien tenga el permiso de **Mi ruta**; de partida, el Mensajero).
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Logística**, el ítem **Mi ruta**. (Visible para quien tenga el permiso de **Mi ruta**; de partida, el Mensajero.) Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «mi ruta».
 
 ## Pasos
 

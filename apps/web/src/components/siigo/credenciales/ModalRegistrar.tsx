@@ -1,4 +1,4 @@
-// Alta de una credencial de Siigo (HU #11890, AC1 y AC2).
+// Alta de una credencial de Siigo (HU 11890, AC1 y AC2).
 //
 // Tres decisiones que se leen mal si no se dicen:
 //
@@ -21,7 +21,8 @@
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
 import { ApiError, api, errorMessage } from '../../../lib/api';
 import FlitModal from '../../flit/FlitModal';
-import GradientButton from '../../flit/GradientButton';
+import GradientButton, { claseBoton } from '../../flit/GradientButton';
+import { Icono } from '../../flit/kit/Icono';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 import { inputCls } from '../estilos';
 import {
@@ -178,22 +179,16 @@ export default function ModalRegistrar(
   return (
     <FlitModal
       title={`Registrar credencial · ${ETIQUETA_AMBIENTE[ambiente]}`}
+      icono="candado"
       onClose={onCerrar}
       wide
       restoreFocusRef={restoreFocusRef}
     >
       <form onSubmit={guardar} className="flex flex-col gap-4" noValidate>
-        <div
-          className="px-4 py-3 text-sm"
-          style={{
-            borderRadius: 'var(--flit-radius-card)',
-            borderLeft: `4px solid ${esProduccion ? 'var(--flit-danger)' : 'var(--flit-border-input)'}`,
-            background: 'white',
-            color: 'var(--flit-text-primary)',
-          }}
-        >
-          <p style={esProduccion ? { color: 'var(--flit-danger-ink)', fontWeight: 600 } : undefined}>
-            {esProduccion && <span aria-hidden="true">⚠ </span>}
+        <div className="kit-alerta" data-kit="alerta" data-tono={esProduccion ? 'danger' : 'info'}>
+          <img src={esProduccion ? '/kit/aviso-error.svg' : '/kit/aviso-info.svg'} alt="" aria-hidden="true" className="kit-alerta__icono" />
+          <div className="min-w-0 flex-1 text-sm">
+          <p className={esProduccion ? 'm-0 font-semibold' : 'm-0'}>
             {esProduccion
               ? 'Vas a registrar la credencial de PRODUCCIÓN. Desde que guardes, es la que FLITO usará para emitir facturas ante la DIAN.'
               : 'Es el ambiente de pruebas: nada de lo que se emita aquí llega a la DIAN.'}
@@ -205,10 +200,11 @@ export default function ModalRegistrar(
               historial se conserva.
             </p>
           )}
+          </div>
         </div>
 
-        <div>
-          <label htmlFor={idUsuario} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <div className="campo">
+          <label htmlFor={idUsuario}>
             Usuario de Siigo *
           </label>
           <input
@@ -228,15 +224,15 @@ export default function ModalRegistrar(
           <p
             id={idAyudaUsuario}
             role={errores.username ? 'alert' : undefined}
-            className="mt-1 text-xs"
-            style={{ color: errores.username ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}
+            className="m-0 text-xs"
+            style={{ color: errores.username ? 'var(--kit-naranja-texto)' : 'var(--color-text-tertiary)' }}
           >
             {errores.username ?? `El usuario de la cuenta de Siigo Nube. Entre ${USUARIO_MIN} y ${USUARIO_MAX} caracteres.`}
           </p>
         </div>
 
-        <div>
-          <label htmlFor={idAccessKey} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <div className="campo">
+          <label htmlFor={idAccessKey}>
             Access key *
           </label>
           <div className="flex items-start gap-2">
@@ -272,7 +268,7 @@ export default function ModalRegistrar(
               className={`${flitBtnSecondary} shrink-0`}
               style={flitBtnSecondaryStyle}
             >
-              <span aria-hidden="true">👁 </span>
+              <Icono nombre={mostrar ? 'ojo-tachado' : 'ojo'} size={18} />
               {mostrar ? 'Ocultar' : 'Mostrar'}
               <span className="sr-only"> la access key</span>
             </button>
@@ -280,21 +276,21 @@ export default function ModalRegistrar(
           <p
             id={idAyudaAccessKey}
             role={errores.accessKey ? 'alert' : undefined}
-            className="mt-1 text-xs"
-            style={{ color: errores.accessKey ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}
+            className="m-0 text-xs"
+            style={{ color: errores.accessKey ? 'var(--kit-naranja-texto)' : 'var(--color-text-tertiary)' }}
           >
             {errores.accessKey
               ?? `Se genera en Siigo Nube, en Configuración › API. Entre ${ACCESS_KEY_MIN} y ${ACCESS_KEY_MAX} caracteres.`}
           </p>
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-            <span aria-hidden="true">🔒 </span>
+          <p className="mt-1 flex items-start gap-1.5 text-xs text-[color:var(--color-text-secondary)]">
+            <Icono nombre="candado" size={14} />
             Se cifra al guardar y NO se puede volver a consultar desde FLITO. Si la pierdes, genera
             una nueva en Siigo Nube y regístrala otra vez.
           </p>
         </div>
 
-        <div>
-          <label htmlFor={idNotas} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <div className="campo">
+          <label htmlFor={idNotas}>
             Notas (opcional)
           </label>
           <textarea
@@ -312,8 +308,8 @@ export default function ModalRegistrar(
           <p
             id={idAyudaNotas}
             role={errores.notas ? 'alert' : undefined}
-            className="mt-1 text-xs"
-            style={{ color: errores.notas ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}
+            className="m-0 text-xs"
+            style={{ color: errores.notas ? 'var(--kit-naranja-texto)' : 'var(--color-text-tertiary)' }}
           >
             {errores.notas ?? 'Para recordar de qué cuenta es. No escribas aquí la clave.'}
             {' '}{notas.length}/{NOTAS_MAX}
@@ -325,20 +321,21 @@ export default function ModalRegistrar(
             ref={refAlerta}
             role="alert"
             tabIndex={-1}
-            className="flit-focus rounded px-1 text-sm font-semibold"
-            style={{ color: 'var(--flit-danger-ink)' }}
+            className="kit-alerta flit-focus text-sm font-semibold"
+            data-kit="alerta"
+            data-tono="danger"
           >
-            <span aria-hidden="true">⚠ </span>{alerta}
+            <img src="/kit/aviso-error.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />{alerta}
           </p>
         )}
 
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Es una llave de la empresa: no la guardes en el gestor de contraseñas de tu navegador
           personal.
         </p>
 
         <div className="flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={onCerrar} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>
+          <button type="button" onClick={onCerrar} className={claseBoton('secondary')} data-variante="secundario">
             Cancelar
           </button>
           <GradientButton type="submit" disabled={guardando || bloqueado}>

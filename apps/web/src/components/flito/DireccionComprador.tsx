@@ -1,4 +1,4 @@
-// FLITO — Impuestos: dirección del comprador en el detalle (HU #12834, Épica #12809).
+// FLITO — Impuestos: dirección del comprador en el detalle (HU 12834, Épica 12809).
 // Vive fuera de `DetalleImpuesto.tsx` por el reparto de la spec (docs/ux/impuestos-analisis-factura-runt.md,
 // «Reparto de archivos»): el detalle solo monta `AvisoDireccion` arriba y `DireccionComprador` bajo la
 // sección de validación.
@@ -6,18 +6,17 @@
 // La dirección es PII: viaja solo en el body del PATCH, nunca en la URL, y no se loguea.
 
 import { useState, type FormEvent, type RefObject } from 'react';
-import { LoaderCircle, TriangleAlert } from 'lucide-react';
 import type { CorregirDireccionImpuestoBody, DireccionCompradorImpuesto } from '@operaciones/shared-types';
 import { ApiError, api } from '../../lib/api';
+import { Girador } from '../flit/Cargador';
+import GradientButton from '../flit/GradientButton';
 import { toastOk } from '../flit/ToastFlito';
-import {
-  FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondarySm, flitBtnSecondaryStyle, flitInp,
-} from '../flit/flitPageKit';
+import { FlitField, flitInp } from '../flit/flitPageKit';
 import { fecha } from './ImpuestoCola';
 
 type Campo = keyof CorregirDireccionImpuestoBody;
 
-/** Los topes del PATCH (zod en la API, HU #12833). Se aplican aquí para que el 400 no llegue. */
+/** Los topes del PATCH (zod en la API, HU 12833). Se aplican aquí para que el 400 no llegue. */
 const TOPE: Record<Campo, number> = { direccion: 200, municipio: 100, departamento: 100 };
 const FALTA: Record<Campo, string> = {
   direccion: 'Escribe la dirección.',
@@ -54,11 +53,10 @@ function origenDe(d: DireccionCompradorImpuesto): string {
   return 'Corregida a mano';
 }
 
-const tarjetaAviso = {
-  borderRadius: 'var(--flit-radius-card)',
-  border: '1px solid var(--flit-warning)',
-  color: 'var(--flit-text-primary)',
-};
+// Error de campo naranja (UI Kit 2026) con el aviso-alerta 14 px delante; fallos de la petición en rojo.
+const ERROR_CAMPO = 'mt-1 flex items-start gap-1 text-xs text-[color:var(--kit-naranja-texto)]';
+const PELIGRO = 'text-sm text-[color:var(--kit-rojo-texto)]';
+const SECUNDARIO = 'text-[color:var(--color-text-secondary)]';
 
 /**
  * Aviso persistente arriba del detalle (AC1, AC3). Es estado de la página, no toast. Con el permiso
@@ -69,18 +67,16 @@ export function AvisoDireccion({ direccion, puedeCorregir, onRevisar }: {
 }) {
   if (!direccion?.pendienteRevision) return null;
   return (
-    <div role="status" data-testid="aviso-direccion"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-flit-card px-4 py-3" style={tarjetaAviso}>
-      <p className="flex items-start gap-2 text-sm font-semibold">
-        <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-warning-text)' }} />
+    <div role="status" data-testid="aviso-direccion" data-kit="alerta" data-tono="warn"
+      className="kit-alerta flex-wrap items-center gap-x-3 gap-y-1">
+      <img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+      <p className="m-0 min-w-0 flex-1 text-sm font-semibold text-[color:var(--color-text-primary)]">
         <span>{puedeCorregir ? AVISO_CON_PERMISO : AVISO_SIN_PERMISO}</span>
       </p>
       {puedeCorregir && (
-        <button type="button" onClick={onRevisar}
-          className="rounded px-1 text-sm font-semibold underline flit-focus transition-colors hover:bg-[var(--flit-bg-hover)]"
-          style={{ color: 'var(--flit-blue-text)' }}>
+        <GradientButton type="button" variant="ghost" size="sm" onClick={onRevisar}>
           Revisar dirección
-        </button>
+        </GradientButton>
       )}
     </div>
   );
@@ -98,21 +94,21 @@ export function DireccionComprador({ impId, direccion, puedeCorregir, bloqueada,
   const editable = puedeCorregir && !!direccion?.pendienteRevision;
   return (
     <section aria-labelledby={`direccion-${impId}`} className="space-y-2" data-testid="seccion-direccion">
-      <h3 id={`direccion-${impId}`} tabIndex={-1} className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>
+      <h3 id={`direccion-${impId}`} tabIndex={-1} className="text-xs font-semibold uppercase tracking-wide text-[color:var(--color-text-tertiary)]">
         Dirección del comprador
       </h3>
       {direccion && (
-        <p className="text-xs" data-testid="direccion-origen" style={{ color: 'var(--flit-text-secondary)' }}>{origenDe(direccion)}</p>
+        <p className={`text-xs ${SECUNDARIO}`} data-testid="direccion-origen">{origenDe(direccion)}</p>
       )}
       {editable && !bloqueada
         ? <FormDireccion impId={impId} direccion={direccion} campoRef={campoRef} onGuardada={onGuardada} />
         : (
           <>
-            <p className="text-sm font-medium" data-testid="direccion-texto">
-              {textoDe(direccion) ?? <span style={{ color: 'var(--flit-text-secondary)' }}>Sin dirección registrada</span>}
+            <p className="text-sm font-medium text-[color:var(--color-text-primary)]" data-testid="direccion-texto">
+              {textoDe(direccion) ?? <span className={SECUNDARIO}>Sin dirección registrada</span>}
             </p>
             {editable && bloqueada && (
-              <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{BLOQUEADA}</p>
+              <p className={`text-xs ${SECUNDARIO}`}>{BLOQUEADA}</p>
             )}
           </>
         )}
@@ -173,7 +169,9 @@ function FormDireccion({ impId, direccion, campoRef, onGuardada }: {
           onChange={(e) => cambiar(c, e.target.value)} autoComplete="off" />
       </FlitField>
       {faltan[c] && (
-        <p id={`falta-${c}-${impId}`} className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{faltan[c]}</p>
+        <p id={`falta-${c}-${impId}`} className={ERROR_CAMPO}>
+          <img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />{faltan[c]}
+        </p>
       )}
     </div>
   );
@@ -186,13 +184,12 @@ function FormDireccion({ impId, direccion, campoRef, onGuardada }: {
         {campo('departamento', 'Departamento')}
       </div>
       {fallo && (
-        <p role="alert" data-testid="direccion-error" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{fallo}</p>
+        <p role="alert" data-testid="direccion-error" className={PELIGRO}>{fallo}</p>
       )}
       <div className="flex flex-wrap justify-end gap-2">
-        <button type="submit" disabled={guardando} aria-busy={guardando} className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
-          {guardando && <LoaderCircle size={16} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />}
+        <GradientButton type="submit" ocupado={guardando}>
           {guardando ? 'Guardando…' : 'Guardar dirección'}
-        </button>
+        </GradientButton>
       </div>
     </form>
   );
@@ -202,16 +199,16 @@ function FormDireccion({ impId, direccion, campoRef, onGuardada }: {
 export function EstadoCargaDireccion({ fase, onRecargar }: { fase: 'cargando' | 'error'; onRecargar: () => void }) {
   if (fase === 'cargando') {
     return (
-      <p role="status" className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-        <LoaderCircle size={16} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
+      <p role="status" className={`flex items-center gap-2 text-sm ${SECUNDARIO}`}>
+        <Girador />
         Cargando la dirección del comprador…
       </p>
     );
   }
   return (
     <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
-      <p style={{ color: 'var(--flit-danger-text)' }}>No se pudo cargar la dirección del comprador. Inténtalo de nuevo.</p>
-      <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={onRecargar}>Volver a cargar</button>
+      <p className={PELIGRO}>No se pudo cargar la dirección del comprador. Inténtalo de nuevo.</p>
+      <GradientButton type="button" variant="secondary" size="sm" onClick={onRecargar}>Volver a cargar</GradientButton>
     </div>
   );
 }

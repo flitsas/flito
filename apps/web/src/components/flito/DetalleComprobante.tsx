@@ -30,9 +30,9 @@ import FlitModal from '../flit/FlitModal';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
 import VisorPdf from '../flit/VisorPdf';
 import VisorSoportes from '../flit/VisorSoportes';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import CorregirAplicado, { type Correccion } from './CorregirAplicado';
 import PanelAsociacion from './PanelAsociacion';
+import GradientButton from '../flit/GradientButton';
 
 const COPY_SIN_LECTURA = 'FLITO no pudo leer este documento.';
 const COPY_RELEER_503 = 'El lector sigue sin estar disponible. Inténtalo más tarde.';
@@ -164,7 +164,7 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
           <StatusChip tone={chipTipo.tono}>{chipTipo.texto}</StatusChip>
         </p>
         {detalle.estado === 'aplicado' && (
-          <p style={{ color: 'var(--flit-text-primary)' }}>
+          <p style={{ color: 'var(--color-text-primary)' }}>
             {[detalle.esPago ? 'Comprobante de pago' : 'Documentación', detalle.concepto ? CONCEPTO_COSTO_LABEL[detalle.concepto] : null,
               detalle.tramite?.idFlit, detalle.tramite?.placa, detalle.cruce ? `cruce por ${CRUCE_LABEL[detalle.cruce]}` : null].filter(Boolean).join(' · ')}
           </p>
@@ -172,13 +172,13 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
         {(hrefTramite || tramiteSoportes) && (
           <p className="flex flex-wrap items-center gap-2">
             {hrefTramite && detalle.tramite && (
-              <a href={hrefTramite} target="_blank" rel="noopener" className="flit-focus underline" style={{ color: 'var(--flit-blue-text)' }}>
+              <a href={hrefTramite} target="_blank" rel="noopener" className="flit-focus underline" style={{ color: 'var(--color-action)' }}>
                 Ver trámite {detalle.tramite.idFlit} ↗
               </a>
             )}
-            {hrefTramite && tramiteSoportes && <span aria-hidden="true" style={{ color: 'var(--flit-text-muted)' }}>·</span>}
+            {hrefTramite && tramiteSoportes && <span aria-hidden="true" style={{ color: 'var(--color-text-tertiary)' }}>·</span>}
             {tramiteSoportes && (
-              <button type="button" className="flit-focus underline" style={{ color: 'var(--flit-blue-text)' }} onClick={() => setVerSoportes(true)}>
+              <button type="button" className="flit-focus underline" style={{ color: 'var(--color-action)' }} onClick={() => setVerSoportes(true)}>
                 Ver soportes
               </button>
             )}
@@ -188,14 +188,14 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
 
       {sinLectura && (
         <div className="space-y-2">
-          <p style={{ color: 'var(--flit-text-primary)' }}>{COPY_SIN_LECTURA}</p>
+          <p style={{ color: 'var(--color-text-primary)' }}>{COPY_SIN_LECTURA}</p>
           {puedeReleer && (
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={releyendo} onClick={releer}>Releer</button>
+              <GradientButton variant="secondary" type="button" disabled={releyendo} onClick={releer}>Releer</GradientButton>
               {releyendo && <span role="status" aria-live="polite" className="text-xs">Releyendo…</span>}
             </div>
           )}
-          {errorReleer && <p role="alert" className="text-red-600">{errorReleer}</p>}
+          {errorReleer && <p role="alert" className="text-[color:var(--kit-rojo-texto)]">{errorReleer}</p>}
         </div>
       )}
     </>
@@ -207,40 +207,40 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
         <section aria-label="Documento" className="flex min-h-0 flex-col gap-2 max-lg:max-h-[45vh]">
           <div className="min-h-0 flex-1">
             {!puedeAbrirArchivo ? (
-              <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{COPY_SIN_ARCHIVO}</p>
+              <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{COPY_SIN_ARCHIVO}</p>
             ) : errorArchivo ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-sm">
-                <p role="alert" className="text-red-600">No se pudo abrir el documento.</p>
-                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={reintentarArchivo}>Reintentar</button>
+                <p role="alert" className="text-[color:var(--kit-rojo-texto)]">No se pudo abrir el documento.</p>
+                <GradientButton variant="secondary" onClick={reintentarArchivo}>Reintentar</GradientButton>
               </div>
             ) : !archivo || !detalle || esPdf === null ? (
-              <div className="flex h-full items-center justify-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando el documento…</div>
+              <div className="flex h-full items-center justify-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Cargando el documento…</div>
             ) : esPdf ? (
               <VisorPdf url={archivo.url} nombre={detalle.archivo.nombre} paginaInicial={detalle.paginas?.[0]} />
             ) : (
-              <div className="h-full overflow-auto rounded-md" style={{ background: 'var(--flit-border-soft)' }}>
-                <img src={archivo.url} alt={detalle.archivo.nombre} className="w-full rounded-sm bg-white" />
+              <div className="h-full overflow-auto rounded-md" style={{ background: 'var(--color-border)' }}>
+                <img src={archivo.url} alt={detalle.archivo.nombre} className="w-full rounded-sm bg-[var(--color-surface-elevated)]" />
               </div>
             )}
           </div>
           {puedeAbrirArchivo && archivo && (
-            <a href={archivo.url} target="_blank" rel="noopener" className="flit-focus self-start text-sm underline" style={{ color: 'var(--flit-blue-text)' }}>
+            <a href={archivo.url} target="_blank" rel="noopener" className="flit-focus self-start text-sm underline" style={{ color: 'var(--color-action)' }}>
               Abrir el archivo original ↗
             </a>
           )}
         </section>
 
-        <section ref={lecturaRef} aria-label="Lectura" className="flex min-h-0 flex-col text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <section ref={lecturaRef} aria-label="Lectura" className="flex min-h-0 flex-col text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           {error ? (
             <div className="space-y-3">
-              <p role="alert" className="text-red-600">{error.noExiste ? error.texto : `No se pudo abrir el comprobante. ${error.texto}`}</p>
+              <p role="alert" className="text-[color:var(--kit-rojo-texto)]">{error.noExiste ? error.texto : `No se pudo abrir el comprobante. ${error.texto}`}</p>
               {error.noExiste
-                ? <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={actualizarCola}>Actualizar la cola</button>
-                : <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setNonce((n) => n + 1)}>Reintentar</button>}
+                ? <GradientButton variant="secondary" onClick={actualizarCola}>Actualizar la cola</GradientButton>
+                : <GradientButton variant="secondary" onClick={() => setNonce((n) => n + 1)}>Reintentar</GradientButton>}
             </div>
           ) : !detalle ? (
-            <div className="animate-pulse space-y-3 motion-reduce:animate-none" aria-hidden="true">
-              {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="h-4 rounded" style={{ background: 'var(--flit-border-soft)', width: i < 3 ? '60%' : '100%' }} />)}
+            <div className="space-y-3" aria-hidden="true">
+              {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="kit-esqueleto h-4" style={{ width: i < 3 ? '60%' : '100%' }} />)}
             </div>
           ) : detalle.estado === 'pendiente' ? (
             <PanelAsociacion key={`${detalle.id}-${version}`} detalle={detalle} onResuelto={onResuelto} onActualizarCola={actualizarCola}>
@@ -250,30 +250,30 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
             <FichaSoloLectura detalle={detalle} version={version} onCorregido={alCorregido} onActualizar={recargar} onActualizarCola={actualizarCola}>
               {cabecera}
               {detalle.estado === 'aplicado' && detalle.esPago && (
-                <p className="flex items-center justify-between gap-2 border-b pb-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Valor al aplicar</span>
-                  <span style={{ color: 'var(--flit-text-primary)' }}>{pesosComprobante(detalle.valor)}</span>
+                <p className="flex items-center justify-between gap-2 border-b pb-2" style={{ borderColor: 'var(--color-border)' }}>
+                  <span className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>Valor al aplicar</span>
+                  <span style={{ color: 'var(--color-text-primary)' }}>{pesosComprobante(detalle.valor)}</span>
                 </p>
               )}
               {motivoFicha && <p>Motivo: «{motivoFicha}»</p>}
               {detalle.estado === 'aplicado' && detalle.soporteAplicadoId && puedeAbrirArchivo && (
                 <div className="space-y-1">
-                  <button type="button" className="flit-focus text-sm underline" style={{ color: 'var(--flit-blue-text)' }} onClick={verSoporteAplicado}>
+                  <button type="button" className="flit-focus text-sm underline" style={{ color: 'var(--color-action)' }} onClick={verSoporteAplicado}>
                     Ver el soporte aplicado ↗
                   </button>
-                  {errorSoporte && <p role="alert" style={{ color: 'var(--flit-danger-ink)' }}>{errorSoporte}</p>}
+                  {errorSoporte && <p role="alert" style={{ color: 'var(--kit-rojo-texto)' }}>{errorSoporte}</p>}
                 </div>
               )}
-              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Datos leídos</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>Datos leídos</p>
               <dl className="space-y-2">
                 {detalle.campos.map((c) => {
                   const chip = chipConfianza(c);
                   return (
-                    <div key={c.campo} className="grid grid-cols-[1fr_auto] items-start gap-x-3 gap-y-0.5 border-b pb-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                      <dt className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{labelCampo(c.campo)}</dt>
+                    <div key={c.campo} className="grid grid-cols-[1fr_auto] items-start gap-x-3 gap-y-0.5 border-b pb-2" style={{ borderColor: 'var(--color-border)' }}>
+                      <dt className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>{labelCampo(c.campo)}</dt>
                       <dd className="row-span-2 self-center"><StatusChip tone={chip.tono}>{chip.texto}</StatusChip></dd>
                       {/* Sin lectura = vacío. Nunca se inventa un valor (D11). */}
-                      <dd className="min-h-[1.25rem] break-words" style={{ color: 'var(--flit-text-primary)' }}>{c.valor ?? ''}</dd>
+                      <dd className="min-h-[1.25rem] break-words" style={{ color: 'var(--color-text-primary)' }}>{c.valor ?? ''}</dd>
                     </div>
                   );
                 })}

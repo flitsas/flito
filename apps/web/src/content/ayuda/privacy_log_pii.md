@@ -11,8 +11,8 @@ consultas:
   - quién consultó los datos personales de un conductor
   - cómo reviso los accesos a datos personales
   - dónde está el log de accesos PII
-version: 1.0
-fecha: 2026-10-22
+version: 1.1
+fecha: 2026-11-12
 ---
 ## Qué es
 

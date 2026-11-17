@@ -1,0 +1,134 @@
+# S2 — Plan de migración al UI Kit 2026 (Épica #14560)
+
+Alcance: Impuestos, SOAT, Derechos, Comparendos, Revisiones, Compuerta y Lectura de impuestos.
+Rama `FEATURE/14560-davidchica-rediseno-ui-kit-2026-s2`. Fase 1: solo inventario y plan; no se toca producto.
+
+Fuente del diseño: `/home/david/flit/rediseno-2026/BRIEFING-KIT-flit-de.md` (manda) y `flit` rama `propuesta-2`,
+`docs/design/propuesta-ui-kit-2026/`. Los valores salen de **`ui-kit-2026.css`** (se carga último y gana, incluido su
+bloque final de contraste), **no** de `tokens.css` (propuesta vieja). Por eso: botones = píldoras planas (sin degradado),
+modal blanco con ícono centrado (sin franja de color), cabecera de módulo sin círculo turquesa; sombra solo en dock,
+menús flotantes, avisos y foco.
+
+**Regla k — solo visual:** no se cambian textos, `aria-*`, handlers, hooks, `fetch` ni estado. Tests E2E: se actualiza
+el valor visual, nunca la lógica (regla j). La propuesta es de FLIT (trámites), así que ninguna pantalla nuestra
+tiene molde 1:1: se usa el **molde más cercano** por patrón, nombrado por su ruta `#id` en la propuesta.
+
+## Moldes de la propuesta que aplican
+
+| Molde | Dónde está | Qué aporta |
+|---|---|---|
+| **M-LISTA** `#tramites` (bandeja; simples `#usuarios`, `#log-qx`), datos de `#comparendos` | `datos.js` MODULOS + `lista()` en `propuesta.js` | Cabecera con miga + h1 + texto + acciones; `card` «Listado» con panel de filtros, embudo de chips por estado (ícono de estado + conteo, «Todos»), `barra-accion` del estado pendiente, tabla en contenedor con borde (pasa a tarjetas <900 px), menú «Acciones» por fila, paginador de 10, vacío con ilustración y «Quitar filtros» |
+| **M-PESTANAS** `#usuarios` / `#compania` | `pestanas()` | Pestañas de línea inferior, activa en azul, bajo la cabecera |
+| **M-DETALLE** `#tramite` | `vTramite()` | Píldora/placa del vehículo, `dl` de datos, `card` por bloque, línea de actividad |
+| **M-ASISTENTE** `#traspaso` | `vTraspaso()` | Línea de progreso horizontal (`PasosHorizontal`) con píldora de datos, una primaria por paso |
+| **M-CARGA** paso de documentos de `#traspaso` | `.carga` → `.carga--lista` | Zona dashed 1,5 azul → borde verde + fondo verde 10 % (`FileDrop` de S0) |
+| **M-FORM** «Nuevo trámite» / «Invitar colaborador» | `abrirForm()` | Modal blanco, ícono centrado, fondo azul 50 % con desenfoque, campos con label, primaria a la derecha |
+| **M-SIMULADOR** `#simulador` | `vSimulador()` | Formulario a la izquierda + desglose a la derecha (dos columnas que colapsan <760 px) |
+| **M-CONFIG** `vConfigForm()` | config de compañía | Formularios de ajustes en `card`, interruptor verde/gris |
+| Estados transversales | `cargandoHtml`, `errorCarga`, `.vacio` | Cargador pista azul + carro + línea turquesa; error con reintento; vacío ilustrado |
+
+## Por página
+
+| Página (ruta) | Molde | Componentes del kit previstos* | Specs E2E | Dudas |
+|---|---|---|---|---|
+| `FlitoImpuestosShell` (`/flito/impuestos`) | M-PESTANAS | **Una** CabeceraModulo en el shell + Pestanas debajo (D1) | `flito-impuestos.spec` | D1 |
+| `FlitoImpuestos` (cola, 825 l., techo 870) | M-LISTA | CabeceraModulo, ChipsFiltro (embudo por fase/semáforo), DataTable, Paginación, StatusBadge, ActionsMenu, InlineAlert (barra-accion), Loader, UiStateBoundary | `flito-impuestos*.spec` (9), `flito-soat-impuestos-*` (3), `flito-soportes-zip` | D2, D3 |
+| `FlitoImpuestosCertificar` | M-LISTA (registros) | CabeceraModulo, DataTable, StatusBadge, Button | `flito-impuestos-certificar-sin-tramite` | — |
+| `FlitoImpuestosCertificarEditor` | M-SIMULADOR (factura izq. + formulario der.) | Ingreso (campos), Card, Button, InlineAlert, visor PDF existente | ídem | D4 |
+| `FlitoSoat` (cola operador) | M-LISTA | CabeceraModulo, ChipsFiltro, DataTable, Paginación, StatusBadge, ActionsMenu, Modal (detalle), Loader | `flito-soat*.spec` (3) | D2 |
+| `FlitoSoatSolicitud` (1160 l. brutas) | M-ASISTENTE | PasosHorizontal, Placa, Ingreso, SearchableSelect, Button, InlineAlert, Modal | `flito-soat.spec` | D5 |
+| `Soat` (legacy `/soat`) | M-LISTA + M-FORM | idem M-LISTA, Modal | (sin spec propio) | D6 |
+| `FlitoDerechos` | M-LISTA + panel de resultado de carga | CabeceraModulo, zona de carga, DataTable, StatusBadge (6 canastas), Pestañas (registrados / sin cruzar) | `flito-derechos` | D7 |
+| `FlitoComparendos` + `components/flito/comparendos/` | M-LISTA `#comparendos` (molde directo) + M-PESTANAS (registros/sync/config) + M-DETALLE (panel) + M-CONFIG | ChipsFiltro, DataTable, StatusBadge, Pestañas, Modal/panel, Interruptor | `flito-comparendos*` (11) | D8 |
+| `FlitoRevisiones` | M-LISTA + M-DETALLE (confirmación) | DataTable, StatusBadge, Ingreso, InlineAlert («no confiable») | `flito-revisiones` | — |
+| `FlitoCompuerta` | M-DETALLE (evaluación de un trámite) | Ingreso (buscar), Card, StatusBadge, InlineAlert | `flito-compuerta` | — |
+| `TaxReader` (`/tax-reader`) | M-CARGA | CabeceraModulo, zona de carga | — | — |
+
+\* Nombres del kit de referencia (`flit` develop `packages/ui/src`). El equivalente real en FLITO lo fija
+el catálogo `components/flit/` de `docs/ux/rediseno-2026/README.md` (llega con «S0 LISTO»); este plan se
+ajusta a él sin inventar componentes propios.
+
+Componentes de dominio en alcance (`components/flito/`): `BarraEnvioSoat`, `CeldaVehiculoSoat`,
+`VigenciaSoat`, `DescargarComprobanteSoat`, `CargaRecibosImpuestos`, `DescargarSoporteImpuesto`,
+`DetalleImpuesto` (389), `ImpuestoCola`, `ExportarCola` (526), `DescargarCertificadosZip` (351),
+`DescargarSoportesZip` (669), `ModalCargaReciboFase`, `RanuraCargaMasiva`, `CorregirAplicado` (396),
+`useSondeoAnalisis.ts`, y las carpetas `comparendos/` (26), `soat/` (19), `soat-cliente/` (13 + `masivo/` 9).
+~13,8 k líneas en las carpetas. Restos de HEX/Aura detectados en 3 archivos (a limpiar).
+
+## Orden de migración
+
+1. Comparendos (molde directo `#comparendos`, valida ChipsFiltro + DataTable + barra-accion).
+2. Cola de Impuestos + shell de pestañas, luego Certificar y su editor.
+3. Cola SOAT y `Soat` legacy; luego la solicitud SOAT (asistente).
+4. Derechos, Revisiones, Compuerta, TaxReader.
+5. Fichas de ayuda (`flit-ayuda-flito`), specs E2E, capturas 1280 / 375 / oscuro en `docs/ux/rediseno-2026/s2/`.
+
+Delegación prevista: `frontend-agent` por bloque (1–4) dentro del worktree, archivos disjuntos.
+
+## Riesgos de tamaño
+
+- `FlitoImpuestos.tsx` tiene techo congelado 870: la migración debe **bajar** líneas; si no cabe, se
+  extraen subcomponentes a `components/flito/` (archivo nuevo → consulta al integrador).
+- `FlitoSoatSolicitud.tsx` 1160 líneas brutas sin techo propio: vigilar que no pase de 800 netas.
+
+## Dudas — resueltas por el integrador (2026-11-12)
+
+- **D1** Una sola cabecera de módulo en el shell de Impuestos, `Pestanas` debajo (molde `#usuarios`/`#compania`).
+- **D2** Embudo de chips por **fase** (estado del flujo); el semáforo va como etiqueta con punta en su columna.
+- **D3** `FiltrosInteligentes` / `ThFiltroMulti` pasan al panel de Filtros del kit (lo hace S0); estado en memoria, nunca en URL.
+- **D4** S0 trae `FileDrop` (`.carga` → `.carga--lista`) y `VisorPdf`.
+- **D5** Sin respuesta explícita: se aplica `PasosHorizontal` solo si la página ya tiene pasos; si es formulario por bloques, se viste por bloques (regla k: no se cambia el flujo).
+- **D6** `Soat.tsx` entra completo.
+- **D7** Canastas de Derechos (decisión de `flit-de`, aprobada por el integrador; el orden actual se conserva):
+  | Canasta | Tono | Glifo |
+  |---|---|---|
+  | Registrados | ok (verde) | `doble-check` («confirmado») |
+  | En revisión | warn (naranja) | `espera` |
+  | Sin trámite asociado | info (azul) | `tramites` (o `aviso-info.svg`) |
+  | Duplicados | amarillo, tono «revocado»: `--c` #F9AC00, `--ct` #8B6000; oscuro #F9AC00 en ambos | `papelera` (el duplicado por hash se descarta, no se registra) |
+  | Páginas omitidas | neutro #5E6A7B | `menos` |
+  | Fallidos | danger (rojo) | `alerta` («error») |
+  Turquesa (radicado) **no**: en el kit es un resultado positivo.
+- **D8** El integrador pidió modo cursor para la Paginación del kit.
+- Extraer subcomponentes nuevos con prefijo del módulo en `components/flito/` para bajar `FlitoImpuestos.tsx`: aprobado; su
+  techo en `eslint.config.mjs` se ajusta **hacia abajo** (solo esa línea).
+
+## Hallazgos funcionales (no corregidos)
+
+Regla del humano (BRIEF-COMUN): aquí solo se rediseña. Un defecto de permisos, lógica o datos no se corrige ni se
+radica; se anota aquí y pasa al HANDOFF.
+
+Comprobados contra `develop` (sin S0 ni S2) el 2026-11-12: fallan igual allí, así que no son del rediseño.
+
+- **Tax-reader sin permiso no redirige** (`tax-reader.spec.ts:16`): un usuario sin `tax_reader` en
+  `allowedPages` se queda en `/tax-reader` en vez de volver a `/`. Defecto de permisos/ruta preexistente.
+- **SOAT legacy, proveedor** (`soat.spec.ts:77`): la segunda mitad del test (proveedor) no encuentra la
+  pestaña «Gestión de compras». Preexistente.
+- **Envío a FLIT 1 tras reemplazo** (`flito-impuestos-envio-flit2.spec.ts:466`, AC6): durante el refresco
+  del detalle la celda «Comprobante en FLIT 1» no muestra su estado de cargando (`dd[aria-busy]`). Preexistente.
+- **Solicitud SOAT del Cliente, orden de encabezados** (`soat-vin-unico-ficha-runt.spec.ts:305`): aparece el
+  `h2` «Forma de cargar» (HU #14134, 2026-10-28), que el test (2026-10-27) no conoce. Test desactualizado.
+- **Solicitud SOAT del Cliente, foco y deshabilitados** (`soat-vin-unico-ficha-runt-a11y.spec.ts:76` y `:177`):
+  el Tab desde el título no cae en «SOAT inicial», y leyendo la factura queda un `input[disabled]`. Preexistentes.
+- **Ficha de Impuestos vs TC-25** (`flito-impuestos.spec.ts:1499`): el paso 23 de la ficha (certificar sin
+  trámite) dice «en computador», que TC-25 (HU #12615) prohíbe. Ya estaba así en `develop`; no lo introdujo la v1.9.
+- **Fichas fuera de S2 en `flito-ayuda-artefactos.spec`**: `flito_logistica` y `users` fallan por la versión
+  esperada en el spec (no las tocó S2).
+
+## Defectos del kit S0 vistos en S2 (no tocados; para el integrador)
+
+- **`FiltrosInteligentes` desborda la página**: su `.menu-flotante` (`absolute left-0`, 20 rem) ocupa caja aunque
+  el `<details>` esté cerrado; con el disparador «Vista» al borde derecho (cola de Impuestos, 1280 px) el documento
+  mide 1616 px y aparece scroll horizontal. Sugerencia: anclarlo a la derecha (`right-0 left-auto`) o sacarlo del
+  flujo cerrado.
+- **`.page-header__acciones` estira los botones**: sin `align-items: flex-start`, el primario de la cabecera de SOAT
+  («Cargar comprobantes de SOAT (masivo)») toma la altura del bloque de exportar (~100 px).
+- **PageHeaderCard < lg**: el ícono queda debajo del título (Derechos a 375 px). Ya conocido.
+- **FlitModal `lateral`**: el cuerpo desborda sin `tabIndex`; axe `scrollable-region-focusable` en el panel de
+  detalle de Comparendos guardando (`flito-comparendos-visor-a11y.spec.ts:210`). O se arregla en FlitModal o el
+  panel vuelve a `wide`.
+- **Tabla con cabeceras `kit-th`** más ancha que el contenido a 2400 px (`flito-comparendos-visor.spec.ts:1432`).
+- **Barra superior fija** tapa el botón enfocado al desplazar (`soat-envio-directo-gestor-a11y.spec.ts:114`,
+  axe `target-size`).
+
+Capturas de S2 (1280 / 375, claro / oscuro, datos demo): `docs/ux/rediseno-2026/s2/<pantalla>-<ancho>-<tema>.png`.

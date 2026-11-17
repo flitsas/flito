@@ -107,7 +107,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     // Antes de elegir archivo: solo la caja de carga y Guardar deshabilitado.
     await expect(page.locator('input[type="file"]')).toHaveCount(1);
     await expect(guardar(page)).toBeDisabled();
-    await expect(page.getByLabel('Placa')).toHaveCount(0);
+    await expect(page.getByLabel(/^Placa/)).toHaveCount(0);
 
     await page.locator('input[type="file"]').setInputFiles(FACTURA);
     await expect(page.getByText('Leyendo la factura…')).toBeVisible();
@@ -122,7 +122,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await expect(page.getByText('Faltan 2 datos para guardar.')).toBeVisible();
     await expect(guardar(page)).toBeDisabled();
     await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
-    await page.getByLabel('Placa', { exact: true }).fill('ABC123');
+    await page.getByLabel(/^Placa/).fill('ABC123');
     await page.getByLabel('Documento del propietario (opcional)').fill('10101010');
     await page.getByLabel('Tipo de documento', { exact: true }).selectOption('CC');
     await page.getByLabel('Nombre del propietario (opcional)').fill('Ana Pérez');
@@ -220,7 +220,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     });
     await page.goto('/flito/impuestos/certificar');
     await page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Abrir' }).click();
-    await expect(page.getByLabel('Placa', { exact: true })).toHaveValue('ABC123');
+    await expect(page.getByLabel(/^Placa/)).toHaveValue('ABC123');
     await page.waitForTimeout(500);
     expect(pidioFactura).toBe(false);
     await expect(page.getByRole('button', { name: 'Ampliar factura' })).toHaveCount(0);
@@ -250,7 +250,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await expect(page.getByText('Faltan 2 datos para guardar.')).toBeVisible();
     await expect(guardar(page)).toBeDisabled();
     await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
-    await page.getByLabel('Placa', { exact: true }).fill('ABC123');
+    await page.getByLabel(/^Placa/).fill('ABC123');
     await page.getByLabel('VIN', { exact: true }).fill('');
     await expect(page.getByText(/1 dato para guardar\.$/)).toBeVisible();
     await expect(guardar(page)).toBeDisabled();
@@ -305,7 +305,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await page.locator('input[type="file"]').setInputFiles(FACTURA);
     await expect(page.getByLabel('VIN', { exact: true })).toHaveValue(LECTURA.vin);
     await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
-    await page.getByLabel('Placa', { exact: true }).fill('ABC123');
+    await page.getByLabel(/^Placa/).fill('ABC123');
     await expect(page.getByText('Listo para guardar.')).toBeVisible();
   }
 
@@ -423,7 +423,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await irACertificar(page);
     await page.route(/\/certificacion-directa\/extraer$/, (r) => r.fulfill(json(LECTURA)));
     await conFila(page, fila({ estado: 'certificado', certificadoEn: '2026-10-02T12:00:00Z' }));
-    await expect(page.getByLabel('Placa', { exact: true })).toBeDisabled();
+    await expect(page.getByLabel(/^Placa/)).toBeDisabled();
 
     await page.getByRole('button', { name: 'Volver al listado' }).click();
     await page.getByRole('button', { name: 'Nueva certificación' }).click();
@@ -431,14 +431,14 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await expect(page.getByLabel('VIN', { exact: true })).toHaveValue(LECTURA.vin);
 
     // Nada del certificado anterior: campos vacíos, habilitados y sin su estado ni su descarga.
-    await expect(page.getByLabel('Placa', { exact: true })).toBeEnabled();
-    await expect(page.getByLabel('Placa', { exact: true })).toHaveValue('');
+    await expect(page.getByLabel(/^Placa/)).toBeEnabled();
+    await expect(page.getByLabel(/^Placa/)).toHaveValue('');
     await expect(documento(page)).toBeEnabled();
     await expect(documento(page)).toHaveValue('');
     await expect(tipoDoc(page)).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Descargar certificado' })).toHaveCount(0);
     await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
-    await page.getByLabel('Placa', { exact: true }).fill('XYZ987');
+    await page.getByLabel(/^Placa/).fill('XYZ987');
     await expect(guardar(page)).toBeEnabled();
   });
 

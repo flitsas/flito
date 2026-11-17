@@ -93,7 +93,7 @@ async function montar(page: Page, m: Montaje = {}) {
     return responder(route, m.estado?.() ?? { status: 200, body: LISTA[0] });
   });
   await page.goto('/clients');
-  await page.getByRole('button', { name: 'Proveedores', exact: true }).click();
+  await page.getByRole('tab', { name: 'Proveedores', exact: true }).click();
   return { posts, patches, estados, borrados, listados: () => listados };
 }
 

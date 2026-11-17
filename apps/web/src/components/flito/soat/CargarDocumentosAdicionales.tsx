@@ -1,14 +1,14 @@
-// FLITO — panel en línea para cargar documentos adicionales desde el detalle del SOAT (HU #13365).
+// FLITO — panel en línea para cargar documentos adicionales desde el detalle del SOAT (HU 13365).
 //
 // Spec: docs/ux/flito-soat-documentos-adicionales-detalle-cargar-eliminar.md §3.2–§3.6. No es un
-// modal: `DetalleSoat` ya lo es y no se apila otro. Reutiliza el selector del alta (#13363) con el
+// modal: `DetalleSoat` ya lo es y no se apila otro. Reutiliza el selector del alta (13363) con el
 // contexto `'detalle'`: cupos **por carga** (20 archivos, 15 MB c/u, 250 MB), los mismos que el
 // servidor aplica a cada envío; el repetido contra lo ya guardado y la factura lo detecta él.
 //
 // Nada aquí es primario (§2): el detalle ya tiene la primaria del caso. Error = el panel sigue
 // abierto con la elección intacta (AC6). Candado por `ref` contra el doble envío (AC7).
 import { useEffect, useId, useRef, useState } from 'react';
-import { RotateCw, Upload } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import type { ResultadoDocumentosAdicionales } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
@@ -66,11 +66,11 @@ export default function CargarDocumentosAdicionales({ soatId, onCancelar, onCarg
   return (
     <div
       ref={raiz} role="region" aria-labelledby={idTitulo}
-      className="space-y-3 rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-input)' }}
+      className="space-y-3 rounded-lg border p-3" style={{ borderColor: 'var(--color-border-control)' }}
       // Esc cancela el panel y NO cierra el modal del detalle (mismo truco que FilaServicioAdicional).
       onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); cancelar(); } }}
     >
-      <p id={idTitulo} className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <p id={idTitulo} className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         Cargar documentos adicionales
       </p>
 
@@ -80,10 +80,10 @@ export default function CargarDocumentosAdicionales({ soatId, onCancelar, onCarg
 
       {error && (
         <div role="alert" className="flex flex-wrap items-center gap-2">
-          <p className="min-w-0 flex-1 basis-48 break-words text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error.texto}</p>
+          <p className="min-w-0 flex-1 basis-48 break-words text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error.texto}</p>
           {error.reintentable && (
             <button type="button" className={BOTON} style={flitBtnSecondaryStyle} disabled={enviando} onClick={() => { void cargar(); }}>
-              <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="reintento" size={16} className="shrink-0" />
               Reintentar
             </button>
           )}
@@ -103,13 +103,13 @@ export default function CargarDocumentosAdicionales({ soatId, onCancelar, onCarg
           aria-label={enviando ? undefined : n === 1 ? 'Cargar 1 documento' : `Cargar ${n} documentos`}
           onClick={() => { void cargar(); }}
         >
-          <Upload size={16} aria-hidden="true" className="shrink-0" />
+          <Icono nombre="nube-subir" size={16} className="shrink-0" />
           {enviando ? 'Cargando…' : `Cargar ${n}`}
         </button>
       </div>
 
       {enviando && (
-        <p role="status" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p role="status" className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           {textoGuardandoAdicionales(n)}
         </p>
       )}

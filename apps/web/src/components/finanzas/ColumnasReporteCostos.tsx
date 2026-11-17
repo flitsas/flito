@@ -62,28 +62,28 @@ export default function ColumnasReporteCostos({ ids, onAlternar, onRestablecer }
   };
   return (
     <details ref={ref} className="relative" onKeyDown={alTeclear}>
-      <summary className="flit-focus inline-flex h-10 cursor-pointer list-none items-center gap-2 rounded-[999px] border bg-flit-card px-4 text-sm font-medium transition-colors hover:bg-[var(--flit-bg-hover)]"
-        style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
+      <summary className="flit-focus inline-flex h-10 cursor-pointer list-none items-center gap-2 rounded-[999px] border bg-flit-card px-4 text-sm font-medium transition-colors hover:bg-[var(--kit-hover)]"
+        style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
         Columnas
-        <span className="text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{ids.size}/{COLUMNAS.length}</span>
+        <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-tertiary)' }}>{ids.size}/{COLUMNAS.length}</span>
       </summary>
       <div className="absolute right-0 z-30 mt-1 max-h-[70vh] w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-flit-card p-3"
-        style={{ borderColor: 'var(--flit-border-input)', boxShadow: 'var(--flit-shadow-card)' }}>
+        style={{ borderColor: 'var(--color-border-control)', boxShadow: 'var(--kit-sombra)' }}>
         {GRUPOS.filter((g) => g.clave !== 'fija').map((g) => (
           <fieldset key={g.clave} className="mb-3">
-            <legend className="mb-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>{g.titulo}</legend>
+            <legend className="mb-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>{g.titulo}</legend>
             {COLUMNAS.filter((c) => c.grupo === g.clave).map((c) => (
-              <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm transition-colors hover:bg-[var(--flit-bg-hover)]"
-                style={{ color: 'var(--flit-text-primary)' }}>
+              <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm transition-colors hover:bg-[var(--kit-hover)]"
+                style={{ color: 'var(--color-text-primary)' }}>
                 <input type="checkbox" checked={ids.has(c.id)} onChange={() => onAlternar(c.id)} />
                 {c.titulo}
               </label>
             ))}
           </fieldset>
         ))}
-        <p className="mb-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>Trámite y Placa siempre se ven. El Excel trae todas las columnas.</p>
-        <button type="button" className="flit-focus rounded text-sm font-semibold underline transition-colors hover:bg-[var(--flit-bg-hover)]"
-          style={{ color: 'var(--flit-blue-text)' }} onClick={onRestablecer}>
+        <p className="mb-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Trámite y Placa siempre se ven. El Excel trae todas las columnas.</p>
+        <button type="button" className="flit-focus rounded text-sm font-semibold underline transition-colors hover:bg-[var(--kit-hover)]"
+          style={{ color: 'var(--color-action)' }} onClick={onRestablecer}>
           Restablecer columnas
         </button>
       </div>

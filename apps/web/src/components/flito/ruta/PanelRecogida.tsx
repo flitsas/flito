@@ -4,7 +4,9 @@
 //   pendiente de firma y se firma después con el mismo endpoint. Confirmar exige señal; escanear no.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, PencilLine } from 'lucide-react';
+import { iconoComo } from '../../flit/kit/iconoComo';
+const Camera = iconoComo('rejilla');
+const PencilLine = iconoComo('lapiz');
 import { parseLicenciaTransito } from '@operaciones/shared-types';
 import { api } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
@@ -202,8 +204,8 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
   return (
     <section className="space-y-3" aria-labelledby="recoger-titulo">
       <div className="flex items-center justify-between gap-2">
-        <h2 id="recoger-titulo" className="text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Recoger licencias</h2>
-        {!vacia && <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{filas.length} {filas.length === 1 ? 'escaneada' : 'escaneadas'}</span>}
+        <h2 id="recoger-titulo" className="text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>Recoger licencias</h2>
+        {!vacia && <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{filas.length} {filas.length === 1 ? 'escaneada' : 'escaneadas'}</span>}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -217,7 +219,7 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
       {vacia && <FlitEmpty>Aún no has escaneado licencias. Pulsa {camara ? 'Escanear LT y apunta al código de barras del reverso' : 'Ingresar a mano y escribe los datos de la licencia'}.</FlitEmpty>}
 
       {hayRegistradasSinFirma && (
-        <p role="status" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-warning-ink)' }}>
+        <p role="status" className="rounded-[9px] border px-3 py-2 text-sm" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)', color: 'var(--kit-naranja-texto)' }}>
           {firmables.length} {firmables.length === 1 ? 'LT escaneada' : 'LT escaneadas'} con el acta pendiente de firma. Pulsa Firmar acta cuando el funcionario pueda firmar.
         </p>
       )}
@@ -233,13 +235,13 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
       )}
 
       {aviso && (
-        <div role={aviso.tipo} className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: aviso.tipo === 'alert' ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)' }}>
+        <div role={aviso.tipo} className="rounded-[9px] border px-3 py-2 text-sm" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)', color: aviso.tipo === 'alert' ? 'var(--kit-rojo-texto)' : 'var(--color-text-primary)' }}>
           {aviso.texto}
         </div>
       )}
 
       {!vacia && (
-        <div className="sticky bottom-3 z-10 lg:bottom-24 rounded-xl p-1" style={{ background: 'var(--flit-bg-app)' }}>
+        <div className="sticky bottom-3 z-10 lg:bottom-24 rounded-xl p-1" style={{ background: 'var(--color-surface)' }}>
           <button type="button" className={`${flitBtnPrimary} w-full justify-center`} style={{ ...flitBtnPrimaryStyle, minHeight: 48 }}
             disabled={registrando || entran.length === 0 || (!puedeConfirmar && sinRegistrar.length === 0)} onClick={() => void continuar()}>
             {registrando ? 'Registrando…' : `${etiqueta} (${entran.length})`}
@@ -258,24 +260,24 @@ export default function PanelRecogida({ puedeConfirmar, onVerRecogidas }: { pued
 
 function PantallaConfirmada({ r, onListo, onVer }: { r: ResumenRecogida; onListo: () => void; onVer: () => void }) {
   return (
-    <section role="status" className="space-y-4 rounded-xl border bg-flit-card p-4" style={{ borderColor: 'var(--flit-border-soft)' }} aria-labelledby="confirmada-titulo">
-      <h2 id="confirmada-titulo" className="text-lg font-bold" style={{ color: 'var(--flit-success-ink)' }}>✓ Recogida confirmada</h2>
-      <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+    <section role="status" className="space-y-4 rounded-xl border bg-flit-card p-4" style={{ borderColor: 'var(--color-border)' }} aria-labelledby="confirmada-titulo">
+      <h2 id="confirmada-titulo" className="text-lg font-bold" style={{ color: 'var(--kit-verde-texto)' }}>✓ Recogida confirmada</h2>
+      <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
         {r.actas === 1 ? '1 acta generada' : `${r.actas} actas generadas`} con una firma.
       </p>
       <ul className="space-y-1 text-sm">
         {r.companias.map((c) => (
-          <li key={c.nombre} className="flex justify-between gap-2" style={{ color: 'var(--flit-text-secondary)' }}><span>{c.nombre}</span><span className="shrink-0 tabular-nums">{c.lt} LT</span></li>
+          <li key={c.nombre} className="flex justify-between gap-2" style={{ color: 'var(--color-text-secondary)' }}><span>{c.nombre}</span><span className="shrink-0 tabular-nums">{c.lt} LT</span></li>
         ))}
       </ul>
       {r.pendientes > 0 && (
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           {r.pendientes} {r.pendientes === 1 ? 'LT pendiente' : 'LT pendientes'} de trámite: quedó firmada, sin acta. Operaciones de FLITO elegirá el trámite.
         </p>
       )}
       <div className="flex flex-col gap-2">
         <button type="button" autoFocus className={`${flitBtnPrimary} w-full justify-center`} style={{ ...flitBtnPrimaryStyle, minHeight: 48 }} onClick={onListo}>Listo</button>
-        <button type="button" className="flit-focus mx-auto rounded px-2 py-2 text-sm font-medium underline-offset-2 transition-colors hover:underline" style={{ color: 'var(--flit-blue-text)', minHeight: 40 }} onClick={onVer}>
+        <button type="button" className="flit-focus mx-auto rounded px-2 py-2 text-sm font-medium underline-offset-2 transition-colors hover:underline" style={{ color: 'var(--color-action)', minHeight: 40 }} onClick={onVer}>
           Ver en Mis recogidas
         </button>
       </div>

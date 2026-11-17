@@ -6,7 +6,9 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import { Fichas } from '../components/flit/Bloques';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { EstadoVista, type EstadoUi } from '../components/flit/Cargador';
 
 type Decision = 'pendiente' | 'en_analisis' | 'descartada' | 'escalada' | 'reportada';
 
@@ -43,8 +45,8 @@ const SOURCE_OPTIONS = [
   'otro',
 ];
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const inputCls = 'control';
+const MIGA = [{ etiqueta: 'Cumplimiento' }, { etiqueta: 'LAFT', to: '/laft' }];
 
 export default function LaftUnusual() {
   const [data, setData] = useState<UnusualOp[]>([]);
@@ -82,16 +84,62 @@ export default function LaftUnusual() {
 
   useEffect(() => { load(); }, [load]);
 
+  const estado: EstadoUi = loading ? 'loading' : error ? 'error' : data.length === 0 ? 'empty' : 'ready';
+
+  const columnas: ColumnaTabla<UnusualOp>[] = [
+    { key: 'detectada', header: 'Detectada', render: (op) => <span className="text-xs text-text-secondary">{new Date(op.detectedAt).toLocaleDateString('es-CO')}</span> },
+    {
+      key: 'contraparte',
+      header: 'Contraparte',
+      render: (op) => op.counterpartyName ? (
+        <div>
+          <p className="text-sm text-text-primary">{op.counterpartyName}</p>
+          <p className="mono text-text-tertiary">{op.counterpartyDoc}</p>
+        </div>
+      ) : <span className="text-xs italic text-text-tertiary">Sin contraparte</span>,
+    },
+    { key: 'origen', header: 'Origen', render: (op) => <span className="text-xs text-text-secondary">{op.source.replace(/_/g, ' ')}</span> },
+    {
+      key: 'monto',
+      header: 'Monto',
+      render: (op) => <span className="text-xs font-semibold tabular-nums text-text-primary">{op.amount ? `${Number(op.amount).toLocaleString('es-CO')} ${op.currency}` : '—'}</span>,
+    },
+    {
+      key: 'senales',
+      header: 'Señales',
+      render: (op) => (
+        <div className="flex max-w-md flex-wrap gap-1">
+          {(op.signals || []).slice(0, 3).map((s, i) => <StatusChip key={i} tone="warning">{s}</StatusChip>)}
+          {(op.signals || []).length > 3 && <span className="text-[11px] text-text-tertiary">+{op.signals.length - 3}</span>}
+        </div>
+      ),
+    },
+    { key: 'decision', header: 'Decisión', render: (op) => <StatusChip tone={DECISION_LABEL[op.decision].tone}>{DECISION_LABEL[op.decision].label}</StatusChip> },
+    {
+      key: 'acciones',
+      header: 'Acciones',
+      align: 'right',
+      acciones: true,
+      render: (op) => (
+        <GradientButton type="button" variant="secondary" size="sm" onClick={() => { setEditing(op); setShowForm(true); }}>
+          Analizar
+        </GradientButton>
+      ),
+    },
+  ];
+
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Operaciones inusuales"
         subtitle="Detección y análisis de señales de alerta sobre la operación"
+        icono="flito-laft"
+        miga={MIGA}
         actions={<GradientButton type="button" onClick={() => { setEditing(null); setShowForm(true); }}>Registrar señal</GradientButton>}
       />
 
-      <section className="flex flex-wrap items-center gap-3 bg-white p-4" style={CARD}>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} className={inputCls + ' max-w-xs'}>
+      <section className="flex flex-wrap items-center gap-3 rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] p-4">
+        <select value={filter} onChange={(e) => setFilter(e.target.value)} className={inputCls + ' sm:max-w-xs'}>
           <option value="">Todas las decisiones</option>
           {Object.entries(DECISION_LABEL).map(([v, l]) => <option key={v} value={v}>{l.label}</option>)}
         </select>
@@ -100,81 +148,18 @@ export default function LaftUnusual() {
             cartel de error, que es LA MISMA afirmación que el Bug corrige, dicha por la cabecera.
             Se oculta en vez de pintar «—» porque el estado de error de abajo ya explica por qué no
             hay número, y un guion suelto junto a un filtro se lee como «cero». */}
-        {!error && <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{total} operaciones registradas</span>}
+        {!error && <span className="text-xs text-text-tertiary">{total} operaciones registradas</span>}
       </section>
 
-      <section className="overflow-hidden bg-white" style={CARD}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <Th>Detectada</Th><Th>Contraparte</Th><Th>Origen</Th><Th>Monto</Th><Th>Señales</Th><Th>Decisión</Th><Th className="text-right">Acciones</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && <tr><td colSpan={7} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</td></tr>}
-              {!loading && error && (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center">
-                    {/* Tinta, no superficie: `--flit-danger` (#E43D30) es un token de SUPERFICIE y como
-                        color de texto sobre blanco da 4,19:1 — por debajo del 4,5:1 de AGENTS.md.
-                        `--flit-danger-ink` (#C02F24) es el mismo matiz con luminosidad de texto:
-                        5,72:1 sobre blanco y 5,08:1 sobre --flit-bg-app (medido). El porqué está en
-                        `styles/flit-tokens.css` («Estado — variante TINTA»), y la confusión entre
-                        ambos niveles es la causa raíz de los fallos de #11604 y del Bug #11767.
-                        OJO: LaftAuditPlan / LaftManual / LaftOfficer todavía usan el de superficie
-                        aquí; se calcó su estructura, no su deuda. */}
-                    <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
-                      No se pudo cargar el listado de operaciones inusuales. {error}
-                    </p>
-                    <button type="button" onClick={load} className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}>
-                      Reintentar
-                    </button>
-                  </td>
-                </tr>
-              )}
-              {!loading && !error && data.length === 0 && <tr><td colSpan={7} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin operaciones registradas</td></tr>}
-              {!loading && !error && data.map((op) => {
-                const d = DECISION_LABEL[op.decision];
-                return (
-                  <tr key={op.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{new Date(op.detectedAt).toLocaleDateString('es-CO')}</td>
-                    <td className="px-4 py-3">
-                      {op.counterpartyName ? (
-                        <div>
-                          <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>{op.counterpartyName}</p>
-                          <p className="font-mono text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{op.counterpartyDoc}</p>
-                        </div>
-                      ) : <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Sin contraparte</span>}
-                    </td>
-                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{op.source.replace(/_/g, ' ')}</td>
-                    <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--flit-text-primary)' }}>
-                      {op.amount ? `${Number(op.amount).toLocaleString('es-CO')} ${op.currency}` : '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex max-w-md flex-wrap gap-1">
-                        {(op.signals || []).slice(0, 3).map((s, i) => <StatusChip key={i} tone="warning">{s}</StatusChip>)}
-                        {(op.signals || []).length > 3 && <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>+{op.signals.length - 3}</span>}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3"><StatusChip tone={d.tone}>{d.label}</StatusChip></td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => { setEditing(op); setShowForm(true); }}
-                        className="flit-focus inline-flex h-7 items-center rounded-[999px] px-2.5 text-xs font-semibold"
-                        style={{ background: 'rgba(79,116,201,0.14)', color: 'var(--flit-blue)' }}
-                      >
-                        Analizar
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <EstadoVista
+        status={estado}
+        cargando="Cargando..."
+        onRetry={load}
+        errorMessage={`No se pudo cargar el listado de operaciones inusuales. ${error ?? ''}`}
+        emptyMessage="Sin operaciones registradas"
+      >
+        <DataTable ariaLabel="Operaciones inusuales" columnas={columnas} filas={data} getKey={(op) => String(op.id)} />
+      </EstadoVista>
 
       {showForm && (
         <UnusualForm
@@ -187,14 +172,10 @@ export default function LaftUnusual() {
   );
 }
 
-function Th({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <th scope="col" className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide ${className}`} style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
-
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{label}</span>
+    <label className="campo">
+      <span className="etiqueta">{label}</span>
       {children}
     </label>
   );
@@ -254,11 +235,11 @@ function UnusualForm({ editing, onClose, onSaved }: { editing: UnusualOp | null;
   };
 
   return (
-    <FlitModal title={isEdit ? 'Análisis y decisión' : 'Registrar señal'} onClose={onClose}>
+    <FlitModal title={isEdit ? 'Análisis y decisión' : 'Registrar señal'} onClose={onClose} icono={isEdit ? 'lapiz' : 'alerta'}>
       <form onSubmit={submit} className="space-y-4">
         {!isEdit && (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Origen / motivo">
                 <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} className={inputCls}>
                   {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
@@ -273,7 +254,7 @@ function UnusualForm({ editing, onClose, onSaved }: { editing: UnusualOp | null;
                 />
               </Field>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Monto"><input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className={inputCls} /></Field>
               <Field label="Moneda"><input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} maxLength={10} className={inputCls} /></Field>
             </div>
@@ -300,12 +281,10 @@ function UnusualForm({ editing, onClose, onSaved }: { editing: UnusualOp | null;
         )}
         {isEdit && (
           <>
-            <div className="rounded-[12px] p-4" style={{ background: 'var(--flit-bg-app)', border: '1px solid var(--flit-border-soft)' }}>
-              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Origen</p>
-              <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{editing!.source.replace(/_/g, ' ')}</p>
-              <p className="mb-1 mt-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Descripción original</p>
-              <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>{editing!.description}</p>
-            </div>
+            <Fichas items={[
+              { etiqueta: 'Origen', valor: editing!.source.replace(/_/g, ' ') },
+              { etiqueta: 'Descripción original', valor: editing!.description },
+            ]} />
             <Field label="Análisis del Empleado de Cumplimiento">
               <textarea
                 value={form.analysisText}
@@ -333,8 +312,8 @@ function UnusualForm({ editing, onClose, onSaved }: { editing: UnusualOp | null;
             )}
           </>
         )}
-        <div className="mt-2 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+        <div className="mt-2 flex flex-wrap justify-end gap-2">
+          <GradientButton type="button" variant="alerta" onClick={onClose}>Cancelar</GradientButton>
           <GradientButton type="submit" disabled={submitting}>{submitting ? 'Guardando...' : isEdit ? 'Guardar decisión' : 'Registrar'}</GradientButton>
         </div>
       </form>

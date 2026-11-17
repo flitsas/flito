@@ -2,6 +2,9 @@
 // flit/ + api. Una fila por trámite: solicita SOAT/impuestos/ambos, sigue su estado y entrega en lote.
 // Es la vista de quien despacha (Operaciones); Auditoría entra en solo lectura. Los gestores NO entran:
 // cada uno sigue en su propia cola. Las reglas viven en el backend; aquí solo se orquesta y reporta.
+//
+// Rediseño UI Kit 2026 (Épica #14560): molde `#tramites`. Filas, celdas, modales y tipos viven en
+// `components/flito/tramites/` (movidos tal cual, sin cambiar lógica) para bajar del techo de líneas.
 
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -9,104 +12,43 @@ import {
   ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, EstadoImpuesto, EstadoSoat,
 } from '@operaciones/shared-types';
 import {
-  ALERTA_OPERATIVA_LABEL, esAlertaOperativa, parseLicenciaTransito, type AlertaOperativa,
-} from '@operaciones/shared-types';
-import {
-  ESTADO_LOGISTICA_SIMPLE_LABEL, ESTADOS_LOGISTICA_SIMPLE_ORDEN, simplificarEstadoLogistica,
-  type EstadoLogisticaSimple,
+  ALERTA_OPERATIVA_LABEL, esAlertaOperativa, type AlertaOperativa,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { vacioConEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import FlitModal from '../components/flit/FlitModal';
-import FlitSelect from '../components/flit/FlitSelect';
-import { opcionesConEstado } from '../components/flit/opcionesConEstado';
-import { SOAT_REINTENTO, mensajeSelectorSoat, useProveedoresSelector, type CatalogoSelector } from '../components/clientes/proveedoresDatos';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
-import AntiguedadPill from '../components/flit/AntiguedadPill';
+import GradientButton, { claseBoton } from '../components/flit/GradientButton';
+import { useProveedoresSelector } from '../components/clientes/proveedoresDatos';
 import ThFiltroMulti, { type OpcionFiltro } from '../components/flit/ThFiltroMulti';
 import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
-import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
 import SincronizacionTramites from '../components/flito/tramites/SincronizacionTramites';
 import AvisoNovedadesTramites from '../components/flito/tramites/AvisoNovedadesTramites';
 import { queryTramites, useNovedadesTramites } from '../components/flito/tramites/useNovedadesTramites';
+import FilaTramite from '../components/flito/tramites/FilaTramite';
+import ModalResultado from '../components/flito/tramites/ModalResultadoTramites';
 import {
-  FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
-  flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../components/flit/flitPageKit';
+  DialogoProveedor, ModalCrearEmpresa, ModalCrearTramiteDemo, ModalDesbloqueo, ModalHistorial,
+} from '../components/flito/tramites/ModalesTramite';
+import {
+  esAccionable, type HistorialItem, type ResEntrega, type ResImpuestos, type ResSoat, type Resultado, type TramiteFila,
+} from '../components/flito/tramites/tiposTramites';
+import { FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp } from '../components/flit/flitPageKit';
 import FiltroSegmentado from '../components/flit/FiltroSegmentado';
-import { CeldaFuenteTramite, OPCIONES_FUENTE, VacioFuenteTramite } from '../components/flito-tramites/FuenteTramite';
+import FiltrosPlegables from '../components/flit/FiltrosPlegables';
+import { OPCIONES_FUENTE, VacioFuenteTramite } from '../components/flito-tramites/FuenteTramite';
 import type { FuenteTramite } from '@operaciones/shared-types';
 import {
   AvisoSoportesZip, DescargarSoportesZip, ZIP_TRAMITES, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
-import { documentoConTipo } from '../components/flit/columnasComunes';
 
-interface FilaSoat {
-  id: string; estado: EstadoSoat; proveedorSoatNombre: string | null; valorPagado: number | null;
-  enviadoEn: string | null; pagadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
-}
-interface FilaImpuesto {
-  id: string; estado: EstadoImpuesto; tieneFacturaVenta: boolean; coincidenciaFacturaVenta: number | null;
-  valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
-  enviadoEn: string | null; pagadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
-}
-interface TramiteFila {
-  tramiteId: string; idFlit: string; estado: string; asignado: boolean; fuente: string;
-  tipoTramite: string | null; ciudad: string | null; fechaAprobacion: string | null;
-  fechaCreacion: string | null;
-  /** Valor real del derecho de tránsito; null = aún sin recibo cargado. */
-  derechoTramiteValor: number | null;
-  companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
-  organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
-  facturaVentaFlitId: string | null;
-  vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null };
-  /**
-   * `tipoDocumento` es el CÓDIGO ya resuelto por el API (`'CC' | 'NIT' | 'PP' | 'CE'`) o null, no el
-   * `tipo` crudo de FLIT: la traducción vive en el backend y aquí no hay copia (HU #11947, AC6/AC7).
-   */
-  compradorPrincipal: { nombreCompleto: string; numeroDocumento: string; tipoDocumento: string | null; correo: string | null } | null;
-  compradores: unknown[]; soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null; impuestosAutogestionado: boolean;
-  soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
-  valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;
-  logistica: { estado: string } | null;
-  /** Conceptos desbloqueados excepcionalmente pese a que la compañía los autogestiona (HU #10980). */
-  excepcionesAutogestion: string[];
-}
-// Un trámite habilita SOAT/impuestos solo si está Asignado y con empresa + secretaría emparejadas.
-const esAccionable = (f: TramiteFila) => f.asignado && f.empresaExiste && f.secretariaEmparejada;
 // Listado paginado en servidor: se piden PAGE_SIZE filas por página con los filtros aplicados en SQL.
 const PAGE_SIZE = 50;
 interface Paginado { items: TramiteFila[]; total: number; page: number; pageSize: number; marca: string }
 interface Facetas { estados: string[]; tramites: string[]; ciudades: string[]; transitos: string[] }
-interface HistorialItem { id: string; campo: string; valorAnterior: string | null; valorNuevo: string | null; origen: string; usuarioNombre: string | null; creadoEn: string }
-
-interface ResSoat { enviados: number; yaEnviados: number; autogestionados: number; sinRegistro: number }
-interface ResImpuestos { enviados: number; yaEnviados: number; noEnviables: number }
-interface ResEntrega { entregados: number; noHabilitados: Array<{ tramiteId: string; idFlit: string; placa: string; motivo: string }> }
-type Resultado =
-  | { tipo: 'soat'; soat: ResSoat }
-  | { tipo: 'impuestos'; impuestos: ResImpuestos }
-  | { tipo: 'ambos'; soat: ResSoat; impuestos: ResImpuestos }
-  | { tipo: 'entrega'; entrega: ResEntrega };
-
-// Semáforo de estados (SOAT e impuestos): pendiente naranja, solicitado azul, con novedad rojo,
-// pagado verde. La autogestión (sin registro) se pinta aparte en gris.
-// `pendiente_revision` y `rechazada` (canal Cliente) no nacían de un trámite, así que nunca asomaron
-// por esta pantalla; se completaban solo porque el `Record` es exhaustivo. La HU #12080 los quita de
-// `EstadoSoat` y del enum de Postgres, así que las dos entradas se van con ellos.
-const TONO_SOAT: Record<EstadoSoat, ChipTone> = {
-  pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
-};
-const TONO_IMP: Record<EstadoImpuesto, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
-
-const pesos = (v: number | null) => v === null ? null
-  : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
-const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
 
 function useDebounce<T>(valor: T, ms: number): T {
   const [dif, setDif] = useState(valor);
@@ -346,31 +288,39 @@ export default function FlitoTramites() {
 
   return (
     <div className="space-y-4">
-      <PageHeaderCard title="Gestión Trámites"
+      <PageHeaderCard title="Gestión Trámites" icono="flito-tramites" miga={[]}
         subtitle="Centro de gestión de los trámites de FLIT: sincroniza y consulta su estado, y solicita SOAT e impuestos. Solo los trámites Asignados —con empresa y secretaría emparejadas— habilitan esas gestiones."
         actions={esOperaciones && sinEnlace ? (
-          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} title="Crea un trámite aprobado de prueba para Logística"
-            onClick={() => setCrearDemo(true)}>+ Trámite demo</button>
+          <GradientButton variant="secondary" title="Crea un trámite aprobado de prueba para Logística"
+            onClick={() => setCrearDemo(true)}>+ Trámite demo</GradientButton>
         ) : undefined} />
 
       {/* HU #13452: sincronizar con FLIT 1/FLIT 2 es operación interna: con enlace el bloque no se pinta. */}
       {sinEnlace && <SincronizacionTramites />}
 
-      {error && <div className="sticky top-[calc(var(--flit-topbar-height)+0.5rem)] z-20"><FlitCard><p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p></FlitCard></div>}
+      {error && (
+        <div className="sticky top-[calc(var(--kit-alto-barra)+0.5rem)] z-20">
+          <div className="kit-alerta" data-tono="danger" data-kit="alerta">
+            <img src="/kit/aviso-error.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+            <p role="alert" className="m-0 min-w-0 flex-1 text-sm">{error}</p>
+          </div>
+        </div>
+      )}
 
       {esOperaciones && n > 0 && (
-        <FlitCard>
+        <div className="barra-accion" data-kit="barra-accion">
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{n} seleccionado(s)</span>
+            <span className="text-sm font-semibold text-[color:var(--color-action)]">{n} seleccionado(s)</span>
             {/* Las cuatro acciones de siempre, sobre las filas de siempre. Si en lo marcado no hay
                 ninguna accionable no se pintan: un botón que no puede actuar sobre nada es peor que
                 su ausencia. El número del rótulo es el de las filas sobre las que SÍ actúan. */}
             {nAccionables > 0 && (
               <>
-                {puedePedirSoat && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('soat')}>Solicitar SOAT ({cuentaAccionable})</button>}
-                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={solicitarImpuestos}>Solicitar Impuestos ({cuentaAccionable})</button>
-                {puedePedirSoat && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('ambos')}>Solicitar ambos ({cuentaAccionable})</button>}
-                <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enProceso} onClick={() => entregar(idsAccionables())}>Entregar ({cuentaAccionable})</button>
+                {puedePedirSoat && <GradientButton variant="secondary" size="sm" disabled={enProceso} onClick={() => setDialogo('soat')}>Solicitar SOAT ({cuentaAccionable})</GradientButton>}
+                <GradientButton variant="secondary" size="sm" disabled={enProceso} onClick={solicitarImpuestos}>Solicitar Impuestos ({cuentaAccionable})</GradientButton>
+                {puedePedirSoat && <GradientButton variant="secondary" size="sm" disabled={enProceso} onClick={() => setDialogo('ambos')}>Solicitar ambos ({cuentaAccionable})</GradientButton>}
+                <GradientButton size="sm" disabled={enProceso} onClick={() => entregar(idsAccionables())}>Entregar ({cuentaAccionable})</GradientButton>
               </>
             )}
             {/* Ocupa el MISMO píxel que el viejo «Descargar facturas (zip)»: quien lo tenía
@@ -383,25 +333,20 @@ export default function FlitoTramites() {
               ocupado={descargaZip.ocupado}
               onDescargar={descargaZip.descargar}
             />
-            {/* Acción terciaria: sin borde, pero a la MISMA altura que el resto de la barra (h-10) y
-                con el velo de hover y el foco del kit — antes era un texto de 12 px sin affordance. */}
-            <button
-              type="button"
-              className="flit-focus inline-flex h-10 items-center rounded-[999px] px-3 text-sm font-medium transition-colors hover:bg-[var(--flit-bg-hover)]"
-              style={{ color: 'var(--flit-text-secondary)' }}
-              onClick={limpiar}
-            >
+            {/* Acción terciaria: ghost del kit (subrayada), a la altura del resto de la barra. */}
+            <GradientButton type="button" variant="ghost" size="sm" onClick={limpiar}>
               Limpiar
-            </button>
+            </GradientButton>
           </div>
           {nAccionables < n && (
-            <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="m-0 text-sm text-[color:var(--color-text-secondary)]">
               De las {n} filas marcadas, {nAccionables} están Asignadas con empresa y secretaría
               emparejadas y son las únicas sobre las que actúan Solicitar y Entregar.
               Descargar soportes usa las {n}.
             </p>
           )}
-        </FlitCard>
+          </div>
+        </div>
       )}
 
       {/* Fuera de la barra a propósito: la descarga NO limpia la selección, pero si el usuario la
@@ -427,9 +372,12 @@ export default function FlitoTramites() {
         <FlitCard>
           {/* Barra superior: búsqueda global + total + paginación. Los filtros por columna viven en
               el encabezado de la tabla (abajo). */}
-          <div className="mb-3 flex flex-wrap items-center gap-3 border-b pb-3" style={{ borderColor: 'var(--flit-border)' }}>
-            <input className={`${flitInp} h-9 min-w-[18rem]`} placeholder="Buscar placa, VIN, id o comprador…"
+          <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-[color:var(--color-border)] pb-3">
+            <input className={`${flitInp} w-full sm:w-72`} placeholder="Buscar placa, VIN, id o comprador…"
               value={texto} onChange={(e) => setTexto(e.target.value)} />
+            {/* Épica #14560 (b): en teléfono estos controles se pliegan tras «Filtros (n)»; solo presentación. */}
+            <FiltrosPlegables modo="linea"
+              activos={[!!(creado.desde || creado.hasta), !!(aprobado.desde || aprobado.hasta), autogestionSel !== '', fuenteSel !== ''].filter(Boolean).length}>
             <FiltrosInteligentes presets={PRESETS} activo={preset}
               onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
             <RangoFechas etiqueta="Creado" valor={creado} onCambio={(r) => { setCreado(r); setPage(1); }} />
@@ -438,41 +386,41 @@ export default function FlitoTramites() {
             <FiltroSegmentado ariaLabel="Filtrar por autogestión" valor={autogestionSel} onCambio={setAutogestionSel}
               opciones={[{ valor: '', etiqueta: 'Todas' }, { valor: 'si', etiqueta: 'Autogestionadas' }, { valor: 'no', etiqueta: 'No autogestionadas' }]} />
             <FiltroSegmentado rotulo="Fuente" ariaLabel="Filtrar por fuente" valor={fuenteSel} onCambio={setFuenteSel} opciones={OPCIONES_FUENTE} />
+            </FiltrosPlegables>
             {/* Alerta activa (llega del tablero por URL). Se muestra siempre que esté puesta, para
                 que nadie interprete un listado recortado como si fuera la maestra completa. */}
             {alertaSel && (
               <button type="button" onClick={() => setAlertaSel('')}
                 aria-label={`Quitar la alerta ${ALERTA_OPERATIVA_LABEL[alertaSel]}`}
-                className="flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold"
-                style={{ background: 'var(--flit-blue-text)', color: '#fff' }}>
+                className={claseBoton('primary', 'sm', 'gap-2')}>
                 {ALERTA_OPERATIVA_LABEL[alertaSel]}
                 <span aria-hidden="true">×</span>
               </button>
             )}
             {/* Orden cronológico: el gestor trabaja de lo más viejo a lo más nuevo. */}
-            <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+            <label className="flex items-center gap-2 text-xs font-semibold text-[color:var(--color-text-secondary)]">
               Orden
-              <select className={`${flitInp} h-9`} value={ordenSel}
+              <select className={flitInp} value={ordenSel}
                 onChange={(e) => setOrdenSel(e.target.value as 'recientes' | 'antiguos')}>
                 <option value="recientes">Más recientes primero</option>
                 <option value="antiguos">Más antiguos primero</option>
               </select>
             </label>
-            <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{total.toLocaleString('es-CO')} trámite(s)</span>
+            <span className="text-xs font-semibold text-[color:var(--color-text-secondary)]">{total.toLocaleString('es-CO')} trámite(s)</span>
             {total > PAGE_SIZE && (
-              <div className="flex items-center gap-2 text-xs">
-                <button className={paginaBtn} style={paginaBtnStyle} disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Anterior</button>
-                <span className="font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Página {page} de {totalPaginas}</span>
-                <button className={paginaBtn} style={paginaBtnStyle} disabled={page >= totalPaginas} onClick={() => setPage((p) => Math.min(totalPaginas, p + 1))}>Siguiente ›</button>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <button className={claseBoton('secondary', 'sm')} disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Anterior</button>
+                <span className="font-semibold text-[color:var(--color-text-secondary)]">Página {page} de {totalPaginas}</span>
+                <button className={claseBoton('secondary', 'sm')} disabled={page >= totalPaginas} onClick={() => setPage((p) => Math.min(totalPaginas, p + 1))}>Siguiente ›</button>
               </div>
             )}
             {hayFiltros && (
-              <button className="ml-auto text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }}
-                onClick={limpiarFiltros}>Limpiar filtros</button>
+              <GradientButton variant="ghost" size="sm" className="ml-auto"
+                onClick={limpiarFiltros}>Limpiar filtros</GradientButton>
             )}
           </div>
           <AvisoNovedadesTramites aviso={nov.aviso} anuncio={nov.anuncio} onVer={() => { nov.ver(); refrescar(); }} />
-          <div ref={tablaRef} tabIndex={-1} aria-label="Trámites" className="flit-focus rounded-lg">
+          <div ref={tablaRef} tabIndex={-1} aria-label="Trámites" className="flit-focus rounded-[9px]">
           {filas.length === 0 ? (fuenteSel
             ? <VacioFuenteTramite fuente={fuenteSel} onVerTodas={() => setFuenteSel('')}
                 otrosFiltros={!!buscar.trim() || hayFiltrosSinFuente || !!(creado.desde || creado.hasta || aprobado.desde || aprobado.hasta)} />
@@ -531,129 +479,13 @@ export default function FlitoTramites() {
             </thead>
             <tbody>
               {filas.map((f) => (
-                <FlitTr key={f.tramiteId}>
-                  {esOperaciones && (
-                    <td className="px-3 py-2">
-                      {/* Sin `disabled` desde la HU #11910: el que estaba dejaba fuera a los
-                          Entregados, que son justo los que tienen la evidencia completa que alguien
-                          va a buscar. Lo que la fila admite lo dice ahora el rótulo de las acciones. */}
-                      <input type="checkbox" aria-label={`Seleccionar ${f.vehiculo.placa}`}
-                        checked={seleccion.has(f.tramiteId)}
-                        onChange={() => setSeleccion((s) => { const x = new Set(s); x.has(f.tramiteId) ? x.delete(f.tramiteId) : x.add(f.tramiteId); return x; })} />
-                    </td>
-                  )}
-                  <td className="px-3 py-2 align-top">
-                    <div className="text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.idFlit}</div>
-                    {f.tipoTramite && <div className="text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>{f.tipoTramite}</div>}
-                    {/* Estado del trámite: al hacer click abre el historial (cursor pointer + hover). */}
-                    <button type="button" onClick={() => verHistorial(f)} title="Ver historial del trámite"
-                      className="mt-1 block cursor-pointer rounded transition-opacity hover:opacity-70">
-                      <StatusChip tone={f.asignado ? 'active' : 'neutral'}>{f.estado}</StatusChip>
-                    </button>
-                    {f.listoParaEntregar && <div className="mt-1"><StatusChip tone="success">Listo para entregar</StatusChip></div>}
-                  </td>
-                  <CeldaFuenteTramite fuente={f.fuente} />
-                  <td className="px-3 py-2 align-top">
-                    <div className="text-sm tabular-nums">{fecha(f.fechaCreacion)}</div>
-                    <div className="mt-1"><AntiguedadPill desde={f.fechaCreacion} /></div>
-                  </td>
-                  <td className="px-3 py-2 align-top">
-                    {f.fechaAprobacion
-                      ? <div className="text-sm tabular-nums">{fecha(f.fechaAprobacion)}</div>
-                      : <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Sin aprobar</span>}
-                  </td>
-                  <td className="px-3 py-2 align-top">
-                    <div className="font-medium">{f.vehiculo.placa ?? '—'}</div>
-                    <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{f.vehiculo.marca} {f.vehiculo.linea}{f.vehiculo.tipoVehiculo ? ` · ${f.vehiculo.tipoVehiculo}` : ''}</div>
-                    <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.vehiculo.vin}</div>
-                    <div className="mt-1"><CeldaFacturaVenta fila={f} onVer={verFactura} /></div>
-                  </td>
-                  <td className="px-3 py-2 text-sm">
-                    {f.compradorPrincipal ? (
-                      <>
-                        <div>{f.compradorPrincipal.nombreCompleto}</div>
-                        <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{documentoConTipo(f.compradorPrincipal.tipoDocumento, f.compradorPrincipal.numeroDocumento)}</div>
-                        {f.compradores.length > 1 && <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{f.compradores.length} propietarios</span>}
-                      </>
-                    ) : '—'}
-                  </td>
-                  {/* Columna propia: bajo el comprador el correo se leía como un dato más de su
-                      ficha, y es por donde se le escribe al responsable del trámite. */}
-                  <td className="px-3 py-2 text-sm align-top">
-                    {f.compradorPrincipal?.correo
-                      ? (
-                        <a href={`mailto:${f.compradorPrincipal.correo}`} className="text-xs break-all hover:underline"
-                          style={{ color: 'var(--flit-blue-text)' }}>{f.compradorPrincipal.correo}</a>
-                      )
-                      : <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Sin correo</span>}
-                  </td>
-                  {/* Empresa gestora (CompaniaGestora de FLIT ↔ cliente FLITO): nombre arriba, NIT abajo. */}
-                  <td className="px-3 py-2 text-sm align-top">
-                    {f.empresaExiste ? (
-                      <>
-                        <div>{f.companiaNombre}</div>
-                        {f.empresaNit && <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>NIT {f.empresaNit}</div>}
-                        {/* Solo cuando hay algo que desbloquear o que revocar: en la inmensa mayoría
-                            de filas la compañía no autogestiona nada y el botón sería ruido. */}
-                        {esOperaciones && (f.soatAutogestionado || f.impuestosAutogestionado || f.excepcionesAutogestion.length > 0) && (
-                          <button className="mt-1 block text-[11px] font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
-                            onClick={() => setDesbloqueo(f)}>
-                            {f.excepcionesAutogestion.length > 0 ? 'Autogestión desbloqueada' : 'Desbloquear'}
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.empresaNit ? `NIT ${f.empresaNit}` : '—'}</div>
-                        <div className="mt-1"><StatusChip tone="danger">Empresa no existe</StatusChip></div>
-                        {esOperaciones && f.empresaNit && (
-                          <button className="mt-1 block text-[11px] font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
-                            onClick={() => setCrearEmpresa(f)}>Crear empresa</button>
-                        )}
-                      </>
-                    )}
-                  </td>
-                  {/* Tránsito (secretaría emparejada por ciudad→DIVIPOLA). */}
-                  <td className="px-3 py-2 text-sm align-top">
-                    <div>{f.organismoNombre ?? '—'}</div>
-                    {!f.secretariaEmparejada && <div className="mt-1"><StatusChip tone="warning">Secretaría sin emparejar</StatusChip></div>}
-                  </td>
-                  <td className="px-3 py-2 text-xs align-top">{f.ciudad ?? '—'}</td>
-                  <td className="px-3 py-2 align-top"><CeldaSoat fila={f} onSolicitar={puedePedirSoat ? () => { setFilaSolicitud(f.tramiteId); setDialogo('soat'); } : undefined} /></td>
-                  <td className="px-3 py-2 align-top"><CeldaImpuesto fila={f} onSolicitar={esOperaciones ? () => solicitarImpuestosLote([f.tramiteId]) : undefined} /></td>
-                  <td className="px-3 py-2 align-top"><TrackingLogistica estado={f.logistica?.estado ?? null} /></td>
-                  <td
-                    className="px-3 py-2 text-sm align-top tabular-nums whitespace-nowrap"
-                    title={f.derechoTramiteValor !== null
-                      ? 'Valor leído del recibo del organismo'
-                      : 'Aún no se ha cargado el recibo del organismo'}
-                    style={f.derechoTramiteValor !== null ? undefined : { color: 'var(--flit-text-muted)' }}
-                  >
-                    {/* Sin recibo NO se pinta un estimado. Antes salía «$ 75.000 *», una constante
-                        igual para todos los organismos: un número inventado que se lee como un
-                        cobro real y que el reporte de costos ya dejó de mostrar. Decir que falta
-                        obliga a cargarlo; inventarlo invita a darlo por bueno.
-
-                        Y dice «Sin recibo», no «No configurado»: el derecho de tránsito no se
-                        configura en ninguna pantalla. Es un desembolso real que se lee del recibo
-                        pagado, como el SOAT y el impuesto. El rótulo viejo mandaba a buscar una
-                        parametrización que no existe. */}
-                    {f.derechoTramiteValor !== null
-                      ? pesos(f.derechoTramiteValor)
-                      : <span className="text-xs italic">Sin recibo</span>}
-                  </td>
-                  {/* Los comprobantes de los tres conceptos —SOAT, impuesto y derecho de tránsito—
-                      más lo que dejó logística. Quien despacha desde aquí es quien tiene que
-                      comprobar que el papel existe antes de entregar, y hasta ahora para verlo
-                      había que irse al reporte de costos o a la tabla de derechos. */}
-                  <td className="px-3 py-2 align-top">
-                    <button type="button" className="text-xs font-semibold underline"
-                      style={{ color: 'var(--flit-blue-text)' }}
-                      onClick={() => setSoportesDe({ tramiteId: f.tramiteId, idFlit: f.idFlit })}>
-                      Ver soportes
-                    </button>
-                  </td>
-                </FlitTr>
+                <FilaTramite key={f.tramiteId} f={f} esOperaciones={esOperaciones}
+                  seleccionada={seleccion.has(f.tramiteId)}
+                  onAlternar={() => setSeleccion((s) => { const x = new Set(s); x.has(f.tramiteId) ? x.delete(f.tramiteId) : x.add(f.tramiteId); return x; })}
+                  onHistorial={verHistorial} onFactura={verFactura} onDesbloqueo={setDesbloqueo} onCrearEmpresa={setCrearEmpresa}
+                  onSolicitarSoat={puedePedirSoat ? () => { setFilaSolicitud(f.tramiteId); setDialogo('soat'); } : undefined}
+                  onSolicitarImpuesto={esOperaciones ? () => solicitarImpuestosLote([f.tramiteId]) : undefined}
+                  onSoportes={() => setSoportesDe({ tramiteId: f.tramiteId, idFlit: f.idFlit })} />
               ))}
             </tbody>
           </FlitTable>
@@ -705,522 +537,9 @@ export default function FlitoTramites() {
   );
 }
 
-// Crea un trámite DEMO aprobado para probar Logística. Se puede pegar el código de la LT para prellenar
-// placa/VIN/propietario; empresa y organismo se eligen de las parametrizadas (empresa NO autogestionada).
-function ModalCrearTramiteDemo({ onCerrar, onCreado }: { onCerrar: () => void; onCreado: () => void }) {
-  const [empresas, setEmpresas] = useState<{ id: number; nombre: string }[]>([]);
-  const [organismos, setOrganismos] = useState<{ codigo: string; nombre: string }[]>([]);
-  const [codigoLt, setCodigoLt] = useState('');
-  const [placa, setPlaca] = useState('');
-  const [vin, setVin] = useState('');
-  const [propietario, setPropietario] = useState('');
-  const [propietarioDoc, setPropietarioDoc] = useState('');
-  const [marca, setMarca] = useState('');
-  const [linea, setLinea] = useState('');
-  const [modelo, setModelo] = useState('');
-  const [companiaId, setCompaniaId] = useState('');
-  const [organismoCodigo, setOrganismoCodigo] = useState('');
-  const [transitoNombre, setTransitoNombre] = useState('');
-  const [flitEstado, setFlitEstado] = useState('Aprobado');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.get<{ id: number; nombre: string; logisticaAutogestionable: boolean }[]>('/flito/parametrizacion/companias')
-      .then((cs) => setEmpresas(cs.filter((c) => !c.logisticaAutogestionable).map((c) => ({ id: c.id, nombre: c.nombre })))).catch(() => {});
-    api.get<{ codigo: string; nombre: string; activo: boolean }[]>('/flito/parametrizacion/organismos')
-      .then((os) => setOrganismos(os.filter((o) => o.activo).map((o) => ({ codigo: o.codigo, nombre: o.nombre })))).catch(() => {});
-  }, []);
-
-  // Al pegar el código de la LT, prellena placa/VIN/propietario/documento.
-  const onCodigo = (v: string) => {
-    setCodigoLt(v);
-    const p = v.trim() ? parseLicenciaTransito(v.trim()) : null;
-    if (p) {
-      setPlaca(p.placa); setVin(p.vin);
-      if (p.propietarioNombre) setPropietario(p.propietarioNombre);
-      if (p.propietarioDocumento) setPropietarioDoc(p.propietarioDocumento);
-    }
-  };
-
-  const valido = placa.trim().length >= 4 && vin.trim().length === 17 && propietario.trim().length >= 2 && companiaId && organismoCodigo;
-
-  const crear = async () => {
-    setBusy(true); setError(null);
-    try {
-      await api.post('/flito/tramites/demo', {
-        placa: placa.trim(), vin: vin.trim(), propietarioNombre: propietario.trim(),
-        propietarioDocumento: propietarioDoc.trim() || undefined,
-        marca: marca.trim() || undefined, linea: linea.trim() || undefined,
-        modelo: modelo.trim() ? Number(modelo.trim()) : undefined,
-        companiaId: Number(companiaId), organismoCodigo,
-        transitoNombre: transitoNombre.trim() || undefined,
-        flitEstado,
-      });
-      onCreado();
-    } catch (e) { setError(errorMessage(e)); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <FlitModal title="Crear trámite demo (Logística)" onClose={onCerrar} wide>
-      <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-        Crea un trámite <strong>Aprobado</strong> de prueba para escanear su LT en Logística. Pega el código de la LT para prellenar, o llena a mano.
-      </p>
-      <FlitField label="Contenido del código de la LT (opcional, para prellenar)">
-        <textarea className={flitInp} rows={2} placeholder="10038156339 C.C. … QOX858 LRWY… ELECTRICO" value={codigoLt} onChange={(e) => onCodigo(e.target.value)} />
-      </FlitField>
-      <div className="mt-3">
-        <FlitField label="Estado del trámite *">
-          <select className={flitInp} value={flitEstado} onChange={(e) => setFlitEstado(e.target.value)}>
-            <option value="Aprobado">Aprobado — habilita Logística</option>
-            <option value="Asignado">Asignado — habilita SOAT / Impuestos</option>
-            <option value="Borrador">Borrador</option>
-            <option value="Enviado a OT">Enviado a OT</option>
-            <option value="Entregado">Entregado</option>
-            <option value="Anulado">Anulado</option>
-            <option value="Rechazado">Rechazado</option>
-          </select>
-        </FlitField>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-3">
-        <FlitField label="Placa *"><input className={flitInp} value={placa} onChange={(e) => setPlaca(e.target.value)} /></FlitField>
-        <FlitField label="VIN * (17)"><input className={flitInp} value={vin} onChange={(e) => setVin(e.target.value)} /></FlitField>
-        <FlitField label="Propietario *"><input className={flitInp} value={propietario} onChange={(e) => setPropietario(e.target.value)} /></FlitField>
-        <FlitField label="Documento propietario"><input className={flitInp} value={propietarioDoc} onChange={(e) => setPropietarioDoc(e.target.value)} /></FlitField>
-        <FlitField label="Marca"><input className={flitInp} value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="TESLA" /></FlitField>
-        <FlitField label="Línea"><input className={flitInp} value={linea} onChange={(e) => setLinea(e.target.value)} placeholder="MODELO Y" /></FlitField>
-        <FlitField label="Modelo (año)"><input className={flitInp} inputMode="numeric" value={modelo} onChange={(e) => setModelo(e.target.value)} placeholder="2026" /></FlitField>
-        <FlitField label="Empresa gestora *">
-          <select className={flitInp} value={companiaId} onChange={(e) => setCompaniaId(e.target.value)}>
-            <option value="">Selecciona…</option>
-            {empresas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-          </select>
-        </FlitField>
-        <FlitField label="Organismo (tránsito) *">
-          <select className={flitInp} value={organismoCodigo} onChange={(e) => { setOrganismoCodigo(e.target.value); setTransitoNombre(organismos.find((o) => o.codigo === e.target.value)?.nombre ?? ''); }}>
-            <option value="">Selecciona…</option>
-            {organismos.map((o) => <option key={o.codigo} value={o.codigo}>{o.nombre}</option>)}
-          </select>
-        </FlitField>
-      </div>
-      {error && <p className="mt-3 text-sm" style={{ color: 'var(--flit-danger)' }}>{error}</p>}
-      <div className="mt-4 flex justify-end gap-2">
-        <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCerrar}>Cancelar</button>
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={busy || !valido} onClick={crear}>
-          {busy ? 'Creando…' : 'Crear trámite'}
-        </button>
-      </div>
-    </FlitModal>
-  );
-}
-
-function ModalHistorial({ idFlit, items, onCerrar }: { idFlit: string; items: HistorialItem[]; onCerrar: () => void }) {
-  const fh = (iso: string) => new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
-  return (
-    <FlitModal title={`Historial · ${idFlit}`} onClose={onCerrar} wide>
-      {items.length === 0 ? (
-        <FlitEmpty>Sin cambios registrados todavía.</FlitEmpty>
-      ) : (
-        <div className="max-h-[60vh] overflow-y-auto">
-          <FlitTable>
-            <thead>
-              <FlitTr><FlitTh>Fecha</FlitTh><FlitTh>Campo</FlitTh><FlitTh>Antes</FlitTh><FlitTh>Después</FlitTh><FlitTh>Origen</FlitTh><FlitTh>Usuario</FlitTh></FlitTr>
-            </thead>
-            <tbody>
-              {items.map((h) => (
-                <FlitTr key={h.id}>
-                  <td className="whitespace-nowrap px-3 py-1.5 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{fh(h.creadoEn)}</td>
-                  <td className="px-3 py-1.5 text-sm font-medium">{h.campo}</td>
-                  <td className="px-3 py-1.5 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{h.valorAnterior ?? '—'}</td>
-                  <td className="px-3 py-1.5 text-xs font-semibold">{h.valorNuevo ?? '—'}</td>
-                  <td className="px-3 py-1.5"><StatusChip tone={h.origen === 'api' ? 'neutral' : 'active'}>{h.origen === 'api' ? 'FLIT' : 'usuario'}</StatusChip></td>
-                  <td className="px-3 py-1.5 text-xs">{h.usuarioNombre ?? '—'}</td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </FlitTable>
-        </div>
-      )}
-      <button className={`${flitBtnPrimary} mt-3`} style={flitBtnPrimaryStyle} onClick={onCerrar}>Cerrar</button>
-    </FlitModal>
-  );
-}
-
-
-/**
- * Desbloqueo excepcional de la autogestión (HU #10980).
- *
- * Solo se ofrece para los conceptos que la compañía SÍ autogestiona: en el resto no hay nada que
- * desbloquear. El motivo es obligatorio porque queda en la auditoría, y las dos advertencias no son
- * decorativas — son las dos consecuencias que sorprenden si no se dicen antes.
- */
-function ModalDesbloqueo({ fila, onCerrar, onHecho }: {
-  fila: TramiteFila; onCerrar: () => void; onHecho: () => void;
-}) {
-  const disponibles = [
-    { valor: 'soat', etiqueta: 'SOAT', aplica: fila.soatAutogestionado },
-    { valor: 'impuesto', etiqueta: 'Impuestos', aplica: fila.impuestosAutogestionado },
-  ].filter((c) => c.aplica && !fila.excepcionesAutogestion.includes(c.valor));
-
-  const vigentes = fila.excepcionesAutogestion;
-  const [concepto, setConcepto] = useState(disponibles[0]?.valor ?? '');
-  const [motivo, setMotivo] = useState('');
-  const [enProceso, setEnProceso] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const ejecutar = async (ruta: 'desbloquear-autogestion' | 'revocar-autogestion', c: string) => {
-    setEnProceso(true); setError(null);
-    try {
-      await api.post(`/flito/tramites/${fila.tramiteId}/${ruta}`, { concepto: c, motivo: motivo.trim() });
-      onHecho();
-    } catch (e) { setError(errorMessage(e)); }
-    finally { setEnProceso(false); }
-  };
-
-  return (
-    <FlitModal title={`Autogestión de ${fila.idFlit}`} onClose={onCerrar}>
-      <div className="space-y-3">
-        {vigentes.length > 0 && (
-          <div className="rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--flit-border)' }}>
-            <p className="mb-2 font-semibold">Desbloqueado ahora mismo</p>
-            {vigentes.map((c) => (
-              <div key={c} className="flex items-center justify-between gap-3 py-1">
-                <span>{c === 'soat' ? 'SOAT' : c === 'impuesto' ? 'Impuestos' : 'Logística'}</span>
-                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                  disabled={enProceso || motivo.trim().length < 5}
-                  onClick={() => ejecutar('revocar-autogestion', c)}>Revocar</button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {disponibles.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            No queda ningún concepto autogestionado por desbloquear en este trámite.
-          </p>
-        ) : (
-          <>
-            <FlitField label="Concepto">
-              <select className={flitInp} value={concepto} onChange={(e) => setConcepto(e.target.value)}>
-                {disponibles.map((c) => <option key={c.valor} value={c.valor}>{c.etiqueta}</option>)}
-              </select>
-            </FlitField>
-
-            {/* Las dos consecuencias que sorprenden si no se dicen antes. */}
-            {concepto === 'soat' && (
-              <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                El SOAT se ancla al VIN, no al trámite: el que se cree cubrirá a todos los trámites
-                de este vehículo, no solo a este.
-              </p>
-            )}
-            {concepto === 'impuesto' && (
-              <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                Se creará el impuesto en Pendiente, así que el trámite dejará de estar listo para
-                entregar hasta que se pague.
-              </p>
-            )}
-          </>
-        )}
-
-        <FlitField label="Motivo (mínimo 5 caracteres) *">
-          <input className={flitInp} value={motivo} onChange={(e) => setMotivo(e.target.value)}
-            placeholder="p. ej. Renting encarga este trámite puntual a FLITO" />
-        </FlitField>
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <div className="flex gap-2">
-          {disponibles.length > 0 && (
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-              disabled={enProceso || motivo.trim().length < 5 || !concepto}
-              onClick={() => ejecutar('desbloquear-autogestion', concepto)}>
-              {enProceso ? 'Aplicando…' : 'Desbloquear'}
-            </button>
-          )}
-          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCerrar}>Cerrar</button>
-        </div>
-      </div>
-    </FlitModal>
-  );
-}
-
-function ModalCrearEmpresa({ fila, onCerrar, onCreado }: { fila: TramiteFila; onCerrar: () => void; onCreado: () => void }) {
-  const [nombre, setNombre] = useState(fila.companiaNombre ?? '');
-  // El estado guarda el DATO (`*Autogestionable`); el check lo pinta invertido: «FLITO gestiona» (HU #13935).
-  // Arranca en `true`: la empresa nueva nace sin servicios gestionados por FLITO y las casillas, desmarcadas (HU #13937).
-  const [soatAuto, setSoatAuto] = useState(true);
-  const [impuestosAuto, setImpuestosAuto] = useState(true);
-  const [logisticaAuto, setLogisticaAuto] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [guardando, setGuardando] = useState(false);
-
-  const crear = async () => {
-    setGuardando(true); setError(null);
-    try {
-      await api.post('/flito/tramites/crear-empresa', {
-        nombre, nit: fila.empresaNit,
-        soatAutogestionable: soatAuto, impuestosAutogestionable: impuestosAuto, logisticaAutogestionable: logisticaAuto,
-      });
-      onCreado();
-    } catch (e) { setError(errorMessage(e)); }
-    finally { setGuardando(false); }
-  };
-
-  return (
-    <FlitModal title="Crear empresa" onClose={onCerrar}>
-      <div className="space-y-3">
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-          Trámite <span className="font-semibold">{fila.idFlit}</span> · la compañía de FLIT aún no existe. Al crearla se
-          vinculan automáticamente los trámites con este NIT.
-        </p>
-        <FlitField label="NIT"><input className={flitInp} value={fila.empresaNit ?? ''} readOnly /></FlitField>
-        <FlitField label="Nombre o razón social *">
-          <input className={flitInp} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Razón social de la empresa" autoFocus />
-        </FlitField>
-        <div>
-          <p className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--flit-text-muted)' }}>Servicios que gestiona FLITO</p>
-          <div className="flex flex-wrap gap-4 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={!soatAuto} onChange={(e) => setSoatAuto(!e.target.checked)} /> SOAT</label>
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={!impuestosAuto} onChange={(e) => setImpuestosAuto(!e.target.checked)} /> Impuestos</label>
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={!logisticaAuto} onChange={(e) => setLogisticaAuto(!e.target.checked)} /> Logística</label>
-          </div>
-        </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <div className="flex gap-2">
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={guardando || !nombre.trim()} onClick={crear}>{guardando ? 'Creando…' : 'Crear empresa'}</button>
-          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCerrar}>Cancelar</button>
-        </div>
-      </div>
-    </FlitModal>
-  );
-}
-
-// Botones de paginación (grandes y con contraste, no el texto minúsculo de antes).
-const paginaBtn = 'rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40';
-const paginaBtnStyle = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)', background: 'white' };
-
 // Filtros embebidos en el encabezado de la tabla: multiselect compacto por columna que filtra en
 // servidor. Reemplaza la antigua barra de filtros.
 type Opc = OpcionFiltro;
 const aOpc = (vs: string[]): Opc[] => vs.map((v) => ({ value: v, label: v }));
 const SOAT_OPC: Opc[] = Object.values(EstadoSoat).map((e) => ({ value: e, label: ESTADO_SOAT_LABEL[e] }));
 const IMP_OPC: Opc[] = Object.values(EstadoImpuesto).map((e) => ({ value: e, label: ESTADO_IMPUESTO_LABEL[e] }));
-
-// Botón "Solicitar" por fila (SOAT/impuestos): pequeño pero con cursor pointer, hover y separación.
-function BotonSolicitar({ onClick }: { onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick}
-      className="mt-1.5 inline-flex cursor-pointer items-center rounded-md px-2.5 py-1 text-[11px] font-semibold text-white transition hover:brightness-95"
-      style={{ background: 'var(--flit-gradient-primary)' }}>
-      Solicitar
-    </button>
-  );
-}
-
-function CeldaSoat({ fila, onSolicitar }: { fila: TramiteFila; onSolicitar?: () => void }) {
-  // Un concepto desbloqueado deja de estar autogestionado PARA ESTE TRÁMITE: seguir rotulándolo así
-  // contradiría al registro que sí existe unas líneas más abajo.
-  const desbloqueado = fila.excepcionesAutogestion.includes('soat');
-  if (fila.soatAutogestionado && !desbloqueado) return <StatusChip tone="neutral">SOAT autogestionado</StatusChip>;
-  if (!fila.soat) return <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin registro</span>;
-  const s = fila.soat;
-  const v = pesos(s.valorPagado);
-  // Solicitud directa desde la columna (sin marcar el check): SOAT en Pendiente y trámite accionable.
-  const puedeSolicitar = onSolicitar && esAccionable(fila) && s.estado === EstadoSoat.PENDIENTE;
-  return (
-    <div className="space-y-0.5">
-      <StatusChip tone={TONO_SOAT[s.estado]}>{ESTADO_SOAT_LABEL[s.estado]}</StatusChip>
-      {desbloqueado && <div><StatusChip tone="warning">Desbloqueado</StatusChip></div>}
-      {s.estancado && <div><ChipSinGestion desde={s.enviadoEn} tone="danger" /></div>}
-      {s.enviadoEn && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Enviado {fecha(s.enviadoEn)}</p>}
-      {v && <p className="text-xs font-semibold tabular-nums">{v}</p>}
-      {s.motivoRechazo && <p className="text-[11px]" style={{ color: 'var(--flit-danger)' }} title={s.motivoRechazo}>{s.motivoRechazo.slice(0, 40)}</p>}
-      {puedeSolicitar && <div><BotonSolicitar onClick={onSolicitar} /></div>}
-    </div>
-  );
-}
-
-
-// Factura de venta (viene de FLIT, id S3). Con factura → botón para verla; sin factura → aviso.
-function CeldaFacturaVenta({ fila, onVer }: { fila: TramiteFila; onVer: (fila: TramiteFila) => void }) {
-  if (fila.facturaVentaFlitId) {
-    // El visor va por el impuesto (la factura vive en FLIT). Sin impuesto no hay a qué apuntar.
-    return fila.impuesto
-      ? <button className="text-[11px] font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
-          onClick={() => onVer(fila)}>Ver factura de venta</button>
-      : <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Factura en FLIT</span>;
-  }
-  return <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Sin factura de venta</span>;
-}
-
-function CeldaImpuesto({ fila, onSolicitar }: { fila: TramiteFila; onSolicitar?: () => void }) {
-  // La autogestión la decide la bandera de la empresa (no la ausencia de registro): igual que SOAT.
-  const desbloqueado = fila.excepcionesAutogestion.includes('impuesto');
-  if (fila.impuestosAutogestionado && !desbloqueado) return <StatusChip tone="neutral">Impuestos autogestionado</StatusChip>;
-  // Sin bandera y sin registro (p.ej. trámite no Asignado): sin registro, mismo criterio que SOAT.
-  if (!fila.impuesto) return <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin registro</span>;
-  const imp = fila.impuesto;
-  const liq = pesos(imp.valorLiquidado);
-  const pag = pesos(imp.valorPagado);
-  const puedeSolicitar = onSolicitar && esAccionable(fila) && imp.estado === EstadoImpuesto.PENDIENTE;
-  return (
-    <div className="space-y-0.5">
-      <StatusChip tone={TONO_IMP[imp.estado]}>{ESTADO_IMPUESTO_LABEL[imp.estado]}</StatusChip>
-      {desbloqueado && <div><StatusChip tone="warning">Desbloqueado</StatusChip></div>}
-      {imp.estancado && <div><ChipSinGestion desde={imp.enviadoEn} tone="danger" /></div>}
-      {imp.marcadoPorDiferencia && <div><StatusChip tone="warning">Diferencia de valor</StatusChip></div>}
-      {imp.enviadoEn && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Enviado {fecha(imp.enviadoEn)}</p>}
-      {liq && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Liquidado {liq}</p>}
-      {pag && <p className="text-xs font-semibold tabular-nums">{pag}</p>}
-      {imp.motivoRechazo && <p className="text-[11px]" style={{ color: 'var(--flit-danger)' }} title={imp.motivoRechazo}>{imp.motivoRechazo.slice(0, 40)}</p>}
-      {puedeSolicitar && <div><BotonSolicitar onClick={onSolicitar} /></div>}
-    </div>
-  );
-}
-
-// Tracking logístico de la LT: línea horizontal con un punto por paso y, arriba, el estado actual
-// (estilo seguimiento de pedido). Novedad/Devuelta se marcan en rojo sobre el paso donde ocurren.
-// Tracking con el vocabulario SIMPLE (4 pasos lineales; «Con novedad» es un desvío lateral, no un paso).
-const PASOS_LOG = ESTADOS_LOGISTICA_SIMPLE_ORDEN.map((key) => ({ key, label: ESTADO_LOGISTICA_SIMPLE_LABEL[key] }));
-const IDX_SIMPLE: Record<EstadoLogisticaSimple, { idx: number; danger: boolean }> = {
-  pendiente: { idx: 0, danger: false }, registrada: { idx: 1, danger: false },
-  en_flit: { idx: 1, danger: false },
-  despachada: { idx: 2, danger: false }, entregada: { idx: 3, danger: false },
-  novedad: { idx: 1, danger: true }, // se pinta en rojo sobre el paso de recogida
-};
-
-function TrackingLogistica({ estado }: { estado: string | null }) {
-  if (!estado) return <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>No aplica</span>;
-  const simple = simplificarEstadoLogistica(estado);
-  const info = IDX_SIMPLE[simple];
-  const color = info.danger ? 'var(--flit-danger)' : simple === 'entregada' ? 'var(--flit-success)' : 'var(--flit-blue-text)';
-  const pct = (info.idx / (PASOS_LOG.length - 1)) * 100;
-  return (
-    <div className="min-w-[190px]">
-      <div className="mb-2 text-[11px] font-semibold" style={{ color }}>{ESTADO_LOGISTICA_SIMPLE_LABEL[simple]}</div>
-      <div className="relative flex items-center justify-between px-0.5">
-        <div className="absolute inset-x-1 top-1/2 h-0.5 -translate-y-1/2 rounded" style={{ background: 'var(--flit-border-soft)' }} />
-        <div className="absolute left-1 top-1/2 h-0.5 -translate-y-1/2 rounded" style={{ width: `calc(${pct}% - 4px)`, background: color }} />
-        {PASOS_LOG.map((p, i) => {
-          const hecho = i <= info.idx;
-          const actual = i === info.idx;
-          return (
-            <span key={p.key} title={p.label} className="relative z-10 rounded-full transition-all"
-              style={{
-                width: actual ? 12 : 9, height: actual ? 12 : 9,
-                background: hecho ? color : '#fff',
-                border: `2px solid ${hecho ? color : 'var(--flit-border-soft)'}`,
-                boxShadow: actual ? `0 0 0 3px ${info.danger ? 'rgba(228,61,48,0.18)' : 'rgba(48,102,190,0.18)'}` : 'none',
-              }} />
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function DialogoProveedor({ tipo, n, proveedores, enProceso, onConfirmar, onCancelar }: {
-  tipo: 'soat' | 'ambos'; n: number; proveedores: CatalogoSelector; enProceso: boolean;
-  onConfirmar: (proveedorSoatId: string) => void; onCancelar: () => void;
-}) {
-  const [proveedorSoatId, setProveedorSoatId] = useState('');
-  return (
-    <FlitModal title={tipo === 'ambos' ? 'Solicitar SOAT e impuestos' : 'Solicitar SOAT'} onClose={onCancelar}>
-      <div className="space-y-3">
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-          Elige la aseguradora a la que se envían los {n} trámite(s). El SOAT va a ese proveedor; los impuestos van a su gestor según el organismo.
-        </p>
-        <FlitSelect label="Aseguradora" value={proveedorSoatId} onChange={setProveedorSoatId}
-          opciones={opcionesConEstado(proveedores.data ?? [], '', { placeholder: 'Elige una aseguradora…' })}
-          mensaje={mensajeSelectorSoat(proveedores)} fallo={proveedores.error} disabled={!proveedores.data?.length}
-          onReintentar={proveedores.error ? proveedores.recargar : undefined} textoReintento={SOAT_REINTENTO} />
-        <div className="flex gap-2">
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={!proveedorSoatId || enProceso} onClick={() => onConfirmar(proveedorSoatId)}>
-            {tipo === 'ambos' ? 'Solicitar ambos' : 'Solicitar SOAT'}
-          </button>
-          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCancelar}>Cancelar</button>
-        </div>
-      </div>
-    </FlitModal>
-  );
-}
-
-const TONO_COLOR: Record<ChipTone, string> = {
-  success: 'var(--flit-success)', active: 'var(--flit-info)', warning: 'var(--flit-warning)',
-  danger: 'var(--flit-danger)', draft: 'var(--flit-draft)', neutral: 'var(--flit-text-muted)',
-};
-
-function Linea({ tono, children }: { tono: ChipTone; children: React.ReactNode }) {
-  return (
-    <p className="flex items-start gap-2 text-sm">
-      <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: TONO_COLOR[tono] }} />
-      <span>{children}</span>
-    </p>
-  );
-}
-
-function DetalleSoat({ r }: { r: ResSoat }) {
-  const vacio = !r.enviados && !r.yaEnviados && !r.autogestionados && !r.sinRegistro;
-  return (
-    <div className="space-y-1.5">
-      {r.enviados > 0 && <Linea tono="success">{r.enviados} SOAT enviado(s): pasan a «En adquisición».</Linea>}
-      {r.yaEnviados > 0 && <Linea tono="neutral">{r.yaEnviados} ya solicitados o pagados: no se reenvían.</Linea>}
-      {r.autogestionados > 0 && <Linea tono="neutral">{r.autogestionados} no llevan SOAT: su compañía lo autogestiona.</Linea>}
-      {r.sinRegistro > 0 && <Linea tono="neutral">{r.sinRegistro} sin registro de SOAT todavía.</Linea>}
-      {vacio && <Linea tono="neutral">Ningún trámite tenía SOAT por enviar.</Linea>}
-    </div>
-  );
-}
-
-function DetalleImpuestos({ r }: { r: ResImpuestos }) {
-  const vacio = !r.enviados && !r.yaEnviados && !r.noEnviables;
-  return (
-    <div className="space-y-1.5">
-      {r.enviados > 0 && <Linea tono="success">{r.enviados} impuesto(s) enviado(s): pasan a «Solicitado».</Linea>}
-      {r.yaEnviados > 0 && <Linea tono="neutral">{r.yaEnviados} ya solicitados o pagados: no se reenvían.</Linea>}
-      {r.noEnviables > 0 && <Linea tono="neutral">{r.noEnviables} no enviables: autogestionados o no están en Pendiente.</Linea>}
-      {vacio && <Linea tono="neutral">Ningún trámite tenía impuesto por enviar.</Linea>}
-    </div>
-  );
-}
-
-const TITULO: Record<Resultado['tipo'], string> = {
-  soat: 'Resultado de solicitar SOAT', impuestos: 'Resultado de solicitar Impuestos',
-  ambos: 'Resultado de solicitar SOAT e Impuestos', entrega: 'Resultado de la entrega',
-};
-
-function ModalResultado({ resultado, onCerrar }: { resultado: Resultado; onCerrar: () => void }) {
-  return (
-    <FlitModal title={TITULO[resultado.tipo]} onClose={onCerrar} wide>
-      <div className="space-y-3">
-        {resultado.tipo === 'soat' && <DetalleSoat r={resultado.soat} />}
-        {resultado.tipo === 'impuestos' && <DetalleImpuestos r={resultado.impuestos} />}
-        {resultado.tipo === 'ambos' && (
-          <>
-            <div><p className="mb-1 text-xs font-semibold uppercase" style={{ color: 'var(--flit-text-muted)' }}>SOAT</p><DetalleSoat r={resultado.soat} /></div>
-            <div><p className="mb-1 text-xs font-semibold uppercase" style={{ color: 'var(--flit-text-muted)' }}>Impuestos</p><DetalleImpuestos r={resultado.impuestos} /></div>
-          </>
-        )}
-        {resultado.tipo === 'entrega' && (
-          <div className="space-y-1.5">
-            {resultado.entrega.entregados > 0 && <Linea tono="success">{resultado.entrega.entregados} trámite(s) entregado(s).</Linea>}
-            {resultado.entrega.noHabilitados.length > 0 && (
-              <div>
-                <Linea tono="warning">{resultado.entrega.noHabilitados.length} no estaban habilitados:</Linea>
-                <ul className="mt-1 space-y-1">
-                  {resultado.entrega.noHabilitados.map((t) => (
-                    <li key={t.tramiteId} className="rounded-md border p-2 text-xs" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                      <span className="font-medium">{t.placa}</span> <span style={{ color: 'var(--flit-text-muted)' }}>— {t.motivo}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {!resultado.entrega.entregados && !resultado.entrega.noHabilitados.length && <Linea tono="neutral">No había trámites por entregar.</Linea>}
-          </div>
-        )}
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onCerrar}>Entendido</button>
-      </div>
-    </FlitModal>
-  );
-}

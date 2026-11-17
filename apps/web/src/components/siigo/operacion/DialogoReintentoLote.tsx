@@ -104,11 +104,11 @@ export default function DialogoReintentoLote(
         />
       )}
       {fase === 'enviando' && (
-        <div role="status" className="flex flex-col gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <div role="status" className="flex flex-col gap-2 text-sm" style={{ color: 'var(--color-text-primary)' }}>
           <p className="font-semibold">Reintentando…</p>
           {previa.emision.facturaIds.length > 0 && <p>Enviando {previa.emision.facturaIds.length} a la cola de emisión.</p>}
           {previa.correo.facturaIds.length > 0 && <p>Reenviando {previa.correo.facturaIds.length} correos… (esto sí espera respuesta)</p>}
-          <p style={{ color: 'var(--flit-text-secondary)' }}>
+          <p style={{ color: 'var(--color-text-secondary)' }}>
             No cierres esta ventana: aquí se ve qué pasó con cada uno.
           </p>
         </div>
@@ -148,7 +148,7 @@ function Confirmacion(
   return (
     <div className="flex flex-col gap-4">
       {/* El número de esta frase y el del botón son LA MISMA VARIABLE. Si difieren, es un bug. */}
-      <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         Se van a intentar {previa.aIntentar} de los {previa.seleccionados} seleccionados.
       </p>
 
@@ -170,7 +170,7 @@ function Confirmacion(
       {/* «Quedan fuera», NUNCA «se descartan»: esa palabra es la de dar por perdido. */}
       {previa.totalFuera > 0 && (
         <>
-          <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
             {previa.totalFuera} quedan fuera de este lote. No se les hace nada:
           </p>
           <Exclusiones titulo="⊘ No se arreglan reintentando" casos={previa.noSirveReintentar} />
@@ -194,9 +194,9 @@ function Confirmacion(
 
 function Bloque({ titulo, nota, etiquetas }: { titulo: string; nota: string; etiquetas: string[] }) {
   return (
-    <div className="rounded-[10px] p-3" style={{ background: 'var(--flit-bg-app)' }}>
-      <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{titulo}</p>
-      <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{nota}</p>
+    <div className="rounded-[10px] p-3" style={{ background: 'var(--color-surface)' }}>
+      <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{titulo}</p>
+      <p className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{nota}</p>
       <ListaEtiquetas etiquetas={etiquetas} />
     </div>
   );
@@ -210,13 +210,13 @@ function Exclusiones({ titulo, casos }: { titulo: string; casos: ExclusionLote[]
   // Un cubo con cero no se pinta: la ausencia no necesita rótulo.
   if (casos.length === 0) return null;
   return (
-    <details open className="rounded-[10px] p-3" style={{ background: 'var(--flit-bg-app)' }}>
-      <summary className="flit-focus cursor-pointer text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+    <details open className="rounded-[10px] p-3" style={{ background: 'var(--color-surface)' }}>
+      <summary className="flit-focus cursor-pointer text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         {titulo} ({casos.length})
       </summary>
       <ul className="mt-2 flex max-h-32 flex-col gap-1 overflow-y-auto">
         {casos.map((c) => (
-          <li key={c.clave} className="text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+          <li key={c.clave} className="text-xs" style={{ color: 'var(--color-text-primary)' }}>
             <strong>{c.etiqueta}</strong> — {c.motivo}
           </li>
         ))}
@@ -228,7 +228,7 @@ function Exclusiones({ titulo, casos }: { titulo: string; casos: ExclusionLote[]
 /** Alto máximo y desplazamiento propio: cien identificadores no pueden empujar los botones fuera. */
 function ListaEtiquetas({ etiquetas }: { etiquetas: string[] }) {
   return (
-    <p className="mt-2 max-h-32 overflow-y-auto text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+    <p className="mt-2 max-h-32 overflow-y-auto text-xs" style={{ color: 'var(--color-text-primary)' }}>
       {etiquetas.join('  ·  ')}
     </p>
   );
@@ -254,7 +254,7 @@ function Resultado(
         ref={tituloRef}
         tabIndex={-1}
         className="text-base font-bold outline-none"
-        style={{ color: 'var(--flit-text-primary)' }}
+        style={{ color: 'var(--color-text-primary)' }}
       >
         Reintento en lote · resultado
       </h3>
@@ -281,7 +281,7 @@ function Resultado(
       )}
 
       {emision && emision.resumen.encolados > 0 && (
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           Los que volvieron a la cola salen solos en los próximos minutos. <strong>Todavía no están
           emitidos</strong>: su desenlace aparecerá en esta bandeja si vuelve a fallar.
         </p>
@@ -316,7 +316,7 @@ function Resultado(
 function Fallo({ bloque, fallo }: { bloque: string; fallo: FalloBloque | null }) {
   if (!fallo) return null;
   return (
-    <p role="alert" className="rounded-[10px] p-3 text-sm" style={{ background: '#FBE4E2', color: 'var(--flit-text-primary)' }}>
+    <p role="alert" className="rounded-[10px] p-3 text-sm" style={{ background: 'color-mix(in srgb, var(--kit-rojo) 10%, var(--color-surface-elevated))', color: 'var(--color-text-primary)' }}>
       {fallo.sinRespuesta
         ? `No hubo respuesta del servidor en ${bloque}. Puede que sí se haya registrado: cierra y mira la bandeja antes de volver a intentarlo.`
         : `No se ejecutó ${bloque}: ${fallo.mensaje}. No se tocó ninguno de los ${fallo.casos} de ese bloque.`}
@@ -334,7 +334,7 @@ function GrupoResultado(
   return (
     <ul className="flex flex-col gap-1">
       {conCasos.map((r) => (
-        <li key={r} className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <li key={r} className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
           <strong>{por[r]}</strong> · {prefijo}: {etiqueta(r)}
         </li>
       ))}

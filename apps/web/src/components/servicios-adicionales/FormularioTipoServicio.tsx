@@ -19,9 +19,8 @@ import {
   type CampoTipo, type ServicioAdicionalNombreDuplicado, type ServicioAdicionalTipo,
 } from '../../lib/serviciosAdicionales';
 import FlitModal from '../flit/FlitModal';
-import {
-  flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { flitInp } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
 
 interface Props {
   /** `null` = crear. Con un tipo, edita ese. */
@@ -144,16 +143,16 @@ export default function FormularioTipoServicio({ tipo, onClose, onGuardado, onNo
   };
 
   const mensaje = (campo: CampoTipo) => (errores[campo]
-    ? <p id={`${id}-${campo}-error`} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errores[campo]}</p>
+    ? <p id={`${id}-${campo}-error`} role="alert" className="mt-1 text-xs text-[color:var(--kit-naranja-texto)]">{errores[campo]}</p>
     : null);
   const describe = (campo: CampoTipo, extra?: string) =>
     [errores[campo] ? `${id}-${campo}-error` : null, extra].filter(Boolean).join(' ') || undefined;
 
   return (
-    <FlitModal title={editar ? 'Editar tipo' : 'Nuevo tipo de servicio adicional'} onClose={onClose} restoreFocusRef={restoreFocusRef}>
+    <FlitModal title={editar ? 'Editar tipo' : 'Nuevo tipo de servicio adicional'} onClose={onClose} restoreFocusRef={restoreFocusRef} icono={editar ? 'lapiz' : 'asterisco'}>
       <form onSubmit={enviar} noValidate aria-busy={enviando || undefined} className="space-y-4">
         <div>
-          <label htmlFor={`${id}-nombre`} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Nombre</label>
+          <label htmlFor={`${id}-nombre`} className="mb-1 block text-xs font-semibold text-[color:var(--color-text-primary)]">Nombre</label>
           <input
             id={`${id}-nombre`} ref={refs.nombre} type="text" className={flitInp} value={nombre}
             maxLength={SERVICIO_ADICIONAL_NOMBRE_MAX} autoComplete="off" disabled={enviando}
@@ -163,7 +162,7 @@ export default function FormularioTipoServicio({ tipo, onClose, onGuardado, onNo
           {mensaje('nombre')}
         </div>
         <div>
-          <label htmlFor={`${id}-descripcion`} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Descripción (opcional)</label>
+          <label htmlFor={`${id}-descripcion`} className="mb-1 block text-xs font-semibold text-[color:var(--color-text-primary)]">Descripción (opcional)</label>
           <textarea
             id={`${id}-descripcion`} ref={refs.descripcion} rows={3} className={flitInp} value={descripcion}
             maxLength={SERVICIO_ADICIONAL_DESCRIPCION_MAX} disabled={enviando}
@@ -173,9 +172,9 @@ export default function FormularioTipoServicio({ tipo, onClose, onGuardado, onNo
           {mensaje('descripcion')}
         </div>
         <div>
-          <label htmlFor={`${id}-valor`} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Valor</label>
+          <label htmlFor={`${id}-valor`} className="mb-1 block text-xs font-semibold text-[color:var(--color-text-primary)]">Valor</label>
           <div className="flex items-center gap-2">
-            <span aria-hidden="true" className="text-sm font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>$</span>
+            <span aria-hidden="true" className="text-sm font-semibold text-[color:var(--color-text-secondary)]">$</span>
             <input
               id={`${id}-valor`} ref={refs.valor} type="text" inputMode="decimal" autoComplete="off"
               className={`${flitInp} max-w-[12rem]`} value={valor} disabled={enviando} aria-label="Valor en pesos"
@@ -183,27 +182,27 @@ export default function FormularioTipoServicio({ tipo, onClose, onGuardado, onNo
               onChange={(e) => setValor(e.target.value)} onBlur={() => validarCampo('valor')}
             />
           </div>
-          <p id={`${id}-valor-ayuda`} className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p id={`${id}-valor-ayuda`} className="mt-1 text-xs text-[color:var(--color-text-tertiary)]">
             En pesos. Sin decimales, salvo que el valor los tenga (hasta dos).
           </p>
           {mensaje('valor')}
         </div>
 
         {errorGeneral && (
-          <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{errorGeneral}</p>
+          <p role="alert" className="text-sm text-[color:var(--kit-rojo-texto)]">{errorGeneral}</p>
         )}
 
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando} onClick={onClose}>Cancelar</button>
-          <button
-            type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+          <GradientButton type="button" variant="secondary" disabled={enviando} onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton
+            type="submit"
             disabled={enviando || sinCambios} aria-describedby={sinCambios ? `${id}-sin-cambios` : undefined}
           >
             {editar ? 'Guardar cambios' : 'Crear tipo'}
-          </button>
+          </GradientButton>
         </div>
         {sinCambios && (
-          <p id={`${id}-sin-cambios`} className="text-right text-xs" style={{ color: 'var(--flit-text-muted)' }}>{SIN_CAMBIOS}</p>
+          <p id={`${id}-sin-cambios`} className="text-right text-xs text-[color:var(--color-text-tertiary)]">{SIN_CAMBIOS}</p>
         )}
       </form>
     </FlitModal>

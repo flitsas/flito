@@ -3,7 +3,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 
-const STORAGE_KEY = 'aura-theme';
+/** Clave de la suite (UI Kit 2026). `aura-theme` se lee como respaldo (preferencias y e2e previos). */
+const STORAGE_KEY = 'flit-tema';
+const STORAGE_KEY_LEGACY = 'aura-theme';
 const MEDIA_QUERY = '(prefers-color-scheme: dark)';
 
 interface ThemeContextValue {
@@ -22,7 +24,7 @@ function readSystemPreference(): ResolvedTheme {
 
 function readStoredTheme(): ThemeMode {
   if (typeof window === 'undefined') return 'system';
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(STORAGE_KEY_LEGACY);
   if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
   return 'system';
 }

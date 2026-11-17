@@ -1294,13 +1294,11 @@ const SEIS_FILAS = {
   ],
   total: 6, page: 1, pageSize: 50,
 };
-const TONO_POR_TINTA: Record<string, string> = {
-  // Épica #13763: la tinta de los chips de color pasó a sus tokens `--flit-chip-*-ink`, con par oscuro.
-  'var(--flit-chip-success-ink)': 'success', 'var(--flit-chip-active-ink)': 'active', 'var(--flit-chip-warning-ink)': 'warning',
-  // HU #12819: la tinta de `neutral` pasó a su token de chip, con par oscuro legible.
-  'var(--flit-chip-neutral-ink)': 'neutral', 'var(--flit-chip-danger-ink)': 'danger',
-};
-const tonoDe = (chip: Locator) => chip.evaluate((el) => (el as HTMLElement).style.color).then((c) => TONO_POR_TINTA[c] ?? c);
+// Épica #14560 (guía §6): el tono se lee del marcador estable `data-tono` del chip del kit, no de su tinta.
+// `StatusChip` traduce success→ok, active→info, warning→warn, danger→danger, draft|neutral→neutro.
+const TONO_POR_KIT: Record<string, string> = { ok: 'success', info: 'active', warn: 'warning', danger: 'danger', neutro: 'neutral' };
+const tonoDe = (chip: Locator) => chip.evaluate((el) => el.closest('[data-tono]')?.getAttribute('data-tono') ?? '')
+  .then((t) => TONO_POR_KIT[t] ?? t);
 const selectorAsociacion = (page: Page) => page.getByRole('combobox', { name: 'Estado de asociación' });
 const enlaceTramite = (ambito: Locator | Page) => ambito.getByRole('link', { name: /^Ver trámite FLIT-ARHZZ1/ });
 const CON_VER_SOPORTES = { ...FINANCIERA_USER, funciones: [...FUNCIONES_POR_ROL.financiera, 'tramites.tramite.ver_soportes'] };

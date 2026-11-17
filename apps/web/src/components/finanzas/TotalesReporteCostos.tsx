@@ -10,7 +10,7 @@
 // lo lee así, y no hay celdas vacías de relleno delante.
 
 import { FlitTr } from '../flit/flitPageKit';
-import type { Columna } from './definicionColumnasReporteCostos';
+import { LINEA_FIJA, type Columna } from './definicionColumnasReporteCostos';
 
 /** Mismo `sticky` que las celdas fijas del cuerpo (`TablaReporteCostos`), con fondo de tarjeta. */
 const FIJA = 'lg:sticky lg:z-10 bg-flit-card';
@@ -42,8 +42,8 @@ export default function TotalesReporteCostos({ columnas, totales, costos, total,
       <FlitTr>
         {conCasilla && <td className={`${FIJA} lg:left-0`} />}
         <th scope="row" colSpan={rotuloSpan}
-          className={`px-3 py-2 text-left text-xs font-semibold ${fijas > 0 ? `${FIJA} lg:shadow-[inset_-1px_0_0_var(--flit-border-input)]` : 'whitespace-nowrap'}`}
-          style={{ color: 'var(--flit-text-secondary)', left: fijas > 0 ? 'var(--rc-izq)' : undefined }}>
+          className={`px-3 py-2 text-left text-xs font-semibold ${fijas > 0 ? `${FIJA} ${LINEA_FIJA}` : 'whitespace-nowrap'}`}
+          style={{ color: 'var(--color-text-secondary)', left: fijas > 0 ? 'var(--rc-izq)' : undefined }}>
           Totales ({total.toLocaleString('es-CO')} trámites del filtro)
         </th>
         {huecoSpan > 0 && <td colSpan={huecoSpan} />}

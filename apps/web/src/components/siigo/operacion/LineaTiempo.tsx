@@ -11,7 +11,7 @@
 // el DTO de la línea de tiempo y la lista de hitos que no son llamadas viven en
 // `apps/api/src/modules/siigo/siigo.linea-tiempo.service.ts`, que la web no puede importar. Queda
 // anotado para backend: son tipos puros con dos consumidores, exactamente el criterio con el que
-// `GuiaErrorSiigo` se mudó a tipos compartidos en la HU #11340.
+// `GuiaErrorSiigo` se mudó a tipos compartidos en la HU 11340.
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api, errorMessage } from '../../../lib/api';
@@ -52,9 +52,9 @@ const TOPE_HITOS = 200;
 
 const RESULTADO: Record<HitoLineaTiempo['resultado'], { simbolo: string; color: string }> = {
   // Símbolo Y color, nunca color solo.
-  ok: { simbolo: '✓', color: 'var(--flit-success-ink)' },
-  error: { simbolo: '✕', color: 'var(--flit-danger-ink)' },
-  informativo: { simbolo: '•', color: 'var(--flit-text-secondary)' },
+  ok: { simbolo: '✓', color: 'var(--kit-verde-texto)' },
+  error: { simbolo: '✕', color: 'var(--kit-rojo-texto)' },
+  informativo: { simbolo: '•', color: 'var(--color-text-secondary)' },
 };
 
 const ORIGEN: Record<FuenteHito, string> = {
@@ -101,11 +101,11 @@ export default function LineaTiempo({ tramiteId }: { tramiteId: string | null })
       </Nota>
     );
   }
-  if (cargando) return <p role="status" className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Reconstruyendo lo que pasó…</p>;
+  if (cargando) return <p role="status" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Reconstruyendo lo que pasó…</p>;
   if (error || !datos) {
     return (
       <div className="flex flex-wrap items-center gap-3">
-        <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
           No se pudo cargar la línea de tiempo: {error ?? 'sin datos'}.
         </p>
         <button type="button" onClick={reintentar} className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}>
@@ -138,7 +138,7 @@ export default function LineaTiempo({ tramiteId }: { tramiteId: string | null })
   return (
     <div className="flex flex-col gap-2">
       {datos.hitos.length >= TOPE_HITOS && (
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           Se muestran {TOPE_HITOS} hitos de un historial más largo.
         </p>
       )}
@@ -149,18 +149,18 @@ export default function LineaTiempo({ tramiteId }: { tramiteId: string | null })
             <li
               key={`${hito.ocurridoEn}-${hito.tipo}-${i}`}
               className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-l-2 pl-3"
-              style={{ borderColor: 'var(--flit-border-soft)' }}
+              style={{ borderColor: 'var(--color-border)' }}
             >
-              <span className="text-xs tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>
+              <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
                 {fecha(hito.ocurridoEn)}
               </span>
-              <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+              <span className="text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
                 {origenDe(hito)}
               </span>
               <span className="text-sm font-semibold" style={{ color: r.color }}>
                 {r.simbolo} {hito.resultado === 'ok' ? 'Correcto' : hito.resultado === 'error' ? 'Con error' : 'Informativo'}
               </span>
-              <span className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              <span className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
                 {hito.detalle ?? hito.tipo}
               </span>
             </li>
@@ -175,7 +175,7 @@ function Nota({ children }: { children: ReactNode }) {
   return (
     <p
       className="rounded-[10px] px-4 py-3 text-sm"
-      style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-primary)' }}
+      style={{ background: 'var(--color-surface)', color: 'var(--color-text-primary)' }}
     >
       {children}
     </p>

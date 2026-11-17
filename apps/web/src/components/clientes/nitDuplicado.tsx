@@ -34,7 +34,7 @@ export function manejarErrorGuardarCliente(e: unknown): string | null {
 /** Mensaje de error bajo el campo NIT. `id` es el destino del `aria-describedby` del input (AC2). */
 export function ErrorNit({ id, children }: { id: string; children: string }) {
   return (
-    <p id={id} role="alert" className="mt-1 text-xs font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
+    <p id={id} role="alert" className="mt-1 text-xs font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
       {children}
     </p>
   );

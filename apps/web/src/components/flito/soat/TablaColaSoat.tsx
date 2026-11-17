@@ -1,14 +1,14 @@
-// Tabla de la cola SOAT con su paginación (HU #12819). La selección vive en la página (la usan la
+// Tabla de la cola SOAT con su paginación (HU 12819). La selección vive en la página (la usan la
 // barra de envío y el ZIP).
 //
-// Orden de columnas desde la HU #12819 (§5.4): Vehículo · **Estado** · Compañía · Gestiona ·
+// Orden de columnas desde la HU 12819 (§5.4): Vehículo · **Estado** · Compañía · Gestiona ·
 // Solicitado · Pagado · Valor · acciones. El Estado sube de 5.ª a 2.ª porque es lo que decide si se
 // abre la fila, y a 375 px placa + estado caben en la primera vista. La columna «Fechas» (creado y
 // aprobado del TRÁMITE en FLIT) pasó al detalle (P-2): es un dato de consulta, no de decisión.
 
-import { ChevronRight } from 'lucide-react';
 import { EstadoSoat, type SolicitudIncompletaFila } from '@operaciones/shared-types';
 import StatusChip from '../../flit/StatusChip';
+import { Icono } from '../../flit/kit/Icono';
 import AntiguedadPill from '../../flit/AntiguedadPill';
 import ChipSinGestion from '../../flit/ChipSinGestion';
 import Paginacion from '../../flit/Paginacion';
@@ -25,15 +25,15 @@ export interface TablaColaSoatProps {
   /** La página que se pinta: la de la cola o, en «Por validar»/«Descartadas», la de las incompletas. */
   data: Pick<ColaSoat, 'total' | 'page'>; filas: SoatItem[]; totalPaginas: number;
   /**
-   * Solicitudes aparcadas porque el RUNT no respondió (HU #12997). Van ANTES de los SOAT: en «Todos»
+   * Solicitudes aparcadas porque el RUNT no respondió (HU 12997). Van ANTES de los SOAT: en «Todos»
    * son la cabeza de la primera página, y en sus pastillas son lo único que hay.
    */
   incompletas?: SolicitudIncompletaFila[];
   puedeVerIncompleta?: boolean;
   onVerIncompleta?: (f: SolicitudIncompletaFila) => void;
-  /** HU #12998: reintento de la consulta al RUNT (sin la función, ni se pinta). */
+  /** HU 12998: reintento de la consulta al RUNT (sin la función, ni se pinta). */
   puedeReintentarIncompleta?: boolean;
-  /** `soat.solicitud.crear` (HU #14137). */
+  /** `soat.solicitud.crear` (HU 14137). */
   puedeCompletarIncompleta?: boolean;
   incompletasEnVuelo?: Record<string, unknown>;
   onReintentarIncompleta?: (f: SolicitudIncompletaFila) => void;
@@ -103,7 +103,7 @@ export default function TablaColaSoat({
                     cilindraje={f.cilindraje} carroceria={f.carroceria} tipoServicio={f.tipoServicio}
                     multiplePropietario={f.esMultiplePropietario} tipoSoat={f.tipoSoat} />
                   {/* La vigencia entra AQUÍ y no en una columna nueva: esta celda es, desde la HU
-                      #11905, donde viven las señales temporales de riesgo del mismo SOAT, y una
+                      11905, donde viven las señales temporales de riesgo del mismo SOAT, y una
                       columna más devolvería la tabla a 11 y con ella el desborde a 1280 px que
                       aquella HU quitó. Las dos ocupaciones son casi disjuntas —«sin gestión» solo
                       sale en `solicitado` estancado y la vigencia solo en filas con comprobante—,
@@ -134,7 +134,7 @@ export default function TablaColaSoat({
                           El chevrón dice que abre algo; el nombre accesible sigue siendo «Ver». */}
                       <button type="button" className={flitBtnSecondarySm} onClick={() => onVer(f.id)}>
                         Ver
-                        <ChevronRight size={16} aria-hidden="true" className="-mr-1 shrink-0" />
+                        <Icono nombre="derecha" size={16} className="-mr-1 shrink-0" />
                       </button>
                     </div>
                   </td>
@@ -163,7 +163,7 @@ function CeldaGestion({ soat }: { soat: SoatItem }) {
     <td className="px-3 py-2 text-sm">
       <StatusChip tone="warning">Operaciones</StatusChip>
       {soat.proveedorSoatNombre && (
-        <div className="mt-0.5 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <div className="mt-0.5 text-xs text-[color:var(--color-text-tertiary)]">
           retomado de {soat.proveedorSoatNombre}
         </div>
       )}

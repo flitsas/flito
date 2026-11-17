@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cómo emito una factura
   - por qué falló una factura en Siigo
-version: 1.2
-fecha: 2026-10-21
+version: 1.5
+fecha: 2026-11-17
 ---
 ## Qué es
 
@@ -21,7 +21,7 @@ Financiera y Administrador (reintentan, reenvían correo, dan por perdido, corri
 
 ## Cómo se entra
 
-En el menú lateral, sección **Finanzas**, ítem **Facturación electrónica · Operación**. En la cabecera: **¿Buscas una factura concreta? Ve al reporte de costos**.
+En la barra de navegación al pie de la pantalla, pulse **Finanzas** y, en el panel que se abre, el ítem **Facturación electrónica · Operación**. En la cabecera: **¿Buscas una factura concreta? Ve al reporte de costos**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «facturación».
 
 ## Pasos
 

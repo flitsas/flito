@@ -106,18 +106,18 @@ export default function TablaCasos(p: Props) {
                   </td>
                 )}
                 <td className={CELDA}>
-                  <span className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+                  <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                     {etiqueta}
                   </span>
                   {p.tocados.has(clave) && (
-                    <span className="mt-1 block text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                    <span className="mt-1 block text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                       Cambiado ahora mismo. Puede que ya no encaje con el filtro.
                     </span>
                   )}
                 </td>
                 {/* Se muestra el NOMBRE del cliente y nada más: ni NIT, ni cédula, ni teléfono, ni
                     la dirección de correo del destinatario. */}
-                <td className={CELDA} style={{ color: 'var(--flit-text-primary)' }}>
+                <td className={CELDA} style={{ color: 'var(--color-text-primary)' }}>
                   {item.clienteNombre ?? '—'}
                 </td>
                 <td className={CELDA}>
@@ -125,7 +125,7 @@ export default function TablaCasos(p: Props) {
                     <StatusChip tone="neutral">{SIIGO_BANDEJA_FUENTE_ETIQUETA[item.fuente]}</StatusChip>
                     <EstadoNativoChip fuente={item.fuente} estado={item.estado} />
                     {item.fuente === 'emision' && item.maxIntentos > 0 && (
-                      <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                      <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                         intento {item.intentos} de {item.maxIntentos}
                       </span>
                     )}
@@ -176,17 +176,16 @@ function Esqueleto() {
     <div
       role="status"
       aria-busy="true"
-      className="flex flex-col gap-3 bg-white p-4"
+      className="flex flex-col gap-3 bg-[var(--color-surface-elevated)] p-4"
       style={{
-        borderRadius: 'var(--flit-radius-card)',
-        border: '1px solid var(--flit-border-soft)',
-        boxShadow: 'var(--flit-shadow-card)',
+        borderRadius: '9px',
+        border: '1px solid var(--color-border)',
       }}
     >
       {[0, 1, 2, 3, 4].map((i) => (
-        <div key={i} className="h-10 rounded" style={{ background: 'var(--flit-bg-app)' }} />
+        <div key={i} className="h-10 rounded" style={{ background: 'var(--color-surface)' }} />
       ))}
-      <p className="text-center text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>
         Buscando lo que quedó detenido…
       </p>
     </div>
@@ -197,10 +196,10 @@ function Esqueleto() {
 function BandaError({ mensaje, onReintentar }: { mensaje: string; onReintentar: () => void }) {
   return (
     <div
-      className="flex flex-wrap items-center gap-3 bg-white p-5"
-      style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-danger-ink)' }}
+      className="flex flex-wrap items-center gap-3 bg-[var(--color-surface-elevated)] p-5"
+      style={{ borderRadius: '9px', border: '1px solid var(--kit-rojo-texto)' }}
     >
-      <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
         <span aria-hidden="true">⚠ </span>No se pudo cargar la bandeja: {mensaje}
       </p>
       <button type="button" onClick={onReintentar} className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}>
@@ -216,15 +215,15 @@ function VacioQueCelebra() {
     <div
       className="flex flex-col items-center gap-2 p-12 text-center"
       style={{
-        borderRadius: 'var(--flit-radius-card)',
-        border: '1px dashed var(--flit-border-input)',
-        background: 'var(--flit-bg-card)',
+        borderRadius: '9px',
+        border: '1px dashed var(--color-border-control)',
+        background: 'var(--color-surface-elevated)',
       }}
     >
-      <p className="text-lg font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <p className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         <span aria-hidden="true">✓ </span>No hay nada detenido. Buen día.
       </p>
-      <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
         Todo lo que se envió a facturación electrónica siguió su camino: nada espera una decisión tuya.
       </p>
       <Link
@@ -244,12 +243,12 @@ function VacioConFiltros({ total, onLimpiar }: { total: number | null; onLimpiar
     <div
       className="flex flex-wrap items-center justify-between gap-3 p-6"
       style={{
-        borderRadius: 'var(--flit-radius-card)',
-        border: '1px dashed var(--flit-border-input)',
-        background: 'var(--flit-bg-card)',
+        borderRadius: '9px',
+        border: '1px dashed var(--color-border-control)',
+        background: 'var(--color-surface-elevated)',
       }}
     >
-      <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
         Ningún caso coincide con este filtro.
         {total !== null && ` Hay ${total.toLocaleString('es-CO')} casos detenidos en total.`}
       </p>
@@ -269,11 +268,11 @@ function VacioConFiltros({ total, onLimpiar }: { total: number | null; onLimpiar
  */
 function Paginas({ pagina, hayMas, onPagina }: { pagina: number; hayMas: boolean; onPagina: (p: number) => void }) {
   const btn = 'flit-focus rounded-lg border px-3 py-1.5 text-sm font-semibold disabled:opacity-40';
-  const estilo = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-blue-text)' } as const;
+  const estilo = { borderColor: 'var(--color-border-control)', color: 'var(--color-action)' } as const;
   if (pagina === 0 && !hayMas) return null;
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Página {pagina + 1}</span>
+      <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Página {pagina + 1}</span>
       <div className="flex gap-2">
         <button type="button" className={btn} style={estilo} disabled={pagina === 0} onClick={() => onPagina(pagina - 1)}>
           ← Anterior

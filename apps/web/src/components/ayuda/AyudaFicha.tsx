@@ -27,9 +27,9 @@ import {
 } from './AyudaTablaContenido';
 import { ArbolFichasLateral, ArbolFichasPlegable, forzarGrupoDesplegado } from './AyudaArbolFichas';
 import PageHeaderCard from '../flit/PageHeaderCard';
-import {
-  FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { FlitCard, FlitEmpty } from '../flit/flitPageKit';
+import { claseBoton } from '../flit/GradientButton';
+import { Icono } from '../flit/kit/Icono';
 import { isValidPage } from '../../lib/permissions';
 
 type EstadoCarga = 'cargando' | 'error' | 'listo';
@@ -109,11 +109,11 @@ export default function AyudaFicha({ slug }: { slug: string }) {
   if (!entrada) {
     return (
       <div className="space-y-4">
-        <PageHeaderCard title="Ayuda FLITO" leading={<VolverIndice />} />
+        <PageHeaderCard title="Ayuda FLITO" icono="flito-ayuda" miga={[]} leading={<VolverIndice />} />
         <FlitEmpty>
-          <p className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Esta ficha no existe.</p>
+          <p className="text-base font-semibold text-[color:var(--color-text-primary)]">Esta ficha no existe.</p>
           <p className="mx-auto mt-2 max-w-lg">Esa ficha no forma parte de la Ayuda FLITO.</p>
-          <Link to="/flito/ayuda" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}>Volver al índice</Link>
+          <Link to="/flito/ayuda" className={claseBoton('secondary', 'md', 'mt-4')} data-variante="secundario">Volver al índice</Link>
         </FlitEmpty>
       </div>
     );
@@ -130,8 +130,8 @@ export default function AyudaFicha({ slug }: { slug: string }) {
     <Link
       to={entrada.to}
       aria-label={`Ir a la pantalla ${entrada.etiqueta}`}
-      className={flitBtnSecondary}
-      style={flitBtnSecondaryStyle}
+      className={claseBoton('secondary')}
+      data-variante="secundario"
     >
       Ir a la pantalla
     </Link>
@@ -140,6 +140,8 @@ export default function AyudaFicha({ slug }: { slug: string }) {
   const header = (conAccion: boolean) => (
     <PageHeaderCard
       title={entrada.etiqueta}
+      icono="flito-ayuda"
+      miga={[{ etiqueta: 'Ayuda FLITO', to: '/flito/ayuda' }]}
       subtitle={resumen || undefined}
       leading={<VolverIndice />}
       titleRef={titleRef}
@@ -164,7 +166,7 @@ export default function AyudaFicha({ slug }: { slug: string }) {
         {rejilla(
           <SkeletonFicha />,
           // Reserva la columna de la TOC en `lg+` para que el artículo no salte al cargar.
-          <div aria-hidden="true" className="hidden h-40 lg:block" style={{ background: 'var(--flit-border-soft)', borderRadius: 8 }} />,
+          <div aria-hidden="true" className="kit-esqueleto hidden h-40 lg:block" />,
         )}
       </div>
     );
@@ -186,11 +188,11 @@ export default function AyudaFicha({ slug }: { slug: string }) {
         {rejilla(
           <>
             <FlitEmpty>
-              <p className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Esta ficha está pendiente.</p>
+              <p className="text-base font-semibold text-[color:var(--color-text-primary)]">Esta ficha está pendiente.</p>
               <p className="mx-auto mt-2 max-w-lg">
                 La ficha ya figura en el índice; el contenido se publicará en una entrega siguiente. No es un error.
               </p>
-              <Link to="/flito/ayuda" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}>Volver al índice</Link>
+              <Link to="/flito/ayuda" className={claseBoton('secondary', 'md', 'mt-4')} data-variante="secundario">Volver al índice</Link>
             </FlitEmpty>
             <AnteriorSiguiente {...vecinas} />
           </>,
@@ -204,7 +206,7 @@ export default function AyudaFicha({ slug }: { slug: string }) {
     <FlitCard>
       <div data-ayuda-cuerpo>
         {fuente.encabezado && (
-          <p className="mb-4 text-xs" style={{ color: 'var(--flit-text-secondary)' }} data-testid="ayuda-ficha-version">
+          <p className="mb-4 text-xs font-light text-[color:var(--color-text-tertiary)]" data-testid="ayuda-ficha-version">
             Versión {fuente.encabezado.version} · {fechaFichaLegible(fuente.encabezado.fecha)}
           </p>
         )}
@@ -266,19 +268,12 @@ function VolverIndice() {
   return (
     <Link
       to="/flito/ayuda"
-      className="flit-focus text-sm font-medium"
-      style={{ color: 'var(--flit-blue-ink)' }}
+      className="flit-focus inline-flex items-center gap-1 rounded-[9px] text-sm font-medium text-[color:var(--color-action)] transition-colors hover:underline"
     >
-      ← Volver al índice
+      <span aria-hidden="true">←</span> Volver al índice
     </Link>
   );
 }
-
-const tarjetaVecina = {
-  borderRadius: 'var(--flit-radius-card)',
-  border: '1px solid var(--flit-border-soft)',
-  background: 'var(--flit-bg-card)',
-} as const;
 
 function EnlaceVecina({ entrada, lado }: { entrada: EntradaAyuda; lado: 'anterior' | 'siguiente' }) {
   const siguiente = lado === 'siguiente';
@@ -286,14 +281,15 @@ function EnlaceVecina({ entrada, lado }: { entrada: EntradaAyuda; lado: 'anterio
     <Link
       to={`/flito/ayuda/${entrada.clave}`}
       aria-label={`${siguiente ? 'Ficha siguiente' : 'Ficha anterior'}: ${entrada.etiqueta}`}
-      className={`flit-focus block min-w-0 px-4 py-3 transition-colors hover:bg-[color:var(--flit-bg-hover)] sm:w-1/2${siguiente ? ' sm:ml-auto sm:text-right' : ''}`}
-      style={tarjetaVecina}
+      className={`flit-focus block min-w-0 rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] px-4 py-3 transition-colors hover:border-[color:var(--kit-azul)] hover:bg-[var(--kit-hover)] sm:w-1/2${siguiente ? ' sm:ml-auto sm:text-right' : ''}`}
       data-testid={`ayuda-ficha-${lado}`}
     >
-      <span className="block text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-        {siguiente ? <>Siguiente <span aria-hidden="true">→</span></> : <><span aria-hidden="true">←</span> Anterior</>}
+      <span className={`flex items-center gap-1 text-xs font-light text-[color:var(--color-text-tertiary)]${siguiente ? ' sm:justify-end' : ''}`}>
+        {siguiente
+          ? <>Siguiente <Icono nombre="derecha" size={14} /></>
+          : <><Icono nombre="izquierda" size={14} /> Anterior</>}
       </span>
-      <span className="mt-0.5 block break-words text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>
+      <span className="mt-0.5 block break-words text-base font-semibold text-[color:var(--color-action)]">
         {GRUPO_AYUDA_LABEL[entrada.grupo]} · {entrada.etiqueta}
       </span>
     </Link>

@@ -3,7 +3,7 @@
 // ── Tarjeta NEUTRA, no banda de error, y nunca `NoAccess` ───────────────────────────────────────
 //
 // Que la compañía no tenga el canal encendido **no es un fallo del usuario ni del sistema**: es una
-// opción comercial de su empresa. Por eso tinta `--flit-text-secondary`, cero rojo y cero icono de
+// opción comercial de su empresa. Por eso tinta el rol de texto secundario, cero rojo y cero icono de
 // alerta — y por eso tampoco es `NoAccess`, cuyo «No tienes acceso a SOAT» sería sencillamente
 // falso: el permiso lo tiene, lo que no tiene su compañía es el canal.
 //
@@ -33,12 +33,12 @@ interface Props {
 export function TarjetaCanalDeshabilitado({ salida = null, avisoCarrera = false }: Props) {
   return (
     <FlitCard>
-      <div className="space-y-2" style={{ color: 'var(--flit-text-secondary)' }}>
-        <h2 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+      <div className="space-y-2 text-[color:var(--color-text-secondary)]">
+        <h2 className="text-sm font-bold text-[color:var(--color-action)]">
           Solicitud de SOAT sin trámite
         </h2>
         {avisoCarrera && (
-          <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="text-sm font-semibold text-[color:var(--color-text-primary)]">
             Esta opción dejó de estar disponible mientras llenaba el formulario, así que no se envió nada.
           </p>
         )}
@@ -66,8 +66,8 @@ export function TarjetaCanalDeshabilitado({ salida = null, avisoCarrera = false 
 export function TarjetaCanalAjeno() {
   return (
     <FlitCard>
-      <div className="space-y-2" style={{ color: 'var(--flit-text-secondary)' }}>
-        <h2 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+      <div className="space-y-2 text-[color:var(--color-text-secondary)]">
+        <h2 className="text-sm font-bold text-[color:var(--color-action)]">
           Este formulario es del canal Cliente.
         </h2>
         <p className="text-sm">

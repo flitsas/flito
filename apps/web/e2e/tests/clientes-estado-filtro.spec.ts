@@ -145,8 +145,8 @@ test.describe('HU #13948 · Clientes — estado y filtro', () => {
     await montar(page, () => ({ status: 200, body: CINCO }));
     await pill(page, 'Inactivos').click();
     await expect(pie(page)).toHaveText('Mostrando 2 de 5');
-    await page.getByRole('button', { name: 'Proveedores', exact: true }).click();
-    await page.getByRole('button', { name: 'Clientes', exact: true }).click();
+    await page.getByRole('tab', { name: 'Proveedores', exact: true }).click();
+    await page.getByRole('tab', { name: 'Clientes', exact: true }).click();
     await expect(pill(page, 'Todos')).toHaveAttribute('aria-pressed', 'true');
     await expect(pie(page)).toHaveText('Mostrando 5 de 5');
   });

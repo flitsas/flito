@@ -76,7 +76,7 @@ test.describe('Trámite · Wizard admin (matrícula inicial)', () => {
     await page.getByPlaceholder('Numero VIN...').fill('NOEXISTE000000000');
     await page.getByRole('button', { name: /consultar runt/i }).click();
 
-    await expect(page.locator('[role="status"]', { hasText: /no encontrado/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /no encontrado/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /guardar y continuar/i })).toHaveCount(0);
   });
 
@@ -106,7 +106,7 @@ test.describe('Trámite · Wizard admin (matrícula inicial)', () => {
     const enviarBtn = page.getByRole('button', { name: /enviar a tránsito/i });
     await expect(enviarBtn).toBeEnabled();
     await enviarBtn.click();
-    await expect(page.locator('[role="status"]', { hasText: /enviado a tr[aá]nsito/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /enviado a tr[aá]nsito/i })).toBeVisible();
     expect(enviado).toBe(true);
   });
 
@@ -169,7 +169,7 @@ test.describe('Trámite · Wizard admin (matrícula inicial)', () => {
 
     // Sin vendedor → bloqueado con aviso, no avanza a Identidad.
     await page.getByRole('button', { name: /guardar y continuar/i }).click();
-    await expect(page.locator('[role="status"]', { hasText: /vendedor/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /vendedor/i })).toBeVisible();
     await expect(page.getByText('Validación de identidad')).toHaveCount(0);
     expect(patched).toBe(false);
 
@@ -291,7 +291,7 @@ test.describe('Trámite · Wizard admin (matrícula inicial)', () => {
     const dlg = page.getByRole('dialog', { name: /trámite ya existe/i });
     await expect(dlg).toBeVisible();
     await expect(dlg.getByText(/matrícula inicial/i)).toBeVisible();
-    await expect(dlg.locator('dd', { hasText: 'QTP710' })).toBeVisible();
+    await expect(dlg.getByRole('definition').filter({ hasText: 'QTP710' })).toBeVisible();
     await expect(dlg.getByRole('button', { name: /abrir trámite existente/i })).toBeVisible();
     await expect(page.getByText(/Carga de documentos/i)).toHaveCount(0);
   });
@@ -353,7 +353,7 @@ test.describe('Trámite · Wizard admin (matrícula inicial)', () => {
     await expect(dlg).toBeVisible();
     await expect(dlg.getByText(/matricularse una vez/i)).toBeVisible();
     await expect(dlg.getByRole('button', { name: /abrir trámite existente/i })).toHaveCount(0);
-    await expect(dlg.locator('button', { hasText: /^Cerrar$/ })).toBeVisible();
+    await expect(dlg.getByRole('button', { name: 'Cerrar', exact: true }).filter({ hasText: /^Cerrar$/ })).toBeVisible();
   });
 
   test('negativo: sin secretaría/documentos → Enviar a tránsito deshabilitado + aviso', async ({ page }) => {
@@ -396,6 +396,6 @@ test.describe('Trámite · Wizard admin (matrícula inicial)', () => {
     const panel = page.getByRole('region', { name: 'Firma electrónica' });
     await expect(panel).toBeVisible();
     await panel.getByRole('button', { name: /Solicitar firma/i }).first().click();
-    await expect(page.locator('[role="status"]', { hasText: /Firma solicitada/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /Firma solicitada/i })).toBeVisible();
   });
 });

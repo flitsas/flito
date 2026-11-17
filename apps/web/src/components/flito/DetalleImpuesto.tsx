@@ -204,7 +204,7 @@ export default function DetalleImpuesto({
         {/* HU #12834 (AC1, AC3): aviso persistente arriba, bajo los chips. */}
         <AvisoDireccion direccion={direccion} puedeCorregir={puedeCorregirDireccion && !soloLectura} onRevisar={revisarDireccion} />
 
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
           <Dato k="VIN" v={imp.vin} /><Dato k="Trámite FLIT" v={imp.idFlit} />
           <Dato k="Compañía" v={imp.companiaNombre} /><Dato k="Organismo" v={imp.organismoNombre ?? imp.organismoCodigo} />
           <Dato k="Gestiona" v={imp.gestionOperaciones ? 'Operaciones (contingencia)' : 'Gestor del organismo'} />

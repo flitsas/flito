@@ -1,4 +1,4 @@
-// FLITO — SOAT: la barra de la selección de la cola (HU #11910).
+// FLITO — SOAT: la barra de la selección de la cola (HU 11910).
 //
 // Sale de `pages/FlitoSoat.tsx` en esta HU por dos motivos, y el segundo es el que manda: la página
 // se pasó del techo de 800 líneas que el gate de lint impone, y esta barra es la pieza con frontera
@@ -6,11 +6,10 @@
 // comportamiento al mudarse: lo que cambia es de quién recibe los ids (ver abajo).
 
 import { useId, useState } from 'react';
-import { Send, X } from 'lucide-react';
 import { api, ApiError } from '../../lib/api';
-import {
-  FlitCard, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondarySm,
-} from '../flit/flitPageKit';
+import { flitInp, flitBtnSecondarySm } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
+import { Icono } from '../flit/kit/Icono';
 import {
   DescargarSoportesZip, ZIP_SOAT, type EstadoDescargaZip,
 } from './DescargarSoportesZip';
@@ -27,8 +26,8 @@ import { SOAT_REINTENTO, mensajeSelectorSoat, type CatalogoSelector } from '../c
 const DESTINO_OPERACIONES = '__operaciones__';
 
 /**
- * Mínimo de filas marcadas para el ZIP (HU #12815, AC6). Con una sola, el ZIP es un sobre alrededor
- * de un PDF: para eso está la descarga del comprobante en su propia fila (HU #12816).
+ * Mínimo de filas marcadas para el ZIP (HU 12815, AC6). Con una sola, el ZIP es un sobre alrededor
+ * de un PDF: para eso está la descarga del comprobante en su propia fila (HU 12816).
  */
 export const MIN_MARCADAS_ZIP_SOAT = 2;
 
@@ -64,11 +63,11 @@ export function CasillaSoat({ etiqueta, marcada, onCambio, cabecera = false }: {
   );
   return cabecera
     ? input
-    : <td className="px-3 py-2 transition-colors hover:bg-[var(--flit-bg-hover)]">{input}</td>;
+    : <td className="px-3 py-2 transition-colors hover:bg-[var(--kit-hover)]">{input}</td>;
 }
 
 /**
- * La barra de la selección: enviar al gestor y —desde la HU #11910— descargar los soportes.
+ * La barra de la selección: enviar al gestor y —desde la HU 11910— descargar los soportes.
  *
  * **Recibe `enviables` y no `ids`**, y esa es la corrección de esta HU. Con la casilla abierta a
  * cualquier fila (AC1), pasarle lo marcado entero haría que el usuario marcase 40, pulsara «Enviar
@@ -81,14 +80,14 @@ export function CasillaSoat({ etiqueta, marcada, onCambio, cabecera = false }: {
  * línea auxiliar se pierde al envolver la barra en pantalla estrecha.
  */
 /**
- * **Desde la HU #12815 el ZIP también recibe solo lo que aplica**: `descargables` son las marcadas
+ * **Desde la HU 12815 el ZIP también recibe solo lo que aplica**: `descargables` son las marcadas
  * PAGADAS, y el botón existe solo con `puedeDescargar` (función `soat.soportes.descargar`; sin ella,
  * ausente del DOM, no apagado). Es la primaria cuando «Enviar» no se ofrece —Cliente, gestor, o
  * ninguna Pendiente marcada—; las dos no compiten en la práctica, porque una Pendiente nunca está
  * pagada.
  */
 /**
- * Texto del error del envío (HU #12819, §8). Nunca el mensaje crudo: si el servidor contestó un
+ * Texto del error del envío (HU 12819, §8). Nunca el mensaje crudo: si el servidor contestó un
  * 409/422 con una frase de NEGOCIO en `error`, esa; si no, la genérica. Es el mismo criterio que
  * `textoDelServidor` del ZIP.
  */
@@ -102,7 +101,7 @@ export function textoErrorEnvio(e: unknown): string {
 }
 
 /**
- * Desde la HU #12819 el envío NO notifica por la tarjeta de error de la cola (aquel «Reintentar»
+ * Desde la HU 12819 el envío NO notifica por la tarjeta de error de la cola (aquel «Reintentar»
  * recargaba la cola, no reenviaba): `onEnviado(n, aOperaciones)` y `onError(texto)` los convierte la
  * página en un toast, y en el error la selección se conserva para reintentar. `onQuitar` vacía la
  * selección sin viajar hasta la casilla de cabecera.
@@ -138,13 +137,15 @@ export default function BarraEnvioSoat({
     } catch (e) { onError(textoErrorEnvio(e)); }
     finally { setEnviando(false); }
   };
+  // UI Kit 2026: la `.barra-accion` del molde #tramites (azul al 10 % con borde azul). Sin el
+  // `role="status"` de `BarraAccion`: esta barra lleva controles, no es una región que se anuncia.
   return (
-    <FlitCard>
+    <div className="barra-accion !mb-0 !block" data-kit="barra-accion">
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{marcadas} seleccionado(s)</span>
+          <span className="text-sm font-semibold text-[color:var(--color-action)]">{marcadas} seleccionado(s)</span>
           <button type="button" className={flitBtnSecondarySm} onClick={onQuitar}>
-            <X size={16} aria-hidden="true" className="shrink-0" />
+            <Icono nombre="cerrar" size={16} className="shrink-0" />
             Quitar selección
           </button>
         </div>
@@ -156,7 +157,7 @@ export default function BarraEnvioSoat({
               <select className={`${flitInp} h-10 min-w-0 flex-1 sm:max-w-xs`} value={destino} onChange={(e) => setDestino(e.target.value)}>
                 <option value="">Elige destino…</option>
                 <option value={DESTINO_OPERACIONES}>Gestionado por Operaciones</option>
-                {/* HU #14342: solo activos que prestan SOAT, ya filtrados por el API. */}
+                {/* HU 14342: solo activos que prestan SOAT, ya filtrados por el API. */}
                 {!!proveedores.data?.length && (
                   <optgroup label="Proveedores">
                     {proveedores.data.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
@@ -166,18 +167,18 @@ export default function BarraEnvioSoat({
             </label>
             {/* «Gestionado por Operaciones» sigue disponible aunque los proveedores no carguen: por eso el
                 estado va aparte y el selector no se deshabilita. Región montada siempre, como en `FlitSelect`. */}
-            <span role="status" className="w-full text-xs empty:w-0 sm:w-auto" style={{ color: proveedores.error ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}>
+            <span role="status" className="w-full text-xs empty:w-0 sm:w-auto" style={{ color: proveedores.error ? 'var(--kit-rojo-texto)' : 'var(--color-text-secondary)' }}>
               {mensajeCatalogo}
             </span>
             {proveedores.error && (
               <button type="button" className={flitBtnSecondarySm} onClick={proveedores.recargar}>{SOAT_REINTENTO}</button>
             )}
             {/* Sin destino el SOAT quedaría en la cola de nadie y sin ANS con el que medirlo. */}
-            <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
+            <GradientButton className="w-full justify-center sm:w-auto"
               disabled={enviando || !destino} onClick={enviar}>
-              <Send size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="derecha" size={16} className="shrink-0" />
               {enviando ? 'Enviando…' : `${aOperaciones ? 'Enviar a Operaciones' : 'Enviar al gestor'} (${cuenta})`}
-            </button>
+            </GradientButton>
           </div>
         )}
         {puedeDescargar && (
@@ -197,13 +198,13 @@ export default function BarraEnvioSoat({
       {/* Un solo párrafo de desajuste para las dos acciones; la frase del ZIP lleva su propio id
           para que el botón la anuncie (`aria-describedby`) sin arrastrar la del envío. */}
       {(desajuste || motivoZip) && (
-        <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="mt-2 text-sm text-[color:var(--color-text-secondary)]">
           {desajuste && (
             <>De las {marcadas} filas marcadas, {enviables.length} están Pendientes y son las únicas que se envían. </>
           )}
           {motivoZip && <span id={idMotivoZip}>{motivoZip}</span>}
         </p>
       )}
-    </FlitCard>
+    </div>
   );
 }

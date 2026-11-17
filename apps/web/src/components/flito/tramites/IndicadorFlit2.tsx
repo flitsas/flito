@@ -12,6 +12,7 @@
 //   · jamás se pinta un código ni el texto del API.
 
 import type { Flit2EstadoConexion } from '@operaciones/shared-types';
+import type { TonoKit } from '../../flit/kit/tonos';
 
 export type ConexionFlit2 = 'Conectado' | 'Sin conexión' | 'Sin configurar' | 'Apagada' | 'Apagada en el servidor';
 
@@ -28,19 +29,19 @@ export function conexionFlit2(d: Flit2EstadoConexion, detenida: DetenidaFlit2 = 
   return 'Conectado';
 }
 
-const COLOR_PUNTO: Record<ConexionFlit2, string> = {
-  Conectado: 'var(--flit-success-text)',
-  'Sin conexión': 'var(--flit-danger-text)',
-  'Sin configurar': 'var(--flit-text-muted)',
-  Apagada: 'var(--flit-text-muted)',
-  'Apagada en el servidor': 'var(--flit-text-muted)',
+/** Tono del kit para la etiqueta de estado con punta (`.kit-etiqueta`, marcador E2E `data-tono`). */
+export const TONO_CONEXION: Record<ConexionFlit2, TonoKit> = {
+  Conectado: 'ok',
+  'Sin conexión': 'danger',
+  'Sin configurar': 'neutro',
+  Apagada: 'neutro',
+  'Apagada en el servidor': 'neutro',
 };
 
 /** Punto estático junto al valor de «Conexión»: el texto lleva el significado, el punto solo acompaña. */
-export function PuntoFlit2({ conexion }: { conexion: ConexionFlit2 }) {
+export function PuntoFlit2(_props: { conexion: ConexionFlit2 }) {
   return (
-    <span aria-hidden="true" className="inline-block h-2 w-2 shrink-0 rounded-full"
-      style={{ background: COLOR_PUNTO[conexion] }} data-testid="punto-flit2" />
+    <span aria-hidden="true" className="kit-etiqueta__punto" data-testid="punto-flit2" />
   );
 }
 

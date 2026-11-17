@@ -1,9 +1,12 @@
-import { useEffect, useState, useCallback, type ReactNode } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import FiltroSegmentado from '../components/flit/FiltroSegmentado';
+import { flitBtnPrimary } from '../components/flit/flitPageKit';
 
 interface ManifiestoRow {
   id: number;
@@ -27,7 +30,6 @@ const ESTADO_TONE: Record<string, ChipTone> = {
   aceptado: 'success', rechazado: 'danger', cumplido: 'success', anulado: 'neutral',
 };
 
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
 
 export default function RndcManifiestos() {
   const [items, setItems] = useState<ManifiestoRow[]>([]);
@@ -51,59 +53,49 @@ export default function RndcManifiestos() {
       <PageHeaderCard
         title="Manifiestos electrónicos"
         subtitle="RNDC · Documentos legales de transporte de carga ante Mintransporte"
+        icono="flito-rndc"
+        miga={[{ etiqueta: 'Cumplimiento' }, { etiqueta: 'RNDC', to: '/rndc' }]}
         actions={
-          <Link to="/rndc/manifiestos/nuevo" className="flit-focus inline-flex items-center justify-center gap-2 rounded-[999px] px-6 text-sm font-semibold text-white" style={{ height: '44px', background: 'var(--flit-gradient-primary)', boxShadow: 'var(--flit-shadow-button)' }}>
+          <Link to="/rndc/manifiestos/nuevo" className={flitBtnPrimary}>
             Nuevo manifiesto
           </Link>
         }
       />
 
-      <div className="flex w-fit flex-wrap gap-2">
-        {ESTADOS.map((e) => {
-          const active = estado === e;
-          return (
-            <button key={e || 'todos'} onClick={() => setEstado(e)}
-              className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-semibold capitalize transition-colors"
-              style={active
-                ? { background: 'var(--flit-blue)', color: '#fff' }
-                : { background: '#fff', border: '1px solid var(--flit-border-soft)', color: 'var(--flit-text-muted)' }}>
-              {(e || 'Todos').replace('_', ' ')}
-            </button>
-          );
-        })}
+      <div className="[&_button]:capitalize">
+        <FiltroSegmentado
+          ariaLabel="Filtrar por estado"
+          opciones={ESTADOS.map((e) => ({ valor: e, etiqueta: (e || 'Todos').replace('_', ' ') }))}
+          valor={estado}
+          onCambio={setEstado}
+        />
       </div>
 
-      <div className="overflow-hidden bg-white" style={CARD}>
-        {loading && <div className="p-6 text-center text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</div>}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr>
-              <Th>Número</Th><Th>Vehículo</Th><Th>Conductor</Th><Th>Ruta</Th><Th>Flete</Th><Th>Fecha</Th><Th>Estado</Th>
-            </tr></thead>
-            <tbody>
-              {!loading && items.length === 0 && <tr><td colSpan={7} className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin manifiestos</td></tr>}
-              {items.map((m) => (
-                <tr key={m.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3 text-xs">
-                    <Link to={`/rndc/manifiestos/${m.id}`} className="font-semibold hover:underline" style={{ color: 'var(--flit-text-primary)' }}>{m.numero}</Link>
-                    {m.consecutivoRndc && <span className="block text-[10px]" style={{ color: 'var(--flit-success)' }}>RNDC {m.consecutivoRndc}</span>}
-                  </td>
-                  <td className="px-4 py-3 text-xs font-medium" style={{ color: 'var(--flit-text-secondary)' }}>{m.placaPrincipal ?? '—'}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{m.conductorNombre ?? '—'}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{m.origenDane} → {m.destinoDane}</td>
-                  <td className="px-4 py-3 text-xs font-medium" style={{ color: 'var(--flit-text-primary)' }}>$ {Number(m.valorFleteTotal).toLocaleString('es-CO')}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{m.fechaExpedicion}</td>
-                  <td className="px-4 py-3"><StatusChip tone={ESTADO_TONE[m.estado] ?? 'neutral'}>{m.estado.replace('_', ' ')}</StatusChip></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        ariaLabel="Manifiestos electrónicos"
+        columnas={COLUMNAS}
+        filas={items}
+        getKey={(m) => String(m.id)}
+        status={loading ? 'loading' : undefined}
+        emptyMessage="Sin manifiestos"
+      />
     </div>
   );
 }
 
-function Th({ children }: { children: ReactNode }) {
-  return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
+const TXT2 = 'text-xs text-[color:var(--color-text-secondary)]';
+
+const COLUMNAS: ColumnaTabla<ManifiestoRow>[] = [
+  { key: 'numero', header: 'Número', render: (m) => (
+    <span className="text-xs">
+      <Link to={`/rndc/manifiestos/${m.id}`} className="font-semibold text-[color:var(--color-text-primary)] hover:underline">{m.numero}</Link>
+      {m.consecutivoRndc && <span className="block text-[0.75rem] text-[color:var(--kit-verde-texto)]">RNDC {m.consecutivoRndc}</span>}
+    </span>
+  ) },
+  { key: 'vehiculo', header: 'Vehículo', render: (m) => <span className={`${TXT2} font-medium`}>{m.placaPrincipal ?? '—'}</span> },
+  { key: 'conductor', header: 'Conductor', render: (m) => <span className={TXT2}>{m.conductorNombre ?? '—'}</span> },
+  { key: 'ruta', header: 'Ruta', render: (m) => <span className={TXT2}>{m.origenDane} → {m.destinoDane}</span> },
+  { key: 'flete', header: 'Flete', render: (m) => <span className="text-xs font-medium text-[color:var(--color-text-primary)]">$ {Number(m.valorFleteTotal).toLocaleString('es-CO')}</span> },
+  { key: 'fecha', header: 'Fecha', render: (m) => <span className={TXT2}>{m.fechaExpedicion}</span> },
+  { key: 'estado', header: 'Estado', render: (m) => <StatusChip tone={ESTADO_TONE[m.estado] ?? 'neutral'}>{m.estado.replace('_', ' ')}</StatusChip> },
+];

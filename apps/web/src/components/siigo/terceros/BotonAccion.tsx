@@ -1,4 +1,4 @@
-// Un control que EXISTE pero no está disponible para este rol (HU #11299, AC1).
+// Un control que EXISTE pero no está disponible para este rol (HU 11299, AC1).
 //
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // ESTO NO ES UN CONTROL DE SEGURIDAD. Es una guía de interfaz.
@@ -26,7 +26,7 @@
 // repetirla en cincuenta filas serían cincuenta anuncios idénticos.
 //
 // El estilo tampoco es el `disabled:opacity-50` del botón primario: al 50 % el texto blanco sobre
-// el degradado no llega a 4,5:1. Se usa el secundario con `--flit-text-muted`, que sí cumple.
+// el degradado no llega a 4,5:1. Se usa el secundario con `--color-text-tertiary`, que sí cumple.
 
 import type { CSSProperties, ReactNode } from 'react';
 import { flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
@@ -70,7 +70,7 @@ export default function BotonAccion({
       className={`${base} ${className}`}
       style={{
         ...flitBtnSecondaryStyle,
-        ...(disponible ? null : { color: 'var(--flit-text-muted)' }),
+        ...(disponible ? null : { color: 'var(--color-text-tertiary)' }),
         ...style,
       }}
     >

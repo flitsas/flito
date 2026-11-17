@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import FiltrosPlegables from '../components/flit/FiltrosPlegables';
 import {
   CONCEPTO_COSTO_LABEL, CONCEPTOS_COSTO, MOTIVO_PENDIENTE_COMPROBANTE_LABEL, MOTIVOS_PENDIENTE_COMPROBANTE,
   TIPO_DOCUMENTO_COMPROBANTE_LABEL, type AsociacionComprobante, type ComprobanteListaDto, type ConceptoCosto, type EstadoComprobante,
@@ -37,10 +38,9 @@ import StatusChip from '../components/flit/StatusChip';
 import { CeldaTramite } from '../components/flit/columnasComunes';
 import CargaComprobantes from '../components/flito/CargaComprobantes';
 import DetalleComprobante from '../components/flito/DetalleComprobante';
-import {
-  FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle, flitInp,
-} from '../components/flit/flitPageKit';
+import { FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr, flitBtnSecondarySm, flitBtnSecondaryStyle, flitInp } from '../components/flit/flitPageKit';
+import GradientButton from '../components/flit/GradientButton';
+import { Icono } from '../components/flit/kit/Icono';
 
 type Pill = EstadoComprobante | 'todos';
 const PILLS: { valor: Pill; rotulo: string }[] = [
@@ -190,36 +190,36 @@ export default function FlitoComprobantes() {
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Finanzas — Comprobantes"
+        icono="flito-comprobantes"
+        miga={[{ etiqueta: 'Finanzas' }]}
         subtitle="Sube cualquier comprobante o soporte de un trámite; FLITO lo lee y lo aplica solo cuando cruza con un único trámite. Lo que no, lo asocias desde aquí."
         titleRef={tituloRef}
         actions={puedeCargar && (
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setModalCarga(true)}>Cargar comprobantes</button>
+          <GradientButton onClick={() => setModalCarga(true)}>Cargar comprobantes</GradientButton>
         )}
       />
       {/* UNA región `status` (toast + anuncio sr-only), colgada de <body> para quedar ENCIMA del modal
           (z-[70] > z-[60] de FlitModal): dentro de <main> ningún z-index pasa por encima (ModalPortal).
           En móvil deja libre el ✕ del modal (`right-16`); desde `sm` va centrado. */}
       <ModalPortal>
-        <div className={toast ? 'fixed left-4 right-16 top-4 z-[70] flex items-start gap-2 rounded-lg border px-4 py-2 text-sm sm:left-1/2 sm:right-auto sm:w-full sm:max-w-md sm:-translate-x-1/2' : undefined}
-          style={toast ? { borderColor: 'var(--flit-border-input)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' } : undefined}>
-          <p role="status" aria-live="polite" className={toast ? 'min-w-0 flex-1 py-1' : 'sr-only'}>{toast || anuncio}</p>
+        <div className={toast ? 'kit-aviso fixed left-4 right-16 top-4 z-[70] w-auto sm:left-1/2 sm:right-auto sm:w-full sm:max-w-md sm:-translate-x-1/2' : undefined}
+          data-kit={toast ? 'aviso' : undefined} data-tono={toast ? 'ok' : undefined}>
+          {toast && <img src="/kit/aviso-ok.svg" alt="" aria-hidden="true" className="kit-aviso__icono" />}
+          <p role="status" aria-live="polite" className={toast ? 'kit-aviso__texto m-0' : 'sr-only'}>{toast || anuncio}</p>
           {toast && (
-            <button type="button" aria-label="Cerrar aviso" onClick={() => setToast('')}
-              className="flit-focus grid h-7 w-7 shrink-0 place-items-center rounded transition-colors hover:bg-[var(--flit-bg-hover)]" style={{ color: 'var(--flit-text-muted)' }}>
-              ✕
+            <button type="button" aria-label="Cerrar aviso" onClick={() => setToast('')} className="kit-aviso__cerrar">
+              <Icono nombre="cerrar" size={16} />
             </button>
           )}
         </div>
       </ModalPortal>
       {alertasSaldo.length > 0 && (
-        <div className="flex items-start gap-2 rounded-lg border px-4 py-2 text-sm"
-          style={{ borderColor: 'var(--flit-border-input)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' }}>
+        <div className="kit-alerta text-sm" data-kit="alerta" data-tono="warn">
           <div role="status" className="min-w-0 flex-1 space-y-1 py-1">
             {alertasSaldo.map((a) => <p key={a.bolsaId}>{textoAlertaSaldo(a)}</p>)}
           </div>
-          <button type="button" aria-label="Cerrar el aviso de saldo" onClick={() => setAlertasSaldo([])}
-            className="flit-focus grid h-7 w-7 shrink-0 place-items-center rounded transition-colors hover:bg-[var(--flit-bg-hover)]" style={{ color: 'var(--flit-text-muted)' }}>
-            ✕
+          <button type="button" aria-label="Cerrar el aviso de saldo" onClick={() => setAlertasSaldo([])} className="kit-aviso__cerrar">
+            <Icono nombre="cerrar" size={16} />
           </button>
         </div>
       )}
@@ -232,14 +232,17 @@ export default function FlitoComprobantes() {
             </FlitPillButton>
           ))}
         </FlitPillGroup>
-        <label className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        {/* Épica #14560 (b): en teléfono los desplegables se pliegan tras «Filtros (n)»; solo presentación. */}
+        <FiltrosPlegables modo="linea"
+          activos={[asociacion !== '', concepto !== '', pill === 'pendiente' && motivo !== ''].filter(Boolean).length}>
+        <label className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           <span className="sr-only">Estado de asociación</span>
           <select className={`${flitInp} w-auto py-1.5`} value={asociacion} onChange={(e) => cambiarAsociacion(e.target.value as AsociacionComprobante | '')}>
             <option value="">Todos los estados de asociación</option>
             {OPCIONES_ASOCIACION.map((a) => <option key={a} value={a}>{ASOCIACION_COMPROBANTE_LABEL[a]}</option>)}
           </select>
         </label>
-        <label className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <label className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           <span className="sr-only">Concepto</span>
           <select className={`${flitInp} w-auto py-1.5`} value={concepto} onChange={(e) => cambiarConcepto(e.target.value as ConceptoCosto | '')}>
             <option value="">Todos los conceptos</option>
@@ -247,7 +250,7 @@ export default function FlitoComprobantes() {
           </select>
         </label>
         {pill === 'pendiente' && (
-          <label className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <label className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             <span className="sr-only">Motivo</span>
             <select className={`${flitInp} w-auto py-1.5`} value={motivo} onChange={(e) => cambiarMotivo(e.target.value as MotivoPendienteComprobante | '')}>
               <option value="">Todos los motivos</option>
@@ -255,22 +258,23 @@ export default function FlitoComprobantes() {
             </select>
           </label>
         )}
+        </FiltrosPlegables>
         {chipCarga && (
           <span className="inline-flex items-center gap-1">
             <StatusChip tone="active">{chipCarga.etiqueta}{data && ` · ${data.total} documentos`}</StatusChip>
-            <button type="button" className="flit-focus rounded px-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}
+            <button type="button" className="flit-focus rounded px-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}
               aria-label="Quitar el filtro de carga" onClick={quitarChipCarga}>✕</button>
           </span>
         )}
         {hayFiltros && (
-          <button className={`${flitBtnSecondary} ml-auto`} style={flitBtnSecondaryStyle} onClick={limpiarFiltros}>Limpiar filtros</button>
+          <GradientButton variant="secondary" className="ml-auto" onClick={limpiarFiltros}>Limpiar filtros</GradientButton>
         )}
       </FlitCard>
 
       {error ? (
-        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' }}>
-          <span className="text-red-600">{error.sinFuncion ? error.texto : `${COPY_ERROR_COLA} ${error.texto}`}</span>
-          {!error.sinFuncion && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={refrescar}>Reintentar</button>}
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)' }}>
+          <span className="text-[color:var(--kit-rojo-texto)]">{error.sinFuncion ? error.texto : `${COPY_ERROR_COLA} ${error.texto}`}</span>
+          {!error.sinFuncion && <GradientButton variant="secondary" onClick={refrescar}>Reintentar</GradientButton>}
         </div>
       ) : cargando || !data ? (
         <div aria-busy="true"><PageContentSkeleton /></div>
@@ -278,12 +282,12 @@ export default function FlitoComprobantes() {
         <FlitEmpty>
           {hayFiltros ? (
             <>
-              <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{COPY_VACIO_FILTRADO}</p>
+              <p className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{COPY_VACIO_FILTRADO}</p>
               <p className="mt-1">{COPY_VACIO_FILTRADO_PASO}</p>
             </>
           ) : (
             <>
-              <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{COPY_VACIO}</p>
+              <p className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{COPY_VACIO}</p>
               <p className="mt-1">Cuando cargues documentos, los que FLITO no pueda aplicar solo aparecen aquí. Empieza con Cargar comprobantes, arriba.</p>
             </>
           )}
@@ -326,11 +330,11 @@ function GrupoDeCarga({ grupo, puedeVer, puedeVerTramites, onSoloEstaCarga, onVe
   const n = grupo.filas.length;
   return (
     <tbody>
-      <tr style={{ background: 'var(--flit-bg-app)' }}>
-        <th scope="rowgroup" colSpan={COLUMNAS} className="px-3 py-2 text-left text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+      <tr style={{ background: 'var(--color-surface)' }}>
+        <th scope="rowgroup" colSpan={COLUMNAS} className="px-3 py-2 text-left text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
           <span className="flex flex-wrap items-center justify-between gap-2">
             <span>{textoCarga(grupo.cabecera)} · {n} {n === 1 ? 'documento' : 'documentos'} en {grupo.archivos} {grupo.archivos === 1 ? 'archivo' : 'archivos'}</span>
-            <button type="button" className="flit-focus rounded font-medium underline" style={{ color: 'var(--flit-blue-text)' }} onClick={onSoloEstaCarga}>
+            <button type="button" className="flit-focus rounded font-medium underline" style={{ color: 'var(--color-action)' }} onClick={onSoloEstaCarga}>
               Solo esta carga
             </button>
           </span>
@@ -344,8 +348,8 @@ function GrupoDeCarga({ grupo, puedeVer, puedeVerTramites, onSoloEstaCarga, onVe
 /** Copy exacto de la ficha UX §5.2. Sin `extraccion`, sin uuid y sin VIN completo en el DOM. */
 function FilaComprobante({ c, puedeVer, puedeVerTramites, onVer }: { c: ComprobanteListaDto; puedeVer: boolean; puedeVerTramites: boolean; onVer: (id: string) => void }) {
   const td = 'px-3 py-2 align-top text-sm';
-  const secundario = { color: 'var(--flit-text-secondary)' } as const;
-  const tenue = { color: 'var(--flit-text-muted)' } as const;
+  const secundario = { color: 'var(--color-text-secondary)' } as const;
+  const tenue = { color: 'var(--color-text-tertiary)' } as const;
   const paginas = textoPaginas(c.paginas);
   const llave = c.tramite ? null : llaveLeida(c);
   const nombreConPaginas = `${c.archivo.nombre}${paginas ? ` ${paginas}` : ''}`;
@@ -356,7 +360,7 @@ function FilaComprobante({ c, puedeVer, puedeVerTramites, onVer }: { c: Comproba
   const hrefTramite = puedeVerTramites ? hrefVerTramite(c.tramite) : null;
   return (
     <FlitTr>
-      <td className={td} style={{ color: 'var(--flit-text-primary)' }}>
+      <td className={td} style={{ color: 'var(--color-text-primary)' }}>
         <span className="block max-w-[14rem] truncate font-medium" title={c.archivo.nombre}>{c.archivo.nombre}</span>
         {paginas && <span className="block text-xs" style={tenue}>{paginas}</span>}
       </td>
@@ -369,7 +373,7 @@ function FilaComprobante({ c, puedeVer, puedeVerTramites, onVer }: { c: Comproba
         {c.tramite
           ? <CeldaTramite idFlit={c.tramite.idFlit} tipoTramite={null} extra={c.tramite.placa}
               accion={hrefTramite && (
-                <a href={hrefTramite} target="_blank" rel="noopener" className="flit-focus text-xs underline" style={{ color: 'var(--flit-blue-text)' }}
+                <a href={hrefTramite} target="_blank" rel="noopener" className="flit-focus text-xs underline" style={{ color: 'var(--color-action)' }}
                   aria-label={`Ver trámite ${c.tramite.idFlit}`}>
                   Ver trámite ↗
                 </a>

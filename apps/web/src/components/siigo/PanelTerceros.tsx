@@ -1,4 +1,4 @@
-// Facturación electrónica — pestaña «Terceros»: revisar y sincronizar (HU #11299, Feature #11241).
+// Facturación electrónica — pestaña «Terceros»: revisar y sincronizar (HU 11299, Feature 11241).
 //
 // Cuatro bloques, y **el orden es el orden en que se trabaja**: se corrige el dato (A y B) → se
 // confirma la ciudad (C) → se sincroniza (D). No es decorativo. Sincronizar primero produce
@@ -53,20 +53,20 @@ export default function PanelTerceros() {
    * servidor distingue termina, según hacia dónde se equivoque, negando lo que el endpoint acepta
    * (lo que pasaba con financiera y la sincronización) u ofreciendo lo que va a rechazar.
    *
-   * HU #12872: cada una pregunta la función de SU guarda, nunca el nombre del rol. Se declaran
+   * HU 12872: cada una pregunta la función de SU guarda, nunca el nombre del rol. Se declaran
    * aparte aunque dos coincidan: cuando una cambie se moverá sola, sin arrastrar a las otras.
    */
   const permisos = {
     /** `POST /siigo/terceros/cliente/:id` → `exigirAccionSiigo('emitir')`, que pregunta al motor por
-     *  `siigo.factura.emitir` (HU #13423): la pantalla pregunta lo mismo. */
+     *  `siigo.factura.emitir` (HU 13423): la pantalla pregunta lo mismo. */
     sincronizar: hasFuncion('siigo.factura.emitir'),
-    /** `POST /siigo/clientes-ciudades/:id/confirmar` → `siigo.terceros.configurar` (HU #13427): fija el
+    /** `POST /siigo/clientes-ciudades/:id/confirmar` → `siigo.terceros.configurar` (HU 13427): fija el
      *  municipio que sale impreso en la factura ante la DIAN. */
     confirmarCiudad: hasFuncion('siigo.terceros.configurar'),
-    /** `POST /siigo/clientes/validacion/recalcular-duplicados` → `siigo.terceros.configurar` (HU #13427).
+    /** `POST /siigo/clientes/validacion/recalcular-duplicados` → `siigo.terceros.configurar` (HU 13427).
      *  Reescribe las marcas de identificación de las fichas; no es «parte de sincronizar». */
     recalcularDuplicados: hasFuncion('siigo.terceros.configurar'),
-    /** `PATCH /clients/:id` (HU #13428): la ficha manda datos generales (nombre, documento, dirección) Y
+    /** `PATCH /clients/:id` (HU 13428): la ficha manda datos generales (nombre, documento, dirección) Y
      *  fiscales, así que el API pide `clients.clientes.editar` y `clients.clientes.datos_fiscales`.
      *  Sin las dos, la ficha abre en solo lectura. */
     editarFicha: hasFuncion('clients.clientes.editar') && hasFuncion('clients.clientes.datos_fiscales'),

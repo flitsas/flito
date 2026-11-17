@@ -1,6 +1,7 @@
-import { AlertCircle } from 'lucide-react';
+import { Icono } from '../flit/kit/Icono';
+import { claseBoton } from '../flit/GradientButton';
 import FlitUploadBox from '../flit/FlitUploadBox';
-import { FlitPillGroup, flitBtnSecondarySm, flitPillBtn, flitPillBtnClase } from '../flit/flitPageKit';
+import { FlitPillGroup, flitPillBtn, flitPillBtnClase } from '../flit/flitPageKit';
 import {
   agregarArchivos, elegirAdjuntar, quitarArchivo, type BorradorSoporte,
 } from '../../lib/drFlitSoporte';
@@ -18,9 +19,9 @@ export const ID_CAJA_ARCHIVOS = 'drflit-soporte-archivos-caja';
 export const idQuitarArchivo = (i: number) => `drflit-soporte-quitar-${i}`;
 const ID_ERROR = 'drflit-soporte-archivos-error';
 const ID_AVISOS = 'drflit-soporte-archivos-avisos';
-const ROTULO = 'mb-1 block text-[11px] font-semibold text-[color:var(--flit-text-primary)]';
-const ERROR = 'flex items-start gap-1 break-words text-xs text-[color:var(--flit-danger-text)]';
-const QUITAR = `${flitBtnSecondarySm} max-lg:h-11 shrink-0`;
+const ROTULO = 'mb-1 block text-[11px] font-semibold text-[color:var(--color-text-primary)]';
+const ERROR = 'flex items-start gap-1 break-words text-xs text-[color:var(--kit-rojo-texto)]';
+const QUITAR = `${claseBoton('alerta', 'sm')} max-lg:h-11 shrink-0`;
 
 export function PasoArchivos({ b, mostrar, limites, inactivo }: {
   b: BorradorSoporte;
@@ -42,7 +43,7 @@ export function PasoArchivos({ b, mostrar, limites, inactivo }: {
           {([['si', 'Sí', true], ['no', 'No', false]] as const).map(([valor, etiqueta, si]) => (
             <label
               key={valor}
-              className={`${flitPillBtnClase} cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[color:var(--flit-border-focus)]`}
+              className={`${flitPillBtnClase} cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[color:var(--kit-azul)]`}
               style={{ ...flitPillBtn(b.adjuntar === si), textTransform: 'none' }}
             >
               <input
@@ -82,14 +83,14 @@ export function PasoArchivos({ b, mostrar, limites, inactivo }: {
           )}
           {errorPaso && (
             <p id={ID_ERROR} className={ERROR}>
-              <AlertCircle aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
+              <Icono nombre="alerta" size={14} className="mt-px shrink-0" />
               <span className="min-w-0">{errorPaso}</span>
             </p>
           )}
           <div id={ID_AVISOS} role="status" className="flex flex-col gap-1 empty:hidden">
             {b.avisosAdjuntos.map((t, i) => (
               <p key={i} className={ERROR}>
-                <AlertCircle aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
+                <Icono nombre="alerta" size={14} className="mt-px shrink-0" />
                 <span className="min-w-0 [overflow-wrap:anywhere]">{t}</span>
               </p>
             ))}
@@ -109,7 +110,7 @@ export function PasoArchivos({ b, mostrar, limites, inactivo }: {
                       <p className="mt-0.5 text-xs text-flit-secondary">{formatoTamano(a.file.size)}</p>
                       {a.rechazo && (
                         <p id={idRechazo} className={`${ERROR} mt-1`}>
-                          <AlertCircle aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
+                          <Icono nombre="alerta" size={14} className="mt-px shrink-0" />
                           <span className="min-w-0">{textoRechazo(a.rechazo, limites)}</span>
                         </p>
                       )}

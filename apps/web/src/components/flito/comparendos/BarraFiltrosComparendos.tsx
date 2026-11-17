@@ -1,4 +1,4 @@
-// FLITO — Comparendos: la barra de búsqueda del visor (HU #11560, AC3, AC4, AC6 y AC7).
+// FLITO — Comparendos: la barra de búsqueda del visor (HU 11560, AC3, AC4, AC6 y AC7).
 //
 // Tres campos y un grupo de pills, y NO se comportan igual, que es lo único importante de este
 // archivo:
@@ -18,7 +18,7 @@
 // filtros de IDENTIDAD, y ninguno de los tres se paga aquí, donde solo se difiere `q`. Queda
 // anotado en el HANDOFF de la HU porque es una decisión de producto, no de implementación.
 //
-// La HU #11561 añade la TERCERA clase de control —municipio, fuente y causal— y se comporta como
+// La HU 11561 añade la TERCERA clase de control —municipio, fuente y causal— y se comporta como
 // las pills, no como los campos de texto: **aplica al cambiar**. Los tres motivos que obligan al
 // gesto explícito en NIT y placa no se pagan aquí (ninguno identifica a nadie, elegir en un
 // desplegable es un gesto único y deliberado, y ninguno cambia el verbo de la consulta), así que
@@ -33,10 +33,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { ComparendosOrigenMerge, ComparendosRegistroEstado } from '@operaciones/shared-types';
 import {
-  FlitCard, FlitField, FlitPillButton, FlitPillGroup,
+  FlitCard, FlitField,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitInp,
 } from '../../flit/flitPageKit';
 import FlitSelect, { type FlitSelectOpcion } from '../../flit/FlitSelect';
+import FiltrosPlegables from '../../flit/FiltrosPlegables';
 import { useDebounce } from '../../../lib/useDebounce';
 import {
   hayCriterios, normalizarNit,
@@ -223,7 +224,7 @@ export default function BarraFiltrosComparendos({
      * milisegundos en la que la tabla muestra el filtro sin el número.
      *
      * Esa ventana es lo que convierte un defecto cosmético en uno con consecuencias desde la
-     * HU #11561: exportar dentro de ella descarga el conjunto SIN el número de comparendo, que es
+     * HU 11561: exportar dentro de ella descarga el conjunto SIN el número de comparendo, que es
      * más ancho que el que se está viendo, y el archivo no dice en ninguna parte que le falta un
      * filtro. Se descubrió con el test de paridad del export.
      */
@@ -253,7 +254,7 @@ export default function BarraFiltrosComparendos({
    * Es lo que el sync guarda en la fila del comparendo y contra lo que compara el filtro. Mandar el
    * UUID del catálogo no da error: responde **200 con cero filas**, y la pantalla diría «ningún
    * comparendo coincide» teniendo comparendos de ese municipio delante. Es el mismo desenlace mudo
-   * que la placa imposible de la #11560, y por eso hay un test anclado a este valor exacto.
+   * que la placa imposible de la 11560, y por eso hay un test anclado a este valor exacto.
    */
   const opcionesMunicipio = useMemo(() => conElValorAplicado(
     catalogos.listaMunicipios.map((m) => ({
@@ -313,18 +314,20 @@ export default function BarraFiltrosComparendos({
     <FlitCard>
       <form className="space-y-4" onSubmit={buscar}>
         <div role="group" aria-label="Filtrar por estado de monitoreo">
-          <FlitPillGroup>
+          {/* Segmentado de tres opciones: chips del kit (`.chip--sm`), activo con borde azul. */}
+          <div className="flex flex-wrap items-center gap-1">
             {ESTADOS.map(({ valor, etiqueta }) => (
-              <FlitPillButton
+              <button
                 key={etiqueta}
-                active={criterios.estado === valor}
-                pressed={criterios.estado === valor}
+                type="button"
+                aria-pressed={criterios.estado === valor}
                 onClick={() => onAplicar({ estado: valor })}
+                className="chip chip--sm h-10 min-h-0 whitespace-nowrap transition-colors"
               >
                 {etiqueta}
-              </FlitPillButton>
+              </button>
             ))}
-          </FlitPillGroup>
+          </div>
         </div>
 
         {/* Los tres selectores van ANTES de los campos de texto y no entre ellos: el recorrido con
@@ -332,15 +335,19 @@ export default function BarraFiltrosComparendos({
             meter tres paradas en medio lo partiría en dos sin que nada lo explique. Aquí, además,
             leen en el orden en que se piensa la búsqueda: primero se acota de dónde y de qué tipo,
             después se busca uno concreto. */}
+        {/* Épica #14560 (b): en teléfono los tres selectores se pliegan tras «Filtros (n)»; solo
+            presentación, siguen aplicando al cambiar. */}
+        <FiltrosPlegables
+          activos={[!!criterios.municipio, !!criterios.fuente, !!(criterios.causalId || criterios.sinCausal)].filter(Boolean).length}>
         <div className="grid gap-3 md:grid-cols-3">
           <FlitSelect
             label="Municipio"
             value={criterios.municipio ?? TODAS}
             opciones={[{ valor: TODAS, etiqueta: 'Todos los municipios' }, ...opcionesMunicipio]}
             onChange={(v) => onAplicar({ municipio: v || undefined })}
-            /* HU #11879. La frase anterior decía que el filtro buscaba por el municipio al que se
+            /* HU 11879. La frase anterior decía que el filtro buscaba por el municipio al que se
                le consultó y que las filas de SIMIT quedaban fuera por carecer de municipio. Era
-               cierta con la #11795 y es FALSA desde la #11878: esas filas ya salen, porque el
+               cierta con la 11795 y es FALSA desde la 11878: esas filas ya salen, porque el
                filtro compara `municipioComparendo`, que el sync deriva. Dejarla escrita sería peor
                que no haberla escrito nunca: le enseña al operador a no usar un filtro que ya
                funciona. No se cita literal a propósito —el texto viejo no debe poder encontrarse
@@ -401,6 +408,7 @@ export default function BarraFiltrosComparendos({
             textoReintento="Volver a cargar las causales"
           />
         </div>
+        </FiltrosPlegables>
 
         <div className="grid gap-3 md:grid-cols-[1.4fr_1fr_1fr_auto]">
           <div>
@@ -419,7 +427,7 @@ export default function BarraFiltrosComparendos({
             <p
               id={errNumero ? 'comparendos-error-numero' : 'comparendos-ayuda-numero'}
               className="mt-1 text-xs"
-              style={{ color: errNumero ? 'var(--flit-danger)' : 'var(--flit-text-secondary)' }}
+              style={{ color: errNumero ? 'var(--kit-naranja-texto)' : 'var(--color-text-secondary)' }}
               role={errNumero ? 'alert' : undefined}
             >
               {errNumero ?? 'Busca por fragmento, desde 3 caracteres.'}
@@ -449,7 +457,7 @@ export default function BarraFiltrosComparendos({
             <p
               id={errNit ? 'comparendos-error-nit' : 'comparendos-ayuda-nit'}
               className="mt-1 text-xs"
-              style={{ color: errNit ? 'var(--flit-danger)' : 'var(--flit-text-secondary)' }}
+              style={{ color: errNit ? 'var(--kit-naranja-texto)' : 'var(--color-text-secondary)' }}
               role={errNit ? 'alert' : undefined}
             >
               {errNit ?? 'Exacto, con o sin puntos. Desde 5 dígitos.'}
@@ -470,7 +478,7 @@ export default function BarraFiltrosComparendos({
             <p
               id={errPlaca ? 'comparendos-error-placa' : 'comparendos-ayuda-placa'}
               className="mt-1 text-xs"
-              style={{ color: errPlaca ? 'var(--flit-danger)' : 'var(--flit-text-secondary)' }}
+              style={{ color: errPlaca ? 'var(--kit-naranja-texto)' : 'var(--color-text-secondary)' }}
               role={errPlaca ? 'alert' : undefined}
             >
               {errPlaca ?? 'Exacta. Desde 3 caracteres.'}
@@ -493,7 +501,7 @@ export default function BarraFiltrosComparendos({
           </div>
         </div>
 
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           El NIT y la placa se buscan exactos y no viajan en la dirección del navegador.
         </p>
       </form>

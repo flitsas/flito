@@ -62,6 +62,10 @@ export default function RangoFechas({ etiqueta, valor, onCambio, describedBy }: 
   describedBy?: string;
 }) {
   const hoy = hoyIso();
+  const [alDerecha, setAlDerecha] = useState(false);
+  // V8: el panel solo se monta abierto. Cerrado, seguía en el layout para `getBoundingClientRect`
+  // (441 px de borde derecho a 390) y sus días contaban como controles fuera de pantalla.
+  const [abierto, setAbierto] = useState(false);
   // El mes que se ve al abrir: el del inicio elegido, o el actual.
   const [ancla, setAncla] = useState(() => {
     const base = valor.desde || hoy;
@@ -111,7 +115,17 @@ export default function RangoFechas({ etiqueta, valor, onCambio, describedBy }: 
     // `name` agrupa todos los rangos de la pantalla: abrir uno cierra el otro, que si no se
     // solapan. Es progresivo — en un navegador que no lo soporte quedan los dos abiertos, que es
     // el comportamiento de siempre, no un fallo.
-    <details className="relative" name="flit-rango-fechas">
+    <details
+      className="kit-rango relative max-sm:w-full"
+      name="flit-rango-fechas"
+      // V8: el calendario se ancla a la derecha si el disparador está en la mitad derecha de la
+      // ventana; si no, a la izquierda. Solo presentación: medida al abrir.
+      onToggle={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        setAlDerecha(r.left + r.width / 2 > window.innerWidth / 2);
+        setAbierto(e.currentTarget.open);
+      }}
+    >
       <summary
         className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border bg-flit-card px-3 text-sm"
         style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
@@ -122,12 +136,15 @@ export default function RangoFechas({ etiqueta, valor, onCambio, describedBy }: 
         <span className="tabular-nums">{resumen}</span>
       </summary>
 
-      <div className="absolute z-30 mt-1 w-72 rounded-lg border bg-flit-card p-3 shadow-lg"
+      {/* <640 el panel va en el flujo, a lo ancho del campo: nunca más ancho que su contenedor ni que la
+          pantalla, sin cálculo de anclaje. ≥640 flota bajo el disparador, anclado al lado con más sitio. */}
+      {abierto && (
+      <div className={`kit-rango__panel absolute z-30 mt-1 w-72 max-w-[calc(100vw-2rem)] ${alDerecha ? 'right-0' : 'left-0'} rounded-lg border bg-flit-card p-3 shadow-lg max-sm:static max-sm:w-full max-sm:max-w-full`}
         style={{ borderColor: 'var(--flit-border-input)' }}>
         <div className="mb-2 flex flex-wrap gap-1">
           {atajos.map(([txt, r]) => (
             <button key={txt} type="button" onClick={() => onCambio(r)}
-              className="rounded-full border px-2 py-0.5 text-[11px]"
+              className="rounded-full border px-2 py-0.5 text-[11px] transition-colors hover:bg-[var(--kit-hover)]"
               style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-blue-text)' }}>
               {txt}
             </button>
@@ -150,7 +167,7 @@ export default function RangoFechas({ etiqueta, valor, onCambio, describedBy }: 
               <button key={d} type="button" onClick={() => elegir(d)}
                 aria-label={d}
                 aria-pressed={extremo(d) || undefined}
-                className="rounded py-1 text-xs tabular-nums"
+                className="kit-rango__dia rounded py-1 text-xs tabular-nums transition-colors hover:bg-[var(--kit-hover)]"
                 style={{
                   // Tokens con par oscuro: `--flit-blue-soft` no existe y caía al claro `#e8f0fe`,
                   // que en oscuro dejaba cajas blancas con texto claro encima (Épica #13763).
@@ -171,6 +188,7 @@ export default function RangoFechas({ etiqueta, valor, onCambio, describedBy }: 
           </button>
         )}
       </div>
+      )}
     </details>
   );
 }

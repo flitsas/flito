@@ -21,12 +21,13 @@ import {
   textoValorSoat,
 } from '../../../lib/conciliacion';
 import StatusChip from '../../flit/StatusChip';
+import GradientButton from '../../flit/GradientButton';
 import {
   FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr,
 } from '../../flit/flitPageKit';
 
-const MUTED = { color: 'var(--flit-text-muted)' } as const;
-const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
+const MUTED = { color: 'var(--color-text-tertiary)' } as const;
+const SECUNDARIO = { color: 'var(--color-text-secondary)' } as const;
 
 export default function TablaCuadre({ boleta }: { boleta: BoletaDetalleDto }) {
   const [soloMalas, setSoloMalas] = useState(false);
@@ -48,7 +49,7 @@ export default function TablaCuadre({ boleta }: { boleta: BoletaDetalleDto }) {
             haya que ir a buscarlo. El texto bloqueante de arriba dice el mismo número, pero no se
             anuncia por su cuenta para no leer dos regiones encima de la otra. */}
         <p role="status" aria-live="polite" className="text-sm font-semibold"
-          style={{ color: 'var(--flit-text-primary)' }}>
+          style={{ color: 'var(--color-text-primary)' }}>
           {textoContador(boleta.filas, sinCuadrar, conciliada)}
         </p>
         {sinCuadrar > 0 && (
@@ -65,17 +66,12 @@ export default function TablaCuadre({ boleta }: { boleta: BoletaDetalleDto }) {
 
       {lineas.length === 0 ? (
         <FlitEmpty>
-          <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Ya no queda ninguna línea sin cuadrar.
           </p>
-          <button
-            type="button"
-            className="flit-focus mt-3 rounded-[999px] border bg-white px-4 py-1.5 text-xs font-medium"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
-            onClick={() => setSoloMalas(false)}
-          >
+          <GradientButton type="button" variant="secondary" size="sm" className="mt-3" onClick={() => setSoloMalas(false)}>
             Ver todas las líneas
-          </button>
+          </GradientButton>
         </FlitEmpty>
       ) : (
         // `label` no es opcional en la práctica: sin él, la región de scroll de la tabla queda
@@ -100,13 +96,13 @@ export default function TablaCuadre({ boleta }: { boleta: BoletaDetalleDto }) {
                 <FlitTr key={linea.id}>
                   <td className="px-4 py-3 text-sm tabular-nums" style={SECUNDARIO}>{linea.filaNumero}</td>
                   {/* Tabular: son 16 dígitos que se comparan a ojo contra el Excel. */}
-                  <td className="px-4 py-3 text-sm tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
+                  <td className="px-4 py-3 text-sm tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                     {linea.numeroPolizaNorm}
                   </td>
                   <td className="px-4 py-3 text-sm tabular-nums" style={placa.esDato ? undefined : MUTED}>
                     {placa.texto}
                   </td>
-                  <td className="px-4 py-3 text-sm tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
+                  <td className="px-4 py-3 text-sm tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                     {pesos(linea.valorDeclarado)}
                   </td>
                   <td className="px-4 py-3 text-sm tabular-nums" style={valorSoat.esDato ? undefined : MUTED}>

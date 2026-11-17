@@ -823,7 +823,7 @@ test.describe('HU #12815 — AC6: el ZIP de SOAT pide 2 marcadas y cuenta solo l
     await page.goto('/flito/soat');
     await casillaCabecera(page).check();
     await expect(botonZip(page)).toHaveText('Descargar soportes (2 de 3)');
-    await expect(botonZip(page)).toHaveAttribute('style', /--flit-gradient-primary/);
+    await expect(botonZip(page)).toHaveAttribute('data-variante', 'primario');
   });
 
   test('/flito/soat — secundaria junto a «Enviar al gestor»', async ({ page }) => {
@@ -832,7 +832,7 @@ test.describe('HU #12815 — AC6: el ZIP de SOAT pide 2 marcadas y cuenta solo l
     await page.goto('/flito/soat');
     await casillaCabecera(page).check();
     await expect(page.getByRole('button', { name: 'Enviar al gestor (1 de 3)' })).toBeVisible();
-    await expect(botonZip(page)).not.toHaveAttribute('style', /--flit-gradient-primary/);
+    await expect(botonZip(page)).toHaveAttribute('data-variante', 'secundario');
   });
 });
 
@@ -869,7 +869,7 @@ test.describe('HU #12815 — AC7/AC8: el ZIP cuelga de `soat.soportes.descargar`
     await page.goto('/flito/soat');
     await marcar(page, 'XYZ789', 'DEF456');
     await expect(page.getByRole('button', { name: /^Enviar/ })).toHaveCount(0);
-    await expect(botonZip(page)).toHaveAttribute('style', /--flit-gradient-primary/);
+    await expect(botonZip(page)).toHaveAttribute('data-variante', 'primario');
     await Promise.all([page.waitForEvent('download'), botonZip(page).click()]);
     expect(zip.peticiones[0].cuerpo).toEqual({ ids: ['s2', 's3'] });
   });

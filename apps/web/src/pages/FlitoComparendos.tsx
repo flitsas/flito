@@ -1,4 +1,4 @@
-// FLITO — Comparendos monitoreados: la página, que desde la HU #11633 es solo el orquestador.
+// FLITO — Comparendos monitoreados: la página, que desde la HU 11633 es solo el orquestador.
 //
 // Una ruta (`/flito/comparendos`), un permiso (`flito_comparendos`, solo `admin`) y tres vistas
 // dentro. Lo único que decide este archivo es CUÁL se monta, leyendo `?vista=` de la URL; el marco

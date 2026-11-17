@@ -1,56 +1,46 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
-import FlitSidebar from './FlitSidebar';
 import FlitTopbar from './FlitTopbar';
 import FlitNavBar from './FlitNavBar';
+import FlitSidebar from './FlitSidebar';
 import { useDrFlitVisible } from '../drflit/useDrFlitVisible';
+import { useDesdeLg } from '../shell/useDesdeLg';
 
-// AppShell — composición FLIT del shell SIN sidebar (decisión PO 2026-06-12,
-// patrón Academy ADR-0023 / CIA NavBar): topbar + contenido a ancho completo
-// sobre fondo azul claro `#EAF2FF`, con la navegación de escritorio en un dock
-// flotante al pie (FlitNavBar). En <lg la navegación vive en el drawer
-// (FlitSidebar) que abre la hamburguesa.
+/**
+ * Shell del UI Kit 2026: barra superior + contenido (`main`, máx. 1680 px, margen lateral del kit) + navegación.
+ * Navegación (Épica #14560): desde 1024 px, dock inferior flotante con «Más» (FlitNavBar); por debajo, sin dock
+ * —como en develop— y el ☰ del topbar abre el menú lateral (FlitSidebar). El colchón inferior de `.kit-main` solo
+ * reserva el dock donde lo hay; sin dock, solo el botón de Dr. Flit si está (`kit-main--drflit`, kit-react.css).
+ * Permisos y árbol de navegación: sin cambios (useNavSections).
+ */
 interface AppShellProps {
   onOpenPalette: () => void;
   children: ReactNode;
 }
 
 export default function AppShell({ onOpenPalette, children }: AppShellProps) {
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const location = useLocation();
-  // HU #13764: en <lg (80 px del botón + safe-area + barra fija) el último bloque de la página debe poder subir por encima del botón de Dr. Flit.
   const reservaDrFlit = useDrFlitVisible();
+  const desdeLg = useDesdeLg();
+  const { pathname } = useLocation();
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const menuBotonRef = useRef<HTMLButtonElement>(null);
 
-  // Cerrar drawer al navegar.
-  useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
-
-  // Esc cierra el drawer.
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDrawerOpen(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [drawerOpen]);
+  // Navegar cierra el menú lateral; también pasar a ≥1024 px (ahí manda el dock).
+  useEffect(() => { setMenuAbierto(false); }, [pathname]);
+  useEffect(() => { if (desdeLg) setMenuAbierto(false); }, [desdeLg]);
 
   return (
     <div className="flit-app flex min-h-screen w-full flex-col">
-      <FlitSidebar open={drawerOpen} onClose={() => setDrawerOpen(false)} />
-
-      <FlitTopbar onOpenPalette={onOpenPalette} onOpenSidebar={() => setDrawerOpen(true)} />
-      <FlitNavBar />
-      <main className={`min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 ${reservaDrFlit ? 'max-lg:pb-[calc(6.5rem+env(safe-area-inset-bottom)+var(--flit-fab-offset,0px))]' : ''}`}>
+      <a className="saltar" href="#contenido">Saltar al contenido</a>
+      <FlitTopbar onOpenPalette={onOpenPalette} onOpenSidebar={desdeLg ? undefined : () => setMenuAbierto(true)}
+        sidebarAbierto={menuAbierto} menuBotonRef={menuBotonRef} />
+      <main id="contenido" tabIndex={-1}
+        className={`kit-main mx-auto min-w-0 flex-1 outline-none${reservaDrFlit ? ' kit-main--drflit' : ''}`}>
         {children}
+        <p className="mt-8 hidden text-xs text-[color:var(--color-text-tertiary)] lg:block">ISO 27001 · Decreto 1079/2015</p>
       </main>
-
-      {/* Pie legal — antes vivía en el footer del sidebar. El colchón inferior
-          en lg+ es el hueco del dock flotante: sin él, al llegar al final de la
-          página el dock taparía esta línea. */}
-      <footer
-        className="hidden px-4 pb-4 text-[10px] sm:px-6 lg:block lg:px-8 lg:pb-28"
-        style={{ color: 'var(--flit-text-muted)' }}
-      >
-        ISO 27001 · Decreto 1079/2015
-      </footer>
+      <FlitNavBar />
+      <FlitSidebar open={menuAbierto && !desdeLg} onClose={() => setMenuAbierto(false)} botonRef={menuBotonRef} />
     </div>
   );
 }

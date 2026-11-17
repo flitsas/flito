@@ -6,43 +6,27 @@
 //
 // El filtro es EN CLIENTE sobre lo ya cargado: cambiarlo no pide datos ni pasa por «Cargando».
 
-import { useId } from 'react';
 import StatusChip from '../flit/StatusChip';
-import {
-  FlitEmpty, FlitPillGroup, FlitPillButton, flitBtnSecondarySm, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import FiltroSegmentado from '../flit/FiltroSegmentado';
+import { Vacio } from '../flit/Cargador';
+import GradientButton from '../flit/GradientButton';
 
 export type FiltroEstado = 'todos' | 'activos' | 'inactivos';
 
-const OPCIONES: { valor: FiltroEstado; texto: string }[] = [
-  { valor: 'todos', texto: 'Todos' },
-  { valor: 'activos', texto: 'Activos' },
-  { valor: 'inactivos', texto: 'Inactivos' },
+const OPCIONES: { valor: FiltroEstado; etiqueta: string }[] = [
+  { valor: 'todos', etiqueta: 'Todos' },
+  { valor: 'activos', etiqueta: 'Activos' },
+  { valor: 'inactivos', etiqueta: 'Inactivos' },
 ];
 
 /**
- * Grupo rotulado de pills. `role="group"` + `aria-labelledby` al rótulo visible: así el lector
- * anuncia «Estado» al entrar y `aria-pressed` dice cuál está puesta (AC6). Es el mismo patrón de
- * filtro rotulado de `BarraFiltrosBandeja`.
+ * Segmentado del kit (`FiltroSegmentado`): `role="group"` con el nombre del rótulo visible, así el
+ * lector anuncia «Estado» al entrar y `aria-pressed` dice cuál está puesta (AC6).
  */
 export function FiltroEstadoPills({ valor, onCambio, etiqueta = 'Estado' }: {
   valor: FiltroEstado; onCambio: (v: FiltroEstado) => void; etiqueta?: string;
 }) {
-  const idRotulo = useId();
-  return (
-    <div role="group" aria-labelledby={idRotulo} className="flex flex-col gap-1.5">
-      <span id={idRotulo} className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-        {etiqueta}
-      </span>
-      <FlitPillGroup>
-        {OPCIONES.map((o) => (
-          <FlitPillButton key={o.valor} active={valor === o.valor} pressed={valor === o.valor} onClick={() => onCambio(o.valor)}>
-            {o.texto}
-          </FlitPillButton>
-        ))}
-      </FlitPillGroup>
-    </div>
-  );
+  return <FiltroSegmentado opciones={OPCIONES} valor={valor} onCambio={onCambio} ariaLabel={etiqueta} rotulo={etiqueta} />;
 }
 
 /** El texto es el dato; el color solo acompaña (AC6). */
@@ -57,7 +41,7 @@ export function ChipEstado({ activo }: { activo: boolean }) {
 /** «Mostrando X de Y». X = visibles tras el filtro; Y = total cargado. Se anuncia al cambiar. */
 export function PieConteo({ visibles, total }: { visibles: number; total: number }) {
   return (
-    <p role="status" className="mt-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+    <p role="status" className="mt-3 text-xs text-[color:var(--color-text-tertiary)]">
       Mostrando {visibles} de {total}
     </p>
   );
@@ -66,12 +50,11 @@ export function PieConteo({ visibles, total }: { visibles: number; total: number
 /** Existen registros, pero ninguno con este filtro: el siguiente paso es volver a «Todos». */
 export function VacioFiltro({ onVerTodos }: { onVerTodos: () => void }) {
   return (
-    <FlitEmpty>
-      <p>No hay registros con este filtro.</p>
-      <button type="button" className={`${flitBtnSecondarySm} mt-3`} style={flitBtnSecondaryStyle} onClick={onVerTodos}>
-        Ver todos
-      </button>
-    </FlitEmpty>
+    <Vacio
+      texto="No hay registros con este filtro."
+      icono="filtro"
+      accion={<GradientButton variant="secondary" size="sm" onClick={onVerTodos}>Ver todos</GradientButton>}
+    />
   );
 }
 

@@ -34,16 +34,16 @@ export default function BolsaExtracto({ bolsa, extracto, movimientos, periodo }:
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+              <h2 className="text-lg font-bold" style={{ color: 'var(--color-action)' }}>
                 {bolsa.companiaNombre}
               </h2>
               <StatusChip tone={TONO_NIVEL[bolsa.nivel]}>{NIVEL_RIESGO_BOLSA_LABEL[bolsa.nivel]}</StatusChip>
             </div>
             <p className="mt-2 text-3xl font-bold tabular-nums leading-none"
-              style={{ color: bolsa.saldo <= 0 ? 'var(--flit-danger)' : 'var(--flit-text-primary)' }}>
+              style={{ color: bolsa.saldo <= 0 ? 'var(--kit-rojo)' : 'var(--color-text-primary)' }}>
               {pesos(bolsa.saldo)}
             </p>
-            <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               {bolsa.ultimaRecargaEn
                 ? `Última recarga: ${pesos(bolsa.ultimaRecargaValor ?? 0)} el ${new Date(bolsa.ultimaRecargaEn).toLocaleDateString('es-CO')}.`
                 : 'Todavía no ha recibido ninguna recarga.'}
@@ -52,18 +52,18 @@ export default function BolsaExtracto({ bolsa, extracto, movimientos, periodo }:
 
           <dl className="flex gap-6 text-sm">
             <div>
-              <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>
+              <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>
                 Entradas
               </dt>
-              <dd className="mt-1 font-bold tabular-nums" style={{ color: 'var(--flit-success)' }}>
+              <dd className="mt-1 font-bold tabular-nums" style={{ color: 'var(--kit-verde)' }}>
                 {extracto ? pesos(extracto.totalEntradas) : '—'}
               </dd>
             </div>
             <div>
-              <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>
+              <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>
                 Salidas
               </dt>
-              <dd className="mt-1 font-bold tabular-nums" style={{ color: 'var(--flit-warning)' }}>
+              <dd className="mt-1 font-bold tabular-nums" style={{ color: 'var(--kit-naranja)' }}>
                 {extracto ? pesos(extracto.totalSalidas) : '—'}
               </dd>
             </div>
@@ -71,18 +71,18 @@ export default function BolsaExtracto({ bolsa, extracto, movimientos, periodo }:
         </div>
 
         <div className="mt-4">
-          <p className="mb-1 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mb-1 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
             Tendencia del saldo · {etiquetaPeriodo(periodo)}
           </p>
           {tendencia.length >= 2 ? (
             <>
               <Sparkline data={tendencia} className="h-16 w-full" />
-              <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+              <p className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
                 {tendencia.length} movimiento(s): de {pesos(tendencia[0])} a {pesos(tendencia[tendencia.length - 1])}.
               </p>
             </>
           ) : (
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               Hacen falta al menos dos movimientos en el periodo para dibujar una tendencia.
             </p>
           )}
@@ -117,8 +117,8 @@ function Desglose({ titulo, nota, lineas, etiqueta, columna }: {
 
   return (
     <FlitCard>
-      <h3 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>{titulo}</h3>
-      <p className="mb-3 mt-1 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{nota}</p>
+      <h3 className="text-sm font-bold" style={{ color: 'var(--color-action)' }}>{titulo}</h3>
+      <p className="mb-3 mt-1 text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>{nota}</p>
       {orden.length === 0 ? (
         <FlitEmpty>Sin movimientos en el periodo.</FlitEmpty>
       ) : (
@@ -147,11 +147,11 @@ function Desglose({ titulo, nota, lineas, etiqueta, columna }: {
           </tbody>
           <tfoot>
             <FlitTr>
-              <td className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+              <td className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
                 Total consumido
               </td>
               <td />
-              <td className="px-4 py-2 text-right text-sm font-bold tabular-nums" style={{ color: 'var(--flit-blue-text)' }}>
+              <td className="px-4 py-2 text-right text-sm font-bold tabular-nums" style={{ color: 'var(--color-action)' }}>
                 {pesos(totalSalidas)}
               </td>
               <td />

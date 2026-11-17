@@ -5,7 +5,8 @@ import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
-import { flitInp, FlitCard, FlitField, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import { flitInp, FlitCard, FlitField } from '../components/flit/flitPageKit';
+import KpiCard from '../components/flit/KpiCard';
 
 interface PreviewResponse {
   docNumber: string;
@@ -59,14 +60,13 @@ export default function Privacy() {
       <PageHeaderCard
         title="Privacidad y datos personales"
         subtitle="Derecho al olvido — Ley 1581 de 2012"
+        icono="flito-privacidad"
+        miga={[{ etiqueta: 'Cumplimiento' }, { etiqueta: 'Privacidad' }]}
       />
 
-      <div
-        className="rounded-[12px] px-4 py-4"
-        style={{ background: 'rgba(240, 90, 53, 0.10)', border: '1px solid rgba(240, 90, 53, 0.25)' }}
-      >
-        <p className="mb-2 text-sm font-semibold" style={{ color: 'var(--flit-warning)' }}>Política de anonimización</p>
-        <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed" style={{ color: 'var(--flit-text-secondary)' }}>
+      <div className="kit-alerta flex-col gap-2" data-tono="warn" data-kit="alerta">
+        <p className="text-sm font-semibold text-[color:var(--kit-naranja-texto)]">Política de anonimización</p>
+        <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-[color:var(--color-text-secondary)]">
           <li>La operación <b>anonimiza, no elimina</b>: nombres, emails, teléfonos y direcciones se reemplazan por marcadores; el documento se reemplaza por un hash determinístico.</li>
           <li>Los registros se preservan para cumplir auditoría LAFT (5 años) e ISO 27001 (audit logs append-only).</li>
           <li>Solo administradores pueden ejecutar la anonimización. Compliance puede consultar la previsualización.</li>
@@ -76,8 +76,8 @@ export default function Privacy() {
 
       <FlitCard>
         <form onSubmit={handlePreview}>
-          <div className="grid grid-cols-12 items-end gap-3">
-            <div className="col-span-12 md:col-span-9">
+          <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-12">
+            <div className="md:col-span-9">
               <FlitField label="Número de documento">
                 <input
                   required
@@ -90,7 +90,7 @@ export default function Privacy() {
                 />
               </FlitField>
             </div>
-            <div className="col-span-12 md:col-span-3">
+            <div className="md:col-span-3">
               <GradientButton type="submit" disabled={loadingPreview} className="w-full">
                 {loadingPreview ? 'Buscando...' : 'Previsualizar'}
               </GradientButton>
@@ -131,41 +131,27 @@ function PreviewResult({ preview, isAdmin, onForget }: { preview: PreviewRespons
 
   return (
     <FlitCard>
-      <p className="mb-4 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-        Documento <span className="font-mono" style={{ color: 'var(--flit-blue)' }}>{preview.docNumber}</span>
+      <p className="mb-4 text-sm font-semibold text-[color:var(--color-text-primary)]">
+        Documento <span className="font-mono text-[color:var(--color-action)]">{preview.docNumber}</span>
         {' '}— {total} registro{total === 1 ? '' : 's'} afectado{total === 1 ? '' : 's'}
       </p>
 
       {total === 0 ? (
-        <p className="text-sm italic" style={{ color: 'var(--flit-text-muted)' }}>No hay registros con este documento. Nada que anonimizar.</p>
+        <p className="text-sm italic text-[color:var(--color-text-tertiary)]">No hay registros con este documento. Nada que anonimizar.</p>
       ) : (
         <>
-          <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3">
+          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
             {(Object.entries(preview.affected) as [keyof PreviewResponse['affected'], number][]).map(([key, count]) => (
-              <div
-                key={key}
-                className="rounded-[10px] px-4 py-3"
-                style={count > 0
-                  ? { background: 'rgba(240, 90, 53, 0.10)', border: '1px solid rgba(240, 90, 53, 0.25)' }
-                  : { background: 'var(--flit-bg-app)', border: '1px solid var(--flit-border-soft)' }}
-              >
-                <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{TABLE_LABELS[key]}</p>
-                <p className="mt-1 text-2xl font-bold tabular-nums" style={{ color: count > 0 ? 'var(--flit-warning)' : 'var(--flit-text-muted)' }}>{count}</p>
-              </div>
+              <KpiCard key={key} label={TABLE_LABELS[key]} value={count} pendiente={count > 0} />
             ))}
           </div>
 
           {isAdmin ? (
-            <button
-              type="button"
-              onClick={onForget}
-              className="flit-focus inline-flex h-10 items-center rounded-[999px] px-5 text-sm font-semibold text-white"
-              style={{ background: 'var(--flit-gradient-danger)', boxShadow: 'var(--flit-shadow-button)' }}
-            >
+            <GradientButton type="button" variant="alerta" onClick={onForget}>
               Anonimizar este documento
-            </button>
+            </GradientButton>
           ) : (
-            <p className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Solo administradores pueden ejecutar la anonimización.</p>
+            <p className="text-xs italic text-[color:var(--color-text-tertiary)]">Solo administradores pueden ejecutar la anonimización.</p>
           )}
         </>
       )}
@@ -205,20 +191,17 @@ function ForgetModal({
   };
 
   return (
-    <FlitModal title="Confirmar anonimización" onClose={onClose}>
-      <div
-        className="mb-4 rounded-[10px] px-4 py-3"
-        style={{ background: 'rgba(228, 61, 48, 0.12)', border: '1px solid rgba(228, 61, 48, 0.25)' }}
-      >
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: 'var(--flit-danger)' }}>Acción crítica — no reversible</p>
+    <FlitModal title="Confirmar anonimización" onClose={onClose} icono="alerta">
+      <div className="kit-alerta mb-4" data-tono="danger" data-kit="alerta">
+        <p className="text-xs font-semibold uppercase tracking-[0.03em] text-[color:var(--kit-rojo-texto)]">Acción crítica — no reversible</p>
       </div>
 
       <form onSubmit={submit} className="space-y-4">
-        <div className="rounded-[10px] p-4 text-xs" style={{ background: 'var(--flit-bg-app)', border: '1px solid var(--flit-border-soft)' }}>
-          <p style={{ color: 'var(--flit-text-muted)' }}>Documento a anonimizar</p>
-          <p className="mt-0.5 font-mono font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{docNumber}</p>
-          <p className="mt-2" style={{ color: 'var(--flit-text-muted)' }}>
-            Registros afectados: <b style={{ color: 'var(--flit-text-primary)' }}>{total}</b>
+        <div className="rounded-[9px] border border-[color:var(--color-border)] bg-[var(--kit-hover)] p-4 text-xs">
+          <p className="text-[color:var(--color-text-tertiary)]">Documento a anonimizar</p>
+          <p className="mt-0.5 font-mono font-semibold text-[color:var(--color-text-primary)]">{docNumber}</p>
+          <p className="mt-2 text-[color:var(--color-text-tertiary)]">
+            Registros afectados: <b className="text-[color:var(--color-text-primary)]">{total}</b>
           </p>
         </div>
 
@@ -244,16 +227,11 @@ function ForgetModal({
           />
         </FlitField>
 
-        <div className="flex justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <button type="button" onClick={onClose} disabled={submitting} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Cancelar</button>
-          <button
-            type="submit"
-            disabled={submitting || confirmText !== docNumber}
-            className="flit-focus inline-flex h-10 items-center rounded-[999px] px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ background: 'var(--flit-gradient-danger)', boxShadow: 'var(--flit-shadow-button)' }}
-          >
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] pt-4">
+          <GradientButton type="button" variant="secondary" onClick={onClose} disabled={submitting}>Cancelar</GradientButton>
+          <GradientButton type="submit" variant="alerta" disabled={submitting || confirmText !== docNumber}>
             {submitting ? 'Anonimizando...' : 'Confirmar anonimización'}
-          </button>
+          </GradientButton>
         </div>
       </form>
     </FlitModal>

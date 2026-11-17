@@ -51,7 +51,7 @@ async function mockBackend(page: Page, opts: OpcionesMock = {}) {
 
 async function radicar(page: Page) {
   await page.goto('/tramite/traspaso');
-  await page.getByLabel('Placa').fill('ABC123');
+  await page.getByLabel('Placa', { exact: true }).fill('ABC123');
   await page.getByLabel('Documento propietario').fill('111');
   await page.getByRole('button', { name: /Consultar RUNT/i }).click();
   await expect(page.getByText(/Mazda CX-30/)).toBeVisible();

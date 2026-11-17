@@ -1,0 +1,307 @@
+/* =============================================================
+   FLITO — UI Kit 2026 · correcciones responsive (Épica #14560, sesión B «páginas responsive»).
+   Va DESPUÉS de kit-react.css en la misma capa `components`: a igual especificidad gana esta hoja.
+   Solo presentación: ninguna regla cambia qué se muestra ni cómo se comporta un control.
+   Inventario: docs/ux/rediseno-2026/responsive/defectos.md («Revisión a ojo», V1–V11).
+   Cortes del kit: 640 (sm) · 768 (md) · 1024 (lg). «<640» = max-width 639.98px, igual que `sm:`.
+   ============================================================= */
+
+/* ---------- V1 · V6 Tiras con scroll horizontal: pestañas y filtros segmentados ----------
+   Una sola fila con scroll táctil y sin barra visible. Mientras quede contenido oculto a la derecha,
+   `useDesbordeScroll` pone `data-desborda` y el borde derecho se desvanece como pista de «hay más».
+   La máscara solo usa el canal alfa: `black` aquí no es un color de superficie. */
+.kit-segmentado { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+.kit-segmentado::-webkit-scrollbar { display: none; }
+/* `position: relative`: el `.sr-only` (absoluto) del contador de una pestaña escapaba del recorte del scroll y desbordaba la página (+7 px a 360 en Logística). */
+.kit-pestanas { overscroll-behavior-x: contain; position: relative; }
+.kit-segmentado { position: relative; }
+.kit-pestanas[data-desborda], .kit-segmentado[data-desborda] {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+}
+/* Caja de la tira (FlitPillGroup y FiltroSegmentado), <1024: la fila sin envolver aportaba su ancho ENTERO al
+   min-content de los ancestros (`flex-wrap`, `flex-col`, pistas `auto`), y el documento desbordaba aunque la tira
+   recortara dentro de su tarjeta: +406 px en Gastos diarios y +341 en Siigo Operación a 360. `contain: inline-size`
+   corta esa aportación; el ancho intrínseco declarado (14rem) evita que un padre ajustado al contenido la colapse a
+   cero. Ocupa la línea disponible (`flex: 1 1 14rem` en una barra flex; 100 % en bloque o columna) y la tira, dentro,
+   conserva su ancho natural con `max-width: 100%`. ≥1024 la caja de FlitPillGroup es `display: contents`: nada cambia
+   en escritorio (FiltroSegmentado ya es una caja flex propia y la conserva). */
+.kit-segmentado-caja { display: contents; }
+@media (max-width: 1023.98px) {
+  .kit-segmentado-caja {
+    display: flex; align-items: center; min-width: 0; max-width: 100%; width: 100%; flex: 1 1 14rem;
+    contain: inline-size; contain-intrinsic-inline-size: 14rem;
+  }
+  .kit-segmentado-caja > .kit-segmentado { max-width: 100%; min-width: 0; }
+  /* Pestañas (Pestanas.tsx): la misma aportación de min-content (Logística +7 px a 360). Bloque a lo ancho. */
+  .kit-pestanas { contain: inline-size; min-width: 0; }
+}
+/* ≥768 el filtro segmentado envuelve (md:flex-wrap): sin scroll propio no recorta el foco de sus chips. */
+@media (min-width: 768px) { .kit-segmentado.md\:flex-wrap { overflow: visible; } }
+
+/* ---------- V2 · V4 DataTable en modo tarjetas: 1 columna <640, 2 columnas 640–1023, tabla ≥1024 ----------
+   El kit (kit-propuesta.css) pasaba a tabla en 901 px y repartía tarjetas con auto-fill de 300 px: a 768 px, con el
+   contenido de la página más estrecho que 600 px, salía una sola tarjeta a todo el ancho; entre 901 y 1023 px salía la
+   tabla con 7–9 columnas partiendo textos. Aquí el tramo 901–1023 también es de tarjetas y el reparto es explícito.
+   `matriz` (data-modo="matriz") no se toca: sigue con scroll horizontal en todos los anchos. */
+@media (min-width: 901px) and (max-width: 1023.98px) {
+  .tabla-wrap[data-modo="tarjetas"] { overflow: visible; border: 0; border-radius: 0; background: transparent; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz),
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) thead,
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody,
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tr,
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td { display: block; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody { display: grid; gap: var(--space-10); }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody tr {
+    border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-elevated);
+    padding: var(--space-4) var(--space-14) var(--space-8);
+  }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td,
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td:first-child,
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td:last-child {
+    display: flex; justify-content: space-between; align-items: center; gap: var(--space-12);
+    border: 0; border-radius: 0; padding: 5px 0; background: transparent; font-size: var(--text-caption);
+  }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td:first-child {
+    padding: var(--space-10) 0; margin-bottom: var(--space-4); border-bottom: 1px solid var(--color-divider);
+    font-size: var(--text-body); font-weight: 600;
+  }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td::before { content: attr(data-etiqueta); color: var(--color-text-tertiary); font-size: var(--text-micro); font-weight: 500; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td.solo-escritorio { display: none; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td.fila-abrir { justify-content: flex-end; padding-top: 2px; width: auto; white-space: normal; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) td.fila-abrir::before { content: none; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody tr:hover td { background: transparent; }
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody tr:hover { border-color: var(--color-border-control); }
+}
+@media (max-width: 639.98px) {
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody { grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .tabla-wrap[data-modo="tarjetas"] table:not(.matriz) tbody { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Tabla ≥1024: las celdas envuelven entre palabras pero nunca dentro de una palabra; cabeceras en una línea. Si la
+   tabla no cabe, desplaza dentro de su contenedor (sin inflar la card) y la columna de acciones queda fija a la
+   derecha: antes se cortaba. */
+@media (min-width: 1024px) {
+  .tabla-wrap[data-modo="tarjetas"] { overflow-x: auto; width: 100%; max-width: 100%; contain: inline-size; }
+  .tabla-wrap[data-modo="tarjetas"] th { white-space: nowrap; }
+  .tabla-wrap[data-modo="tarjetas"] td { overflow-wrap: normal; word-break: normal; }
+  .tabla-wrap[data-modo="tarjetas"] td.fila-abrir,
+  .tabla-wrap[data-modo="tarjetas"] table:has(td.fila-abrir) th:last-child { position: sticky; right: 0; z-index: 1; }
+  .tabla-wrap[data-modo="tarjetas"] td.fila-abrir { background: var(--color-surface-elevated); }
+  .tabla-wrap[data-modo="tarjetas"] tbody tr:hover td.fila-abrir { background: linear-gradient(var(--kit-hover), var(--kit-hover)), var(--color-surface-elevated); }
+}
+/* FlitTable (Trámites, Comprobantes…): ya desplaza en su contenedor; que tampoco parta palabras. */
+.kit-tabla-flit td { overflow-wrap: normal; word-break: normal; }
+
+/* ---------- V5 Acciones de la cabecera ----------
+   ≥768 a la derecha del título, como Usuarios y Flota; la nota del export queda bajo su botón (ExportarCola).
+   <640 todas a ancho completo y apiladas. `!important` en el ancho: varios bloques llegan con utilidades
+   (`w-auto`, `items-end`), que están en una capa superior y ganarían a esta regla. */
+@media (min-width: 768px) {
+  .page-header .page-header__acciones { margin-left: auto; justify-content: flex-end; }
+}
+@media (max-width: 639.98px) {
+  .page-header .page-header__acciones { width: 100%; flex-wrap: wrap; align-items: stretch; }
+  .page-header .page-header__acciones > *,
+  .page-header .page-header__acciones .btn { flex: 1 1 100%; width: 100% !important; max-width: none; }
+  .page-header .page-header__acciones > :is(button, a),
+  .page-header .page-header__acciones > * > :is(button, a) { width: 100% !important; justify-content: center; }
+}
+
+/* ---------- V9 Objetivos táctiles (<1024): 44 px en TODO control interactivo ----------
+   Botones (incluidos `flitBtn*` con `h-10`/`h-8`, que por utilidad están en una capa superior: de ahí el
+   `!important`), enlaces con forma de control, chips, píldoras, pestañas, `summary`, paginación y acciones de fila.
+   Los campos de la misma barra suben igual (inputs y selects), así una barra sigue teniendo UNA sola altura de
+   control. `min-height` no afecta a un enlace en línea dentro de un párrafo (un `a` inline ignora el alto), así
+   que el texto corrido no cambia. Ámbito: el contenido (`.kit-main`) y los diálogos (`.kit-modal`, que se
+   montan fuera de él); el armazón (topbar, barra lateral, navegación) tiene sus propias medidas. */
+@media (max-width: 1023.98px) {
+  :is(.kit-main, .kit-modal) :is(button, summary, [role="button"], [role="tab"], .btn, .chip, .kit-pestana, .filtro-activo),
+  :is(.kit-main, .kit-modal) a:is([class*="inline-flex"], [class*="rounded"], .btn, .chip),
+  :is(.kit-main, .kit-modal) .kit-segmentado > *,
+  :is(.kit-main, .kit-modal) .kit-paginacion :is(button, a),
+  :is(.kit-main, .kit-modal) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]), select) {
+    min-height: 44px !important;
+  }
+  /* Botón de solo ícono (llevan `aria-label` porque no tienen texto): área de 44 × 44 aunque el ícono siga
+     pequeño. Un botón con texto y `aria-label` ya mide más de 44 de ancho: la regla no lo cambia. Fuera: los días
+     del calendario (siete por fila; el ancho lo reparte su rejilla) y los ítems de la tira segmentada. */
+  :is(.kit-main, .kit-modal) button[aria-label]:not(.kit-rango__dia),
+  :is(.kit-main, .kit-modal) a[aria-label]:is([class*="inline-flex"], [class*="rounded"]) { min-width: 44px; }
+  /* Acciones de fila (DataTable y FlitTable en tarjetas): el enlace en línea pasa a caja para que el alto cuente. */
+  :is(.kit-main, .kit-modal) :is(td.fila-abrir, td[data-celda-kit="acciones"]) :is(a, button) {
+    display: inline-flex; align-items: center; justify-content: center; min-height: 44px !important;
+  }
+  .kit-modal__cerrar { width: 44px; height: 44px; }
+  .kit-main .kit-paginacion :is(button, a) { min-width: 44px; }
+}
+
+/* ---------- V10 Métricas (KpiCard / .metrica): la cifra no se parte; la etiqueta solo envuelve entre palabras ----------
+   kit-ui.css pone `overflow-wrap: anywhere`, que a 768 px partía «80.0 / %» y «VERIFICA / R». */
+.metrica__cifra { white-space: nowrap; overflow-wrap: normal; }
+.metrica__etiqueta, .metrica__pie { overflow-wrap: break-word; }
+
+/* ---------- V12 FlitTable en tarjetas: 1 columna <640, 2 columnas 640–1023, tabla ≥1024 (decisión a) ----------
+   `FlitTable` escribe en cada `td` el rótulo de su columna (`data-etiqueta`, el mismo atributo de la tarjeta de
+   DataTable) y marca las celdas sin rótulo con `data-celda-kit`: `seleccion` (casilla), `acciones` (al pie, a la
+   derecha) o `completa` (fila entera). `data-modo-kit="matriz"` (prop `matriz`) se queda en tabla con scroll.
+   Las páginas pintan sus `td`/`th` con utilidades de Tailwind (capa `utilities`, que vence a `components`): por eso
+   aquí display, relleno, alineación y corte de línea van con `!important`. Las celdas con `hidden`/`*:hidden`
+   se excluyen para no reaparecer lo que la página oculta. */
+@media (max-width: 1023.98px) {
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] { overflow: visible; border: 0; border-radius: 0; background: transparent; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] > div { overflow: visible; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] table,
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead,
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody,
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tfoot { display: block; width: 100%; }
+  /* Encabezado fuera de la vista (sigue en el árbol de accesibilidad)… */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  /* …salvo que lleve controles («seleccionar todo», filtro por columna, orden): entonces queda UNA tira sin envolver con
+     SOLO los encabezados que tienen control (p. ej. Gestión Trámites), con scroll táctil como `.kit-segmentado`.
+     La pista de «hay más» es un `::after` pegajoso al borde derecho y no una máscara: la máscara también recortaría
+     el menú de `ThFiltroMulti`, que aquí sale de la tira con `position: fixed` (ver abajo). `contain: inline-size`
+     evita que la tira entera aporte su ancho al min-content de los ancestros (la lección de V1). */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) {
+    position: static; width: auto; height: auto; overflow: visible; clip: auto; margin-bottom: var(--space-8);
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) tr {
+    display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-8); min-width: 0;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch; contain: inline-size;
+    border: 0; background: transparent; box-shadow: none;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) tr::-webkit-scrollbar { display: none; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) tr::after {
+    content: ""; position: sticky; right: 0; flex: 0 0 32px; align-self: stretch; margin-left: calc(-1 * var(--space-8));
+    pointer-events: none; background: linear-gradient(to left, var(--color-surface-elevated), transparent);
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) tr:hover { background: transparent; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) th { display: none !important; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead:has(input, button, select) th:has(input, button, select) {
+    display: flex !important; flex: 0 0 auto; align-items: center; gap: var(--space-8); min-height: 44px;
+    padding: 0 var(--space-12) !important; border-radius: 9px; white-space: nowrap !important;
+  }
+  /* Casilla «seleccionar todo»: un cuadro de 44 px al principio de la tira. */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead tr > th:has(> input[type="checkbox"]) {
+    order: -1; justify-content: center; width: 44px; padding: 0 !important;
+  }
+  /* Filtro por columna (`<th>Rótulo <ThFiltroMulti/></th>`): un control compacto «Rótulo: valor» de 44 px, con el
+     borde de `.control` en la caja entera y el resumen del `<details>` sin caja propia. */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead tr > th:has(> details) {
+    gap: 0; align-items: center !important; border: 1px solid var(--color-border); background: var(--color-surface-elevated);
+    color: var(--color-text-tertiary); transition: border-color 150ms ease;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead tr > th:has(> details):hover { border-color: var(--color-border-control); }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead tr > th:has(> details):has(summary:focus-visible) { border-color: var(--kit-azul); }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead tr > th > details { margin: 0 !important; position: static !important; align-self: center; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead tr > th > details > summary {
+    display: flex !important; align-items: center; min-height: 42px !important; width: auto !important; max-width: 12rem !important;
+    margin: 0 !important; padding: 0 0 0 4px !important; border: 0 !important; background: transparent !important;
+    box-shadow: none !important; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead tr > th > details > summary::before {
+    content: ":"; margin: 0 4px 0 -4px; color: var(--color-text-tertiary);
+  }
+  /* El menú sale de la tira con scroll: `fixed` sin desplazamientos queda en su posición estática (bajo el resumen)
+     pero ya no lo recorta el `overflow-x` de la fila. */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] thead tr > th > details > .menu-flotante {
+    position: fixed !important; left: auto !important; top: auto !important; z-index: 40; max-width: calc(100vw - 24px); white-space: normal;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody { display: grid; gap: var(--space-10); }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr {
+    display: flex; flex-direction: column; min-width: 0;
+    border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-elevated);
+    padding: var(--space-4) var(--space-14) var(--space-8);
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr:hover { border-color: var(--color-border-control); }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr[data-marcada] { background: var(--kit-hover); }
+  /* Fila de una sola celda que abarca toda la tabla (vacío, detalle expandido): ancho completo de la rejilla. */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr:has(> td:only-child[colspan]) { grid-column: 1 / -1; }
+  /* Cada celda es una fila «rótulo | valor» en rejilla: rótulo a ancho fijo a la izquierda y valor en `minmax(0,1fr)`
+     a la derecha. Antes era flex en fila: una celda con varios bloques (id, tipo, etiqueta en «Trámite») ponía cada
+     bloque como columna de la misma fila y los aplastaba hasta partir el texto letra por letra. En rejilla los hijos
+     se apilan en la columna del valor; el rótulo abarca sus filas y queda arriba. */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr { position: relative; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td:not(.hidden):not([class*=":hidden"]) {
+    display: grid !important; grid-template-columns: minmax(5.5rem, 36%) minmax(0, 1fr); column-gap: var(--space-12);
+    row-gap: 2px; justify-items: stretch; align-items: start;
+    min-width: 0; max-width: 100% !important; width: auto !important; min-height: 0 !important; height: auto !important;
+    border: 0; background: transparent;
+    padding: 5px 0 !important; text-align: right !important; white-space: normal !important; overflow-wrap: break-word;
+  }
+  /* Hijos directos (y anónimos): siempre en la columna del valor, sin anchos de página que la desborden. */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-etiqueta] > * {
+    grid-column: 2; min-width: 0 !important; max-width: 100% !important; margin-left: 0 !important; margin-right: 0 !important;
+  }
+  /* Bloques (`div`) a lo ancho del valor (una barra de progreso sin texto no colapsa a 0); lo que en la tabla era en
+     línea (chip, botón, enlace, casilla) se pega a la derecha con su ancho natural. */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-etiqueta] > :is(span, a, button, input, select, img, svg, label, .inline-flex, .inline-block, .badge) {
+    justify-self: end;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-etiqueta] > [class*="whitespace-nowrap"],
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-etiqueta] > :is(div, span) > [class*="whitespace-nowrap"]:not(.badge, [class*="rounded-full"]) {
+    white-space: normal !important;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td :is([class*="min-w-"], [class*="w-["]) { min-width: 0 !important; max-width: 100% !important; }
+  /* Filas flex dentro del valor (chip + botón, ícono + texto): envuelven y se alinean a la derecha. */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td > :is(.flex, .inline-flex) { flex-wrap: wrap; justify-content: flex-end; }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td + td { border-top: 1px solid var(--color-divider); }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-etiqueta]::before {
+    content: attr(data-etiqueta); grid-column: 1; grid-row: 1 / span 12; justify-self: start; min-width: 0; text-align: left;
+    color: var(--color-text-tertiary); font-size: var(--text-micro); font-weight: 500; text-transform: none; line-height: 1.6;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-celda-kit="completa"]:not(.hidden):not([class*=":hidden"]) {
+    display: block !important; text-align: left !important;
+  }
+  /* Casilla de selección: en la esquina superior izquierda de la tarjeta, en la fila del primer dato, con 44 px de
+     toque. La primera celda de datos le deja su hueco y pierde el filete superior. */
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-celda-kit="seleccion"]:not(.hidden):not([class*=":hidden"]) {
+    position: absolute; top: 0; left: 0; z-index: 1; display: flex !important; align-items: center; justify-content: center;
+    width: 44px !important; height: 44px !important; padding: 0 !important; border-top: 0;
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-celda-kit="seleccion"] + td:not(.hidden):not([class*=":hidden"]) {
+    border-top: 0; min-height: 44px !important; padding: 10px 0 5px 44px !important; /* 44: el ancho del cuadro de la casilla */
+  }
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody > tr > td[data-celda-kit="acciones"]:not(.hidden):not([class*=":hidden"]) {
+    order: 99; display: flex !important; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: var(--space-8);
+    padding-top: var(--space-8) !important;
+  }
+}
+@media (max-width: 639.98px) {
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody { grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .kit-tabla-flit[data-modo-kit="tarjetas-auto"] tbody { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ---------- V13 FiltrosPlegables: filtros plegados solo en teléfono (decisión b) ----------
+   ≥640 el envoltorio no existe a la vista: `linea` = `display: contents` (los controles siguen siendo ítems de la
+   barra flex de la página), `bloque` = bloque sin caja. <640 aparece el botón «Filtros (n)» (mismo `.btn secondary`
+   del botón Filtros del kit, 44 px por V9) y el cuerpo se oculta hasta abrirlo. Plegado = `display: none`, los
+   controles siguen montados. */
+.kit-plegable[data-modo-plegable="linea"],
+.kit-plegable[data-modo-plegable="linea"] > .kit-plegable__cuerpo { display: contents; }
+.kit-plegable__boton { display: none; }
+@media (max-width: 639.98px) {
+  .kit-plegable__boton { display: inline-flex; align-items: center; gap: var(--space-8); min-height: 44px; }
+  .kit-plegable:not([data-abierto]) > .kit-plegable__cuerpo { display: none !important; }
+  .kit-plegable[data-modo-plegable="linea"][data-abierto] > .kit-plegable__cuerpo {
+    display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: center; gap: var(--space-12); min-width: 0;
+  }
+  .kit-plegable[data-modo-plegable="bloque"][data-abierto] > .kit-plegable__cuerpo { margin-top: var(--space-12); }
+  .kit-plegable[data-modo-plegable="linea"] > .kit-plegable__cuerpo > label { flex: 1 1 100%; min-width: 0; }
+  .kit-plegable[data-modo-plegable="linea"] > .kit-plegable__cuerpo > label > select { width: 100% !important; }
+}
+
+/* ---------- V14 Cabecera: acción-enlace con texto largo (Siigo Operación) ----------
+   `flitBtnSecondarySm` no envuelve (`whitespace-nowrap`, `h-8`): a 360 «¿Buscas una factura concreta? Ve al reporte
+   de costos» salía por los dos lados del botón a ancho completo. <768 el texto envuelve y la píldora crece en alto. */
+@media (max-width: 767.98px) {
+  .page-header .page-header__acciones a {
+    max-width: 100%; height: auto !important; white-space: normal !important; text-align: center;
+    padding-block: var(--space-8);
+  }
+}

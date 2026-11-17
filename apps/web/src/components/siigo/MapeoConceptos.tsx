@@ -1,6 +1,6 @@
-// Facturación electrónica — mapeo de conceptos (HU #11287, Feature #11240).
+// Facturación electrónica — mapeo de conceptos (HU 11287, Feature 11240).
 //
-// Extraído de `pages/SiigoParametrizacion.tsx` cuando la HU #11288 añadió la segunda pestaña: las
+// Extraído de `pages/SiigoParametrizacion.tsx` cuando la HU 11288 añadió la segunda pestaña: las
 // dos historias comparten página, ruta y permiso, y meterlas en un solo archivo lo habría llevado
 // por encima del techo de 800 líneas del repo.
 //
@@ -109,13 +109,13 @@ export default function MapeoConceptos({ ambiente, puedeEditar, onCambio }: {
 
   return (
     <div className="space-y-5">
-      <section className="bg-white" style={CARD}>
-        <header className="flex items-center justify-between border-b px-6 py-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <h2 className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <section className="bg-[var(--color-surface-elevated)]" style={CARD}>
+        <header className="flex items-center justify-between border-b px-6 py-4" style={{ borderColor: 'var(--color-border)' }}>
+          <h2 className="text-base font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Conceptos facturables
           </h2>
           {!cargando && !error && (
-            <span className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+            <span className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
               {genericas.filter((f) => f.confirmadoContabilidad).length} de {genericas.length} confirmados
             </span>
           )}
@@ -123,7 +123,7 @@ export default function MapeoConceptos({ ambiente, puedeEditar, onCambio }: {
 
         {/* AC2 — los cuatro estados. */}
         {cargando && (
-          <p className="px-6 py-10 text-center text-sm" role="status" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="px-6 py-10 text-center text-sm" role="status" style={{ color: 'var(--color-text-tertiary)' }}>
             Cargando la parametrización…
           </p>
         )}
@@ -132,14 +132,14 @@ export default function MapeoConceptos({ ambiente, puedeEditar, onCambio }: {
           <div className="px-6 py-10 text-center">
             {/* `role="alert"` porque el `role="status"` de la carga se desmonta al aparecer el
                 error: sin esto, un fallo tras pulsar «Reintentar» no se anuncia. */}
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-              <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>{error}
+            <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
+              <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>{error}
             </p>
             <button
               type="button"
               onClick={() => { void cargar(); }}
               className="flit-focus mt-4 rounded-[10px] border px-4 py-2 text-sm font-semibold"
-              style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+              style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-primary)' }}
             >
               Reintentar
             </button>
@@ -148,10 +148,10 @@ export default function MapeoConceptos({ ambiente, puedeEditar, onCambio }: {
 
         {!cargando && !error && filas.length === 0 && (
           <div className="px-6 py-10 text-center">
-            <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               Todavía no hay conceptos en este ambiente.
             </p>
-            <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="mt-1 text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
               Los seis conceptos facturables se crean con la migración de la base de datos. Si esta
               lista está vacía, el primer paso es aplicar las migraciones pendientes en este ambiente.
             </p>
@@ -165,7 +165,7 @@ export default function MapeoConceptos({ ambiente, puedeEditar, onCambio }: {
                 Mapeo de conceptos facturables a productos de Siigo en el ambiente {ambiente}
               </caption>
               <thead>
-                <tr style={{ color: 'var(--flit-text-muted)' }}>
+                <tr style={{ color: 'var(--color-text-tertiary)' }}>
                   <th scope="col" className="px-4 py-3 text-left font-semibold">Concepto</th>
                   <th scope="col" className="px-4 py-3 text-left font-semibold">Producto en Siigo</th>
                   <th scope="col" className="px-4 py-3 text-left font-semibold">Clasificación</th>
@@ -225,30 +225,30 @@ function FilaMapeo({ m, puedeEditar, onEditar, onCrearProducto }: {
     ?? m.concepto;
 
   return (
-    <tr className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-      <th scope="row" className="px-4 py-3 text-left font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+    <tr className="border-t" style={{ borderColor: 'var(--color-border)' }}>
+      <th scope="row" className="px-4 py-3 text-left font-medium" style={{ color: 'var(--color-text-primary)' }}>
         {etiqueta}
         {m.tipoTramite !== null && (
-          <span className="ml-2 text-xs font-normal" style={{ color: 'var(--flit-text-muted)' }}>
+          <span className="ml-2 text-xs font-normal" style={{ color: 'var(--color-text-tertiary)' }}>
             · {m.tipoTramite}
           </span>
         )}
       </th>
       <td className="px-4 py-3">
         {m.codigoProducto === null
-          ? <span style={{ color: 'var(--flit-text-muted)' }}>— sin producto —</span>
+          ? <span style={{ color: 'var(--color-text-tertiary)' }}>— sin producto —</span>
           : (
             <>
               <span className="font-mono">{m.codigoProducto}</span>
               {m.nombreProducto && (
-                <span className="block text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                <span className="block text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                   {m.nombreProducto}
                 </span>
               )}
-              {/* El resultado de la última validación contra Siigo (HU #11283). */}
+              {/* El resultado de la última validación contra Siigo (HU 11283). */}
               {(m.validacionEstado === 'no_existe' || m.validacionEstado === 'inactivo') && (
-                <span className="block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-                  <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+                <span className="block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                  <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>
                   {m.validacionMensaje ?? 'El producto dejó de ser válido en Siigo.'}
                 </span>
               )}
@@ -257,7 +257,7 @@ function FilaMapeo({ m, puedeEditar, onEditar, onCrearProducto }: {
       </td>
       <td className="px-4 py-3">
         {m.clasificacionTributaria === null
-          ? <span style={{ color: 'var(--flit-text-muted)' }}>sin declarar</span>
+          ? <span style={{ color: 'var(--color-text-tertiary)' }}>sin declarar</span>
           : CLASIFICACION_TRIBUTARIA_LABEL[m.clasificacionTributaria]}
       </td>
       <td className="px-4 py-3">{m.unidadMedida ?? '—'}</td>
@@ -266,7 +266,7 @@ function FilaMapeo({ m, puedeEditar, onEditar, onCrearProducto }: {
         <StatusChip tone={chip.tono}>{chip.texto}</StatusChip>
         {m.confirmadoContabilidad && (
           // AC5 — quién y cuándo, visible en la pantalla.
-          <span className="mt-1 block text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <span className="mt-1 block text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             Usuario {m.confirmadoPorId ?? '—'} · {fecha(m.confirmadoEn)}
           </span>
         )}
@@ -278,7 +278,7 @@ function FilaMapeo({ m, puedeEditar, onEditar, onCrearProducto }: {
               type="button"
               onClick={onCrearProducto}
               className="flit-focus rounded-[10px] border px-3 py-1.5 text-xs font-semibold"
-              style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+              style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-primary)' }}
               // Seis botones «Editar» idénticos no dan contexto a quien navega por lista de
               // botones; solo lo da la navegación por tabla.
               aria-label={`Crear producto de ${etiqueta}`}
@@ -291,7 +291,7 @@ function FilaMapeo({ m, puedeEditar, onEditar, onCrearProducto }: {
               type="button"
               onClick={onEditar}
               className="flit-focus rounded-[10px] border px-3 py-1.5 text-xs font-semibold"
-              style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+              style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-primary)' }}
               aria-label={`Editar ${etiqueta}`}
             >
               Editar
@@ -364,7 +364,7 @@ function ModalEditar({ m, onCerrar, onGuardado }: {
         <Campo etiqueta="Producto en Siigo" htmlFor="codigo-producto">
           <SelectorProducto id="codigo-producto" valor={codigoProducto} onCambio={setCodigoProducto} />
           {m.codigoProducto && (
-            <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               Valor actual: <span className="font-mono">{m.codigoProducto}</span>
             </p>
           )}
@@ -388,7 +388,7 @@ function ModalEditar({ m, onCerrar, onGuardado }: {
             checked={terceros}
             onChange={(e) => setTerceros(e.target.checked)}
           />
-          <label htmlFor="terceros" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <label htmlFor="terceros" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
             Es un ingreso recibido para terceros
           </label>
         </div>
@@ -397,13 +397,13 @@ function ModalEditar({ m, onCerrar, onGuardado }: {
           <p
             role="alert"
             className="rounded-[10px] px-4 py-3 text-sm"
-            // El naranja se queda en el borde y el fondo; el TEXTO va oscuro. `--flit-warning`
+            // El naranja se queda en el borde y el fondo; el TEXTO va oscuro. `--kit-naranja`
             // sobre su propio tinte da 3.00:1, y este es justo el aviso que el AC5 exige que se
             // lea antes de guardar: uno que no se lee no cumple el criterio.
             style={{
               background: 'rgba(240, 90, 53, 0.10)',
-              borderLeft: '4px solid var(--flit-warning)',
-              color: 'var(--flit-text-primary)',
+              borderLeft: '4px solid var(--kit-naranja)',
+              color: 'var(--color-text-primary)',
             }}
           >
             Este cambio toca un campo que contabilidad ya firmó, así que <strong>la confirmación se
@@ -416,8 +416,8 @@ function ModalEditar({ m, onCerrar, onGuardado }: {
             // Mismo criterio que el aviso de arriba: el rojo marca, el texto oscuro se lee.
             style={{
               background: 'rgba(228, 61, 48, 0.10)',
-              borderLeft: '4px solid var(--flit-danger)',
-              color: 'var(--flit-text-primary)',
+              borderLeft: '4px solid var(--kit-rojo)',
+              color: 'var(--color-text-primary)',
             }}
           >
             {fallo}
@@ -429,7 +429,7 @@ function ModalEditar({ m, onCerrar, onGuardado }: {
             type="button"
             onClick={onCerrar}
             className="flit-focus rounded-[10px] border px-4 py-2 text-sm font-semibold"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+            style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-primary)' }}
           >
             Cancelar
           </button>
@@ -494,7 +494,7 @@ function ModalCrearProducto({ m, ambiente, onCerrar, onCreado }: {
   return (
     <FlitModal title="Crear el producto en Siigo" onClose={onCerrar}>
       <form onSubmit={crear} className="space-y-4">
-        <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
           Se creará en Siigo un producto de tipo servicio con la clasificación tributaria y los
           impuestos que ya tiene este concepto. <strong>La confirmación de contabilidad no se marca
           automáticamente</strong>: crear el producto es un acto técnico, firmarlo es contable.
@@ -510,7 +510,7 @@ function ModalCrearProducto({ m, ambiente, onCerrar, onCreado }: {
             aria-describedby={formatoValido ? undefined : 'codigo-nuevo-error'}
           />
           {!formatoValido && (
-            <p id="codigo-nuevo-error" className="mt-1 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            <p id="codigo-nuevo-error" className="mt-1 text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               Alfanumérico (admite punto, guion y guion bajo), sin espacios y máximo 30 caracteres.
             </p>
           )}
@@ -529,11 +529,11 @@ function ModalCrearProducto({ m, ambiente, onCerrar, onCreado }: {
               <option key={g.codigo} value={g.codigo}>{g.nombre}</option>
             ))}
           </select>
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             No se puede cambiar una vez que el producto tenga movimiento en Siigo.
           </p>
           {grupos.length === 0 && (
-            <p className="mt-1 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            <p className="mt-1 text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               No hay grupos de inventario sincronizados en este ambiente. Sincroniza los catálogos
               antes de crear productos.
             </p>
@@ -545,8 +545,8 @@ function ModalCrearProducto({ m, ambiente, onCerrar, onCreado }: {
             // Mismo criterio que el aviso de arriba: el rojo marca, el texto oscuro se lee.
             style={{
               background: 'rgba(228, 61, 48, 0.10)',
-              borderLeft: '4px solid var(--flit-danger)',
-              color: 'var(--flit-text-primary)',
+              borderLeft: '4px solid var(--kit-rojo)',
+              color: 'var(--color-text-primary)',
             }}
           >
             {fallo}
@@ -558,7 +558,7 @@ function ModalCrearProducto({ m, ambiente, onCerrar, onCreado }: {
             type="button"
             onClick={onCerrar}
             className="flit-focus rounded-[10px] border px-4 py-2 text-sm font-semibold"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+            style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-primary)' }}
           >
             Cancelar
           </button>
@@ -577,7 +577,7 @@ function Campo({ etiqueta, htmlFor, children }: {
 }) {
   return (
     <div>
-      <label htmlFor={htmlFor} className="mb-1.5 block text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+      <label htmlFor={htmlFor} className="mb-1.5 block text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
         {etiqueta}
       </label>
       {children}

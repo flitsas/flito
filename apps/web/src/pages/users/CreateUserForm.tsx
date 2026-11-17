@@ -82,7 +82,7 @@ export default function CreateForm({ companias, proveedores, organismos, rolesCa
   };
 
   return (
-    <FlitModal title="Nuevo usuario" onClose={onClose}>
+    <FlitModal title="Nuevo usuario" onClose={onClose} icono="usuarios" wide>
       <form onSubmit={submit} className="space-y-4">
         <Field label="Username (login)">
           <input required minLength={3} maxLength={50} pattern="[a-zA-Z0-9_]+" title="Solo letras, números y guion bajo"
@@ -97,7 +97,7 @@ export default function CreateForm({ companias, proveedores, organismos, rolesCa
         <Field label="Contraseña">
           <input required type="password" minLength={8} pattern={PASSWORD_PATTERN} title={PASSWORD_TITLE}
             value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} className={inputCls} />
-          <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{PASSWORD_TITLE}</p>
+          <p className="mt-1 text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>{PASSWORD_TITLE}</p>
         </Field>
         <Field label="Rol base">
           {/* En el alta, cambiar de rol vacía las excepciones: no hay nada guardado que arrastrar. */}
@@ -120,7 +120,7 @@ export default function CreateForm({ companias, proveedores, organismos, rolesCa
             {!rolesCatalogo && <option value={f.role}>Cargando roles…</option>}
             {rolesActivos.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
-          <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Define los permisos por defecto. Puede ampliar o quitar funciones abajo.</p>
+          <p className="mt-1 text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Define los permisos por defecto. Puede ampliar o quitar funciones abajo.</p>
         </Field>
         <AmbitoCampos
           tipoEnlace={enlace}

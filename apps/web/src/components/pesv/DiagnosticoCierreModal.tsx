@@ -14,6 +14,8 @@ import { errorMessage } from '../../lib/api';
 import { CloseIcon } from './shared';
 import { makeFocusTrapHandler, SpinnerIcon, ChevronRightIcon } from './diagnostico-helpers';
 import ModalPortal from '../flit/ModalPortal';
+import { claseBoton } from '../flit/GradientButton';
+import { Icono } from '../flit/kit/Icono';
 
 export interface PreflightBloqueo {
   estandarId: number;
@@ -57,20 +59,11 @@ const ADVERTENCIA_LABEL: Record<PreflightAdvertencia['motivo'], string> = {
   en_desarrollo_sin_comentario: 'En desarrollo sin comentario justificativo',
 };
 
-function LockIcon() {
-  return (
-    <svg className="h-5 w-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-      <rect x="3" y="11" width="18" height="11" rx="2" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M7 11V7a5 5 0 0110 0v4" />
-    </svg>
-  );
-}
-
 function ResumenCard({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
   return (
-    <div className="rounded-[12px] p-4" style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
-      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>{label}</div>
-      <div className="mt-2 text-3xl tabular-nums tracking-tight" style={{ fontSize: emphasis ? undefined : '1.5rem', fontWeight: 700, color: emphasis ? 'var(--flit-blue)' : 'var(--flit-text-primary)' }}>
+    <div className="rounded-[9px] border border-[color:var(--color-border)] bg-[color:var(--kit-hover)] p-4">
+      <div className="text-xs font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">{label}</div>
+      <div className={`mt-2 font-bold tabular-nums tracking-tight ${emphasis ? 'text-3xl text-[color:var(--color-action)]' : 'text-2xl text-[color:var(--color-text-primary)]'}`}>
         {value}
       </div>
     </div>
@@ -79,15 +72,14 @@ function ResumenCard({ label, value, emphasis = false }: { label: string; value:
 
 function RowAction({ codigo, motivo, onGoTo }: { codigo: string; motivo: string; onGoTo: () => void }) {
   return (
-    <tr className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-      <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--flit-text-primary)' }}>{codigo}</td>
-      <td className="px-4 py-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{motivo}</td>
-      <td className="px-4 py-2 text-right">
+    <tr>
+      <td data-etiqueta="Código" className="font-mono text-xs">{codigo}</td>
+      <td data-etiqueta="Motivo" className="text-xs text-[color:var(--color-text-secondary)]">{motivo}</td>
+      <td data-etiqueta="Acción" className="text-right">
         <button
           type="button"
           onClick={onGoTo}
-          className="flit-focus inline-flex h-7 items-center gap-1 rounded-[999px] border bg-white px-2.5 text-[11px] font-medium"
-          style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-blue)' }}
+          className={claseBoton('secondary', 'sm', 'inline-flex items-center gap-1')}
         >
           Ir al estándar
           <ChevronRightIcon />
@@ -101,9 +93,9 @@ function TableHeader() {
   return (
     <thead>
       <tr>
-        <th className="px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>Código</th>
-        <th className="px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>Motivo</th>
-        <th className="px-4 py-2 text-right text-[11px] font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>Acción</th>
+        <th className="text-left">Código</th>
+        <th className="text-left">Motivo</th>
+        <th className="text-right">Acción</th>
       </tr>
     </thead>
   );
@@ -180,27 +172,26 @@ export default function DiagnosticoCierreModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="cierre-modal-title"
-      className="flit-modal fixed inset-0 z-40 flex items-center justify-center p-6"
+      className="flit-modal kit-velo items-center justify-center p-3 sm:p-6"
       onKeyDown={handleKeyDown}
     >
       <div
         className="absolute inset-0"
-        style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }}
         onClick={() => !submitting && onClose()}
         aria-hidden="true"
       />
 
       <div
         ref={modalRef}
-        className="relative flex max-h-[90vh] w-full max-w-[720px] flex-col animate-in fade-in zoom-in-95 duration-200 ease-out motion-reduce:animate-none"
-        style={{ background: 'var(--flit-bg-modal)', borderRadius: 'var(--flit-radius-xl)', boxShadow: 'var(--flit-shadow-modal)', border: '1px solid var(--flit-border-soft)' }}
+        className="kit-modal my-auto max-h-[min(90vh,calc(100dvh-2rem))] max-w-[720px] overflow-hidden"
       >
-        <header className="flex items-start justify-between gap-3 p-6" style={{ borderBottom: '1px solid var(--flit-border-soft)' }}>
+        <header className="kit-modal__cabeza">
+          <Icono nombre="candado" disco size={52} />
           <div className="min-w-0">
-            <h2 id="cierre-modal-title" className="text-2xl font-bold tracking-tight" style={{ color: 'var(--flit-blue-text)' }}>
+            <h2 id="cierre-modal-title" className="kit-modal__titulo">
               Cerrar diagnóstico {anio ?? ''}
             </h2>
-            <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="mt-1 text-sm text-[color:var(--color-text-secondary)]">
               Antes de cerrar definitivamente, revise el siguiente expediente.
             </p>
           </div>
@@ -209,16 +200,15 @@ export default function DiagnosticoCierreModal({
             onClick={() => !submitting && onClose()}
             disabled={submitting}
             aria-label="Cerrar modal"
-            className="flit-focus inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border bg-white transition-colors hover:bg-[color:var(--flit-bg-app)] disabled:opacity-50"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+            className="kit-modal__cerrar"
           >
-            <CloseIcon />
+            <CloseIcon className="h-5 w-5" />
           </button>
         </header>
 
-        <div className="@container flex-1 space-y-5 overflow-y-auto p-6">
+        <div className="kit-modal__cuerpo @container min-h-0 flex-1 space-y-5 overflow-y-auto">
           {!preflight ? (
-            <p className="text-sm italic" style={{ color: 'var(--flit-text-muted)' }}>Calculando preflight…</p>
+            <p className="text-sm italic text-[color:var(--color-text-tertiary)]">Calculando preflight…</p>
           ) : (
             <div className="grid grid-cols-1 gap-3 @md:grid-cols-3">
               <ResumenCard label="Score proyectado" value={`${preflight.scoreProyectado.toFixed(1)}%`} emphasis />
@@ -228,16 +218,16 @@ export default function DiagnosticoCierreModal({
           )}
 
           {preflight && hasBlocks && (
-            <section aria-labelledby="bloqueos-titulo" className="overflow-hidden rounded-[12px]" style={{ border: '1px solid rgba(228,61,48,0.20)', background: 'rgba(228,61,48,0.06)' }}>
-              <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(228,61,48,0.20)' }}>
-                <h3 id="bloqueos-titulo" className="text-sm font-semibold" style={{ color: 'var(--flit-danger)' }}>
+            <section aria-labelledby="bloqueos-titulo" className="overflow-hidden rounded-[9px] border border-[color:var(--kit-rojo)] bg-[color:var(--color-surface-elevated)]">
+              <div className="border-b border-[color:var(--kit-rojo)] px-4 py-3">
+                <h3 id="bloqueos-titulo" className="text-sm font-semibold text-[color:var(--kit-rojo-texto)]">
                   Bloqueos ({preflight.bloqueos.length})
                 </h3>
-                <p className="mt-0.5 text-[11px]" style={{ color: 'var(--flit-danger)', opacity: 0.8 }}>
+                <p className="mt-0.5 text-xs text-[color:var(--kit-rojo-texto)]">
                   El diagnóstico no puede cerrarse hasta resolver estos puntos.
                 </p>
               </div>
-              <table className="w-full text-sm">
+              <div className="tabla-wrap rounded-none border-0"><table className="w-full text-sm">
                 <TableHeader />
                 <tbody>
                   {preflight.bloqueos.map((b) => (
@@ -249,21 +239,21 @@ export default function DiagnosticoCierreModal({
                     />
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </section>
           )}
 
           {preflight && hasWarnings && (
-            <section aria-labelledby="warnings-titulo" className="overflow-hidden rounded-[12px]" style={{ border: '1px solid rgba(240,90,53,0.20)', background: 'rgba(240,90,53,0.06)' }}>
-              <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(240,90,53,0.20)' }}>
-                <h3 id="warnings-titulo" className="text-sm font-semibold" style={{ color: 'var(--flit-warning)' }}>
+            <section aria-labelledby="warnings-titulo" className="overflow-hidden rounded-[9px] border border-[color:var(--kit-naranja)] bg-[color:var(--color-surface-elevated)]">
+              <div className="border-b border-[color:var(--kit-naranja)] px-4 py-3">
+                <h3 id="warnings-titulo" className="text-sm font-semibold text-[color:var(--kit-naranja-texto)]">
                   Advertencias ({preflight.advertencias.length})
                 </h3>
-                <p className="mt-0.5 text-[11px]" style={{ color: 'var(--flit-warning)', opacity: 0.8 }}>
+                <p className="mt-0.5 text-xs text-[color:var(--kit-naranja-texto)]">
                   Se puede cerrar, pero se recomienda resolver antes de auditoría externa.
                 </p>
               </div>
-              <table className="w-full text-sm">
+              <div className="tabla-wrap rounded-none border-0"><table className="w-full text-sm">
                 <TableHeader />
                 <tbody>
                   {preflight.advertencias.map((a) => (
@@ -275,20 +265,20 @@ export default function DiagnosticoCierreModal({
                     />
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </section>
           )}
 
-          <section aria-labelledby="worm-titulo" className="rounded-[12px] p-4" style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
+          <section aria-labelledby="worm-titulo" className="rounded-[9px] border border-[color:var(--color-border)] bg-[color:var(--kit-hover)] p-4">
             <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex-shrink-0" style={{ color: 'var(--flit-blue)' }}>
-                <LockIcon />
+              <div className="mt-0.5 flex-shrink-0 text-[color:var(--color-action)]">
+                <Icono nombre="candado" className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <h3 id="worm-titulo" className="mb-1 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+                <h3 id="worm-titulo" className="mb-1 text-sm font-semibold text-[color:var(--color-text-primary)]">
                   Cierre inmutable (WORM)
                 </h3>
-                <p className="text-xs leading-relaxed" style={{ color: 'var(--flit-text-secondary)' }}>
+                <p className="text-xs leading-relaxed text-[color:var(--color-text-secondary)]">
                   Al cerrar este diagnóstico, las evaluaciones quedan inmutables conforme a
                   controles WORM (Write Once Read Many). Cualquier corrección posterior
                   requiere abrir un nuevo diagnóstico para el siguiente periodo. El
@@ -302,16 +292,15 @@ export default function DiagnosticoCierreModal({
                     checked={accepted}
                     onChange={(e) => setAccepted(e.target.checked)}
                     disabled={hasBlocks || submitting}
-                    className="mt-0.5 h-4 w-4 rounded disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ accentColor: 'var(--flit-blue)' }}
+                    className="mt-0.5 h-4 w-4 rounded accent-[color:var(--kit-azul)] disabled:cursor-not-allowed disabled:opacity-50"
                   />
-                  <span className="text-xs leading-relaxed transition-colors" style={{ color: 'var(--flit-text-secondary)' }}>
+                  <span className="text-xs leading-relaxed text-[color:var(--color-text-secondary)] transition-colors group-hover:text-[color:var(--color-text-primary)]">
                     Confirmo que la evidencia adjunta es veraz y exporto bajo mi
                     responsabilidad como líder PESV.
                   </span>
                 </label>
                 {hasBlocks && (
-                  <p className="mt-2 text-[11px]" style={{ color: 'var(--flit-danger)' }}>
+                  <p className="mt-2 text-xs text-[color:var(--kit-rojo-texto)]">
                     Resuelve los bloqueos antes de marcar esta confirmación.
                   </p>
                 )}
@@ -320,14 +309,14 @@ export default function DiagnosticoCierreModal({
           </section>
         </div>
 
-        <footer className="flex items-center justify-end gap-2 p-4" style={{ borderTop: '1px solid var(--flit-border-soft)' }}>
+        <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-[color:var(--color-border)] px-6 py-4">
           <button
             ref={cancelRef}
             type="button"
             onClick={() => !submitting && onClose()}
             disabled={submitting}
-            className="flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-4 text-sm font-medium disabled:opacity-50"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+            data-variante="secundario"
+            className={claseBoton('secondary')}
           >
             Cancelar
           </button>
@@ -335,8 +324,8 @@ export default function DiagnosticoCierreModal({
             type="button"
             onClick={handleConfirm}
             disabled={!canConfirm}
-            className="flit-focus inline-flex h-10 items-center gap-2 rounded-[999px] px-4 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ background: 'var(--flit-gradient-danger)', boxShadow: 'var(--flit-shadow-button)' }}
+            data-variante="alerta"
+            className={claseBoton('alerta', 'md', 'inline-flex items-center gap-2')}
           >
             {submitting && <SpinnerIcon />}
             {submitting ? 'Cerrando…' : 'Cerrar definitivamente'}

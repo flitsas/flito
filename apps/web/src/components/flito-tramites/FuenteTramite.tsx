@@ -17,11 +17,11 @@ export function CeldaFuenteTramite({ fuente }: { fuente: unknown }) {
   return (
     <td className="whitespace-nowrap px-3 py-2 align-top">
       {!esFuenteTramite(fuente) ? (
-        <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }} aria-label="Fuente desconocida">—</span>
+        <span className="text-xs text-[color:var(--color-text-tertiary)]" aria-label="Fuente desconocida">—</span>
       ) : fuente === 'flit2' ? (
         <StatusChip tone="neutral">{ETIQUETA_FUENTE_TRAMITE.flit2}</StatusChip>
       ) : (
-        <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{ETIQUETA_FUENTE_TRAMITE[fuente]}</span>
+        <span className="text-xs text-[color:var(--color-text-tertiary)]">{ETIQUETA_FUENTE_TRAMITE[fuente]}</span>
       )}
     </td>
   );

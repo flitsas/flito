@@ -1,4 +1,4 @@
-// FLITO — Comparendos · Sincronización: el historial de corridas (HU #11636, Región B).
+// FLITO — Comparendos · Sincronización: el historial de corridas (HU 11636, Región B).
 //
 // La tabla de arriba responde «¿cuándo se sincronizó y cómo fue?». Todo lo demás —los NIT del
 // alcance, quién la lanzó, qué pasó en cada fuente— vive en el modal de detalle, y esa frontera no
@@ -9,7 +9,7 @@
 //     (AGENTS.md §14) por una superficie que nadie vino a leer, y de paso hace la columna ilegible.
 //     En el detalle sí se listan: ahí quien abre está preguntando justamente por eso.
 //   · **Ni aquí ni en el modal hay región viva.** La vista Sincronización tiene UNA, la de
-//     `VistaSyncComparendos`, y el TC62 de la HU #11635 cuenta que sea exactamente una. Por eso este
+//     `VistaSyncComparendos`, y el TC62 de la HU 11635 cuenta que sea exactamente una. Por eso este
 //     archivo no reutiliza `BloqueConfig`, que sería el atajo natural: su esqueleto monta un
 //     `role="status"` —correcto en la vista de Configuración, que no tiene ninguna— y aquí sería la
 //     segunda, compitiendo con el anuncio del desenlace justo mientras se publica.
@@ -51,7 +51,7 @@ interface PiezaResumen { corta: string; completa: string }
  * resto solo cuando hay algo que contar. El modo simulado se nombra el PRIMERO porque cambia cómo se
  * leen todos los números que vienen detrás: no salieron del proveedor real.
  *
- * **Cada pieza se devuelve abreviada Y completa** (HU #11652, AC5). Abreviar en una tabla densa es
+ * **Cada pieza se devuelve abreviada Y completa** (HU 11652, AC5). Abreviar en una tabla densa es
  * legítimo para quien mira —«3 inact. · 2 err SIMIT» cabe en la celda y se entiende de un vistazo—,
  * pero leído en voz alta es «tres inact punto, dos err SIMIT», que no es información. Las dos formas
  * dicen lo mismo; la celda decide cuál enseña a quién.
@@ -132,11 +132,11 @@ export default function HistorialSyncComparendos({ desenlace }: Props) {
           ref={tituloRef}
           tabIndex={-1}
           className="flit-focus rounded text-sm font-semibold"
-          style={{ color: 'var(--flit-text-primary)' }}
+          style={{ color: 'var(--color-text-primary)' }}
         >
           Historial de sincronizaciones
         </h2>
-        <p className="mt-1 max-w-3xl text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="mt-1 max-w-3xl text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Las últimas corridas, de la más reciente a la más antigua. Los NIT de cada alcance y el
           detalle por fuente están en «Ver detalle».
         </p>
@@ -148,7 +148,7 @@ export default function HistorialSyncComparendos({ desenlace }: Props) {
 
           {estado === 'error' && (
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+              <p className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
                 No se pudo cargar el historial de sincronizaciones.
               </p>
               <button
@@ -238,13 +238,13 @@ function FilaCorrida({ run, onVerDetalle }: { run: ComparendosSyncRun; onVerDeta
 
   return (
     <FlitTr>
-      <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>{inicio}</td>
+      <td className={celda} style={{ color: 'var(--color-text-primary)' }}>{inicio}</td>
       <td className={celda}><ChipEstadoSync estado={run.estado} /></td>
       {/* Solo el conteo (AC1). Los NIT completos, en el modal. */}
-      <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>
+      <td className={celda} style={{ color: 'var(--color-text-primary)' }}>
         {run.scopeNits.length > 0 ? `${run.scopeNits.length} NIT` : SIN_DATO}
       </td>
-      <td className={celda} style={{ color: 'var(--flit-text-primary)' }}><CeldaResumen run={run} /></td>
+      <td className={celda} style={{ color: 'var(--color-text-primary)' }}><CeldaResumen run={run} /></td>
       <td className={`${celda} text-right`}>
         <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={onVerDetalle}>
           Ver detalle<span className="sr-only">{` de la corrida del ${inicio}`}</span>
@@ -266,9 +266,9 @@ function EsqueletoHistorial() {
   return (
     <div className="space-y-2">
       <p className="sr-only">Cargando el historial de sincronizaciones…</p>
-      <div className="animate-pulse space-y-2 motion-reduce:animate-none">
+      <div className="space-y-2">
         {Array.from({ length: 5 }, (_, fila) => (
-          <div key={fila} className="h-9" style={{ background: 'var(--flit-border-soft)', borderRadius: 8 }} />
+          <div key={fila} className="kit-esqueleto h-9" />
         ))}
       </div>
     </div>

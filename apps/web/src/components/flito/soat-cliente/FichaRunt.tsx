@@ -46,6 +46,7 @@
 //   · La frase de **qué hacer si están mal** (corregirlos ante el organismo, no aquí). Sin ella, un
 //     dato incorrecto y no editable es una pared; con ella, es una instrucción.
 
+import Placa from '../../flit/Placa';
 import type { ReactNode } from 'react';
 import type { PreconsultaRunt } from '../../../lib/soatCliente';
 
@@ -67,14 +68,13 @@ export default function FichaRunt({ datos, consultadoEn, ocultarVin }: Props) {
   return (
     <section
       aria-labelledby="ficha-runt-titulo"
-      className="rounded-[12px] p-4"
-      style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
+      className="rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] p-4"
     >
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h3 id="ficha-runt-titulo" tabIndex={-1} className="text-sm font-bold outline-none" style={{ color: 'var(--flit-blue-text)' }}>
+        <h3 id="ficha-runt-titulo" tabIndex={-1} className="text-sm font-bold outline-none text-[color:var(--color-action)]">
           Datos del RUNT
         </h3>
-        <p role="status" className="text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p role="status" className="text-[11px] text-[color:var(--color-text-secondary)]">
           Traídos el {selloDe(consultadoEn)}
         </p>
       </div>
@@ -82,7 +82,7 @@ export default function FichaRunt({ datos, consultadoEn, ocultarVin }: Props) {
       {/* La placa va PRIMERA: es el dato que el Cliente no tecleó, el que aporta el registro y el
           que reconoce de un vistazo. El VIN detrás, que es el suyo. */}
       <Grupo titulo="Identificación">
-        <Dato k="Placa" v={dato(vehiculo.placa)} />
+        <Dato k="Placa" v={vehiculo.placa && vehiculo.placa.trim() ? <Placa placa={vehiculo.placa} formatear={false} /> : '—'} />
         {!ocultarVin && <Dato k="VIN" v={dato(vehiculo.vin)} />}
       </Grupo>
 
@@ -110,14 +110,14 @@ export default function FichaRunt({ datos, consultadoEn, ocultarVin }: Props) {
           rótulo de grupo. Por su NOMBRE: el código DIVIPOLA es la clave que viaja al backend y
           «05001» no le dice nada a nadie. **Si no cruza catálogo se pinta «—» y no pasa nada más**:
           desde la HU #11966 el organismo no es compuerta y la solicitud se envía igual. */}
-      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+      <dl className="mt-3 grid grid-cols-1 gap-2 min-[380px]:grid-cols-2 sm:grid-cols-4">
         <Dato k="Organismo de tránsito" v={dato(organismo.nombre)} ancho />
       </dl>
 
-      <p className="mt-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="mt-3 text-xs text-[color:var(--color-text-secondary)]">
         Un dato en «—» es un dato que el RUNT no publica. No impide enviar la solicitud.
       </p>
-      <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">
         Estos datos los trae el RUNT y no se editan. Si alguno no coincide con su vehículo, corríjalo
         ante su organismo de tránsito antes de pedir el SOAT.
       </p>
@@ -136,10 +136,10 @@ export default function FichaRunt({ datos, consultadoEn, ocultarVin }: Props) {
 function Grupo({ titulo, children }: { titulo: string; children: ReactNode }) {
   return (
     <div className="mt-3 first:mt-0">
-      <h4 className="mb-1 text-[11px] uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>
+      <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-[color:var(--color-text-tertiary)]">
         {titulo}
       </h4>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">{children}</dl>
+      <dl className="grid grid-cols-1 gap-2 min-[380px]:grid-cols-2 sm:grid-cols-4">{children}</dl>
     </div>
   );
 }
@@ -150,12 +150,12 @@ function Grupo({ titulo, children }: { titulo: string; children: ReactNode }) {
  * (peso, `tabular-nums`, `break-all`); sin ellas el par sale igual que siempre.
  */
 export function Dato({ k, v, ancho, clase, claseValor }: {
-  k: string; v: string; ancho?: boolean; clase?: string; claseValor?: string;
+  k: string; v: ReactNode; ancho?: boolean; clase?: string; claseValor?: string;
 }) {
   return (
-    <div className={`flex min-w-0 flex-col ${ancho ? 'col-span-2' : ''} ${clase ?? ''}`}>
-      <dt className="text-[11px] uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{k}</dt>
-      <dd className={`text-sm ${claseValor ?? 'font-medium'}`} style={{ color: 'var(--flit-text-primary)' }}>{v}</dd>
+    <div className={`flex min-w-0 flex-col gap-0.5 rounded-[9px] bg-[var(--kit-hover)] p-3 ${ancho ? 'min-[380px]:col-span-2' : ''} ${clase ?? ''}`}>
+      <dt className="text-xs text-[color:var(--color-text-tertiary)]">{k}</dt>
+      <dd className={`text-sm text-[color:var(--color-text-primary)] ${claseValor ?? 'font-medium'}`}>{v}</dd>
     </div>
   );
 }

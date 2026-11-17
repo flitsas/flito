@@ -63,7 +63,7 @@ test.describe('Logística — pestañas por función', () => {
     await page.route(/\/api\/flito\/logistica\/actas$/, (r) => r.fulfill(json({ error: 'Sin permisos' }, 403)));
     await page.goto('/flito/logistica');
     await expect(page.getByText('Ya no tiene acceso a esta sección. Vuelva a iniciar sesión si cree que es un error.')).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Actas/ })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /^Actas/ })).toHaveCount(0);
   });
 });
 
@@ -80,7 +80,7 @@ test.describe('Logística — Enviar a cliente', () => {
       return r.fulfill(json({ id: 'v1' }, 201));
     });
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes/ }).first().click();
+    await page.getByRole('tab', { name: /^Viajes/ }).first().click();
     await expect(page.getByText('Clasificadas (1)')).toBeVisible();
     await expect(page.getByText('En FLIT (2)')).toBeVisible();
     await page.getByRole('button', { name: 'Enviar a cliente' }).click();
@@ -100,7 +100,7 @@ test.describe('Logística — Enviar a cliente', () => {
     await page.route(/\/api\/flito\/logistica\/traslados$/, (r) =>
       r.request().method() === 'POST' ? r.fulfill(json({ error: 'TrasladoOrigenMixtoError interno' }, 409)) : r.fallback());
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes/ }).first().click();
+    await page.getByRole('tab', { name: /^Viajes/ }).first().click();
     await page.getByRole('button', { name: 'Enviar a cliente' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Enviar a cliente' }).click();
     await expect(page.getByRole('alert')).toContainText('Alguna LT ya no está en FLIT.');
@@ -114,7 +114,7 @@ test.describe('Logística — Enviar a cliente', () => {
     await page.route(/\/api\/flito\/logistica\/traslados$/, (r) =>
       r.request().method() === 'POST' ? r.fulfill(json({ error: crudo, codigo: 'LT_DE_OTRO_PROVEEDOR', detalle: { documentoIds: ['doc-fl-1'] } }, 409)) : r.fallback());
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes/ }).first().click();
+    await page.getByRole('tab', { name: /^Viajes/ }).first().click();
     await page.getByRole('button', { name: 'Enviar a cliente' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Enviar a cliente' }).click();
     await expect(page.getByRole('alert')).toContainText('Alguna LT ya no es del proveedor actual de la compañía.');
@@ -129,7 +129,7 @@ test.describe('Logística — Anular viaje', () => {
     await loginAs(page, OPERACIONES_USER, { funciones: conFunciones(...BASE_FUN) });
     await mockBase(page);
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: 'Entregas', exact: true }).click();
+    await page.getByRole('tab', { name: 'Entregas', exact: true }).click();
     const tabla = page.getByRole('region', { name: 'Viajes' });
     await expect(tabla.getByText('Transportes Andinos')).toBeVisible();
     await expect(tabla.getByRole('columnheader', { name: 'Acciones' })).toHaveCount(0);
@@ -144,7 +144,7 @@ test.describe('Logística — Anular viaje', () => {
       return r.fulfill(json({ ok: true }));
     });
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: 'Entregas', exact: true }).click();
+    await page.getByRole('tab', { name: 'Entregas', exact: true }).click();
     const tabla = page.getByRole('region', { name: 'Viajes' });
     await expect(tabla.getByRole('columnheader', { name: 'Acciones' })).toBeVisible();
     await expect(tabla.getByRole('button', { name: /Anular viaje/ })).toHaveCount(1);
@@ -167,7 +167,7 @@ test.describe('Logística — Anular viaje', () => {
     await mockBase(page);
     await page.route(/\/api\/flito\/logistica\/traslados\/[^/]+\/anular$/, (r) => r.fulfill(json({ error: 'ESTADO crudo' }, 409)));
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: 'Entregas', exact: true }).click();
+    await page.getByRole('tab', { name: 'Entregas', exact: true }).click();
     await page.getByRole('button', { name: /Anular viaje de Transportes Andinos/ }).click();
     const dlg = page.getByRole('dialog', { name: 'Anular viaje' });
     await dlg.getByLabel('Motivo de la anulación (obligatorio)').fill('Error');

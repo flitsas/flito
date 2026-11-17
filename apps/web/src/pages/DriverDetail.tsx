@@ -1,10 +1,15 @@
-import { useEffect, useState, useCallback, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useState, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import DriverDocumentsPanel from '../components/pesv/DriverDocumentsPanel';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
+import Pestanas from '../components/flit/Pestanas';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { Cargador, Vacio } from '../components/flit/Cargador';
+import { Fichas } from '../components/flit/Bloques';
+import { FlitCard } from '../components/flit/flitPageKit';
 
 interface Profile {
   cedula: string | null;
@@ -32,8 +37,6 @@ interface IncidentRow {
 
 type Tab = 'datos' | 'documentos' | 'capacitaciones' | 'incidentes';
 
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
-
 export default function DriverDetail() {
   const { id } = useParams<{ id: string }>();
   const { hasFuncion } = useAuth();
@@ -48,7 +51,7 @@ export default function DriverDetail() {
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
-  if (!d) return <div className="p-6 text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</div>;
+  if (!d) return <Cargador className="p-6" />;
   const p = d.profile;
 
   const subtitle = `@${d.user.username} · ${d.user.email || 'sin email'}`
@@ -56,41 +59,31 @@ export default function DriverDetail() {
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
-      <div>
-        <Link to="/pesv/conductores" className="text-xs font-semibold hover:underline" style={{ color: 'var(--flit-blue)' }}>← Conductores</Link>
-      </div>
-      <PageHeaderCard title={d.user.name} subtitle={subtitle} />
+      <PageHeaderCard
+        title={d.user.name}
+        subtitle={subtitle}
+        icono="flito-conductores"
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }, { etiqueta: 'Conductores', to: '/pesv/conductores' }, { etiqueta: d.user.name }]}
+      />
 
-      <div style={{ borderBottom: '1px solid var(--flit-border-soft)' }}>
-        <nav className="-mb-px flex gap-6 flex-wrap">
-          <TabBtn active={tab === 'datos'} onClick={() => setTab('datos')}>Datos</TabBtn>
-          <TabBtn active={tab === 'documentos'} onClick={() => setTab('documentos')}>Documentos ({d.documentosCount})</TabBtn>
-          <TabBtn active={tab === 'capacitaciones'} onClick={() => setTab('capacitaciones')}>Capacitaciones</TabBtn>
-          <TabBtn active={tab === 'incidentes'} onClick={() => setTab('incidentes')}>Incidentes ({d.incidentesCount})</TabBtn>
-        </nav>
-      </div>
+      <Pestanas
+        etiqueta="Secciones del conductor"
+        activa={tab}
+        onElegir={(t) => setTab(t as Tab)}
+        pestanas={[
+          { id: 'datos', etiqueta: 'Datos' },
+          { id: 'documentos', etiqueta: `Documentos (${d.documentosCount})` },
+          { id: 'capacitaciones', etiqueta: 'Capacitaciones' },
+          { id: 'incidentes', etiqueta: `Incidentes (${d.incidentesCount})` },
+        ]}
+      />
 
       {tab === 'datos' && p && <DatosPanel p={p} />}
-      {tab === 'datos' && !p && <div className="bg-white p-6 text-sm" style={{ ...CARD, color: 'var(--flit-text-muted)' }}>Conductor sin perfil registrado</div>}
+      {tab === 'datos' && !p && <FlitCard><Vacio texto="Conductor sin perfil registrado" icono="credencial" /></FlitCard>}
       {tab === 'documentos' && <DriverDocumentsPanel userId={Number(id)} canEdit={isAdmin} />}
       {tab === 'capacitaciones' && <CapacitacionesPanel userId={Number(id)} />}
       {tab === 'incidentes' && <IncidentesPanel userId={Number(id)} />}
     </div>
-  );
-}
-
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className="flit-focus pb-2 text-sm font-semibold transition-colors"
-      style={{
-        borderBottom: `2px solid ${active ? 'var(--flit-blue)' : 'transparent'}`,
-        color: active ? 'var(--flit-blue)' : 'var(--flit-text-muted)',
-      }}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -112,16 +105,9 @@ function DatosPanel({ p }: { p: Profile }) {
     ['Sanciones', p.sancionesCount],
   ];
   return (
-    <div className="bg-white p-6" style={CARD}>
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm md:grid-cols-2">
-        {rows.map(([k, v]) => (
-          <div key={k}>
-            <dt className="text-[11px] uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{k}</dt>
-            <dd className="font-medium" style={{ color: 'var(--flit-text-primary)' }}>{v ?? '—'}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
+    <FlitCard>
+      <Fichas items={rows.map(([k, v]) => ({ etiqueta: k, valor: v ?? '—' }))} />
+    </FlitCard>
   );
 }
 
@@ -138,19 +124,19 @@ function CapacitacionesPanel({ userId }: { userId: number }) {
       .catch((err) => setAviso(avisoPanel(err, 'Capacitaciones', 'las horas de capacitación')));
   }, [userId]);
   return (
-    <div className="bg-white p-6" style={CARD}>
-      <h3 className="mb-2 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Horas de capacitación por año</h3>
-      {aviso && <p role="status" className="py-2 text-sm" style={{ color: 'var(--flit-text-muted)' }}>{aviso}</p>}
+    <FlitCard>
+      <h3 className="mb-2 text-sm font-semibold text-[color:var(--color-text-primary)]">Horas de capacitación por año</h3>
+      {aviso && <p role="status" className="py-2 text-sm text-[color:var(--color-text-tertiary)]">{aviso}</p>}
       <ul className="text-sm">
         {rows.map((r) => (
-          <li key={r.year} className="flex items-center justify-between border-t py-2 first:border-0" style={{ borderColor: 'var(--flit-border-soft)' }}>
-            <span style={{ color: 'var(--flit-text-secondary)' }}>{r.year}</span>
-            <span className="font-bold tabular-nums" style={{ color: 'var(--flit-blue)' }}>{r.horas} h</span>
+          <li key={r.year} className="flex items-center justify-between border-t border-[color:var(--color-border)] py-2 first:border-0">
+            <span className="text-[color:var(--color-text-secondary)]">{r.year}</span>
+            <span className="font-bold tabular-nums text-[color:var(--color-action)]">{r.horas} h</span>
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Para registrar asistencia, ve a /pesv/capacitaciones.</p>
-    </div>
+      <p className="mt-2 text-[0.6875rem] text-[color:var(--color-text-tertiary)]">Para registrar asistencia, ve a /pesv/capacitaciones.</p>
+    </FlitCard>
   );
 }
 
@@ -163,31 +149,24 @@ function IncidentesPanel({ userId }: { userId: number }) {
       .catch((err) => setAviso(avisoPanel(err, 'Incidentes', 'los incidentes del conductor')));
   }, [userId]);
   if (aviso) {
-    return <p role="status" className="p-6 text-sm" style={{ ...CARD, background: 'var(--flit-bg-card)', color: 'var(--flit-text-muted)' }}>{aviso}</p>;
+    return <p role="status" className="card text-sm text-[color:var(--color-text-tertiary)]">{aviso}</p>;
   }
+  const columnas: ColumnaTabla<IncidentRow>[] = [
+    { key: 'fecha', header: 'Fecha', render: (i) => <span className="text-[color:var(--color-text-secondary)]">{i.fecha}</span> },
+    { key: 'tipo', header: 'Tipo', render: (i) => <span className="capitalize text-[color:var(--color-text-secondary)]">{i.tipo.replace('_', ' ')}</span> },
+    { key: 'gravedad', header: 'Gravedad', render: (i) => <span className="capitalize text-[color:var(--color-text-secondary)]">{i.gravedad}</span> },
+    { key: 'vehiculo', header: 'Vehículo', render: (i) => <span className="text-[color:var(--color-text-secondary)]">{i.plate || '—'}</span> },
+    { key: 'victimas', header: 'Víctimas', render: (i) => <span className="tabular-nums text-[color:var(--color-text-secondary)]">{i.victimasCount}</span> },
+    { key: 'estado', header: 'Estado', render: (i) => <span className="text-xs capitalize text-[color:var(--color-text-tertiary)]">{i.estado}</span> },
+  ];
   return (
-    <div className="overflow-hidden bg-white" style={CARD}>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr>
-            <Th>Fecha</Th><Th>Tipo</Th><Th>Gravedad</Th><Th>Vehículo</Th><Th>Víctimas</Th><Th>Estado</Th>
-          </tr></thead>
-          <tbody>
-            {items.length === 0 && <tr><td colSpan={6} className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin incidentes registrados</td></tr>}
-            {items.map((i) => (
-              <tr key={i.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                <td className="px-4 py-3" style={{ color: 'var(--flit-text-secondary)' }}>{i.fecha}</td>
-                <td className="px-4 py-3 capitalize" style={{ color: 'var(--flit-text-secondary)' }}>{i.tipo.replace('_', ' ')}</td>
-                <td className="px-4 py-3 capitalize" style={{ color: 'var(--flit-text-secondary)' }}>{i.gravedad}</td>
-                <td className="px-4 py-3" style={{ color: 'var(--flit-text-secondary)' }}>{i.plate || '—'}</td>
-                <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{i.victimasCount}</td>
-                <td className="px-4 py-3 text-xs capitalize" style={{ color: 'var(--flit-text-muted)' }}>{i.estado}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <DataTable
+      ariaLabel="Incidentes del conductor"
+      columnas={columnas}
+      filas={items}
+      getKey={(i) => String(i.id)}
+      emptyMessage="Sin incidentes registrados"
+    />
   );
 }
 
@@ -197,8 +176,4 @@ function IncidentesPanel({ userId }: { userId: number }) {
 function avisoPanel(err: unknown, item: string, que: string): string {
   if (err instanceof ApiError && err.status === 403) return `No tienes acceso a ${que}: depende del permiso de ${item}.`;
   return `No se pudieron cargar ${que}. Vuelve a abrir la pestaña para reintentar.`;
-}
-
-function Th({ children }: { children?: ReactNode }) {
-  return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
 }

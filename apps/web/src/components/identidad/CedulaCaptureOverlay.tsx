@@ -163,10 +163,10 @@ export default function CedulaCaptureOverlay({ open, onClose, onCaptured }: Prop
   if (!open) return null;
 
   const statusColorClass: Record<StatusTone, string> = {
-    idle: 'text-[color:var(--aura-cloud)]',
-    analyzing: 'text-[color:var(--flit-warning)]',
-    success: 'text-[color:var(--flit-success)]',
-    danger: 'text-[color:var(--flit-danger)]',
+    idle: 'text-[color:var(--color-capture-on-dark)]',
+    analyzing: 'text-[color:var(--kit-naranja-texto)]',
+    success: 'text-[color:var(--kit-verde-texto)]',
+    danger: 'text-[color:var(--kit-rojo-texto)]',
   };
 
   const titleByStep: Record<CaptureStep, string> = {
@@ -188,14 +188,14 @@ export default function CedulaCaptureOverlay({ open, onClose, onCaptured }: Prop
     >
       <span
         id="cedula-capture-title"
-        className="px-4 py-1.5 rounded-pill bg-[color:var(--flit-blue)] text-[color:var(--flit-blue)]-foreground text-xs font-bold uppercase tracking-[0.18em]"
+        className="px-4 py-1.5 rounded-pill bg-[color:var(--kit-azul-relleno)] text-[color:var(--kit-sobre-relleno)] text-xs font-bold uppercase tracking-[0.18em]"
       >
         {titleByStep[step]}
       </span>
 
       <p
         id="cedula-capture-hint"
-        className="text-sm font-semibold text-center max-w-[400px] text-[color:var(--aura-cloud)]"
+        className="text-sm font-semibold text-center max-w-[400px] text-[color:var(--color-capture-on-dark)]"
       >
         {hintByStep[step]}
       </p>
@@ -205,7 +205,7 @@ export default function CedulaCaptureOverlay({ open, onClose, onCaptured }: Prop
         autoPlay
         playsInline
         muted
-        className="max-w-[88vw] max-h-[50vh] rounded-2xl border-[3px] border-[color:var(--flit-blue)] shadow-glow-strong"
+        className="max-w-[88vw] max-h-[50vh] rounded-[9px] border-[3px] border-[color:var(--kit-azul)]"
       />
 
       <div className={`text-xs font-bold min-h-[18px] ${statusColorClass[status.tone]}`} aria-live="polite">
@@ -217,7 +217,7 @@ export default function CedulaCaptureOverlay({ open, onClose, onCaptured }: Prop
           type="button"
           onClick={handleCapture}
           disabled={busy || !ready}
-          className="px-9 py-3.5 rounded-xl bg-[color:var(--flit-blue)] text-[color:var(--flit-blue)]-foreground text-base font-extrabold shadow-glow-teal hover:bg-[color:var(--flit-blue)]-hover transition-colors disabled:opacity-50 disabled:cursor-wait"
+          className="px-9 py-3.5 rounded-[9px] flit-focus bg-[color:var(--kit-azul-relleno)] text-[color:var(--kit-sobre-relleno)] text-base font-extrabold hover:opacity-90 transition-[colors,opacity] disabled:opacity-50 disabled:cursor-wait"
         >
           {busy ? 'Procesando...' : 'Capturar'}
         </button>
@@ -225,7 +225,7 @@ export default function CedulaCaptureOverlay({ open, onClose, onCaptured }: Prop
           type="button"
           onClick={handleSkip}
           disabled={busy}
-          className="px-7 py-3.5 rounded-xl border-2 border-[color:var(--color-capture-border-on-dark)] bg-transparent text-[color:var(--color-capture-on-dark-soft)] text-sm font-semibold hover:text-[color:var(--color-capture-on-dark)] hover:border-[color:var(--color-capture-on-dark)] transition-colors disabled:opacity-30"
+          className="flit-focus px-7 py-3.5 rounded-[9px] border-2 border-[color:var(--color-capture-border-on-dark)] bg-transparent text-[color:var(--color-capture-on-dark-soft)] text-sm font-semibold hover:text-[color:var(--color-capture-on-dark)] hover:border-[color:var(--color-capture-on-dark)] transition-colors disabled:opacity-30"
         >
           {step === 'reverso' ? 'Cerrar' : 'Omitir'}
         </button>

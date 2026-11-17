@@ -6,6 +6,7 @@ import { normalizarDocumentoTraspaso, summarizeRuntMultasComparendos } from '@op
 import type { RuntPersonaResponse } from '../../pages/tramite/wizard/types';
 import { api, errorMessage } from '../../lib/api';
 import GradientButton from '../flit/GradientButton';
+import { Icono } from '../flit/kit/Icono';
 import CedulaCaptureOverlay, { type CedulaOcrData } from '../identidad/CedulaCaptureOverlay';
 import Field from './TraspasoField';
 import { inputCls } from './constantes';
@@ -222,27 +223,23 @@ export default function ParteForm({ titulo, parte, setParte, onContinuar, busy, 
   return (
     <div>
       <p className="sr-only" aria-live="polite" aria-atomic="true">{ocrAnnounce}</p>
-      <p className="mb-3 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>{titulo}</p>
-      <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>Ingresa el documento y consulta RUNT — es obligatorio para verificar la identidad.</p>
+      <p className="m-0 mb-3 text-base font-bold" style={{ color: 'var(--color-action)' }}>{titulo}</p>
+      <p className="mb-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Ingresa el documento y consulta RUNT — es obligatorio para verificar la identidad.</p>
       {enableOcr && !readOnly && (
         <>
           <div className="mb-3 flex items-center gap-3">
-            <div className="h-px flex-1" style={{ background: 'var(--flit-border-soft)' }} />
-            <span className="text-[10px] uppercase" style={{ color: 'var(--flit-text-muted)' }}>o leer cédula</span>
-            <div className="h-px flex-1" style={{ background: 'var(--flit-border-soft)' }} />
+            <div className="h-px flex-1" style={{ background: 'var(--color-border)' }} />
+            <span className="text-xs uppercase" style={{ color: 'var(--color-text-tertiary)' }}>o leer cédula</span>
+            <div className="h-px flex-1" style={{ background: 'var(--color-border)' }} />
           </div>
           <button
             type="button"
             onClick={() => setCedulaOverlayOpen(true)}
             disabled={cedulaOverlayOpen || busy}
-            className="flit-focus mb-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-[12px] border-2 border-dashed px-4 py-3 transition-all disabled:opacity-50"
-            style={{ borderColor: 'var(--flit-border-input)' }}
+            className="flit-focus mb-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-[9px] border-[1.5px] border-dashed border-[color:var(--kit-azul)] bg-[var(--color-surface-elevated)] px-4 py-3 transition-colors hover:bg-[var(--kit-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <svg className="h-5 w-5" style={{ color: 'var(--flit-blue)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
-            </svg>
-            <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue)' }}>Capturar documento</span>
+            <Icono nombre="credencial" size={20} style={{ color: 'var(--kit-azul)' }} />
+            <span className="text-sm font-semibold" style={{ color: 'var(--color-action)' }}>Capturar documento</span>
           </button>
           <CedulaCaptureOverlay
             open={cedulaOverlayOpen}
@@ -252,16 +249,16 @@ export default function ParteForm({ titulo, parte, setParte, onContinuar, busy, 
         </>
       )}
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end">
-        <label className="block text-xs font-semibold sm:w-28" style={{ color: 'var(--flit-text-secondary)' }}>
+        <label className="block text-xs font-semibold sm:w-28" style={{ color: 'var(--color-text-primary)' }}>
           Tipo doc
           <select value={parte.tipoDoc} onChange={(e) => set('tipoDoc')(e.target.value)} disabled={readOnly} className={inputCls} aria-label={`${titulo} tipo de documento`}>
             {TIPOS_DOC.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </label>
-        <label className="block flex-1 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+        <label className="block flex-1 text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Documento *
           <input value={parte.documento} onChange={(e) => set('documento')(e.target.value)} readOnly={readOnly} maxLength={20} aria-label={`${titulo} documento`}
-            className={inputCls} style={readOnly ? { background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' } : undefined}
+            className={inputCls}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (!readOnly) consultarRunt(); } }} />
         </label>
         {!readOnly && (
@@ -271,41 +268,39 @@ export default function ParteForm({ titulo, parte, setParte, onContinuar, busy, 
         )}
       </div>
       {runtPendiente && (
-        <p className="mb-4 text-xs font-semibold" style={{ color: 'var(--flit-warning)' }} role="status">
+        <p className="mb-4 text-xs font-semibold" style={{ color: 'var(--kit-naranja-texto)' }} role="status">
           Consulta RUNT obligatoria — verifique la identidad antes de continuar.
         </p>
       )}
       {enableSimit && (
-        <div className="mb-4 rounded-[12px] border p-3" style={{ borderColor: simitMultas ? 'var(--flit-danger)' : simitPendiente ? 'var(--flit-warning)' : 'var(--flit-border-soft)', background: simitMultas ? 'rgba(228,61,48,0.06)' : simitPendiente ? 'rgba(240,90,53,0.06)' : 'transparent' }}>
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-bold" style={{ color: simitMultas ? 'var(--flit-danger)' : simitPendiente ? 'var(--flit-warning)' : 'var(--flit-text-secondary)' }}>
+        <div className="mb-4 rounded-[9px] border p-3" style={{ borderColor: simitMultas ? 'var(--kit-rojo)' : simitPendiente ? 'var(--kit-naranja)' : 'var(--color-border)', background: simitMultas ? 'color-mix(in srgb, var(--kit-rojo) 6%, transparent)' : simitPendiente ? 'color-mix(in srgb, var(--kit-naranja) 6%, transparent)' : 'transparent' }}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="m-0 text-xs font-bold" style={{ color: simitMultas ? 'var(--kit-rojo-texto)' : simitPendiente ? 'var(--kit-naranja-texto)' : 'var(--color-text-secondary)' }}>
               Comparendos del comprador {simit.consultado && simit.fuente === 'runt' ? '(RUNT)' : simit.consultado ? '(SIMIT)' : ''}
             </p>
             {!simit.consultado && !readOnly && (
-              <button type="button" onClick={consultarSimit} disabled={simit.loading || busy}
-                className="flit-focus shrink-0 rounded-[999px] px-3 py-1 text-[11px] font-semibold disabled:opacity-50"
-                style={{ color: 'var(--flit-blue)', background: 'rgba(79,116,201,0.12)' }}>
+              <GradientButton type="button" variant="secondary" size="sm" onClick={consultarSimit} disabled={simit.loading || busy} className="shrink-0">
                 {simit.loading ? 'Consultando…' : 'Consultar SIMIT directo'}
-              </button>
+              </GradientButton>
             )}
           </div>
           {simitPendiente ? (
-            <p className="mt-2 text-xs font-semibold" style={{ color: 'var(--flit-warning)' }} role="status">
+            <p className="mt-2 text-xs font-semibold" style={{ color: 'var(--kit-naranja-texto)' }} role="status">
               Use «Consultar RUNT» arriba — trae multas y comparendos. SIMIT directo solo si RUNT no responde.
             </p>
           ) : simit.consultado ? (
             simit.total > 0
-              ? <p className="mt-2 text-xs font-semibold" style={{ color: 'var(--flit-danger)' }} role="alert">{simit.total} comparendo(s) pendientes ({new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(simit.totalMonto)}). No puede continuar hasta sanear.</p>
-              : <p className="mt-2 text-xs font-semibold" style={{ color: 'var(--flit-success)' }}>Sin comparendos pendientes {simit.fuente === 'runt' ? 'según RUNT' : 'según SIMIT'}.</p>
+              ? <p className="mt-2 text-xs font-semibold" style={{ color: 'var(--kit-rojo-texto)' }} role="alert">{simit.total} comparendo(s) pendientes ({new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(simit.totalMonto)}). No puede continuar hasta sanear.</p>
+              : <p className="mt-2 text-xs font-semibold" style={{ color: 'var(--kit-verde-texto)' }}>Sin comparendos pendientes {simit.fuente === 'runt' ? 'según RUNT' : 'según SIMIT'}.</p>
           ) : null}
           {simitError && !simitPendiente ? (
-            <p className="mt-2 text-xs font-semibold" style={{ color: 'var(--flit-danger)' }} role="alert">{simitError}</p>
+            <p className="mt-2 text-xs font-semibold" style={{ color: 'var(--kit-rojo-texto)' }} role="alert">{simitError}</p>
           ) : null}
         </div>
       )}
       {runtPersona?.persona && (
-        <div className="mb-4 rounded-[12px] border p-3" style={{ borderColor: 'rgba(112,207,58,0.30)', background: 'rgba(112,207,58,0.10)' }}>
-          <p className="text-xs font-semibold" style={{ color: 'var(--flit-success)' }}>
+        <div className="mb-4 rounded-[9px] border p-3" style={{ borderColor: 'color-mix(in srgb, var(--kit-verde) 30%, transparent)', background: 'color-mix(in srgb, var(--kit-verde) 10%, transparent)' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--kit-verde-texto)' }}>
             Persona en RUNT: {[runtPersona.persona.nombres, runtPersona.persona.apellidos].filter(Boolean).join(' ')}
             {runtPersona.persona.estadoPersona ? ` — ${runtPersona.persona.estadoPersona}` : ''}
           </p>
@@ -313,9 +308,9 @@ export default function ParteForm({ titulo, parte, setParte, onContinuar, busy, 
             const s = summarizeRuntMultasComparendos(runtPersona.multas);
             if (!s?.resolved) return null;
             if (s.total > 0) {
-              return <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-danger)' }}>RUNT reporta {s.total} comparendo(s) pendiente(s).</p>;
+              return <p className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>RUNT reporta {s.total} comparendo(s) pendiente(s).</p>;
             }
-            return <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-success)' }}>RUNT: sin comparendos pendientes.</p>;
+            return <p className="mt-1 text-xs" style={{ color: 'var(--kit-verde-texto)' }}>RUNT: sin comparendos pendientes.</p>;
           })()}
         </div>
       )}

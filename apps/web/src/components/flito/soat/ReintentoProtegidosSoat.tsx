@@ -1,4 +1,4 @@
-// Reintento de los PDF protegidos con contraseña de la carga masiva de SOAT (BUG #14569).
+// Reintento de los PDF protegidos con contraseña de la carga masiva de SOAT (BUG 14569).
 //
 // El API devuelve en `protegidos` los PDF cifrados que no pudo abrir (sin clave o con una que no
 // los abre). Aquí cada archivo se reintenta probando su nombre como contraseña («Usar el nombre»,
@@ -17,7 +17,7 @@
 // en `localStorage` ni en `console`. Se borra de cada archivo en cuanto se envía.
 
 import { useId, useState } from 'react';
-import { RotateCw } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import { partirCargaMasivaEnTandas } from '@operaciones/shared-types';
 import { enviarCargaEnTandas, fusionarResultadoCarga, type ItemCarga } from '../../../lib/carga-masiva';
 import { flitBtnPrimary, flitBtnPrimaryStyle } from '../../flit/flitPageKit';
@@ -28,7 +28,7 @@ export type FilaCargaSoat = { archivo: string; detalle: string };
 export interface ResultadoMasivoSoat {
   pagados: FilaCargaSoat[]; enRevision: FilaCargaSoat[];
   duplicados: FilaCargaSoat[]; noAsociados: FilaCargaSoat[];
-  /** BUG #14569. Opcional: una respuesta sin la clave se trata como lista vacía. */
+  /** BUG 14569. Opcional: una respuesta sin la clave se trata como lista vacía. */
   protegidos?: (FilaCargaSoat & { placa?: string | null; soatId?: string | null })[];
 }
 
@@ -58,7 +58,7 @@ function nombreDe(item: ItemCarga, repetido: boolean, n: number): string {
 }
 
 export const AYUDA_NOMBRE_NO_ABRE = 'El nombre del archivo no abre este PDF. Escribe la contraseña.';
-const CASILLA = 'inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-1 text-sm transition-colors hover:bg-[var(--flit-bg-hover)] lg:min-h-8';
+const CASILLA = 'inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-[9px] px-1 text-sm transition-colors hover:bg-[color:var(--kit-hover)] lg:min-h-8';
 
 export default function ReintentoProtegidosSoat({ resultado, itemsProtegidos, items, onActualizar }: {
   resultado: ResultadoMasivoSoat;
@@ -152,18 +152,18 @@ export default function ReintentoProtegidosSoat({ resultado, itemsProtegidos, it
   };
 
   return (
-    <section aria-labelledby="titulo-protegidos-soat" className="space-y-3 rounded-lg border p-3"
-      style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
+    <section aria-labelledby="titulo-protegidos-soat" className="space-y-3 rounded-[9px] border p-3"
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
       <div>
-        <h3 id="titulo-protegidos-soat" className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <h3 id="titulo-protegidos-soat" className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           PDF protegidos con contraseña
         </h3>
-        <p className="mt-0.5 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="mt-0.5 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Con «Usar el nombre» se prueba el nombre del archivo como contraseña; si no, escribe la contraseña. Los que no tengan ninguna de las dos no se envían.
         </p>
       </div>
-      <label htmlFor={idTodos} className={`${CASILLA} font-semibold`} style={{ color: 'var(--flit-text-primary)' }}>
-        <input id={idTodos} type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer"
+      <label htmlFor={idTodos} className={`${CASILLA} font-semibold`} style={{ color: 'var(--color-text-primary)' }}>
+        <input id={idTodos} type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer accent-[var(--kit-azul)]"
           checked={todos} disabled={enviando !== null}
           ref={(el) => { if (el) el.indeterminate = mezcla; }}
           onChange={(e) => marcar(filas.map((f) => f.idx), e.target.checked)} />
@@ -177,12 +177,12 @@ export default function ReintentoProtegidosSoat({ resultado, itemsProtegidos, it
           const ayuda = nombreFallo[f.idx] ? AYUDA_NOMBRE_NO_ABRE
             : /no abre/i.test(f.p.detalle) ? 'La contraseña no abre este PDF.' : null;
           return (
-            <li key={f.idx} className="min-w-0 space-y-2 rounded-md border p-2"
-              style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' }}>
+            <li key={f.idx} className="min-w-0 space-y-2 rounded-[9px] border p-2"
+              style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                <span className="min-w-0 break-all text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{nombre}</span>
-                <label className={CASILLA} style={{ color: 'var(--flit-text-primary)' }}>
-                  <input type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer" checked={marcada}
+                <span className="min-w-0 break-all text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{nombre}</span>
+                <label className={CASILLA} style={{ color: 'var(--color-text-primary)' }}>
+                  <input type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer accent-[var(--kit-azul)]" checked={marcada}
                     disabled={enviando !== null} onChange={(e) => marcar([f.idx], e.target.checked)} />
                   Usar el nombre<span className="sr-only"> de {nombre}</span>
                 </label>
@@ -196,15 +196,15 @@ export default function ReintentoProtegidosSoat({ resultado, itemsProtegidos, it
           );
         })}
       </ul>
-      {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
+      {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
       {enviando && (
-        <p role="status" className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p role="status" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Reintentando {Math.min(enviando.hechos + 1, enviando.total)} de {enviando.total}…
         </p>
       )}
       <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
         disabled={enviando !== null || enviables.length === 0} onClick={() => { void reintentar(); }}>
-        <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+        <Icono nombre="reintento" size={16} className="shrink-0" />
         {enviando ? 'Reintentando…' : 'Reintentar con contraseña'}
       </button>
     </section>

@@ -1,7 +1,9 @@
 // FLITO Logística — pestaña Motivos de llegada (HU #14120). Catálogo admin-only.
 // GET al montar ESTA pestaña, nunca al montar la consola. Sin DELETE. Tono: usted.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp } from 'lucide-react';
+import { iconoComo } from '../../flit/kit/iconoComo';
+const ArrowDown = iconoComo('abajo');
+const ArrowUp = iconoComo('arriba');
 import { api, ApiError } from '../../../lib/api';
 import { toastError, toastOk } from '../../flit/ToastFlito';
 import FlitModal from '../../flit/FlitModal';
@@ -217,8 +219,8 @@ export default function TabMotivosLlegada() {
     <div className="space-y-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Motivos de llegada</h2>
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <h2 className="text-lg font-bold" style={{ color: 'var(--color-action)' }}>Motivos de llegada</h2>
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             Motivos por los que un organismo llega a las instalaciones de FLIT. El orden de esta lista es el que verá al registrar un viaje a FLIT.
           </p>
         </div>
@@ -247,9 +249,9 @@ export default function TabMotivosLlegada() {
             <tbody>
               {[0, 1, 2].map((i) => (
                 <FlitTr key={i}>
-                  <td className="px-4 py-3"><div className="h-4 w-2/3 rounded" style={{ background: 'var(--flit-border-soft)' }} /></td>
-                  <td className="px-4 py-3"><div className="h-5 w-16 rounded-full" style={{ background: 'var(--flit-border-soft)' }} /></td>
-                  <td className="px-4 py-3"><div className="h-7 w-28 rounded" style={{ background: 'var(--flit-border-soft)' }} /></td>
+                  <td className="px-4 py-3"><div className="h-4 w-2/3 rounded" style={{ background: 'var(--color-border)' }} /></td>
+                  <td className="px-4 py-3"><div className="h-5 w-16 rounded-full" style={{ background: 'var(--color-border)' }} /></td>
+                  <td className="px-4 py-3"><div className="h-7 w-28 rounded" style={{ background: 'var(--color-border)' }} /></td>
                 </FlitTr>
               ))}
             </tbody>
@@ -259,7 +261,7 @@ export default function TabMotivosLlegada() {
 
       {carga === 'error' && (
         <FlitCard>
-          <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+          <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
             <p className="flex-1">{COPY_CARGA}</p>
             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={cargar}>Reintentar</button>
           </div>
@@ -268,7 +270,7 @@ export default function TabMotivosLlegada() {
 
       {carga === 'error403' && (
         <FlitCard>
-          <div role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+          <div role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
             <p>{COPY_403}</p>
           </div>
         </FlitCard>
@@ -314,7 +316,7 @@ export default function TabMotivosLlegada() {
                     const ocupado = reordenando === m.id;
                     return (
                       <FlitTr key={m.id}>
-                        <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--flit-text-primary)' }}>{m.nombre}</td>
+                        <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--color-text-primary)' }}>{m.nombre}</td>
                         <td className="px-4 py-2.5"><ChipEstado activo={m.activo} /></td>
                         <td className="px-4 py-2.5">
                           <div className="flex flex-wrap items-center gap-1">
@@ -397,13 +399,13 @@ export default function TabMotivosLlegada() {
                 autoComplete="off"
               />
               {errorNombre && (
-                <p id="motivo-llegada-nombre-error" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>
+                <p id="motivo-llegada-nombre-error" className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>
                   {errorNombre}
                 </p>
               )}
             </FlitField>
             {errorModal && (
-              <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{errorModal}</p>
+              <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{errorModal}</p>
             )}
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={cerrarModal} disabled={guardando}>
@@ -423,13 +425,13 @@ export default function TabMotivosLlegada() {
           onClose={() => { if (!guardando) setDialogo(null); }}
           cierreBloqueado={guardando}
         >
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             {dialogo.activo
               ? `«${dialogo.motivo.nombre}» volverá a aparecer al registrar un viaje a FLIT.`
               : `Si desactiva «${dialogo.motivo.nombre}», no aparecerá al registrar un viaje a FLIT. El histórico de viajes conserva el motivo.`}
           </p>
           {errorDialogo && (
-            <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{errorDialogo}</p>
+            <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{errorDialogo}</p>
           )}
           <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setDialogo(null)} disabled={guardando}>

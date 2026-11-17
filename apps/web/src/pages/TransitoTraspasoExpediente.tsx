@@ -25,7 +25,12 @@ import { PDF_WORKER_SRC } from '../lib/pdfWorker';
 import { mensajeErrorPdf } from '../lib/pdf-protegido';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import StatusChip from '../components/flit/StatusChip';
-import GradientButton from '../components/flit/GradientButton';
+import GradientButton, { claseBoton } from '../components/flit/GradientButton';
+import { EstadoVista, Vacio } from '../components/flit/Cargador';
+import Pestanas from '../components/flit/Pestanas';
+import { Fichas } from '../components/flit/Bloques';
+import { Vehiculo } from '../components/flit/Placa';
+import { flitInp } from '../components/flit/flitPageKit';
 import FlitUploadBox from '../components/flit/FlitUploadBox';
 import ExpedienteVisor from '../components/ExpedienteVisor';
 import type { ArchivoData, CompradorData, ValidationStatus, VehiculoData, VendedorData } from './tramite/wizard/types';
@@ -171,60 +176,55 @@ function DocumentoLegalPanel({ kind, tramiteId, placa, org, editable }: {
   };
 
   return (
-    <div className="overflow-hidden rounded-[12px] border" style={{ borderColor: 'var(--flit-border-soft)' }}>
-      <div
-        className="flex flex-wrap items-center gap-2 border-b px-3 py-2"
-        style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
-      >
-        <p className="text-xs font-bold" style={{ color: 'var(--flit-blue-text)' }}>{cfg.label}</p>
+    <div className="overflow-hidden rounded-[9px] border border-[color:var(--color-border)]">
+      <div className="flex flex-wrap items-center gap-2 border-b border-[color:var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+        <p className="text-sm font-bold text-[color:var(--color-text-primary)]">{cfg.label}</p>
         <div className="ml-auto flex flex-wrap gap-2">
-          <button
+          <GradientButton
             type="button"
+            size="sm"
             disabled={loading || !editable}
             onClick={() => void generar()}
-            className="flit-focus rounded-[999px] px-3 py-1 text-[11px] font-semibold disabled:opacity-50"
-            style={{ color: 'var(--flit-blue)', background: 'rgba(79,116,201,0.12)' }}
           >
             {loading ? 'Generando…' : pages.length ? 'Regenerar' : 'Ver / generar'}
-          </button>
-          <button
+          </GradientButton>
+          <GradientButton
             type="button"
+            size="sm"
+            variant="secondary"
             disabled={loading || !editable}
             onClick={() => void descargar()}
-            className="flit-focus rounded-[999px] px-3 py-1 text-[11px] font-semibold disabled:opacity-50"
-            style={{ color: 'var(--flit-text-secondary)', background: 'white', border: '1px solid var(--flit-border-soft)' }}
           >
             Descargar PDF
-          </button>
+          </GradientButton>
           {blobUrl && (
-            <button
+            <GradientButton
               type="button"
+              size="sm"
+              variant="ghost"
               onClick={() => window.open(blobUrl, '_blank', 'noopener,noreferrer')}
-              className="flit-focus rounded-[999px] px-3 py-1 text-[11px] font-semibold"
-              style={{ color: 'var(--flit-text-secondary)', background: 'white', border: '1px solid var(--flit-border-soft)' }}
             >
               Abrir
-            </button>
+            </GradientButton>
           )}
         </div>
       </div>
       {error && (
-        <p className="px-3 py-2 text-[11px] font-semibold" style={{ color: 'var(--flit-danger)' }}>{error}</p>
+        <p className="px-3 py-2 text-xs font-semibold text-[color:var(--kit-rojo-texto)]">{error}</p>
       )}
       {pages.length > 0 ? (
-        <div className="flex flex-col gap-2 p-3" style={{ background: 'var(--flit-bg-app)' }}>
+        <div className="flex flex-col gap-2 bg-[var(--color-surface)] p-3">
           {pages.map((src, idx) => (
             <img
               key={idx}
               src={src}
               alt={`${cfg.label} pág. ${idx + 1}`}
-              className="w-full rounded-[8px] border bg-white"
-              style={{ borderColor: 'var(--flit-border-soft)' }}
+              className="w-full rounded-[9px] border border-[color:var(--color-border)]"
             />
           ))}
         </div>
       ) : (
-        <p className="px-3 py-6 text-center text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="px-3 py-6 text-center text-xs text-[color:var(--color-text-tertiary)]">
           {editable
             ? 'Pulse Ver / generar para previsualizar el PDF aquí (paridad CEA).'
             : 'Solo consulta — el expediente no admite regeneración en este estado.'}
@@ -241,8 +241,8 @@ function DocumentosLegales({ tramiteId, placa, org, editable = true }: {
   editable?: boolean;
 }) {
   return (
-    <section className="flex flex-col gap-3" aria-label="Documentos legales traspaso">
-      <p className="text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
+    <section className="card flex flex-col gap-3" aria-label="Documentos legales traspaso">
+      <p className="text-xs text-[color:var(--color-text-secondary)]">
         Regeneración de FUR, contrato e improntas desde el expediente STT (sin volver al wizard del gestor).
       </p>
       <DocumentoLegalPanel kind="fur" tramiteId={tramiteId} placa={placa} org={org} editable={editable} />
@@ -409,81 +409,84 @@ export default function TransitoTraspasoExpediente() {
   if (!tramiteId) {
     return (
       <div className="mx-auto max-w-3xl p-6">
-        <p className="text-sm" style={{ color: 'var(--flit-danger)' }}>ID de traspaso requerido.</p>
-        <Link to="/transito" className="mt-2 inline-block text-sm font-semibold" style={{ color: 'var(--flit-blue)' }}>
+        <p className="text-sm text-[color:var(--kit-rojo-texto)]">ID de traspaso requerido.</p>
+        <Link to="/transito" className={claseBoton('secondary', 'sm', 'mt-2')}>
           ← Bandeja STT
         </Link>
       </div>
     );
   }
 
+  const estadoVista = loading && !tramite ? 'loading' : tramite ? 'ready' : 'error';
+
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <PageHeaderCard
-          title="Expediente STT — Traspaso"
-          subtitle={tramite?.numeroRadicado ? `${tramite.numeroRadicado} · Placa ${tramite.placa || '—'}` : 'Cargando…'}
-        />
-        <Link to="/transito" className="flit-focus text-sm font-semibold" style={{ color: 'var(--flit-blue)' }}>
-          ← Bandeja Traspasos STT
-        </Link>
-      </div>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+      <PageHeaderCard
+        title="Expediente STT — Traspaso"
+        subtitle={tramite?.numeroRadicado ? `${tramite.numeroRadicado} · Placa ${tramite.placa || '—'}` : 'Cargando…'}
+        icono="traspaso"
+        miga={[{ etiqueta: 'Bandeja STT', to: '/transito' }]}
+        actions={(
+          <Link to="/transito" className={claseBoton('secondary', 'sm')}>
+            ← Bandeja Traspasos STT
+          </Link>
+        )}
+      />
 
-      {loading && !tramite && (
-        <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando expediente…</p>
-      )}
-
+      <EstadoVista
+        status={estadoVista}
+        cargando="Cargando expediente…"
+        errorMessage="No se pudo cargar el expediente."
+        onRetry={() => void cargar()}
+      >
       {tramite && (
         <>
-          <div
-            className="flex flex-wrap items-center gap-2 rounded-[12px] border px-4 py-3"
-            style={{ borderColor: 'var(--flit-blue)', background: 'var(--flit-blue-soft)' }}
-          >
-            <StatusChip tone="active">{ESTADO_STT_LABEL[tramite.estado as TramiteEstadoStt] ?? tramite.estado}</StatusChip>
-            <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-              {operativo
+          <section className="card flex flex-col gap-3">
+            <Vehiculo
+              placa={tramite.placa || '—'}
+              nombre={[veh.marca, veh.linea, veh.modelo].filter(Boolean).join(' ')}
+              icono="traspaso"
+              meta={operativo
                 ? 'Puede validar, cargar soportes STT y avanzar el flujo.'
                 : 'Expediente en solo lectura en este estado.'}
-            </span>
-          </div>
+              etiquetas={(
+                <StatusChip tone="active">{ESTADO_STT_LABEL[tramite.estado as TramiteEstadoStt] ?? tramite.estado}</StatusChip>
+              )}
+            />
+          </section>
 
-          <nav
-            className="flex flex-wrap gap-1 border-b pb-1"
-            style={{ borderColor: 'var(--flit-border-soft)' }}
-            role="tablist"
-            aria-label="Expediente STT"
-          >
-            {TABS.map((t) => (
-              <button
-                key={t}
-                type="button"
-                role="tab"
-                aria-selected={tab === t}
-                onClick={() => setTab(t)}
-                className="flit-focus rounded-t-[8px] px-3 py-2 text-xs font-semibold capitalize"
-                style={tab === t
-                  ? { color: 'var(--flit-blue)', borderBottom: '2px solid var(--flit-blue)' }
-                  : { color: 'var(--flit-text-muted)' }}
-              >
-                {t === 'pagos' ? 'Pagos STT' : t}
-              </button>
-            ))}
-          </nav>
+          <Pestanas
+            etiqueta="Expediente STT"
+            activa={tab}
+            onElegir={(id) => setTab(id as Tab)}
+            pestanas={TABS.map((t) => ({
+              id: t,
+              etiqueta: <span className="capitalize">{t === 'pagos' ? 'Pagos STT' : t}</span>,
+            }))}
+          />
 
           {tab === 'resumen' && (
-            <section className="grid gap-4 sm:grid-cols-2">
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <CardBox title="Vehículo">
-                <Field label="Placa" value={tramite.placa} mono />
-                <Field label="VIN" value={tramite.vin} mono />
-                <Field label="Marca / línea" value={[veh.marca, veh.linea, veh.modelo].filter(Boolean).join(' ')} />
+                <Fichas
+                  items={[
+                    { etiqueta: 'Placa', valor: <Valor value={tramite.placa} mono /> },
+                    { etiqueta: 'VIN', valor: <Valor value={tramite.vin} mono /> },
+                    { etiqueta: 'Marca / línea', valor: <Valor value={[veh.marca, veh.linea, veh.modelo].filter(Boolean).join(' ')} /> },
+                  ]}
+                />
               </CardBox>
               <CardBox title="Partes">
-                <Field label="Vendedor" value={vendedor.nombre} />
-                <Field label="Doc. vendedor" value={vendedor.documento} mono />
-                <Field label="Comprador" value={comprador.nombre} />
-                <Field label="Doc. comprador" value={comprador.documento} mono />
-                <Field label="Operador STT" value={stt.asignadoA || 'Sin asignar'} mono />
-                {validacion?.estado && <Field label="Identidad biométrica" value={validacion.estado} />}
+                <Fichas
+                  items={[
+                    { etiqueta: 'Vendedor', valor: <Valor value={vendedor.nombre} /> },
+                    { etiqueta: 'Doc. vendedor', valor: <Valor value={vendedor.documento} mono /> },
+                    { etiqueta: 'Comprador', valor: <Valor value={comprador.nombre} /> },
+                    { etiqueta: 'Doc. comprador', valor: <Valor value={comprador.documento} mono /> },
+                    { etiqueta: 'Operador STT', valor: <Valor value={stt.asignadoA || 'Sin asignar'} mono /> },
+                    ...(validacion?.estado ? [{ etiqueta: 'Identidad biométrica', valor: <Valor value={validacion.estado} /> }] : []),
+                  ]}
+                />
               </CardBox>
             </section>
           )}
@@ -512,11 +515,11 @@ export default function TransitoTraspasoExpediente() {
                 variant="traspaso"
               />
               {operativo && (
-                <div className="rounded-[12px] border p-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <p className="mb-3 text-xs font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+                <div className="card">
+                  <h2 className="mb-3 text-base font-bold text-[color:var(--color-text-primary)]">
                     Cargues del organismo STT
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  </h2>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {TRASPASO_STT_DOC_TIPOS.map((tipo) => (
                       <FlitUploadBox
                         key={tipo}
@@ -533,37 +536,34 @@ export default function TransitoTraspasoExpediente() {
           )}
 
           {tab === 'pagos' && (
-            <section className="rounded-[12px] border p-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <p className="mb-3 text-xs font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+            <section className="card">
+              <h2 className="mb-3 text-base font-bold text-[color:var(--color-text-primary)]">
                 Registro STT (paridad CEA — pago + N° RUNT)
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+              </h2>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className={LABEL}>
                   Operador asignado
                   <input
-                    className="flit-focus mt-1 w-full rounded-[10px] border px-3 py-2 text-sm"
-                    style={{ borderColor: 'var(--flit-border-input)', background: 'var(--flit-bg-app)' }}
+                    className={`${flitInp} mt-1`}
                     value={stt.asignadoA || ''}
                     disabled
                     readOnly
                   />
                 </label>
-                <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+                <label className={LABEL}>
                   N° RUNT / radicado organismo
                   <input
-                    className="flit-focus mt-1 w-full rounded-[10px] border px-3 py-2 text-sm"
-                    style={{ borderColor: 'var(--flit-border-input)' }}
+                    className={`${flitInp} mt-1`}
                     value={stt.numeroRunt || ''}
                     disabled={!operativo || saving}
                     onChange={(e) => setStt((prev) => ({ ...prev, numeroRunt: e.target.value }))}
                   />
                 </label>
-                <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+                <label className={LABEL}>
                   Valor derechos ($)
                   <input
                     type="number"
-                    className="flit-focus mt-1 w-full rounded-[10px] border px-3 py-2 text-sm"
-                    style={{ borderColor: 'var(--flit-border-input)' }}
+                    className={`${flitInp} mt-1`}
                     value={stt.pago?.valor ?? 0}
                     disabled={!operativo || saving}
                     onChange={(e) => setStt((prev) => ({
@@ -572,11 +572,10 @@ export default function TransitoTraspasoExpediente() {
                     }))}
                   />
                 </label>
-                <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+                <label className={LABEL}>
                   Método de pago
                   <select
-                    className="flit-focus mt-1 w-full rounded-[10px] border px-3 py-2 text-sm"
-                    style={{ borderColor: 'var(--flit-border-input)' }}
+                    className={`${flitInp} mt-1`}
                     value={stt.pago?.metodo || 'Efectivo'}
                     disabled={!operativo || saving}
                     onChange={(e) => setStt((prev) => ({
@@ -589,11 +588,10 @@ export default function TransitoTraspasoExpediente() {
                     ))}
                   </select>
                 </label>
-                <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+                <label className={LABEL}>
                   Referencia / recibo
                   <input
-                    className="flit-focus mt-1 w-full rounded-[10px] border px-3 py-2 text-sm"
-                    style={{ borderColor: 'var(--flit-border-input)' }}
+                    className={`${flitInp} mt-1`}
                     value={stt.pago?.ref || ''}
                     disabled={!operativo || saving}
                     onChange={(e) => setStt((prev) => ({
@@ -602,12 +600,11 @@ export default function TransitoTraspasoExpediente() {
                     }))}
                   />
                 </label>
-                <label className="sm:col-span-2 block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+                <label className={`${LABEL} sm:col-span-2`}>
                   Notas internas STT
                   <textarea
                     rows={2}
-                    className="flit-focus mt-1 w-full rounded-[10px] border px-3 py-2 text-sm"
-                    style={{ borderColor: 'var(--flit-border-input)' }}
+                    className={`${flitInp} mt-1`}
                     value={stt.notasStt || ''}
                     disabled={!operativo || saving}
                     onChange={(e) => setStt((prev) => ({ ...prev, notasStt: e.target.value }))}
@@ -625,44 +622,39 @@ export default function TransitoTraspasoExpediente() {
           )}
 
           {tab === 'workflow' && (
-            <section className="rounded-[12px] border p-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>
+            <section className="card">
+              <h2 className="mb-3 text-base font-bold text-[color:var(--color-text-primary)]">
                 Trazabilidad
-              </p>
-              <ul className="flex flex-col gap-2">
-                {(tramite.workflow || []).length === 0 && (
-                  <li className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin eventos registrados.</li>
-                )}
-                {(tramite.workflow || []).map((ev, idx) => (
-                  <li
-                    key={idx}
-                    className="rounded-[8px] border px-3 py-2 text-xs"
-                    style={{ borderColor: 'var(--flit-border-soft)' }}
-                  >
-                    <span className="font-bold" style={{ color: 'var(--flit-blue)' }}>
-                      {ev.de || '—'} → {ev.a}
-                    </span>
-                    <span className="ml-2" style={{ color: 'var(--flit-text-muted)' }}>{ev.usuario}</span>
-                    {ev.nota && (
-                      <p className="mt-1" style={{ color: 'var(--flit-text-secondary)' }}>{ev.nota}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              </h2>
+              {(tramite.workflow || []).length === 0 ? (
+                <Vacio texto="Sin eventos registrados." icono="carpeta" />
+              ) : (
+                <ol className="actividad-linea" data-kit="actividad">
+                  {(tramite.workflow || []).map((ev, idx) => (
+                    <li key={idx}>
+                      <strong className="text-sm text-[color:var(--color-action)]">
+                        {ev.de || '—'} → {ev.a}
+                      </strong>
+                      <span>
+                        <span className="text-[color:var(--color-text-tertiary)]">{ev.usuario}</span>
+                        {ev.nota && (
+                          <span className="mt-1 block text-[color:var(--color-text-secondary)]">{ev.nota}</span>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </section>
           )}
 
           {transiciones.length > 0 && (
-            <section
-              className="rounded-[14px] border-2 p-4"
-              style={{ borderColor: 'var(--flit-blue)', background: 'var(--flit-blue-soft)' }}
-            >
-              <p className="mb-2 text-xs font-bold" style={{ color: 'var(--flit-blue-text)' }}>Avanzar flujo STT</p>
-              <label className="mb-2 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+            <section className="rounded-[9px] border border-[color:var(--kit-azul)] bg-[var(--kit-hover)] p-4">
+              <h2 className="mb-2 text-base font-bold text-[color:var(--color-text-primary)]">Avanzar flujo STT</h2>
+              <label className={`${LABEL} mb-3`}>
                 Nota del cambio {transiciones.includes('subsanacion') ? '(obligatoria si pasa a Subsanación)' : '(opcional)'}
                 <input
-                  className="flit-focus mt-1 w-full rounded-[10px] border bg-white px-3 py-2 text-sm"
-                  style={{ borderColor: 'var(--flit-border-input)' }}
+                  className={`${flitInp} mt-1`}
                   placeholder="Ej.: Falta comprobante de pago de derechos"
                   value={nota}
                   disabled={saving}
@@ -671,20 +663,20 @@ export default function TransitoTraspasoExpediente() {
               </label>
               <div className="flex flex-wrap gap-2">
                 {transiciones.map((estado) => (
-                  <button
+                  <GradientButton
                     key={estado}
                     type="button"
+                    size="sm"
+                    variant={VARIANTE_TRANSICION[estado] ?? 'primary'}
                     disabled={saving}
                     onClick={() => void cambiarEstado(estado)}
-                    className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
-                    style={{ color: 'var(--flit-blue)', background: 'rgba(79, 116, 201, 0.15)' }}
                   >
                     {ESTADO_STT_LABEL[estado]}
-                  </button>
+                  </GradientButton>
                 ))}
               </div>
               {transiciones.includes('subsanacion') && (
-                <p className="mt-2 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>
+                <p className="mt-2 text-xs text-[color:var(--color-text-tertiary)]">
                   <strong>Subsanación</strong> reabre el wizard del gestor CEA para corregir el expediente; luego debe
                   reenviar a validación STT.
                 </p>
@@ -693,34 +685,39 @@ export default function TransitoTraspasoExpediente() {
           )}
 
           {!operativo && tramite.estado === 'subsanacion' && (
-            <p className="text-xs font-semibold" style={{ color: 'var(--flit-warning)' }}>
+            <p className="text-xs font-semibold text-[color:var(--kit-naranja-texto)]">
               En subsanación el gestor CEA edita el trámite. Cuando reenvíe a validación, podrá continuar aquí.
             </p>
           )}
         </>
       )}
+      </EstadoVista>
     </div>
   );
 }
+
+// Etiqueta de campo del formulario STT (`.campo` del kit: 12 bold, gris secundario).
+const LABEL = 'block text-xs font-semibold text-[color:var(--color-text-secondary)]';
+
+// Botón por función (kit 2026): rechazar/anular → naranja; aprobar/entregar → verde; el resto avanza en azul.
+const VARIANTE_TRANSICION: Partial<Record<TramiteEstadoStt, 'primary' | 'success' | 'alerta'>> = {
+  rechazado: 'alerta',
+  anulado: 'alerta',
+  aprobado: 'success',
+  entregado: 'success',
+};
 
 function CardBox({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-[12px] border p-4" style={{ borderColor: 'var(--flit-border-soft)', background: 'white' }}>
-      <p className="mb-3 text-[11px] font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>
+    <div className="card">
+      <h2 className="mb-3 text-base font-bold text-[color:var(--color-text-primary)]">
         {title}
-      </p>
-      <div className="flex flex-col gap-2">{children}</div>
+      </h2>
+      {children}
     </div>
   );
 }
 
-function Field({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) {
-  return (
-    <div>
-      <p className="text-[10px] font-semibold uppercase" style={{ color: 'var(--flit-text-muted)' }}>{label}</p>
-      <p className={`text-sm font-medium ${mono ? 'font-mono' : ''}`} style={{ color: 'var(--flit-text-primary)' }}>
-        {value || '—'}
-      </p>
-    </div>
-  );
+function Valor({ value, mono }: { value?: string | null; mono?: boolean }) {
+  return <span className={mono ? 'mono' : undefined}>{value || '—'}</span>;
 }

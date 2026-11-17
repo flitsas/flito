@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, type ReactNode } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import CounterpartyForm from '../components/laft/CounterpartyForm';
@@ -7,7 +7,8 @@ import ListsPanel from '../components/laft/ListsPanel';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { EstadoVista, type EstadoUi } from '../components/flit/Cargador';
 
 interface Counterparty {
   id: number;
@@ -46,8 +47,8 @@ const RISK_LABEL: Record<NonNullable<Counterparty['riskLevel']>, { label: string
   alto: { label: 'Alto', tone: 'danger' },
 };
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const inputCls = 'control';
+const MIGA = [{ etiqueta: 'Cumplimiento' }];
 
 export default function Laft() {
   const [data, setData] = useState<ListResponse | null>(null);
@@ -108,28 +109,60 @@ export default function Laft() {
 
   const total = data?.total ?? 0;
   const rows = data?.rows ?? [];
+  const estado: EstadoUi = loading ? 'loading' : error ? 'error' : rows.length === 0 ? 'empty' : 'ready';
+
+  const columnas: ColumnaTabla<Counterparty>[] = [
+    { key: 'tipo', header: 'Tipo', render: (cp) => <StatusChip tone={cp.kind === 'PJ' ? 'active' : 'neutral'}>{cp.kind}</StatusChip> },
+    { key: 'documento', header: 'Documento', render: (cp) => <span className="mono text-text-primary">{cp.docType} {cp.docNumber}</span> },
+    { key: 'nombre', header: 'Nombre / Razón social', render: (cp) => <span className="text-sm text-text-primary">{cp.fullName}</span> },
+    { key: 'pep', header: 'PEP', render: (cp) => cp.isPep && <StatusChip tone="warning">PEP</StatusChip> },
+    {
+      key: 'riesgo',
+      header: 'Riesgo',
+      render: (cp) => {
+        const r = cp.riskLevel ? RISK_LABEL[cp.riskLevel] : null;
+        return r && <StatusChip tone={r.tone}>{r.label}</StatusChip>;
+      },
+    },
+    { key: 'estado', header: 'Estado', render: (cp) => <StatusChip tone={STATUS_LABEL[cp.status].tone}>{STATUS_LABEL[cp.status].label}</StatusChip> },
+    { key: 'revision', header: 'Próxima revisión', render: (cp) => <span className="text-xs text-text-tertiary">{cp.nextReviewAt ?? '—'}</span> },
+    {
+      key: 'acciones',
+      header: 'Acciones',
+      align: 'right',
+      acciones: true,
+      render: (cp) => (
+        <div className="inline-flex flex-wrap justify-end gap-1.5">
+          <GradientButton type="button" variant="secondary" size="sm" onClick={() => setDetailId(cp.id)}>Listas</GradientButton>
+          {cp.status === 'pendiente' && (
+            <GradientButton type="button" variant="success" size="sm" onClick={() => handleStatusChange(cp, 'vinculada')}>Vincular</GradientButton>
+          )}
+          {cp.status !== 'bloqueada' && cp.status !== 'archivada' && (
+            <GradientButton type="button" variant="alerta" size="sm" onClick={() => handleStatusChange(cp, 'bloqueada')}>Bloquear</GradientButton>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Cumplimiento LAFT"
         subtitle="Prevención de lavado de activos y financiación del terrorismo"
+        icono="flito-laft"
+        miga={MIGA}
         actions={
           <>
-            <button
-              type="button"
-              onClick={() => setShowLists(true)}
-              className="flit-focus inline-flex h-11 items-center gap-2 rounded-[999px] border bg-white px-4 text-sm font-medium"
-              style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
-            >
+            <GradientButton type="button" variant="secondary" onClick={() => setShowLists(true)}>
               Listas restrictivas
-            </button>
+            </GradientButton>
             <GradientButton type="button" onClick={() => setShowForm(true)}>Nueva contraparte</GradientButton>
           </>
         }
       />
 
-      <section className="bg-white p-4" style={CARD}>
+      <section className="rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] p-4">
         <div className="grid grid-cols-12 items-center gap-3">
           <div className="col-span-12 md:col-span-5">
             <input
@@ -139,7 +172,7 @@ export default function Laft() {
               className={inputCls}
             />
           </div>
-          <div className="col-span-6 md:col-span-3">
+          <div className="col-span-12 sm:col-span-6 md:col-span-3">
             <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setOffset(0); }} className={inputCls}>
               <option value="">Todos los estados</option>
               <option value="pendiente">Pendiente</option>
@@ -148,7 +181,7 @@ export default function Laft() {
               <option value="archivada">Archivada</option>
             </select>
           </div>
-          <div className="col-span-6 md:col-span-3">
+          <div className="col-span-12 sm:col-span-6 md:col-span-3">
             <select value={riskFilter} onChange={(e) => { setRiskFilter(e.target.value); setOffset(0); }} className={inputCls}>
               <option value="">Todos los riesgos</option>
               <option value="bajo">Riesgo bajo</option>
@@ -160,113 +193,32 @@ export default function Laft() {
               cartel de error es el propio defecto del Bug #11768 dicho por la cabecera. El pie de
               paginación de más abajo ya está a salvo por su `data &&`, con `setData(null)`. */}
           {!error && (
-            <div className="col-span-12 text-right text-xs font-medium md:col-span-1" style={{ color: 'var(--flit-text-muted)' }}>
+            <div className="col-span-12 text-right text-xs font-medium text-text-tertiary md:col-span-1">
               {total} total
             </div>
           )}
         </div>
       </section>
 
-      <section className="overflow-hidden bg-white" style={CARD}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <Th>Tipo</Th><Th>Documento</Th><Th>Nombre / Razón social</Th><Th>PEP</Th><Th>Riesgo</Th><Th>Estado</Th><Th>Próxima revisión</Th><Th className="text-right">Acciones</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && (
-                <tr><td colSpan={8} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</td></tr>
-              )}
-              {!loading && error && (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center">
-                    {/* `--flit-danger-ink`, no `--flit-danger`: el segundo es token de SUPERFICIE y
-                        como texto no llega a 4,5:1. Ver LaftUnusual.tsx y `styles/flit-tokens.css`. */}
-                    <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
-                      No se pudo cargar el listado de contrapartes. {error}
-                    </p>
-                    <button type="button" onClick={load} className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}>
-                      Reintentar
-                    </button>
-                  </td>
-                </tr>
-              )}
-              {!loading && !error && rows.length === 0 && (
-                <tr><td colSpan={8} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin contrapartes registradas</td></tr>
-              )}
-              {!loading && !error && rows.map((cp) => {
-                const s = STATUS_LABEL[cp.status];
-                const r = cp.riskLevel ? RISK_LABEL[cp.riskLevel] : null;
-                return (
-                  <tr key={cp.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                    <td className="px-4 py-3"><StatusChip tone={cp.kind === 'PJ' ? 'active' : 'neutral'}>{cp.kind}</StatusChip></td>
-                    <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--flit-text-primary)' }}>{cp.docType} {cp.docNumber}</td>
-                    <td className="px-4 py-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>{cp.fullName}</td>
-                    <td className="px-4 py-3">{cp.isPep && <StatusChip tone="warning">PEP</StatusChip>}</td>
-                    <td className="px-4 py-3">{r && <StatusChip tone={r.tone}>{r.label}</StatusChip>}</td>
-                    <td className="px-4 py-3"><StatusChip tone={s.tone}>{s.label}</StatusChip></td>
-                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{cp.nextReviewAt ?? '—'}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setDetailId(cp.id)}
-                        className="flit-focus mr-1 inline-flex h-7 items-center rounded-[999px] px-2.5 text-xs font-semibold"
-                        style={{ background: 'rgba(79,116,201,0.14)', color: 'var(--flit-blue)' }}
-                      >
-                        Listas
-                      </button>
-                      {cp.status === 'pendiente' && (
-                        <button
-                          type="button"
-                          onClick={() => handleStatusChange(cp, 'vinculada')}
-                          className="flit-focus mr-1 inline-flex h-7 items-center rounded-[999px] px-2.5 text-xs font-semibold"
-                          style={{ background: 'rgba(112,207,58,0.14)', color: 'var(--flit-success)' }}
-                        >
-                          Vincular
-                        </button>
-                      )}
-                      {cp.status !== 'bloqueada' && cp.status !== 'archivada' && (
-                        <button
-                          type="button"
-                          onClick={() => handleStatusChange(cp, 'bloqueada')}
-                          className="flit-focus inline-flex h-7 items-center rounded-[999px] px-2.5 text-xs font-semibold"
-                          style={{ background: 'rgba(228,61,48,0.14)', color: 'var(--flit-danger)' }}
-                        >
-                          Bloquear
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <EstadoVista
+        status={estado}
+        cargando="Cargando..."
+        onRetry={load}
+        errorMessage={`No se pudo cargar el listado de contrapartes. ${error ?? ''}`}
+        emptyMessage="Sin contrapartes registradas"
+      >
+        <DataTable ariaLabel="Contrapartes" columnas={columnas} filas={rows} getKey={(cp) => String(cp.id)} />
+      </EstadoVista>
 
       {data && total > limit && (
-        <div className="flex items-center justify-end gap-3 text-sm">
-          <button
-            type="button"
-            disabled={offset === 0}
-            onClick={() => setOffset(Math.max(0, offset - limit))}
-            className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-white px-3 text-sm font-medium transition-colors disabled:opacity-30"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
-          >
+        <div className="flex flex-wrap items-center justify-end gap-3 text-sm">
+          <GradientButton type="button" variant="secondary" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>
             Anterior
-          </button>
-          <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{offset + 1}–{Math.min(offset + limit, total)} de {total}</span>
-          <button
-            type="button"
-            disabled={offset + limit >= total}
-            onClick={() => setOffset(offset + limit)}
-            className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-white px-3 text-sm font-medium transition-colors disabled:opacity-30"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
-          >
+          </GradientButton>
+          <span className="text-xs text-text-tertiary">{offset + 1}–{Math.min(offset + limit, total)} de {total}</span>
+          <GradientButton type="button" variant="secondary" size="sm" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>
             Siguiente
-          </button>
+          </GradientButton>
         </div>
       )}
 
@@ -277,6 +229,3 @@ export default function Laft() {
   );
 }
 
-function Th({ children, className = '' }: { children?: ReactNode; className?: string }) {
-  return <th scope="col" className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide ${className}`} style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}

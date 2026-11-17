@@ -114,20 +114,20 @@ export default function DialogoCorreccion({ caso, onCerrar, onHecho, restoreFocu
       restoreFocusRef={restoreFocusRef}
     >
       <div className="flex flex-col gap-4">
-        <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
           Esto <strong>no</strong> corrige la factura en Siigo: registra en FLITO una corrección que
           ya se hizo allá. El registro no se puede editar ni borrar.
         </p>
 
         {cargando && (
-          <p role="status" className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p role="status" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Comprobando qué se puede registrar…
           </p>
         )}
 
         {!cargando && errorEval && (
           <div className="flex flex-wrap items-center gap-3">
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
               No se pudo comprobar qué correcciones admite esta factura: {errorEval}
             </p>
             <button type="button" onClick={reintentar} className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}>
@@ -138,7 +138,7 @@ export default function DialogoCorreccion({ caso, onCerrar, onHecho, restoreFocu
 
         {/* Vacío HONESTO: no se pinta un formulario que el servidor va a rechazar entero. */}
         {!cargando && !errorEval && evaluacion && !evaluacion.puedeCorregirse && (
-          <p className="rounded-[10px] px-4 py-3 text-sm" style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-primary)' }}>
+          <p className="rounded-[10px] px-4 py-3 text-sm" style={{ background: 'var(--color-surface)', color: 'var(--color-text-primary)' }}>
             Aquí no hay ningún documento que corregir. {evaluacion.viaTexto}
           </p>
         )}
@@ -146,19 +146,19 @@ export default function DialogoCorreccion({ caso, onCerrar, onHecho, restoreFocu
         {!cargando && !errorEval && evaluacion?.puedeCorregirse && (
           <>
             {evaluacion.yaCorregida && (
-              <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+              <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                 Esta factura ya tiene una corrección registrada.
               </p>
             )}
             <fieldset className="flex flex-col gap-2">
-              <legend className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+              <legend className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                 Qué se hizo (obligatorio)
               </legend>
               {evaluacion.opciones.map((o) => (
                 <label
                   key={o.tipo}
                   className="flex items-start gap-2 text-sm"
-                  style={{ color: o.admisible ? 'var(--flit-text-primary)' : 'var(--flit-text-secondary)' }}
+                  style={{ color: o.admisible ? 'var(--color-text-primary)' : 'var(--color-text-secondary)' }}
                 >
                   <input
                     type="radio"
@@ -173,7 +173,7 @@ export default function DialogoCorreccion({ caso, onCerrar, onHecho, restoreFocu
                     {SIIGO_CORRECCION_TIPO_ETIQUETA[o.tipo]}
                     {/* Una exclusión sin motivo no es una respuesta: el porqué va al lado, visible. */}
                     {!o.admisible && (
-                      <span style={{ color: 'var(--flit-text-secondary)' }}>
+                      <span style={{ color: 'var(--color-text-secondary)' }}>
                         {' '}<span aria-hidden="true">⊘</span> no aplica: {o.motivo}
                       </span>
                     )}
@@ -184,7 +184,7 @@ export default function DialogoCorreccion({ caso, onCerrar, onHecho, restoreFocu
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label htmlFor={idDoc} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+                <label htmlFor={idDoc} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                   Documento en Siigo (obligatorio)
                 </label>
                 <input
@@ -196,13 +196,13 @@ export default function DialogoCorreccion({ caso, onCerrar, onHecho, restoreFocu
                   onChange={(e) => setDocumento(e.target.value)}
                 />
                 {tocado && !documentoOk && (
-                  <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>
+                  <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>
                     Escribe el número con el que se puede comprobar en Siigo Nube.
                   </p>
                 )}
               </div>
               <div>
-                <label htmlFor={idFecha} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+                <label htmlFor={idFecha} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                   Fecha en que se hizo
                 </label>
                 <input
@@ -217,7 +217,7 @@ export default function DialogoCorreccion({ caso, onCerrar, onHecho, restoreFocu
             </div>
 
             <div>
-              <label htmlFor={idMotivo} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+              <label htmlFor={idMotivo} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                 Motivo (obligatorio, mínimo {SIIGO_CORRECCION_MOTIVO_MIN} caracteres)
               </label>
               <textarea
@@ -235,7 +235,7 @@ export default function DialogoCorreccion({ caso, onCerrar, onHecho, restoreFocu
                 id={idMotivoAyuda}
                 role={tocado && !motivoOk ? 'alert' : undefined}
                 className="mt-1 text-xs"
-                style={{ color: tocado && !motivoOk ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}
+                style={{ color: tocado && !motivoOk ? 'var(--kit-rojo-texto)' : 'var(--color-text-secondary)' }}
               >
                 {tocado && !motivoOk
                   ? `El motivo necesita al menos ${SIIGO_CORRECCION_MOTIVO_MIN} caracteres.`
@@ -245,7 +245,7 @@ export default function DialogoCorreccion({ caso, onCerrar, onHecho, restoreFocu
             </div>
 
             {errorEnvio && (
-              <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{errorEnvio}</p>
+              <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{errorEnvio}</p>
             )}
           </>
         )}

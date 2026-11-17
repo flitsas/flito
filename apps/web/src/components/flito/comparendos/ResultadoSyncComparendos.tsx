@@ -1,6 +1,6 @@
-// FLITO — Comparendos · Sincronización: el desenlace de una corrida (HU #11635, AC1).
+// FLITO — Comparendos · Sincronización: el desenlace de una corrida (HU 11635, AC1).
 //
-// **Archivo propio a propósito, aunque hoy solo lo use la consola.** La HU #11636 abre el historial
+// **Archivo propio a propósito, aunque hoy solo lo use la consola.** La HU 11636 abre el historial
 // de corridas y su modal de detalle pinta EXACTAMENTE esto mismo —el detalle de una corrida es el
 // detalle de una corrida, la mire uno recién lanzada o tres días después—. Tenerlo dentro de la
 // consola obligaría a esa HU a copiarlo, y dos copias de una tabla de contadores es cómo se arregla
@@ -31,7 +31,7 @@ import StatusChip, { type ChipTone } from '../../flit/StatusChip';
 import { FlitCard, FlitTable, FlitTh, FlitTr } from '../../flit/flitPageKit';
 import { SIN_DATO, duracionCorta, fechaHoraColombia, mensajePaso } from './formato';
 
-/** Etiqueta y tono de cada estado de corrida. Los exporta el historial de la HU #11636. */
+/** Etiqueta y tono de cada estado de corrida. Los exporta el historial de la HU 11636. */
 export const ESTADO_SYNC: Record<ComparendosSyncEstado, { etiqueta: string; tono: ChipTone }> = {
   running: { etiqueta: 'En curso', tono: 'warning' },
   completed: { etiqueta: 'Completada', tono: 'success' },
@@ -121,7 +121,7 @@ interface Props {
   /**
    * Encabezado de la tarjeta, que es también el nombre accesible de su región.
    *
-   * Lo cambia el modal del historial (HU #11636): allí la corrida puede ser de hace tres días —o
+   * Lo cambia el modal del historial (HU 11636): allí la corrida puede ser de hace tres días —o
    * seguir en curso—, y «Resultado de la corrida» prometería el desenlace de algo que se acaba de
    * lanzar. De paso, deja ese nombre accesible existiendo UNA sola vez en la vista aunque el modal
    * esté abierto encima de la tarjeta de la consola: dos regiones con el mismo nombre son, para
@@ -144,13 +144,13 @@ export default function ResultadoSyncComparendos(
   return (
     <section role="region" aria-labelledby={idTitulo}>
       <FlitCard>
-        <h2 id={idTitulo} className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <h2 id={idTitulo} className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           {titulo}
         </h2>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <ChipEstadoSync estado={estado} />
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             {resumen ? `modo ${resumen.modo === 'mock' ? 'simulado' : 'real'} · ` : ''}
             {fechaHoraColombia(finalizadoEn ?? iniciadoEn)}
             {duracion ? ` · duró ${duracion}` : ''}
@@ -158,7 +158,7 @@ export default function ResultadoSyncComparendos(
         </div>
 
         {ajena && (
-          <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Esta corrida la inició otra sesión: no es la que lanzaste tú.
           </p>
         )}
@@ -166,11 +166,11 @@ export default function ResultadoSyncComparendos(
         {resumen ? (
           <div className="mt-3 space-y-1">
             {lineasDeResumen(resumen).map((linea) => (
-              <p key={linea} className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>{linea}</p>
+              <p key={linea} className="text-sm" style={{ color: 'var(--color-text-primary)' }}>{linea}</p>
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Esta corrida no dejó contadores: se cerró sin escribir su resumen.
           </p>
         )}
@@ -178,19 +178,19 @@ export default function ResultadoSyncComparendos(
         {avisos.length > 0 && (
           <ul className="mt-3 space-y-1">
             {avisos.map((aviso) => (
-              <li key={aviso} className="text-sm" style={{ color: 'var(--flit-warning-ink)' }}>
+              <li key={aviso} className="text-sm" style={{ color: 'var(--kit-naranja-texto)' }}>
                 <span aria-hidden="true">⚠ </span>{aviso}
               </li>
             ))}
           </ul>
         )}
 
-        <h3 className="mt-5 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
+        <h3 className="mt-5 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>
           Detalle por fuente
         </h3>
 
         {steps.length === 0 ? (
-          <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Esta corrida no registró pasos.
           </p>
         ) : (
@@ -234,21 +234,21 @@ function FilaPaso({ paso }: { paso: ComparendosSyncStep }) {
   // El mensaje pasa por `mensajePaso` y NO se lee de `paso.mensaje`: es el único punto por el que
   // salen los pasos a pantalla —esta fila la pinta la tarjeta de resultado de la consola y también
   // el modal de detalle del historial, que reusan este componente—, así que aquí es donde el alias
-  // del histórico (HU #11797) alcanza a las dos superficies a la vez. Ver `formato.ts`.
+  // del histórico (HU 11797) alcanza a las dos superficies a la vez. Ver `formato.ts`.
   const mensaje = mensajePaso(paso);
   return (
     <FlitTr>
-      <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>{paso.nit}</td>
-      <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>{etiquetaFuente(paso.fuente)}</td>
+      <td className={celda} style={{ color: 'var(--color-text-primary)' }}>{paso.nit}</td>
+      <td className={celda} style={{ color: 'var(--color-text-primary)' }}>{etiquetaFuente(paso.fuente)}</td>
       <td className={`${celda} max-w-md`}>
         <StatusChip tone={paso.ok ? 'success' : 'danger'}>{paso.ok ? 'Ok' : 'Error'}</StatusChip>
         {mensaje && (
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{mensaje}</p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{mensaje}</p>
         )}
       </td>
-      <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>{paso.httpStatus ?? SIN_DATO}</td>
-      <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>{paso.itemsLeidos ?? SIN_DATO}</td>
-      <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>{duracionCorta(paso.duracionMs)}</td>
+      <td className={celda} style={{ color: 'var(--color-text-primary)' }}>{paso.httpStatus ?? SIN_DATO}</td>
+      <td className={celda} style={{ color: 'var(--color-text-primary)' }}>{paso.itemsLeidos ?? SIN_DATO}</td>
+      <td className={celda} style={{ color: 'var(--color-text-primary)' }}>{duracionCorta(paso.duracionMs)}</td>
     </FlitTr>
   );
 }

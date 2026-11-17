@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, FormEvent, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -7,9 +7,14 @@ import { useEscape } from '../lib/hooks';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import KpiCard from '../components/flit/KpiCard';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { Cargador, Vacio } from '../components/flit/Cargador';
+import { ActividadLinea, EtiquetaEstado, LineaAvance, ListaFila } from '../components/flit/Bloques';
+import type { NombreIcono } from '../components/flit/kit/Icono';
 import LiquidacionPanel from '../components/maintenance/LiquidacionPanel';
-import { flitInp, FlitCard, FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import { ESTADO_OT, ESTADO_STOCK_APLICADO, ESTADO_STOCK_PENDIENTE } from '../components/maintenance/estados-mantenimiento';
+import { flitInp, FlitCard, FlitField } from '../components/flit/flitPageKit';
 
 interface Wo {
   id: number; numero: string; vehicleId: number;
@@ -29,6 +34,15 @@ interface Part { id: number; codigo: string; nombre: string; }
 interface Loc { id: number; codigo: string; nombre: string; }
 
 const fmtCurrency = (n: number) => n.toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 });
+const fecha = (iso: string | null) => (iso ? iso.slice(0, 10) : undefined);
+
+/** Paso de la línea de avance por estado de la OT; `anulada` no tiene línea. Con 3 = los tres pasos hechos. */
+const PASO_OT: Record<Wo['estado'], number | null> = { abierta: 0, cerrada_tecnica: 1, cerrada_final: 3, anulada: null };
+
+const COLUMNAS_GASTOS: ColumnaTabla<OtroGasto>[] = [
+  { key: 'concepto', header: 'Concepto', etiqueta: 'Concepto', render: (g) => <span className="text-[color:var(--color-text-primary)]">{g.concepto}</span> },
+  { key: 'monto', header: 'Monto', etiqueta: 'Monto', align: 'right', render: (g) => <span className="mono tabular-nums text-[color:var(--color-text-secondary)]">{fmtCurrency(Number(g.monto ?? 0))}</span> },
+];
 
 export default function WorkOrderDetail() {
   const { id } = useParams<{ id: string }>();
@@ -66,7 +80,7 @@ export default function WorkOrderDetail() {
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
-  if (!d) return <div className="p-6 text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</div>;
+  if (!d) return <Cargador texto="Cargando…" className="py-16" />;
   const wo = d.data;
   const editable = wo.estado === 'abierta' || wo.estado === 'cerrada_tecnica';
   const cerrable = (wo.estado === 'abierta' || wo.estado === 'cerrada_tecnica') && isAdmin;
@@ -98,100 +112,105 @@ export default function WorkOrderDetail() {
     finally { setClosing(null); }
   };
 
-  const estadoTone: Record<string, ChipTone> = { abierta: 'warning', cerrada_tecnica: 'active', cerrada_final: 'success', anulada: 'neutral' };
+  const paso = PASO_OT[wo.estado];
+  const agregar = (onClick: () => void, texto = 'Agregar') => (editable && isAdmin
+    ? <GradientButton type="button" variant="secondary" size="sm" onClick={onClick}>{texto}</GradientButton>
+    : undefined);
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
-      <Link to="/maintenance/work-orders" className="text-xs hover:underline" style={{ color: 'var(--flit-blue)' }}>← Órdenes de trabajo</Link>
       {sinCatalogos && (
-        <p role="status" className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+        <p role="status" className="text-sm text-[color:var(--color-text-tertiary)]">
           No tienes acceso a «Mantenimiento»: los catálogos de trabajos y repuestos no se cargan para agregar a esta orden.
         </p>
       )}
       <PageHeaderCard
         title={wo.numero}
         subtitle={`${wo.tipoTrabajo} · vehículo #${wo.vehicleId}${wo.falla ? ` · Falla: ${wo.falla}` : ''}`}
+        icono="flito-ordenes-trabajo"
+        miga={[{ etiqueta: 'Mantenimiento', to: '/maintenance' }, { etiqueta: 'Órdenes de trabajo', to: '/maintenance/work-orders' }]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <StatusChip tone={estadoTone[wo.estado] ?? 'neutral'}>{wo.estado.replace('_', ' ')}</StatusChip>
+            <EtiquetaEstado estado={ESTADO_OT[wo.estado] ?? wo.estado}>{wo.estado.replace('_', ' ')}</EtiquetaEstado>
             {cerrable && wo.estado === 'abierta' && (
-              <button type="button" onClick={closeTecnica} disabled={closing !== null} className="flit-focus rounded-[999px] border bg-white px-3 py-1.5 text-xs font-medium disabled:opacity-50" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-blue)' }}>
+              <GradientButton type="button" variant="secondary" onClick={closeTecnica} disabled={closing !== null} ocupado={closing === 'tecnica'}>
                 {closing === 'tecnica' ? 'Cerrando…' : 'Cerrar técnica'}
-              </button>
+              </GradientButton>
             )}
             {cerrable && (
-              <GradientButton type="button" onClick={closeFinal} disabled={closing !== null}>{closing === 'final' ? 'Cerrando…' : 'Cerrar final'}</GradientButton>
+              <GradientButton type="button" variant="success" onClick={closeFinal} disabled={closing !== null} ocupado={closing === 'final'}>
+                {closing === 'final' ? 'Cerrando…' : 'Cerrar final'}
+              </GradientButton>
             )}
           </div>
         }
       />
 
-      <div className="grid grid-cols-1 @md:grid-cols-3 gap-3 mb-5">
-        <Stat label="Mano de obra" value={fmtCurrency(subTotalJobs)} />
-        <Stat label="Repuestos" value={fmtCurrency(subTotalParts)} />
-        <Stat label="Otros gastos" value={fmtCurrency(subTotalGastos)} />
+      {paso !== null && (
+        <FlitCard>
+          <LineaAvance
+            actual={paso}
+            pasos={[
+              { etiqueta: 'Abierta', detalle: fecha(wo.fechaIngresoTaller) },
+              { etiqueta: 'Cerrada técnica', detalle: fecha(wo.fechaCierreTecnica) },
+              { etiqueta: 'Cerrada final', detalle: fecha(wo.fechaCierreFinal) },
+            ]}
+          />
+        </FlitCard>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 xl:grid-cols-4">
+        <KpiCard label="Mano de obra" value={fmtCurrency(subTotalJobs)} />
+        <KpiCard label="Repuestos" value={fmtCurrency(subTotalParts)} />
+        <KpiCard label="Otros gastos" value={fmtCurrency(subTotalGastos)} />
+        <KpiCard label="Total estimado" value={fmtCurrency(total)} icono="flito-ordenes-trabajo" />
       </div>
-      <div className="mb-2 flex items-center justify-between bg-white p-5" style={{ borderRadius: 'var(--flit-radius-card)', border: '2px solid var(--flit-blue)', boxShadow: 'var(--flit-shadow-card)' }}>
-        <span className="text-sm font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Total estimado</span>
-        <span className="text-2xl font-bold tabular-nums" style={{ color: 'var(--flit-blue)' }}>{fmtCurrency(total)}</span>
+
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <Section title={`Trabajos (${d.jobs.length})`} action={agregar(() => setShowAddJob(true))}>
+          {d.jobs.length === 0 ? <Vacio texto="Sin registros" icono="lista" /> : (
+            <ListaFila filas={d.jobs.map((j) => ({
+              id: String(j.id),
+              titulo: <>{j.jobCodigo} <span className="font-normal text-[color:var(--color-text-tertiary)]">— {j.jobNombre}</span></>,
+              detalle: `Mecánico: ${j.id} · Horas: ${j.tiempoRealHoras ?? '—'}`,
+              extra: <span className="mono shrink-0 tabular-nums text-sm text-[color:var(--color-text-primary)]">{fmtCurrency(Number(j.costoManoObra ?? 0))}</span>,
+            }))} />
+          )}
+        </Section>
+
+        <Section title={`Repuestos (${d.parts.length})`} action={agregar(() => setShowAddPart(true))}>
+          {d.parts.length === 0 ? <Vacio texto="Sin registros" icono="procesos" /> : (
+            <ListaFila filas={d.parts.map((p) => ({
+              id: String(p.id),
+              titulo: <>{p.partCodigo} <span className="font-normal text-[color:var(--color-text-tertiary)]">— {p.partNombre}</span></>,
+              detalle: `Cantidad: ${Number(p.cantidad)} · Valor unit: ${p.valorUnit ? fmtCurrency(Number(p.valorUnit)) : 'auto'}`,
+              extra: (
+                <span className="flex shrink-0 flex-col items-end gap-1">
+                  <span className="mono tabular-nums text-sm text-[color:var(--color-text-primary)]">{fmtCurrency(Number(p.cantidad) * Number(p.valorUnit ?? 0) - Number(p.descuento ?? 0))}</span>
+                  {p.aplicadoStock
+                    ? <EtiquetaEstado estado={ESTADO_STOCK_APLICADO}>aplicado</EtiquetaEstado>
+                    : <EtiquetaEstado estado={ESTADO_STOCK_PENDIENTE}>pendiente</EtiquetaEstado>}
+                </span>
+              ),
+            }))} />
+          )}
+        </Section>
+
+        <Section title={`Otros gastos (${d.otrosGastos.length})`} action={agregar(() => setShowAddGasto(true))}>
+          <DataTable ariaLabel="Otros gastos" columnas={COLUMNAS_GASTOS} filas={d.otrosGastos} getKey={(g) => String(g.id)} emptyMessage="Sin registros" />
+        </Section>
+
+        <Section title={`Seguimientos (${d.seguimientos.length})`} action={agregar(() => setShowSeguimiento(true), 'Agregar nota')}>
+          {d.seguimientos.length === 0 ? <p className="text-xs text-[color:var(--color-text-tertiary)]">Sin notas</p> : (
+            <ActividadLinea eventos={d.seguimientos.map((s) => ({
+              id: String(s.id),
+              cuando: (s.createdAt as string)?.slice(0, 16).replace('T', ' '),
+              fechaIso: s.createdAt,
+              texto: <span className="whitespace-pre-wrap">{s.texto}</span>,
+            }))} />
+          )}
+        </Section>
       </div>
-
-      <Section title={`Trabajos (${d.jobs.length})`} action={editable && isAdmin && <SmallBtn onClick={() => setShowAddJob(true)}>Agregar</SmallBtn>}>
-        <Table headers={['Job', 'Mecánico', 'Horas', 'Costo']}>
-          {d.jobs.length === 0 && <Empty cols={4} />}
-          {d.jobs.map((j) => (
-            <tr key={j.id} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <td className="px-3 py-2 text-xs" style={{ color: 'var(--flit-text-primary)' }}>{j.jobCodigo} <span style={{ color: 'var(--flit-text-muted)' }}>— {j.jobNombre}</span></td>
-              <td className="px-3 py-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{j.id}</td>
-              <td className="px-3 py-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{j.tiempoRealHoras ?? '—'}</td>
-              <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{fmtCurrency(Number(j.costoManoObra ?? 0))}</td>
-            </tr>
-          ))}
-        </Table>
-      </Section>
-
-      <Section title={`Repuestos (${d.parts.length})`} action={editable && isAdmin && <SmallBtn onClick={() => setShowAddPart(true)}>Agregar</SmallBtn>}>
-        <Table headers={['Repuesto', 'Cantidad', 'Valor unit', 'Subtotal', 'Stock']}>
-          {d.parts.length === 0 && <Empty cols={5} />}
-          {d.parts.map((p) => (
-            <tr key={p.id} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <td className="px-3 py-2 text-xs" style={{ color: 'var(--flit-text-primary)' }}>{p.partCodigo} <span style={{ color: 'var(--flit-text-muted)' }}>— {p.partNombre}</span></td>
-              <td className="px-3 py-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{Number(p.cantidad)}</td>
-              <td className="px-3 py-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{p.valorUnit ? fmtCurrency(Number(p.valorUnit)) : 'auto'}</td>
-              <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{fmtCurrency(Number(p.cantidad) * Number(p.valorUnit ?? 0) - Number(p.descuento ?? 0))}</td>
-              <td className="px-3 py-2 text-xs">
-                {p.aplicadoStock
-                  ? <span className="text-success font-semibold">aplicado</span>
-                  : <span className="text-warning">pendiente</span>}
-              </td>
-            </tr>
-          ))}
-        </Table>
-      </Section>
-
-      <Section title={`Otros gastos (${d.otrosGastos.length})`} action={editable && isAdmin && <SmallBtn onClick={() => setShowAddGasto(true)}>Agregar</SmallBtn>}>
-        <Table headers={['Concepto', 'Monto']}>
-          {d.otrosGastos.length === 0 && <Empty cols={2} />}
-          {d.otrosGastos.map((g) => (
-            <tr key={g.id} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <td className="px-3 py-2 text-xs" style={{ color: 'var(--flit-text-primary)' }}>{g.concepto}</td>
-              <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{fmtCurrency(Number(g.monto ?? 0))}</td>
-            </tr>
-          ))}
-        </Table>
-      </Section>
-
-      <Section title={`Seguimientos (${d.seguimientos.length})`} action={editable && isAdmin && <SmallBtn onClick={() => setShowSeguimiento(true)}>Agregar nota</SmallBtn>}>
-        {d.seguimientos.length === 0 && <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin notas</p>}
-        <ul className="space-y-2">
-          {d.seguimientos.map((s) => (
-            <li key={s.id} className="bg-white p-4" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)' }}>
-              <p className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{(s.createdAt as string)?.slice(0, 16).replace('T', ' ')}</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm" style={{ color: 'var(--flit-text-primary)' }}>{s.texto}</p>
-            </li>
-          ))}
-        </ul>
-      </Section>
 
       {/* TRAM-INNOV-B5-MVP: liquidación + pago manual de la OT. */}
       <LiquidacionPanel woId={Number(id)} isAdmin={hasFuncion('liquidacion.pago_manual.administrar')} />
@@ -204,51 +223,15 @@ export default function WorkOrderDetail() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <FlitCard>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: 'var(--flit-text-muted)' }}>{label}</p>
-      <p className="mt-1 text-base font-bold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{value}</p>
-    </FlitCard>
-  );
-}
-
 function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <section className="mb-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{title}</h2>
+    <FlitCard className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold text-[color:var(--color-text-primary)]">{title}</h2>
         {action}
       </div>
       {children}
-    </section>
-  );
-}
-
-function Table({ headers, children }: { headers: string[]; children: ReactNode }) {
-  return (
-    <div className="overflow-hidden bg-white" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
-      <table className="w-full">
-        <thead><tr>
-          {headers.map((h) => (
-            <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{h}</th>
-          ))}
-        </tr></thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  );
-}
-
-function Empty({ cols }: { cols: number }) {
-  return <tr><td colSpan={cols} className="px-3 py-4 text-center text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin registros</td></tr>;
-}
-
-function SmallBtn({ onClick, children }: { onClick: () => void; children: ReactNode }) {
-  return (
-    <button type="button" onClick={onClick} className="flit-focus rounded-[999px] px-3 py-1 text-[11px] font-medium" style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-blue)' }}>
-      {children}
-    </button>
+    </FlitCard>
   );
 }
 
@@ -270,7 +253,7 @@ function AddJobForm({ woId, jobs, onClose, onSaved }: { woId: number; jobs: Job[
     } catch (err) { toast.error(errorMessage(err)); }
     finally { setSubmitting(false); }
   };
-  return <FormShell title="Agregar trabajo" onClose={onClose} onSubmit={submit} submitting={submitting} submitLabel="Agregar">
+  return <FormShell title="Agregar trabajo" icono="lista" onClose={onClose} onSubmit={submit} submitting={submitting} submitLabel="Agregar">
     <FlitField label="Trabajo *">
       <select value={jobId} onChange={(e) => setJobId(e.target.value)} className={flitInp}>
         <option value="">— seleccione —</option>
@@ -305,14 +288,14 @@ function AddPartForm({ woId, parts, locs, onClose, onSaved }: { woId: number; pa
     } catch (err) { toast.error(errorMessage(err)); }
     finally { setSubmitting(false); }
   };
-  return <FormShell title="Agregar repuesto" onClose={onClose} onSubmit={submit} submitting={submitting} submitLabel="Agregar">
+  return <FormShell title="Agregar repuesto" icono="procesos" onClose={onClose} onSubmit={submit} submitting={submitting} submitLabel="Agregar">
     <FlitField label="Repuesto *">
       <select value={partId} onChange={(e) => setPartId(e.target.value)} className={flitInp}>
         <option value="">— seleccione —</option>
         {parts.map((p) => <option key={p.id} value={p.id}>{p.codigo} — {p.nombre}</option>)}
       </select>
     </FlitField>
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <FlitField label="Cantidad *"><input type="number" min="0.001" step="0.001" value={cantidad} onChange={(e) => setCantidad(e.target.value)} className={flitInp} /></FlitField>
       <FlitField label="Valor unit (auto si vacío)"><input type="number" min="0" step="100" value={valorUnit} onChange={(e) => setValorUnit(e.target.value)} className={flitInp} /></FlitField>
     </div>
@@ -321,7 +304,7 @@ function AddPartForm({ woId, parts, locs, onClose, onSaved }: { woId: number; pa
         {locs.map((l) => <option key={l.id} value={l.id}>{l.codigo} — {l.nombre}</option>)}
       </select>
     </FlitField>
-    <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>El stock se descuenta solo al cerrar finalmente la OT.</p>
+    <p className="text-xs text-[color:var(--color-text-tertiary)]">El stock se descuenta solo al cerrar finalmente la OT.</p>
   </FormShell>;
 }
 
@@ -340,7 +323,7 @@ function AddGastoForm({ woId, onClose, onSaved }: { woId: number; onClose: () =>
     } catch (err) { toast.error(errorMessage(err)); }
     finally { setSubmitting(false); }
   };
-  return <FormShell title="Agregar otro gasto" onClose={onClose} onSubmit={submit} submitting={submitting} submitLabel="Agregar">
+  return <FormShell title="Agregar otro gasto" icono="pesos" onClose={onClose} onSubmit={submit} submitting={submitting} submitLabel="Agregar">
     <FlitField label="Concepto *"><input value={concepto} onChange={(e) => setConcepto(e.target.value)} maxLength={150} className={flitInp} /></FlitField>
     <FlitField label="Monto *"><input type="number" min="0" step="100" value={monto} onChange={(e) => setMonto(e.target.value)} className={flitInp} /></FlitField>
   </FormShell>;
@@ -360,19 +343,19 @@ function AddSeguimientoForm({ woId, onClose, onSaved }: { woId: number; onClose:
     } catch (err) { toast.error(errorMessage(err)); }
     finally { setSubmitting(false); }
   };
-  return <FormShell title="Agregar seguimiento" onClose={onClose} onSubmit={submit} submitting={submitting} submitLabel="Guardar">
+  return <FormShell title="Agregar seguimiento" icono="lapiz" onClose={onClose} onSubmit={submit} submitting={submitting} submitLabel="Guardar">
     <FlitField label="Nota *"><textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} maxLength={2000} className={flitInp} /></FlitField>
   </FormShell>;
 }
 
-function FormShell({ title, onClose, onSubmit, submitting, submitLabel, children }: { title: string; onClose: () => void; onSubmit: (e: FormEvent) => void; submitting: boolean; submitLabel: string; children: ReactNode }) {
+function FormShell({ title, icono, onClose, onSubmit, submitting, submitLabel, children }: { title: string; icono: NombreIcono; onClose: () => void; onSubmit: (e: FormEvent) => void; submitting: boolean; submitLabel: string; children: ReactNode }) {
   return (
-    <FlitModal title={title} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-3 px-6 pb-6">
+    <FlitModal title={title} icono={icono} onClose={onClose}>
+      <form onSubmit={onSubmit} className="space-y-3">
         {children}
-        <div className="flex justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <button type="button" onClick={onClose} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Cancelar</button>
-          <button type="submit" disabled={submitting} className={flitBtnPrimary} style={flitBtnPrimaryStyle}>{submitting ? 'Guardando…' : submitLabel}</button>
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton type="submit" disabled={submitting} ocupado={submitting}>{submitting ? 'Guardando…' : submitLabel}</GradientButton>
         </div>
       </form>
     </FlitModal>

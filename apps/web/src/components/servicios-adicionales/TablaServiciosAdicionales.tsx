@@ -5,7 +5,8 @@
 // catálogo sabe—, nunca a `creadoPorId === null`. Las filas de baja no llevan botones: ni apagados.
 // Los botones existen solo con la función (`puedeEditar`, `puedeDarDeBaja`), nunca por rol.
 
-import { FlitTable, FlitTh, FlitTr, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import { FlitTable, FlitTh, FlitTr } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
 import StatusChip from '../flit/StatusChip';
 import { fechaCorta } from '../../lib/tarifas';
 import { pesosCatalogo, type ServicioAdicionalTipo } from '../../lib/serviciosAdicionales';
@@ -36,58 +37,56 @@ export default function TablaServiciosAdicionales({ tipos, puedeEditar, puedeDar
       <tbody>
         {tipos.map((t) => {
           const deBaja = !t.activo;
-          const tinta = deBaja ? 'var(--flit-text-muted)' : 'var(--flit-text-primary)';
+          const tinta = deBaja ? 'text-[color:var(--color-text-tertiary)]' : 'text-[color:var(--color-text-primary)]';
           return (
             <FlitTr key={t.id}>
-              <th scope="row" data-id={t.id} className="px-4 py-3 text-left align-top text-sm font-semibold" style={{ color: tinta }}>
+              <th scope="row" data-id={t.id} className={`px-3.5 py-3 text-left align-top text-sm font-semibold ${tinta}`}>
                 {t.nombre}
               </th>
               <td
-                className="px-4 py-3 align-top text-sm"
-                style={{ color: deBaja ? 'var(--flit-text-muted)' : 'var(--flit-text-secondary)' }}
+                className={`px-3.5 py-3 align-top text-sm ${deBaja ? 'text-[color:var(--color-text-tertiary)]' : 'text-[color:var(--color-text-secondary)]'}`}
                 title={t.descripcion ?? undefined}
                 aria-label={t.descripcion ? undefined : 'Sin descripción'}
               >
                 {t.descripcion
                   ? <span className="line-clamp-2">{t.descripcion}</span>
-                  : <span aria-hidden="true" style={{ color: 'var(--flit-text-muted)' }}>—</span>}
+                  : <span aria-hidden="true" className="text-[color:var(--color-text-tertiary)]">—</span>}
               </td>
-              <td className="px-4 py-3 text-right align-top text-sm tabular-nums" style={{ color: tinta }}>
+              <td className={`px-3.5 py-3 text-right align-top text-sm tabular-nums ${tinta}`}>
                 {pesosCatalogo(t.valor)}
                 {t.activo && t.valor === 0 && (
-                  <span className="block text-xs font-semibold" style={{ color: 'var(--flit-warning-ink)' }}>Por tarifar</span>
+                  <span className="block text-xs font-semibold text-[color:var(--kit-naranja-texto)]">Por tarifar</span>
                 )}
               </td>
-              <td className="px-4 py-3 align-top text-sm">
+              <td className="px-3.5 py-3 align-top text-sm">
                 {deBaja ? (
                   <span className="inline-flex flex-wrap items-center gap-1.5">
                     <StatusChip tone="neutral">Dado de baja</StatusChip>
-                    <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>· {fechaCorta(t.dadoDeBajaEn)}</span>
+                    <span className="text-xs text-[color:var(--color-text-secondary)]">· {fechaCorta(t.dadoDeBajaEn)}</span>
                   </span>
                 ) : (
                   <StatusChip tone="success">Activo</StatusChip>
                 )}
               </td>
               {conAcciones && (
-                <td className="whitespace-nowrap px-4 py-3 text-right align-top">
+                <td className="whitespace-nowrap px-3.5 py-3 text-right align-top">
                   {t.activo && (
                     <span className="inline-flex gap-2">
                       {puedeEditar && (
-                        <button
-                          type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}
+                        <GradientButton
+                          type="button" variant="secondary" size="sm"
                           aria-label={`Editar · ${t.nombre}`} disabled={bloqueada} onClick={() => onEditar(t)}
                         >
                           Editar
-                        </button>
+                        </GradientButton>
                       )}
                       {puedeDarDeBaja && (
-                        <button
-                          type="button" className={flitBtnSecondarySm}
-                          style={{ ...flitBtnSecondaryStyle, color: 'var(--flit-danger-ink)' }}
+                        <GradientButton
+                          type="button" variant="alerta" size="sm"
                           aria-label={`Dar de baja · ${t.nombre}`} disabled={bloqueada} onClick={() => onDarDeBaja(t)}
                         >
                           Dar de baja
-                        </button>
+                        </GradientButton>
                       )}
                     </span>
                   )}

@@ -1,14 +1,14 @@
-// FLITO — documentos adicionales del SOAT (HU #13363): reglas, copy y formateadores compartidos.
+// FLITO — documentos adicionales del SOAT (HU 13363): reglas, copy y formateadores compartidos.
 //
 // Spec: docs/ux/flito-soat-documentos-adicionales.md §3.3, §3.4, §5. Un solo módulo para el selector
-// del alta, el toast del 201, la tarjeta del 202 y la lista del detalle — y para la HU #13365, que
+// del alta, el toast del 201, la tarjeta del 202 y la lista del detalle — y para la HU 13365, que
 // monta el mismo selector en el detalle (contexto `'detalle'`, cupos por carga, sin `presentes`).
 //
 // Los descartes del servidor se traducen **por `codigo`** (`MotivoDescarteDocumentoAdicional`),
 // nunca por su `motivo` de texto: ese texto es del servidor y cambia con cualquier corrección de
 // estilo. Un código desconocido cae al genérico.
 //
-// Límites: los mismos que aplica el backend de la HU #13362 (`flito-soat-documentos.upload.ts`). La
+// Límites: los mismos que aplica el backend de la HU 13362 (`flito-soat-documentos.upload.ts`). La
 // validación en pantalla es una ayuda para no mandar lo que el servidor va a rechazar; quien decide
 // es él (revisa el contenido real, no la extensión).
 import { MotivoDescarteDocumentoAdicional, type ResultadoDocumentosAdicionales } from '@operaciones/shared-types';
@@ -18,7 +18,7 @@ const MB = 1024 * 1024;
 export const MAX_BYTES_ADICIONAL = 15 * MB;
 export const MAX_ADICIONALES = 20;
 export const MAX_TOTAL_ADICIONALES = 250 * MB;
-/** Largo de la columna `etiqueta varchar(150)` (`LARGO_ETIQUETA` del servicio de la #13362). */
+/** Largo de la columna `etiqueta varchar(150)` (`LARGO_ETIQUETA` del servicio de la 13362). */
 export const LARGO_ETIQUETA_ADICIONAL = 150;
 
 /**
@@ -65,7 +65,7 @@ function formatoPermitido(archivo: File): boolean {
 /**
  * Valida `nuevos` **en el orden de elección** (§3.3). Los cupos de 20 y de 250 MB los consumen los
  * válidos que llegaron antes, empezando por `presentes` (los ya válidos en la lista, o los ya
- * guardados en la #13365). `ajenos` solo cuentan para «repetido» (la factura de venta del alta: el
+ * guardados en la 13365). `ajenos` solo cuentan para «repetido» (la factura de venta del alta: el
  * mismo archivo no se adjunta dos veces, pero no gasta cupo de adicionales).
  */
 export function validarAdicionales(
@@ -112,8 +112,8 @@ export function adjuntarAdicionales(form: FormData, lista: ElegidoAdicional[]): 
 // ── Copy ────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Dónde se monta el selector: el alta (#13363) o la carga posterior desde el detalle (#13365). En el
- * detalle los cupos son **por carga** (no hay techo acumulado), y el copy lo dice (spec #13365 §4).
+ * Dónde se monta el selector: el alta (13363) o la carga posterior desde el detalle (13365). En el
+ * detalle los cupos son **por carga** (no hay techo acumulado), y el copy lo dice (spec 13365 §4).
  */
 export type ContextoAdicionales = 'alta' | 'detalle';
 
@@ -172,7 +172,7 @@ export function textoEnviandoAdicionales(n: number): string {
   return `Enviando la solicitud y ${documentos(n)}… puede tardar si son pesados.`;
 }
 
-// ── Copy de la carga y la eliminación desde el detalle (HU #13365, spec §3.3–§3.6, §5.3) ─────────
+// ── Copy de la carga y la eliminación desde el detalle (HU 13365, spec §3.3–§3.6, §5.3) ─────────
 
 /** Toast de la carga limpia. */
 export function textoCargados(n: number): string {

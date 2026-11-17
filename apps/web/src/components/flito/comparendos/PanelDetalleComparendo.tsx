@@ -1,4 +1,4 @@
-// FLITO — Comparendos: el panel de detalle con su línea de tiempo (HU #11562, AC1, AC5, AC7, AC8).
+// FLITO — Comparendos: el panel de detalle con su línea de tiempo (HU 11562, AC1, AC5, AC7, AC8).
 //
 // Tres secciones en un orden que no es casual: primero **qué es** (los datos de la fuente, que es lo
 // que se vino a mirar), después **qué hago** (la gestión, la única acción posible) y al final **qué
@@ -48,15 +48,15 @@ function Dato({ etiqueta, valor, ayuda }: { etiqueta: string; valor: ReactNode; 
   const ausente = valor === null || valor === undefined || valor === SIN_DATO || valor === '';
   return (
     <div className="grid gap-0.5 py-1.5 sm:grid-cols-[13rem_1fr] sm:gap-3">
-      <dt className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <dt className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         {etiqueta}
         {ayuda && (
-          <span className="mt-0.5 block text-[11px] font-normal" style={{ color: 'var(--flit-text-muted)' }}>
+          <span className="mt-0.5 block text-[11px] font-normal" style={{ color: 'var(--color-text-tertiary)' }}>
             {ayuda}
           </span>
         )}
       </dt>
-      <dd className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <dd className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
         {ausente ? <>{SIN_DATO}<span className="sr-only">Sin dato</span></> : valor}
       </dd>
     </div>
@@ -66,12 +66,12 @@ function Dato({ etiqueta, valor, ayuda }: { etiqueta: string; valor: ReactNode; 
 function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) {
   return (
     <section aria-label={titulo} className="space-y-2">
-      <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
+      <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>
         {titulo}
       </h3>
       <div
-        className="rounded-xl border bg-white p-4"
-        style={{ borderColor: 'var(--flit-border-soft)' }}
+        className="rounded-[9px] border bg-[var(--color-surface-elevated)] p-4"
+        style={{ borderColor: 'var(--color-border)' }}
       >
         {children}
       </div>
@@ -83,11 +83,11 @@ function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) 
 function PanelCargando() {
   return (
     <div role="status" aria-busy="true" aria-label="Cargando el comparendo" className="space-y-4">
-      <div className="animate-pulse space-y-4 motion-reduce:animate-none">
+      <div className="space-y-4">
         {[10, 4, 5].map((barras, bloque) => (
-          <div key={bloque} className="space-y-2 rounded-xl border bg-white p-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
+          <div key={bloque} className="space-y-2 rounded-[9px] border bg-[var(--color-surface-elevated)] p-4" style={{ borderColor: 'var(--color-border)' }}>
             {Array.from({ length: barras }, (_, i) => (
-              <div key={i} className="h-4" style={{ background: 'var(--flit-border-soft)', borderRadius: 8 }} />
+              <div key={i} className="kit-esqueleto h-4" />
             ))}
           </div>
         ))}
@@ -139,7 +139,7 @@ export default function PanelDetalleComparendo(
   };
 
   /**
-   * El municipio del COMPARENDO (HU #11879), que es el mismo que pinta su fila en la tabla.
+   * El municipio del COMPARENDO (HU 11879), que es el mismo que pinta su fila en la tabla.
    *
    * Leía `municipioFuente` —el municipio al que se PREGUNTÓ— hasta esta HU, y eso ya no se sostiene
    * desde que la tabla pinta `municipioComparendo`: una fila que solo reportó el SIMIT decía
@@ -153,7 +153,7 @@ export default function PanelDetalleComparendo(
    *
    * **`municipioFuente` deja de pintarse en el SPA y NO gana un campo propio.** Es trazabilidad de
    * la corrida, no un hecho del comparendo, y un tercer campo con la palabra «municipio» en este
-   * mismo `<dl>` recrearía aquí la confusión que la #11879 cierra en la tabla. Si producto lo quiere
+   * mismo `<dl>` recrearía aquí la confusión que la 11879 cierra en la tabla. Si producto lo quiere
    * visible es otra HU, con su rótulo propio («Municipio consultado»).
    */
   const municipio = detalle?.municipioComparendo
@@ -172,7 +172,8 @@ export default function PanelDetalleComparendo(
     <FlitModal
       title={`Comparendo ${fila.numeroComparendo}`}
       onClose={cerrar}
-      wide
+      lateral
+      icono="comparendos"
       restoreFocusRef={respaldoFocoRef}
     >
       <div className="space-y-5">
@@ -182,7 +183,7 @@ export default function PanelDetalleComparendo(
           // Dentro del panel y no en su lugar: cerrar el modal por un error obliga a buscar la fila
           // otra vez, y quien lo abrió ya sabe cuál quería.
           <div role="alert" className="space-y-3">
-            <p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error.texto}</p>
+            <p className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error.texto}</p>
             <div className="flex flex-wrap gap-2">
               {error.accion === 'reintentar' && (
                 <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={recargar}>
@@ -203,7 +204,7 @@ export default function PanelDetalleComparendo(
 
         {detalle && (
           <>
-            <div className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <div className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               <StatusChip tone={detalle.estado === 'activo' ? 'active' : 'draft'}>
                 {detalle.estado === 'activo' ? 'Activo' : 'Inactivo'}
               </StatusChip>
@@ -212,10 +213,10 @@ export default function PanelDetalleComparendo(
             </div>
 
             <Seccion titulo="Datos de la fuente">
-              <p className="mb-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+              <p className="mb-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                 Vienen de SIMIT y de los municipios. No se editan aquí.
               </p>
-              <dl className="divide-y divide-[color:var(--flit-border-soft)]">
+              <dl className="divide-y divide-[color:var(--color-border)]">
                 <Dato etiqueta="N.º de comparendo" valor={detalle.numeroComparendo} />
                 <Dato
                   etiqueta="NIT monitoreado"
@@ -223,7 +224,7 @@ export default function PanelDetalleComparendo(
                   valor={alias ? `${detalle.nitMonitoreado} · ${alias}` : detalle.nitMonitoreado}
                 />
                 <Dato etiqueta="Placa" valor={detalle.placa} />
-                {/* Las dos fechas, UNA TRAS OTRA y sin ningún campo intercalado (HU #11795, AC2).
+                {/* Las dos fechas, UNA TRAS OTRA y sin ningún campo intercalado (HU 11795, AC2).
                     El orden es normativo, no estético: el panel es la superficie donde se comprueba
                     lo que la tabla resumió, y si en la tabla están en la misma celda y aquí hay tres
                     campos entre medias, la comprobación obliga a buscar.
@@ -236,7 +237,7 @@ export default function PanelDetalleComparendo(
                 <Dato etiqueta="Fecha de notificación" valor={fechaLarga(detalle.fechaNotificacion)} />
                 <Dato etiqueta="Infracción" valor={infraccion} />
                 {/* Los dos siguen siendo DOS `<dt>` separados, y aquí no hay respaldo ni fusión de
-                    ningún tipo (HU #11879): el panel existe justamente para desambiguar lo que la
+                    ningún tipo (HU 11879): el panel existe justamente para desambiguar lo que la
                     tabla resume. En la fila cuyo municipio no se pudo determinar, la tabla enseña el
                     organismo en el lugar del municipio y el panel dice MÁS —«Municipio: —» y
                     «Organismo: STRIA DE TTOyTTE MEDELLIN»—, que es lo que el operador cita cuando

@@ -272,29 +272,29 @@ export default function DialogoEnvioFacturacion({
 
         {fase === 'confirmar' && (
           <>
-            <p style={{ color: 'var(--flit-text-primary)' }}>
+            <p style={{ color: 'var(--color-text-primary)' }}>
               Se van a enviar <strong>{tramites.length.toLocaleString('es-CO')}</strong> trámite(s):
             </p>
             {/* Alto máximo con desplazamiento propio: doscientos identificadores no pueden empujar
                 los botones fuera de la vista. */}
             <div className="flex max-h-40 flex-wrap gap-1 overflow-y-auto rounded-lg p-2"
-              style={{ background: 'var(--flit-bg-app)' }}>
+              style={{ background: 'var(--color-surface)' }}>
               {tramites.map((t) => (
-                <span key={t.tramiteId} className="rounded-[999px] bg-white px-2 py-0.5 text-xs"
-                  style={{ color: 'var(--flit-text-secondary)' }}>{t.idFlit}</span>
+                <span key={t.tramiteId} className="rounded-[999px] bg-[var(--color-surface-elevated)] px-2 py-0.5 text-xs"
+                  style={{ color: 'var(--color-text-secondary)' }}>{t.idFlit}</span>
               ))}
             </div>
 
             {/* A1 — qué se factura se ELIGE. A la empresa se le gestiona el trámite entero pero solo
                 se le factura electrónicamente una parte; el resto va por reintegro. Es una decisión
                 de quien envía, no una consecuencia de lo que el trámite tenga liquidado. */}
-            <fieldset className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-input)' }}>
+            <fieldset className="rounded-lg border p-3" style={{ borderColor: 'var(--color-border-control)' }}>
               <legend className="px-1 text-xs font-semibold uppercase tracking-wide"
-                style={{ color: 'var(--flit-text-muted)' }}>Conceptos que van en la factura</legend>
+                style={{ color: 'var(--color-text-tertiary)' }}>Conceptos que van en la factura</legend>
               <div className="flex flex-wrap gap-x-4 gap-y-2">
                 {CONCEPTOS_FACTURABLES.map((c) => (
                   <label key={c} className="flex items-center gap-2 text-sm"
-                    style={{ color: 'var(--flit-text-secondary)' }}>
+                    style={{ color: 'var(--color-text-secondary)' }}>
                     <input
                       type="checkbox"
                       checked={conceptos.includes(c)}
@@ -306,7 +306,7 @@ export default function DialogoEnvioFacturacion({
                   </label>
                 ))}
               </div>
-              <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+              <p className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                 Solo se facturan los conceptos marcados que además estén liquidados en cada trámite.
               </p>
             </fieldset>
@@ -321,14 +321,14 @@ export default function DialogoEnvioFacturacion({
               // Plegado: quien confirma no necesita leerlo, y quien duda lo abre. Dentro, los
               // motivos literales del servidor, con el mismo formato que «¿Por qué no?».
               <details>
-                <summary className="flit-focus cursor-pointer" style={{ color: 'var(--flit-text-secondary)' }}>
+                <summary className="flit-focus cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
                   {excluidos.length} de los seleccionados no se enviarán
                 </summary>
                 <ul className="mt-2 space-y-2">
                   {excluidos.map((t) => (
                     <li key={t.tramiteId}>
                       <span className="font-semibold">{t.idFlit}</span>
-                      <ul className="list-disc pl-5 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                      <ul className="list-disc pl-5 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                         {t.motivos.map((m) => <li key={m.motivo}>{m.detalle}</li>)}
                       </ul>
                     </li>
@@ -337,7 +337,7 @@ export default function DialogoEnvioFacturacion({
               </details>
             )}
 
-            <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               Se emite una factura electrónica por trámite. Cuando la DIAN la acepte, corregirla es
               un proceso aparte.
             </p>
@@ -368,7 +368,7 @@ export default function DialogoEnvioFacturacion({
 
             {/* Lo elegido sobre el correo, recordado junto a la acción irreversible: el paso 1 queda
                 fuera de la vista y «¿esto sale por correo?» es la pregunta que se hace justo aquí. */}
-            <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               {correo.enviar
                 ? (destinatariosParaEnviar(correo).length > 0
                   ? `Se enviará por correo a ${destinatariosParaEnviar(correo).length} dirección(es) elegida(s).`
@@ -380,8 +380,8 @@ export default function DialogoEnvioFacturacion({
                 cuatro empresas plegadas en pantalla, un botón apagado sin motivo obliga a recorrer
                 los cuatro bloques buscando el hueco. */}
             {incompletas.length > 0 && (
-              <p role="alert" className="text-xs" style={{ color: 'var(--flit-text-primary)' }}>
-                <span aria-hidden="true" style={{ color: 'var(--flit-warning-text)' }}>⚠ </span>
+              <p role="alert" className="text-xs" style={{ color: 'var(--color-text-primary)' }}>
+                <span aria-hidden="true" style={{ color: 'var(--kit-naranja-texto)' }}>⚠ </span>
                 Falta elegir con qué emitir en: {incompletas.map((e) => e.nombre).join(', ')}.
               </p>
             )}
@@ -400,10 +400,10 @@ export default function DialogoEnvioFacturacion({
 
         {fase === 'enviando' && (
           <div role="status">
-            <p style={{ color: 'var(--flit-text-primary)' }}>
+            <p style={{ color: 'var(--color-text-primary)' }}>
               Enviando {ultimo.current.ids.length.toLocaleString('es-CO')} trámite(s)…
             </p>
-            <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               No cierres esta ventana: aquí se ve qué pasó con cada uno.
             </p>
             <div className="mt-3 flex justify-end">
@@ -416,7 +416,7 @@ export default function DialogoEnvioFacturacion({
 
         {fase === 'fallo' && fallo && (
           <>
-            <p role="alert" style={{ color: 'var(--flit-warning-text)' }}>{fallo.mensaje}</p>
+            <p role="alert" style={{ color: 'var(--kit-naranja-texto)' }}>{fallo.mensaje}</p>
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                 onClick={cerrar}>Cerrar</button>

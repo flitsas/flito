@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import GradientButton from '../components/flit/GradientButton';
+import GradientButton, { claseBoton } from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
 import LoteFlota from './tramite/LoteFlota';
 import { useTramites } from './tramite/useTramites';
@@ -28,6 +28,9 @@ function useDebounced(value: string, ms = 350) {
 }
 
 type Vista = 'lista' | 'embudo' | 'dashboard';
+
+/** Chip del kit activo (borde azul, fondo hover, texto azul) sin depender de `aria-pressed`. */
+const CHIP_ACTIVO = { borderColor: 'var(--color-action)', background: 'var(--kit-hover)', color: 'var(--color-action)' } as const;
 
 export default function TramiteDigital() {
   const [vistaTramites, setVistaTramites] = useState<Vista>('lista');
@@ -101,6 +104,8 @@ export default function TramiteDigital() {
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Trámites digitales"
+        icono="flito-tramites"
+        miga={[]}
         subtitle={
           rangoFechas
             ? `Matrícula inicial · ingresos ${rangoLabel}`
@@ -108,9 +113,9 @@ export default function TramiteDigital() {
         }
         actions={(
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setShowLote(true)} className="flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Carga masiva (CSV)</button>
+            <button type="button" onClick={() => setShowLote(true)} className={claseBoton('secondary')} data-variante="secundario">Carga masiva (CSV)</button>
             {/* TRAM-TRASPASO-F1: entrada al trámite de traspaso (placa-first). */}
-            <Link to="/tramite/traspaso" className="flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-blue)', color: 'var(--flit-blue)' }}>Traspaso</Link>
+            <Link to="/tramite/traspaso" className={claseBoton('secondary')} data-variante="secundario">Traspaso</Link>
             <GradientButton type="button" onClick={w.abrirNuevo}>Nuevo trámite</GradientButton>
           </div>
         )}
@@ -133,7 +138,7 @@ export default function TramiteDigital() {
 
           {/* 1. Navegación de vista primero */}
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Vista de trámites">
+            <div className="kit-pestanas" data-kit="pestanas" role="tablist" aria-label="Vista de trámites">
               {([
                 { key: 'lista' as const, label: 'Lista', hint: 'Buscar y paginar' },
                 { key: 'embudo' as const, label: 'Embudo', hint: 'Resumen por etapa' },
@@ -145,12 +150,7 @@ export default function TramiteDigital() {
                   role="tab"
                   aria-selected={vistaTramites === key}
                   onClick={() => setVistaTramites(key)}
-                  className="flit-focus h-9 rounded-[999px] border px-4 text-sm font-medium transition-colors"
-                  style={{
-                    borderColor: vistaTramites === key ? 'var(--flit-blue)' : 'var(--flit-border-input)',
-                    background: vistaTramites === key ? 'var(--flit-blue-soft)' : 'white',
-                    color: vistaTramites === key ? 'var(--flit-blue)' : 'var(--flit-text-secondary)',
-                  }}
+                  className="kit-pestana"
                   title={hint}
                 >
                   {label}
@@ -161,8 +161,7 @@ export default function TramiteDigital() {
               <button
                 type="button"
                 onClick={() => setVistaTramites('lista')}
-                className="flit-focus text-xs font-semibold underline"
-                style={{ color: 'var(--flit-blue)' }}
+                className={claseBoton('ghost', 'sm')}
               >
                 Filtros activos — ver en Lista
               </button>
@@ -219,18 +218,14 @@ export default function TramiteDigital() {
                     key={id || 'all'}
                     type="button"
                     onClick={() => setModalidadFiltro(id)}
-                    className="flit-focus h-8 rounded-[999px] border px-3 text-xs font-semibold"
-                    style={{
-                      borderColor: modalidadFiltro === id ? 'var(--flit-blue)' : 'var(--flit-border-input)',
-                      background: modalidadFiltro === id ? 'var(--flit-blue-soft)' : 'white',
-                      color: modalidadFiltro === id ? 'var(--flit-blue)' : 'var(--flit-text-secondary)',
-                    }}
+                    className="chip chip--sm"
+                    style={modalidadFiltro === id ? CHIP_ACTIVO : undefined}
                   >
                     {label}
                   </button>
                 ))}
               </div>
-              <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+              <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                 Vista resumen: hasta 50 trámites por columna{rangoLabel ? ` · ingresos ${rangoLabel}` : ''}. Para buscar un VIN o placa, usa la pestaña <strong>Lista</strong>.
               </p>
               <TramitesEmbudo

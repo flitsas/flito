@@ -10,7 +10,7 @@ consultas:
   - por qué un documento quedó en revisión
   - cómo busco el trámite de un documento en revisión
   - cómo vuelvo a leer un documento en revisión
-version: 1.4
+version: 1.6
 fecha: 2026-11-17
 ---
 ## Qué es
@@ -23,7 +23,7 @@ Administrador (confirma o descarta). Auditor (ve la cola, los soportes y el trá
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Trámites**, el ítem **Revisiones OCR**. Si la ventana es estrecha, la barra deja solo los iconos y el nombre de cada sección aparece al pasar el cursor por encima; en pantallas pequeñas, use el botón de menú de la barra superior. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «revisiones».
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Trámites**, el ítem **Revisiones OCR**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «revisiones».
 
 ## Pasos
 

@@ -32,16 +32,16 @@ const COSTO: Array<{ titulo: string; valor: (t: CostoProveedorConsolidado) => nu
   { titulo: 'Total costos', valor: (t) => t.costoProveedorTotal },
 ];
 
-const AZUL = { color: 'var(--flit-blue-text)' } as const;
-const BORDE = '1px solid var(--flit-border-input)';
-const PRIMARIO = { color: 'var(--flit-text-primary)' } as const;
+const AZUL = { color: 'var(--color-action)' } as const;
+const BORDE = '1px solid var(--color-border-control)';
+const PRIMARIO = { color: 'var(--color-text-primary)' } as const;
 
 /** El `th` de la fila de grupos, como en el detalle (`scope="colgroup"`). */
 function ThGrupo({ children, colSpan, rowSpan, borde }: { children?: string; colSpan?: number; rowSpan?: number; borde?: boolean }) {
   return (
     <th scope={children ? 'colgroup' : undefined} colSpan={colSpan} rowSpan={rowSpan}
       className="px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap"
-      style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)', borderBottom: BORDE, ...(borde ? { borderLeft: BORDE } : {}) }}>
+      style={{ background: 'var(--kit-linea)', color: 'var(--color-text-secondary)', borderBottom: BORDE, ...(borde ? { borderLeft: BORDE } : {}) }}>
       {children}
     </th>
   );
@@ -57,10 +57,9 @@ export default function ConsolidadoReporteCostos({ data, cargando, error, onRein
   if (error) {
     return (
       // Sin rojo y sin el error crudo del API (D-6): tinta primaria, borde del kit y la salida puesta.
-      <div role="alert" className="flex flex-wrap items-center gap-3 rounded-[10px] border p-3 text-sm"
-        style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>
-        <span aria-hidden="true" style={{ color: 'var(--flit-text-muted)' }}>ⓘ</span>
-        <span>No se pudo calcular el consolidado. Vuelve a intentarlo.</span>
+      <div role="alert" className="kit-alerta" data-tono="warn" data-kit="alerta">
+        <img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+        <span className="min-w-0 flex-1 text-sm">No se pudo calcular el consolidado. Vuelve a intentarlo.</span>
         <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>Reintentar</button>
       </div>
     );
@@ -68,9 +67,9 @@ export default function ConsolidadoReporteCostos({ data, cargando, error, onRein
   if (cargando || !data) {
     return (
       <div role="status" className="space-y-2 py-4">
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Calculando el consolidado…</p>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Calculando el consolidado…</p>
         {[0, 1, 2].map((i) => (
-          <div key={i} className="h-4 rounded" style={{ background: 'var(--flit-bg-app)', width: `${80 - i * 15}%` }} />
+          <div key={i} className="kit-esqueleto h-4" style={{ width: `${80 - i * 15}%` }} />
         ))}
       </div>
     );
@@ -90,11 +89,11 @@ export default function ConsolidadoReporteCostos({ data, cargando, error, onRein
 
   return (
     <>
-      <p className="mb-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-        <strong style={{ color: 'var(--flit-text-primary)' }}>{clientes.toLocaleString('es-CO')}</strong> {clientes === 1 ? 'cliente' : 'clientes'} ·{' '}
-        <strong style={{ color: 'var(--flit-text-primary)' }}>{periodos.toLocaleString('es-CO')}</strong> {periodos === 1 ? 'periodo' : 'periodos'}
+      <p className="mb-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+        <strong style={{ color: 'var(--color-text-primary)' }}>{clientes.toLocaleString('es-CO')}</strong> {clientes === 1 ? 'cliente' : 'clientes'} ·{' '}
+        <strong style={{ color: 'var(--color-text-primary)' }}>{periodos.toLocaleString('es-CO')}</strong> {periodos === 1 ? 'periodo' : 'periodos'}
       </p>
-        <FlitTable label="Consolidado por cliente y periodo">
+        <FlitTable matriz label="Consolidado por cliente y periodo">
           <thead>
             <tr>
               <ThGrupo colSpan={3} />
@@ -106,9 +105,9 @@ export default function ConsolidadoReporteCostos({ data, cargando, error, onRein
               <FlitTh>Cliente</FlitTh>
               <FlitTh>Periodo</FlitTh>
               <FlitTh center>Trámites</FlitTh>
-              {COLUMNAS.map((c, i) => <FlitTh key={c.titulo} center className={`whitespace-nowrap ${i === 0 ? 'border-l border-[color:var(--flit-border-input)]' : ''}`}>{c.titulo}</FlitTh>)}
-              {COSTO.map((c, i) => <FlitTh key={c.titulo} center className={`whitespace-nowrap ${i === 0 ? 'border-l border-[color:var(--flit-border-input)]' : ''}`}>{c.titulo}</FlitTh>)}
-              <FlitTh center className="border-l border-[color:var(--flit-border-input)]">Incompletos</FlitTh>
+              {COLUMNAS.map((c, i) => <FlitTh key={c.titulo} center className={`whitespace-nowrap ${i === 0 ? 'border-l border-[color:var(--color-border-control)]' : ''}`}>{c.titulo}</FlitTh>)}
+              {COSTO.map((c, i) => <FlitTh key={c.titulo} center className={`whitespace-nowrap ${i === 0 ? 'border-l border-[color:var(--color-border-control)]' : ''}`}>{c.titulo}</FlitTh>)}
+              <FlitTh center className="border-l border-[color:var(--color-border-control)]">Incompletos</FlitTh>
             </FlitTr>
           </thead>
           <tbody>
@@ -117,7 +116,7 @@ export default function ConsolidadoReporteCostos({ data, cargando, error, onRein
           <tfoot>
             <FlitTr>
               {/* Sin conteo de trámites: el API no lo agrega y la pantalla no suma (RN-02). */}
-              <td className="px-4 py-2 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--flit-text-secondary)' }}>
+              <td className="px-4 py-2 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-secondary)' }}>
                 Totales del filtro
               </td>
               <td />
@@ -149,7 +148,7 @@ function Fila({ f }: { f: FilaConsolidado }) {
       <td className="px-4 py-2 tabular-nums whitespace-nowrap">
         {/* Sin fecha de aprobación NO es un dato que falte: el trámite sigue esperando al
             organismo. El mismo texto que la celda de fechas del detalle. */}
-        {f.periodo ?? <span className="italic" style={{ color: 'var(--flit-text-muted)' }}>Sin aprobar</span>}
+        {f.periodo ?? <span className="italic" style={{ color: 'var(--color-text-tertiary)' }}>Sin aprobar</span>}
       </td>
       <td className="px-4 py-2 text-center tabular-nums">{f.tramites.toLocaleString('es-CO')}</td>
       {COLUMNAS.map((c, i) => (
@@ -175,7 +174,7 @@ function Fila({ f }: { f: FilaConsolidado }) {
               <StatusChip tone="draft">{f.filasIncompletas.toLocaleString('es-CO')}</StatusChip>
             </span>
           )
-          : <span style={{ color: 'var(--flit-text-muted)' }}>0</span>}
+          : <span style={{ color: 'var(--color-text-tertiary)' }}>0</span>}
       </td>
     </FlitTr>
   );

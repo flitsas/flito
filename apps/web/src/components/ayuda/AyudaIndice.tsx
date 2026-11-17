@@ -13,7 +13,9 @@ import { documentoDeEntrada, ordenarPorRelevancia, resumenDeEntrada } from '../.
 import PageHeaderCard from '../flit/PageHeaderCard';
 import PageContentSkeleton from '../flit/PageContentSkeleton';
 import StatusChip from '../flit/StatusChip';
-import { FlitField, flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
+import { Icono, IconoModulo } from '../flit/kit/Icono';
+import { FlitField, flitInp } from '../flit/flitPageKit';
 import { AyudaSinModulos, AyudaSinResultados, ErrorAyuda } from './AyudaEstados';
 
 const SUBTITULO = 'Guías de las pantallas que usted ya puede abrir.';
@@ -21,12 +23,9 @@ const ANUNCIO_MS = 300;
 
 type EstadoCarga = 'cargando' | 'error' | 'listo';
 
-const tarjeta = {
-  borderRadius: 'var(--flit-radius-card)',
-  border: '1px solid var(--flit-border-soft)',
-  boxShadow: 'var(--flit-shadow-card)',
-  background: 'var(--flit-bg-card)',
-} as const;
+/** Rejilla de accesos del kit (`.accesos` de la propuesta, molde `#ayuda`): tarjetas de 210 px mínimo. */
+const REJILLA = 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-4';
+const CABECERA = { title: 'Ayuda FLITO', subtitle: SUBTITULO, icono: 'flito-ayuda' } as const;
 
 function textoConteo(total: number, consulta: string): string {
   return total === 1
@@ -99,7 +98,7 @@ export default function AyudaIndice() {
   if (estado === 'cargando') {
     return (
       <div className="space-y-4">
-        <PageHeaderCard title="Ayuda FLITO" subtitle={SUBTITULO} />
+        <PageHeaderCard {...CABECERA} miga={[]} />
         <PageContentSkeleton />
       </div>
     );
@@ -108,7 +107,7 @@ export default function AyudaIndice() {
   if (estado === 'error') {
     return (
       <div className="space-y-4">
-        <PageHeaderCard title="Ayuda FLITO" subtitle={SUBTITULO} />
+        <PageHeaderCard {...CABECERA} miga={[]} />
         <ErrorAyuda titulo="No se pudo cargar el índice de ayuda." onReintentar={reintentar} />
       </div>
     );
@@ -118,40 +117,41 @@ export default function AyudaIndice() {
 
   return (
     <div className="space-y-6">
-      <PageHeaderCard title="Ayuda FLITO" subtitle={SUBTITULO} />
-      <div className="space-y-2">
+      <PageHeaderCard {...CABECERA} miga={[]} />
+      <div className="card space-y-2">
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-0 basis-full lg:max-w-xl lg:flex-1 lg:basis-auto">
             <FlitField label="Buscar fichas">
+              <span className="relative block">
+                <Icono
+                  nombre="buscar"
+                  size={18}
+                  className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[color:var(--color-text-tertiary)]"
+                />
               <input
                 ref={inputBuscarRef}
                 id="ayuda-buscar-fichas"
                 type="search"
-                className={flitInp}
+                className={`${flitInp} h-10 pl-10`}
                 placeholder="Buscar fichas…"
                 value={consulta}
                 onChange={(e) => setConsulta(e.target.value)}
                 maxLength={100}
                 autoComplete="off"
               />
+              </span>
             </FlitField>
           </div>
           {consulta !== '' && (
-            <button
-              type="button"
-              className={flitBtnSecondary}
-              style={flitBtnSecondaryStyle}
-              onClick={limpiarBusqueda}
-            >
+            <GradientButton type="button" variant="secondary" onClick={limpiarBusqueda}>
               Limpiar búsqueda
-            </button>
+            </GradientButton>
           )}
         </div>
         <p
           role="status"
           aria-live="polite"
-          className="min-h-[1.25rem] break-words text-sm"
-          style={{ color: 'var(--flit-text-secondary)' }}
+          className="min-h-[1.25rem] break-words text-sm text-[color:var(--color-text-secondary)]"
         >
           {anuncioVigente && (resultados.length === 0
             ? <AyudaSinResultados consulta={q} />
@@ -165,33 +165,28 @@ export default function AyudaIndice() {
             <section key={grupo} aria-labelledby={`ayuda-grupo-${grupo}`}>
               <h2
                 id={`ayuda-grupo-${grupo}`}
-                className="mb-2 text-xs font-semibold uppercase tracking-[0.18em]"
-                style={{ color: 'var(--flit-text-secondary)' }}
+                className="mb-3 text-lg font-medium text-[color:var(--color-text-primary)]"
               >
                 {GRUPO_AYUDA_LABEL[grupo]}
               </h2>
-              <div className="overflow-hidden" style={tarjeta}>
-                <ul>
-                  {items.map((entrada, idx) => (
-                    <li key={entrada.clave} style={idx > 0 ? { borderTop: '1px solid var(--flit-border-soft)' } : undefined}>
-                      <FilaFicha entrada={entrada} ficha={fichas.get(entrada.clave) ?? null} />
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <ul className={REJILLA}>
+                {items.map((entrada) => (
+                  <li key={entrada.clave} className="min-w-0">
+                    <FilaFicha entrada={entrada} ficha={fichas.get(entrada.clave) ?? null} />
+                  </li>
+                ))}
+              </ul>
             </section>
           ))}
         </nav>
       ) : resultados.length > 0 && (
-        <div className="overflow-hidden" style={tarjeta}>
-          <ol aria-label="Resultados de la búsqueda">
-            {resultados.map(({ entrada }, idx) => (
-              <li key={entrada.clave} style={idx > 0 ? { borderTop: '1px solid var(--flit-border-soft)' } : undefined}>
-                <FilaFicha entrada={entrada} ficha={fichas.get(entrada.clave) ?? null} conGrupo />
-              </li>
-            ))}
-          </ol>
-        </div>
+        <ol aria-label="Resultados de la búsqueda" className={REJILLA}>
+          {resultados.map(({ entrada }) => (
+            <li key={entrada.clave} className="min-w-0">
+              <FilaFicha entrada={entrada} ficha={fichas.get(entrada.clave) ?? null} conGrupo />
+            </li>
+          ))}
+        </ol>
       )}
     </div>
   );
@@ -208,24 +203,23 @@ export function FilaFicha(
     <Link
       to={`/flito/ayuda/${entrada.clave}`}
       aria-label={nombre}
-      className="flit-focus flex items-center gap-3 px-5 py-4 transition-colors hover:bg-[color:var(--flit-bg-app)]"
+      data-kit="acceso"
+      className="flit-focus flex h-full min-h-[72px] items-start gap-3.5 rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] p-4 transition-colors hover:border-[color:var(--kit-azul)] hover:bg-[var(--kit-hover)]"
     >
+      <IconoModulo clave={entrada.clave} disco size={40} className="shrink-0" />
       <span className="min-w-0 flex-1">
         {conGrupo && (
           <span
-            className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em]"
-            style={{ color: 'var(--flit-text-secondary)' }}
+            className="mb-1 block text-xs font-light text-[color:var(--color-text-tertiary)]"
             data-testid="ayuda-fila-grupo"
           >
             {grupo}
           </span>
         )}
-        <span className="block break-words text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{entrada.etiqueta}</span>
-        <span className="mt-0.5 block break-words text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{resumenDeEntrada(entrada, ficha)}</span>
-        {pendiente && <span className="mt-2 block sm:hidden"><StatusChip tone="active">Ficha pendiente</StatusChip></span>}
+        <span className="block break-words text-base font-semibold text-[color:var(--color-action)]">{entrada.etiqueta}</span>
+        <span className="mt-0.5 block break-words text-sm text-[color:var(--color-text-tertiary)]">{resumenDeEntrada(entrada, ficha)}</span>
+        {pendiente && <span className="mt-2 block"><StatusChip tone="active">Ficha pendiente</StatusChip></span>}
       </span>
-      {pendiente && <span className="hidden sm:inline-flex"><StatusChip tone="active">Ficha pendiente</StatusChip></span>}
-      <span aria-hidden="true" className="text-lg" style={{ color: 'var(--flit-text-muted)' }}>→</span>
     </Link>
   );
 }
