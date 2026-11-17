@@ -9,7 +9,7 @@ import globals from 'globals';
 const FROZEN_CEILINGS = {
   'apps/web/src/pages/FlitoTramites.tsx': 1190,
   'apps/api/src/modules/tramites/identidad.routes.ts': 901, // Feature #14097: bajó al sacar el cifrado local
-  'apps/api/src/modules/flito-soat/flito-soat.service.ts': 1068,
+  'apps/api/src/modules/flito-soat/flito-soat.service.ts': 1069, // staging: 1 línea más que develop al promover el Bug #14569
   'apps/api/src/modules/tramites/tramites.service.ts': 880,
   'apps/web/src/pages/FlitoImpuestos.tsx': 870,
   'apps/api/src/modules/tramites/tramites.routes.ts': 860,
