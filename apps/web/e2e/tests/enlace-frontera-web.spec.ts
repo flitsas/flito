@@ -53,9 +53,9 @@ const enlaceMenu = (page: Page, nombre: string) => nav(page).getByRole('link', {
 const casillaPago = (page: Page) => page.getByRole('checkbox', { name: 'Incluir datos de pago y trazabilidad', exact: true });
 
 // Shell del UI Kit 2026 (Épica #14560): el dock pinta las secciones del menú original (Gestión, Finanzas, …) y
-// una sección de un solo módulo se pinta como enlace directo. El buscador del topbar se llama «Buscar placa, trámite o
-// módulo» (WCAG 2.5.3: el nombre accesible empieza por el texto visible).
-const buscadorTopbar = (page: Page) => page.getByRole('button', { name: /^Buscar placa, trámite o módulo/ });
+// una sección de un solo módulo se pinta como enlace directo. El buscador del topbar se llama «Buscar o ir a
+// sección» (WCAG 2.5.3: el nombre accesible empieza por el texto visible).
+const buscadorTopbar = (page: Page) => page.getByRole('button', { name: /^Buscar o ir a sección/ });
 
 async function abrirSeccion(page: Page, seccion: string) {
   await expect(buscadorTopbar(page)).toBeVisible();

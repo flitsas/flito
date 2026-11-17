@@ -174,7 +174,7 @@ export function MarcoComparendos({ nav, acciones, children }: PropsMarco) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-ancho="completo">
       <PageHeaderCard title={TITULO} subtitle={SUBTITULO[nav.vista]} actions={acciones} />
 
       {/* Pestañas de línea del kit (`.kit-pestanas`). No se usa `<Pestanas onElegir>` porque no admite

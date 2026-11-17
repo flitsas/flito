@@ -7,8 +7,8 @@ import {
 
 // Rediseño S6 / shell S0 (Épica #14560): la barra lateral pasó a barra superior + dock inferior. El
 // dock reparte los módulos e Inicio; «Ayuda» vive en el menú de usuario de la barra superior (última
-// entrada antes de «Cerrar sesión»). El buscador de la barra se llama «Buscar placa, trámite o módulo».
-const BUSCADOR = /Buscar placa, trámite o módulo/;
+// entrada antes de «Cerrar sesión»). El buscador de la barra se llama «Buscar o ir a sección».
+const BUSCADOR = /Buscar o ir a sección/;
 
 /** Abre el menú de usuario y devuelve su entrada «Ayuda». */
 async function entradaAyuda(page: import('@playwright/test').Page) {

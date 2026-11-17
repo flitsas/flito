@@ -382,7 +382,7 @@ test.describe('Kit FLIT · tema oscuro completo (HU #11899)', () => {
     const puntos: Array<[string, Locator]> = [
       ['título de página', page.getByRole('heading', { name: 'SOAT', exact: true })],
       ['subtítulo de la tarjeta de cabecera', page.getByText('Cola de adquisición del SOAT', { exact: false })],
-      ['trigger ⌘K de la topbar', topbar(page).getByRole('button', { name: /^Buscar placa, trámite o módulo/ })],
+      ['trigger ⌘K de la topbar', topbar(page).getByRole('button', { name: /^Buscar o ir a sección/ })],
       ['cabecera de tabla', tabla(page).locator('th').filter({ hasText: /\S/ }).first()],
       ['celda de tabla', tabla(page).getByRole('cell').filter({ hasText: 'TST099' }).first()],
     ];

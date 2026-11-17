@@ -125,7 +125,7 @@ test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
     await page.goto('/');
     const barra = page.getByRole('banner');
     await expect(barra.getByRole('link', { name: 'FLITO, ir al inicio' })).toBeVisible();
-    await expect(barra.getByRole('button', { name: /^Buscar placa, trámite o módulo/ })).toBeVisible();
+    await expect(barra.getByRole('button', { name: /^Buscar o ir a sección/ })).toBeVisible();
     await expect(barra.getByRole('button', { name: 'Tema oscuro' })).toBeVisible();
     await expect(barra.getByRole('button', { name: /^Menú de usuario/ })).toBeVisible();
     await expect(barra.getByRole('button', { name: /Notificaciones/ })).toHaveCount(0);
@@ -456,7 +456,7 @@ for (const width of [360, 390]) test(`mobile ${width} px: sin dock; el ☰ cabe 
 // puerta —menú y buscador— y no el contenido de la cola. Viven en Gestión, subgrupo «SOAT e Impuestos».
 const PANEL_GESTION = '#flit-navbar-panel-gestion';
 const buscadorTopbar = (page: import('@playwright/test').Page) =>
-  page.getByRole('button', { name: /^Buscar placa, trámite o módulo/ });
+  page.getByRole('button', { name: /^Buscar o ir a sección/ });
 
 test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });

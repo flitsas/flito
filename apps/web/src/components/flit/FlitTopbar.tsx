@@ -8,7 +8,7 @@ import { Icono } from './kit/Icono';
 
 /**
  * Barra superior del UI Kit 2026 (`header.barra` de index.html de la propuesta-2; SuiteShell de flit develop):
- * marca por tema + «FLITO» · buscador «Buscar placa, trámite o módulo» (Ctrl K) · interruptor de tema del kit ·
+ * marca por tema + «FLITO» · buscador «Buscar o ir a sección» (Ctrl K) · interruptor de tema del kit ·
  * usuario (nombre, avatar con aro turquesa, puntos y menú: perfil, ayuda, contraseña y salir).
  * Solo presentación: la sesión, el perfil y la salida son los de siempre. Administración vive en el dock, como
  * sección del menú (SECTION_ORDER), no aquí. Por debajo de 1024 px (sin dock) el ☰ abre el menú lateral.
@@ -82,9 +82,9 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar, sidebarAbiert
         <span className="barra__producto">FLITO</span>
       </Link>
       <div className="barra__acciones">
-        <button type="button" className="buscar" onClick={onOpenPalette} aria-label={`Buscar placa, trámite o módulo (${isMac ? 'Command' : 'Control'} K)`}>
+        <button type="button" className="buscar" onClick={onOpenPalette} aria-label={`Buscar o ir a sección (${isMac ? 'Command' : 'Control'} K)`}>
           <Icono nombre="buscar" size={20} />
-          <span>Buscar placa, trámite o módulo</span>
+          <span>Buscar o ir a sección…</span>
           <kbd aria-hidden="true">{isMac ? '⌘ K' : 'Ctrl K'}</kbd>
         </button>
 

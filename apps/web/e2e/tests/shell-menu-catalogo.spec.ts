@@ -33,7 +33,7 @@ const nombreItem = (slug: string) => ARBOL_PERMISOS.find((n) => n.tipo === 'item
 const sinPerfil = (rol: string) => FUNCIONES_POR_ROL[rol].filter((f) => !(FUNCIONES_PERFIL as readonly string[]).includes(f));
 
 async function listo(page: Page) {
-  await expect(page.getByRole('button', { name: /^Buscar placa, trámite o módulo/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Buscar o ir a sección/ })).toBeVisible();
 }
 
 /** Nombres visibles (el <strong>) de las entradas del menú de usuario, sin la línea de detalle. */

@@ -302,3 +302,7 @@ html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-
 
 /* «Más» del dock: los puntos del kit en horizontal, para no confundirse con el glifo de Tablero (rejilla). */
 .kico--mas svg { transform: rotate(90deg); }
+
+/* ---------- Ancho completo (Épica #14560): las páginas con tablas muy anchas (Comparendos, 13 columnas) marcan su raíz
+   con data-ancho="completo" y el contenido del shell suelta el tope de 1680 px del kit, como en develop. ---------- */
+.kit-main:has([data-ancho="completo"]) { max-width: none; }

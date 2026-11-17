@@ -35,8 +35,8 @@ const nav = (page: Page) => page.getByRole('navigation', { name: 'Navegación pr
 
 /** Abre la sección del dock si existe (si no existe, no hay nada que abrir: es parte del aserto). */
 async function abrirSeccion(page: Page, seccion: string) {
-  // Shell S0 (Épica #14560): el buscador de la barra superior se llama «Buscar placa, trámite o módulo».
-  await expect(page.getByRole('button', { name: /Buscar placa, trámite o módulo/ })).toBeVisible();
+  // Shell S0 (Épica #14560): el buscador de la barra superior se llama «Buscar o ir a sección».
+  await expect(page.getByRole('button', { name: /Buscar o ir a sección/ })).toBeVisible();
   const boton = nav(page).getByRole('button', { name: seccion, exact: true });
   if (await boton.count()) await boton.click();
 }
