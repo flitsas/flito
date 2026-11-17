@@ -164,7 +164,7 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
     ]);
   });
 
-  test('visor: el PDF cifrado dice que está protegido, no «No password given»', async ({ page }) => {
+  async function abrirVisorProtegido(page: Page) {
     await loginAs(page, USUARIO);
     await montar(page);
     await page.route(/\/api\/flito\/soat\/s2\/soportes$/, (route) => json(route, [{
@@ -177,9 +177,32 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
     await page.goto('/flito/soat');
     const dialogo = await abrirDetalle(page);
     await dialogo.getByRole('button', { name: 'Ver soporte' }).click();
+  }
+
+  test('visor: el PDF cifrado dice que está protegido, no «No password given»', async ({ page }) => {
+    await abrirVisorProtegido(page);
 
     await expect(page.getByText('Este documento está protegido con contraseña y no se puede previsualizar.')).toBeVisible();
     await expect(page.getByText(/No password given/i)).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Abrir en una pestaña nueva' })).toBeVisible();
+  });
+
+  test('visor a 375 px: la lista va arriba y el aviso de protegido y su enlace caben en la pantalla', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await abrirVisorProtegido(page);
+    const aviso = page.getByText('Este documento está protegido con contraseña y no se puede previsualizar.');
+    const enlace = page.getByRole('link', { name: 'Abrir en una pestaña nueva' });
+    await expect(aviso).toBeVisible();
+    await expect(enlace).toBeVisible();
+    for (const el of [aviso, enlace]) {
+      const caja = await el.boundingBox();
+      expect(caja).not.toBeNull();
+      expect(caja!.x).toBeGreaterThanOrEqual(0);
+      expect(caja!.x + caja!.width).toBeLessThanOrEqual(375);
+      // Ancho útil: un panel aplastado a ~40 px parte la frase palabra por palabra.
+      expect(caja!.width).toBeGreaterThan(120);
+    }
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(desborde).toBeLessThanOrEqual(0);
   });
 });
