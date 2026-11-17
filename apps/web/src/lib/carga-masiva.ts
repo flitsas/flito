@@ -581,6 +581,11 @@ export function mensajeErrorCargaMasiva(e: unknown): string {
   if (status === 413 || /request entity too large/i.test(texto)) return COPY_413;
   if (status === 504 || status === 502 || /gateway time-?out/i.test(texto)) return COPY_504;
   if (pareceHtmlProxy(texto)) return COPY_HTML;
+  // 429 con copy propio del API (p. ej. el límite de abrir PDF con el nombre del archivo, BUG #14569).
+  if (status === 429 && e instanceof ApiError) {
+    const error = (e.rawDetails as { error?: unknown } | null | undefined)?.error;
+    if (typeof error === 'string' && error.trim()) return error.trim();
+  }
   if (e instanceof ZipIlegibleError) return e.message;
   return errorMessage(e);
 }
@@ -648,7 +653,9 @@ export function liquidacionesPrimero(items: readonly ItemCarga[], faseDefecto: F
  * sería peso muerto en cada tanda. `opciones.contrasenaDe` (BUG #14569, reintento de PDF protegidos de
  * SOAT) añade a cada tanda `contrasenas`: UN string JSON con un arreglo POR POSICIÓN, del mismo largo
  * que los `archivos` de ESA tanda (`''` = sin clave). Se arma recorriendo la misma tanda, igual que
- * `rutas`, para que la cardinalidad no se pueda desalinear. Si `campos.fase` trae una fase (Impuestos), el lote se ordena con
+ * `rutas`, para que la cardinalidad no se pueda desalinear. `opciones.nombreComoClaveDe` añade, igual
+ * alineado, `nombresComoClave` (arreglo de booleanos: probar el nombre del archivo como clave). Cada
+ * uno se omite en la tanda que no lo usa (sin claves escritas / sin ningún `true`). Si `campos.fase` trae una fase (Impuestos), el lote se ordena con
  * `liquidacionesPrimero` ANTES de partirlo en tandas; sin ella (SOAT) el orden es el de la selección.
  */
 export async function enviarCargaEnTandas<T extends object>(
@@ -656,7 +663,11 @@ export async function enviarCargaEnTandas<T extends object>(
   seleccionados: readonly ItemCarga[],
   onProgreso: (desde: number, total: number) => void,
   campos?: Record<string, string>,
-  opciones?: { conRutas?: boolean; contrasenaDe?: (item: ItemCarga) => string },
+  opciones?: {
+    conRutas?: boolean;
+    contrasenaDe?: (item: ItemCarga) => string;
+    nombreComoClaveDe?: (item: ItemCarga) => boolean;
+  },
 ): Promise<ResultadoTandasCarga<T>> {
   // Solo cuando viaja `fase` (Impuestos) se reordena; SOAT llama sin fase y sale en el orden de la
   // selección. Con COPIA: la selección del operador no se muta.
@@ -679,8 +690,19 @@ export async function enviarCargaEnTandas<T extends object>(
         // El suelto va con `''`: ocupa su sitio en la lista sin decirle nada al API sobre la marca.
         if (conRutas) form.append('rutas', item.ruta ?? '');
       }
+      // Cada campo viaja SOLO si la tanda lo usa: el API cuenta contra el límite de claves escritas
+      // toda petición que traiga `contrasenas` (aunque vayan vacías), y contra el de nombres la que
+      // traiga algún `true` en `nombresComoClave`.
       const contrasenaDe = opciones?.contrasenaDe;
-      if (contrasenaDe) form.append('contrasenas', JSON.stringify(tanda.map((item) => contrasenaDe(item))));
+      if (contrasenaDe) {
+        const claves = tanda.map((item) => contrasenaDe(item));
+        if (claves.some((c) => c !== '')) form.append('contrasenas', JSON.stringify(claves));
+      }
+      const nombreComoClaveDe = opciones?.nombreComoClaveDe;
+      if (nombreComoClaveDe) {
+        const nombres = tanda.map((item) => nombreComoClaveDe(item));
+        if (nombres.some(Boolean)) form.append('nombresComoClave', JSON.stringify(nombres));
+      }
       if (campos) {
         for (const [clave, valor] of Object.entries(campos)) form.append(clave, valor);
       }

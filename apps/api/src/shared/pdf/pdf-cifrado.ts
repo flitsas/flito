@@ -47,6 +47,27 @@ function podriaEstarCifrado(buf: Buffer): boolean {
 const contrasenaValida = (c: string): boolean =>
   c.length >= 1 && c.length <= MAX_CONTRASENA && !/[\r\n]/.test(c);
 
+/** Tope de variantes del modo «nombre del archivo como contraseña»: cada una es un proceso qpdf. */
+const MAX_CANDIDATOS = 3;
+
+/**
+ * Claves candidatas derivadas del nombre del archivo (Bug #14569, punto 10): muchas aseguradoras
+ * protegen el comprobante con la placa o la cédula y lo nombran igual. En este orden y sin repetir:
+ * (a) el nombre sin la extensión final `.pdf` (sin importar mayúsculas), tal cual; (b) ese mismo con
+ * `trim`; (c) en MAYÚSCULAS y sin espacios ni guiones (`abc-123 .PDF` → `ABC123`). Se descartan las
+ * vacías, las de más de 128 caracteres y las que traen saltos de línea. Puro: el nombre-clave es PII
+ * y quien lo use no lo registra en ningún lado.
+ */
+export function clavesDesdeNombre(nombre: string): string[] {
+  const base = nombre.replace(/\.pdf$/i, '');
+  const variantes = [base, base.trim(), base.toUpperCase().replace(/[ -]+/g, '')];
+  const salida: string[] = [];
+  for (const v of variantes) {
+    if (contrasenaValida(v) && !salida.includes(v)) salida.push(v);
+  }
+  return salida.slice(0, MAX_CANDIDATOS);
+}
+
 /**
  * Corre qpdf y resuelve con su código de salida. Rechaza con `QpdfNoDisponibleError` si el binario
  * no existe (ENOENT), si lo mata el timeout o si no hay código numérico. El stderr NO se registra:
@@ -67,12 +88,29 @@ function correrQpdf(args: string[], stdin?: string): Promise<number> {
   });
 }
 
+/** Descifra con una clave: el buffer descifrado, o `null` si la clave no lo abre (qpdf código 2). */
+async function descifrar(dir: string, entrada: string, clave: string): Promise<Buffer | null> {
+  const salida = join(dir, 'out.pdf');
+  // 0 = descifrado; 3 = descifrado con avisos; 2 = error (clave incorrecta).
+  // `--deterministic-id`: mismo PDF de entrada → mismos bytes de salida (dedup por sha256).
+  const codigo = await correrQpdf(['--password-file=-', '--deterministic-id', '--decrypt', entrada, salida], clave);
+  if (codigo === 0 || codigo === 3) return readFile(salida);
+  if (codigo === 2) return null;
+  log.warn({ exitCode: codigo }, 'qpdf --decrypt devolvió un código inesperado');
+  throw new QpdfNoDisponibleError(`código ${codigo}`);
+}
+
 /**
  * Abre un PDF. Sin cifrado de apertura devuelve el MISMO buffer (el dedup por hash depende de que
  * un archivo idéntico siga siendo idéntico). Cifrado y sin clave → `requiere-contrasena`. Con clave
  * → el PDF descifrado, o `PdfContrasenaIncorrectaError` si la clave no lo abre.
+ *
+ * `candidatos` (modo «nombre del archivo como contraseña», Bug #14569): solo se usan si NO vino una
+ * clave escrita, que tiene prioridad. Se prueban en orden tras UN solo `--requires-password`; la
+ * primera que abre gana y, si ninguna abre, el resultado es `requiere-contrasena` (como sin clave).
+ * No se informa cuál variante abrió.
  */
-export async function abrirPdf(buf: Buffer, contrasena?: string): Promise<AperturaPdf> {
+export async function abrirPdf(buf: Buffer, contrasena?: string, candidatos: readonly string[] = []): Promise<AperturaPdf> {
   if (!podriaEstarCifrado(buf)) return { estado: 'abierto', buffer: buf };
 
   const dir = await mkdtemp(join(tmpdir(), 'flito-pdf-'));
@@ -87,17 +125,19 @@ export async function abrirPdf(buf: Buffer, contrasena?: string): Promise<Apertu
       log.warn({ exitCode: requiere }, 'qpdf --requires-password devolvió un código inesperado');
       throw new QpdfNoDisponibleError(`código ${requiere}`);
     }
-    if (contrasena === undefined || contrasena === '') return { estado: 'requiere-contrasena' };
+    if (contrasena === undefined || contrasena === '') {
+      for (const clave of candidatos.slice(0, MAX_CANDIDATOS)) {
+        if (!contrasenaValida(clave)) continue;
+        const abierto = await descifrar(dir, entrada, clave);
+        if (abierto) return { estado: 'abierto', buffer: abierto };
+      }
+      return { estado: 'requiere-contrasena' };
+    }
     if (!contrasenaValida(contrasena)) throw new PdfContrasenaIncorrectaError();
 
-    const salida = join(dir, 'out.pdf');
-    // 0 = descifrado; 3 = descifrado con avisos; 2 = error (clave incorrecta).
-    // `--deterministic-id`: mismo PDF de entrada → mismos bytes de salida (dedup por sha256).
-    const codigo = await correrQpdf(['--password-file=-', '--deterministic-id', '--decrypt', entrada, salida], contrasena);
-    if (codigo === 0 || codigo === 3) return { estado: 'abierto', buffer: await readFile(salida) };
-    if (codigo === 2) throw new PdfContrasenaIncorrectaError();
-    log.warn({ exitCode: codigo }, 'qpdf --decrypt devolvió un código inesperado');
-    throw new QpdfNoDisponibleError(`código ${codigo}`);
+    const abierto = await descifrar(dir, entrada, contrasena);
+    if (abierto) return { estado: 'abierto', buffer: abierto };
+    throw new PdfContrasenaIncorrectaError();
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

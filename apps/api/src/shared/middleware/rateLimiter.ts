@@ -453,6 +453,33 @@ export const soatPdfContrasenaLimiter = rateLimit({
 });
 
 /**
+ * Modo «nombre del archivo como contraseña» de la carga de comprobantes SOAT (Bug #14569, punto 10;
+ * calco de {@link soatPdfContrasenaLimiter}). Cada archivo protegido prueba hasta 3 variantes de su
+ * nombre, así que el cupo es propio y no gasta el de contraseñas escritas. 60 peticiones en quince
+ * minutos = 300 archivos a 5 por petición (`CARGA_MASIVA_ARCHIVOS_POR_PETICION`): dos lotes
+ * completos de 150. Va DESPUÉS de multer (el flag viene en el body) y solo cuenta las peticiones que
+ * lo piden: `usarNombreComoClave === 'true'` (individual) o al menos un `true` en `nombresComoClave`
+ * (masiva, arreglo JSON por posición). Llave y store propios.
+ */
+/** ¿`nombresComoClave` (JSON) trae al menos un `true`? Mal formado = no (la ruta lo rechaza con 400). */
+function pideNombreEnLote(bruto: unknown): boolean {
+  if (typeof bruto !== 'string' || bruto === '') return false;
+  try { const v: unknown = JSON.parse(bruto); return Array.isArray(v) && v.includes(true); } catch { return false; }
+}
+
+export const soatPdfNombreClaveLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('soat-pdf-nombre:'),
+  handler: frenoConRastro('soat-pdf-nombre'),
+  skip: (req) => req.body?.usarNombreComoClave !== 'true' && !pideNombreEnLote(req.body?.nombresComoClave),
+  message: { error: 'Demasiados intentos de abrir PDFs protegidos con el nombre del archivo. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:soat-pdf-nombre:'),
+});
+
+/**
  * Carga de comprobantes universales (`POST /api/flito/comprobantes`, HU #12629 AC9; calco de
  * {@link soatLecturaFacturaLimiter}): cada petición son hasta 5 archivos que pasan por el OCR
  * (gasto externo por byte, como la lectura de factura) y el lote entero son hasta 150 archivos = 30
