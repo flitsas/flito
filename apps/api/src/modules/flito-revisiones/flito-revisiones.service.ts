@@ -22,6 +22,19 @@ import { programarEnvioComprobante } from '../flito-impuestos/flito-impuestos.en
 
 export interface RevisionCtx { userId: number; username: string; role: string }
 
+/**
+ * Estado en que tiene que estar el registro para que un documento de cada flujo se ate a él (Bug
+ * #14569). Una sola fuente para las guardas de `aplicarFacturaSoat` / `resolverFacturaVenta` /
+ * `resolverImpuesto` y para el buscador de candidatos (`flito-revisiones.candidatos.ts`): si el
+ * buscador ofreciera registros de otro estado, la persona elegiría uno que el resolver rechaza.
+ * Derechos no está: su condición es el estado de FLIT del trámite (`sqlEstadosConDerecho`).
+ */
+export const ESTADO_CANDIDATO = {
+  [FlujoRevision.SOAT]: EstadoSoat.SOLICITADO,
+  [FlujoRevision.IMPUESTOS]: EstadoImpuesto.SOLICITADO,
+  [FlujoRevision.FACTURA_VENTA]: EstadoImpuesto.PENDIENTE,
+} as const;
+
 export class RevisionError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -199,7 +212,7 @@ export async function aplicarFacturaSoat(
 ): Promise<void> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, soatId)).limit(1);
   if (!soat) throw new RevisionError(404, 'El SOAT indicado no existe');
-  if (soat.estado !== EstadoSoat.SOLICITADO) {
+  if (soat.estado !== ESTADO_CANDIDATO[FlujoRevision.SOAT]) {
     throw new RevisionError(400, 'Solo se puede conciliar un documento contra un SOAT en adquisición');
   }
 
@@ -226,7 +239,7 @@ export async function aplicarFacturaSoat(
 async function resolverFacturaVenta(revisionId: string, soporteId: string, motivoOriginal: string, impuestoId: string, extraccion: ExtraccionFacturaVenta, motivo: string, ctx: RevisionCtx): Promise<void> {
   const [impuesto] = await db.select().from(flitoImpuestos).where(eq(flitoImpuestos.id, impuestoId)).limit(1);
   if (!impuesto) throw new RevisionError(404, 'El impuesto indicado no existe');
-  if (impuesto.estado !== EstadoImpuesto.PENDIENTE) {
+  if (impuesto.estado !== ESTADO_CANDIDATO[FlujoRevision.FACTURA_VENTA]) {
     throw new RevisionError(400, 'La factura de venta solo se ata antes del envío (impuesto en Pendiente).');
   }
 
@@ -271,7 +284,7 @@ async function resolverImpuesto(revisionId: string, soporteId: string, motivoOri
     return;
   }
 
-  if (impuesto.estado !== EstadoImpuesto.SOLICITADO) {
+  if (impuesto.estado !== ESTADO_CANDIDATO[FlujoRevision.IMPUESTOS]) {
     throw new RevisionError(400, 'Solo se puede conciliar un documento contra un impuesto en gestión');
   }
 

@@ -9,12 +9,18 @@ import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { FlujoRevision } from '@operaciones/shared-types';
+import {
+  CANDIDATOS_REVISION_LIMITE, CANDIDATOS_REVISION_LIMITE_MAX, CANDIDATOS_REVISION_PLACA_MAX,
+  CANDIDATOS_REVISION_TEXTO_MAX, CANDIDATOS_REVISION_TEXTO_MIN, CANDIDATOS_REVISION_VIN_MAX, FlujoRevision,
+} from '@operaciones/shared-types';
+import { soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
+import { esUuid } from '../../shared/utils/uuid.js';
 import { presignedGetEntityDocument } from '../../services/storage.js';
 import {
   camposEsperados, descartar, listar, resolver, storageKeySoporte,
   RevisionError, type RevisionCtx,
 } from './flito-revisiones.service.js';
+import { buscarCandidatos } from './flito-revisiones.candidatos.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -68,6 +74,33 @@ router.post('/:id/resolver', exigirFuncion('revisiones.revision.resolver'), asyn
     await resolver(req.params.id, parsed.data.registroId, parsed.data.campos, parsed.data.motivo, ctxDe(req.user!));
     await audit(req, { action: 'update', resource: 'flito_revision', resourceId: req.params.id, detail: `Revisión resuelta sobre ${parsed.data.registroId}: ${parsed.data.motivo.trim()}` });
     res.json({ ok: true });
+  } catch (e) { handleError(res, e); }
+});
+
+// POST /:id/candidatos/buscar — buscador de trámite para resolver (Bug #14569, punto 8). Las llaves
+// (placa, VIN, N.º FLIT) van en el BODY para que no queden en la URL ni en los logs de acceso
+// (AGENTS.md §14). Misma función que resolver: solo sirve a esa acción. `soloSinEnlace`: busca entre
+// TODOS los registros del módulo, igual que el buscador de comprobantes.
+// Sin `logPiiAccess`: la respuesta no proyecta columnas personales del titular (ni compradores ni
+// documento). Sin limitador propio: no es OCR ni carga masiva (AGENTS.md §18), va tras auth + función
+// de Operaciones, cada consulta está acotada a `limite` ≤ 50 y lleva un predicado parametrizado.
+const textoBuscar = z.string().trim().max(CANDIDATOS_REVISION_TEXTO_MAX)
+  .refine((v) => v === '' || v.length >= CANDIDATOS_REVISION_TEXTO_MIN, `Escribe entre ${CANDIDATOS_REVISION_TEXTO_MIN} y ${CANDIDATOS_REVISION_TEXTO_MAX} caracteres`);
+export const buscarCandidatosSchema = z.object({
+  texto: textoBuscar.optional(),
+  placa: z.string().trim().max(CANDIDATOS_REVISION_PLACA_MAX).optional(),
+  vin: z.string().trim().max(CANDIDATOS_REVISION_VIN_MAX).optional(),
+  limite: z.number().int().min(1).max(CANDIDATOS_REVISION_LIMITE_MAX).default(CANDIDATOS_REVISION_LIMITE),
+}).strict();
+router.post('/:id/candidatos/buscar', soloSinEnlace(), exigirFuncion('revisiones.revision.resolver'), async (req: Request, res: Response) => {
+  // Un id sin forma de uuid contra una columna `uuid` sería un 22P02 (500): es «no existe», sin consultar.
+  if (!esUuid(req.params.id)) { res.status(404).json({ error: 'La revisión no existe' }); return; }
+  const parsed = buscarCandidatosSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  try {
+    const r = await buscarCandidatos(req.params.id, parsed.data, req.user!);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(r);
   } catch (e) { handleError(res, e); }
 });
 

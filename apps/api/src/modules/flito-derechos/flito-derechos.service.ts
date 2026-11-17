@@ -165,8 +165,8 @@ export interface CandidatoTramite {
  */
 const FLIT_ESTADOS_CON_DERECHO = ['aprobado'] as const;
 
-/** Lista para un `IN (...)`, con cada estado como parámetro propio. */
-function sqlEstadosConDerecho() {
+/** Lista para un `IN (...)`, con cada estado como parámetro propio. Exportada para el buscador de la cola de revisión (Bug #14569). */
+export function sqlEstadosConDerecho() {
   return sql.join(FLIT_ESTADOS_CON_DERECHO.map((e) => sql`${e}`), sql`, `);
 }
 
