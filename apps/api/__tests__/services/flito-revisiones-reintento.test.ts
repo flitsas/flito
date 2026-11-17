@@ -70,6 +70,7 @@ const ocr = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
 const servicio = await import('../../src/modules/flito-revisiones/flito-revisiones.service.js');
 const storage = await import('../../src/services/storage.js');
 const { audit } = await import('../../src/shared/middleware/audit.js');
+const { umbralPara } = await import('../../src/modules/flito-parametrizacion/flito-parametrizacion.service.js');
 const { default: revisionesRoutes } = await import('../../src/modules/flito-revisiones/flito-revisiones.routes.js');
 
 const app = express();
@@ -213,6 +214,38 @@ describe('200: reemplaza la extracción y la revisión sigue abierta', () => {
     // Ahora aprueba, pero la revisión sigue abierta y conserva su motivo original.
     expect(h.updates[0].set).not.toHaveProperty('motivo');
     expect(h.updates[0].set).not.toHaveProperty('resuelto');
+  });
+
+  it('Derechos: extractor de derecho de trámite con el umbral por defecto y sin pista de organismo; placa leída; no resuelve', async () => {
+    revision('derechos', { tipo: 'derecho_tramite' });
+    vi.mocked(ocr.extraerDerechoTramite).mockResolvedValue({
+      placa: campo('XYZ789', 0.95), valorTotal: campo('85000', 0.6),
+    } as never);
+
+    const r = await post();
+
+    expect(r.status).toBe(200);
+    expect(r.body.revision).toMatchObject({ id: REV, resuelto: false });
+    expect(ocr.extraerDerechoTramite).toHaveBeenCalledTimes(1);
+    const [docArg, pista] = vi.mocked(ocr.extraerDerechoTramite).mock.calls[0];
+    expect(docArg).toMatchObject({ umbral: umbralPara(null), nombreArchivo: 'factura.pdf' });
+    expect(pista).toBeNull();
+    for (const f of ['extraerFacturaSoat', 'extraerReciboImpuesto', 'extraerReciboCaja', 'extraerFacturaVenta'] as const) {
+      expect(ocr[f]).not.toHaveBeenCalled();
+    }
+
+    expect(h.updates).toHaveLength(1);
+    const [u] = h.updates;
+    expect(u.tabla).toBe('flito_revisiones');
+    expect(u.set.extraccion).toMatchObject({ placa: { valor: 'XYZ789' }, valorTotal: { valor: '85000', confianza: 0.6 } });
+    // La placa sugerida sale de la lectura (CampoDerechoTramite.PLACA), no se conserva la anterior.
+    expect(u.set.placaSugerida).toBe('XYZ789');
+    expect(u.set).not.toHaveProperty('resuelto');
+    expect(servicio.resolver).not.toHaveBeenCalled();
+    // evaluarDerecho no aprueba (valorTotal bajo el umbral) → motivo y detalle recalculados con su copy.
+    expect(u.set.motivo).toBe('confianza_insuficiente');
+    expect(u.set.detalle).toContain('valorTotal');
+    expect(u.set.detalle).toContain(`umbral de ${umbralPara(null)}`);
   });
 
   it('Factura de venta: solo persiste los campos de esta cola, nunca los del comprador', async () => {
