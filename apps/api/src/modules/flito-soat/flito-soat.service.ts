@@ -2048,7 +2048,9 @@ export async function cargarFactura(id: string, archivo: ArchivoSubido, ctx: Soa
   const veredicto = evaluarExtraccionSoat(extraccion, { vin: datos.vin, placa: datos.placa }, umbral);
 
   if (!veredicto.aprobada && (veredicto.motivo === MotivoRevision.SIN_LLAVE_DE_CRUCE || veredicto.motivo === MotivoRevision.LLAVE_NO_CRUZA)) {
-    throw new SoatError(400, `${veredicto.detalle} No corresponde a este SOAT, así que no se guardó.`);
+    // Bug #14569: rechazo de negocio (el comprobante es de otro vehículo) → 422, para que la web muestre
+    // el motivo; un 400 queda para validación de entrada.
+    throw new SoatError(422, `${veredicto.detalle} No corresponde a este SOAT, así que no se guardó.`);
   }
 
   const hash = createHash('sha256').update(abierto.buffer).digest('hex');
