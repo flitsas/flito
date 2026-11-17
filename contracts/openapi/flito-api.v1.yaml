@@ -42482,63 +42482,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    modulo:
-                      type: string
-                    motivo:
-                      type: string
-                    detalle:
-                      type: string
-                    registroId:
-                      type:
-                        - string
-                        - "null"
-                    placaSugerida:
-                      type:
-                        - string
-                        - "null"
-                    extraccion:
-                      description: "[por verificar] el código la tipa como `unknown`."
-                    resuelto:
-                      type: boolean
-                    creadoEn:
-                      type: string
-                    soporte:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        nombreArchivo:
-                          type: string
-                        contentType:
-                          type: string
-                        tipo:
-                          type: string
-                        subidoPorNombre:
-                          type: string
-                        subidoEn:
-                          type: string
-                      required:
-                        - id
-                        - nombreArchivo
-                        - contentType
-                        - tipo
-                        - subidoPorNombre
-                        - subidoEn
-                  required:
-                    - id
-                    - modulo
-                    - motivo
-                    - detalle
-                    - registroId
-                    - placaSugerida
-                    - extraccion
-                    - resuelto
-                    - creadoEn
-                    - soporte
+                  "$ref": "#/components/schemas/Forma-bb81eb8403"
         "401":
           description: No autenticado.
           content:
@@ -42589,6 +42533,279 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  "/api/flito/revisiones/{id}/candidatos/buscar":
+    post:
+      operationId: post-api-flito-revisiones-id-candidatos-buscar
+      tags:
+        - flito-revisiones
+      summary: "POST /api/flito/revisiones/:id/candidatos/buscar"
+      description: "Fuente: apps/api/src/modules/flito-revisiones/flito-revisiones.routes.ts. Exige la función: revisiones.revision.resolver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - revisiones.revision.resolver
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                texto:
+                  type: string
+                placa:
+                  type: string
+                vin:
+                  type: string
+                limite:
+                  type: integer
+                  minimum: 1
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        idFlit:
+                          type:
+                            - string
+                            - "null"
+                        placa:
+                          type:
+                            - string
+                            - "null"
+                        vin:
+                          type:
+                            - string
+                            - "null"
+                        etiqueta:
+                          type: string
+                        detalle:
+                          type:
+                            - string
+                            - "null"
+                        coincide:
+                          type: object
+                          properties:
+                            placa:
+                              type: boolean
+                            vin:
+                              type: boolean
+                          required:
+                            - placa
+                            - vin
+                        seleccionable:
+                          type: boolean
+                        motivoNoSeleccionable:
+                          type:
+                            - string
+                            - "null"
+                      required:
+                        - id
+                        - idFlit
+                        - placa
+                        - vin
+                        - etiqueta
+                        - detalle
+                        - coincide
+                        - seleccionable
+                        - motivoNoSeleccionable
+                  total:
+                    type: number
+                  truncado:
+                    type: boolean
+                  registroActual:
+                    type:
+                      - object
+                      - "null"
+                    properties:
+                      id:
+                        type: string
+                      idFlit:
+                        type:
+                          - string
+                          - "null"
+                      placa:
+                        type:
+                          - string
+                          - "null"
+                      vin:
+                        type:
+                          - string
+                          - "null"
+                      etiqueta:
+                        type: string
+                      detalle:
+                        type:
+                          - string
+                          - "null"
+                      coincide:
+                        type: object
+                        properties:
+                          placa:
+                            type: boolean
+                          vin:
+                            type: boolean
+                        required:
+                          - placa
+                          - vin
+                      seleccionable:
+                        type: boolean
+                      motivoNoSeleccionable:
+                        type:
+                          - string
+                          - "null"
+                    required:
+                      - id
+                      - idFlit
+                      - placa
+                      - vin
+                      - etiqueta
+                      - detalle
+                      - coincide
+                      - seleccionable
+                      - motivoNoSeleccionable
+                required:
+                  - items
+                  - total
+                  - truncado
+                  - registroActual
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  details:
+                    type: object
+                    properties:
+                      formErrors:
+                        type: array
+                        items:
+                          type: string
+                      fieldErrors:
+                        type: object
+                        properties:
+                          limite:
+                            type: array
+                            items:
+                              type: string
+                          texto:
+                            type: array
+                            items:
+                              type: string
+                          placa:
+                            type: array
+                            items:
+                              type: string
+                          vin:
+                            type: array
+                            items:
+                              type: string
+                    required:
+                      - formErrors
+                      - fieldErrors
+                required:
+                  - error
+                  - details
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
   "/api/flito/revisiones/{id}/descartar":
     post:
       operationId: post-api-flito-revisiones-id-descartar
@@ -42692,6 +42909,160 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+  "/api/flito/revisiones/{id}/reintentar-lectura":
+    post:
+      operationId: post-api-flito-revisiones-id-reintentar-lectura
+      tags:
+        - flito-revisiones
+      summary: "POST /api/flito/revisiones/:id/reintentar-lectura"
+      description: "Fuente: apps/api/src/modules/flito-revisiones/flito-revisiones.routes.ts. Exige la función: revisiones.revision.resolver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - revisiones.revision.resolver
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision:
+                    "$ref": "#/components/schemas/Forma-bb81eb8403"
+                  sinLectura:
+                    type: boolean
+                  camposLeidos:
+                    type: number
+                required:
+                  - revision
+                  - sinLectura
+                  - camposLeidos
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  details:
+                    type: object
+                    properties:
+                      formErrors:
+                        type: array
+                        items:
+                          type: string
+                      fieldErrors:
+                        type: object
+                        additionalProperties:
+                          type: array
+                          items:
+                            type: string
+                    required:
+                      - formErrors
+                      - fieldErrors
+                required:
+                  - error
+                  - details
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "503":
+          description: Servicio no disponible.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
         default:
           description: Estado calculado en tiempo de ejecución.
           content:
@@ -123985,6 +124356,29 @@ components:
         - sha256
         - solicitadoAt
         - firmadoAt
+    Forma-b0d0eb5019:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        nombreArchivo:
+          type: string
+        contentType:
+          type: string
+        tipo:
+          type: string
+        subidoPorNombre:
+          type: string
+        subidoEn:
+          type: string
+      required:
+        - id
+        - nombreArchivo
+        - contentType
+        - tipo
+        - subidoPorNombre
+        - subidoEn
     Forma-b10a344d17:
       description: Forma que comparten varias operaciones.
       type: object
@@ -124553,6 +124947,97 @@ components:
         - investigacionCerradaAt
         - createdAt
         - closedAt
+    Forma-bb81eb8403:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        modulo:
+          type: string
+        motivo:
+          type: string
+        detalle:
+          type: string
+        registroId:
+          type:
+            - string
+            - "null"
+        placaSugerida:
+          type:
+            - string
+            - "null"
+        extraccion:
+          description: "[por verificar] el código la tipa como `unknown`."
+        resuelto:
+          type: boolean
+        creadoEn:
+          type: string
+        registroActual:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: string
+            idFlit:
+              type:
+                - string
+                - "null"
+            placa:
+              type:
+                - string
+                - "null"
+            vin:
+              type:
+                - string
+                - "null"
+            etiqueta:
+              type: string
+            detalle:
+              type:
+                - string
+                - "null"
+            coincide:
+              type: object
+              properties:
+                placa:
+                  type: boolean
+                vin:
+                  type: boolean
+              required:
+                - placa
+                - vin
+            seleccionable:
+              type: boolean
+            motivoNoSeleccionable:
+              type:
+                - string
+                - "null"
+          required:
+            - id
+            - idFlit
+            - placa
+            - vin
+            - etiqueta
+            - detalle
+            - coincide
+            - seleccionable
+            - motivoNoSeleccionable
+        soporte:
+          "$ref": "#/components/schemas/Forma-b0d0eb5019"
+      required:
+        - id
+        - modulo
+        - motivo
+        - detalle
+        - registroId
+        - placaSugerida
+        - extraccion
+        - resuelto
+        - creadoEn
+        - registroActual
+        - soporte
     Forma-bcc34b8628:
       description: Forma que comparten varias operaciones.
       type: object

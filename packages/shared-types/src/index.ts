@@ -161,3 +161,5 @@ export * from './rum.js';
 export * from './flito-proveedores.js';
 // Tarifas de proveedor: costo que cada proveedor le cobra a FLIT (Épica #13763, ADR-0041).
 export * from './flito-tarifas-proveedor.js';
+// Buscador de trámite de la cola de revisión OCR (Bug #14569, punto 8).
+export * from './flito-revisiones.js';

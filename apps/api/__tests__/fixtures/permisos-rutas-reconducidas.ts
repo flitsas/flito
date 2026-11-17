@@ -154,6 +154,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'GET', ruta: '/campos/:modulo', codigo: 'revisiones.campos.ver' },
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'GET', ruta: '/soporte/:soporteId/archivo', codigo: 'revisiones.soporte.descargar' },
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'POST', ruta: '/:id/resolver', codigo: 'revisiones.revision.resolver' },
+  // Bug #14569: buscar candidatos y reintentar la lectura OCR reutilizan `revisiones.revision.resolver` (solo admin).
+  { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'POST', ruta: '/:id/candidatos/buscar', codigo: 'revisiones.revision.resolver' },
+  { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'POST', ruta: '/:id/reintentar-lectura', codigo: 'revisiones.revision.resolver' },
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'POST', ruta: '/:id/descartar', codigo: 'revisiones.revision.descartar' },
   // flito-sync/flito-sync.routes.ts
   { fichero: 'flito-sync/flito-sync.routes.ts', metodo: 'GET', ruta: '/estado', codigo: 'sync.sync.ver_estado' },
