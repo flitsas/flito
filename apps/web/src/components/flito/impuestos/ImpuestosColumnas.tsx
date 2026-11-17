@@ -36,11 +36,11 @@ export function columnasImpuestos({ seleccion, accionTramite, acciones }: Contex
       key: 'sel', etiqueta: 'Seleccionar', className: 'w-10',
       // El nombre accesible cambia con el sentido: ya no marca «los que admiten acción masiva».
       header: (
-        <input type="checkbox" className="h-4 w-4 accent-[var(--kit-azul)]" aria-label="Seleccionar las filas de esta página"
+        <input type="checkbox" className="size-4 accent-[var(--kit-azul)]" aria-label="Seleccionar las filas de esta página"
           checked={seleccion.todas} onChange={(e) => seleccion.onTodas(e.target.checked)} />
       ),
       render: (f: ImpuestoItem) => (
-        <input type="checkbox" className="h-4 w-4 accent-[var(--kit-azul)]" aria-label={`Seleccionar ${f.placa}`}
+        <input type="checkbox" className="size-4 accent-[var(--kit-azul)]" aria-label={`Seleccionar ${f.placa}`}
           checked={seleccion.marcada(f)} onChange={() => seleccion.onFila(f)} />
       ),
     }] : []),

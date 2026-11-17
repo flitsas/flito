@@ -96,7 +96,7 @@ export default function FlitoCompuerta() {
         subtitle="Evalúa si un trámite ya puede pasar a Entregado."
         actions={
           <label className="flex cursor-pointer items-center gap-2 text-sm text-[color:var(--color-text-secondary)]">
-            <input type="checkbox" className="h-4 w-4 accent-[color:var(--kit-azul)]" checked={soloHabilitados} onChange={(e) => setSoloHabilitados(e.target.checked)} />
+            <input type="checkbox" className="size-4 accent-[color:var(--kit-azul)]" checked={soloHabilitados} onChange={(e) => setSoloHabilitados(e.target.checked)} />
             Solo habilitados
           </label>
         }

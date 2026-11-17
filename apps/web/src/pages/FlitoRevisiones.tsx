@@ -424,7 +424,7 @@ export default function FlitoRevisiones() {
         subtitle="Todo documento con OCR que no superó la coincidencia cae aquí. Nada se da por válido sin que alguien lo confirme."
         actions={
           <label className="flex cursor-pointer items-center gap-2 text-sm text-[color:var(--color-text-secondary)]">
-            <input type="checkbox" className="h-4 w-4 accent-[color:var(--kit-azul)]" checked={incluirResueltas} onChange={(e) => setIncluirResueltas(e.target.checked)} />
+            <input type="checkbox" className="size-4 accent-[color:var(--kit-azul)]" checked={incluirResueltas} onChange={(e) => setIncluirResueltas(e.target.checked)} />
             Incluir resueltas
           </label>
         }

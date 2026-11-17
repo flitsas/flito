@@ -93,12 +93,12 @@ export default function ImpuestosFiltros<F>(p: ImpuestosFiltrosProps<F>) {
       </Grupo>
       <Grupo titulo="Riesgo">
         <label className={CASILLA}>
-          <input type="checkbox" className="h-4 w-4 accent-[var(--kit-azul)]" checked={p.soloEstancado}
+          <input type="checkbox" className="size-4 accent-[var(--kit-azul)]" checked={p.soloEstancado}
             onChange={(e) => p.setSoloEstancado(e.target.checked)} />
           Solo sin gestión
         </label>
         <label className={CASILLA}>
-          <input type="checkbox" className="h-4 w-4 accent-[var(--kit-azul)]" checked={p.liquidadoPendiente}
+          <input type="checkbox" className="size-4 accent-[var(--kit-azul)]" checked={p.liquidadoPendiente}
             onChange={(e) => p.setLiquidadoPendiente(e.target.checked)} />
           Liquidado, pendiente de pago
         </label>

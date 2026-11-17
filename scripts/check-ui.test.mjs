@@ -39,7 +39,7 @@ test('U2: HEX en comentarios no cuenta', () => {
   assert.equal(hs.length, 0);
 });
 
-test('U3: altura fuera de la canónica (h-10) se reporta; kit y h-10 explícita no', () => {
+test('U3: altura fuera de la canónica (h-10) se reporta; kit, h-10 explícita y min-h táctil no', () => {
   const hs = analizar(`
     const a = <button className="h-9 rounded border">x</button>;
     const b = <input className={flitInp} />;
@@ -48,6 +48,8 @@ test('U3: altura fuera de la canónica (h-10) se reporta; kit y h-10 explícita 
     const e = <button className={"h-8 px-3"}>z</button>;
     const f = <input className={\`h-9 \${extra}\`} />;
     const g = <input className={\`\${flitInp} h-10 pl-9\`} />;
+    const h = <button className="flit-focus min-h-11 px-3">táctil</button>;
+    const i = <button className={\`\${flitBtnSecondary} min-h-12 w-full\`}>ok</button>;
   `);
   assert.deepEqual(hs.map((h) => h.regla), ['U3', 'U3', 'U3']);
   assert.deepEqual(hs.map((h) => h.linea), [2, 6, 7]);
