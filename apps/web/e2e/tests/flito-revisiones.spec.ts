@@ -10,7 +10,11 @@ const REVISION_SOAT = {
   extraccion: { placa: { valor: 'ABC123', confianza: 0.6, confiable: false }, valorTotal: { valor: '250000', confianza: 0.9, confiable: true } },
   resuelto: false, creadoEn: '2026-07-10T12:00:00Z', soporte: { id: 'sop1', nombreArchivo: 'comprobante-soat.pdf' },
 };
-const SOAT_CANDIDATOS = [{ id: 'soat1', vin: 'VIN0000000000001', placa: 'ABC123', marca: 'Chevrolet', linea: 'Onix' }];
+// Dos candidatos con la misma placa: no hay preselección y «Confirmar y resolver» sigue deshabilitado.
+const SOAT_CANDIDATOS = ['soat1', 'soat2'].map((id, i) => ({
+  id, idFlit: `F-24-00000${i + 1}`, placa: 'ABC123', vin: `VIN000000000000${i + 1}`, etiqueta: `F-24-00000${i + 1} · ABC123`,
+  detalle: 'Chevrolet Onix', coincide: { placa: true, vin: false }, seleccionable: true, motivoNoSeleccionable: null,
+}));
 
 async function mockLista(page: import('@playwright/test').Page, soat: unknown[]) {
   await page.route(/\/api\/flito\/revisiones\?/, (route) => {
@@ -22,10 +26,9 @@ async function mockLista(page: import('@playwright/test').Page, soat: unknown[])
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(['placa', 'vin', 'valorTotal']) }));
   await page.route(/\/api\/flito\/revisiones\/soporte\/.*\/archivo$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.4 fake' }));
-  await page.route(/\/api\/flito\/soat$/, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SOAT_CANDIDATOS) }));
-  await page.route(/\/api\/flito\/impuestos$/, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }));
+  // BUG #14569: los candidatos salen del buscador en el servidor (llaves en el body), no de las colas.
+  await page.route(/\/api\/flito\/revisiones\/[^/]+\/candidatos\/buscar$/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: SOAT_CANDIDATOS, total: SOAT_CANDIDATOS.length, truncado: false, registroActual: null }) }));
 }
 
 test.describe('FLITO — Revisiones OCR', () => {
