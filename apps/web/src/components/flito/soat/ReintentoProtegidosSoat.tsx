@@ -13,7 +13,7 @@
 // en `localStorage` ni en `console`. Se borra de cada archivo en cuanto se envía.
 
 import { useState } from 'react';
-import { RotateCw } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import { partirCargaMasivaEnTandas } from '@operaciones/shared-types';
 import { enviarCargaEnTandas, fusionarResultadoCarga, type ItemCarga } from '../../../lib/carga-masiva';
 import { flitBtnPrimary, flitBtnPrimaryStyle } from '../../flit/flitPageKit';
@@ -113,13 +113,13 @@ export default function ReintentoProtegidosSoat({ resultado, itemsProtegidos, it
   };
 
   return (
-    <section aria-labelledby="titulo-protegidos-soat" className="space-y-3 rounded-lg border p-3"
-      style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
+    <section aria-labelledby="titulo-protegidos-soat" className="space-y-3 rounded-[9px] border p-3"
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
       <div>
-        <h3 id="titulo-protegidos-soat" className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <h3 id="titulo-protegidos-soat" className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           PDF protegidos con contraseña
         </h3>
-        <p className="mt-0.5 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="mt-0.5 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Escribe la contraseña de cada archivo que quieras cargar y reinténtalo. Los que dejes en blanco no se envían.
         </p>
       </div>
@@ -134,15 +134,15 @@ export default function ReintentoProtegidosSoat({ resultado, itemsProtegidos, it
           );
         })}
       </div>
-      {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
+      {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
       {enviando && (
-        <p role="status" className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p role="status" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Reintentando {Math.min(enviando.hechos + 1, enviando.total)} de {enviando.total}…
         </p>
       )}
       <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
         disabled={enviando !== null || conClave.length === 0} onClick={() => { void reintentar(); }}>
-        <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+        <Icono nombre="reintento" size={16} className="shrink-0" />
         {enviando ? 'Reintentando…' : 'Reintentar con contraseña'}
       </button>
     </section>

@@ -202,8 +202,8 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
         {/* 3 · la acción del estado: UNA primaria («Cargar comprobante de SOAT»). En `con_novedad`, «Reactivar»
             va secundaria: la decisión entre reactivar, devolver o reversar la toma la persona. */}
         {cargaFactura && accion === 'idle' && protegido && (
-          <div className="space-y-3 rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
-            <p className="flex items-start gap-2" style={{ color: 'var(--flit-text-primary)' }}>
+          <div className="space-y-3 rounded-[9px] border p-3" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+            <p className="flex items-start gap-2" style={{ color: 'var(--color-text-primary)' }}>
               <Icono nombre="candado" size={16} className="mt-0.5 shrink-0" />
               <span>Este PDF está protegido. Escribe la contraseña para cargarlo.</span>
             </p>
