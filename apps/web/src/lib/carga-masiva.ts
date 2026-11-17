@@ -645,7 +645,10 @@ export function liquidacionesPrimero(items: readonly ItemCarga[], faseDefecto: F
  * acumula entre tandas igual que las otras cinco categorías, sin lista aparte.
  *
  * `opciones.conRutas: false` lo apaga para quien no lo usa: SOAT no lee `req.body` y el campo solo
- * sería peso muerto en cada tanda. Si `campos.fase` trae una fase (Impuestos), el lote se ordena con
+ * sería peso muerto en cada tanda. `opciones.contrasenaDe` (BUG #14569, reintento de PDF protegidos de
+ * SOAT) añade a cada tanda `contrasenas`: UN string JSON con un arreglo POR POSICIÓN, del mismo largo
+ * que los `archivos` de ESA tanda (`''` = sin clave). Se arma recorriendo la misma tanda, igual que
+ * `rutas`, para que la cardinalidad no se pueda desalinear. Si `campos.fase` trae una fase (Impuestos), el lote se ordena con
  * `liquidacionesPrimero` ANTES de partirlo en tandas; sin ella (SOAT) el orden es el de la selección.
  */
 export async function enviarCargaEnTandas<T extends object>(
@@ -653,7 +656,7 @@ export async function enviarCargaEnTandas<T extends object>(
   seleccionados: readonly ItemCarga[],
   onProgreso: (desde: number, total: number) => void,
   campos?: Record<string, string>,
-  opciones?: { conRutas?: boolean },
+  opciones?: { conRutas?: boolean; contrasenaDe?: (item: ItemCarga) => string },
 ): Promise<ResultadoTandasCarga<T>> {
   // Solo cuando viaja `fase` (Impuestos) se reordena; SOAT llama sin fase y sale en el orden de la
   // selección. Con COPIA: la selección del operador no se muta.
@@ -676,6 +679,8 @@ export async function enviarCargaEnTandas<T extends object>(
         // El suelto va con `''`: ocupa su sitio en la lista sin decirle nada al API sobre la marca.
         if (conRutas) form.append('rutas', item.ruta ?? '');
       }
+      const contrasenaDe = opciones?.contrasenaDe;
+      if (contrasenaDe) form.append('contrasenas', JSON.stringify(tanda.map((item) => contrasenaDe(item))));
       if (campos) {
         for (const [clave, valor] of Object.entries(campos)) form.append(clave, valor);
       }

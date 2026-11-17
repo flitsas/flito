@@ -155,9 +155,10 @@ jobs:
       # node_modules y el build de shared-types; «Esperar poppler-utils» lo exige antes de
       # vitest. Un proceso en segundo plano sobrevive entre pasos del mismo job (el runner lo
       # limpia al final).
+      # Bug #14569: qpdf en la misma línea; el test real de shared/pdf/pdf-cifrado.ts lo usa.
       - name: Instalar poppler-utils (en segundo plano)
         run: |
-          nohup bash -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils' \
+          nohup bash -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils qpdf' \
             > /tmp/poppler.log 2>&1 &
           echo $! > /tmp/poppler.pid
 
@@ -175,8 +176,8 @@ jobs:
       - name: Esperar poppler-utils
         run: |
           while kill -0 "$(cat /tmp/poppler.pid)" 2>/dev/null; do sleep 1; done
-          if ! command -v pdftotext >/dev/null || ! command -v pdftoppm >/dev/null; then
-            echo "::error::poppler-utils no quedó instalado"; cat /tmp/poppler.log; exit 1
+          if ! command -v pdftotext >/dev/null || ! command -v pdftoppm >/dev/null || ! command -v qpdf >/dev/null; then
+            echo "::error::poppler-utils/qpdf no quedó instalado"; cat /tmp/poppler.log; exit 1
           fi
 
       - name: Test API (vitest, shard ${{ matrix.shard }}/4)

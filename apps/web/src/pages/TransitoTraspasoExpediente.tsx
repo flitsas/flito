@@ -22,6 +22,7 @@ import {
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { PDF_WORKER_SRC } from '../lib/pdfWorker';
+import { mensajeErrorPdf } from '../lib/pdf-protegido';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import StatusChip from '../components/flit/StatusChip';
 import GradientButton from '../components/flit/GradientButton';
@@ -153,7 +154,8 @@ function DocumentoLegalPanel({ kind, tramiteId, placa, org, editable }: {
       setBlobUrl(r.blobUrl);
       setPages(r.pages);
     } catch (err) {
-      setError(errorMessage(err));
+      // BUG #14569: pdf.js no pinta su `message` en inglés; el error del API, sí.
+      setError(mensajeErrorPdf(err, () => errorMessage(err)));
     } finally {
       setLoading(false);
     }
