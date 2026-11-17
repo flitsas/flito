@@ -77,6 +77,8 @@ const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
 const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
 const BDOC = 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts'; // HU #13889 (ADR-0028)
 const DRF = 'flito-dr-flit/dr-flit.funciones.ts'; // HU #13941
+const TOR = 'flito-torre/flito-torre.routes.ts'; // Épica #14590
+const TTB = 'flito-torre/flito-torre.tableros.routes.ts'; // Épica #14590
 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
@@ -560,6 +562,26 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${DRF} POST * [usar_ia]`, 'drflit.ia.usar', 'Usar la IA de Dr. Flit', 'Preguntarle a la IA de Dr. Flit y aceptar su autorización de tratamiento de datos.'),
   op(`${DRF} POST * [radicar_soporte]`, 'drflit.soporte.radicar', 'Radicar casos de soporte en Dr. Flit', 'Enviar un caso a la mesa de soporte y aceptar su autorización de tratamiento de datos.'),
   op(`${DRF} POST * [consultar_gestion]`, 'drflit.gestion.consultar', 'Consultar la gestión desde Dr. Flit', 'Buscar desde Dr. Flit trámites, SOAT, impuestos y derechos (con la cola de cada módulo).'),
+  // Épica #14590: la Torre de Control. Nacen en el árbol (`arbol/acciones-torre.ts`); la 0303 siembra ítems y acciones.
+  op(`${TOR} POST /metricas/consultar`, 'torre.metricas.consultar', 'Consultar métricas de la Torre', 'Consultar una métrica agregada del catálogo de la Torre con sus filtros y agrupación.'),
+  op(`${TOR} POST /metricas/exportar`, 'torre.metricas.exportar', 'Exportar métricas de la Torre', 'Descargar en Excel o PDF el resultado agregado de una consulta de la Torre.'),
+  op(`${TOR} POST /placa/buscar`, 'torre.placa.buscar', 'Buscar una placa en la Torre', 'Abrir la ficha de un trámite por su placa, sin datos personales del comprador.'),
+  op(`${TOR} GET /umbrales`, 'torre.umbrales.ver', 'Ver los umbrales de la Torre', 'Consultar los umbrales que usan las alertas de la Torre.'),
+  op(`${TOR} PUT /umbrales/:clave`, 'torre.umbrales.editar', 'Editar un umbral de la Torre', 'Cambiar el valor de un umbral de la Torre.'),
+  op(`${TTB} POST /ejecutivo`, 'torre.tablero_ejecutivo.ver', 'Ver la vista 360° de la Torre', 'Consultar el tablero ejecutivo de la Torre de Control.'),
+  op(`${TTB} POST /comercial`, 'torre.tablero_comercial.ver', 'Ver el tablero comercial de la Torre', 'Consultar el volumen y la evolución por compañía.'),
+  op(`${TTB} POST /operativa`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
+  op(`${TTB} POST /financiera`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
+  op(`${TOR} GET /opciones`, 'torre.metricas.consultar', 'Consultar métricas de la Torre', 'Consultar una métrica agregada del catálogo de la Torre con sus filtros y agrupación.'),
+  op(`${TTB} POST /ejecutivo/exportar`, 'torre.tablero_ejecutivo.ver', 'Ver la vista 360° de la Torre', 'Consultar el tablero ejecutivo de la Torre de Control.'),
+  op(`${TTB} POST /comercial/exportar`, 'torre.tablero_comercial.ver', 'Ver el tablero comercial de la Torre', 'Consultar el volumen y la evolución por compañía.'),
+  op(`${TTB} POST /operativa/exportar`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
+  op(`${TTB} POST /financiera/exportar`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
+  // El permiso de dinero se decide EN LÍNEA (`tieneFuncion`): en las dos rutas del explorador y en los dos handlers comunes de los tableros.
+  op(`${TOR} POST /metricas/consultar [dinero]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
+  op(`${TOR} POST /metricas/exportar [dinero]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
+  op(`${TTB} POST * [dinero_tablero]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
+  op(`${TTB} POST * [dinero_exportar]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
 ];
 
 // HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).

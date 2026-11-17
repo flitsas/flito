@@ -360,6 +360,11 @@ export const flitoTramites = pgTable('flito_tramites', {
   // Orden cronológico y filtros de antigüedad (HU #10959): antes se ordenaba por created_at sin índice.
   fechaCreacionFlitIdx: index('idx_flito_tramites_fecha_creacion_flit').on(t.fechaCreacionFlit),
   createdAtIdx: index('idx_flito_tramites_created_at').on(t.createdAt),
+  // Épica #14590 (0303): Torre de Control — aprobados por compañía y periodo, por organismo, inicio con respaldo y placa.
+  torreCompaniaAprobIdx: index('idx_flito_tramites_compania_aprobacion').on(t.companiaId, t.fechaAprobacion).where(sql`${t.fechaAprobacion} IS NOT NULL`),
+  torreAprobIdx: index('idx_flito_tramites_fecha_aprobacion').on(t.fechaAprobacion).where(sql`${t.fechaAprobacion} IS NOT NULL`),
+  torreOrganismoIdx: index('idx_flito_tramites_organismo').on(t.organismoCodigo), torreInicioIdx: index('idx_flito_tramites_inicio').on(sql`(COALESCE(${t.fechaCreacionFlit}, ${t.createdAt}))`),
+  torrePlacaIdx: index('idx_flito_tramites_placa_upper').on(sql`upper(${t.plateComplete})`),
   // ADR-0041 §13.8 (0301): primer trámite por SOAT compartido (costo de proveedor, C3).
   soatOrdenIdx: index('idx_flito_tramites_soat_orden').on(t.soatId, t.createdAt, t.id).where(sql`${t.soatId} IS NOT NULL`),
   idFlit2Uq: uniqueIndex('uq_flito_tramites_id_flit2').on(t.idFlit2).where(sql`${t.idFlit2} IS NOT NULL`),
@@ -385,4 +390,7 @@ export const flitoTramiteHistorial = pgTable('flito_tramite_historial', {
   // Reconstruir cuándo un trámite entró a un estado (HU #10959) exige filtrar por campo, no solo
   // por trámite: sin esto, «lleva N días en Borrador» recorre todo el historial de la fila.
   campoIdx: index('idx_flito_tramite_historial_campo').on(t.tramiteId, t.campo, t.createdAt),
+  // Épica #14590 (0303): «cuándo entró a un estado» en todo el periodo. En SQL lleva `INCLUDE (tramite_id)`,
+  // que el builder de Drizzle no expresa: aquí se declara con sus columnas de llave.
+  torreCampoFechaIdx: index('idx_flito_tramite_historial_campo_fecha').on(t.campo, t.createdAt),
 }));

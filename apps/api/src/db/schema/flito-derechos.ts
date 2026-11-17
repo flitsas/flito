@@ -2,6 +2,7 @@
 import {
   pgTable, varchar, boolean, timestamp, integer, date, index, jsonb, numeric, uuid,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import type { ExtraccionDerechoTramite } from '@operaciones/shared-types';
 import { users, clients, procesamientoCuentas } from './nucleo.js';
 import { flitoSoportes } from './soat.js';
@@ -45,6 +46,8 @@ export const flitoDerechosTramite = pgTable('flito_derechos_tramite', {
   organismoIdx: index('idx_flito_derechos_organismo').on(t.organismoCodigo),
   companiaIdx: index('idx_flito_derechos_compania').on(t.companiaId),
   procesamientoIdx: index('idx_flito_derechos_procesamiento').on(t.procesamientoId),
+  // Épica #14590 (0303): derechos pagados por periodo (Torre de Control).
+  fechaPagoIdx: index('idx_flito_derechos_fecha_pago').on(t.fechaPago).where(sql`${t.fechaPago} IS NOT NULL`),
 }));
 
 // SIN LECTOR. Fue el buffer de recibos cuya placa aún no correspondía a ningún trámite, que un

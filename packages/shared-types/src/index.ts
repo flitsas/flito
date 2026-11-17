@@ -163,3 +163,5 @@ export * from './flito-proveedores.js';
 export * from './flito-tarifas-proveedor.js';
 // Buscador de trámite de la cola de revisión OCR (Bug #14569, punto 8).
 export * from './flito-revisiones.js';
+// Torre de Control Gerencial (Épica #14590): catálogo de métricas, filtro, ficha de placa y umbrales.
+export * from './flito-torre.js';

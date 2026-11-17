@@ -1,0 +1,60 @@
+/*
+ * Maquetas DESCARTABLES de la Torre de Control (Épica #14590). Spec: docs/ux/flito-torre-control.md.
+ * No se importa a apps/web. Las maquetas cargan antes el CSS REAL del kit (apps/web/src/styles/…), en el
+ * orden de apps/web/src/index.css. Este archivo solo pone lo que en la app resuelven Tailwind (preflight y
+ * utilidades de rejilla) y las rutas absolutas (/fonts, /kit), que en file:// no resuelven.
+ * Sin colores propios: todo color sale de un token del kit.
+ */
+
+/* Fuentes del kit por ruta relativa (en la app viven en /fonts). */
+@font-face { font-family: 'Poppins'; font-weight: 300; src: url('../../../apps/web/public/fonts/poppins-latin-300-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-weight: 400; src: url('../../../apps/web/public/fonts/poppins-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-weight: 500; src: url('../../../apps/web/public/fonts/poppins-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-weight: 600; src: url('../../../apps/web/public/fonts/poppins-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-weight: 700; src: url('../../../apps/web/public/fonts/poppins-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-weight: 700; src: url('../../../apps/web/public/fonts/barlow-condensed-latin-700-normal.woff2') format('woff2'); }
+
+/* Lo mínimo del preflight de Tailwind. */
+h1, h2, h3, p, ul, ol, dl, dd, figure { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+.placa { background-image: url('../../../apps/web/public/kit/ilustraciones/placa-colombia.webp'); }
+
+/* Conmutador de vistas de la maqueta (no es producto). */
+.maqueta-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: var(--space-16); font-size: var(--text-caption); }
+.maqueta-nav a { color: var(--color-action); }
+[data-vista]:not(.activa) { display: none !important; }
+
+/* Utilidades de rejilla que en la app da Tailwind. */
+.pila > * + * { margin-top: var(--space-16); }
+.fila { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-10); }
+.fila > .campo { flex: 1 1 220px; min-width: 0; }
+@media (min-width: 1024px) { .fila > .campo { flex: 0 1 280px; } }
+.fila--fin { justify-content: flex-end; }
+.rejilla-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: var(--space-16); }
+.rejilla-2 { display: grid; grid-template-columns: 1fr; gap: var(--space-16); }
+@media (min-width: 1024px) { .rejilla-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rejilla-2 > .card + .card, .pila > .card + .card, .rejilla-kpi > .card + .card { margin-top: 0; }
+.nota { color: var(--color-text-tertiary); font-size: var(--text-caption); }
+.tabular { font-variant-numeric: tabular-nums; }
+.derecha { text-align: right; }
+.oracion { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-10) var(--space-12); }
+.oracion .campo { flex: 1 1 240px; min-width: 0; }
+@media (min-width: 1024px) { .oracion .campo { flex: 0 1 300px; } }
+.oracion__texto { padding-bottom: 12px; color: var(--color-text-tertiary); }
+@media (max-width: 640px) { .oracion__texto { display: none; } }
+.cifra-grande { font-size: 2.5rem; font-weight: 700; line-height: 1.1; color: var(--kit-azul); font-variant-numeric: tabular-nums; }
+.ranking { display: grid; gap: var(--space-10); }
+.ranking li { display: grid; grid-template-columns: minmax(0, 10rem) minmax(0, 1fr) auto; align-items: center; gap: var(--space-12); font-size: var(--text-caption); }
+.ranking strong { font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .ranking li { grid-template-columns: minmax(0, 1fr) auto; } .ranking .avance { grid-column: 1 / -1; } }
+.esq-kpi { height: 104px; }
+.esq-graf { height: 260px; }
+.esq-fila { height: 40px; }
+.drawer-demo { position: relative; min-height: 780px; overflow: clip; border-radius: 9px; }
+.drawer-demo .kit-velo { position: absolute; justify-content: flex-end; }
+.drawer-demo .kit-modal--lateral { width: min(520px, 100%); height: auto; min-height: 100%; }
+@media (max-width: 640px) { .drawer-demo .kit-modal--lateral { width: 100%; border-radius: 0; } }
+.duracion { display: grid; gap: 2px; padding: var(--space-16); border-radius: 9px; background: var(--kit-hover); }
+.svg-ico { width: 56%; height: 56%; }
+.disco-72 { width: 72px; height: 72px; }
+.celda-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }

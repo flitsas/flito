@@ -32,3 +32,4 @@ export * from './schema/pii-key-registry.js'; // Feature #13978: registro de lla
 export * from './schema/flito-proveedores.js'; // Feature #14323 (ADR-0039): identidad única de proveedor
 export { flitoSyncFlit2Acceso, flitoSyncFlit2Lectura, flitoSyncInterruptor, flitoSyncFlit1Lectura } from './schema/flito-sync.js';
 // `./schema/flito-drflit.ts` (HU #13803, Dr. Flit, Ley 1581) NO se re-exporta: se importa de ahí directo.
+export * from './schema/flito-torre.js'; // Épica #14590: umbrales de la Torre de Control

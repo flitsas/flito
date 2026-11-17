@@ -657,3 +657,43 @@ export const consultarVehiculoLimiter = rateLimit({
   message: { error: 'Demasiadas consultas. Espera un minuto.' },
   store: makeStore('rl:flito-log-consultar-vehiculo:'),
 });
+
+/**
+ * Épica #14590 — Torre de Control. Tres bolsas propias, todas DETRÁS de `exigirFuncion` (quien no tiene la función
+ * no gasta presupuesto) y con `frenoConRastro`, que no registra el cuerpo (filtros y placa):
+ *   · consultar métricas (`POST /api/flito/torre/metricas/consultar`): 60 / min por usuario — los tableros piden varias.
+ *   · exportar (`POST …/metricas/exportar`): 10 / 15 min por usuario — hasta 50.000 filas por archivo.
+ *   · buscar una placa (`POST …/placa/buscar`, cuasi-PII): 30 / min por usuario, para que no se enumeren placas.
+ */
+export const torreConsultaLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-torre-consulta:'),
+  handler: frenoConRastro('flito-torre-consulta'),
+  message: { error: 'Demasiadas consultas seguidas. Espera un minuto.' },
+  store: makeStore('rl:flito-torre-consulta:'),
+});
+
+export const torreExportLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-torre-export:'),
+  handler: frenoConRastro('flito-torre-export'),
+  message: { error: 'Demasiadas exportaciones seguidas. Espera unos minutos.' },
+  store: makeStore('rl:flito-torre-export:'),
+});
+
+export const torrePlacaLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-torre-placa:'),
+  handler: frenoConRastro('flito-torre-placa'),
+  message: { error: 'Demasiadas búsquedas seguidas. Espera un minuto.' },
+  store: makeStore('rl:flito-torre-placa:'),
+});
