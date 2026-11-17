@@ -6,7 +6,8 @@ import { test, expect } from '../helpers/fixtures';
 import { loginAs, funcionesDe, OPERACIONES_USER } from '../helpers/auth';
 
 // BUG #14569 — PDF de SOAT protegido con contraseña. Backend mockeado:
-//   · detalle: el 422 `PDF_CIFRADO` abre el campo de clave y el reenvío lleva `contrasena`;
+//   · detalle: la primera subida no prueba el nombre; el 422 `PDF_CIFRADO` abre el aviso con la
+//     casilla del nombre marcada y, al desmarcarla, el campo de clave que viaja en `contrasena`;
 //   · masiva: `protegidos` pinta una clave por archivo y el reintento manda `contrasenas` alineado;
 //   · visor: un PDF cifrado de verdad (fixture, clave «clave-prueba») enseña el copy de protegido,
 //     nunca el «No password given» de pdf.js.
@@ -57,43 +58,89 @@ async function abrirDetalle(page: Page) {
 }
 
 test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
-  test('detalle: el PDF cifrado pide la clave, la reenvía en el cuerpo y avisa si no lo abre', async ({ page }) => {
+  /** Detalle con `/factura` mockeado: `responder(clave, flag)` decide; se guardan clave y flag de cada envío. */
+  async function detalleConFactura(page: Page, responder: (clave: string | null, flag: string | null, route: Route) => Promise<void>) {
     await loginAs(page, USUARIO);
     await montar(page);
-    const contrasenas: (string | null)[] = [];
-    const flags: (string | null)[] = [];
+    const envios: { clave: string | null; flag: string | null }[] = [];
     await page.route(/\/api\/flito\/soat\/s2\/factura$/, (route) => {
       const clave = campo(route.request(), 'contrasena');
-      contrasenas.push(clave);
-      flags.push(campo(route.request(), 'usarNombreComoClave'));
-      if (clave === null) return json(route, { error: 'Este PDF está protegido con contraseña. Escríbela para cargarlo.', codigo: 'PDF_CIFRADO' }, 422);
-      if (clave !== 'clave-buena') return json(route, { error: 'La contraseña no abre este PDF.', codigo: 'PDF_CONTRASENA_INCORRECTA' }, 422);
-      return json(route, { ok: true });
+      const flag = campo(route.request(), 'usarNombreComoClave');
+      envios.push({ clave, flag });
+      return responder(clave, flag, route);
     });
     await page.goto('/flito/soat');
     const dialogo = await abrirDetalle(page);
-    // Antes de elegir el archivo: probar el nombre como contraseña viene marcado.
-    await expect(dialogo.getByLabel('Usar el nombre del archivo como contraseña')).toBeChecked();
+    return { dialogo, envios };
+  }
+  const CIFRADO = { error: 'Este PDF está protegido con contraseña. Escríbela para cargarlo.', codigo: 'PDF_CIFRADO' };
+  const INCORRECTA = { error: 'La contraseña no abre este PDF.', codigo: 'PDF_CONTRASENA_INCORRECTA' };
 
+  test('detalle: antes de cargar no hay casilla del nombre y un PDF sin contraseña entra directo', async ({ page }) => {
+    const { dialogo, envios } = await detalleConFactura(page, (_c, _f, route) => json(route, { ok: true }));
+    await expect(dialogo.getByText('Cargar comprobante de SOAT')).toBeVisible();
+    await expect(dialogo.getByLabel('Usar el nombre del archivo como contraseña')).toHaveCount(0);
     await dialogo.locator('input[type="file"]').setInputFiles({ name: 'factura.pdf', mimeType: 'application/pdf', buffer: PDF_PLANO });
-    await expect(dialogo.getByText('Este PDF está protegido. Escribe la contraseña para cargarlo.')).toBeVisible();
+    await expect(page.getByText('Comprobante de SOAT cargado para XYZ789.')).toBeVisible();
+    expect(envios).toEqual([{ clave: null, flag: 'false' }]);
+  });
+
+  test('detalle: el PDF cifrado ofrece la casilla marcada sin campo y el reintento prueba el nombre', async ({ page }) => {
+    const { dialogo, envios } = await detalleConFactura(page, (_c, flag, route) =>
+      flag === 'true' ? json(route, { ok: true }) : json(route, CIFRADO, 422));
+    await dialogo.locator('input[type="file"]').setInputFiles({ name: 'factura.pdf', mimeType: 'application/pdf', buffer: PDF_PLANO });
+    await expect(dialogo.getByText('Este PDF está protegido con contraseña.')).toBeVisible();
+    await expect(dialogo.getByLabel('Usar el nombre del archivo como contraseña')).toBeChecked();
+    await expect(dialogo.getByLabel('Contraseña de factura.pdf')).toHaveCount(0);
+    await dialogo.getByRole('button', { name: 'Cargar con contraseña' }).click();
+    await expect(page.getByText('Comprobante de SOAT cargado para XYZ789.')).toBeVisible();
+    expect(envios).toEqual([{ clave: null, flag: 'false' }, { clave: null, flag: 'true' }]);
+  });
+
+  test('detalle: desmarcar la casilla muestra el campo, reenvía la clave y avisa si no lo abre', async ({ page }) => {
+    const { dialogo, envios } = await detalleConFactura(page, (clave, _f, route) => {
+      if (clave === null) return json(route, CIFRADO, 422);
+      if (clave !== 'clave-buena') return json(route, INCORRECTA, 422);
+      return json(route, { ok: true });
+    });
+    await dialogo.locator('input[type="file"]').setInputFiles({ name: 'factura.pdf', mimeType: 'application/pdf', buffer: PDF_PLANO });
+    await dialogo.getByLabel('Usar el nombre del archivo como contraseña').uncheck();
     const clave = dialogo.getByLabel('Contraseña de factura.pdf');
+    await expect(clave).toBeVisible();
     await expect(clave).toHaveAttribute('type', 'password');
     await expect(clave).toHaveAttribute('autocomplete', 'off');
 
     await clave.fill('clave-mala');
     await dialogo.getByRole('button', { name: 'Cargar con contraseña' }).click();
     await expect(dialogo.getByText('La contraseña no abre este PDF.')).toBeVisible();
+    await expect(dialogo.getByLabel('Usar el nombre del archivo como contraseña')).not.toBeChecked();
     await expect(clave).toHaveValue('');
 
     await clave.fill('clave-buena');
     await dialogo.getByRole('button', { name: 'Cargar con contraseña' }).click();
     await expect(page.getByText('Comprobante de SOAT cargado para XYZ789.')).toBeVisible();
-    expect(contrasenas).toEqual([null, 'clave-mala', 'clave-buena']);
-    expect(flags).toEqual(['true', 'true', 'true']);
+    expect(envios).toEqual([
+      { clave: null, flag: 'false' }, { clave: 'clave-mala', flag: 'false' }, { clave: 'clave-buena', flag: 'false' },
+    ]);
     // La clave no viaja nunca en la URL ni queda en el almacenamiento local.
     expect(page.url()).not.toContain('clave');
     expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('clave-buena');
+  });
+
+  test('detalle: si el nombre no abre el PDF, la casilla vuelve desmarcada con la ayuda y el campo', async ({ page }) => {
+    // El API contesta `PDF_CIFRADO` otra vez cuando ninguna variante del nombre abre el PDF.
+    const { dialogo, envios } = await detalleConFactura(page, (clave, _f, route) =>
+      clave === 'clave-buena' ? json(route, { ok: true }) : json(route, CIFRADO, 422));
+    await dialogo.locator('input[type="file"]').setInputFiles({ name: 'factura.pdf', mimeType: 'application/pdf', buffer: PDF_PLANO });
+    await dialogo.getByRole('button', { name: 'Cargar con contraseña' }).click();
+    await expect(dialogo.getByText('El nombre del archivo no abre este PDF. Escribe la contraseña.')).toBeVisible();
+    await expect(dialogo.getByLabel('Usar el nombre del archivo como contraseña')).not.toBeChecked();
+    const clave = dialogo.getByLabel('Contraseña de factura.pdf');
+    await expect(clave).toBeVisible();
+    await clave.fill('clave-buena');
+    await dialogo.getByRole('button', { name: 'Cargar con contraseña' }).click();
+    await expect(page.getByText('Comprobante de SOAT cargado para XYZ789.')).toBeVisible();
+    expect(envios).toEqual([{ clave: null, flag: 'false' }, { clave: null, flag: 'true' }, { clave: 'clave-buena', flag: 'false' }]);
   });
 
   test('detalle: cancelar cierra el campo y vuelve la acción primaria', async ({ page }) => {
@@ -104,8 +151,10 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
     await page.goto('/flito/soat');
     const dialogo = await abrirDetalle(page);
     await dialogo.locator('input[type="file"]').setInputFiles({ name: 'factura.pdf', mimeType: 'application/pdf', buffer: PDF_PLANO });
+    await dialogo.getByLabel('Usar el nombre del archivo como contraseña').uncheck();
     await dialogo.getByLabel('Contraseña de factura.pdf').fill('algo');
     await dialogo.getByRole('button', { name: 'Cancelar', exact: true }).click();
+    await expect(dialogo.getByLabel('Usar el nombre del archivo como contraseña')).toHaveCount(0);
     await expect(dialogo.getByLabel('Contraseña de factura.pdf')).toHaveCount(0);
     await expect(dialogo.getByText('Cargar comprobante de SOAT')).toBeVisible();
   });
@@ -169,22 +218,6 @@ test.describe('BUG #14569 — PDF de SOAT protegido con contraseña', () => {
       { contrasenas: null, nombres: null, archivos: 3 },
       { contrasenas: JSON.stringify(['buena', 'mala']), nombres: null, archivos: 2 },
     ]);
-  });
-
-  test('detalle: desmarcar la casilla manda `usarNombreComoClave=false`', async ({ page }) => {
-    await loginAs(page, USUARIO);
-    await montar(page);
-    const flags: (string | null)[] = [];
-    await page.route(/\/api\/flito\/soat\/s2\/factura$/, (route) => {
-      flags.push(campo(route.request(), 'usarNombreComoClave'));
-      return json(route, { ok: true });
-    });
-    await page.goto('/flito/soat');
-    const dialogo = await abrirDetalle(page);
-    await dialogo.getByLabel('Usar el nombre del archivo como contraseña').uncheck();
-    await dialogo.locator('input[type="file"]').setInputFiles({ name: 'factura.pdf', mimeType: 'application/pdf', buffer: PDF_PLANO });
-    await expect(page.getByText('Comprobante de SOAT cargado para XYZ789.')).toBeVisible();
-    expect(flags).toEqual(['false']);
   });
 
   const PROTEGIDO = (archivo: string, detalle = 'Protegido con contraseña.') => ({ archivo, placa: null, soatId: null, detalle });

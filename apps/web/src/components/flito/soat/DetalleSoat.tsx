@@ -28,6 +28,7 @@ import {
 } from '../../flit/flitPageKit';
 import ChipEstadoSoat from './ChipEstadoSoat';
 import CampoContrasenaPdf from './CampoContrasenaPdf';
+import { AYUDA_NOMBRE_NO_ABRE } from './ReintentoProtegidosSoat';
 import { DocumentosAdicionalesSeccion } from './DocumentosAdicionalesLista';
 import { ESTADOS_DESTINO_REVERSA, fecha, fechaDia, pesos, type Proveedor, type SoatItem } from './tipos';
 
@@ -96,9 +97,11 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
   const [verSoportes, setVerSoportes] = useState(false);
   // BUG #14569: el PDF que el API devolvió por cifrado, a la espera de su contraseña. La clave solo
   // vive aquí y en el cuerpo del reenvío; se limpia al cargar, al cancelar y tras cada intento.
-  const [protegido, setProtegido] = useState<{ archivo: File; incorrecta: boolean } | null>(null);
+  // `incorrecta`: la clave escrita no lo abrió; `nombreNoAbre`: el nombre del archivo tampoco.
+  const [protegido, setProtegido] = useState<{ archivo: File; incorrecta: boolean; nombreNoAbre: boolean } | null>(null);
   const [contrasena, setContrasena] = useState('');
-  // BUG #14569: probar el nombre del archivo como contraseña antes de pedirla. Marcada por defecto.
+  // BUG #14569: como en la masiva, la casilla del nombre solo existe cuando el API ya dijo que el PDF
+  // está protegido; ahí nace marcada y el campo de clave se esconde mientras lo esté.
   const [usarNombre, setUsarNombre] = useState(true);
 
   const placa = soat.placa ?? 'el SOAT';
@@ -127,23 +130,36 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
     finally { setEnviando(false); }
   };
 
-  const subirFactura = async (file: File, clave?: string) => {
+  /**
+   * Primera subida: sin clave ni nombre (un PDF sin contraseña entra directo). El reintento manda la
+   * clave escrita o `usarNombreComoClave=true`. Si el nombre no lo abre, el API vuelve a contestar
+   * `PDF_CIFRADO` (no `…_INCORRECTA`): eso desmarca la casilla y pide la clave.
+   */
+  const subirFactura = async (file: File, modo: { clave?: string; porNombre?: boolean } = {}) => {
     setEnviando(true); setError(null);
     try {
       const form = new FormData(); form.append('archivo', file);
-      if (clave) form.append('contrasena', clave);
-      form.append('usarNombreComoClave', usarNombre ? 'true' : 'false');
+      if (modo.clave) form.append('contrasena', modo.clave);
+      form.append('usarNombreComoClave', modo.porNombre ? 'true' : 'false');
       await api.post(`/flito/soat/${soat.id}/factura`, form);
       setProtegido(null); setContrasena('');
       toastOk(`Comprobante de SOAT cargado para ${placa}.`); onCambio();
     } catch (e) {
       const motivoClave = pideContrasena(e);
       if (motivoClave) {
-        setProtegido({ archivo: file, incorrecta: motivoClave === 'incorrecta' }); setContrasena('');
+        const reintento = !!modo.clave || !!modo.porNombre;
+        setProtegido({ archivo: file, incorrecta: motivoClave === 'incorrecta', nombreNoAbre: !!modo.porNombre });
+        setContrasena('');
+        setUsarNombre(!reintento);
       } else {
         setError(textoError(e, 'cargar el comprobante de SOAT'));
       }
     } finally { setEnviando(false); }
+  };
+  const reintentarProtegido = () => {
+    if (!protegido) return;
+    if (usarNombre) void subirFactura(protegido.archivo, { porNombre: true });
+    else if (contrasena) void subirFactura(protegido.archivo, { clave: contrasena });
   };
   const cancelarProtegido = () => { setProtegido(null); setContrasena(''); setError(null); };
 
@@ -203,13 +219,23 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
           <div className="space-y-3 rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
             <p className="flex items-start gap-2" style={{ color: 'var(--flit-text-primary)' }}>
               <Lock size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
-              <span>Este PDF está protegido. Escribe la contraseña para cargarlo.</span>
+              <span>Este PDF está protegido con contraseña.</span>
             </p>
-            <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (contrasena) void subirFactura(protegido.archivo, contrasena); }}>
-              <CampoContrasenaPdf label={`Contraseña de ${protegido.archivo.name}`} valor={contrasena} onCambio={setContrasena}
-                disabled={enviando} autoFocus ayuda={protegido.incorrecta ? 'La contraseña no abre este PDF.' : null} />
+            <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); reintentarProtegido(); }}>
+              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-1 text-sm transition-colors hover:bg-[var(--flit-bg-hover)] lg:min-h-10"
+                style={{ color: 'var(--flit-text-primary)' }}>
+                <input type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer" checked={usarNombre}
+                  disabled={enviando} autoFocus={!protegido.nombreNoAbre && !protegido.incorrecta}
+                  onChange={(e) => { setUsarNombre(e.target.checked); setContrasena(''); }} />
+                Usar el nombre del archivo como contraseña
+              </label>
+              {!usarNombre && (
+                <CampoContrasenaPdf label={`Contraseña de ${protegido.archivo.name}`} valor={contrasena} onCambio={setContrasena}
+                  disabled={enviando} autoFocus
+                  ayuda={protegido.nombreNoAbre ? AYUDA_NOMBRE_NO_ABRE : protegido.incorrecta ? 'La contraseña no abre este PDF.' : null} />
+              )}
               <div className="flex flex-wrap gap-2">
-                <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || !contrasena}>
+                <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || (!usarNombre && !contrasena)}>
                   <FileUp size={16} aria-hidden="true" className="shrink-0" />
                   {enviando ? 'Cargando…' : 'Cargar con contraseña'}
                 </button>
@@ -229,14 +255,6 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
                 {enviando ? 'Cargando…' : 'Cargar comprobante de SOAT'}
                 <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="sr-only" disabled={enviando}
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) void subirFactura(f); e.target.value = ''; }} />
-              </label>
-            )}
-            {cargaFactura && (
-              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-1 text-sm transition-colors hover:bg-[var(--flit-bg-hover)] lg:min-h-10"
-                style={{ color: 'var(--flit-text-primary)' }}>
-                <input type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer" checked={usarNombre}
-                  disabled={enviando} onChange={(e) => setUsarNombre(e.target.checked)} />
-                Usar el nombre del archivo como contraseña
               </label>
             )}
             {rechazable && (
