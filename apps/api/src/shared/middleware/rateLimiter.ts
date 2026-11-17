@@ -410,6 +410,24 @@ export const soatLecturaFacturaLimiter = rateLimit({
 });
 
 /**
+ * Reintento de lectura OCR desde la cola de revisión (Bug #14569, punto 9). Cada reintento vuelve a
+ * pasar el soporte guardado por el motor de OCR —un encargado externo con coste por llamada— y por
+ * eso se raciona aparte (AGENTS.md §18), con contador propio por usuario: un clic repetido sobre la
+ * misma revisión no le quita presupuesto a ninguna otra ruta. 10 en 15 minutos sobra para quien
+ * revisa a mano y corta un bucle de clics o un script.
+ */
+export const revisionReintentoOcrLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('revision-ocr:'),
+  handler: frenoConRastro('revision-ocr'),
+  message: { error: 'Demasiados reintentos de lectura seguidos. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:revision-ocr:'),
+});
+
+/**
  * Intentos de contraseña de un comprobante SOAT en PDF cifrado (Bug #14569; calco de
  * {@link soatLecturaFacturaLimiter}). La clave suele ser la cédula o el NIT del titular: sin tope,
  * la carga de factura sería un oráculo para adivinarla por fuerza bruta. 10 intentos cada 15 min

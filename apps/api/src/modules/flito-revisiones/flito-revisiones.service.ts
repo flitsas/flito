@@ -7,7 +7,7 @@
 // propio campo (`confirmadoPor`, `confirmadoEn`). Los gestores NO resuelven esta cola: si el gestor
 // que cargó la factura pudiera resolver su propia revisión, el umbral de OCR no serviría de nada.
 
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, type SQL } from 'drizzle-orm';
 import {
   CampoDerechoTramite, CampoImpuesto, CampoSoat, CAMPOS_REVISION_FACTURA_VENTA,
   EstadoImpuesto, EstadoSoat, FlujoRevision,
@@ -76,10 +76,19 @@ export interface RevisionItem {
 
 /** Cola de revisión, opcionalmente filtrada por módulo. Las resueltas se ocultan salvo que se pidan. */
 export async function listar(modulo?: FlujoRevision, incluirResueltas = false): Promise<RevisionItem[]> {
-  const conds = [];
+  const conds: SQL[] = [];
   if (modulo) conds.push(eq(flitoRevisiones.modulo, modulo));
   if (!incluirResueltas) conds.push(eq(flitoRevisiones.resuelto, false));
+  return itemsDonde(conds);
+}
 
+/** Una revisión con la misma forma del listado (null si no existe). La usa el reintento de lectura. */
+export async function obtenerItem(id: string): Promise<RevisionItem | null> {
+  const [item] = await itemsDonde([eq(flitoRevisiones.id, id)]);
+  return item ?? null;
+}
+
+async function itemsDonde(conds: SQL[]): Promise<RevisionItem[]> {
   const rows = await db.select({
     id: flitoRevisiones.id,
     modulo: flitoRevisiones.modulo,

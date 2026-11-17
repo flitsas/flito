@@ -108,6 +108,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "revisiones", fichero: "flito-revisiones/flito-revisiones.routes.ts", metodo: "POST", ruta: "/:id/resolver", roles: ["admin"], heredada: false },
   // Bug #14569 (punto 8): buscador de trámite. Mismos roles que POST /:id/resolver (`revisiones.revision.resolver`); sin función nueva ni siembra.
   { modulo: "revisiones", fichero: "flito-revisiones/flito-revisiones.routes.ts", metodo: "POST", ruta: "/:id/candidatos/buscar", roles: ["admin"], heredada: false },
+  // Bug #14569 (punto 9): reintentar la lectura OCR. Mismos roles que POST /:id/resolver; sin función nueva ni siembra.
+  { modulo: "revisiones", fichero: "flito-revisiones/flito-revisiones.routes.ts", metodo: "POST", ruta: "/:id/reintentar-lectura", roles: ["admin"], heredada: false },
   { modulo: "revisiones", fichero: "flito-revisiones/flito-revisiones.routes.ts", metodo: "POST", ruta: "/:id/descartar", roles: ["admin"], heredada: false },
   { modulo: "compuerta", fichero: "flito-compuerta/flito-compuerta.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor"], heredada: false },
   { modulo: "compuerta", fichero: "flito-compuerta/flito-compuerta.routes.ts", metodo: "GET", ruta: "/:tramiteId", roles: ["admin","auditor"], heredada: false },
