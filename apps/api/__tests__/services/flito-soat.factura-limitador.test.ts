@@ -63,3 +63,52 @@ describe('soatPdfContrasenaLimiter — 10 intentos con clave por 15 min y usuari
     expect(otro.status).toBe(400);
   });
 });
+
+describe('soatPdfNombreClaveLimiter — 60 peticiones con nombre como clave por 15 min y usuario (punto 10)', () => {
+  const MENSAJE_NOMBRE = { error: 'Demasiados intentos de abrir PDFs protegidos con el nombre del archivo. Espera unos minutos e intenta de nuevo.' };
+
+  it('la 61.ª petición con nombre → 429 (cupo compartido: flag de la individual + `true` en nombresComoClave de la masiva); otro usuario no lo hereda', async () => {
+    const app = await buildApp();
+    const a = await auth(9201);
+    const estados: number[] = [];
+    for (let i = 0; i < 30; i++) {
+      estados.push((await request(app).post(`/api/flito/soat/${UUID}/factura`).set('Authorization', a).field('usarNombreComoClave', 'true')).status);
+      estados.push((await request(app).post('/api/flito/soat/facturas').set('Authorization', a).field('nombresComoClave', JSON.stringify([false, true]))).status);
+    }
+    expect(estados).toEqual(Array(60).fill(400));
+    const r = await request(app).post('/api/flito/soat/facturas').set('Authorization', a).field('nombresComoClave', JSON.stringify([true]));
+    expect(r.status).toBe(429);
+    expect(r.body).toEqual(MENSAJE_NOMBRE);
+    const otro = await request(app).post(`/api/flito/soat/${UUID}/factura`).set('Authorization', await auth(9202)).field('usarNombreComoClave', 'true');
+    expect(otro.status).toBe(400);
+  });
+
+  it('las peticiones solo con el flag NO gastan el cupo de contraseñas: tras 15, las 10 con clave siguen pasando', async () => {
+    const app = await buildApp();
+    const a = await auth(9203);
+    for (let i = 0; i < 15; i++) {
+      expect((await request(app).post(`/api/flito/soat/${UUID}/factura`).set('Authorization', a).field('usarNombreComoClave', 'true')).status).toBe(400);
+    }
+    const conClave: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      conClave.push((await request(app).post(`/api/flito/soat/${UUID}/factura`).set('Authorization', a).field('contrasena', CLAVE)).status);
+    }
+    expect(conClave).toEqual(Array(10).fill(400));
+    const r = await request(app).post(`/api/flito/soat/${UUID}/factura`).set('Authorization', a).field('contrasena', CLAVE);
+    expect(r.status).toBe(429);
+    expect(r.body).toEqual(MENSAJE);
+  });
+
+  it('sin pedir nombre no cuenta: flag «false», nombresComoClave todo false, mal formado o ausente → 65 seguidas sin 429', async () => {
+    const app = await buildApp();
+    const a = await auth(9204);
+    const estados: number[] = [];
+    const variantes: (Record<string, string>)[] = [{}, { usarNombreComoClave: 'false' }, { nombresComoClave: JSON.stringify([false, false]) }, { nombresComoClave: 'no-json' }];
+    for (let i = 0; i < 65; i++) {
+      let req = request(app).post('/api/flito/soat/facturas').set('Authorization', a);
+      for (const [k, v] of Object.entries(variantes[i % variantes.length])) req = req.field(k, v);
+      estados.push((await req).status);
+    }
+    expect(estados.every((s) => s === 400)).toBe(true);
+  });
+});

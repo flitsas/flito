@@ -282,7 +282,7 @@ describe('flito-soat carga factura — PDF protegido con contraseña (Bug #14569
     expect(r.status).toBe(422);
     expect(r.body.codigo).toBe('PDF_CONTRASENA_INCORRECTA');
     expect(JSON.stringify(r.body)).not.toContain(CLAVE);
-    expect(abrirPdfMock).toHaveBeenCalledWith(expect.any(Buffer), CLAVE);
+    expect(abrirPdfMock).toHaveBeenCalledWith(expect.any(Buffer), CLAVE, []);
     noSeGuardoNada();
   });
 
@@ -323,6 +323,148 @@ describe('flito-soat carga factura — PDF protegido con contraseña (Bug #14569
     expect(soporte.hash).toBe(createHash('sha256').update(DESCIFRADO).digest('hex'));
     expect(soporte.tamanoBytes).toBe(DESCIFRADO.length);
     expect(JSON.stringify(vi.mocked(auditMock).mock.calls.map((c) => c[1]))).not.toContain(CLAVE); // el detalle auditado
+  });
+
+  describe('nombre del archivo como contraseña (usarNombreComoClave, punto 10)', () => {
+    // El qpdf simulado abre solo si algún candidato es «QTQ100» (el nombre del archivo subido).
+    const abreConNombre = async (buf: Buffer, clave?: string, cand: readonly string[] = []) => {
+      if (clave) throw new PdfContrasenaIncorrectaError();
+      return cand.includes('QTQ100') ? { estado: 'abierto' as const, buffer: DESCIFRADO } : { estado: 'requiere-contrasena' as const };
+    };
+    const subir = async (campos: Record<string, string>, nombre = 'QTQ100.pdf') => {
+      let r = request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`).set('Authorization', await auth('admin'));
+      for (const [k, v] of Object.entries(campos)) r = r.field(k, v);
+      return r.attach('archivo', CIFRADO, nombre);
+    };
+
+    it('individual con el flag: el nombre abre el PDF → sigue el flujo con el DESCIFRADO; nada de la clave en respuesta ni audit', async () => {
+      selectMock.mockReturnValueOnce(chain([soatEnAdquisicion])).mockReturnValueOnce(chain(datosCarga))
+        .mockReturnValueOnce(chain([]));
+      abrirPdfMock.mockImplementation(abreConNombre as never);
+      extraerMock.mockResolvedValueOnce(extraccionCruza);
+      transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({
+        select: vi.fn().mockReturnValue(chain([{ n: 1 }])), update: vi.fn().mockReturnValue(chain([])),
+        insert: vi.fn().mockReturnValueOnce({ values: vi.fn(() => chain([{ id: 'sop' }])) }).mockReturnValue(chain([])),
+      }));
+      selectMock.mockReturnValueOnce(chain([]));
+      const r = await subir({ usarNombreComoClave: 'true' });
+      expect(r.status).toBe(200);
+      expect(abrirPdfMock).toHaveBeenCalledWith(expect.any(Buffer), undefined, ['QTQ100']);
+      expect(extraerMock.mock.calls[0][0].contenido.equals(DESCIFRADO)).toBe(true);
+      expect((uploadMock.mock.calls[0] as unknown[])[3]).toEqual(DESCIFRADO);
+      const auditado = JSON.stringify(vi.mocked(auditMock).mock.calls.map((c) => c[1]));
+      expect(auditado).not.toMatch(/clave|contrase/i);
+      expect(JSON.stringify(r.body)).not.toMatch(/variante|nombre.*clave/i);
+    });
+
+    it('flag sin acierto → 422 PDF_CIFRADO (la UI pide la clave) y no se guarda nada', async () => {
+      selectMock.mockReturnValueOnce(chain([soatEnAdquisicion])).mockReturnValueOnce(chain(datosCarga));
+      abrirPdfMock.mockImplementation(abreConNombre as never);
+      const r = await subir({ usarNombreComoClave: 'true' }, 'otro-nombre.pdf');
+      expect(r.status).toBe(422);
+      expect(r.body.codigo).toBe('PDF_CIFRADO');
+      expect(abrirPdfMock.mock.calls[0][2]).toEqual(['otro-nombre', 'OTRONOMBRE']);
+      noSeGuardoNada();
+    });
+
+    it('la clave escrita tiene prioridad: con contrasena no se prueban nombres; si falla → incorrecta', async () => {
+      selectMock.mockReturnValueOnce(chain([soatEnAdquisicion])).mockReturnValueOnce(chain(datosCarga));
+      abrirPdfMock.mockImplementation(abreConNombre as never);
+      const r = await subir({ usarNombreComoClave: 'true', contrasena: CLAVE });
+      expect(r.status).toBe(422);
+      expect(r.body.codigo).toBe('PDF_CONTRASENA_INCORRECTA');
+      expect(abrirPdfMock).toHaveBeenCalledWith(expect.any(Buffer), CLAVE, []);
+      noSeGuardoNada();
+    });
+
+    it('flag ausente o «false» = comportamiento de hoy: sin candidatos → 422 PDF_CIFRADO', async () => {
+      for (const campos of [{}, { usarNombreComoClave: 'false' }]) {
+        selectMock.mockReturnValueOnce(chain([soatEnAdquisicion])).mockReturnValueOnce(chain(datosCarga));
+        abrirPdfMock.mockImplementation(abreConNombre as never);
+        const r = await subir(campos);
+        expect(r.status).toBe(422);
+        expect(r.body.codigo).toBe('PDF_CIFRADO');
+      }
+      expect(abrirPdfMock.mock.calls.map((c) => c[2])).toEqual([[], []]);
+    });
+
+    it('flag con valor distinto de true/false → 400 sin abrir el PDF', async () => {
+      const r = await subir({ usarNombreComoClave: 'si' });
+      expect(r.status).toBe(400);
+      expect(abrirPdfMock).not.toHaveBeenCalled();
+    });
+
+    const masivaPorPosicion = async (campos: Record<string, string>, ...nombres: string[]) => {
+      let r = request(await buildApp()).post('/api/flito/soat/facturas').set('Authorization', await auth('admin'));
+      for (const [k, v] of Object.entries(campos)) r = r.field(k, v);
+      for (const n of nombres) r = r.attach('archivos', CIFRADO, n);
+      return r;
+    };
+    const loteSinCruce = () => {
+      selectMock.mockReturnValue(chain([]));
+      extraerMock.mockResolvedValue({ ...extraccionCruza, [CampoSoat.PLACA]: campo('ZZZ999', 0.95), [CampoSoat.VIN]: campo(null, 0) });
+      abrirPdfMock.mockImplementation(abreConNombre as never);
+    };
+
+    it('masiva por posición: el marcado cuyo nombre es la clave se procesa; el no marcado → `protegidos`; sin la clave en el audit', async () => {
+      loteSinCruce();
+      const r = await masivaPorPosicion({ nombresComoClave: JSON.stringify([true, false]) }, 'QTQ100.pdf', 'QTQ100.pdf');
+      expect(r.status).toBe(200);
+      expect(abrirPdfMock.mock.calls.map((c) => c[2])).toEqual([['QTQ100'], []]);
+      expect(r.body.protegidos).toEqual([{ archivo: 'QTQ100.pdf', placa: null, soatId: null, detalle: 'Protegido con contraseña.' }]);
+      expect(r.body.noAsociados.map((i: { archivo: string }) => i.archivo)).toEqual(['QTQ100.pdf']); // el 1.º pasó al OCR
+      expect(extraerMock).toHaveBeenCalledTimes(1);
+      expect(extraerMock.mock.calls[0][0].contenido.equals(DESCIFRADO)).toBe(true);
+      const auditado = JSON.stringify(vi.mocked(auditMock).mock.calls.map((c) => c[1]));
+      expect(auditado).not.toContain('QTQ100'); // la masiva no audita nombres: tampoco el que abrió
+      expect(auditado).not.toMatch(/clave|contrase/i);
+    });
+
+    it('masiva: clave escrita y nombre marcado en la misma posición → gana la clave (incorrecta → `protegidos`)', async () => {
+      loteSinCruce();
+      const r = await masivaPorPosicion({ contrasenas: JSON.stringify([CLAVE]), nombresComoClave: JSON.stringify([true]) }, 'QTQ100.pdf');
+      expect(r.status).toBe(200);
+      expect(abrirPdfMock).toHaveBeenCalledWith(expect.any(Buffer), CLAVE, []);
+      expect(r.body.protegidos[0]).toMatchObject({ archivo: 'QTQ100.pdf', detalle: 'La contraseña no abre este PDF.' });
+      expect(JSON.stringify(r.body)).not.toContain(CLAVE);
+    });
+
+    it('masiva: la primera subida sin nombresComoClave no prueba nombres (todos → `protegidos`)', async () => {
+      loteSinCruce();
+      const r = await masivaPorPosicion({}, 'QTQ100.pdf');
+      expect(r.status).toBe(200);
+      expect(abrirPdfMock.mock.calls[0][2]).toEqual([]);
+      expect(r.body.protegidos).toHaveLength(1);
+    });
+
+    it('masiva: el flag individual `usarNombreComoClave` no aplica al lote', async () => {
+      loteSinCruce();
+      const r = await masivaPorPosicion({ usarNombreComoClave: 'true' }, 'QTQ100.pdf');
+      expect(r.status).toBe(200);
+      expect(abrirPdfMock.mock.calls[0][2]).toEqual([]);
+    });
+
+    it('masiva: nombresComoClave con largo distinto, no-JSON o no booleano → 400 sin repetir el valor ni procesar nada', async () => {
+      for (const v of [JSON.stringify([true]), 'no-es-json', JSON.stringify(['true', false])]) {
+        const r = await masivaPorPosicion({ nombresComoClave: v }, 'QTQ100.pdf', 'otro.pdf');
+        expect(r.status).toBe(400);
+        expect(r.body).toEqual({ error: 'nombresComoClave inválido' });
+      }
+      expect(abrirPdfMock).not.toHaveBeenCalled();
+    });
+
+    it('masiva: un ZIP marcado en su posición pasa la marca a sus entradas y cada una prueba SU nombre', async () => {
+      const zip = new JSZip();
+      zip.file('lote/QTQ100.pdf', CIFRADO);
+      const contenidoZip = await zip.generateAsync({ type: 'nodebuffer' });
+      loteSinCruce();
+      const r = await request(await buildApp()).post('/api/flito/soat/facturas').set('Authorization', await auth('admin'))
+        .field('nombresComoClave', JSON.stringify([true]))
+        .attach('archivos', contenidoZip, { filename: 'lote.zip', contentType: 'application/zip' });
+      expect(r.status).toBe(200);
+      expect(r.body.protegidos).toEqual([]);
+      expect(abrirPdfMock.mock.calls[0][2]).toEqual(['QTQ100']);
+    });
   });
 
   describe('masiva (POST /facturas)', () => {
