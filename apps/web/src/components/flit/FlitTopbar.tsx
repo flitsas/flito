@@ -109,12 +109,7 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar, sidebarAbiert
               {/* Cuenta. */}
               {puedeVerPerfil && (
                 <li><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir('/perfil')}>
-                  <span className="kico" aria-hidden="true"><Icono nombre="persona" /></span><span><strong>Mi perfil</strong><small>Tus datos y preferencias</small></span>
-                </button></li>
-              )}
-              {puedeVerAyuda && (
-                <li><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir('/flito/ayuda')}>
-                  <span className="kico" aria-hidden="true"><Icono nombre="ayuda" /></span><span><strong>Ayuda</strong><small>Manual y preguntas frecuentes</small></span>
+                  <span className="kico" aria-hidden="true"><Icono nombre="persona" /></span><span><strong>Perfil</strong><small>Tus datos y preferencias</small></span>
                 </button></li>
               )}
               {puedeVerPerfil && (
@@ -122,10 +117,15 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar, sidebarAbiert
                   <span className="kico" aria-hidden="true"><Icono nombre="ojo" /></span><span><strong>Cambiar contraseña</strong><small>Actualiza tu clave de acceso</small></span>
                 </button></li>
               )}
+              {puedeVerAyuda && (
+                <li><button type="button" role="menuitem" className="menu-usuario__entrada" onClick={() => ir('/flito/ayuda')}>
+                  <span className="kico" aria-hidden="true"><Icono nombre="ayuda" /></span><span><strong>Ayuda</strong><small>Manual y preguntas frecuentes</small></span>
+                </button></li>
+              )}
             </ul>
             {/* Salir en naranja (ui-kit-2026.css pinta así el .btn del pie). */}
             <div className="menu-usuario__pie">
-              <button type="button" role="menuitem" className="btn sm secondary" data-variante="alerta" onClick={salir}>Salir</button>
+              <button type="button" role="menuitem" className="btn sm secondary" data-variante="alerta" onClick={salir}>Cerrar sesión</button>
             </div>
           </div>
         </MenuAncla>

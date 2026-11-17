@@ -64,7 +64,7 @@ test.describe('FLITO — Logística · bandeja de LT pendientes', () => {
     await loginAs(page, OPERACIONES_USER, { funciones: [...BASE, FUNCION] });
     await mockBandeja(page);
     await page.goto('/flito/logistica');
-    await expect(page.getByRole('button', { name: 'LT pendientes, 3' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'LT pendientes, 3' })).toBeVisible();
     await page.getByRole('tab', { name: /^LT pendientes/ }).click();
     const filas = page.getByRole('row');
     await expect(filas.nth(1)).toContainText('ABC123');

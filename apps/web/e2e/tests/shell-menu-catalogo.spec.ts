@@ -15,8 +15,8 @@
 //   npx playwright test e2e/tests/shell-menu-catalogo.spec.ts --reporter=line
 //
 // Shell del UI Kit 2026 (Épica #14560): el dock pinta las secciones del menú original (SECTION_ORDER) con los
-// nombres del catálogo, sin reagrupar ni isotipo; «Ayuda» es la última sección (las que no caben, en el «Más»). La cuenta (Mi perfil, Ayuda,
-// Cambiar contraseña, Salir) vive en el menú de usuario.
+// nombres del catálogo, sin reagrupar ni isotipo; «Ayuda» es la última sección (las que no caben, en el «Más»). La cuenta (Perfil, Ayuda,
+// Cambiar contraseña, Cerrar sesión) vive en el menú de usuario.
 
 import type { Page } from '@playwright/test';
 import { ARBOL_PERMISOS, ELEMENTOS_PERMISOS } from '@operaciones/shared-types';
@@ -134,13 +134,13 @@ test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visible
 });
 
 test.describe('HU #13431 — AC2 · Perfil por «Ver mis datos»', () => {
-  test('con la función: «Mi perfil» (y «Cambiar contraseña») encima de «Salir»', async ({ page }) => {
+  test('con la función: «Perfil» (y «Cambiar contraseña») encima de «Cerrar sesión»', async ({ page }) => {
     await loginAs(page, CONDUCTOR_USER);
     await page.goto('/');
     const menu = await opcionesDeUsuario(page);
     // «Ayuda» puede ir entre medias según los capítulos visibles (AC1); aquí se mira el orden de la cuenta.
     const cuenta = (await entradasCuenta(menu)).filter((e) => e !== 'Ayuda');
-    expect(cuenta).toEqual(['Mi perfil', 'Cambiar contraseña', 'Salir']);
+    expect(cuenta).toEqual(['Perfil', 'Cambiar contraseña', 'Cerrar sesión']);
   });
 
   test('sin la función: solo «Cerrar sesión» y `/perfil` es «sin acceso» (aunque tenga la página)', async ({ page }) => {
@@ -150,10 +150,10 @@ test.describe('HU #13431 — AC2 · Perfil por «Ver mis datos»', () => {
     await page.goto('/');
     const menu = await opcionesDeUsuario(page);
     const entradas = await entradasCuenta(menu);
-    // Sin «Ver mis datos»: ni «Mi perfil» ni «Cambiar contraseña» (que lleva a /perfil); «Salir» siempre, al final.
-    expect(entradas).not.toContain('Mi perfil');
+    // Sin «Ver mis datos»: ni «Perfil» ni «Cambiar contraseña» (que lleva a /perfil); «Cerrar sesión» siempre, al final.
+    expect(entradas).not.toContain('Perfil');
     expect(entradas).not.toContain('Cambiar contraseña');
-    expect(entradas.at(-1)).toBe('Salir');
+    expect(entradas.at(-1)).toBe('Cerrar sesión');
     await page.getByRole('button', { name: /Menú de usuario/ }).click();
     await page.goto('/perfil');
     await expect(page.getByRole('heading', { level: 1, name: 'No tienes acceso a Perfil' })).toBeVisible();
@@ -203,7 +203,7 @@ test.describe('HU #13431 — AC6 · usuario enlazado a compañía', () => {
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_tarifas'), exact: true })).toHaveCount(0);
     const menu = await opcionesDeUsuario(page);
     await expect(menu.locator('.menu-usuario__seccion')).toHaveCount(0);
-    await expect(menu.getByRole('menuitem', { name: /^Mi perfil/ })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /^Perfil/ })).toBeVisible();
   });
 });
 
@@ -219,7 +219,7 @@ test.describe('HU #13431 — AC7 · el menú se refresca con la sesión abierta'
     });
     await page.goto('/');
     let menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem', { name: /^Mi perfil/ })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /^Perfil/ })).toBeVisible();
     await page.getByRole('button', { name: /Menú de usuario/ }).click();
     await expect(menu).toHaveCount(0);
 
@@ -228,7 +228,7 @@ test.describe('HU #13431 — AC7 · el menú se refresca con la sesión abierta'
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await expect.poll(() => estado.mios).toBeGreaterThan(antes);
     menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem', { name: /^Mi perfil/ })).toHaveCount(0);
-    await expect(menu.getByRole('menuitem', { name: 'Salir' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /^Perfil/ })).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: 'Cerrar sesión' })).toBeVisible();
   });
 });

@@ -273,16 +273,15 @@ export default function FlitoLogistica() {
           onElegir={(id) => setTab(id as Tab)}
           pestanas={TABS.map((t) => ({
             id: t.key,
+            // Mismo nombre accesible que en develop: «LT pendientes, 3» (aria-label), no la concatenación del texto.
+            nombre: t.badge != null ? `${t.label}, ${t.badge}` : undefined,
             etiqueta: (
               <>
                 {t.label}
                 {t.badge != null && (
-                  <>
-                    <span className="sr-only">{`, ${t.badge}`}</span>
-                    <span aria-hidden="true" className="acordeon__cuenta !h-6 !min-w-6 text-xs tabular-nums">
-                      {t.badge.toLocaleString('es-CO')}
-                    </span>
-                  </>
+                  <span aria-hidden="true" className="acordeon__cuenta !h-6 !min-w-6 text-xs tabular-nums">
+                    {t.badge.toLocaleString('es-CO')}
+                  </span>
                 )}
               </>
             ),
