@@ -306,3 +306,13 @@ html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-
 /* ---------- Ancho completo (Épica #14560): las páginas con tablas muy anchas (Comparendos, 13 columnas) marcan su raíz
    con data-ancho="completo" y el contenido del shell suelta el tope de 1680 px del kit, como en develop. ---------- */
 .kit-main:has([data-ancho="completo"]) { max-width: none; }
+
+/* ---------- Botón deshabilitado (Épica #14560, evidencias DEV) ----------
+   kit-ui.css (generado) pinta todo `.btn[disabled]` con relleno --kit-gris y texto blanco: en oscuro --kit-gris es lila
+   claro y el «‹ Anterior» apagado pesaba más que el «Siguiente ›» activo. Aquí (capa components, después de kit-ui) el
+   deshabilitado es la MISMA variante atenuada, con el color de texto de cada variante. El «ocupado» sigue opaco. */
+.btn[disabled], .btn[disabled]:hover { background: var(--b); opacity: 0.45; filter: none; transform: none; cursor: not-allowed; }
+.btn.positiva[disabled] { color: var(--kit-tinta-fija); }
+.btn.ghost[disabled], .btn.ghost[disabled]:hover { background: transparent; color: var(--color-action); }
+[data-theme="dark"] .btn:not(.secondary):not(.navy):not(.ghost):not(.positiva):not(.alerta)[disabled] { --b: var(--kit-azul-relleno); }
+.btn[aria-busy="true"][disabled] { opacity: 1; cursor: progress; }

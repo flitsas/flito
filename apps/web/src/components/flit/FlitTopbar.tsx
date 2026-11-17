@@ -73,7 +73,10 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar, sidebarAbiert
       {onOpenSidebar && (
         <button ref={menuBotonRef} type="button" className="barra__menu" aria-label="Abrir menú de navegación"
           aria-expanded={sidebarAbierto} aria-controls={sidebarAbierto ? 'flit-menu-lateral' : undefined} aria-haspopup="dialog" onClick={onOpenSidebar}>
-          <Icono nombre="lista" size={22} />
+          {/* El kit no trae glifo de menú («lista» es un portapapeles): tres rayas en línea, mismo trazo que «cerrar». */}
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22px" height="22px" focusable="false" className="kit-icono" aria-hidden="true" data-glifo="menu">
+            <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
         </button>
       )}
       <Link className="barra__marca" to="/" aria-label="FLITO, ir al inicio">
