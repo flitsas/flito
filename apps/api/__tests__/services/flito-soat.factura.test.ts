@@ -453,17 +453,40 @@ describe('flito-soat carga factura — PDF protegido con contraseña (Bug #14569
       expect(abrirPdfMock).not.toHaveBeenCalled();
     });
 
-    it('masiva: un ZIP marcado en su posición pasa la marca a sus entradas y cada una prueba SU nombre', async () => {
+    it('masiva: un ZIP marcado en su posición NO pasa la marca: >5 entradas cifradas, 0 nombres probados, todas → `protegidos`', async () => {
       const zip = new JSZip();
-      zip.file('lote/QTQ100.pdf', CIFRADO);
+      const nombres = Array.from({ length: 9 }, (_, k) => `QTQ10${k}.pdf`); // 9 entradas distintas (>5)
+      for (const n of nombres) zip.file(`lote/${n}`, CIFRADO);
       const contenidoZip = await zip.generateAsync({ type: 'nodebuffer' });
       loteSinCruce();
       const r = await request(await buildApp()).post('/api/flito/soat/facturas').set('Authorization', await auth('admin'))
         .field('nombresComoClave', JSON.stringify([true]))
         .attach('archivos', contenidoZip, { filename: 'lote.zip', contentType: 'application/zip' });
       expect(r.status).toBe(200);
-      expect(r.body.protegidos).toEqual([]);
-      expect(abrirPdfMock.mock.calls[0][2]).toEqual(['QTQ100']);
+      expect(abrirPdfMock).toHaveBeenCalledTimes(nombres.length);
+      expect(abrirPdfMock.mock.calls.map((c) => c[2])).toEqual(nombres.map(() => [])); // ningún candidato de nombre
+      expect(r.body.protegidos).toHaveLength(nombres.length);
+      expect(r.body.protegidos.every((p: { detalle: string }) => p.detalle === 'Protegido con contraseña.')).toBe(true);
+      expect(extraerMock).not.toHaveBeenCalled();
+    });
+
+    it('abrirEnLote: la petición tiene un tope de INTENTOS_NOMBRE_POR_PETICION variantes; agotado, el resto → `protegidos` sin probar', async () => {
+      const { abrirEnLote, INTENTOS_NOMBRE_POR_PETICION } = await import('../../src/modules/flito-soat/flito-soat-factura-cifrada.js');
+      expect(INTENTOS_NOMBRE_POR_PETICION).toBe(15);
+      abrirPdfMock.mockImplementation(abreConNombre as never);
+      const res = { pagados: [], enRevision: [], duplicados: [], noAsociados: [], protegidos: [] };
+      // Cada archivo gasta las variantes que le da `clavesDesdeNombre` (≥1); 20 archivos superan el cupo de 15.
+      const archivo = (k: number) => ({ originalname: `ab c-${k}.pdf`, mimetype: 'application/pdf', buffer: CIFRADO, size: CIFRADO.length, usarNombreComoClave: true });
+      for (let k = 0; k < 20; k++) expect(await abrirEnLote(archivo(k), res)).toBeNull();
+      const probados = abrirPdfMock.mock.calls.map((c) => (c[2] as string[]).length);
+      expect(probados.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(INTENTOS_NOMBRE_POR_PETICION);
+      expect(probados.slice(-1)[0]).toBe(0); // los últimos ya no prueban nada
+      expect(res.protegidos).toHaveLength(20);
+      // Otra petición (otro `res`) tiene su propio cupo.
+      abrirPdfMock.mockClear();
+      const otra = { pagados: [], enRevision: [], duplicados: [], noAsociados: [], protegidos: [] };
+      await abrirEnLote(archivo(0), otra);
+      expect((abrirPdfMock.mock.calls[0][2] as string[]).length).toBeGreaterThan(0);
     });
   });
 

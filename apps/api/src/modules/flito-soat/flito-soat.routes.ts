@@ -743,11 +743,10 @@ router.post('/:id/devolver-gestor', exigirFuncion('soat.solicitud.devolver'), as
 });
 
 // POST /:id/factura — carga de UNA factura de un SOAT puntual. Única vía a Pagado (RN-03).
-// Operaciones o el gestor del proveedor. Campo de archivo: "archivo".
-// Campo opcional "contrasena" (Bug #14569) si el PDF está cifrado. `soatPdfContrasenaLimiter` va
-// DESPUÉS de multer a propósito: solo cuenta las peticiones con clave, y la clave viene en el body.
-// Campo opcional "usarNombreComoClave" ('true'|'false', punto 10): sin clave escrita, prueba el nombre
-// del archivo como contraseña; su límite propio (`soatPdfNombreClaveLimiter`) va junto al otro.
+// Operaciones o el gestor del proveedor. Campo de archivo: "archivo". Campos opcionales del PDF
+// cifrado (Bug #14569): "contrasena", y "usarNombreComoClave" true o false, que sin clave escrita
+// prueba el nombre del archivo como contraseña. Cada uno con su limitador, puesto tras multer
+// porque solo cuentan las peticiones que los traen y esos campos vienen en el body.
 router.post('/:id/factura', exigirFuncion('soat.comprobante.cargar'), upload.single('archivo'), soatPdfContrasenaLimiter, soatPdfNombreClaveLimiter, async (req: Request, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'Falta el archivo de la factura' }); return; }
   const porNombre = flagNombre(req.body?.usarNombreComoClave);
@@ -769,7 +768,8 @@ router.post('/:id/factura', exigirFuncion('soat.comprobante.cargar'), upload.sin
 // Limitador después de multer por la misma razón que en `POST /:id/factura`.
 // Campo opcional "nombresComoClave" (punto 10): arreglo JSON de booleanos por posición, mismo largo
 // que "archivos" (como "contrasenas"). En la posición i: clave escrita no vacía → esa (prioridad);
-// si no y `true` → se prueba el nombre del archivo (o de cada entrada, si es un ZIP); si no → hoy.
+// si no y `true` → se prueba el nombre del archivo; si no → hoy. Un ZIP no pasa la marca a sus
+// entradas (las cifradas van a `protegidos`) y la petición tiene un tope de variantes probadas.
 router.post('/facturas', exigirFuncion('soat.masiva.cargar'), upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), soatPdfContrasenaLimiter, soatPdfNombreClaveLimiter, async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
