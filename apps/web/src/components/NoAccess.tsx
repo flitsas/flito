@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { PAGES, rutaInicio, PageSlug } from '../lib/permissions';
 import { etiquetaDeRuta } from './shell/navItems';
 import { useAuth } from '../lib/auth';
-import { flitBtnPrimary, flitBtnPrimaryStyle } from './flit/flitPageKit';
+import { claseBoton } from './flit/GradientButton';
+import { Icono } from './flit/kit/Icono';
 
 /**
  * Estado "sin acceso a sección" — reemplaza el redirect mudo a "/" de ProtectedRoute.
@@ -31,44 +32,28 @@ export default function NoAccess({ page, label }: { page?: PageSlug; label?: str
       aria-live="assertive"
       aria-labelledby="noaccess-title"
     >
-      <div className="w-full max-w-md text-center">
-        <div
-          className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full flit-tone-active-bg"
-          aria-hidden="true"
-        >
-          <svg
-            className="h-7 w-7 text-[color:var(--flit-blue)]"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="4" y="11" width="16" height="9" rx="2" />
-            <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-          </svg>
-        </div>
+      <div className="card kit-vacio w-full max-w-md" data-kit="vacio">
+        <Icono nombre="candado" disco size={72} />
 
         <h1
           id="noaccess-title"
           ref={headingRef}
           tabIndex={-1}
-          className="text-xl font-semibold flit-tone-primary outline-none"
+          className="m-0 text-xl font-bold text-[color:var(--color-text-primary)] outline-none"
         >
           No tienes acceso a {nombre}
         </h1>
 
-        <p className="mt-3 flit-tone-secondary">
+        <p className="text-base font-normal text-[color:var(--color-text-secondary)]">
           Tu usuario no tiene el permiso para ver esta sección. Si la necesitas para tu trabajo,
           pídele a un administrador que te la habilite.
         </p>
 
-        <div className="mt-8 flex justify-center">
+        <div className="mt-4 flex justify-center">
           <Link
             to={inicio.to}
-            className={flitBtnPrimary}
-            style={flitBtnPrimaryStyle}
+            className={claseBoton('primary')}
+            data-variante="primario"
           >
             {inicio.to === '/' ? 'Volver al tablero' : `Ir a ${etiquetaDeRuta(inicio.to) ?? 'inicio'}`}
           </Link>

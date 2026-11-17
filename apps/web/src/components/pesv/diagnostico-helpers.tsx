@@ -5,6 +5,8 @@
 
 import { useEffect, useRef } from 'react';
 import type { KeyboardEvent, RefObject } from 'react';
+import { Girador } from '../flit/Cargador';
+import { Icono } from '../flit/kit/Icono';
 
 /** Tiempo relativo en español ("hace 3m", "ahora"). Fallback ISO si parsea mal. */
 export function formatRelativeTime(iso: string): string {
@@ -62,30 +64,17 @@ export function useRestoreFocusOnClose(open: boolean) {
   }, [open]);
 }
 
-/** Spinner inline (3.5 unidades, respeta reduced motion). */
+/** Spinner inline: girador del kit (respeta reduced motion). */
 export function SpinnerIcon() {
-  return (
-    <svg className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-      <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
-      <path strokeLinecap="round" d="M12 2a10 10 0 0110 10" />
-    </svg>
-  );
+  return <Girador />;
 }
 
 export function ExternalLinkIcon() {
-  return (
-    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M7 17L17 7M7 7h10v10" />
-    </svg>
-  );
+  return <Icono nombre="externo" className="h-3 w-3" />;
 }
 
 export function ChevronRightIcon() {
-  return (
-    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-    </svg>
-  );
+  return <Icono nombre="derecha" className="h-3 w-3" />;
 }
 
 export const FASE_LABEL = {

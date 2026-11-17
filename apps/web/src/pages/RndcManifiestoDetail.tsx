@@ -3,6 +3,12 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import PageHeaderCard from '../components/flit/PageHeaderCard';
+import GradientButton from '../components/flit/GradientButton';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { Fichas, LineaAvance, PildoraTramite } from '../components/flit/Bloques';
+import { EstadoVista } from '../components/flit/Cargador';
+import { Icono } from '../components/flit/kit/Icono';
 
 interface Manifiesto {
   id: number; numero: string; consecutivoRndc: string | null; estado: string;
@@ -41,7 +47,9 @@ const ESTADO_TONE: Record<string, ChipTone> = {
   borrador: 'neutral', listo: 'active', radicado_rndc: 'active',
   aceptado: 'success', rechazado: 'danger', cumplido: 'success', anulado: 'neutral',
 };
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+/** Recorrido normal del manifiesto; rechazado/anulado salen de él y no pintan la línea. */
+const FLUJO = ['borrador', 'listo', 'radicado_rndc', 'aceptado', 'cumplido'];
+const TXT = 'text-xs text-[color:var(--color-text-primary)]';
 
 export default function RndcManifiestoDetail() {
   const { id } = useParams();
@@ -153,100 +161,102 @@ export default function RndcManifiestoDetail() {
     window.open(`/api/rndc/manifiestos/${id}/pdf`, '_blank');
   };
 
-  if (loading) return <div className="p-8" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</div>;
-  if (!m) return <div className="p-8" style={{ color: 'var(--flit-text-muted)' }}>No encontrado</div>;
+  if (loading) return <EstadoVista status="loading" cargando="Cargando..." />;
+  if (!m) return <EstadoVista status="empty" emptyMessage="No encontrado" />;
 
   const editable = ['borrador', 'listo'].includes(m.estado);
+  const pasoFlujo = FLUJO.indexOf(m.estado);
 
-  const envioStyle =
-    m.estadoEnvio === 'aceptado' ? { background: 'rgba(112,207,58,0.10)', border: '1px solid rgba(112,207,58,0.30)' }
-    : m.estadoEnvio === 'fallido_definitivo' ? { background: 'rgba(228,61,48,0.10)', border: '1px solid rgba(228,61,48,0.30)' }
-    : { background: 'rgba(240,90,53,0.10)', border: '1px solid rgba(240,90,53,0.30)' };
+  const envioTono = m.estadoEnvio === 'aceptado' ? 'ok' : m.estadoEnvio === 'fallido_definitivo' ? 'danger' : 'warn';
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-white px-6 py-5" style={CARD}>
-        <div className="flex flex-col gap-1">
-          <Link to="/rndc/manifiestos" className="text-xs font-semibold hover:underline" style={{ color: 'var(--flit-blue)' }}>← Manifiestos</Link>
-          <h1 className="mt-1 text-xl font-bold tracking-tight" style={{ color: 'var(--flit-blue-text)' }}>{m.numero}</h1>
-          <p className="flex items-center gap-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-            <span>Estado:</span> <StatusChip tone={ESTADO_TONE[m.estado] ?? 'neutral'}>{m.estado.replace('_', ' ')}</StatusChip>
-            {m.consecutivoRndc && <span style={{ color: 'var(--flit-success)' }}>RNDC {m.consecutivoRndc}</span>}
-          </p>
-        </div>
+      <PageHeaderCard
+        title={m.numero}
+        icono="flito-rndc"
+        miga={[{ etiqueta: 'Cumplimiento' }, { etiqueta: 'RNDC', to: '/rndc' }, { etiqueta: 'Manifiestos', to: '/rndc/manifiestos' }]}
+        actions={
+          <div className="flex flex-wrap justify-end gap-2">
+            {m.estado === 'borrador' && (
+              <GradientButton size="sm" onClick={marcarListo} disabled={busy}>Marcar listo</GradientButton>
+            )}
+            {(m.estado === 'listo' || m.estado === 'aceptado') && (
+              <GradientButton size="sm" variant="success" onClick={cumplir} disabled={busy}>Cumplir</GradientButton>
+            )}
+            {m.estado !== 'cumplido' && m.estado !== 'anulado' && (
+              <GradientButton size="sm" variant="alerta" onClick={anular} disabled={busy}>Anular</GradientButton>
+            )}
+            {m.estado === 'borrador' && (
+              <GradientButton size="sm" variant="alerta" onClick={eliminar} disabled={busy}>Eliminar</GradientButton>
+            )}
+            <GradientButton size="sm" variant="secondary" onClick={descargarPdf}>
+              <Icono nombre="documento" />
+              PDF
+            </GradientButton>
+          </div>
+        }
+      />
 
-        <div className="flex flex-wrap justify-end gap-2">
-          {m.estado === 'borrador' && (
-            <button onClick={marcarListo} disabled={busy} className="flit-focus inline-flex h-9 items-center rounded-[999px] px-4 text-xs font-semibold text-white disabled:opacity-50" style={{ background: 'var(--flit-gradient-primary)' }}>Marcar listo</button>
-          )}
-          {(m.estado === 'listo' || m.estado === 'aceptado') && (
-            <button onClick={cumplir} disabled={busy} className="flit-focus inline-flex h-9 items-center rounded-[999px] px-4 text-xs font-semibold text-white disabled:opacity-50" style={{ background: 'var(--flit-gradient-success)' }}>Cumplir</button>
-          )}
-          {m.estado !== 'cumplido' && m.estado !== 'anulado' && (
-            <button onClick={anular} disabled={busy} className="flit-focus inline-flex h-9 items-center rounded-[999px] px-4 text-xs font-semibold text-white disabled:opacity-50" style={{ background: 'var(--flit-gradient-danger)' }}>Anular</button>
-          )}
-          {m.estado === 'borrador' && (
-            <button onClick={eliminar} disabled={busy} className="flit-focus inline-flex h-9 items-center rounded-[999px] border px-4 text-xs font-semibold" style={{ borderColor: 'rgba(228,61,48,0.40)', color: 'var(--flit-danger)' }}>Eliminar</button>
-          )}
-          <button onClick={descargarPdf} className="flit-focus inline-flex h-9 items-center gap-1.5 rounded-[999px] border bg-white px-4 text-xs font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-            </svg>
-            PDF
-          </button>
+      <section className="card flex flex-col gap-4 p-5">
+        {pasoFlujo >= 0 && (
+          <LineaAvance pasos={FLUJO.map((e) => ({ etiqueta: e.replace('_', ' ') }))} actual={m.estado === 'cumplido' ? FLUJO.length : pasoFlujo} />
+        )}
+        <div className="flex flex-wrap items-center gap-2 text-xs text-[color:var(--color-text-tertiary)]">
+          <span>Estado:</span> <StatusChip tone={ESTADO_TONE[m.estado] ?? 'neutral'}>{m.estado.replace('_', ' ')}</StatusChip>
         </div>
-      </div>
+        {m.consecutivoRndc && <PildoraTramite datos={[{ etiqueta: 'RNDC', valor: m.consecutivoRndc }]} />}
+      </section>
 
       {m.estadoEnvio && m.estadoEnvio !== 'no_aplica' && (
-        <div className="rounded-[18px] p-4" style={{ ...envioStyle, boxShadow: 'var(--flit-shadow-card)' }}>
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: 'var(--flit-text-secondary)' }}>Estado envío RNDC</p>
-              <p className="mt-1 text-sm font-medium capitalize" style={{ color: 'var(--flit-text-primary)' }}>{m.estadoEnvio.replace(/_/g, ' ')}</p>
+        <div className="kit-alerta" data-tono={envioTono} data-kit="alerta">
+          <div className="flex w-full flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.03em] text-[color:var(--color-text-secondary)]">Estado envío RNDC</p>
+              <p className="mt-1 text-sm font-medium capitalize text-[color:var(--color-text-primary)]">{m.estadoEnvio.replace(/_/g, ' ')}</p>
               {typeof m.intentosEnvio === 'number' && m.intentosEnvio > 0 && (
-                <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>Intentos: {m.intentosEnvio}</p>
+                <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">Intentos: {m.intentosEnvio}</p>
               )}
               {m.ultimoError && (
-                <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-danger)' }}>Último error: {m.ultimoError}</p>
+                <p className="mt-1 text-xs text-[color:var(--kit-rojo-texto)]">Último error: {m.ultimoError}</p>
               )}
               {m.proximoIntentoAt && m.estadoEnvio !== 'aceptado' && (
-                <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Próximo intento: {m.proximoIntentoAt.slice(0, 16).replace('T', ' ')}</p>
+                <p className="mt-1 text-xs text-[color:var(--color-text-tertiary)]">Próximo intento: {m.proximoIntentoAt.slice(0, 16).replace('T', ' ')}</p>
               )}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {m.estadoEnvio === 'cancelado_pre_envio' ? (
-                <button onClick={encolarEnvio} disabled={busy} className="flit-focus inline-flex h-9 items-center rounded-[999px] px-3 text-xs font-semibold text-white disabled:opacity-50" style={{ background: 'var(--flit-gradient-primary)' }}>Encolar envío</button>
+                <GradientButton size="sm" onClick={encolarEnvio} disabled={busy}>Encolar envío</GradientButton>
               ) : (
-                <button onClick={reintentarEnvio} disabled={busy} className="flit-focus inline-flex h-9 items-center rounded-[999px] px-3 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50" style={{ background: 'var(--flit-text-primary)' }}>Reintentar ahora</button>
+                <GradientButton size="sm" onClick={reintentarEnvio} disabled={busy}>Reintentar ahora</GradientButton>
               )}
-              <button onClick={verHistorial} className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-white px-3 text-xs font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>Historial</button>
+              <GradientButton size="sm" variant="secondary" onClick={verHistorial}>Historial</GradientButton>
             </div>
           </div>
         </div>
       )}
 
       {editable && (
-        <div className="rounded-[18px] p-4" style={{ background: 'rgba(240,90,53,0.10)', border: '1px solid rgba(240,90,53,0.30)', boxShadow: 'var(--flit-shadow-card)' }}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="kit-alerta flex-col" data-tono="warn" data-kit="alerta">
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold" style={{ color: 'var(--flit-warning)' }}>Pre-validación antes de radicar</p>
-              <p className="text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>Verifica conductor apto, documentos vigentes, vinculación cabezote-remolque y remesas asociadas.</p>
+              <p className="text-xs font-semibold text-[color:var(--kit-naranja-texto)]">Pre-validación antes de radicar</p>
+              <p className="text-xs text-[color:var(--color-text-secondary)]">Verifica conductor apto, documentos vigentes, vinculación cabezote-remolque y remesas asociadas.</p>
             </div>
-            <button onClick={validar} className="flit-focus inline-flex h-9 items-center rounded-[999px] px-3 text-xs font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--flit-warning)' }}>Ejecutar validación</button>
+            <GradientButton size="sm" onClick={validar}>Ejecutar validación</GradientButton>
           </div>
           {validation && (
-            <div className="mt-3 space-y-1.5">
+            <div className="mt-1 w-full space-y-1.5">
               {validation.checks.map((c, i) => (
-                <div key={i} className="flex items-start gap-2 text-xs" style={{ color: c.ok ? 'var(--flit-success)' : 'var(--flit-danger)' }}>
-                  <span className="mt-0.5 inline-block h-3 w-3 rounded-full" style={{ background: c.ok ? 'var(--flit-success)' : 'var(--flit-danger)' }}></span>
+                <div key={i} className={`flex items-start gap-2 text-xs ${c.ok ? 'text-[color:var(--kit-verde-texto)]' : 'text-[color:var(--kit-rojo-texto)]'}`}>
+                  <span className={`mt-0.5 inline-block h-3 w-3 shrink-0 rounded-full ${c.ok ? 'bg-[var(--kit-verde)]' : 'bg-[var(--kit-rojo)]'}`}></span>
                   <div>
                     <p className="font-medium">{c.regla}</p>
-                    {c.detalle && <p className="text-[10px] opacity-80">{c.detalle}</p>}
+                    {c.detalle && <p className="text-[0.75rem]">{c.detalle}</p>}
                   </div>
                 </div>
               ))}
-              <div className="mt-2 border-t pt-2 text-xs font-semibold" style={{ borderColor: 'rgba(240,90,53,0.20)' }}>
-                {validation.ok ? <span style={{ color: 'var(--flit-success)' }}>Listo para radicar</span> : <span style={{ color: 'var(--flit-danger)' }}>Resuelva los puntos en rojo antes de radicar</span>}
+              <div className="mt-2 border-t border-[color:var(--color-border)] pt-2 text-xs font-semibold">
+                {validation.ok ? <span className="text-[color:var(--kit-verde-texto)]">Listo para radicar</span> : <span className="text-[color:var(--kit-rojo-texto)]">Resuelva los puntos en rojo antes de radicar</span>}
               </div>
             </div>
           )}
@@ -254,85 +264,70 @@ export default function RndcManifiestoDetail() {
       )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Card title="Vehículo y conductor">
-          <Row label="Cabezote ID">{m.vehiculoPrincipalId}</Row>
-          {m.vehiculoRemolqueId && <Row label="Remolque ID">{m.vehiculoRemolqueId}</Row>}
-          <Row label="Conductor ID">{m.conductorId}</Row>
-          {m.tenedorId && <Row label="Tenedor ID">{m.tenedorId}</Row>}
-        </Card>
+        <Card title="Vehículo y conductor" items={[
+          { etiqueta: 'Cabezote ID', valor: m.vehiculoPrincipalId },
+          m.vehiculoRemolqueId ? { etiqueta: 'Remolque ID', valor: m.vehiculoRemolqueId } : null,
+          { etiqueta: 'Conductor ID', valor: m.conductorId },
+          m.tenedorId ? { etiqueta: 'Tenedor ID', valor: m.tenedorId } : null,
+        ]} />
 
-        <Card title="Ruta">
-          <Row label="Origen DANE">{m.municipioOrigenDane}</Row>
-          <Row label="Destino DANE">{m.municipioDestinoDane}</Row>
-          <Row label="Expedición">{m.fechaExpedicion}</Row>
-          {m.fechaPactadaPago && <Row label="Pago pactado">{m.fechaPactadaPago}</Row>}
-        </Card>
+        <Card title="Ruta" items={[
+          { etiqueta: 'Origen DANE', valor: m.municipioOrigenDane },
+          { etiqueta: 'Destino DANE', valor: m.municipioDestinoDane },
+          { etiqueta: 'Expedición', valor: m.fechaExpedicion },
+          m.fechaPactadaPago ? { etiqueta: 'Pago pactado', valor: m.fechaPactadaPago } : null,
+        ]} />
 
-        <Card title="Pago">
-          <Row label="Flete total">$ {Number(m.valorFleteTotal).toLocaleString('es-CO')}</Row>
-          <Row label="Anticipo">$ {Number(m.valorAnticipo).toLocaleString('es-CO')}</Row>
-          <Row label="Retención fuente">$ {Number(m.retencionFuente).toLocaleString('es-CO')}</Row>
-          <Row label="Retención ICA">$ {Number(m.retencionIca).toLocaleString('es-CO')}</Row>
-          <Row label="Titular tipo">{m.titularPagoTipo}</Row>
-          {m.titularPagoNombre && <Row label="Titular">{m.titularPagoNombre} ({m.titularPagoDoc})</Row>}
-        </Card>
+        <Card title="Pago" items={[
+          { etiqueta: 'Flete total', valor: `$ ${Number(m.valorFleteTotal).toLocaleString('es-CO')}` },
+          { etiqueta: 'Anticipo', valor: `$ ${Number(m.valorAnticipo).toLocaleString('es-CO')}` },
+          { etiqueta: 'Retención fuente', valor: `$ ${Number(m.retencionFuente).toLocaleString('es-CO')}` },
+          { etiqueta: 'Retención ICA', valor: `$ ${Number(m.retencionIca).toLocaleString('es-CO')}` },
+          { etiqueta: 'Titular tipo', valor: m.titularPagoTipo },
+          m.titularPagoNombre ? { etiqueta: 'Titular', valor: `${m.titularPagoNombre} (${m.titularPagoDoc})` } : null,
+        ]} />
 
-        <Card title="Trazabilidad">
-          <Row label="Creado">{m.createdAt?.slice(0, 16).replace('T', ' ')}</Row>
-          {m.radicadoAt && <Row label="Radicado RNDC">{m.radicadoAt.slice(0, 16).replace('T', ' ')}</Row>}
-          {m.aceptadoAt && <Row label="Aceptado">{m.aceptadoAt.slice(0, 16).replace('T', ' ')}</Row>}
-          {m.cumplidoAt && <Row label="Cumplido">{m.cumplidoAt.slice(0, 16).replace('T', ' ')}</Row>}
-          {m.anuladoAt && <Row label="Anulado">{m.anuladoAt.slice(0, 16).replace('T', ' ')} — {m.anuladoMotivo}</Row>}
-          {m.qrToken && <Row label="Verificación pública"><a href={`/m/${m.qrToken}`} target="_blank" rel="noreferrer" className="hover:underline" style={{ color: 'var(--flit-blue)' }}>Abrir página QR</a></Row>}
-        </Card>
+        <Card title="Trazabilidad" items={[
+          { etiqueta: 'Creado', valor: m.createdAt?.slice(0, 16).replace('T', ' ') },
+          m.radicadoAt ? { etiqueta: 'Radicado RNDC', valor: m.radicadoAt.slice(0, 16).replace('T', ' ') } : null,
+          m.aceptadoAt ? { etiqueta: 'Aceptado', valor: m.aceptadoAt.slice(0, 16).replace('T', ' ') } : null,
+          m.cumplidoAt ? { etiqueta: 'Cumplido', valor: m.cumplidoAt.slice(0, 16).replace('T', ' ') } : null,
+          m.anuladoAt ? { etiqueta: 'Anulado', valor: `${m.anuladoAt.slice(0, 16).replace('T', ' ')} — ${m.anuladoMotivo}` } : null,
+          m.qrToken ? { etiqueta: 'Verificación pública', valor: <a href={`/m/${m.qrToken}`} target="_blank" rel="noreferrer" className="text-[color:var(--color-action)] hover:underline">Abrir página QR</a> } : null,
+        ]} />
       </div>
 
-      <div className="overflow-hidden bg-white" style={CARD}>
-        <div className="border-b px-4 py-3" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-table-header)' }}>
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: 'var(--flit-text-muted)' }}>Remesas asociadas ({remesas.length})</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr>
-              <Th>#</Th><Th>Remesa</Th><Th>Estado</Th><Th className="text-right">Cantidad</Th><Th className="text-right">Flete</Th>
-            </tr></thead>
-            <tbody>
-              {remesas.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin remesas asociadas</td></tr>}
-              {remesas.map((r) => (
-                <tr key={r.remesaId} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{r.orden}</td>
-                  <td className="px-4 py-3 text-xs"><Link to={`/rndc/remesas/${r.remesaId}`} className="font-semibold hover:underline" style={{ color: 'var(--flit-blue)' }}>{r.numero}</Link></td>
-                  <td className="px-4 py-3 text-xs capitalize" style={{ color: 'var(--flit-text-secondary)' }}>{r.estado}</td>
-                  <td className="px-4 py-3 text-right text-xs" style={{ color: 'var(--flit-text-primary)' }}>{Number(r.cantidadCargada).toLocaleString('es-CO')}{r.cantidadEntregada && <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}> / {Number(r.cantidadEntregada).toLocaleString('es-CO')}</span>}</td>
-                  <td className="px-4 py-3 text-right text-xs font-medium" style={{ color: 'var(--flit-text-primary)' }}>$ {Number(r.valorFlete).toLocaleString('es-CO')}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <section className="flex flex-col gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.03em] text-[color:var(--color-text-tertiary)]">Remesas asociadas ({remesas.length})</h3>
+        <DataTable
+          ariaLabel="Remesas asociadas"
+          columnas={COLUMNAS_REMESAS}
+          filas={remesas}
+          getKey={(r) => String(r.remesaId)}
+          emptyMessage="Sin remesas asociadas"
+        />
+      </section>
     </div>
   );
 }
 
-function Th({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <th scope="col" className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide ${className}`} style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
+const COLUMNAS_REMESAS: ColumnaTabla<RemesaAsoc>[] = [
+  { key: 'orden', header: '#', render: (r) => <span className="text-xs text-[color:var(--color-text-tertiary)]">{r.orden}</span> },
+  { key: 'remesa', header: 'Remesa', render: (r) => <Link to={`/rndc/remesas/${r.remesaId}`} className="text-xs font-semibold text-[color:var(--color-action)] hover:underline">{r.numero}</Link> },
+  { key: 'estado', header: 'Estado', render: (r) => <span className="text-xs capitalize text-[color:var(--color-text-secondary)]">{r.estado}</span> },
+  { key: 'cantidad', header: 'Cantidad', align: 'right', render: (r) => (
+    <span className={TXT}>{Number(r.cantidadCargada).toLocaleString('es-CO')}{r.cantidadEntregada && <span className="text-[0.75rem] text-[color:var(--color-text-tertiary)]"> / {Number(r.cantidadEntregada).toLocaleString('es-CO')}</span>}</span>
+  ) },
+  { key: 'flete', header: 'Flete', align: 'right', render: (r) => <span className={`${TXT} font-medium`}>$ {Number(r.valorFlete).toLocaleString('es-CO')}</span> },
+];
 
-function Card({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="bg-white p-4" style={CARD}>
-      <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: 'var(--flit-text-muted)' }}>{title}</h3>
-      <div className="space-y-1.5">{children}</div>
-    </div>
-  );
-}
+type FichaDato = { etiqueta: string; valor: ReactNode } | null;
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+function Card({ title, items }: { title: string; items: FichaDato[] }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 text-xs">
-      <span style={{ color: 'var(--flit-text-muted)' }}>{label}</span>
-      <span className="text-right font-medium" style={{ color: 'var(--flit-text-primary)' }}>{children}</span>
-    </div>
+    <section className="card p-4">
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.03em] text-[color:var(--color-text-tertiary)]">{title}</h3>
+      <Fichas items={items.filter((x): x is NonNullable<FichaDato> => x !== null)} />
+    </section>
   );
 }

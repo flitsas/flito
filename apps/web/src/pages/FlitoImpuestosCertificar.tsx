@@ -2,14 +2,12 @@
 // El certificado se genera al descargar y no se archiva.
 import { useCallback, useEffect, useState } from 'react';
 import { CAMPO_COMPARACION_FACTURA_RUNT_LABEL, type ComparacionCampoFacturaRunt } from '@operaciones/shared-types';
-import PageContentSkeleton from '../components/flit/PageContentSkeleton';
 import CertificarEditor, { type Borrador, type Catalogo, type CampoLeido } from './FlitoImpuestosCertificarEditor';
-import PageHeaderCard from '../components/flit/PageHeaderCard';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import GradientButton from '../components/flit/GradientButton';
+import InlineAlert from '../components/flit/InlineAlert';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
-import {
-  FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary,
-} from '../components/flit/flitPageKit';
+import { FlitCard } from '../components/flit/flitPageKit';
 import { api, errorMessage } from '../lib/api';
 
 const BASE = '/flito/impuestos/certificacion-directa';
@@ -102,6 +100,13 @@ function desdeFila(f: Fila): Borrador {
 function camposDe(b: Borrador): Record<string, string> {
   return { ...b };
 }
+
+const COLUMNAS_COMPARACION: ColumnaTabla<ComparacionCampoFacturaRunt>[] = [
+  { key: 'dato', header: 'Dato', render: (c) => CAMPO_COMPARACION_FACTURA_RUNT_LABEL[c.campo] },
+  { key: 'factura', header: 'Factura', render: (c) => c.valorFactura ?? '—' },
+  { key: 'runt', header: 'RUNT', render: (c) => c.valorRunt ?? '—' },
+  { key: 'resultado', header: 'Resultado', render: (c) => RESULTADO[c.resultado] },
+];
 
 export default function FlitoImpuestosCertificar() {
   const [vista, setVista] = useState<'lista' | 'alta' | 'detalle'>('lista');
@@ -249,62 +254,53 @@ export default function FlitoImpuestosCertificar() {
 
   const certificado = fila?.estado === 'certificado';
 
+  const columnasLista: ColumnaTabla<Fila>[] = [
+    { key: 'placa', header: 'Placa', render: (f) => f.placa },
+    { key: 'vin', header: 'VIN', render: (f) => <span className="break-all">{f.vin}</span> },
+    { key: 'propietario', header: 'Propietario', render: (f) => f.nombrePropietario || '—' },
+    { key: 'estado', header: 'Estado', render: (f) => <StatusChip tone={ESTADO[f.estado].tono}>{textoDeEstado(f)}</StatusChip> },
+    {
+      key: 'acciones', header: 'Acciones', acciones: true,
+      render: (f) => <GradientButton variant="secondary" size="sm" onClick={() => abrirDetalle(f)}>Abrir</GradientButton>,
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-4">
-      <PageHeaderCard
-        title="Certificar sin trámite"
-        subtitle="Carga la factura de venta, completa los datos y consulta el RUNT. Quien tiene el permiso ve los registros de esta pantalla."
-        actions={vista === 'lista' ? (
-          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => void abrirAlta()}>
+      {/* Sección dentro del shell de Impuestos: la h1 es la cabecera del módulo; aquí va una h2. */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-72">
+          <h2 className="m-0 text-xl font-bold text-[color:var(--color-text-primary)]">Certificar sin trámite</h2>
+          <p className="mt-1 text-sm text-[color:var(--color-text-secondary)]">
+            Carga la factura de venta, completa los datos y consulta el RUNT. Quien tiene el permiso ve los registros de esta pantalla.
+          </p>
+        </div>
+        {vista === 'lista' ? (
+          <GradientButton onClick={() => void abrirAlta()}>
             Nueva certificación
-          </button>
+          </GradientButton>
         ) : (
-          <button type="button" className={flitBtnSecondary} onClick={() => { setVista('lista'); setAviso(null); }}>
+          <GradientButton variant="secondary" onClick={() => { setVista('lista'); setAviso(null); }}>
             Volver al listado
-          </button>
+          </GradientButton>
         )}
-      />
+      </div>
 
       {aviso && (
-        <p role={INFORMATIVO.has(aviso) ? 'status' : 'alert'} className="rounded-lg px-4 py-3 text-sm" style={{ color: INFORMATIVO.has(aviso) ? 'var(--flit-text-primary)' : 'var(--flit-danger-ink)', border: '1px solid var(--flit-border-soft)' }}>
-          {aviso}
-        </p>
+        <InlineAlert tono={INFORMATIVO.has(aviso) ? 'info' : 'danger'}>{aviso}</InlineAlert>
       )}
 
       {vista === 'lista' && (
-        errorLista ? (
-          <FlitCard>
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{errorLista}</p>
-            <button type="button" className={`${flitBtnSecondary} mt-3`} onClick={() => void cargarLista()}>Reintentar</button>
-          </FlitCard>
-        ) : filas === null ? <PageContentSkeleton /> : filas.length === 0 ? (
-          <FlitEmpty>Todavía no hay certificaciones. Carga una factura de venta para empezar.</FlitEmpty>
-        ) : (
-          <FlitTable label="Certificaciones sin trámite">
-            <thead>
-              <tr>
-                <FlitTh>Placa</FlitTh>
-                <FlitTh>VIN</FlitTh>
-                <FlitTh>Propietario</FlitTh>
-                <FlitTh>Estado</FlitTh>
-                <FlitTh />
-              </tr>
-            </thead>
-            <tbody>
-              {filas.map((f) => (
-                <FlitTr key={f.id}>
-                  <td className="px-4 py-2 text-sm">{f.placa}</td>
-                  <td className="px-4 py-2 text-sm">{f.vin}</td>
-                  <td className="px-4 py-2 text-sm">{f.nombrePropietario || '—'}</td>
-                  <td className="px-4 py-2 text-sm"><StatusChip tone={ESTADO[f.estado].tono}>{textoDeEstado(f)}</StatusChip></td>
-                  <td className="px-4 py-2 text-sm">
-                    <button type="button" className={flitBtnSecondary} onClick={() => abrirDetalle(f)}>Abrir</button>
-                  </td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </FlitTable>
-        )
+        <DataTable
+          ariaLabel="Certificaciones sin trámite"
+          columnas={columnasLista}
+          filas={filas ?? []}
+          getKey={(f) => f.id}
+          status={errorLista ? 'error' : filas === null ? 'loading' : 'ready'}
+          errorMessage={errorLista ?? undefined}
+          onRetry={() => void cargarLista()}
+          emptyMessage="Todavía no hay certificaciones. Carga una factura de venta para empezar."
+        />
       )}
 
       {vista !== 'lista' && (
@@ -330,36 +326,24 @@ export default function FlitoImpuestosCertificar() {
           debajo={vista === 'detalle' && fila ? (
             <FlitCard>
               <div className="flex flex-col gap-3">
-                <StatusChip tone={ESTADO[fila.estado].tono}>{textoDeEstado(fila)}</StatusChip>
+                <div><StatusChip tone={ESTADO[fila.estado].tono}>{textoDeEstado(fila)}</StatusChip></div>
                 {certificado && (
                   <div>
-                    <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => void bajar('certificado')}>
+                    <GradientButton onClick={() => void bajar('certificado')}>
                       Descargar certificado
-                    </button>
+                    </GradientButton>
                   </div>
                 )}
-              {fila.comparacion && fila.comparacion.length > 0 && (
-                <FlitTable label="Comparación con el RUNT">
-                  <thead>
-                    <tr>
-                      <FlitTh>Dato</FlitTh>
-                      <FlitTh>Factura</FlitTh>
-                      <FlitTh>RUNT</FlitTh>
-                      <FlitTh>Resultado</FlitTh>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fila.comparacion.map((c) => (
-                      <FlitTr key={c.campo}>
-                        <td className="px-4 py-2 text-sm">{CAMPO_COMPARACION_FACTURA_RUNT_LABEL[c.campo]}</td>
-                        <td className="px-4 py-2 text-sm">{c.valorFactura ?? '—'}</td>
-                        <td className="px-4 py-2 text-sm">{c.valorRunt ?? '—'}</td>
-                        <td className="px-4 py-2 text-sm">{RESULTADO[c.resultado]}</td>
-                      </FlitTr>
-                    ))}
-                  </tbody>
-                </FlitTable>
-              )}
+                {fila.comparacion && fila.comparacion.length > 0 && (
+                  <section aria-label="Comparación con el RUNT">
+                    <DataTable
+                      ariaLabel="Comparación con el RUNT"
+                      columnas={COLUMNAS_COMPARACION}
+                      filas={fila.comparacion}
+                      getKey={(c) => c.campo}
+                    />
+                  </section>
+                )}
               </div>
             </FlitCard>
           ) : undefined}

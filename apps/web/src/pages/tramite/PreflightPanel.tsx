@@ -47,43 +47,43 @@ interface Props {
 }
 
 const CTA_LINK =
-  'mt-1.5 inline-block text-[11px] font-semibold underline-offset-2 hover:underline flit-focus rounded-sm border-0 bg-transparent p-0 text-left';
+  'mt-1.5 inline-block text-xs font-semibold underline-offset-2 hover:underline flit-focus rounded-sm border-0 bg-transparent p-0 text-left';
 
 function PreflightCtaButton({ action, onGoToStep, onClick }: { action: PreflightAction; onGoToStep?: (step: number) => void; onClick: () => void }) {
   if (action.kind === 'link') {
     return (
-      <a href={action.href} target="_blank" rel="noopener noreferrer" onClick={onClick} className={CTA_LINK} style={{ color: 'var(--flit-blue)' }}>
+      <a href={action.href} target="_blank" rel="noopener noreferrer" onClick={onClick} className={CTA_LINK} style={{ color: 'var(--color-action)' }}>
         {action.label} →
       </a>
     );
   }
   if (action.kind === 'step') {
     return (
-      <button type="button" onClick={() => { onClick(); onGoToStep?.(action.step); }} className={CTA_LINK} style={{ color: 'var(--flit-blue)' }}>
+      <button type="button" onClick={() => { onClick(); onGoToStep?.(action.step); }} className={CTA_LINK} style={{ color: 'var(--color-action)' }}>
         {action.label} →
       </button>
     );
   }
   return (
-    <button type="button" onClick={() => { onClick(); toast(action.hint, { icon: 'ℹ️', duration: 5000 }); }} className={CTA_LINK} style={{ color: 'var(--flit-blue)' }}>
+    <button type="button" onClick={() => { onClick(); toast(action.hint, { icon: 'ℹ️', duration: 5000 }); }} className={CTA_LINK} style={{ color: 'var(--color-action)' }}>
       {action.label} →
     </button>
   );
 }
 
-const CARD = 'bg-white rounded-[18px] border border-[color:var(--flit-border-soft)] shadow-[0_8px_24px_rgba(22,39,68,0.08)] p-5';
+const CARD = 'bg-[var(--color-surface-elevated)] rounded-[9px] border border-[color:var(--color-border)] p-5';
 
 const STATUS_STYLE: Record<PreflightCheck['status'], { dot: string; text: string }> = {
-  ok: { dot: 'var(--flit-success)', text: 'var(--flit-success)' },
-  warn: { dot: 'var(--flit-warning)', text: 'var(--flit-warning)' },
-  fail: { dot: 'var(--flit-danger)', text: 'var(--flit-danger)' },
-  unknown: { dot: 'var(--flit-text-muted)', text: 'var(--flit-text-muted)' },
+  ok: { dot: 'var(--kit-verde)', text: 'var(--kit-verde)' },
+  warn: { dot: 'var(--kit-naranja)', text: 'var(--kit-naranja)' },
+  fail: { dot: 'var(--kit-rojo)', text: 'var(--kit-rojo)' },
+  unknown: { dot: 'var(--color-text-tertiary)', text: 'var(--color-text-tertiary)' },
 };
 
 const OVERALL: Record<string, { label: string; bg: string; color: string }> = {
-  green: { label: 'Pre-vuelo en verde', bg: 'rgba(112,207,58,0.15)', color: 'var(--flit-success)' },
-  yellow: { label: 'Pre-vuelo con advertencias', bg: 'rgba(240,90,53,0.15)', color: 'var(--flit-warning)' },
-  red: { label: 'Pre-vuelo con bloqueos', bg: 'rgba(228,61,48,0.15)', color: 'var(--flit-danger)' },
+  green: { label: 'Pre-vuelo en verde', bg: 'color-mix(in srgb, var(--kit-verde) 15%, transparent)', color: 'var(--kit-verde-texto)' },
+  yellow: { label: 'Pre-vuelo con advertencias', bg: 'color-mix(in srgb, var(--kit-naranja) 15%, transparent)', color: 'var(--kit-naranja-texto)' },
+  red: { label: 'Pre-vuelo con bloqueos', bg: 'color-mix(in srgb, var(--kit-rojo) 15%, transparent)', color: 'var(--kit-rojo-texto)' },
 };
 
 export default function PreflightPanel({ snapshot, loading, onRun, riesgoAceptado, onToggleRiesgo, onGoToStep, onCtaClick }: Props) {
@@ -96,8 +96,8 @@ export default function PreflightPanel({ snapshot, loading, onRun, riesgoAceptad
     <div className={`${CARD} mt-4`}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <h4 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Pre-vuelo de requisitos</h4>
-          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>SOAT · RTM · comparendos · RUNT · LAFT — antes de avanzar el trámite</p>
+          <h4 className="text-sm font-bold" style={{ color: 'var(--color-action)' }}>Pre-vuelo de requisitos</h4>
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>SOAT · RTM · comparendos · RUNT · LAFT — antes de avanzar el trámite</p>
         </div>
         <div className="flex items-center gap-2">
           {ov && (
@@ -108,7 +108,7 @@ export default function PreflightPanel({ snapshot, loading, onRun, riesgoAceptad
             onClick={onRun}
             disabled={loading}
             className="flit-focus rounded-[999px] border px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-            style={{ borderColor: 'var(--flit-blue)', color: 'var(--flit-blue)' }}
+            style={{ borderColor: 'var(--kit-azul)', color: 'var(--color-action)' }}
           >
             {loading ? 'Consultando…' : hasResult ? 'Actualizar' : 'Ejecutar pre-vuelo'}
           </button>
@@ -116,7 +116,7 @@ export default function PreflightPanel({ snapshot, loading, onRun, riesgoAceptad
       </div>
 
       {!hasResult && !loading && (
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Ejecuta el pre-vuelo para ver el semáforo de requisitos del vehículo y las partes.</p>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Ejecuta el pre-vuelo para ver el semáforo de requisitos del vehículo y las partes.</p>
       )}
 
       {hasResult && (
@@ -124,15 +124,15 @@ export default function PreflightPanel({ snapshot, loading, onRun, riesgoAceptad
           {checks.map((c) => {
             const s = STATUS_STYLE[c.status];
             return (
-              <li key={c.key} className="flex items-start gap-2.5 rounded-[10px] border p-2.5" style={{ borderColor: 'var(--flit-border-soft)' }}>
+              <li key={c.key} className="flex items-start gap-2.5 rounded-[9px] border p-2.5" style={{ borderColor: 'var(--color-border)' }}>
                 <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.dot }} aria-hidden />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{c.label}</span>
-                    <span className="text-[10px] uppercase font-bold" style={{ color: s.text }}>{c.status}</span>
-                    <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase" style={{ background: 'rgba(79,116,201,0.10)', color: 'var(--flit-blue)' }}>{c.source}</span>
+                    <span className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>{c.label}</span>
+                    <span className="text-xs uppercase font-bold" style={{ color: s.text }}>{c.status}</span>
+                    <span className="rounded px-1.5 py-0.5 text-xs font-semibold uppercase" style={{ background: 'color-mix(in srgb, var(--kit-azul) 10%, transparent)', color: 'var(--color-action)' }}>{c.source}</span>
                   </div>
-                  <p className="mt-0.5 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{c.message}</p>
+                  <p className="mt-0.5 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{c.message}</p>
                   {c.action && (
                     <PreflightCtaButton
                       action={c.action}
@@ -148,14 +148,14 @@ export default function PreflightPanel({ snapshot, loading, onRun, riesgoAceptad
       )}
 
       {overall === 'red' && (
-        <label className="mt-3 flex items-start gap-2.5 rounded-[10px] p-3" style={{ background: 'rgba(228,61,48,0.08)', border: '1px solid rgba(228,61,48,0.30)' }}>
+        <label className="mt-3 flex items-start gap-2.5 rounded-[9px] p-3" style={{ background: 'color-mix(in srgb, var(--kit-rojo) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--kit-rojo) 30%, transparent)' }}>
           <input
             type="checkbox"
             checked={riesgoAceptado}
             onChange={(e) => onToggleRiesgo(e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--flit-danger)]"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--kit-rojo)]"
           />
-          <span className="text-xs font-medium" style={{ color: 'var(--flit-danger)' }}>
+          <span className="text-xs font-medium" style={{ color: 'var(--kit-rojo-texto)' }}>
             Asumo el riesgo de rechazo en el organismo de tránsito y deseo continuar con el trámite.
           </span>
         </label>

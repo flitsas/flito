@@ -1,4 +1,4 @@
-// Detalle del SOAT (modal). HU #12819, §7 de `docs/ux/flito-soat-rediseno-experiencia.md`.
+// Detalle del SOAT (modal). HU 12819, §7 de `docs/ux/flito-soat-rediseno-experiencia.md`.
 //
 // Orden de arriba abajo, por lo que se viene a hacer y no por cómo llegó el dato:
 //   1 · estado  2 · aviso contextual (motivo de la novedad / solo lectura / error de la factura)
@@ -15,7 +15,7 @@ import FlitSelect from '../../flit/FlitSelect';
 import { opcionesConEstado } from '../../flit/opcionesConEstado';
 import { SOAT_REINTENTO, mensajeSelectorSoat, type CatalogoSelector } from '../../clientes/proveedoresDatos';
 import { useState, type ReactNode, type RefObject } from 'react';
-import { Eye, FileUp, Lock, TriangleAlert } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import { ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { api, ApiError } from '../../../lib/api';
 import FlitModal from '../../flit/FlitModal';
@@ -60,7 +60,7 @@ function pideContrasena(e: unknown): 'cifrado' | 'incorrecta' | null {
 }
 
 /**
- * HU #12872 (AC4): una entrada por acción del detalle, cada una con la función de SU endpoint. El
+ * HU 12872 (AC4): una entrada por acción del detalle, cada una con la función de SU endpoint. El
  * «modo» de la pantalla (Operaciones, gestor, Cliente) ya no decide acciones: solo copy y datos.
  */
 export interface PermisosDetalleSoat {
@@ -111,7 +111,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
   const enAdquisicion = soat.estado === EstadoSoat.SOLICITADO;
   const rechazado = soat.estado === EstadoSoat.CON_NOVEDAD;
   // Una solicitud del canal es, desde que se radica, un SOAT en gestión como cualquier otro (HU
-  // #12079). El traspaso de gestión solo tiene sentido mientras está en gestión y sin pagar: en
+  // 12079). El traspaso de gestión solo tiene sentido mientras está en gestión y sin pagar: en
   // Pendiente el destino se elige al enviarlo, y en Pagado el dinero ya salió.
   const traspasable = enAdquisicion || rechazado;
   const cargaFactura = enAdquisicion && puede.cargarFactura;
@@ -195,14 +195,14 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
         {/* 2 · aviso contextual. El motivo es el del GESTOR (`con_novedad`); al Cliente se le dice
             además lo que de verdad ocurre, sin prometer un canal de contacto que no existe. */}
         {soat.motivoRechazo && (
-          <div className="rounded-lg border p-3" style={{ background: 'var(--flit-bg-app)', borderColor: 'var(--flit-border-soft)' }}>
-            <p className="flex items-center gap-2 font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
-              <TriangleAlert size={18} aria-hidden="true" className="shrink-0" />
+          <div className="rounded-lg border p-3" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
+            <p className="flex items-center gap-2 font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
+              <Icono nombre="alerta" size={18} className="shrink-0" />
               Motivo de la novedad
             </p>
-            <p className="mt-1" style={{ color: 'var(--flit-text-primary)' }}>{soat.motivoRechazo}</p>
+            <p className="mt-1" style={{ color: 'var(--color-text-primary)' }}>{soat.motivoRechazo}</p>
             {esCliente && (
-              <p className="mt-1" style={{ color: 'var(--flit-text-secondary)' }}>
+              <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>
                 Su solicitud sigue abierta: FLITO está resolviendo esta novedad con el gestor. No tiene que hacer nada por ahora.
               </p>
             )}
@@ -210,27 +210,27 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
         )}
         {soloLectura && (
           <div role="status" className="flex items-center gap-2 rounded-lg p-3"
-            style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-blue-text)' }}>
-            <Lock size={16} aria-hidden="true" className="shrink-0" />
+            style={{ background: 'var(--color-surface)', color: 'var(--color-action)' }}>
+            <Icono nombre="candado" size={16} className="shrink-0" />
             Solo lectura · Auditoría observa, no ejecuta acciones.
           </div>
         )}
         {/* Con un formulario abierto el error va junto a su «Confirmar» (ver `FormMotivo`): aquí arriba
             quedaba fuera de la vista del modal, que ya está desplazado hasta «Corregir el caso». */}
-        {error && accion === 'idle' && <p role="alert" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
+        {error && accion === 'idle' && <p role="alert" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
 
         {/* 3 · la acción del estado: UNA primaria («Cargar comprobante de SOAT»). En `con_novedad`, «Reactivar»
             va secundaria: la decisión entre reactivar, devolver o reversar la toma la persona. */}
         {cargaFactura && accion === 'idle' && protegido && (
-          <div className="space-y-3 rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
-            <p className="flex items-start gap-2" style={{ color: 'var(--flit-text-primary)' }}>
-              <Lock size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+          <div className="space-y-3 rounded-[9px] border p-3" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+            <p className="flex items-start gap-2" style={{ color: 'var(--color-text-primary)' }}>
+              <Icono nombre="candado" size={16} className="mt-0.5 shrink-0" />
               <span>Este PDF está protegido con contraseña.</span>
             </p>
             <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); reintentarProtegido(); }}>
-              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-1 text-sm transition-colors hover:bg-[var(--flit-bg-hover)] lg:min-h-10"
-                style={{ color: 'var(--flit-text-primary)' }}>
-                <input type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer" checked={usarNombre}
+              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-[9px] px-1 text-sm transition-colors hover:bg-[color:var(--kit-hover)] lg:min-h-10"
+                style={{ color: 'var(--color-text-primary)' }}>
+                <input type="checkbox" className="flit-focus size-4 shrink-0 cursor-pointer accent-[var(--kit-azul)]" checked={usarNombre}
                   disabled={enviando} autoFocus={!protegido.nombreNoAbre && !protegido.incorrecta}
                   onChange={(e) => { setUsarNombre(e.target.checked); setContrasena(''); }} />
                 Usar el nombre del archivo como contraseña
@@ -242,7 +242,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
               )}
               <div className="flex flex-wrap gap-2">
                 <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || (!usarNombre && !contrasena)}>
-                  <FileUp size={16} aria-hidden="true" className="shrink-0" />
+                  <Icono nombre="archivo-subir" size={16} className="shrink-0" />
                   {enviando ? 'Cargando…' : 'Cargar con contraseña'}
                 </button>
                 <button type="button" className={flitBtnSecondary} disabled={enviando} onClick={cancelarProtegido}>Cancelar</button>
@@ -255,9 +255,9 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
             {cargaFactura && (
               // `<label>` con el input `sr-only` y no `hidden`: con `display:none` el input no se
               // podía enfocar y la acción primaria del gestor no se alcanzaba sin ratón (D6).
-              <label className={`${flitBtnPrimary} cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-[color:var(--flit-border-focus)]`}
+              <label className={`${flitBtnPrimary} cursor-pointer has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-[color:var(--kit-azul)]`}
                 style={flitBtnPrimaryStyle}>
-                <FileUp size={16} aria-hidden="true" className="shrink-0" />
+                <Icono nombre="archivo-subir" size={16} className="shrink-0" />
                 {enviando ? 'Cargando…' : 'Cargar comprobante de SOAT'}
                 <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="sr-only" disabled={enviando}
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) void subirFactura(f); e.target.value = ''; }} />
@@ -280,7 +280,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
         <Seccion titulo="Comprobante">
           <div className="flex flex-wrap items-start gap-2">
             <button type="button" className={flitBtnSecondary} onClick={() => setVerSoportes(true)}>
-              <Eye size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="ojo" size={16} className="shrink-0" />
               Ver soporte
             </button>
             {descarga && <BotonComprobanteDetalle soat={soat} descarga={descarga} />}
@@ -291,15 +291,15 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
             vacio="Este SOAT no tiene ninguna factura cargada todavía."
             onClose={() => setVerSoportes(false)} />
         )}
-        {/* 4b · documentos adicionales (HU #13363): solo con `soat.documentos_adicionales.ver`. */}
+        {/* 4b · documentos adicionales (HU 13363): solo con `soat.documentos_adicionales.ver`. */}
         <DocumentosAdicionalesSeccion soatId={soat.id} />
 
         {/* 5 · datos. Los de la trastienda no se pintan «—» para el Cliente: se omiten, porque el
             backend no se los manda y una fila vacía sugiere un dato que existe y no cargó. Las
-            fechas del TRÁMITE en FLIT llegan aquí desde la tabla (P-2). La vigencia (HU #12097) va
+            fechas del TRÁMITE en FLIT llegan aquí desde la tabla (P-2). La vigencia (HU 12097) va
             con hora y con «—», nivel de auditoría; el número de póliza del RUNT no se enseña en
             ninguna parte (cuasi-PII, y choca de nombre con `numero_poliza`). */}
-        <dl className="grid grid-cols-1 gap-x-4 gap-y-2 border-t pt-4 sm:grid-cols-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <dl className="grid grid-cols-1 gap-x-4 gap-y-2 border-t pt-4 sm:grid-cols-2" style={{ borderColor: 'var(--color-border)' }}>
           <Dato k="VIN" v={soat.vin} /><Dato k="Vehículo" v={`${soat.marca ?? ''} ${soat.linea ?? ''}`.trim() || '—'} />
           <Dato k="Compañía" v={soat.companiaNombre} /><Dato k="Organismo" v={soat.organismoNombre ?? '—'} />
           <Dato k="Trámite creado" v={fechaDia(soat.fechaCreacion)} /><Dato k="Trámite aprobado" v={soat.fechaAprobacion ? fechaDia(soat.fechaAprobacion) : 'Sin aprobar'} />
@@ -330,7 +330,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
         )}
 
         {/* 7 · correcciones de Operaciones: acciones de excepción, aparte, para que no compitan con
-            la del día. Sin condición de origen (HU #12079/#12080: el estado que la justificaba ya no
+            la del día. Sin condición de origen (HU 12079/12080: el estado que la justificaba ya no
             existe). */}
         {hayCorreccion && (
           <Seccion titulo="Corregir el caso">
@@ -350,7 +350,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
                 )}
               </div>
             ) : (
-              <div className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+              <div className="rounded-lg border p-3" style={{ borderColor: 'var(--color-border)' }}>
                 {accion === 'reversar' && (
                   <>
                     <FlitField label="Estado destino">
@@ -383,7 +383,7 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
           </Seccion>
         )}
 
-        {/* 8 · historial: REGISTRO INTERNO de la operación. No se le ofrece al Cliente (HU #11914):
+        {/* 8 · historial: REGISTRO INTERNO de la operación. No se le ofrece al Cliente (HU 11914):
             lo que él necesita es el estado y, si volvió con novedad, el motivo — que van arriba. */}
         {!esCliente && <HistorialEstados concepto="soat" registroId={soat.id} />}
       </div>
@@ -393,8 +393,8 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
 
 function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) {
   return (
-    <div className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-      <p className={ROTULO} style={{ color: 'var(--flit-text-muted)' }}>{titulo}</p>
+    <div className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--color-border)' }}>
+      <p className={ROTULO} style={{ color: 'var(--color-text-tertiary)' }}>{titulo}</p>
       {children}
     </div>
   );
@@ -403,7 +403,7 @@ function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) 
 function Dato({ k, v }: { k: string; v: string }) {
   return (
     <div className="flex flex-col">
-      <dt className="text-[11px] uppercase" style={{ color: 'var(--flit-text-muted)' }}>{k}</dt>
+      <dt className="text-[11px] uppercase" style={{ color: 'var(--color-text-tertiary)' }}>{k}</dt>
       <dd className="font-medium">{v}</dd>
     </div>
   );
@@ -418,7 +418,7 @@ function FormMotivo({ etiqueta, motivo, setMotivo, enviando, error, minLen = 1, 
       <FlitField label={etiqueta}>
         <textarea className={`${flitInp} min-h-[64px]`} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
       </FlitField>
-      {error && <p role="alert" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
+      {error && <p role="alert" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
       <div className="flex flex-wrap gap-2">
         <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
           disabled={enviando || deshabilitado || motivo.trim().length < minLen} onClick={onConfirmar}>

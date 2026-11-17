@@ -105,3 +105,6 @@ export const ROLE_TONE: Record<string, ChipTone> = {
 /** Id del proveedor del usuario: la columna nueva y, mientras convivan, la anterior. `''` si no tiene. */
 export const proveedorDeUsuario = (u: Pick<User, 'flitoProveedorId' | 'flitoProveedorSoatId'>): string =>
   u.flitoProveedorId ?? u.flitoProveedorSoatId ?? '';
+
+/** Miga del rediseño 2026: Inicio › Administración › Usuarios (Inicio y el actual los pone `Miga`). */
+export const MIGA_USUARIOS = [{ etiqueta: 'Administración' }];

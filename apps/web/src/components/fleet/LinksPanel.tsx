@@ -3,8 +3,13 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../../lib/api';
 import { useEscape } from '../../lib/hooks';
+import { EtiquetaEstado } from '../flit/Bloques';
+import { Icono } from '../flit/kit/Icono';
+import { ESTADO_FLOTA } from './estados-flota';
 import FlitModal from '../flit/FlitModal';
-import { Field, Th, inputCls, TableCard, Tr, btnPrimary, btnPrimaryStyle, btnSecondary, btnSecondaryStyle } from './shared';
+import GradientButton from '../flit/GradientButton';
+import DataTable from '../flit/DataTable';
+import { flitInp, FlitField } from '../flit/flitPageKit';
 
 interface LinkRow {
   id: number;
@@ -34,34 +39,35 @@ export default function LinksPanel({ vehicleId, canEdit, onChanged }: { vehicleI
   return (
     <div>
       {canEdit && (
-        <div className="mb-3 flex justify-end">
-          <button type="button" onClick={() => setShowLink(true)} className={btnPrimary} style={btnPrimaryStyle}>Vincular equipo</button>
+        <div className="mb-3 flex flex-wrap justify-end gap-2">
+          <GradientButton type="button" onClick={() => setShowLink(true)}><Icono nombre="mas" size={18} />Vincular equipo</GradientButton>
         </div>
       )}
-      <TableCard>
-        <table className="w-full text-sm">
-          <thead><tr>
-            <Th>Cabezote</Th><Th>Vinculado</Th><Th>Desde</Th><Th>Hasta</Th><Th>Estado</Th><Th></Th>
-          </tr></thead>
-          <tbody>
-            {links.length === 0 && <tr><td colSpan={6} className="py-8 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin vinculaciones registradas</td></tr>}
-            {links.map((l) => (
-              <Tr key={l.id}>
-                <td className="px-4 py-2.5"><Link to={`/fleet/${l.vehiculoPrincipalId}`} className="font-semibold hover:underline" style={{ color: 'var(--flit-blue)' }}>#{l.vehiculoPrincipalId}</Link></td>
-                <td className="px-4 py-2.5"><Link to={`/fleet/${l.vehiculoVinculadoId}`} className="font-semibold hover:underline" style={{ color: 'var(--flit-blue)' }}>#{l.vehiculoVinculadoId}</Link></td>
-                <td className="px-4 py-2.5" style={{ color: 'var(--flit-text-secondary)' }}>{l.desde?.slice(0, 10) ?? '—'}</td>
-                <td className="px-4 py-2.5" style={{ color: 'var(--flit-text-secondary)' }}>{l.hasta?.slice(0, 10) ?? '—'}</td>
-                <td className="px-4 py-2.5">{l.esActual ? <span className="inline-flex items-center rounded-[999px] px-2 py-0.5 text-[11px] font-semibold" style={{ background: 'rgba(112,207,58,0.15)', color: 'var(--flit-success)' }}>Activo</span> : <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cerrado</span>}</td>
-                <td className="px-4 py-2.5 text-right">
-                  {l.esActual && canEdit && (
-                    <button type="button" onClick={() => closeLink(l.id)} className="text-xs font-semibold hover:underline" style={{ color: 'var(--flit-danger)' }}>Cerrar</button>
-                  )}
-                </td>
-              </Tr>
-            ))}
-          </tbody>
-        </table>
-      </TableCard>
+      <DataTable<LinkRow>
+        ariaLabel="Vinculaciones del vehículo"
+        filas={links}
+        getKey={(l) => String(l.id)}
+        status={links.length === 0 ? 'empty' : 'ready'}
+        emptyMessage="Sin vinculaciones registradas"
+        columnas={[
+          { key: 'cabezote', header: 'Cabezote', render: (l) => <Link to={`/fleet/${l.vehiculoPrincipalId}`} className="rounded-[9px] font-semibold text-[color:var(--color-action)] transition-colors hover:underline">#{l.vehiculoPrincipalId}</Link> },
+          { key: 'vinculado', header: 'Vinculado', render: (l) => <Link to={`/fleet/${l.vehiculoVinculadoId}`} className="rounded-[9px] font-semibold text-[color:var(--color-action)] transition-colors hover:underline">#{l.vehiculoVinculadoId}</Link> },
+          { key: 'desde', header: 'Desde', render: (l) => l.desde?.slice(0, 10) ?? '—' },
+          { key: 'hasta', header: 'Hasta', render: (l) => l.hasta?.slice(0, 10) ?? '—' },
+          {
+            key: 'estado', header: 'Estado',
+            render: (l) => (l.esActual
+              ? <EtiquetaEstado estado={ESTADO_FLOTA.vinculoActivo}>Activo</EtiquetaEstado>
+              : <EtiquetaEstado estado={ESTADO_FLOTA.vinculoCerrado}>Cerrado</EtiquetaEstado>),
+          },
+          {
+            key: 'acciones', header: '', acciones: true, align: 'right',
+            render: (l) => (l.esActual && canEdit
+              ? <GradientButton type="button" variant="alerta" size="sm" onClick={() => closeLink(l.id)}>Cerrar</GradientButton>
+              : null),
+          },
+        ]}
+      />
       {showLink && (
         <LinkForm
           currentId={vehicleId}
@@ -97,23 +103,23 @@ function LinkForm({ currentId, onClose, onSaved }: { currentId: number; onClose:
   };
 
   return (
-    <FlitModal title="Vincular equipo" onClose={onClose}>
-      <form onSubmit={submit} className="px-6 pb-6 space-y-3">
-          <Field label="Este vehículo es…">
-            <select value={tipoVinculo} onChange={(e) => setTipoVinculo(e.target.value as 'principal' | 'vinculado')} className={inputCls}>
+    <FlitModal title="Vincular equipo" onClose={onClose} icono="intercambio">
+      <form onSubmit={submit} className="space-y-3">
+          <FlitField label="Este vehículo es…">
+            <select value={tipoVinculo} onChange={(e) => setTipoVinculo(e.target.value as 'principal' | 'vinculado')} className={flitInp}>
               <option value="principal">Cabezote (principal)</option>
               <option value="vinculado">Trailer (vinculado)</option>
             </select>
-          </Field>
-          <Field label="ID del otro vehículo">
-            <input value={otherId} onChange={(e) => setOtherId(e.target.value)} placeholder="Ej: 42" className={inputCls} />
-          </Field>
-          <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>El otro vehículo debe pertenecer a la flota propia. Si el trailer ya tiene un cabezote vigente, se cerrará automáticamente.</p>
-        <div className="flex justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <button type="button" onClick={onClose} className={btnSecondary} style={btnSecondaryStyle}>Cancelar</button>
-          <button type="submit" disabled={submitting} className={btnPrimary} style={btnPrimaryStyle}>
+          </FlitField>
+          <FlitField label="ID del otro vehículo">
+            <input value={otherId} onChange={(e) => setOtherId(e.target.value)} placeholder="Ej: 42" className={flitInp} />
+          </FlitField>
+          <p className="text-xs text-[color:var(--color-text-tertiary)]">El otro vehículo debe pertenecer a la flota propia. Si el trailer ya tiene un cabezote vigente, se cerrará automáticamente.</p>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] pt-4">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton type="submit" disabled={submitting}>
             {submitting ? 'Guardando…' : 'Vincular'}
-          </button>
+          </GradientButton>
         </div>
       </form>
     </FlitModal>

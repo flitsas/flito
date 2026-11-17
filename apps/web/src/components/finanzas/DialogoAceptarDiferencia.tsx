@@ -117,7 +117,7 @@ export default function DialogoAceptarDiferencia({ fila, onCerrar, onHecho, onDe
   return (
     <FlitModal title={tituloModalAceptar(fila.idFlit, fila.placa)} onClose={onCerrar} restoreFocusRef={restoreFocusRef}>
       <div className="flex flex-col gap-4" aria-busy={enviando || undefined}>
-        <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
           El valor del comprobante se queda como está en el reporte y en la liquidación. Aceptar solo
           deja constancia de que la diferencia es correcta.
         </p>
@@ -130,7 +130,7 @@ export default function DialogoAceptarDiferencia({ fila, onCerrar, onHecho, onDe
             const aceptada = estado.get(c) === 'aceptada';
             const errorLinea = errores.get(c);
             return (
-              <li key={c} className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              <li key={c} className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
                 <div className="flex items-start gap-2">
                   {conCasillas && !aceptada && (
                     <input type="checkbox" className="flit-focus mt-1" aria-label={`Aceptar ${NOMBRE_CONCEPTO[c].toLowerCase()}`}
@@ -139,12 +139,12 @@ export default function DialogoAceptarDiferencia({ fila, onCerrar, onHecho, onDe
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                      <span className="font-semibold">{NOMBRE_CONCEPTO[c]}{aceptada && <span className="ml-2 text-xs font-normal" style={{ color: 'var(--flit-text-secondary)' }}>Aceptada</span>}</span>
+                      <span className="font-semibold">{NOMBRE_CONCEPTO[c]}{aceptada && <span className="ml-2 text-xs font-normal" style={{ color: 'var(--color-text-secondary)' }}>Aceptada</span>}</span>
                       <span className="tabular-nums font-semibold">{l.diferencia}</span>
                     </div>
                     <div>{l.linea1}</div>
-                    {l.linea2 && <div className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{l.linea2}</div>}
-                    {errorLinea && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-warning-text)' }}>{errorLinea}</p>}
+                    {l.linea2 && <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{l.linea2}</div>}
+                    {errorLinea && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--kit-naranja-texto)' }}>{errorLinea}</p>}
                   </div>
                 </div>
               </li>
@@ -153,22 +153,22 @@ export default function DialogoAceptarDiferencia({ fila, onCerrar, onHecho, onDe
         </ul>
 
         <div>
-          <label htmlFor={idMotivo} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <label htmlFor={idMotivo} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Por qué se acepta (obligatorio)
           </label>
           <textarea id={idMotivo} ref={textareaRef} className={flitInp} rows={2} maxLength={MOTIVO_DIFERENCIA_MAX}
             value={motivo} aria-describedby={idAyuda} disabled={enviando || sinPermiso}
             onChange={(e) => setMotivo(e.target.value)} />
-          <p id={idAyuda} className="mt-1 flex flex-wrap justify-between gap-x-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p id={idAyuda} className="mt-1 flex flex-wrap justify-between gap-x-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             <span>Entre {MOTIVO_DIFERENCIA_MIN} y {MOTIVO_DIFERENCIA_MAX} caracteres. Queda en la auditoría del comprobante. No escribas cédulas, teléfonos ni correos.</span>
             <span className="tabular-nums">{motivo.length}/{MOTIVO_DIFERENCIA_MAX}</span>
           </p>
         </div>
 
-        {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-warning-text)' }}>{error}</p>}
+        {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-naranja-texto)' }}>{error}</p>}
 
         <div className="flex flex-wrap items-center justify-end gap-3">
-          <span id={idExigencia} role="status" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{exigencia}</span>
+          <span id={idExigencia} role="status" className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{exigencia}</span>
           <button type="button" onClick={onCerrar} className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando}>
             Cancelar
           </button>

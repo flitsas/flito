@@ -25,10 +25,10 @@ import { flitBtnSecondary, flitBtnSecondarySm, flitInp } from '../flit/flitPageK
 // el de la línea ya asignada y el total del pie tienen que decir la misma cifra con la misma forma.
 import { pesos } from './tiposReporteCostos';
 
-const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
-const TENUE = { color: 'var(--flit-text-muted)' } as const;
-const PELIGRO = { color: 'var(--flit-warning-text)' } as const;
-const AZUL = { color: 'var(--flit-blue-text)' } as const;
+const SECUNDARIO = { color: 'var(--color-text-secondary)' } as const;
+const TENUE = { color: 'var(--color-text-tertiary)' } as const;
+const PELIGRO = { color: 'var(--kit-naranja-texto)' } as const;
+const AZUL = { color: 'var(--color-action)' } as const;
 const SIN_EXCLUIR: readonly string[] = [];
 
 /** Lo que falla al pedir el catálogo: un 403 no se reintenta (no se arregla reintentando). */
@@ -208,16 +208,16 @@ export default function BuscadorTipoServicio(props: PropsAsignar | PropsElegir) 
   const lista = (
     <ul id={idListbox} role="listbox" aria-label="Tipos de servicio adicional"
       className={elige ? 'mt-1 max-h-60 overflow-auto rounded-lg border' : undefined}
-      style={elige ? { borderColor: 'var(--flit-border-input)' } : undefined}>
+      style={elige ? { borderColor: 'var(--color-border-control)' } : undefined}>
       {opciones.map((t, i) => {
         const bloq = bloqueada(t);
         return (
         <li key={t.id} id={idOpcion(i)} role="option" aria-selected={elige ? props.elegido?.id === t.id : i === activo} data-id={t.id}
           aria-disabled={bloq || undefined}
-          className="border-t first:border-t-0" style={{ borderColor: 'var(--flit-border-soft)' }}>
+          className="border-t first:border-t-0" style={{ borderColor: 'var(--color-border)' }}>
           <button type="button" disabled={enviando} tabIndex={elige ? -1 : undefined} aria-disabled={bloq || undefined}
-            className={`flit-focus w-full px-2 py-2 text-left transition-colors disabled:opacity-50 ${bloq ? 'cursor-not-allowed' : 'hover:bg-[var(--flit-bg-hover)]'}`}
-            style={i === activo && !bloq ? { background: 'var(--flit-bg-table-header)' } : undefined}
+            className={`flit-focus w-full px-2 py-2 text-left transition-colors disabled:opacity-50 ${bloq ? 'cursor-not-allowed' : 'hover:bg-[var(--kit-hover)]'}`}
+            style={i === activo && !bloq ? { background: 'var(--kit-linea)' } : undefined}
             // En `elegir` el foco se queda en el input (combobox): sin esto, el blur cerraría la lista antes del clic.
             onMouseDown={elige ? (e) => e.preventDefault() : undefined}
             onMouseEnter={() => { if (!bloq) setResaltado(i); }}
@@ -263,7 +263,7 @@ export default function BuscadorTipoServicio(props: PropsAsignar | PropsElegir) 
     return (
       <div className="w-full space-y-1" onKeyDown={teclas}
         onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setAbierta(false); }}>
-        <label htmlFor={props.inputId} className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <label htmlFor={props.inputId} className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Tipo de servicio <span aria-hidden="true">*</span>
         </label>
         <input
@@ -315,7 +315,7 @@ export default function BuscadorTipoServicio(props: PropsAsignar | PropsElegir) 
   }
 
   return (
-    <div className="mb-4 rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-input)' }} onKeyDown={teclas}>
+    <div className="mb-4 rounded-lg border p-3" style={{ borderColor: 'var(--color-border-control)' }} onKeyDown={teclas}>
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Añadir servicio</h3>
         <button type="button" className={flitBtnSecondarySm} onClick={props.onCerrar}>Cancelar</button>

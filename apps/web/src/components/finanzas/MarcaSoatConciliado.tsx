@@ -91,8 +91,8 @@ export default function MarcaSoatConciliado({ conciliado, referencia, conciliado
             aria-hidden="true"
             // Absoluto: la fila no cambia de alto al revelar, así que la tabla no se mueve bajo el
             // puntero. `whitespace-nowrap` porque la celda es estrecha y el detalle es una sola línea.
-            className="absolute right-0 top-full z-30 mt-1 whitespace-nowrap rounded-lg border bg-white px-2.5 py-1.5 text-left text-xs font-normal shadow-lg"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+            className="absolute right-0 top-full z-30 mt-1 whitespace-nowrap rounded-[9px] border bg-[var(--color-surface-elevated)] px-2.5 py-1.5 text-left text-xs font-normal"
+            style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)', boxShadow: 'var(--kit-sombra)' }}
           >
             {detalle}
           </span>

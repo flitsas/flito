@@ -12,10 +12,10 @@ export default function PasoComprador({ comprador, setComprador, guardarComprado
     <>
       {pasoSoloLectura(4) && <PasoCerradoBanner />}
       {isAdmin && !forzarActivo && !pasoSoloLectura(4) && (
-        <p className="mb-3 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mb-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Si el comprador tiene comparendos excepcionales autorizados, el admin puede{' '}
           <button type="button" onClick={() => activarForzarContinuar('SIMIT override paso 4')} disabled={busy}
-            className="flit-focus font-semibold underline" style={{ color: 'var(--flit-warning)' }}>
+            className="flit-focus font-semibold underline" style={{ color: 'var(--kit-naranja-texto)' }}>
             forzar continuar
           </button>.
         </p>

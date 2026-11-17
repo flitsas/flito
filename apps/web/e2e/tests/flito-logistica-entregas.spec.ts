@@ -80,10 +80,10 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
     await mockConsola(page);
     const st = await mockEntregas(page);
     await page.goto('/flito/logistica');
-    await expect(page.getByRole('button', { name: /^Actas/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /^Actas/ })).toBeVisible();
     // Épica #13758: Trámites y Entregas cuelgan de la misma función (consola.ver).
-    await expect(page.getByRole('button', { name: /Trámites/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Entregas', exact: true }).first()).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /Trámites/ })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Entregas', exact: true }).first()).toHaveCount(0);
     expect(st.posts).toBe(0);
   });
 
@@ -93,10 +93,10 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
     const hold = new Promise<void>((r) => { release = r; });
     const st = await mockEntregas(page, { hold });
     await page.goto('/flito/logistica');
-    await expect(page.getByRole('button', { name: /Trámites/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Trámites/ })).toBeVisible();
     expect(st.posts).toBe(0);
 
-    const tabs = page.locator('div.flex.flex-wrap.gap-1.border-b button');
+    const tabs = page.getByRole('tablist', { name: 'Secciones de Logística' }).getByRole('tab');
     const textos = (await tabs.allTextContents()).map((t) => t.trim());
     const iViajes = textos.indexOf('Viajes');
     const iEntregas = textos.indexOf('Entregas');
@@ -105,10 +105,10 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
     expect(iEntregas).toBe(iViajes + 1);
     expect(iActas).toBe(iEntregas + 1);
 
-    await page.getByRole('button', { name: 'Entregas', exact: true }).click();
+    await page.getByRole('tab', { name: 'Entregas', exact: true }).click();
     await expect(page.getByRole('status', { name: 'Cargando viajes…' })).toBeVisible();
     // HU #14353: la placa sigue editable mientras carga, para no perder el foco al escribir.
-    await expect(page.getByLabel('Placa')).toBeEnabled();
+    await expect(page.getByLabel('Placa', { exact: true })).toBeEnabled();
     await expect.poll(() => st.posts).toBeGreaterThanOrEqual(1);
     expect(st.bodies.every((b) => Object.keys(b).length === 0)).toBe(true);
     expect(st.urls.every((u) => u.includes('/flito/logistica/traslados/buscar') && new URL(u).search === '')).toBe(true);
@@ -150,7 +150,7 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
     await page.getByLabel('Compañía').selectOption({ label: 'Transportes Andinos' });
     await expect.poll(() => st.bodies.at(-1)).toEqual({ estado: 'en_ruta', destino: 'flit', companiaId: 10 });
 
-    await page.getByLabel('Placa').fill('ABC12');
+    await page.getByLabel('Placa', { exact: true }).fill('ABC12');
     await expect.poll(() => st.bodies.at(-1)).toEqual({
       placa: 'ABC12', estado: 'en_ruta', destino: 'flit', companiaId: 10,
     });
@@ -167,7 +167,7 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
     await entrar(page);
     await mockEntregas(page, { status: 403 });
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: 'Entregas', exact: true }).click();
+    await page.getByRole('tab', { name: 'Entregas', exact: true }).click();
     await expect(page.getByText('No tiene permiso para ver los viajes.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
     await expect(page.getByText('Sin permisos')).toHaveCount(0);
@@ -184,7 +184,7 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
       return route.fulfill(json({ viajes: FILAS, companias: COMPANIAS, truncado: false }));
     });
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: 'Entregas', exact: true }).click();
+    await page.getByRole('tab', { name: 'Entregas', exact: true }).click();
     const alerta = page.getByRole('alert').filter({ hasText: 'No se pudieron cargar los viajes. Inténtelo de nuevo.' });
     await expect(alerta).toBeVisible();
     await expect(alerta.getByRole('button', { name: 'Reintentar' })).toBeVisible();
@@ -199,7 +199,7 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
     await entrar(page);
     const st = await mockEntregas(page, { vacio: true });
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: 'Entregas', exact: true }).click();
+    await page.getByRole('tab', { name: 'Entregas', exact: true }).click();
     await expect(page.getByText('Aún no hay viajes. Regístrelos en Viajes: cuando queden registrados, aparecen aquí.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Viajes' })).toHaveCount(0);

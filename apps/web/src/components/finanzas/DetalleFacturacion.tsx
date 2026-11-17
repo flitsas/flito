@@ -100,7 +100,7 @@ export default function DetalleFacturacion({
   if (fase === 'cargando') {
     return (
       <FlitModal title={titulo} onClose={onClose} wide>
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }} role="status">
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }} role="status">
           Consultando el estado de la facturación electrónica de este trámite…
         </p>
       </FlitModal>
@@ -111,13 +111,13 @@ export default function DetalleFacturacion({
     return (
       <FlitModal title={titulo} onClose={onClose} wide>
         <div className="space-y-3 text-sm">
-          <p style={{ color: 'var(--flit-warning-text)' }} role="alert">
+          <p style={{ color: 'var(--kit-naranja-texto)' }} role="alert">
             No se pudo consultar la facturación electrónica de este trámite: {error}
           </p>
           {/* Con reintento, y por eso el error es un estado y no un aviso: el fallo más común aquí
               es de red, y volver a pedirlo cuesta un clic frente a cerrar y repetir el camino. */}
           <button type="button" className={flitBtnSecondarySm}
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+            style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}
             onClick={() => void cargar()}>
             Reintentar
           </button>
@@ -156,10 +156,10 @@ export default function DetalleFacturacion({
           // dos frases distintas y solo una es cierta. La segunda haría pensar en algo que se
           // perdió; lo que pasa es que este trámite todavía no ha llegado a ese punto del ciclo.
           <>
-            <p style={{ color: 'var(--flit-text-primary)' }}>
+            <p style={{ color: 'var(--color-text-primary)' }}>
               A este trámite <strong>todavía no se le ha pedido factura electrónica</strong>.
             </p>
-            <p style={{ color: 'var(--flit-text-secondary)' }}>
+            <p style={{ color: 'var(--color-text-secondary)' }}>
               No es un fallo ni un dato que falte: es el punto del ciclo en el que está. La emisión
               se pide desde el reporte, con «Enviar a facturación electrónica», y solo sobre
               trámites ya liquidados y marcados como facturados.
@@ -173,7 +173,7 @@ export default function DetalleFacturacion({
             <StatusChip tone={TONO_CHIP_ESTADO[estadoFila]}>
               {SIIGO_ESTADO_REPORTE_ETIQUETA[estadoFila]}
             </StatusChip>
-            <p style={{ color: 'var(--flit-text-secondary)' }}>
+            <p style={{ color: 'var(--color-text-secondary)' }}>
               La orden ya salió y todavía no hay documento en Siigo, así que no hay ficha que
               mostrar. En cuanto la factura exista, este detalle se llena solo.
             </p>

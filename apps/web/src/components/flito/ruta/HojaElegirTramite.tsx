@@ -19,17 +19,17 @@ export default function HojaElegirTramite({ placa, candidatos, puedeDejarPendien
   useFocusTrap(ref, true);
   return (
     <ModalPortal>
-    <div data-flit-modal="" className="fixed inset-0 z-50 flex items-end justify-center lg:items-center" style={{ background: 'rgba(11,22,42,0.55)' }}
+    <div data-flit-modal="" className="kit-velo fixed inset-0 z-50 flex items-end justify-center lg:items-center"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onCancelar(); }}>
       {/* Hoja inferior en móvil (<lg); modal centrado en escritorio. */}
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="hoja-tramite-titulo" data-testid="hoja-tramite"
         className="max-h-[85vh] w-full overflow-y-auto rounded-t-[20px] border-t bg-flit-card px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 lg:max-w-md lg:rounded-[20px] lg:border"
-        style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-primary)' }}>
-        <div aria-hidden="true" className="mx-auto mb-3 h-1.5 w-10 rounded-full lg:hidden" style={{ background: 'var(--flit-border-input)' }} />
-        <h2 id="hoja-tramite-titulo" tabIndex={-1} className="mb-3 text-base font-bold" style={{ color: 'var(--flit-blue-text)' }}>{placa} tiene varios trámites</h2>
+        style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }}>
+        <div aria-hidden="true" className="mx-auto mb-3 h-1.5 w-10 rounded-full lg:hidden" style={{ background: 'var(--color-border-control)' }} />
+        <h2 id="hoja-tramite-titulo" tabIndex={-1} className="mb-3 text-[1.375rem] font-bold leading-tight" style={{ color: 'var(--color-action)' }}>{placa} tiene varios trámites</h2>
       <div className="space-y-3">
-        <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>¿A cuál corresponde esta LT?</p>
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>¿A cuál corresponde esta LT?</p>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           {puedeDejarPendiente
             ? 'Si no sabes cuál es, deja la LT pendiente: Operaciones de FLITO la asigna después y la firma ya queda tomada.'
             : 'Si no sabes cuál es, quita esta LT y consúltalo antes de seguir.'}
@@ -38,12 +38,12 @@ export default function HojaElegirTramite({ placa, candidatos, puedeDejarPendien
           {candidatos.map((c) => (
             <li key={c.tramiteId}>
               <button type="button" onClick={() => onElegir(c)}
-                className="flit-focus flex w-full flex-col items-start gap-0.5 rounded-xl border bg-flit-card px-4 py-3 text-left transition-colors hover:bg-[var(--flit-bg-hover)]"
-                style={{ borderColor: 'var(--flit-border-soft)', minHeight: 56 }}>
-                <span className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+                className="flit-focus flex w-full flex-col items-start gap-0.5 rounded-[9px] border bg-flit-card px-4 py-3 text-left transition-colors hover:bg-[var(--kit-hover)]"
+                style={{ borderColor: 'var(--color-border)', minHeight: 56 }}>
+                <span className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                   {c.idFlit}{c.companiaNombre ? ` · ${c.companiaNombre}` : ''}
                 </span>
-                <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                   Org. {c.organismoCodigo ?? '—'}
                 </span>
               </button>
@@ -51,13 +51,13 @@ export default function HojaElegirTramite({ placa, candidatos, puedeDejarPendien
           ))}
         </ul>
         {puedeDejarPendiente && (
-          <button type="button" className={`${flitBtnSecondary} w-full justify-center`} style={{ minHeight: 48 }} onClick={onPendiente}>
+          <button type="button" className={`${flitBtnSecondary} min-h-12 w-full justify-center`} onClick={onPendiente}>
             No sé cuál: dejar pendiente
           </button>
         )}
         <button type="button" onClick={onCancelar}
           className="flit-focus mx-auto block rounded px-2 py-2 text-sm font-medium underline-offset-2 transition-colors hover:underline"
-          style={{ color: 'var(--flit-text-secondary)', minHeight: 44 }}>
+          style={{ color: 'var(--color-text-secondary)', minHeight: 44 }}>
           Cancelar (quitar esta LT)
         </button>
       </div>

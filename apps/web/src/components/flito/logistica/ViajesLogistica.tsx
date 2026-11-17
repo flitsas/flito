@@ -19,9 +19,9 @@ import { FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitB
 import FilaViajeLogistica from './FilaViajeLogistica';
 import ModalRegistrarViaje from './ModalRegistrarViaje';
 
-const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
-const MUTED = { color: 'var(--flit-text-muted)' } as const;
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
+const SECUNDARIO = { color: 'var(--color-text-secondary)' } as const;
+const MUTED = { color: 'var(--color-text-tertiary)' } as const;
+const PELIGRO = { color: 'var(--kit-rojo-texto)' } as const;
 
 export default function ViajesLogistica({ tramiteId, idFlit, puedeRegistrar, puedeQuitar, fecha }: {
   tramiteId: string;
@@ -81,7 +81,7 @@ export default function ViajesLogistica({ tramiteId, idFlit, puedeRegistrar, pue
   };
 
   return (
-    <section aria-labelledby="viajes-logistica-titulo" className="mb-4 border-t pt-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <section aria-labelledby="viajes-logistica-titulo" className="mb-4 border-t pt-3" style={{ borderColor: 'var(--color-border)' }}>
       <h3 id="viajes-logistica-titulo" className="mb-2 text-xs font-bold uppercase tracking-wide" style={SECUNDARIO}>Viajes adicionales</h3>
 
       {primeraCarga && <Esqueleto />}
@@ -124,7 +124,7 @@ export default function ViajesLogistica({ tramiteId, idFlit, puedeRegistrar, pue
           )}
 
           {items.length > 0 && (
-            <ul className="divide-y" style={{ borderColor: 'var(--flit-border-soft)' }}>
+            <ul className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
               {items.map((viaje) => (
                 <FilaViajeLogistica key={viaje.id} viaje={viaje} tramiteId={tramiteId} fecha={fecha}
                   puedeQuitar={puedeQuitar && editable}
@@ -164,11 +164,11 @@ export default function ViajesLogistica({ tramiteId, idFlit, puedeRegistrar, pue
 
 /** Cargando: la FORMA de la lista —dos renglones por viaje—, sin spinner. */
 function Esqueleto() {
-  const barra = (ancho: string) => <span className={`block h-3 ${ancho} rounded`} style={{ background: 'var(--flit-border-soft)' }} />;
+  const barra = (ancho: string) => <span className={`block h-3 ${ancho} rounded`} style={{ background: 'var(--color-border)' }} />;
   return (
     <div role="status" aria-busy="true" aria-label="Cargando viajes…">
       {[0, 1].map((i) => (
-        <div key={i} className="border-t py-2 first:border-t-0" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <div key={i} className="border-t py-2 first:border-t-0" style={{ borderColor: 'var(--color-border)' }}>
           <div className="flex items-center justify-between gap-3">{barra('w-40')}{barra('w-16')}</div>
           <div className="mt-2">{barra('w-56')}</div>
         </div>

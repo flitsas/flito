@@ -9,7 +9,9 @@
 // peor que ninguno: quien mira la lista no sabe qué se está quedando fuera.
 //
 // Es un `<details>`, el mismo patrón de `ThFiltroMulti` y `RangoFechas`: el navegador ya resuelve
-// abrir, cerrar y el foco por teclado.
+// abrir, cerrar y el foco por teclado. El menú solo se monta abierto: cerrado, su caja absoluta seguía ocupando
+// ancho de desborde (cola de 1616 px en Impuestos a 1280).
+import { useState } from 'react';
 
 export interface Preset<F> {
   /** Cómo se llama en el desplegable. En términos de trabajo, no de columnas. */
@@ -27,39 +29,33 @@ export default function FiltrosInteligentes<F>({ presets, activo, onAplicar, onQ
   onAplicar: (p: Preset<F>) => void;
   onQuitar: () => void;
 }) {
+  const [abierto, setAbierto] = useState(false);
   if (presets.length === 0) return null;
 
   return (
-    <details className="relative" name="flit-filtros-inteligentes">
+    <details className="relative" name="flit-filtros-inteligentes" onToggle={(e) => setAbierto(e.currentTarget.open)}>
       <summary
-        className="flit-focus flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border bg-flit-card px-3 text-sm transition-colors hover:bg-[var(--flit-bg-hover)]"
-        style={{
-          borderColor: activo ? 'var(--flit-blue-text)' : 'var(--flit-border-input)',
-          ...(activo ? { background: 'var(--flit-bg-app)' } : {}),
-          color: 'var(--flit-text-primary)',
-        }}
+        className={`chip h-10 min-h-0 list-none gap-2 text-sm transition-colors${activo ? ' filtro-activo' : ''}`}
         aria-label="Filtros inteligentes"
       >
-        <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-muted)' }}>Vista</span>
+        <span className="text-xs font-semibold text-[color:var(--color-text-tertiary)]">Vista</span>
         {/* El nombre del preset puesto, para que no haya que abrir el desplegable para saberlo. */}
         <span>{activo ?? 'Todo'}</span>
       </summary>
 
-      <div className="absolute z-30 mt-1 w-80 rounded-lg border bg-flit-card p-2 shadow-lg"
-        style={{ borderColor: 'var(--flit-border-input)' }}>
+      {abierto && (
+      <div className="menu-flotante absolute left-0 right-auto z-30 mt-1 w-[min(20rem,calc(100vw-2rem))] p-2">
         {presets.map((p) => {
           const puesto = p.nombre === activo;
           return (
             <button key={p.nombre} type="button"
               onClick={() => (puesto ? onQuitar() : onAplicar(p))}
-              className="block w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--flit-bg-hover)]"
-              style={puesto ? { background: 'var(--flit-bg-app)' } : undefined}>
-              <span className="block text-sm font-semibold"
-                style={{ color: puesto ? 'var(--flit-blue-text)' : 'var(--flit-text-primary)' }}>
+              className={`block w-full rounded-[7px] px-2 py-1.5 text-left transition-colors hover:bg-[var(--kit-hover)]${puesto ? ' bg-[var(--kit-hover)]' : ''}`}>
+              <span className={`block text-sm font-semibold ${puesto ? 'text-[color:var(--color-action)]' : 'text-[color:var(--color-text-primary)]'}`}>
                 {p.nombre}
               </span>
               {/* Sin esto, un preset es una caja negra: se ve el resultado pero no el criterio. */}
-              <span className="block text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+              <span className="block text-xs text-[color:var(--color-text-tertiary)]">
                 {p.descripcion}
               </span>
             </button>
@@ -67,12 +63,12 @@ export default function FiltrosInteligentes<F>({ presets, activo, onAplicar, onQ
         })}
 
         {activo && (
-          <button type="button" className="mt-1 w-full text-xs underline"
-            style={{ color: 'var(--flit-text-muted)' }} onClick={onQuitar}>
+          <button type="button" className="btn ghost sm mt-1 w-full" onClick={onQuitar}>
             Ver todo
           </button>
         )}
       </div>
+      )}
     </details>
   );
 }

@@ -170,7 +170,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
 
   return (
     <>
-      <FlitModal title={`Editar ${user.username}`} onClose={onClose}>
+      <FlitModal title={`Editar ${user.username}`} onClose={onClose} icono="lapiz" wide>
         <form onSubmit={submit} className="space-y-4">
           <Field label="Nombre completo">
             <input required minLength={1} maxLength={100} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={inputCls} />
@@ -233,7 +233,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
           />
           {avisoBloqueo && (
             <div className="flex flex-wrap items-start gap-3">
-              <p ref={avisoRef} role="alert" tabIndex={-1} className="flit-focus min-w-0 flex-[1_1_16rem] rounded text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+              <p ref={avisoRef} role="alert" tabIndex={-1} className="flit-focus min-w-0 flex-[1_1_16rem] rounded text-sm" style={{ color: 'var(--kit-naranja-texto)' }}>
                 {avisoBloqueo.texto}
               </p>
               {avisoBloqueo.nodo && (

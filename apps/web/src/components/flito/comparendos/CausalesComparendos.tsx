@@ -1,4 +1,4 @@
-// FLITO — Comparendos · Configuración: bloque 3, causales de gestión (HU #11634, AC1 y AC2).
+// FLITO — Comparendos · Configuración: bloque 3, causales de gestión (HU 11634, AC1 y AC2).
 //
 // El catálogo que decide QUÉ se puede registrar al gestionar un comparendo en el visor. Lo que
 // distingue este bloque de sus dos vecinos es una columna: `orden`.
@@ -72,7 +72,7 @@ function leerOrden(escrito: string): number | null | undefined {
   //   · `Number` no arregla eso del todo. Acepta otras formas de escribir un número que un campo de
   //     orden no admite —`0x10` es 16, `0o17` es 15, `0b11` es 3, `1e3` es 1000, `10.0` es 10— y las
   //     cinco dan un entero dentro del rango, así que pasaban `Number.isInteger` y el tope sin que
-  //     nada avisara: el operador escribía una cosa y se guardaba otra (HU #11652, AC4). También
+  //     nada avisara: el operador escribía una cosa y se guardaba otra (HU 11652, AC4). También
   //     convierte dígitos de otras escrituras (`'١٠'` → 10), que es lo mismo por otro camino.
   //
   // `^\d+$` deja pasar exactamente lo que el campo dice admitir: dígitos decimales y nada más. El
@@ -93,7 +93,7 @@ const ERROR_ORDEN = `El orden debe ser un número entero entre 0 y ${ORDEN_MAX}.
 // que se desvanece solo—. Mismo criterio que el campo de NIT del bloque 1: el teclado numérico en
 // móvil se pide con `inputMode`, y el error lo explica la aplicación.
 
-/** Copy propio por `codigo`/estado; el texto del servidor no se pinta (postura de la #11559). */
+/** Copy propio por `codigo`/estado; el texto del servidor no se pinta (postura de la 11559). */
 function mensajeDeEscritura(e: unknown, verbo: 'agregar' | 'guardar'): string {
   if (codigoDeError(e) === 'causal_duplicada') return 'Ya hay una causal con ese nombre.';
   // `POST /causales` no tiene limitador propio, pero le aplica el global de `/api`: sin esta rama un
@@ -158,7 +158,7 @@ export default function CausalesComparendos() {
         etiquetaCarga="Cargando causales de gestión"
         onReintentar={recargar}
         vacio={(
-          <p style={{ color: 'var(--flit-text-secondary)' }}>
+          <p style={{ color: 'var(--color-text-secondary)' }}>
             No hay causales. El visor podrá listar comparendos, pero no asignar gestión hasta que
             agregues al menos una.
           </p>
@@ -181,10 +181,10 @@ export default function CausalesComparendos() {
           <tbody>
             {items.map((c) => (
               <FlitTr key={c.id}>
-                <td className="px-4 py-2.5 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>
+                <td className="px-4 py-2.5 text-sm tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
                   {c.orden}
                 </td>
-                <td className="px-4 py-2.5 text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+                <td className="px-4 py-2.5 text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
                   {c.nombre}
                 </td>
                 <td className="px-4 py-2.5"><ChipEstadoConfig activo={c.activo} genero="f" /></td>
@@ -262,7 +262,7 @@ export default function CausalesComparendos() {
 /** Ayuda del campo `orden`, la misma en el alta y en la edición: explica el 0 y el desempate. */
 function AyudaOrden() {
   return (
-    <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+    <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
       Es la posición en el selector del visor, de menor a mayor. Se suele numerar de diez en diez
       para poder intercalar después. Si lo dejas vacío queda en 0.
     </p>
@@ -400,7 +400,7 @@ function ModalEditarCausal(
           />
         </FlitField>
         <AyudaOrden />
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           Renombrar no cambia las gestiones ya registradas: siguen apuntando a esta misma causal.
         </p>
         {error && <ErrorFormulario>{error}</ErrorFormulario>}

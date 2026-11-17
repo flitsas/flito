@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import { claseBoton } from '../flit/GradientButton';
 import type { Sustantivo } from './DialogoEstadoRegistro';
 
 export const CONSECUENCIA_ELIMINAR = 'Dejará de aparecer en FLITO. Su historial se conserva. No se puede deshacer.';
@@ -91,29 +91,29 @@ export function DialogoEliminarRegistro({
   const textoBoton = enviando ? 'Eliminando…' : error?.reintentable ? 'Reintentar' : 'Eliminar';
 
   return (
-    <FlitModal title={`Eliminar «${nombre}»`} onClose={onCerrar} restoreFocusRef={restoreFocusRef} cierreBloqueado={enviando}>
-      <div className="flex flex-col gap-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+    <FlitModal title={`Eliminar «${nombre}»`} icono="papelera" onClose={onCerrar} restoreFocusRef={restoreFocusRef} cierreBloqueado={enviando}>
+      <div className="flex flex-col gap-3 text-sm text-[color:var(--color-text-primary)]">
         <p>{CONSECUENCIA_ELIMINAR}</p>
 
         {error && (
-          <p role="alert" className="font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
+          <p role="alert" className="font-semibold text-[color:var(--kit-rojo-texto)]">
             <span aria-hidden="true">⚠ </span>{error.texto}
           </p>
         )}
 
         <div className="mt-1 flex flex-wrap justify-end gap-2">
           <button type="button" ref={refCancelar} onClick={onCerrar} disabled={enviando}
-            className={flitBtnSecondary} style={flitBtnSecondaryStyle}>
+            className={claseBoton('secondary')} data-variante="secundario">
             Cancelar
           </button>
           {!ocultarConfirmar && (
-            // Peligro con tinta y borde (`--flit-danger-text`, contraste corregido en #13949), no con rojo sólido.
+            // Destructivo: botón alerta (naranja) del kit.
             <button
               type="button"
               onClick={() => { void ejecutar(); }}
               disabled={enviando}
-              className="flit-focus inline-flex h-10 items-center rounded-[999px] border bg-flit-card px-5 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ borderColor: 'var(--flit-danger)', color: 'var(--flit-danger-text)' }}
+              className={claseBoton('alerta')}
+              data-variante="alerta"
             >
               {textoBoton}
             </button>

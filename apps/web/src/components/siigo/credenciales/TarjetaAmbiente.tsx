@@ -1,4 +1,4 @@
-// Tarjeta de un ambiente (HU #11890). Hay exactamente dos: Pruebas y Producción.
+// Tarjeta de un ambiente (HU 11890). Hay exactamente dos: Pruebas y Producción.
 //
 // Por qué dos tarjetas y no la tabla plana de `RndcAdminCredenciales.tsx`: el índice único parcial
 // garantiza como mucho UNA credencial activa por ambiente y los ambientes son dos, así que la
@@ -13,6 +13,9 @@ import { useRef, useState } from 'react';
 import { ApiError, api, errorMessage } from '../../../lib/api';
 import GradientButton from '../../flit/GradientButton';
 import StatusChip from '../../flit/StatusChip';
+import InlineAlert from '../../flit/InlineAlert';
+import { Icono } from '../../flit/kit/Icono';
+import { claseBoton } from '../../flit/GradientButton';
 import { FlitTable, FlitTh, FlitTr, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 import { CARD, fecha } from '../estilos';
 import DialogoDesactivar from './DialogoDesactivar';
@@ -157,8 +160,8 @@ export default function TarjetaAmbiente(
         <button
           type="button"
           onClick={() => setDesactivando(activa)}
-          className="flit-focus ml-auto inline-flex h-10 items-center rounded-[999px] border bg-white px-5 text-sm font-semibold"
-          style={{ borderColor: 'var(--flit-danger)', color: 'var(--flit-danger-ink)' }}
+          className={claseBoton('alerta', 'md', 'ml-auto')}
+          data-variante="alerta"
         >
           Desactivar
           <span className="sr-only"> la credencial de {enFrase}</span>
@@ -168,9 +171,9 @@ export default function TarjetaAmbiente(
   );
 
   return (
-    <section aria-labelledby={idTitulo} className="bg-white px-5 py-4" style={CARD}>
+    <section aria-labelledby={idTitulo} className="px-5 py-4" style={CARD}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 ref={refTitulo} tabIndex={-1} id={idTitulo} className="text-base font-bold outline-none" style={{ color: 'var(--flit-blue-text)' }}>
+        <h2 ref={refTitulo} tabIndex={-1} id={idTitulo} className="text-lg font-bold text-[color:var(--color-action)] outline-none">
           {etiqueta}
         </h2>
         <StatusChip tone={activa ? 'success' : 'warning'}>{activa ? 'Activa' : 'Sin configurar'}</StatusChip>
@@ -179,11 +182,14 @@ export default function TarjetaAmbiente(
       {/* El backend no desempata dos activas del mismo ambiente (`ambiente_ambiguo`): elegir en
           silencio taparía justo lo que va a fallar. */}
       {activas.length > 1 && (
-        <p role="alert" className="mt-3 text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
-          <span aria-hidden="true">⚠ </span>
-          Hay más de una credencial activa en este ambiente. La integración rechazará las peticiones
-          hasta que se desactive una.
-        </p>
+        <div className="mt-3">
+          <InlineAlert tono="danger">
+            <p className="m-0 font-semibold">
+              Hay más de una credencial activa en este ambiente. La integración rechazará las peticiones
+              hasta que se desactive una.
+            </p>
+          </InlineAlert>
+        </div>
       )}
 
       {/* La credencial vigente se pinta como ELEMENTO DE LISTA con sus acciones dentro, y el
@@ -194,11 +200,11 @@ export default function TarjetaAmbiente(
         <ul className="mt-3 list-none">
           <li>
             <dl className="grid gap-x-4 gap-y-1.5 text-sm sm:grid-cols-[10rem_1fr]">
-              <dt className="font-medium" style={{ color: 'var(--flit-text-secondary)' }}>Usuario</dt>
-              <dd style={{ color: 'var(--flit-text-primary)' }}>{activa.username}</dd>
+              <dt className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>Usuario</dt>
+              <dd style={{ color: 'var(--color-text-primary)' }}>{activa.username}</dd>
 
-              <dt className="font-medium" style={{ color: 'var(--flit-text-secondary)' }}>Access key</dt>
-              <dd style={{ color: 'var(--flit-text-primary)' }}>
+              <dt className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>Access key</dt>
+              <dd style={{ color: 'var(--color-text-primary)' }}>
                 {/* Se pinta LO QUE LLEGÓ del servidor, no una máscara calculada aquí: la web nunca
                     ve el valor real, ni siquiera para enmascararlo. Los puntos se ocultan al lector
                     de pantalla —«bala bala bala…» no comunica nada— y en su lugar se anuncia
@@ -206,26 +212,26 @@ export default function TarjetaAmbiente(
                 <span aria-hidden="true">{activa.accessKey}</span>
                 <span className="sr-only">oculta</span>
                 {' '}· guardada y cifrada
-                <span className="mt-0.5 block text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                <span className="mt-0.5 block text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                   {NOTA_MASCARA}
                 </span>
               </dd>
 
-              <dt className="font-medium" style={{ color: 'var(--flit-text-secondary)' }}>Versión de llave</dt>
-              <dd style={{ color: 'var(--flit-text-primary)' }}>v{activa.keyVersion}</dd>
+              <dt className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>Versión de llave</dt>
+              <dd style={{ color: 'var(--color-text-primary)' }}>v{activa.keyVersion}</dd>
 
-              <dt className="font-medium" style={{ color: 'var(--flit-text-secondary)' }}>Registrada</dt>
-              <dd style={{ color: 'var(--flit-text-primary)' }}>{fecha(activa.createdAt)}</dd>
+              <dt className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>Registrada</dt>
+              <dd style={{ color: 'var(--color-text-primary)' }}>{fecha(activa.createdAt)}</dd>
 
               {/* La fila de notas no se oculta cuando están vacías: su ausencia también es un dato. */}
-              <dt className="font-medium" style={{ color: 'var(--flit-text-secondary)' }}>Notas</dt>
-              <dd style={{ color: 'var(--flit-text-primary)' }}>{activa.notas ?? '—'}</dd>
+              <dt className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>Notas</dt>
+              <dd style={{ color: 'var(--color-text-primary)' }}>{activa.notas ?? '—'}</dd>
             </dl>
             {acciones}
           </li>
         </ul>
       ) : (
-        <div className="mt-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <div className="mt-3 text-sm" style={{ color: 'var(--color-text-primary)' }}>
           {/* «no hay credenciales» dicho con esas palabras: es la frase que distingue el vacío del
               error y de la carga, y la que no puede aparecer mientras el GET sigue en vuelo. */}
           <p>En este ambiente no hay credenciales.</p>
@@ -235,13 +241,13 @@ export default function TarjetaAmbiente(
               ? 'Ninguna factura puede emitirse ante la DIAN hasta que registres una.'
               : 'FLITO no puede conectarse a Siigo en pruebas hasta que registres una.'}
           </p>
-          <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             La access key se genera en Siigo Nube, en Configuración › API.
           </p>
 
           {noDescifrable && (
-            <p className="mt-3 font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
-              <span aria-hidden="true">⚠ </span>
+            <p className="mt-3 font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
+              <img src="/kit/aviso-error.svg" alt="" aria-hidden="true" className="mr-1 inline-block h-4 w-4 align-[-2px]" />
               La llave maestra ya no abre la última credencial de este ambiente
               ({noDescifrable.descifradoFallidoMotivo ?? 'sin motivo registrado'},{' '}
               {fecha(noDescifrable.descifradoFallidoEn)}). FLITO la desactivó sola. Registra una
@@ -267,14 +273,9 @@ export default function TarjetaAmbiente(
       )}
 
       {falloPrueba && (
-        <div
-          role="alert"
-          className="mt-4 px-4 py-3 text-sm"
-          style={{ ...CARD, borderLeft: '4px solid var(--flit-danger)', color: 'var(--flit-text-primary)' }}
-        >
-          <p className="font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
-            <span aria-hidden="true">⚠ </span>{falloPrueba.mensaje}
-          </p>
+        <div className="mt-4">
+        <InlineAlert tono="danger">
+          <p className="m-0 font-semibold">{falloPrueba.mensaje}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {falloPrueba.reintentable && (
               <button type="button" onClick={() => { void probar(); }} className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}>
@@ -287,6 +288,7 @@ export default function TarjetaAmbiente(
               <span className="sr-only"> el aviso de la prueba de {enFrase}</span>
             </button>
           </div>
+        </InlineAlert>
         </div>
       )}
 
@@ -300,7 +302,7 @@ export default function TarjetaAmbiente(
             className={flitBtnSecondarySm}
             style={flitBtnSecondaryStyle}
           >
-            <span aria-hidden="true">{historialAbierto ? '▾ ' : '▸ '}</span>
+            <Icono nombre={historialAbierto ? 'abajo' : 'derecha'} size={16} />
             {/* Con dos tarjetas en pantalla, dos botones «Historial de este ambiente» son
                 indistinguibles por su nombre accesible. */}
             <span className="sr-only">{etiqueta}: </span>
@@ -324,12 +326,12 @@ export default function TarjetaAmbiente(
                     const chip = chipDeCredencial(c);
                     return (
                       <FlitTr key={c.id}>
-                        <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--flit-text-primary)' }}>{c.username}</td>
+                        <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--color-text-primary)' }}>{c.username}</td>
                         <td className="px-4 py-2.5"><StatusChip tone={chip.tono}>{chip.etiqueta}</StatusChip></td>
-                        <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>v{c.keyVersion}</td>
-                        <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--flit-text-muted)' }}>{fecha(c.createdAt)}</td>
+                        <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--color-text-secondary)' }}>v{c.keyVersion}</td>
+                        <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--color-text-tertiary)' }}>{fecha(c.createdAt)}</td>
                         {/* `updatedAt` solo significa «cuándo se desactivó» en una fila inactiva. */}
-                        <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+                        <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
                           {c.activo ? '—' : fecha(c.updatedAt)}
                         </td>
                       </FlitTr>

@@ -1,9 +1,13 @@
 // Módulo Impuestos con pestañas: la cola (/flito/impuestos) y «Certificar sin trámite»
 // (/flito/impuestos/certificar). La pestaña de certificar solo existe con su función del catálogo.
-// Cada vista conserva su cabecera; aquí solo vive la navegación. Sin PII en la URL.
+// UI Kit 2026 (molde `#usuarios`/`#compania`): UNA cabecera de módulo aquí y las pestañas del kit
+// (`.kit-pestanas`) debajo; cada vista pinta su contenido sin cabecera propia. Sin PII en la URL.
+// Las pestañas conservan su semántica previa (tablist/tab/tabpanel, flechas, Inicio/Fin): el
+// rediseño solo cambia la piel, no el patrón de teclado ni los aria.
 import { lazy, Suspense, useRef, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
+import PageHeaderCard from '../components/flit/PageHeaderCard';
 import { useAuth } from '../lib/auth';
 
 const FlitoImpuestos = lazy(() => import('./FlitoImpuestos'));
@@ -11,8 +15,6 @@ const FlitoImpuestosCertificar = lazy(() => import('./FlitoImpuestosCertificar')
 
 type Vista = 'cola' | 'certificar';
 export const FUNCION_CERTIFICAR = 'impuestos.certificacion_directa.gestionar';
-
-const TAB = 'flit-focus rounded-lg px-4 h-10 text-sm font-medium transition-colors border border-transparent';
 
 export default function FlitoImpuestosShell({ vista }: { vista: Vista }) {
   const { hasFuncion } = useAuth();
@@ -36,8 +38,13 @@ export default function FlitoImpuestosShell({ vista }: { vista: Vista }) {
 
   return (
     <div className="flex flex-col gap-4">
+      <PageHeaderCard
+        title="Impuestos"
+        subtitle="Gestión del impuesto vehicular por organismo. La factura de venta es precondición del envío; el pago deriva del recibo validado."
+        icono="flito-impuestos"
+      />
       {tabs.length > 1 && (
-        <div role="tablist" aria-label="Secciones de Impuestos" className="flex flex-wrap gap-2">
+        <div role="tablist" aria-label="Secciones de Impuestos" className="kit-pestanas" data-kit="pestanas">
           {tabs.map((t, i) => {
             const activa = t.id === vista;
             return (
@@ -52,10 +59,7 @@ export default function FlitoImpuestosShell({ vista }: { vista: Vista }) {
                 tabIndex={activa ? 0 : -1}
                 onClick={() => navigate(t.to)}
                 onKeyDown={(e) => onKey(e, i)}
-                className={`${TAB} ${activa ? 'bg-flit-card' : 'hover:bg-flit-card'}`}
-                style={activa
-                  ? { color: 'var(--flit-text-primary)', borderColor: 'var(--flit-border-soft)' }
-                  : { color: 'var(--flit-text-secondary)' }}
+                className="kit-pestana transition-colors"
               >
                 {t.etiqueta}
               </button>

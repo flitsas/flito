@@ -14,7 +14,7 @@
 // hover sutil y el chevron respeta `prefers-reduced-motion`.
 
 import { type ReactNode, useId } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { Icono } from './kit/Icono';
 
 interface Props {
   titulo: string;
@@ -47,36 +47,32 @@ export default function FlitAcordeon({
       type="button"
       id={idBoton}
       data-testid={testId}
-      className="flit-focus -mx-2 -my-1 flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-[var(--flit-bg-hover)]"
+      className="-mx-2 -my-1 flex min-w-0 flex-1 items-center gap-3 rounded-[9px] px-2 py-1 text-left transition-colors hover:bg-[var(--kit-hover)]"
       aria-expanded={abierto}
-      aria-controls={idPanel}
+      aria-controls={abierto ? idPanel : undefined}
       onClick={onToggle}
     >
       {/* El chevron es decorativo: quien no lo vea ya tiene el estado en aria-expanded. */}
-      <ChevronRight
-        aria-hidden="true"
-        size={16}
-        className="shrink-0 transition-transform motion-reduce:transition-none"
-        style={{
-          color: 'var(--flit-text-muted)',
-          transform: abierto ? 'rotate(90deg)' : 'rotate(0deg)',
-        }}
+      <Icono
+        nombre="derecha"
+        size={18}
+        className={`shrink-0 transition-transform motion-reduce:transition-none ${abierto ? 'rotate-90 text-[color:var(--color-action)]' : 'text-[color:var(--color-text-tertiary)]'}`}
       />
       <span className="min-w-0 flex-1">
-        <span id={idTitulo} className="block text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+        <span id={idTitulo} className="block text-base font-semibold text-[color:var(--color-text-primary)]">
           {titulo}
           {cantidad !== undefined && (
-            <span className="ml-2 font-semibold tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>
+            <span className="acordeon__cuenta ml-2 !inline-grid !h-6 !min-w-6 text-xs tabular-nums">
               ({cantidad})
             </span>
           )}
         </span>
         {resumen !== undefined ? (
-          <span className="mt-0.5 block text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <span className="mt-0.5 block text-[0.8125rem] text-[color:var(--color-text-tertiary)]">
             {resumen}
           </span>
         ) : descripcion && (
-          <span className="mt-0.5 block text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <span className="mt-0.5 block text-[0.8125rem] text-[color:var(--color-text-tertiary)]">
             {descripcion}
           </span>
         )}
@@ -85,15 +81,8 @@ export default function FlitAcordeon({
   );
 
   return (
-    <section
-      className="overflow-hidden bg-flit-card"
-      style={{
-        borderRadius: 'var(--flit-radius-card)',
-        boxShadow: 'var(--flit-shadow-card)',
-        border: '1px solid var(--flit-border-soft)',
-      }}
-    >
-      <div className="flex items-center justify-between gap-3 px-5 py-4">
+    <section className="acordeon" data-kit="acordeon">
+      <div className={`flex min-h-14 items-center justify-between gap-3 px-4 py-2 transition-colors${abierto ? ' bg-[var(--kit-hover)]' : ''}`}>
         {Encabezado
           ? <Encabezado className="m-0 flex min-w-0 flex-1 text-sm font-normal">{disparador}</Encabezado>
           : disparador}
@@ -107,8 +96,7 @@ export default function FlitAcordeon({
           id={idPanel}
           role="region"
           aria-labelledby={resumen !== undefined ? idTitulo : idBoton}
-          className="border-t px-5 py-4"
-          style={{ borderColor: 'var(--flit-border-soft)' }}
+          className="border-t border-[color:var(--color-divider)] px-5 py-4"
         >
           {children}
         </div>

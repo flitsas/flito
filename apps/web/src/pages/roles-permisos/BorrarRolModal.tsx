@@ -4,8 +4,8 @@
 // `DELETE` responde 409 con `{ error, usuarios }` y el modal cambia al caso 2 con el número FRESCO
 // del servidor, sin cerrarse: el conteo de la cabecera puede ser viejo; la respuesta no.
 //
-// «Borrar rol» es el botón de peligro (`--flit-danger`), no `GradientButton`: un gradiente de marca
-// sobre una acción destructiva enseña a pulsar sin leer. «Ir a Usuarios» va a `/users` SIN filtro
+// «Borrar rol» es el botón destructivo del kit (`GradientButton variant="alerta"`, naranja): nunca el
+// azul de avanzar sobre una acción que no se deshace. «Ir a Usuarios» va a `/users` SIN filtro
 // (decisión 10): el filtro por rol de esa pantalla vive en estado y un parámetro no lo aplicaría.
 
 import { useState } from 'react';
@@ -13,7 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import type { RolCatalogo } from '@operaciones/shared-types';
 import { ApiError, errorMessage, permisosApi } from '../../lib/api';
 import FlitModal from '../../components/flit/FlitModal';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
+import GradientButton from '../../components/flit/GradientButton';
 import { usuariosTienenEsteRol } from './modulos';
 
 interface Props {
@@ -22,8 +22,6 @@ interface Props {
   onBorrado: (codigo: string) => void;
   restoreFocusRef: React.RefObject<HTMLElement | null>;
 }
-
-const BTN_PELIGRO = 'flit-focus inline-flex h-10 items-center rounded-[999px] px-5 text-sm font-semibold text-white disabled:opacity-50';
 
 export default function BorrarRolModal({ rol, onClose, onBorrado, restoreFocusRef }: Props) {
   const navigate = useNavigate();
@@ -49,35 +47,35 @@ export default function BorrarRolModal({ rol, onClose, onBorrado, restoreFocusRe
   };
 
   return (
-    <FlitModal title={`Borrar el rol ${rol.nombre}`} onClose={onClose} restoreFocusRef={restoreFocusRef}>
+    <FlitModal title={`Borrar el rol ${rol.nombre}`} onClose={onClose} restoreFocusRef={restoreFocusRef} icono="papelera">
       {rechazo ? (
         <div className="flex flex-col gap-3">
-          <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             {rechazo.usuarios !== null ? usuariosTienenEsteRol(rechazo.usuarios) : rechazo.error}
           </p>
           {rechazo.usuarios !== null && (
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               Un rol no se puede borrar mientras alguien lo tenga. Cámbiales el rol en Usuarios y vuelve aquí.
             </p>
           )}
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cerrar</button>
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <GradientButton type="button" variant="secondary" onClick={onClose}>Cerrar</GradientButton>
             {rechazo.usuarios !== null && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => navigate('/users')}>Ir a Usuarios</button>
+              <GradientButton type="button" onClick={() => navigate('/users')}>Ir a Usuarios</GradientButton>
             )}
           </div>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Ningún usuario tiene este rol.</p>
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>Ningún usuario tiene este rol.</p>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Al borrarlo desaparece de este cuadro y de la lista de roles del formulario de usuario. No se puede deshacer.
           </p>
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose} disabled={borrando}>Cancelar</button>
-            <button type="button" className={BTN_PELIGRO} style={{ background: 'var(--flit-danger)' }} onClick={borrar} disabled={borrando}>
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <GradientButton type="button" variant="secondary" onClick={onClose} disabled={borrando}>Cancelar</GradientButton>
+            <GradientButton type="button" variant="alerta" onClick={borrar} disabled={borrando}>
               {borrando ? 'Borrando…' : 'Borrar rol'}
-            </button>
+            </GradientButton>
           </div>
         </div>
       )}

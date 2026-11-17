@@ -453,6 +453,7 @@ export function DescargarSoportesZip(
           ? `${flitBtnPrimary} ${ancho}`
           : `${flitBtnSecondary} ${ancho}`}
         style={primaria ? flitBtnPrimaryStyle : flitBtnSecondaryStyle}
+        data-variante={primaria ? 'primario' : 'secundario'}
         onClick={alPulsar}
         disabled={ocupado || ids.length === 0 || n < minMarcadas}
         aria-busy={ocupado || undefined}

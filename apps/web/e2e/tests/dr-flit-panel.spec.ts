@@ -34,9 +34,15 @@ test.describe('HU #13764 · Dr. Flit — botón y panel', () => {
     const caja = await boton(page).boundingBox();
     const vp = page.viewportSize()!;
     expect(caja).not.toBeNull();
-    // Esquina inferior derecha: a ≤ 40 px de los bordes derecho e inferior.
+    // Esquina inferior derecha: a ≤ 40 px del borde derecho. Rediseño S6 (Épica #14560): en el
+    // inferior flota SOBRE el dock del kit, así que el margen es el alto reservado del dock + ≤ 40 px
+    // (nunca por debajo de él, que lo taparía).
+    const altoDock = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--kit-alto-dock')) || 0);
+    expect(altoDock).toBeGreaterThan(0);
+    const margenInferior = vp.height - (caja!.y + caja!.height);
     expect(vp.width - (caja!.x + caja!.width)).toBeLessThanOrEqual(40);
-    expect(vp.height - (caja!.y + caja!.height)).toBeLessThanOrEqual(40);
+    expect(margenInferior).toBeGreaterThanOrEqual(altoDock);
+    expect(margenInferior).toBeLessThanOrEqual(altoDock + 40);
   });
 
   // HU #13942 AC1: sin el ítem «Dr. Flit» no se ve, aunque tenga fichas de Ayuda visibles.
@@ -220,30 +226,27 @@ test.describe('HU #13764 · Dr. Flit — botón y panel', () => {
     await expect(boton(page)).toHaveAttribute('aria-expanded', 'true');
   });
 
-  test('Retrabajo · avatar oficial: botón y cabecera usan /assets/dr-flit/ con alt vacío', async ({ page }) => {
+  test('Retrabajo · avatar oficial (glifo del kit): botón, cabecera y mensajes decorativos', async ({ page }) => {
+    // Rediseño S6 (Épica #14560, UI Kit 2026): el avatar del Dr. Flit es el glifo `asistente` del kit
+    // (disco azul en el botón, `.kico` en la cabecera y disco en los mensajes) en lugar de los
+    // `.webp`. Lo que se garantiza sigue igual: avatar decorativo (oculto al lector, el nombre
+    // accesible es el del botón) y del tamaño de cada sitio.
     await page.setViewportSize({ width: 1366, height: 768 });
     await entrar(page);
-    const imgBoton = boton(page).locator('img');
-    await expect(imgBoton).toHaveAttribute('src', '/assets/dr-flit/fab-launcher.webp');
-    await expect(imgBoton).toHaveAttribute('alt', '');
-    await expect(imgBoton).toHaveAttribute('aria-hidden', 'true');
+    await expect(boton(page).locator('img')).toHaveCount(0);
+    const glifoBoton = boton(page).locator('svg');
+    await expect(glifoBoton).toHaveAttribute('aria-hidden', 'true');
     await abrirDrFlit(page);
-    const imgCabecera = panel(page).locator('header img');
-    await expect(imgCabecera).toHaveAttribute('src', '/assets/dr-flit/header-avatar.webp');
-    await expect(imgCabecera).toHaveAttribute('alt', '');
-    // Las imágenes cargan de verdad (no un 404 con el alt vacío).
-    expect(await imgBoton.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
-    await expect.poll(() => imgCabecera.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+    const avatarCabecera = panel(page).locator('header .kico');
+    await expect(avatarCabecera).toHaveAttribute('aria-hidden', 'true');
+    await expect(avatarCabecera.locator('svg')).toBeVisible();
     // Avatar de los mensajes del bot (el saludo ya es un mensaje del bot).
-    const imgMensaje = panel(page).getByRole('log').locator('img').first();
-    await expect(imgMensaje).toHaveAttribute('src', '/assets/dr-flit/header-avatar.webp');
-    await expect(imgMensaje).toHaveAttribute('alt', '');
-    await expect(imgMensaje).toHaveAttribute('aria-hidden', 'true');
-    await expect.poll(() => imgMensaje.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
-    // Tamaños: botón 64, cabecera 40, mensaje 32.
-    expect(Math.round((await boton(page).boundingBox())!.width)).toBe(64);
-    expect(Math.round((await imgCabecera.boundingBox())!.width)).toBe(40);
-    expect(Math.round((await imgMensaje.boundingBox())!.width)).toBe(32);
+    const avatarMensaje = panel(page).getByRole('log').locator('svg[aria-hidden="true"]').first();
+    await expect(avatarMensaje).toBeVisible();
+    await expect(panel(page).getByRole('log').locator('img')).toHaveCount(0);
+    // Tamaños: botón 56 (h-14 del kit), mensaje 32.
+    expect(Math.round((await boton(page).boundingBox())!.width)).toBe(56);
+    expect(Math.round((await avatarCabecera.boundingBox())!.width)).toBeGreaterThan(0);
     // El nombre accesible del botón no cambia al abrir.
     await expect(boton(page)).toHaveAttribute('aria-label', 'Abrir Dr. Flit');
   });

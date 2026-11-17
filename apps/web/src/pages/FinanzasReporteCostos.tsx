@@ -13,6 +13,7 @@ import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
+import GradientButton from '../components/flit/GradientButton';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import PanelServiciosAdicionales from '../components/finanzas/PanelServiciosAdicionales';
 import PanelViajesLogistica from '../components/finanzas/PanelViajesLogistica';
@@ -40,7 +41,6 @@ import {
 import { VACIO_CON_DIFERENCIAS } from '../lib/diferenciaDocumental';
 import {
   FlitCard, FlitEmpty, FlitPillGroup, FlitPillButton,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
 
 type Vista = 'detalle' | 'consolidado';
@@ -374,7 +374,7 @@ export default function FinanzasReporteCostos() {
 
   return (
     <div className="space-y-4">
-      <PageHeaderCard title="Reporte de costos" titleRef={tituloRef}
+      <PageHeaderCard title="Reporte de costos" titleRef={tituloRef} icono="flito-reporte-costos" miga={[{ etiqueta: 'Finanzas' }]}
         subtitle="Lo que se cobra al cliente y lo que se paga al proveedor, trámite por trámite."
         actions={(
           <div className="flex flex-wrap items-center gap-3">
@@ -389,22 +389,20 @@ export default function FinanzasReporteCostos() {
                 El candado real del doble clic es la `ref` del hook; `disabled` es lo visible. */}
             {enConsolidado
               ? (
-                <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-                  onClick={() => exportacion.exportar('consolidado')}
-                  disabled={exportacion.ocupado} aria-busy={exportacion.ocupado || undefined}>
+                <GradientButton type="button"
+                  onClick={() => exportacion.exportar('consolidado')} ocupado={exportacion.ocupado}>
                   {exportacion.ocupado ? 'Generando…' : 'Exportar consolidado'}
-                </button>
+                </GradientButton>
               )
               : (
                 // En la cabecera, junto a Detalle/Consolidado (retoque 2 del humano), y secundario:
                 // la cabecera no lleva primaria en el detalle. Lo que no se deduce del botón —que el
                 // archivo es todo el filtro con todas sus columnas— va en su `title` y en la ficha.
-                <button type="button" id="exportar-excel" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                <GradientButton type="button" variant="secondary" id="exportar-excel"
                   title="Todo el filtro con todas sus columnas, no solo esta página."
-                  onClick={() => exportacion.exportar('detalle')}
-                  disabled={exportacion.ocupado} aria-busy={exportacion.ocupado || undefined}>
+                  onClick={() => exportacion.exportar('detalle')} ocupado={exportacion.ocupado}>
                   {exportacion.ocupado ? 'Generando…' : 'Exportar a Excel'}
-                </button>
+                </GradientButton>
               )}
           </div>
         )} />
@@ -442,36 +440,36 @@ export default function FinanzasReporteCostos() {
             onReintentar={refrescar}
           />
 
-          {/* El error de una ACCIÓN, con la tinta de peligro del kit (D-6), no `text-red-600`. */}
-          {error && <FlitCard><p role="alert" className="text-sm" style={{ color: 'var(--flit-warning-text)' }}>{error}</p></FlitCard>}
-          {aviso && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-blue-text)' }}>{aviso}</p></FlitCard>}
+          {/* El error de una ACCIÓN, con la tinta de peligro del kit (D-6), no un rojo suelto de Tailwind. */}
+          {error && <div className="kit-alerta" data-tono="warn" data-kit="alerta"><img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="kit-alerta__icono" /><p role="alert" className="min-w-0 flex-1 text-sm">{error}</p></div>}
+          {aviso && <div className="kit-alerta" data-tono="info" data-kit="alerta"><img src="/kit/aviso-info.svg" alt="" aria-hidden="true" className="kit-alerta__icono" /><p className="min-w-0 flex-1 text-sm">{aviso}</p></div>}
 
           {/* Un total al que le faltan conceptos no puede pasar por completo. Va en una línea y con
               la salida puesta. */}
           {data && data.totales.filasIncompletas > 0 && (
-            <FlitCard className="!p-3">
-              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <div className="kit-alerta" data-tono="info" data-kit="alerta">
+              <img src="/kit/aviso-info.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+              <p className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <span>
-                  <span aria-hidden="true" style={{ color: 'var(--flit-text-muted)' }}>ⓘ </span>
                   El total está incompleto:{' '}
                   <strong>{data.totales.filasIncompletas.toLocaleString('es-CO')}</strong> de{' '}
                   <strong>{data.total.toLocaleString('es-CO')}</strong> trámites tienen un concepto
                   sin resolver.
                 </span>
                 {filtros.etapa !== 'incompleto' && (
-                  <button type="button" className="flit-focus rounded text-sm font-semibold underline transition-colors hover:bg-[var(--flit-bg-hover)]"
-                    style={{ color: 'var(--flit-blue-text)' }} onClick={() => cambiarFiltros({ etapa: 'incompleto' })}>
+                  <button type="button" className="flit-focus rounded text-sm font-semibold underline transition-colors hover:bg-[var(--kit-hover)]"
+                    style={{ color: 'var(--color-action)' }} onClick={() => cambiarFiltros({ etapa: 'incompleto' })}>
                     Ver cuáles
                   </button>
                 )}
               </p>
-            </FlitCard>
+            </div>
           )}
 
           {/* La barra dice cuántos de los seleccionados sirven para cada acción ANTES de pulsar
               nada (AC3). */}
           {puedeLiquidar && seleccion.size > 0 && (
-            <FlitCard>
+            <div className="barra-accion" data-kit="barra-accion">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-sm font-semibold">
                   {seleccion.size} seleccionado(s) · {liquidablesSel.length} se pueden liquidar
@@ -479,19 +477,19 @@ export default function FinanzasReporteCostos() {
                 </span>
                 {/* UNA primaria (spec §2): «Liquidar n», o «Enviar n» si la selección solo tiene
                     enviables. La otra pasa a secundaria. */}
-                <button className={soloEnviables ? flitBtnSecondary : flitBtnPrimary} style={soloEnviables ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
+                <GradientButton size="sm" variant={soloEnviables ? 'secondary' : 'primary'}
                   disabled={enProceso || liquidablesSel.length === 0} onClick={liquidarLote}>
                   {enProceso ? 'Liquidando…' : `Liquidar ${liquidablesSel.length}`}
-                </button>
+                </GradientButton>
                 {conSeleccion && (
-                  <button className={soloEnviables ? flitBtnPrimary : flitBtnSecondary} style={soloEnviables ? flitBtnPrimaryStyle : flitBtnSecondaryStyle}
+                  <GradientButton size="sm" variant={soloEnviables ? 'primary' : 'secondary'}
                     onClick={() => abrirEnvio(seleccionados.filter(esCandidato))}>
                     Enviar {enviablesSel.length} a facturación electrónica
-                  </button>
+                  </GradientButton>
                 )}
-                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setSeleccion(new Set())}>Quitar selección</button>
+                <GradientButton size="sm" variant="ghost" onClick={() => setSeleccion(new Set())}>Quitar selección</GradientButton>
               </div>
-            </FlitCard>
+            </div>
           )}
 
           {/* La tarjeta de envío NO se monta para quien no puede emitir: al `auditor` el estado ya
@@ -517,14 +515,11 @@ export default function FinanzasReporteCostos() {
 
           {/* Error de carga: sin rojo, en la tarjeta de la tabla; los filtros siguen usables. */}
           {errorCarga && !cargando && (
-            <FlitCard>
-              <div role="alert" className="flex flex-wrap items-center gap-3 rounded-[10px] border p-3 text-sm"
-                style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>
-                <span aria-hidden="true" style={{ color: 'var(--flit-text-muted)' }}>ⓘ</span>
-                <span>No se pudo cargar el reporte. Revisa tu conexión y vuelve a intentarlo.</span>
-                <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={refrescar}>Reintentar</button>
-              </div>
-            </FlitCard>
+            <div role="alert" className="kit-alerta" data-tono="warn" data-kit="alerta">
+              <img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+              <span className="min-w-0 flex-1 text-sm">No se pudo cargar el reporte. Revisa tu conexión y vuelve a intentarlo.</span>
+              <GradientButton type="button" size="sm" variant="secondary" onClick={refrescar}>Reintentar</GradientButton>
+            </div>
           )}
 
           {/* Vacío: con «Con diferencias» o «Costo de proveedor sin configurar» dice qué desmarcar. */}
@@ -640,7 +635,7 @@ function VacioReporte({ filtros, onLimpiar }: { filtros: FiltrosDetalle; onLimpi
   if (filtros.costoProveedorSinConfigurar) {
     return (
       <>
-        <p style={{ color: 'var(--flit-text-primary)' }}>Todos los trámites de este filtro tienen su costo de proveedor configurado.</p>
+        <p style={{ color: 'var(--color-text-primary)' }}>Todos los trámites de este filtro tienen su costo de proveedor configurado.</p>
         <p className="mt-1">Desmarca «{ROTULO_COSTO_SIN_CONFIGURAR}» para verlos todos.</p>
       </>
     );
@@ -650,9 +645,9 @@ function VacioReporte({ filtros, onLimpiar }: { filtros: FiltrosDetalle; onLimpi
   const enPeriodo = periodo ? ` en ${textoPeriodo(filtros.tipoPeriodo, { desde: filtros.aprobadoDesde, hasta: filtros.aprobadoHasta }).toLowerCase()}` : '';
   return (
     <>
-      <p style={{ color: 'var(--flit-text-primary)' }}>No hay trámites que coincidan con los filtros{enPeriodo}.</p>
+      <p style={{ color: 'var(--color-text-primary)' }}>No hay trámites que coincidan con los filtros{enPeriodo}.</p>
       <p className="mt-1">Prueba otro periodo o quita un filtro.</p>
-      <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={onLimpiar}>Limpiar filtros</button>
+      <GradientButton type="button" variant="secondary" className="mt-4" onClick={onLimpiar}>Limpiar filtros</GradientButton>
     </>
   );
 }

@@ -479,7 +479,8 @@ test.describe('HU #13363 · AC9: accesibilidad y 360 px', () => {
     await page.keyboard.press('Shift+Tab');
     const quitar = bloque4(page).getByRole('button', { name: `Quitar ${DOC_LARGO}` });
     await expect(quitar).toBeFocused();
-    await expect(quitar).not.toHaveCSS('box-shadow', 'none');
+    // UI Kit 2026 (S0): el foco del kit es un contorno de 2 px (`outline`), ya no un anillo de sombra.
+    await expect(quitar).toHaveCSS('outline-style', 'solid');
     expect(page.url()).not.toContain('documento-sin-espacios');
   });
 

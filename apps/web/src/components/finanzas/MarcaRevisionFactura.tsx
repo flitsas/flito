@@ -82,10 +82,10 @@ export default function MarcaRevisionFactura({ requiereRevision, motivo }: Props
     <section className="rounded-lg px-3 py-2" data-testid="motivo-revision-factura"
       // El mismo fondo que la pastilla `warning`, para que el bloque se lea como su ampliación y no
       // como un aviso aparte que compite con el fallo de emisión, que sí es rojo.
-      style={{ background: '#FDE8E3' }}>
+      style={{ background: 'color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated))' }}>
       {pastilla}
       {/* Tal cual la escribió el servidor. Si es `null`, lo que se dice es que no quedó escrita. */}
-      <p className="mt-1.5" style={{ color: 'var(--flit-text-primary)' }}>
+      <p className="mt-1.5" style={{ color: 'var(--color-text-primary)' }}>
         {motivo ?? TEXTO_REVISION_SIN_MOTIVO}
       </p>
     </section>

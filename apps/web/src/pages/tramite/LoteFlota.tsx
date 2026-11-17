@@ -27,17 +27,17 @@ interface FilaDetalle { fila: number; vin: string; placa: string | null; tipolog
 interface LoteDetalle { lote: LoteResumen; filas: FilaDetalle[] }
 
 const SEMAFORO: Record<string, { label: string; color: string; bg: string }> = {
-  green: { label: 'Verde', color: 'var(--flit-success)', bg: 'rgba(112,207,58,0.15)' },
-  yellow: { label: 'Amarillo', color: 'var(--flit-warning)', bg: 'rgba(240,90,53,0.15)' },
-  red: { label: 'Rojo', color: 'var(--flit-danger)', bg: 'rgba(228,61,48,0.15)' },
+  green: { label: 'Verde', color: 'var(--kit-verde-texto)', bg: 'color-mix(in srgb, var(--kit-verde) 15%, transparent)' },
+  yellow: { label: 'Amarillo', color: 'var(--kit-naranja-texto)', bg: 'color-mix(in srgb, var(--kit-naranja) 15%, transparent)' },
+  red: { label: 'Rojo', color: 'var(--kit-rojo-texto)', bg: 'color-mix(in srgb, var(--kit-rojo) 15%, transparent)' },
 };
 
 // LOTE-PLUS-02: semáforo LAFT por fila (mismo lenguaje visual que PreflightPanel).
 const LAFT_FILA: Record<string, { label: string; color: string; bg: string }> = {
-  green: { label: 'Sin coincidencias', color: 'var(--flit-success)', bg: 'rgba(112,207,58,0.15)' },
-  yellow: { label: 'A revisar', color: 'var(--flit-warning)', bg: 'rgba(240,90,53,0.15)' },
-  red: { label: 'Coincidencia', color: 'var(--flit-danger)', bg: 'rgba(228,61,48,0.15)' },
-  unknown: { label: 'No verificado', color: 'var(--flit-text-muted)', bg: 'rgba(125,135,152,0.12)' },
+  green: { label: 'Sin coincidencias', color: 'var(--kit-verde-texto)', bg: 'color-mix(in srgb, var(--kit-verde) 15%, transparent)' },
+  yellow: { label: 'A revisar', color: 'var(--kit-naranja-texto)', bg: 'color-mix(in srgb, var(--kit-naranja) 15%, transparent)' },
+  red: { label: 'Coincidencia', color: 'var(--kit-rojo-texto)', bg: 'color-mix(in srgb, var(--kit-rojo) 15%, transparent)' },
+  unknown: { label: 'No verificado', color: 'var(--color-text-tertiary)', bg: 'color-mix(in srgb, var(--color-text-tertiary) 12%, transparent)' },
 };
 
 interface LoteResultado { loteId: number; ok: number; errores: number }
@@ -163,7 +163,7 @@ export default function LoteFlota({ onCreado }: { onCreado?: () => void }) {
     finally { setDetalleLoading(false); }
   };
 
-  const inp = 'flit-focus w-full rounded-[10px] border bg-white px-3 py-2 text-sm outline-none';
+  const inp = 'flit-focus w-full rounded-[9px] border bg-[var(--color-surface-elevated)] px-3 py-2 text-sm outline-none';
   const tabBtn = (active: boolean) =>
     `flit-focus inline-flex h-9 items-center rounded-[999px] px-4 text-sm font-semibold ${active ? 'text-white' : ''}`;
 
@@ -173,30 +173,30 @@ export default function LoteFlota({ onCreado }: { onCreado?: () => void }) {
       <div className="mb-4 flex gap-2">
         <button type="button" onClick={() => setTab('nuevo')} className={tabBtn(tab === 'nuevo')}
           style={tab === 'nuevo'
-            ? { background: 'var(--flit-gradient-primary)' }
-            : { border: '1px solid var(--flit-border-input)', color: 'var(--flit-text-secondary)', background: 'white' }}>
+            ? { background: 'var(--kit-azul-relleno)' }
+            : { border: '1px solid var(--color-border-control)', color: 'var(--color-text-secondary)', background: 'var(--color-surface-elevated)' }}>
           Nuevo lote
         </button>
         <button type="button" onClick={irAHistorial} className={tabBtn(tab === 'historial')}
           style={tab === 'historial'
-            ? { background: 'var(--flit-gradient-primary)' }
-            : { border: '1px solid var(--flit-border-input)', color: 'var(--flit-text-secondary)', background: 'white' }}>
+            ? { background: 'var(--kit-azul-relleno)' }
+            : { border: '1px solid var(--color-border-control)', color: 'var(--color-text-secondary)', background: 'var(--color-surface-elevated)' }}>
           Historial
         </button>
       </div>
 
       {tab === 'nuevo' && (
         <div>
-          <p className="mb-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mb-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Sube un CSV con <code>vin</code> (obligatorio) y, opcionales, <code>placa</code>, <code>tipologia_codigo</code>, <code>comprador_doc</code>, <code>comprador_nombre</code>, <code>vendedor_doc</code> y <code>vendedor_nombre</code>. Verás el pre-vuelo y el screening LAFT por fila antes de crear los borradores. Re-subir el mismo archivo reutiliza el lote (idempotencia).
           </p>
 
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={descargarPlantilla}
-              className="flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
+              className="flit-focus inline-flex h-10 items-center rounded-[999px] border bg-[var(--color-surface-elevated)] px-4 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
               Descargar plantilla CSV
             </button>
-            <label className="flit-focus inline-flex h-10 cursor-pointer items-center rounded-[999px] px-5 text-sm font-semibold text-white" style={{ background: 'var(--flit-gradient-primary)' }}>
+            <label className="flit-focus inline-flex h-10 cursor-pointer items-center rounded-[999px] px-5 text-sm font-semibold text-white" style={{ background: 'var(--kit-azul-relleno)' }}>
               {loading ? 'Procesando…' : 'Subir CSV'}
               <input type="file" accept=".csv,text/csv" hidden disabled={loading}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) subirCsv(f); e.target.value = ''; }} />
@@ -205,30 +205,30 @@ export default function LoteFlota({ onCreado }: { onCreado?: () => void }) {
 
           {/* LOTE-PLUS-03: resultado del lote con reproceso + export */}
           {resultado && !preview && (
-            <div className="mt-4 rounded-[12px] border p-4" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
+            <div className="mt-4 rounded-[9px] border p-4" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
               <div className="mb-2 flex flex-wrap items-center gap-3">
-                <span className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Lote #{resultado.loteId}</span>
-                <span className="text-xs" style={{ color: 'var(--flit-success)' }}>{resultado.ok} creado(s)</span>
-                <span className="text-xs" style={{ color: resultado.errores > 0 ? 'var(--flit-danger)' : 'var(--flit-text-muted)' }}>{resultado.errores} error(es)</span>
+                <span className="text-sm font-bold" style={{ color: 'var(--color-action)' }}>Lote #{resultado.loteId}</span>
+                <span className="text-xs" style={{ color: 'var(--kit-verde-texto)' }}>{resultado.ok} creado(s)</span>
+                <span className="text-xs" style={{ color: resultado.errores > 0 ? 'var(--kit-rojo)' : 'var(--color-text-tertiary)' }}>{resultado.errores} error(es)</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {resultado.errores > 0 && (
                   <button type="button" onClick={() => reintentarErrores(resultado.loteId, () => setResultado({ ...resultado, errores: 0 }))} disabled={reprocesando}
-                    className="flit-focus inline-flex h-9 items-center rounded-[999px] px-4 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'var(--flit-gradient-primary)' }}>
+                    className="flit-focus inline-flex h-9 items-center rounded-[999px] px-4 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'var(--kit-azul-relleno)' }}>
                     {reprocesando ? 'Reintentando…' : 'Reintentar errores'}
                   </button>
                 )}
                 <button type="button" onClick={() => descargarResultados(resultado.loteId)}
-                  className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-white px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
+                  className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-[var(--color-surface-elevated)] px-4 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
                   Descargar CSV
                 </button>
                 <button type="button" onClick={cerrar}
-                  className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-white px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
+                  className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-[var(--color-surface-elevated)] px-4 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
                   Listo
                 </button>
               </div>
               {resultado.errores > 0 && (
-                <p className="mt-2 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+                <p className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                   «Reintentar errores» reprocesa solo las filas que fallaron (con VIN). Las filas sin VIN no son reintentables.
                 </p>
               )}
@@ -237,16 +237,16 @@ export default function LoteFlota({ onCreado }: { onCreado?: () => void }) {
 
           {preview && (
             <div className="mt-4">
-              <div className="mb-2 flex flex-wrap items-center gap-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+              <div className="mb-2 flex flex-wrap items-center gap-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                 <span className="font-semibold">Total: {preview.resumen.total}</span>
-                <span style={{ color: 'var(--flit-success)' }}>Válidas: {preview.resumen.validas}</span>
-                <span style={{ color: 'var(--flit-danger)' }}>Errores: {preview.resumen.errores}</span>
+                <span style={{ color: 'var(--kit-verde-texto)' }}>Válidas: {preview.resumen.validas}</span>
+                <span style={{ color: 'var(--kit-rojo-texto)' }}>Errores: {preview.resumen.errores}</span>
               </div>
 
-              <div className="max-h-72 overflow-auto rounded-[12px] border" style={{ borderColor: 'var(--flit-border-soft)' }}>
+              <div className="max-h-72 overflow-auto rounded-[9px] border" style={{ borderColor: 'var(--color-border)' }}>
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-muted)' }}>
+                    <tr style={{ background: 'var(--color-surface)', color: 'var(--color-text-tertiary)' }}>
                       <th className="px-3 py-2 font-semibold">#</th>
                       <th className="px-3 py-2 font-semibold">VIN</th>
                       <th className="px-3 py-2 font-semibold">Placa</th>
@@ -259,26 +259,26 @@ export default function LoteFlota({ onCreado }: { onCreado?: () => void }) {
                     {preview.filas.map((f) => {
                       const sem = f.preflight ? SEMAFORO[f.preflight.overall] : null;
                       return (
-                        <tr key={f.fila} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                          <td className="px-3 py-2" style={{ color: 'var(--flit-text-muted)' }}>{f.fila}</td>
-                          <td className="px-3 py-2 font-mono" style={{ color: 'var(--flit-text-primary)' }}>{f.vin || '—'}</td>
-                          <td className="px-3 py-2" style={{ color: 'var(--flit-text-secondary)' }}>{f.placa || '—'}</td>
-                          <td className="px-3 py-2" style={{ color: 'var(--flit-text-secondary)' }}>{f.tipologiaCodigo}</td>
+                        <tr key={f.fila} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
+                          <td className="px-3 py-2" style={{ color: 'var(--color-text-tertiary)' }}>{f.fila}</td>
+                          <td className="px-3 py-2 font-mono" style={{ color: 'var(--color-text-primary)' }}>{f.vin || '—'}</td>
+                          <td className="px-3 py-2" style={{ color: 'var(--color-text-secondary)' }}>{f.placa || '—'}</td>
+                          <td className="px-3 py-2" style={{ color: 'var(--color-text-secondary)' }}>{f.tipologiaCodigo}</td>
                           <td className="px-3 py-2">
                             {!f.valido ? (
-                              <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: 'rgba(228,61,48,0.15)', color: 'var(--flit-danger)' }}>{f.error || 'Inválida'}</span>
+                              <span className="rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: 'color-mix(in srgb, var(--kit-rojo) 15%, transparent)', color: 'var(--kit-rojo-texto)' }}>{f.error || 'Inválida'}</span>
                             ) : sem ? (
-                              <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: sem.bg, color: sem.color }}>{sem.label}</span>
+                              <span className="rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: sem.bg, color: sem.color }}>{sem.label}</span>
                             ) : (
-                              <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>—</span>
+                              <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>—</span>
                             )}
                           </td>
                           <td className="px-3 py-2">
                             {(() => {
                               const laft = f.preflight?.laftComprador;
-                              if (!laft) return <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>—</span>;
+                              if (!laft) return <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>—</span>;
                               const t = LAFT_FILA[laft.status] ?? LAFT_FILA.unknown;
-                              return <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: t.bg, color: t.color }}>{t.label}{laft.matches > 0 ? ` (${laft.matches})` : ''}</span>;
+                              return <span className="rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: t.bg, color: t.color }}>{t.label}{laft.matches > 0 ? ` (${laft.matches})` : ''}</span>;
                             })()}
                           </td>
                         </tr>
@@ -289,28 +289,28 @@ export default function LoteFlota({ onCreado }: { onCreado?: () => void }) {
               </div>
 
               {progreso && (
-                <div className="mt-3 rounded-[12px] border p-4" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                <div className="mt-3 rounded-[9px] border p-4" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                     <span className="font-semibold">Lote #{progreso.loteId} · procesando en segundo plano</span>
                     <span>{progreso.procesadas} / {progreso.totalFilas} ({progreso.pct}%)</span>
                   </div>
-                  <div className="h-2 overflow-hidden rounded-full" style={{ background: 'rgba(125,135,152,0.2)' }}>
-                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progreso.pct}%`, background: 'var(--flit-gradient-primary)' }} />
+                  <div className="h-2 overflow-hidden rounded-full" style={{ background: 'color-mix(in srgb, var(--color-text-tertiary) 20%, transparent)' }}>
+                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progreso.pct}%`, background: 'var(--kit-azul)' }} />
                   </div>
-                  <p className="mt-2 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+                  <p className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                     {progreso.ok} creado(s) · {progreso.errores} error(es). Puedes dejar esta pestaña abierta; el progreso se actualiza solo.
                   </p>
                 </div>
               )}
 
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre del lote (opcional)" className={`${inp} max-w-xs`} style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }} disabled={confirming} />
+                <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre del lote (opcional)" className={`${inp} max-w-xs`} style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-primary)' }} disabled={confirming} />
                 <button type="button" onClick={confirmar} disabled={confirming || preview.resumen.validas === 0}
-                  className="flit-focus inline-flex h-10 items-center rounded-[999px] px-5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'var(--flit-gradient-success)' }}>
+                  className="flit-focus inline-flex h-10 items-center rounded-[999px] px-5 text-sm font-semibold disabled:opacity-50" style={{ background: 'var(--kit-verde)', color: 'var(--kit-tinta-fija)' }}>
                   {confirming ? 'Procesando…' : `Crear ${preview.resumen.validas} trámite(s)`}
                 </button>
               </div>
-              <p className="mt-2 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+              <p className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                 Al crear, el servidor vuelve a leer el CSV y procesa cada fila en segundo plano (pre-vuelo + borradores).
               </p>
             </div>
@@ -332,22 +332,22 @@ export default function LoteFlota({ onCreado }: { onCreado?: () => void }) {
           ) : (
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-sm font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+                <span className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
                   {lista ? `${lista.total} lote(s)` : 'Cargando…'}
                 </span>
                 <button type="button" onClick={() => cargarHistorial(lista?.page ?? 1)} disabled={listaLoading}
-                  className="flit-focus inline-flex h-8 items-center rounded-[999px] border bg-white px-3 text-xs font-medium disabled:opacity-50" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
+                  className="flit-focus inline-flex h-8 items-center rounded-[999px] border bg-[var(--color-surface-elevated)] px-3 text-xs font-medium disabled:opacity-50" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
                   {listaLoading ? 'Actualizando…' : 'Actualizar'}
                 </button>
               </div>
 
               {lista && lista.items.length === 0 ? (
-                <p className="mt-6 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Aún no hay lotes creados.</p>
+                <p className="mt-6 text-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Aún no hay lotes creados.</p>
               ) : (
-                <div className="max-h-80 overflow-auto rounded-[12px] border" style={{ borderColor: 'var(--flit-border-soft)' }}>
+                <div className="max-h-80 overflow-auto rounded-[9px] border" style={{ borderColor: 'var(--color-border)' }}>
                   <table className="w-full text-left text-xs">
                     <thead>
-                      <tr style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-muted)' }}>
+                      <tr style={{ background: 'var(--color-surface)', color: 'var(--color-text-tertiary)' }}>
                         <th className="px-3 py-2 font-semibold">#</th>
                         <th className="px-3 py-2 font-semibold">Nombre</th>
                         <th className="px-3 py-2 font-semibold">Fecha</th>
@@ -357,23 +357,23 @@ export default function LoteFlota({ onCreado }: { onCreado?: () => void }) {
                     </thead>
                     <tbody>
                       {lista?.items.map((l) => (
-                        <tr key={l.id} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                          <td className="px-3 py-2 font-bold" style={{ color: 'var(--flit-blue-text)' }}>#{l.id}</td>
-                          <td className="px-3 py-2" style={{ color: 'var(--flit-text-primary)' }}>{l.nombre || <span style={{ color: 'var(--flit-text-muted)' }}>(sin nombre)</span>}</td>
-                          <td className="px-3 py-2" style={{ color: 'var(--flit-text-secondary)' }}>{fmtFecha(l.createdAt)}</td>
+                        <tr key={l.id} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
+                          <td className="px-3 py-2 font-bold" style={{ color: 'var(--color-action)' }}>#{l.id}</td>
+                          <td className="px-3 py-2" style={{ color: 'var(--color-text-primary)' }}>{l.nombre || <span style={{ color: 'var(--color-text-tertiary)' }}>(sin nombre)</span>}</td>
+                          <td className="px-3 py-2" style={{ color: 'var(--color-text-secondary)' }}>{fmtFecha(l.createdAt)}</td>
                           <td className="px-3 py-2">
-                            <span style={{ color: 'var(--flit-success)' }}>{l.ok}</span>
-                            <span style={{ color: 'var(--flit-text-muted)' }}> / </span>
-                            <span style={{ color: l.errores > 0 ? 'var(--flit-danger)' : 'var(--flit-text-muted)' }}>{l.errores}</span>
+                            <span style={{ color: 'var(--kit-verde-texto)' }}>{l.ok}</span>
+                            <span style={{ color: 'var(--color-text-tertiary)' }}> / </span>
+                            <span style={{ color: l.errores > 0 ? 'var(--kit-rojo)' : 'var(--color-text-tertiary)' }}>{l.errores}</span>
                             {l.estado && l.estado !== 'listo' && (
-                              <span className="ml-2 text-[10px] font-semibold" style={{ color: (ESTADO_LOTE[l.estado] ?? ESTADO_LOTE.procesando).color }}>
+                              <span className="ml-2 text-xs font-semibold" style={{ color: (ESTADO_LOTE[l.estado] ?? ESTADO_LOTE.procesando).color }}>
                                 {(ESTADO_LOTE[l.estado] ?? ESTADO_LOTE.procesando).label}
                               </span>
                             )}
                           </td>
                           <td className="px-3 py-2 text-right">
                             <button type="button" onClick={() => verDetalle(l.id)}
-                              className="flit-focus inline-flex h-7 items-center rounded-[999px] border bg-white px-3 text-[11px] font-semibold" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-blue-text)' }}>
+                              className="flit-focus inline-flex h-7 items-center rounded-[999px] border bg-[var(--color-surface-elevated)] px-3 text-xs font-semibold" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-action)' }}>
                               Ver detalle
                             </button>
                           </td>
@@ -385,14 +385,14 @@ export default function LoteFlota({ onCreado }: { onCreado?: () => void }) {
               )}
 
               {lista && lista.total > lista.limit && (
-                <div className="mt-3 flex items-center justify-center gap-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                <div className="mt-3 flex items-center justify-center gap-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                   <button type="button" disabled={lista.page <= 1 || listaLoading} onClick={() => cargarHistorial(lista.page - 1)}
-                    className="flit-focus inline-flex h-8 items-center rounded-[999px] border bg-white px-3 font-medium disabled:opacity-40" style={{ borderColor: 'var(--flit-border-input)' }}>
+                    className="flit-focus inline-flex h-8 items-center rounded-[999px] border bg-[var(--color-surface-elevated)] px-3 font-medium disabled:opacity-40" style={{ borderColor: 'var(--color-border-control)' }}>
                     Anterior
                   </button>
                   <span>Página {lista.page} de {Math.max(1, Math.ceil(lista.total / lista.limit))}</span>
                   <button type="button" disabled={lista.page >= Math.ceil(lista.total / lista.limit) || listaLoading} onClick={() => cargarHistorial(lista.page + 1)}
-                    className="flit-focus inline-flex h-8 items-center rounded-[999px] border bg-white px-3 font-medium disabled:opacity-40" style={{ borderColor: 'var(--flit-border-input)' }}>
+                    className="flit-focus inline-flex h-8 items-center rounded-[999px] border bg-[var(--color-surface-elevated)] px-3 font-medium disabled:opacity-40" style={{ borderColor: 'var(--color-border-control)' }}>
                     Siguiente
                   </button>
                 </div>
@@ -406,15 +406,15 @@ export default function LoteFlota({ onCreado }: { onCreado?: () => void }) {
 }
 
 const ESTADO_FILA: Record<string, { label: string; color: string; bg: string }> = {
-  ok: { label: 'Creado', color: 'var(--flit-success)', bg: 'rgba(112,207,58,0.15)' },
-  error: { label: 'Error', color: 'var(--flit-danger)', bg: 'rgba(228,61,48,0.15)' },
-  pendiente: { label: 'Pendiente', color: 'var(--flit-warning)', bg: 'rgba(240,90,53,0.15)' },
+  ok: { label: 'Creado', color: 'var(--kit-verde-texto)', bg: 'color-mix(in srgb, var(--kit-verde) 15%, transparent)' },
+  error: { label: 'Error', color: 'var(--kit-rojo-texto)', bg: 'color-mix(in srgb, var(--kit-rojo) 15%, transparent)' },
+  pendiente: { label: 'Pendiente', color: 'var(--kit-naranja-texto)', bg: 'color-mix(in srgb, var(--kit-naranja) 15%, transparent)' },
 };
 
 const ESTADO_LOTE: Record<string, { label: string; color: string }> = {
-  procesando: { label: 'Procesando', color: 'var(--flit-warning)' },
-  listo: { label: 'Listo', color: 'var(--flit-success)' },
-  error: { label: 'Error', color: 'var(--flit-danger)' },
+  procesando: { label: 'Procesando', color: 'var(--kit-naranja-texto)' },
+  listo: { label: 'Listo', color: 'var(--kit-verde-texto)' },
+  error: { label: 'Error', color: 'var(--kit-rojo-texto)' },
 };
 
 function LoteDetalleView({ detalle, loading, reprocesando, onVolver, onReprocesar, onDescargar }: {
@@ -426,40 +426,40 @@ function LoteDetalleView({ detalle, loading, reprocesando, onVolver, onReprocesa
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <button type="button" onClick={onVolver}
-          className="flit-focus inline-flex h-8 items-center rounded-[999px] border bg-white px-3 text-xs font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
+          className="flit-focus inline-flex h-8 items-center rounded-[999px] border bg-[var(--color-surface-elevated)] px-3 text-xs font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
           ← Volver
         </button>
-        <span className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Lote #{lote.id}{lote.nombre ? ` · ${lote.nombre}` : ''}</span>
-        <span className="text-xs" style={{ color: 'var(--flit-success)' }}>{lote.ok} creado(s)</span>
-        <span className="text-xs" style={{ color: lote.errores > 0 ? 'var(--flit-danger)' : 'var(--flit-text-muted)' }}>{lote.errores} error(es)</span>
+        <span className="text-sm font-bold" style={{ color: 'var(--color-action)' }}>Lote #{lote.id}{lote.nombre ? ` · ${lote.nombre}` : ''}</span>
+        <span className="text-xs" style={{ color: 'var(--kit-verde-texto)' }}>{lote.ok} creado(s)</span>
+        <span className="text-xs" style={{ color: lote.errores > 0 ? 'var(--kit-rojo)' : 'var(--color-text-tertiary)' }}>{lote.errores} error(es)</span>
         {lote.estado && lote.estado !== 'listo' && (
           <span className="text-xs font-semibold" style={{ color: (ESTADO_LOTE[lote.estado] ?? ESTADO_LOTE.procesando).color }}>
             {(ESTADO_LOTE[lote.estado] ?? ESTADO_LOTE.procesando).label}
           </span>
         )}
-        <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{fmtFecha(lote.createdAt)}</span>
+        <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{fmtFecha(lote.createdAt)}</span>
       </div>
 
       <div className="mb-3 flex flex-wrap gap-2">
         {lote.errores > 0 && (
           <button type="button" onClick={onReprocesar} disabled={reprocesando}
-            className="flit-focus inline-flex h-9 items-center rounded-[999px] px-4 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'var(--flit-gradient-primary)' }}>
+            className="flit-focus inline-flex h-9 items-center rounded-[999px] px-4 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'var(--kit-azul-relleno)' }}>
             {reprocesando ? 'Reintentando…' : 'Reintentar errores'}
           </button>
         )}
         <button type="button" onClick={onDescargar}
-          className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-white px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
+          className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-[var(--color-surface-elevated)] px-4 text-sm font-medium" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}>
           Descargar CSV
         </button>
       </div>
 
       {loading ? (
-        <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>
+        <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Cargando…</p>
       ) : (
-        <div className="max-h-80 overflow-auto rounded-[12px] border" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <div className="max-h-80 overflow-auto rounded-[9px] border" style={{ borderColor: 'var(--color-border)' }}>
           <table className="w-full text-left text-xs">
             <thead>
-              <tr style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-muted)' }}>
+              <tr style={{ background: 'var(--color-surface)', color: 'var(--color-text-tertiary)' }}>
                 <th className="px-3 py-2 font-semibold">#</th>
                 <th className="px-3 py-2 font-semibold">VIN</th>
                 <th className="px-3 py-2 font-semibold">Placa</th>
@@ -470,17 +470,17 @@ function LoteDetalleView({ detalle, loading, reprocesando, onVolver, onReprocesa
             </thead>
             <tbody>
               {filas.map((f) => {
-                const est = ESTADO_FILA[f.estado] ?? { label: f.estado, color: 'var(--flit-text-muted)', bg: 'rgba(125,135,152,0.12)' };
+                const est = ESTADO_FILA[f.estado] ?? { label: f.estado, color: 'var(--color-text-tertiary)', bg: 'color-mix(in srgb, var(--color-text-tertiary) 12%, transparent)' };
                 return (
-                  <tr key={f.fila} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                    <td className="px-3 py-2" style={{ color: 'var(--flit-text-muted)' }}>{f.fila}</td>
-                    <td className="px-3 py-2 font-mono" style={{ color: 'var(--flit-text-primary)' }}>{f.vin || '—'}</td>
-                    <td className="px-3 py-2" style={{ color: 'var(--flit-text-secondary)' }}>{f.placa || '—'}</td>
-                    <td className="px-3 py-2" style={{ color: 'var(--flit-text-secondary)' }}>{f.tipologiaCodigo}</td>
+                  <tr key={f.fila} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
+                    <td className="px-3 py-2" style={{ color: 'var(--color-text-tertiary)' }}>{f.fila}</td>
+                    <td className="px-3 py-2 font-mono" style={{ color: 'var(--color-text-primary)' }}>{f.vin || '—'}</td>
+                    <td className="px-3 py-2" style={{ color: 'var(--color-text-secondary)' }}>{f.placa || '—'}</td>
+                    <td className="px-3 py-2" style={{ color: 'var(--color-text-secondary)' }}>{f.tipologiaCodigo}</td>
                     <td className="px-3 py-2">
-                      <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: est.bg, color: est.color }}>{est.label}</span>
+                      <span className="rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: est.bg, color: est.color }}>{est.label}</span>
                     </td>
-                    <td className="px-3 py-2" style={{ color: f.estado === 'error' ? 'var(--flit-danger)' : 'var(--flit-text-secondary)' }}>
+                    <td className="px-3 py-2" style={{ color: f.estado === 'error' ? 'var(--kit-rojo)' : 'var(--color-text-secondary)' }}>
                       {f.tramiteId ? `#${f.tramiteId}` : (f.errorMsg || '—')}
                     </td>
                   </tr>

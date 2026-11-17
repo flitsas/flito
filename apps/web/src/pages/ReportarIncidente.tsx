@@ -9,12 +9,18 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
+import GradientButton from '../components/flit/GradientButton';
+import { Icono } from '../components/flit/kit/Icono';
 
 type Tipo = 'accidente' | 'casi_accidente' | 'comparendo';
 
 interface Coord { lat: number; lng: number; accuracy: number }
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-3 py-3 text-base text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
+const TARJETA = 'rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] p-4';
+const TIPO_BASE = 'flit-focus min-h-11 rounded-[9px] border p-3 text-xs font-semibold transition-colors';
+const TIPO_ACTIVO = 'border-[color:var(--kit-azul)] bg-[var(--kit-azul-relleno)] text-white';
+const TIPO_INACTIVO = 'border-[color:var(--color-border-control)] bg-[var(--color-surface-elevated)] text-[color:var(--color-text-primary)] hover:bg-[var(--kit-hover)]';
+const CARGA = 'carga flit-focus min-h-[120px] p-4 text-xs font-semibold transition-colors';
 
 export default function ReportarIncidente() {
   const navigate = useNavigate();
@@ -77,26 +83,25 @@ export default function ReportarIncidente() {
   };
 
   return (
-    <div className="mx-auto flex max-w-md flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-md flex-col gap-4">
       <PageHeaderCard
         title="Reportar incidente"
         subtitle="El reporte llega al administrador con GPS y foto"
+        icono="flito-incidentes"
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }]}
       />
 
       {/* Tipo */}
-      <div>
-        <label className="mb-2 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Tipo de incidente</label>
-        <div className="grid grid-cols-3 gap-2">
+      <div className="campo">
+        <span className="etiqueta">Tipo de incidente</span>
+        <div className="grid grid-cols-1 gap-2 min-[340px]:grid-cols-3">
           {([['accidente', 'Accidente'], ['casi_accidente', 'Casi accidente'], ['comparendo', 'Comparendo']] as Array<[Tipo, string]>).map(([k, label]) => {
             const on = tipo === k;
             return (
               <button
                 key={k}
                 onClick={() => setTipo(k)}
-                className="flit-focus rounded-[10px] p-3 text-xs font-semibold transition-colors"
-                style={on
-                  ? { background: 'var(--flit-gradient-danger)', color: '#fff' }
-                  : { background: '#fff', border: '1px solid var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+                className={`${TIPO_BASE} ${on ? TIPO_ACTIVO : TIPO_INACTIVO}`}
               >
                 {label}
               </button>
@@ -106,76 +111,85 @@ export default function ReportarIncidente() {
       </div>
 
       {/* GPS */}
-      <div className="rounded-[12px] p-3" style={{ background: 'var(--flit-bg-app)', border: '1px solid var(--flit-border-soft)' }}>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: 'var(--flit-text-muted)' }}>Ubicación GPS</p>
-        {coord && (
-          <p className="mt-1 font-mono text-xs" style={{ color: 'var(--flit-text-primary)' }}>{coord.lat.toFixed(6)}, {coord.lng.toFixed(6)} (±{Math.round(coord.accuracy)}m)</p>
-        )}
-        {!coord && !coordError && <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>Obteniendo ubicación...</p>}
-        {coordError && <p className="mt-1 text-xs" style={{ color: 'var(--flit-warning)' }}>{coordError}</p>}
+      <div className={`${TARJETA} flex items-start gap-3`}>
+        <Icono nombre="marcador" disco size={40} />
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-[color:var(--color-text-primary)]">Ubicación GPS</p>
+          {coord && (
+            <p className="mono mt-1 break-all text-xs text-[color:var(--color-text-primary)]">{coord.lat.toFixed(6)}, {coord.lng.toFixed(6)} (±{Math.round(coord.accuracy)}m)</p>
+          )}
+          {!coord && !coordError && <p className="mt-1 text-xs text-[color:var(--color-text-tertiary)]">Obteniendo ubicación...</p>}
+          {coordError && <p className="mt-1 text-xs text-[color:var(--kit-naranja-texto)]">{coordError}</p>}
+        </div>
       </div>
 
       {/* Vehículo */}
-      <div>
-        <label className="mb-1 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Vehículo (id, opcional)</label>
+      <div className="campo">
+        <label htmlFor="reporte-vehiculo">Vehículo (id, opcional)</label>
         <input
+          id="reporte-vehiculo"
           type="number"
           inputMode="numeric"
           value={vehicleId}
           onChange={(e) => setVehicleId(e.target.value.replace(/\D/g, ''))}
-          className={inputCls}
+          className="control"
           placeholder="ID del vehículo si aplica"
         />
       </div>
 
       {/* Foto */}
-      <div>
-        <label className="mb-1 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Foto (cámara o galería)</label>
+      <div className="campo">
+        <span className="etiqueta">Foto (cámara o galería)</span>
         {!foto && (
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flit-focus cursor-pointer rounded-[12px] p-4 text-center text-xs transition-colors" style={{ border: '2px dashed var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
+          <div className="grid grid-cols-1 gap-2 min-[340px]:grid-cols-2">
+            <label className={CARGA}>
+              <Icono nombre="nube-subir" size={32} />
               Tomar foto
               <input type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden" />
             </label>
-            <label className="flit-focus cursor-pointer rounded-[12px] p-4 text-center text-xs transition-colors" style={{ border: '2px dashed var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
+            <label className={CARGA}>
+              <Icono nombre="nube-subir" size={32} />
               Galería
               <input type="file" accept="image/jpeg,image/png" onChange={handleFile} className="hidden" />
             </label>
           </div>
         )}
         {foto && (
-          <div className="relative">
-            <img src={foto.preview} alt="evidencia" className="w-full rounded-[12px]" style={{ border: '1px solid var(--flit-border-soft)' }} />
-            <button onClick={() => setFoto(null)} className="absolute right-2 top-2 rounded-[999px] bg-white px-2 py-1 text-xs" style={{ border: '1px solid var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>Quitar</button>
-            <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{(foto.size / 1024).toFixed(1)} KB · {foto.mime}</p>
+          <div className="carga carga--lista relative block cursor-default p-2">
+            <img src={foto.preview} alt="evidencia" className="w-full rounded-[9px]" />
+            <GradientButton type="button" variant="alerta" size="sm" onClick={() => setFoto(null)} className="absolute right-4 top-4">Quitar</GradientButton>
+            <p className="mt-2 text-xs text-[color:var(--color-text-secondary)]">{(foto.size / 1024).toFixed(1)} KB · {foto.mime}</p>
           </div>
         )}
       </div>
 
       {/* Descripción */}
-      <div>
-        <label className="mb-1 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>¿Qué pasó? (mínimo 10 caracteres)</label>
+      <div className="campo">
+        <label htmlFor="reporte-descripcion">¿Qué pasó? (mínimo 10 caracteres)</label>
         <textarea
+          id="reporte-descripcion"
           value={descripcion}
           onChange={(e) => setDescripcion(e.target.value)}
           rows={4}
-          className={inputCls}
+          className="control h-auto py-3"
           placeholder="Describir lugar, otros vehículos, daños, lesiones..."
         />
       </div>
 
-      <button
-        onClick={submit}
-        disabled={submitting || descripcion.trim().length < 10}
-        className="flit-focus w-full rounded-[999px] py-4 text-base font-semibold text-white transition-transform motion-safe:active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
-        style={{ background: 'var(--flit-gradient-danger)', boxShadow: 'var(--flit-shadow-button)' }}
-      >
-        {submitting ? 'Enviando...' : 'Reportar incidente'}
-      </button>
+      <div className="flex flex-col gap-2 border-t border-[color:var(--color-border)] pt-4">
+        <GradientButton
+          type="button"
+          onClick={submit}
+          disabled={submitting || descripcion.trim().length < 10}
+          className="w-full justify-center"
+        >
+          {submitting ? 'Enviando...' : 'Reportar incidente'}
+        </GradientButton>
 
-      <p className="text-center text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>
-        Al reportar, el administrador recibirá notificación con GPS, foto y descripción.
-      </p>
+        <p className="text-center text-xs text-[color:var(--color-text-tertiary)]">
+          Al reportar, el administrador recibirá notificación con GPS, foto y descripción.
+        </p>
+      </div>
     </div>
   );
 }

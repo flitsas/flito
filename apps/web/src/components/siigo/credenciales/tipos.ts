@@ -1,4 +1,4 @@
-// Credenciales de la integración con Siigo (HU #11890) — tipos, copy y reglas compartidas.
+// Credenciales de la integración con Siigo (HU 11890) — tipos, copy y reglas compartidas.
 //
 // Vive aparte de la pantalla porque las tres piezas (tarjeta, modal de alta y diálogo de baja)
 // tienen que decir EXACTAMENTE lo mismo sobre tres cosas que el backend ya decidió y que la web no
@@ -178,22 +178,22 @@ export function copiaVeredicto(codigo: string, ambiente: Ambiente): CopiaVeredic
   }
 }
 
-/** Tinta accesible de cada tono (≥ 4,5:1 sobre blanco). `--flit-danger` es para bordes e iconos. */
+/** Tinta accesible de cada tono (≥ 4,5:1 sobre blanco). `--kit-rojo` es para bordes e iconos. */
 export const TINTA_TONO: Record<ChipTone, string> = {
-  success: 'var(--flit-success-ink)',
-  active: 'var(--flit-blue-ink)',
-  warning: 'var(--flit-warning-ink)',
-  danger: 'var(--flit-danger-ink)',
-  draft: 'var(--flit-draft)',
-  neutral: 'var(--flit-text-muted)',
+  success: 'var(--kit-verde-texto)',
+  active: 'var(--color-action)',
+  warning: 'var(--kit-naranja-texto)',
+  danger: 'var(--kit-rojo-texto)',
+  draft: 'var(--kit-gris)',
+  neutral: 'var(--color-text-tertiary)',
 };
 
 /** Color de marca del borde del panel: decorativo, exento de SC 1.4.11. */
 export const BORDE_TONO: Record<ChipTone, string> = {
-  success: 'var(--flit-success)',
-  active: 'var(--flit-info)',
-  warning: 'var(--flit-warning)',
-  danger: 'var(--flit-danger)',
-  draft: 'var(--flit-draft)',
-  neutral: 'var(--flit-border-soft)',
+  success: 'var(--kit-verde)',
+  active: 'var(--color-info)',
+  warning: 'var(--kit-naranja)',
+  danger: 'var(--kit-rojo)',
+  draft: 'var(--kit-gris)',
+  neutral: 'var(--color-border)',
 };

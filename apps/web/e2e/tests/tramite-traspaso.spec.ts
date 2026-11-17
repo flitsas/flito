@@ -45,7 +45,7 @@ test.describe('Trámite · Traspaso wizard 6 pasos (F1.5)', () => {
     // Paso 1 — vehículo (placa+doc, NUNCA VIN).
     await expect(page.getByText('1. Vehículo y propietario')).toBeVisible();
     await expect(page.getByPlaceholder('Numero VIN...')).toHaveCount(0); // AC-01: nunca VIN-first
-    await page.getByLabel('Placa').fill('ABC123');
+    await page.getByLabel('Placa', { exact: true }).fill('ABC123');
     await page.getByLabel('Documento propietario').fill('111');
     await page.getByRole('button', { name: /Consultar RUNT/i }).click();
     await expect(page.getByText(/Mazda CX-30/)).toBeVisible();
@@ -97,7 +97,7 @@ test.describe('Trámite · Traspaso wizard 6 pasos (F1.5)', () => {
     await loginAs(page, ADMIN_USER);
     await mockBackend(page, 'red');
     await page.goto('/tramite/traspaso');
-    await page.getByLabel('Placa').fill('ABC123');
+    await page.getByLabel('Placa', { exact: true }).fill('ABC123');
     await page.getByLabel('Documento propietario').fill('111');
     await page.getByRole('button', { name: /Consultar RUNT/i }).click();
     await page.getByRole('button', { name: /Radicar y continuar/i }).click();

@@ -17,7 +17,8 @@ import useSeleccionCargaMasiva from '../../lib/useSeleccionCargaMasiva';
 import RanuraCargaMasiva from './RanuraCargaMasiva';
 import FlitModal from '../flit/FlitModal';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
-import { flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import { flitInp } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
 
 const COPY_ZIP = 'FLITO no abre ZIP en esta carga: sube los PDF o las imágenes sueltos.';
 
@@ -62,7 +63,7 @@ export default function CargaComprobantes({ onClose, onListo, onVerOriginal }: {
     <FlitModal title="Cargar comprobantes" onClose={resultado ? () => onListo(loteId) : onClose} wide>
       {!resultado ? (
         <div className="space-y-3">
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Sube PDF o imágenes de facturas de SOAT, recibos de impuesto o de derechos, facturas de servicios, transferencias o cualquier soporte del trámite. Un PDF con varios documentos se lee documento por documento. FLITO aplica solo lo que cruza con un único trámite; el resto queda en Pendientes.
           </p>
           <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp" className={flitInp} disabled={enviando}
@@ -71,17 +72,17 @@ export default function CargaComprobantes({ onClose, onListo, onVerOriginal }: {
           <RanuraCargaMasiva seleccion={seleccion} abriendo={abriendo}
             errorValidacion={errorValidacion} error={error} progreso={progreso} />
           <div className="flex gap-2">
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+            <GradientButton
               disabled={enviando || abriendo !== null || seleccion.items.length === 0 || !!errorValidacion} onClick={subir}>
               {enviando ? 'Procesando…' : 'Subir y procesar'}
-            </button>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando} onClick={onClose}>Cancelar</button>
+            </GradientButton>
+            <GradientButton variant="alerta" disabled={enviando} onClick={onClose}>Cancelar</GradientButton>
           </div>
         </div>
       ) : (
         <div className="space-y-3">
-          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-          <p role="status" aria-live="polite" className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          {error && <p role="alert" className="text-sm text-[color:var(--kit-rojo-texto)]">{error}</p>}
+          <p role="status" aria-live="polite" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             {resultado.documentos} documentos leídos en {seleccion.items.length} archivos
           </p>
           {/* HU #12635 AC2: «Aplicados» va primero y SOLO si hubo alguno (`fusionarResultadoCarga` los acumula entre tandas). */}
@@ -92,7 +93,7 @@ export default function CargaComprobantes({ onClose, onListo, onVerOriginal }: {
             <StatusChip tone="danger">Fallidos {resultado.fallidos.length}</StatusChip>
           </div>
           <TablaResultadoCarga resultado={resultado} items={seleccion.items} onVerOriginal={onVerOriginal} />
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => onListo(loteId)}>Listo</button>
+          <GradientButton onClick={() => onListo(loteId)}>Listo</GradientButton>
         </div>
       )}
     </FlitModal>
@@ -112,17 +113,17 @@ function TablaResultadoCarga({ resultado, items, onVerOriginal }: {
     ...resultado.duplicados.map((i) => ({ ...i, resultado: 'Duplicado', tono: 'neutral' as ChipTone, esDuplicado: true })),
     ...resultado.fallidos.map((i) => ({ ...i, resultado: 'Fallido', tono: 'danger' as ChipTone, esDuplicado: false })),
   ];
-  if (filas.length === 0) return <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No se procesó ningún archivo.</p>;
+  if (filas.length === 0) return <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No se procesó ningún archivo.</p>;
   const tamanoDe = (archivo: string): string | null => {
     const item = items.find((i) => i.nombre === archivo);
     return item ? textoTamano(item.size) : null;
   };
   const th = 'px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide';
   return (
-    <div className="max-h-[55vh] overflow-auto rounded-lg border" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <div className="max-h-[55vh] overflow-auto rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
       <table className="w-full text-sm">
         <thead>
-          <tr style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
+          <tr style={{ background: 'var(--kit-linea)', color: 'var(--color-text-secondary)' }}>
             <th className={th}>Archivo</th><th className={th}>Resultado</th><th className={th}>Detalle</th>
           </tr>
         </thead>
@@ -131,20 +132,20 @@ function TablaResultadoCarga({ resultado, items, onVerOriginal }: {
             const paginas = textoPaginas(f.paginas);
             const tamano = tamanoDe(f.archivo);
             return (
-              <tr key={idx} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                <td className="px-3 py-2 align-top" style={{ color: 'var(--flit-text-primary)' }}>
+              <tr key={idx} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
+                <td className="px-3 py-2 align-top" style={{ color: 'var(--color-text-primary)' }}>
                   <span className="font-medium">{f.archivo}</span>
-                  <span className="block text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                  <span className="block text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                     {[tamano, paginas].filter(Boolean).join(' · ')}
                   </span>
                 </td>
                 <td className="px-3 py-2 align-top"><StatusChip tone={f.tono}>{f.resultado}</StatusChip></td>
-                <td className="px-3 py-2 align-top" style={{ color: 'var(--flit-text-secondary)' }}>
+                <td className="px-3 py-2 align-top" style={{ color: 'var(--color-text-secondary)' }}>
                   {f.detalle}
                   {f.esDuplicado && f.comprobanteId && (
                     <>
                       {' · '}
-                      <button type="button" className="flit-focus underline" style={{ color: 'var(--flit-blue-text)' }}
+                      <button type="button" className="flit-focus underline" style={{ color: 'var(--color-action)' }}
                         onClick={() => onVerOriginal(f.comprobanteId!)}>
                         Ver el original
                       </button>

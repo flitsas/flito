@@ -1,4 +1,4 @@
-// Bloque A — ¿a cuántos clientes se les puede facturar? (HU #11299, AC2 y AC3).
+// Bloque A — ¿a cuántos clientes se les puede facturar? (HU 11299, AC2 y AC3).
 //
 // FLIT factura UNA sola línea por factura (el trámite digital), así que la pregunta de esta pestaña
 // no es «cómo va el alistamiento de seis conceptos» sino **cuántos clientes pueden recibir esa
@@ -97,21 +97,21 @@ export default function ResumenFacturabilidad({
 
   return (
     <FlitCard>
-      <h3 className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <h3 className="text-base font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         ¿A cuántos se les puede facturar?
       </h3>
 
       {cargando && (
         // El bloque reserva alto para que la lista de abajo no salte cuando llegue el dato.
-        <p role="status" className="mt-3 min-h-[4rem] text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+        <p role="status" className="mt-3 min-h-[4rem] text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
           Revisando la cartera…
         </p>
       )}
 
       {!cargando && error !== null && (
         <div className="mt-3">
-          <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-            <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+          <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
+            <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>
             No se pudo revisar la cartera: {error}
           </p>
           <button
@@ -126,13 +126,13 @@ export default function ResumenFacturabilidad({
       )}
 
       {!cargando && error === null && resumen !== null && resumen.total === 0 && (
-        <p className="mt-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="mt-3 text-sm" style={{ color: 'var(--color-text-primary)' }}>
           No hay clientes activos. Facturación electrónica no tiene a quién facturarle todavía.
         </p>
       )}
 
       {!cargando && error === null && resumen !== null && resumen.total > 0 && resumen.noFacturables === 0 && (
-        <p role="status" className="mt-3 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <p role="status" className="mt-3 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           Los {resumen.total} clientes activos pueden recibir factura electrónica. No hay nada que
           corregir aquí.
         </p>
@@ -140,24 +140,24 @@ export default function ResumenFacturabilidad({
 
       {!cargando && error === null && resumen !== null && resumen.noFacturables > 0 && (
         <div className="mt-3 space-y-3">
-          <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
             <strong>{resumen.total}</strong> clientes activos ·{' '}
             <strong>{resumen.facturables}</strong> pueden recibir factura electrónica
           </p>
 
           {/* Decorativa: el dato está en la frase de arriba, y una barra que hay que interpretar no
               es información para quien no la ve. */}
-          <div aria-hidden="true" className="h-2 w-full overflow-hidden rounded-full" style={{ background: 'var(--flit-bg-app)' }}>
+          <div aria-hidden="true" className="h-2 w-full overflow-hidden rounded-full" style={{ background: 'var(--color-surface)' }}>
             <div
               className="h-full"
               style={{
                 width: `${Math.round((resumen.facturables / resumen.total) * 100)}%`,
-                background: 'var(--flit-gradient-primary)',
+                background: 'var(--kit-azul-relleno)',
               }}
             />
           </div>
 
-          <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
             {resumen.noFacturables} no pueden todavía, y de esos {resumen.pendientesClasificacion}{' '}
             esperan una decisión, no un dato.
           </p>
@@ -175,7 +175,7 @@ export default function ResumenFacturabilidad({
 
           {resumen.porMotivo.length > 0 && (
             <div>
-              <p id="por-donde-empezar" className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+              <p id="por-donde-empezar" className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                 Por dónde empezar:
               </p>
               {/* El ORDEN es el del servidor (por cantidad, descendente, y solo los que tienen
@@ -198,7 +198,7 @@ export default function ResumenFacturabilidad({
                   ))}
                 </FlitPillGroup>
               </div>
-              <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+              <p className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                 Un cliente puede aparecer en varias líneas: resolver una causa no siempre lo
                 desbloquea.
               </p>
@@ -210,17 +210,17 @@ export default function ResumenFacturabilidad({
       {/* AC3 — la tercera cifra. Vive en la misma tarjeta que las otras dos porque responde la misma
           pregunta de negocio, pero en su propio bloque: su dato viene de otra ruta y puede faltar
           cuando las otras dos están. También aquí el error va antes que el vacío. */}
-      <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--flit-border-input)' }}>
+      <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--color-border-control)' }}>
         {cargandoTerceros && (
-          <p role="status" className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+          <p role="status" className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
             Contando los terceros ya vinculados…
           </p>
         )}
 
         {!cargandoTerceros && errorTerceros !== null && (
           <div>
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-              <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+            <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
+              <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>
               No se pudo contar los terceros vinculados en Siigo: {errorTerceros}
             </p>
             {/* Nombre propio, y no otro «Reintentar» a secas: en esta tarjeta puede haber dos
@@ -237,7 +237,7 @@ export default function ResumenFacturabilidad({
         )}
 
         {!cargandoTerceros && errorTerceros === null && terceros !== null && terceros.totalClientes === 0 && (
-          <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
             Todavía no hay clientes activos a los que vincularles un tercero en Siigo.
           </p>
         )}
@@ -247,12 +247,12 @@ export default function ResumenFacturabilidad({
             {terceros.conTercero === 0 ? (
               // El cero no es «no hay dato»: es una cartera entera sin puente con Siigo, y lo que
               // falta por hacer se dice en la misma frase.
-              <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
                 Ninguno de los {terceros.totalClientes} clientes activos tiene todavía tercero
                 vinculado en Siigo: el vínculo se crea al sincronizar.
               </p>
             ) : (
-              <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
                 <strong>{terceros.conTercero}</strong> de los {terceros.totalClientes} clientes
                 activos ya tienen tercero vinculado en Siigo.
               </p>

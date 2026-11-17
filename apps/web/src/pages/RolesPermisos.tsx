@@ -16,16 +16,24 @@
 //
 // Salidas con cambios pendientes: `beforeunload` + `window.confirm` al cambiar de rol o pulsar
 // «Volver» (decisión 10/09). Ningún identificador de rol viaja en la URL (decisión 13).
+//
+// Rediseño 2026 (Épica #14560, molde `vRbac()` de `#usuarios`): cabecera con miga, `Pestanas` Usuarios ·
+// Roles y permisos (Usuarios solo con la página `users`), rejilla de dos tarjetas (una bajo `lg`) y
+// estados con las piezas del kit (`kit-vacio`, `kit-esqueleto`).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { RolCatalogo } from '@operaciones/shared-types';
 import { cuerpoAntiBloqueo, permisosApi } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
+import Pestanas, { type Pestana } from '../components/flit/Pestanas';
 import { toastOk } from '../components/flit/ToastFlito';
-import { FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import { Vacio } from '../components/flit/Cargador';
+import { Icono } from '../components/flit/kit/Icono';
+import { FlitCard } from '../components/flit/flitPageKit';
 import ListaRoles from './roles-permisos/ListaRoles';
 import CuadroRol, { type PermisosPantalla } from './roles-permisos/CuadroRol';
 import RolFormModal from './roles-permisos/RolFormModal';
@@ -48,6 +56,9 @@ export const copyGuardado = (rol: string) => `Permisos de ${rol} guardados: cada
 type Modal = { tipo: 'crear' } | { tipo: 'editar'; rol: RolCatalogo } | { tipo: 'borrar'; rol: RolCatalogo } | null;
 interface ArbolRol { arbol: Nodo[]; marcados: string[] }
 
+const PESTANA_USUARIOS: Pestana = { id: 'usuarios', etiqueta: 'Usuarios', to: '/users' };
+const PESTANA_ROLES: Pestana = { id: 'roles', etiqueta: 'Roles y permisos', to: '/roles-permisos' };
+
 const porNombre = (a: RolCatalogo, b: RolCatalogo) => a.nombre.localeCompare(b.nombre, 'es');
 
 async function pedirArbol(codigo: string): Promise<ArbolRol> {
@@ -62,7 +73,8 @@ const union = (a: readonly string[] | undefined, b: readonly string[]) => [...ne
 
 export default function RolesPermisos() {
   const navigate = useNavigate();
-  const { refrescarFunciones, hasFuncion } = useAuth();
+  const { refrescarFunciones, hasFuncion, user } = useAuth();
+  const pestanas = hasPage(user, 'users') ? [PESTANA_USUARIOS, PESTANA_ROLES] : [PESTANA_ROLES];
   const tituloRef = useRef<HTMLHeadingElement>(null);
   const [carga, setCarga] = useState<'cargando' | 'error' | 'ok'>('cargando');
   const [roles, setRoles] = useState<RolCatalogo[]>([]);
@@ -245,57 +257,60 @@ export default function RolesPermisos() {
         title="Roles y permisos"
         subtitle="Qué puede hacer cada rol dentro de FLITO"
         titleRef={tituloRef}
-        actions={(
-          <>
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={volver}>Volver</button>
-            {carga === 'ok' && !sinRoles && !sinFunciones && puedeCrear && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setModal({ tipo: 'crear' })}>Nuevo rol</button>
-            )}
-          </>
-        )}
+        icono="flito-roles"
+        miga={[{ etiqueta: 'Administración' }]}
+        actions={<GradientButton type="button" variant="secondary" onClick={volver}>Volver</GradientButton>}
       />
+      <Pestanas etiqueta="Administración" activa="roles" pestanas={pestanas} />
 
       {/* Única región viva de la pantalla: anuncia el rol al cambiarlo. */}
       <p className="sr-only" role="status">
         {carga === 'ok' && rol && cargaArbol === 'ok' ? `Permisos del rol ${rol.nombre}. ${base.size} de ${total} marcados.` : ''}
       </p>
-      {avisoPropio && <p role="status" className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{avisoPropio}</p>}
+      {avisoPropio && <p role="status" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{avisoPropio}</p>}
 
       {carga === 'cargando' && <Esqueleto />}
 
       {carga === 'error' && (
-        <FlitCard className="mx-auto w-full max-w-xl text-center">
-          <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{COPY_ERROR_CARGA}</p>
-          <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={() => void cargar()}>Reintentar</button>
+        <FlitCard className="mx-auto w-full max-w-xl">
+          <AvisoError texto={COPY_ERROR_CARGA} onReintentar={() => void cargar()} />
         </FlitCard>
       )}
 
       {sinFunciones && (
-        <FlitEmpty>
-          <p>{COPY_VACIO_FUNCIONES}</p>
-          <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={() => void cargar()}>Reintentar</button>
-        </FlitEmpty>
+        <FlitCard>
+          <Vacio
+            texto={COPY_VACIO_FUNCIONES}
+            icono="rol"
+            accion={<GradientButton type="button" variant="secondary" onClick={() => void cargar()}>Reintentar</GradientButton>}
+          />
+        </FlitCard>
       )}
 
       {sinRoles && (
-        <FlitEmpty>
-          <p>{puedeCrear ? COPY_VACIO_ROLES : COPY_VACIO_ROLES_SIN_CREAR}</p>
-          {puedeCrear && (
-            <div className="mt-4 flex justify-center">
-              <GradientButton type="button" onClick={() => setModal({ tipo: 'crear' })}>Nuevo rol</GradientButton>
-            </div>
-          )}
-        </FlitEmpty>
+        <FlitCard>
+          <Vacio
+            texto={puedeCrear ? COPY_VACIO_ROLES : COPY_VACIO_ROLES_SIN_CREAR}
+            icono="rol"
+            accion={puedeCrear ? <GradientButton type="button" onClick={() => setModal({ tipo: 'crear' })}>Nuevo rol</GradientButton> : undefined}
+          />
+        </FlitCard>
       )}
 
       {carga === 'ok' && !sinFunciones && !sinRoles && rol && (
         <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start lg:gap-6">
-          <ListaRoles roles={roles} cuentaPorRol={cuentaPorRol} total={total} seleccionado={seleccionado} onSeleccionar={seleccionar} />
+          <ListaRoles
+            roles={roles}
+            cuentaPorRol={cuentaPorRol}
+            total={total}
+            seleccionado={seleccionado}
+            onSeleccionar={seleccionar}
+            onNuevo={puedeCrear ? () => setModal({ tipo: 'crear' }) : undefined}
+          />
           {cargaArbol === 'cargando' && <EsqueletoArbol />}
           {cargaArbol === 'error' && (
-            <FlitCard className="text-center">
-              <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{COPY_ERROR_ARBOL}</p>
-              <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={() => void cargarArbol(rol.codigo)}>Reintentar</button>
+            <FlitCard>
+              <AvisoError texto={COPY_ERROR_ARBOL} onReintentar={() => void cargarArbol(rol.codigo)} />
             </FlitCard>
           )}
           {cargaArbol === 'ok' && actual && (
@@ -331,8 +346,21 @@ export default function RolesPermisos() {
   );
 }
 
-const BARRA_ESQ = 'animate-pulse rounded-[10px]';
-const TONO_ESQ = { background: 'var(--flit-bg-app)' } as const;
+/**
+ * Error del kit (`kit-vacio` + disco naranja) con el `role="alert"` SOLO en el mensaje: `ErrorVista` lo
+ * pone en todo el bloque y el aviso leería también «Reintentar».
+ */
+function AvisoError({ texto, onReintentar }: { texto: string; onReintentar: () => void }) {
+  return (
+    <div className="kit-vacio" data-kit="error">
+      <span className="kit-disco h-[72px] w-[72px] !text-[color:var(--kit-naranja)]"><Icono nombre="nube-alerta" size={36} /></span>
+      <p role="alert" className="!text-[color:var(--color-text-primary)]">{texto}</p>
+      <GradientButton type="button" variant="secondary" onClick={onReintentar}>Reintentar</GradientButton>
+    </div>
+  );
+}
+
+const BARRA_ESQ = 'kit-esqueleto';
 
 /** Tarjeta del rol + tarjeta del árbol con 9 filas (8 elementos visibles; delta «Estados»). */
 function EsqueletoArbol() {
@@ -349,7 +377,7 @@ function Esqueleto() {
     <div role="status" aria-busy="true" aria-label="Cargando roles y permisos" className="flex flex-col gap-4 lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:gap-6">
       <FlitCard>
         <div className="flex flex-col gap-2">
-          {Array.from({ length: 6 }, (_, i) => <div key={i} className={`${BARRA_ESQ} h-8`} style={TONO_ESQ} />)}
+          {Array.from({ length: 6 }, (_, i) => <div key={i} className={`${BARRA_ESQ} h-[52px]`} />)}
         </div>
       </FlitCard>
       <div aria-hidden="true"><EsqueletoArbolVisual /></div>
@@ -360,11 +388,12 @@ function Esqueleto() {
 function EsqueletoArbolVisual() {
   return (
     <div className="flex flex-col gap-4">
-      <FlitCard><div className={`${BARRA_ESQ} h-24`} style={TONO_ESQ} /></FlitCard>
+      <FlitCard><div className={`${BARRA_ESQ} h-24`} /></FlitCard>
       <FlitCard>
+        <div className={`${BARRA_ESQ} mb-3 h-10`} />
         {Array.from({ length: 9 }, (_, i) => (
-          <div key={i} className={i > 0 ? 'border-t py-3' : 'pb-3'} style={{ borderColor: 'var(--flit-border-soft)' }}>
-            <div className={`${BARRA_ESQ} h-6`} style={TONO_ESQ} />
+          <div key={i} className={i > 0 ? 'border-t py-3' : 'pb-3'} style={{ borderColor: 'var(--color-border)' }}>
+            <div className={`${BARRA_ESQ} h-6`} />
           </div>
         ))}
       </FlitCard>

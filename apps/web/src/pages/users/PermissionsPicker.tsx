@@ -129,10 +129,10 @@ export default function PermissionsPicker({
 
   if (estado === 'cargando') {
     return (
-      <div role="status" aria-busy="true" aria-label="Cargando los permisos del rol" className="rounded-xl p-3" style={{ border: '1px solid var(--flit-border-soft)' }}>
+      <div role="status" aria-busy="true" aria-label="Cargando los permisos del rol" className="rounded-[9px] p-3" style={{ border: '1px solid var(--color-border)' }}>
         {Array.from({ length: 6 }, (_, i) => (
-          <div key={i} className={i > 0 ? 'border-t py-2' : 'pb-2'} style={{ borderColor: 'var(--flit-border-soft)' }}>
-            <div className="h-6 animate-pulse rounded-[10px]" style={{ background: 'var(--flit-bg-app)' }} />
+          <div key={i} className={i > 0 ? 'border-t py-2' : 'pb-2'} style={{ borderColor: 'var(--color-border)' }}>
+            <div className="kit-esqueleto h-6 w-full" />
           </div>
         ))}
       </div>
@@ -141,8 +141,8 @@ export default function PermissionsPicker({
 
   if (estado === 'error' || !datos || !rolSet) {
     return (
-      <div role="alert" className="flex flex-wrap items-start gap-3 rounded-xl p-3" style={{ border: '1px solid var(--flit-border-soft)' }}>
-        <p className="min-w-0 flex-[1_1_14rem] text-sm" style={{ color: 'var(--flit-danger-text)' }}>{COPY_ERROR_PERMISOS}</p>
+      <div role="alert" className="flex flex-wrap items-start gap-3 rounded-[9px] p-3" style={{ border: '1px solid var(--color-border)' }}>
+        <p className="min-w-0 flex-[1_1_14rem] text-sm" style={{ color: 'var(--kit-naranja-texto)' }}>{COPY_ERROR_PERMISOS}</p>
         <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => setIntento((n) => n + 1)}>Reintentar</button>
       </div>
     );
@@ -156,9 +156,9 @@ export default function PermissionsPicker({
 
   return (
     <section aria-labelledby={idTitulo} className="flex flex-col gap-2">
-      <h3 id={idTitulo} className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Permisos de este usuario</h3>
+      <h3 id={idTitulo} className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>Permisos de este usuario</h3>
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="min-w-0 flex-[1_1_14rem] text-sm" style={{ color: 'var(--flit-text-secondary)' }} data-resumen="excepciones">
+        <p className="min-w-0 flex-[1_1_14rem] text-sm" style={{ color: 'var(--color-text-secondary)' }} data-resumen="excepciones">
           {vacio ? vacioDelRol(nombreRol) : resumenUsuario(nombreRol, resumen)}
         </p>
         {hayExcepciones && (
@@ -167,7 +167,7 @@ export default function PermissionsPicker({
           </button>
         )}
       </div>
-      <div className="border-t pt-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
+      <div className="border-t pt-2" style={{ borderColor: 'var(--color-border)' }}>
         <ArbolPermisos
           key={`${role}-${intento}`}
           arbol={datos.arbol}

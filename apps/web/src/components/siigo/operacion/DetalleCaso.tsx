@@ -96,23 +96,23 @@ export default function DetalleCaso(p: Props) {
           <EstadoNativoChip fuente={caso.fuente} estado={caso.estado} />
           <MarcaNoCatalogado guia={caso.guia} />
           {caso.fuente === 'emision' && caso.maxIntentos > 0 && (
-            <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               intento {caso.intentos} de {caso.maxIntentos}
             </span>
           )}
         </div>
 
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           {caso.clienteNombre ?? 'Sin cliente registrado'} · detenido desde el {fecha(caso.ocurridoEn)}
           {' '}· {caso.antiguedadDias} {caso.antiguedadDias === 1 ? 'día' : 'días'}
         </p>
 
-        <section className="rounded-[10px] p-3" style={{ background: 'var(--flit-bg-app)' }}>
-          <h3 className="mb-2 text-sm font-bold" style={{ color: 'var(--flit-text-primary)' }}>
+        <section className="rounded-[10px] p-3" style={{ background: 'var(--color-surface)' }}>
+          <h3 className="mb-2 text-sm font-bold" style={{ color: 'var(--color-text-primary)' }}>
             Qué pasó y qué hacer
           </h3>
           <GuiaCaso guia={caso.guia} descarte={caso.descarte} />
-          <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             {SIIGO_BANDEJA_FUENTE_ACCION[caso.fuente]}
           </p>
         </section>
@@ -120,19 +120,19 @@ export default function DetalleCaso(p: Props) {
         {/* La única cadena de la pantalla que nadie ha revisado. Va rotulada y solo aquí. */}
         {!caso.guia.conocido && caso.guia.texto && (
           <section>
-            <h3 className="mb-1 text-sm font-bold" style={{ color: 'var(--flit-text-primary)' }}>
+            <h3 className="mb-1 text-sm font-bold" style={{ color: 'var(--color-text-primary)' }}>
               Lo que respondió Siigo
             </h3>
             <pre
               className="overflow-x-auto whitespace-pre-wrap rounded-[10px] p-3 text-xs"
-              style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-primary)' }}
+              style={{ background: 'var(--color-surface)', color: 'var(--color-text-primary)' }}
             >
               {caso.guia.texto}
             </pre>
           </section>
         )}
 
-        {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>}
+        {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
 
         <div className="flex flex-wrap gap-2">
           {puedeIntentar && (
@@ -174,12 +174,12 @@ export default function DetalleCaso(p: Props) {
             {copiado ? 'Enlace copiado' : 'Copiar enlace'}
           </button>
         </div>
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           El enlace abre este caso, no tu filtro.
         </p>
 
         <section>
-          <h3 className="mb-2 text-sm font-bold" style={{ color: 'var(--flit-text-primary)' }}>
+          <h3 className="mb-2 text-sm font-bold" style={{ color: 'var(--color-text-primary)' }}>
             Línea de tiempo
           </h3>
           <LineaTiempo tramiteId={tramiteDe(caso)} />

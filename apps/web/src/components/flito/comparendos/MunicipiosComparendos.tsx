@@ -1,4 +1,4 @@
-// FLITO — Comparendos · Configuración: bloque 2, municipios fuente (HU #11633, AC5).
+// FLITO — Comparendos · Configuración: bloque 2, municipios fuente (HU 11633, AC5).
 //
 // El catálogo que decide DÓNDE se pregunta, además de SIMIT. Dos columnas y no una, y esa es la
 // decisión de dominio que explica el bloque entero:
@@ -63,7 +63,7 @@ function validarCodigo(escrito: string): string | null {
   return null;
 }
 
-/** Copy propio por `codigo`/estado; el texto del servidor no se pinta (postura de la #11559). */
+/** Copy propio por `codigo`/estado; el texto del servidor no se pinta (postura de la 11559). */
 function mensajeDeAlta(e: unknown): string {
   if (codigoDeError(e) === 'municipio_duplicado') return 'Ese código de fuente ya está en el catálogo.';
   // `POST /municipios` no tiene limitador propio, pero le aplica el global de `/api`: sin esta rama,
@@ -117,7 +117,7 @@ export default function MunicipiosComparendos() {
         etiquetaCarga="Cargando municipios fuente"
         onReintentar={recargar}
         vacio={(
-          <p style={{ color: 'var(--flit-text-secondary)' }}>
+          <p style={{ color: 'var(--color-text-secondary)' }}>
             No hay municipios configurados. Sin municipios activos solo se consulta SIMIT (si el
             token está listo).
           </p>
@@ -139,10 +139,10 @@ export default function MunicipiosComparendos() {
           <tbody>
             {items.map((m) => (
               <FlitTr key={m.id}>
-                <td className="px-4 py-2.5 text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+                <td className="px-4 py-2.5 text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
                   {m.codigoFuente}
                 </td>
-                <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+                <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                   {m.nombre}
                 </td>
                 <td className="px-4 py-2.5"><ChipEstadoConfig activo={m.activo} /></td>
@@ -252,7 +252,7 @@ function ModalMunicipio(
             required
           />
         </FlitField>
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           Se guarda en mayúsculas y sin tildes, tal y como lo espera la consulta municipal. No se
           puede cambiar después: si te equivocas, se desactiva y se agrega el correcto.
         </p>
@@ -265,7 +265,7 @@ function ModalMunicipio(
             maxLength={NOMBRE_MAX}
           />
         </FlitField>
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           Opcional: es el nombre que se ve en el visor. Sin nombre se usa el propio código.
         </p>
         {error && <ErrorFormulario>{error}</ErrorFormulario>}
@@ -318,7 +318,7 @@ function ModalNombreMunicipio(
             required
           />
         </FlitField>
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           Solo cambia lo que se ve en pantalla. El código de fuente sigue siendo {fila.codigoFuente}.
         </p>
         {error && <ErrorFormulario>{error}</ErrorFormulario>}

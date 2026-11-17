@@ -6,11 +6,12 @@ import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
-import {
-  flitInp, FlitTh, FlitTr, FlitTable, FlitField, flitBtnPrimary, flitBtnPrimaryStyle,
-  flitBtnSecondary, flitBtnSecondaryStyle, FlitPillGroup, FlitPillButton, FlitEmpty,
-} from '../components/flit/flitPageKit';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import FiltroSegmentado from '../components/flit/FiltroSegmentado';
+import Placa from '../components/flit/Placa';
+import { EtiquetaEstado } from '../components/flit/Bloques';
+import { flitInp, FlitField } from '../components/flit/flitPageKit';
+import { ESTADO_OT } from '../components/maintenance/estados-mantenimiento';
 
 interface WorkOrder {
   id: number;
@@ -33,17 +34,39 @@ const ESTADO_LABEL: Record<string, string> = {
   cerrada_final: 'Cerrada final',
   anulada: 'Anulada',
 };
-const ESTADO_TONE: Record<string, ChipTone> = {
-  abierta: 'warning',
-  cerrada_tecnica: 'active',
-  cerrada_final: 'success',
-  anulada: 'neutral',
-};
 const TIPO_LABEL: Record<string, string> = {
   preventivo: 'Preventivo',
   correctivo: 'Correctivo',
   predictivo: 'Predictivo',
 };
+
+const COLUMNAS: ColumnaTabla<WorkOrder>[] = [
+  {
+    key: 'numero', header: 'Número', etiqueta: 'Número',
+    render: (wo) => (
+      <Link to={`/maintenance/work-orders/${wo.id}`} className="flit-focus rounded-[9px] font-mono text-xs font-semibold text-[color:var(--color-action)] transition-colors hover:underline">{wo.numero}</Link>
+    ),
+  },
+  {
+    key: 'vehiculo', header: 'Vehículo', etiqueta: 'Vehículo',
+    render: (wo) => (wo.plate ? <Placa placa={wo.plate} formatear={false} /> : <span className="font-semibold text-[color:var(--color-text-primary)]">#{wo.vehicleId}</span>),
+  },
+  { key: 'tipo', header: 'Tipo', etiqueta: 'Tipo', render: (wo) => <span className="text-[color:var(--color-text-secondary)]">{TIPO_LABEL[wo.tipoTrabajo] ?? wo.tipoTrabajo}</span> },
+  {
+    key: 'estado', header: 'Estado', etiqueta: 'Estado',
+    render: (wo) => <EtiquetaEstado estado={ESTADO_OT[wo.estado] ?? wo.estado}>{ESTADO_LABEL[wo.estado] ?? wo.estado}</EtiquetaEstado>,
+  },
+  { key: 'ingreso', header: 'Ingreso', etiqueta: 'Ingreso', render: (wo) => <span className="text-xs text-[color:var(--color-text-secondary)]">{(wo.fechaIngresoTaller as string)?.slice(0, 16).replace('T', ' ')}</span> },
+  { key: 'cierre', header: 'Cierre', etiqueta: 'Cierre', render: (wo) => <span className="text-xs text-[color:var(--color-text-secondary)]">{wo.fechaCierreFinal ? (wo.fechaCierreFinal as string).slice(0, 10) : '—'}</span> },
+  {
+    key: 'costo', header: 'Costo total', etiqueta: 'Costo total', align: 'right',
+    render: (wo) => (
+      <span className="tabular-nums font-medium text-[color:var(--color-text-primary)]">
+        {wo.costoTotalCalculado ? Number(wo.costoTotalCalculado).toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }) : '—'}
+      </span>
+    ),
+  },
+];
 
 export default function WorkOrders() {
   const { hasFuncion } = useAuth();
@@ -67,46 +90,25 @@ export default function WorkOrders() {
       <PageHeaderCard
         title="Órdenes de trabajo"
         subtitle={`${items.length} órdenes · ejecución de taller con descuento automático de inventario`}
+        icono="flito-ordenes-trabajo"
+        miga={[{ etiqueta: 'Mantenimiento', to: '/maintenance' }]}
         actions={isAdmin ? <GradientButton type="button" onClick={() => setShowCreate(true)}>Nueva OT</GradientButton> : undefined}
       />
 
-      <FlitPillGroup>
-        <FlitPillButton active={estadoFilter === ''} onClick={() => setEstadoFilter('')}>Todas</FlitPillButton>
-        {ESTADOS.map((e) => (
-          <FlitPillButton key={e} active={estadoFilter === e} onClick={() => setEstadoFilter(e)}>
-            {ESTADO_LABEL[e]}
-          </FlitPillButton>
-        ))}
-      </FlitPillGroup>
+      <FiltroSegmentado
+        ariaLabel="Estado de la orden de trabajo"
+        opciones={[{ valor: '', etiqueta: 'Todas' }, ...ESTADOS.map((e) => ({ valor: e, etiqueta: ESTADO_LABEL[e] }))]}
+        valor={estadoFilter}
+        onCambio={(e) => setEstadoFilter(e)}
+      />
 
-      {items.length === 0 ? (
-        <FlitEmpty>No hay órdenes de trabajo en este filtro</FlitEmpty>
-      ) : (
-        <FlitTable>
-          <table className="w-full text-sm">
-            <thead><tr>
-              <FlitTh>Número</FlitTh><FlitTh>Vehículo</FlitTh><FlitTh>Tipo</FlitTh><FlitTh>Estado</FlitTh><FlitTh>Ingreso</FlitTh><FlitTh>Cierre</FlitTh><FlitTh>Costo total</FlitTh>
-            </tr></thead>
-            <tbody>
-              {items.map((wo) => (
-                <FlitTr key={wo.id}>
-                  <td className="px-4 py-3">
-                    <Link to={`/maintenance/work-orders/${wo.id}`} className="font-mono text-xs font-semibold hover:underline" style={{ color: 'var(--flit-blue)' }}>{wo.numero}</Link>
-                  </td>
-                  <td className="px-4 py-3 font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{wo.plate || `#${wo.vehicleId}`}</td>
-                  <td className="px-4 py-3" style={{ color: 'var(--flit-text-secondary)' }}>{TIPO_LABEL[wo.tipoTrabajo] ?? wo.tipoTrabajo}</td>
-                  <td className="px-4 py-3"><StatusChip tone={ESTADO_TONE[wo.estado] ?? 'neutral'}>{ESTADO_LABEL[wo.estado] ?? wo.estado}</StatusChip></td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{(wo.fechaIngresoTaller as string)?.slice(0, 16).replace('T', ' ')}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{wo.fechaCierreFinal ? (wo.fechaCierreFinal as string).slice(0, 10) : '—'}</td>
-                  <td className="px-4 py-3 tabular-nums font-medium" style={{ color: 'var(--flit-text-primary)' }}>
-                    {wo.costoTotalCalculado ? Number(wo.costoTotalCalculado).toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }) : '—'}
-                  </td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </table>
-        </FlitTable>
-      )}
+      <DataTable
+        ariaLabel="Órdenes de trabajo"
+        columnas={COLUMNAS}
+        filas={items}
+        getKey={(wo) => String(wo.id)}
+        emptyMessage="No hay órdenes de trabajo en este filtro"
+      />
 
       {showCreate && <WoCreateForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
     </div>
@@ -146,7 +148,7 @@ function WoCreateForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   };
 
   return (
-    <FlitModal title="Nueva orden de trabajo" onClose={onClose}>
+    <FlitModal title="Nueva orden de trabajo" onClose={onClose} icono="mas">
       <form onSubmit={submit} className="space-y-3">
         <FlitField label="Vehículo *">
           <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className={flitInp}>
@@ -164,9 +166,9 @@ function WoCreateForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
         <FlitField label="Falla / motivo"><input value={falla} onChange={(e) => setFalla(e.target.value)} maxLength={500} className={flitInp} /></FlitField>
         <FlitField label="Medición de ingreso (km)"><input type="number" value={medicion} onChange={(e) => setMedicion(e.target.value)} className={flitInp} /></FlitField>
         <FlitField label="Observaciones"><textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} maxLength={2000} rows={3} className={flitInp} /></FlitField>
-        <div className="flex justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <button type="button" onClick={onClose} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Cancelar</button>
-          <button type="submit" disabled={submitting} className={flitBtnPrimary} style={flitBtnPrimaryStyle}>{submitting ? 'Creando…' : 'Crear OT'}</button>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] pt-4">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton type="submit" disabled={submitting}>{submitting ? 'Creando…' : 'Crear OT'}</GradientButton>
         </div>
       </form>
     </FlitModal>

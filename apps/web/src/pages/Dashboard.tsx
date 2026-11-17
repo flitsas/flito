@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { hasPage, type PageSlug } from '../lib/permissions';
-import { flitBtnSecondarySm } from '../components/flit/flitPageKit';
+import GradientButton, { claseBoton } from '../components/flit/GradientButton';
+import BannerInicio from '../components/flit/BannerInicio';
+import { Icono, IconoModulo } from '../components/flit/kit/Icono';
 import FlitoTablero from './FlitoTablero';
 import { useCountUp } from '../lib/useCountUp';
 import Sparkline from '../components/flit/Sparkline';
-import PageHeaderCard from '../components/flit/PageHeaderCard';
 import KpiCard from '../components/flit/KpiCard';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 
@@ -66,9 +67,6 @@ function useBloque<T>(habilitado: boolean, pedir: () => Promise<T>): EstadoBloqu
 
 const visibleB = (b: EstadoBloque<unknown>) => b.estado === 'cargando' || b.estado === 'error' || b.estado === 'listo';
 
-const MD_COLS: Record<number, string> = { 1: 'md:grid-cols-1', 2: 'md:grid-cols-2', 3: 'md:grid-cols-3', 4: 'md:grid-cols-4' };
-
-const tarjeta = { borderRadius: 'var(--flit-radius-card)', boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-card)' } as const;
 
 // =============================================================
 //   DASHBOARD — Patrón FLIT (prototipo p.4–5)
@@ -172,7 +170,6 @@ export default function Dashboard() {
   const cargandoSoat = statsSoat.estado === 'cargando';
   const cargandoVenc = vencimientos.estado === 'cargando';
   const cargandoRndc = rndc.estado === 'cargando';
-  const valorSoat = (v: string) => (cargandoSoat ? '·' : v);
 
   const alertas = [
     mSoat && soatPendiente > 0,
@@ -181,24 +178,21 @@ export default function Dashboard() {
   ].some(Boolean);
 
   const cabecera = (
-    <PageHeaderCard
-      title={`${greeting}, ${userFirstName}`}
-      subtitle={`Panel operativo · ${fechaLarga}`}
+    <BannerInicio
+      etiqueta="Panel operativo"
+      laminas={[{ titulo: `${greeting}, ${userFirstName}`, texto: `Panel operativo · ${fechaLarga}`, icono: 'rejilla', fondo: 'degradado' }]}
     />
   );
 
   // ---------- Vacío útil: ningún bloque con permiso. ----------
   if (!estadoOperativo && !columnaDerecha && atajos === 0) {
     return (
-      <div className="mx-auto flex max-w-[1600px] flex-col gap-6">
-        {cabecera}
-        <div className="p-8" style={tarjeta} data-testid="tablero-vacio">
-          <p className="max-w-[60ch] text-base leading-relaxed" style={{ color: 'var(--flit-text-secondary)' }}>
+      <div className="mx-auto max-w-[1600px]">
+        <div className="espacio-abajo">{cabecera}</div>
+        <div className="card" data-testid="tablero-vacio">
+          <p className="max-w-[60ch] text-base leading-relaxed text-[color:var(--color-text-secondary)]">
             Tu tablero no tiene indicadores con tus permisos actuales. Pulsa{' '}
-            <kbd
-              className="mx-1 inline-flex items-center rounded-md px-2 py-0.5 font-mono text-xs"
-              style={{ border: '1px solid var(--flit-border-input)', color: 'var(--flit-text-primary)', background: 'var(--flit-bg-app)' }}
-            >
+            <kbd className="mx-1 inline-flex items-center rounded-[9px] border border-[color:var(--color-border-control)] bg-[color:var(--color-surface)] px-2 py-0.5 font-mono text-xs text-[color:var(--color-text-primary)]">
               {isMac ? '⌘' : 'Ctrl'} K
             </kbd>{' '}
             o usa el menú para ir a tus secciones. Si te falta una, pídele a un administrador que te la habilite.
@@ -208,93 +202,101 @@ export default function Dashboard() {
     );
   }
 
+  const esqueleto = <span className="kit-esqueleto inline-block h-6 w-16 align-middle" aria-hidden="true" />;
+  const txtVenc = cargandoVenc ? '·' : String(animExp);
+
   return (
-    <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
-      {cabecera}
-
-      {(estadoOperativo || columnaDerecha) && (
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 lg:gap-6">
-        {estadoOperativo && (
-        <article
-          className={`flex flex-col p-7 lg:p-9 ${columnaDerecha ? 'lg:col-span-8' : 'lg:col-span-12'}`}
-          style={tarjeta}
-        >
-          <h2 className="text-xl font-bold tracking-tight" style={{ color: 'var(--flit-blue-text)' }}>
-            Estado operativo
-          </h2>
-          <p className="mt-3 max-w-[52ch] text-sm leading-relaxed" style={{ color: 'var(--flit-text-secondary)' }}>
-            Revisa los indicadores de tus módulos y salta a la acción que corresponda.
-          </p>
-
-          {enlaces && (
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            {/* CTA primario solo con permiso de Vehículos: no se promueve otro enlace a gradiente. */}
-            {verVehiculos && (
-              <Link
-                to="/vehicles"
-                className="flit-focus inline-flex items-center justify-center gap-2 px-6 text-sm font-semibold text-white transition-transform motion-safe:active:scale-[0.99]"
-                style={{ height: '44px', borderRadius: 'var(--flit-radius-pill)', background: 'var(--flit-gradient-primary)', boxShadow: 'var(--flit-shadow-button)' }}
-              >
-                Ver vehículos
-                <ArrowIcon className="h-4 w-4" />
-              </Link>
-            )}
-            {verTableroPesv && <EnlaceTexto to="/pesv/tablero" color="var(--flit-blue)">Tablero PESV</EnlaceTexto>}
-            {verRum && <EnlaceTexto to="/admin/rendimiento">Rendimiento (RUM)</EnlaceTexto>}
-            {verMetricas && <EnlaceTexto to="/admin/tramites-metricas">Métricas trámites</EnlaceTexto>}
-          </div>
-          )}
-
-          {nMetricas > 0 && (
-          <div
-            className={`mt-8 grid gap-6 border-t pt-7 ${nMetricas === 1 ? 'grid-cols-1' : 'grid-cols-2'} ${MD_COLS[nMetricas]}`}
-            style={{ borderColor: 'var(--flit-border-soft)' }}
-            aria-busy={cargandoSoat || cargandoVenc || cargandoRndc}
-          >
+    <div className="mx-auto max-w-[1600px]">
+      {/* Molde `#inicio`: banner (2fr) + cifras 2×2 (1fr). */}
+      {nMetricas > 0 ? (
+        <div className="inicio-tope">
+          {cabecera}
+          <div className="metricas" aria-busy={cargandoSoat || cargandoVenc || cargandoRndc}>
             {mVehiculos && (statsSoat.estado === 'error'
               ? <ErrorBloque nombre="los vehículos" onReintentar={statsSoat.reintentar} />
-              : <StatItem label="Vehículos" value={valorSoat(String(animVehicles))} hint="En operación" tone="neutral" />)}
+              : <KpiCard label="Vehículos" value={cargandoSoat ? esqueleto : animVehicles} hint="En operación" icono="flito-vehiculos" />)}
             {mSoat && (statsSoat.estado === 'error'
               ? <ErrorBloque nombre="SOAT" onReintentar={statsSoat.reintentar} />
-              : <StatItem label="SOAT vigentes" value={valorSoat(`${animPct}%`)} hint={soat ? `${soat.verificado} de ${total}` : '—'} tone="success" />)}
+              : <KpiCard label="SOAT vigentes" value={cargandoSoat ? esqueleto : `${animPct}%`} hint={soat ? `${soat.verificado} de ${total}` : '—'} icono="flito-soat" />)}
             {mVenc && (vencimientos.estado === 'error'
               ? <ErrorBloque nombre="los vencimientos" onReintentar={vencimientos.reintentar} />
-              : <StatItem label="Por vencer 60d" value={cargandoVenc ? '·' : String(animExp)} hint="Documentos" tone={expCount > 0 ? 'warning' : 'neutral'} to="/fleet?tab=vencimientos" />)}
+              : (
+                <KpiCard
+                  label="Por vencer 60d"
+                  value={cargandoVenc ? esqueleto : animExp}
+                  hint="Documentos"
+                  icono="flito-gastos-diarios"
+                  pendiente={expCount > 0}
+                  to="/fleet?tab=vencimientos"
+                  ariaLabel={`Por vencer 60d: ${txtVenc} — Documentos`}
+                />
+              ))}
             {mRndc && (rndc.estado === 'error'
               ? <ErrorBloque nombre="RNDC" onReintentar={rndc.reintentar} />
-              : <StatItem label="RNDC errores" value={cargandoRndc ? '·' : String(animRndc)} hint="Manifiestos" tone={rndcCount > 0 ? 'danger' : 'success'} />)}
+              : <KpiCard label="RNDC errores" value={cargandoRndc ? esqueleto : animRndc} hint="Manifiestos" icono="flito-rndc" pendiente={rndcCount > 0} />)}
+          </div>
+        </div>
+      ) : (
+        <div className="espacio-abajo">{cabecera}</div>
+      )}
+
+      {(estadoOperativo || columnaDerecha) && (
+      <div className="rejilla rejilla--2 espacio-abajo">
+        {estadoOperativo && (
+        <article className="card">
+          <div className="card__cabeza">
+            <div>
+              <h2>Estado operativo</h2>
+              <p className="max-w-[52ch]">Revisa los indicadores de tus módulos y salta a la acción que corresponda.</p>
+            </div>
+          </div>
+
+          {enlaces && (
+          <div className="flex flex-wrap items-center gap-3">
+            {/* CTA primario solo con permiso de Vehículos: no se promueve otro enlace a primario. */}
+            {verVehiculos && (
+              <Link to="/vehicles" className={claseBoton('primary')} data-variante="primario">
+                Ver vehículos
+                <Icono nombre="derecha" size={16} />
+              </Link>
+            )}
+            {verTableroPesv && <EnlaceTexto to="/pesv/tablero">Tablero PESV</EnlaceTexto>}
+            {verRum && <EnlaceTexto to="/admin/rendimiento">Rendimiento (RUM)</EnlaceTexto>}
+            {verMetricas && <EnlaceTexto to="/admin/tramites-metricas">Métricas trámites</EnlaceTexto>}
           </div>
           )}
         </article>
         )}
 
         {columnaDerecha && (
-        <div className={`grid grid-cols-1 gap-5 lg:gap-6 ${estadoOperativo ? 'lg:col-span-4' : 'sm:grid-cols-2 lg:col-span-12'}`}>
+        <div className="metricas !mb-0 content-start">
           {kpiFlota && (statsSoat.estado === 'error'
-            ? <div className="p-6" style={tarjeta}><ErrorBloque nombre="la flota" onReintentar={statsSoat.reintentar} /></div>
+            ? <ErrorBloque nombre="la flota" onReintentar={statsSoat.reintentar} />
             : (
               <KpiCard
                 to="/vehicles"
                 ariaLabel="Ver flota completa"
                 label="Flota"
-                value={cargandoSoat ? '·' : animVehicles}
+                value={cargandoSoat ? esqueleto : animVehicles}
                 hint="Vehículos en operación"
+                icono="flito-flota"
                 chip={{ tone: 'active', label: 'Activa' }}
               />
             ))}
           {kpiSoat && (statsSoat.estado === 'error'
-            ? <div className="p-6" style={tarjeta}><ErrorBloque nombre="la salud SOAT" onReintentar={statsSoat.reintentar} /></div>
+            ? <ErrorBloque nombre="la salud SOAT" onReintentar={statsSoat.reintentar} />
             : (
               <KpiCard
                 to="/soat"
                 ariaLabel={`Ver salud SOAT — ${pctVigentes}% vigentes`}
                 label="Salud SOAT"
-                value={cargandoSoat ? '·' : `${animPct}%`}
+                value={cargandoSoat ? esqueleto : `${animPct}%`}
                 hint={saludLabel}
+                icono="flito-impuestos-soat"
                 chip={{ tone: saludTone, label: saludLabel }}
               >
-                <div className="mt-auto pt-4 h-14" aria-hidden="true">
-                  <Sparkline data={healthSpark} stroke="var(--flit-blue)" className="h-full w-full" />
+                <div className="h-14 pt-3" aria-hidden="true">
+                  <Sparkline data={healthSpark} stroke="var(--kit-azul)" className="h-full w-full" />
                 </div>
               </KpiCard>
             ))}
@@ -303,13 +305,15 @@ export default function Dashboard() {
       </div>
       )}
 
+      {(alertas || atajos > 0) && (
+      <div className="rejilla rejilla--2">
       {/* ===== FLOTA-04 · Atención operativa: cada fila depende del permiso de su destino ===== */}
       {alertas && (
-        <section aria-label="Atención operativa" className="p-5 sm:p-6" style={tarjeta}>
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--flit-text-muted)' }}>
+        <section aria-label="Atención operativa" className="card">
+          <p className="mb-2 text-sm font-semibold text-[color:var(--color-text-primary)]">
             Atención operativa
           </p>
-          <ul className="flex flex-col gap-2.5">
+          <ul className="actividad">
             {mSoat && soatPendiente > 0 && (
               <AlertRow
                 chip={{ tone: 'warning', label: 'Pendiente' }}
@@ -337,22 +341,25 @@ export default function Dashboard() {
 
       {/* ===== Fila de atajos: solo los de páginas que el usuario abre ===== */}
       {atajos > 0 && (
-      <section aria-label="Atajos operacionales" className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+      <section aria-label="Atajos operacionales" className="card">
+        <div className="accesos">
         {verMant && (
           <ShortcutCard
             to="/maintenance"
             label="Mantenimiento"
+            icono="flito-mantenimiento"
             chip={{ tone: 'active', label: 'Activo' }}
             value={soat ? String(totalVehicles) : (cargandoSoat ? '·' : '—')}
             hint="Flota bajo seguimiento"
           />
         )}
         {mRndc && (rndc.estado === 'error'
-          ? <div className="p-6" style={tarjeta}><ErrorBloque nombre="RNDC" onReintentar={rndc.reintentar} /></div>
+          ? <ErrorBloque nombre="RNDC" onReintentar={rndc.reintentar} />
           : (
             <ShortcutCard
               to="/rndc"
               label="RNDC"
+              icono="flito-rndc"
               chip={rndcCount > 0 ? { tone: 'danger', label: 'Errores' } : { tone: 'success', label: 'Al día' }}
               value={cargandoRndc ? '·' : (rndcCount > 0 ? String(rndcCount) : 'OK')}
               hint={rndcCount > 0 ? 'Manifiestos con error' : 'Envíos al día'}
@@ -362,6 +369,7 @@ export default function Dashboard() {
           <ShortcutCard
             to="/pesv"
             label="PESV"
+            icono="flito-pesv"
             chip={{ tone: 'active', label: 'Procesos' }}
             value="—"
             hint="Gestión de seguridad vial"
@@ -371,12 +379,16 @@ export default function Dashboard() {
           <ShortcutCard
             to="/pesv/tablero"
             label="Tablero ejecutivo"
+            icono="flito-cumplimiento"
             chip={{ tone: 'success', label: 'PHVA' }}
             value="—"
             hint="Score y reporte SuperTransporte"
           />
         )}
+        </div>
       </section>
+      )}
+      </div>
       )}
     </div>
   );
@@ -385,59 +397,20 @@ export default function Dashboard() {
 /** Error de UN bloque: copy pulido + reintento que repite solo esa consulta (UX §2). */
 function ErrorBloque({ nombre, onReintentar }: { nombre: string; onReintentar: () => void }) {
   return (
-    <div role="status" className="flex flex-col items-start gap-2" data-testid="tablero-bloque-error">
-      <p className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>No pudimos cargar {nombre}.</p>
-      <button type="button" className={flitBtnSecondarySm} onClick={onReintentar}>Reintentar</button>
+    <div role="status" className="card flex flex-col items-start gap-2" data-testid="tablero-bloque-error" data-kit="error">
+      <p className="text-sm text-[color:var(--kit-rojo-texto)]">No pudimos cargar {nombre}.</p>
+      <GradientButton variant="secondary" size="sm" onClick={onReintentar}>Reintentar</GradientButton>
     </div>
   );
 }
 
-function EnlaceTexto({ to, color = 'var(--flit-text-secondary)', children }: { to: string; color?: string; children: ReactNode }) {
+function EnlaceTexto({ to, children }: { to: string; children: ReactNode }) {
   return (
-    <Link
-      to={to}
-      className="flit-focus inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-[color:var(--flit-bg-app)]"
-      style={{ color }}
-    >
+    <Link to={to} className={claseBoton('secondary', 'sm')} data-variante="secundario">
       {children}
-      <ArrowIcon className="h-4 w-4" />
+      <Icono nombre="derecha" size={16} />
     </Link>
   );
-}
-
-// =============================================================
-//   StatItem — métrica dentro del KPI principal (semántica FLIT).
-// =============================================================
-type StatTone = 'neutral' | 'success' | 'warning' | 'danger';
-
-const STAT_COLOR: Record<StatTone, string> = {
-  neutral: 'var(--flit-text-primary)',
-  success: 'var(--flit-success)',
-  warning: 'var(--flit-warning)',
-  danger: 'var(--flit-danger)',
-};
-
-function StatItem({ label, value, hint, tone, to }: { label: string; value: string; hint: string; tone: StatTone; to?: string }) {
-  const inner = (
-    <>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--flit-text-muted)' }}>
-        {label}
-      </p>
-      <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight leading-none md:text-4xl" style={{ color: STAT_COLOR[tone] }}>
-        {value}
-      </p>
-      <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{hint}</p>
-    </>
-  );
-  // FLOTA-04: «Por vencer 60d» es clickeable → deep link a Fleet/vencimientos.
-  if (to) {
-    return (
-      <Link to={to} className="flit-focus flex flex-col rounded-[10px] transition-opacity hover:opacity-80" aria-label={`${label}: ${value} — ${hint}`}>
-        {inner}
-      </Link>
-    );
-  }
-  return <div className="flex flex-col">{inner}</div>;
 }
 
 // =============================================================
@@ -445,61 +418,34 @@ function StatItem({ label, value, hint, tone, to }: { label: string; value: stri
 // =============================================================
 function AlertRow({ chip, text, cta, to }: { chip: { tone: ChipTone; label: string }; text: string; cta: string; to: string }) {
   return (
-    <li
-      className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border px-4 py-3"
-      style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
-    >
-      <div className="flex items-center gap-3">
+    <li className="justify-between">
+      <span className="flex min-w-0 flex-wrap items-center gap-3">
         <StatusChip tone={chip.tone}>{chip.label}</StatusChip>
-        <span className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>{text}</span>
-      </div>
-      <Link
-        to={to}
-        className="flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-3 py-1.5 text-xs font-semibold"
-        style={{ color: 'var(--flit-blue)', background: 'rgba(79, 116, 201, 0.12)' }}
-      >
-        {cta} <ArrowIcon className="h-3.5 w-3.5" />
+        <span className="text-sm text-[color:var(--color-text-primary)]">{text}</span>
+      </span>
+      <Link to={to} className={claseBoton('ghost', 'sm')}>
+        {cta} <Icono nombre="derecha" size={16} />
       </Link>
     </li>
   );
 }
 
 // =============================================================
-//   ShortcutCard — atajo (tarjeta blanca + chip + CTA flecha).
+//   ShortcutCard — atajo (`.acceso` del kit: disco del módulo + chip + cifra + «Abrir»).
 // =============================================================
-function ShortcutCard({ to, label, chip, value, hint }: {
-  to: string; label: string; chip: { tone: ChipTone; label: string }; value: string; hint: string;
+function ShortcutCard({ to, label, icono, chip, value, hint }: {
+  to: string; label: string; icono: string; chip: { tone: ChipTone; label: string }; value: string; hint: string;
 }) {
   return (
-    <Link
-      to={to}
-      aria-label={`${label} — abrir`}
-      className="flit-focus group flex flex-col bg-flit-card p-6 transition-shadow hover:shadow-[0_12px_30px_rgba(22,39,68,0.12)]"
-      style={{ borderRadius: 'var(--flit-radius-card)', boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' }}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--flit-text-muted)' }}>
-          {label}
-        </p>
-        <StatusChip tone={chip.tone}>{chip.label}</StatusChip>
-      </div>
-      <p className="mt-4 text-3xl font-bold tabular-nums tracking-tight leading-none" style={{ color: 'var(--flit-text-primary)' }}>
-        {value}
-      </p>
-      <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{hint}</p>
-      <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--flit-blue)' }}>
-        Abrir <ArrowIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+    <Link to={to} aria-label={`${label} — abrir`} className="acceso">
+      <IconoModulo clave={icono} disco size={40} />
+      <span className="min-w-0">
+        <strong className="flex flex-wrap items-center gap-2">{label} <StatusChip tone={chip.tone}>{chip.label}</StatusChip></strong>
+        <span className="tabular-nums">{value} · {hint}</span>
+        <span className="mt-1 inline-flex items-center gap-1 font-semibold text-[color:var(--color-action)]">
+          Abrir <Icono nombre="derecha" size={14} />
+        </span>
       </span>
     </Link>
-  );
-}
-
-function ArrowIcon({ className = 'w-4 h-4' }: { className?: string }) {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M5 12h14" />
-      <path d="m13 5 7 7-7 7" />
-    </svg>
   );
 }

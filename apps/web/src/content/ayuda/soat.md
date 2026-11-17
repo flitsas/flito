@@ -24,7 +24,7 @@ Proveedor (ve **Solicitado** y **Pagado** de su cartera; nunca los **Pendiente**
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **SOAT e Impuestos** del panel que se abre, el ítem **SOAT**. En pantallas pequeñas, use el botón de menú de la barra superior; también puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «SOAT».
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **SOAT e Impuestos** del panel que se abre, el ítem **SOAT**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «SOAT».
 
 ## Pasos
 

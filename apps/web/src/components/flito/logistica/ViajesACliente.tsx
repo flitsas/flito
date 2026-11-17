@@ -52,11 +52,11 @@ export default function ViajesACliente({ grupos, estado, sinPrecios = false, onR
     return (
       <div role="status" aria-label="Cargando viajes…" className="space-y-3">
         {[0, 1].map((i) => (
-          <div key={i} className="rounded-xl border p-4" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' }}>
-            <div className="h-4 w-1/3 rounded" style={{ background: 'var(--flit-border-soft)' }} />
-            <div className="mt-3 h-3 w-2/3 rounded" style={{ background: 'var(--flit-border-soft)' }} />
-            <div className="mt-2 h-3 w-1/2 rounded" style={{ background: 'var(--flit-border-soft)' }} />
-            <div className="mt-4 h-10 w-full rounded-full lg:w-40" style={{ background: 'var(--flit-border-soft)' }} />
+          <div key={i} className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)' }}>
+            <div className="h-4 w-1/3 rounded" style={{ background: 'var(--color-border)' }} />
+            <div className="mt-3 h-3 w-2/3 rounded" style={{ background: 'var(--color-border)' }} />
+            <div className="mt-2 h-3 w-1/2 rounded" style={{ background: 'var(--color-border)' }} />
+            <div className="mt-4 h-10 w-full rounded-full lg:w-40" style={{ background: 'var(--color-border)' }} />
           </div>
         ))}
       </div>
@@ -66,7 +66,7 @@ export default function ViajesACliente({ grupos, estado, sinPrecios = false, onR
   if (estado === 'error' || estado === 'error403') {
     return (
       <FlitCard>
-        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
           <p className="flex-1">{estado === 'error403' ? 'No tiene permiso para registrar viajes.' : 'No se pudieron cargar las LT listas para viaje.'}</p>
           {estado === 'error' && (
             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>Reintentar</button>
@@ -79,8 +79,8 @@ export default function ViajesACliente({ grupos, estado, sinPrecios = false, onR
   return (
     <div className="space-y-3">
       <div>
-        <h2 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Viajes</h2>
-        <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <h2 className="text-lg font-bold" style={{ color: 'var(--color-action)' }}>Viajes</h2>
+        <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           {sinPrecios ? 'Elija el destino de cada compañía y registre el viaje.' : 'Elija el destino de cada compañía y revise el precio antes de registrar.'}
         </p>
       </div>
@@ -147,17 +147,17 @@ function TarjetaGrupo({ grupo, sinPrecios, expandida, onToggle, onRegistrar, onE
   const registrable = sinPrecios ? grupo.destinos === undefined || grupo.destinos.cliente || grupo.destinos.flit : alguno;
 
   return (
-    <article className="rounded-xl border p-4" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' }}>
-      <h3 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+    <article className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)' }}>
+      <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         {nombre} · {grupo.disponibles} LT
       </h3>
       {hayOrg && !sinPrecios && (
         <p className="mt-1 flex flex-wrap gap-x-1 text-sm">
-          <span style={{ color: precioC == null ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}>
+          <span style={{ color: precioC == null ? 'var(--kit-rojo-texto)' : 'var(--color-text-secondary)' }}>
             {textoPrecioDestino('Cliente', precioC)}
           </span>
-          <span style={{ color: 'var(--flit-text-muted)' }} aria-hidden="true">·</span>
-          <span style={{ color: precioF == null ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}>
+          <span style={{ color: 'var(--color-text-tertiary)' }} aria-hidden="true">·</span>
+          <span style={{ color: precioF == null ? 'var(--kit-rojo-texto)' : 'var(--color-text-secondary)' }}>
             {textoPrecioDestino('FLIT', precioF)}
           </span>
         </p>
@@ -172,15 +172,15 @@ function TarjetaGrupo({ grupo, sinPrecios, expandida, onToggle, onRegistrar, onE
           type="button"
           onClick={onToggle}
           aria-expanded={expandida}
-          className="flit-focus mt-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
-          style={{ color: 'var(--flit-blue-text)', minHeight: 40 }}
+          className="flit-focus mt-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors hover:bg-[var(--kit-hover)]"
+          style={{ color: 'var(--color-action)', minHeight: 40 }}
         >
           {expandida ? 'Ver menos' : `+ ${Math.max(0, ltsOrg.length - 3) + Math.max(0, ltsFlit.length - 3)} más`}
         </button>
       ) : null}
 
       {hayOrg && sinPrecios && !registrable && (
-        <p className="mt-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{AVISO_VIAJE_NO_REGISTRABLE}</p>
+        <p className="mt-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>{AVISO_VIAJE_NO_REGISTRABLE}</p>
       )}
 
       {(hayFlit || (hayOrg && registrable)) && (
@@ -210,8 +210,8 @@ function BloqueLts({ titulo, lts, expandida, chip }: { titulo: string; lts: LtCl
   if (lts.length === 0) return null;
   return (
     <div className="mt-3">
-      <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{titulo} ({lts.length})</p>
-      <ul className="mt-1 space-y-0.5 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{titulo} ({lts.length})</p>
+      <ul className="mt-1 space-y-0.5 text-sm tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
         {(expandida ? lts : lts.slice(0, 3)).map((lt) => (
           <li key={lt.documentoId} className="flex flex-wrap items-center gap-2">
             <span>{lineaLt(lt)}</span>
@@ -233,7 +233,7 @@ function AvisoSinTarifa({ companiaId }: { companiaId: number }) {
     );
   }
   return (
-    <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+    <p className="mt-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
       Pídale a Finanzas que fije el precio.
     </p>
   );
@@ -375,7 +375,7 @@ function ModalConfirmarViaje({ grupo, sinPrecios, onClose, onRegistrado, onIrMot
     <FlitModal title={`Registrar viaje a ${nombre}`} onClose={cerrar} cierreBloqueado={busy}>
       <div className="space-y-3" aria-busy={busy || undefined}>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Destino del viaje</span>
+          <span className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>Destino del viaje</span>
           <div role="group" aria-label="Destino del viaje">
             <FlitPillGroup>
               <FlitPillButton active={todosCliente} pressed={todosCliente} onClick={() => ponerTodas(DESTINO_CLIENTE)}>Cliente</FlitPillButton>
@@ -385,7 +385,7 @@ function ModalConfirmarViaje({ grupo, sinPrecios, onClose, onRegistrado, onIrMot
         </div>
 
         {sinPrecios ? (
-          <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }} aria-live="polite">{fraseConteo(ltsFlit.length, ltsCliente.length)}</p>
+          <p className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }} aria-live="polite">{fraseConteo(ltsFlit.length, ltsCliente.length)}</p>
         ) : (
           <>
             <PreciosModal
@@ -397,16 +397,16 @@ function ModalConfirmarViaje({ grupo, sinPrecios, onClose, onRegistrado, onIrMot
               precioC={precioC}
               precioF={precioF}
             />
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               Este precio queda congelado en el viaje. Si Finanzas lo cambia después, este viaje no se mueve.
             </p>
           </>
         )}
 
-        {faltaPrecio && sinPrecios && <p className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{AVISO_VIAJE_NO_REGISTRABLE}</p>}
+        {faltaPrecio && sinPrecios && <p className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{AVISO_VIAJE_NO_REGISTRABLE}</p>}
 
         {faltaPrecio && !sinPrecios && (
-          <div className="space-y-2 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+          <div className="space-y-2 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
             {hayFlit && precioF == null && <p>{avisoSinPrecio(nombre, DESTINO_FLIT)}</p>}
             {hayCliente && precioC == null && <p>{avisoSinPrecio(nombre, DESTINO_CLIENTE)}</p>}
             {veTarifas && (
@@ -437,7 +437,7 @@ function ModalConfirmarViaje({ grupo, sinPrecios, onClose, onRegistrado, onIrMot
             const d = asig[lt.documentoId] ?? defecto;
             return (
               <li key={lt.documentoId} className="flex flex-col gap-1 lg:flex-row lg:items-center lg:justify-between">
-                <span className="text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{lineaLt(lt)}</span>
+                <span className="text-sm tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>{lineaLt(lt)}</span>
                 <div role="group" aria-label={`Destino de ${placa}`}>
                   <FlitPillGroup>
                     <FlitPillButton active={d === DESTINO_CLIENTE} pressed={d === DESTINO_CLIENTE} onClick={() => setAsig((prev) => ({ ...prev, [lt.documentoId]: DESTINO_CLIENTE }))}>Cliente</FlitPillButton>
@@ -450,7 +450,7 @@ function ModalConfirmarViaje({ grupo, sinPrecios, onClose, onRegistrado, onIrMot
         </ul>
 
         {error && (
-          <div role="alert" className="space-y-2 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-text)', background: 'var(--flit-bg-card)' }}>
+          <div role="alert" className="space-y-2 rounded-[9px] border px-3 py-2 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--kit-rojo-texto)', background: 'var(--color-surface-elevated)' }}>
             <p>{error}</p>
             {codigo === 'PRECIO_TRASLADO_NO_CONFIGURADO' && veTarifas && (
               <Link to={`/flito/tarifas/${grupo.companiaId}`} className={`${flitBtnSecondary} inline-flex`} style={flitBtnSecondaryStyle}>
@@ -482,7 +482,7 @@ function PreciosModal({ nombre, hayFlit, hayCliente, nFlit, nCliente, precioC, p
 }) {
   if (hayFlit && hayCliente) {
     return (
-      <div className="space-y-1 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <div className="space-y-1 text-sm" style={{ color: 'var(--color-text-primary)' }}>
         <p>Se registrarán dos viajes de {nombre}.</p>
         {precioF != null && <p>A FLIT: {nFlit} LT · {formatoPrecio(precioF)} por LT · Total {formatoPrecio(precioF * nFlit)}.</p>}
         {precioC != null && <p>A cliente: {nCliente} LT · {formatoPrecio(precioC)} por LT · Total {formatoPrecio(precioC * nCliente)}.</p>}
@@ -490,10 +490,10 @@ function PreciosModal({ nombre, hayFlit, hayCliente, nFlit, nCliente, precioC, p
     );
   }
   if (hayFlit && precioF != null) {
-    return <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{fraseCobro(nFlit, precioF)}</p>;
+    return <p className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{fraseCobro(nFlit, precioF)}</p>;
   }
   if (hayCliente && precioC != null) {
-    return <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{fraseCobro(nCliente, precioC)}</p>;
+    return <p className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{fraseCobro(nCliente, precioC)}</p>;
   }
   return null;
 }
@@ -517,7 +517,7 @@ function BloqueMotivo({ motivos, estado, motivoId, nota, busy, onMotivo, onNota,
       {!vacio && (
         <FlitField label="Motivo de llegada *">
           <select
-            className={`${flitInp} h-10 py-0 hover:bg-[var(--flit-bg-hover)]`}
+            className={`${flitInp} h-10 py-0 hover:bg-[var(--kit-hover)]`}
             value={motivoId}
             disabled={cargando || estado === 'error' || busy}
             onChange={(e) => onMotivo(e.target.value)}
@@ -527,16 +527,16 @@ function BloqueMotivo({ motivos, estado, motivoId, nota, busy, onMotivo, onNota,
           </select>
         </FlitField>
       )}
-      {falta && <p className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>Elija el motivo de llegada.</p>}
+      {falta && <p className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>Elija el motivo de llegada.</p>}
       {estado === 'error' && (
-        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
           <p className="flex-1">No se pudieron cargar los motivos de llegada.</p>
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>Reintentar</button>
         </div>
       )}
       {vacio && (
         <div className="space-y-2">
-          <p className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+          <p className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
             No hay motivos de llegada activos. Pídale a quien administra el catálogo que active uno.
           </p>
           {onIrMotivos && (
@@ -548,7 +548,7 @@ function BloqueMotivo({ motivos, estado, motivoId, nota, busy, onMotivo, onNota,
       )}
       <FlitField label="Nota (opcional)">
         <textarea
-          className={`${flitInp} hover:bg-[var(--flit-bg-hover)]`}
+          className={`${flitInp} hover:bg-[var(--kit-hover)]`}
           rows={2}
           maxLength={300}
           value={nota}

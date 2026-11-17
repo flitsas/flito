@@ -1,4 +1,4 @@
-// Baja de una credencial de Siigo (HU #11890, AC4).
+// Baja de una credencial de Siigo (HU 11890, AC4).
 //
 // `FlitModal` y no `window.confirm()` —como sí hace `RndcAdminCredenciales.tsx`—: allí la pregunta
 // cabía en una línea; aquí hacen falta tres párrafos con jerarquía (la consecuencia, el ambiente y
@@ -11,7 +11,8 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError, api, errorMessage } from '../../../lib/api';
 import FlitModal from '../../flit/FlitModal';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import InlineAlert from '../../flit/InlineAlert';
+import { claseBoton } from '../../flit/GradientButton';
 import { AMBIENTE_EN_FRASE, ETIQUETA_AMBIENTE, type Ambiente, type SiigoCredencialPublica } from './tipos';
 
 interface Props {
@@ -54,10 +55,11 @@ export default function DialogoDesactivar(
   return (
     <FlitModal
       title={`Desactivar la credencial de ${ETIQUETA_AMBIENTE[ambiente]}`}
+      icono="alerta"
       onClose={onCerrar}
       restoreFocusRef={restoreFocusRef}
     >
-      <div className="flex flex-col gap-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <div className="flex flex-col gap-3 text-sm" style={{ color: 'var(--color-text-primary)' }}>
         {/* El usuario va en un nodo de TEXTO: suele ser un correo, y los informes de axe de este
             repo arrastran valores de atributo (AGENTS.md §14). */}
         <p>Usuario: {credencial.username}</p>
@@ -69,9 +71,7 @@ export default function DialogoDesactivar(
         <p>El registro no se borra: queda en el historial de este ambiente con la fecha de hoy.</p>
 
         {error && (
-          <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
-            <span aria-hidden="true">⚠ </span>{error}
-          </p>
+          <InlineAlert tono="danger"><p className="m-0 font-semibold">{error}</p></InlineAlert>
         )}
 
         <div className="mt-1 flex flex-wrap justify-end gap-2">
@@ -79,20 +79,20 @@ export default function DialogoDesactivar(
             type="button"
             ref={refCancelar}
             onClick={onCerrar}
-            className={flitBtnSecondary}
-            style={flitBtnSecondaryStyle}
+            className={claseBoton('secondary')}
+            data-variante="secundario"
           >
             Cancelar
           </button>
-          {/* Tinta de peligro (no `--flit-danger`, que es para bordes) y `flit-focus` explícito: el
+          {/* Botón de alerta del kit (naranja, destructivo), con el foco del kit: el
               botón equivalente de RNDC es un `text-xs hover:underline` SIN foco visible, y ese
               defecto conocido no se importa a una pantalla nueva. */}
           <button
             type="button"
             onClick={() => { void desactivar(); }}
             disabled={enviando}
-            className="flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-5 text-sm font-semibold disabled:opacity-50"
-            style={{ borderColor: 'var(--flit-danger)', color: 'var(--flit-danger-ink)' }}
+            className={claseBoton('alerta')}
+            data-variante="alerta"
           >
             {enviando ? 'Desactivando…' : 'Desactivar'}
           </button>

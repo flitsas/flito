@@ -55,18 +55,18 @@ export default function ModalAnularViaje({ viaje, fechaTexto, onClose, onTermino
   };
 
   return (
-    <FlitModal title="Anular viaje" onClose={cerrar} cierreBloqueado={busy}>
+    <FlitModal title="Anular viaje" onClose={cerrar} cierreBloqueado={busy} icono="alerta">
       <div className="space-y-3" aria-busy={busy || undefined}>
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           {nombre} · {DESTINO_TRASLADO_LOGISTICA_LABEL[viaje.destino]} · {viaje.cantidadLt} LT · registrado el {fechaTexto}
         </p>
-        <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
           Las LT volverán a estar disponibles en Viajes. Esta acción no se puede deshacer.
         </p>
 
         <FlitField label="Motivo de la anulación (obligatorio)">
           <textarea
-            className={`${flitInp} hover:bg-[var(--flit-bg-hover)]`}
+            className={`${flitInp} hover:bg-[var(--kit-hover)]`}
             rows={3}
             maxLength={MAX_MOTIVO}
             autoFocus
@@ -80,14 +80,14 @@ export default function ModalAnularViaje({ viaje, fechaTexto, onClose, onTermino
           />
         </FlitField>
         <div id="anular-motivo-ayuda" className="flex items-start justify-between gap-3 text-xs">
-          <span role={tocado && vacio ? 'alert' : undefined} style={{ color: 'var(--flit-danger-text)' }}>
+          <span role={tocado && vacio ? 'alert' : undefined} style={{ color: 'var(--kit-naranja-texto)' }}>
             {tocado && vacio ? 'Escriba el motivo de la anulación.' : ''}
           </span>
-          <span aria-live="polite" className="tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{motivo.length}/{MAX_MOTIVO}</span>
+          <span aria-live="polite" className="tabular-nums" style={{ color: 'var(--color-text-tertiary)' }}>{motivo.length}/{MAX_MOTIVO}</span>
         </div>
 
         {error && (
-          <div role="alert" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-text)', background: 'var(--flit-bg-card)' }}>
+          <div role="alert" className="rounded-[9px] border px-3 py-2 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--kit-rojo-texto)', background: 'var(--color-surface-elevated)' }}>
             {error}
           </div>
         )}

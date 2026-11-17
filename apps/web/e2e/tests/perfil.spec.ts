@@ -34,6 +34,15 @@ async function abrirPerfilDesdeMenu(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { level: 1, name: 'Mi perfil' })).toBeVisible();
 }
 
+/**
+ * Rediseño S6 (Épica #14560): el formulario de contraseña vive en un modal. Se abre como lo haría
+ * el usuario: con la primaria de la cabecera «Cambiar contraseña».
+ */
+async function abrirModalContrasena(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Cambiar contraseña', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Cambiar contraseña' })).toBeVisible();
+}
+
 async function llenar(page: Page, actual: string, nueva: string, confirma: string): Promise<void> {
   await page.getByLabel('Contraseña actual').fill(actual);
   await page.getByLabel('Contraseña nueva', { exact: true }).fill(nueva);
@@ -45,13 +54,16 @@ test.describe('Perfil — menú de sesión (AC1-AC3)', () => {
     await loginAs(page, YO);
     await page.goto('/');
     await page.getByRole('button', { name: /Menú de usuario/ }).click();
-    const items = page.getByRole('menu', { name: 'Opciones de usuario' }).getByRole('menuitem');
-    await expect(items).toHaveText(['Perfil', 'Cerrar sesión']);
-    // Mismo bloque: comparten el contenedor padre.
-    const mismoPadre = await items.evaluateAll((els) => els[0].parentElement === els[1].parentElement);
-    expect(mismoPadre).toBe(true);
-    await expect(items.first()).toHaveClass(/flit-focus/);
-    await expect(items.first()).toHaveClass(/hover:bg-\[var\(--flit-bg-hover\)\]/);
+    const menu = page.getByRole('menu', { name: 'Opciones de usuario' });
+    const items = menu.getByRole('menuitem');
+    // Rediseño S6 (Épica #14560): el menú del shell trae Perfil, Cambiar contraseña, Ayuda y la
+    // salida. Cada entrada lleva su subtítulo; «Perfil» sigue primero y «Cerrar sesión» último.
+    await expect(items).toHaveText([/^Perfil/, /^Cambiar contraseña/, /^Ayuda/, 'Cerrar sesión']);
+    // Mismo bloque: todo dentro del mismo menú de sesión.
+    const mismoMenu = await items.evaluateAll((els) => els.every((el) => el.closest('[role="menu"]') === els[0].closest('[role="menu"]')));
+    expect(mismoMenu).toBe(true);
+    // Foco y hover los da la clase de entrada del kit (antes, utilidades sueltas).
+    await expect(items.first()).toHaveClass(/menu-usuario__entrada/);
     await items.first().click();
     await expect(page).toHaveURL(/\/perfil$/);
     await expect(page.getByRole('menu')).toHaveCount(0);
@@ -124,6 +136,7 @@ test.describe('Perfil — página (AC4, AC8)', () => {
     }));
     await abrirPerfilDesdeMenu(page);
     await expect(page.getByText('Su cuenta no tiene datos de identidad registrados. Pida a su administrador de FLITO que los complete.')).toBeVisible();
+    await abrirModalContrasena(page);
     await expect(page.getByRole('button', { name: 'Guardar contraseña' })).toBeVisible();
   });
 
@@ -156,6 +169,7 @@ test.describe('Perfil — página (AC4, AC8)', () => {
     soltar();
     await expect(cargando).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Su cuenta' }).getByText('admin.e2e@flito.test')).toBeVisible();
+    await abrirModalContrasena(page);
     await expect(page.getByLabel('Contraseña actual')).toBeVisible();
   });
 });
@@ -164,6 +178,32 @@ test.describe('Perfil — cambio de contraseña (AC5-AC7)', () => {
   test.beforeEach(async ({ page }) => {
     await loginAs(page, YO);
     await page.goto('/perfil');
+    await abrirModalContrasena(page);
+    await expect(page.getByLabel('Contraseña actual')).toBeVisible();
+  });
+
+  test('Rediseño S6: `/perfil?accion=contrasena` abre el modal y al cerrarlo se limpia el parámetro', async ({ page }) => {
+    await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    // Entrada por URL (la usa el menú de usuario del shell).
+    await page.goto('/perfil?accion=contrasena');
+    await expect(page.getByRole('dialog', { name: 'Cambiar contraseña' })).toBeVisible();
+    await expect(page.getByLabel('Contraseña actual')).toBeVisible();
+    await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/perfil$/);
+    // El parámetro ya no está: recargar no reabre el modal.
+    await page.reload();
+    await expect(page.getByRole('heading', { level: 1, name: 'Mi perfil' })).toBeVisible();
+    await expect(page.getByLabel('Contraseña actual')).toHaveCount(0);
+  });
+
+  test('Rediseño S6: el menú de usuario «Cambiar contraseña» abre el modal en /perfil', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: /Menú de usuario/ }).click();
+    await page.getByRole('menuitem', { name: /^Cambiar contraseña/ }).click();
+    await expect(page).toHaveURL(/\/perfil\?accion=contrasena$/);
+    await expect(page.getByRole('dialog', { name: 'Cambiar contraseña' })).toBeVisible();
     await expect(page.getByLabel('Contraseña actual')).toBeVisible();
   });
 
@@ -254,6 +294,9 @@ test.describe('Perfil — cambio de contraseña (AC5-AC7)', () => {
     await page.getByRole('button', { name: 'Guardar contraseña' }).click();
     await expect(page.getByText('Su contraseña se actualizó.')).toBeVisible();
     expect(espia.cuerpos).toEqual([{ currentPassword: 'Actual#2026', newPassword: VALIDA }]);
+    // Rediseño S6: el éxito cierra el modal; al reabrirlo los campos están vacíos.
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await abrirModalContrasena(page);
     await expect(page.getByLabel('Contraseña actual')).toHaveValue('');
     await expect(page.getByLabel('Contraseña nueva', { exact: true })).toHaveValue('');
     await expect(page.getByLabel('Confirme la contraseña nueva')).toHaveValue('');

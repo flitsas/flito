@@ -173,42 +173,42 @@ export default function SincronizacionTerceros({
         ref={tituloRef}
         tabIndex={-1}
         className="flit-focus rounded text-base font-semibold"
-        style={{ color: 'var(--flit-text-primary)' }}
+        style={{ color: 'var(--color-text-primary)' }}
       >
         Sincronizar terceros con Siigo
       </h3>
 
       {/* La trampa del selector de ambiente: se desactiva diciéndola, no heredándola. */}
-      <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+      <p className="mt-1 text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
         Se sincroniza contra el ambiente <strong>{ambienteServidor ?? '—'}</strong> que tiene
         configurado el servidor. El selector de arriba no cambia esto: solo afecta al mapeo de
         conceptos y a la compuerta.
       </p>
 
       {simulado && (
-        <p className="mt-1 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="mt-1 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
           <span aria-hidden="true">🧪 </span>
           SIMULADO — nada de lo que salga aquí llegó a Siigo Nube.
         </p>
       )}
 
       {!puedeSincronizar && (
-        <p id={explicacionPermisoId} className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p id={explicacionPermisoId} className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Sincronizar escribe en Siigo: lo hacen administración y financiera. Tu rol puede ver qué
           clientes están listos.
         </p>
       )}
 
       {cargando && (
-        <p role="status" className="mt-3 text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+        <p role="status" className="mt-3 text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
           Buscando los clientes listos para facturar…
         </p>
       )}
 
       {!cargando && error !== null && (
         <div className="mt-3">
-          <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-            <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+          <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
+            <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>
             No se pudo traer la lista de clientes listos: {error}
           </p>
           <button type="button" onClick={() => { void cargar(); }} className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}>
@@ -218,7 +218,7 @@ export default function SincronizacionTerceros({
       )}
 
       {!cargando && error === null && candidatos.length === 0 && (
-        <p className="mt-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="mt-3 text-sm" style={{ color: 'var(--color-text-primary)' }}>
           No hay clientes que sincronizar.
           {noFacturables > 0 && ' Los que hay todavía no se pueden facturar: corrígelos arriba.'}
         </p>
@@ -229,20 +229,20 @@ export default function SincronizacionTerceros({
           {/* AC6 — un cliente no facturable NO se puede seleccionar. No aparece en esta lista, y se
               dice por qué en vez de dejar que alguien lo busque. */}
           {noFacturables > 0 && (
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               {noFacturables} clientes no se pueden seleccionar todavía porque les faltan datos.
               Están arriba, en «Clientes que todavía no».
             </p>
           )}
 
           <fieldset disabled={corriendo}>
-            <legend className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            <legend className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               Clientes listos para facturar ({candidatos.length})
             </legend>
             <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto pr-1">
               {candidatos.map((c) => (
                 <li key={c.clienteId}>
-                  <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+                  <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-primary)' }}>
                     <input
                       type="checkbox"
                       className="flit-focus"
@@ -250,7 +250,7 @@ export default function SincronizacionTerceros({
                       onChange={() => alternar(c.clienteId)}
                     />
                     <span>{c.nombre}</span>
-                    <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                    <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                       {c.documento ?? ''}
                     </span>
                   </label>
@@ -261,20 +261,20 @@ export default function SincronizacionTerceros({
 
           {/* El vacío de la selección no es «no hay nada»: es «todavía no has marcado a nadie». */}
           {seleccionados === 0 && (
-            <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
               Marca los clientes que quieras sincronizar.
             </p>
           )}
 
           {seleccionados > 0 && (
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               Se sincronizan de {TANDA_MAXIMA} en {TANDA_MAXIMA}. Con {seleccionados} seleccionados
               {tandas === 1 ? ' es 1 tanda.' : ` son ${tandas} tandas.`}
             </p>
           )}
 
           {corriendo && progreso !== null && (
-            <p role="status" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            <p role="status" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
               {progreso.hechos} de {progreso.total} · aproximadamente{' '}
               {Math.max(1, Math.round(((progreso.total - progreso.hechos) * (PAUSA_MS + 2000)) / 60_000))}{' '}
               minuto(s)
@@ -317,8 +317,8 @@ export default function SincronizacionTerceros({
       )}
 
       {errorTanda !== null && (
-        <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-          <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+        <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--color-text-primary)' }}>
+          <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>
           {errorTanda}
         </p>
       )}
@@ -357,28 +357,28 @@ function Resultados({ lineas, simulado, terminada, onAbrirFicha }: {
   const marca = simulado ? ' (simulado)' : '';
 
   return (
-    <section aria-labelledby="resultado-sincronizacion" className="mt-4 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-      <h4 id="resultado-sincronizacion" className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+    <section aria-labelledby="resultado-sincronizacion" className="mt-4 border-t pt-4" style={{ borderColor: 'var(--color-border)' }}>
+      <h4 id="resultado-sincronizacion" className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         Sincronización · {lineas.length} clientes{marca}
       </h4>
-      <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+      <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
         {logradas.length} sincronizados · {fallidas.length} no se pudieron
       </p>
       {terminada && (
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Lo ya sincronizado queda sincronizado: no hay deshacer.
         </p>
       )}
 
       {fallidas.length > 0 && (
         <details open className="mt-3">
-          <summary className="flit-focus cursor-pointer rounded text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <summary className="flit-focus cursor-pointer rounded text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             <span aria-hidden="true">⛔ </span>No se pudo ({fallidas.length})
           </summary>
           <ul className="mt-2 space-y-2">
             {fallidas.map((l) => (
-              <li key={l.clienteId} className="rounded-[10px] px-3 py-2" style={{ background: 'var(--flit-bg-app)' }}>
-                <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{l.nombre}</p>
+              <li key={l.clienteId} className="rounded-[10px] px-3 py-2" style={{ background: 'var(--color-surface)' }}>
+                <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{l.nombre}</p>
                 {l.fallo?.rechazo != null ? (
                   <>
                     <FaltantesCliente
@@ -395,10 +395,10 @@ function Resultados({ lineas, simulado, terminada, onAbrirFicha }: {
                     </button>
                   </>
                 ) : (
-                  <p className="text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+                  <p className="text-xs" style={{ color: 'var(--color-text-primary)' }}>
                     {l.fallo?.mensaje}
                     {l.fallo?.sinRespuesta === true && (
-                      <span className="block" style={{ color: 'var(--flit-text-muted)' }}>
+                      <span className="block" style={{ color: 'var(--color-text-tertiary)' }}>
                         No hubo respuesta. Puede que el tercero sí se haya creado en Siigo. Vuelve a
                         sincronizar ese cliente para comprobarlo: si ya existía, el resultado dirá
                         «Ya estaba al día» o «Vinculado».
@@ -435,17 +435,17 @@ function GrupoDesenlace({ desenlace, lineas, marca }: {
 
   return (
     <details open={desenlace === 'creado' || desenlace === 'vinculado_existente'} className="mt-3">
-      <summary className="flit-focus cursor-pointer rounded text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <summary className="flit-focus cursor-pointer rounded text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         <span aria-hidden="true">{d.simbolo} </span>
         {d.titulo}{marca} ({lineas.length})
       </summary>
-      <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{d.frase}</p>
+      <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{d.frase}</p>
       <ul className="mt-2 space-y-1">
         {lineas.map((l) => (
-          <li key={l.clienteId} className="flex flex-wrap items-center gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <li key={l.clienteId} className="flex flex-wrap items-center gap-2 text-sm" style={{ color: 'var(--color-text-primary)' }}>
             <StatusChip tone={d.tono}>{d.titulo}{marca}</StatusChip>
             <span>{l.nombre}</span>
-            <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               id {l.resultado?.siigoCustomerId}
             </span>
             {/* La verificación se ofrece SOLO en `vinculado_existente`, y la razón es literal: es el

@@ -72,7 +72,7 @@ test.describe('FLITO — Logística', () => {
     await expect(page.getByRole('row', { name: /DEF456/ }).getByText('Entregada')).toBeVisible();
 
     // Las actas viven en su propia pestaña: la consola dejó de mezclarlas con los trámites.
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await expect(page.getByRole('row', { name: /Concesionario Sur/ }).getByText('Despachada')).toBeVisible();
   });
 
@@ -86,7 +86,7 @@ test.describe('FLITO — Logística', () => {
     });
 
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await page.getByRole('button', { name: 'Firmar y despachar' }).first().click();
     await page.getByRole('combobox').last().selectOption('9');
 
@@ -116,7 +116,7 @@ test.describe('FLITO — Logística', () => {
       await mockLogistica(page);
       await page.route(/\/api\/flito\/logistica\/actas\/acta-1\/mensajeros$/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(caso.lista) }));
       await page.goto('/flito/logistica');
-      await page.getByRole('button', { name: /^Actas/ }).click();
+      await page.getByRole('tab', { name: /^Actas/ }).click();
       await page.getByRole('button', { name: 'Firmar y despachar' }).first().click();
       const modal = page.getByRole('dialog', { name: 'Firmar entrega y despachar' });
       await expect(modal.locator('optgroup[label="Mensajeros de FLITO"] option')).toHaveText(['Mensajero E2E']);
@@ -136,7 +136,7 @@ test.describe('FLITO — Logística', () => {
         status: caso.status, contentType: 'application/json', body: JSON.stringify({ error: caso.crudo, codigo: caso.codigo, detalle: { documentoIds: ['doc-2'] } }),
       }));
       await page.goto('/flito/logistica');
-      await page.getByRole('button', { name: /^Actas/ }).click();
+      await page.getByRole('tab', { name: /^Actas/ }).click();
       await page.getByRole('button', { name: 'Firmar y despachar' }).first().click();
       const modal = page.getByRole('dialog', { name: 'Firmar entrega y despachar' });
       await modal.getByRole('combobox').selectOption('9');
@@ -178,7 +178,7 @@ test.describe('FLITO — Logística', () => {
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ documentos: 2 }) });
       });
       await page.goto('/flito/logistica');
-      await page.getByRole('button', { name: /^Actas/ }).click();
+      await page.getByRole('tab', { name: /^Actas/ }).click();
       await page.getByRole('button', { name: 'Firmar y despachar' }).first().click();
       const modal = page.getByRole('dialog', { name: 'Firmar entrega y despachar' });
       await modal.getByRole('combobox').selectOption('9');
@@ -215,7 +215,7 @@ test.describe('FLITO — Logística', () => {
       return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'No asignable', codigo: 'MENSAJERO_NO_ASIGNABLE' }) });
     });
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await page.getByRole('button', { name: 'Firmar y despachar' }).first().click();
     const modal = page.getByRole('dialog', { name: 'Firmar entrega y despachar' });
     const confirmar = modal.getByRole('button', { name: 'Firmar y despachar' });
@@ -254,7 +254,7 @@ test.describe('FLITO — Logística', () => {
     });
 
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await page.getByRole('tab', { name: /^Viajes(?! adicionales)/ }).click();
     await expect(page.getByText('Concesionario Norte · 1 LT')).toBeVisible();
     await expect(page.getByText(/Cliente \$12\.000 por LT/)).toBeVisible();
     await page.getByRole('button', { name: 'Registrar viaje' }).click();
@@ -277,8 +277,8 @@ test.describe('FLITO — Logística', () => {
 
     await page.goto('/flito/logistica');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Viajes(?! adicionales)/ })).toHaveCount(0);
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await expect(page.getByRole('tab', { name: /^Viajes(?! adicionales)/ })).toHaveCount(0);
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await expect(page.getByRole('button', { name: 'Firmar y despachar' })).toHaveCount(0);
   });
 });

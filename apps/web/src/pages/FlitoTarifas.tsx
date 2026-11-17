@@ -23,7 +23,7 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitSelect from '../components/flit/FlitSelect';
 import { esInactivo, NOTA_INACTIVO, opcionesConEstado } from '../components/flit/opcionesConEstado';
 import {
-  flitInp, FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup, flitBtnSecondary, flitBtnSecondaryStyle,
+  flitInp, FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup, flitBtnSecondary,
 } from '../components/flit/flitPageKit';
 import MatrizTarifas from './tarifas/MatrizTarifas';
 import HistorialTarifas, { type FiltroHistorial } from './tarifas/HistorialTarifas';
@@ -42,7 +42,7 @@ const faltanTexto = (n: number) => (n === 1 ? 'Falta 1' : `Faltan ${n}`);
 const faltanValores = (n: number) => (n === 1 ? 'Falta 1 valor' : `Faltan ${n} valores`);
 
 const barra = (ancho: string, key: number) => (
-  <div key={key} className={`h-5 ${ancho} animate-pulse rounded`} style={{ background: 'var(--flit-bg-table-header)' }} />
+  <div key={key} className={`kit-esqueleto h-5 ${ancho}`} />
 );
 
 // Modo Proveedores (Épica #13763): `/flito/tarifas/proveedores[/:uuid]`. El modo vive en el path, y al
@@ -172,7 +172,7 @@ function TarifasClientes() {
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
-      <PageHeaderCard title="Tarifas" subtitle={SUBTITULO} />
+      <PageHeaderCard title="Tarifas" subtitle={SUBTITULO} icono="flito-tarifas" miga={[{ etiqueta: 'Logística', to: '/flito/logistica' }]} />
       <SelectorModo modo="clientes" antesDeSalir={() => {
         const f = enEdicion.current;
         return !f || !vista || window.confirm(`Tienes un valor sin guardar en ${etiquetaLlave(f)} de ${vista.companiaNombre}. ¿Salir y perderlo?`);
@@ -181,9 +181,9 @@ function TarifasClientes() {
 
       {errorClientes ? (
         <FlitCard className="mx-auto w-full max-w-xl text-center">
-          <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>No se pudo cargar la lista de clientes.</p>
-          <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{errorClientes}</p>
-          <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={cargarClientes}>Reintentar</button>
+          <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>No se pudo cargar la lista de clientes.</p>
+          <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>{errorClientes}</p>
+          <button type="button" className={`${flitBtnSecondary} mt-4`} onClick={cargarClientes}>Reintentar</button>
         </FlitCard>
       ) : clientes === null ? (
         <div role="status" aria-busy="true" aria-label="Cargando tarifas" className="grid gap-5 lg:grid-cols-[300px_1fr] lg:gap-6">
@@ -192,19 +192,19 @@ function TarifasClientes() {
         </div>
       ) : clientes.length === 0 ? (
         <FlitEmpty>
-          <p style={{ color: 'var(--flit-text-primary)' }}>Todavía no hay clientes.</p>
+          <p style={{ color: 'var(--color-text-primary)' }}>Todavía no hay clientes.</p>
           <p className="mt-1">Crea el primero en Clientes y proveedores; cuando exista, aquí se le fijan sus valores.</p>
-          <Link to="/clients" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}>Ir a Clientes y proveedores</Link>
+          <Link to="/clients" className={`${flitBtnSecondary} mt-4`}>Ir a Clientes y proveedores</Link>
         </FlitEmpty>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[300px_1fr] lg:gap-6">
-          <aside className="lg:sticky lg:top-[calc(var(--flit-topbar-height)_+_var(--flit-navbar-height))] lg:self-start">
+          <aside className="lg:sticky lg:top-[calc(var(--kit-alto-barra))] lg:self-start">
             <FlitCard className="space-y-3">
-              <h2 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Clientes ({clientes.length})</h2>
+              <h2 className="text-sm font-bold" style={{ color: 'var(--color-action)' }}>Clientes ({clientes.length})</h2>
               {errorFaltantes && (
                 <div className="flex flex-wrap items-center gap-2">
-                  <p role="alert" className="text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{ERROR_FALTANTES}</p>
-                  <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={cargarFaltantes}>Reintentar</button>
+                  <p role="alert" className="text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{ERROR_FALTANTES}</p>
+                  <button type="button" className={flitBtnSecondary} onClick={cargarFaltantes}>Reintentar</button>
                 </div>
               )}
               <input
@@ -220,8 +220,8 @@ function TarifasClientes() {
                     Con faltantes · {conFaltantes}
                   </FlitPillButton>
                 ) : (
-                  <button type="button" disabled aria-pressed={false} className="flit-focus inline-flex items-center rounded-[999px] px-4 py-2 text-xs font-semibold disabled:opacity-50"
-                    style={{ color: 'var(--flit-text-secondary)' }}>
+                  <button type="button" disabled aria-pressed={false} className="flit-focus chip chip--sm disabled:opacity-50"
+                    style={{ color: 'var(--color-text-secondary)' }}>
                     Con faltantes
                   </button>
                 )}
@@ -252,14 +252,14 @@ function TarifasClientes() {
                   <FlitEmpty>
                     {busqueda.trim() ? (
                       <>
-                        <p style={{ color: 'var(--flit-text-primary)' }}>Ningún cliente se llama así.</p>
+                        <p style={{ color: 'var(--color-text-primary)' }}>Ningún cliente se llama así.</p>
                         <p className="mt-1">Prueba con otra parte del nombre.</p>
-                        <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={() => setBusqueda('')}>Limpiar búsqueda</button>
+                        <button type="button" className={`${flitBtnSecondary} mt-3`} onClick={() => setBusqueda('')}>Limpiar búsqueda</button>
                       </>
                     ) : (
                       <>
-                        <p style={{ color: 'var(--flit-text-primary)' }}>Todos los clientes tienen sus cinco valores fijados.</p>
-                        <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={() => setSoloFaltantes(false)}>Ver todos</button>
+                        <p style={{ color: 'var(--color-text-primary)' }}>Todos los clientes tienen sus cinco valores fijados.</p>
+                        <button type="button" className={`${flitBtnSecondary} mt-3`} onClick={() => setSoloFaltantes(false)}>Ver todos</button>
                       </>
                     )}
                   </FlitEmpty>
@@ -279,18 +279,18 @@ function TarifasClientes() {
                             aria-disabled={bloqueado || undefined}
                             disabled={bloqueado}
                             onClick={() => elegir(c.id)}
-                            className="flit-focus flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors enabled:hover:bg-[var(--flit-bg-hover)] disabled:cursor-not-allowed"
+                            className="flit-focus flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors enabled:hover:bg-[var(--kit-hover)] disabled:cursor-not-allowed"
                             style={{
-                              background: actual ? 'var(--flit-bg-table-header)' : undefined,
-                              color: bloqueado ? 'var(--flit-text-secondary)' : 'var(--flit-text-primary)', fontWeight: actual ? 600 : 400,
+                              background: actual ? 'color-mix(in srgb, var(--kit-azul) 10%, transparent)' : undefined,
+                              color: bloqueado ? 'var(--color-text-secondary)' : 'var(--color-text-primary)', fontWeight: actual ? 600 : 400,
                             }}
                           >
                             <span className="min-w-0 truncate">{c.name}</span>
                             {esInactivo({ activo: c.active }) && (
-                              <span className="shrink-0 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{NOTA_INACTIVO}</span>
+                              <span className="shrink-0 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>{NOTA_INACTIVO}</span>
                             )}
                             {!esInactivo({ activo: c.active }) && n > 0 && (
-                              <span className="shrink-0 text-xs font-semibold" style={{ color: 'var(--flit-warning-ink)' }}>{faltanTexto(n)}</span>
+                              <span className="shrink-0 text-xs font-semibold" style={{ color: 'var(--kit-naranja-texto)' }}>{faltanTexto(n)}</span>
                             )}
                           </button>
                         </li>
@@ -305,18 +305,18 @@ function TarifasClientes() {
           <section className="min-w-0 space-y-5" aria-label="Valores del cliente">
             {companiaId === null ? (
               <FlitCard>
-                <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+                <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                   Elige un cliente de la lista para ver y fijar sus valores.
                 </p>
                 {faltan !== null && (
-                  <p className="mt-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+                  <p className="mt-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                     {conFaltantes > 0
                       ? `${conFaltantes === 1 ? '1 cliente tiene' : `${conFaltantes} clientes tienen`} valores sin configurar; sus trámites de esos tipos saldrán como «Sin configurar» en el reporte de costos y no se podrán liquidar.`
                       : `${clientes.length === 1 ? 'El único cliente tiene' : `Los ${clientes.length} clientes tienen`} sus cinco valores fijados.`}
                   </p>
                 )}
                 {faltan !== null && conFaltantes > 0 && (
-                  <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={verFaltantes}>
+                  <button type="button" className={`${flitBtnSecondary} mt-4`} onClick={verFaltantes}>
                     Ver {conFaltantes === 1 ? 'el que falta' : `los ${conFaltantes}`}
                   </button>
                 )}
@@ -372,27 +372,27 @@ function PanelCliente({ nombre, vista, cargando, refrescando, error, onReintenta
     <FlitCard>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold" style={{ color: 'var(--flit-text-primary)' }}>{nombre}</h2>
+          <h2 className="text-base font-bold" style={{ color: 'var(--color-text-primary)' }}>{nombre}</h2>
           {vista && faltantes > 0 && (
-            <p className="text-sm font-semibold" style={{ color: 'var(--flit-warning-ink)' }}>{faltanValores(faltantes)}</p>
+            <p className="text-sm font-semibold" style={{ color: 'var(--kit-naranja-texto)' }}>{faltanValores(faltantes)}</p>
           )}
         </div>
         {vista && vista.capacidades.verHistorial && (
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onHistorialCliente}>Historial del cliente</button>
+          <button type="button" className={flitBtnSecondary} onClick={onHistorialCliente}>Historial del cliente</button>
         )}
       </div>
 
       {error && !vista ? (
         error.status === 404 ? (
           <div className="space-y-3">
-            <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>Ese cliente ya no existe.</p>
-            <Link to="/flito/tarifas" replace className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Ver la lista</Link>
+            <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>Ese cliente ya no existe.</p>
+            <Link to="/flito/tarifas" replace className={flitBtnSecondary}>Ver la lista</Link>
           </div>
         ) : (
           <div className="space-y-3">
-            <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>No se pudieron cargar los valores de {nombre}.</p>
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{error.mensaje}</p>
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>Reintentar</button>
+            <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>No se pudieron cargar los valores de {nombre}.</p>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{error.mensaje}</p>
+            <button type="button" className={flitBtnSecondary} onClick={onReintentar}>Reintentar</button>
           </div>
         )
       ) : cargando || !vista ? (
@@ -403,7 +403,7 @@ function PanelCliente({ nombre, vista, cargando, refrescando, error, onReintenta
       ) : (
         <>
           {error && (
-            <p role="alert" className="mb-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+            <p role="alert" className="mb-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
               No se pudieron recargar los valores de {nombre}. {error.mensaje}{' '}
               <button type="button" className="underline" onClick={onReintentar}>Reintentar</button>
             </p>

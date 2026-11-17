@@ -27,7 +27,7 @@ interface Props {
   onFirmarLlegada: (a: ActaFilaLogistica) => void;
 }
 
-const TITULO = <h2 className="mb-3 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Actas</h2>;
+const TITULO = <h2 className="mb-3 text-lg font-bold" style={{ color: 'var(--color-action)' }}>Actas</h2>;
 const COLUMNAS = ['w-48', 'w-10', 'w-28', 'w-20', 'w-32'];
 
 const nombreDe = (a: ActaFilaLogistica) => a.companiaNombre ?? 'sin compañía';
@@ -84,7 +84,7 @@ function Tabla({ actas, esProveedor, permisos, onVer, onDespachar, onDevolver, o
               <FlitTr key={a.id}>
                 <td className="px-4 py-2 text-sm">
                   {a.companiaNombre ?? '—'}
-                  {a.punto === 'flit' && <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{esProveedor ? 'A FLIT. Operaciones de FLITO firma la llegada.' : 'A FLIT'}</div>}
+                  {a.punto === 'flit' && <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{esProveedor ? 'A FLIT. Operaciones de FLITO firma la llegada.' : 'A FLIT'}</div>}
                 </td>
                 <td className="px-4 py-2 text-sm tabular-nums">{a.documentos}</td>
                 <td className="px-4 py-2 text-sm">{a.mensajeroNombre ?? '—'}</td>
@@ -108,7 +108,7 @@ function Tabla({ actas, esProveedor, permisos, onVer, onDespachar, onDevolver, o
 }
 
 function Tarjetas({ actas, esProveedor, permisos, onVer, onDespachar, onDevolver, onFirmarLlegada }: Props & { actas: ActaFilaLogistica[] }) {
-  const sec = { color: 'var(--flit-text-secondary)' } as const;
+  const sec = { color: 'var(--color-text-secondary)' } as const;
   return (
     <ul className="space-y-3">
       {actas.map((a) => {
@@ -117,15 +117,15 @@ function Tarjetas({ actas, esProveedor, permisos, onVer, onDespachar, onDevolver
         const flit = a.punto === 'flit';
         return (
           <li key={a.id}>
-            <article className="rounded-xl border bg-flit-card p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <div className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{a.companiaNombre ?? '—'}</div>
+            <article className="rounded-xl border bg-flit-card p-3" style={{ borderColor: 'var(--color-border)' }}>
+              <div className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{a.companiaNombre ?? '—'}</div>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-sm" style={sec}>
                 <StatusChip tone={TONO_ACTA[a.estado] ?? 'neutral'}>{a.estadoLabel}</StatusChip>
                 <span className="tabular-nums">{a.documentos} {a.documentos === 1 ? 'licencia' : 'licencias'}{flit ? ' · A FLIT' : ''}</span>
               </div>
               <div className="mt-1 text-sm" style={sec}>{a.mensajeroNombre ? `Mensajero: ${a.mensajeroNombre}` : a.estado === 'generada' ? 'Sin mensajero' : 'Mensajero: —'}</div>
               {!esProveedor && a.receptorNombre && <div className="mt-1 text-sm" style={sec}>Receptor: {a.receptorNombre} · {fecha(a.entregadoEn)}</div>}
-              {flit && esProveedor && <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>Operaciones de FLITO firma la llegada.</p>}
+              {flit && esProveedor && <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Operaciones de FLITO firma la llegada.</p>}
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 {puede.despachar && <button type="button" className={`${flitBtnPrimary} w-full justify-center`} style={flitBtnPrimaryStyle} onClick={() => onDespachar(a)}>Firmar y despachar</button>}
                 {puede.llegada && <button type="button" className={`${flitBtnPrimary} w-full justify-center`} style={flitBtnPrimaryStyle} onClick={() => onFirmarLlegada(a)}>Firmar llegada</button>}

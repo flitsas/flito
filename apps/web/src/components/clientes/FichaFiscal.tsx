@@ -22,10 +22,11 @@ import {
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
-import GradientButton from '../flit/GradientButton';
+import GradientButton, { claseBoton } from '../flit/GradientButton';
+import { Cargador } from '../flit/Cargador';
 import StatusChip from '../flit/StatusChip';
 import {
-  flitInp, FlitField, flitBtnSecondary, flitBtnSecondaryStyle,
+  flitInp, FlitField,
 } from '../flit/flitPageKit';
 import UbicacionFiscal from './UbicacionFiscal';
 import { ErrorNit, manejarErrorGuardarCliente } from './nitDuplicado';
@@ -185,19 +186,17 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
     <Marco embebido={embebido} title={`Datos fiscales · ${clienteNombre}`} onClose={onClose}>
       {error && (
         <div className="px-2 py-6 text-center">
-          <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-            <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>{error}
+          <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
+            <span aria-hidden="true" style={{ color: 'var(--kit-rojo-texto)' }}>⚠ </span>{error}
           </p>
-          <button type="button" onClick={() => { void cargar(); }} className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}>
+          <button type="button" onClick={() => { void cargar(); }} className={claseBoton('secondary', 'md', 'mt-4')} data-variante="secundario">
             Reintentar
           </button>
         </div>
       )}
 
       {!error && form === null && (
-        <p role="status" className="px-2 py-6 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>
-          Cargando datos fiscales…
-        </p>
+        <Cargador texto="Cargando datos fiscales…" />
       )}
 
       {!error && form !== null && (
@@ -206,27 +205,25 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
           {veredicto && !veredicto.facturable && (
             <section
               aria-labelledby="faltantes-titulo"
-              className="rounded-[10px] px-4 py-3"
-              style={{ background: 'rgba(228, 61, 48, 0.08)', borderLeft: '4px solid var(--flit-danger)' }}
+              className="kit-alerta flex-col !gap-1" data-tono="danger"
             >
-              <h4 id="faltantes-titulo" className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+              <h4 id="faltantes-titulo" className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                 Este cliente todavía no se puede facturar
               </h4>
-              <ul className="mt-1 list-disc pl-5 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+              <ul className="mt-1 list-disc pl-5 text-xs" style={{ color: 'var(--color-text-primary)' }}>
                 {veredicto.faltantes.map((f) => <li key={f.motivo}>{f.detalle}</li>)}
               </ul>
             </section>
           )}
           {veredicto?.facturable && (
-            <p role="status" className="rounded-[10px] px-4 py-3 text-sm font-semibold"
-              style={{ background: 'rgba(38, 148, 96, 0.08)', borderLeft: '4px solid var(--flit-success)', color: 'var(--flit-text-primary)' }}>
+            <p role="status" className="kit-alerta text-sm font-semibold" data-tono="ok">
               Este cliente tiene todo lo que Siigo exige para facturarle.
             </p>
           )}
 
           {/* AC2 — vacío: cuál es el primer dato a llenar. */}
           {form.personType === '' && (
-            <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
               Empieza por el <strong>tipo de persona</strong>: de él dependen la forma del nombre que
               se le envía a Siigo y qué tipo de identificación corresponde.
             </p>
@@ -342,12 +339,12 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
           )}
 
           <fieldset>
-            <legend className="mb-1.5 text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+            <legend className="mb-1.5 text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
               Responsabilidades fiscales
             </legend>
             <div className="flex flex-wrap gap-3">
               {Object.entries(RESPONSABILIDADES_FISCALES).map(([codigo, nombre]) => (
-                <label key={codigo} className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+                <label key={codigo} className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--color-text-primary)' }}>
                   <input
                     type="checkbox"
                     className="h-4 w-4"
@@ -403,7 +400,7 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
           </div>
 
           {!esPersona && form.personType === 'Company' && (
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               El contacto es la persona de la empresa con la que se factura; su nombre es obligatorio
               para Siigo. Se captura en los campos de arriba.
             </p>
@@ -411,7 +408,7 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
 
           {editable && (
             <div className="flex justify-end gap-2 pt-1">
-              <button type="button" onClick={onClose} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>
+              <button type="button" onClick={onClose} className={claseBoton('secondary')} data-variante="secundario">
                 Cerrar
               </button>
               <GradientButton type="submit" disabled={guardando || hayErrores}>
@@ -420,7 +417,7 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
             </div>
           )}
           {!editable && (
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               Tu rol puede consultar estos datos, no modificarlos.
             </p>
           )}
@@ -430,20 +427,19 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
       {/* AC3 — advertencia ANTES de reinterpretar los campos. */}
       {cambioPendiente && form && (
         <div role="alertdialog" aria-label="Confirmar cambio de tipo de persona"
-          className="mt-4 rounded-[10px] px-4 py-3"
-          style={{ background: 'rgba(224, 168, 0, 0.10)', borderLeft: '4px solid var(--flit-warning)' }}>
-          <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          className="kit-alerta mt-4 flex-col !gap-1" data-tono="warn">
+          <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Cambiar a {PERSONA_TIPO_ETIQUETA[cambioPendiente]} reinterpreta el nombre
           </p>
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-text-primary)' }}>
             {cambioPendiente === 'Person'
               ? 'La razón social dejará de enviarse como tal: a Siigo irán los nombres y apellidos por separado, sin dígitos ni signos.'
               : 'Los nombres y apellidos dejarán de enviarse por separado: a Siigo irá una sola razón social, conservando dígitos y siglas.'}
           </p>
-          <div className="mt-2 flex gap-2">
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" className={claseBoton('secondary')} data-variante="secundario"
               onClick={() => setCambioPendiente(null)}>Cancelar</button>
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+            <button type="button" className={claseBoton('secondary')} data-variante="secundario"
               onClick={() => { setForm({ ...form, personType: cambioPendiente }); setCambioPendiente(null); }}>
               Entiendo, cambiar
             </button>
@@ -456,15 +452,15 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
 
 function ErrorCampo({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mt-1 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-      <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>{children}
+    <p className="mt-1 text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+      <span aria-hidden="true" style={{ color: 'var(--kit-rojo-texto)' }}>⚠ </span>{children}
     </p>
   );
 }
 
 /** Señal de «no facturable» para el listado (AC5). */
 export function ChipFacturable({ veredicto }: { veredicto: VeredictoCliente | undefined }) {
-  if (!veredicto) return <span style={{ color: 'var(--flit-text-muted)' }}>—</span>;
+  if (!veredicto) return <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>;
   if (veredicto.facturable) return <StatusChip tone="success">Lista</StatusChip>;
   return (
     <StatusChip tone={veredicto.pendienteClasificacion ? 'warning' : 'danger'}>

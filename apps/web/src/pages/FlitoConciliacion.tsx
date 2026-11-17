@@ -25,10 +25,8 @@ import RangoFechas from '../components/flit/RangoFechas';
 import FlitSelect from '../components/flit/FlitSelect';
 import BandejaBoletas from '../components/flito/conciliacion/BandejaBoletas';
 import CargarBoletaModal, { type ClienteOpcion } from '../components/flito/conciliacion/CargarBoletaModal';
-import {
-  FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../components/flit/flitPageKit';
+import { FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup } from '../components/flit/flitPageKit';
+import GradientButton from '../components/flit/GradientButton';
 
 export default function FlitoConciliacion() {
   const { hasFuncion } = useAuth();
@@ -139,20 +137,20 @@ function Conciliacion() {
   }
 
   const acciones = (
-    <button
+    <GradientButton
       type="button"
-      className={flitBtnPrimary}
-      style={flitBtnPrimaryStyle}
       onClick={() => setCargandoBoleta(true)}
-    >
+>
       + Cargar boleta
-    </button>
+    </GradientButton>
   );
 
   return (
     <div className="space-y-4">
       <PageHeaderCard
         title="Conciliación"
+        icono="flito-conciliacion"
+        miga={[{ etiqueta: 'Finanzas' }]}
         subtitle={'Las boletas que la financiera pagó en el portal SOAT, cruzadas contra los SOAT de '
           + 'FLITO. Cargar una boleta no mueve dinero: eso pasa al conciliarla.'}
         actions={acciones}
@@ -197,12 +195,12 @@ function Conciliacion() {
           />
 
           {hayFiltros && (
-            <button
-              type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+            <GradientButton variant="secondary"
+              type="button"
               onClick={limpiarFiltros}
-            >
+>
               Limpiar filtros
-            </button>
+            </GradientButton>
           )}
         </div>
       </FlitCard>
@@ -211,16 +209,16 @@ function Conciliacion() {
 
       {!cargando && error && (
         <FlitCard>
-          <p className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
             No se pudo cargar la lista de boletas.
           </p>
-          <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{error}</p>
-          <button
-            type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}
+          <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>{error}</p>
+          <GradientButton variant="secondary"
+            type="button" className="mt-3"
             onClick={() => setNonce((n) => n + 1)}
-          >
+>
             Reintentar
-          </button>
+          </GradientButton>
         </FlitCard>
       )}
 
@@ -228,34 +226,34 @@ function Conciliacion() {
         <FlitEmpty>
           {hayFiltros ? (
             <>
-              <p className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+              <p className="text-base font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                 Ninguna boleta con los filtros puestos.
               </p>
               <p className="mx-auto mt-2 max-w-lg">
                 Prueba con otro cliente, otro estado o un rango de fechas más amplio.
               </p>
-              <button
-                type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}
+              <GradientButton variant="secondary"
+                type="button" className="mt-4"
                 onClick={limpiarFiltros}
-              >
+>
                 Limpiar filtros
-              </button>
+              </GradientButton>
             </>
           ) : (
             <>
-              <p className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+              <p className="text-base font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                 Todavía no hay boletas cargadas.
               </p>
               <p className="mx-auto mt-2 max-w-xl">
                 Cuando la financiera pague una boleta en el portal SOAT, descarga el Excel y cárgalo
                 aquí: FLITO lo cruza con los SOAT del cliente y te dice qué cuadra y qué no.
               </p>
-              <button
-                type="button" className={`${flitBtnPrimary} mt-4`} style={flitBtnPrimaryStyle}
+              <GradientButton
+                type="button" className="mt-4"
                 onClick={() => setCargandoBoleta(true)}
-              >
+>
                 Cargar boleta
-              </button>
+              </GradientButton>
             </>
           )}
         </FlitEmpty>

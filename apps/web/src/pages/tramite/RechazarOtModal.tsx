@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../../components/flit/FlitModal';
 import GradientButton from '../../components/flit/GradientButton';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
+import { flitInp } from '../../components/flit/flitPageKit';
 import type { MotivoRechazoApi, RechazarOtResponse } from './rechazoOt';
 
 interface Props {
@@ -47,46 +47,46 @@ export default function RechazarOtModal({ tramiteId, vin, placa, onClose, onSucc
   const ref = vin || placa || `#${tramiteId}`;
 
   return (
-    <FlitModal title="Registrar rechazo OT" onClose={onClose}>
-      <p className="mb-4 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-        Trámite <span className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{ref}</span>
+    <FlitModal title="Registrar rechazo OT" onClose={onClose} icono="alerta">
+      <p className="mb-4 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+        Trámite <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{ref}</span>
         {' '}— el motivo queda en el expediente y alimenta métricas (sin datos personales).
       </p>
 
-      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>
+      <label htmlFor="rechazo-ot-motivo" className="mb-1 block text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
         Motivo
       </label>
       <select
+        id="rechazo-ot-motivo"
         value={codigo}
         onChange={(e) => setCodigo(e.target.value)}
-        className="flit-focus mb-4 w-full rounded-[10px] border px-3 py-2.5 text-sm"
-        style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+        className={`${flitInp} mb-4`}
       >
         {motivos.map((m) => <option key={m.codigo} value={m.codigo}>{m.label}</option>)}
       </select>
 
-      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>
+      <label htmlFor="rechazo-ot-nota" className="mb-1 block text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
         Nota (opcional)
       </label>
       <textarea
+        id="rechazo-ot-nota"
         value={nota}
         onChange={(e) => setNota(e.target.value)}
         rows={3}
         maxLength={2000}
         placeholder="Detalle para el gestor interno…"
-        className="flit-focus mb-4 w-full resize-y rounded-[10px] border px-3 py-2.5 text-sm"
-        style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+        className={`${flitInp} mb-4 resize-y`}
       />
 
       {sugeridos && (
-        <p className="mb-4 text-xs" style={{ color: 'var(--flit-warning)' }}>
+        <p className="mb-4 text-xs" style={{ color: 'var(--kit-naranja-texto)' }}>
           Ítems de checklist sugeridos: {sugeridos.join(', ')}
         </p>
       )}
 
       <div className="flex flex-wrap justify-end gap-2">
-        <button type="button" onClick={onClose} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Cancelar</button>
-        <GradientButton type="button" onClick={submit} disabled={loading || !codigo}>
+        <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+        <GradientButton type="button" variant="alerta" onClick={submit} disabled={loading || !codigo}>
           {loading ? 'Guardando…' : 'Confirmar rechazo'}
         </GradientButton>
       </div>

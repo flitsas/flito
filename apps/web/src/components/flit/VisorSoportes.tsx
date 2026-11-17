@@ -30,7 +30,7 @@ const ORIGEN_SOPORTE: Record<string, string> = {
 
 
 /** Botón de texto (Actualizar / Reintentar): hover y foco del kit, 44 px de alto táctil bajo `lg`. */
-const BOTON_TEXTO = 'flit-focus rounded px-1 transition-colors hover:bg-[var(--flit-bg-hover)] max-lg:min-h-11';
+const BOTON_TEXTO = 'flit-focus rounded px-1 transition-colors hover:bg-[var(--kit-hover)] max-lg:min-h-11';
 
 const fechaCorta = (iso: string | null) =>
   (iso === null ? null : new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }));
@@ -71,12 +71,12 @@ export default function VisorSoportes({ ruta, titulo, vacio, onClose }: {
     <FlitModal title={`Documentos de ${titulo}`} onClose={onClose} full>
       {error && (
         <div role="status" className="flex flex-wrap items-center gap-3 text-sm">
-          <p style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>
-          <button type="button" className={`${BOTON_TEXTO} underline`} style={{ color: 'var(--flit-blue-text)' }}
+          <p style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>
+          <button type="button" className={`${BOTON_TEXTO} underline`} style={{ color: 'var(--color-action)' }}
             onClick={() => { setError(null); setNonce((n) => n + 1); }}>Reintentar</button>
         </div>
       )}
-      {!soportes && !error && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
+      {!soportes && !error && <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Cargando…</p>}
       {soportes && soportes.length === 0 && (
         <FlitEmpty>{vacio ?? 'Este trámite no tiene ningún documento cargado todavía.'}</FlitEmpty>
       )}
@@ -84,25 +84,25 @@ export default function VisorSoportes({ ruta, titulo, vacio, onClose }: {
         <div className="flex h-full min-h-0 flex-col gap-3 lg:flex-row lg:gap-4">
           <aside className="flex max-h-44 shrink-0 flex-col gap-2 overflow-y-auto lg:max-h-none lg:w-64">
             <div className="flex items-center justify-between gap-2 text-xs">
-              <span style={{ color: 'var(--flit-text-secondary)' }}>{soportes.length} documento(s)</span>
+              <span style={{ color: 'var(--color-text-secondary)' }}>{soportes.length} documento(s)</span>
               {/* Un comprobante cargado en otra pestaña aparece sin cerrar y volver a abrir. */}
-              <button type="button" className={`${BOTON_TEXTO} underline`} style={{ color: 'var(--flit-blue-text)' }}
+              <button type="button" className={`${BOTON_TEXTO} underline`} style={{ color: 'var(--color-action)' }}
                 onClick={() => setNonce((n) => n + 1)}>Actualizar</button>
             </div>
             {soportes.map((s) => {
               const activa = activo?.id === s.id;
               return (
                 <button key={s.id} type="button" onClick={() => setActivo(s)} aria-pressed={activa}
-                  className={'flit-focus shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors max-lg:min-h-11 '
-                    + (activa ? '' : 'hover:bg-[var(--flit-bg-hover)]')}
+                  className={'flit-focus shrink-0 rounded-[9px] border px-3 py-2 text-left text-xs transition-colors max-lg:min-h-11 '
+                    + (activa ? '' : 'hover:bg-[var(--kit-hover)]')}
                   style={activa
-                    ? { borderColor: 'var(--flit-blue-text)', background: 'color-mix(in srgb, var(--flit-blue-text) 10%, transparent)' }
-                    : { borderColor: 'var(--flit-border-input)' }}>
-                  <div className="font-semibold" style={{ color: 'var(--flit-blue-text)' }}>
+                    ? { borderColor: 'var(--color-action)', background: 'color-mix(in srgb, var(--color-action) 10%, transparent)' }
+                    : { borderColor: 'var(--color-border-control)' }}>
+                  <div className="font-semibold" style={{ color: 'var(--color-action)' }}>
                     {ORIGEN_SOPORTE[s.origen] ?? s.origen}
                   </div>
-                  <div className="break-all" style={{ color: 'var(--flit-text-secondary)' }}>{s.nombreArchivo}</div>
-                  <div style={{ color: 'var(--flit-text-muted)' }}>{fechaCorta(s.subidoEn) ?? ''}</div>
+                  <div className="break-all" style={{ color: 'var(--color-text-secondary)' }}>{s.nombreArchivo}</div>
+                  <div style={{ color: 'var(--color-text-tertiary)' }}>{fechaCorta(s.subidoEn) ?? ''}</div>
                 </button>
               );
             })}

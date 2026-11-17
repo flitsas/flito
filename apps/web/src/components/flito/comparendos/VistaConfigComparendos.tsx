@@ -1,4 +1,4 @@
-// FLITO — Comparendos: la vista de Configuración (HU #11633 AC1/AC3/AC4/AC5, HU #11634 AC1–AC4).
+// FLITO — Comparendos: la vista de Configuración (HU 11633 AC1/AC3/AC4/AC5, HU 11634 AC1–AC4).
 //
 // Una pila de tarjetas, cada una con su petición, su estado y su reintento. El orden es el de la
 // spec de UX y va de lo más operativo a lo más sensible:
@@ -9,7 +9,7 @@
 //   4. Token SIMIT — la credencial, al final por lo mismo que en cualquier ficha: es lo que menos se
 //      toca y lo que más cuesta si se toca mal.
 //
-// Los cuatro están montados desde la HU #11634. El orden lo dejó escrito la #11633 y se respeta tal
+// Los cuatro están montados desde la HU 11634. El orden lo dejó escrito la 11633 y se respeta tal
 // cual: los bloques nuevos se insertaron donde les tocaba, no al final.
 //
 // Este componente no tiene estado propio: es la columna. Todo lo que se puede tocar vive dentro de

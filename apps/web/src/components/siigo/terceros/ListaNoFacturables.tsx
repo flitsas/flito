@@ -1,4 +1,4 @@
-// Bloque B — los clientes que todavía no se pueden facturar (HU #11299, AC2, AC4 y AC6).
+// Bloque B — los clientes que todavía no se pueden facturar (HU 11299, AC2, AC4 y AC6).
 //
 // Cómo se prioriza cuando a un cliente le faltan seis datos: **no se prioriza dentro del cliente**
 // —hay que llenarlos todos— sino ENTRE clientes, desde el resumen de arriba. Por eso esta lista no
@@ -156,7 +156,7 @@ export default function ListaNoFacturables({
           ref={tituloRef}
           tabIndex={-1}
           className="flit-focus rounded text-base font-semibold"
-          style={{ color: 'var(--flit-text-primary)' }}
+          style={{ color: 'var(--color-text-primary)' }}
         >
           Clientes que todavía no
         </h3>
@@ -168,13 +168,13 @@ export default function ListaNoFacturables({
       </div>
 
       {motivo !== null && (
-        <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mt-1 text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
           Filtrado por: {MOTIVOS_NO_FACTURABLE[motivo]}
         </p>
       )}
 
       {!puedeSincronizar && (
-        <p id={ID_EXPLICACION_SINCRONIZAR} className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p id={ID_EXPLICACION_SINCRONIZAR} className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Sincronizar escribe en Siigo: lo hacen administración y financiera. Tu rol puede revisar la
           lista y abrir la ficha de cada cliente.
         </p>
@@ -185,7 +185,7 @@ export default function ListaNoFacturables({
           {/* Va aquí dentro y no arriba: el único botón que la referencia solo existe con este
               filtro puesto, y un `aria-describedby` que apunta a un id ausente no anuncia nada. */}
           {!puedeRecalcularDuplicados && (
-            <p id={ID_EXPLICACION_DUPLICADOS} className="mb-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            <p id={ID_EXPLICACION_DUPLICADOS} className="mb-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
               Volver a revisar los duplicados reescribe las marcas de identificación de las fichas:
               lo hace administración.
             </p>
@@ -202,7 +202,7 @@ export default function ListaNoFacturables({
             <p
               role={duplicados.alerta ? 'alert' : 'status'}
               className="mt-1 text-xs"
-              style={{ color: 'var(--flit-text-primary)' }}
+              style={{ color: 'var(--color-text-primary)' }}
             >
               {duplicados.texto}
             </p>
@@ -212,11 +212,11 @@ export default function ListaNoFacturables({
 
       {cargando && (
         <div aria-busy="true" className="mt-4 space-y-2">
-          <p role="status" className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+          <p role="status" className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
             Cargando la lista de clientes…
           </p>
           {[0, 1, 2].map((i) => (
-            <div key={i} aria-hidden="true" className="h-12 animate-pulse rounded-[10px]" style={{ background: 'var(--flit-bg-app)' }} />
+            <div key={i} aria-hidden="true" className="kit-esqueleto h-12" />
           ))}
         </div>
       )}
@@ -224,8 +224,8 @@ export default function ListaNoFacturables({
       {/* El error va antes que el vacío: con la consulta caída nadie sabe si hay algo. */}
       {!cargando && error !== null && (
         <div className="mt-4">
-          <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-            <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+          <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
+            <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>
             No se pudo traer la lista: {error}
           </p>
           <button type="button" onClick={() => { void cargar(); }} className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}>
@@ -237,14 +237,14 @@ export default function ListaNoFacturables({
       {/* Los dos vacíos no dicen lo mismo y no comparten copy: uno es «no queda trabajo», el otro es
           «el filtro te dejó fuera lo que buscabas». */}
       {!cargando && error === null && filas.length === 0 && motivo === null && (
-        <p className="mt-4 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="mt-4 text-sm" style={{ color: 'var(--color-text-primary)' }}>
           Ningún cliente activo tiene datos pendientes.
         </p>
       )}
 
       {!cargando && error === null && filas.length === 0 && motivo !== null && (
         <div className="mt-4">
-          <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
             Ningún cliente tiene pendiente «{MOTIVOS_NO_FACTURABLE[motivo]}». Quita el filtro para
             ver el resto.
           </p>
@@ -306,7 +306,7 @@ function FilaCliente({
   const idDetalle = `faltantes-cliente-${veredicto.clienteId}`;
 
   return (
-    <li className="rounded-[10px] border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <li className="rounded-[10px] border p-3" style={{ borderColor: 'var(--color-border)' }}>
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -314,12 +314,12 @@ function FilaCliente({
           aria-controls={abierta ? idDetalle : undefined}
           onClick={onAlternar}
           className="flit-focus rounded text-left text-sm font-semibold"
-          style={{ color: 'var(--flit-text-primary)' }}
+          style={{ color: 'var(--color-text-primary)' }}
         >
           <span aria-hidden="true">{abierta ? '▾ ' : '▸ '}</span>
           {veredicto.nombre}
         </button>
-        <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           {veredicto.documento ?? 'Sin identificación'}
         </span>
 
@@ -352,7 +352,7 @@ function FilaCliente({
 
       {/* Por qué se ofrece sincronizar a un cliente incompleto: no es un descuido de la pantalla. */}
       {puedeSincronizar && estado === undefined && abierta && (
-        <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Puede que Siigo ya lo tenga completo. Sincronizar lo vincula y, de paso, completa lo que
           falte aquí con lo que haya allá.
         </p>
@@ -365,18 +365,18 @@ function FilaCliente({
       )}
 
       {estado?.fase === 'ok' && (
-        <p role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+        <p role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--color-text-primary)' }}>
           <StatusChip tone={DESENLACE[estado.resultado.desenlace].tono}>
             {DESENLACE[estado.resultado.desenlace].titulo}{simulado ? ' (simulado)' : ''}
           </StatusChip>
           <span>{DESENLACE[estado.resultado.desenlace].frase}</span>
-          <span style={{ color: 'var(--flit-text-muted)' }}>id {estado.resultado.siigoCustomerId}</span>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>id {estado.resultado.siigoCustomerId}</span>
         </p>
       )}
 
       {estado?.fase === 'ficha' && (
-        <div role="alert" className="mt-2 rounded-[10px] px-3 py-2" style={{ background: 'var(--flit-bg-app)' }}>
-          <p className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <div role="alert" className="mt-2 rounded-[10px] px-3 py-2" style={{ background: 'var(--color-surface)' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             No se pudo sincronizar: hay que corregir la ficha.
           </p>
           <div className="mt-2">
@@ -389,11 +389,11 @@ function FilaCliente({
       )}
 
       {estado?.fase === 'error' && (
-        <div role="alert" className="mt-2 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
-          <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+        <div role="alert" className="mt-2 text-xs" style={{ color: 'var(--color-text-primary)' }}>
+          <span aria-hidden="true" style={{ color: 'var(--kit-rojo)' }}>⚠ </span>
           {estado.mensaje}
           {estado.sinRespuesta && (
-            <span className="block" style={{ color: 'var(--flit-text-muted)' }}>
+            <span className="block" style={{ color: 'var(--color-text-tertiary)' }}>
               No hubo respuesta. Puede que el tercero sí se haya creado en Siigo. Vuelve a
               sincronizar este cliente para comprobarlo: si ya existía, el resultado dirá «Ya estaba
               al día» o «Vinculado».

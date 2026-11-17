@@ -103,7 +103,7 @@ test.describe('Tránsito · Bandeja (flujo matrícula)', () => {
     await page.getByRole('button', { name: /confirmar y enviar/i }).click();
 
     // Confirmado → toast éxito y el trámite sale de la bandeja (solicitud_soat).
-    await expect(page.locator('[role="status"]', { hasText: /confirmada/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /confirmada/i })).toBeVisible();
     // #128: el vacío de «Mis trámites» es organismo-aware. El usuario tránsito
     // tiene transitoCodigo 05001 → organismo Medellín truthy → copy con ciudad
     // (no el literal genérico «No tiene trámites asignados»).
@@ -122,7 +122,7 @@ test.describe('Tránsito · Bandeja (flujo matrícula)', () => {
     await page.goto('/transito');
 
     await page.getByRole('button', { name: /confirmar y enviar/i }).click();
-    await expect(page.locator('[role="status"]', { hasText: /no encontrado/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /no encontrado/i })).toBeVisible();
     // Sigue en la bandeja (no se perdió el estado).
     await expect(page.getByText('Placa: XYZ987')).toBeVisible();
   });
@@ -143,7 +143,7 @@ test.describe('Tránsito · Bandeja (flujo matrícula)', () => {
 
     await page.getByPlaceholder('ABC123').fill('AB');
     await page.getByRole('button', { name: /asignar placa/i }).click();
-    await expect(page.locator('[role="status"]', { hasText: /placa válida/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /placa válida/i })).toBeVisible();
     expect(postReached).toBeFalsy();
   });
 });

@@ -864,15 +864,27 @@ test.describe('HU #14344 · usuarios en los dos temas', () => {
     }
   });
 
+  const VARIANTE_BOTON: Record<string, string> = { Editar: 'ghost', Cancelar: 'secundario', Desactivar: 'alerta' };
+
   test('claro: las mismas superficies siguen en blanco', async ({ page }) => {
     for (const { nombre, fondo } of await medir(page, 'light')) {
-      if (nombre !== 'organismo marcado') expect(aHex(fondo).toLowerCase(), nombre).toBe('#ffffff');
+      // Épica #14560 (guía §2.2 y regla 4 del kit): los botones del kit son RELLENOS por función («Cancelar»
+      // tinta, «Desactivar» naranja destructivo); su fondo no es superficie. Se comprueban por marcador (§6).
+      if (nombre !== 'organismo marcado' && !(nombre in VARIANTE_BOTON)) expect(aHex(fondo).toLowerCase(), nombre).toBe('#ffffff');
     }
-    await expect(page.getByRole('dialog').locator('label').filter({ hasText: 'Medellín' })).toHaveCSS('color', 'rgb(79, 116, 201)');
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Cancelar' })).toHaveAttribute('data-variante', VARIANTE_BOTON.Cancelar);
+    // El organismo marcado se pinta con el azul de acción del kit (`--color-action`), no con un RGB fijo de la piel vieja.
+    const azulAccion = await page.evaluate(() => {
+      const sonda = document.body.appendChild(Object.assign(document.createElement('span'), { style: 'color: var(--color-action)' }));
+      const color = getComputedStyle(sonda).color;
+      sonda.remove();
+      return color;
+    });
+    await expect(page.getByRole('dialog').locator('label').filter({ hasText: 'Medellín' })).toHaveCSS('color', azulAccion);
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Editar' })).toHaveCSS('color', 'rgb(79, 116, 201)');
-    await expect(page.getByRole('button', { name: 'Desactivar' })).toHaveCSS('color', 'rgb(228, 61, 48)');
+    await expect(page.getByRole('button', { name: 'Editar' })).toHaveAttribute('data-variante', VARIANTE_BOTON.Editar);
+    await expect(page.getByRole('button', { name: 'Desactivar' })).toHaveAttribute('data-variante', VARIANTE_BOTON.Desactivar);
   });
 
   test('oscuro: el aviso «sin permiso» del campo Proveedor se lee sobre el modal', async ({ page }) => {

@@ -6,7 +6,7 @@
 // acción en el árbol accesible. Edición en sitio y de un concepto a la vez; «Guardar» es la única primaria.
 //
 // SIN ROJO (decisión del humano): ni «Dejar de cobrar», ni sus modales, ni los avisos, ni la validación
-// usan `--flit-danger-*`. La gravedad la dice el copy. El modo Clientes (`MatrizTarifas`) no se toca.
+// usan el rojo del kit (`--kit-rojo*`). La gravedad la dice el copy. El modo Clientes (`MatrizTarifas`) no se toca.
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import type { ConceptoCostoProveedor, FilaCostoProveedor, VistaCostosProveedor } from '@operaciones/shared-types';
@@ -20,7 +20,7 @@ import {
 import FlitModal from '../../components/flit/FlitModal';
 import { toastError, toastOk } from '../../components/flit/ToastFlito';
 import {
-  flitInp, FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+  flitInp, FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnSecondary, flitBtnDanger,
   flitBtnSecondarySm,
 } from '../../components/flit/flitPageKit';
 
@@ -50,10 +50,10 @@ export function AvisoTonal({ tono, rol, icono, children, accion }: {
   tono: 'activo' | 'neutro'; rol: 'alert' | 'status'; icono: string; children: ReactNode; accion?: ReactNode;
 }) {
   const t = tono === 'activo'
-    ? { bg: 'var(--flit-chip-active-bg)', ink: 'var(--flit-blue-ink)' }
-    : { bg: 'var(--flit-chip-draft-bg)', ink: 'var(--flit-chip-draft-ink)' };
+    ? { bg: 'color-mix(in srgb, var(--kit-azul) 10%, transparent)', ink: 'var(--color-action)' }
+    : { bg: 'var(--kit-hover)', ink: 'var(--color-text-primary)' };
   return (
-    <div role={rol} className="flex flex-wrap items-start gap-3 rounded-2xl border px-4 py-3 text-sm"
+    <div role={rol} className="flex flex-wrap items-start gap-3 rounded-[9px] border px-4 py-3 text-sm"
       style={{ background: t.bg, color: t.ink, borderColor: `color-mix(in srgb, ${t.ink} 45%, transparent)` }}>
       <span aria-hidden="true" className="mt-0.5 shrink-0 font-bold">{icono}</span>
       <div className="min-w-0 flex-1 break-words">{children}</div>
@@ -204,14 +204,14 @@ export default function CostosProveedor({ vista, refrescando, onGuardado, onHist
       {conflicto && (
         <div className="mb-4">
           <AvisoTonal tono="activo" rol="alert" icono="!"
-            accion={<button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={recargar}>Recargar</button>}>
+            accion={<button type="button" className={flitBtnSecondary} onClick={recargar}>Recargar</button>}>
             <p className="font-semibold">{MSG_CONFLICTO}</p>
           </AvisoTonal>
         </div>
       )}
 
       {escritorio ? (
-        <FlitTable label={`Valores de ${nombre}`}>
+        <FlitTable matriz label={`Valores de ${nombre}`}>
           <thead>
             <FlitTr>
               <FlitTh>Servicio</FlitTh>
@@ -231,7 +231,7 @@ export default function CostosProveedor({ vista, refrescando, onGuardado, onHist
         <div role="group" aria-label={`Valores de ${nombre}`} className="space-y-5">
           {grupos.map((g) => (
             <div key={g.titulo} className="space-y-2">
-              <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{g.titulo}</h3>
+              <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>{g.titulo}</h3>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {g.filas.map((f) => <TarjetaConcepto key={f.concepto} {...propsDe(f)} />)}
               </div>
@@ -239,22 +239,22 @@ export default function CostosProveedor({ vista, refrescando, onGuardado, onHist
           ))}
         </div>
       )}
-      <p className="mt-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{NOTA_PIE}</p>
+      <p className="mt-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{NOTA_PIE}</p>
 
       {modalCero && (
         <FlitModal title={`Cobrar $0 por ${etiquetaConcepto(modalCero.concepto)}`}
           onClose={() => { setModalCero(null); requestAnimationFrame(() => input.current?.focus()); }}>
-          <div className="space-y-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <div className="space-y-3 text-sm" style={{ color: 'var(--color-text-primary)' }}>
             <p>Se cobrará $0: {nombre} no le cobrará nada a FLITO por «{etiquetaConcepto(modalCero.concepto)}» desde ahora.</p>
-            <p style={{ color: 'var(--flit-text-secondary)' }}>
+            <p style={{ color: 'var(--color-text-secondary)' }}>
               Cero no es lo mismo que «Sin configurar». Si lo que quieres es quitar el valor, usa «Dejar de cobrar».
             </p>
             <div className="flex flex-wrap justify-end gap-2 pt-1">
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+              <button type="button" className={flitBtnSecondary}
                 onClick={() => { setModalCero(null); requestAnimationFrame(() => input.current?.focus()); }}>
                 Cancelar
               </button>
-              <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              <button type="button" className={flitBtnPrimary}
                 onClick={() => { const f = modalCero; setModalCero(null); void guardar(f, 0); }}>
                 Guardar $0
               </button>
@@ -301,7 +301,7 @@ interface ConceptoProps {
 /** ⚠ + texto en tinta primaria seminegrita: no depende del color (sin rojo). */
 function MensajeCampo({ id, texto }: { id: string; texto: string }) {
   return (
-    <p id={id} role="alert" className="flex items-start gap-1.5 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+    <p id={id} role="alert" className="flex items-start gap-1.5 text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
       <span aria-hidden="true">⚠</span><span className="min-w-0 break-words">{texto}</span>
     </p>
   );
@@ -315,15 +315,15 @@ function CampoValor({ p, id, visible, className }: { p: ConceptoProps; id: strin
   };
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={`${id}-valor`} className={visible ? 'text-xs font-semibold' : 'sr-only'} style={{ color: 'var(--flit-text-secondary)' }}>
+      <label htmlFor={`${id}-valor`} className={visible ? 'text-xs font-semibold' : 'sr-only'} style={{ color: 'var(--color-text-secondary)' }}>
         {visible ? 'Valor en pesos, sin IVA' : `Valor de ${p.sujeto}`}
       </label>
       <div className="flex min-w-0 items-center gap-1">
-        <span aria-hidden="true" style={{ color: 'var(--flit-text-primary)' }}>$</span>
+        <span aria-hidden="true" style={{ color: 'var(--color-text-primary)' }}>$</span>
         <input
           id={`${id}-valor`} ref={p.inputRef} type="text" inputMode="numeric" autoComplete="off"
           className={`${flitInp} ${className}`}
-          style={p.mensaje ? { borderWidth: 2, borderColor: 'var(--flit-text-secondary)' } : undefined}
+          style={p.mensaje ? { borderWidth: 2, borderColor: 'var(--color-text-secondary)' } : undefined}
           value={ed.texto}
           aria-invalid={p.mensaje ? true : undefined}
           aria-describedby={p.mensaje ? id : undefined}
@@ -335,7 +335,7 @@ function CampoValor({ p, id, visible, className }: { p: ConceptoProps; id: strin
       </div>
       {p.mensaje && <MensajeCampo id={id} texto={p.mensaje} />}
       {p.fila.vigencia && (
-        <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Antes: {pesosTarifa(p.fila.vigencia.valor)}</span>
+        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Antes: {pesosTarifa(p.fila.vigencia.valor)}</span>
       )}
     </div>
   );
@@ -350,11 +350,11 @@ function Acciones({ p, grande }: { p: ConceptoProps; grande: boolean }) {
   if (ed) {
     return (
       <>
-        <button type="button" className={pri} style={flitBtnPrimaryStyle} disabled={!p.guardable}
+        <button type="button" className={pri} disabled={!p.guardable}
           aria-label={`Guardar · ${p.sujeto}`} onClick={p.onGuardar}>
           {ed.guardando ? 'Guardando…' : 'Guardar'}
         </button>
-        <button type="button" className={grande ? `${flitBtnSecondary} flex-1 justify-center` : flitBtnSecondary} style={flitBtnSecondaryStyle}
+        <button type="button" className={grande ? `${flitBtnSecondary} flex-1 justify-center` : flitBtnSecondary}
           disabled={ed.guardando} aria-label={`Cancelar · ${p.sujeto}`} onClick={p.onCancelar}>
           Cancelar
         </button>
@@ -364,19 +364,19 @@ function Acciones({ p, grande }: { p: ConceptoProps; grande: boolean }) {
   return (
     <>
       {p.editar && (
-        <button type="button" ref={p.registrarBoton} className={sec} style={flitBtnSecondaryStyle} disabled={p.bloqueado}
+        <button type="button" ref={p.registrarBoton} className={sec} disabled={p.bloqueado}
           aria-label={`${tieneValor ? 'Cambiar' : 'Fijar valor'} · ${p.sujeto}`} onClick={p.onAbrir}>
           {tieneValor ? 'Cambiar' : 'Fijar valor'}
         </button>
       )}
       {p.verHistorial && (
-        <button type="button" className={sec} style={flitBtnSecondaryStyle} disabled={p.bloqueado}
+        <button type="button" className={sec} disabled={p.bloqueado}
           aria-label={`Historial · ${p.sujeto}`} onClick={p.onHistorial}>
           Historial
         </button>
       )}
       {p.editar && tieneValor && (
-        <button type="button" className={sec} style={flitBtnSecondaryStyle} disabled={p.bloqueado}
+        <button type="button" className={sec} disabled={p.bloqueado}
           aria-label={`Dejar de cobrar · ${p.sujeto}`} onClick={p.onDejarDeCobrar}>
           Dejar de cobrar
         </button>
@@ -393,23 +393,23 @@ function FilaConcepto(p: ConceptoProps & { grupo: string | null }) {
   return (
     <>
       {p.grupo && (
-        <tr className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <tr className="border-t" style={{ borderColor: 'var(--color-border)' }}>
           <td colSpan={5} className="px-4 pb-1 pt-3">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{p.grupo}</h3>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>{p.grupo}</h3>
           </td>
         </tr>
       )}
       <FlitTr>
         <th scope="row" tabIndex={-1} ref={p.registrarTitulo} data-vigencia={v?.id}
-          className={`${celda} flit-focus text-left font-medium`} style={{ color: 'var(--flit-text-primary)' }}>
+          className={`${celda} flit-focus text-left font-medium`} style={{ color: 'var(--color-text-primary)' }}>
           {etiquetaConcepto(p.fila.concepto)}
         </th>
-        <td className={`${celda} tabular-nums`} style={{ color: v ? 'var(--flit-text-primary)' : 'var(--flit-text-muted)' }}>
+        <td className={`${celda} tabular-nums`} style={{ color: v ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
           {p.edicion ? <CampoValor p={p} id={id} visible={false} className="w-40" /> : v ? pesosTarifa(v.valor) : SIN_CONFIGURAR}
           {p.aviso && <div className="mt-1"><MensajeCampo id={`${id}-aviso`} texto={p.aviso} /></div>}
         </td>
-        <td className={`${celda} whitespace-nowrap`} style={{ color: 'var(--flit-text-secondary)' }}>{v ? fechaCorta(v.vigenteDesde) : '—'}</td>
-        <td className={celda} style={{ color: 'var(--flit-text-secondary)' }}>{v ? nombreUsuario(v.fijadoPor) : '—'}</td>
+        <td className={`${celda} whitespace-nowrap`} style={{ color: 'var(--color-text-secondary)' }}>{v ? fechaCorta(v.vigenteDesde) : '—'}</td>
+        <td className={celda} style={{ color: 'var(--color-text-secondary)' }}>{v ? nombreUsuario(v.fijadoPor) : '—'}</td>
         <td className={celda}>
           <div className="flex flex-wrap justify-end gap-2"><Acciones p={p} grande={false} /></div>
         </td>
@@ -422,25 +422,25 @@ function TarjetaConcepto(p: ConceptoProps) {
   const id = useId();
   const v = p.fila.vigencia;
   return (
-    <article aria-labelledby={`${id}-titulo`} className="min-w-0 rounded-xl border p-4"
-      style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' }} data-vigencia={v?.id}>
+    <article aria-labelledby={`${id}-titulo`} className="min-w-0 rounded-[9px] border p-4"
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)' }} data-vigencia={v?.id}>
       <h4 id={`${id}-titulo`} ref={p.registrarTitulo} tabIndex={-1} className="flit-focus break-words text-sm font-semibold"
-        style={{ color: 'var(--flit-text-primary)' }}>
+        style={{ color: 'var(--color-text-primary)' }}>
         {etiquetaConcepto(p.fila.concepto)}
       </h4>
       {p.edicion ? (
         <div className="mt-2"><CampoValor p={p} id={id} visible className="w-full min-w-0" /></div>
       ) : v ? (
         <>
-          <p className="mt-1 text-2xl font-bold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{pesosTarifa(v.valor)}</p>
-          <p className="mt-0.5 break-words text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mt-1 text-2xl font-bold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{pesosTarifa(v.valor)}</p>
+          <p className="mt-0.5 break-words text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             Desde {fechaCorta(v.vigenteDesde)} · {nombreUsuario(v.fijadoPor)}
           </p>
         </>
       ) : (
         <>
-          <p className="mt-1 text-2xl font-bold" style={{ color: 'var(--flit-text-muted)' }}>{SIN_CONFIGURAR}</p>
-          <p className="mt-0.5 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Todavía no tiene valor.</p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: 'var(--color-text-tertiary)' }}>{SIN_CONFIGURAR}</p>
+          <p className="mt-0.5 text-xs" style={{ color: 'var(--color-text-secondary)' }}>Todavía no tiene valor.</p>
         </>
       )}
       {p.aviso && <div className="mt-2"><MensajeCampo id={`${id}-aviso`} texto={p.aviso} /></div>}
@@ -457,18 +457,18 @@ function ModalDejarDeCobrar({ fila, nombre, restoreFocusRef, onClose, onConfirma
   const etiqueta = etiquetaConcepto(fila.concepto);
   return (
     <FlitModal title={`Dejar de cobrar ${etiqueta}`} onClose={onClose} restoreFocusRef={restoreFocusRef}>
-      <div className="space-y-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <div className="space-y-3 text-sm" style={{ color: 'var(--color-text-primary)' }}>
         <p>
           {etiqueta} de {nombre} <strong>queda sin valor desde ahora</strong> y la fila vuelve a «{SIN_CONFIGURAR}».
         </p>
-        <p style={{ color: 'var(--flit-text-secondary)' }}>
+        <p style={{ color: 'var(--color-text-secondary)' }}>
           La vigencia de {pesosTarifa(fila.vigencia?.valor ?? 0)} queda cerrada en el historial, con tu nombre y la hora. No se
           puede deshacer: para volver a cobrar, tendrás que fijar un valor nuevo.
         </p>
         <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose} disabled={enviando}>Cancelar</button>
-          {/* Primaria del kit (degradado + texto blanco), sin rojo: decisión del humano. */}
-          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando}
+          <button type="button" className={flitBtnSecondary} onClick={onClose} disabled={enviando}>Cancelar</button>
+          {/* Destructivo del kit (naranja, texto blanco), sin rojo: decisión del humano. */}
+          <button type="button" className={flitBtnDanger} disabled={enviando}
             onClick={() => { setEnviando(true); onConfirmar(); }}>
             Dejar de cobrar
           </button>

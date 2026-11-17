@@ -64,6 +64,8 @@ test.describe('FLITO — Finanzas · Gastos diarios (HU #12624)', () => {
   test.use({ viewport: { width: 1366, height: 768 } });
 
   test('AC2 — con la página: ítem «Gastos diarios» tras «Reporte de costos», ruta protegida y ⌘K', async ({ page }) => {
+    // 1920 px: el admin ve las 11 secciones en la fila; a 1366 Finanzas pasa al «Más» (Épica #14560).
+    await page.setViewportSize({ width: 1920, height: 900 });
     await loginAs(page, OPERACIONES_USER);
     await mockGastos(page);
     await page.goto('/finanzas/gastos-diarios');
@@ -373,7 +375,7 @@ test.describe('FLITO — Finanzas · Gastos diarios: gráfica de evolución diar
     // Sin hex fijo: las series y los ejes se pintan con tokens del tema (AC5).
     const trazos = await figura(page).locator('svg pattern *, svg line').evaluateAll((els) => els.map((e) => `${e.getAttribute('fill') ?? ''}|${e.getAttribute('stroke') ?? ''}`));
     expect(trazos.every((t) => !/#[0-9a-f]{3,8}/i.test(t))).toBe(true);
-    expect(trazos.some((t) => t.includes('var(--flit-serie-soat)'))).toBe(true);
+    expect(trazos.some((t) => t.includes('var(--kit-azul)'))).toBe(true);
   });
 
   test('AC2 — la leyenda es el filtro: ocultar «Logística» quita el segmento, atenúa, reescala el eje y NO consulta', async ({ page }) => {

@@ -33,9 +33,8 @@ import BolsaMovimientos from './BolsaMovimientos';
 import ExpedienteDocumental from '../flito-bolsas-documentos/ExpedienteDocumental';
 import FlitModal from '../flit/FlitModal';
 import StatusChip from '../flit/StatusChip';
-import {
-  FlitCard, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { FlitCard, flitInp } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
 
 /** Cuántos meses ofrece el selector de periodo. Un año cubre cualquier cierre que siga en disputa. */
 const PERIODOS_OFRECIDOS = 12;
@@ -119,24 +118,24 @@ export default function BolsaDetalleCompania({ entrada, nombre, onClose, onCambi
 
         {carga.tipo === 'error' && (
           <FlitCard>
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+            <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
               No pudimos cargar la bolsa. Intenta de nuevo.
             </p>
-            <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}
+            <GradientButton variant="secondary" type="button" className="mt-3"
               onClick={() => { setCarga({ tipo: 'cargando' }); setNonce((n) => n + 1); }}>
               Reintentar
-            </button>
+            </GradientButton>
           </FlitCard>
         )}
 
         {carga.tipo === 'no-existe' && (
           <FlitCard>
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+            <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
               Esta bolsa ya no existe o no tienes acceso a ella.
             </p>
-            <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={onClose}>
+            <GradientButton variant="secondary" type="button" className="mt-3" onClick={onClose}>
               Volver al listado
-            </button>
+            </GradientButton>
           </FlitCard>
         )}
 
@@ -157,7 +156,7 @@ export default function BolsaDetalleCompania({ entrada, nombre, onClose, onCambi
 
 function EsqueletoBolsa() {
   const barra = (w: string, h = 'h-3') => (
-    <div className={`${h} rounded`} style={{ width: w, background: 'var(--flit-bg-app)' }} />
+    <div className={`${h} rounded`} style={{ width: w, background: 'var(--color-surface)' }} />
   );
   return (
     <div role="status" aria-label="Cargando la bolsa" className="space-y-4">
@@ -179,8 +178,8 @@ function AvisoSinBolsa({ nombre, onCrear }: { nombre: string; onCrear: (() => vo
   return (
     <div role="status" data-testid="aviso-sin-bolsa"
       className="rounded-lg border p-4 text-sm"
-      style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>
-      <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{nombre} no tiene bolsa.</p>
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}>
+      <p className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{nombre} no tiene bolsa.</p>
       <p className="mt-1">
         {onCrear
           ? 'Crea la bolsa de la compañía primero: después podrás registrar recargas y sus trámites descontarán de ella.'
@@ -188,7 +187,7 @@ function AvisoSinBolsa({ nombre, onCrear }: { nombre: string; onCrear: (() => vo
       </p>
       {onCrear && (
         <div className="mt-3 flex justify-end">
-          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onCrear}>Crear bolsa</button>
+          <GradientButton type="button" onClick={onCrear}>Crear bolsa</GradientButton>
         </div>
       )}
     </div>
@@ -278,28 +277,28 @@ function ContenidoBolsa({ bolsa, onRefrescar, onCrearBolsa }: {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {bolsa.activa && puedeEditar && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setEditando(true)}>
+              <GradientButton variant="secondary" type="button" onClick={() => setEditando(true)}>
                 Editar conceptos
-              </button>
+              </GradientButton>
             )}
             {bolsa.activa && puedeEstado && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setCambioEstado(true)}>
+              <GradientButton variant="alerta" type="button" onClick={() => setCambioEstado(true)}>
                 Inactivar
-              </button>
+              </GradientButton>
             )}
             {!bolsa.activa && puedeEstado && (
-              <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCambioEstado(true)}>
+              <GradientButton variant="success" type="button" onClick={() => setCambioEstado(true)}>
                 Reactivar bolsa
-              </button>
+              </GradientButton>
             )}
           </div>
         </div>
 
         <p className="mt-3 text-2xl font-bold tabular-nums leading-none"
-          style={{ color: bolsa.saldo < 0 ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)' }}>
+          style={{ color: bolsa.saldo < 0 ? 'var(--kit-rojo-texto)' : 'var(--color-text-primary)' }}>
           {bolsa.saldo < 0 ? `− ${pesos(Math.abs(bolsa.saldo))}` : pesos(bolsa.saldo)}
         </p>
-        <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           {bolsa.porcentaje === null || bolsa.ultimaEntradaValor === null
             ? 'Sin entradas previas: no hay base para calcular el nivel.'
             : `${bolsa.porcentaje} % de la última entrada (${pesos(bolsa.ultimaEntradaValor)} el ${fechaDia(bolsa.ultimaEntradaEn)}).`}
@@ -308,14 +307,14 @@ function ContenidoBolsa({ bolsa, onRefrescar, onCrearBolsa }: {
         {!bolsa.activa && (
           <div role="status" data-testid="aviso-inactiva"
             className="mt-3 rounded-lg border px-3 py-2 text-sm"
-            style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>
+            style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}>
             <p>
               Inactiva desde el {fechaHora(bolsa.inactivadaEn)}
               {bolsa.inactivadaPorNombre ? ` por ${bolsa.inactivadaPorNombre}` : ''}.
             </p>
             {bolsa.motivoInactivacion && <p>Motivo: «{bolsa.motivoInactivacion}».</p>}
             <p>No recibe descuentos, recargas ni movimientos manuales.</p>
-            <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            <p className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               {puedeEstado
                 ? 'Reactiva la bolsa primero.'
                 : 'Para recargarla, alguien con permiso tiene que reactivarla primero.'}
@@ -323,13 +322,13 @@ function ContenidoBolsa({ bolsa, onRefrescar, onCrearBolsa }: {
           </div>
         )}
 
-        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-          <span className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Descuenta:</span>
+        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+          <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>Descuenta:</span>
           {bolsa.conceptos.length === 0 ? '—' : bolsa.conceptos.map((c, i) => (
             <span key={c} className="inline-flex items-center gap-1">
               {CONCEPTO_BOLSA_LABEL[c as ConceptoBolsa] ?? c}
               {autogestionados.includes(c as ConceptoBolsa) && <StatusChip tone="neutral">Autogestionado</StatusChip>}
-              {i < bolsa.conceptos.length - 1 && <span aria-hidden="true" style={{ color: 'var(--flit-text-muted)' }}>·</span>}
+              {i < bolsa.conceptos.length - 1 && <span aria-hidden="true" style={{ color: 'var(--color-text-tertiary)' }}>·</span>}
             </span>
           ))}
         </p>
@@ -339,7 +338,7 @@ function ContenidoBolsa({ bolsa, onRefrescar, onCrearBolsa }: {
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="w-full sm:w-56">
-          <label htmlFor={idPeriodo} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <label htmlFor={idPeriodo} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Periodo contable
           </label>
           <select id={idPeriodo} className={flitInp} value={periodo} aria-describedby={`${idPeriodo}-ayuda`}
@@ -351,20 +350,20 @@ function ContenidoBolsa({ bolsa, onRefrescar, onCrearBolsa }: {
           <input type="checkbox" className="flit-focus" checked={verTodo} onChange={(e) => setVerTodo(e.target.checked)} />
           <span>Ver el libro completo (todos los periodos)</span>
         </label>
-        <p id={`${idPeriodo}-ayuda`} className="w-full text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <p id={`${idPeriodo}-ayuda`} className="w-full text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
           El desglose y el cierre son del periodo elegido. El saldo es siempre el acumulado.
         </p>
       </div>
 
       {errorLibro ? (
         <FlitCard>
-          <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+          <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
             No pudimos cargar los movimientos de la bolsa. Intenta de nuevo.
           </p>
-          <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}
+          <GradientButton variant="secondary" type="button" className="mt-3"
             onClick={() => setNonce((n) => n + 1)}>
             Reintentar
-          </button>
+          </GradientButton>
         </FlitCard>
       ) : (
         <>
@@ -458,38 +457,38 @@ function ModalEstadoBolsa({ bolsa, restoreFocusRef, onClose, onHecho }: {
     <FlitModal title={`${inactivar ? 'Inactivar' : 'Reactivar'} la bolsa de ${bolsa.nombre}`} onClose={onClose}
       restoreFocusRef={restoreFocusRef} cierreBloqueado={enviando}>
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void confirmar(); }}>
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           {inactivar
             ? 'Mientras esté inactiva no recibe descuentos, recargas ni movimientos manuales. Lo ya asentado no cambia y puedes reactivarla cuando quieras.'
             : 'Vuelve a recibir descuentos, recargas y movimientos manuales desde ahora. Lo que se aplicó mientras estuvo inactiva no se descuenta.'}
         </p>
         <div>
-          <label htmlFor={idMotivo} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <label htmlFor={idMotivo} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Motivo *
           </label>
           <textarea id={idMotivo} rows={3} maxLength={1000} className={`${flitInp} h-auto py-2`} value={motivo}
             aria-describedby={idAyuda} onChange={(e) => setMotivo(e.target.value)} onBlur={() => setSalio(true)} />
-          <div id={idAyuda} className="mt-1 flex flex-wrap justify-between gap-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <div id={idAyuda} className="mt-1 flex flex-wrap justify-between gap-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             <span>Mínimo {MOTIVO_MINIMO} caracteres.</span>
             <span aria-live="polite">({Math.min(largo, MOTIVO_MINIMO)}/{MOTIVO_MINIMO})</span>
           </div>
           {salio && corto && largo > 0 && (
-            <p className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>
+            <p className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>
               Escribe un motivo de al menos {MOTIVO_MINIMO} caracteres.
             </p>
           )}
         </div>
-        {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>}
+        {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
         <div className="flex flex-wrap justify-end gap-2">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose} disabled={enviando}>
+          <GradientButton variant="alerta" type="button" onClick={onClose} disabled={enviando}>
             Cancelar
-          </button>
-          <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={corto || enviando}
+          </GradientButton>
+          <GradientButton type="submit" disabled={corto || enviando}
             aria-describedby={idAyuda}>
             {enviando
               ? (inactivar ? 'Inactivando…' : 'Reactivando…')
               : (inactivar ? 'Inactivar bolsa' : 'Reactivar bolsa')}
-          </button>
+          </GradientButton>
         </div>
       </form>
     </FlitModal>

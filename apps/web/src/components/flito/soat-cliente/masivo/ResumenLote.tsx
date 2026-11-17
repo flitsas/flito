@@ -2,7 +2,8 @@
 // «Descargar rechazadas», enlace a «Por validar» y «Cargar otro archivo». Una sola primaria.
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, Loader2 } from 'lucide-react';
+import { Icono } from '../../../flit/kit/Icono';
+import { Girador } from '../../../flit/Cargador';
 import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary } from '../../../flit/flitPageKit';
 import StatusChip from '../../../flit/StatusChip';
 import { COPY_COMUN } from './copyMasivo';
@@ -45,7 +46,8 @@ export default function ResumenLote({
   // Sin rechazadas y con pendientes por completar, lo que queda por hacer es completarlas (HU #14137).
   const irAPorValidar = resumen.rechazadas === 0 && resumen.porValidarFactura + resumen.porValidarPropietario > 0;
   const btnOtro = (primaria: boolean) => (
-    <button type="button" className={`${primaria ? flitBtnPrimary : flitBtnSecondary} w-full justify-center sm:w-auto`}
+    <button type="button" data-variante={primaria ? 'primario' : 'secundario'}
+      className={`${primaria ? flitBtnPrimary : flitBtnSecondary} w-full justify-center sm:w-auto`}
       style={primaria ? flitBtnPrimaryStyle : undefined} onClick={onOtro}>Cargar otro archivo</button>
   );
 
@@ -64,12 +66,12 @@ export default function ResumenLote({
       </div>
 
       {resumen.porValidar > 0 && (
-        <div className="space-y-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <div className="space-y-1 text-sm text-[color:var(--color-text-secondary)]">
           <p>{motivosPorValidar(resumen)}.</p>
           <button
             type="button"
             className="flit-focus -mx-1 inline-flex min-h-[44px] items-center rounded px-1 text-sm font-semibold underline-offset-2 transition-colors hover:underline sm:min-h-0"
-            style={{ color: 'var(--flit-blue-text)' }}
+            style={{ color: 'var(--color-action)' }}
             onClick={() => navigate('/flito/soat', IR_A_POR_VALIDAR)}
           >
             Ver en Por validar →
@@ -79,7 +81,7 @@ export default function ResumenLote({
 
       {resumen.rechazadas > 0 && (
         <div className="space-y-1">
-          <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Rechazadas</h4>
+          <h4 className="text-xs font-bold uppercase tracking-wide text-[color:var(--color-text-secondary)]">Rechazadas</h4>
           <ul className="space-y-1 text-sm">
             {visibles.map((f) => (
               <li key={f.nFila}>
@@ -89,11 +91,11 @@ export default function ResumenLote({
             ))}
           </ul>
           {resumen.rechazadas > visibles.length && (
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="text-sm text-[color:var(--color-text-secondary)]">
               {`y ${resumen.rechazadas - visibles.length} más: están en la tabla y en el archivo.`}
             </p>
           )}
-          {!hayDescarga && <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{COPY_COMUN.rechazadasNoDisponibles}</p>}
+          {!hayDescarga && <p className="text-sm text-[color:var(--color-text-secondary)]">{COPY_COMUN.rechazadasNoDisponibles}</p>}
         </div>
       )}
 
@@ -102,7 +104,7 @@ export default function ResumenLote({
           <>
             <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
               aria-disabled={descargando || undefined} onClick={() => { if (!descargando) onDescargar(); }}>
-              {descargando ? <Loader2 size={16} aria-hidden="true" className="animate-spin" /> : <Download size={16} aria-hidden="true" />}
+              {descargando ? <Girador /> : <Icono nombre="nube-bajar" size={16} />}
               {descargando ? 'Descargando…' : 'Descargar rechazadas'}
             </button>
             {btnOtro(false)}

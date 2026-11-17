@@ -319,7 +319,7 @@ test.describe('FLITO — Gestión Trámites · Probar conexión con FLIT 2 (HU #
       const panel = await abrirPanel(page);
       await panel.getByRole('button', { name: 'Probar conexión' }).click();
       const rol = caso.tono === 'error' ? 'alert' : 'status';
-      const aviso = panel.locator(`[data-tono="${caso.tono}"]`);
+      const aviso = panel.locator(`[data-tono="${caso.tono}"]:not([data-flit-chip])`);
       await expect(aviso).toHaveAttribute('role', rol);
       await expect(aviso).toContainText(caso.copy);
       await expect(panel.getByText(CRUDO)).toHaveCount(0);
@@ -362,6 +362,6 @@ test.describe('FLITO — Gestión Trámites · Probar conexión con FLIT 2 (HU #
     await panel.getByLabel('Contraseña').fill(CLAVE);
     await panel.getByRole('button', { name: 'Guardar acceso' }).click();
     await expect(panel.getByText('flito-nuevo', { exact: true })).toBeVisible();
-    await expect(panel.locator('[data-tono]')).toHaveCount(0);
+    await expect(panel.locator('[data-tono]:not([data-flit-chip])')).toHaveCount(0);
   });
 });

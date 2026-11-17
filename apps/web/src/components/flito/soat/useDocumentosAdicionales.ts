@@ -1,6 +1,6 @@
-// FLITO — estado de la lista de documentos adicionales del detalle SOAT (HU #13363 + #13365).
+// FLITO — estado de la lista de documentos adicionales del detalle SOAT (HU 13363 + 13365).
 //
-// Vive arriba (en `DocumentosAdicionalesSeccion`) porque la carga y la eliminación de la HU #13365
+// Vive arriba (en `DocumentosAdicionalesSeccion`) porque la carga y la eliminación de la HU 13365
 // cambian la lista sin pasar por el esqueleto: `refrescar` relee en silencio (la lista vieja sigue
 // visible hasta que llega la nueva, spec §3.4) y `quitar` saca una fila del estado local tras el 204.
 import { useCallback, useEffect, useState } from 'react';

@@ -5,11 +5,12 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import { FlitCard, flitInp } from '../components/flit/flitPageKit';
+import { EstadoVista } from '../components/flit/Cargador';
 
 interface PlanRow { id: number; anio: number; objetivoGeneral: string; presupuestoCop: string; estado: 'borrador' | 'aprobado' | 'cerrado'; aprobadoAt: string | null; optimisticV: number; }
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const inputCls = flitInp;
 
 export default function PesvPlan() {
   const [items, setItems] = useState<PlanRow[]>([]);
@@ -47,50 +48,53 @@ export default function PesvPlan() {
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
+        icono="flito-pesv"
+        miga={[{ etiqueta: 'Cumplimiento' }, { etiqueta: 'PESV', to: '/pesv' }]}
         title="Plan anual PESV"
         subtitle="Objetivos SMART, metas, acciones, presupuesto · Res. 40595/2022"
         actions={<GradientButton type="button" onClick={() => setShowCreate(true)}>Nuevo plan</GradientButton>}
       />
 
+      <EstadoVista status={items.length === 0 ? 'empty' : 'ready'} emptyMessage="Sin planes registrados">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {items.length === 0 && <div className="bg-white p-8 text-center text-sm lg:col-span-2" style={{ ...CARD, color: 'var(--flit-text-muted)' }}>Sin planes registrados</div>}
         {items.map((p) => (
-          <div key={p.id} className="bg-white p-6" style={CARD}>
-            <div className="mb-3 flex items-start justify-between">
-              <div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>Plan {p.anio}</span>
-                <p className="mt-1 text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{p.objetivoGeneral}</p>
+          <FlitCard key={p.id} className="!mt-0">
+            <div className="mb-3 flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">Plan {p.anio}</span>
+                <p className="mt-1 text-sm font-medium text-[color:var(--color-text-primary)]">{p.objetivoGeneral}</p>
               </div>
               <EstadoPill estado={p.estado} />
             </div>
-            <div className="mt-4 flex items-center justify-between border-t pt-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Presupuesto: <strong style={{ color: 'var(--flit-text-primary)' }}>$ {Number(p.presupuestoCop).toLocaleString('es-CO')}</strong></span>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[color:var(--color-border)] pt-3">
+              <span className="text-xs text-[color:var(--color-text-secondary)]">Presupuesto: <strong className="text-[color:var(--color-text-primary)]">$ {Number(p.presupuestoCop).toLocaleString('es-CO')}</strong></span>
               {p.estado === 'borrador' && (
-                <button onClick={() => aprobar(p.id)} className="flit-focus inline-flex h-9 items-center rounded-[999px] px-3 text-xs font-semibold text-white" style={{ background: 'var(--flit-gradient-primary)' }}>Aprobar</button>
+                <GradientButton type="button" variant="success" size="sm" onClick={() => aprobar(p.id)}>Aprobar</GradientButton>
               )}
             </div>
-          </div>
+          </FlitCard>
         ))}
       </div>
+      </EstadoVista>
 
       {showCreate && (
         <FlitModal title="Nuevo plan anual PESV" onClose={() => setShowCreate(false)}>
           <div className="space-y-3">
             <div>
-              <label className="mb-1 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Año</label>
-              <input type="number" value={form.anio} onChange={(e) => setForm({ ...form, anio: parseInt(e.target.value) })} className={inputCls} />
+              <label htmlFor="plan-anio" className="mb-1 block text-xs font-semibold text-[color:var(--color-text-primary)]">Año</label>
+              <input id="plan-anio" type="number" value={form.anio} onChange={(e) => setForm({ ...form, anio: parseInt(e.target.value) })} className={inputCls} />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Objetivo general (≥ 20 chars)</label>
-              <textarea value={form.objetivoGeneral} onChange={(e) => setForm({ ...form, objetivoGeneral: e.target.value })} rows={3} className={inputCls} placeholder="Reducir índice de accidentalidad anual en 20% mediante capacitación y monitoreo" />
+              <label htmlFor="plan-objetivo" className="mb-1 block text-xs font-semibold text-[color:var(--color-text-primary)]">Objetivo general (≥ 20 chars)</label>
+              <textarea id="plan-objetivo" value={form.objetivoGeneral} onChange={(e) => setForm({ ...form, objetivoGeneral: e.target.value })} rows={3} className={inputCls} placeholder="Reducir índice de accidentalidad anual en 20% mediante capacitación y monitoreo" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Presupuesto COP</label>
-              <input type="number" value={form.presupuestoCop} onChange={(e) => setForm({ ...form, presupuestoCop: e.target.value })} className={inputCls} />
+              <label htmlFor="plan-presupuesto" className="mb-1 block text-xs font-semibold text-[color:var(--color-text-primary)]">Presupuesto COP</label>
+              <input id="plan-presupuesto" type="number" value={form.presupuestoCop} onChange={(e) => setForm({ ...form, presupuestoCop: e.target.value })} className={inputCls} />
             </div>
           </div>
-          <div className="mt-6 flex justify-end gap-2">
-            <button onClick={() => setShowCreate(false)} className="flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+          <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <GradientButton type="button" variant="secondary" onClick={() => setShowCreate(false)}>Cancelar</GradientButton>
             <GradientButton type="button" onClick={create}>Crear</GradientButton>
           </div>
         </FlitModal>
