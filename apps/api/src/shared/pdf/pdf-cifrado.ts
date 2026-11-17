@@ -12,6 +12,9 @@
 // La clave es PII (suele ser la cédula o el NIT del titular): nunca va en los argumentos del
 // proceso (visibles en `ps`), ni en un `message`, ni en el logger, ni en el stderr registrado. Se
 // entrega por stdin (`--password-file=-`) y solo se registra el código de salida.
+//
+// `--deterministic-id`: sin él qpdf escribe un /ID aleatorio en cada descifrado, así que el mismo
+// PDF protegido subido dos veces daba bytes (y sha256) distintos y el dedup por hash no lo veía.
 
 import { execFile, type ExecFileException } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -89,7 +92,8 @@ export async function abrirPdf(buf: Buffer, contrasena?: string): Promise<Apertu
 
     const salida = join(dir, 'out.pdf');
     // 0 = descifrado; 3 = descifrado con avisos; 2 = error (clave incorrecta).
-    const codigo = await correrQpdf(['--password-file=-', '--decrypt', entrada, salida], contrasena);
+    // `--deterministic-id`: mismo PDF de entrada → mismos bytes de salida (dedup por sha256).
+    const codigo = await correrQpdf(['--password-file=-', '--deterministic-id', '--decrypt', entrada, salida], contrasena);
     if (codigo === 0 || codigo === 3) return { estado: 'abierto', buffer: await readFile(salida) };
     if (codigo === 2) throw new PdfContrasenaIncorrectaError();
     log.warn({ exitCode: codigo }, 'qpdf --decrypt devolvió un código inesperado');

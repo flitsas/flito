@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -86,6 +87,7 @@ describe('abrirPdf — con qpdf simulado', () => {
     const desc = ll[1];
     expect(desc.args).toContain('--password-file=-');
     expect(desc.args).toContain('--decrypt');
+    expect(desc.args).toContain('--deterministic-id');
     expect(desc.args.join(' ')).not.toContain(CLAVE);
     expect(desc.stdin).toBe(CLAVE);
     const opts = h.execFileMock.mock.calls[1][2] as { timeout: number; shell?: unknown };
@@ -155,5 +157,14 @@ describe.skipIf(!hayQpdf)('abrirPdf — qpdf real contra el fixture (clave «cla
     expect(r.buffer.equals(cifrado)).toBe(false);
     expect(r.buffer.includes('/Encrypt')).toBe(false);
     expect(await abrirPdf(r.buffer)).toEqual({ estado: 'abierto', buffer: r.buffer });
+  });
+
+  it('descifrar dos veces el mismo PDF da los mismos bytes (mismo sha256 → el duplicado se detecta)', async () => {
+    const a = await abrirPdf(cifrado, 'clave-prueba');
+    const b = await abrirPdf(cifrado, 'clave-prueba');
+    if (a.estado !== 'abierto' || b.estado !== 'abierto') throw new Error('no se abrió el fixture');
+    const sha = (x: Buffer) => createHash('sha256').update(x).digest('hex');
+    expect(sha(a.buffer)).toBe(sha(b.buffer));
+    expect(a.buffer.equals(b.buffer)).toBe(true);
   });
 });
