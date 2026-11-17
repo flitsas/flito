@@ -3,10 +3,11 @@
 // clave nunca vaya en los argumentos ni en el mensaje, borrado del temporal); luego con qpdf real
 // contra el fixture cifrado con «clave-prueba» (se salta si la máquina no tiene qpdf).
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,7 +19,7 @@ vi.mock('node:child_process', async (orig) => {
   return { ...real, execFile: h.execFileMock };
 });
 
-const { abrirPdf, PdfContrasenaIncorrectaError, QpdfNoDisponibleError } = await import('../../src/shared/pdf/pdf-cifrado.js');
+const { abrirPdf, clavesDesdeNombre, PdfContrasenaIncorrectaError, QpdfNoDisponibleError } = await import('../../src/shared/pdf/pdf-cifrado.js');
 
 const CIFRADO = Buffer.from('%PDF-1.7\n1 0 obj << >> endobj\ntrailer << /Encrypt 5 0 R >>\n%%EOF');
 const CLAVE = '1032456789'; // como una cédula: lo que NO debe filtrarse
@@ -166,5 +167,79 @@ describe.skipIf(!hayQpdf)('abrirPdf — qpdf real contra el fixture (clave «cla
     const sha = (x: Buffer) => createHash('sha256').update(x).digest('hex');
     expect(sha(a.buffer)).toBe(sha(b.buffer));
     expect(a.buffer.equals(b.buffer)).toBe(true);
+  });
+});
+
+// ─────────────────── nombre del archivo como contraseña (punto 10) ───────────
+
+describe('clavesDesdeNombre — candidatos derivados del nombre (Bug #14569, punto 10)', () => {
+  it('orden (a) tal cual sin .pdf, (b) con trim, (c) MAYÚSCULAS sin espacios ni guiones', () => {
+    expect(clavesDesdeNombre('abc-123 .PDF')).toEqual(['abc-123 ', 'abc-123', 'ABC123']);
+  });
+
+  it('deduplica: un nombre ya limpio y en mayúsculas da un solo candidato', () => {
+    expect(clavesDesdeNombre('ABC123.pdf')).toEqual(['ABC123']);
+    expect(clavesDesdeNombre('abc123.pdf')).toEqual(['abc123', 'ABC123']);
+  });
+
+  it('la extensión se quita sin importar mayúsculas y solo la final', () => {
+    expect(clavesDesdeNombre('X.Pdf')).toEqual(['X']);
+    expect(clavesDesdeNombre('a.pdf.pdf')).toEqual(['a.pdf', 'A.PDF']);
+    expect(clavesDesdeNombre('placa.png')).toEqual(['placa.png', 'PLACA.PNG']);
+  });
+
+  it('excluye vacíos, >128 caracteres y saltos de línea', () => {
+    expect(clavesDesdeNombre('.pdf')).toEqual([]);
+    expect(clavesDesdeNombre('  - .pdf')).toEqual(['  - ', '-']); // la variante (c) queda vacía
+    expect(clavesDesdeNombre('   .pdf')).toEqual(['   ']); // trim y (c) vacías
+    expect(clavesDesdeNombre(`${'a'.repeat(129)}.pdf`)).toEqual([]);
+    expect(clavesDesdeNombre(`${'a'.repeat(128)}.pdf`)).toEqual(['a'.repeat(128), 'A'.repeat(128)]);
+    expect(clavesDesdeNombre('ab\ncd.pdf')).toEqual([]);
+    expect(clavesDesdeNombre('ab\rcd.pdf')).toEqual([]);
+  });
+});
+
+describe('abrirPdf con candidatos — qpdf simulado', () => {
+  it('UN solo --requires-password; prueba TODOS en orden por stdin y, si ninguno abre, requiere-contrasena (no incorrecta)', async () => {
+    const ll = simular({ code: 0 }, { code: 2 }, { code: 2 }, { code: 2 });
+    expect(await abrirPdf(CIFRADO, undefined, ['uno', 'DOS', 'tres', 'cuatro'])).toEqual({ estado: 'requiere-contrasena' });
+    expect(ll.map((l) => l.args[0])).toEqual(['--requires-password', '--password-file=-', '--password-file=-', '--password-file=-']);
+    expect(ll.slice(1).map((l) => l.stdin)).toEqual(['uno', 'DOS', 'tres']); // tope de 3 aunque lleguen más
+    expect(ll.flatMap((l) => l.args).some((a) => ['uno', 'DOS', 'tres'].includes(a))).toBe(false);
+  });
+
+  it('la clave escrita manda: con contraseña no se prueban los candidatos', async () => {
+    const ll = simular({ code: 0 }, { code: 2 });
+    await expect(abrirPdf(CIFRADO, CLAVE, ['ABC123'])).rejects.toBeInstanceOf(PdfContrasenaIncorrectaError);
+    expect(ll.map((l) => l.stdin).filter(Boolean)).toEqual([CLAVE]);
+  });
+});
+
+describe.skipIf(!hayQpdf)('abrirPdf — qpdf real: PDF cifrado con clave = su nombre (punto 10)', () => {
+  let dir = '';
+  let cifradoNombre: Buffer = Buffer.alloc(0);
+  beforeAll(() => {
+    // Fixture derivado: el de «clave-prueba» descifrado y vuelto a cifrar con «ABC123».
+    dir = mkdtempSync(join(tmpdir(), 'pdf-nombre-'));
+    const plano = join(dir, 'plano.pdf');
+    const salida = join(dir, 'ABC123.pdf');
+    execFileSync('qpdf', ['--password=clave-prueba', '--decrypt', FIXTURE, plano]);
+    execFileSync('qpdf', ['--encrypt', 'ABC123', 'ABC123', '256', '--', plano, salida]);
+    cifradoNombre = readFileSync(salida);
+  });
+  afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it('sin candidatos pide clave; con los del nombre «abc-123 .PDF» se abre (gana la 3.ª variante)', async () => {
+    expect(await abrirPdf(cifradoNombre)).toEqual({ estado: 'requiere-contrasena' });
+    h.execFileMock.mockClear();
+    const r = await abrirPdf(cifradoNombre, undefined, clavesDesdeNombre('abc-123 .PDF'));
+    expect(r.estado).toBe('abierto');
+    if (r.estado !== 'abierto') return;
+    expect(r.buffer.includes('/Encrypt')).toBe(false);
+    expect(h.execFileMock).toHaveBeenCalledTimes(4); // 1 --requires-password + 3 intentos
+  });
+
+  it('un nombre que no es la clave → requiere-contrasena', async () => {
+    expect(await abrirPdf(cifradoNombre, undefined, clavesDesdeNombre('OTRO999.pdf'))).toEqual({ estado: 'requiere-contrasena' });
   });
 });

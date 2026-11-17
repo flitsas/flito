@@ -45491,7 +45491,7 @@ paths:
       tags:
         - flito-soat
       summary: "POST /api/flito/soat/:id/factura"
-      description: "POST /:id/factura — carga de UNA factura de un SOAT puntual. Única vía a Pagado (RN-03). Operaciones o el gestor del proveedor. Campo de archivo: \"archivo\". Campo opcional \"contrasena\" (Bug #14569) si el PDF está cifrado. `soatPdfContrasenaLimiter` va DESPUÉS de multer a propósito: solo cuenta las peticiones con clave, y la clave viene en el body. Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.comprobante.cargar."
+      description: "POST /:id/factura — carga de UNA factura de un SOAT puntual. Única vía a Pagado (RN-03). Operaciones o el gestor del proveedor. Campo de archivo: \"archivo\". Campos opcionales del PDF cifrado (Bug #14569): \"contrasena\", y \"usarNombreComoClave\" true o false, que sin clave escrita prueba el nombre del archivo como contraseña. Cada uno con su limitador, puesto tras multer porque solo cuentan las peticiones que los traen y esos campos vienen en el body. Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.comprobante.cargar."
       security:
         - bearerAuth: []
       x-flit-funciones:
@@ -45510,6 +45510,8 @@ paths:
               type: object
               properties:
                 contrasena:
+                  description: "[por verificar] campo leído en el código; su tipo no se valida con un esquema."
+                usarNombreComoClave:
                   description: "[por verificar] campo leído en el código; su tipo no se valida con un esquema."
                 archivo:
                   type: string
@@ -50217,7 +50219,7 @@ paths:
       tags:
         - flito-soat
       summary: POST /api/flito/soat/facturas
-      description: "POST /facturas — carga MASIVA (varios archivos o un ZIP). El OCR enruta cada comprobante a un SOAT en adquisición; los que cruzan y superan el umbral se pagan, el resto va a revisión (CA-06). Campo opcional \"contrasenas\" (Bug #14569): arreglo JSON por posición, mismo largo que \"archivos\". Limitador después de multer por la misma razón que en `POST /:id/factura`. Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.masiva.cargar."
+      description: "POST /facturas — carga MASIVA (varios archivos o un ZIP). El OCR enruta cada comprobante a un SOAT en adquisición; los que cruzan y superan el umbral se pagan, el resto va a revisión (CA-06). Campo opcional \"contrasenas\" (Bug #14569): arreglo JSON por posición, mismo largo que \"archivos\". Limitador después de multer por la misma razón que en `POST /:id/factura`. Campo opcional \"nombresComoClave\" (punto 10): arreglo JSON de booleanos por posición, mismo largo que \"archivos\" (como \"contrasenas\").  Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.masiva.cargar."
       security:
         - bearerAuth: []
       x-flit-funciones:
@@ -50229,6 +50231,8 @@ paths:
               type: object
               properties:
                 contrasenas:
+                  description: "[por verificar] campo leído en el código; su tipo no se valida con un esquema."
+                nombresComoClave:
                   description: "[por verificar] campo leído en el código; su tipo no se valida con un esquema."
                 archivos:
                   type: string
