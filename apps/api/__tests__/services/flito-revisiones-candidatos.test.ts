@@ -314,3 +314,76 @@ describe('registroActual y revisión resuelta', () => {
     expect(candidatas()).toEqual([]);
   });
 });
+
+describe('GET / — el listado trae el registroActual (el auditor lo ve sin el buscador)', () => {
+  const REG_SOAT = '00000000-0000-0000-0000-0000000000c1';
+  const REG_SOAT_2 = '00000000-0000-0000-0000-0000000000c2';
+  const REG_IMP = '00000000-0000-0000-0000-0000000000d1';
+  const fecha = new Date('2026-11-17T10:00:00Z');
+  const fila = (id: string, modulo: string, registroId: string | null, extraccion: unknown = {}, placaSugerida: string | null = null) => ({
+    id, modulo, motivo: 'baja_confianza', detalle: '', registroId, placaSugerida, extraccion, resuelto: false, creadoEn: fecha,
+    soporteId: `s-${id}`, nombreArchivo: 'f.pdf', contentType: 'application/pdf', tipo: 'factura', subidoPorNombre: 'Ana', subidoEn: fecha,
+  });
+  const revisiones = [
+    fila('r1', 'soat', REG_SOAT, { placa: { valor: 'abc-123', confianza: 0.4, confiable: false }, vin: { valor: 'VIN9', confianza: 0.9, confiable: true } }),
+    fila('r2', 'soat', REG_SOAT_2, {}, 'XYZ999'),
+    fila('r3', 'impuestos', REG_IMP),
+    fila('r4', 'impuestos', null),
+  ];
+  function escenarioListado(): void {
+    h.resp = (q) => {
+      if (q.tabla === 'flito_revisiones') return revisiones;
+      if (q.tabla === 'flito_soat') return [
+        { id: REG_SOAT, idFlit: 'F1', placa: 'ABC123', vin: 'VIN0', marca: 'Kia', linea: 'Rio' },
+        { id: REG_SOAT_2, idFlit: null, placa: 'XYZ999', vin: null, marca: null, linea: null },
+      ];
+      if (q.tabla === 'flito_impuestos') return [{ id: REG_IMP, idFlit: 'F7', placa: 'PAG777', vin: null, organismoCodigo: '11001' }];
+      return [];
+    };
+  }
+  const get = (token: string) => request(app).get('/api/flito/revisiones').set('Authorization', `Bearer ${token}`);
+
+  it('cada revisión con registroId trae SU registroActual; sin registroId → null', async () => {
+    escenarioListado();
+    const r = await get(admin);
+    expect(r.status).toBe(200);
+    const porId = Object.fromEntries((r.body as { id: string; registroActual: unknown }[]).map((x) => [x.id, x.registroActual]));
+    expect(porId.r1).toEqual({
+      id: REG_SOAT, idFlit: 'F1', placa: 'ABC123', vin: 'VIN0', etiqueta: 'F1 · ABC123', detalle: 'Kia Rio',
+      coincide: { placa: true, vin: false }, seleccionable: true, motivoNoSeleccionable: null,
+    });
+    expect(porId.r2).toMatchObject({ id: REG_SOAT_2, coincide: { placa: true, vin: false } });
+    expect(porId.r3).toMatchObject({ id: REG_IMP, etiqueta: 'F7 · PAG777', coincide: { placa: false, vin: false }, seleccionable: true });
+    expect(porId.r4).toBeNull();
+  });
+
+  it('una consulta por módulo con IN de sus ids (sin N+1) y sin filtro de estado', async () => {
+    escenarioListado();
+    await get(admin);
+    const soat = h.consultas.filter((q) => q.tabla === 'flito_soat');
+    const imp = h.consultas.filter((q) => q.tabla === 'flito_impuestos');
+    expect(soat).toHaveLength(1);
+    expect(imp).toHaveLength(1);
+    const ws = render(soat[0].wheres);
+    expect(ws.sql).toContain('"flito_soat"."id" in (');
+    expect(ws.params).toEqual(expect.arrayContaining([REG_SOAT, REG_SOAT_2]));
+    expect(ws.sql).not.toContain('"estado"');
+    expect(soat[0].limite).toBe(2);
+    expect(render(imp[0].wheres).sql).not.toContain('"estado"');
+  });
+
+  it('sin ningún registroId no consulta ninguna fuente', async () => {
+    h.resp = (q) => (q.tabla === 'flito_revisiones' ? [fila('r9', 'soat', null)] : []);
+    const r = await get(admin);
+    expect(r.body[0].registroActual).toBeNull();
+    expect(h.consultas.filter((q) => q.tabla !== 'flito_revisiones')).toEqual([]);
+  });
+
+  it('el auditor (cola.ver, sin resolver) recibe el registroActual', async () => {
+    escenarioListado();
+    const r = await get(auditor);
+    expect(r.status).toBe(200);
+    expect(r.body.find((x: { id: string }) => x.id === 'r3').registroActual).toMatchObject({ id: REG_IMP, idFlit: 'F7' });
+    expect((await post({}, auditor)).status).toBe(403);
+  });
+});

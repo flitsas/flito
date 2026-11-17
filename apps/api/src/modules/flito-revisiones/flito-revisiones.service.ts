@@ -12,7 +12,7 @@ import {
   CampoDerechoTramite, CampoImpuesto, CampoSoat, CAMPOS_REVISION_FACTURA_VENTA,
   EstadoImpuesto, EstadoSoat, FlujoRevision,
   type CampoExtraido, type ExtraccionDerechoTramite, type ExtraccionFacturaVenta,
-  type ExtraccionImpuesto, type ExtraccionSoat,
+  type CandidatoRevisionDto, type ExtraccionImpuesto, type ExtraccionSoat,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { auditLogs, flitoImpuestos, flitoRevisiones, flitoSoat, flitoSoportes } from '../../db/schema.js';
@@ -59,6 +59,11 @@ export interface RevisionItem {
   extraccion: unknown;
   resuelto: boolean;
   creadoEn: string;
+  /**
+   * Trámite que la revisión ya apunta (null sin `registroId` o si ya no existe). Viaja en el listado
+   * para que quien solo ve la cola (auditor, sin `revisiones.revision.resolver`) lo vea sin el buscador.
+   */
+  registroActual: CandidatoRevisionDto | null;
   soporte: {
     id: string;
     nombreArchivo: string;
@@ -96,7 +101,7 @@ export async function listar(modulo?: FlujoRevision, incluirResueltas = false): 
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(flitoRevisiones.createdAt);
 
-  return rows.map((r) => ({
+  const items = rows.map((r) => ({
     id: r.id,
     modulo: r.modulo,
     motivo: r.motivo,
@@ -115,6 +120,9 @@ export async function listar(modulo?: FlujoRevision, incluirResueltas = false): 
       subidoEn: r.subidoEn.toISOString(),
     },
   }));
+  // Import dinámico: candidatos.ts importa de este servicio (ESTADO_CANDIDATO, RevisionError).
+  const { conRegistroActual } = await import('./flito-revisiones.candidatos.js');
+  return conRegistroActual(items);
 }
 
 /**

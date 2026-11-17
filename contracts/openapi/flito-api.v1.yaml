@@ -43608,6 +43608,57 @@ paths:
                       type: boolean
                     creadoEn:
                       type: string
+                    registroActual:
+                      type:
+                        - object
+                        - "null"
+                      properties:
+                        id:
+                          type: string
+                        idFlit:
+                          type:
+                            - string
+                            - "null"
+                        placa:
+                          type:
+                            - string
+                            - "null"
+                        vin:
+                          type:
+                            - string
+                            - "null"
+                        etiqueta:
+                          type: string
+                        detalle:
+                          type:
+                            - string
+                            - "null"
+                        coincide:
+                          type: object
+                          properties:
+                            placa:
+                              type: boolean
+                            vin:
+                              type: boolean
+                          required:
+                            - placa
+                            - vin
+                        seleccionable:
+                          type: boolean
+                        motivoNoSeleccionable:
+                          type:
+                            - string
+                            - "null"
+                      required:
+                        - id
+                        - idFlit
+                        - placa
+                        - vin
+                        - etiqueta
+                        - detalle
+                        - coincide
+                        - seleccionable
+                        - motivoNoSeleccionable
                     soporte:
                       type: object
                       properties:
@@ -43640,6 +43691,7 @@ paths:
                     - extraccion
                     - resuelto
                     - creadoEn
+                    - registroActual
                     - soporte
         "401":
           description: No autenticado.

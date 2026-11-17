@@ -13,7 +13,7 @@
 // fuera del alcance de este buscador. El predicado de llaves es propio y solo mira N.º FLIT, placa y
 // VIN, normalizados como `norm()` del front (mayúsculas, sin guiones ni espacios).
 
-import { and, desc, eq, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import {
   FlujoRevision, MOTIVO_CANDIDATO_YA_TIENE_DERECHO,
   type CandidatoRevisionDto, type CandidatosRevisionRespuesta,
@@ -76,6 +76,8 @@ export function predicadoLlaves(ll: Llaves, c: ColumnasLlave): { where?: SQL; ex
 }
 
 const ordenExacta = (exacta?: SQL): SQL[] => (exacta ? [sql`CASE WHEN ${exacta} THEN 0 ELSE 1 END`] : []);
+/** `id = $1` para uno, `id IN (...)` para el lote del listado: el mismo predicado en las dos lecturas por id. */
+const porIds = (col: AnyColumn, ids: string[]): SQL => (ids.length === 1 ? eq(col, ids[0]) : inArray(col, ids));
 
 // ─────────────────────────── DTO ─────────────────────────────────────────────
 
@@ -133,9 +135,9 @@ const fuenteSoat: Fuente = async (ll, limite, user) => {
   return { filas: (rows as FilaSoat[]).map(filaSoat), total: Number(c?.n ?? 0) };
 };
 
-async function registroSoat(id: string): Promise<FilaBase | null> {
-  const [r] = await conJoinsCola(selectSoat()).where(eq(flitoSoat.id, id)).limit(1);
-  return r ? filaSoat(r as FilaSoat) : null;
+async function registrosSoat(ids: string[]): Promise<FilaBase[]> {
+  const rows = await conJoinsCola(selectSoat()).where(porIds(flitoSoat.id, ids)).limit(ids.length);
+  return (rows as FilaSoat[]).map(filaSoat);
 }
 
 // ─────────────────────────── Impuestos / factura de venta ────────────────────
@@ -173,9 +175,9 @@ const fuenteImpuestos = (modulo: typeof FlujoRevision.IMPUESTOS | typeof FlujoRe
   return { filas: (rows as FilaImp[]).map(filaImp), total: Number(c?.n ?? 0) };
 };
 
-async function registroImp(id: string): Promise<FilaBase | null> {
-  const [r] = await conJoinsColaImpuestos(selectImp()).where(eq(flitoImpuestos.id, id)).limit(1);
-  return r ? filaImp(r as FilaImp) : null;
+async function registrosImp(ids: string[]): Promise<FilaBase[]> {
+  const rows = await conJoinsColaImpuestos(selectImp()).where(porIds(flitoImpuestos.id, ids)).limit(ids.length);
+  return (rows as FilaImp[]).map(filaImp);
 }
 
 // ─────────────────────────── Derechos ────────────────────────────────────────
@@ -192,19 +194,60 @@ const fuenteDerechos: Fuente = async (ll, limite) => {
   return { filas: r.filas.map(filaDer), total: r.total };
 };
 
-async function registroDer(id: string): Promise<FilaBase | null> {
-  const r = await candidatosDerecho({ where: eq(flitoTramites.id, id), limite: 1, sinFiltroEstado: true });
-  return r.filas[0] ? filaDer(r.filas[0]) : null;
+async function registrosDer(ids: string[]): Promise<FilaBase[]> {
+  const r = await candidatosDerecho({ where: porIds(flitoTramites.id, ids), limite: ids.length, sinFiltroEstado: true });
+  return r.filas.map(filaDer);
 }
 
 // ─────────────────────────── Punto de entrada ────────────────────────────────
 
-const FUENTES: Record<FlujoRevision, { buscar: Fuente; registro: (id: string) => Promise<FilaBase | null> }> = {
-  [FlujoRevision.SOAT]: { buscar: fuenteSoat, registro: registroSoat },
-  [FlujoRevision.IMPUESTOS]: { buscar: fuenteImpuestos(FlujoRevision.IMPUESTOS), registro: registroImp },
-  [FlujoRevision.FACTURA_VENTA]: { buscar: fuenteImpuestos(FlujoRevision.FACTURA_VENTA), registro: registroImp },
-  [FlujoRevision.DERECHOS]: { buscar: fuenteDerechos, registro: registroDer },
+/** `registros` lee por id SIN filtro de estado (el registro que la revisión ya apunta), en lote. */
+const FUENTES: Record<FlujoRevision, { buscar: Fuente; registros: (ids: string[]) => Promise<FilaBase[]> }> = {
+  [FlujoRevision.SOAT]: { buscar: fuenteSoat, registros: registrosSoat },
+  [FlujoRevision.IMPUESTOS]: { buscar: fuenteImpuestos(FlujoRevision.IMPUESTOS), registros: registrosImp },
+  [FlujoRevision.FACTURA_VENTA]: { buscar: fuenteImpuestos(FlujoRevision.FACTURA_VENTA), registros: registrosImp },
+  [FlujoRevision.DERECHOS]: { buscar: fuenteDerechos, registros: registrosDer },
 };
+
+/** Valor leído de un campo de la extracción (`{ <campo>: { valor } }`); '' si no está. */
+function leido(extraccion: unknown, campo: string): string {
+  const c = (extraccion as Record<string, { valor?: unknown } | undefined> | null)?.[campo];
+  return typeof c?.valor === 'string' && c.valor.trim() ? normalizarLlave(c.valor.trim()) : '';
+}
+
+/**
+ * `registroActual` de cada revisión del listado (Bug #14569): el auditor, que ve la cola pero no
+ * resuelve, no puede llamar al buscador de candidatos y aun así tiene que ver a qué trámite apunta la
+ * revisión. Una consulta por módulo (`IN`), nunca una por revisión. Solo llaves del vehículo + N.º
+ * FLIT (la misma proyección del buscador): sin datos del titular. `coincide` se calcula contra la
+ * placa/VIN que el OCR leyó de esa revisión.
+ */
+export async function conRegistroActual<T extends { modulo: string; registroId: string | null; placaSugerida: string | null; extraccion: unknown }>(
+  items: T[],
+): Promise<(T & { registroActual: CandidatoRevisionDto | null })[]> {
+  const idsPorModulo = new Map<FlujoRevision, Set<string>>();
+  for (const it of items) {
+    if (!it.registroId || !FUENTES[it.modulo as FlujoRevision]) continue;
+    const m = it.modulo as FlujoRevision;
+    if (!idsPorModulo.has(m)) idsPorModulo.set(m, new Set());
+    idsPorModulo.get(m)!.add(it.registroId);
+  }
+  const porModulo = new Map<FlujoRevision, Map<string, FilaBase>>();
+  await Promise.all([...idsPorModulo].map(async ([m, ids]) => {
+    const filas = await FUENTES[m].registros([...ids]);
+    porModulo.set(m, new Map(filas.map((f) => [f.id, f])));
+  }));
+  return items.map((it) => {
+    const fila = it.registroId ? porModulo.get(it.modulo as FlujoRevision)?.get(it.registroId) : undefined;
+    if (!fila) return { ...it, registroActual: null };
+    const ll: Llaves = {
+      texto: '',
+      placa: leido(it.extraccion, 'placa') || (it.placaSugerida?.trim() ? normalizarLlave(it.placaSugerida.trim()) : ''),
+      vin: leido(it.extraccion, 'vin'),
+    };
+    return { ...it, registroActual: aDto(fila, ll) };
+  });
+}
 
 /**
  * Candidatos de una revisión. 404 si no existe. Resuelta → `items: []` (ya no hay nada que elegir),
@@ -221,7 +264,7 @@ export async function buscarCandidatos(revisionId: string, f: FiltrosCandidatos,
   const ll = llavesDe(f);
   const [res, actual] = await Promise.all([
     rev.resuelto ? Promise.resolve<Resultado>({ filas: [], total: 0 }) : fuente.buscar(ll, f.limite, user),
-    rev.registroId ? fuente.registro(rev.registroId) : Promise.resolve(null),
+    rev.registroId ? fuente.registros([rev.registroId]).then((fs) => fs[0] ?? null) : Promise.resolve(null),
   ]);
   const items = res.filas.map((r) => aDto(r, ll));
   return { items, total: res.total, truncado: res.total > items.length, registroActual: actual ? aDto(actual, ll) : null };
