@@ -1778,6 +1778,9 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     expect(new URL(consolidado[1]).searchParams.get('periodo')).toBe('trimestre');
     expect(consolidado[1]).toContain('aprobadoDesde=2026-07-01');
     await expect(page.getByRole('row').filter({ hasText: 'ACME SAS' })).toContainText('2026-T3');
+    // El panel de Periodo sigue abierto y, con el ancho del kit 2026, cae encima del summary de «Más
+    // filtros»: se pliega desde su propio summary, como haría el usuario, antes de abrir el otro.
+    await page.locator('summary').filter({ hasText: /^Periodo/ }).click();
 
     // De vuelta al detalle con los mismos filtros.
     await page.getByRole('tablist', { name: 'Vista del reporte' }).getByRole('button', { name: 'Detalle' }).click();

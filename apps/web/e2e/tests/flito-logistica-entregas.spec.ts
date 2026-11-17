@@ -96,7 +96,7 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
     await expect(page.getByRole('tab', { name: /Trámites/ })).toBeVisible();
     expect(st.posts).toBe(0);
 
-    const tabs = page.locator('div.flex.flex-wrap.gap-1.border-b button');
+    const tabs = page.getByRole('tablist', { name: 'Secciones de Logística' }).getByRole('tab');
     const textos = (await tabs.allTextContents()).map((t) => t.trim());
     const iViajes = textos.indexOf('Viajes');
     const iEntregas = textos.indexOf('Entregas');
@@ -108,7 +108,7 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
     await page.getByRole('tab', { name: 'Entregas', exact: true }).click();
     await expect(page.getByRole('status', { name: 'Cargando viajes…' })).toBeVisible();
     // HU #14353: la placa sigue editable mientras carga, para no perder el foco al escribir.
-    await expect(page.getByLabel('Placa')).toBeEnabled();
+    await expect(page.getByLabel('Placa', { exact: true })).toBeEnabled();
     await expect.poll(() => st.posts).toBeGreaterThanOrEqual(1);
     expect(st.bodies.every((b) => Object.keys(b).length === 0)).toBe(true);
     expect(st.urls.every((u) => u.includes('/flito/logistica/traslados/buscar') && new URL(u).search === '')).toBe(true);
@@ -150,7 +150,7 @@ test.describe('FLITO — Logística · Entregas (HU #14125)', () => {
     await page.getByLabel('Compañía').selectOption({ label: 'Transportes Andinos' });
     await expect.poll(() => st.bodies.at(-1)).toEqual({ estado: 'en_ruta', destino: 'flit', companiaId: 10 });
 
-    await page.getByLabel('Placa').fill('ABC12');
+    await page.getByLabel('Placa', { exact: true }).fill('ABC12');
     await expect.poll(() => st.bodies.at(-1)).toEqual({
       placa: 'ABC12', estado: 'en_ruta', destino: 'flit', companiaId: 10,
     });

@@ -691,7 +691,14 @@ test.describe('FLITO — Servicios adicionales · ficha de ayuda (AC7)', () => {
     expect(md).toMatch(/Editar/);
     expect(md).toMatch(/Dar de baja/);
     expect(md).toMatch(/Administrador y Financiera/);
-    expect(md).not.toMatch(/!\[[^\]]*\]\(/);
+    // Desde la HU #13707 la ficha cita capturas (datos demo) y su diagrama: toda imagen es local a su
+    // carpeta y lleva alt; nada de imágenes remotas ni sin texto alternativo.
+    const imagenes = [...md.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
+    expect(imagenes.length).toBeGreaterThan(0);
+    for (const [, alt, ruta] of imagenes) {
+      expect(alt.trim().length, ruta).toBeGreaterThan(0);
+      expect(ruta).toMatch(/^\.\/flito_servicios_adicionales\/[\w-]+\.(png|svg)$/);
+    }
     expect(md).not.toMatch(/\/api\//);
     expect(md).not.toMatch(/\b(CREATE TABLE|FROM public\.|pg_)/i);
   });

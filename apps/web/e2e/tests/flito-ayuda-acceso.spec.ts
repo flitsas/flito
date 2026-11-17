@@ -26,9 +26,11 @@ test.describe('FLITO — Ayuda · acceso', () => {
     await page.goto('/');
     await expect(page.getByRole('button', { name: BUSCADOR })).toBeVisible();
 
-    // No se duplica en el dock: está en el menú de usuario, como su última entrada antes de salir.
+    // El dock conserva la ESTRUCTURA del menú de develop (FlitNavBar: SECTION_ORDER termina en «Ayuda», y una
+    // sección de una sola página es enlace directo): «Ayuda» sigue ahí como enlace a /flito/ayuda. Además es la
+    // última entrada del menú de usuario antes de salir.
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await expect(nav.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
+    await expect(nav.getByRole('link', { name: 'Ayuda', exact: true })).toHaveAttribute('href', '/flito/ayuda');
     const enlace = await entradaAyuda(page);
     await expect(enlace).toBeVisible();
     const entradas = page.getByRole('menu', { name: 'Opciones de usuario' }).getByRole('menuitem');
@@ -43,8 +45,14 @@ test.describe('FLITO — Ayuda · acceso', () => {
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/');
     await expect(page.getByRole('button', { name: BUSCADOR })).toBeVisible();
-    await page.keyboard.press('Control+k');
-    await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
+    // El atajo lo escucha un listener que se monta con el shell: se reintenta hasta que el diálogo abre,
+    // en vez de suponer que el listener ya está puesto cuando el botón se ve (flaky en la corrida completa).
+    const paleta = page.getByRole('dialog', { name: 'Paleta de comandos' });
+    await expect(async () => {
+      if (!(await paleta.isVisible())) await page.keyboard.press('Control+k');
+      await expect(paleta).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
+    await paleta.getByPlaceholder('Buscar o ir a…').fill('ayuda');
     await expect(page.getByRole('option', { name: /^Ayuda/ })).toBeVisible();
   });
 
@@ -88,8 +96,14 @@ test.describe('FLITO — Ayuda · acceso', () => {
     await expect(await entradaAyuda(page)).toHaveCount(0);
     await page.keyboard.press('Escape');
 
-    await page.keyboard.press('Control+k');
-    await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
+    // El atajo lo escucha un listener que se monta con el shell: se reintenta hasta que el diálogo abre,
+    // en vez de suponer que el listener ya está puesto cuando el botón se ve (flaky en la corrida completa).
+    const paleta = page.getByRole('dialog', { name: 'Paleta de comandos' });
+    await expect(async () => {
+      if (!(await paleta.isVisible())) await page.keyboard.press('Control+k');
+      await expect(paleta).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
+    await paleta.getByPlaceholder('Buscar o ir a…').fill('ayuda');
     await expect(page.getByRole('option', { name: /^Ayuda/ })).toHaveCount(0);
   });
 
@@ -117,8 +131,14 @@ test.describe('FLITO — Ayuda · usuarios con enlace (HU #13914)', () => {
     await expect(page.getByRole('heading', { name: 'Gestión', exact: true })).toBeVisible();
     await expect(await entradaAyuda(page)).toBeVisible();
     await page.keyboard.press('Escape');
-    await page.keyboard.press('Control+k');
-    await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
+    // El atajo lo escucha un listener que se monta con el shell: se reintenta hasta que el diálogo abre,
+    // en vez de suponer que el listener ya está puesto cuando el botón se ve (flaky en la corrida completa).
+    const paleta = page.getByRole('dialog', { name: 'Paleta de comandos' });
+    await expect(async () => {
+      if (!(await paleta.isVisible())) await page.keyboard.press('Control+k');
+      await expect(paleta).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
+    await paleta.getByPlaceholder('Buscar o ir a…').fill('ayuda');
     await expect(page.getByRole('option', { name: /^Ayuda/ })).toBeVisible();
     await page.keyboard.press('Escape');
     await page.goto('/flito/ayuda/soat');
@@ -153,8 +173,14 @@ test.describe('FLITO — Ayuda · usuarios con enlace (HU #13914)', () => {
     await page.goto('/flito/ayuda');
     await expect(page.getByRole('heading', { name: 'Su usuario aún no tiene módulos con ayuda' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
-    await page.keyboard.press('Control+k');
-    await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
+    // El atajo lo escucha un listener que se monta con el shell: se reintenta hasta que el diálogo abre,
+    // en vez de suponer que el listener ya está puesto cuando el botón se ve (flaky en la corrida completa).
+    const paleta = page.getByRole('dialog', { name: 'Paleta de comandos' });
+    await expect(async () => {
+      if (!(await paleta.isVisible())) await page.keyboard.press('Control+k');
+      await expect(paleta).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
+    await paleta.getByPlaceholder('Buscar o ir a…').fill('ayuda');
     await expect(page.getByRole('option', { name: /^Ayuda/ })).toHaveCount(0);
   });
 });

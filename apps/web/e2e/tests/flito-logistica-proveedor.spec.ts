@@ -90,10 +90,10 @@ test.describe('AC1 y AC4 · pestañas y acciones por función y por enlace', () 
     await entrarProveedor(page, [...FUN_COORDINADOR, ...FUN_CERRADAS]);
     const espias = await mockConsola(page);
     await page.goto('/flito/logistica');
-    const tabs = page.locator('div.flex.flex-wrap.gap-1.border-b button');
+    const tabs = page.getByRole('tablist', { name: 'Secciones de Logística' }).getByRole('tab');
     await expect(tabs).toHaveCount(4);
     for (const nombre of ['Viajes adicionales', 'LT pendientes', 'Motivos de llegada']) {
-      await expect(page.getByRole('button', { name: nombre })).toHaveCount(0);
+      await expect(page.getByRole('tab', { name: nombre })).toHaveCount(0);
     }
     // La doble cerradura alcanza también a la petición: sin pestaña no hay bandeja.
     expect(espias.urls.some((u) => u.includes('pendientes-tramite'))).toBe(false);

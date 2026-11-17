@@ -108,6 +108,10 @@ test.describe('FLITO — Ayuda · índice', () => {
     // Encabezado vigente de `flito_bolsas.md` (resumen, versión y fecha los movieron las HUs de Bolsas
     // #13908/#13950/#13964); el test garantiza dónde se pintan, no qué versión es.
     const resumen = 'Saldos, alta de bolsas, recargas y cierres.';
+    // Versión y fecha se leen del frontmatter de la ficha: suben con cada delta (D7 de flit-ayuda-flito).
+    const md = readFileSync(resolve(fileURLToPath(new URL('.', import.meta.url)), '../../src/content/ayuda/flito_bolsas.md'), 'utf8');
+    const version = /^version:\s*['"]?([0-9.]+)/m.exec(md)![1];
+    const fecha = /^fecha:\s*['"]?(\d{4})-(\d{2})-(\d{2})/m.exec(md)!;
     await abrirAyuda(page, FINANCIERA_USER);
     const fila = page.getByRole('link', { name: 'Abrir ficha de Bolsas' });
     await expect(fila).toContainText(resumen);
@@ -115,9 +119,9 @@ test.describe('FLITO — Ayuda · índice', () => {
 
     await fila.click();
     await expect(page).toHaveURL(/\/flito\/ayuda\/flito_bolsas$/);
-    await expect(page.getByText('Versión 1.8 · 26/10/2026', { exact: true })).toBeVisible();
+    await expect(page.getByText(`Versión ${version} · ${fecha[3]}/${fecha[2]}/${fecha[1]}`, { exact: true })).toBeVisible();
     await expect(page.getByText(resumen, { exact: true })).toHaveCount(1);
-    for (const fuga of ['palabras_clave', 'consultas:', 'version: 1.8', 'fecha: 2026-10-26', 'resumen:']) {
+    for (const fuga of ['palabras_clave', 'consultas:', `version: ${version}`, `fecha: ${fecha[1]}-${fecha[2]}-${fecha[3]}`, 'resumen:']) {
       await expect(page.getByText(fuga)).toHaveCount(0);
     }
     await expect(page.getByRole('heading', { name: 'Qué es', exact: true })).toBeVisible();

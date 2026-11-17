@@ -226,31 +226,31 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // con alt y ≤ 200 KB, en el orden en que la ficha las cita (AC2), y diagrama SVG con alt donde el
   // proceso tiene más de 3 pasos o decisiones (AC3). Gastos diarios es de solo lectura: sin diagrama.
   const FACTURACION_13770: Record<string, { version: string; fecha: string; capturas: string[]; diagrama: string | null }> = {
-    siigo_parametrizacion: { version: '1.3', fecha: '2026-11-13', diagrama: 'camino-a-produccion.svg', capturas: [
+    siigo_parametrizacion: { version: '1.4', fecha: '2026-11-17', diagrama: 'camino-a-produccion.svg', capturas: [
       '01-compuerta.png', '02-mapeo-de-conceptos.png', '03-editar-concepto.png', '04-terceros.png', '05-sincronizar-terceros.png'] },
-    siigo_operacion: { version: '1.4', fecha: '2026-11-13', diagrama: 'camino-caso-detenido.svg', capturas: [
+    siigo_operacion: { version: '1.5', fecha: '2026-11-17', diagrama: 'camino-caso-detenido.svg', capturas: [
       '01-bandeja.png', '02-ver-caso.png', '03-reintentar-varios.png'] },
-    flito_comprobantes: { version: '1.5', fecha: '2026-11-13', diagrama: 'camino-comprobante.svg', capturas: [
+    flito_comprobantes: { version: '1.6', fecha: '2026-11-17', diagrama: 'camino-comprobante.svg', capturas: [
       '01-cargar.png', '02-cola.png', '03-asociar.png'] },
-    flito_conciliacion: { version: '1.4', fecha: '2026-11-13', diagrama: 'ciclo-boleta.svg', capturas: [
+    flito_conciliacion: { version: '1.5', fecha: '2026-11-17', diagrama: 'ciclo-boleta.svg', capturas: [
       '01-cargar-boleta.png', '02-bandeja.png', '03-detalle-sin-cuadrar.png', '04-conciliar.png', '05-comprobante-pse.png'] },
     // HU #13901: alta manual de la bolsa, conceptos y autogestión, inactivar y reactivar.
     // HU #13892: paso 7 «Documentos» (v1.3); botón de descargar a la altura del kit en la 05 (v1.5).
     // HU #13908: tránsito en el catálogo único: filtro Alcance, tabla de tránsitos, alta y detalle (v1.6).
     // HU #13964: «Quitar» la versión vigente y el estado «retirada» del historial (v1.8).
-    flito_bolsas: { version: '1.10', fecha: '2026-11-13', diagrama: 'ciclo-periodo.svg', capturas: [
+    flito_bolsas: { version: '1.11', fecha: '2026-11-17', diagrama: 'ciclo-periodo.svg', capturas: [
       '01-cabecera-y-kpi.png', '02-companias.png', '03-crear-bolsa.png', '04-detalle-compania.png', '05-documentos.png'] },
     // Épica #13763: modo Proveedores (lo que cada proveedor cobra a FLITO) y selector «Ver tarifas de» (v2.0).
-    flito_tarifas: { version: '2.2', fecha: '2026-11-13', diagrama: 'vigencias.svg', capturas: [
+    flito_tarifas: { version: '2.3', fecha: '2026-11-17', diagrama: 'vigencias.svg', capturas: [
       '01-elegir-compania.png', '02-fijar-valor.png', '03-historial.png'] },
     // Citadas en el orden de los pasos de la ficha (la 01 ilustra el paso 5, «Por tarifar»).
-    flito_servicios_adicionales: { version: '1.3', fecha: '2026-11-13', diagrama: 'ciclo-tipo.svg', capturas: [
+    flito_servicios_adicionales: { version: '1.4', fecha: '2026-11-17', diagrama: 'ciclo-tipo.svg', capturas: [
       '02-editar.png', '03-nuevo-tipo.png', '04-dados-de-baja.png', '01-catalogo.png'] },
     // Épica #13763: rediseño (Columnas, Más filtros, chips, acción + menú ⋮) y costo de proveedor (v2.0).
-    finanzas_reporte_costos: { version: '2.3', fecha: '2026-11-13', diagrama: 'tres-verbos.svg', capturas: [
+    finanzas_reporte_costos: { version: '2.4', fecha: '2026-11-17', diagrama: 'tres-verbos.svg', capturas: [
       '01-filtros-y-periodo.png', '02-mas-filtros.png', '03-tabla.png', '04-columnas.png',
       '05-costo-de-proveedor.png', '06-acciones-de-fila.png', '07-consolidado.png'] },
-    finanzas_gastos_diarios: { version: '1.4', fecha: '2026-11-13', diagrama: null, capturas: [
+    finanzas_gastos_diarios: { version: '1.5', fecha: '2026-11-17', diagrama: null, capturas: [
       '01-tarjetas-y-total.png', '02-evolucion-diaria.png'] },
   };
 
@@ -298,15 +298,15 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // son de solo lectura y de tres pasos o menos: sin diagrama.
   const SOAT_13771: Record<string, { version: string; capturas: string[]; diagrama: string | null; fecha?: string }> = {
     // HU #13968: SOAT sin trámite por proveedor (soat y clients cambiaron de nuevo).
-    soat: { version: '1.12', fecha: '2026-11-13', diagrama: 'ciclo-soat.svg', capturas: [
+    soat: { version: '1.14', fecha: '2026-11-17', diagrama: 'ciclo-soat.svg', capturas: [
       '01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png'] },
     // Bug #14532: Liquidación y Pagado en la ventana del ZIP (04-documentos-del-zip regenerada).
-    flito_tramites: { version: '1.5', fecha: '2026-11-13', diagrama: 'camino-a-entregar.svg', capturas: [
+    flito_tramites: { version: '1.6', fecha: '2026-11-17', diagrama: 'camino-a-entregar.svg', capturas: [
       '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-seleccion.png', '04-documentos-del-zip.png'] },
-    flito_revisiones: { version: '1.4', fecha: '2026-11-13', diagrama: 'resolver-o-descartar.svg', capturas: [
+    flito_revisiones: { version: '1.5', fecha: '2026-11-17', diagrama: 'resolver-o-descartar.svg', capturas: [
       '01-cola-y-documento.png', '02-revisar-campos.png', '03-constancia.png'] },
-    flito_bitacora: { version: '1.4', fecha: '2026-11-13', diagrama: null, capturas: ['01-movimientos.png'] },
-    flito_comparendos: { version: '1.4', fecha: '2026-11-13', diagrama: 'ciclo-monitoreo.svg', capturas: [
+    flito_bitacora: { version: '1.5', fecha: '2026-11-17', diagrama: null, capturas: ['01-movimientos.png'] },
+    flito_comparendos: { version: '1.5', fecha: '2026-11-17', diagrama: 'ciclo-monitoreo.svg', capturas: [
       '01-registros.png', '02-detalle.png', '03-sincronizacion.png', '04-configuracion.png'] },
     // HU #13935: la ficha de Clientes cambió después (checks «FLITO gestiona»); HU #13948: Estado y filtro;
     // HU #13949: menú ⋮ para desactivar y activar (capturas sin cambio: el ⋮ queda fuera del encuadre).
@@ -314,9 +314,9 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // formulario de alta y la ficha fiscal no salen en ninguna).
     // HU #13961: Proveedores con Estado, filtro y ⋮ para desactivar y activar (03-proveedores regenerada).
     // HU #14336/#14337: proveedores con varios servicios (ficha 3.0 y 03-proveedores regenerada).
-    clients: { version: '3.4', fecha: '2026-11-13', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
+    clients: { version: '3.5', fecha: '2026-11-17', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
       '01-clientes.png', '02-soat-sin-tramite.png', '03-proveedores.png'] },
-    flito_tablero: { version: '1.4', fecha: '2026-11-13', diagrama: null, capturas: ['01-indicadores-y-alertas.png', '02-por-estado.png'] },
+    flito_tablero: { version: '1.5', fecha: '2026-11-17', diagrama: null, capturas: ['01-indicadores-y-alertas.png', '02-por-estado.png'] },
   };
 
   for (const [clave, esperado] of Object.entries(SOAT_13771)) {
@@ -364,9 +364,9 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // Las dos fichas describen procesos de más de 3 pasos o con decisiones: las dos llevan diagrama.
   const IMPUESTOS_13772: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
     // Bug #14532: Liquidación y Pagado, y descarga individual por fila (01-cola y 02-seleccion regeneradas).
-    flito_impuestos: { version: '1.10', fecha: '2026-11-13', diagrama: 'ciclo-impuesto.svg', capturas: [
+    flito_impuestos: { version: '1.11', fecha: '2026-11-17', diagrama: 'ciclo-impuesto.svg', capturas: [
       '01-cola.png', '02-seleccion.png', '03-carga-masiva.png', '04-validacion-runt.png', '05-detalle.png'] },
-    flito_derechos: { version: '1.3', fecha: '2026-11-13', diagrama: 'canastas-de-carga.svg', capturas: [
+    flito_derechos: { version: '1.4', fecha: '2026-11-17', diagrama: 'canastas-de-carga.svg', capturas: [
       '01-resultado-de-la-carga.png', '02-drive.png', '03-registrados.png'] },
   };
 
@@ -412,10 +412,10 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // HU #14120 — pestaña Motivos de llegada; version 2.1.
   // HU #14121 — estado En FLIT en el filtro de Trámites y en Mis recogidas; 2.2 y 2.1.
   const LOGISTICA_13773: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
-    flito_logistica: { version: '3.2', fecha: '2026-11-13', diagrama: 'ciclo-licencia.svg', capturas: [
+    flito_logistica: { version: '3.3', fecha: '2026-11-17', diagrama: 'ciclo-licencia.svg', capturas: [
       '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-viajes-a-cliente.png',
       '08-entregas.png', '05-actas.png', '06-firmar-y-despachar.png', '07-motivos-de-llegada.png'] },
-    flito_logistica_ruta: { version: '2.7', fecha: '2026-11-13', diagrama: 'recorrido-mensajero.svg', capturas: [
+    flito_logistica_ruta: { version: '2.8', fecha: '2026-11-17', diagrama: 'recorrido-mensajero.svg', capturas: [
       '04-entregar.png', '05-sin-conexion.png'] },
   };
 
@@ -473,7 +473,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
       '01-roles.png', '02-arbol.png', '03-sin-guardar.png', '04-nuevo-rol.png'] },
     drive: { version: '1.1', fecha: '2026-11-13', diagrama: 'procesar-cuentas.svg', capturas: ['01-carpeta-raiz.png', '02-carpeta.png', '03-resultado.png'] },
     privacy: { version: '1.1', fecha: '2026-11-12', diagrama: 'derecho-al-olvido.svg', capturas: ['01-documento.png', '02-registros-afectados.png'] },
-    siigo_credenciales: { version: '1.3', fecha: '2026-11-13', diagrama: 'ciclo-credencial.svg', capturas: [
+    siigo_credenciales: { version: '1.4', fecha: '2026-11-17', diagrama: 'ciclo-credencial.svg', capturas: [
       '01-ambientes.png', '02-registrar.png', '03-probar-conexion.png', '04-historial.png'] },
   };
 

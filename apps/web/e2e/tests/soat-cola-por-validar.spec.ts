@@ -111,17 +111,26 @@ test.describe('HU #12997 · AC5 — pastillas y «Todos»', () => {
     expect(page.url()).not.toContain('1020304050');
   });
 
-  test('las pastillas envuelven a 375 px sin desbordar la pantalla', async ({ page }) => {
+  // Rediseño 2026 (docs/ux/rediseno-2026/responsive/defectos.md, V1 «Resuelto»): las tiras de píldoras ya
+  // NO envuelven; van en un renglón con scroll horizontal propio y desvanecido, y la caja no ensancha la página.
+  test('las pastillas van en una tira con scroll a 375 px sin desbordar la pantalla', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     await page.goto('/flito/soat');
-    await expect(pastilla(page, 'Descartadas')).toBeVisible();
-    // Las pastillas ocupan más de un renglón (envuelven) y ninguna se sale del viewport.
+    await expect(pastilla(page, 'Descartadas')).toBeAttached();
     const cajas = await page.getByRole('button', { name: /^(Todos|Por validar|Pendiente|Solicitado|Con novedad|Pagado|Descartadas)$/ })
-      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ top: r.top, right: r.right })));
-    expect(new Set(cajas.map((c) => Math.round(c.top))).size).toBeGreaterThan(1);
-    for (const c of cajas) expect(c.right).toBeLessThanOrEqual(375);
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    expect(new Set(cajas).size).toBe(1);
+    // La tira es su propio contenedor con scroll (overflow-x auto/scroll), cabe en el viewport y la página no crece.
+    const m = await pastilla(page, 'Descartadas').evaluate((el) => {
+      let n = el.parentElement;
+      while (n && !['auto', 'scroll'].includes(getComputedStyle(n).overflowX)) n = n.parentElement;
+      return { tira: !!n, derecha: n ? n.getBoundingClientRect().right : Infinity, pagina: document.documentElement.scrollWidth };
+    });
+    expect(m.tira).toBe(true);
+    expect(m.derecha).toBeLessThanOrEqual(375);
+    expect(m.pagina).toBeLessThanOrEqual(375);
   });
 
   test('proveedor (gestor): sin pastillas nuevas y sin una sola petición a buscar', async ({ page }) => {

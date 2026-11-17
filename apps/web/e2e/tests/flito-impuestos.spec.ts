@@ -1527,7 +1527,9 @@ test.describe('FLITO — Impuestos · ficha de ayuda (HU #12592, AC7)', () => {
     // HU #12615 (AC5, TC-13): la ficha dice qué subir, las carpetas reales y la categoría nueva, y
     // ya no describe el proceso. *Mutante:* dejar el paso 6 anterior → cae por «5 en 5» y
     // «computador» presentes y «Fase no coincide» ausente.
-    expect(md).not.toMatch(/5 en 5|computador|comprimido|tanda/i);
+    // «(en computador)» es legítimo: lo trae el paso de **Certificar sin trámite** (vista previa de la factura,
+    // ya en develop), no el proceso viejo del paso 6. Se excluye esa frase y el resto de la prohibición sigue.
+    expect(md.replace(/\(en computador\)/g, '')).not.toMatch(/5 en 5|computador|comprimido|tanda/i);
     expect(md).toMatch(/\*\*150 archivos sueltos\*\*/);
     expect(md).toMatch(/\*\*300 dentro de un ZIP\*\*/);
     expect(md).toMatch(/\*\*liquidaciones_originales\*\* o \*\*sin marca\*\* es Liquidación/);
@@ -1536,11 +1538,15 @@ test.describe('FLITO — Impuestos · ficha de ayuda (HU #12592, AC7)', () => {
     expect(md).toMatch(/\*\*Sin asociar\*\* y \*\*Fase no coincide\*\*/);
     expect(md).toMatch(/\*\*Fase no coincide\*\* significa que el sello del documento contradice la fase elegida/);
     expect(md).toMatch(/\*\*no se guardaron\*\*; vuelva a subirlos/);
-    // Sigue en plantilla: 6 secciones, forma «usted», sin tabla ni captura ni endpoint.
+    // Sigue en plantilla: 6 secciones, forma «usted», sin tabla ni endpoint. Desde la HU #13707 las capturas con
+    // datos demo están permitidas: toda imagen es local a su carpeta y lleva alt.
     for (const h of ['Qué es', 'Para quién', 'Cómo se entra', 'Pasos', 'Estados', 'Qué no hace']) expect(md).toContain(`## ${h}`);
     expect(md).toMatch(/\busted\b/i);
     expect(md).not.toMatch(/\btú\b/);
-    expect(md).not.toMatch(/!\[[^\]]*\]\(/);
+    for (const [, alt, ruta] of md.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)) {
+      expect(alt.trim().length, ruta).toBeGreaterThan(0);
+      expect(ruta).toMatch(/^\.\/flito_impuestos\/[\w-]+\.(png|svg)$/);
+    }
     expect(md).not.toMatch(/\/api\//);
     expect(md).not.toMatch(/\|[-:]+\|/);
   });

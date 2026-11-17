@@ -1438,6 +1438,11 @@ test.describe('FLITO — Comparendos · la affordance de desborde de FlitTable (
     await mockListado(page, { status: 200, body: PAGINA });
     await page.goto('/flito/comparendos');
     await expect(page.getByText(FILA.numeroComparendo)).toBeVisible();
+    // Rediseño 2026: el contenido del shell tiene tope (`.kit-main { max-width: 1680px }`), así que con las
+    // 13 columnas (~2060 px) la tabla ya no cabe a NINGÚN ancho de ventana. Lo que este test prueba es la
+    // mitad de FlitTable (sin desborde real no hay sombra ni parada de tabulador), no el tope del shell:
+    // se quita el tope solo aquí para darle a la tabla el sitio que necesita.
+    await page.addStyleTag({ content: '.kit-main { max-width: none !important; }' });
 
     const medidas = await desborda(page);
     expect(medidas.desborda, `${medidas.scrollWidth} px de tabla en ${medidas.clientWidth} px`).toBe(false);

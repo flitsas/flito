@@ -123,7 +123,7 @@ test.describe('FLITO — Logística · Motivos de llegada (HU #14120)', () => {
     await page.goto('/flito/logistica');
     await expect(page.getByRole('tab', { name: /Trámites/ })).toBeVisible();
     expect(st.gets).toBe(0);
-    const tabs = page.locator('div.flex.flex-wrap.gap-1.border-b button');
+    const tabs = page.getByRole('tablist', { name: 'Secciones de Logística' }).getByRole('tab');
     await expect(tabs.last()).toHaveText('Motivos de llegada');
     await page.getByRole('tab', { name: 'Motivos de llegada' }).click();
     await expect.poll(() => st.gets).toBeGreaterThanOrEqual(1);
