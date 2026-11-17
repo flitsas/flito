@@ -42482,63 +42482,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    modulo:
-                      type: string
-                    motivo:
-                      type: string
-                    detalle:
-                      type: string
-                    registroId:
-                      type:
-                        - string
-                        - "null"
-                    placaSugerida:
-                      type:
-                        - string
-                        - "null"
-                    extraccion:
-                      description: "[por verificar] el código la tipa como `unknown`."
-                    resuelto:
-                      type: boolean
-                    creadoEn:
-                      type: string
-                    soporte:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        nombreArchivo:
-                          type: string
-                        contentType:
-                          type: string
-                        tipo:
-                          type: string
-                        subidoPorNombre:
-                          type: string
-                        subidoEn:
-                          type: string
-                      required:
-                        - id
-                        - nombreArchivo
-                        - contentType
-                        - tipo
-                        - subidoPorNombre
-                        - subidoEn
-                  required:
-                    - id
-                    - modulo
-                    - motivo
-                    - detalle
-                    - registroId
-                    - placaSugerida
-                    - extraccion
-                    - resuelto
-                    - creadoEn
-                    - soporte
+                  "$ref": "#/components/schemas/Forma-bb81eb8403"
         "401":
           description: No autenticado.
           content:
@@ -42589,6 +42533,279 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  "/api/flito/revisiones/{id}/candidatos/buscar":
+    post:
+      operationId: post-api-flito-revisiones-id-candidatos-buscar
+      tags:
+        - flito-revisiones
+      summary: "POST /api/flito/revisiones/:id/candidatos/buscar"
+      description: "Fuente: apps/api/src/modules/flito-revisiones/flito-revisiones.routes.ts. Exige la función: revisiones.revision.resolver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - revisiones.revision.resolver
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                texto:
+                  type: string
+                placa:
+                  type: string
+                vin:
+                  type: string
+                limite:
+                  type: integer
+                  minimum: 1
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        idFlit:
+                          type:
+                            - string
+                            - "null"
+                        placa:
+                          type:
+                            - string
+                            - "null"
+                        vin:
+                          type:
+                            - string
+                            - "null"
+                        etiqueta:
+                          type: string
+                        detalle:
+                          type:
+                            - string
+                            - "null"
+                        coincide:
+                          type: object
+                          properties:
+                            placa:
+                              type: boolean
+                            vin:
+                              type: boolean
+                          required:
+                            - placa
+                            - vin
+                        seleccionable:
+                          type: boolean
+                        motivoNoSeleccionable:
+                          type:
+                            - string
+                            - "null"
+                      required:
+                        - id
+                        - idFlit
+                        - placa
+                        - vin
+                        - etiqueta
+                        - detalle
+                        - coincide
+                        - seleccionable
+                        - motivoNoSeleccionable
+                  total:
+                    type: number
+                  truncado:
+                    type: boolean
+                  registroActual:
+                    type:
+                      - object
+                      - "null"
+                    properties:
+                      id:
+                        type: string
+                      idFlit:
+                        type:
+                          - string
+                          - "null"
+                      placa:
+                        type:
+                          - string
+                          - "null"
+                      vin:
+                        type:
+                          - string
+                          - "null"
+                      etiqueta:
+                        type: string
+                      detalle:
+                        type:
+                          - string
+                          - "null"
+                      coincide:
+                        type: object
+                        properties:
+                          placa:
+                            type: boolean
+                          vin:
+                            type: boolean
+                        required:
+                          - placa
+                          - vin
+                      seleccionable:
+                        type: boolean
+                      motivoNoSeleccionable:
+                        type:
+                          - string
+                          - "null"
+                    required:
+                      - id
+                      - idFlit
+                      - placa
+                      - vin
+                      - etiqueta
+                      - detalle
+                      - coincide
+                      - seleccionable
+                      - motivoNoSeleccionable
+                required:
+                  - items
+                  - total
+                  - truncado
+                  - registroActual
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  details:
+                    type: object
+                    properties:
+                      formErrors:
+                        type: array
+                        items:
+                          type: string
+                      fieldErrors:
+                        type: object
+                        properties:
+                          limite:
+                            type: array
+                            items:
+                              type: string
+                          texto:
+                            type: array
+                            items:
+                              type: string
+                          placa:
+                            type: array
+                            items:
+                              type: string
+                          vin:
+                            type: array
+                            items:
+                              type: string
+                    required:
+                      - formErrors
+                      - fieldErrors
+                required:
+                  - error
+                  - details
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
   "/api/flito/revisiones/{id}/descartar":
     post:
       operationId: post-api-flito-revisiones-id-descartar
@@ -42692,6 +42909,160 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+  "/api/flito/revisiones/{id}/reintentar-lectura":
+    post:
+      operationId: post-api-flito-revisiones-id-reintentar-lectura
+      tags:
+        - flito-revisiones
+      summary: "POST /api/flito/revisiones/:id/reintentar-lectura"
+      description: "Fuente: apps/api/src/modules/flito-revisiones/flito-revisiones.routes.ts. Exige la función: revisiones.revision.resolver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - revisiones.revision.resolver
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision:
+                    "$ref": "#/components/schemas/Forma-bb81eb8403"
+                  sinLectura:
+                    type: boolean
+                  camposLeidos:
+                    type: number
+                required:
+                  - revision
+                  - sinLectura
+                  - camposLeidos
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  details:
+                    type: object
+                    properties:
+                      formErrors:
+                        type: array
+                        items:
+                          type: string
+                      fieldErrors:
+                        type: object
+                        additionalProperties:
+                          type: array
+                          items:
+                            type: string
+                    required:
+                      - formErrors
+                      - fieldErrors
+                required:
+                  - error
+                  - details
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "503":
+          description: Servicio no disponible.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
         default:
           description: Estado calculado en tiempo de ejecución.
           content:
@@ -43446,12 +43817,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/devolver-gestor":
     post:
       operationId: post-api-flito-soat-id-devolver-gestor
@@ -43608,12 +43988,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/documentos-adicionales":
     get:
       operationId: get-api-flito-soat-id-documentos-adicionales
@@ -44000,7 +44389,7 @@ paths:
       tags:
         - flito-soat
       summary: "POST /api/flito/soat/:id/factura"
-      description: "POST /:id/factura — carga de UNA factura de un SOAT puntual. Única vía a Pagado (RN-03). Operaciones o el gestor del proveedor. Campo de archivo: \"archivo\". Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.comprobante.cargar."
+      description: "POST /:id/factura — carga de UNA factura de un SOAT puntual. Única vía a Pagado (RN-03). Operaciones o el gestor del proveedor. Campo de archivo: \"archivo\". Campos opcionales del PDF cifrado (Bug #14569): \"contrasena\", y \"usarNombreComoClave\" true o false, que sin clave escrita prueba el nombre del archivo como contraseña. Cada uno con su limitador, puesto tras multer porque solo cuentan las peticiones que los traen y esos campos vienen en el body. Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.comprobante.cargar."
       security:
         - bearerAuth: []
       x-flit-funciones:
@@ -44018,10 +44407,14 @@ paths:
             schema:
               type: object
               properties:
+                contrasena:
+                  description: "[por verificar] campo leído en el código; su tipo no se valida con un esquema."
+                usarNombreComoClave:
+                  description: "[por verificar] campo leído en el código; su tipo no se valida con un esquema."
                 archivo:
                   type: string
                   format: binary
-        description: Formulario con los archivos que recibe la ruta.
+        description: "[por verificar] La ruta lee estos campos de req.body sin esquema de Zod; pueden faltar otros."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -44115,12 +44508,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/historial":
     get:
       operationId: get-api-flito-soat-id-historial
@@ -44366,12 +44768,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/reactivar":
     post:
       operationId: post-api-flito-soat-id-reactivar
@@ -44503,12 +44914,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/rechazar":
     post:
       operationId: post-api-flito-soat-id-rechazar
@@ -44640,12 +45060,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/reversar":
     post:
       operationId: post-api-flito-soat-id-reversar
@@ -44807,12 +45236,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/soportes":
     get:
       operationId: get-api-flito-soat-id-soportes
@@ -48285,12 +48723,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   /api/flito/soat/export:
     post:
       operationId: post-api-flito-soat-export
@@ -48538,12 +48985,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   /api/flito/soat/facetas:
     get:
       operationId: get-api-flito-soat-facetas
@@ -48661,7 +49117,7 @@ paths:
       tags:
         - flito-soat
       summary: POST /api/flito/soat/facturas
-      description: "POST /facturas — carga MASIVA (varios archivos o un ZIP). El OCR enruta cada comprobante a un SOAT en adquisición; los que cruzan y superan el umbral se pagan, el resto va a revisión (CA-06). Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.masiva.cargar."
+      description: "POST /facturas — carga MASIVA (varios archivos o un ZIP). El OCR enruta cada comprobante a un SOAT en adquisición; los que cruzan y superan el umbral se pagan, el resto va a revisión (CA-06). Campo opcional \"contrasenas\" (Bug #14569): arreglo JSON por posición, mismo largo que \"archivos\". Limitador después de multer por la misma razón que en `POST /:id/factura`. Campo opcional \"nombresComoClave\" (punto 10): arreglo JSON de booleanos por posición, mismo largo que \"archivos\" (como \"contrasenas\").  Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.masiva.cargar."
       security:
         - bearerAuth: []
       x-flit-funciones:
@@ -48672,10 +49128,14 @@ paths:
             schema:
               type: object
               properties:
+                contrasenas:
+                  description: "[por verificar] campo leído en el código; su tipo no se valida con un esquema."
+                nombresComoClave:
+                  description: "[por verificar] campo leído en el código; su tipo no se valida con un esquema."
                 archivos:
                   type: string
                   format: binary
-        description: Formulario con los archivos que recibe la ruta.
+        description: "[por verificar] La ruta lee estos campos de req.body sin esquema de Zod; pueden faltar otros."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -48700,11 +49160,16 @@ paths:
                     type: array
                     items:
                       "$ref": "#/components/schemas/Forma-948f2e8602"
+                  protegidos:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Forma-948f2e8602"
                 required:
                   - pagados
                   - enRevision
                   - duplicados
                   - noAsociados
+                  - protegidos
         "400":
           description: Petición inválida.
           content:
@@ -48782,12 +49247,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   /api/flito/soat/soportes/zip:
     post:
       operationId: post-api-flito-soat-soportes-zip
@@ -48927,6 +49401,14 @@ paths:
                     required:
                       - error
                       - codigo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
                   - type: object
                     properties:
                       error:
@@ -123878,6 +124360,29 @@ components:
         - sha256
         - solicitadoAt
         - firmadoAt
+    Forma-b0d0eb5019:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        nombreArchivo:
+          type: string
+        contentType:
+          type: string
+        tipo:
+          type: string
+        subidoPorNombre:
+          type: string
+        subidoEn:
+          type: string
+      required:
+        - id
+        - nombreArchivo
+        - contentType
+        - tipo
+        - subidoPorNombre
+        - subidoEn
     Forma-b10a344d17:
       description: Forma que comparten varias operaciones.
       type: object
@@ -124446,6 +124951,97 @@ components:
         - investigacionCerradaAt
         - createdAt
         - closedAt
+    Forma-bb81eb8403:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        modulo:
+          type: string
+        motivo:
+          type: string
+        detalle:
+          type: string
+        registroId:
+          type:
+            - string
+            - "null"
+        placaSugerida:
+          type:
+            - string
+            - "null"
+        extraccion:
+          description: "[por verificar] el código la tipa como `unknown`."
+        resuelto:
+          type: boolean
+        creadoEn:
+          type: string
+        registroActual:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: string
+            idFlit:
+              type:
+                - string
+                - "null"
+            placa:
+              type:
+                - string
+                - "null"
+            vin:
+              type:
+                - string
+                - "null"
+            etiqueta:
+              type: string
+            detalle:
+              type:
+                - string
+                - "null"
+            coincide:
+              type: object
+              properties:
+                placa:
+                  type: boolean
+                vin:
+                  type: boolean
+              required:
+                - placa
+                - vin
+            seleccionable:
+              type: boolean
+            motivoNoSeleccionable:
+              type:
+                - string
+                - "null"
+          required:
+            - id
+            - idFlit
+            - placa
+            - vin
+            - etiqueta
+            - detalle
+            - coincide
+            - seleccionable
+            - motivoNoSeleccionable
+        soporte:
+          "$ref": "#/components/schemas/Forma-b0d0eb5019"
+      required:
+        - id
+        - modulo
+        - motivo
+        - detalle
+        - registroId
+        - placaSugerida
+        - extraccion
+        - resuelto
+        - creadoEn
+        - registroActual
+        - soporte
     Forma-bcc34b8628:
       description: Forma que comparten varias operaciones.
       type: object

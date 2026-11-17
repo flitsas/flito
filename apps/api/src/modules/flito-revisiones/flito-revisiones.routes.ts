@@ -9,12 +9,21 @@ import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { FlujoRevision } from '@operaciones/shared-types';
+import {
+  CANDIDATOS_REVISION_LIMITE, CANDIDATOS_REVISION_LIMITE_MAX, CANDIDATOS_REVISION_PLACA_MAX,
+  CANDIDATOS_REVISION_TEXTO_MAX, CANDIDATOS_REVISION_TEXTO_MIN, CANDIDATOS_REVISION_VIN_MAX, FlujoRevision,
+} from '@operaciones/shared-types';
+import { soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
+import { esUuid } from '../../shared/utils/uuid.js';
 import { presignedGetEntityDocument } from '../../services/storage.js';
 import {
   camposEsperados, descartar, listar, resolver, storageKeySoporte,
   RevisionError, type RevisionCtx,
 } from './flito-revisiones.service.js';
+import { buscarCandidatos } from './flito-revisiones.candidatos.js';
+import { reintentarLectura } from './flito-revisiones.reintento.js';
+import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
+import { revisionReintentoOcrLimiter } from '../../shared/middleware/rateLimiter.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -69,6 +78,59 @@ router.post('/:id/resolver', exigirFuncion('revisiones.revision.resolver'), asyn
     await audit(req, { action: 'update', resource: 'flito_revision', resourceId: req.params.id, detail: `Revisión resuelta sobre ${parsed.data.registroId}: ${parsed.data.motivo.trim()}` });
     res.json({ ok: true });
   } catch (e) { handleError(res, e); }
+});
+
+// POST /:id/candidatos/buscar — buscador de trámite para resolver (Bug #14569, punto 8). Las llaves
+// (placa, VIN, N.º FLIT) van en el BODY para que no queden en la URL ni en los logs de acceso
+// (AGENTS.md §14). Misma función que resolver: solo sirve a esa acción. `soloSinEnlace`: busca entre
+// TODOS los registros del módulo, igual que el buscador de comprobantes.
+// Sin `logPiiAccess`: la respuesta no proyecta columnas personales del titular (ni compradores ni
+// documento). Sin limitador propio: no es OCR ni carga masiva (AGENTS.md §18), va tras auth + función
+// de Operaciones, cada consulta está acotada a `limite` ≤ 50 y lleva un predicado parametrizado.
+const textoBuscar = z.string().trim().max(CANDIDATOS_REVISION_TEXTO_MAX)
+  .refine((v) => v === '' || v.length >= CANDIDATOS_REVISION_TEXTO_MIN, `Escribe entre ${CANDIDATOS_REVISION_TEXTO_MIN} y ${CANDIDATOS_REVISION_TEXTO_MAX} caracteres`);
+export const buscarCandidatosSchema = z.object({
+  texto: textoBuscar.optional(),
+  placa: z.string().trim().max(CANDIDATOS_REVISION_PLACA_MAX).optional(),
+  vin: z.string().trim().max(CANDIDATOS_REVISION_VIN_MAX).optional(),
+  limite: z.number().int().min(1).max(CANDIDATOS_REVISION_LIMITE_MAX).default(CANDIDATOS_REVISION_LIMITE),
+}).strict();
+router.post('/:id/candidatos/buscar', soloSinEnlace(), exigirFuncion('revisiones.revision.resolver'), async (req: Request, res: Response) => {
+  // Un id sin forma de uuid contra una columna `uuid` sería un 22P02 (500): es «no existe», sin consultar.
+  if (!esUuid(req.params.id)) { res.status(404).json({ error: 'La revisión no existe' }); return; }
+  const parsed = buscarCandidatosSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  try {
+    const r = await buscarCandidatos(req.params.id, parsed.data, req.user!);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(r);
+  } catch (e) { handleError(res, e); }
+});
+
+// POST /:id/reintentar-lectura — vuelve a leer con OCR el soporte guardado (Bug #14569, punto 9).
+// Mismas guardas que resolver (solo sirve a esa acción) + limitador propio: cada intento llama al
+// motor de OCR (AGENTS.md §18). Reemplaza la extracción y su confianza; la revisión SIGUE ABIERTA.
+// Sin body. El detalle del audit no lleva valores leídos (pueden traer placa o VIN).
+export const reintentarLecturaSchema = z.object({}).strict();
+export const MENSAJE_OCR_NO_DISPONIBLE = 'El lector de documentos no está disponible en este momento. La revisión no cambió; intenta de nuevo en unos minutos.';
+router.post('/:id/reintentar-lectura', exigirFuncion('revisiones.revision.resolver'), revisionReintentoOcrLimiter, async (req: Request, res: Response) => {
+  if (!esUuid(req.params.id)) { res.status(404).json({ error: 'La revisión no existe' }); return; }
+  const parsed = reintentarLecturaSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  try {
+    const r = await reintentarLectura(req.params.id);
+    await audit(req, {
+      action: 'update', resource: 'flito_revision', resourceId: req.params.id,
+      detail: r.sinLectura
+        ? `Reintento de lectura OCR (${r.modulo}): ningún campo leído, revisión sin cambios`
+        : `Reintento de lectura OCR (${r.modulo}): ${r.camposLeidos} campos leídos`,
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ revision: r.revision, sinLectura: r.sinLectura, camposLeidos: r.camposLeidos });
+  } catch (e) {
+    if (e instanceof OcrNoDisponibleError) { res.status(503).json({ error: MENSAJE_OCR_NO_DISPONIBLE }); return; }
+    handleError(res, e);
+  }
 });
 
 // POST /:id/descartar — descarta el documento (soporte huérfano y trazado). Solo Operaciones, motivo ≥5.

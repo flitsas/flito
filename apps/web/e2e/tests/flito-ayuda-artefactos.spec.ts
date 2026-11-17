@@ -303,8 +303,9 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // Bug #14532: Liquidación y Pagado en la ventana del ZIP (04-documentos-del-zip regenerada).
     flito_tramites: { version: '1.4', fecha: '2026-11-11', diagrama: 'camino-a-entregar.svg', capturas: [
       '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-seleccion.png', '04-documentos-del-zip.png'] },
-    flito_revisiones: { version: '1.2', diagrama: 'resolver-o-descartar.svg', capturas: [
-      '01-cola-y-documento.png', '02-revisar-campos.png', '03-constancia.png'] },
+    // BUG #14569: buscador de trámite (1.3) y Reintentar lectura (1.4, 04-reintentar-lectura nueva).
+    flito_revisiones: { version: '1.4', fecha: '2026-11-17', diagrama: 'resolver-o-descartar.svg', capturas: [
+      '01-cola-y-documento.png', '02-revisar-campos.png', '04-reintentar-lectura.png', '03-constancia.png'] },
     flito_bitacora: { version: '1.2', diagrama: null, capturas: ['01-movimientos.png'] },
     flito_comparendos: { version: '1.2', diagrama: 'ciclo-monitoreo.svg', capturas: [
       '01-registros.png', '02-detalle.png', '03-sincronizacion.png', '04-configuracion.png'] },

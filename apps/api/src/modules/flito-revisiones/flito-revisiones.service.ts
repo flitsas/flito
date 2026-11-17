@@ -7,12 +7,12 @@
 // propio campo (`confirmadoPor`, `confirmadoEn`). Los gestores NO resuelven esta cola: si el gestor
 // que cargó la factura pudiera resolver su propia revisión, el umbral de OCR no serviría de nada.
 
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, type SQL } from 'drizzle-orm';
 import {
   CampoDerechoTramite, CampoImpuesto, CampoSoat, CAMPOS_REVISION_FACTURA_VENTA,
   EstadoImpuesto, EstadoSoat, FlujoRevision,
   type CampoExtraido, type ExtraccionDerechoTramite, type ExtraccionFacturaVenta,
-  type ExtraccionImpuesto, type ExtraccionSoat,
+  type CandidatoRevisionDto, type ExtraccionImpuesto, type ExtraccionSoat,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { auditLogs, flitoImpuestos, flitoRevisiones, flitoSoat, flitoSoportes } from '../../db/schema.js';
@@ -21,6 +21,19 @@ import { registrarDesdeRevision } from '../flito-derechos/flito-derechos.service
 import { programarEnvioComprobante } from '../flito-impuestos/flito-impuestos.envio-flit2.service.js';
 
 export interface RevisionCtx { userId: number; username: string; role: string }
+
+/**
+ * Estado en que tiene que estar el registro para que un documento de cada flujo se ate a él (Bug
+ * #14569). Una sola fuente para las guardas de `aplicarFacturaSoat` / `resolverFacturaVenta` /
+ * `resolverImpuesto` y para el buscador de candidatos (`flito-revisiones.candidatos.ts`): si el
+ * buscador ofreciera registros de otro estado, la persona elegiría uno que el resolver rechaza.
+ * Derechos no está: su condición es el estado de FLIT del trámite (`sqlEstadosConDerecho`).
+ */
+export const ESTADO_CANDIDATO = {
+  [FlujoRevision.SOAT]: EstadoSoat.SOLICITADO,
+  [FlujoRevision.IMPUESTOS]: EstadoImpuesto.SOLICITADO,
+  [FlujoRevision.FACTURA_VENTA]: EstadoImpuesto.PENDIENTE,
+} as const;
 
 export class RevisionError extends Error {
   constructor(public status: number, message: string) {
@@ -46,6 +59,11 @@ export interface RevisionItem {
   extraccion: unknown;
   resuelto: boolean;
   creadoEn: string;
+  /**
+   * Trámite que la revisión ya apunta (null sin `registroId` o si ya no existe). Viaja en el listado
+   * para que quien solo ve la cola (auditor, sin `revisiones.revision.resolver`) lo vea sin el buscador.
+   */
+  registroActual: CandidatoRevisionDto | null;
   soporte: {
     id: string;
     nombreArchivo: string;
@@ -58,10 +76,19 @@ export interface RevisionItem {
 
 /** Cola de revisión, opcionalmente filtrada por módulo. Las resueltas se ocultan salvo que se pidan. */
 export async function listar(modulo?: FlujoRevision, incluirResueltas = false): Promise<RevisionItem[]> {
-  const conds = [];
+  const conds: SQL[] = [];
   if (modulo) conds.push(eq(flitoRevisiones.modulo, modulo));
   if (!incluirResueltas) conds.push(eq(flitoRevisiones.resuelto, false));
+  return itemsDonde(conds);
+}
 
+/** Una revisión con la misma forma del listado (null si no existe). La usa el reintento de lectura. */
+export async function obtenerItem(id: string): Promise<RevisionItem | null> {
+  const [item] = await itemsDonde([eq(flitoRevisiones.id, id)]);
+  return item ?? null;
+}
+
+async function itemsDonde(conds: SQL[]): Promise<RevisionItem[]> {
   const rows = await db.select({
     id: flitoRevisiones.id,
     modulo: flitoRevisiones.modulo,
@@ -83,7 +110,7 @@ export async function listar(modulo?: FlujoRevision, incluirResueltas = false): 
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(flitoRevisiones.createdAt);
 
-  return rows.map((r) => ({
+  const items = rows.map((r) => ({
     id: r.id,
     modulo: r.modulo,
     motivo: r.motivo,
@@ -102,6 +129,9 @@ export async function listar(modulo?: FlujoRevision, incluirResueltas = false): 
       subidoEn: r.subidoEn.toISOString(),
     },
   }));
+  // Import dinámico: candidatos.ts importa de este servicio (ESTADO_CANDIDATO, RevisionError).
+  const { conRegistroActual } = await import('./flito-revisiones.candidatos.js');
+  return conRegistroActual(items);
 }
 
 /**
@@ -199,7 +229,7 @@ export async function aplicarFacturaSoat(
 ): Promise<void> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, soatId)).limit(1);
   if (!soat) throw new RevisionError(404, 'El SOAT indicado no existe');
-  if (soat.estado !== EstadoSoat.SOLICITADO) {
+  if (soat.estado !== ESTADO_CANDIDATO[FlujoRevision.SOAT]) {
     throw new RevisionError(400, 'Solo se puede conciliar un documento contra un SOAT en adquisición');
   }
 
@@ -226,7 +256,7 @@ export async function aplicarFacturaSoat(
 async function resolverFacturaVenta(revisionId: string, soporteId: string, motivoOriginal: string, impuestoId: string, extraccion: ExtraccionFacturaVenta, motivo: string, ctx: RevisionCtx): Promise<void> {
   const [impuesto] = await db.select().from(flitoImpuestos).where(eq(flitoImpuestos.id, impuestoId)).limit(1);
   if (!impuesto) throw new RevisionError(404, 'El impuesto indicado no existe');
-  if (impuesto.estado !== EstadoImpuesto.PENDIENTE) {
+  if (impuesto.estado !== ESTADO_CANDIDATO[FlujoRevision.FACTURA_VENTA]) {
     throw new RevisionError(400, 'La factura de venta solo se ata antes del envío (impuesto en Pendiente).');
   }
 
@@ -271,7 +301,7 @@ async function resolverImpuesto(revisionId: string, soporteId: string, motivoOri
     return;
   }
 
-  if (impuesto.estado !== EstadoImpuesto.SOLICITADO) {
+  if (impuesto.estado !== ESTADO_CANDIDATO[FlujoRevision.IMPUESTOS]) {
     throw new RevisionError(400, 'Solo se puede conciliar un documento contra un impuesto en gestión');
   }
 
