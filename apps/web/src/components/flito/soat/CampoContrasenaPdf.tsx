@@ -7,8 +7,11 @@
 import { useId } from 'react';
 import { flitInp } from '../../flit/flitPageKit';
 
-export default function CampoContrasenaPdf({ label, valor, onCambio, disabled, autoFocus, ayuda }: {
+export default function CampoContrasenaPdf({ label, rotulo, valor, onCambio, disabled, autoFocus, ayuda }: {
+  /** Nombre accesible del campo (lleva el archivo: único en la lista). */
   label: string;
+  /** Texto visible del rótulo cuando el archivo ya se lee arriba (p. ej. «Contraseña»). Por defecto, `label`. */
+  rotulo?: string;
   valor: string;
   onCambio: (v: string) => void;
   disabled?: boolean;
@@ -21,9 +24,9 @@ export default function CampoContrasenaPdf({ label, valor, onCambio, disabled, a
   return (
     <div className="block">
       <label htmlFor={id} className="mb-1 block break-all text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-        {label}
+        {rotulo ?? label}
       </label>
-      <input id={id} type="password" autoComplete="off" spellCheck={false} maxLength={128}
+      <input id={id} aria-label={rotulo ? label : undefined} type="password" autoComplete="off" spellCheck={false} maxLength={128}
         className={flitInp} value={valor} disabled={disabled} autoFocus={autoFocus}
         aria-describedby={ayuda ? idAyuda : undefined} aria-invalid={ayuda ? true : undefined}
         onChange={(e) => onCambio(e.target.value)} />
