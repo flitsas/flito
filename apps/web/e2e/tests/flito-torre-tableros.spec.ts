@@ -106,6 +106,23 @@ test.describe('Torre de Control · tableros: exportar y opciones de filtros (Ép
     expect(llamadas).toBe(0);
   });
 
+  test('gráfica: al pasar el cursor sobre un punto el valor aparece al instante (sin el retardo del title nativo)', async ({ page }) => {
+    await loginAs(page, COMERCIAL_CON_EXPORTAR);
+    await mockOpciones(page);
+    await mockTablero(page);
+    await page.goto('/flito/torre/comercial');
+    await expect(page.locator('[data-torre="tablero"]')).toHaveAttribute('data-estado', 'lleno');
+
+    const linea = page.locator('[data-kit="linea"]').first();
+    await linea.locator('.grafico__columna[data-etiqueta="oct"]').hover();
+    const tip = linea.locator('.grafico__tip');
+    await expect(tip).toBeVisible({ timeout: 300 });
+    await expect(tip).toContainText('Trámites');
+    await expect(tip).toContainText('44');
+    await page.mouse.move(0, 0);
+    await expect(tip).toHaveCount(0);
+  });
+
   test('opciones cargando: selects deshabilitados con aviso; al llegar, la compañía sale de /torre/opciones', async ({ page }) => {
     await loginAs(page, COMERCIAL_CON_EXPORTAR);
     await mockOpciones(page, 800);
