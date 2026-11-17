@@ -3,6 +3,7 @@
 // persona lo confirme (RN-04/RN-05): los campos pre-llenados vienen marcados como no confiables.
 
 import { useEffect, useId, useMemo, useState } from 'react';
+import { RotateCw } from 'lucide-react';
 import {
   CAMPO_DERECHO_TRAMITE_LABEL, CAMPO_FACTURA_VENTA_LABEL, CAMPO_IMPUESTO_LABEL, CAMPO_SOAT_LABEL,
   CANDIDATOS_REVISION_TEXTO_MAX, MOTIVO_CANDIDATO_YA_TIENE_DERECHO, MOTIVO_REVISION_LABEL,
@@ -10,7 +11,9 @@ import {
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { normLlave, useCandidatosRevision } from '../lib/revisiones';
+import {
+  COPY_REINTENTO, mensajeReintento, normLlave, reintentarLecturaRevision, useCandidatosRevision,
+} from '../lib/revisiones';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import {
   FlitCard, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton, flitInp,
@@ -26,6 +29,8 @@ interface RevisionItem {
   id: string; modulo: FlujoRevision; motivo: string; detalle: string; registroId: string | null;
   placaSugerida: string | null; extraccion: Record<string, CampoExtraido | undefined>; resuelto: boolean;
   creadoEn: string; soporte: { id: string; nombreArchivo: string };
+  /** BUG #14569: el trámite asociado viene en el listado; el auditor lo ve sin usar el buscador. */
+  registroActual: CandidatoRevisionDto | null;
 }
 
 const ETIQUETA_MODULO: Record<FlujoRevision, string> = {
@@ -40,6 +45,8 @@ const labelCampo = (modulo: FlujoRevision, clave: string): string => {
   return (map as Record<string, string>)[clave] ?? clave;
 };
 const norm = (v: string | null | undefined) => (v ?? '').toUpperCase().replace(/[\s-]/g, '');
+// Bajo lg los botones del formulario llegan a 44 px (táctil), todos a la vez: una sola altura por barra.
+const TACTIL = 'min-h-[44px] lg:min-h-0';
 const fechaHora = (iso: string) => new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
 function useRevisiones(modulo: FlujoRevision, incluirResueltas: boolean, nonce: number) {
@@ -95,7 +102,11 @@ const COPY_BUSCADOR = {
   anuncio: (n: number, truncado: boolean) => (truncado ? `Hay más de ${n} trámites; afina la búsqueda` : n === 1 ? '1 trámite' : `${n} trámites`),
 };
 
-function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionItem; soloLectura: boolean; onResuelta: () => void }) {
+function Formulario({ revision, soloLectura, onResuelta, onActualizada }: {
+  revision: RevisionItem; soloLectura: boolean; onResuelta: () => void;
+  /** Reintentar lectura devolvió la revisión con la extracción nueva: la cola la reemplaza. */
+  onActualizada: (r: RevisionItem) => void;
+}) {
   const [valores, setValores] = useState<Record<string, string>>({});
   const [claves, setClaves] = useState<string[]>([]);
   const [motivo, setMotivo] = useState('');
@@ -104,16 +115,22 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
   const [enviando, setEnviando] = useState(false);
   // Trámite elegido: se guarda el OBJETO (no solo el id) para que la tabla de comparación no se vacíe
   // cuando la lista cambia. `origen` decide si una corrección de la placa puede moverlo (spec §85).
-  const [elegido, setElegido] = useState<CandidatoRevisionDto | null>(null);
-  const [origen, setOrigen] = useState<OrigenEleccion>(revision.registroId ? 'previo' : null);
+  // El listado ya trae el trámite asociado: es la selección inicial, sin esperar al buscador.
+  const [elegido, setElegido] = useState<CandidatoRevisionDto | null>(revision.registroActual ?? null);
+  const [origen, setOrigen] = useState<OrigenEleccion>(revision.registroId || revision.registroActual ? 'previo' : null);
   const [retirada, setRetirada] = useState(false);
   const [texto, setTexto] = useState('');
   const [abierto, setAbierto] = useState(false);
+  const [leyendo, setLeyendo] = useState(false);
+  const [confirmarReintento, setConfirmarReintento] = useState(false);
+  const [avisoLectura, setAvisoLectura] = useState<{ tono: 'info' | 'error'; texto: string } | null>(null);
   const base = useId();
 
   const modulo = revision.modulo;
   const mostrarVin = modulo === 'soat' || modulo === 'factura_venta';
   const bloqueado = soloLectura || revision.resuelto;
+  // Mientras se vuelve a leer el documento no se edita ni se envía nada.
+  const inactivo = bloqueado || leyendo;
 
   useEffect(() => {
     const iniciales: Record<string, string> = {};
@@ -197,7 +214,23 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
   }));
   const etiquetaSeleccion = elegido
     ? `${elegido.etiqueta}${elegido.detalle ? ` · ${elegido.detalle}` : ''}`
-    : bloqueado ? (revision.registroId ? 'Trámite asociado' : 'Sin trámite asociado') : null;
+    : bloqueado ? 'Sin trámite asociado' : null;
+
+  // ¿El revisor ya corrigió algún campo? Entonces reintentar le pide confirmación antes de pisarlo.
+  const editado = Object.keys({ ...valores, ...revision.extraccion })
+    .some((k) => (valores[k] ?? '') !== (revision.extraccion[k]?.valor ?? ''));
+  const reintentar = async () => {
+    setConfirmarReintento(false); setAvisoLectura(null); setLeyendo(true);
+    try {
+      const r = await reintentarLecturaRevision<RevisionItem>(revision.id);
+      if (r.sinLectura) setAvisoLectura({ tono: 'info', texto: COPY_REINTENTO.sinLectura });
+      else {
+        setAvisoLectura({ tono: 'info', texto: COPY_REINTENTO.actualizada(r.camposLeidos) });
+        onActualizada(r.revision);
+      }
+    } catch (e) { setAvisoLectura({ tono: 'error', texto: mensajeReintento(e) }); }
+    finally { setLeyendo(false); }
+  };
 
   const enviar = async () => {
     setError(null); setEnviando(true);
@@ -236,7 +269,7 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
           truncado={cand.truncado}
           onReintentar={cand.reintentar}
           encabezado={encabezado}
-          disabled={bloqueado}
+          disabled={inactivo}
           required
           describedBy={aviso ? avisoId : undefined}
           placeholderBusqueda="Placa, VIN o número FLIT"
@@ -304,7 +337,7 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
                     </StatusChip>
                   : <StatusChip tone="neutral">Sin lectura</StatusChip>}
               </div>
-              <input id={`c-${clave}`} className={flitInp} disabled={soloLectura || revision.resuelto}
+              <input id={`c-${clave}`} className={flitInp} disabled={inactivo}
                 value={valores[clave] ?? ''} placeholder="Escribe el valor correcto"
                 onChange={(e) => setValores((v) => ({ ...v, [clave]: e.target.value }))} />
             </div>
@@ -314,8 +347,29 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
 
       {!soloLectura && !revision.resuelto && modo === 'idle' && (
         <div className="flex flex-wrap gap-2">
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={!registroId} onClick={() => setModo('resolver')}>Confirmar y resolver</button>
-          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setModo('descartar')}>Descartar documento</button>
+          <button className={`${flitBtnPrimary} ${TACTIL}`} style={flitBtnPrimaryStyle} disabled={!registroId || leyendo} onClick={() => setModo('resolver')}>Confirmar y resolver</button>
+          <button className={`${flitBtnSecondary} ${TACTIL}`} style={flitBtnSecondaryStyle} disabled={leyendo} onClick={() => setModo('descartar')}>Descartar documento</button>
+          <button type="button" className={`${flitBtnSecondary} ${TACTIL}`} style={flitBtnSecondaryStyle} disabled={leyendo || confirmarReintento}
+            onClick={() => (editado ? setConfirmarReintento(true) : reintentar())}>
+            <RotateCw size={16} aria-hidden />{leyendo ? 'Leyendo de nuevo…' : 'Reintentar lectura'}
+          </button>
+        </div>
+      )}
+
+      {confirmarReintento && !leyendo && (
+        <div role="group" aria-labelledby={`${base}-confirma`} className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+          <p id={`${base}-confirma`} className="text-sm" style={{ color: 'var(--flit-warning-text)' }}>{COPY_REINTENTO.confirmar}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" className={`${flitBtnSecondary} ${TACTIL}`} style={flitBtnSecondaryStyle} onClick={reintentar}>Reintentar de todos modos</button>
+            <button type="button" className={`${flitBtnSecondary} ${TACTIL}`} style={flitBtnSecondaryStyle} onClick={() => setConfirmarReintento(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {avisoLectura && !revision.resuelto && modo === 'idle' && (
+        <div role="status" className="rounded-lg border px-3 py-2 text-sm"
+          style={{ borderColor: 'var(--flit-border-soft)', color: avisoLectura.tono === 'error' ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}>
+          {avisoLectura.texto}
         </div>
       )}
 
@@ -343,6 +397,8 @@ export default function FlitoRevisiones() {
   const [incluirResueltas, setIncluirResueltas] = useState(false);
   const [seleccionadaId, setSeleccionadaId] = useState<string | null>(null);
   const [recarga, setRecarga] = useState(0);
+  // Revisiones que «Reintentar lectura» devolvió con extracción nueva; mandan sobre la cola cargada.
+  const [reemplazos, setReemplazos] = useState<Record<string, RevisionItem>>({});
 
   // HU #12872: solo lectura = sin la función de resolver (la guarda de `POST /:id/resolver`).
   const soloLectura = !hasFuncion('revisiones.revision.resolver');
@@ -353,10 +409,10 @@ export default function FlitoRevisiones() {
   const rDer = useRevisiones('derechos', incluirResueltas, recarga);
 
   const data = useMemo(() => {
-    if (grupo === 'soat') return rSoat;
-    if (grupo === 'derechos') return rDer;
-    return [...rImp, ...rFv].sort((a, b) => b.creadoEn.localeCompare(a.creadoEn));
-  }, [grupo, rSoat, rImp, rFv, rDer]);
+    const base = grupo === 'soat' ? rSoat : grupo === 'derechos' ? rDer
+      : [...rImp, ...rFv].sort((a, b) => b.creadoEn.localeCompare(a.creadoEn));
+    return base.map((r) => reemplazos[r.id] ?? r);
+  }, [grupo, rSoat, rImp, rFv, rDer, reemplazos]);
   const seleccionada = useMemo(() => data.find((r) => r.id === seleccionadaId) ?? data[0] ?? null, [data, seleccionadaId]);
   const url = useSoporteUrl(seleccionada?.soporte.id);
 
@@ -388,7 +444,7 @@ export default function FlitoRevisiones() {
             <div className="space-y-1.5">
               {data.map((r) => (
                 <button key={r.id} type="button" onClick={() => setSeleccionadaId(r.id)}
-                  className="w-full rounded-md border p-2 text-left transition-colors hover:bg-gray-50"
+                  className="w-full rounded-md border p-2 text-left transition-colors hover:bg-[color:var(--flit-bg-hover)]"
                   style={{ borderColor: seleccionada?.id === r.id ? 'var(--flit-blue-text)' : 'var(--flit-border-soft)' }}>
                   <p className="truncate text-sm font-medium">{r.soporte.nombreArchivo}</p>
                   <p className="mt-0.5 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{ETIQUETA_MODULO[r.modulo]} · {fechaHora(r.creadoEn)}</p>
@@ -407,9 +463,10 @@ export default function FlitoRevisiones() {
               </FlitCard>
 
               <FlitCard>
-                {soloLectura && <div className="mb-3 rounded-md bg-blue-50 p-2 text-sm text-blue-800">Solo lectura · Auditoría ve la cola y los soportes, pero no los resuelve.</div>}
+                {soloLectura && <div className="mb-3 rounded-md border p-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-blue-text)' }}>Solo lectura · Auditoría ve la cola y los soportes, pero no los resuelve.</div>}
                 <Formulario key={seleccionada.id} revision={seleccionada} soloLectura={!!soloLectura}
-                  onResuelta={() => { setSeleccionadaId(null); setRecarga((n) => n + 1); }} />
+                  onResuelta={() => { setSeleccionadaId(null); setReemplazos({}); setRecarga((n) => n + 1); }}
+                  onActualizada={(r) => setReemplazos((m) => ({ ...m, [r.id]: r }))} />
               </FlitCard>
             </>
           )}

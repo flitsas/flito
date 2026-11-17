@@ -11,7 +11,7 @@ import {
   CANDIDATOS_REVISION_VIN_MAX,
   type BuscarCandidatosRevisionBody, type CandidatoRevisionDto, type CandidatosRevisionRespuesta,
 } from '@operaciones/shared-types';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { useDebounce } from './useDebounce';
 
 export function buscarCandidatosRevision(revisionId: string, body: BuscarCandidatosRevisionBody) {
@@ -105,4 +105,32 @@ export function useCandidatosRevision(revisionId: string, { texto, placa, vin, h
     registroActual,
     reintentar: () => { setResultado(null); setIntento((i) => i + 1); },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Reintentar lectura (BUG #14569, punto 9). `POST /flito/revisiones/:id/reintentar-lectura` SIN body:
+// el servidor vuelve a leer el soporte guardado y devuelve la revisión con la extracción nueva. No
+// resuelve nada: la persona sigue teniendo que confirmar.
+
+export interface ReintentoLecturaRespuesta<R> { revision: R; sinLectura: boolean; camposLeidos: number }
+
+export function reintentarLecturaRevision<R>(revisionId: string) {
+  return api.post<ReintentoLecturaRespuesta<R>>(`/flito/revisiones/${encodeURIComponent(revisionId)}/reintentar-lectura`);
+}
+
+export const COPY_REINTENTO = {
+  red: 'No pudimos reintentar la lectura. Intenta de nuevo.',
+  confirmar: 'Se reemplazarán los campos que corregiste con la nueva lectura.',
+  actualizada: (n: number) => `Lectura actualizada: ${n} ${n === 1 ? 'campo leído' : 'campos leídos'}. Revisa los campos y el trámite antes de confirmar.`,
+  sinLectura: 'El documento se volvió a leer, pero no se obtuvo ningún campo. La revisión no cambió.',
+};
+
+/**
+ * Los 403/404/409/429/503 de esta ruta traen copy pulido del servidor (`{ error }`) y se muestran tal
+ * cual. Cualquier otra cosa (red caída, tope de tiempo, 500 sin copy) cae en el genérico: nunca el
+ * texto crudo de la red.
+ */
+export function mensajeReintento(e: unknown): string {
+  if (e instanceof ApiError && [403, 404, 409, 429, 503].includes(e.status) && e.message) return e.message;
+  return COPY_REINTENTO.red;
 }

@@ -108,7 +108,7 @@ test.describe('FLITO — Revisiones OCR · buscador de trámite (BUG #14569)', (
 
     fallar = false;
     const antes = peticiones.length;
-    await page.getByRole('button', { name: 'Reintentar' }).click();
+    await page.getByRole('button', { name: 'Reintentar', exact: true }).click();
     await expect(page.getByRole('option', { name: /F-24-000977 · KPX428/ })).toBeVisible();
     expect(peticiones.length).toBe(antes + 1);
     expect(peticiones.at(-1)!.body).toEqual({ texto: 'KPX428' });
