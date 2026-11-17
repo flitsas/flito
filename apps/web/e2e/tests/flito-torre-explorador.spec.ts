@@ -171,6 +171,28 @@ test.describe('Torre de Control · Ficha de placa (Épica #14590)', () => {
     await expect(buscador).toBeFocused();
   });
 
+  test('línea de tiempo: aprobado sin radicado → Radicado superado «sin fecha» y el paso actual es Facturado', async ({ page }) => {
+    await loginAs(page, GERENCIA_GENERAL);
+    await mockConsulta(page, () => ({ body: RESULTADO }));
+    const aprobadoSinRadicado = {
+      ...FICHA, fechaCreacion: '2026-04-24T10:00:00.000Z', fechaAprobacion: '2026-07-06T10:00:00.000Z',
+      pasos: { creado: '2026-04-24T10:00:00.000Z', radicado: null, aprobado: '2026-07-06T10:00:00.000Z', facturado: null },
+    };
+    await page.route('**/api/flito/torre/placa/buscar', (route) => route.fulfill(json({ placa: 'XXX000', tramites: [aprobadoSinRadicado] })));
+    await page.goto('/flito/torre/explorador');
+    const buscador = page.getByRole('searchbox', { name: /Buscar placa/ });
+    await buscador.fill('XXX000');
+    await buscador.press('Enter');
+
+    const ficha = page.getByRole('dialog', { name: 'Ficha de la placa' });
+    const pasos = ficha.locator('.linea__paso');
+    await expect(pasos).toHaveCount(4);
+    await expect(ficha.locator('[aria-current="step"]')).toHaveCount(1);
+    await expect(ficha.locator('[aria-current="step"]')).toContainText('Facturado');
+    for (const i of [0, 1, 2]) await expect(pasos.nth(i)).toHaveClass(/linea__paso--hecho/);
+    await expect(pasos.nth(1)).toContainText('sin fecha');
+  });
+
   test('placa corta: error en línea y ninguna petición; 404 = «no encontrada»', async ({ page }) => {
     await loginAs(page, GERENCIA_GENERAL);
     await mockConsulta(page, () => ({ body: RESULTADO }));

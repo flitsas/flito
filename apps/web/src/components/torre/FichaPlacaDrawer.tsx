@@ -118,8 +118,11 @@ function Ficha({ ficha, onVolver }: { ficha: FichaPlacaTorre; onVolver?: () => v
     { etiqueta: 'Aprobado', fecha: ficha.pasos.aprobado },
     { etiqueta: 'Facturado', fecha: ficha.pasos.facturado },
   ];
-  const primeroPendiente = pasos.findIndex((p) => !p.fecha);
-  const actual = primeroPendiente === -1 ? pasos.length : primeroPendiente;
+  // Manda el paso más avanzado con fecha: todo lo anterior se da por superado aunque no tenga fecha («sin fecha»)
+  // y el actual es el siguiente. Un aprobado sin radicado no puede quedarse en «Radicado».
+  let ultimoConFecha = -1;
+  pasos.forEach((p, i) => { if (p.fecha) ultimoConFecha = i; });
+  const actual = ultimoConFecha + 1;
   const historial = ficha.lineaTiempo.map((e, i) => {
     const previo = i > 0 ? ficha.lineaTiempo[i - 1] : null;
     const estuvo = previo ? ` · estuvo ${plural(diasEntre(previo.desde, e.desde))} en ${humanizar(e.anterior ?? previo.estado)}` : '';
@@ -153,7 +156,9 @@ function Ficha({ ficha, onVolver }: { ficha: FichaPlacaTorre; onVolver?: () => v
         </div>
       )}
 
-      <LineaAvance pasos={pasos.map((p) => ({ etiqueta: p.etiqueta, detalle: p.fecha ? fechaCorta(p.fecha) : undefined }))} actual={actual} />
+      <LineaAvance pasos={pasos.map((p, i) => ({
+        etiqueta: p.etiqueta, detalle: p.fecha ? fechaCorta(p.fecha) : i < actual ? 'sin fecha' : undefined,
+      }))} actual={actual} />
 
       <Fichas items={[
         { etiqueta: 'SOAT', valor: bloque(ficha.soat) },

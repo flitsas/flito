@@ -132,4 +132,34 @@ describe.skipIf(!URL_BASE)('tableros contra PostgreSQL (tx con ROLLBACK)', () =>
     expect(t.operativo.pctDentroAns).toBe(40); // los aprobados el 1 y el 2 de junio (2 h y 26 h) caben en 2 días
     expect(t.riesgos[0]).toMatchObject({ area: 'financiero', severidad: 'critico' });
   });
+
+  it('bolsa con saldo ≤ 0: agotada (0 días, crítico) en el financiero y en el riesgo del 360°; días con coma es-CO', async () => {
+    const hoy = '2035-06-30';
+    const neg = await s.cia('Negativa');
+    const cero = await s.cia('Cero');
+    const dec = await s.cia('Decimal');
+    const bNeg = await s.bolsa(neg, -262_000);
+    await s.salida(bNeg, 300_000, '2035-06-15');                 // con consumo y saldo negativo: antes daba −26,2 días
+    await s.bolsa(cero, 0);                                      // saldo 0 sin consumo: antes «Sin consumo» y ok
+    const bDec = await s.bolsa(dec, 250_000);
+    await s.salida(bDec, 3_000_000, '2035-06-15');               // 100.000/día → 2,5 días: crítico
+
+    const ctx = { filtro: { rango: { desde: '2035-06-01', hasta: hoy }, companiaIds: [neg, cero, dec] }, alcance: TODO, hoy };
+    const f = await tableroFinanciero({ ...ctx, dinero: true });
+    const porCia = Object.fromEntries(f.bolsas.filas.map((b) => [b.companiaId, [b.diasCobertura, b.severidad]]));
+    expect(porCia[neg]).toEqual([0, 'critico']);
+    expect(porCia[cero]).toEqual([0, 'critico']);
+    expect(porCia[dec]).toEqual([2.5, 'critico']);
+    expect(f.cifras.menorCobertura).toMatchObject({ dias: 0, severidad: 'critico' });
+    expect(f.bolsas.filas.every((b) => (b.diasCobertura ?? 0) >= 0)).toBe(true);
+
+    const e = await tableroEjecutivo({ ...ctx, filtro: { ...ctx.filtro, rango: { preset: 'mes' } }, dinero: true });
+    const frases = e.riesgos.filter((r) => r.area === 'financiero').map((r) => r.frase);
+    expect(frases).toHaveLength(3);
+    expect(frases).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^La bolsa de Negativa\b.* está agotada$/), expect.stringMatching(/^La bolsa de Cero\b.* está agotada$/),
+      expect.stringMatching(/^La bolsa de Decimal\b.* alcanza para 2,5 días$/),
+    ]));
+    expect(frases.join(' ')).not.toMatch(/-\d|−/);
+  });
 });
