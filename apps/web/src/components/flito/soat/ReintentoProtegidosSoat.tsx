@@ -167,7 +167,7 @@ export default function ReintentoProtegidosSoat({ resultado, itemsProtegidos, it
           checked={todos} disabled={enviando !== null}
           ref={(el) => { if (el) el.indeterminate = mezcla; }}
           onChange={(e) => marcar(filas.map((f) => f.idx), e.target.checked)} />
-        Usar el nombre en todos
+        Usar el nombre como contraseña
       </label>
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {filas.map((f, n) => {
