@@ -6,6 +6,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import JSZip from 'jszip';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
 import { CampoSoat, MotivoRevision } from '@operaciones/shared-types';
@@ -32,12 +36,24 @@ vi.mock('../../src/modules/flito-ocr/flito-ocr.service.js', async (orig) => {
 const uploadMock = vi.fn().mockResolvedValue('flito/soat/facturas/k.pdf');
 vi.mock('../../src/services/storage.js', () => ({ uploadEntityDocument: uploadMock }));
 
+// Bug #14569: el descifrado (qpdf) se simula; por defecto un PDF sin cifrado sale tal cual, así los
+// tests de arriba no cambian. Las clases de error son las reales.
+const abrirPdfMock = vi.fn(async (buf: Buffer) => ({ estado: 'abierto' as const, buffer: buf }));
+vi.mock('../../src/shared/pdf/pdf-cifrado.js', async (orig) => {
+  const real = await orig() as Record<string, unknown>;
+  return { ...real, abrirPdf: abrirPdfMock };
+});
+
 const { evaluarExtraccionSoat } = await import('../../src/modules/flito-soat/flito-soat.service.js');
+const { PdfContrasenaIncorrectaError, QpdfNoDisponibleError } = await import('../../src/shared/pdf/pdf-cifrado.js');
+const { audit: auditMock } = await import('../../src/shared/middleware/audit.js');
 const { OcrNoDisponibleError } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
 
 beforeEach(() => {
   selectMock.mockReset(); updateMock.mockReset(); insertMock.mockReset(); transactionMock.mockReset();
   extraerMock.mockReset(); uploadMock.mockClear();
+  abrirPdfMock.mockClear(); abrirPdfMock.mockImplementation(async (buf: Buffer) => ({ estado: 'abierto' as const, buffer: buf }));
+  vi.mocked(auditMock).mockClear();
 });
 
 // Campo confiable/no confiable de ayuda.
@@ -229,5 +245,164 @@ describe('flito-soat carga factura — reglas del flujo', () => {
     expect(r.status).toBe(200);
     expect(txUpdate).not.toHaveBeenCalled();   // NO pasó a Pagado (RN-03: solo con lectura confiable)
     expect(txInsert).toHaveBeenCalledTimes(3); // soporte + revisión + bitácora "ocr a revisión" (sin pago)
+  });
+});
+
+// ─────────────────────────── PDF cifrado (Bug #14569) ────────────────────────
+
+describe('flito-soat carga factura — PDF protegido con contraseña (Bug #14569)', () => {
+  const CLAVE = '1032456789'; // como una cédula: PII que no puede filtrarse
+  const CIFRADO = Buffer.from('%PDF-1.7 /Encrypt cifrado');
+  const DESCIFRADO = Buffer.from('%PDF-1.7 descifrado');
+  const subirIndividual = async (contrasena?: string) => {
+    let r = request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`).set('Authorization', await auth('admin'));
+    if (contrasena !== undefined) r = r.field('contrasena', contrasena);
+    return r.attach('archivo', CIFRADO, 'QTQ100.pdf');
+  };
+  const noSeGuardoNada = () => {
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(extraerMock).not.toHaveBeenCalled(); // tampoco se gastó OCR en un PDF ilegible
+  };
+
+  it('individual sin contraseña → 422 PDF_CIFRADO y no se guarda nada', async () => {
+    selectMock.mockReturnValueOnce(chain([soatEnAdquisicion])).mockReturnValueOnce(chain(datosCarga));
+    abrirPdfMock.mockResolvedValueOnce({ estado: 'requiere-contrasena' } as never);
+    const r = await subirIndividual();
+    expect(r.status).toBe(422);
+    expect(r.body).toEqual({ error: 'Este PDF está protegido con contraseña. Escríbela para cargarlo.', codigo: 'PDF_CIFRADO' });
+    noSeGuardoNada();
+  });
+
+  it('contraseña incorrecta → 422 PDF_CONTRASENA_INCORRECTA, sin guardar ni repetir la clave', async () => {
+    selectMock.mockReturnValueOnce(chain([soatEnAdquisicion])).mockReturnValueOnce(chain(datosCarga));
+    abrirPdfMock.mockRejectedValueOnce(new PdfContrasenaIncorrectaError());
+    const r = await subirIndividual(CLAVE);
+    expect(r.status).toBe(422);
+    expect(r.body.codigo).toBe('PDF_CONTRASENA_INCORRECTA');
+    expect(JSON.stringify(r.body)).not.toContain(CLAVE);
+    expect(abrirPdfMock).toHaveBeenCalledWith(expect.any(Buffer), CLAVE);
+    noSeGuardoNada();
+  });
+
+  it('qpdf no disponible → 503 PDF_CIFRADO_NO_DISPONIBLE sin guardar nada (falla cerrado)', async () => {
+    selectMock.mockReturnValueOnce(chain([soatEnAdquisicion])).mockReturnValueOnce(chain(datosCarga));
+    abrirPdfMock.mockRejectedValueOnce(new QpdfNoDisponibleError('timeout'));
+    const r = await subirIndividual(CLAVE);
+    expect(r.status).toBe(503);
+    expect(r.body.codigo).toBe('PDF_CIFRADO_NO_DISPONIBLE');
+    noSeGuardoNada();
+  });
+
+  it('contraseña de más de 128 caracteres → 400 sin abrir el PDF ni repetir el valor', async () => {
+    const larga = 'x'.repeat(129);
+    const r = await subirIndividual(larga);
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body)).not.toContain(larga);
+    expect(abrirPdfMock).not.toHaveBeenCalled();
+  });
+
+  it('contraseña correcta → OCR, hash y archivo sobre el PDF DESCIFRADO; audit sin la clave', async () => {
+    selectMock.mockReturnValueOnce(chain([soatEnAdquisicion])).mockReturnValueOnce(chain(datosCarga))
+      .mockReturnValueOnce(chain([])); // facturaDuplicada → no
+    abrirPdfMock.mockResolvedValueOnce({ estado: 'abierto', buffer: DESCIFRADO });
+    extraerMock.mockResolvedValueOnce(extraccionCruza);
+    const valoresSoporte = vi.fn(() => chain([{ id: 'sop-nuevo' }]));
+    const txInsert = vi.fn().mockReturnValueOnce({ values: valoresSoporte }).mockReturnValue(chain([]));
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({
+      select: vi.fn().mockReturnValue(chain([{ n: 1 }])), update: vi.fn().mockReturnValue(chain([])), insert: txInsert,
+    }));
+    selectMock.mockReturnValueOnce(chain([])); // detalle
+
+    const r = await subirIndividual(CLAVE);
+    expect(r.status).toBe(200);
+    expect(extraerMock.mock.calls[0][0].contenido.equals(DESCIFRADO)).toBe(true);
+    expect((uploadMock.mock.calls[0] as unknown[])[3]).toEqual(DESCIFRADO); // nunca el original cifrado
+    const soporte = (valoresSoporte.mock.calls[0] as unknown[])[0] as { hash: string; tamanoBytes: number };
+    expect(soporte.hash).toBe(createHash('sha256').update(DESCIFRADO).digest('hex'));
+    expect(soporte.tamanoBytes).toBe(DESCIFRADO.length);
+    expect(JSON.stringify(vi.mocked(auditMock).mock.calls.map((c) => c[1]))).not.toContain(CLAVE); // el detalle auditado
+  });
+
+  describe('masiva (POST /facturas)', () => {
+    const NORMAL = Buffer.from('%PDF-1.7 normal');
+    const masiva = async (contrasenas?: string) => {
+      let r = request(await buildApp()).post('/api/flito/soat/facturas').set('Authorization', await auth('admin'));
+      if (contrasenas !== undefined) r = r.field('contrasenas', contrasenas);
+      return r.attach('archivos', CIFRADO, 'protegido.pdf').attach('archivos', NORMAL, 'normal.pdf');
+    };
+    const normalSinCruce = () => {
+      // Respaldo de cualquier select (dedup, cruce): vacío → el normal termina «no cruza».
+      selectMock.mockReturnValue(chain([]));
+      extraerMock.mockResolvedValue({ ...extraccionCruza, [CampoSoat.PLACA]: campo('ZZZ999', 0.95), [CampoSoat.VIN]: campo(null, 0) });
+    };
+
+    it('protegido sin clave → `protegidos`; el resto del lote sigue intacto', async () => {
+      normalSinCruce();
+      abrirPdfMock.mockResolvedValueOnce({ estado: 'requiere-contrasena' } as never);
+      const r = await masiva();
+      expect(r.status).toBe(200);
+      expect(r.body.protegidos).toEqual([{ archivo: 'protegido.pdf', placa: null, soatId: null, detalle: 'Protegido con contraseña.' }]);
+      expect(r.body.noAsociados.map((i: { archivo: string }) => i.archivo)).toEqual(['normal.pdf']);
+      expect(extraerMock).toHaveBeenCalledTimes(1); // solo el normal pasó por OCR
+      expect(uploadMock).not.toHaveBeenCalled();
+      expect(vi.mocked(auditMock).mock.calls[0][1].detail).toContain('1 protegidos');
+    });
+
+    it('contrasenas por posición: la clave del 2.º no se aplica al 1.º; incorrecta → `protegidos`', async () => {
+      normalSinCruce();
+      abrirPdfMock.mockRejectedValueOnce(new PdfContrasenaIncorrectaError());
+      const r = await masiva(JSON.stringify([CLAVE, '']));
+      expect(r.status).toBe(200);
+      expect(abrirPdfMock.mock.calls[0][1]).toBe(CLAVE);
+      expect(abrirPdfMock.mock.calls[1][1]).toBeUndefined();
+      expect(r.body.protegidos[0]).toMatchObject({ archivo: 'protegido.pdf', detalle: 'La contraseña no abre este PDF.' });
+      expect(JSON.stringify(vi.mocked(auditMock).mock.calls.map((c) => c[1]))).not.toContain(CLAVE); // el detalle auditado
+    });
+
+    it('qpdf no disponible en un archivo → `noAsociados`, el resto sigue', async () => {
+      normalSinCruce();
+      abrirPdfMock.mockRejectedValueOnce(new QpdfNoDisponibleError('qpdf no instalado'));
+      const r = await masiva();
+      expect(r.status).toBe(200);
+      expect(r.body.protegidos).toEqual([]);
+      expect(r.body.noAsociados.map((i: { archivo: string }) => i.archivo)).toEqual(['protegido.pdf', 'normal.pdf']);
+      expect(extraerMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('ZIP con un PDF cifrado + uno normal → el cifrado sale en `protegidos` con el nombre de su entrada; el otro sigue', async () => {
+      const FIXTURE = readFileSync(fileURLToPath(new URL('../fixtures/soat/factura-cifrada.pdf', import.meta.url)));
+      const zip = new JSZip();
+      zip.file('lote/factura-cifrada.pdf', FIXTURE);
+      zip.file('lote/normal.pdf', NORMAL);
+      const contenidoZip = await zip.generateAsync({ type: 'nodebuffer' });
+      normalSinCruce();
+      // El detector simulado reconoce los bytes del fixture: prueba que la entrada llega intacta del ZIP.
+      abrirPdfMock.mockImplementation(async (buf: Buffer) => (buf.equals(FIXTURE)
+        ? { estado: 'requiere-contrasena' } as never
+        : { estado: 'abierto' as const, buffer: buf }));
+      const r = await request(await buildApp()).post('/api/flito/soat/facturas').set('Authorization', await auth('admin'))
+        .attach('archivos', contenidoZip, { filename: 'lote.zip', contentType: 'application/zip' });
+      expect(r.status).toBe(200);
+      expect(r.body.protegidos).toEqual([{ archivo: 'factura-cifrada.pdf', placa: null, soatId: null, detalle: 'Protegido con contraseña.' }]);
+      expect(r.body.noAsociados.map((i: { archivo: string }) => i.archivo)).toEqual(['normal.pdf']);
+      expect(abrirPdfMock).toHaveBeenCalledTimes(2);
+      expect(extraerMock).toHaveBeenCalledTimes(1); // solo el normal pasó por OCR
+      expect(uploadMock).not.toHaveBeenCalled();
+    });
+
+    it('contrasenas con largo distinto al de archivos → 400 sin repetir el valor ni procesar nada', async () => {
+      const r = await masiva(JSON.stringify([CLAVE]));
+      expect(r.status).toBe(400);
+      expect(r.body).toEqual({ error: 'Contraseñas inválidas' });
+      expect(abrirPdfMock).not.toHaveBeenCalled();
+    });
+
+    it('contrasenas que no es JSON → 400', async () => {
+      const r = await masiva('no-es-json');
+      expect(r.status).toBe(400);
+      expect(abrirPdfMock).not.toHaveBeenCalled();
+    });
   });
 });

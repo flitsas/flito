@@ -44548,12 +44548,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/devolver-gestor":
     post:
       operationId: post-api-flito-soat-id-devolver-gestor
@@ -44710,12 +44719,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/documentos-adicionales":
     get:
       operationId: get-api-flito-soat-id-documentos-adicionales
@@ -45102,7 +45120,7 @@ paths:
       tags:
         - flito-soat
       summary: "POST /api/flito/soat/:id/factura"
-      description: "POST /:id/factura — carga de UNA factura de un SOAT puntual. Única vía a Pagado (RN-03). Operaciones o el gestor del proveedor. Campo de archivo: \"archivo\". Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.comprobante.cargar."
+      description: "POST /:id/factura — carga de UNA factura de un SOAT puntual. Única vía a Pagado (RN-03). Operaciones o el gestor del proveedor. Campo de archivo: \"archivo\". Campo opcional \"contrasena\" (Bug #14569) si el PDF está cifrado. `soatPdfContrasenaLimiter` va DESPUÉS de multer a propósito: solo cuenta las peticiones con clave, y la clave viene en el body. Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.comprobante.cargar."
       security:
         - bearerAuth: []
       x-flit-funciones:
@@ -45120,10 +45138,12 @@ paths:
             schema:
               type: object
               properties:
+                contrasena:
+                  description: "[por verificar] campo leído en el código; su tipo no se valida con un esquema."
                 archivo:
                   type: string
                   format: binary
-        description: Formulario con los archivos que recibe la ruta.
+        description: "[por verificar] La ruta lee estos campos de req.body sin esquema de Zod; pueden faltar otros."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -45217,12 +45237,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/historial":
     get:
       operationId: get-api-flito-soat-id-historial
@@ -45468,12 +45497,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/reactivar":
     post:
       operationId: post-api-flito-soat-id-reactivar
@@ -45605,12 +45643,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/rechazar":
     post:
       operationId: post-api-flito-soat-id-rechazar
@@ -45742,12 +45789,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/reversar":
     post:
       operationId: post-api-flito-soat-id-reversar
@@ -45909,12 +45965,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   "/api/flito/soat/{id}/soportes":
     get:
       operationId: get-api-flito-soat-id-soportes
@@ -49387,12 +49452,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   /api/flito/soat/export:
     post:
       operationId: post-api-flito-soat-export
@@ -49640,12 +49714,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   /api/flito/soat/facetas:
     get:
       operationId: get-api-flito-soat-facetas
@@ -49763,7 +49846,7 @@ paths:
       tags:
         - flito-soat
       summary: POST /api/flito/soat/facturas
-      description: "POST /facturas — carga MASIVA (varios archivos o un ZIP). El OCR enruta cada comprobante a un SOAT en adquisición; los que cruzan y superan el umbral se pagan, el resto va a revisión (CA-06). Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.masiva.cargar."
+      description: "POST /facturas — carga MASIVA (varios archivos o un ZIP). El OCR enruta cada comprobante a un SOAT en adquisición; los que cruzan y superan el umbral se pagan, el resto va a revisión (CA-06). Campo opcional \"contrasenas\" (Bug #14569): arreglo JSON por posición, mismo largo que \"archivos\". Limitador después de multer por la misma razón que en `POST /:id/factura`. Fuente: apps/api/src/modules/flito-soat/flito-soat.routes.ts. Exige la función: soat.masiva.cargar."
       security:
         - bearerAuth: []
       x-flit-funciones:
@@ -49774,10 +49857,12 @@ paths:
             schema:
               type: object
               properties:
+                contrasenas:
+                  description: "[por verificar] campo leído en el código; su tipo no se valida con un esquema."
                 archivos:
                   type: string
                   format: binary
-        description: Formulario con los archivos que recibe la ruta.
+        description: "[por verificar] La ruta lee estos campos de req.body sin esquema de Zod; pueden faltar otros."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -49802,11 +49887,16 @@ paths:
                     type: array
                     items:
                       "$ref": "#/components/schemas/Forma-948f2e8602"
+                  protegidos:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Forma-948f2e8602"
                 required:
                   - pagados
                   - enRevision
                   - duplicados
                   - noAsociados
+                  - protegidos
         "400":
           description: Petición inválida.
           content:
@@ -49884,12 +49974,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
   /api/flito/soat/soportes/zip:
     post:
       operationId: post-api-flito-soat-soportes-zip
@@ -50029,6 +50128,14 @@ paths:
                     required:
                       - error
                       - codigo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
                   - type: object
                     properties:
                       error:

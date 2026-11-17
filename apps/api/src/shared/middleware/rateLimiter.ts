@@ -410,6 +410,31 @@ export const soatLecturaFacturaLimiter = rateLimit({
 });
 
 /**
+ * Intentos de contraseña de un comprobante SOAT en PDF cifrado (Bug #14569; calco de
+ * {@link soatLecturaFacturaLimiter}). La clave suele ser la cédula o el NIT del titular: sin tope,
+ * la carga de factura sería un oráculo para adivinarla por fuerza bruta. 10 intentos cada 15 min
+ * por usuario (decisión del humano).
+ *
+ * **Excepción al «va delante de multer»:** este limitador solo cuenta las peticiones que TRAEN
+ * contraseña (`skip` sin `contrasena`/`contrasenas`), y esos campos viven en el cuerpo multipart,
+ * que no existe hasta que multer lo procesa. Por eso se monta DESPUÉS de multer en
+ * `POST /:id/factura` y `POST /facturas`. Una carga sin clave no gasta cupo.
+ *
+ * Llave y store propios (`soat-pdf-clave:` / `rl:soat-pdf-clave:`), como los demás.
+ */
+export const soatPdfContrasenaLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('soat-pdf-clave:'),
+  handler: frenoConRastro('soat-pdf-clave'),
+  skip: (req) => !req.body?.contrasena && !req.body?.contrasenas,
+  message: { error: 'Demasiados intentos de contraseña seguidos. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:soat-pdf-clave:'),
+});
+
+/**
  * Carga de comprobantes universales (`POST /api/flito/comprobantes`, HU #12629 AC9; calco de
  * {@link soatLecturaFacturaLimiter}): cada petición son hasta 5 archivos que pasan por el OCR
  * (gasto externo por byte, como la lectura de factura) y el lote entero son hasta 150 archivos = 30

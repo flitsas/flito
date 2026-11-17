@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { resolverValidacionVigentePorDocumento, validacionesVigentesPorDocumento } from '@operaciones/shared-types';
 import { PDF_WORKER_SRC } from '../lib/pdfWorker';
+import { COPY_PDF_PROTEGIDO, esPdfProtegido, mensajeErrorPdf } from '../lib/pdf-protegido';
 import { flitBtnSecondary } from './flit/flitPageKit';
 import GradientButton from './flit/GradientButton';
 import { Girador } from './flit/Cargador';
@@ -193,6 +194,8 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
   const [idDocsError, setIdDocsError] = useState('');
   const [selectedDoc, setSelectedDoc] = useState<number | null>(null);
   const [docPages, setDocPages] = useState<string[]>([]);
+  // BUG #14569: un PDF cifrado no se rasteriza; se dice por qué en vez de «Sin vista previa».
+  const [docProtegido, setDocProtegido] = useState(false);
   const [docLoading, setDocLoading] = useState(false);
   const [idDocs, setIdDocs] = useState<IdDoc[] | null>(null);
   const [idDocsLoading, setIdDocsLoading] = useState(false);
@@ -220,7 +223,7 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
     const isImage = doc.mimetype?.startsWith('image/');
     const token = localStorage.getItem('token');
     const url = `/api/tramites/${tramiteId}/documentos/${doc.id}/archivo`;
-    setDocLoading(true); setDocPages([]);
+    setDocLoading(true); setDocPages([]); setDocProtegido(false);
     if (isPdf) {
       fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} }).then(r => r.arrayBuffer()).then(async (buf) => {
         // El worker lo emite el bundler desde `node_modules` (HU #11775): misma versión que la API
@@ -240,7 +243,7 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
           pngs.push(c.toDataURL('image/png'));
         }
         setDocPages(pngs);
-      }).catch(() => setDocPages([])).finally(() => setDocLoading(false));
+      }).catch((e) => { setDocPages([]); setDocProtegido(esPdfProtegido(e)); }).finally(() => setDocLoading(false));
     } else if (isImage) { setDocPages([url]); setDocLoading(false); } else { setDocLoading(false); }
   }, [selectedDoc, tramiteId, archivos]);
 
@@ -269,7 +272,11 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
     try {
       const r = await renderPdf(`/api/tramites/${tramiteId}/generar-fur`, { orgNombre: orgTransito?.nombre || '', orgCiudad: orgTransito?.ciudad || '', orgCodigo: orgTransito?.codigo || '' });
       setFurBlobUrl(r.blobUrl); setFurPages(r.pages);
-    } catch (e) { setFurError(e instanceof Error ? e.message : 'Error'); }
+    } catch (e) {
+      // BUG #14569: el `message` de pdf.js («No password given») no llega a la pantalla; el error
+      // HTTP del API con su frase sí, como antes.
+      setFurError(mensajeErrorPdf(e, () => (e instanceof Error ? e.message : 'No pudimos cargar el FUR. Intenta de nuevo.')));
+    }
     finally { setFurLoading(false); }
   };
   const cargarCert = async () => {
@@ -277,7 +284,7 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
     try {
       const r = await renderPdf(`/api/validacion-identidad/certificado/${tramiteId}`, { placa: placa || vin, vehiculo: `${v.marca || ''} ${v.linea || ''} ${v.modelo || ''}`.trim(), orgNombre: orgTransito?.nombre || '' });
       setCertBlobUrl(r.blobUrl); setCertPages(r.pages);
-    } catch (e) { setCertError(mensajeErrorVisor('certificado', e)); }
+    } catch (e) { setCertError(mensajeErrorPdf(e, () => mensajeErrorVisor('certificado', e))); }
     finally { setCertLoading(false); }
   };
   const download = (url: string, name: string) => { const a = document.createElement('a'); a.href = url; a.download = name; a.click(); };
@@ -462,7 +469,7 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
                     <div className={isPdf ? 'bg-[color:var(--color-surface)]' : 'bg-[color:var(--color-surface)]'}>
                       {docLoading ? <div className="text-center py-8"><Girador /></div>
                         : docPages.length > 0 ? <div className="p-2 sm:p-3 flex flex-col items-center gap-2">{docPages.map((s, i) => <div key={i} className="bg-[color:var(--color-surface-elevated)] rounded-[9px] overflow-hidden w-full"><img src={s} alt="" className="block w-full h-auto" /></div>)}</div>
-                          : <div className="text-center py-6 text-xs text-[color:var(--color-text-tertiary)]">Sin vista previa</div>}
+                          : <div className="text-center py-6 px-3 text-xs text-[color:var(--color-text-tertiary)]">{docProtegido ? `${COPY_PDF_PROTEGIDO}.` : 'Sin vista previa'}</div>}
                     </div>
                   </div>);
                 })()}
