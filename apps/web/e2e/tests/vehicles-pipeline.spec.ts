@@ -54,7 +54,10 @@ test.describe('Vehicles · Pipeline progreso global', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText('Etapa actual')).toBeVisible();
-    await expect(dialog.getByText('SOAT pendiente')).toBeVisible();
+    // Rediseño (Épica #14560): el modal suma la línea de pasos del kit, así que la etapa sale dos veces:
+    // como valor de «Etapa actual» y como el paso actual de la línea.
+    await expect(dialog.getByRole('paragraph').filter({ hasText: /^SOAT pendiente$/ })).toBeVisible();
+    await expect(dialog.locator('[data-kit="pasos"] [data-estado="actual"]')).toContainText('SOAT pendiente');
 
     // Cerrar modal (Esc).
     await page.keyboard.press('Escape');
