@@ -756,12 +756,14 @@ export const REVISIONES_DEMO = [
       aseguradora: campo(ASEGURADORAS_DEMO[0], 0.71),
     },
     resuelto: false, creadoEn: '2026-10-21T13:20:00Z', soporte: { id: 'sop-demo-1', nombreArchivo: `poliza-${P[0]}.pdf` },
+    registroActual: null,
   },
   {
     id: 'rev-demo-2', modulo: 'soat', motivo: 'llave_no_cruza',
     detalle: 'La placa leída no corresponde a ningún SOAT de la cola.', registroId: null, placaSugerida: P[1],
     extraccion: { placa: campo(P[1], 0.95), vin: campo(V[1], 0.9), numeroPoliza: campo('DEMO-POL-0002', 0.91) },
     resuelto: false, creadoEn: '2026-10-21T11:05:00Z', soporte: { id: 'sop-demo-2', nombreArchivo: `poliza-${P[1]}.pdf` },
+    registroActual: null,
   },
 ];
 export const REVISION_CAMPOS_SOAT = ['placa', 'vin', 'numeroPoliza', 'vigenciaDesde', 'vigenciaHasta', 'valorTotal', 'aseguradora'];
