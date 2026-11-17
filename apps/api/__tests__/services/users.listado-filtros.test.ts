@@ -13,6 +13,7 @@ import ExcelJS from 'exceljs';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { testToken } from '../helpers/auth.js';
 import { chain } from '../helpers/db.js';
+import { USER_ROLES } from '@operaciones/shared-types';
 
 const selectMock = vi.fn();
 
@@ -530,7 +531,7 @@ describe('GET /api/users/resumen — conteo por rol y estado (HU #12172)', () =>
     expect(r.body.porRol.mensajero).toBe(0);
     expect(r.body.porRol.financiera).toBe(0);
     // El catálogo completo: el front pinta la fila del rol aunque hoy no tenga a nadie.
-    expect(Object.keys(r.body.porRol)).toHaveLength(12);
+    expect(Object.keys(r.body.porRol)).toHaveLength(USER_ROLES.length); // 14 desde la Épica #14590 (Gerencia Comercial y General)
   });
 
   it('TC-12172-21: el resumen se audita como `view`', async () => {
