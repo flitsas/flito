@@ -77,17 +77,17 @@ function Contenido({ d }: { d: TableroEjecutivo }) {
       </div>
 
       <div className={REJILLA_2}>
-        <BloqueTorre idPrueba="bloque-proyeccion" titulo="Proyección de cierre del mes" subtitulo="Siempre el mes en curso: no depende del periodo elegido.">
+        <BloqueTorre idPrueba="bloque-proyeccion" ancho titulo="Proyección de cierre del mes" subtitulo="Siempre el mes en curso: no depende del periodo elegido.">
           <p className="m-0 text-3xl font-bold tabular-nums" style={{ color: 'var(--kit-azul)' }}>{conteo(p.proyeccionCierre)} trámites</p>
           <p className="mb-3 mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             {p.variacionPct === null ? '' : `${variacion(p.variacionPct)} frente al mes anterior (${conteo(p.totalMesAnterior)}). `}
             Calculada con el ritmo diario de lo que va del mes.
           </p>
-          <LineaTendencia titulo="Aprobados acumulados por día del mes" etiquetas={graf.etiquetas} series={graf.series}
+          <LineaTendencia fluido titulo="Aprobados acumulados por día del mes" etiquetas={graf.etiquetas} series={graf.series}
             guia={p.meta !== null ? { v: p.meta, t: `Meta ${conteo(p.meta)}` } : undefined} vacio="Aún no hay aprobados este mes." />
         </BloqueTorre>
 
-        <BloqueTorre idPrueba="bloque-riesgos" titulo="Los 5 riesgos de hoy" subtitulo="Primero lo crítico y luego lo de mayor impacto.">
+        <BloqueTorre idPrueba="bloque-riesgos" ancho titulo="Los 5 riesgos de hoy" subtitulo="Primero lo crítico y luego lo de mayor impacto.">
           {d.riesgos.length === 0
             ? <p className="grafico-vacio">Nada fuera de umbral hoy.</p>
             : (

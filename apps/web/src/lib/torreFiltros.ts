@@ -8,6 +8,8 @@
 // el chunk de /login (presupuesto de `check:bundle`).
 
 export const CLAVE_FILTROS_TORRE = 'flito-torre-filtros';
+/** Fila de vista del Explorador (Top N, Absoluto/%, Comparar): sin PII, también solo en sessionStorage. */
+export const CLAVE_VISTA_TORRE = 'flito-torre-vista';
 
 /** Claves de periodo: con nombre, un mes concreto (`m:YYYY-MM`) o un rango personalizado. */
 export type PeriodoTorre =
@@ -99,5 +101,8 @@ export function guardarFiltrosTorre(f: FiltrosTorre): void {
 
 /** Cierre de sesión: los filtros de un usuario no los hereda el siguiente en la misma pestaña. */
 export function limpiarFiltrosTorre(): void {
-  try { sessionStorage.removeItem(CLAVE_FILTROS_TORRE); } catch { /* nada que barrer */ }
+  try {
+    sessionStorage.removeItem(CLAVE_FILTROS_TORRE);
+    sessionStorage.removeItem(CLAVE_VISTA_TORRE);
+  } catch { /* nada que barrer */ }
 }

@@ -139,7 +139,8 @@ test.describe('Torre · Explorador flexible (Épica #14590)', () => {
     const titulo = 'Trámites aprobados · Últimos 6 meses · por compañía y mes';
     await expect(page.getByRole('heading', { name: titulo })).toBeVisible();
     const tabla = page.getByRole('table', { name: `Tabla cruzada: ${titulo}` });
-    await expect(tabla.getByRole('columnheader')).toHaveText(['Compañía', ...MESES, 'Total']);
+    // Vistas flexibles (spec §4): la cabecera temporal lleva la etiqueta corta del eje, desde la clave ISO.
+    await expect(tabla.getByRole('columnheader')).toHaveText(['Compañía', ...MESES.map((m) => `${m.toLowerCase()} 2026`), 'Total']);
     await expect(tabla.getByRole('rowheader', { name: 'Compañía Demo A' })).toBeVisible();
     const pie = tabla.locator('tfoot tr');
     await expect(pie.locator('th[scope="row"]')).toHaveText('Total');
@@ -375,5 +376,217 @@ test.describe('Torre · coincidencias de placa (Épica #14590)', () => {
     await listaPlaca(page).getByRole('button', { name: 'Reintentar' }).click();
     await expect(listaPlaca(page).getByText('Ninguna placa contiene «XQZ». Revise que esté bien escrita.')).toBeVisible();
     await expect(buscador).toBeFocused();
+  });
+});
+
+// ── Vistas flexibles (Épica #14590, spec UX docs/ux/flito-torre-vistas-flexibles.md, RN-TOR-K1..K5, W2) ──────────
+
+type CuerpoVista = Cuerpo & { top?: number; comparar?: boolean };
+
+const HOY_FIJO = new Date('2026-11-18T15:00:00.000Z'); // 10:00 en Bogotá
+const OCHO = ['A', 'B', 'D', 'C', 'E', 'F', 'G', 'H'].map((l, i) => ({
+  clave: String(i + 1), etiqueta: `Compañía Demo ${l}`, valor: [398, 231, 142, 130, 112, 40, 30, 19][i],
+  n: [398, 231, 142, 130, 112, 40, 30, 19][i], participacion: [36.1, 21, 12.9, 11.8, 10.2, 3.6, 2.7, 1.7][i],
+}));
+const SIMPLE_OCHO = { ...SIMPLE, total: { valor: 1102, n: 1102 }, filas: OCHO };
+const ANTERIOR = {
+  rango: { desde: '2025-12-11', hasta: '2026-05-31' }, total: { valor: 984, n: 984 }, variacion: 12, en: 'relativa',
+  filas: OCHO.map((f, i) => ({ clave: f.clave, valor: [350, 240, 120, null, 112, 30, 40, 92][i], variacion: [13.7, -3.8, 18.3, null, 0, 33.3, -25, -79.3][i] })),
+};
+const COMPARADO = { ...SIMPLE_OCHO, anterior: ANTERIOR };
+const ANTERIOR_VACIO = { ...SIMPLE_OCHO, anterior: { ...ANTERIOR, total: { valor: 0, n: 0 }, variacion: null, filas: OCHO.map((f) => ({ clave: f.clave, valor: null, variacion: null })) } };
+
+// 25 semanas (1 jun → 16 nov) × 3 compañías: la del pedido «compañía × semana en 6 meses».
+const LUNES = Array.from({ length: 25 }, (_, i) => new Date(Date.UTC(2026, 5, 1 + 7 * i)).toISOString().slice(0, 10));
+const SERIES_SEMANA: [string, number][] = [['Compañía Demo A', 30], ['Compañía Demo B', 18], ['Compañía Demo C', 9]];
+const CRUCE_SEMANA = {
+  ...BASE, metrica: 'tramites', unidad: 'conteo', truncado: false,
+  total: { valor: 25 * 57, n: 25 * 57 },
+  filas: SERIES_SEMANA.map(([e, v], i) => ({ clave: String(i + 1), etiqueta: e, valor: v * 25, n: v * 25, participacion: (v / 57) * 100 })),
+  cruce: {
+    agrupacion: 'semana', truncadoColumnas: false,
+    columnas: LUNES.map((l) => ({ clave: l, etiqueta: l, valor: 57, n: 57, participacion: 4 })),
+    celdas: SERIES_SEMANA.map(([, v]) => LUNES.map(() => ({ valor: v, n: v }))),
+  },
+};
+
+const atajos = (page: Pagina) => page.getByRole('group', { name: 'Atajos de periodo' });
+const desde = (page: Pagina) => page.getByLabel('Desde', { exact: true });
+const hasta = (page: Pagina) => page.getByLabel('Hasta', { exact: true });
+
+test.describe('Torre · vistas flexibles: barra de fechas, eje legible, Top, % y comparar (Épica #14590)', () => {
+  test.use({ viewport: { width: 1366, height: 768 } });
+
+  test.beforeEach(async ({ page }) => { await page.clock.setFixedTime(HOY_FIJO); });
+
+  test('atajo → campos con sus fechas; editar a mano desmarca y manda el rango; «Mes» llena el mes y «Hoy» lo devuelve', async ({ page }) => {
+    const cuerpos = await preparar(page, () => ({ body: SIMPLE }));
+    await page.goto('/flito/torre/explorador');
+    await expect(resultado(page)).toHaveAttribute('data-estado', 'lleno');
+    // Por defecto «Este mes»: 1 → 18 nov, con `max = hoy` en Bogotá.
+    await expect(atajos(page).getByRole('button', { name: 'Este mes' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(desde(page)).toHaveValue('2026-11-01');
+    await expect(hasta(page)).toHaveValue('2026-11-18');
+    await expect(hasta(page)).toHaveAttribute('max', '2026-11-18');
+
+    // RN-TOR-F5: «Últimos 6 meses» alineado a mes; la web sigue enviando el preset.
+    await atajos(page).getByRole('button', { name: 'Últimos 6 meses' }).click();
+    await expect(desde(page)).toHaveValue('2026-06-01');
+    await expect(hasta(page)).toHaveValue('2026-11-18');
+    await expect.poll(() => ultimo(cuerpos).filtro.rango).toEqual({ preset: 'ultimos_6m' });
+
+    await desde(page).fill('2026-07-01');
+    await expect.poll(() => ultimo(cuerpos).filtro.rango).toEqual({ desde: '2026-07-01', hasta: '2026-11-18' });
+    await expect(atajos(page).getByRole('button', { pressed: true })).toHaveCount(0);
+
+    await page.getByLabel('Mes', { exact: true }).selectOption({ label: 'Octubre 2026' });
+    await expect(desde(page)).toHaveValue('2026-10-01');
+    await expect(hasta(page)).toHaveValue('2026-10-31');
+    await expect.poll(() => ultimo(cuerpos).filtro.rango).toEqual({ desde: '2026-10-01', hasta: '2026-10-31' });
+    await atajos(page).getByRole('button', { name: 'Hoy' }).click();
+    await expect(page.getByLabel('Mes', { exact: true })).toHaveValue('');
+    await expect(desde(page)).toHaveValue('2026-11-18');
+    // Persistencia: sessionStorage, nunca la URL.
+    const guardado = await page.evaluate(() => sessionStorage.getItem('flito-torre-filtros'));
+    expect(JSON.parse(guardado ?? '{}').periodo).toBe('hoy');
+    expect(page.url()).not.toContain('2026');
+  });
+
+  test('rango inválido: error en línea con aria-invalid, NINGUNA petición y el último resultado con su aviso', async ({ page }) => {
+    const cuerpos = await preparar(page, () => ({ body: SIMPLE }));
+    await page.goto('/flito/torre/explorador');
+    await expect(resultado(page)).toHaveAttribute('data-estado', 'lleno');
+    const antes = cuerpos.length;
+
+    await desde(page).fill('2026-11-20');
+    const error = page.locator('[data-torre="error-rango"]');
+    await expect(error).toHaveText('⚠ La fecha «Desde» es posterior a «Hasta». Corrija una de las dos.');
+    await expect(desde(page)).toHaveAttribute('aria-invalid', 'true');
+    await expect(hasta(page)).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByText('El resultado corresponde al último periodo válido: 1 nov – 18 nov 2026.')).toBeVisible();
+    await expect(resultado(page)).toHaveAttribute('data-estado', 'lleno');
+    await expect(atajos(page).getByRole('button', { pressed: true })).toHaveCount(0);
+
+    await hasta(page).fill('');
+    await expect(error).toHaveText('⚠ Escriba la fecha completa en «Desde» y en «Hasta».');
+    await page.waitForTimeout(300);
+    expect(cuerpos.length).toBe(antes);
+
+    // Corregido: vuelve a consultar con el rango propio.
+    await desde(page).fill('2026-11-02');
+    await hasta(page).fill('2026-11-10');
+    await expect.poll(() => ultimo(cuerpos).filtro.rango).toEqual({ desde: '2026-11-02', hasta: '2026-11-10' });
+    await expect(error).toHaveText('');
+    await expect(desde(page)).not.toHaveAttribute('aria-invalid', 'true');
+  });
+
+  test('«Mostrar 5 grupos»: `top: 5` en el cuerpo; ranking y tabla con 5 filas + «Los demás (3)»', async ({ page }) => {
+    const cuerpos = await preparar(page, () => ({ body: SIMPLE_OCHO }));
+    await page.goto('/flito/torre/explorador');
+    await expect(resultado(page)).toHaveAttribute('data-estado', 'lleno');
+    expect((ultimo(cuerpos) as CuerpoVista).top).toBe(10);
+    await resultado(page).getByLabel('Mostrar').selectOption('5');
+    await expect.poll(() => (ultimo(cuerpos) as CuerpoVista).top).toBe(5);
+    const tabla = resultado(page).getByRole('table', { name: /Desglose/ });
+    await expect(tabla.locator('tbody tr')).toHaveCount(6);
+    await expect(tabla.locator('tbody tr').last()).toContainText('Los demás (3)');
+    await expect(tabla.locator('tbody tr').last()).toContainText('89');
+    // Con «Agrupar por» temporal sola, «Mostrar» no aparece.
+    await page.getByLabel('Agrupar por').selectOption('mes');
+    await expect(resultado(page).getByLabel('Mostrar')).toHaveCount(0);
+  });
+
+  test('comparar: `comparar: true`; cifra «▲ 12,0 % frente a 984» con fechas; Anterior y Variación sin color; «Nuevo»', async ({ page }) => {
+    const cuerpos = await preparar(page, (c) => ({ body: c.agrupacionColumnas ? CRUCE : (c as CuerpoVista).comparar ? COMPARADO : SIMPLE_OCHO }));
+    await page.goto('/flito/torre/explorador');
+    await expect(resultado(page)).toHaveAttribute('data-estado', 'lleno');
+    expect((ultimo(cuerpos) as CuerpoVista).comparar).toBeUndefined();
+    const sw = resultado(page).getByRole('switch', { name: 'Comparar con el periodo anterior' });
+    await sw.click();
+    await expect(sw).toHaveAttribute('aria-checked', 'true');
+    await expect.poll(() => (ultimo(cuerpos) as CuerpoVista).comparar).toBe(true);
+    const cmp = resultado(page).locator('[data-torre="comparacion"]');
+    await expect(cmp.locator('[data-torre="variacion"] [aria-hidden="true"]')).toHaveText('▲ 12,0 %');
+    await expect(cmp).toContainText('frente a 984');
+    await expect(cmp).toContainText('Periodo anterior: 11 dic 2025 – 31 may 2026');
+    await expect(cmp.locator('.sr-only')).toHaveText('sube 12,0 %');
+    const tabla = resultado(page).getByRole('table', { name: /Desglose/ });
+    await expect(tabla.getByRole('columnheader', { name: 'Anterior' })).toBeVisible();
+    await expect(tabla.getByRole('columnheader', { name: 'Variación' })).toBeVisible();
+    const filaC = tabla.locator('tbody tr', { hasText: 'Compañía Demo C' });
+    await expect(filaC).toContainText('Nuevo');
+    await expect(tabla.locator('tbody tr', { hasText: 'Compañía Demo E' })).toContainText('= 0,0 %');
+    // Sin verde ni rojo: la variación va en la tinta secundaria.
+    const color = await filaC.locator('[data-torre="variacion"]').evaluate((e) => getComputedStyle(e).color);
+    const secundaria = await page.evaluate(() => {
+      const p = document.createElement('p'); p.style.color = 'var(--flit-text-secondary)'; document.body.append(p);
+      const c = getComputedStyle(p).color; p.remove(); return c;
+    });
+    expect(color).toBe(secundaria);
+    // Persistido (sessionStorage, no URL).
+    expect(JSON.parse((await page.evaluate(() => sessionStorage.getItem('flito-torre-vista'))) ?? '{}').comparar).toBe(true);
+    // En el cruce el switch no se ofrece y se apaga (sin `comparar` en el cuerpo).
+    await page.getByRole('button', { name: 'Aprobados por compañía y mes' }).click();
+    await expect.poll(() => ultimo(cuerpos).agrupacionColumnas).toBe('mes');
+    expect((ultimo(cuerpos) as CuerpoVista).comparar).toBeUndefined();
+    await expect(resultado(page).getByRole('switch')).toHaveCount(0);
+  });
+
+  test('comparar con el periodo anterior sin datos: «Sin datos en el periodo anterior (…)» y «Nuevo» en las filas', async ({ page }) => {
+    await preparar(page, (c) => ({ body: (c as CuerpoVista).comparar ? ANTERIOR_VACIO : SIMPLE_OCHO }));
+    await page.goto('/flito/torre/explorador');
+    await resultado(page).getByRole('switch', { name: 'Comparar con el periodo anterior' }).click();
+    await expect(resultado(page).locator('[data-torre="comparacion"]')).toHaveText('Sin datos en el periodo anterior (11 dic 2025 – 31 may 2026)');
+    await expect(resultado(page).getByRole('table', { name: /Desglose/ }).locator('tbody tr').first()).toContainText('Nuevo');
+  });
+
+  test('«Valores %» en el cruce compañía × mes: cada columna suma 100 % y el tfoot cierra en 100 %', async ({ page }) => {
+    await preparar(page, porRespuesta);
+    await page.goto('/flito/torre/explorador');
+    await page.getByRole('button', { name: 'Aprobados por compañía y mes' }).click();
+    await expect(resultado(page)).toHaveAttribute('data-forma', 'cruzado');
+    await resultado(page).getByRole('group', { name: 'Valores: absoluto o porcentaje' }).getByRole('button', { name: '%' }).click();
+    const tabla = resultado(page).locator('[data-torre="tabla-cruzada"]');
+    await expect(tabla).toHaveAttribute('data-valores', 'pct');
+    await expect(tabla.locator('tfoot td')).toHaveText(Array(7).fill('100 %'));
+    const columnas = await tabla.locator('tbody tr').evaluateAll((filas) => {
+      const n = (t: string) => Number(t.replace(/\s|%/g, '').replace(',', '.'));
+      const sumas: number[] = [];
+      for (const f of filas) [...f.querySelectorAll('td')].slice(0, 6).forEach((td, j) => { sumas[j] = (sumas[j] ?? 0) + n(td.textContent ?? '0'); });
+      return sumas;
+    });
+    expect(columnas).toHaveLength(6);
+    for (const s of columnas) expect(Math.abs(s - 100)).toBeLessThanOrEqual(0.6);
+  });
+
+  test('compañía × semana (25 cortes): gráfica a todo el ancho, rótulos espaciados sin encimarse y cabeceras cortas; a 375 se desliza', async ({ page }) => {
+    await preparar(page, (c) => ({ body: c.agrupacionColumnas ? CRUCE_SEMANA : SIMPLE }));
+    await page.goto('/flito/torre/explorador');
+    await page.getByRole('button', { name: 'Aprobados por compañía y mes' }).click();
+    const grafica = resultado(page).locator('[data-torre="grafica-series"]');
+    await expect(grafica).toBeVisible();
+    const anchoTarjeta = (await resultado(page).boundingBox())!.width;
+    expect((await grafica.boundingBox())!.width).toBeGreaterThan(anchoTarjeta * 0.85);
+    // 25 marcas (todas con tick y columna de tip) y 13 rótulos «1 jun», «15 jun»… (paso 2).
+    await expect(grafica.locator('.grafico__marca')).toHaveCount(25);
+    await expect(grafica.locator('.grafico__columna')).toHaveCount(25);
+    const rotulos = grafica.locator('[data-rotulo="x"]');
+    await expect(rotulos).toHaveCount(13);
+    await expect(rotulos.nth(1)).toHaveText('15 jun');
+    const cajas = await rotulos.evaluateAll((ts) => ts.map((t) => t.getBoundingClientRect()).map((r) => ({ x: r.left, fin: r.right })));
+    for (let i = 1; i < cajas.length; i++) expect(cajas[i].x).toBeGreaterThan(cajas[i - 1].fin);
+    // Cabeceras de la tabla cruzada con la etiqueta corta.
+    await expect(resultado(page).locator('[data-torre="tabla-cruzada"] thead')).toContainText('8 jun');
+    // Tip con la etiqueta larga.
+    await grafica.locator('.grafico__columna').nth(1).hover();
+    await expect(grafica.locator('.grafico__tip')).toContainText('Semana del 8 al 14 jun 2026');
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    const region = grafica.getByRole('region', { name: /desplazable/ });
+    await expect(region).toBeVisible();
+    await expect(grafica.getByText('Deslice para ver todos los cortes.')).toBeVisible();
+    await expect.poll(() => region.evaluate((e) => e.scrollLeft)).toBeGreaterThan(0);
+    const sinDesborde = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+    expect(sinDesborde).toBe(true);
   });
 });

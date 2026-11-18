@@ -102,7 +102,7 @@ function Contenido({ d }: { d: TableroFinanciero }) {
 
         {margen && (
           <BloqueTorre idPrueba="bloque-margen" titulo="Margen por servicio" subtitulo={notaFiltros(margen, 'Lo cobrado frente a lo que costó. El margen por cliente va en el Excel.')}>
-            <BarrasGrupo titulo="Cobrado y costo por servicio"
+            <BarrasGrupo fluido titulo="Cobrado y costo por servicio"
               etiquetas={SERVICIOS_MARGEN_TORRE.map((s) => SERVICIO[s])}
               series={[
                 { t: 'Cobrado', c: SERIE_KIT.azul, v: SERVICIOS_MARGEN_TORRE.map((s) => margen.porServicio.find((x) => x.servicio === s)?.cobrado ?? 0) },

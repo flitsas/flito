@@ -1,5 +1,6 @@
 // Torre de Control (Épica #14590) — barra de filtros transversal (spec UX §4 de la Torre y §3.3/§3.4/§6 del Explorador
-// flexible). Compañía (selección múltiple que aplica al cerrar) y Periodo siempre a la vista; OT, departamento, tipo y
+// flexible). Compañía (selección múltiple que aplica al cerrar) y las fechas Desde/Hasta con sus atajos y «Mes» siempre
+// a la vista (`useRangoTorre`, spec vistas flexibles §3); OT, departamento, tipo y
 // estado actual en «Más filtros» (`PanelFiltros`), también múltiples, con un chip POR FILTRO y «Limpiar todo». El estado
 // lo guarda `useFiltrosTorre` en sessionStorage, nunca en la URL. El buscador es «Buscar placa»: muestra coincidencias
 // mientras se escribe y Enter abre la ficha (no filtra); la placa no se guarda en ningún sitio.
@@ -7,12 +8,11 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject 
 import { DEPARTAMENTO_POR_CODIGO, type OpcionesFiltroTorre } from '@operaciones/shared-types';
 import { api } from '../../lib/api';
 import {
-  FILTROS_TORRE_INICIALES, guardarFiltrosTorre, leerFiltrosTorre, type FiltrosTorre, type PeriodoTorre,
+  FILTROS_TORRE_INICIALES, guardarFiltrosTorre, leerFiltrosTorre, type FiltrosTorre,
 } from '../../lib/torreFiltros';
 import PanelFiltros, { type FiltroAplicado } from '../flit/PanelFiltros';
-import FlitSelect from '../flit/FlitSelect';
-import RangoFechas from '../flit/RangoFechas';
-import { hoyBogota, humanizar, listaY, nombreDepartamento, nombreOrganismo, opcionesPeriodo, resumenSeleccion } from './formatoTorre';
+import { humanizar, listaY, nombreDepartamento, nombreOrganismo, resumenSeleccion } from './formatoTorre';
+import { useRangoTorre } from './RangoTorre';
 import SelectorMultipleTorre from './SelectorMultipleTorre';
 import ListaSugerenciasPlaca, { normalizarPlaca, useSugerenciasPlaca } from './SugerenciasPlacaTorre';
 
@@ -105,8 +105,10 @@ const textoChip = (rotulo: string, nombres: string[]) => `${rotulo}: ${resumenSe
 const elegidas = (n: number) => `${n} ${n === 1 ? 'elegida' : 'elegidas'}`;
 const elegidos = (n: number) => `${n} ${n === 1 ? 'elegido' : 'elegidos'}`;
 
-export default function BarraFiltrosTorre({ filtros, onCambio, onLimpiar, onBuscarPlaca, buscadorRef }: {
+export default function BarraFiltrosTorre({ filtros, onCambio, onLimpiar, onBuscarPlaca, buscadorRef, onRangoInvalido }: {
   filtros: FiltrosTorre;
+  /** El rango escrito no se puede consultar (Desde > Hasta o incompleto): la página conserva su último resultado. */
+  onRangoInvalido?: (invalido: boolean) => void;
   onCambio: (f: FiltrosTorre) => void;
   onLimpiar: () => void;
   /** La placa ya normalizada y válida. */
@@ -178,14 +180,7 @@ export default function BarraFiltrosTorre({ filtros, onCambio, onLimpiar, onBusc
     return false;
   };
 
-  const cambiarPeriodo = (v: string) => {
-    if (v === 'personalizado') {
-      const hoy = hoyBogota();
-      onCambio({ ...filtros, periodo: 'personalizado', rango: filtros.rango ?? { desde: `${hoy.slice(0, 8)}01`, hasta: hoy } });
-      return;
-    }
-    onCambio({ ...filtros, periodo: v as PeriodoTorre, rango: null });
-  };
+  const rango = useRangoTorre({ filtros, onCambio, onInvalido: onRangoInvalido });
 
   const nombres = nombresFiltros(filtros, opciones);
   const aplicados: FiltroAplicado[] = (Object.keys(ROTULO_FILTRO) as (keyof typeof ROTULO_FILTRO)[])
@@ -200,23 +195,19 @@ export default function BarraFiltrosTorre({ filtros, onCambio, onLimpiar, onBusc
   return (
     <section aria-label="Filtros de la Torre" className="flex flex-col gap-3" data-torre="barra-filtros"
       data-opciones={cargando ? 'cargando' : fallo ? 'error' : 'listo'} aria-busy={cargando || undefined}>
+      {/* 375: Compañía, fechas, Mes y atajos apilados. md: Compañía y Mes arriba, fechas abajo. lg: una fila con
+          Compañía · Desde → Hasta · Mes y los atajos debajo (spec vistas flexibles §3). */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:flex lg:flex-wrap lg:items-start">
-        <div className="min-w-0 lg:w-72">
+        <div className="order-1 min-w-0 lg:w-72">
           {/* Un solo aviso para la lista de opciones (cargan juntas): en Compañía, que siempre está a la vista. */}
           <SelectorMultipleTorre label="Compañía" valor={filtros.companiaIds.map(String)} opciones={opcionesCompania}
             onCambio={(v) => onCambio({ ...filtros, companiaIds: v.map(Number) })} aplicarAlCerrar
             todas="Todas las compañías" sustantivo="Ninguna compañía" elegidas={elegidas}
             cargando={cargando} fallo={fallo} onReintentar={reintentar} />
         </div>
-        <div className="min-w-0 lg:w-72">
-          <FlitSelect label="Periodo" value={filtros.periodo} opciones={opcionesPeriodo()} onChange={cambiarPeriodo} />
-        </div>
-        {filtros.periodo === 'personalizado' && filtros.rango && (
-          <div className="min-w-0 md:col-span-2 lg:w-auto">
-            <RangoFechas etiqueta="Rango personalizado" valor={filtros.rango}
-              onCambio={(r) => { if (r.desde && r.hasta) onCambio({ ...filtros, rango: { desde: r.desde, hasta: r.hasta } }); }} />
-          </div>
-        )}
+        <div className="order-2 min-w-0 md:order-3 md:col-span-2 lg:order-2" data-torre="rango-fechas">{rango.campos}</div>
+        <div className="order-3 min-w-0 md:order-2 lg:order-3 lg:w-56">{rango.mes}</div>
+        <div className="order-4 min-w-0 md:col-span-2 lg:basis-full" data-torre="atajos-periodo">{rango.atajos}</div>
       </div>
 
       {/* «Más filtros» en el renglón del buscador también a 375 px. El CSS del kit no tiene capa y gana a las
@@ -268,6 +259,7 @@ export default function BarraFiltrosTorre({ filtros, onCambio, onLimpiar, onBusc
           )}
         />
       </div>
+      {rango.aviso}
       {errorPlaca && (
         <p id={idError} className="text-sm" style={{ color: 'var(--flit-danger-ink)' }} role="alert">
           Escriba la placa completa, por ejemplo XXX000.

@@ -1,7 +1,7 @@
 // Torre de Control (Épica #14590) — esqueleto común de las 5 páginas (spec UX §7): cabecera con la única primaria,
 // pestañas de la Torre (solo las que el rol ve, y solo si ve 2 o más), barra de filtros transversal y la ficha de
 // placa. La página crea el estado con `useTorre()` (así su primaria puede depender de lo que muestra).
-import { useRef, type ReactNode, type RefObject } from 'react';
+import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { PageSlug } from '../../lib/permissions';
 import { hasPage } from '../../lib/permissions';
 import { useAuth } from '../../lib/auth';
@@ -27,6 +27,9 @@ export interface ContextoTorre {
   limpiar: () => void;
   restablecer: () => void;
   abrirFicha: (placa: string) => void;
+  /** Desde > Hasta o una fecha incompleta en la barra: no se consulta y queda el último resultado válido (spec §3). */
+  rangoInvalido: boolean;
+  setRangoInvalido: (v: boolean) => void;
   /** Interno de `PaginaTorre`: contenedor del buscador (el foco vuelve aquí al cerrar la ficha) y el Drawer. */
   buscadorRef: RefObject<HTMLDivElement>;
   drawer: ReactNode;
@@ -37,7 +40,11 @@ export function useTorre(): ContextoTorre {
   const { filtros, setFiltros, limpiar, restablecer } = useFiltrosTorre();
   const buscadorRef = useRef<HTMLDivElement>(null);
   const ficha = useFichaPlaca(buscadorRef);
-  return { filtros, setFiltros, limpiar, restablecer, abrirFicha: ficha.abrir, buscadorRef, drawer: ficha.drawer };
+  const [rangoInvalido, setRangoInvalido] = useState(false);
+  return {
+    filtros, setFiltros, limpiar, restablecer, abrirFicha: ficha.abrir, rangoInvalido, setRangoInvalido,
+    buscadorRef, drawer: ficha.drawer,
+  };
 }
 
 export default function PaginaTorre({ torre, titulo, subtitulo, acciones, children }: {
@@ -57,7 +64,7 @@ export default function PaginaTorre({ torre, titulo, subtitulo, acciones, childr
         <Pestanas etiqueta="Páginas de la Torre de Control" pestanas={visibles.map((p) => ({ id: p.slug, etiqueta: p.etiqueta, to: p.to }))} />
       )}
       <BarraFiltrosTorre filtros={torre.filtros} onCambio={torre.setFiltros} onLimpiar={torre.limpiar}
-        onBuscarPlaca={torre.abrirFicha} buscadorRef={torre.buscadorRef} />
+        onBuscarPlaca={torre.abrirFicha} buscadorRef={torre.buscadorRef} onRangoInvalido={torre.setRangoInvalido} />
       {children}
       {torre.drawer}
     </div>

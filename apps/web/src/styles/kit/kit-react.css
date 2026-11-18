@@ -323,6 +323,8 @@ html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-
 .grafico { position: relative; }
 .grafico__columna { fill: transparent; pointer-events: all; cursor: crosshair; }
 .grafico__foco { stroke: var(--kit-linea); stroke-width: 1; pointer-events: none; }
+/* Eje fluido (spec Torre vistas flexibles §4): marca de 4 px en cada corte, también en los que no llevan rótulo. */
+.grafico__marca { stroke: var(--color-text-tertiary); stroke-width: 1; }
 /* Valor al pasar el cursor/tocar: aparece al instante (sin el retardo del <title> nativo). */
 .grafico__tip { position: absolute; z-index: 2; pointer-events: none; transform: translate(-50%, calc(-100% - 10px));
   min-width: 120px; max-width: min(260px, 90%); padding: var(--space-8) var(--space-12); border-radius: 8px;

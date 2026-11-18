@@ -133,7 +133,7 @@ function Contenido({ d, onExplorar }: { d: TableroComercial; onExplorar: (compan
             <FiltroSegmentado ariaLabel="Ver la tendencia" valor={vistaTend} onCambio={setVistaTend}
               opciones={[{ valor: 'mensual', etiqueta: 'Mensual' }, { valor: 'trimestral', etiqueta: 'Trimestral' }]} />
           )}>
-          <LineaTendencia titulo={`Trámites por ${vistaTend === 'mensual' ? 'mes' : 'trimestre'}`} etiquetas={serie.map((s) => s.etiqueta)}
+          <LineaTendencia fluido titulo={`Trámites por ${vistaTend === 'mensual' ? 'mes' : 'trimestre'}`} etiquetas={serie.map((s) => s.etiqueta)}
             series={[{ t: 'Trámites', c: SERIE_KIT.azul, v: serie.map((s) => s.valor) }]} vacio="Sin trámites en los últimos 6 meses." />
         </BloqueTorre>
 
