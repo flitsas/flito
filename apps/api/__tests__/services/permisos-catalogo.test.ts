@@ -241,7 +241,8 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['soat.cola.ver', 2], ['soat.solicitud.crear', 8], // + 3 de la carga masiva (HU #14131)
       // Épica #14590: `GET /opciones` reutiliza `torre.metricas.consultar`; cada `/<tablero>/exportar`, la función de su
       // tablero; el dinero se decide en línea en las dos rutas del explorador y en los dos handlers comunes de los tableros.
-      ['torre.metricas.consultar', 2], ['torre.metricas.dinero', 4], ['torre.tablero_comercial.ver', 2],
+      // ADR-0044: `POST /placa/sugerencias` reutiliza `torre.placa.buscar`, la función de la ficha.
+      ['torre.metricas.consultar', 2], ['torre.metricas.dinero', 4], ['torre.placa.buscar', 2], ['torre.tablero_comercial.ver', 2],
       ['torre.tablero_ejecutivo.ver', 2], ['torre.tablero_financiero.ver', 2], ['torre.tablero_operativo.ver', 2],
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);

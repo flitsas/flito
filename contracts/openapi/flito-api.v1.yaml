@@ -51753,7 +51753,7 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/Forma-d768e877c7"
+              "$ref": "#/components/schemas/Forma-f1778330d2"
         description: Cuerpo que valida la ruta con su esquema de Zod.
       responses:
         "200":
@@ -51766,6 +51766,7 @@ paths:
                   metrica:
                     type: string
                     enum:
+                      - tramites
                       - tramites_creados
                       - tramites_aprobados
                       - tiempo_creacion_aprobacion
@@ -51836,6 +51837,8 @@ paths:
                           type: number
                         max:
                           type: number
+                        esOtros:
+                          type: boolean
                       required:
                         - clave
                         - etiqueta
@@ -51851,12 +51854,92 @@ paths:
                         type: number
                       nBaseSincronizacion:
                         type: number
+                      fechaBase:
+                        type:
+                          - string
+                          - "null"
+                        enum:
+                          - pago
+                          - creacion
+                          - aprobacion
+                          - facturacion
+                          - null
                     required:
                       - campo
                       - excluidosSinFecha
                       - nBaseSincronizacion
+                      - fechaBase
                   truncado:
                     type: boolean
+                  cruce:
+                    type: object
+                    properties:
+                      agrupacion:
+                        type: string
+                        enum:
+                          - flit_estado
+                          - tipo_tramite
+                          - departamento
+                          - organismo
+                          - mes
+                          - trimestre
+                          - dia
+                          - compania
+                          - semana
+                      columnas:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            clave:
+                              type: string
+                            etiqueta:
+                              type: string
+                            valor:
+                              type: number
+                            "n":
+                              type: number
+                            participacion:
+                              type: number
+                            mediana:
+                              type: number
+                            p90:
+                              type: number
+                            esOtros:
+                              type: boolean
+                          required:
+                            - clave
+                            - etiqueta
+                            - valor
+                            - "n"
+                            - participacion
+                      celdas:
+                        type: array
+                        items:
+                          type: array
+                          items:
+                            type:
+                              - object
+                              - "null"
+                            properties:
+                              valor:
+                                type: number
+                              "n":
+                                type: number
+                              mediana:
+                                type: number
+                              p90:
+                                type: number
+                            required:
+                              - valor
+                              - "n"
+                      truncadoColumnas:
+                        type: boolean
+                    required:
+                      - agrupacion
+                      - columnas
+                      - celdas
+                      - truncadoColumnas
                   generadoEn:
                     type: string
                 required:
@@ -52014,7 +52097,7 @@ paths:
               type: object
               properties:
                 consulta:
-                  "$ref": "#/components/schemas/Forma-d768e877c7"
+                  "$ref": "#/components/schemas/Forma-f1778330d2"
                 formato:
                   type: string
                   enum:
@@ -52686,6 +52769,190 @@ paths:
                 required:
                   - error
                   - code
+  /api/flito/torre/placa/sugerencias:
+    post:
+      operationId: post-api-flito-torre-placa-sugerencias
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/placa/sugerencias
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.routes.ts. Exige la función: torre.placa.buscar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.placa.buscar
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                texto:
+                  type: string
+                  pattern: "^[A-Za-z0-9]{3,7}$"
+              required:
+                - texto
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sugerencias:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        placa:
+                          type: string
+                        compania:
+                          type:
+                            - string
+                            - "null"
+                        flitEstado:
+                          type:
+                            - string
+                            - "null"
+                      required:
+                        - placa
+                        - compania
+                        - flitEstado
+                  hayMas:
+                    type: boolean
+                required:
+                  - sugerencias
+                  - hayMas
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
   /api/flito/torre/tableros/comercial:
     post:
       operationId: post-api-flito-torre-tableros-comercial
@@ -52704,7 +52971,7 @@ paths:
               type: object
               properties:
                 filtro:
-                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
               required:
                 - filtro
         description: Cuerpo que valida la ruta con su esquema de Zod.
@@ -52849,7 +53116,7 @@ paths:
               type: object
               properties:
                 filtro:
-                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
               required:
                 - filtro
         description: Cuerpo que valida la ruta con su esquema de Zod.
@@ -52989,7 +53256,7 @@ paths:
               type: object
               properties:
                 filtro:
-                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
               required:
                 - filtro
         description: Cuerpo que valida la ruta con su esquema de Zod.
@@ -53134,7 +53401,7 @@ paths:
               type: object
               properties:
                 filtro:
-                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
               required:
                 - filtro
         description: Cuerpo que valida la ruta con su esquema de Zod.
@@ -53274,7 +53541,7 @@ paths:
               type: object
               properties:
                 filtro:
-                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
               required:
                 - filtro
         description: Cuerpo que valida la ruta con su esquema de Zod.
@@ -53419,7 +53686,7 @@ paths:
               type: object
               properties:
                 filtro:
-                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
               required:
                 - filtro
         description: Cuerpo que valida la ruta con su esquema de Zod.
@@ -53559,7 +53826,7 @@ paths:
               type: object
               properties:
                 filtro:
-                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
               required:
                 - filtro
         description: Cuerpo que valida la ruta con su esquema de Zod.
@@ -53704,7 +53971,7 @@ paths:
               type: object
               properties:
                 filtro:
-                  "$ref": "#/components/schemas/Forma-bb259fe94c"
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
               required:
                 - filtro
         description: Cuerpo que valida la ruta con su esquema de Zod.
@@ -128255,6 +128522,58 @@ components:
         - motivoNoBorrable
         - createdAt
         - updatedAt
+    Forma-b5a9d8d50c:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        rango:
+          anyOf:
+            - type: object
+              properties:
+                preset:
+                  type: string
+                  enum:
+                    - anio
+                    - mes
+                    - trimestre
+                    - semana
+                    - hoy
+                    - ayer
+                    - mes_anterior
+                    - ultimos_6m
+              required:
+                - preset
+            - type: object
+              properties:
+                desde:
+                  type: string
+                hasta:
+                  type: string
+              required:
+                - desde
+                - hasta
+        companiaIds:
+          type: array
+          items:
+            type: number
+        organismos:
+          type: array
+          items:
+            type: string
+        departamentos:
+          type: array
+          items:
+            type: string
+        tiposTramite:
+          type: array
+          items:
+            type: string
+        flitEstados:
+          type: array
+          items:
+            type: string
+      required:
+        - rango
     Forma-b5c5591fd1:
       description: Forma que comparten varias operaciones.
       type: object
@@ -128574,57 +128893,6 @@ components:
         - investigacionCerradaAt
         - createdAt
         - closedAt
-    Forma-bb259fe94c:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        rango:
-          anyOf:
-            - type: object
-              properties:
-                preset:
-                  type: string
-                  enum:
-                    - anio
-                    - mes
-                    - trimestre
-                    - semana
-                    - hoy
-                    - ayer
-                    - mes_anterior
-              required:
-                - preset
-            - type: object
-              properties:
-                desde:
-                  type: string
-                hasta:
-                  type: string
-              required:
-                - desde
-                - hasta
-        companiaIds:
-          type: array
-          items:
-            type: number
-        organismos:
-          type: array
-          items:
-            type: string
-        departamentos:
-          type: array
-          items:
-            type: string
-        tiposTramite:
-          type: array
-          items:
-            type: string
-        flitEstados:
-          type: array
-          items:
-            type: string
-      required:
-        - rango
     Forma-bb81eb8403:
       description: Forma que comparten varias operaciones.
       type: object
@@ -130076,43 +130344,6 @@ components:
         - notes
         - createdAt
         - updatedAt
-    Forma-d768e877c7:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        metrica:
-          type: string
-          enum:
-            - tramites_creados
-            - tramites_aprobados
-            - tiempo_creacion_aprobacion
-            - costo_logistica
-            - impuestos_pagados
-            - derechos_pagados
-            - ingreso_liquidado
-            - wip_activo
-            - tasa_aprobacion
-            - sin_facturar
-        agrupacion:
-          type: string
-          enum:
-            - flit_estado
-            - tipo_tramite
-            - departamento
-            - organismo
-            - mes
-            - trimestre
-            - dia
-            - compania
-            - semana
-        filtro:
-          "$ref": "#/components/schemas/Forma-bb259fe94c"
-        limite:
-          type: integer
-          exclusiveMinimum: 0
-      required:
-        - metrica
-        - filtro
     Forma-d7af05d1a3:
       description: Forma que comparten varias operaciones.
       type: object
@@ -131924,6 +132155,63 @@ components:
         - cityCode
         - cityName
         - puntaje
+    Forma-f1778330d2:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        metrica:
+          type: string
+          enum:
+            - tramites
+            - tramites_creados
+            - tramites_aprobados
+            - tiempo_creacion_aprobacion
+            - costo_logistica
+            - impuestos_pagados
+            - derechos_pagados
+            - ingreso_liquidado
+            - wip_activo
+            - tasa_aprobacion
+            - sin_facturar
+        agrupacion:
+          type: string
+          enum:
+            - flit_estado
+            - tipo_tramite
+            - departamento
+            - organismo
+            - mes
+            - trimestre
+            - dia
+            - compania
+            - semana
+        agrupacionColumnas:
+          type: string
+          enum:
+            - flit_estado
+            - tipo_tramite
+            - departamento
+            - organismo
+            - mes
+            - trimestre
+            - dia
+            - compania
+            - semana
+        fechaBase:
+          type: string
+          enum:
+            - pago
+            - creacion
+            - aprobacion
+            - facturacion
+        filtro:
+          "$ref": "#/components/schemas/Forma-b5a9d8d50c"
+        limite:
+          type: integer
+          exclusiveMinimum: 0
+      required:
+        - metrica
+        - filtro
     Forma-f75c92ddf1:
       description: Forma que comparten varias operaciones.
       type: object

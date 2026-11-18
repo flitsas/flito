@@ -11,7 +11,8 @@ import { ANS_OPERATIVO } from './flito-estados.js';
 
 // ── Rango y filtro ───────────────────────────────────────────────────────────────────────────────
 
-export const PRESETS_RANGO_TORRE = ['hoy', 'ayer', 'semana', 'mes', 'mes_anterior', 'trimestre', 'anio'] as const;
+/** `ultimos_6m` (ADR-0044 D7, RN-TOR-F5): del día 1 del mes de hace 5 meses hasta hoy, resuelto en la API. */
+export const PRESETS_RANGO_TORRE = ['hoy', 'ayer', 'semana', 'mes', 'mes_anterior', 'trimestre', 'anio', 'ultimos_6m'] as const;
 export type PresetRangoTorre = (typeof PRESETS_RANGO_TORRE)[number];
 
 /** Un preset relativo a hoy (Bogotá) o un rango explícito de días calendario `YYYY-MM-DD`, ambos inclusive. */
@@ -37,6 +38,26 @@ const TEMPORALES = ['dia', 'semana', 'mes', 'trimestre'] as const satisfies read
 const DIMENSIONES = ['compania', 'organismo', 'departamento', 'tipo_tramite', 'flit_estado'] as const satisfies readonly AgrupacionTorre[];
 const TODAS = [...TEMPORALES, ...DIMENSIONES] as const;
 
+/** Etiquetas de las agrupaciones (las mismas cadenas que la web; el Excel cruzado las necesita). */
+export const ETIQUETAS_AGRUPACION_TORRE: Record<AgrupacionTorre, string> = {
+  dia: 'Día', semana: 'Semana', mes: 'Mes', trimestre: 'Trimestre', compania: 'Compañía', organismo: 'Organismo de tránsito',
+  departamento: 'Departamento', tipo_tramite: 'Tipo de trámite', flit_estado: 'Estado',
+};
+
+export const esAgrupacionTemporal = (a: AgrupacionTorre): boolean =>
+  (TEMPORALES as readonly AgrupacionTorre[]).includes(a);
+
+// ── Fecha base (ADR-0044 §a, D5) ─────────────────────────────────────────────────────────────────
+
+/** Fechas que pueden anclar una métrica. Exactamente estas cuatro (D5): ni liquidación ni radicación. */
+export const FECHAS_BASE_TORRE = ['creacion', 'aprobacion', 'facturacion', 'pago'] as const;
+export type FechaBaseTorre = (typeof FECHAS_BASE_TORRE)[number];
+
+export const ETIQUETAS_FECHA_BASE_TORRE: Record<FechaBaseTorre, string> = {
+  creacion: 'Fecha de creación', aprobacion: 'Fecha de aprobación',
+  facturacion: 'Fecha de facturación', pago: 'Fecha de pago',
+};
+
 // ── Catálogo de métricas ─────────────────────────────────────────────────────────────────────────
 
 export const UNIDADES_METRICA_TORRE = ['conteo', 'cop', 'horas', 'pct'] as const;
@@ -52,23 +73,45 @@ export interface MetricaTorreDef {
    * Épica #14590). Lo decide el PERMISO del rol, no su código: un admin la quita desde Roles y permisos.
    */
   readonly requiereDinero: boolean;
+  /**
+   * Fechas que pueden anclar la métrica (RN-TOR-M10/M11); la PRIMERA es la de defecto. `[]` = foto del momento
+   * (sin rango): mandar `fechaBase` es un 400.
+   */
+  readonly fechasBase: readonly FechaBaseTorre[];
+  /** `false` = id legado: la API lo acepta, el selector «Medir» no lo ofrece. */
+  readonly enConstructor: boolean;
 }
 
 /** Función que habilita las métricas con `requiereDinero` (sin ella, el motor responde 403). */
 export const FUNCION_TORRE_DINERO = 'torre.metricas.dinero';
 
+// Matriz medida × fecha base (ADR-0044 §a, RN-TOR-M11). `tramites` es la neutra del constructor; `tramites_creados`
+// y `tramites_aprobados` son ids legados (equivalen a `tramites` + creación / aprobación, RN-TOR-M13).
 export const METRICAS_TORRE = [
-  { id: 'tramites_creados', etiqueta: 'Trámites creados', unidad: 'conteo', agrupacionesPermitidas: TODAS, requiereDinero: false },
-  { id: 'tramites_aprobados', etiqueta: 'Trámites aprobados', unidad: 'conteo', agrupacionesPermitidas: TODAS, requiereDinero: false },
-  { id: 'tiempo_creacion_aprobacion', etiqueta: 'Tiempo de creación a aprobación', unidad: 'horas', agrupacionesPermitidas: TODAS, requiereDinero: false },
-  { id: 'costo_logistica', etiqueta: 'Costo de logística', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true },
-  { id: 'impuestos_pagados', etiqueta: 'Impuestos pagados', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true },
-  { id: 'derechos_pagados', etiqueta: 'Derechos de tránsito pagados', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true },
-  { id: 'ingreso_liquidado', etiqueta: 'Ingreso liquidado', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true },
-  // Foto del momento: no tiene serie temporal, solo cortes por dimensión.
-  { id: 'wip_activo', etiqueta: 'Trámites en curso', unidad: 'conteo', agrupacionesPermitidas: DIMENSIONES, requiereDinero: false },
-  { id: 'tasa_aprobacion', etiqueta: 'Tasa de aprobación', unidad: 'pct', agrupacionesPermitidas: TODAS, requiereDinero: false },
-  { id: 'sin_facturar', etiqueta: 'Aprobados sin facturar', unidad: 'conteo', agrupacionesPermitidas: DIMENSIONES, requiereDinero: true },
+  { id: 'tramites', etiqueta: 'Trámites', unidad: 'conteo', agrupacionesPermitidas: TODAS, requiereDinero: false,
+    fechasBase: ['creacion', 'aprobacion', 'facturacion'], enConstructor: true },
+  { id: 'tramites_creados', etiqueta: 'Trámites creados', unidad: 'conteo', agrupacionesPermitidas: TODAS, requiereDinero: false,
+    fechasBase: ['creacion'], enConstructor: false },
+  { id: 'tramites_aprobados', etiqueta: 'Trámites aprobados', unidad: 'conteo', agrupacionesPermitidas: TODAS, requiereDinero: false,
+    fechasBase: ['aprobacion'], enConstructor: false },
+  // D9 (P-1 = no): el tiempo de ciclo solo se mide por aprobación.
+  { id: 'tiempo_creacion_aprobacion', etiqueta: 'Tiempo de creación a aprobación', unidad: 'horas', agrupacionesPermitidas: TODAS, requiereDinero: false,
+    fechasBase: ['aprobacion'], enConstructor: true },
+  { id: 'costo_logistica', etiqueta: 'Costo de logística', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true,
+    fechasBase: ['aprobacion', 'facturacion'], enConstructor: true },
+  { id: 'impuestos_pagados', etiqueta: 'Impuestos pagados', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true,
+    fechasBase: ['pago'], enConstructor: true },
+  { id: 'derechos_pagados', etiqueta: 'Derechos de tránsito pagados', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true,
+    fechasBase: ['pago'], enConstructor: true },
+  { id: 'ingreso_liquidado', etiqueta: 'Ingreso liquidado', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true,
+    fechasBase: ['aprobacion', 'facturacion'], enConstructor: true },
+  // Foto del momento: no tiene serie temporal ni rango, solo cortes por dimensión.
+  { id: 'wip_activo', etiqueta: 'Trámites en curso', unidad: 'conteo', agrupacionesPermitidas: DIMENSIONES, requiereDinero: false,
+    fechasBase: [], enConstructor: true },
+  { id: 'tasa_aprobacion', etiqueta: 'Tasa de aprobación', unidad: 'pct', agrupacionesPermitidas: TODAS, requiereDinero: false,
+    fechasBase: ['creacion'], enConstructor: true },
+  { id: 'sin_facturar', etiqueta: 'Aprobados sin facturar', unidad: 'conteo', agrupacionesPermitidas: DIMENSIONES, requiereDinero: true,
+    fechasBase: ['aprobacion'], enConstructor: true },
 ] as const satisfies readonly MetricaTorreDef[];
 
 export type MetricaTorreId = (typeof METRICAS_TORRE)[number]['id'];
@@ -78,6 +121,13 @@ export const metricaTorre = (id: MetricaTorreId): MetricaTorreDef => METRICAS_TO
 
 export const esAgrupacionPermitida = (metrica: MetricaTorreId, agrupacion: AgrupacionTorre): boolean =>
   (metricaTorre(metrica).agrupacionesPermitidas as readonly string[]).includes(agrupacion);
+
+/** La fecha base de defecto de la métrica (la primera de `fechasBase`); `null` en las de foto. */
+export const fechaBasePorDefecto = (metrica: MetricaTorreId): FechaBaseTorre | null =>
+  metricaTorre(metrica).fechasBase[0] ?? null;
+
+export const esFechaBasePermitida = (metrica: MetricaTorreId, fecha: FechaBaseTorre): boolean =>
+  metricaTorre(metrica).fechasBase.includes(fecha);
 
 // ── Topes de seguridad (también los aplica la API; la web los usa para avisar antes) ─────────────
 
@@ -90,16 +140,51 @@ export const TOPES_TORRE = {
   FILAS_PANTALLA_MAX: 500,
   /** Filas de una exportación. */
   FILAS_EXPORTAR_MAX: 50_000,
+  /** Cruce (RN-TOR-C3): filas de dimensión antes de «Otros» en pantalla. */
+  FILAS_CRUCE_PANTALLA_MAX: 50,
+  /** Cruce: columnas de dimensión antes de «Otros» en pantalla. */
+  COLUMNAS_CRUCE_PANTALLA_MAX: 12,
+  /** Cruce en Excel: filas de dimensión (cubre los ~1.100 organismos). */
+  FILAS_CRUCE_EXPORTAR_MAX: 2_000,
+  /** Cruce en Excel: columnas de dimensión. */
+  COLUMNAS_CRUCE_EXPORTAR_MAX: 100,
+  /** Cortes del eje temporal de un cruce (pantalla y Excel); se valida antes de consultar. */
+  CORTES_TEMPORALES_CRUCE_MAX: 62,
 } as const;
 
 // ── Consulta y resultado ─────────────────────────────────────────────────────────────────────────
 
 export interface ConsultaMetrica {
   metrica: MetricaTorreId;
+  /** Agrupación principal (filas). */
   agrupacion?: AgrupacionTorre;
+  /** Agrupación secundaria (columnas, RN-TOR-C1). Exige `agrupacion`; distinta de ella; no las dos temporales. */
+  agrupacionColumnas?: AgrupacionTorre;
+  /** Ancla el rango y los cortes temporales. Ausente = `fechaBasePorDefecto(metrica)`. Prohibida en las de foto. */
+  fechaBase?: FechaBaseTorre;
   filtro: FiltroTorre;
-  /** ≤ `TOPES_TORRE.FILAS_PANTALLA_MAX`. */
+  /** Simple: ≤ `TOPES_TORRE.FILAS_PANTALLA_MAX`. Cruce: el motor lo acota además a `FILAS_CRUCE_PANTALLA_MAX`. */
   limite?: number;
+}
+
+/** Una celda del cruce (`filas[i]` × `columnas[j]`). */
+export interface CeldaTorre { valor: number; n: number; mediana?: number; p90?: number }
+
+export interface ColumnaCruceTorre {
+  clave: string; etiqueta: string; valor: number; n: number; participacion: number;
+  mediana?: number; p90?: number;
+  /** Agrega las columnas fuera del top. Siempre la última. */
+  esOtros?: true;
+}
+
+export interface CruceTorre {
+  /** La agrupación de las columnas (= `agrupacionColumnas` de la consulta). */
+  agrupacion: AgrupacionTorre;
+  columnas: ColumnaCruceTorre[];
+  /** `celdas[i][j]` = `filas[i]` × `columnas[j]`. `null` = sin registros (la UI pinta «—», no 0). */
+  celdas: (CeldaTorre | null)[][];
+  /** Hubo más columnas de dimensión que el tope y se plegaron en «Otros». */
+  truncadoColumnas: boolean;
 }
 
 export interface ResultadoMetrica {
@@ -111,14 +196,21 @@ export interface ResultadoMetrica {
     maximo?: { placa: string | null; tramiteUuid: string } | null;
   };
   /** `participacion` es el % de la fila sobre `total.valor` (0–100; 0 si el total es 0). */
-  filas: { clave: string; etiqueta: string; valor: number; n: number; participacion: number; mediana?: number; p90?: number; max?: number }[];
+  filas: {
+    clave: string; etiqueta: string; valor: number; n: number; participacion: number; mediana?: number; p90?: number; max?: number;
+    /** Solo en el cruce: la fila que agrega los grupos fuera del top. Siempre la última. */
+    esOtros?: true;
+  }[];
   /**
    * Qué fecha ancla la métrica y cuántos registros quedaron fuera por no tenerla. `nBaseSincronizacion`: cuántos
    * trámites contados usaron el `created_at` de la sincronización porque no tienen `fecha_creacion_flit`.
+   * `fechaBase`: la fecha base aplicada (la explícita o la de defecto); `null` en las de foto.
    */
-  baseFecha: { campo: string; excluidosSinFecha: number; nBaseSincronizacion: number };
-  /** Hay más grupos que `limite`: la pantalla muestra los primeros. */
+  baseFecha: { campo: string; excluidosSinFecha: number; nBaseSincronizacion: number; fechaBase: FechaBaseTorre | null };
+  /** Hay más grupos que `limite`: la pantalla muestra los primeros. En el cruce: filas plegadas en «Otros». */
   truncado: boolean;
+  /** Solo si la consulta trae `agrupacionColumnas`; `filas` es entonces el marginal por fila (incluida «Otros»). */
+  cruce?: CruceTorre;
   /** ISO 8601. */
   generadoEn: string;
 }
@@ -156,6 +248,25 @@ export interface FichaPlacaTorre {
  * ninguno (o están fuera del alcance) la API responde 404 indistinto.
  */
 export interface ResultadoBusquedaPlaca { placa: string; tramites: FichaPlacaTorre[] }
+
+// ── Sugerencias de placa (POST /flito/torre/placa/sugerencias, ADR-0044 D4/D8) ───────────────────
+
+export const SUGERENCIAS_PLACA_TORRE = { MIN_CARACTERES: 3, MAX_CARACTERES: 7, MAX_RESULTADOS: 8 } as const;
+
+export interface SugerenciaPlacaTorre {
+  /** Normalizada a mayúsculas. */
+  placa: string;
+  /** Del trámite más reciente de esa placa dentro del alcance (D8). Solo el nombre, sin NIT. Sin conteo de trámites. */
+  compania: string | null;
+  /** `flit_estado` crudo de ese mismo trámite (la web lo humaniza). */
+  flitEstado: string | null;
+}
+
+export interface SugerenciasPlacaTorre {
+  sugerencias: SugerenciaPlacaTorre[];
+  /** Hay más de `MAX_RESULTADOS` placas que coinciden («Siga escribiendo para acotar»). */
+  hayMas: boolean;
+}
 
 // ── Tableros (POST /flito/torre/tableros/<area> con `{ filtro }`) ────────────────────────────────
 

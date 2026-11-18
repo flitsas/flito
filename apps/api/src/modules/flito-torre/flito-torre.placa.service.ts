@@ -7,11 +7,13 @@
 //   impuesto, derecho y logística solo el ESTADO, nunca valores.
 // RN-TOR-P4: la línea de tiempo sale de `flito_tramite_historial` con `campo='flit_estado'`. «Radicado» es la primera vez
 //   que el trámite pasó a «Entregado» o «Enviado a OT»; «Facturado», la primera factura de Siigo activa.
+// RN-TOR-P5/P6 (ADR-0044): `sugerirPlacas` — STUB del contract-first (bloque i): responde 501 hasta que el bloque (ii)
+//   implemente la consulta «contiene» con el alcance en el `WHERE`, sin caché y sin datos del comprador.
 // La ruta registra `logPiiAccess` (accion `search`, campo `placa`); este servicio no loguea la placa.
 import { eq, inArray, sql } from 'drizzle-orm';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL,
-  type EstadoImpuesto, type EstadoSoat, type FichaPlacaTorre, type ResultadoBusquedaPlaca,
+  type EstadoImpuesto, type EstadoSoat, type FichaPlacaTorre, type ResultadoBusquedaPlaca, type SugerenciasPlacaTorre,
 } from '@operaciones/shared-types';
 import {
   clients, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTramiteHistorial, flitoTramites,
@@ -21,7 +23,7 @@ import { condicionPorCompania } from '../../shared/alcance-filas.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { enTorre, nombreOrganismo } from './flito-torre.metricas.service.js';
-import { ErrorDominioTorre } from './flito-torre.service.js';
+import { ErrorDominioTorre, noImplementado } from './flito-torre.service.js';
 
 export class PlacaTorreNoEncontradaError extends ErrorDominioTorre {
   readonly code = 'PLACA_NO_ENCONTRADA';
@@ -132,4 +134,12 @@ export async function buscarPlaca(placa: string, alcance: AlcanceResuelto, ahora
     }
     return { placa: normalizada, tramites: filas.map((f) => aFicha(f, porTramite.get(f.id) ?? [], ahora)) };
   });
+}
+
+/**
+ * RN-TOR-P5/P6: sugerencias «contiene» de placa (≤ 8 placas distintas + `hayMas`). STUB del bloque (i): 501.
+ * TODO(Épica #14590, bloque ii): implementar con `condicionPorCompania` en el `WHERE` (vacío = `{ sugerencias: [], hayMas: false }`).
+ */
+export async function sugerirPlacas(_texto: string, _alcance: AlcanceResuelto): Promise<SugerenciasPlacaTorre> {
+  return noImplementado('Sugerencias de placa');
 }

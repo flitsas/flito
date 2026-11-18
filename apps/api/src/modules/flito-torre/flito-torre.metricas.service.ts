@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 import { inArray, sql, type SQL } from 'drizzle-orm';
 import {
-  ORGANISMOS_TRANSITO, DEPARTAMENTO_POR_CODIGO, TOPES_TORRE, metricaTorre,
+  ORGANISMOS_TRANSITO, DEPARTAMENTO_POR_CODIGO, TOPES_TORRE, fechaBasePorDefecto, metricaTorre,
   type AgrupacionTorre, type ConsultaMetrica, type ResultadoMetrica,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -19,7 +19,7 @@ import { getRedis } from '../../shared/redis.js';
 import { loggerFor } from '../../shared/logger.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import { CATALOGO_SQL, type DefMetricaSql } from './flito-torre.catalogo.js';
-import { ErrorDominioTorre } from './flito-torre.service.js';
+import { ErrorDominioTorre, noImplementado } from './flito-torre.service.js';
 import {
   claveAgrupacion, condicionesTorre, donde, esTemporal, exigirTopesRango, resolverRango,
   type RangoResuelto,
@@ -169,6 +169,10 @@ export async function consultarMetrica(
 ): Promise<ResultadoMetrica> {
   const meta = metricaTorre(c.metrica);
   if (meta.requiereDinero && !op.dinero) throw new TorreDineroDenegadoError();
+  // Contract-first (Épica #14590, bloque i): la segunda agrupación y una fecha base distinta de la de defecto ya pasan
+  // Zod, pero el motor aún no las sabe resolver: 501 en vez de una cifra con la fecha equivocada. Lo retira el bloque (ii).
+  if (c.agrupacionColumnas) noImplementado('Agrupar por dos criterios');
+  if (c.fechaBase && c.fechaBase !== fechaBasePorDefecto(c.metrica)) noImplementado('Elegir la fecha base');
   const def = CATALOGO_SQL[c.metrica];
   const rango = rangoDeConsulta(c, op.hoy);
   const tope = Math.min(op.limiteMax ?? TOPES_TORRE.FILAS_PANTALLA_MAX, GRUPOS_MAX);
@@ -231,7 +235,10 @@ export async function consultarMetrica(
         } : {}),
       },
       filas,
-      baseFecha: { campo: def.campoFecha, excluidosSinFecha: excluidos, nBaseSincronizacion: num(totalFila.sync) },
+      baseFecha: {
+        campo: def.campoFecha, excluidosSinFecha: excluidos, nBaseSincronizacion: num(totalFila.sync),
+        fechaBase: fechaBasePorDefecto(c.metrica),
+      },
       truncado,
       generadoEn: new Date().toISOString(),
     };

@@ -72,6 +72,12 @@ const DESDE_TRAMITES_LIQ = sql`${T} LEFT JOIN ${flitoLiquidaciones} ON ${flitoLi
 const APROBADO = sql`${T.fechaAprobacion} IS NOT NULL`;
 
 export const CATALOGO_SQL: Record<MetricaTorreId, DefMetricaSql> = {
+  // ADR-0044: métrica neutra del constructor. Contract-first (bloque i): solo su fecha de defecto (creación, ≡
+  // `tramites_creados`); el bloque (ii) le añade las variantes aprobación y facturación (RN-TOR-M10/M13/M14).
+  tramites: {
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fecha: FECHA_CREACION, campoFecha: 'fecha_creacion_flit',
+    fijas: [], forma: 'conteo', sync: SIN_FECHA_FLIT,
+  },
   tramites_creados: {
     desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fecha: FECHA_CREACION, campoFecha: 'fecha_creacion_flit',
     fijas: [], forma: 'conteo', sync: SIN_FECHA_FLIT,

@@ -4,6 +4,7 @@
 //   (no hay sobrecarga sin él) y aplica `condicionPorCompania` sobre la columna de compañía de la tabla base.
 // RN-TOR-F2: los rangos son días calendario de Bogotá (`TZ_COLOMBIA`) y se aplican como `[desde, hasta+1)`.
 // RN-TOR-F3: topes del ADR — 24 meses de rango; 366 días si se agrupa por día. Más → `RangoTorreExcedidoError` (400).
+// RN-TOR-F5: el preset `ultimos_6m` lo resuelve la API (`resolverRango`), alineado al mes, con el `hoy` de Bogotá.
 // RN-TOR-F4: el departamento es `substr(organismo_codigo, 1, 2)` acotado a `DEPARTAMENTO_POR_CODIGO`; un código nulo
 //   o con prefijo desconocido cae en «Sin secretaría». Una compañía nula cae en «Sin compañía».
 // Todo valor del cliente viaja como parámetro de `sql` (un arreglo se expande a `($1, $2…)`: solo se usa tras comprobar
@@ -61,6 +62,11 @@ export function resolverRango(rango: RangoTorre, hoy: string = hoyColombia()): R
       return { desde: inicio, hasta: hoy };
     }
     case 'anio': return { desde: `${hoy.slice(0, 4)}-01-01`, hasta: hoy };
+    case 'ultimos_6m': {
+      // RN-TOR-F5 (ADR-0044 D7): alineado al mes, del día 1 del mes de hace 5 meses hasta hoy (18-nov → 1-jun).
+      const meses = Number(hoy.slice(0, 4)) * 12 + (Number(hoy.slice(5, 7)) - 1) - 5;
+      return { desde: `${Math.floor(meses / 12)}-${String((meses % 12) + 1).padStart(2, '0')}-01`, hasta: hoy };
+    }
   }
 }
 

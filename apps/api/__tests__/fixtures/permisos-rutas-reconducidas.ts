@@ -816,6 +816,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/operativa', codigo: 'torre.tablero_operativo.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera', codigo: 'torre.tablero_financiero.ver' },
   { fichero: 'flito-torre/flito-torre.routes.ts', metodo: 'GET', ruta: '/opciones', codigo: 'torre.metricas.consultar' },
+  // ADR-0044: sugerencias de placa, con la función de la ficha.
+  { fichero: 'flito-torre/flito-torre.routes.ts', metodo: 'POST', ruta: '/placa/sugerencias', codigo: 'torre.placa.buscar' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/ejecutivo/exportar', codigo: 'torre.tablero_ejecutivo.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/comercial/exportar', codigo: 'torre.tablero_comercial.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/operativa/exportar', codigo: 'torre.tablero_operativo.ver' },

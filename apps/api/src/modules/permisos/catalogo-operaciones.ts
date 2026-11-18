@@ -573,6 +573,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TTB} POST /operativa`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
   op(`${TTB} POST /financiera`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
   op(`${TOR} GET /opciones`, 'torre.metricas.consultar', 'Consultar métricas de la Torre', 'Consultar una métrica agregada del catálogo de la Torre con sus filtros y agrupación.'),
+  // ADR-0044 (Explorador flexible): sugerencias de placa; reutiliza la función de la ficha (sin función ni migración nuevas).
+  op(`${TOR} POST /placa/sugerencias`, 'torre.placa.buscar', 'Buscar una placa en la Torre', 'Abrir la ficha de un trámite por su placa, sin datos personales del comprador.'),
   op(`${TTB} POST /ejecutivo/exportar`, 'torre.tablero_ejecutivo.ver', 'Ver la vista 360° de la Torre', 'Consultar el tablero ejecutivo de la Torre de Control.'),
   op(`${TTB} POST /comercial/exportar`, 'torre.tablero_comercial.ver', 'Ver el tablero comercial de la Torre', 'Consultar el volumen y la evolución por compañía.'),
   op(`${TTB} POST /operativa/exportar`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),

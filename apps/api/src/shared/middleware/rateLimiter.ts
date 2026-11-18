@@ -664,6 +664,8 @@ export const consultarVehiculoLimiter = rateLimit({
  *   · consultar métricas (`POST /api/flito/torre/metricas/consultar`): 60 / min por usuario — los tableros piden varias.
  *   · exportar (`POST …/metricas/exportar`): 10 / 15 min por usuario — hasta 50.000 filas por archivo.
  *   · buscar una placa (`POST …/placa/buscar`, cuasi-PII): 30 / min por usuario, para que no se enumeren placas.
+ *   · sugerencias de placa (`POST …/placa/sugerencias`, cuasi-PII, ADR-0044 D4): 60 / min por usuario, bolsa aparte
+ *     de la ficha para que escribir (con debounce) no agote `placa/buscar`.
  */
 export const torreConsultaLimiter = rateLimit({
   windowMs: 60_000,
@@ -696,4 +698,15 @@ export const torrePlacaLimiter = rateLimit({
   handler: frenoConRastro('flito-torre-placa'),
   message: { error: 'Demasiadas búsquedas seguidas. Espera un minuto.' },
   store: makeStore('rl:flito-torre-placa:'),
+});
+
+export const torrePlacaSugerirLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-torre-placa-sugerir:'),
+  handler: frenoConRastro('flito-torre-placa-sugerir'),
+  message: { error: 'Demasiadas búsquedas seguidas. Espera un minuto.' },
+  store: makeStore('rl:flito-torre-placa-sugerir:'),
 });

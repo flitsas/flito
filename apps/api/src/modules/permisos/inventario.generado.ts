@@ -790,6 +790,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "GET", ruta: "/opciones", roles: [], heredada: false },
+  // ADR-0044 (Explorador flexible): sugerencias de placa; reutiliza `torre.placa.buscar`. Sin rol: nace en el árbol (0303).
+  { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "POST", ruta: "/placa/sugerencias", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/ejecutivo/exportar", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/comercial/exportar", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa/exportar", roles: [], heredada: false },
