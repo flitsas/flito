@@ -13,8 +13,9 @@ import {
   ExportColaDemasiadoGrandeError, exportColaLimiter, nombreArchivoColaExport,
 } from '../../shared/export/cola-flito-excel.js';
 import {
-  ETAPAS, facetas, filasParaExportar, reporteCostos, resumenFacturacionElectronicaDelReporte,
-  type EtapaReporte, type FiltrosReporte,
+  ETAPAS, facetas, filasParaExportar, paginaReporteCostos, reporteCostos,
+  resumenFacturacionElectronicaDelReporte, totalesReporteCostos,
+  type EtapaReporte, type FiltrosReporte, type PaginaReporteCostos, type TotalesReporteCostos,
 } from './finanzas.service.js';
 import { consolidadoReporte, PERIODOS_CONSOLIDADO, periodoConsolidado } from './finanzas.consolidado.js';
 import { gastosDiarios, resolverRango } from './finanzas.gastos-diarios.js';
@@ -119,11 +120,32 @@ function filtrosDe(q: Request['query']): FiltrosReporte {
   };
 }
 
-// GET /reporte-costos — listado con valores sellados o estimados, y totales del universo filtrado.
+/**
+ * `sinTotales=1` (o `true`) quita de la respuesta `totales` y `totalesCostosProveedor`, que se piden
+ * aparte en `GET /reporte-costos/totales`: son las agregaciones caras y no cambian al paginar.
+ * Cualquier otro valor es 400, como `costoProveedorSinConfigurar`: un parámetro mal escrito que se
+ * ignorara en silencio devolvería la respuesta lenta sin que nadie supiera por qué.
+ */
+const sinTotalesSchema = z.object({ sinTotales: z.enum(['1', 'true']).optional() });
+
+// GET /reporte-costos — listado con valores sellados o estimados, y totales del universo filtrado
+// (sin ellos con `sinTotales=1`; la respuesta sin el parámetro es la de siempre).
 router.get('/reporte-costos', exigirFuncion('finanzas.reporte_costos.ver'), async (req: Request, res: Response) => {
-  const reporte = await reporteCostos(filtrosDe(req.query));
+  const q = sinTotalesSchema.safeParse(req.query);
+  if (!q.success) { res.status(400).json({ error: 'sinTotales debe ser 1 o true' }); return; }
+  const filtros = filtrosDe(req.query);
+  // Tipo explícito para que el contrato generado declare los totales como opcionales y no los pierda.
+  const reporte: PaginaReporteCostos & Partial<TotalesReporteCostos> = q.data.sinTotales
+    ? await paginaReporteCostos(filtros) : await reporteCostos(filtros);
   await registrarAccesoPii(req, 'read');
   res.json(reporte);
+});
+
+// GET /reporte-costos/totales — totales y costo de proveedor del universo filtrado, con los MISMOS
+// filtros que el listado (`filtrosDe`; la paginación se ignora). Sin registro PII: solo cifras
+// agregadas, ningún dato del titular.
+router.get('/reporte-costos/totales', exigirFuncion('finanzas.reporte_costos.ver'), async (req: Request, res: Response) => {
+  res.json(await totalesReporteCostos(filtrosDe(req.query)));
 });
 
 // GET /reporte-costos/facetas — valores para los filtros (estados, empresas, tipos).
