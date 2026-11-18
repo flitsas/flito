@@ -1,10 +1,10 @@
-# ADR-0044 — Detalle de trámite en modal con navegación entre trámites y descarga ZIP de soportes por trámite (Gestión Trámites)
+# ADR-0046 — Detalle de trámite en modal con navegación entre trámites y descarga ZIP de soportes por trámite (Gestión Trámites)
 
 - **Estado:** Aceptado (aprobado por el humano el 2026-11-18, con las decisiones de abajo)
 - **Fecha:** 2026-11-18
 - **Módulo:** `flito-*` (FLITO). Módulo `flito-tramites`, página `FlitoTramites` (ruta `/flito/tramites`). **No** toca el legacy `tramites` (`apps/api/src/modules/tramites/`).
-- **Supersedes:** ninguno. **Relacionados:** ADR-0043 (vistas de columnas; comparte página y `shared-types`, ver «Serialización»), ADR-0025 (funciones de permiso), ADR-0036 (PII en URLs), `AGENTS.md` §14 y §16, HU #11910 y HU #12817 (política de nombre del ZIP).
-- **Número:** el último ADR en disco es `ADR-0043`. Este toma el 0044, libre. No se modifica ningún ADR existente.
+- **Supersedes:** ninguno. **Relacionados:** ADR-0045 (vistas de columnas; comparte página y `shared-types`, ver «Serialización»), ADR-0025 (funciones de permiso), ADR-0036 (PII en URLs), `AGENTS.md` §14 y §16, HU #11910 y HU #12817 (política de nombre del ZIP).
+- **Número:** redactado como ADR-0044; renumerado a **ADR-0046** al integrar (develop ya tenía ADR-0043 y ADR-0044 de la Torre de Control). No se modifica ningún ADR existente.
 - **Alcance:** diseño. Sin código de producción, sin commit, sin rama, sin ADO. **No hay migración de base de datos.**
 
 ## Contexto
@@ -33,8 +33,8 @@ Decisiones ya tomadas por el humano (no se reabren): sin permiso adicional para 
 - **Cliente (web):** `apps/web/src/components/flito/tramites/tiposTramites.ts` define `TramiteFila` (`:16`) con `compradorPrincipal` (`:30`) que incluye `correo` y `numeroDocumento`. Es **una copia de tipos en la web**, no se importa del API. Los componentes de la tabla están en `components/flito/tramites/` (`FilaTramite.tsx`, `CeldasTramite.tsx`, `ModalesTramite.tsx`, `ModalResultadoTramites.tsx`).
 - **Descarga de la barra** (`apps/web/src/components/flito/DescargarSoportesZip.tsx`): diálogo de tipos (`ZIP_TRAMITES` con 4 tipos, `tiposEnElCuerpo: true`), `ruta: '/flito/tramites/soportes/zip'`, avisos con `X-Soportes-Registros` / `X-Soportes-Omitidos`. Su cabecera documenta la **política de HU #11910 y HU #12817: la placa entra en el nombre de cada entrada del ZIP, pero NO en el nombre del ZIP**, porque el nombre acaba en asuntos de correo y carpetas compartidas. Esto choca con la decisión `[PLACA]-DOCS.zip` (pregunta 1).
 - **Visor:** existe `apps/web/src/components/flit/VisorSoportes.tsx` y `VisorPdf.tsx`. **No verificado** cómo obtiene el documento (URL o blob) ni si sirve un soporte individual por id (pregunta 6).
-- **Página y ruta:** `apps/web/src/App.tsx:232` registra `/flito/tramites` con `lazy()` y `ProtectedRoute page="flito_tramites"`. `pages/FlitoTramites.tsx` **tiene cambios sin commitear** en el worktree (ADR-0043 en curso).
-- **Migraciones:** la última en disco es `0302_…`; la `0303_flito_vistas_columnas.sql` está sin commitear por ADR-0043. Este diseño **no añade tablas** y no necesita número de migración.
+- **Página y ruta:** `apps/web/src/App.tsx:232` registra `/flito/tramites` con `lazy()` y `ProtectedRoute page="flito_tramites"`. `pages/FlitoTramites.tsx` **tiene cambios sin commitear** en el worktree (ADR-0045 en curso).
+- **Migraciones:** la última en disco es `0302_…`; la `0303_flito_vistas_columnas.sql` está sin commitear por ADR-0045. Este diseño **no añade tablas** y no necesita número de migración.
 - **Roles:** solo los de `USER_ROLES` (`packages/shared-types/src/permissions.ts`). No se usa `operaciones`.
 
 ### Lo que no se verificó y condiciona el diseño
@@ -201,7 +201,7 @@ Campos marcados «a confirmar» dependen de la pregunta 7.
 - **Nuevo:** `packages/shared-types/src/flito-tramites-detalle.ts` (`TramiteDetalle` y sus sub-tipos). Exportar desde `packages/shared-types/src/index.ts`.
 - **Obligatorio (regla 7):** `grep` de `TramiteDetalle` y del `TramiteFila` de la web antes de cerrar. La web tiene su **propia copia** de `TramiteFila` (`tiposTramites.ts`); este diseño **no** la unifica (fuera de alcance), pero el tipo nuevo se importa de `@operaciones/shared-types`.
 - **No se cambia** ningún tipo existente.
-- **Conflicto de trabajo:** `packages/shared-types/src/index.ts` tiene cambios sin commitear (ADR-0043). El bloque de tipos va **después** de integrar esos cambios.
+- **Conflicto de trabajo:** `packages/shared-types/src/index.ts` tiene cambios sin commitear (ADR-0045). El bloque de tipos va **después** de integrar esos cambios.
 
 ## Registro PII (qué se loguea y dónde)
 
@@ -230,7 +230,7 @@ Contrato primero (serial), luego backend y frontend en paralelo (sin archivos co
 | Archivo | Acción | Motivo |
 |---|---|---|
 | `packages/shared-types/src/flito-tramites-detalle.ts` | Crear | `TramiteDetalle` |
-| `packages/shared-types/src/index.ts` | Modificar | exportar el tipo (**archivo ya modificado en worktree por ADR-0043: integrar primero**) |
+| `packages/shared-types/src/index.ts` | Modificar | exportar el tipo (**archivo ya modificado en worktree por ADR-0045: integrar primero**) |
 | `apps/api/src/modules/flito-tramites/flito-tramites.routes.ts` | Modificar (stub) | ruta `GET /:id/detalle` que devuelve 501 o el stub, para fijar el contrato |
 
 ### Bloque B — backend (en paralelo con F tras el bloque 0)
@@ -248,14 +248,14 @@ Contrato primero (serial), luego backend y frontend en paralelo (sin archivos co
 | `apps/web/src/components/flito/tramites/ModalDetalleTramite.tsx` | Crear. Modal con las 6 secciones; navegación Anterior/Siguiente; los 4 estados por sección (cargando, error con reintento, vacío, lleno). |
 | `apps/web/src/components/flito/tramites/DescargarSoportesTramiteZip.tsx` | Crear. Selección por soporte y «Seleccionar todos»; `POST /soportes/zip` con `ids:[id]`; nombre del archivo fijado en el cliente. |
 | `apps/web/src/lib/api.ts` | Modificar **solo si falta** un helper para respuesta binaria (verificar antes). Si se toca, va en serie con cualquier otro bloque que lo toque. |
-| `apps/web/src/components/flito/tramites/FilaTramite.tsx` | Modificar: abrir la modal desde la fila. **Zona de ADR-0043 (columnas): en serie.** |
-| `apps/web/src/pages/FlitoTramites.tsx` | Modificar: estado de la modal y lista de navegación. **Archivo con cambios sin commitear: en serie tras ADR-0043.** |
+| `apps/web/src/components/flito/tramites/FilaTramite.tsx` | Modificar: abrir la modal desde la fila. **Zona de ADR-0045 (columnas): en serie.** |
+| `apps/web/src/pages/FlitoTramites.tsx` | Modificar: estado de la modal y lista de navegación. **Archivo con cambios sin commitear: en serie tras ADR-0045.** |
 | `apps/web/src/content/ayuda/` (ficha de `flito-tramites`) | Modificar: delta de ayuda (gate `flit-ayuda-flito`). |
 | `e2e/tests/flito-tramites-modal.spec.ts` | Crear (P1: el spec de la HU). |
 
 ### Serialización obligatoria
 
-`FlitoTramites.tsx`, `FilaTramite.tsx` y `packages/shared-types/src/index.ts` tienen trabajo sin commitear de ADR-0043. **Este diseño no puede codearse sobre ellos hasta que ADR-0043 esté integrado**, o se corre el riesgo de conflicto en el mismo hunk. Recomendación: el bloque 0 espera a la integración de ADR-0043.
+`FlitoTramites.tsx`, `FilaTramite.tsx` y `packages/shared-types/src/index.ts` tienen trabajo sin commitear de ADR-0045. **Este diseño no puede codearse sobre ellos hasta que ADR-0045 esté integrado**, o se corre el riesgo de conflicto en el mismo hunk. Recomendación: el bloque 0 espera a la integración de ADR-0045.
 
 ## Estimación
 
@@ -306,7 +306,7 @@ Hallazgos de PII preexistentes (lista sin `logPiiAccess`, soportes y `POST /busc
 
 ### Riesgos
 
-- **Serialización con ADR-0043** (ver «Serialización obligatoria»): riesgo alto de conflicto en `FlitoTramites.tsx`, `FilaTramite.tsx` y `shared-types/index.ts`.
+- **Serialización con ADR-0045** (ver «Serialización obligatoria»): riesgo alto de conflicto en `FlitoTramites.tsx`, `FilaTramite.tsx` y `shared-types/index.ts`.
 - **Desalineación de la modal con la fila**: la modal lee el detalle por id; si la fila cambia entre la carga de la lista y la apertura, la modal muestra el dato nuevo. Aceptable; se declara.
 - **Granularidad por tipo** (pregunta 5): puede dar un ZIP sin el documento concreto que se quiso. Mitigación: aviso con cifras.
 - **Alcance (`tramiteEnAlcance`)**: el detalle debe usar el mismo alcance que historial y soportes; si no, una fila visible en la tabla podría abrir un detalle fuera de alcance. Mitigación: test de 404 fuera de alcance en el bloque B.
@@ -316,11 +316,11 @@ Hallazgos de PII preexistentes (lista sin `logPiiAccess`, soportes y `POST /busc
 ```
 HANDOFF
   Modo: full
-  Resultado: OK (diseño propuesto; implementación BLOQUEADA hasta preguntas 1, 2, 4, 5 y la serialización con ADR-0043)
+  Resultado: OK (diseño propuesto; implementación BLOQUEADA hasta preguntas 1, 2, 4, 5 y la serialización con ADR-0045)
   Decisión recomendada: GET /:id/detalle nuevo (con logPiiAccess) + reutilizar historial, soportes, acciones de lote y POST /soportes/zip con ids:[id] (sin endpoint nuevo para el ZIP)
-  ADR: docs/adr/ADR-0044-flito-tramites-detalle-modal-y-zip-por-tramite.md
+  ADR: docs/adr/ADR-0046-flito-tramites-detalle-modal-y-zip-por-tramite.md
   Estado: Propuesto (no aprobado; lo aprueba el Líder Técnico humano)
-  Archivos: ver «Archivos por bloque» (bloque 0 serial; B y F en paralelo; FlitoTramites.tsx, FilaTramite.tsx y shared-types/index.ts en serie tras ADR-0043)
+  Archivos: ver «Archivos por bloque» (bloque 0 serial; B y F en paralelo; FlitoTramites.tsx, FilaTramite.tsx y shared-types/index.ts en serie tras ADR-0045)
   Estimación: M (B: S, F: M, contrato: S)
   Reconocimiento: 6
   Siguiente: aprobación del Líder Técnico humano, luego bloque 0 (contract-first) → backend-agent ∥ frontend-agent

@@ -130,6 +130,9 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   // Épica #14590: la Torre de Control (`exigirFuncion` por ruta).
   { modulo: 'torre', fichero: 'flito-torre/flito-torre.routes.ts' },
   { modulo: 'torre', fichero: 'flito-torre/flito-torre.tableros.routes.ts' },
+  // Épica #14560 (ADR-0045): vistas de columnas; solo su función de administración es literal (la de acceso a la
+  // tabla la resuelve `guardaTabla` desde el catálogo de tablas).
+  { modulo: 'tramites', fichero: 'flito-vistas-columnas/flito-vistas-columnas.routes.ts' },
 ];
 
 /**

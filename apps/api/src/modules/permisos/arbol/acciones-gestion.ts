@@ -70,6 +70,14 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
     operaciones: ['tramites.sincronizacion.configurar', 'tramites.flit2.ver_acceso', 'tramites.flit2.guardar_acceso'],
   },
   'accion.tramites.crear_demo': { operaciones: ['tramites.demo.sembrar'] },
+  // Épica #14560 (ADR-0045): nace después de la siembra (0305), como `certificar_sin_tramite`: la operación nace
+  // absorbida (`OPERACIONES_NACIDAS_EN_EL_ARBOL`, no se siembra), la acción la concede por `apoyo` y no hay
+  // predecesores (nadie la tenía): solo `admin` la recibe.
+  'accion.tramites.administrar_vistas_columnas': {
+    operaciones: [],
+    predecesores: [],
+    apoyo: ['tramites.vistas_columnas.administrar'],
+  },
   'accion.tramites.entregar': {
     operaciones: ['tramites.tramite.entregar', 'compuerta.cola.ver', 'compuerta.tramite.ver', 'compuerta.tramite.entregar', 'pagina.flito_compuerta'],
   },

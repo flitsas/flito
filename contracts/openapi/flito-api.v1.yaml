@@ -57079,11 +57079,11 @@ paths:
       tags:
         - flito-vistas-columnas
       summary: "PUT /api/flito/vistas-columnas/:tablaId/predeterminada/general"
-      description: "PUT /:tablaId/predeterminada/general — solo admin. `null` = quitar la general. Fuente: apps/api/src/modules/flito-vistas-columnas/flito-vistas-columnas.routes.ts. Exige el rol: admin."
+      description: "PUT /:tablaId/predeterminada/general — `tramites.vistas_columnas.administrar`. `null` = quitar la general. Fuente: apps/api/src/modules/flito-vistas-columnas/flito-vistas-columnas.routes.ts. Exige la función: tramites.vistas_columnas.administrar."
       security:
         - bearerAuth: []
-      x-flit-roles:
-        - admin
+      x-flit-funciones:
+        - tramites.vistas_columnas.administrar
       parameters:
         - name: tablaId
           in: path
@@ -57131,17 +57131,38 @@ paths:
                 required:
                   - error
         "401":
-          description: "Token ausente, inválido o revocado."
+          description: No autenticado.
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Error"
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
         "403":
-          description: Sin permisos para esta operación.
+          description: Sin permisos.
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Error"
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
         "404":
           description: No encontrado.
           content:

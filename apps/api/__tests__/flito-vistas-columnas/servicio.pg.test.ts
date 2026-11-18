@@ -1,4 +1,4 @@
-// ADR-0043 — servicio de vistas de columnas contra PostgreSQL real, cada prueba dentro de una transacción
+// ADR-0045 — servicio de vistas de columnas contra PostgreSQL real, cada prueba dentro de una transacción
 // que termina en ROLLBACK (helper `enTx`). Se SALTA sin TEST_DATABASE_URL: un skipped NO es verde.
 // Cubre: pertenencia de punteros, cascadas (vista y usuario), límite de 20 personales, nombre duplicado
 // (409), VERSION_CONFLICTO (409), COLUMNA_NO_PERMITIDA (403), CLAVE_DESCONOCIDA (422) y admin vs no admin.
@@ -54,10 +54,10 @@ async function usuario(tx: Tx, rol = 'auditor'): Promise<number> {
   return u!.id as number;
 }
 
-const admin = (userId: number) => ({ userId, esAdmin: true });
-const noAdmin = (userId: number) => ({ userId, esAdmin: false });
+const admin = (userId: number) => ({ userId, puedeAdministrar: true });
+const noAdmin = (userId: number) => ({ userId, puedeAdministrar: false });
 
-describe.skipIf(!URL_BASE)('ADR-0043 servicio de vistas de columnas (PostgreSQL real)', () => {
+describe.skipIf(!URL_BASE)('ADR-0045 servicio de vistas de columnas (PostgreSQL real)', () => {
   it('una vista personal solo la ve su dueño; la predeterminada personal se resuelve al puntero', prueba(async (tx) => {
     const u1 = await usuario(tx);
     const u2 = await usuario(tx);

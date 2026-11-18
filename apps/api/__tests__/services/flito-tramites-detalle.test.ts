@@ -1,4 +1,4 @@
-// ADR-0044 — Detalle de trámite en modal y ZIP de soportes por trámite (Gestión Trámites, `flito-tramites`).
+// ADR-0046 — Detalle de trámite en modal y ZIP de soportes por trámite (Gestión Trámites, `flito-tramites`).
 //
 // - `GET /api/flito/tramites/:id/detalle`: `tramites.cola.ver` + alcance del listado. Inexistente, fuera de
 //   alcance o id que no es uuid → el mismo 404 (el ADR descarta el 400: no hay cuerpo). 200 con
@@ -85,7 +85,7 @@ const comprador = {
 
 beforeEach(() => { h.cap.reset(); pii.logPiiAccess.mockClear(); });
 
-describe('ADR-0044 · GET /:id/detalle — autenticación y permiso', () => {
+describe('ADR-0046 · GET /:id/detalle — autenticación y permiso', () => {
   it('401 sin token, sin BD ni rastro', async () => {
     const r = await request(await app()).get(URL_DETALLE);
     expect(r.status).toBe(401);
@@ -102,7 +102,7 @@ describe('ADR-0044 · GET /:id/detalle — autenticación y permiso', () => {
   });
 });
 
-describe('ADR-0044 · GET /:id/detalle — 404 sin enumeración', () => {
+describe('ADR-0046 · GET /:id/detalle — 404 sin enumeración', () => {
   it('id que no es uuid → 404 «El trámite no existe», sin tocar la BD ni rastro (el ADR descarta el 400)', async () => {
     const r = await request(await app()).get('/api/flito/tramites/QTQ100/detalle').set('Authorization', await admin());
     expect(r.status).toBe(404);
@@ -133,7 +133,7 @@ describe('ADR-0044 · GET /:id/detalle — 404 sin enumeración', () => {
   });
 });
 
-describe('ADR-0044 · GET /:id/detalle — 200', () => {
+describe('ADR-0046 · GET /:id/detalle — 200', () => {
   it('200 no-store con resumen, vehículo, propietarios, gestora y costos', async () => {
     h.cap.responder([fila], [comprador]);
     const r = await request(await app()).get(URL_DETALLE).set('Authorization', await admin());
@@ -189,7 +189,7 @@ describe('ADR-0044 · GET /:id/detalle — 200', () => {
   });
 });
 
-describe('ADR-0044 · POST /soportes/zip — nombre del archivo', () => {
+describe('ADR-0046 · POST /soportes/zip — nombre del archivo', () => {
   it('UN trámite → `[ID del trámite]-DOCS.zip` (id_flit, no la placa), con el rastro PII de export de siempre', async () => {
     // 1.ª consulta: registros del ZIP; 2.ª: el id_flit del trámite para el nombre.
     h.cap.responder([], [{ idFlit: 'FLIT-DEMO-101' }]);

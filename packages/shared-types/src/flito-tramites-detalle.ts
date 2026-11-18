@@ -1,4 +1,4 @@
-// ADR-0044 — Detalle de trámite en modal (Gestión Trámites, módulo `flito-tramites`).
+// ADR-0046 — Detalle de trámite en modal (Gestión Trámites, módulo `flito-tramites`).
 //
 // Contrato de `GET /api/flito/tramites/:id/detalle`. Historial y soportes NO van aquí: se piden por
 // sus endpoints (`GET /:id/historial`, `GET /:id/soportes`), cada uno con su función de permiso.
