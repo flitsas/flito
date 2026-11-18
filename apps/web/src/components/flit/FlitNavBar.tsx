@@ -32,6 +32,8 @@ const MAS: ClaveDock = 'mas';
 
 /** Margen lateral del dock (16 px por lado) y reserva simétrica del botón de Dr. Flit (16 + 48 + 16 por lado). */
 const MARGEN = 32;
+/** Margen mínimo entre un panel del dock y el borde de la ventana al desplazarlo para que quepa. */
+const MARGEN_PANEL = 12;
 const RESERVA_DRFLIT = 160;
 
 /**
@@ -73,6 +75,25 @@ function Dock() {
   const reservaDrFlit = useDrFlitVisible();
   const [caben, setCaben] = useState(grouped.length);
   const firma = grouped.map((g) => `${g.section}:${g.items.length}`).join('|');
+
+  // El panel sale centrado sobre su ítem (`left:50%` del grupo). Si ese centro lo sacaría de la pantalla (paneles
+  // anchos en los grupos de los extremos), se desplaza lo justo para que quede dentro del margen; el resto del
+  // tiempo queda exactamente encima del ítem. La medida va en `--dock-desp` y CSS la suma al centrado.
+  useLayoutEffect(() => {
+    if (!openSection) return;
+    const ajustar = () => {
+      const panel = panelRef.current;
+      const disparador = document.getElementById(triggerId(openSection));
+      if (!panel || !disparador) return;
+      const cx = disparador.getBoundingClientRect().left + disparador.getBoundingClientRect().width / 2;
+      const ancho = panel.offsetWidth;
+      const izq = Math.min(Math.max(cx - ancho / 2, MARGEN_PANEL), window.innerWidth - MARGEN_PANEL - ancho);
+      panel.style.setProperty('--dock-desp', `${Math.round(izq - (cx - ancho / 2))}px`);
+    };
+    ajustar();
+    window.addEventListener('resize', ajustar);
+    return () => window.removeEventListener('resize', ajustar);
+  }, [openSection, triggerId]);
 
   useLayoutEffect(() => {
     const decidir = () => {

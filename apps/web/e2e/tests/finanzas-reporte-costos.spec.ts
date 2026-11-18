@@ -1747,8 +1747,9 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await page.getByRole('tablist', { name: 'Vista del reporte' }).getByRole('button', { name: 'Consolidado' }).click();
     await expect.poll(() => consolidado.length).toBe(1);
     expect(new URL(consolidado[0]).searchParams.get('periodo')).toBe('mes');
-    // La MISMA query que el detalle, salvo `page` (del detalle) y `periodo` (del consolidado).
-    expect(querySin(consolidado[0], 'periodo')).toBe(querySin(detalle.at(-1)!, 'page'));
+    // La MISMA query que el detalle, salvo `page` y `sinTotales` (del detalle: los totales van
+    // aparte, Épica #14560) y `periodo` (del consolidado).
+    expect(querySin(consolidado[0], 'periodo')).toBe(querySin(detalle.at(-1)!, 'page', 'sinTotales'));
     expect(page.url()).toContain('vista=consolidado');
 
     // Una fila por cliente y periodo, con sus columnas y el pie.
@@ -1871,7 +1872,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     expect(peticion.postDataJSON()).toMatchObject({ organismos: ['05001'], aprobadoDesde: '2026-09-01' });
     expect(peticion.postDataJSON()).not.toHaveProperty('periodo');   // mutante: mandar `periodo` al detalle (400 por `.strict()`)
     // Sin `page`: el archivo es el filtro entero, la tabla es una página de él.
-    expect(queryDeCuerpo(peticion.postDataJSON())).toBe(querySin(detalle.at(-1)!, 'page'));
+    expect(queryDeCuerpo(peticion.postDataJSON())).toBe(querySin(detalle.at(-1)!, 'page', 'sinTotales'));
   });
 
   test('AC8 — auditor ve las secciones, el titular, la OT, el periodo y el consolidado; sigue sin acciones', async ({ page }) => {
@@ -3928,5 +3929,120 @@ test.describe('Reporte de costos — rediseño y costo de proveedor (Épica #137
     await expect(pieDe(page, 'costoSoat')).toHaveCount(0);
     await expect(pieDe(page, 'totalCostos')).toHaveCount(0);
     await expect(page.locator('tfoot')).not.toContainText('$ 1.740.000');
+  });
+});
+
+// ── Totales aparte del listado (Épica #14560) ────────────────────────────────
+// El agregado del costo de proveedor tarda ~20 s: el listado viaja con `sinTotales=1` y los
+// totales salen de `GET /reporte-costos/totales`, con su propio estado en el pie.
+test.describe('Reporte de costos — totales aparte del listado', () => {
+  const { totales, totalesCostosProveedor, ...LISTADO_SIN_TOTALES } = REPORTE;
+  const TOTALES = { totales, totalesCostosProveedor };
+  /** Más de una página, para poder paginar. */
+  const LISTADO = { ...LISTADO_SIN_TOTALES, total: 120 };
+  const RE_TOTALES = /\/api\/finanzas\/reporte-costos\/totales\?/;
+
+  async function mockListado(page: import('@playwright/test').Page) {
+    const urls: URL[] = [];
+    await mockFacetas(page, ['Aprobado']);
+    await mockFacturacion(page);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+      const u = new URL(route.request().url());
+      urls.push(u);
+      return route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ ...LISTADO, page: Number(u.searchParams.get('page') ?? 1) }) });
+    });
+    return urls;
+  }
+  const pie = (page: import('@playwright/test').Page) => page.getByRole('table').first().locator('tfoot');
+
+  test.beforeEach(async ({ page }) => { await ampliarColumnas(page); });
+
+  test('la tabla se pinta aunque los totales tarden; el pie dice «Calculando…» y luego las cifras', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const listado = await mockListado(page);
+    // Los totales no responden hasta que el test lo dice: la tabla no puede estar esperándolos.
+    let soltar: () => void = () => {};
+    const liberados = new Promise<void>((r) => { soltar = r; });
+    await page.route(RE_TOTALES, async (route) => {
+      await liberados;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TOTALES) });
+    });
+    await page.goto('/finanzas/reporte-costos');
+
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT-2001' })).toBeVisible();
+    await expect(pie(page).getByText('· Calculando…')).toBeVisible();
+    await expect(pie(page)).not.toContainText('$ 2.670.400');
+    expect(listado.every((u) => u.searchParams.get('sinTotales') === '1')).toBe(true);
+
+    soltar();
+    await expect(pie(page)).toContainText('$ 2.670.400');
+    await expect(pie(page).getByText('· Calculando…')).toHaveCount(0);
+  });
+
+  test('paginar no vuelve a pedir los totales; cambiar un filtro sí, y sin página en la consulta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const listado = await mockListado(page);
+    const totalesUrls: URL[] = [];
+    await page.route(RE_TOTALES, (route) => {
+      totalesUrls.push(new URL(route.request().url()));
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TOTALES) });
+    });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(pie(page)).toContainText('$ 2.670.400');
+    expect(totalesUrls).toHaveLength(1);
+    expect(totalesUrls[0].searchParams.has('page')).toBe(false);
+
+    await page.getByRole('button', { name: 'Siguiente →' }).first().click();
+    await expect.poll(() => listado.some((u) => u.searchParams.get('page') === '2')).toBe(true);
+    await expect(page.getByText(/página 2 de/).first()).toBeVisible();
+    expect(totalesUrls).toHaveLength(1);
+
+    await page.getByRole('button', { name: /^Incompletos/ }).click();
+    await expect.poll(() => totalesUrls.length).toBe(2);
+    expect(totalesUrls[1].searchParams.get('etapa')).toBe('incompleto');
+    expect(totalesUrls[1].searchParams.has('page')).toBe(false);
+  });
+
+  test('si los totales fallan, la tabla sigue y el pie ofrece reintentar sin el error del API', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockListado(page);
+    let llamadas = 0;
+    await page.route(RE_TOTALES, (route) => {
+      llamadas += 1;
+      return llamadas === 1
+        ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'statement timeout XYZ' }) })
+        : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TOTALES) });
+    });
+    await page.goto('/finanzas/reporte-costos');
+
+    await expect(pie(page).getByRole('alert')).toHaveText('· No se pudieron calcular los totales.');
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT-2001' })).toBeVisible();
+    await expect(page.getByText('statement timeout XYZ')).toHaveCount(0);
+
+    await pie(page).getByRole('button', { name: 'Reintentar totales' }).click();
+    await expect(pie(page)).toContainText('$ 2.670.400');
+    await expect(pie(page).getByRole('alert')).toHaveCount(0);
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT-2001' })).toBeVisible();
+  });
+
+  test('una respuesta vieja de totales no pisa la de los filtros nuevos', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockListado(page);
+    const NUEVOS = { ...TOTALES, totales: { ...totales, totalReintegro: 111222 } };
+    await page.route(RE_TOTALES, async (route) => {
+      const etapa = new URL(route.request().url()).searchParams.get('etapa');
+      if (!etapa) await new Promise((r) => setTimeout(r, 3000));
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(etapa ? NUEVOS : TOTALES) });
+    });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT-2001' })).toBeVisible();
+    await page.getByRole('button', { name: /^Incompletos/ }).click();
+
+    await expect(pie(page)).toContainText('$ 111.222');
+    // La primera (sin etapa) llega después y se descarta.
+    await page.waitForTimeout(3500);
+    await expect(pie(page)).toContainText('$ 111.222');
+    await expect(pie(page)).not.toContainText('$ 2.670.400');
   });
 });

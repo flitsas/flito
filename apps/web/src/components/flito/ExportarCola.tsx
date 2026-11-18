@@ -348,10 +348,16 @@ export function useExportCola(cola: ColaExportable, filtros: FiltrosExportCola):
  * archivo…» sin `aria-busy` es solo otra etiqueta.
  */
 export function BotonExportarCola(
-  { ocupado, onExportar, incluirPago }:
+  { ocupado, onExportar, incluirPago, antes }:
   {
     ocupado: boolean;
     onExportar: () => void;
+    /**
+     * La acción primaria de la cola, si la hay: va en la MISMA fila que este botón (sm+) y antes que él.
+     * La nota y la casilla van debajo de la fila, alineadas a la derecha. Así la primaria y la secundaria
+     * quedan juntas y no se separa el botón de exportar de la acción del día.
+     */
+    antes?: ReactNode;
     /**
      * La casilla «Incluir datos de pago y trazabilidad» (Bug #12642). **Se pinta solo si llega**: la
      * página la pasa cuando `hasFuncion('<cola>.excel.exportar_pago')` es cierto y la omite si no,
@@ -363,18 +369,21 @@ export function BotonExportarCola(
 ) {
   return (
     // A ancho completo por debajo de `sm` (HU #12819): en 375 px el bloque se apila bajo el título.
-    <div className="flex w-full flex-col items-stretch gap-1 sm:w-auto sm:items-end">
-      <button
-        type="button"
-        className={`${flitBtnSecondary} justify-center`}
-        style={flitBtnSecondaryStyle}
-        onClick={onExportar}
-        disabled={ocupado}
-        aria-busy={ocupado || undefined}
-      >
-        <FileSpreadsheet size={16} aria-hidden="true" className="shrink-0" />
-        {ocupado ? 'Preparando el archivo…' : 'Exportar a Excel'}
-      </button>
+    <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+        {antes}
+        <button
+          type="button"
+          className={`${flitBtnSecondary} justify-center`}
+          style={flitBtnSecondaryStyle}
+          onClick={onExportar}
+          disabled={ocupado}
+          aria-busy={ocupado || undefined}
+        >
+          <FileSpreadsheet size={16} aria-hidden="true" className="shrink-0" />
+          {ocupado ? 'Preparando el archivo…' : 'Exportar a Excel'}
+        </button>
+      </div>
       {/* Lo que el usuario no puede deducir del botón: que la descarga NO es la página que está
           viendo. Sin cifra del tope a propósito — el número lo trae el 422. */}
       <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>

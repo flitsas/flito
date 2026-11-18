@@ -14,12 +14,18 @@ import { LINEA_FIJA, type Columna } from './definicionColumnasReporteCostos';
 
 /** Mismo `sticky` que las celdas fijas del cuerpo (`TablaReporteCostos`), con fondo de tarjeta. */
 const FIJA = 'lg:sticky lg:z-10 bg-flit-card';
-import type { Totales, TotalesCostosProveedor } from './tiposReporteCostos';
+import GradientButton from '../flit/GradientButton';
+import type { EstadoTotales } from './useTotalesReporteCostos';
 
-export default function TotalesReporteCostos({ columnas, totales, costos, total, conCasilla }: {
-  columnas: Columna[]; totales: Totales;
-  /** El costo de proveedor del filtro: va bajo su grupo, aparte del cobro (no se suma a él). */
-  costos: TotalesCostosProveedor;
+export default function TotalesReporteCostos({ columnas, estado, onReintentar, total, conCasilla }: {
+  columnas: Columna[];
+  /**
+   * Los agregados llegan aparte del listado (Épica #14560): mientras se calculan, cada celda con
+   * total lleva su esqueleto y el rótulo dice «Calculando…»; si fallan, el rótulo ofrece reintentar
+   * y la tabla sigue entera. En `datos` va el costo de proveedor, bajo su grupo y aparte del cobro.
+   */
+  estado: EstadoTotales;
+  onReintentar: () => void;
   /** Cuántos trámites hay en el filtro entero. */
   total: number;
   /** Si la tabla lleva la columna de casillas, el pie deja ese hueco. */
@@ -35,7 +41,7 @@ export default function TotalesReporteCostos({ columnas, totales, costos, total,
   const fijas = columnas.slice(0, sinTotal).filter((c) => c.grupo === 'fija').length;
   const rotuloSpan = fijas > 0 ? fijas : sinTotal;
   const huecoSpan = sinTotal - rotuloSpan;
-  const t = { cobro: totales, costo: costos };
+  const t = estado.fase === 'lleno' ? { cobro: estado.datos.totales, costo: estado.datos.totalesCostosProveedor } : null;
 
   return (
     <tfoot>
@@ -44,15 +50,25 @@ export default function TotalesReporteCostos({ columnas, totales, costos, total,
         <th scope="row" colSpan={rotuloSpan}
           className={`px-3 py-2 text-left text-xs font-semibold ${fijas > 0 ? `${FIJA} ${LINEA_FIJA}` : 'whitespace-nowrap'}`}
           style={{ color: 'var(--color-text-secondary)', left: fijas > 0 ? 'var(--rc-izq)' : undefined }}>
-          Totales ({total.toLocaleString('es-CO')} trámites del filtro)
+          <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>Totales ({total.toLocaleString('es-CO')} trámites del filtro)</span>
+            {estado.fase === 'cargando' && <span role="status" data-totales="cargando">· Calculando…</span>}
+            {estado.fase === 'error' && (
+              <>
+                <span role="alert" data-totales="error" style={{ color: 'var(--color-text-primary)' }}>· No se pudieron calcular los totales.</span>
+                <GradientButton type="button" size="sm" variant="secondary" onClick={onReintentar}>Reintentar totales</GradientButton>
+              </>
+            )}
+          </span>
         </th>
         {huecoSpan > 0 && <td colSpan={huecoSpan} />}
         {columnas.slice(sinTotal).map((c) => {
-          const nombre = c.totalNombre?.(t);
+          const nombre = t ? c.totalNombre?.(t) : undefined;
           return (
             <td key={c.id} className="px-3 py-2 text-right text-xs tabular-nums whitespace-nowrap"
               data-pie={c.id} aria-label={nombre} title={nombre}>
-              {c.total?.(t)}
+              {t ? c.total?.(t)
+                : estado.fase === 'cargando' && c.total && <div aria-hidden="true" className="kit-esqueleto ml-auto h-3 w-16" />}
             </td>
           );
         })}
