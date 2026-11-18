@@ -1,6 +1,7 @@
 // Torre de Control (Épica #14590) — periodos, conversión al contrato y formatos de cifra (spec UX §4, §5.2).
 import {
-  DEPARTAMENTO_POR_CODIGO, getOrganismoByCodigo, type AgrupacionTorre, type FiltroTorre, type UnidadMetricaTorre,
+  DEPARTAMENTO_POR_CODIGO, ETIQUETAS_AGRUPACION_TORRE, getOrganismoByCodigo,
+  type AgrupacionTorre, type FechaBaseTorre, type FiltroTorre, type MetricaTorreId, type UnidadMetricaTorre,
 } from '@operaciones/shared-types';
 import type { FiltrosTorre, PeriodoTorre } from '../../lib/torreFiltros';
 
@@ -49,6 +50,18 @@ export function fechaCorta(v: string | null | undefined): string {
   return `${Number(d)} ${MESES_CORTOS[Number(m) - 1]} ${y}`;
 }
 
+/**
+ * Rango real que aplicó la API (RN-TOR-F5), compacto: «1 jun – 18 nov 2026», «15 dic 2025 – 10 ene 2026» o «18 nov 2026»
+ * si es un solo día. A mano, sin `Date`, para que el día no se corra a UTC.
+ */
+export function fraseRango(r: { desde: string; hasta: string }): string {
+  const [yd, md, dd] = r.desde.slice(0, 10).split('-').map(Number);
+  const [yh, mh, dh] = r.hasta.slice(0, 10).split('-').map(Number);
+  const hasta = `${dh} ${MESES_CORTOS[mh - 1]} ${yh}`;
+  if (yd === yh && md === mh && dd === dh) return hasta;
+  return `${dd} ${MESES_CORTOS[md - 1]}${yd === yh ? '' : ` ${yd}`} – ${hasta}`;
+}
+
 export function etiquetaPeriodo(f: Pick<FiltrosTorre, 'periodo' | 'rango'>): string {
   if (f.periodo.startsWith('m:')) {
     const [y, m] = f.periodo.slice(2).split('-').map(Number);
@@ -67,11 +80,8 @@ function rangoDe(periodo: PeriodoTorre, rango: FiltrosTorre['rango']): FiltroTor
     case 'mes_anterior': return { preset: 'mes_anterior' };
     case 'anio': return { preset: 'anio' };
     case 'ultimos_7': return { desde: sumarDias(hoy, -6), hasta: hoy };
-    case 'ultimos_6m': {
-      const [y, m] = hoy.split('-').map(Number);
-      const ini = new Date(y, m - 1 - 5, 1);
-      return { desde: iso(ini.getFullYear(), ini.getMonth(), 1), hasta: hoy };
-    }
+    // RN-TOR-F5 (D7): lo resuelve la API, alineado a mes. La web no calcula otro rango.
+    case 'ultimos_6m': return { preset: 'ultimos_6m' };
     case 'personalizado': return rango ?? { preset: 'mes' };
     default: {
       const [y, m] = periodo.slice(2).split('-').map(Number);
@@ -84,11 +94,11 @@ function rangoDe(periodo: PeriodoTorre, rango: FiltrosTorre['rango']): FiltroTor
 export function aFiltroTorre(f: FiltrosTorre): FiltroTorre {
   return {
     rango: rangoDe(f.periodo, f.rango),
-    ...(f.companiaId ? { companiaIds: [f.companiaId] } : {}),
-    ...(f.organismo ? { organismos: [f.organismo] } : {}),
-    ...(f.departamento ? { departamentos: [f.departamento] } : {}),
-    ...(f.tipoTramite ? { tiposTramite: [f.tipoTramite] } : {}),
-    ...(f.flitEstado ? { flitEstados: [f.flitEstado] } : {}),
+    ...(f.companiaIds.length ? { companiaIds: f.companiaIds } : {}),
+    ...(f.organismos.length ? { organismos: f.organismos } : {}),
+    ...(f.departamentos.length ? { departamentos: f.departamentos } : {}),
+    ...(f.tiposTramite.length ? { tiposTramite: f.tiposTramite } : {}),
+    ...(f.flitEstados.length ? { flitEstados: f.flitEstados } : {}),
   };
 }
 
@@ -102,11 +112,77 @@ export function humanizar(v: string | null | undefined): string {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-export const ETIQUETA_AGRUPACION: Record<AgrupacionTorre, string> = {
-  dia: 'Día', semana: 'Semana', mes: 'Mes', trimestre: 'Trimestre', compania: 'Compañía', organismo: 'Organismo de tránsito',
-  departamento: 'Departamento', tipo_tramite: 'Tipo de trámite', flit_estado: 'Estado',
-};
+/**
+ * Las del contrato (las mismas del Excel), salvo `flit_estado`: en pantalla es «Estado actual» (spec UX §2, D3), para
+ * que no se lea como «el estado en que se aprobó».
+ */
+export const ETIQUETA_AGRUPACION: Record<AgrupacionTorre, string> = { ...ETIQUETAS_AGRUPACION_TORRE, flit_estado: 'Estado actual' };
 export const AGRUPACIONES_TEMPORALES: readonly AgrupacionTorre[] = ['dia', 'semana', 'mes', 'trimestre'];
+export const esTemporal = (a: AgrupacionTorre | ''): a is AgrupacionTorre => a !== '' && AGRUPACIONES_TEMPORALES.includes(a);
+
+// ── La oración del Explorador (spec UX §3.1, §5.1, §5.5) ─────────────────────
+
+/** En minúscula, para que la oración «según la fecha de …» se lea. */
+export const FECHA_BASE_ORACION: Record<FechaBaseTorre, string> = {
+  creacion: 'creación', aprobacion: 'aprobación', facturacion: 'facturación', pago: 'pago',
+};
+
+const PARTICIPIO_TRAMITES: Partial<Record<FechaBaseTorre, string>> = {
+  creacion: 'Trámites creados', aprobacion: 'Trámites aprobados', facturacion: 'Trámites facturados',
+};
+
+/** «Trámites aprobados», «Costo de logística · por fecha de facturación», o el nombre solo en las de una fecha. */
+export function medidaConFecha(metrica: MetricaTorreId, etiqueta: string, fechas: readonly FechaBaseTorre[], fecha: FechaBaseTorre | null): string {
+  if (!fecha) return etiqueta;
+  if (metrica === 'tramites') return PARTICIPIO_TRAMITES[fecha] ?? etiqueta;
+  return fechas.length > 1 ? `${etiqueta} · por fecha de ${FECHA_BASE_ORACION[fecha]}` : etiqueta;
+}
+
+/** «A», «A y B», «A, B y C». */
+export function listaY(v: readonly string[]): string {
+  if (v.length <= 1) return v[0] ?? '';
+  return `${v.slice(0, -1).join(', ')} y ${v[v.length - 1]}`;
+}
+
+/** «A», «A o B», «A, B o C». */
+export function listaO(v: readonly string[]): string {
+  if (v.length <= 1) return v[0] ?? '';
+  return `${v.slice(0, -1).join(', ')} o ${v[v.length - 1]}`;
+}
+
+/** Resumen corto de una selección: «A», «A y 2 más». */
+export const resumenSeleccion = (v: readonly string[]): string => (v.length <= 1 ? v[0] ?? '' : `${v[0]} y ${v.length - 1} más`);
+
+/** Compañías del subtítulo: «Todas las compañías», «A», «A y B», «A, B y 1 más». */
+export function resumenCompanias(nombres: readonly string[]): string {
+  if (nombres.length === 0) return 'Todas las compañías';
+  if (nombres.length <= 2) return listaY(nombres);
+  return `${nombres[0]}, ${nombres[1]} y ${nombres.length - 2} más`;
+}
+
+const FRASE_PERIODO: Record<string, string> = {
+  hoy: 'hoy', ayer: 'ayer', ultimos_7: 'en los últimos 7 días', mes: 'este mes', mes_anterior: 'el mes anterior',
+  anio: 'este año', ultimos_6m: 'en los últimos 6 meses', personalizado: 'en el rango elegido',
+};
+
+/** «hoy», «en octubre de 2026», «en el rango elegido»… para el vacío («No hay trámites facturados hoy.»). */
+export function frasePeriodo(f: Pick<FiltrosTorre, 'periodo'>): string {
+  if (f.periodo.startsWith('m:')) {
+    const [y, m] = f.periodo.slice(2).split('-').map(Number);
+    return `en ${MESES[m - 1].toLowerCase()} de ${y}`;
+  }
+  return FRASE_PERIODO[f.periodo] ?? 'en el periodo';
+}
+
+/** Periodo corto (spec §5.5): de un mes o menos. Con él, el vacío ofrece «Ver los últimos 6 meses». */
+export function esPeriodoCorto(f: Pick<FiltrosTorre, 'periodo' | 'rango'>): boolean {
+  if (['hoy', 'ayer', 'ultimos_7', 'mes', 'mes_anterior'].includes(f.periodo) || f.periodo.startsWith('m:')) return true;
+  if (f.periodo === 'personalizado' && f.rango) {
+    const dias = (Date.parse(f.rango.hasta) - Date.parse(f.rango.desde)) / 86_400_000 + 1;
+    return dias <= 31;
+  }
+  return false;
+}
 
 // ── Cifras ───────────────────────────────────────────────────────────────────
 

@@ -340,3 +340,33 @@ html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-
 .grafico__tip i { flex: none; width: 10px; height: 10px; border-radius: 50%; }
 .grafico__tip i[data-forma="cuadrado"] { border-radius: 1px; }
 .grafico__tip i[data-forma="rombo"] { border-radius: 1px; transform: rotate(45deg) scale(0.85); }
+
+/* ── Tabla cruzada de la Torre (Épica #14590, spec UX `flito-torre-explorador-flexible.md` §5.3) ──
+   `DataTable matriz encabezadoFila`: la 1.ª columna es `<th scope="row">` y queda FIJA al desplazar, con su esquina de
+   cabecera también fija (encima de todo). Solo afecta a matrices con encabezado de fila (las de antes no lo tienen). */
+.tabla-wrap.kit-matriz table.matriz th[scope="row"],
+.tabla-wrap.kit-matriz table.matriz:has(th[scope="row"]) thead th:first-child {
+  position: sticky; left: 0; z-index: 1; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: left; background: var(--color-surface-elevated); border-right: 1px solid var(--color-border); }
+.tabla-wrap.kit-matriz table.matriz th[scope="row"] {
+  display: table-cell; text-transform: none; letter-spacing: 0; font-size: inherit; font-weight: 600; color: var(--color-text-primary); }
+.tabla-wrap.kit-matriz table.matriz:has(th[scope="row"]) thead th:first-child { z-index: 2; background: var(--kit-linea); }
+.tabla-wrap.kit-matriz table.matriz tfoot th, .tabla-wrap.kit-matriz table.matriz tfoot td {
+  padding: 12px 14px; background: var(--color-surface-elevated); border-top: 2px solid var(--color-border); font-weight: 700; }
+@media (max-width: 1023px) {
+  .tabla-wrap.kit-matriz table.matriz th[scope="row"],
+  .tabla-wrap.kit-matriz table.matriz:has(th[scope="row"]) thead th:first-child { max-width: 9rem; }
+}
+/* <901 px la matriz heredaba de kit-propuesta.css la «fila tarjeta» de la tabla base (border-spacing 0 6px, celdas con
+   borde y radio) y se descuadraba: se aplana a una rejilla continua, como a ≥901 (solo borde superior, sin radio). */
+@media (max-width: 900px) {
+  .tabla-wrap.kit-matriz table.matriz { border-spacing: 0; }
+  .tabla-wrap.kit-matriz table.matriz td,
+  .tabla-wrap.kit-matriz table.matriz tbody th[scope="row"],
+  .tabla-wrap.kit-matriz table.matriz tfoot th[scope="row"] {
+    border: 0; border-top: 1px solid var(--color-border); border-radius: 0; vertical-align: middle; }
+  .tabla-wrap.kit-matriz table.matriz th[scope="row"] { border-right: 1px solid var(--color-border); }
+  .tabla-wrap.kit-matriz table.matriz th { border-radius: 0; }
+  .tabla-wrap.kit-matriz table.matriz tfoot td,
+  .tabla-wrap.kit-matriz table.matriz tfoot th[scope="row"] { border-top: 2px solid var(--color-border); }
+}

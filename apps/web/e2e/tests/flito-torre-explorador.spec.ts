@@ -24,14 +24,14 @@ const GERENCIA_COMERCIAL: UsuarioFixture = {
 };
 
 const RESULTADO = {
-  metrica: 'tramites_aprobados', unidad: 'conteo',
+  metrica: 'tramites', unidad: 'conteo',
   total: { valor: 47, n: 47 },
   filas: [
     { clave: '1', etiqueta: 'Compañía Demo A', valor: 18, n: 18, participacion: 38.3 },
     { clave: '2', etiqueta: 'Compañía Demo B', valor: 12, n: 12, participacion: 25.5 },
     { clave: '3', etiqueta: 'Compañía Demo C', valor: 17, n: 17, participacion: 36.2 },
   ],
-  baseFecha: { campo: 'fecha_aprobacion', excluidosSinFecha: 0, nBaseSincronizacion: 0 },
+  baseFecha: { campo: 'fecha_aprobacion', excluidosSinFecha: 0, nBaseSincronizacion: 0, fechaBase: 'aprobacion' },
   truncado: false, generadoEn: '2026-11-17T12:00:00.000Z',
 };
 const VACIO = { ...RESULTADO, total: { valor: 0, n: 0 }, filas: [] };
@@ -86,7 +86,7 @@ test.describe('Torre de Control · Explorador (Épica #14590)', () => {
     await expect(exportar(page)).toBeEnabled();
   });
 
-  test('error con reintento y vacío con «Limpiar filtros»; Exportar deshabilitado en ambos', async ({ page }) => {
+  test('error con reintento y vacío sin filtros con periodo corto → «Ver los últimos 6 meses»; Exportar deshabilitado en ambos', async ({ page }) => {
     await loginAs(page, GERENCIA_GENERAL);
     // En dev, StrictMode monta dos veces y la primera consulta sale doble: se falla hasta pulsar «Reintentar».
     let fallar = true;
@@ -102,10 +102,13 @@ test.describe('Torre de Control · Explorador (Épica #14590)', () => {
     fallar = false;
     await resultado(page).getByRole('button', { name: 'Reintentar' }).click();
     await expect(resultado(page)).toHaveAttribute('data-estado', 'vacio');
-    await expect(page.getByText('Ningún trámite cumple esta consulta.')).toBeVisible();
-    await expect(resultado(page).getByRole('button', { name: 'Limpiar filtros' })).toBeVisible();
+    await expect(resultado(page).getByText('No hay trámites aprobados este mes.')).toBeVisible();
+    await expect(resultado(page).getByText('Pruebe con un periodo más amplio.')).toBeVisible();
     await expect(exportar(page)).toBeDisabled();
     expect(cuerpos.length).toBe(antes + 1);
+    await resultado(page).getByRole('button', { name: 'Ver los últimos 6 meses' }).click();
+    await expect.poll(() => (cuerpos.at(-1) as { filtro: { rango: unknown } }).filtro.rango).toEqual({ preset: 'ultimos_6m' });
+    await expect(page.getByLabel('Periodo')).toHaveValue('ultimos_6m');
   });
 
   test('una pregunta frecuente recalcula sola y cambia el periodo de la barra compartida', async ({ page }) => {
@@ -129,8 +132,9 @@ test.describe('Torre de Control · Explorador (Épica #14590)', () => {
     await page.goto('/flito/torre/explorador');
     await expect(resultado(page)).toHaveAttribute('data-estado', 'lleno');
     const medir = page.getByLabel('Medir');
-    await expect(medir.locator('option', { hasText: 'Trámites aprobados' })).toHaveCount(1);
+    await expect(medir.locator('option').filter({ hasText: /^Trámites$/ })).toHaveCount(1);
     await expect(medir.locator('option', { hasText: 'Costo de logística' })).toHaveCount(0);
+    await expect(medir.locator('option', { hasText: 'Impuestos pagados' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Costo de logística del mes' })).toHaveCount(0);
   });
 });
@@ -149,7 +153,7 @@ test.describe('Torre de Control · Ficha de placa (Épica #14590)', () => {
     await page.goto('/flito/torre/explorador');
     const largoHistorial = await page.evaluate(() => history.length);
 
-    const buscador = page.getByRole('searchbox', { name: /Buscar placa: escriba la placa/ });
+    const buscador = page.getByRole('combobox', { name: /Buscar placa: escriba 3 o más caracteres/ });
     await buscador.fill('xxx 000');
     await buscador.press('Enter');
 
@@ -180,7 +184,7 @@ test.describe('Torre de Control · Ficha de placa (Épica #14590)', () => {
     };
     await page.route('**/api/flito/torre/placa/buscar', (route) => route.fulfill(json({ placa: 'XXX000', tramites: [aprobadoSinRadicado] })));
     await page.goto('/flito/torre/explorador');
-    const buscador = page.getByRole('searchbox', { name: /Buscar placa/ });
+    const buscador = page.getByRole('combobox', { name: /Buscar placa/ });
     await buscador.fill('XXX000');
     await buscador.press('Enter');
 
@@ -202,7 +206,7 @@ test.describe('Torre de Control · Ficha de placa (Épica #14590)', () => {
       await route.fulfill(json({ error: 'No encontrada' }, 404));
     });
     await page.goto('/flito/torre/explorador');
-    const buscador = page.getByRole('searchbox', { name: /Buscar placa/ });
+    const buscador = page.getByRole('combobox', { name: /Buscar placa/ });
 
     await buscador.fill('AB1');
     await buscador.press('Enter');
