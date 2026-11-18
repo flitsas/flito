@@ -23,7 +23,7 @@ export const ACCIONES_AUDITABLES = ['crear', 'editar', 'borrar', 'baja', 'reacti
  */
 export const CAMPOS_AUDITABLES = {
   usuario: ['role', 'active', 'deleted_at', 'password', 'funciones', 'allowed_pages',
-    'organismos_codigos', 'compania_id', 'flito_proveedor_soat_id', 'transito_codigo'],
+    'organismos_codigos', 'compania_id', 'flito_proveedor_soat_id', 'flito_proveedor_id', 'transito_codigo'],
   rol: ['nombre', 'descripcion', 'tipo_enlace', 'tipo_principal', 'activo'],
   rol_funcion: ['conjunto'],
   usuario_funcion: ['conjunto'],
@@ -60,6 +60,7 @@ export const CAMPO_LABELS: Record<CampoAuditable, string> = {
   organismos_codigos: 'Organismos de tránsito',
   compania_id: 'Compañía',
   flito_proveedor_soat_id: 'Proveedor SOAT',
+  flito_proveedor_id: 'Proveedor',
   transito_codigo: 'Organismo de tránsito',
   nombre: 'Nombre',
   descripcion: 'Descripción',

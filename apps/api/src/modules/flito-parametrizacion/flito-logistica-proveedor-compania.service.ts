@@ -11,10 +11,11 @@
 //       con los nombres de las compañías (nombre empresarial, sin datos de contacto).
 //   · RN-PLOGC-4 — `proveedorDeCompania` es el resolvedor único que consumirá el Feature de viajes a cliente.
 //   · Las compañías con la logística encendida al migrar quedan SIN proveedor (no hay proveedor por defecto).
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, or } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { clients, flitoProveedoresLogistica } from '../../db/schema.js';
+import { clients, flitoLogisticaDocumentos, flitoProveedores, flitoProveedoresLogistica } from '../../db/schema.js';
 import { clienteVigente } from '../clients/cliente-operable.js';
+import { sinActaAbierta } from '../flito-logistica/flito-logistica.base.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /** La conexión o una transacción abierta. */
@@ -31,10 +32,18 @@ export class ProveedorLogisticaNoUsableError extends Error {
 }
 /** 409: el proveedor está asignado a compañías y no se puede inactivar. */
 export class ProveedorLogisticaAsignadoError extends Error {
-  constructor(readonly companias: string[], accion: 'inactivar' | 'eliminar' = 'inactivar') {
-    super(`No se puede ${accion}: está asignado a ${companias.length} ${companias.length === 1 ? 'compañía' : 'compañías'} (${companias.join(', ')}). Asigna otro proveedor primero.`);
+  constructor(readonly companias: string[]) {
+    super(`No se puede inactivar: está asignado a ${companias.length} ${companias.length === 1 ? 'compañía' : 'compañías'} (${nombresResumidos(companias)}). Asigne otro proveedor primero.`);
     this.name = 'ProveedorLogisticaAsignadoError';
   }
+}
+
+/** Hasta 3 nombres y «y N más». `companias` conserva la lista completa para quien la necesite. */
+const TOPE_NOMBRES_EN_MENSAJE = 3;
+function nombresResumidos(nombres: readonly string[]): string {
+  const resto = nombres.length - TOPE_NOMBRES_EN_MENSAJE;
+  const visibles = nombres.slice(0, TOPE_NOMBRES_EN_MENSAJE).join(', ');
+  return resto > 0 ? `${visibles} y ${resto} más` : visibles;
 }
 
 /**
@@ -53,12 +62,42 @@ export function exigirProveedorSiEncendida(logisticaAutogestionable: boolean, pr
   if (!logisticaAutogestionable && proveedorId == null) throw new ProveedorLogisticaRequeridoError();
 }
 
-/** RN-PLOGC-2. Con la transacción que escribe: el `FOR SHARE` dura hasta su commit. */
+/**
+ * RN-PLOGC-2, R11. Con la transacción que escribe: el `FOR SHARE` dura hasta su commit. Primero el padre y luego el perfil, igual que
+ * `exigirProveedorSoatUsable`, el orden de quien inactiva o retira el servicio. Va después del de SOAT cuando la petición asigna ambos.
+ */
 export async function exigirProveedorLogisticaUsable(tx: Tx, id: string): Promise<void> {
-  const [p] = await tx.select({ nombre: flitoProveedoresLogistica.nombre, activo: flitoProveedoresLogistica.activo })
-    .from(flitoProveedoresLogistica).where(eq(flitoProveedoresLogistica.id, id)).for('share').limit(1);
-  if (!p) throw new ProveedorLogisticaNoUsableError('El proveedor de logística seleccionado no existe.', 'no_existe');
-  if (!p.activo) throw new ProveedorLogisticaNoUsableError(`El proveedor de logística ${p.nombre} está inactivo: elige otro.`, 'inactivo');
+  const [padre] = await tx.select({ nombre: flitoProveedores.nombre, activo: flitoProveedores.activo })
+    .from(flitoProveedores).where(and(eq(flitoProveedores.id, id), isNull(flitoProveedores.deletedAt))).for('share').limit(1);
+  const NO_EXISTE = 'El proveedor de logística seleccionado no existe.';
+  if (!padre) throw new ProveedorLogisticaNoUsableError(NO_EXISTE, 'no_existe');
+  const [perfil] = await tx.select({ id: flitoProveedoresLogistica.id })
+    .from(flitoProveedoresLogistica).where(and(eq(flitoProveedoresLogistica.id, id), isNull(flitoProveedoresLogistica.deletedAt))).for('share').limit(1);
+  if (!perfil) throw new ProveedorLogisticaNoUsableError(NO_EXISTE, 'no_existe');
+  if (!padre.activo) throw new ProveedorLogisticaNoUsableError(`El proveedor de logística ${padre.nombre} está inactivo: elige otro.`, 'inactivo');
+}
+
+/**
+ * HU #14346 (ADR-0039 §6.3, R16). En la transacción del PATCH, antes del UPDATE de `clients`: toma la compañía
+ * `FOR UPDATE` y pasa al proveedor recibido sus LT no entregadas y sin acta abierta. Devuelve cuántas pasó. Si el proveedor
+ * cambia, va después de `exigirProveedorLogisticaUsable`: padre → perfil → cliente → licencias. Nadie toma el padre o el perfil después
+ * del cliente: el escaneo y el registro de viaje, con el cliente `FOR SHARE`, solo piden `FOR KEY SHARE` por el FK, y
+ * quien toma el perfil `FOR UPDATE` (inactivar, retirar el servicio, eliminar) lee `clients` sin bloqueo.
+ *
+ * El UPDATE toca todo dueño distinto del recibido, no solo el anterior o NULL (§6.3): con A → sin proveedor → B, el
+ * anterior es NULL y la LT de A quedaría con A para siempre, sin poder entrar a ningún viaje. También corre al reenviar
+ * el mismo proveedor: es el procedimiento de reavance tras una reversa de imagen (§5.5). Con datos consistentes pasa 0.
+ */
+export async function reasignarLicenciasDeCompania(tx: Tx, companiaId: number, nuevoId: string): Promise<number> {
+  const [c] = await tx.select({ id: clients.id }).from(clients)
+    .where(and(eq(clients.id, companiaId), clienteVigente())).for('update');
+  if (!c) return 0;
+  const D = flitoLogisticaDocumentos;
+  const pasadas = await tx.update(D).set({ proveedorLogisticaId: nuevoId, updatedAt: new Date() }).where(and(
+    eq(D.companiaId, companiaId), eq(D.tipo, 'licencia_transito'), ne(D.estado, 'entregado'), sinActaAbierta,
+    or(isNull(D.proveedorLogisticaId), ne(D.proveedorLogisticaId, nuevoId)),
+  )).returning({ id: D.id });
+  return pasadas.length;
 }
 
 /** RN-PLOGC-3. Nombres de las compañías VIGENTES que tienen a este proveedor asignado (vacío = se puede inactivar). */

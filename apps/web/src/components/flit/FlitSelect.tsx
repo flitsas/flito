@@ -28,7 +28,7 @@
 //     selector que pueda quedar inhabilitado tiene que traer `onReintentar`**.
 //   · **Foco visible y contraste**, con lo aprendido en el Bug #11604: `.flit-focus` sin prefijo de
 //     scope (llega también a lo que cuelga de `<body>` por `ModalPortal`) y colores de TINTA
-//     —`--flit-danger-ink`, `--flit-text-secondary`— y no de superficie, que es lo que no llegaba al
+//     —`--flit-danger-text`, `--flit-text-secondary`— y no de superficie, que es lo que no llegaba al
 //     4,5:1 al usarlos como color de letra.
 //
 // Lo que deliberadamente NO hace: buscar dentro de las opciones, permitir selección múltiple ni
@@ -207,7 +207,7 @@ export default function FlitSelect({
         <span
           id={idMensaje}
           role="status"
-          style={{ color: mensaje && fallo ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}
+          style={{ color: mensaje && fallo ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}
         >
           {mensaje ?? ayuda}
         </span>
@@ -223,7 +223,7 @@ export default function FlitSelect({
         )}
       </div>
       {error && (
-        <p id={idError} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>
+        <p id={idError} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>
           {error}
         </p>
       )}

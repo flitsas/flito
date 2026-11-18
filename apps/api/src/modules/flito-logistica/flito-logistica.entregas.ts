@@ -1,4 +1,5 @@
 // HU #14125 — pestaña Entregas. Lectura de todos los viajes, sin alcance de mensajero ni de compañía.
+// HU #14351: al proveedor, solo los suyos, vía acta (ADR-0039 §6.5).
 // La placa solo filtra (igualdad de `normPlaca`); no sale en el DTO. Sin migración.
 
 import { and, asc, desc, eq, sql, type SQL } from 'drizzle-orm';
@@ -10,7 +11,9 @@ import { db } from '../../db/client.js';
 import {
   clients, flitoLogisticaDocumentos, flitoLogisticaTrasladoLts, flitoLogisticaTraslados, vehicles,
 } from '../../db/schema.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import { normPlaca } from './flito-logistica.aprobado.js';
+import { condicionDocumentosLogistica, condicionTrasladosLogistica } from './flito-logistica.alcance.js';
 
 /** Tope del listado. El cliente no lo manda: se leen 201 y, si sobra una, `truncado`. */
 export const TOPE_ENTREGAS = 200;
@@ -23,7 +26,8 @@ export interface FiltroEntregas {
 }
 
 /** `normPlaca(vehicles.plate)`: mayúsculas, sin espacios ni guiones. */
-function placaIgual(placa: string): SQL {
+function placaIgual(placa: string, alcance: AlcanceResuelto): SQL {
+  const propias = condicionDocumentosLogistica(alcance);
   return sql`exists (
     select 1
     from ${flitoLogisticaTrasladoLts}
@@ -33,6 +37,7 @@ function placaIgual(placa: string): SQL {
       on ${vehicles.id} = ${flitoLogisticaDocumentos.vehiculoId}
     where ${flitoLogisticaTrasladoLts.trasladoId} = ${flitoLogisticaTraslados.id}
       and upper(replace(replace(${vehicles.plate}, ' ', ''), '-', '')) = ${placa}
+      ${propias ? sql`and ${propias}` : sql``}
   )`;
 }
 
@@ -41,13 +46,14 @@ function placaIgual(placa: string): SQL {
  * `cantidadLt` cuenta todas las líneas del viaje (también devueltas y anuladas), en subselect
  * para no duplicar la fila. `companias` ignora los filtros del body.
  */
-export async function listarEntregas(filtro: FiltroEntregas): Promise<ListadoEntregasLogistica> {
+export async function listarEntregas(filtro: FiltroEntregas, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ListadoEntregasLogistica> {
+  const porAlcance = condicionTrasladosLogistica(alcance);
   const placa = filtro.placa !== undefined ? normPlaca(filtro.placa) : '';
-  const condiciones: SQL[] = [];
+  const condiciones: SQL[] = porAlcance ? [porAlcance] : [];
   if (filtro.estado) condiciones.push(eq(flitoLogisticaTraslados.estado, filtro.estado));
   if (filtro.destino) condiciones.push(eq(flitoLogisticaTraslados.destino, filtro.destino));
   if (filtro.companiaId !== undefined) condiciones.push(eq(flitoLogisticaTraslados.companiaId, filtro.companiaId));
-  if (placa) condiciones.push(placaIgual(placa));
+  if (placa) condiciones.push(placaIgual(placa, alcance));
 
   const viajesQ = db.select({
     id: flitoLogisticaTraslados.id,
@@ -66,12 +72,14 @@ export async function listarEntregas(filtro: FiltroEntregas): Promise<ListadoEnt
     .orderBy(desc(flitoLogisticaTraslados.registradoEn), desc(flitoLogisticaTraslados.id))
     .limit(TOPE_ENTREGAS + 1);
 
-  const companias = await db.selectDistinct({
+  const companiasQ = db.selectDistinct({
     companiaId: flitoLogisticaTraslados.companiaId,
     nombre: clients.name,
   }).from(flitoLogisticaTraslados)
     .leftJoin(clients, eq(clients.id, flitoLogisticaTraslados.companiaId))
-    .orderBy(asc(clients.name));
+    .$dynamic();
+  if (porAlcance) companiasQ.where(porAlcance);
+  const companias = await companiasQ.orderBy(asc(clients.name));
 
   const truncado = filas.length > TOPE_ENTREGAS;
   return {

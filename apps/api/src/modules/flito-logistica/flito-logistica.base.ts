@@ -1,11 +1,13 @@
 // FLITO Logística — base compartida (HU #14108, ADR-0030 §11): contexto, error de dominio, tipos de
 // transacción, constantes y helpers que usan los demás archivos del módulo. Sin dependencias de ellos.
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import type { Request } from 'express';
 import { tipoEventoEfectivo, type EstadoDocumentoLogistica as TEstadoDoc } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { flitoLogisticaDocumentos, flitoLogisticaEventos } from '../../db/schema.js';
+import { clients, flitoLogisticaActaLineas, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 
 export const log = loggerFor('flito-logistica');
 
@@ -14,7 +16,13 @@ export const log = loggerFor('flito-logistica');
  * `tieneFuncion`; el servicio no consulta permisos). Sin ella, solo opera SUS actas (CA-11). Ninguna
  * regla de este servicio lee el nombre del rol: `role` viaja solo como dato de auditoría.
  */
-export interface LogisticaCtx { userId: number; username: string; role: string; operaAjenas: boolean }
+export interface LogisticaCtx {
+  userId: number; username: string; role: string; operaAjenas: boolean;
+  /** HU #14347 y #14351 (ADR-0039 §6.4): el alcance del usuario. Con `operaAjenas`, «todas las de mi alcance». */
+  alcance: AlcanceResuelto;
+  /** AC10 de #14351: para registrar en `logPiiAccess` la generación del PDF que esta petición provoca. No se persiste ni se loguea. */
+  req?: Request;
+}
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type DbOrTx = typeof db | Tx;
@@ -87,4 +95,58 @@ export async function exigirTramiteResuelto(exec: DbOrTx, documentoIds: string[]
   const pend = await exec.select({ id: flitoLogisticaDocumentos.id }).from(flitoLogisticaDocumentos)
     .where(and(inArray(flitoLogisticaDocumentos.id, documentoIds), isNull(flitoLogisticaDocumentos.tramiteId)));
   if (pend.length) throw new LtPendienteDeTramiteError(pend.map((d) => d.id));
+}
+
+// ── Dueño de la LT (HU #14346, ADR-0039 §6.3) ───────────────────────────────
+//
+// Orden de bloqueo: cliente antes que licencias. El PATCH de compañía toma el cliente `FOR UPDATE` y luego actualiza
+// sus LT, así que quien ya tiene una LT bloqueada no puede pedir después el cliente: se tomaría el ciclo inverso.
+// Esto incluye el FK `compania_id` de un INSERT, que pide `FOR KEY SHARE` y choca con ese `FOR UPDATE`.
+
+/**
+ * El proveedor que gestiona la logística de una compañía. Autogestionada = sin proveedor: conserva el que tenía asignado
+ * (RN-PLOGC-1), pero sus licencias no llevan dueño (decisión del agente en F4.2, declarada al humano): ningún tercero ve las
+ * de una compañía cuya logística no gestiona FLITO.
+ */
+const proveedorQueGestiona = (c: { proveedorId: string | null; autogestionable?: boolean | null } | undefined): string | null =>
+  (c?.autogestionable ? null : c?.proveedorId ?? null);
+
+/** Toma el cliente `FOR SHARE` y devuelve su proveedor vigente. Va antes de bloquear o escribir licencias. */
+export async function bloquearCompania(tx: Tx, companiaId: number): Promise<string | null> {
+  const [c] = await tx.select({ proveedorId: clients.flitoProveedorLogisticaId, autogestionable: clients.logisticaAutogestionable }).from(clients)
+    .where(eq(clients.id, companiaId)).for('share');
+  return proveedorQueGestiona(c);
+}
+
+/** Bloquea las compañías de estas licencias, en orden de id. La lectura de `compania_id` es sin bloqueo: no cambia en una LT con compañía. */
+export async function bloquearCompaniasDeDocumentos(tx: Tx, docIds: string[]): Promise<Array<{ id: number; proveedorId: string | null }>> {
+  if (!docIds.length) return [];
+  const filas = await tx.select({ companiaId: flitoLogisticaDocumentos.companiaId }).from(flitoLogisticaDocumentos)
+    .where(inArray(flitoLogisticaDocumentos.id, docIds));
+  const companias = [...new Set(filas.flatMap((f) => (f.companiaId === null ? [] : [f.companiaId])))];
+  if (!companias.length) return [];
+  const bloqueadas = await tx.select({ id: clients.id, proveedorId: clients.flitoProveedorLogisticaId, autogestionable: clients.logisticaAutogestionable }).from(clients)
+    .where(inArray(clients.id, companias)).orderBy(clients.id).for('share');
+  return bloqueadas.map((c) => ({ id: c.id, proveedorId: proveedorQueGestiona(c) }));
+}
+
+/** La LT no está en un acta abierta, ni por `acta_id` (acta sin viaje) ni por las líneas del acta. */
+export const sinActaAbierta = sql`NOT EXISTS (SELECT 1 FROM ${flitoLogisticaActas} WHERE ${flitoLogisticaActas.id} = ${flitoLogisticaDocumentos.actaId} AND ${flitoLogisticaActas.estado} IN ('generada', 'despachada'))
+  AND NOT EXISTS (SELECT 1 FROM ${flitoLogisticaActaLineas} JOIN ${flitoLogisticaActas} ON ${flitoLogisticaActas.id} = ${flitoLogisticaActaLineas.actaId}
+    WHERE ${flitoLogisticaActaLineas.documentoId} = ${flitoLogisticaDocumentos.id} AND ${flitoLogisticaActas.estado} IN ('generada', 'despachada'))`;
+
+/**
+ * Al cerrarse un acta: lo no entregado pasa al proveedor vigente de su compañía; lo entregado se queda con quien lo
+ * entregó. Sin proveedor vigente (o con la LT aún en otra acta abierta), el dueño no cambia. `en_flit` no es entregado:
+ * falta el viaje al cliente, y lo hace el proveedor vigente.
+ */
+export async function pasarAlProveedorVigente(tx: Tx, docIds: string[]): Promise<void> {
+  const D = flitoLogisticaDocumentos;
+  for (const c of await bloquearCompaniasDeDocumentos(tx, docIds)) {
+    if (c.proveedorId === null) continue;
+    await tx.update(D).set({ proveedorLogisticaId: c.proveedorId, updatedAt: new Date() }).where(and(
+      inArray(D.id, docIds), eq(D.companiaId, c.id), ne(D.estado, 'entregado'), sinActaAbierta,
+      or(isNull(D.proveedorLogisticaId), ne(D.proveedorLogisticaId, c.proveedorId)),
+    ));
+  }
 }

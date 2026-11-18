@@ -316,8 +316,10 @@ sequenceDiagram
 | Entrega | Rollback (revertir el digest) |
 |---|---|
 | F1-F3 | Limpio. La imagen vieja lee perfiles sincronizados. Un usuario de un proveedor **solo de logística** queda con la columna vieja en NULL y falla cerrado |
-| F4 | Limpio. Las columnas nuevas se ignoran; la frontera vuelve a cerrar a `proveedor` en logística |
+| F4 | **Revertir es limpio, volver a avanzar no.** Al revertir, las columnas nuevas se ignoran y la frontera vuelve a cerrar a `proveedor` en logística. Pero la imagen vieja no estampa ni reasigna el dueño: las LT que toque quedan con dueño `NULL` o desfasado, y el backfill no se repite. Al avanzar otra vez, AC3 las rechaza con 409 y una sola hace fallar `cerrarLote` de su compañía. Exige el reavance descrito abajo |
 | **F5** | **No reversible sin restaurar.** Con `pg_dump` previo; solo cuando F4 lleve un tiempo estable en PDN |
+
+**Reavance de F4 tras una reversa:** por cada compañía afectada, reenviar su mismo proveedor (`PATCH /api/flito/parametrizacion/companias/:id` con `proveedorLogisticaId`), que aplica la regla de §6.3 y con datos consistentes no reasigna nada. La pantalla de clientes no reenvía un proveedor sin cambios (`ServiciosCliente.tsx`), así que es una llamada directa al API. Si son muchas compañías, una **migración nueva** con el mismo `UPDATE`; el backfill ya aplicado no se edita.
 
 **F5 (contract):** deja de leer las columnas viejas, migra los lectores, elimina triggers, `nombre`/`activo`/`nit`/`contacto`/`telefono` de los perfiles, `estrategia` de logística, `users.flito_proveedor_soat_id`. También actualiza `users_ambito_requerido` si aún la nombra y retira las rutas `proveedores-soat`/`proveedores-logistica` que queden.
 
@@ -353,9 +355,7 @@ Falla cerrado. Mismo cuerpo que hoy. La tabla `FRONTERA_POR_ENLACE` sigue siendo
 
 **Selección de mensajero (R14):** `exigirMensajeroAsignable(tx, mensajeroId, alcance, proveedorDelActa)`, en servidor, en **los cuatro caminos**: `POST /traslados`, `/traslados/:id/despachar`, `/actas/:id/despachar` y `mensajerosAsignables`, que también debe exigir `active` (hoy no lo hace). Proveedor: solo los suyos. Operaciones: los de FLITO y los del proveedor dueño del acta (R13; confirmado por el humano el 2026-11-05).
 
-**Creación del mensajero (decisión del humano, 2026-11-05):** se crea atado a su proveedor y lo puede crear quien tenga el permiso, incluido el propio proveedor si su rol tiene `usuarios.usuario.crear`. Por ahora lo hace Operaciones.
-
-**Trabajo que esto exige, en F3 y con revisión obligatoria de `security-agent`:** hoy dar ese permiso a un proveedor no basta, porque `/api/users` no está en ningún módulo de `FRONTERA_POR_ENLACE` y la frontera lo rechaza. Abrirlo solo al enlace `proveedor` exige, en el mismo PR (ADR-0024): tomar el proveedor de la sesión y nunca del cuerpo, limitar los roles asignables a los de enlace `proveedor` para impedir que se escale a un rol con más permisos (`POST /api/users` acepta hoy cualquier rol y proveedor), y filtrar a su proveedor la lista de usuarios y cada acción abierta sobre ellos. Sin esas guardas no se abre.
+**Creación del mensajero (decisión del humano, 2026-11-05):** se crea atado a su proveedor, con la pantalla y la ruta actuales de usuarios, y lo hace Operaciones. **Que el proveedor gestione sus propios usuarios queda fuera de esta épica,** porque modifica más que el tema de proveedores: `/api/users` sigue cerrado a todo enlace. Si se retoma, `POST /api/users` acepta hoy cualquier rol y proveedor en el cuerpo, y habría que limitarlos.
 
 ### 6.3 Dueño de cada fila (R12, R15, R16, R17)
 
@@ -369,7 +369,7 @@ Falla cerrado. Mismo cuerpo que hoy. La tabla `FRONTERA_POR_ENLACE` sigue siendo
 | LT pendiente | `NULL`: solo Operaciones (R20) |
 | `registrarTraslado` | Exige dueño = proveedor actual; estampa el acta con él (ya lo hace) |
 | `confirmarRecogida` | Estampa el acta de organismo (hoy queda NULL). El firmante recibe el proveedor si todas sus LT son del mismo; si no, `NULL` |
-| **Cambio de proveedor (R16)** | En la transacción del PATCH: `UPDATE` de LT de esa compañía con dueño anterior o `NULL`, estado distinto de `entregado` y **sin acta abierta** (`generada`/`despachada`). Quitar el proveedor (→ NULL) no reasigna |
+| **Cambio de proveedor (R16)** | En la transacción del PATCH: `UPDATE` de LT de esa compañía con **todo dueño distinto del nuevo**, incluido `NULL`, estado distinto de `entregado` y **sin acta abierta** (`generada`/`despachada`). No basta con «dueño anterior o `NULL`»: con A → sin proveedor → B el anterior es `NULL`, y la LT de A quedaría con A para siempre, sin poder entrar a ningún viaje (validado por QA). Reenviar el mismo proveedor aplica la misma regla (§5.5). Quitar el proveedor (→ NULL) no reasigna |
 | **Cierre de un acta abierta** | `pasarAlProveedorVigente(tx, docIds)` tras `entregarTraslado`, `firmarLlegadaFlit`, `devolverTraslado`, `anularTraslado`, `entregar`, `registrarDevolucion`, `reversar`: lo no entregado va al proveedor actual, si hay uno |
 
 **Bloqueos sin interbloqueo:** el cliente antes que las LT, `FOR UPDATE` en el PATCH y `FOR SHARE` en escaneo y registro de viaje.
@@ -515,14 +515,14 @@ sequenceDiagram
 // shared-types
 export const MENSAJE_LT_NO_ENCONTRADA = 'No se encontró un trámite para esta licencia';
 
-// Único constructor. Solo devuelve lo que el usuario envió o lo que trae el código que tiene en la mano.
+// Único constructor. Identifica lo leído para reintentarlo; no devuelve el nombre del propietario (Ley 1581).
 const noEncontrado = (l: Lectura): ResultadoEscaneo => ({
   resultado: 'sin_match', motivo: MENSAJE_LT_NO_ENCONTRADA,
-  placa: l.placa, vin: l.vin ?? '', numeroLicencia: l.numeroLicencia, propietarioNombre: l.propietarioNombre,
+  placa: l.placa, vin: l.vin ?? '', numeroLicencia: l.numeroLicencia,
 });
 ```
 
-Siempre HTTP 200, misma forma, sin `idFlit`, `companiaNombre`, `organismoCodigo`, `documentoId` ni `candidatos`. El motivo real (`inexistente`, `fuera_de_alcance`, `no_gestionada`, `lt_ajena`) se escribe solo en `audit().detail`, sin PII, para soporte.
+Siempre HTTP 200, misma forma, sin `idFlit`, `companiaNombre`, `organismoCodigo`, `documentoId`, `candidatos` ni `propietarioNombre`. La web, que necesita el nombre para mostrar la tarjeta del escaneo, lo saca de su propio parseo del código. El motivo real (`inexistente`, `fuera_de_alcance`, `no_gestionada`, `lt_ajena`) se escribe solo en `audit().detail`, sin PII, para soporte.
 
 ### 8.4 Matriz de casos
 
@@ -558,6 +558,8 @@ Siempre HTTP 200, misma forma, sin `idFlit`, `companiaNombre`, `organismoCodigo`
 ### 8.7 Idempotencia
 
 `/escanear`, `/novedad`, `/actas/:id/entregar` y `/actas/:id/devolucion` pasan `ruta` a `conIdempotencia`: la clave queda `usuarioId:ruta:cabecera`. Efecto: un reenvío offline de una clave vieja, en el momento del despliegue, se ejecuta una vez más; los índices de la operación lo contienen. Por eso entra en F4.1, antes de abrir.
+
+**`sin_match` no se persiste.** `flito_logistica_idempotencia.response` es jsonb sin cifrar y sin purga, y un `sin_match` no escribió nada: guardarlo solo dejaría placa, VIN y número de licencia de algo que FLITO no gestiona. Su reenvío vuelve a decidir, sin escribir si nada cambió. Si entretanto apareció un trámite gestionable, el reenvío lo registra, que es lo correcto: la licencia ya es gestionable. Cada reenvío deja su línea de auditoría.
 
 ---
 
@@ -640,7 +642,7 @@ ADR-0030 sigue vigente para traslados, actas, firmas, precios y estados. **No se
 
 Propuesto: (1) modelo y migración, (2) gestión, (3) asignación, usuarios y mensajeros, (4) operación y escaneo.
 
-1. **Elegir mensajero al despachar pasa de 3 a 4.** La rama de proveedor de `mensajerosAsignables` no tiene uso hasta abrir la frontera. Crear usuarios y mensajeros del proveedor queda en F3 (§6.2).
+1. **Elegir mensajero al despachar pasa de 3 a 4.** La rama de proveedor de `mensajerosAsignables` no tiene uso hasta abrir la frontera. Atar usuarios y mensajeros a un proveedor de cualquier servicio queda en F3 (§6.2).
 2. **La frontera por servicio entra en F3.** Desde F3 se pueden crear usuarios de un proveedor solo de logística; sin esa guarda verían SOAT en el menú.
 3. **F4 se parte en 2 PR del mismo Feature.** F4.1 es invisible para el proveedor y puede fallar sin exponer nada. F4.2 abre `FRONTERA_POR_ENLACE.logistica` **en el mismo PR** que filtra (ADR-0024). **F4.2 no se parte**, aunque pase de ~1500 líneas.
 4. **F5 es nuevo:** la contracción. No está en el pedido; es la consecuencia de elegir expand/contract, y sin ella queda duplicación permanente. Su momento depende de PDN.
@@ -662,7 +664,7 @@ Propuesto: (1) modelo y migración, (2) gestión, (3) asignación, usuarios y me
 - *Frontend (∥ backend tras el contrato):* `components/clientes/FormProveedor.tsx`, `TabProveedores.tsx`, `proveedoresDatos.ts`, `useEliminarProveedor.tsx`. Con `ux-agent` y maqueta.
 - *Tests:* `proveedores-gestion.routes.test.ts`, más los cuatro `proveedores-*` existentes que cambien.
 
-**F3 — Asignación, pertenencia y frontera por servicio.** R3, R5, R10, R11, R14 (creación), R21. Depende de F1. Sin abrir logística. Abre `/api/users` solo al enlace `proveedor`, con las guardas de §6.2 y revisión obligatoria de `security-agent`; los archivos adicionales de esa apertura se precisan en las HUs de F3.
+**F3 — Asignación, pertenencia y frontera por servicio.** R3, R5, R10, R11, R21. Depende de F1. Sin abrir logística ni `/api/users`.
 
 - *Backend:* `shared/permisos-efectivos.ts`, `shared/middleware/frontera-enlace.ts`, `modules/auth/auth.routes.ts`, `modules/users/users.routes.ts`, `users.service.ts`, `modules/flito-parametrizacion/flito-parametrizacion.routes.ts` (solo PATCH de compañías y GET de selectores), `flito-logistica-proveedor-compania.service.ts`, `flito-proveedores-estado.service.ts` (`exigirProveedorSoatUsable`).
 - *Frontend:* `components/clientes/ServiciosCliente.tsx`, `pages/users/AtaduraFields.tsx`, `pages/FlitoSoat.tsx`, `pages/FlitoTramites.tsx`.
@@ -733,7 +735,7 @@ Nuevo: `flito-proveedores.ts`. Modifica: `permisos-roles.ts` (F4.2), `flito-logi
 
 Todas tienen un valor por defecto en el diseño, que se aplica si se aprueba tal cual.
 
-**Respuesta del humano (David Chica, sesión del 2026-11-05):** aprobó la Opción 2 y los valores por defecto de D1 a D5. Los ajustes a R4, R5, R17 y R20 se le presentaron en ese mismo mensaje y no los objetó, sin aprobarlos por separado. D6 sigue abierta, pendiente de jurídica. Después, sobre las contradicciones halladas al crear los Features, aprobó la fecha de corte de R17 (§6.3) y **dejar D5 sin decidir hasta que la comprobación previa muestre un caso real, lo que reemplaza el valor por defecto de la tabla.** También indicó que el mensajero se crea atado al proveedor, que lo puede hacer quien tenga el permiso, y que por ahora lo hace Operaciones (§6.2). Al cerrar las HUs aprobó: gestión completa de los usuarios de su propio proveedor, cada acción con su permiso, con exportar, resumen y auditoría cerrados (#14343); fecha de corte automática al desplegar (#14349); historial solo por API (#14335); y flujo local para F1 a F4, con merge retenido hasta validar la épica en local. El estado del ADR no lo cambia ningún agente.
+**Respuesta del humano (David Chica, sesión del 2026-11-05):** aprobó la Opción 2 y los valores por defecto de D1 a D5. Los ajustes a R4, R5, R17 y R20 se le presentaron en ese mismo mensaje y no los objetó, sin aprobarlos por separado. D6 sigue abierta, pendiente de jurídica. Después, sobre las contradicciones halladas al crear los Features, aprobó la fecha de corte de R17 (§6.3) y **dejar D5 sin decidir hasta que la comprobación previa muestre un caso real, lo que reemplaza el valor por defecto de la tabla.** También indicó que el mensajero se crea atado al proveedor con la pantalla actual, por Operaciones, y dejó fuera de la épica que el proveedor gestione sus usuarios (§6.2). Al cerrar las HUs aprobó: fecha de corte automática al desplegar (#14349); historial solo por API (#14335); y flujo local para F1 a F4, con merge retenido hasta validar la épica en local. El estado del ADR no lo cambia ningún agente.
 
 | # | Pregunta | Por defecto | Por qué importa |
 |---|---|---|---|
@@ -743,6 +745,7 @@ Todas tienen un valor por defecto en el diseño, que se aplica si se aprueba tal
 | **D4** | ¿El proveedor ve el **precio** que FLITO cobra a la compañía? | **No.** | Las respuestas actuales lo incluyen. Es dato comercial |
 | **D5** | Si dos filas repetidas son **la misma empresa**, ¿cómo se unen? R22 prohíbe la fusión automática, pero no dice qué sigue | **Sin decidir por ahora:** se decide con el caso concreto si la comprobación previa lo muestra (decisión del humano, reemplaza el valor inicial de renombrar) | Unir exige reapuntar compañías, usuarios y actas. Si el preflight no lista nada, esta decisión no aplica |
 | **D6** | ¿Hay un **instrumento legal** con cada proveedor como encargado del tratamiento (Ley 1581)? | Fuera del código. Sugerencia: confirmar con jurídica/cumplimiento antes de operar F4.2 en PDN | Un tercero tratará firmas y cédulas |
+| **D7** | Un usuario con enlace `compania` en `POST /actas/:id/despachar`: ¿qué mensajeros puede asignar? | **Decidido por David Chica (2026-11-06): se rechaza a ese enlace (403).** Se aplica en F4.2. Antes recibía la regla de Operaciones, por decisión del agente que lo implementó; `security-agent` recomendó fallar cerrado | La regla de Operaciones es la más amplia (§6.2, R14), y ese enlace no es Operaciones |
 
 Valores que **no** se preguntan porque salen de las reglas o se pueden cambiar en el panel: `dejar_pendiente` solo a `admin` (literal de R20; el mensajero de FLITO lo pierde y el administrador puede concederlo), roles creados por el administrador.
 
@@ -767,11 +770,12 @@ Valores que **no** se preguntan porque salen de las reglas o se pueden cambiar e
    - La unicidad de Logística (`flito_proveedores_logistica_nombre_key` y `uq_flito_proveedores_logistica_nit`) no filtra por `deleted_at`: F2 necesita una migración para que dar de baja libere nombre y NIT (§3), y que el servicio reconozca `_key` además de `_unique`.
    - F2 debe escribir padre y perfiles en la misma transacción y dar de baja primero el padre. La primera rama de `perfil_a_padre` no mira `deleted_at`, así que un UPDATE sobre un perfil de baja podría volver a copiar datos al padre.
    - Debe traducir a 409 el 23505 de una escritura directa en el padre sin registrar el DETAIL, que trae el NIT.
-   - Antes de exigir NIT a todos (R9), debe decidir el tratamiento del NIT de persona natural: cifrado con índice ciego o distinguir persona natural de jurídica. También debe enmascarar `nit` en auditoría.
+   - **NIT (decisión del humano, 2026-11-05):** los proveedores de FLITO son solo empresas. El NIT sigue en claro y se trata como dato de empresa, sin cifrado ni índice ciego. F2 debe enmascarar `nit` en auditoría y aclarar en el formulario que el proveedor es una empresa.
    - La imagen anterior no filtra `deleted_at` en Logística: desde F2, un perfil de baja reaparecería al revertir el digest (matiza §5.5).
    - Una baja que en el mismo UPDATE cambia `activo`, nombre, NIT, contacto o teléfono sube `version` en 2. Solo afecta al aviso de edición simultánea.
    - Carrera entre las dos últimas bajas de un proveedor mixto: en READ COMMITTED, ninguna ve al otro perfil de baja y el padre queda vigente, sin perfiles y con sus datos. F2 debe bloquear el padre con `FOR UPDATE` antes de comprobar la vista.
-   - Retención: registrar en `privacy/` la finalidad y el plazo del registro de baja, cuyo `nombre` es dato personal si el proveedor es persona natural, junto con el punto 13 de §9. Antes de que F2 escriba `ciudad` o permita persona natural.
+   - Retención: con «solo empresas», el registro de baja conserva id, nombre y ciudad de una empresa, sin datos personales, y la auditoría guarda los valores enmascarados. No hay registro de plazos en `privacy/` y F2 no inventa uno: el plazo de retención de `flito_proveedores_auditoria` se confirma con jurídica, junto con D6.
+   - **Decisiones de F2 (humano e hilo, 2026-11-05) que ajustan §4 y §7.1:** datos de SOAT opcionales; agregar un servicio cuenta como editar y exige los datos generales (matiza R9); las licencias `entregado` y `devuelto` no bloquean quitar Logística y `novedad` sí; `PATCH /:id` acepta `servicios[]` en una transacción y se retira `POST /:id/servicios/:servicio`; las rutas antiguas de escritura se retiran en F2 y sus `GET` conviven hasta F5.
 9. **`pasarAlProveedorVigente` tiene varios puntos de llamada.** Si se olvida uno, una LT queda con el anterior. Se prueba por camino en QA.
 10. **`Mensajería FLIT` con usuarios de proveedor:** §6.3 protege las legadas, no las posteriores.
 11. **Inactivar con asimetría por servicio (§4.2):** R5 no la cambia y se conserva. Un proveedor mixto queda bajo la regla más estricta.

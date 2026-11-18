@@ -14,10 +14,9 @@ import {
 import {
   DescargarSoportesZip, ZIP_SOAT, type EstadoDescargaZip,
 } from './DescargarSoportesZip';
-import { opcionesConEstado } from '../flit/opcionesConEstado';
+import { SOAT_REINTENTO, mensajeSelectorSoat, type CatalogoSelector } from '../clientes/proveedoresDatos';
 
 /** Lo único que la barra necesita saber de un proveedor de SOAT. */
-export interface ProveedorSoat { id: string; nombre: string; activo: boolean }
 
 /**
  * Valor centinela del selector de destino. La contingencia entra como una opción MÁS de la misma
@@ -112,7 +111,7 @@ export default function BarraEnvioSoat({
   marcadas, enviables, descargables, puedeEnviar, puedeDescargar, proveedores, zip, onEnviado, onError, onQuitar,
 }: {
   marcadas: number; enviables: string[]; descargables: string[]; puedeEnviar: boolean;
-  puedeDescargar: boolean; proveedores: ProveedorSoat[];
+  puedeDescargar: boolean; proveedores: CatalogoSelector;
   zip: Pick<EstadoDescargaZip, 'ocupado' | 'descargar'>;
   onEnviado: (enviados: number, aOperaciones: boolean) => void; onError: (texto: string) => void;
   onQuitar: () => void;
@@ -121,6 +120,7 @@ export default function BarraEnvioSoat({
   const [enviando, setEnviando] = useState(false);
   const idMotivoZip = useId();
   const aOperaciones = destino === DESTINO_OPERACIONES;
+  const mensajeCatalogo = mensajeSelectorSoat(proveedores);
   const seOfreceEnviar = puedeEnviar && enviables.length > 0;
   const desajuste = seOfreceEnviar && enviables.length < marcadas;
   const motivoZip = puedeDescargar ? motivoZipSoat(marcadas, descargables.length) : null;
@@ -156,20 +156,22 @@ export default function BarraEnvioSoat({
               <select className={`${flitInp} h-10 min-w-0 flex-1 sm:max-w-xs`} value={destino} onChange={(e) => setDestino(e.target.value)}>
                 <option value="">Elige destino…</option>
                 <option value={DESTINO_OPERACIONES}>Gestionado por Operaciones</option>
-                <optgroup label="Proveedores">
-                  {/* HU #13963: el inactivo se ve en gris con «Inactivo» —en el texto, no solo en el
-                      gris— y no se puede elegir; los eliminados el API ya no los devuelve. Valor
-                      actual `''` a propósito: aquí no hay un destino «ya asignado» que conservar, y
-                      pasar `destino` habilitaría al inactivo en cuanto quedara elegido. */}
-                  {opcionesConEstado(proveedores, '').map((o) => (
-                    <option key={o.valor} value={o.valor} disabled={o.deshabilitada || undefined}
-                      aria-disabled={o.deshabilitada ? true : undefined}>
-                      {o.nota ? `${o.etiqueta} (${o.nota})` : o.etiqueta}
-                    </option>
-                  ))}
-                </optgroup>
+                {/* HU #14342: solo activos que prestan SOAT, ya filtrados por el API. */}
+                {!!proveedores.data?.length && (
+                  <optgroup label="Proveedores">
+                    {proveedores.data.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                  </optgroup>
+                )}
               </select>
             </label>
+            {/* «Gestionado por Operaciones» sigue disponible aunque los proveedores no carguen: por eso el
+                estado va aparte y el selector no se deshabilita. Región montada siempre, como en `FlitSelect`. */}
+            <span role="status" className="w-full text-xs empty:w-0 sm:w-auto" style={{ color: proveedores.error ? 'var(--flit-danger-ink)' : 'var(--flit-text-secondary)' }}>
+              {mensajeCatalogo}
+            </span>
+            {proveedores.error && (
+              <button type="button" className={flitBtnSecondarySm} onClick={proveedores.recargar}>{SOAT_REINTENTO}</button>
+            )}
             {/* Sin destino el SOAT quedaría en la cola de nadie y sin ANS con el que medirlo. */}
             <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
               disabled={enviando || !destino} onClick={enviar}>

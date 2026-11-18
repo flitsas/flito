@@ -141,7 +141,7 @@ describe('HU #12716 AC7 — el arranque compara también el módulo de agrupaci�
     // HU #13428: ni las 4 de Clientes y proveedores que absorbió (compañías y proveedores editar/crear, `clients.clientes.*`);
     // `parametrizacion.companias.listar` y `.proveedores.listar` siguen vivas: son OPCIONALES de «Ver clientes y proveedores».
     const vivas = [...reagrupadas].filter((c) => MODULO_DE.has(c)).length;
-    expect(vivas).toBe(24);
+    expect(vivas).toBe(25); // + `parametrizacion.proveedores.historial` (HU #14335)
     expect((error as Error).message).toMatch(new RegExp(`difiere entre la base y el código en ${vivas} funciones`));
     expect((error as Error).message).toMatch(new RegExp(`… y ${vivas - 10} más`));
     expect(((error as Error).message.match(/^\s+«/gm) ?? [])).toHaveLength(10);

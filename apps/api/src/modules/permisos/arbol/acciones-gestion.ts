@@ -139,13 +139,13 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
     // PO 2026-10-13: despachar y operar ajenas son OPCIONALES: el mensajero recibe la acción (entregar y
     // devolver) sin despachar ni operar actas ajenas; quien las tenía las conserva como marca directa.
     operaciones: ['logistica.actas.entregar', 'logistica.actas.devolver'],
-    opcionales: ['logistica.actas.despachar', 'logistica.actas.operar_ajenas', 'logistica.actas.firmar_flit'], // + firmar la llegada a FLIT (HU #14122): el mensajero no la recibe
+    opcionales: ['logistica.actas.despachar', 'logistica.actas.operar_ajenas', 'logistica.actas.firmar_flit', 'logistica.traslado.anular'], // + firmar la llegada a FLIT (HU #14122): el mensajero no la recibe; + anular viaje (ADR-0040 §2): el proveedor no tiene reversar_paso
   },
   'accion.logistica.cerrar_lote': { operaciones: ['logistica.lote.cerrar'] },
   'accion.logistica.reversar_paso': { operaciones: ['logistica.documento.reversar'], opcionales: ['logistica.documento.resolver_tramite', 'logistica.traslado.anular'] }, // + resolver el trámite (HU #14143); + anular viaje (HU #14115): se conceden aparte
   // ── Mi ruta (P-8) ── el mensajero abre el documento desde su ruta: `documento.ver` es de apoyo.
   'accion.mi_ruta.ver': { lectura: true, operaciones: ['logistica.ruta.ver'], apoyo: ['logistica.documento.ver'] },
-  'accion.mi_ruta.escanear': { operaciones: ['logistica.documento.escanear'], opcionales: ['logistica.recogida.confirmar', 'logistica.traslado.registrar'] }, // + confirmar recogida (HU #14110); + registrar viaje a cliente (HU #14114, solo admin): se conceden aparte
+  'accion.mi_ruta.escanear': { operaciones: ['logistica.documento.escanear'], opcionales: ['logistica.recogida.confirmar', 'logistica.traslado.registrar', 'logistica.documento.dejar_pendiente'] }, // + confirmar recogida (HU #14110); + registrar viaje a cliente (HU #14114, solo admin): se conceden aparte
   'accion.mi_ruta.reportar_novedad': { operaciones: ['logistica.documento.reportar_novedad'] },
   // ── Comparendos ──
   'accion.comparendos.ver_listado': { lectura: true,

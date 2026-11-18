@@ -31,7 +31,7 @@ async function mockBase(page: Page) {
   page.on('request', (r) => { if (r.url().includes('/api/flito/logistica')) pedidos.push(`${r.method()} ${new URL(r.url()).pathname}`); });
   await page.route(/\/api\/flito\/logistica\/facetas/, (r) => r.fulfill(json(FACETAS)));
   await page.route(/\/api\/flito\/logistica\/actas$/, (r) => r.fulfill(json([])));
-  await page.route(/\/api\/flito\/logistica\?/, (r) => r.fulfill(json({ items: [], total: 0, page: 1, pageSize: 50 })));
+  await page.route(/\/api\/flito\/logistica\/buscar$/, (r) => r.fulfill(json({ items: [], total: 0, page: 1, pageSize: 50 })));
   await page.route(/\/api\/flito\/logistica\/traslados\/buscar/, (r) => r.fulfill(json({ viajes: VIAJES, companias: [] })));
   return pedidos;
 }
@@ -41,10 +41,10 @@ test.describe('Logística — pestañas por función', () => {
     await loginAs(page, OPERACIONES_USER, { funciones: conFunciones('logistica.actas.listar') });
     const pedidos = await mockBase(page);
     await page.goto('/flito/logistica');
-    const tabs = page.locator('div.flex.flex-wrap.gap-1.border-b button');
-    await expect(tabs).toHaveCount(1);
-    await expect(tabs.first()).toContainText('Actas');
-    expect(pedidos.some((p) => p === 'GET /api/flito/logistica')).toBe(false);
+    // Con una sola pestaña visible no se pinta la barra (HU #14353).
+    await expect(page.locator('div.flex.flex-wrap.gap-1.border-b button')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Actas' })).toBeVisible();
+    expect(pedidos.some((p) => p === 'POST /api/flito/logistica/buscar')).toBe(false);
     expect(pedidos.some((p) => p.endsWith('/facetas'))).toBe(false);
     expect(pedidos.some((p) => p.endsWith('/logistica/actas'))).toBe(true);
     await expect(page.getByRole('alert')).toHaveCount(0);
@@ -105,6 +105,20 @@ test.describe('Logística — Enviar a cliente', () => {
     await page.getByRole('dialog').getByRole('button', { name: 'Enviar a cliente' }).click();
     await expect(page.getByRole('alert')).toContainText('Alguna LT ya no está en FLIT.');
     await expect(page.getByText('TrasladoOrigenMixtoError')).toHaveCount(0);
+  });
+
+  test('409 LT_DE_OTRO_PROVEEDOR (HU #14350): copy propio, nunca el texto del API', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER, { funciones: FUN });
+    await mockBase(page);
+    const crudo = 'Una o más LT no son del proveedor actual de la compañía';
+    await page.route(/\/api\/flito\/logistica\/traslados$/, (r) =>
+      r.request().method() === 'POST' ? r.fulfill(json({ error: crudo, codigo: 'LT_DE_OTRO_PROVEEDOR', detalle: { documentoIds: ['doc-fl-1'] } }, 409)) : r.fallback());
+    await page.goto('/flito/logistica');
+    await page.getByRole('button', { name: /^Viajes/ }).first().click();
+    await page.getByRole('button', { name: 'Enviar a cliente' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Enviar a cliente' }).click();
+    await expect(page.getByRole('alert')).toContainText('Alguna LT ya no es del proveedor actual de la compañía.');
+    await expect(page.getByText(crudo)).toHaveCount(0);
   });
 });
 

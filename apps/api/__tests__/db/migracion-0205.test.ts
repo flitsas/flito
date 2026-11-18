@@ -36,7 +36,13 @@ const PARES = reagrupaciones();
 // HU #13631: la 0243 retiró `sync.sync.lanzar` y el mapa del código ya no la reagrupa. La 0205 está
 // aplicada y congelada: sus 47 tuplas son las de hoy más esta. Única diferencia admitida.
 const RETIRADAS_DESPUES: readonly [string, string][] = [['sync.sync.lanzar', 'tramites']];
-const PARES_0205 = [...PARES, ...RETIRADAS_DESPUES].sort(([a], [b]) => a.localeCompare(b));
+// El mapa del código también crece: lo que nació después de la 0205 está en `reagrupaciones()` y no en sus tuplas.
+// Lista explícita a propósito: una función nueva tiene que declararse aquí, no pasar por un filtro que la absuelva.
+const NACIDAS_DESPUES: readonly [string, string][] = [
+  ['parametrizacion.proveedores.historial', 'clientes'], // HU #14335 (0294)
+];
+const CODIGOS_NACIDOS = new Set(NACIDAS_DESPUES.map(([c]) => c));
+const PARES_0205 = [...PARES.filter(([c]) => !CODIGOS_NACIDOS.has(c)), ...RETIRADAS_DESPUES].sort(([a], [b]) => a.localeCompare(b));
 const MAPA_0205 = new Map(PARES_0205);
 
 /** Las tuplas `('codigo', 'modulo')` del VALUES tal como están en el archivo, en su orden. */
@@ -92,15 +98,22 @@ describe('0205 — análisis estático', () => {
     });
     const inicio = SQL_0205.indexOf('-- REAGRUPACIÓN GENERADA (inicio)\n') + '-- REAGRUPACIÓN GENERADA (inicio)\n'.length;
     const fin = SQL_0205.indexOf('-- REAGRUPACIÓN GENERADA (fin)');
-    // Lo congelado menos lo retirado después (HU #13631) = lo que el generador produce hoy.
+    // Lo congelado menos lo retirado después (HU #13631) = lo que el generador produce hoy menos lo nacido después.
     let bloque = SQL_0205.slice(inicio, fin);
     for (const [c, m] of RETIRADAS_DESPUES) {
       const linea = `    ('${c}', '${m}'),\n`;
       expect(bloque).toContain(linea);
       bloque = bloque.replace(linea, '');
     }
-    bloque = bloque.replace(/^-- 47 pares /, `-- ${47 - RETIRADAS_DESPUES.length} pares `);
-    expect(bloque).toBe(salida);
+    let generado = salida;
+    for (const [c, m] of NACIDAS_DESPUES) {
+      const linea = `    ('${c}', '${m}'),\n`;
+      expect(bloque).not.toContain(linea);
+      expect(generado).toContain(linea);
+      generado = generado.replace(linea, '');
+    }
+    bloque = bloque.replace(/^-- 47 pares /, `-- ${47 - RETIRADAS_DESPUES.length + NACIDAS_DESPUES.length} pares `);
+    expect(bloque).toBe(generado);
   }, 60_000);
 
   it('el helper de paridad la pliega: `leerReagrupacionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL)` devuelve los 47 pares y `funcionesDeSql` cambia el módulo', () => {

@@ -33,11 +33,11 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { eq } from 'drizzle-orm';
 import {
-  FRONTERA_POR_ENLACE, MODULOS_FRONTERA, type EnlaceRestringido, type ModuloFrontera, type TipoEnlace,
+  FRONTERA_POR_ENLACE, MODULOS_FRONTERA, SERVICIO_DE_MODULO, type EnlaceRestringido, type ModuloFrontera, type TipoEnlace,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoGestorOrganismos, users } from '../../db/schema.js';
-import { resolverPermisos } from '../permisos-efectivos.js';
+import { resolverPermisos, type ProveedorDePermisos } from '../permisos-efectivos.js';
 import { catalogoCompleto, catalogoOperacionesNuevas, catalogoPlano } from '../../modules/permisos/catalogo.js';
 import { operacionesDe } from '../../modules/permisos/arbol/expansion.js';
 
@@ -159,6 +159,16 @@ export function moduloAbiertoA(modulo: ModuloFrontera | undefined, enlace: TipoE
 }
 
 /**
+ * HU #14338 (ADR-0039 §6.1, R3 y R5) — La capa que se suma a `moduloAbiertoA` para el enlace `proveedor`: su proveedor
+ * debe existir, estar activo y prestar el servicio del módulo. Falla cerrado: un módulo sin servicio queda cerrado.
+ */
+export function proveedorAlcanzaModulo(modulo: ModuloFrontera, proveedor: ProveedorDePermisos | null): boolean {
+  if (!proveedor?.activo) return false;
+  const servicio = SERVICIO_DE_MODULO[modulo];
+  return servicio !== undefined && proveedor.servicios.includes(servicio);
+}
+
+/**
  * Declara el módulo de un montaje. La marca vive solo mientras la petición recorre ESE router: si el
  * router la deja pasar (`next()` sin respuesta), se restaura el valor previo antes de seguir.
  */
@@ -199,7 +209,9 @@ export async function guardiaFrontera(req: Request, res: Response, next: NextFun
     next();
     return;
   }
-  if (enlace !== null && moduloAbiertoA(req.fronteraModulo, enlace)) {
+  const proveedorDeja = enlace !== 'proveedor'
+    || (p.ok && req.fronteraModulo !== undefined && proveedorAlcanzaModulo(req.fronteraModulo, p.proveedor));
+  if (enlace !== null && moduloAbiertoA(req.fronteraModulo, enlace) && proveedorDeja) {
     req.frontera = { enlace, modulo: req.fronteraModulo! };
     next();
     return;
@@ -223,12 +235,42 @@ export function soloSinEnlace(): RequestHandler {
   return guarda;
 }
 
+/**
+ * HU #14351 (ADR-0039 §6.4) — Como `soloSinEnlace`, pero también deja pasar al enlace `proveedor`. Para las rutas de un
+ * módulo abierto a compañía y proveedor que siguen cerradas a la compañía (P-2 de la HU #13426). Falla cerrado.
+ */
+export function soloSinEnlaceOProveedor(): RequestHandler {
+  const guarda: RequestHandler = (req, res, next) => {
+    const enlace = req.frontera?.enlace;
+    if (enlace === 'ninguno' || enlace === 'proveedor') { next(); return; }
+    res.status(403).json({ error: 'Sin permisos' });
+  };
+  // Marca propia para el centinela: no es `fronteraSoloSinEnlace`, porque esta ruta sí alcanza a un enlace y filtra por él.
+  Object.defineProperty(guarda, 'fronteraSoloSinEnlaceOProveedor', { value: true, enumerable: true });
+  return guarda;
+}
+
+/**
+ * HU #14351 (ADR-0039 §6.5) — La inversa: una ruta de un módulo abierto que sigue abierta a la compañía y cerrada al proveedor,
+ * aunque tenga la función (reversar, cierre de lote, viajes adicionales). Falla cerrado.
+ */
+export function cerradaAlProveedor(): RequestHandler {
+  const guarda: RequestHandler = (req, res, next) => {
+    const enlace = req.frontera?.enlace;
+    if (enlace !== undefined && enlace !== 'proveedor') { next(); return; }
+    res.status(403).json({ error: 'Sin permisos' });
+  };
+  Object.defineProperty(guarda, 'fronteraCerradaAlProveedor', { value: true, enumerable: true });
+  return guarda;
+}
+
 /** El id del enlace de un usuario, leído de la base. Un id ausente → el módulo devuelve CERO filas. */
 export async function alcanceDeUsuario(userId: number, enlace: TipoEnlace | null): Promise<AlcanceResuelto> {
   switch (enlace) {
     case 'ninguno': return { enlace };
     case 'compania': case 'proveedor': {
-      const [u] = await db.select({ c: users.companiaId, p: users.flitoProveedorSoatId })
+      // HU #14338 (ADR-0039 §6.1): la pertenencia es la del padre, con cualquier servicio. La columna vieja se retira en F5.
+      const [u] = await db.select({ c: users.companiaId, p: users.flitoProveedorId })
         .from(users).where(eq(users.id, userId)).limit(1);
       return enlace === 'compania'
         ? { enlace, companiaId: u?.c ?? null }

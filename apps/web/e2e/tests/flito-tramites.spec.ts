@@ -65,7 +65,7 @@ const TRAMITES = [
 ];
 
 async function mockLista(page: import('@playwright/test').Page) {
-  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector\?servicio=soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROVEEDORES) }));
   // Facetas para los dropdowns (endpoint sin query).
   await page.route(/\/api\/flito\/tramites\/facetas/, (route) =>

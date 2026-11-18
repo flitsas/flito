@@ -13,22 +13,21 @@
  // un único consumidor (la pantalla de usuarios).
 
 import type { TipoEnlace } from '@operaciones/shared-types';
-import type { User } from './types';
+import { proveedorDeUsuario, type User } from './types';
 import { CompaniaField, COMPANIA_REQUERIDA, type CatalogoCompanias } from './CompaniaField';
 import {
-  OrganismosField, ProveedorSoatField, etiquetasOrganismos, nombreProveedor, resumenOrganismos,
+  OrganismosField, ProveedorField, etiquetasOrganismos, resumenOrganismos,
   PROVEEDOR_REQUERIDO,
   type CatalogoOrganismos, type CatalogoProveedores,
 } from './AtaduraFields';
 
 // ─────────────────────────── Cara 1 · La celda «Ámbito» de la tabla ──────────────────────────────
 
-export function AmbitoCelda({ user: u, tipoEnlace, nombreCompania, proveedores, organismos }: {
+export function AmbitoCelda({ user: u, tipoEnlace, nombreCompania, organismos }: {
   user: User;
   /** Del mapa `codigo → tipoEnlace` cargado en `UsersGestion`. Si falta el rol, `ninguno`. */
   tipoEnlace: TipoEnlace;
   nombreCompania: (id: number) => string | null;
-  proveedores: CatalogoProveedores;
   organismos: CatalogoOrganismos;
 }) {
   return (
@@ -58,10 +57,8 @@ export function AmbitoCelda({ user: u, tipoEnlace, nombreCompania, proveedores, 
           <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
         )
       ) : tipoEnlace === 'proveedor' ? (
-        u.flitoProveedorSoatId ? (
-          nombreProveedor(proveedores.data, u.flitoProveedorSoatId)
-            ? <span>{nombreProveedor(proveedores.data, u.flitoProveedorSoatId)}</span>
-            : <span className="font-mono">{u.flitoProveedorSoatId}</span>
+        proveedorDeUsuario(u) ? (
+          <span>{u.proveedorNombre ?? 'Proveedor asignado'}</span>
         ) : (
           <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
         )
@@ -77,7 +74,7 @@ export function AmbitoCelda({ user: u, tipoEnlace, nombreCompania, proveedores, 
 /** Los tres valores de ámbito que el formulario mantiene en su estado (HU #12088: sin `transitoCodigo`). */
 export interface ValoresAmbito {
   companiaId: string;
-  flitoProveedorSoatId: string;
+  flitoProveedorId: string;
   organismosCodigos: string[];
 }
 
@@ -86,13 +83,15 @@ export interface ValoresAmbito {
  * entre alta y edición es `editando` (aviso de re-login en proveedor / organismos).
  */
 export function AmbitoCampos({
-  tipoEnlace, editando, companias, proveedores, organismos, valores, onValores,
+  tipoEnlace, editando, companias, proveedores, proveedorNombreActual, organismos, valores, onValores,
   errorCompania, setErrorCompania, errorProveedor, setErrorProveedor, errorOrganismos, setErrorOrganismos,
 }: {
   tipoEnlace: TipoEnlace;
   editando?: boolean;
   companias: CatalogoCompanias;
   proveedores: CatalogoProveedores;
+  /** Solo al editar: el nombre del proveedor que el usuario ya tiene. */
+  proveedorNombreActual?: string | null;
   organismos: CatalogoOrganismos;
   valores: ValoresAmbito;
   onValores: (parcial: Partial<ValoresAmbito>) => void;
@@ -115,10 +114,11 @@ export function AmbitoCampos({
         />
       )}
       {tipoEnlace === 'proveedor' && (
-        <ProveedorSoatField
+        <ProveedorField
           proveedores={proveedores}
-          value={valores.flitoProveedorSoatId}
-          onChange={(v) => { onValores({ flitoProveedorSoatId: v }); if (v) setErrorProveedor(null); }}
+          value={valores.flitoProveedorId}
+          nombreActual={proveedorNombreActual}
+          onChange={(v) => { onValores({ flitoProveedorId: v }); if (v) setErrorProveedor(null); }}
           error={errorProveedor}
           onInvalido={() => setErrorProveedor(PROVEEDOR_REQUERIDO)}
           editando={editando}

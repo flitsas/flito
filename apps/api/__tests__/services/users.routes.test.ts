@@ -428,7 +428,7 @@ describe('POST /api/users — crear', () => {
 
   it('éxito → 201 + hash + audit + email vacío convertido a undefined', async () => {
     selectMock.mockReturnValueOnce(chain([])); // no existe previo
-    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }])); // el proveedor SOAT existe
+    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR, activo: true }])); // el proveedor SOAT existe
     let capturedValues: any = null;
     insertMock.mockReturnValueOnce({
       values: (v: any) => {
@@ -501,8 +501,8 @@ describe('PATCH /api/users/:id — editar', () => {
   });
 
   it('actualizar solo nombre → 200 sin guard de admin', async () => {
-    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR }]));
-    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR }])); // antes, dentro de la tx y con FOR UPDATE (HU #12171)
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorId: PROVEEDOR, flitoProveedorSoatId: PROVEEDOR }]));
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorId: PROVEEDOR, flitoProveedorSoatId: PROVEEDOR }])); // antes, dentro de la tx y con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
     selectMock.mockReturnValueOnce(chain([])); // funciones del usuario (HU #12087)
     updateMock.mockReturnValueOnce({
@@ -517,7 +517,7 @@ describe('PATCH /api/users/:id — editar', () => {
 });
 
 describe('TC #12262 AC4 — caché de 60 s por user_id; la escritura del administrador (usuario o rol) la invalida después del commit y el retiro de acceso marca sessionInvalidatedAt', () => {
-  const filaProveedor = { id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR };
+  const filaProveedor = { id: 5, role: 'proveedor', active: true, flitoProveedorId: PROVEEDOR, flitoProveedorSoatId: PROVEEDOR };
   const devuelto = { id: 5, name: 'P', username: 'p', email: null, role: 'proveedor', active: true, createdAt: new Date() };
 
   it('PATCH /users/5 que le retira acceso (revocar): invalidarPermisosDe(5) DESPUÉS del commit, sessionInvalidatedAt marcado e invalidateSessionCacheFor(5)', async () => {
@@ -729,7 +729,7 @@ describe('POST /api/users — rol cliente y compañía (AC1/AC2 de la HU #11913)
 
   it('un rol que no es cliente no arrastra compañía aunque el cuerpo la traiga vacía', async () => {
     selectMock.mockReturnValueOnce(chain([])); // username libre
-    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }])); // el proveedor SOAT existe
+    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR, activo: true }])); // el proveedor SOAT existe
     let captured: any = null;
     insertMock.mockReturnValueOnce({
       values: (v: any) => {
@@ -863,18 +863,18 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
   it('TC-12053-01: proveedor CON proveedor SOAT → 201, la FK se escribe y VUELVE en la respuesta', async () => {
     selectMock.mockReturnValueOnce(chain([]));                      // username libre
     selectMock.mockReturnValueOnce(chain([]));                      // email libre (HU #12089 AC6)
-    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }]));     // el proveedor existe
+    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR, activo: true }]));     // el proveedor existe
 
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
       .send({ ...BODY_PROVEEDOR, flitoProveedorSoatId: PROVEEDOR });
 
     expect(r.status).toBe(201);
     // Escrita: la columna sale en el INSERT con el valor del cuerpo.
-    expect((filasDe('users')[0].valores as Record<string, unknown>).flitoProveedorSoatId).toBe(PROVEEDOR);
+    expect((filasDe('users')[0].valores as Record<string, unknown>).flitoProveedorId).toBe(PROVEEDOR);
     // Y DEVUELTA: el `returning` de este mock respeta la proyección, así que esto solo pasa si
-    // `flitoProveedorSoatId` está de verdad en `userSelect` (la celda «Ámbito» del listado lo pinta
-    // sin abrir el formulario).
-    expect(r.body.flitoProveedorSoatId).toBe(PROVEEDOR);
+    // `flitoProveedorId` está de verdad en `userSelect` (la celda «Ámbito» del listado lo pinta
+    // sin abrir el formulario). La columna vieja la llena el trigger: la mide `db/users-proveedor.test.ts`.
+    expect(r.body.flitoProveedorId).toBe(PROVEEDOR);
     // Invariante del contrato: SIEMPRE array, también para quien no es gestor.
     expect(r.body.organismosCodigos).toEqual([]);
   });
@@ -884,7 +884,7 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
     const crear = async (username: string) => {
       selectMock.mockReturnValueOnce(chain([])); // username libre
       selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
-      selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }]));
+      selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR, activo: true }]));
       return request(app).post('/api/users').set('Authorization', await cabecera())
         .send({ ...BODY_PROVEEDOR, username, flitoProveedorSoatId: PROVEEDOR });
     };
@@ -893,8 +893,8 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
     const b = await crear('prov_dos');
 
     expect([a.status, b.status]).toEqual([201, 201]);
-    expect(a.body.flitoProveedorSoatId).toBe(PROVEEDOR);
-    expect(b.body.flitoProveedorSoatId).toBe(PROVEEDOR);
+    expect(a.body.flitoProveedorId).toBe(PROVEEDOR);
+    expect(b.body.flitoProveedorId).toBe(PROVEEDOR);
     // Dos gestores del mismo proveedor es el escenario de CA-04 (toma atómica de la misma cola):
     // que compartan proveedor no es un choque, es el caso de uso.
     expect(filasDe('users')).toHaveLength(2);
@@ -908,24 +908,24 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
     rolAsignableMock.mockReset().mockResolvedValue({ tipoEnlace: 'proveedor_soat' });
     selectMock.mockReturnValueOnce(chain([]));                      // username libre
     selectMock.mockReturnValueOnce(chain([]));                      // email libre
-    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }]));     // el proveedor existe
+    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR, activo: true }]));     // el proveedor existe
 
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
       .send({ ...BODY_PROVEEDOR, flitoProveedorSoatId: PROVEEDOR });
 
     expect(r.status).toBe(201);
-    expect((filasDe('users')[0].valores as Record<string, unknown>).flitoProveedorSoatId).toBe(PROVEEDOR);
+    expect((filasDe('users')[0].valores as Record<string, unknown>).flitoProveedorId).toBe(PROVEEDOR);
   });
 
   it('HU #12875: rol con enlace alias `proveedor_soat` al EDITAR → quitar el proveedor es 400 «requerido», como con `proveedor`', async () => {
     rolAsignableMock.mockReset().mockResolvedValue({ tipoEnlace: 'proveedor_soat' });
-    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR }])); // before
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorId: PROVEEDOR, flitoProveedorSoatId: PROVEEDOR }])); // before
 
     const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
       .send({ flitoProveedorSoatId: null });
 
     expect(r.status).toBe(400);
-    expect(r.body.error).toBe('Proveedor SOAT requerido para este rol');
+    expect(r.body.error).toBe('Proveedor requerido para este rol');
     expect(updateMock).not.toHaveBeenCalled();
   });
 
@@ -979,7 +979,7 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
       .send(BODY_PROVEEDOR);
 
     expect(r.status).toBe(400);
-    expect(r.body.error).toBe('Proveedor SOAT requerido para este rol');
+    expect(r.body.error).toBe('Proveedor requerido para este rol');
     // «No queda un usuario proveedor usable»: ni se consultó si el username estaba libre.
     expect(insertMock).not.toHaveBeenCalled();
     expect(selectMock).not.toHaveBeenCalled();
@@ -1010,7 +1010,7 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
     const conProveedor = await request(app).post('/api/users').set('Authorization', await cabecera())
       .send({ ...BODY_GESTOR, organismosCodigos: [ORG_A], flitoProveedorSoatId: PROVEEDOR });
     expect(conProveedor.status).toBe(400);
-    expect(conProveedor.body.error).toBe('Solo los roles con ámbito de proveedor SOAT pueden tener proveedor asignado');
+    expect(conProveedor.body.error).toBe('Solo los roles con ámbito de proveedor pueden tener proveedor asignado');
 
     const conOrganismos = await request(app).post('/api/users').set('Authorization', await cabecera())
       .send({ ...BODY_PROVEEDOR, flitoProveedorSoatId: PROVEEDOR, organismosCodigos: [ORG_A] });
@@ -1029,22 +1029,21 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
       .send({ ...BODY_PROVEEDOR, flitoProveedorSoatId: '99999999-9999-4999-8999-999999999999' });
 
     expect(r.status).toBe(400);
-    expect(r.body.error).toBe('El proveedor SOAT no existe');
+    expect(r.body.error).toBe('El proveedor no existe o está inactivo');
     expect(insertMock).not.toHaveBeenCalled();
   });
 
-  it('TC-12053-12 (contraparte): un proveedor INACTIVO que existe se acepta — el filtro de activos es del front', async () => {
-    // Decisión 9 de UX, deliberada y escrita en el contrato §3: el backend acepta lo que EXISTE. Si
-    // rechazara los inactivos, editarle el nombre a un usuario atado a un proveedor desactivado
-    // fallaría por un campo que el admin no tocó, y guardar le desharía la atadura.
+  it('HU #14341 (AC4), antes TC-12053-12 (contraparte): un proveedor INACTIVO que existe se rechaza al atar y no se guarda', async () => {
     selectMock.mockReturnValueOnce(chain([])); // username libre
     selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
-    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }])); // existe (activo=false, no se mira)
+    selectMock.mockReturnValueOnce(chain([{ activo: false }])); // padre inactivo, leído FOR SHARE en la tx
 
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
       .send({ ...BODY_PROVEEDOR, flitoProveedorSoatId: PROVEEDOR });
 
-    expect(r.status).toBe(201);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('El proveedor no existe o está inactivo');
+    expect(insertMock).not.toHaveBeenCalled();
   });
 });
 
@@ -1169,8 +1168,8 @@ describe('PATCH /api/users/:id — editar el ámbito (AC3/AC4)', () => {
   });
 
   it('TC-12053-16 (bis): degradar a un proveedor le QUITA el proveedor SOAT', async () => {
-    selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'proveedor', active: true, companiaId: null, flitoProveedorSoatId: PROVEEDOR }]));
-    selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'proveedor', active: true, companiaId: null, flitoProveedorSoatId: PROVEEDOR }])); // antes, en la tx con FOR UPDATE (HU #12171)
+    selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'proveedor', active: true, companiaId: null, flitoProveedorId: PROVEEDOR, flitoProveedorSoatId: PROVEEDOR }]));
+    selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'proveedor', active: true, companiaId: null, flitoProveedorId: PROVEEDOR, flitoProveedorSoatId: PROVEEDOR }])); // antes, en la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // anteriores (tx): ninguno
     selectMock.mockReturnValueOnce(chain([])); // funciones previas (HU #12087)
     let capturado: Record<string, unknown> = {};
@@ -1183,8 +1182,8 @@ describe('PATCH /api/users/:id — editar el ámbito (AC3/AC4)', () => {
       .send({ role: 'auditor' });
 
     expect(r.status).toBe(200);
-    expect(capturado.flitoProveedorSoatId).toBeNull();
-    expect(r.body.flitoProveedorSoatId).toBeNull();
+    expect(capturado.flitoProveedorId).toBeNull();
+    expect(r.body.flitoProveedorId).toBeNull();
   });
 
   it('TC-12053-11 (edición): ponerle organismos a quien no es gestor → 400', async () => {
@@ -1458,8 +1457,8 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
   it('alta (POST /): filas `crear` con rol, excepciones y el ámbito; sin antes; dentro de la tx y antes de invalidar', async () => {
     selectMock.mockReturnValueOnce(chain([])); // username libre
     selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
-    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }])); // el proveedor existe
     selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }])); // funcionesInexistentes
+    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR, activo: true }])); // el proveedor, FOR SHARE en la tx
     eventos.length = 0;
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabeceraActor())
       .send({
@@ -1478,15 +1477,15 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
       valorDespues: { conjunto: ['conceder:pagina.soat'], concedidas: ['conceder:pagina.soat'], revocadas: [] },
     });
     expect(porCampo('allowed_pages')).toBeUndefined();
-    expect(porCampo('flito_proveedor_soat_id')).toMatchObject({ valorDespues: PROVEEDOR });
+    expect(porCampo('flito_proveedor_id')).toMatchObject({ valorDespues: PROVEEDOR });
     expect(porCampo('compania_id')).toBeUndefined();
     expect(eventos.indexOf('insert-auditoria')).toBeLessThan(eventos.indexOf('commit'));
     expect(eventos.indexOf('commit')).toBeLessThan(eventos.indexOf('invalidar-permisos:99'));
   });
 
   it('cambio de rol (PATCH /:id): una fila `role` con el antes y el después; el rol del titular es el del momento', async () => {
-    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR }])); // before (ruta)
-    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR, companiaId: null, transitoCodigo: null }])); // antes (tx, FOR UPDATE)
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorId: PROVEEDOR, flitoProveedorSoatId: PROVEEDOR }])); // before (ruta)
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorId: PROVEEDOR, flitoProveedorSoatId: PROVEEDOR, companiaId: null, transitoCodigo: null }])); // antes (tx, FOR UPDATE)
     selectMock.mockReturnValueOnce(chain([])); // organismos
     selectMock.mockReturnValueOnce(chain([])); // funciones (HU #12087)
     updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', name: 'P', username: 'p', email: null, active: true, createdAt: new Date() }, () => {}));
@@ -1496,8 +1495,8 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
 
     sinPiiDelTitular(filasAuditoria());
     expect(porCampo('role')).toMatchObject({ entidad: 'usuario', accion: 'editar', valorAntes: 'proveedor', valorDespues: 'auditor', usuarioAfectadoId: 5, usuarioAfectadoRol: 'proveedor' });
-    // Degradar desde `proveedor` le quita el proveedor SOAT: ese cambio también queda con su antes.
-    expect(porCampo('flito_proveedor_soat_id')).toMatchObject({ valorAntes: PROVEEDOR, valorDespues: null });
+    // Degradar desde `proveedor` le quita el proveedor: ese cambio también queda con su antes.
+    expect(porCampo('flito_proveedor_id')).toMatchObject({ valorAntes: PROVEEDOR, valorDespues: null });
     expect(eventos.indexOf('insert-auditoria')).toBeLessThan(eventos.indexOf('commit'));
     expect(eventos.indexOf('commit')).toBeLessThan(eventos.indexOf('invalidar-permisos:5'));
   });

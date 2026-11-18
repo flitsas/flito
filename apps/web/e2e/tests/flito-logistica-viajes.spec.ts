@@ -40,7 +40,7 @@ const FACETAS = {
   estados: ['pendiente', 'registrada', 'despachada', 'entregada', 'novedad'],
   empresas: [{ nit: '900111', nombre: 'Concesionario Norte' }],
   organismos: [{ codigo: '05001', nombre: 'STT Medellín' }],
-  companiasCerrables: [], mensajeros: [{ id: 9, nombre: 'Mensajero E2E' }],
+  companiasCerrables: [], mensajeros: [{ id: 9, nombre: 'Mensajero E2E', proveedorId: null }],
 };
 
 interface Viaje {
@@ -62,7 +62,7 @@ async function mockConsola(page: Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTAS) }));
   await page.route(/\/api\/flito\/logistica\/actas\/acta-1$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACTA_DETALLE) }));
-  await page.route(/\/api\/flito\/logistica\?/, (route) =>
+  await page.route(/\/api\/flito\/logistica\/buscar$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [TRAMITE], total: 1, page: 1, pageSize: 50 }) }));
   await page.route(/\/api\/flito\/logistica\/tr-2$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(DETALLE) }));

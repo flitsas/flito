@@ -358,12 +358,12 @@ describe('POST /api/auth/login — compañía inactiva (HU #13945)', () => {
 // HU #13958 (AC3/AC4) — Proveedor SOAT inactivo o eliminado: 403 con el motivo SOLO con la contraseña correcta.
 describe('POST /api/auth/login — proveedor SOAT inactivo (HU #13958)', () => {
   const PROV = '11111111-1111-4111-8111-111111111111';
-  const gestor = { id: 61, username: 'gestorsoat', passwordHash: 'h', active: true, role: 'gestor_soat', name: 'G', allowedPages: null, companiaId: null, flitoProveedorSoatId: PROV };
+  const gestor = { id: 61, username: 'gestorsoat', passwordHash: 'h', active: true, role: 'gestor_soat', name: 'G', allowedPages: null, companiaId: null, flitoProveedorId: PROV, flitoProveedorSoatId: null }; // HU #14340: también uno solo de Logística, sin columna vieja
 
   it('AC3: contraseña correcta y proveedor inactivo → 403 con el motivo, auditado sin PII y sin contar como intento fallido', async () => {
     selectMock
       .mockReturnValueOnce(chain([gestor]))
-      .mockReturnValueOnce(chain([{ activo: false, deletedAt: null }])); // flito_proveedores_soat de su proveedor
+      .mockReturnValueOnce(chain([{ activo: false, deletedAt: null }])); // el padre, `flito_proveedores`
     argonVerifyMock.mockResolvedValueOnce(true);
     const app = await buildApp();
     const r = await request(app).post('/api/auth/login').send({ username: 'gestorsoat', password: 'OK' });
@@ -373,7 +373,7 @@ describe('POST /api/auth/login — proveedor SOAT inactivo (HU #13958)', () => {
     expect(registerFailedMock).not.toHaveBeenCalled();
     expect(clearLockoutMock).not.toHaveBeenCalled();
     const entrada = auditMock.mock.calls[0]![1];
-    expect(entrada).toMatchObject({ action: 'login_failed', resource: 'auth', resourceId: '61', detail: 'proveedor SOAT inactivo' });
+    expect(entrada).toMatchObject({ action: 'login_failed', resource: 'auth', resourceId: '61', detail: 'proveedor inactivo' });
     expect(JSON.stringify(entrada)).not.toContain('gestorsoat');
   });
 

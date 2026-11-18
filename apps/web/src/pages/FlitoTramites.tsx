@@ -20,6 +20,9 @@ import { useAuth } from '../lib/auth';
 import { vacioConEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
+import FlitSelect from '../components/flit/FlitSelect';
+import { opcionesConEstado } from '../components/flit/opcionesConEstado';
+import { SOAT_REINTENTO, mensajeSelectorSoat, useProveedoresSelector, type CatalogoSelector } from '../components/clientes/proveedoresDatos';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti, { type OpcionFiltro } from '../components/flit/ThFiltroMulti';
@@ -80,7 +83,6 @@ const esAccionable = (f: TramiteFila) => f.asignado && f.empresaExiste && f.secr
 const PAGE_SIZE = 50;
 interface Paginado { items: TramiteFila[]; total: number; page: number; pageSize: number; marca: string }
 interface Facetas { estados: string[]; tramites: string[]; ciudades: string[]; transitos: string[] }
-interface Proveedor { id: string; nombre: string; activo: boolean }
 interface HistorialItem { id: string; campo: string; valorAnterior: string | null; valorNuevo: string | null; origen: string; usuarioNombre: string | null; creadoEn: string }
 
 interface ResSoat { enviados: number; yaEnviados: number; autogestionados: number; sinRegistro: number }
@@ -139,13 +141,14 @@ export default function FlitoTramites() {
   const [page, setPage] = useState(1);
   const [facetas, setFacetas] = useState<Facetas>({ estados: [], tramites: [], ciudades: [], transitos: [] });
   const [error, setError] = useState<string | null>(null);
-  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [dialogo, setDialogo] = useState<null | 'soat' | 'ambos'>(null);
   // Solicitud de SOAT por fila (desde la columna SOAT): apunta a un único trámite en vez de la selección.
   const [filaSolicitud, setFilaSolicitud] = useState<string | null>(null);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [enProceso, setEnProceso] = useState(false);
   const [recarga, setRecarga] = useState(0);
+  // HU #14342: solo activos que prestan SOAT.
+  const proveedores = useProveedoresSelector('soat', puedePedirSoat, recarga);
   const tablaRef = useRef<HTMLDivElement>(null);
 
   // Dos rangos independientes: creación (fecha de FLIT) y aprobación (HU #11026).
@@ -230,11 +233,6 @@ export default function FlitoTramites() {
       .then((cs) => setEmpresasOpc(cs.map((c) => ({ nit: c.nit, nombre: c.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre))))
       .catch(() => setEmpresasOpc([]));
   }, [sinEnlace, recarga]);
-
-  useEffect(() => {
-    if (!puedePedirSoat) return;
-    api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setProveedores).catch(() => setProveedores([]));
-  }, [puedePedirSoat, recarga]);
 
   const filas = data ?? [];
   const totalPaginas = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -358,7 +356,7 @@ export default function FlitoTramites() {
       {/* HU #13452: sincronizar con FLIT 1/FLIT 2 es operación interna: con enlace el bloque no se pinta. */}
       {sinEnlace && <SincronizacionTramites />}
 
-      {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
+      {error && <div className="sticky top-[calc(var(--flit-topbar-height)+0.5rem)] z-20"><FlitCard><p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p></FlitCard></div>}
 
       {esOperaciones && n > 0 && (
         <FlitCard>
@@ -1122,7 +1120,7 @@ function TrackingLogistica({ estado }: { estado: string | null }) {
 }
 
 function DialogoProveedor({ tipo, n, proveedores, enProceso, onConfirmar, onCancelar }: {
-  tipo: 'soat' | 'ambos'; n: number; proveedores: Proveedor[]; enProceso: boolean;
+  tipo: 'soat' | 'ambos'; n: number; proveedores: CatalogoSelector; enProceso: boolean;
   onConfirmar: (proveedorSoatId: string) => void; onCancelar: () => void;
 }) {
   const [proveedorSoatId, setProveedorSoatId] = useState('');
@@ -1132,12 +1130,10 @@ function DialogoProveedor({ tipo, n, proveedores, enProceso, onConfirmar, onCanc
         <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
           Elige la aseguradora a la que se envían los {n} trámite(s). El SOAT va a ese proveedor; los impuestos van a su gestor según el organismo.
         </p>
-        <FlitField label="Aseguradora">
-          <select className={flitInp} value={proveedorSoatId} onChange={(e) => setProveedorSoatId(e.target.value)}>
-            <option value="">Elige una aseguradora…</option>
-            {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-          </select>
-        </FlitField>
+        <FlitSelect label="Aseguradora" value={proveedorSoatId} onChange={setProveedorSoatId}
+          opciones={opcionesConEstado(proveedores.data ?? [], '', { placeholder: 'Elige una aseguradora…' })}
+          mensaje={mensajeSelectorSoat(proveedores)} fallo={proveedores.error} disabled={!proveedores.data?.length}
+          onReintentar={proveedores.error ? proveedores.recargar : undefined} textoReintento={SOAT_REINTENTO} />
         <div className="flex gap-2">
           <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={!proveedorSoatId || enProceso} onClick={() => onConfirmar(proveedorSoatId)}>
             {tipo === 'ambos' ? 'Solicitar ambos' : 'Solicitar SOAT'}

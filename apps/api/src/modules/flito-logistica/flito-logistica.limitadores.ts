@@ -34,3 +34,19 @@ export const revelarDocumentoLimiter = rateLimit({
   message: { error: 'Demasiadas consultas de documento. Espera unos minutos.' },
   store: makeStore('rl:log-revelar-doc:'),
 });
+
+/** Validar una LT (HU #14348, §8.5): lee por placa y número. Holgado, porque el mensajero escanea en lote: 300 / 15 min / usuario. */
+export const validarLtLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: userOrIpKey('log-validar-lt:'),
+  message: { error: 'Demasiadas validaciones de licencias. Espera unos minutos.' },
+  store: makeStore('rl:log-validar-lt:'),
+});
+
+/** Escanear una LT (HU #14352, ADR-0039 §8): lee por placa y número, y es la lectura global de licencias. Mismo tope que validar: 300 / 15 min / usuario. */
+export const escanearLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: userOrIpKey('log-escanear:'),
+  message: { error: 'Demasiados escaneos de licencias. Espera unos minutos.' },
+  store: makeStore('rl:log-escanear:'),
+});

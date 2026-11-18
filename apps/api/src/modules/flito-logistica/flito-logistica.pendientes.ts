@@ -14,7 +14,7 @@ import {
   clients, flitoLogisticaActaLineas, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos,
   flitoLogisticaRecogidaFirmantes, flitoTramites, users, vehicles,
 } from '../../db/schema.js';
-import { LT, LogisticaError, aprobadoSql, log, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
+import { LT, LogisticaError, aprobadoSql, bloquearCompania, log, transicionar, type DbOrTx, type LogisticaCtx } from './flito-logistica.base.js';
 
 export interface CandidatoPendiente {
   tramiteId: string; idFlit: string; companiaId: number; companiaNombre: string | null; organismoCodigo: string | null;
@@ -117,6 +117,14 @@ export async function resolverTramite(documentoId: string, tramiteId: string, ct
   const D = flitoLogisticaDocumentos;
   try {
     return await db.transaction(async (tx) => {
+      const [t] = await tx.select({
+        id: flitoTramites.id, vehiculoId: flitoTramites.vehiculoId, organismoCodigo: flitoTramites.organismoCodigo,
+        companiaId: flitoTramites.companiaId, companiaNit: flitoTramites.companiaNit,
+        aprobado: sql<boolean>`(${aprobadoSql})`, autogestionable: clients.logisticaAutogestionable,
+      }).from(flitoTramites).leftJoin(clients, eq(flitoTramites.companiaId, clients.id)).where(eq(flitoTramites.id, tramiteId));
+      // HU #14346 (AC1): cliente antes que licencia (ADR-0039 §6.3); el dueño se lee con el bloqueo.
+      const proveedorId = t?.companiaId != null ? await bloquearCompania(tx, t.companiaId) : null;
+
       const [doc] = await tx.select({
         id: D.id, estado: D.estado, vehiculoId: D.vehiculoId, organismoCodigo: D.organismoCodigo,
         tramiteId: D.tramiteId, firmanteId: D.recogidaFirmanteId,
@@ -124,11 +132,6 @@ export async function resolverTramite(documentoId: string, tramiteId: string, ct
       if (!doc) throw new LtNoEncontradaError();
       if (doc.tramiteId !== null) throw new LtNoPendienteError();
 
-      const [t] = await tx.select({
-        id: flitoTramites.id, vehiculoId: flitoTramites.vehiculoId, organismoCodigo: flitoTramites.organismoCodigo,
-        companiaId: flitoTramites.companiaId, companiaNit: flitoTramites.companiaNit,
-        aprobado: sql<boolean>`(${aprobadoSql})`, autogestionable: clients.logisticaAutogestionable,
-      }).from(flitoTramites).leftJoin(clients, eq(flitoTramites.companiaId, clients.id)).where(eq(flitoTramites.id, tramiteId));
       if (!t || t.vehiculoId !== doc.vehiculoId || !t.aprobado || t.companiaId === null
         || t.organismoCodigo !== doc.organismoCodigo || t.autogestionable) throw new TramiteNoCandidatoError();
       const [yaLt] = await tx.select({ id: D.id }).from(D).where(and(eq(D.tramiteId, tramiteId), eq(D.tipo, LT))).limit(1);
@@ -137,7 +140,7 @@ export async function resolverTramite(documentoId: string, tramiteId: string, ct
       const ahora = new Date();
       const companiaId = t.companiaId;
       let actaId: string | null = null;
-      const set: Partial<typeof D.$inferInsert> = { tramiteId, companiaId, companiaNit: t.companiaNit, updatedAt: ahora };
+      const set: Partial<typeof D.$inferInsert> = { tramiteId, companiaId, companiaNit: t.companiaNit, proveedorLogisticaId: proveedorId, updatedAt: ahora };
 
       if (doc.firmanteId) {
         const [existente] = await tx.select({ id: flitoLogisticaActas.id }).from(flitoLogisticaActas)
@@ -147,7 +150,7 @@ export async function resolverTramite(documentoId: string, tramiteId: string, ct
           const [f] = await tx.select({ por: flitoLogisticaRecogidaFirmantes.registradoPorId, en: flitoLogisticaRecogidaFirmantes.firmadoEn, lat: flitoLogisticaRecogidaFirmantes.lat, lng: flitoLogisticaRecogidaFirmantes.lng })
             .from(flitoLogisticaRecogidaFirmantes).where(eq(flitoLogisticaRecogidaFirmantes.id, doc.firmanteId));
           const [acta] = await tx.insert(flitoLogisticaActas).values({
-            companiaId, punto: 'organismo', organismoCodigo: doc.organismoCodigo, firmanteId: doc.firmanteId,
+            companiaId, punto: 'organismo', organismoCodigo: doc.organismoCodigo, firmanteId: doc.firmanteId, proveedorLogisticaId: proveedorId,
             estado: 'entregada', mensajeroId: f?.por ?? ctx.userId, entregadoEn: f?.en ?? ahora, entregadoLat: f?.lat ?? null, entregadoLng: f?.lng ?? null,
           }).returning({ id: flitoLogisticaActas.id });
           actaId = acta.id;

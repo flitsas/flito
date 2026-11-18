@@ -54,7 +54,7 @@ export const LECTURAS_DEL_AUDITOR = {
   logistica: ['logistica.consola.ver', 'logistica.consola.filtrar', 'logistica.actas.listar', 'logistica.actas.ver', 'logistica.actas.descargar', 'logistica.documento.ver'],
   liquidacion: ['liquidacion.liquidacion.ver', 'liquidacion.liquidacion.ver_eventos'],
   // HU #12373 retiró `parametrizacion.tarifas.listar`: el auditor ya no ve el cuadro de tarifas.
-  parametrizacion: ['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar', 'parametrizacion.organismos.listar', 'parametrizacion.organismos.ver_vigencias'],
+  parametrizacion: ['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar', 'parametrizacion.proveedores.historial', 'parametrizacion.organismos.listar', 'parametrizacion.organismos.ver_vigencias'],
   // HU #12171 — el historial de cambios de usuarios y permisos: solo lectura, y las dos son GET.
   usuarios: ['usuarios.auditoria.ver', 'usuarios.auditoria.filtrar'],
   // HU #12545 / ADR-0017 — los servicios adicionales asignados a un trámite: el GET los concede a
@@ -137,8 +137,8 @@ describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', 
   const porPost = new Set<string>(LECTURAS_POR_POST);
   const exportan = new Set<string>([...EXPORTACIONES_POR_POST, ...LECTURAS_13423_NO_GET]);
 
-  it('la lista fijada son 50 códigos (46 + 4 de la HU #13423), todos de rutas GET de la foto con `auditor`', () => {
-    expect(esperadas).toHaveLength(50);
+  it('la lista fijada son 51 códigos (46 + 4 de la HU #13423 + historial de proveedores, HU #14335), todos de rutas GET de la foto con `auditor`', () => {
+    expect(esperadas).toHaveLength(51);
     const enFoto = new Set(GUARDAS_MEDIDAS.filter((g) => g.metodo === 'GET' && g.roles.includes('auditor')).map(codigoDe).filter((c) => !c.startsWith('pagina.')));
     expect([...enFoto].sort()).toEqual(esperadas);
   });

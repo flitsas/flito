@@ -9,6 +9,7 @@
 // Sin PUT/PATCH: un viaje se quita y se vuelve a registrar. Todo id que no sea uuid es 404 (el id es
 // opaco), nunca 400 ni 22P02. Las mutaciones auditan con `resource: 'flito_tramite_viaje_logistica'`
 // y un `detail` sin PII (idFlit, número, modo y valor).
+// HU #14351 (D3, ADR-0039 §6.5): cerradas al proveedor, aunque tenga la función: llevan un valor que se cobra a la compañía.
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
@@ -24,7 +25,7 @@ import {
 import { normPlaca } from './flito-logistica.aprobado.js';
 import { buscarIdempotencia, guardarIdempotencia } from './flito-logistica.service.js';
 import { viajesMasivoLimiter } from '../../shared/middleware/rateLimiter.js';
-import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
+import { alcanceDe, cerradaAlProveedor } from '../../shared/middleware/frontera-enlace.js';
 import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alcance.js';
 
@@ -81,7 +82,7 @@ function fallo(res: Response, e: unknown): void {
   throw e;
 }
 
-router.get('/tramites/:tramiteId/viajes', exigirFuncion('logistica.viajes.ver'), async (req: Request, res: Response) => {
+router.get('/tramites/:tramiteId/viajes', cerradaAlProveedor(), exigirFuncion('logistica.viajes.ver'), async (req: Request, res: Response) => {
   const tramiteId = idUuid(req.params.tramiteId);
   if (tramiteId === null) { res.status(404).json(NO_EXISTE_TRAMITE); return; }
   // HU #13426 (AC2): trámite de otra compañía → 404, igual que uno inexistente.
@@ -98,7 +99,7 @@ router.get('/tramites/:tramiteId/viajes', exigirFuncion('logistica.viajes.ver'),
   } catch (e) { fallo(res, e); }
 });
 
-router.post('/tramites/:tramiteId/viajes', exigirFuncion('logistica.viajes.registrar'), async (req: Request, res: Response) => {
+router.post('/tramites/:tramiteId/viajes', cerradaAlProveedor(), exigirFuncion('logistica.viajes.registrar'), async (req: Request, res: Response) => {
   const parsed = registrarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
   const tramiteId = idUuid(req.params.tramiteId);
@@ -132,7 +133,7 @@ const masivoSchema = z.object({
   }
 });
 
-router.post('/viajes/masivo', exigirFuncion('logistica.viajes.registrar'), viajesMasivoLimiter, async (req: Request, res: Response) => {
+router.post('/viajes/masivo', cerradaAlProveedor(), exigirFuncion('logistica.viajes.registrar'), viajesMasivoLimiter, async (req: Request, res: Response) => {
   const parsed = masivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
   const usuarioId = req.user?.sub ?? null;
@@ -175,7 +176,7 @@ router.post('/viajes/masivo', exigirFuncion('logistica.viajes.registrar'), viaje
   res.status(status).json(cuerpo);
 });
 
-router.delete('/tramites/:tramiteId/viajes/:viajeId', exigirFuncion('logistica.viajes.quitar'), async (req: Request, res: Response) => {
+router.delete('/tramites/:tramiteId/viajes/:viajeId', cerradaAlProveedor(), exigirFuncion('logistica.viajes.quitar'), async (req: Request, res: Response) => {
   const tramiteId = idUuid(req.params.tramiteId);
   if (tramiteId === null) { res.status(404).json(NO_EXISTE_TRAMITE); return; }
   const viajeId = idUuid(req.params.viajeId);

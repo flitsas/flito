@@ -154,6 +154,12 @@ interface TestUserOpts {
 // una guarda tiene que registrarlo con `registrarUsuarioDePrueba`.
 const registro = new Map<number, FilasPermisos>();
 
+/**
+ * HU #14338 — El proveedor que el double pone a un usuario de enlace `proveedor` si el spec no declara otro: activo y con los dos
+ * servicios, para que los specs de SOAT sigan midiendo su módulo. Quien mide la frontera por servicio lo pasa explícito (`null` = sin proveedor).
+ */
+export const PROVEEDOR_DE_PRUEBA = { id: '00000000-0000-4000-8000-0000000000f1', activo: true, servicios: ['soat', 'logistica'] } as const;
+
 /** La fuente que este helper fija. Un test que la sustituya a mano la repone con esto. */
 export const fuenteDePrueba = async (sub: number): Promise<FilasPermisos | null> => registro.get(sub) ?? null;
 
@@ -162,6 +168,7 @@ export async function registrarUsuarioDePrueba(sub: number, filas: FilasPermisos
   // base tras la 0239; lo que se mide (que el usuario tiene ESE código) no cambia. `null` = «el resolutor no decide».
   registro.set(sub, filas === null ? (null as never) : {
     ...filas,
+    proveedor: filas.proveedor !== undefined ? filas.proveedor : (filas.tipoEnlace === 'proveedor' ? PROVEEDOR_DE_PRUEBA : null),
     funcionesDelRol: conCadena(filas.funcionesDelRol),
     excepciones: [
       ...conCadena(filas.excepciones.filter((e) => e.efecto === 'conceder').map((e) => e.codigo)).map((codigo) => ({ codigo, efecto: 'conceder' as const })),

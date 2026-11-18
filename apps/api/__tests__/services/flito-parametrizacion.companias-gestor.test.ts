@@ -76,7 +76,9 @@ const filaCompania = (over: Record<string, unknown> = {}) => ({
  * Registra el estado PREVIO de la compañía y el catálogo de proveedores.
  *
  * `proveedores: []` significa «ese uuid no existe»; el mock keyed responde por tabla y el handler
- * consulta el catálogo solo cuando el cuerpo trae un uuid.
+ * consulta el catálogo solo cuando el cuerpo trae un uuid. Feature #14325: `exigirProveedorSoatUsable`
+ * lee el padre (`nombre`, `activo`, `deletedAt`) y luego el perfil de SOAT vigente (solo `id`), así que
+ * cada proveedor del catálogo se registra en las dos tablas, con las columnas que cada lectura proyecta.
  */
 function escenario(opciones: {
   previa?: { proveedorSinTramiteId: string | null } | null;
@@ -90,7 +92,8 @@ function escenario(opciones: {
 
   kdb.when.scenario({
     clients: previa ? [{ id: COMPANIA, ...previa }] : [],
-    flito_proveedores_soat: opciones.proveedores ?? [],
+    flito_proveedores: (opciones.proveedores ?? []).map((p) => ({ nombre: 'Gestor', activo: p.activo, deletedAt: null })),
+    flito_proveedores_soat: (opciones.proveedores ?? []).map((p) => ({ id: p.id })),
   });
   if (opciones.updateFalla !== undefined) {
     kdb.when.update('clients', () => { throw opciones.updateFalla; });

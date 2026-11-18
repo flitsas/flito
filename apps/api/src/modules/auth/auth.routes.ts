@@ -9,13 +9,13 @@ import { env } from '../../config/env.js';
 import { authMiddleware, blacklistToken } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { paginasEfectivasDeUsuario, resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
+import { funcionesDePermisos, paginasEfectivasDeUsuario, resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
 import { checkLockout, registerFailed, clearLockout } from './loginLockout.js';
 import { isUserLaftBlocked } from '../laft/employees/auth-block.service.js';
 import { laftAudit } from '../laft/audit.service.js';
 import { companiaInactiva } from '../clients/clients.service.js';
 import { canalSinTramiteAbiertoPara } from '../clients/cliente-operable.js';
-import { proveedorSoatInactivo } from '../flito-parametrizacion/flito-proveedores-estado.service.js';
+import { proveedorInactivo } from '../flito-parametrizacion/flito-proveedores-estado.service.js';
 
 /**
  * HU #12088: `transitoCodigo` del JWT/me = 1.er código ordenado de la puente
@@ -87,10 +87,10 @@ router.post('/login', async (req: Request, res: Response) => {
     return;
   }
 
-  // HU #13958 (AC3): proveedor SOAT inactivo o eliminado. Mismo criterio que la compañía inactiva (tras la contraseña,
-  // sin `registerFailed`, sin PII en el detalle).
-  if (await proveedorSoatInactivo(user.flitoProveedorSoatId)) {
-    await audit(req, { action: 'login_failed', resource: 'auth', resourceId: String(user.id), detail: 'proveedor SOAT inactivo' });
+  // HU #13958 (AC3) y #14340: proveedor inactivo o eliminado, con cualquier servicio. Mismo criterio que la compañía
+  // inactiva (tras la contraseña, sin `registerFailed`, sin PII en el detalle).
+  if (await proveedorInactivo(user.flitoProveedorId)) {
+    await audit(req, { action: 'login_failed', resource: 'auth', resourceId: String(user.id), detail: 'proveedor inactivo' });
     res.status(403).json({ error: 'Tu proveedor está inactivo en FLITO. Comunícate con el administrador.' });
     return;
   }
@@ -189,10 +189,10 @@ async function puedeSolicitarSoat(p: PermisosResueltos, companiaId: number | nul
  */
 async function sobreDePermisos(userId: number, companiaId: number | null) {
   const p = await resolverPermisos(userId);
-  const funciones: ReadonlySet<string> = p.ok ? p.funciones : new Set<string>();
   return {
     allowedPages: await paginasEfectivasDeUsuario(userId),
-    funciones: [...funciones].sort(),
+    // ADR-0040 §3: con enlace `proveedor`, sin las funciones de un servicio que su proveedor no presta.
+    funciones: p.ok ? funcionesDePermisos(p) : [],
     puedeSolicitarSoat: await puedeSolicitarSoat(p, companiaId),
   };
 }
