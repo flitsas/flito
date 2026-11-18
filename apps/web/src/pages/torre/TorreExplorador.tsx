@@ -21,7 +21,7 @@ import { ROTULO_FILTRO, nombresFiltros, useOpcionesTorre } from '../../component
 import ConstructorConsultaTorre, { PREGUNTAS_TORRE, type PreguntaTorre } from '../../components/torre/ConstructorConsultaTorre';
 import {
   ETIQUETA_AGRUPACION, FECHA_BASE_ORACION, aFiltroTorre, esPeriodoCorto, esTemporal, etiquetaPeriodo, formatoUnidad,
-  frasePeriodo, listaO, medidaConFecha, resumenCompanias, resumenSeleccion,
+  fraseRango, frasePeriodo, listaO, medidaConFecha, resumenCompanias, resumenSeleccion,
 } from '../../components/torre/formatoTorre';
 
 type Estado = { tipo: 'cargando' } | { tipo: 'error' } | { tipo: 'cortes' } | { tipo: 'listo'; res: ResultadoMetrica };
@@ -185,7 +185,9 @@ function Explorador({ ctx, onExportar }: {
   const companias = resumenCompanias(filtros.companiaIds.map((id) => opciones.companias.find((c) => c.id === id)?.nombre ?? 'Compañía elegida'));
   const otros = (Object.keys(ROTULO_FILTRO) as (keyof typeof ROTULO_FILTRO)[])
     .filter((k) => nombres[k].length > 0).map((k) => `${ROTULO_FILTRO[k]}: ${resumenSeleccion(nombres[k])}`);
-  const partes = foto ? ['Hoy', companias, ...otros, 'No depende del periodo elegido.'] : [companias, ...otros];
+  // RN-TOR-F5: las fechas las declara la API en `res.rango` (la web no calcula presets). Mientras carga, sin fecha.
+  const rangoReal = !foto && estado.tipo === 'listo' && estado.res.rango ? [fraseRango(estado.res.rango)] : [];
+  const partes = foto ? ['Hoy', companias, ...otros, 'No depende del periodo elegido.'] : [...rangoReal, companias, ...otros];
   const subtitulo = def.unidad === 'horas' && estado.tipo === 'listo'
     ? `${partes.join(' · ')} · ${estado.res.total.n.toLocaleString('es-CO')} trámites aprobados`
     : partes.join(' · ');

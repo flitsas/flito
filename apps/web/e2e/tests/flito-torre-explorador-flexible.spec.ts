@@ -30,7 +30,11 @@ const OPCIONES = {
   flitEstados: [{ valor: 'aprobado', etiqueta: 'Aprobado' }, { valor: 'facturado', etiqueta: 'Facturado' }],
 };
 
-const BASE = { baseFecha: { campo: 'fecha_aprobacion', excluidosSinFecha: 0, nBaseSincronizacion: 0, fechaBase: 'aprobacion' }, generadoEn: '2026-11-18T12:00:00.000Z' };
+// `rango`: el que la API resolvió para el preset (RN-TOR-F5); la web solo lo muestra.
+const BASE = {
+  baseFecha: { campo: 'fecha_aprobacion', excluidosSinFecha: 0, nBaseSincronizacion: 0, fechaBase: 'aprobacion' },
+  rango: { desde: '2026-06-01', hasta: '2026-11-18' }, generadoEn: '2026-11-18T12:00:00.000Z',
+};
 const SIMPLE = {
   ...BASE, metrica: 'tramites', unidad: 'conteo', truncado: false, total: { valor: 1102, n: 1102 },
   filas: [
@@ -121,6 +125,8 @@ test.describe('Torre · Explorador flexible (Épica #14590)', () => {
     expect(c.agrupacionColumnas).toBeUndefined();
     expect(c.filtro.flitEstados).toBeUndefined();
     await expect(page.getByRole('heading', { name: 'Trámites aprobados · Últimos 6 meses · por compañía' })).toBeVisible();
+    // RN-TOR-F5: el subtítulo nombra las fechas reales que resolvió la API, no las calcula la web.
+    await expect(resultado(page).getByText('1 jun – 18 nov 2026 · Todas las compañías', { exact: false })).toBeVisible();
   });
 
   test('cruce compañía × mes: tabla con 1.ª columna de fila, «Total» en tfoot, 0 en tinta terciaria, gráfica por series e «Intercambiar»', async ({ page }) => {

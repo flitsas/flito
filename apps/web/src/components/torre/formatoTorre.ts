@@ -50,6 +50,18 @@ export function fechaCorta(v: string | null | undefined): string {
   return `${Number(d)} ${MESES_CORTOS[Number(m) - 1]} ${y}`;
 }
 
+/**
+ * Rango real que aplicó la API (RN-TOR-F5), compacto: «1 jun – 18 nov 2026», «15 dic 2025 – 10 ene 2026» o «18 nov 2026»
+ * si es un solo día. A mano, sin `Date`, para que el día no se corra a UTC.
+ */
+export function fraseRango(r: { desde: string; hasta: string }): string {
+  const [yd, md, dd] = r.desde.slice(0, 10).split('-').map(Number);
+  const [yh, mh, dh] = r.hasta.slice(0, 10).split('-').map(Number);
+  const hasta = `${dh} ${MESES_CORTOS[mh - 1]} ${yh}`;
+  if (yd === yh && md === mh && dd === dh) return hasta;
+  return `${dd} ${MESES_CORTOS[md - 1]}${yd === yh ? '' : ` ${yd}`} – ${hasta}`;
+}
+
 export function etiquetaPeriodo(f: Pick<FiltrosTorre, 'periodo' | 'rango'>): string {
   if (f.periodo.startsWith('m:')) {
     const [y, m] = f.periodo.slice(2).split('-').map(Number);
