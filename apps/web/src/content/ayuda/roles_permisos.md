@@ -9,8 +9,8 @@ consultas:
   - qué puede hacer cada rol
   - cómo doy acceso a una pantalla
   - por qué no puedo marcar una función en un rol
-version: 1.3
-fecha: 2026-11-12
+version: 1.4
+fecha: 2026-11-17
 ---
 ## Qué es
 

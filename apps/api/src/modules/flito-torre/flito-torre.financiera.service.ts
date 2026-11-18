@@ -2,7 +2,7 @@
 //
 // RN-TOR-FI1 (bolsas, ignora el rango): saldo de hoy de las bolsas activas de cada compañía y consumo diario promedio de
 //   los últimos 30 días (salidas de `flito_bolsas_unicas_movimientos`). Días de cobertura = saldo / consumo diario;
-//   `null` sin consumo. Semáforo: < `dias_cobertura_rojo` crítico, < `dias_cobertura_amarillo` atención, si no ok.
+//   `null` sin consumo; con saldo ≤ 0 la bolsa está agotada: 0 días y crítico. Semáforo: < `dias_cobertura_rojo` crítico, < `dias_cobertura_amarillo` atención, si no ok.
 // RN-TOR-FI2 (sin facturar): aprobados en el rango que no están en `siigo_factura_tramites` activo, contados y
 //   valorizados con `flito_liquidaciones.total` (sin liquidación, cuentan pero no suman).
 // RN-TOR-FI3 (margen, solo con dinero): cobrado = componentes de la liquidación de los aprobados en el rango; costo =
@@ -49,8 +49,9 @@ export async function calcularBolsas(q: Ejecutor, ctx: ContextoTablero, rojo: nu
   return filas.map((f) => {
     const saldo = num(f.saldo);
     const diario = num(f.consumo) / DIAS_CONSUMO;
-    const dias = diario > 0 ? r1(saldo / diario) : null;
-    const sev: SeveridadTorre = dias == null ? 'ok' : dias < rojo ? 'critico' : dias < amarillo ? 'atencion' : 'ok';
+    // Saldo ≤ 0 = bolsa agotada: 0 días y crítico, con o sin consumo (días negativos no significan nada).
+    const dias = saldo <= 0 ? 0 : diario > 0 ? r1(saldo / diario) : null;
+    const sev: SeveridadTorre = saldo <= 0 ? 'critico' : dias == null ? 'ok' : dias < rojo ? 'critico' : dias < amarillo ? 'atencion' : 'ok';
     return {
       companiaId: Number(f.id), compania: nombres.get(Number(f.id)) ?? `Compañía ${f.id}`,
       saldo: ctx.dinero ? saldo : null, consumoDiario: ctx.dinero ? r1(diario) : null, diasCobertura: dias, severidad: sev,

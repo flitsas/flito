@@ -258,7 +258,7 @@ export interface TableroFinanciero extends BaseTablero {
     umbralAtencionDias: number; umbralCriticoDias: number;
     filas: {
       companiaId: number; compania: string; saldo: number | null; consumoDiario: number | null;
-      /** `null` si no hubo consumo en 30 días (cobertura indefinida). */
+      /** `null` si no hubo consumo en 30 días (cobertura indefinida); `0` con saldo ≤ 0 (agotada, siempre crítico). */
       diasCobertura: number | null; severidad: SeveridadTorre;
     }[];
   };

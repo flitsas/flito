@@ -8,7 +8,7 @@ palabras_clave:
 consultas:
   - cómo emito una factura
   - por qué falló una factura en Siigo
-version: 1.5
+version: 1.6
 fecha: 2026-11-17
 ---
 ## Qué es

@@ -80,7 +80,9 @@ export async function tableroEjecutivo(ctx: ContextoTablero): Promise<TableroEje
         impacto: Math.max(0, f.promedio - f.tramitesVentana),
       })),
       ...bolsas.filter((b) => b.severidad !== 'ok').map((b) => ({
-        area: 'financiero' as const, frase: `La bolsa de ${b.compania} alcanza para ${b.diasCobertura} días`,
+        area: 'financiero' as const, frase: (b.diasCobertura ?? 0) <= 0
+          ? `La bolsa de ${b.compania} está agotada`
+          : `La bolsa de ${b.compania} alcanza para ${(b.diasCobertura ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 1 })} días`,
         umbral: `crítico ${u.dias_cobertura_rojo} días`, severidad: b.severidad as RiesgoTorre['severidad'],
         impacto: b.consumoDiario ?? 0,
       })),

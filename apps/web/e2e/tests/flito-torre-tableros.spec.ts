@@ -106,6 +106,23 @@ test.describe('Torre de Control · tableros: exportar y opciones de filtros (Ép
     expect(llamadas).toBe(0);
   });
 
+  test('gráfica: al pasar el cursor sobre un punto el valor aparece al instante (sin el retardo del title nativo)', async ({ page }) => {
+    await loginAs(page, COMERCIAL_CON_EXPORTAR);
+    await mockOpciones(page);
+    await mockTablero(page);
+    await page.goto('/flito/torre/comercial');
+    await expect(page.locator('[data-torre="tablero"]')).toHaveAttribute('data-estado', 'lleno');
+
+    const linea = page.locator('[data-kit="linea"]').first();
+    await linea.locator('.grafico__columna[data-etiqueta="oct"]').hover();
+    const tip = linea.locator('.grafico__tip');
+    await expect(tip).toBeVisible({ timeout: 300 });
+    await expect(tip).toContainText('Trámites');
+    await expect(tip).toContainText('44');
+    await page.mouse.move(0, 0);
+    await expect(tip).toHaveCount(0);
+  });
+
   test('opciones cargando: selects deshabilitados con aviso; al llegar, la compañía sale de /torre/opciones', async ({ page }) => {
     await loginAs(page, COMERCIAL_CON_EXPORTAR);
     await mockOpciones(page, 800);
@@ -197,5 +214,47 @@ test.describe('Torre de Control · tableros: 4 estados del molde compartido (Ép
     await expect(compania.locator('option:checked')).toHaveText('Todas las compañías');
     // Limpiar vuelve a pedir el tablero con el mismo filtro de la carga inicial.
     await expect.poll(() => JSON.stringify(cuerpos.at(-1))).toBe(inicial);
+  });
+});
+
+const FINANCIERA: UsuarioFixture = {
+  id: 703, username: 'e2e_financiera', name: 'Gerencia Financiera E2E', role: 'gerencia_general',
+  allowedPages: ['torre_financiera'],
+  funciones: ['torre.tablero_financiero.ver', 'torre.metricas.dinero', 'perfil.datos.ver'],
+};
+const TABLERO_FINANCIERO = {
+  rango: { desde: '2026-11-01', hasta: '2026-11-17' }, dineroVisible: true, generadoEn: '2026-11-17T12:00:00.000Z',
+  cifras: {
+    menorCobertura: { companiaId: 1, compania: 'Compañía Demo A', dias: 0, severidad: 'critico' },
+    sinFacturarValor: 0, sinFacturarTramites: 0, margenPct: null, soportesCompletosPct: null,
+  },
+  bolsas: {
+    ...META, umbralAtencionDias: 15, umbralCriticoDias: 7,
+    filas: [
+      { companiaId: 1, compania: 'Compañía Demo A', saldo: -262_000, consumoDiario: 10_000, diasCobertura: 0, severidad: 'critico' },
+      { companiaId: 2, compania: 'Compañía Demo B', saldo: 500_000, consumoDiario: 50_000, diasCobertura: 10, severidad: 'atencion' },
+    ],
+  },
+  sinFacturar: { ...META, filas: [] },
+  margen: null,
+  conciliacion: { ...META, completos: 0, dos: 0, uno: 0, cero: 0, total: 0, pctCompletos: null },
+};
+
+test.describe('Torre de Control · Financiero: bolsa agotada (Épica #14590)', () => {
+  test.use({ viewport: { width: 1366, height: 768 } });
+
+  test('saldo ≤ 0: KPI y tabla dicen «Agotada», nunca días negativos ni «0 días»', async ({ page }) => {
+    await loginAs(page, FINANCIERA);
+    await mockOpciones(page);
+    await page.route('**/api/flito/torre/tableros/financiera', (route) => route.fulfill(json(TABLERO_FINANCIERO)));
+    await page.goto('/flito/torre/financiera');
+
+    await expect(page.getByText('Bolsa con menor cobertura')).toBeVisible();
+    await expect(page.getByText('Agotada').first()).toBeVisible();
+    const tabla = page.getByRole('table', { name: 'Cobertura de bolsas' });
+    await expect(tabla.getByRole('row', { name: /Compañía Demo A/ })).toContainText('Agotada');
+    await expect(tabla.getByRole('row', { name: /Compañía Demo B/ })).toContainText('10');
+    const texto = await page.locator('main').innerText();
+    expect(texto).not.toMatch(/[-−]\d+(,\d+)? días|\b0 días/);
   });
 });

@@ -18,7 +18,8 @@ type FilaSinFacturar = TableroFinanciero['sinFacturar']['filas'][number];
 
 const SERVICIO: Record<ServicioMargenTorre, string> = { tramite: 'Trámite', soat: 'SOAT', impuestos: 'Impuestos', derechos: 'Derechos', logistica: 'Logística' };
 const dinero = (n: number | null) => (n === null ? '—' : pesos(n));
-const dias = (n: number) => `${n.toLocaleString('es-CO', { maximumFractionDigits: 1 })} ${n === 1 ? 'día' : 'días'}`;
+// Saldo ≤ 0 llega como 0 días (RN-TOR-FI1): se dice «Agotada», nunca «0 días» ni días negativos.
+const dias = (n: number) => (n <= 0 ? 'Agotada' : `${n.toLocaleString('es-CO', { maximumFractionDigits: 1 })} ${n === 1 ? 'día' : 'días'}`);
 
 const esVacio = (d: TableroFinanciero): boolean => d.bolsas.filas.length === 0 && d.sinFacturar.filas.length === 0 && d.conciliacion.total === 0 && (d.margen === null || d.margen.porServicio.every((s) => s.cobrado === 0));
 
@@ -45,7 +46,7 @@ function Contenido({ d }: { d: TableroFinanciero }) {
     { key: 'compania', header: 'Compañía', render: (f) => <strong>{f.compania}</strong> },
     { key: 'saldo', header: 'Saldo', align: 'right', render: (f) => dinero(f.saldo) },
     { key: 'consumo', header: 'Consumo diario (30 días)', align: 'right', render: (f) => dinero(f.consumoDiario) },
-    { key: 'dias', header: 'Días de cobertura', align: 'right', render: (f) => (f.diasCobertura === null ? 'Sin consumo' : conteo(f.diasCobertura)) },
+    { key: 'dias', header: 'Días de cobertura', align: 'right', render: (f) => (f.diasCobertura === null ? 'Sin consumo' : f.diasCobertura <= 0 ? 'Agotada' : conteo(f.diasCobertura)) },
     { key: 'estado', header: 'Estado', render: (f) => <Semaforo severidad={f.severidad} /> },
   ];
   const columnasSinFacturar: ColumnaTabla<FilaSinFacturar>[] = [

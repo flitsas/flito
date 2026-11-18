@@ -40,6 +40,7 @@
     --color-text-primary: #e6f0ff; --color-text-secondary: #e6f0ff; --color-text-tertiary: #a9b8d4;
     --color-border: #3a5688; --color-border-strong: #3a5688; --color-border-control: #3a5688; --color-divider: #2c4470;
     --color-warning: #ff7a40; --color-danger: #ff6b6b; --color-info: #8fb0ff; --color-success: #a6d95f;
+    --kit-serie-turquesa: #2fd6c9; --kit-serie-verde: #a6d95f; --kit-serie-naranja: #ff7a40; --kit-serie-rojo: #f04848; --kit-serie-gris: #727c8c;
   }
 }
 
@@ -57,9 +58,20 @@
   --kit-sobre-relleno: #ffffff;    /* texto sobre relleno azul/tinta/rojo */
   --kit-alto-barra: 64px;
   --kit-alto-dock: 96px;           /* espacio inferior que reserva el contenido para el dock flotante */
+  /* Paleta categórica de gráficos (SERIE_KIT). Claro = la del kit salvo turquesa (#00dbd5 daba 1,74:1 sobre blanco,
+     bajo el 3:1 de WCAG 1.4.11 para una línea). Oscuro: cada serie ≥ 3:1 sobre la tarjeta (#162744) y gris neutro
+     más oscuro que el azul, porque #a9b8d4 vs #8fb0ff (1,07:1) hacía «Mes anterior» indistinguible de «Este mes». */
+  --kit-serie-azul: var(--kit-azul);
+  --kit-serie-turquesa: #009c96;
+  --kit-serie-verde: var(--kit-verde);
+  --kit-serie-amarillo: var(--kit-amarillo);
+  --kit-serie-naranja: var(--kit-naranja);
+  --kit-serie-rojo: var(--kit-rojo);
+  --kit-serie-gris: var(--kit-gris);
 }
 [data-theme="dark"] {
   --kit-gris: #a9b8d4;
+  --kit-serie-turquesa: #2fd6c9; --kit-serie-verde: #a6d95f; --kit-serie-naranja: #ff7a40; --kit-serie-rojo: #f04848; --kit-serie-gris: #727c8c;
   --kit-verde-texto: #a6d95f;
   --kit-naranja-texto: #ff7a40;
   --kit-rojo-texto: #ff6b6b;
