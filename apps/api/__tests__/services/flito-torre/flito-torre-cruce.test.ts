@@ -73,6 +73,7 @@ describe.skipIf(!URL_BASE)('cruce contra PostgreSQL (tx con ROLLBACK)', () => {
       filtro: { rango: MARZO, companiaIds: [a, b, c] },
     }, TODO, OP);
     expect(r.total.valor).toBe(15);
+    expect(r.rango).toEqual(MARZO);   // RN-TOR-F5: el cruce también declara el rango aplicado
     expect(r.truncado).toBe(true);
     expect(r.filas.map((f) => [f.clave, f.valor, f.esOtros ?? false])).toEqual([[String(a), 8, false], [String(b), 5, false], ['__otros', 2, true]]);
     expect(r.filas[2]!.etiqueta).toBe('Los demás (1)');

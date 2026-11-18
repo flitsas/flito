@@ -155,6 +155,26 @@ describe.skipIf(!URL_BASE)('fecha base y RN-TOR-L1 contra PostgreSQL (tx con ROL
     expect((await consultarMetrica({ metrica: 'sin_facturar', filtro: f }, TODO, OP)).total.valor).toBe(4);
   });
 
+  it('RN-TOR-F5: el resultado trae el rango REAL aplicado (inclusivo); ausente en la foto; una entrada cacheada sin él lo recibe', async () => {
+    const x = await s.cia('X');
+    const op6m = { dinero: true, hoy: '2026-11-18' };
+    const seis = await consultarMetrica({ metrica: 'tramites', filtro: { rango: { preset: 'ultimos_6m' }, companiaIds: [x] } }, TODO, op6m);
+    expect(seis.rango).toEqual({ desde: '2026-06-01', hasta: '2026-11-18' });
+    const explicito = await consultarMetrica({ metrica: 'tramites', filtro: { rango: { desde: '2026-06-01', hasta: '2026-11-18' }, companiaIds: [x] } }, TODO, op6m);
+    expect(explicito.rango).toEqual({ desde: '2026-06-01', hasta: '2026-11-18' });
+    const foto = await consultarMetrica({ metrica: 'wip_activo', filtro: { rango: { preset: 'ultimos_6m' }, companiaIds: [x] } }, TODO, op6m);
+    expect(foto).not.toHaveProperty('rango');
+    // Entrada vieja de la caché (anterior al campo, o con un rango que no es el de esta petición): el rango sale del cálculo.
+    const vieja = { ...seis, rango: { desde: '1999-01-01', hasta: '1999-01-31' } };
+    redis.cliente = { get: async () => JSON.stringify(vieja), set: async () => 'OK' } as never;
+    const deCache = await consultarMetrica({ metrica: 'tramites', filtro: { rango: { preset: 'ultimos_6m' }, companiaIds: [x] } }, TODO, op6m);
+    expect(deCache.generadoEn).toBe(seis.generadoEn);
+    expect(deCache.rango).toEqual({ desde: '2026-06-01', hasta: '2026-11-18' });
+    const { rango: _r, ...sinRango } = foto;
+    redis.cliente = { get: async () => JSON.stringify({ ...sinRango, rango: { desde: '1999-01-01', hasta: '1999-01-31' } }), set: async () => 'OK' } as never;
+    expect(await consultarMetrica({ metrica: 'wip_activo', filtro: { rango: { preset: 'ultimos_6m' }, companiaIds: [x] } }, TODO, op6m)).not.toHaveProperty('rango');
+  });
+
   it('caché: la clave lleva la fecha base RESUELTA y las columnas (defecto ≡ explícita; otra fecha o cruce = otra clave)', async () => {
     const claves: string[] = [];
     redis.cliente = { get: async () => null, set: async (k: string) => { claves.push(k); return 'OK'; } } as never;

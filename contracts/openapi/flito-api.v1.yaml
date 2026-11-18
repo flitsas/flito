@@ -51940,6 +51940,16 @@ paths:
                       - columnas
                       - celdas
                       - truncadoColumnas
+                  rango:
+                    type: object
+                    properties:
+                      desde:
+                        type: string
+                      hasta:
+                        type: string
+                    required:
+                      - desde
+                      - hasta
                   generadoEn:
                     type: string
                 required:

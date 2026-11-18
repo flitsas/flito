@@ -211,8 +211,15 @@ export async function consultarMetrica(
     agrupacionColumnas: c.agrupacionColumnas ?? null, filtro: c.filtro, limite, modo,
   };
   const clave = claveCache('metrica', normalizada, rango, alcance);
+  // El rango sale del cálculo de esta petición, no de la entrada cacheada (una vieja puede no traerlo).
+  // `RangoResuelto.hasta` ya es inclusivo (el fin exclusivo `hasta + 1` solo vive en el SQL de `condicionesTorre`).
+  const conRango = (r: ResultadoMetrica): ResultadoMetrica => {
+    const sinRango: ResultadoMetrica = { ...r };
+    delete sinRango.rango;
+    return rango ? { ...sinRango, rango: { desde: rango.desde, hasta: rango.hasta } } : sinRango;
+  };
   const cacheado = await leerCache<ResultadoMetrica>(clave);
-  if (cacheado) return cacheado;
+  if (cacheado) return conRango(cacheado);
 
   const conds = [...def.fijas, ...condicionesTorre(c.filtro, alcance, def.dims, { rango, fecha: def.fecha })];
   const resultado = await enTorre(async (q) => {
@@ -282,5 +289,5 @@ export async function consultarMetrica(
     return r;
   });
   await guardarCache(clave, resultado);
-  return resultado;
+  return conRango(resultado);
 }

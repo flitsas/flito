@@ -211,6 +211,12 @@ export interface ResultadoMetrica {
   truncado: boolean;
   /** Solo si la consulta trae `agrupacionColumnas`; `filas` es entonces el marginal por fila (incluida «Otros»). */
   cruce?: CruceTorre;
+  /**
+   * El rango REAL que se aplicó a la consulta, ya resuelto por la API (RN-TOR-F5: un preset como `ultimos_6m`
+   * no se calcula en la web): días calendario `YYYY-MM-DD` de Bogotá, `desde` y `hasta` ambos inclusive.
+   * Ausente en las métricas de foto (`wip_activo`), que no filtran por fecha.
+   */
+  rango?: { desde: string; hasta: string };
   /** ISO 8601. */
   generadoEn: string;
 }
