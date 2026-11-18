@@ -1,4 +1,4 @@
-// FLITO — Gestión Trámites: secciones del detalle en modal (ADR-0044). Solo presentación: los datos
+// FLITO — Gestión Trámites: secciones del detalle en modal (ADR-0046). Solo presentación: los datos
 // llegan de `GET /flito/tramites/:id/detalle` (y el historial de su propio endpoint). Se muestra solo
 // lo que viene; un campo nulo no se inventa, se dice «Sin dato».
 

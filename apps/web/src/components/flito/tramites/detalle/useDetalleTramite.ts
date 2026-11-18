@@ -1,4 +1,4 @@
-// FLITO — Gestión Trámites: navegación del detalle en modal (ADR-0044).
+// FLITO — Gestión Trámites: navegación del detalle en modal (ADR-0046).
 //
 // El trámite abierto vive SOLO en memoria (nunca en la URL: AGENTS.md §14). «Anterior» y
 // «Siguiente» recorren las filas de la página cargada; en los extremos piden la página vecina con los

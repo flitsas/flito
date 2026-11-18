@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Route } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, funcionesDe, type UsuarioFixture } from '../helpers/auth';
 
-// FLITO — Gestión Trámites: detalle del trámite en modal (ADR-0044, Épica #14560). API mockeado:
+// FLITO — Gestión Trámites: detalle del trámite en modal (ADR-0046, Épica #14560). API mockeado:
 // lista paginada (2 filas en la página 1 y 1 en la 2), detalle por id, historial, soportes y ZIP.
 
 const ID = (n: number) => `cccccccc-0000-0000-0000-00000000000${n}`;
@@ -85,7 +85,7 @@ const abrir = async (page: Page, n: number) => {
   await expect(modal(page)).toBeVisible();
 };
 
-test.describe('FLITO — Gestión Trámites: detalle en modal (ADR-0044)', () => {
+test.describe('FLITO — Gestión Trámites: detalle en modal (ADR-0046)', () => {
   test('«Ver» abre la modal con sus secciones; Escape cierra y devuelve el foco al «Ver»', async ({ page }) => {
     await montar(page);
     await abrir(page, 1);

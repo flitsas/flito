@@ -1,4 +1,4 @@
-// Aviso de página cuando no cargaron las vistas de columnas (ADR-0043). Es estado persistente, así
+// Aviso de página cuando no cargaron las vistas de columnas (ADR-0045). Es estado persistente, así
 // que va en la página y no en un toast. La tabla ya se ve con la vista del sistema.
 import { claseBoton } from '../../flit/GradientButton';
 import type { VistasColumnas } from './useVistasColumnas';

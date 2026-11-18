@@ -28,9 +28,9 @@ export interface FilaTramiteProps {
   onSolicitarSoat?: () => void;
   onSolicitarImpuesto?: () => void;
   onSoportes: () => void;
-  /** ADR-0044: abre el detalle del trámite en modal. Sin prop, la columna no se pinta. */
+  /** ADR-0046: abre el detalle del trámite en modal. Sin prop, la columna no se pinta. */
   onVer?: () => void;
-  /** Vista de columnas activa (ADR-0043): `false` oculta la celda de esa clave. Sin prop, todas. */
+  /** Vista de columnas activa (ADR-0045): `false` oculta la celda de esa clave. Sin prop, todas. */
   ver?: (clave: string) => boolean;
 }
 

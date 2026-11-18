@@ -1,4 +1,4 @@
-// FLITO — Gestión Trámites: detalle del trámite en modal ancha (ADR-0044, Épica #14560).
+// FLITO — Gestión Trámites: detalle del trámite en modal ancha (ADR-0046, Épica #14560).
 //
 // Se abre con el botón «Ver» de cada fila. Cabecera con la posición («n de N»), el id del trámite,
 // su fuente y su estado, y «‹ Anterior» / «Siguiente ›» / «Cerrar». A la izquierda un índice que

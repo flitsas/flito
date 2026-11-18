@@ -1,4 +1,4 @@
-// FLITO — Gestión Trámites: sección «Soportes» del detalle en modal (ADR-0044).
+// FLITO — Gestión Trámites: sección «Soportes» del detalle en modal (ADR-0046).
 //
 // Lista los documentos de `GET /flito/tramites/:id/soportes` (función `tramites.tramite.ver_soportes`)
 // y los abre en el visor de siempre (`VisorSoportes`). La descarga en ZIP de ESTE trámite usa el

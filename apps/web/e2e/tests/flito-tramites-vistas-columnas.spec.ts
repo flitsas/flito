@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Route } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER, type UsuarioFixture } from '../helpers/auth';
 
-// FLITO — Gestión Trámites: vistas de columnas persistidas (ADR-0043, Épica #14560). El API está
+// FLITO — Gestión Trámites: vistas de columnas persistidas (ADR-0045, Épica #14560). El API está
 // mockeado: `/api/flito/vistas-columnas/flito-tramites` responde con un estado en memoria que las
 // escrituras modifican, como haría el servidor (vista activa = puntero personal → sistema).
 
@@ -78,7 +78,7 @@ const abrir = async (page: Page) => {
   await expect(panel(page)).toBeVisible();
 };
 
-test.describe('FLITO — Gestión Trámites: vistas de columnas (ADR-0043)', () => {
+test.describe('FLITO — Gestión Trámites: vistas de columnas (ADR-0045)', () => {
   test('abrir el panel, ocultar una columna (cabecera y celda), Escape cierra y devuelve el foco', async ({ page }) => {
     await montar(page);
     await abrir(page);

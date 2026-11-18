@@ -888,7 +888,7 @@ export const TRAMITES_DEMO = {
 export const TRAMITES_FACETAS_DEMO = {
   estados: ['Asignado'], tramites: ['Matricula', 'Traspaso'], ciudades: ['Manizales', 'Pereira'], transitos: [...ORGANISMOS_REALES],
 };
-// ADR-0043: catálogo de columnas de Gestión Trámites y una vista propia guardada (sin valores, solo claves).
+// ADR-0045: catálogo de columnas de Gestión Trámites y una vista propia guardada (sin valores, solo claves).
 const COLUMNAS_TRAMITES_DEMO = [
   ['tramite', 'Trámite', true], ['fuente', 'Fuente'], ['creado', 'Creado'], ['aprobado', 'Aprobado'],
   ['vehiculo', 'Vehículo'], ['comprador', 'Propietario'], ['correo', 'Correo'], ['empresa_gestora', 'Empresa gestora'],
@@ -904,7 +904,7 @@ export const VISTAS_COLUMNAS_TRAMITES_DEMO = {
     columnas: SISTEMA_TRAMITES_DEMO.filter((c) => c !== 'correo' && c !== 'ciudad') }],
   limites: { columnasPorVista: 30, vistasPersonales: 20 },
 };
-// ADR-0044: detalle del trámite FLIT-DEMO-101 (ventana), sus soportes e historial.
+// ADR-0046: detalle del trámite FLIT-DEMO-101 (ventana), sus soportes e historial.
 export const DETALLE_TRAMITE_DEMO = {
   id: 'tra-demo-1', idFlit: 'FLIT-DEMO-101',
   resumen: {

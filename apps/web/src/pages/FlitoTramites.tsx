@@ -58,8 +58,8 @@ function useDebounce<T>(valor: T, ms: number): T {
 }
 
 export default function FlitoTramites() {
-  const { hasFuncion, tipoEnlace, user } = useAuth();
-  const vc = useVistasColumnas('flito-tramites'); // ADR-0043: vista de columnas activa
+  const { hasFuncion, tipoEnlace } = useAuth();
+  const vc = useVistasColumnas('flito-tramites'); // ADR-0045: vista de columnas activa
   // HU #12170
   const esOperaciones = hasFuncion('tramites.solicitud.pedir_soat');
   // HU #13452: las listas de apoyo de parametrización (compañías, proveedores) están cerradas a todo
@@ -110,7 +110,7 @@ export default function FlitoTramites() {
   const [factura, setFactura] = useState<{ url: string; nombre: string } | null>(null);
   // Visor de los soportes del trámite: SOAT, impuesto, derecho de tránsito y logística.
   const [soportesDe, setSoportesDe] = useState<{ tramiteId: string; idFlit: string } | null>(null);
-  const det = useDetalleTramite(data, page, total, PAGE_SIZE, setPage); // ADR-0044: detalle en modal (en memoria, no en la URL)
+  const det = useDetalleTramite(data, page, total, PAGE_SIZE, setPage); // ADR-0046: detalle en modal (en memoria, no en la URL)
 
   // Filtros (se aplican EN EL SERVIDOR). Los de texto se debouncean para no disparar un fetch por tecla.
   const [estadosSel, setEstadosSel] = useState<string[]>([]);
@@ -393,7 +393,7 @@ export default function FlitoTramites() {
                 <span aria-hidden="true">×</span>
               </button>
             )}
-            <PanelColumnas vc={vc} esAdmin={user?.role === 'admin'} />
+            <PanelColumnas vc={vc} esAdmin={hasFuncion('tramites.vistas_columnas.administrar')} />
             {/* Orden cronológico: el gestor trabaja de lo más viejo a lo más nuevo. */}
             <label className="flex items-center gap-2 text-xs font-semibold text-[color:var(--color-text-secondary)]">
               Orden

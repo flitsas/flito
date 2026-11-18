@@ -1,4 +1,4 @@
-// Selector «Columnas» (ADR-0043): control de la barra de filtros (chip h-10 del kit) + panel flotante.
+// Selector «Columnas» (ADR-0045): control de la barra de filtros (chip h-10 del kit) + panel flotante.
 //
 // Una sola cosa por panel: qué columnas se ven. Arriba la vista (sistema, mías, para todos), en medio
 // las casillas en orden del catálogo (las fijas marcadas y deshabilitadas), abajo las acciones.

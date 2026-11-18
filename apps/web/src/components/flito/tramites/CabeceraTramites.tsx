@@ -1,6 +1,6 @@
 // FLITO — Trámites: encabezado de la bandeja con los filtros por columna. JSX movido desde
 // `pages/FlitoTramites.tsx` (la página tiene techo congelado de líneas) al añadir las vistas de
-// columnas (ADR-0043): cada cabecera se pinta solo si la vista activa la muestra (`ver(clave)`).
+// columnas (ADR-0045): cada cabecera se pinta solo si la vista activa la muestra (`ver(clave)`).
 // Las claves son las del catálogo de `apps/api/.../flito-vistas-columnas.catalogo.ts`.
 import type { ReactNode } from 'react';
 import {
@@ -22,7 +22,7 @@ export interface CabeceraTramitesProps {
   ver: (clave: string) => boolean;
   /** Casilla «todas las filas de la página»: solo para Operaciones. */
   seleccionPagina?: { marcada: boolean; onCambio: (marcar: boolean) => void };
-  /** ADR-0044: hay columna del botón «Ver» (detalle en modal). */
+  /** ADR-0046: hay columna del botón «Ver» (detalle en modal). */
   conDetalle?: boolean;
   facetas: { estados: string[]; ciudades: string[]; transitos: string[] };
   estados: Filtro<string>;
@@ -50,7 +50,7 @@ export default function CabeceraTramites({
               checked={seleccionPagina.marcada} onChange={(e) => seleccionPagina.onCambio(e.target.checked)} />
           </FlitTh>
         )}
-        {/* ADR-0044: columna del botón «Ver» (detalle en modal). Siempre visible, fuera del selector de columnas. */}
+        {/* ADR-0046: columna del botón «Ver» (detalle en modal). Siempre visible, fuera del selector de columnas. */}
         {conDetalle && <FlitTh estrecha><span className="sr-only">Detalle</span></FlitTh>}
         {th('tramite', <>Trámite<ThFiltroMulti seleccion={estados[0]} onCambio={estados[1]} opciones={aOpc(facetas.estados)} placeholder="Todos los estados" /></>)}
         {th('fuente', 'Fuente', true)}

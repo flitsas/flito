@@ -1,4 +1,4 @@
-// Vistas de columnas persistidas (ADR-0043): estado y acciones de la vista activa de una tabla.
+// Vistas de columnas persistidas (ADR-0045): estado y acciones de la vista activa de una tabla.
 //
 // Qué guarda el servidor y qué no:
 //   · El servidor resuelve la vista activa (personal → general → sistema) y devuelve SUS columnas
