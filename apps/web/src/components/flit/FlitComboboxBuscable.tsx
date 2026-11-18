@@ -58,11 +58,34 @@ export interface FlitComboboxBuscableProps {
     anuncio: (n: number, truncado: boolean) => string;
     truncado: string;
   };
+  /**
+   * Modo múltiple (ADITIVO, Torre #14590 — spec `docs/ux/flito-torre-explorador-flexible.md` §3.3). Con él no se usan
+   * `seleccionadoId` ni `onElegir`: la lista lleva casillas, `aria-multiselectable`, la opción «Todas…» arriba y un pie
+   * con «Quitar selección» y «Listo». Espacio o Enter marcan sin cerrar; Esc, Tab, «Listo» y el clic fuera cierran.
+   * Cuándo aplica la selección lo decide el padre (`onCambio` en cada casilla + `onAbiertoChange(false)` al cerrar).
+   */
+  multiple?: {
+    seleccionados: readonly string[];
+    onCambio: (ids: string[]) => void;
+    /** Primera opción: vacía la selección y va `aria-selected` cuando no hay ninguna («Todas las compañías»). */
+    opcionTodas: string;
+    /** Texto del pie con la cuenta («3 elegidas»). */
+    rotuloElegidas: (n: number) => string;
+    /** Buscador sobre la lista (la spec lo pide solo con más de 10 opciones). Sin él, el foco va a la lista. */
+    conBusqueda: boolean;
+  };
+  /** `aria-label` del trigger cuando su texto visible va resumido (p. ej. «Compañía: A, B y C»). Opcional y aditiva. */
+  ariaLabelTrigger?: string;
 }
 
 const TACTIL = 'min-h-[44px] lg:min-h-10';
 
-export default function FlitComboboxBuscable({
+/** Sin `multiple` es el combobox de siempre (sin un solo cambio); con él, la variante de selección múltiple. */
+export default function FlitComboboxBuscable(props: FlitComboboxBuscableProps) {
+  return props.multiple ? <ComboboxMultiple {...props} multiple={props.multiple} /> : <ComboboxSimple {...props} />;
+}
+
+function ComboboxSimple({
   id, etiquetaSeleccion, placeholder, seleccionadoId, onElegir, abierto, onAbiertoChange,
   texto, onTextoChange, estado, opciones, truncado, onReintentar, encabezado, disabled, required,
   describedBy, placeholderBusqueda, ariaLabelBusqueda, ariaLabelLista, maxLength, copy,
@@ -249,6 +272,160 @@ export default function FlitComboboxBuscable({
           {estado === 'lista' && truncado && opciones.length > 0 && (
             <p className="border-t px-3 py-2 text-xs" style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}>{copy.truncado}</p>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Modo múltiple ────────────────────────────────────────────────────────────────────────────────
+
+const CLASE_TRIGGER = `flit-focus flex w-full items-center justify-between gap-2 rounded-[9px] border border-[color:var(--color-border-control)] bg-[var(--color-surface-elevated)] px-3 py-2 text-left text-sm text-[color:var(--color-text-primary)] outline-none transition-colors hover:border-[color:var(--kit-azul)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-[color:var(--color-border-control)] ${TACTIL}`;
+
+function ComboboxMultiple({
+  id, etiquetaSeleccion, placeholder, abierto, onAbiertoChange, texto, onTextoChange, estado, opciones, truncado,
+  onReintentar, disabled, required, describedBy, placeholderBusqueda, ariaLabelBusqueda, ariaLabelLista, maxLength, copy,
+  multiple, ariaLabelTrigger,
+}: FlitComboboxBuscableProps & { multiple: NonNullable<FlitComboboxBuscableProps['multiple']> }) {
+  const base = useId();
+  const listboxId = `${base}-listbox`;
+  const idFila = (i: number) => `${base}-opt-${i}`;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listaRef = useRef<HTMLUListElement>(null);
+  const [activo, setActivo] = useState(0);
+  const { seleccionados, onCambio, opcionTodas, rotuloElegidas, conBusqueda } = multiple;
+  const elegidos = new Set(seleccionados);
+
+  // Fila 0 = «Todas…»; las demás, las opciones en el orden que manda el padre (lo elegido no salta arriba).
+  const filas = estado === 'lista' ? [{ id: '', principal: opcionTodas } as OpcionBuscable, ...opciones] : [];
+  const conLista = filas.length > 1 || (filas.length === 1 && !texto);
+
+  useEffect(() => {
+    if (!abierto) return;
+    setActivo(0);
+    requestAnimationFrame(() => (conBusqueda ? searchRef.current : listaRef.current)?.focus());
+  }, [abierto, conBusqueda]);
+  useEffect(() => { setActivo((a) => Math.min(a, Math.max(filas.length - 1, 0))); }, [filas.length]);
+
+  useEffect(() => {
+    if (!abierto) return undefined;
+    const onDoc = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) onAbiertoChange(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [abierto, onAbiertoChange]);
+
+  useEffect(() => {
+    if (abierto) document.getElementById(idFila(activo))?.scrollIntoView({ block: 'nearest' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abierto, activo]);
+
+  const cerrar = (devolverFoco: boolean) => {
+    onAbiertoChange(false);
+    if (devolverFoco) requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+  const alternar = (i: number) => {
+    const o = filas[i];
+    if (!o || o.deshabilitada) return;
+    if (o.id === '') { onCambio([]); return; }
+    onCambio(elegidos.has(o.id) ? seleccionados.filter((x) => x !== o.id) : [...seleccionados, o.id]);
+  };
+  const onTeclas = (e: KeyboardEvent<HTMLElement>, desdeBuscador: boolean) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cerrar(true); return; }
+    if (e.key === 'Tab') { onAbiertoChange(false); return; }
+    if (!conLista) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActivo((a) => Math.min(a + 1, filas.length - 1)); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setActivo((a) => Math.max(a - 1, 0)); return; }
+    // En el buscador, Espacio escribe; en la lista, marca.
+    if (e.key === 'Enter' || (e.key === ' ' && !desdeBuscador)) { e.preventDefault(); alternar(activo); }
+  };
+  const onTriggerKey = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAbiertoChange(true); }
+  };
+
+  const anuncio = estado === 'cargando' ? copy.cargando
+    : estado === 'lista' && opciones.length ? copy.anuncio(opciones.length, truncado) : '';
+  const activoId = conLista ? idFila(activo) : undefined;
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button ref={triggerRef} type="button" id={id} disabled={disabled} aria-haspopup="listbox" aria-expanded={abierto}
+        aria-controls={abierto ? listboxId : undefined} aria-required={required || undefined} aria-describedby={describedBy}
+        aria-label={ariaLabelTrigger} onClick={() => onAbiertoChange(!abierto)} onKeyDown={onTriggerKey} className={CLASE_TRIGGER}>
+        <span className={`w-0 min-w-0 flex-1 truncate ${etiquetaSeleccion ? '' : 'text-[color:var(--color-text-tertiary)]'}`}>
+          {etiquetaSeleccion ?? placeholder}
+        </span>
+        {!disabled && (
+          <svg className={`h-4 w-4 shrink-0 text-[color:var(--color-text-tertiary)] ${abierto ? 'rotate-180' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        )}
+      </button>
+
+      {abierto && !disabled && (
+        <div className="absolute z-50 mt-1 flex max-h-[70vh] w-[max(100%,21rem)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-[9px] border bg-[var(--color-surface-elevated)] lg:max-h-none"
+          style={{ borderColor: 'var(--color-border-control)', boxShadow: 'var(--kit-sombra)' }} data-kit="combobox-multiple">
+          {conBusqueda && (
+            <div className="border-b p-2" style={{ borderColor: 'var(--color-border)' }}>
+              <input ref={searchRef} type="text" role="combobox" value={texto} maxLength={maxLength}
+                onChange={(e) => onTextoChange(e.target.value)} onKeyDown={(e) => onTeclas(e, true)}
+                placeholder={placeholderBusqueda} autoComplete="off" aria-label={ariaLabelBusqueda} aria-expanded="true"
+                aria-controls={listboxId} aria-autocomplete="list" aria-activedescendant={activoId}
+                className={`flit-focus w-full rounded-[9px] border border-[color:var(--color-border-control)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[color:var(--color-text-primary)] placeholder:text-[color:var(--kit-gris)] outline-none transition-colors hover:border-[color:var(--kit-azul)] ${TACTIL}`} />
+            </div>
+          )}
+
+          <p role="status" aria-live="polite" className="sr-only">{anuncio}</p>
+
+          {estado === 'cargando' && <p className="px-3 py-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{copy.cargando}</p>}
+          {estado === 'error' && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+              <p role="alert" style={{ color: 'var(--kit-rojo-texto)' }}>{copy.error}</p>
+              <button type="button" onClick={onReintentar}
+                className={`flit-focus rounded-[9px] px-2 text-sm font-medium underline-offset-2 transition-colors hover:bg-[color:var(--kit-hover)] hover:underline ${TACTIL}`}
+                style={{ color: 'var(--color-action)' }}>
+                Reintentar
+              </button>
+            </div>
+          )}
+          {estado === 'lista' && opciones.length === 0 && texto && (
+            <div role="status" className="px-3 py-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{copy.sinResultados}</div>
+          )}
+
+          <ul ref={listaRef} id={listboxId} role="listbox" aria-label={ariaLabelLista} aria-multiselectable="true"
+            tabIndex={conBusqueda ? undefined : -1} aria-activedescendant={conBusqueda ? undefined : activoId}
+            onKeyDown={conBusqueda ? undefined : (e) => onTeclas(e, false)}
+            className={`flit-focus min-h-0 flex-1 overflow-auto outline-none lg:max-h-64 ${conLista ? 'py-1' : 'hidden'}`}>
+            {conLista && filas.map((o, i) => {
+              const marcada = o.id === '' ? seleccionados.length === 0 : elegidos.has(o.id);
+              return (
+                <li key={o.id || '__todas'} id={idFila(i)} role="option" aria-selected={marcada}
+                  aria-disabled={o.deshabilitada || undefined}
+                  onMouseEnter={() => setActivo(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => alternar(i)}
+                  className={`flex min-h-[44px] cursor-pointer items-center gap-2.5 px-3 py-2 text-sm transition-colors lg:min-h-0 ${o.id === '' ? 'border-b' : ''}`}
+                  style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-primary)', background: i === activo ? 'var(--kit-hover)' : undefined }}>
+                  <input type="checkbox" tabIndex={-1} aria-hidden readOnly checked={marcada}
+                    className="pointer-events-none size-4 shrink-0 accent-[var(--kit-azul)]" />
+                  <span className="min-w-0 flex-1 truncate" title={o.principal}>{o.principal}</span>
+                  {o.detalle && <span className="shrink-0 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{o.detalle}</span>}
+                </li>
+              );
+            })}
+          </ul>
+
+          {estado === 'lista' && truncado && opciones.length > 0 && (
+            <p className="border-t px-3 py-2 text-xs" style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}>{copy.truncado}</p>
+          )}
+          <div className="flex flex-wrap items-center gap-2 border-t px-3 py-2" style={{ borderColor: 'var(--color-border)' }}>
+            <span className="mr-auto text-xs" style={{ color: 'var(--color-text-secondary)' }}>{rotuloElegidas(seleccionados.length)}</span>
+            <button type="button" className="btn ghost sm transition-colors" disabled={seleccionados.length === 0}
+              onClick={() => onCambio([])}>Quitar selección</button>
+            <button type="button" className="btn secondary sm transition-colors" onClick={() => cerrar(true)}>Listo</button>
+          </div>
         </div>
       )}
     </div>

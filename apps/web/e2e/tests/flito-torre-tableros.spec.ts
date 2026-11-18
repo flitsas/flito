@@ -125,7 +125,9 @@ test.describe('Torre de Control · tableros: exportar y opciones de filtros (Ép
 
   test('opciones cargando: selects deshabilitados con aviso; al llegar, la compañía sale de /torre/opciones', async ({ page }) => {
     await loginAs(page, COMERCIAL_CON_EXPORTAR);
-    await mockOpciones(page, 800);
+    // Demora amplia: en dev, Vite sirve la barra en cascada de módulos y con 800 ms la petición podía resolverse antes
+    // de que la aserción alcanzara a ver el «cargando».
+    await mockOpciones(page, 3000);
     await mockTablero(page);
     let parametrizacion = 0;
     await page.route('**/api/flito/parametrizacion/companias', async (route) => { parametrizacion += 1; await route.fulfill(json([])); });
@@ -133,11 +135,12 @@ test.describe('Torre de Control · tableros: exportar y opciones de filtros (Ép
 
     await expect(barra(page)).toHaveAttribute('data-opciones', 'cargando');
     await expect(page.getByLabel('Compañía', { exact: true })).toBeDisabled();
-    await expect(barra(page).getByText('Cargando las opciones…')).toBeVisible();
+    await expect(barra(page).getByRole('status').filter({ hasText: 'Cargando las opciones…' })).toBeVisible();
 
     await expect(barra(page)).toHaveAttribute('data-opciones', 'listo');
     await expect(page.getByLabel('Compañía', { exact: true })).toBeEnabled();
-    await expect(page.getByLabel('Compañía', { exact: true }).locator('option')).toHaveText(['Todas las compañías', 'Compañía Demo A', 'Compañía Demo B']);
+    await page.getByLabel('Compañía', { exact: true }).click();
+    await expect(page.getByRole('listbox', { name: 'Compañía' }).getByRole('option')).toHaveText(['Todas las compañías', 'Compañía Demo A', 'Compañía Demo B']);
     expect(parametrizacion).toBe(0);
   });
 
@@ -206,12 +209,14 @@ test.describe('Torre de Control · tableros: 4 estados del molde compartido (Ép
     await expect(barra(page)).toHaveAttribute('data-opciones', 'listo');
     const compania = page.getByLabel('Compañía', { exact: true });
     const inicial = JSON.stringify(cuerpos[0]);
-    await compania.selectOption({ label: 'Compañía Demo A' });
+    await compania.click();
+    await page.getByRole('option', { name: 'Compañía Demo A' }).click();
+    await page.getByRole('button', { name: 'Listo' }).click();
     await expect.poll(() => JSON.stringify(cuerpos.at(-1))).not.toBe(inicial);
     await expect(tablero).toHaveAttribute('data-estado', 'vacio');
 
     await tablero.getByRole('button', { name: 'Limpiar filtros' }).click();
-    await expect(compania.locator('option:checked')).toHaveText('Todas las compañías');
+    await expect(compania).toHaveText('Todas las compañías');
     // Limpiar vuelve a pedir el tablero con el mismo filtro de la carga inicial.
     await expect.poll(() => JSON.stringify(cuerpos.at(-1))).toBe(inicial);
   });
@@ -256,5 +261,43 @@ test.describe('Torre de Control · Financiero: bolsa agotada (Épica #14590)', (
     await expect(tabla.getByRole('row', { name: /Compañía Demo B/ })).toContainText('10');
     const texto = await page.locator('main').innerText();
     expect(texto).not.toMatch(/[-−]\d+(,\d+)? días|\b0 días/);
+  });
+});
+
+// D9 (P-4 = sí): la barra es la misma en las 5 páginas y los tableros reciben VARIAS compañías.
+test.describe('Torre de Control · tableros con varias compañías (Épica #14590)', () => {
+  test.use({ viewport: { width: 1366, height: 768 } });
+
+  test('Financiera: 2 compañías elegidas en la barra → una sola petición con las dos al cerrar la lista', async ({ page }) => {
+    await loginAs(page, FINANCIERA);
+    await mockOpciones(page);
+    const cuerpos: Array<{ filtro: { companiaIds?: number[] } }> = [];
+    await page.route('**/api/flito/torre/tableros/financiera', async (route) => {
+      cuerpos.push(route.request().postDataJSON());
+      await route.fulfill(json(TABLERO_FINANCIERO));
+    });
+    await page.goto('/flito/torre/financiera');
+    await expect(barra(page)).toHaveAttribute('data-opciones', 'listo');
+    await expect(page.getByText('Bolsa con menor cobertura')).toBeVisible();
+
+    // Con 2+ elegidas el `aria-label` del botón las nombra todas: se ubica por su contenedor.
+    const compania = page.locator('[data-torre-selector="Compañía"] [aria-haspopup="listbox"]');
+    await compania.click();
+    const lista = page.getByRole('listbox', { name: 'Compañía' });
+    await expect(lista).toHaveAttribute('aria-multiselectable', 'true');
+    const antes = cuerpos.length;
+    await lista.getByRole('option', { name: 'Compañía Demo A' }).click();
+    await lista.getByRole('option', { name: 'Compañía Demo B' }).click();
+    await expect(page.getByText('2 elegidas')).toBeVisible();
+    // Marcar no consulta: aplica al cerrar.
+    expect(cuerpos.length).toBe(antes);
+    await page.getByRole('button', { name: 'Listo' }).click();
+
+    await expect.poll(() => cuerpos.at(-1)?.filtro.companiaIds).toEqual([1, 2]);
+    await expect(compania).toHaveText('Compañía Demo A y 1 más');
+    await expect(compania).toHaveAttribute('aria-label', 'Compañía: Compañía Demo A y Compañía Demo B');
+    const guardado = JSON.parse(await page.evaluate(() => sessionStorage.getItem('flito-torre-filtros') ?? '{}'));
+    expect(guardado.companiaIds).toEqual([1, 2]);
+    expect(guardado).not.toHaveProperty('companiaId');
   });
 });

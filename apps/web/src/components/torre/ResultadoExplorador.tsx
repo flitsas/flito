@@ -1,14 +1,16 @@
-// Torre de Control (Épica #14590) — tarjeta de resultado del Explorador (spec UX §5.2): la cifra dominante, el
-// desglose (ranking de participación o `LineaTendencia`) y el `DataTable`. En tiempos, 4 cifras: mediana, 9 de
-// cada 10, el que más tardó (con «ver ficha») y lapso total.
-import { useEffect, useState } from 'react';
+// Torre de Control (Épica #14590) — tarjeta de resultado del Explorador (spec UX §5.2 y §5.3 del Explorador flexible):
+// la cifra dominante, el desglose (ranking de participación o `LineaTendencia`) y el `DataTable`. En tiempos, 4 cifras:
+// mediana, 9 de cada 10, el que más tardó (con «ver ficha») y lapso total. Con dos agrupaciones (`res.cruce`), la
+// gráfica por series si un eje es temporal y la tabla cruzada (`TablaCruzadaTorre`).
+import { useEffect, useState, type ReactNode } from 'react';
 import type { AgrupacionTorre, MetricaTorreDef, ResultadoMetrica } from '@operaciones/shared-types';
 import KpiCard from '../flit/KpiCard';
 import DataTable, { type ColumnaTabla } from '../flit/DataTable';
 import InlineAlert from '../flit/InlineAlert';
 import { LineaTendencia, SERIE_KIT } from '../flit/Graficos';
 import RankingTorre from './RankingTorre';
-import { AGRUPACIONES_TEMPORALES, conteo, duracion, formatoUnidad, porcentaje } from './formatoTorre';
+import { ETIQUETA_AGRUPACION, conteo, duracion, esTemporal, formatoUnidad, porcentaje } from './formatoTorre';
+import { GraficaSeriesTorre, TablaCruzadaTorre, avisosCruce } from './TablaCruzadaTorre';
 
 type Fila = ResultadoMetrica['filas'][number];
 const TOP = 10;
@@ -30,40 +32,47 @@ export function NotasBaseFecha({ res, tiempos }: { res: ResultadoMetrica; tiempo
           métrica y no {excluidosSinFecha === 1 ? 'entra' : 'entran'} en la cifra.
         </InlineAlert>
       )}
-      {res.truncado && (
+      {res.truncado && !res.cruce && (
         <InlineAlert tono="info">Se muestran los primeros {conteo(res.filas.length)} grupos. El Excel trae todos.</InlineAlert>
       )}
     </>
   );
 }
 
-export default function ResultadoExplorador({ res, def, agrupacion, titulo, subtitulo, onVerFicha }: {
+export default function ResultadoExplorador({ res, def, agrupacion, titulo, subtitulo, onVerFicha, avisos, medida = def.etiqueta }: {
   res: ResultadoMetrica;
   def: MetricaTorreDef;
   agrupacion: AgrupacionTorre | '';
   titulo: string;
   subtitulo: string;
   onVerFicha: (placa: string) => void;
+  /** Avisos de página propios de la consulta (p. ej. el del filtro «Estado actual», spec §5.4). */
+  avisos?: ReactNode;
+  /** La medida con su fecha («Trámites aprobados»): rótulo de la cifra, de la columna y del ranking. */
+  medida?: string;
 }) {
   const [pagina, setPagina] = useState(1);
   useEffect(() => { setPagina(1); }, [res]);
   const tiempos = def.unidad === 'horas';
-  const temporal = agrupacion !== '' && AGRUPACIONES_TEMPORALES.includes(agrupacion);
-  const categoria = agrupacion !== '' && !temporal;
+  const cruzado = !!res.cruce && agrupacion !== '';
+  const temporal = esTemporal(agrupacion);
+  const categoria = agrupacion !== '' && !temporal && !cruzado;
+  const ejeTemporal = cruzado && (temporal || esTemporal(res.cruce!.agrupacion));
+  const grupo = agrupacion ? ETIQUETA_AGRUPACION[agrupacion] : 'Grupo';
   const fmt = (n: number) => formatoUnidad(def.unidad, n);
   const t = res.total;
 
   const columnas: ColumnaTabla<Fila>[] = tiempos
     ? [
-      { key: 'etiqueta', header: 'Grupo', render: (f) => f.etiqueta },
+      { key: 'etiqueta', header: grupo, render: (f) => f.etiqueta },
       { key: 'n', header: 'Trámites', align: 'right', render: (f) => conteo(f.n) },
       { key: 'mediana', header: 'Mediana', align: 'right', render: (f) => (f.mediana !== undefined ? duracion(f.mediana) : '—') },
       { key: 'p90', header: 'Percentil 90', align: 'right', render: (f) => (f.p90 !== undefined ? duracion(f.p90) : '—') },
       { key: 'max', header: 'Máximo', align: 'right', render: (f) => (f.max !== undefined ? duracion(f.max) : '—') },
     ]
     : [
-      { key: 'etiqueta', header: 'Grupo', render: (f) => f.etiqueta },
-      { key: 'valor', header: def.etiqueta, align: 'right', render: (f) => fmt(f.valor) },
+      { key: 'etiqueta', header: grupo, render: (f) => f.etiqueta },
+      { key: 'valor', header: medida, align: 'right', render: (f) => fmt(f.valor) },
       ...(categoria && def.unidad !== 'pct'
         ? [{ key: 'pct', header: 'Participación', align: 'right' as const, render: (f: Fila) => porcentaje(f.participacion) }]
         : []),
@@ -86,7 +95,8 @@ export default function ResultadoExplorador({ res, def, agrupacion, titulo, subt
   ];
 
   return (
-    <section className="card min-w-0" aria-labelledby="torre-resultado-titulo" data-torre="resultado" data-estado="lleno">
+    <section className="card min-w-0" aria-labelledby="torre-resultado-titulo" data-torre="resultado" data-estado="lleno"
+      data-forma={cruzado ? 'cruzado' : 'simple'}>
       <div className="card__cabeza">
         <div className="min-w-0">
           <h2 id="torre-resultado-titulo">{titulo}</h2>
@@ -108,21 +118,34 @@ export default function ResultadoExplorador({ res, def, agrupacion, titulo, subt
             <KpiCard label="Lapso total" value={t.lapsoHoras !== undefined ? duracion(t.lapsoHoras) : '—'} hint="Del primero creado al último aprobado" />
           </div>
         ) : (
-          <div className={categoria ? 'grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]' : 'grid grid-cols-1 gap-4'}>
-            <KpiCard label={def.etiqueta} value={formatoUnidad(def.unidad, t.valor, true)}
+          <div className={categoria || ejeTemporal ? 'grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]' : 'grid grid-cols-1 gap-4'}>
+            <KpiCard label={medida} value={formatoUnidad(def.unidad, t.valor, true)}
               hint={def.unidad === 'conteo' ? undefined : `${conteo(t.n)} registros`} />
+            {ejeTemporal && (
+              <div className="min-w-0"><GraficaSeriesTorre res={res} agrupacion={agrupacion as AgrupacionTorre} titulo={titulo} /></div>
+            )}
             {categoria && (
               <div className="min-w-0">
                 <p className="mb-2 text-sm font-semibold">{def.unidad === 'pct' ? 'Por grupo' : 'Participación'}</p>
-                <RankingTorre filas={ranking} etiqueta={`${def.etiqueta} por grupo`} />
+                <RankingTorre filas={ranking} etiqueta={`${medida} por grupo`} />
               </div>
             )}
           </div>
         )}
 
-        <NotasBaseFecha res={res} tiempos={tiempos} />
+        {tiempos && ejeTemporal && <GraficaSeriesTorre res={res} agrupacion={agrupacion as AgrupacionTorre} titulo={titulo} />}
 
-        {temporal && (
+        <NotasBaseFecha res={res} tiempos={tiempos} />
+        {avisos}
+
+        {cruzado && (
+          <>
+            <TablaCruzadaTorre res={res} agrupacion={agrupacion as AgrupacionTorre} titulo={titulo} />
+            {avisosCruce(res, agrupacion as AgrupacionTorre).map((a) => <InlineAlert key={a} tono="info">{a}</InlineAlert>)}
+          </>
+        )}
+
+        {temporal && !cruzado && (
           // Tiempos: la gráfica va en DÍAS (el eje rotula el número crudo, y en horas no casaba con la tabla).
           <LineaTendencia titulo={tiempos ? `${titulo} (días)` : titulo} etiquetas={res.filas.map((f) => f.etiqueta)}
             formato={tiempos ? (d) => duracion(d * 24) : fmt}
@@ -134,7 +157,7 @@ export default function ResultadoExplorador({ res, def, agrupacion, titulo, subt
               : [{ t: def.etiqueta, c: SERIE_KIT.azul, v: res.filas.map((f) => f.valor) }]} />
         )}
 
-        {agrupacion !== '' && (
+        {agrupacion !== '' && !cruzado && (
           <DataTable ariaLabel={`Desglose: ${titulo}`} columnas={columnas} filas={filasPagina} getKey={(f) => f.clave}
             emptyMessage="Ningún trámite cumple esta consulta."
             paginacion={categoria && res.filas.length > POR_PAGINA ? {

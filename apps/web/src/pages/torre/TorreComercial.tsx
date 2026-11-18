@@ -51,7 +51,7 @@ export default function TorreComercial() {
         {(d) => (
           <Contenido d={d} onExplorar={(companiaId) => {
             // Se guarda YA: la navegación desmonta esta página antes de que corra el efecto que persiste.
-            const siguiente = { ...torre.filtros, companiaId };
+            const siguiente = { ...torre.filtros, companiaIds: [companiaId] };
             guardarFiltrosTorre(siguiente);
             torre.setFiltros(siguiente);
           }} />

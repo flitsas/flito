@@ -1,53 +1,30 @@
-// Torre de Control (Épica #14590) — Explorador de métricas (spec UX §5). Preguntas frecuentes en chips y la oración
-// «Medir [métrica] agrupado por [agrupación]» sobre el catálogo CERRADO `METRICAS_TORRE`. No hay botón «Consultar»:
-// cada cambio recalcula y gana la última petición. Compañía, periodo y demás filtros salen de la barra transversal.
-// Única primaria: «Exportar a Excel». Sin la función de dinero, las métricas `requiereDinero` no se ofrecen.
+// Torre de Control (Épica #14590) — Explorador de métricas flexible (spec UX `flito-torre-explorador-flexible.md`, ADR-0044).
+// La pregunta tiene dos mitades: QUÉ se mide (tarjeta «¿Qué quiere saber?»: medida, fecha base y hasta 2 agrupaciones) y
+// SOBRE QUÉ conjunto (la barra compartida de la Torre). No hay botón «Consultar»: cada cambio recalcula y gana la última
+// petición. Única primaria: «Exportar a Excel». Sin la función de dinero, las medidas `requiereDinero` no se ofrecen.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FUNCION_TORRE_DINERO, METRICAS_TORRE, metricaTorre,
-  type AgrupacionTorre, type ConsultaMetrica, type MetricaTorreId, type ResultadoMetrica,
+  type AgrupacionTorre, type ConsultaMetrica, type FechaBaseTorre, type MetricaTorreId, type ResultadoMetrica,
 } from '@operaciones/shared-types';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import type { FiltrosTorre, PeriodoTorre } from '../../lib/torreFiltros';
+import { hayMasFiltros } from '../../lib/torreFiltros';
 import GradientButton from '../../components/flit/GradientButton';
+import InlineAlert from '../../components/flit/InlineAlert';
 import { Icono } from '../../components/flit/kit/Icono';
 import { ErrorVista, Vacio } from '../../components/flit/Cargador';
 import { toastError, toastOk } from '../../components/flit/ToastFlito';
 import PaginaTorre, { useTorre, type ContextoTorre } from '../../components/torre/PaginaTorre';
 import ResultadoExplorador from '../../components/torre/ResultadoExplorador';
-import { useCompaniasTorre } from '../../components/torre/BarraFiltrosTorre';
+import { ROTULO_FILTRO, nombresFiltros, useOpcionesTorre } from '../../components/torre/BarraFiltrosTorre';
+import ConstructorConsultaTorre, { PREGUNTAS_TORRE, type PreguntaTorre } from '../../components/torre/ConstructorConsultaTorre';
 import {
-  ETIQUETA_AGRUPACION, aFiltroTorre, etiquetaPeriodo, formatoUnidad, nombreDepartamento, nombreOrganismo,
+  ETIQUETA_AGRUPACION, FECHA_BASE_ORACION, aFiltroTorre, esPeriodoCorto, esTemporal, etiquetaPeriodo, formatoUnidad,
+  frasePeriodo, listaO, medidaConFecha, resumenCompanias, resumenSeleccion,
 } from '../../components/torre/formatoTorre';
 
-interface Pregunta {
-  id: string; rotulo: string; metrica: MetricaTorreId; agrupacion: AgrupacionTorre | ''; periodo: PeriodoTorre;
-  tipoTramite?: string; descripcion: string;
-}
-
-const PREGUNTAS: readonly Pregunta[] = [
-  { id: 'aprobados_hoy', rotulo: 'Aprobados hoy', metrica: 'tramites_aprobados', agrupacion: 'compania', periodo: 'hoy',
-    descripcion: 'Trámites aprobados · Compañía · Hoy' },
-  { id: 'tiempo_aprobacion', rotulo: 'Tiempo hasta la aprobación', metrica: 'tiempo_creacion_aprobacion', agrupacion: 'mes', periodo: 'ultimos_6m',
-    descripcion: 'Tiempo de creación a aprobación · Mes · Últimos 6 meses' },
-  { id: 'costo_logistica', rotulo: 'Costo de logística del mes', metrica: 'costo_logistica', agrupacion: 'compania', periodo: 'mes',
-    descripcion: 'Costo de logística · Compañía · Este mes' },
-  { id: 'impuestos_ot', rotulo: 'Impuestos pagados por organismo', metrica: 'impuestos_pagados', agrupacion: 'organismo', periodo: 'mes',
-    descripcion: 'Impuestos pagados · Organismo de tránsito · Este mes' },
-  { id: 'derechos', rotulo: 'Derechos de tránsito pagados', metrica: 'derechos_pagados', agrupacion: 'compania', periodo: 'mes',
-    descripcion: 'Derechos de tránsito pagados · Compañía · Este mes' },
-  { id: 'matriculas_dpto', rotulo: 'Matrículas por departamento', metrica: 'tramites_aprobados', agrupacion: 'departamento', periodo: 'anio',
-    tipoTramite: 'MATRICULA', descripcion: 'Trámites aprobados de matrícula · Departamento · Este año' },
-];
-
-const GRUPOS_METRICA: { rotulo: string; unidades: string[] }[] = [
-  { rotulo: 'Cuántos', unidades: ['conteo', 'pct'] },
-  { rotulo: 'Cuánto se tardó', unidades: ['horas'] },
-  { rotulo: 'Cuánto se pagó', unidades: ['cop'] },
-];
-
-type Estado = { tipo: 'cargando' } | { tipo: 'error' } | { tipo: 'listo'; res: ResultadoMetrica };
+type Estado = { tipo: 'cargando' } | { tipo: 'error' } | { tipo: 'cortes' } | { tipo: 'listo'; res: ResultadoMetrica };
 
 export default function TorreExplorador() {
   const torre = useTorre();
@@ -71,33 +48,56 @@ export default function TorreExplorador() {
   );
 }
 
+const minuscula = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+const mismos = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
+
+/** 400 `campo: 'rango'` con dos agrupaciones y una por día o semana: más de 62 cortes (RN-TOR-C3), no un fallo. */
+function esDemasiadosCortes(e: unknown, agr: AgrupacionTorre | '', col: AgrupacionTorre | ''): boolean {
+  if (!(e instanceof ApiError) || e.status !== 400 || !col) return false;
+  const campo = (e.rawDetails as { campo?: unknown } | undefined)?.campo;
+  return campo === 'rango' && [agr, col].some((a) => a === 'dia' || a === 'semana');
+}
+
 function Explorador({ ctx, onExportar }: {
   ctx: ContextoTorre;
   onExportar: (e: { habilitado: boolean; ejecutar: () => Promise<void> }) => void;
 }) {
-  const { filtros, setFiltros, restablecer, abrirFicha } = ctx;
+  const { filtros, setFiltros, abrirFicha } = ctx;
   const { hasFuncion } = useAuth();
   const veDinero = hasFuncion(FUNCION_TORRE_DINERO);
-  const metricas = useMemo(() => METRICAS_TORRE.filter((m) => veDinero || !m.requiereDinero), [veDinero]);
-  const preguntas = PREGUNTAS.filter((p) => veDinero || !metricaTorre(p.metrica).requiereDinero);
-  const { companias } = useCompaniasTorre();
+  const metricas = useMemo(() => METRICAS_TORRE.filter((m) => m.enConstructor && (veDinero || !m.requiereDinero)), [veDinero]);
+  const preguntas = PREGUNTAS_TORRE.filter((p) => veDinero || !metricaTorre(p.metrica).requiereDinero);
+  const { opciones } = useOpcionesTorre();
 
-  const [metrica, setMetrica] = useState<MetricaTorreId>('tramites_aprobados');
+  // Al abrir: Trámites · aprobación · Compañía · Ninguna (continuidad con el Explorador de antes).
+  const [metrica, setMetrica] = useState<MetricaTorreId>('tramites');
+  const [fechaBase, setFechaBase] = useState<FechaBaseTorre>('aprobacion');
   const [agrupacion, setAgrupacion] = useState<AgrupacionTorre | ''>('compania');
+  const [columnas, setColumnas] = useState<AgrupacionTorre | ''>('');
+  const [ajuste, setAjuste] = useState('');
   const [estado, setEstado] = useState<Estado>({ tipo: 'cargando' });
   const [intento, setIntento] = useState(0);
   const ultima = useRef(0);
 
-  // Sin la función de dinero (o si se la quitan con la pantalla abierta) no queda una métrica de dinero elegida.
-  useEffect(() => { if (!metricas.some((m) => m.id === metrica)) setMetrica('tramites_aprobados'); }, [metricas, metrica]);
+  // Sin la función de dinero (o si se la quitan con la pantalla abierta) no queda una medida de dinero elegida.
+  useEffect(() => { if (!metricas.some((m) => m.id === metrica)) setMetrica('tramites'); }, [metricas, metrica]);
 
   const def = metricaTorre(metrica);
-  const agrupaciones = def.agrupacionesPermitidas;
-  const agrupacionValida: AgrupacionTorre | '' = agrupacion && agrupaciones.includes(agrupacion) ? agrupacion : '';
+  const foto = def.fechasBase.length === 0;
+  const fecha: FechaBaseTorre | null = foto ? null : def.fechasBase.includes(fechaBase) ? fechaBase : def.fechasBase[0];
+  const permitidas = def.agrupacionesPermitidas;
+  const agr: AgrupacionTorre | '' = agrupacion && permitidas.includes(agrupacion) ? agrupacion : '';
+  // «Y luego por»: ni la principal ni, si la principal es temporal, otra temporal (RN-TOR-C1).
+  const opcionesColumnas = agr ? permitidas.filter((a) => a !== agr && !(esTemporal(agr) && esTemporal(a))) : [];
+  const col: AgrupacionTorre | '' = columnas && opcionesColumnas.includes(columnas) ? columnas : '';
+
   const filtroTorre = useMemo(() => aFiltroTorre(filtros), [filtros]);
   const consulta: ConsultaMetrica = useMemo(() => ({
-    metrica, filtro: filtroTorre, ...(agrupacionValida ? { agrupacion: agrupacionValida } : {}),
-  }), [metrica, agrupacionValida, filtroTorre]);
+    metrica, filtro: filtroTorre,
+    ...(fecha ? { fechaBase: fecha } : {}),
+    ...(agr ? { agrupacion: agr } : {}),
+    ...(col ? { agrupacionColumnas: col } : {}),
+  }), [metrica, fecha, agr, col, filtroTorre]);
   const claveConsulta = JSON.stringify(consulta);
 
   useEffect(() => {
@@ -105,10 +105,13 @@ function Explorador({ ctx, onExportar }: {
     setEstado({ tipo: 'cargando' });
     api.post<ResultadoMetrica>('/flito/torre/metricas/consultar', consulta)
       .then((res) => { if (id === ultima.current) setEstado({ tipo: 'listo', res }); })
-      .catch(() => { if (id === ultima.current) setEstado({ tipo: 'error' }); });
+      .catch((e: unknown) => {
+        if (id === ultima.current) setEstado({ tipo: esDemasiadosCortes(e, agr, col) ? 'cortes' : 'error' });
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `claveConsulta` resume `consulta`
   }, [claveConsulta, intento]);
 
+  // Vacío = el CONJUNTO vacío; una tabla con celdas en 0 es lleno.
   const vacio = estado.tipo === 'listo' && estado.res.total.n === 0 && estado.res.filas.length === 0;
   const lleno = estado.tipo === 'listo' && !vacio;
 
@@ -124,102 +127,166 @@ function Explorador({ ctx, onExportar }: {
     onExportar({ habilitado: lleno, ejecutar });
   }, [lleno, consulta, onExportar]);
 
-  const elegirPregunta = (p: Pregunta) => {
-    setMetrica(p.metrica);
-    setAgrupacion(p.agrupacion);
-    const siguiente: FiltrosTorre = { ...filtros, periodo: p.periodo, rango: null, ...(p.tipoTramite ? { tipoTramite: p.tipoTramite } : {}) };
-    setFiltros(siguiente);
+  // ── Reglas de coherencia: el control se corrige solo y se anuncia (spec §3.1) ──
+  const cambiarMedida = (id: MetricaTorreId) => {
+    const d = metricaTorre(id);
+    const avisos: string[] = [];
+    if (fecha && d.fechasBase.length > 0 && !d.fechasBase.includes(fecha)) {
+      const nueva = d.fechasBase[0];
+      setFechaBase(nueva);
+      avisos.push(`La fecha cambió a ${FECHA_BASE_ORACION[nueva]}: ${FECHA_BASE_ORACION[fecha]} no aplica a ${d.etiqueta}.`);
+    }
+    if (agr && !d.agrupacionesPermitidas.includes(agr)) {
+      setAgrupacion('');
+      setColumnas('');
+      avisos.push(`La agrupación cambió a Sin agrupar: ${ETIQUETA_AGRUPACION[agr]} no aplica a ${d.etiqueta}.`);
+    } else if (col && !d.agrupacionesPermitidas.includes(col)) {
+      setColumnas('');
+      avisos.push(`«Y luego por» cambió a Ninguna: ${ETIQUETA_AGRUPACION[col]} no aplica a ${d.etiqueta}.`);
+    }
+    setAjuste(avisos.join(' '));
+    setMetrica(id);
   };
-  const preguntaActiva = preguntas.find((p) => p.metrica === metrica && p.agrupacion === agrupacionValida && p.periodo === filtros.periodo
-    && (!p.tipoTramite || p.tipoTramite === filtros.tipoTramite))?.id;
+  const cambiarAgrupacion = (a: AgrupacionTorre | '') => {
+    setAgrupacion(a);
+    setAjuste('');
+    if (col && (a === '' || a === col || (esTemporal(a) && esTemporal(col)))) {
+      setColumnas('');
+      if (a !== '') setAjuste(`«Y luego por» cambió a Ninguna: ${ETIQUETA_AGRUPACION[col]} no se combina con ${ETIQUETA_AGRUPACION[a]}.`);
+    }
+  };
+  const intercambiar = () => { if (agr && col) { setAgrupacion(col); setColumnas(agr); } };
+  const agruparPorMes = () => {
+    if (agr === 'dia' || agr === 'semana') setAgrupacion('mes');
+    if (col === 'dia' || col === 'semana') setColumnas('mes');
+  };
 
-  const nombreCompania = filtros.companiaId
-    ? companias.find((c) => c.id === filtros.companiaId)?.nombre ?? 'Compañía elegida'
-    : 'Todas las compañías';
-  const partesSubtitulo = [
-    nombreCompania,
-    ...(filtros.organismo ? [nombreOrganismo(filtros.organismo)] : []),
-    ...(filtros.departamento ? [nombreDepartamento(filtros.departamento)] : []),
-  ];
-  const titulo = `${def.etiqueta} · ${etiquetaPeriodo(filtros)}${agrupacionValida ? ` · por ${ETIQUETA_AGRUPACION[agrupacionValida].toLowerCase()}` : ''}`;
+  const elegirPregunta = (p: PreguntaTorre) => {
+    setMetrica(p.metrica);
+    setFechaBase(p.fechaBase);
+    setAgrupacion(p.agrupacion);
+    setColumnas(p.columnas);
+    setAjuste('');
+    // Nunca toca las compañías ni «Más filtros»; solo «Matrículas por departamento» pone el tipo, como antes.
+    setFiltros({ ...filtros, periodo: p.periodo, rango: null, ...(p.tiposTramite ? { tiposTramite: p.tiposTramite } : {}) });
+  };
+  // Marcado solo si TODA la consulta coincide, «Más filtros» incluidos: con un filtro de estado puesto, la pregunta ya
+  // es otra (D3) y ningún chip queda marcado.
+  const preguntaActiva = preguntas.find((p) => p.metrica === metrica && p.fechaBase === fecha && p.agrupacion === agr
+    && p.columnas === col && p.periodo === filtros.periodo
+    && filtros.organismos.length === 0 && filtros.departamentos.length === 0 && filtros.flitEstados.length === 0
+    && mismos(filtros.tiposTramite, p.tiposTramite ?? []))?.id;
+
+  // ── La oración devuelta (spec §5.1) ──
+  const medida = medidaConFecha(metrica, def.etiqueta, def.fechasBase, fecha);
+  const porQue = agr ? ` · por ${ETIQUETA_AGRUPACION[agr].toLowerCase()}${col ? ` y ${ETIQUETA_AGRUPACION[col].toLowerCase()}` : ''}` : '';
+  const titulo = `${medida}${foto ? '' : ` · ${etiquetaPeriodo(filtros)}`}${porQue}`;
+  const nombres = nombresFiltros(filtros, opciones);
+  const companias = resumenCompanias(filtros.companiaIds.map((id) => opciones.companias.find((c) => c.id === id)?.nombre ?? 'Compañía elegida'));
+  const otros = (Object.keys(ROTULO_FILTRO) as (keyof typeof ROTULO_FILTRO)[])
+    .filter((k) => nombres[k].length > 0).map((k) => `${ROTULO_FILTRO[k]}: ${resumenSeleccion(nombres[k])}`);
+  const partes = foto ? ['Hoy', companias, ...otros, 'No depende del periodo elegido.'] : [companias, ...otros];
   const subtitulo = def.unidad === 'horas' && estado.tipo === 'listo'
-    ? `${partesSubtitulo.join(' · ')} · ${estado.res.total.n.toLocaleString('es-CO')} trámites aprobados`
-    : partesSubtitulo.join(' · ');
+    ? `${partes.join(' · ')} · ${estado.res.total.n.toLocaleString('es-CO')} trámites aprobados`
+    : partes.join(' · ');
+
+  const hayFiltros = filtros.companiaIds.length > 0 || hayMasFiltros(filtros);
+  const textoVacio = hayFiltros ? 'Ningún trámite cumple esta consulta.'
+    : `No hay ${minuscula(medida)} ${foto ? 'hoy' : frasePeriodo(filtros)}.`;
+  const corto = !foto && esPeriodoCorto(filtros);
+  const porDia = agr === 'dia' || col === 'dia';
+  const textoCortes = `Con dos agrupaciones, el periodo admite hasta 62 cortes por ${porDia ? 'día' : 'semana'}.`;
+
   const anuncio = estado.tipo === 'cargando' ? 'Calculando la consulta'
     : estado.tipo === 'error' ? 'No pudimos calcular esta consulta'
-      : vacio ? 'Ningún trámite cumple esta consulta'
-        : `${titulo}: ${formatoUnidad(def.unidad, estado.res.total.valor, true)}`;
+      : estado.tipo === 'cortes' ? textoCortes
+        : vacio ? textoVacio
+          : `${titulo}: ${formatoUnidad(def.unidad, estado.res.total.valor, true)}`;
+
+  const avisoEstado = filtros.flitEstados.length > 0 && !foto ? (
+    <InlineAlert tono="info" accion={(
+      <button type="button" className="btn ghost sm shrink-0 transition-colors"
+        onClick={() => setFiltros({ ...filtros, flitEstados: [] })}>Quitar el filtro de estado</button>
+    )}>
+      Solo entran los trámites que hoy están en {listaO(nombres.flitEstados)}. Los que ya pasaron a otro estado quedan fuera,
+      aunque su fecha de {FECHA_BASE_ORACION[fecha ?? 'creacion']} caiga en el periodo. Para contarlos todos, quite el filtro de estado.
+    </InlineAlert>
+  ) : null;
 
   return (
     <>
-      <section className="card min-w-0" aria-labelledby="torre-pregunta-titulo" data-torre="pregunta">
-        <div className="card__cabeza">
-          <div className="min-w-0">
-            <h2 id="torre-pregunta-titulo">¿Qué quiere saber?</h2>
-            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Elija una pregunta frecuente o arme la suya.</p>
-          </div>
-        </div>
-        <div role="group" aria-label="Preguntas frecuentes" className="mb-4 flex flex-wrap gap-2">
-          {preguntas.map((p) => (
-            <button key={p.id} type="button" className="chip chip--sm transition-colors" aria-pressed={p.id === preguntaActiva}
-              title={p.descripcion} onClick={() => elegirPregunta(p)}>
-              {p.rotulo}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
-          <div className="campo min-w-0 flex-[1_1_240px] lg:flex-[0_1_300px]">
-            <label htmlFor="torre-medir">Medir</label>
-            <select id="torre-medir" className="control" value={metrica} onChange={(e) => setMetrica(e.target.value as MetricaTorreId)}>
-              {GRUPOS_METRICA.map((g) => {
-                const del = metricas.filter((m) => g.unidades.includes(m.unidad));
-                return del.length === 0 ? null : (
-                  <optgroup key={g.rotulo} label={g.rotulo}>
-                    {del.map((m) => <option key={m.id} value={m.id}>{m.etiqueta}</option>)}
-                  </optgroup>
-                );
-              })}
-            </select>
-          </div>
-          <span className="hidden pb-3 sm:inline" style={{ color: 'var(--color-text-tertiary)' }} aria-hidden="true">agrupado por</span>
-          <div className="campo min-w-0 flex-[1_1_240px] lg:flex-[0_1_300px]">
-            <label htmlFor="torre-agrupar">Agrupar por</label>
-            <select id="torre-agrupar" className="control" value={agrupacionValida}
-              onChange={(e) => setAgrupacion(e.target.value as AgrupacionTorre | '')}>
-              <option value="">Sin agrupar (total)</option>
-              {agrupaciones.map((a) => <option key={a} value={a}>{ETIQUETA_AGRUPACION[a]}</option>)}
-            </select>
-          </div>
-        </div>
-      </section>
+      <ConstructorConsultaTorre metricas={metricas} preguntas={preguntas} preguntaActiva={preguntaActiva} onPregunta={elegirPregunta}
+        def={def} fecha={fecha} agrupacion={agr} columnas={col} opcionesColumnas={opcionesColumnas}
+        onMedida={cambiarMedida} onFecha={(f) => { setFechaBase(f); setAjuste(''); }} onAgrupacion={cambiarAgrupacion}
+        onColumnas={(a) => { setColumnas(a); setAjuste(''); }} onIntercambiar={intercambiar} />
 
-      <p className="sr-only" role="status" aria-live="polite">{anuncio}</p>
+      <p className="sr-only" role="status" aria-live="polite">{ajuste ? `${ajuste} ${anuncio}` : anuncio}</p>
 
-      {estado.tipo === 'cargando' && (
-        <section className="card min-w-0" aria-busy="true" aria-label="Calculando la consulta" data-torre="resultado" data-estado="cargando">
-          <div className="kit-esqueleto mb-2 h-6 w-2/3" aria-hidden="true" />
-          <div className="kit-esqueleto mb-4 h-4 w-1/3" aria-hidden="true" />
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
-            <div className="kit-esqueleto h-[104px]" aria-hidden="true" />
-            <div className="flex flex-col gap-2">{[0, 1, 2, 3].map((i) => <div key={i} className="kit-esqueleto h-6" aria-hidden="true" />)}</div>
-          </div>
-          <div className="mt-4 flex flex-col gap-2">{[0, 1, 2, 3, 4].map((i) => <div key={i} className="kit-esqueleto h-10" aria-hidden="true" />)}</div>
-        </section>
-      )}
+      {estado.tipo === 'cargando' && <EsqueletoResultado cruzado={!!col} conGrafica={!!col && (esTemporal(agr) || esTemporal(col))} />}
       {estado.tipo === 'error' && (
         <section className="card min-w-0" data-torre="resultado" data-estado="error">
           <ErrorVista texto="No pudimos calcular esta consulta. Revise su conexión e intente de nuevo." onReintentar={() => setIntento((n) => n + 1)} />
         </section>
       )}
+      {estado.tipo === 'cortes' && (
+        <section className="card min-w-0" data-torre="resultado" data-estado="cortes">
+          <Vacio icono="alerta" texto={textoCortes} detalle="Elija una agrupación más amplia o acorte el periodo."
+            accion={<GradientButton variant="secondary" size="sm" onClick={agruparPorMes}>Agrupar por mes</GradientButton>} />
+        </section>
+      )}
       {vacio && (
         <section className="card min-w-0" data-torre="resultado" data-estado="vacio">
-          <Vacio texto="Ningún trámite cumple esta consulta." detalle="Pruebe con un periodo más amplio o quite algún filtro."
-            accion={<GradientButton variant="secondary" size="sm" onClick={restablecer}>Limpiar filtros</GradientButton>} />
+          <Vacio texto={textoVacio}
+            detalle={hayFiltros ? 'Pruebe quitar algún filtro o ampliar el periodo.' : corto ? 'Pruebe con un periodo más amplio.' : 'Pruebe con otra medida u otra fecha.'}
+            accion={hayFiltros ? (
+              <GradientButton variant="secondary" size="sm"
+                onClick={() => setFiltros({ ...filtros, companiaIds: [], organismos: [], departamentos: [], tiposTramite: [], flitEstados: [] })}>
+                Quitar filtros
+              </GradientButton>
+            ) : corto ? (
+              <GradientButton variant="secondary" size="sm" onClick={() => setFiltros({ ...filtros, periodo: 'ultimos_6m', rango: null })}>
+                Ver los últimos 6 meses
+              </GradientButton>
+            ) : undefined} />
         </section>
       )}
       {lleno && estado.tipo === 'listo' && (
-        <ResultadoExplorador res={estado.res} def={def} agrupacion={agrupacionValida} titulo={titulo} subtitulo={subtitulo} onVerFicha={abrirFicha} />
+        <ResultadoExplorador res={estado.res} def={def} agrupacion={agr} titulo={titulo} subtitulo={subtitulo} onVerFicha={abrirFicha}
+          avisos={avisoEstado} medida={medida} />
       )}
     </>
+  );
+}
+
+/** Esqueleto de la estructura que viene: simple (cifra + ranking + filas) o cruzado (cifra, gráfica y rejilla). */
+function EsqueletoResultado({ cruzado, conGrafica }: { cruzado: boolean; conGrafica: boolean }) {
+  return (
+    <section className="card min-w-0" aria-busy="true" aria-label="Calculando la consulta" data-torre="resultado" data-estado="cargando">
+      <div className="kit-esqueleto mb-2 h-6 w-2/3" aria-hidden="true" />
+      <div className="kit-esqueleto mb-4 h-4 w-1/3" aria-hidden="true" />
+      {!cruzado ? (
+        <>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+            <div className="kit-esqueleto h-[104px]" aria-hidden="true" />
+            <div className="flex flex-col gap-2">{[0, 1, 2, 3].map((i) => <div key={i} className="kit-esqueleto h-6" aria-hidden="true" />)}</div>
+          </div>
+          <div className="mt-4 flex flex-col gap-2">{[0, 1, 2, 3, 4].map((i) => <div key={i} className="kit-esqueleto h-10" aria-hidden="true" />)}</div>
+        </>
+      ) : (
+        <>
+          <div className={conGrafica ? 'grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]' : 'grid grid-cols-1 gap-4'}>
+            <div className="kit-esqueleto h-[104px] lg:max-w-[18rem]" aria-hidden="true" />
+            {conGrafica && <div className="kit-esqueleto h-48" aria-hidden="true" />}
+          </div>
+          <div className="mt-4 flex flex-col gap-1.5" aria-hidden="true">
+            {[0, 1, 2, 3, 4, 5, 6].map((f) => (
+              <div key={f} className="grid grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))] gap-1.5">
+                {[0, 1, 2, 3, 4].map((c) => <div key={c} className="kit-esqueleto h-8" />)}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
