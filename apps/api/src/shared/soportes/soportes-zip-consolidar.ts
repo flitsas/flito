@@ -407,10 +407,10 @@ export async function consolidarPorRegistro(
  * El `close` de la respuesta cubre al cliente que corta la descarga a medias: sin él, un archivador
  * atascado por backpressure dejaría el directorio en `/tmp` hasta que alguien reiniciara.
  */
-export async function emitirZipConsolidado(res: Response, zc: ZipConsolidado): Promise<number> {
+export async function emitirZipConsolidado(res: Response, zc: ZipConsolidado, nombreArchivo?: string): Promise<number> {
   res.once('close', () => { void zc.limpiar(); });
   try {
-    return await emitirZipSoportes(res, zc.entradas, undefined, { incluidos: zc.incluidos, omitidos: zc.omitidos });
+    return await emitirZipSoportes(res, zc.entradas, undefined, { incluidos: zc.incluidos, omitidos: zc.omitidos }, nombreArchivo);
   } finally {
     await zc.limpiar();
   }

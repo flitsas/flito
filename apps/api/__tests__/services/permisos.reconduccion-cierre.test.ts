@@ -44,6 +44,9 @@ export const DIRECTORIOS_RECONDUCIDOS = [
   'laft', 'privacy', 'firma', 'drive', 'soat', 'siigo', 'runt', 'integraciones',
   // HU #13889 (ADR-0028): expediente documental de la compañía, nace reconducido.
   'flito-bolsas-documentos',
+  // Épica #14560 (ADR-0045): vistas de columnas. Su función de administración es literal; el acceso a la tabla lo
+  // resuelve `guardaTabla` desde el catálogo de tablas (lista blanca).
+  'flito-vistas-columnas',
 ] as const;
 
 /** Rutas de los 24 ficheros que NO llevan guarda de función y siguen igual (§4 del diseño; `/mios`: HU #12084). */
@@ -59,6 +62,14 @@ const LISTA_BLANCA = new Set([
   'flito-logistica/flito-logistica.routes.ts POST /traslados/:id/entregar',
   // HU #14123: el GET de motivos decide en el handler. `?soloActivos=true` también lo abre quien registra.
   'flito-logistica/flito-logistica-motivos.routes.ts GET /',
+  // Épica #14560 (ADR-0045): la guarda de acceso es `guardaTabla`, que aplica `exigirFuncion(tabla.funcionAcceso)`
+  // con la función que el catálogo de tablas declara (`tramites.cola.ver` para flito-tramites). Las compartidas
+  // deciden en línea (`[compartidas]`); la predeterminada general lleva su `exigirFuncion` literal.
+  'flito-vistas-columnas/flito-vistas-columnas.routes.ts GET /:tablaId',
+  'flito-vistas-columnas/flito-vistas-columnas.routes.ts POST /:tablaId/vistas',
+  'flito-vistas-columnas/flito-vistas-columnas.routes.ts PUT /:tablaId/vistas/:vistaId',
+  'flito-vistas-columnas/flito-vistas-columnas.routes.ts DELETE /:tablaId/vistas/:vistaId',
+  'flito-vistas-columnas/flito-vistas-columnas.routes.ts PUT /:tablaId/predeterminada/personal',
 ]);
 
 /** En identidad no hay `router.use(authMiddleware)`: lo llevan estas 7 rutas, una a una. */
@@ -121,8 +132,8 @@ describe('AC1/AC2 — en los 21 directorios ya no decide ningún requireRole', (
   }
 
   it('los directorios son 42 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes + pesv, drivers, jornadas y rum de la HU #13421 + los ocho de operación de la HU #13422 + los ocho de la HU #13423) y los 32 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619; flito-impuestos otros cuatro: el de la cola, el de la dirección, HU #12833, el del reemplazo del comprobante, HU #13269, y el de certificar sin trámite, épica #14163; flito-soat cuatro: módulo, canal Cliente, incompletas, HU #12997, y documentos adicionales, HU #13362; flito-sync tres: el de sync, el del acceso a FLIT 2, HU #13061, y el del interruptor por fuente, HU #13237)', () => {
-    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(43); // + flito-bolsas-documentos (HU #13889)
-    expect(FICHEROS_DE_RUTAS).toHaveLength(42); // + flito-tarifas-proveedor.routes.ts (Épica #13763); + flito-proveedores.routes.ts (HU #14332); + flito-impuestos.certificacion-directa.routes.ts (épica #14163); + flito-logistica-motivos.routes.ts (HU #14119); + flito-soat-incompletas-completar.routes.ts (HU #14136); + flito-soat-masivo.routes.ts (HU #14131), mismo directorio que el canal Cliente; + flito-bolsas.catalogo.routes.ts (HU #13900) y su rama tránsito (HU #13907), mismo directorio; + flito-proveedores-logistica.routes.ts (HU #14103)
+    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(44); // + flito-bolsas-documentos (HU #13889); + flito-vistas-columnas (Épica #14560)
+    expect(FICHEROS_DE_RUTAS).toHaveLength(43); // + flito-vistas-columnas.routes.ts (Épica #14560); + flito-tarifas-proveedor.routes.ts (Épica #13763); + flito-proveedores.routes.ts (HU #14332); + flito-impuestos.certificacion-directa.routes.ts (épica #14163); + flito-logistica-motivos.routes.ts (HU #14119); + flito-soat-incompletas-completar.routes.ts (HU #14136); + flito-soat-masivo.routes.ts (HU #14131), mismo directorio que el canal Cliente; + flito-bolsas.catalogo.routes.ts (HU #13900) y su rama tránsito (HU #13907), mismo directorio; + flito-proveedores-logistica.routes.ts (HU #14103)
     for (const f of FICHEROS_DE_RUTAS) {
       expect((DIRECTORIOS_RECONDUCIDOS as readonly string[]).includes(f.split('/')[0]!), f).toBe(true);
     }
@@ -166,7 +177,7 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
   }
 
   it('la lista blanca son exactamente 8 rutas, y todas existen sin guarda de función', () => {
-    expect(LISTA_BLANCA.size).toBe(8);
+    expect(LISTA_BLANCA.size).toBe(13); // + 5 de vistas de columnas (Épica #14560, `guardaTabla`)
     for (const llave of LISTA_BLANCA) {
       const [fichero, metodo, ruta] = llave.split(' ');
       const fuente = sinComentarios(leer(fichero!));
@@ -219,9 +230,9 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +1 por la HU #14127 (logística: `POST /viajes/masivo`, reutiliza `logistica.viajes.registrar`).
     // +10 de la cadena logística C: +1 de la HU #14114 (POST /traslados); +1 de la HU #14147 (recogidas/pendientes-firma); +3 de la HU #14143 (pendientes-tramite, candidatos-tramite y resolver-tramite); +4 de la HU #14110 (recogidas/confirmar, mias, :firmanteId y revelar el documento del firmante); +1 de la HU #14142 (consultar-vehiculo, `logistica.documento.escanear`).
     // +4 de la HU #14115 (despachar/entregar/devolucion/anular el viaje).
-    expect(GUARDAS_MEDIDAS).toHaveLength(685); // +3 HU #14351/#14353 (POST /buscar, GET /actas/:id/mensajeros, facetas en línea [registraTraslados]); +1 HU #14348 (POST /escanear [dejarPendiente], en línea); +2 por el Bug #14569 (Revisiones OCR: POST /:id/candidatos/buscar y POST /:id/reintentar-lectura, reutilizan `revisiones.revision.resolver`); +5 Épica #13763 (costos de proveedor, códigos de las tarifas); +11 HU #14332–#14335 (gestión unificada de proveedores), −9 de las rutas viejas de proveedores retiradas; +9 épica #14163 (certificar sin trámite, `impuestos.certificacion_directa.gestionar`); +2 HU #14124 (las dos lecturas de línea de tiempo, logistica.documento.ver). +1 HU #14125 (POST /traslados/buscar, logistica.consola.ver).
+    expect(GUARDAS_MEDIDAS).toHaveLength(689); // +4 Épica #14560 (GET /:id/detalle de trámites, GET /reporte-costos/totales, la predeterminada general de vistas y las compartidas en línea); +3 HU #14351/#14353 (POST /buscar, GET /actas/:id/mensajeros, facetas en línea [registraTraslados]); +1 HU #14348 (POST /escanear [dejarPendiente], en línea); +2 por el Bug #14569 (Revisiones OCR: POST /:id/candidatos/buscar y POST /:id/reintentar-lectura, reutilizan `revisiones.revision.resolver`); +5 Épica #13763 (costos de proveedor, códigos de las tarifas); +11 HU #14332–#14335 (gestión unificada de proveedores), −9 de las rutas viejas de proveedores retiradas; +9 épica #14163 (certificar sin trámite, `impuestos.certificacion_directa.gestionar`); +2 HU #14124 (las dos lecturas de línea de tiempo, logistica.documento.ver). +1 HU #14125 (POST /traslados/buscar, logistica.consola.ver).
     // +4 de la HU #14103 (proveedores de logística), +3 de la HU #14148 (impacto, baja y listado unificado)
-    expect(montajes).toHaveLength(685); // +3 HU #14351/#14353; +1 HU #14348; +2 por el Bug #14569 (POST /:id/candidatos/buscar y POST /:id/reintentar-lectura); +5 Épica #13763; +11 −9 HU #14332–#14335; +9 épica #14163 (certificar sin trámite, `impuestos.certificacion_directa.gestionar`); +2 HU #14124 (GET documentos/:id/linea-tiempo y GET tramites/:tramiteId/linea-tiempo). +1 HU #14125 (POST /traslados/buscar).
+    expect(montajes).toHaveLength(689); // +4 Épica #14560; +3 HU #14351/#14353; +1 HU #14348; +2 por el Bug #14569 (POST /:id/candidatos/buscar y POST /:id/reintentar-lectura); +5 Épica #13763; +11 −9 HU #14332–#14335; +9 épica #14163 (certificar sin trámite, `impuestos.certificacion_directa.gestionar`); +2 HU #14124 (GET documentos/:id/linea-tiempo y GET tramites/:tramiteId/linea-tiempo). +1 HU #14125 (POST /traslados/buscar).
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)
@@ -231,7 +242,7 @@ describe('el lector de montajes cubre la foto entera', () => {
     // + registrar credenciales de Siigo de pruebas y de producción (HU #13427)
     // + compañía por grupo (general, autogestión, sin trámite), clientes editar y fiscal, contraseña propia (HU #13428).
     // + las tres funciones de Dr. Flit, en línea en `dr-flit.funciones.ts` (HU #13941).
-    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(33); // +1 HU #14351: facetas [registraTraslados]. +1 HU #14348: dejar pendiente al escanear. +2 HU #14122: entregar y firmar_flit, en línea; +1 HU #14123: GET motivos [listar]
+    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(34); // +1 Épica #14560: vistas compartidas [compartidas]. +1 HU #14351: facetas [registraTraslados]. +1 HU #14348: dejar pendiente al escanear. +2 HU #14122: entregar y firmar_flit, en línea; +1 HU #14123: GET motivos [listar]
   });
 
   it('un exigirFuncion sin literal hace que el lector LANCE en vez de adivinar', () => {
