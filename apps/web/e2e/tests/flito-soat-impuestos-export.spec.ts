@@ -864,3 +864,61 @@ test.describe('HU #11909 — el nombre del archivo', () => {
     expect(descarga.suggestedFilename()).not.toContain('..');
   });
 });
+
+// Épica #14560 (rediseño, retrabajo pre-PR): la primaria de la cabecera y «Exportar a Excel» van en UN
+// grupo, en la misma fila, primaria a la izquierda, alineado a la derecha de la cabecera (≥ 768 px).
+test.describe('Épica #14560 — cabecera: primaria + «Exportar a Excel» agrupadas a la derecha', () => {
+  for (const caso of [
+    { modulo: SOAT_MOD, primaria: 'Cargar comprobantes de SOAT (masivo)' },
+    { modulo: IMPUESTOS_MOD, primaria: 'Cargar recibos (masivo)' },
+  ]) {
+    for (const width of [768, 1366]) {
+      test(`${caso.modulo.ruta} · ${width} px — «${caso.primaria}» junto a «Exportar a Excel», a la derecha`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await loginAs(page, OPERACIONES_USER);
+        await mockCola(page, caso.modulo);
+        await page.goto(caso.modulo.ruta);
+        const primaria = page.getByRole('button', { name: caso.primaria, exact: true });
+        await expect(primaria).toBeVisible();
+        await expect(botonExportar(page)).toBeVisible();
+        const p = (await primaria.boundingBox())!;
+        const e = (await botonExportar(page).boundingBox())!;
+        // Misma fila (centros verticales a ≤ 4 px) y primaria a la izquierda de Exportar.
+        expect(Math.abs((p.y + p.height / 2) - (e.y + e.height / 2))).toBeLessThanOrEqual(4);
+        expect(p.x + p.width).toBeLessThanOrEqual(e.x + 1);
+        // Alineado a la derecha: el borde derecho del grupo cerca del borde derecho del contenedor
+        // ancho que lo aloja (la cabecera / la barra bajo las pestañas).
+        const holgura = await botonExportar(page).evaluate((el) => {
+          const derecha = el.getBoundingClientRect().right;
+          let n: HTMLElement | null = el.parentElement;
+          while (n && n.getBoundingClientRect().width < window.innerWidth * 0.6) n = n.parentElement;
+          if (!n) return Infinity;
+          const r = n.getBoundingClientRect();
+          const pad = parseFloat(getComputedStyle(n).paddingRight) || 0;
+          return r.right - pad - derecha;
+        });
+        expect(holgura).toBeGreaterThanOrEqual(-1);
+        expect(holgura).toBeLessThanOrEqual(8);
+      });
+    }
+  }
+
+  test('/flito/soat — cada estado del embudo lleva su ícono', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 900 });
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page, SOAT_MOD);
+    await page.goto(SOAT_MOD.ruta);
+    const embudo = page.getByRole('group', { name: 'Estado del SOAT' });
+    await expect(embudo).toBeVisible();
+    const botones = embudo.getByRole('button');
+    const n = await botones.count();
+    expect(n).toBeGreaterThan(1);
+    for (let i = 0; i < n; i++) {
+      const ico = botones.nth(i).locator('.estado-ico');
+      await expect(ico).toHaveCount(1);
+      await expect(ico).toBeVisible();
+      await expect(ico).toHaveAttribute('aria-hidden', 'true');
+      await expect(ico.locator('svg')).toHaveCount(1);
+    }
+  });
+});

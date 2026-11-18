@@ -47,8 +47,8 @@ test.describe('FLITO — Gestión Trámites: fuente del trámite (HU #13071)', (
     expect(cabeceras[iTramite + 2].trim().toUpperCase()).toBe('CREADO');
     const filaFlit = page.getByRole('row').filter({ hasText: 'FLIT-2001' });
     const filaFlit2 = page.getByRole('row').filter({ hasText: 'FLIT-2003' });
-    await expect(filaFlit.getByRole('cell').nth(2)).toHaveText('FLIT');
-    await expect(filaFlit2.getByRole('cell').nth(2)).toHaveText('FLIT 2');
+    await expect(filaFlit.getByRole('cell').nth(iTramite + 1)).toHaveText('FLIT');
+    await expect(filaFlit2.getByRole('cell').nth(iTramite + 1)).toHaveText('FLIT 2');
   });
 
   test('AC2/AC3: el filtro manda ?fuente=, cuenta lo filtrado y «Limpiar filtros» vuelve a Todas', async ({ page }) => {
@@ -96,7 +96,7 @@ test.describe('FLITO — Gestión Trámites: fuente del trámite (HU #13071)', (
 
   test('AC4: con otros filtros el vacío dice que ninguno coincide', async ({ page }) => {
     await montar(page);
-    await page.getByPlaceholder('Buscar placa, VIN, id o comprador…').fill('PLC001');
+    await page.getByPlaceholder('Buscar placa, VIN, id o propietario…').fill('PLC001');
     await expect(page.getByText('1 trámite(s)')).toBeVisible();
     await grupoFuente(page).getByRole('button', { name: 'FLIT 2' }).click();
     await expect(page.getByText('Ningún trámite de FLIT 2 coincide con los filtros.')).toBeVisible();
