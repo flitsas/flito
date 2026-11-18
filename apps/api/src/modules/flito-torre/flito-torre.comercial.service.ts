@@ -9,6 +9,8 @@
 // RN-TOR-C4 (venta cruzada): Top 10 clientes por trámites del rango × línea. «Autogestiona» si el cliente tiene el flag
 //   `*_autogestionable` de esa línea; si no, «Usa» con al menos un registro de la línea en el rango y «No usa» sin él.
 // RN-TOR-C5 (tendencia): los últimos 6 meses cerrados, creados por mes; no depende del rango.
+// RN-TOR-L1 (ADR-0044): la concentración por ingreso y la línea logística de la venta cruzada excluyen las
+//   liquidaciones de trámites anulados/abortados/revocados (`LIQUIDACION_VIGENTE`, el fragmento único del catálogo).
 import { inArray, sql } from 'drizzle-orm';
 import {
   type ConcentracionTorre, type FugaClienteTorre, type LineaVentaTorre, type ParticipacionTorre, type SerieTorre,
@@ -17,7 +19,7 @@ import {
 import {
   clients, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTramiteHistorial, flitoTramites,
 } from '../../db/schema.js';
-import { FACTURADO, FECHA_APROBACION, FECHA_CREACION } from './flito-torre.catalogo.js';
+import { FACTURADO, FECHA_APROBACION, FECHA_CREACION, LIQUIDACION_VIGENTE } from './flito-torre.catalogo.js';
 import { donde, fechaLocal, mesAnterior, sumarDias, condicionRango, type RangoResuelto } from './flito-torre.filtro.js';
 import { SIN_COMPANIA, enTorre, nombresCompania, type Ejecutor } from './flito-torre.metricas.service.js';
 import { valoresUmbrales } from './flito-torre.umbrales.service.js';
@@ -117,7 +119,7 @@ async function ventaCruzada(
     usoPor(sql`${flitoImpuestos}`, flitoImpuestos.companiaId, enRango(flitoImpuestos.createdAt)),
     usoPor(sql`${flitoDerechosTramite}`, flitoDerechosTramite.companiaId, enRango(flitoDerechosTramite.createdAt)),
     usoPor(sql`${flitoLiquidaciones} INNER JOIN ${T} ON ${T.id} = ${flitoLiquidaciones.tramiteId}`, T.companiaId,
-      sql`${flitoLiquidaciones.valorLogistica} > 0 AND ${condicionRango(FECHA_CREACION, rango)}`),
+      sql`${flitoLiquidaciones.valorLogistica} > 0 AND ${LIQUIDACION_VIGENTE} AND ${condicionRango(FECHA_CREACION, rango)}`),
     q<{ id: number; soat: boolean; imp: boolean; log: boolean }>(sql`SELECT ${clients.id} AS id, ${clients.soatAutogestionable} AS soat,
       ${clients.impuestosAutogestionable} AS imp, ${clients.logisticaAutogestionable} AS log FROM ${clients} WHERE ${inArray(clients.id, ids)}`),
   ]);
@@ -141,7 +143,7 @@ export async function tableroComercial(ctx: ContextoTablero): Promise<TableroCom
     const volumen = await porCompania(q, sql`${T}`, sql`count(*)`, condTramites(ctx, rango, FECHA_CREACION));
     const ingreso = ctx.dinero
       ? await porCompania(q, sql`${flitoLiquidaciones} INNER JOIN ${T} ON ${T.id} = ${flitoLiquidaciones.tramiteId}`,
-        sql`COALESCE(sum(${flitoLiquidaciones.total}), 0)`, [sql`${T.fechaAprobacion} IS NOT NULL`, ...condTramites(ctx, rango, FECHA_APROBACION)])
+        sql`COALESCE(sum(${flitoLiquidaciones.total}), 0)`, [sql`${T.fechaAprobacion} IS NOT NULL`, LIQUIDACION_VIGENTE, ...condTramites(ctx, rango, FECHA_APROBACION)])
       : null;
     const ids = [...volumen, ...(ingreso ?? [])].map((f) => f.id).filter((id): id is number => id != null);
     const nombres = await nombresCompania(q, ids);

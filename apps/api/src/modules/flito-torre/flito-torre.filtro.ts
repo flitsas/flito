@@ -5,6 +5,7 @@
 // RN-TOR-F2: los rangos son días calendario de Bogotá (`TZ_COLOMBIA`) y se aplican como `[desde, hasta+1)`.
 // RN-TOR-F3: topes del ADR — 24 meses de rango; 366 días si se agrupa por día. Más → `RangoTorreExcedidoError` (400).
 // RN-TOR-F5: el preset `ultimos_6m` lo resuelve la API (`resolverRango`), alineado al mes, con el `hoy` de Bogotá.
+// RN-TOR-C3: `exigirTopesCruce` limita los cortes del eje temporal de un cruce (62) antes de consultar.
 // RN-TOR-F4: el departamento es `substr(organismo_codigo, 1, 2)` acotado a `DEPARTAMENTO_POR_CODIGO`; un código nulo
 //   o con prefijo desconocido cae en «Sin secretaría». Una compañía nula cae en «Sin compañía».
 // Todo valor del cliente viaja como parámetro de `sql` (un arreglo se expande a `($1, $2…)`: solo se usa tras comprobar
@@ -79,6 +80,37 @@ export function exigirTopesRango(r: RangoResuelto, agrupacion?: AgrupacionTorre)
   }
   if (agrupacion === 'dia' && diasDeRango(r) > TOPES_TORRE.DIAS_RANGO_MAX_POR_DIA) {
     throw new RangoTorreExcedidoError(`Para agrupar por día el periodo no puede pasar de ${TOPES_TORRE.DIAS_RANGO_MAX_POR_DIA} días.`);
+  }
+}
+
+const NOMBRE_CORTE: Record<'dia' | 'semana' | 'mes' | 'trimestre', string> = {
+  dia: 'día', semana: 'semana', mes: 'mes', trimestre: 'trimestre',
+};
+
+/** Cortes temporales (día/semana/mes/trimestre) que tocan el rango; 0 si la agrupación no es temporal (RN-TOR-C3). */
+export function cortesTemporales(a: AgrupacionTorre, r: RangoResuelto): number {
+  const mesAbs = (s: string): number => Number(s.slice(0, 4)) * 12 + Number(s.slice(5, 7)) - 1;
+  const lunes = (s: string): number => aFecha(sumarDias(s, -((aFecha(s).getUTCDay() + 6) % 7))).getTime();
+  switch (a) {
+    case 'dia': return diasDeRango(r);
+    case 'semana': return Math.round((lunes(r.hasta) - lunes(r.desde)) / (7 * 86_400_000)) + 1;
+    case 'mes': return mesAbs(r.hasta) - mesAbs(r.desde) + 1;
+    case 'trimestre': return Math.floor(mesAbs(r.hasta) / 3) - Math.floor(mesAbs(r.desde) / 3) + 1;
+    default: return 0;
+  }
+}
+
+/**
+ * RN-TOR-C3: con dos agrupaciones, el eje temporal (que no se recorta) admite hasta `CORTES_TEMPORALES_CRUCE_MAX`
+ * cortes. Se valida ANTES de consultar, a partir del rango y la agrupación. Sin rango (foto) no aplica.
+ */
+export function exigirTopesCruce(agrupacion: AgrupacionTorre, columnas: AgrupacionTorre, r: RangoResuelto | null): void {
+  if (!r) return;
+  for (const a of [agrupacion, columnas]) {
+    if (a !== 'dia' && a !== 'semana' && a !== 'mes' && a !== 'trimestre') continue;
+    if (cortesTemporales(a, r) > TOPES_TORRE.CORTES_TEMPORALES_CRUCE_MAX) {
+      throw new RangoTorreExcedidoError(`Con dos agrupaciones, el periodo admite hasta ${TOPES_TORRE.CORTES_TEMPORALES_CRUCE_MAX} cortes por ${NOMBRE_CORTE[a]}. Elija una agrupación más amplia o acorte el periodo.`);
+    }
   }
 }
 

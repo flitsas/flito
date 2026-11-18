@@ -1,6 +1,7 @@
 // Torre de Control Gerencial (Épica #14590, UX §7) — un caso por tablero contra PostgreSQL real (tx con ROLLBACK,
 // `torre-pg.ts`; se saltan sin TEST_DATABASE_URL), acotados a las compañías que siembra cada caso, y el orden de los
-// riesgos del 360° sin base.
+// riesgos del 360° sin base. ADR-0044: RN-TOR-L1 (liquidaciones de trámites anulados/abortados/revocados fuera de
+// las sumas) en los bloques que leen `flito_liquidaciones`, y varias compañías a la vez en la barra (P-4).
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../src/db/client.js', async () => ({ db: (await import('./torre-pg.js')).dbProxy, getPoolStats: vi.fn() }));
@@ -131,6 +132,42 @@ describe.skipIf(!URL_BASE)('tableros contra PostgreSQL (tx con ROLLBACK)', () =>
     expect(t.comercial.tramitesMes).toBe(5);
     expect(t.operativo.pctDentroAns).toBe(40); // los aprobados el 1 y el 2 de junio (2 h y 26 h) caben en 2 días
     expect(t.riesgos[0]).toMatchObject({ area: 'financiero', severidad: 'critico' });
+  });
+
+  it('RN-TOR-L1 + varias compañías (P-4): ingreso, venta cruzada, logística, sin facturar, margen y 360° sin anulados', async () => {
+    const hoy = '2035-06-30';
+    const a = await s.cia('A'); const b = await s.cia('B'); const c = await s.cia('C'); const fuera = await s.cia('Fuera');
+    // A: Anulado y Revocado (no suman), Rechazado y flit_estado nulo (sí suman); 100.000 de total y 10.000 de logística c/u.
+    await s.cuartetoL1(a, { aprobado: '2035-06-10T15:00:00Z', creadoFlit: '2035-06-05T15:00:00Z', total: 100_000, logistica: 10_000 });
+    const b1 = await s.tramite({ cia: b, creadoFlit: '2035-06-05T15:00:00Z', aprobado: '2035-06-11T15:00:00Z' });
+    await s.liquidacion(b1, { total: 50_000, logistica: 5_000, digital: 20_000 });
+    // C: su única logística es de un trámite anulado → la línea logística queda «no usa».
+    const c1 = await s.tramite({ cia: c, creadoFlit: '2035-06-05T15:00:00Z', aprobado: '2035-06-12T15:00:00Z', flitEstado: 'Anulado' });
+    await s.liquidacion(c1, { total: 70_000, logistica: 7_000 });
+    // Fuera del filtro de compañías: no aparece en ningún bloque.
+    const f1 = await s.tramite({ cia: fuera, creadoFlit: '2035-06-05T15:00:00Z', aprobado: '2035-06-12T15:00:00Z' });
+    await s.liquidacion(f1, { total: 900_000, logistica: 90_000 });
+
+    const ctx = { filtro: { rango: { desde: '2035-06-01', hasta: hoy }, companiaIds: [a, b, c] }, alcance: TODO, dinero: true, hoy };
+    const com = await tableroComercial(ctx);
+    expect(com.concentracion.ingreso?.total).toBe(250_000);                       // 2 × 100.000 de A + 50.000 de B
+    expect(com.concentracion.ingreso?.top.map((x) => x.companiaId)).toEqual([a, b]);
+    expect(com.concentracion.volumen.top.map((x) => x.companiaId).sort()).toEqual([a, b, c].sort());
+    const logisticaDe = Object.fromEntries(com.ventaCruzada.filas.map((f) => [f.companiaId, f.lineas.logistica]));
+    expect(logisticaDe).toEqual({ [a]: 'usa', [b]: 'usa', [c]: 'no_usa' });
+
+    const ope = await tableroOperativo(ctx);
+    expect(ope.logistica).toMatchObject({ entregas: 3, primerIntento: 3, viajesAdicionales: 0 }); // A ×2 + B; ni Anulado ni Revocado ni C
+
+    const fin = await tableroFinanciero(ctx);
+    expect(fin.cifras).toMatchObject({ sinFacturarTramites: 6, sinFacturarValor: 250_000 });   // el conteo no cambia; la suma sí
+    expect(fin.sinFacturar.filas.find((f) => f.companiaId === c)).toMatchObject({ tramites: 1, valorEstimado: 0 });
+    expect(fin.margen!.porServicio.find((m) => m.servicio === 'logistica')).toMatchObject({ cobrado: 25_000 });
+    expect(fin.margen!.porServicio.find((m) => m.servicio === 'tramite')).toMatchObject({ cobrado: 20_000 });
+    expect(fin.margen!.porCliente.map((m) => m.companiaId).sort()).toEqual([a, b].sort());
+
+    const e = await tableroEjecutivo(ctx);
+    expect(e.financiero.sinFacturarValor).toBe(250_000);
   });
 
   it('bolsa con saldo ≤ 0: agotada (0 días, crítico) en el financiero y en el riesgo del 360°; días con coma es-CO', async () => {

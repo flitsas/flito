@@ -12,13 +12,15 @@
 // RN-TOR-O4 (logística): entregas = aprobados en el rango con logística liquidada; primer intento = sin viajes
 //   adicionales (`flito_tramite_viajes_logistica`, `numero >= 2`). FLITO no registra la fecha de entrega final, así
 //   que `tiempoMedioEntregaDias` sale `null` hasta que exista.
+// RN-TOR-L1 (ADR-0044): el bloque de logística excluye las liquidaciones de trámites anulados/abortados/revocados
+//   (`LIQUIDACION_VIGENTE`).
 import { eq, sql } from 'drizzle-orm';
 import type { CausaRadarTorre, SerieTorre, SeveridadTorre, TableroOperativo } from '@operaciones/shared-types';
 import {
   flitoImpuestos, flitoLiquidaciones, flitoTramiteHistorial, flitoTramites, flitoTramiteViajesLogistica, users,
 } from '../../db/schema.js';
 import { contarSinGestion } from '../flito-tablero/flito-tablero.service.js';
-import { EN_CURSO, FECHA_APROBACION, FECHA_CREACION } from './flito-torre.catalogo.js';
+import { EN_CURSO, FECHA_APROBACION, FECHA_CREACION, LIQUIDACION_VIGENTE } from './flito-torre.catalogo.js';
 import { donde } from './flito-torre.filtro.js';
 import { enTorre, nombreOrganismo, type Ejecutor } from './flito-torre.metricas.service.js';
 import { valoresUmbrales } from './flito-torre.umbrales.service.js';
@@ -113,7 +115,7 @@ async function logistica(q: Ejecutor, ctx: ContextoTablero, rango: ReturnType<ty
       COALESCE(sum(via.n), 0)::int AS viajes
     FROM ${flitoLiquidaciones} INNER JOIN ${T} ON ${eq(T.id, flitoLiquidaciones.tramiteId)}
       CROSS JOIN LATERAL (SELECT count(*)::int AS n FROM ${V} WHERE ${V.tramiteId} = ${T.id} AND ${V.numero} >= 2) via
-    WHERE ${donde([sql`${T.fechaAprobacion} IS NOT NULL`, sql`${flitoLiquidaciones.valorLogistica} > 0`, ...condTramites(ctx, rango, FECHA_APROBACION)])}`);
+    WHERE ${donde([sql`${T.fechaAprobacion} IS NOT NULL`, sql`${flitoLiquidaciones.valorLogistica} > 0`, LIQUIDACION_VIGENTE, ...condTramites(ctx, rango, FECHA_APROBACION)])}`);
   const entregas = num(f?.entregas);
   return {
     filtrosIgnorados: [], entregas, primerIntento: num(f?.primero), primerIntentoPct: pctONull(num(f?.primero), entregas),

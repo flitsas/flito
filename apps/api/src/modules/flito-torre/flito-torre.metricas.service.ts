@@ -7,10 +7,15 @@
 // RN-TOR-M8: caché Redis de 60 s; la clave es el hash de la consulta normalizada + el rango resuelto + el alcance. Si
 //   Redis falla o tarda, se consulta la base igual (best effort en ambos sentidos).
 // RN-TOR-M9: máximo `GRUPOS_MAX` grupos por consulta; la pantalla corta en `limite` y marca `truncado`.
+// RN-TOR-M10/M12 (ADR-0044): la fecha base se resuelve con `resolverDef` (ausente = la de defecto, mismo resultado que
+//   antes) y ancla a la vez el rango y los cortes temporales; `baseFecha.campo`/`fechaBase` la declaran. La clave de
+//   caché lleva la fecha base RESUELTA, las dos agrupaciones y el modo (pantalla/exportar: topes distintos).
+// RN-TOR-C5: con `agrupacionColumnas` delega en `consultarCruce` (flito-torre.cruce.ts) con el MISMO `WHERE`, alcance,
+//   permiso de dinero, `statement_timeout` y caché.
 import { createHash } from 'node:crypto';
 import { inArray, sql, type SQL } from 'drizzle-orm';
 import {
-  ORGANISMOS_TRANSITO, DEPARTAMENTO_POR_CODIGO, TOPES_TORRE, fechaBasePorDefecto, metricaTorre,
+  ORGANISMOS_TRANSITO, DEPARTAMENTO_POR_CODIGO, TOPES_TORRE, metricaTorre,
   type AgrupacionTorre, type ConsultaMetrica, type ResultadoMetrica,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -18,10 +23,11 @@ import { clients, flitoTramites } from '../../db/schema.js';
 import { getRedis } from '../../shared/redis.js';
 import { loggerFor } from '../../shared/logger.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
-import { CATALOGO_SQL, type DefMetricaSql } from './flito-torre.catalogo.js';
-import { ErrorDominioTorre, noImplementado } from './flito-torre.service.js';
+import { resolverDef, type DefResuelta, type FormaMetrica } from './flito-torre.catalogo.js';
+import { consultarCruce, exigirReglasCruce, topesCruce } from './flito-torre.cruce.js';
+import { ErrorDominioTorre } from './flito-torre.service.js';
 import {
-  claveAgrupacion, condicionesTorre, donde, esTemporal, exigirTopesRango, resolverRango,
+  claveAgrupacion, condicionesTorre, donde, esTemporal, exigirTopesCruce, exigirTopesRango, resolverRango,
   type RangoResuelto,
 } from './flito-torre.filtro.js';
 
@@ -50,11 +56,13 @@ function codigoPg(e: unknown): string | undefined {
   return x?.code ?? x?.cause?.code;
 }
 
-/** RN-TOR-M7: corre `fn` en UNA transacción con `statement_timeout`. */
-export async function enTorre<R>(fn: (q: Ejecutor) => Promise<R>): Promise<R> {
+/** RN-TOR-M7: corre `fn` en UNA transacción con `statement_timeout` (15 s; las sugerencias de placa usan 3 s). */
+export async function enTorre<R>(fn: (q: Ejecutor) => Promise<R>, op: { timeout?: '15s' | '3s' } = {}): Promise<R> {
   try {
     return await db.transaction(async (tx) => {
-      await tx.execute(sql`SET LOCAL statement_timeout = '15s'`);
+      await tx.execute(op.timeout === '3s'
+        ? sql`SET LOCAL statement_timeout = '3s'`
+        : sql`SET LOCAL statement_timeout = '15s'`);
       const q: Ejecutor = async <T>(consulta: SQL) => (await tx.execute(consulta)) as unknown as T[];
       return fn(q);
     });
@@ -112,7 +120,8 @@ export async function nombresCompania(q: Ejecutor, ids: readonly number[]): Prom
   return new Map(filas.map((f) => [Number(f.id), f.name]));
 }
 
-async function etiquetar(q: Ejecutor, a: AgrupacionTorre, claves: (string | null)[]): Promise<string[]> {
+/** Etiqueta de cada clave de grupo (compartida con el cruce). */
+export async function etiquetar(q: Ejecutor, a: AgrupacionTorre, claves: (string | null)[]): Promise<string[]> {
   if (a === 'compania') {
     const nombres = await nombresCompania(q, claves.filter((c): c is string => c != null).map(Number));
     return claves.map((c) => (c == null ? SIN_COMPANIA : nombres.get(Number(c)) ?? `Compañía ${c}`));
@@ -126,21 +135,35 @@ async function etiquetar(q: Ejecutor, a: AgrupacionTorre, claves: (string | null
 
 // ── Agregados ──────────────────────────────────────────────────────────────────────────────────────────
 
-function agregados(def: DefMetricaSql): SQL {
+/** Lo que los agregados necesitan de la métrica. */
+export interface FormaDef { forma: FormaMetrica; valor?: SQL }
+
+/**
+ * Agregados de la métrica. `v` = la expresión agregada (por defecto `def.valor`); el cruce pasa la columna `v` de su
+ * CTE. En conteo no se usa.
+ */
+export function agregados(def: FormaDef, v: SQL | undefined = def.valor): SQL {
   switch (def.forma) {
     case 'conteo': return sql`count(*)::numeric AS valor`;
-    case 'suma': return sql`COALESCE(sum(${def.valor}), 0)::numeric AS valor`;
-    case 'tasa': return sql`count(*) FILTER (WHERE ${def.valor})::numeric AS aprobados`;
-    case 'tiempo': return sql`percentile_cont(0.5) WITHIN GROUP (ORDER BY ${def.valor}) AS mediana,
-      percentile_cont(0.9) WITHIN GROUP (ORDER BY ${def.valor}) AS p90, max(${def.valor}) AS max`;
+    case 'suma': return sql`COALESCE(sum(${v}), 0)::numeric AS valor`;
+    case 'tasa': return sql`count(*) FILTER (WHERE ${v})::numeric AS aprobados`;
+    case 'tiempo': return sql`percentile_cont(0.5) WITHIN GROUP (ORDER BY ${v}) AS mediana,
+      percentile_cont(0.9) WITHIN GROUP (ORDER BY ${v}) AS p90, max(${v}) AS max`;
   }
 }
 
-const num = (v: unknown): number => (v == null ? 0 : Number(v));
-const opt = (v: unknown): number | undefined => (v == null ? undefined : Math.round(Number(v) * 100) / 100);
-const r2 = (v: number): number => Math.round(v * 100) / 100;
+export const num = (v: unknown): number => (v == null ? 0 : Number(v));
+export const opt = (v: unknown): number | undefined => (v == null ? undefined : Math.round(Number(v) * 100) / 100);
+export const r2 = (v: number): number => Math.round(v * 100) / 100;
 
-function valorDe(def: DefMetricaSql, f: Record<string, unknown>): number {
+/** % de un grupo sobre el total: por `n` en tasa y tiempo (no aditivos), por valor en conteo y suma. */
+export function participacion(def: FormaDef, valor: number, n: number, total: { valor: number; n: number }): number {
+  const porN = def.forma === 'tasa' || def.forma === 'tiempo';
+  const base100 = porN ? total.n : total.valor;
+  return base100 ? r2(((porN ? n : valor) / base100) * 100) : 0;
+}
+
+export function valorDe(def: FormaDef, f: Record<string, unknown>): number {
   if (def.forma === 'tasa') { const n = num(f.n); return n ? r2((num(f.aprobados) / n) * 100) : 0; }
   if (def.forma === 'tiempo') return opt(f.mediana) ?? 0;
   return num(f.valor);
@@ -153,13 +176,19 @@ export interface OpcionesConsulta {
   limiteMax?: number;
   /** Día de hoy en Bogotá (tests). */
   hoy?: string;
+  /** Topes del cruce (RN-TOR-C3): pantalla 50 × 12, exportar 2.000 × 100. Por defecto, pantalla. */
+  modo?: 'pantalla' | 'exportar';
 }
 
 /** El rango que aplica a una consulta: `null` en las métricas de foto (sin fecha). Aplica los topes. */
 export function rangoDeConsulta(c: ConsultaMetrica, hoy?: string): RangoResuelto | null {
-  if (!CATALOGO_SQL[c.metrica].fecha) return null;
+  if (!resolverDef(c.metrica, c.fechaBase).fecha) return null;
   const r = resolverRango(c.filtro.rango, hoy);
   exigirTopesRango(r, c.agrupacion);
+  if (c.agrupacion && c.agrupacionColumnas) {
+    exigirTopesRango(r, c.agrupacionColumnas);
+    exigirTopesCruce(c.agrupacion, c.agrupacionColumnas, r);
+  }
   return r;
 }
 
@@ -169,16 +198,19 @@ export async function consultarMetrica(
 ): Promise<ResultadoMetrica> {
   const meta = metricaTorre(c.metrica);
   if (meta.requiereDinero && !op.dinero) throw new TorreDineroDenegadoError();
-  // Contract-first (Épica #14590, bloque i): la segunda agrupación y una fecha base distinta de la de defecto ya pasan
-  // Zod, pero el motor aún no las sabe resolver: 501 en vez de una cifra con la fecha equivocada. Lo retira el bloque (ii).
-  if (c.agrupacionColumnas) noImplementado('Agrupar por dos criterios');
-  if (c.fechaBase && c.fechaBase !== fechaBasePorDefecto(c.metrica)) noImplementado('Elegir la fecha base');
-  const def = CATALOGO_SQL[c.metrica];
+  const def: DefResuelta = resolverDef(c.metrica, c.fechaBase);
+  if (c.agrupacionColumnas) exigirReglasCruce(c);
   const rango = rangoDeConsulta(c, op.hoy);
   const tope = Math.min(op.limiteMax ?? TOPES_TORRE.FILAS_PANTALLA_MAX, GRUPOS_MAX);
   const limite = Math.min(c.limite ?? tope, tope);
+  const modo = op.modo ?? 'pantalla';
 
-  const clave = claveCache('metrica', { ...c, limite }, rango, alcance);
+  // Objeto normalizado (orden fijo de claves): la fecha base ausente y la explícita de defecto dan la MISMA clave.
+  const normalizada = {
+    metrica: c.metrica, fechaBase: def.fechaBase, agrupacion: c.agrupacion ?? null,
+    agrupacionColumnas: c.agrupacionColumnas ?? null, filtro: c.filtro, limite, modo,
+  };
+  const clave = claveCache('metrica', normalizada, rango, alcance);
   const cacheado = await leerCache<ResultadoMetrica>(clave);
   if (cacheado) return cacheado;
 
@@ -204,7 +236,14 @@ export async function consultarMetrica(
 
     let filas: ResultadoMetrica['filas'] = [];
     let truncado = false;
-    if (c.agrupacion) {
+    let cruce: ResultadoMetrica['cruce'];
+    if (c.agrupacion && c.agrupacionColumnas) {
+      const r = await consultarCruce(q, {
+        def, filasEje: c.agrupacion, columnasEje: c.agrupacionColumnas, where: base,
+        ...topesCruce(modo, limite), total: { valor: valorDe(def, totalFila), n: num(totalFila.n) },
+      });
+      ({ filas, cruce, truncado } = r);
+    } else if (c.agrupacion) {
       const temporal = esTemporal(c.agrupacion);
       const orden = temporal ? sql`1 ASC` : def.forma === 'tiempo' ? sql`n DESC, 1 ASC` : sql`${sql.identifier(def.forma === 'tasa' ? 'n' : 'valor')} DESC, 1 ASC`;
       const grupos = await q(sql`SELECT ${claveAgrupacion(c.agrupacion, def.dims, def.fecha)} AS clave, count(*)::int AS n, ${agregados(def)}
@@ -212,15 +251,12 @@ export async function consultarMetrica(
       truncado = grupos.length > limite;
       const visibles = grupos.slice(0, limite);
       const etiquetas = await etiquetar(q, c.agrupacion, visibles.map((g) => (g.clave == null ? null : String(g.clave))));
-      const totalValor = valorDe(def, totalFila);
-      const totalN = num(totalFila.n);
+      const total = { valor: valorDe(def, totalFila), n: num(totalFila.n) };
       filas = visibles.map((g, i) => {
         const valor = valorDe(def, g);
-        const porN = def.forma === 'tasa' || def.forma === 'tiempo';
-        const base100 = porN ? totalN : totalValor;
         return {
           clave: g.clave == null ? 'sin' : String(g.clave), etiqueta: etiquetas[i]!, valor, n: num(g.n),
-          participacion: base100 ? r2(((porN ? num(g.n) : valor) / base100) * 100) : 0,
+          participacion: participacion(def, valor, num(g.n), total),
           ...(def.forma === 'tiempo' ? { mediana: opt(g.mediana), p90: opt(g.p90), max: opt(g.max) } : {}),
         };
       });
@@ -237,9 +273,10 @@ export async function consultarMetrica(
       filas,
       baseFecha: {
         campo: def.campoFecha, excluidosSinFecha: excluidos, nBaseSincronizacion: num(totalFila.sync),
-        fechaBase: fechaBasePorDefecto(c.metrica),
+        fechaBase: def.fechaBase,
       },
       truncado,
+      ...(cruce ? { cruce } : {}),
       generadoEn: new Date().toISOString(),
     };
     return r;

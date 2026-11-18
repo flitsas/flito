@@ -13,34 +13,72 @@
 //   fechado por la `fecha_aprobacion` del trámite. NO se suma `flito_tramite_viajes_logistica.valor`: contaría doble.
 // RN-TOR-M5: impuestos = `flito_impuestos.valor_pagado` por `pagado_en`; derechos = `flito_derechos_tramite.valor` por
 //   `fecha_pago` (columna `date`).
+// RN-TOR-M10 (ADR-0044): la fecha base es una VARIANTE declarada por métrica (`fechas`); la primera de `fechasBase`
+//   (shared-types) es la de defecto y da el mismo resultado que antes. `resolverDef` la elige y vuelve a exigir la matriz.
+// RN-TOR-M11: matriz medida × fecha base = la de `METRICAS_TORRE.fechasBase` (creación, aprobación, facturación, pago).
+//   Pago = `pagado_en` (impuestos) o `fecha_pago` (derechos). El tiempo de ciclo solo admite aprobación.
+// RN-TOR-M13: `tramites` + aprobación cuenta `fecha_aprobacion` en el rango sin mirar `flit_estado`.
+// RN-TOR-M14: facturación = `min(siigo_factura_tramites.created_at)` de las activas (`FACTURACION_TRAMITE`).
+// RN-TOR-L1: costo e ingreso excluyen las liquidaciones de trámites anulados/abortados/revocados (`LIQUIDACION_VIGENTE`).
 import { sql, type SQL } from 'drizzle-orm';
-import type { MetricaTorreId } from '@operaciones/shared-types';
+import {
+  esFechaBasePermitida, fechaBasePorDefecto, type FechaBaseTorre, type MetricaTorreId,
+} from '@operaciones/shared-types';
 import {
   flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoTramites, siigoFacturaTramites,
 } from '../../db/schema.js';
 import type { DimensionesBase, FechaBase } from './flito-torre.filtro.js';
+import { TorreConsultaInvalidaError } from './flito-torre.service.js';
 
 export type FormaMetrica = 'conteo' | 'suma' | 'tasa' | 'tiempo';
+
+/** Variante de una métrica por fecha base (RN-TOR-M10): lo que cambia al anclar la métrica en otra fecha. */
+export interface VarianteFecha {
+  fecha: FechaBase;
+  campoFecha: string;
+  /** Condiciones propias de la variante (se suman a las `fijas` de la métrica). */
+  fijas: SQL[];
+  /** Condición «usó la fecha de sincronización» (para `nBaseSincronizacion`; solo con creación, RN-TOR-M12). */
+  sync?: SQL;
+  /** JOIN que la variante añade al `desde` de la métrica (facturación: `FACTURACION_TRAMITE`). */
+  desdeExtra?: SQL;
+}
 
 export interface DefMetricaSql {
   /** `FROM` + `JOIN` fijos. */
   desde: SQL;
   dims: DimensionesBase;
-  /** `undefined` = foto del momento: no se acota por rango ni se agrupa por tiempo. */
-  fecha?: FechaBase;
-  campoFecha: string;
-  /** Condiciones fijas de la métrica. */
+  /** Condiciones de la métrica que valen para TODAS sus fechas base (p. ej. `LIQUIDACION_VIGENTE`). */
   fijas: SQL[];
   forma: FormaMetrica;
   /** suma: la expresión sumada · tasa: la condición del numerador · tiempo: las horas. */
   valor?: SQL;
   /** tiempo: condición que deja fuera al registro (se cuenta en `excluidosSinFecha`). */
   requiere?: SQL;
-  /** Condición «usó la fecha de sincronización» (para `nBaseSincronizacion`). */
+  /** Variantes por fecha base; las claves son las `fechasBase` de shared-types. Vacío = foto del momento. */
+  fechas: Partial<Record<FechaBaseTorre, VarianteFecha>>;
+  /** Solo en las de foto (sin variantes): qué declara `baseFecha.campo`. */
+  campoFoto?: string;
+}
+
+/** La métrica con su fecha base ya elegida: lo único que consume el motor. */
+export interface DefResuelta {
+  desde: SQL;
+  dims: DimensionesBase;
+  /** `undefined` = foto del momento: no se acota por rango ni se agrupa por tiempo. */
+  fecha?: FechaBase;
+  fechaBase: FechaBaseTorre | null;
+  campoFecha: string;
+  fijas: SQL[];
+  forma: FormaMetrica;
+  valor?: SQL;
+  requiere?: SQL;
   sync?: SQL;
 }
 
 const T = flitoTramites;
+const L = flitoLiquidaciones;
+const SF = siigoFacturaTramites;
 
 export const DIMS_TRAMITE: DimensionesBase = {
   compania: T.companiaId, organismo: T.organismoCodigo, tipoTramite: T.tipoTramite, flitEstado: T.flitEstado,
@@ -61,65 +99,114 @@ export const ESTADOS_FLIT_CERRADOS = ['aprobado', 'anulado', 'abortado', 'rechaz
 export const EN_CURSO = sql`(${T.fechaAprobacion} IS NULL
   AND COALESCE(lower(${T.flitEstado}), '') NOT IN ${[...ESTADOS_FLIT_CERRADOS]})`;
 
+/** RN-TOR-L1: estados de FLIT cuya liquidación no se suma. «Rechazado» NO está (decisión L-β). */
+export const ESTADOS_FLIT_ANULADOS = ['anulado', 'abortado', 'revocado'] as const;
+
+/**
+ * RN-TOR-L1: el fragmento ÚNICO de «liquidación vigente». El `COALESCE` es obligatorio: sin él un `flit_estado` nulo
+ * daría `NULL` y la liquidación se excluiría por error. Exige `flito_tramites` en el `FROM`.
+ */
+export const LIQUIDACION_VIGENTE = sql`COALESCE(lower(${T.flitEstado}), '') NOT IN ${[...ESTADOS_FLIT_ANULADOS]}`;
+
 /** El trámite está en una factura de Siigo activa. */
-export const FACTURADO = sql`EXISTS (SELECT 1 FROM ${siigoFacturaTramites}
-  WHERE ${siigoFacturaTramites.tramiteId} = ${T.id} AND ${siigoFacturaTramites.activo} = true)`;
+export const FACTURADO = sql`EXISTS (SELECT 1 FROM ${SF}
+  WHERE ${SF.tramiteId} = ${T.id} AND ${SF.activo} = true)`;
+
+/**
+ * RN-TOR-M14: fecha de facturación = la PRIMERA factura activa del trámite (misma definición que `FACTURADO` y
+ * RN-TOR-P4). Tabla derivada agregada por trámite + `INNER JOIN`: un trámite con varias facturas cuenta una vez y uno
+ * sin factura activa queda fuera. Índice parcial `(tramite_id, created_at) WHERE activo` de la 0304.
+ */
+const FAC = sql.identifier('torre_fac');
+export const FACTURACION_TRAMITE = sql`INNER JOIN (SELECT ${SF.tramiteId} AS tramite_id, min(${SF.createdAt}) AS facturado_en
+  FROM ${SF} WHERE ${SF.activo} = true GROUP BY ${SF.tramiteId}) ${FAC} ON ${FAC}.tramite_id = ${T.id}`;
+export const FECHA_FACTURACION: FechaBase = { expr: sql`${FAC}.facturado_en` };
 
 const DESDE_TRAMITES = sql`${T}`;
-const DESDE_LIQUIDACIONES = sql`${flitoLiquidaciones} INNER JOIN ${T} ON ${T.id} = ${flitoLiquidaciones.tramiteId}`;
-const DESDE_TRAMITES_LIQ = sql`${T} LEFT JOIN ${flitoLiquidaciones} ON ${flitoLiquidaciones.tramiteId} = ${T.id}`;
+const DESDE_LIQUIDACIONES = sql`${L} INNER JOIN ${T} ON ${T.id} = ${L.tramiteId}`;
+const DESDE_TRAMITES_LIQ = sql`${T} LEFT JOIN ${L} ON ${L.tramiteId} = ${T.id}`;
 
 const APROBADO = sql`${T.fechaAprobacion} IS NOT NULL`;
 
+// ── Variantes reutilizables (RN-TOR-M11) ──────────────────────────────────────────────────────────────────────
+const POR_CREACION: VarianteFecha = { fecha: FECHA_CREACION, campoFecha: 'fecha_creacion_flit', fijas: [], sync: SIN_FECHA_FLIT };
+const POR_APROBACION: VarianteFecha = { fecha: FECHA_APROBACION, campoFecha: 'fecha_aprobacion', fijas: [APROBADO] };
+const POR_FACTURACION: VarianteFecha = {
+  fecha: FECHA_FACTURACION, campoFecha: 'siigo_factura_tramites.created_at (primera activa)', fijas: [], desdeExtra: FACTURACION_TRAMITE,
+};
+
 export const CATALOGO_SQL: Record<MetricaTorreId, DefMetricaSql> = {
-  // ADR-0044: métrica neutra del constructor. Contract-first (bloque i): solo su fecha de defecto (creación, ≡
-  // `tramites_creados`); el bloque (ii) le añade las variantes aprobación y facturación (RN-TOR-M10/M13/M14).
+  // RN-TOR-M13: métrica neutra del constructor. `tramites`+creación ≡ `tramites_creados`; `tramites`+aprobación ≡
+  // `tramites_aprobados` (sin mirar `flit_estado`, RN-TOR-M1: «siguen en Aprobado» es el filtro `flitEstados`).
   tramites: {
-    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fecha: FECHA_CREACION, campoFecha: 'fecha_creacion_flit',
-    fijas: [], forma: 'conteo', sync: SIN_FECHA_FLIT,
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'conteo',
+    fechas: { creacion: POR_CREACION, aprobacion: POR_APROBACION, facturacion: POR_FACTURACION },
   },
   tramites_creados: {
-    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fecha: FECHA_CREACION, campoFecha: 'fecha_creacion_flit',
-    fijas: [], forma: 'conteo', sync: SIN_FECHA_FLIT,
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'conteo', fechas: { creacion: POR_CREACION },
   },
   tramites_aprobados: {
-    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fecha: FECHA_APROBACION, campoFecha: 'fecha_aprobacion',
-    fijas: [APROBADO], forma: 'conteo',
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'conteo', fechas: { aprobacion: POR_APROBACION },
   },
   tiempo_creacion_aprobacion: {
-    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fecha: FECHA_APROBACION, campoFecha: 'fecha_creacion_flit → fecha_aprobacion',
-    fijas: [APROBADO], forma: 'tiempo', valor: HORAS_CICLO,
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'tiempo', valor: HORAS_CICLO,
     requiere: sql`${T.fechaCreacionFlit} IS NOT NULL`,
+    fechas: { aprobacion: { ...POR_APROBACION, campoFecha: 'fecha_creacion_flit → fecha_aprobacion' } },
   },
   costo_logistica: {
-    desde: DESDE_LIQUIDACIONES, dims: DIMS_TRAMITE, fecha: FECHA_APROBACION, campoFecha: 'fecha_aprobacion',
-    fijas: [APROBADO], forma: 'suma', valor: sql`COALESCE(${flitoLiquidaciones.valorLogistica}, 0)`,
+    desde: DESDE_LIQUIDACIONES, dims: DIMS_TRAMITE, fijas: [LIQUIDACION_VIGENTE], forma: 'suma',
+    valor: sql`COALESCE(${L.valorLogistica}, 0)`,
+    fechas: { aprobacion: POR_APROBACION, facturacion: POR_FACTURACION },
   },
   impuestos_pagados: {
     desde: sql`${flitoImpuestos} LEFT JOIN ${T} ON ${T.id} = ${flitoImpuestos.tramiteId}`,
     dims: { compania: flitoImpuestos.companiaId, organismo: flitoImpuestos.organismoCodigo, tipoTramite: T.tipoTramite, flitEstado: T.flitEstado },
-    fecha: { expr: flitoImpuestos.pagadoEn }, campoFecha: 'pagado_en',
-    fijas: [sql`${flitoImpuestos.pagadoEn} IS NOT NULL`], forma: 'suma', valor: sql`COALESCE(${flitoImpuestos.valorPagado}, 0)`,
+    fijas: [], forma: 'suma', valor: sql`COALESCE(${flitoImpuestos.valorPagado}, 0)`,
+    fechas: { pago: { fecha: { expr: flitoImpuestos.pagadoEn }, campoFecha: 'pagado_en', fijas: [sql`${flitoImpuestos.pagadoEn} IS NOT NULL`] } },
   },
   derechos_pagados: {
     desde: sql`${flitoDerechosTramite} LEFT JOIN ${T} ON ${T.id} = ${flitoDerechosTramite.tramiteId}`,
     dims: { compania: flitoDerechosTramite.companiaId, organismo: flitoDerechosTramite.organismoCodigo, tipoTramite: T.tipoTramite, flitEstado: T.flitEstado },
-    fecha: { expr: flitoDerechosTramite.fechaPago, esDate: true }, campoFecha: 'fecha_pago',
-    fijas: [sql`${flitoDerechosTramite.fechaPago} IS NOT NULL`], forma: 'suma', valor: sql`COALESCE(${flitoDerechosTramite.valor}, 0)`,
+    fijas: [], forma: 'suma', valor: sql`COALESCE(${flitoDerechosTramite.valor}, 0)`,
+    fechas: {
+      pago: {
+        fecha: { expr: flitoDerechosTramite.fechaPago, esDate: true }, campoFecha: 'fecha_pago',
+        fijas: [sql`${flitoDerechosTramite.fechaPago} IS NOT NULL`],
+      },
+    },
   },
   ingreso_liquidado: {
-    desde: DESDE_LIQUIDACIONES, dims: DIMS_TRAMITE, fecha: FECHA_APROBACION, campoFecha: 'fecha_aprobacion',
-    fijas: [APROBADO], forma: 'suma', valor: sql`COALESCE(${flitoLiquidaciones.total}, 0)`,
+    desde: DESDE_LIQUIDACIONES, dims: DIMS_TRAMITE, fijas: [LIQUIDACION_VIGENTE], forma: 'suma',
+    valor: sql`COALESCE(${L.total}, 0)`,
+    fechas: { aprobacion: POR_APROBACION, facturacion: POR_FACTURACION },
   },
   wip_activo: {
-    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, campoFecha: 'estado actual', fijas: [EN_CURSO], forma: 'conteo',
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [EN_CURSO], forma: 'conteo', fechas: {}, campoFoto: 'estado actual',
   },
   tasa_aprobacion: {
-    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fecha: FECHA_CREACION, campoFecha: 'fecha_creacion_flit',
-    fijas: [], forma: 'tasa', valor: APROBADO, sync: SIN_FECHA_FLIT,
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'tasa', valor: APROBADO, fechas: { creacion: POR_CREACION },
   },
+  // RN-TOR-L1: es un CONTEO de trámites (no suma la liquidación), así que no lleva `LIQUIDACION_VIGENTE`.
   sin_facturar: {
-    desde: DESDE_TRAMITES_LIQ, dims: DIMS_TRAMITE, fecha: FECHA_APROBACION, campoFecha: 'fecha_aprobacion',
-    fijas: [APROBADO, sql`NOT ${FACTURADO}`], forma: 'conteo',
+    desde: DESDE_TRAMITES_LIQ, dims: DIMS_TRAMITE, fijas: [sql`NOT ${FACTURADO}`], forma: 'conteo',
+    fechas: { aprobacion: POR_APROBACION },
   },
 };
+
+/**
+ * RN-TOR-M10: resuelve la variante de la fecha base (ausente = la de defecto, idéntica a la de antes). El servicio
+ * VUELVE a exigir la matriz aunque Zod ya la validó: una fecha fuera de ella es 400, nunca otra cifra.
+ */
+export function resolverDef(metrica: MetricaTorreId, fechaBase?: FechaBaseTorre): DefResuelta {
+  const def = CATALOGO_SQL[metrica];
+  const elegida = fechaBase ?? fechaBasePorDefecto(metrica);
+  if (fechaBase && !esFechaBasePermitida(metrica, fechaBase)) throw new TorreConsultaInvalidaError('fechaBase', 'esa fecha base no aplica a la métrica');
+  const v = elegida ? def.fechas[elegida] : undefined;
+  if (elegida && !v) throw new TorreConsultaInvalidaError('fechaBase', 'esa fecha base no aplica a la métrica');
+  return {
+    desde: v?.desdeExtra ? sql`${def.desde} ${v.desdeExtra}` : def.desde,
+    dims: def.dims, forma: def.forma, valor: def.valor, requiere: def.requiere,
+    fecha: v?.fecha, fechaBase: v ? elegida : null, campoFecha: v?.campoFecha ?? def.campoFoto ?? 'estado actual',
+    fijas: [...(v?.fijas ?? []), ...def.fijas], sync: v?.sync,
+  };
+}

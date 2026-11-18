@@ -112,6 +112,14 @@ describe('POST /tableros/:tablero/exportar', () => {
     expect(columnaA(l, 'Cifras')).toContain('Sin facturar (valor)');
   });
 
+  it('varias compañías en la barra (P-4): el filtro llega al servicio con todas, en un solo libro', async () => {
+    const varias = { ...MARZO, companiaIds: [7, 8, 9] };
+    const r = await exporta('financiera', 4, varias);
+    expect(r.status).toBe(200);
+    expect(finSvc.tableroFinanciero).toHaveBeenCalledWith(expect.objectContaining({ filtro: varias, dinero: true }));
+    expect(r.headers['content-disposition']).toBe('attachment; filename="torre-financiera-2035-03-01_2035-03-31.xlsx"');
+  });
+
   it('sin FUNCION_TORRE_DINERO: sin columnas ni cifras de dinero, sin hojas de margen, y sin placa en ninguna celda', async () => {
     const r = await exporta('financiera', 3, MARZO);
     expect(r.status).toBe(200);

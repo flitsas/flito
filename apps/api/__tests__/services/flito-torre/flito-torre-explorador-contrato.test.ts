@@ -1,7 +1,8 @@
-// Torre de Control — Explorador flexible (Épica #14590, ADR-0044), contract-first (bloque i): la matriz medida × fecha
-// base y las combinaciones de agrupación dan 400 en Zod (RN-TOR-M10/M11, RN-TOR-C1); lo que ya valida pero el motor aún
-// no resuelve da 501; `POST /placa/sugerencias` queda montada con su cadena completa y su servicio en STUB (501); y el
-// preset `ultimos_6m` se alinea al mes (RN-TOR-F5). Reales: `authMiddleware`, `exigirFuncion`, Zod y el stub.
+// Torre de Control — Explorador flexible (Épica #14590, ADR-0044): la matriz medida × fecha base y las combinaciones de
+// agrupación dan 400 en Zod (RN-TOR-M10/M11, RN-TOR-C1); lo que valida llega al motor (bloque ii: ya no hay 501);
+// `POST /placa/sugerencias` con su cadena completa responde 200 (lista vacía = 200, nunca 404) con `no-store` y
+// `logPiiAccess`; y el preset `ultimos_6m` se alinea al mes (RN-TOR-F5). Reales: `authMiddleware`, `exigirFuncion`,
+// Zod, el motor y el servicio; la base es un ejecutor que devuelve 0 filas (el SQL se prueba en los archivos de PG).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
@@ -12,7 +13,10 @@ vi.mock('../../../src/db/client.js', () => {
   for (const m of ['from', 'where', 'limit', 'innerJoin', 'leftJoin']) c[m] = () => c;
   (c as { then: unknown }).then = (res: (v: unknown) => void) => res([]);
   return {
-    db: { select: () => c, insert: () => ({ values: () => Promise.resolve() }), transaction: () => Promise.reject(new Error('sin base en este archivo')) },
+    db: {
+      select: () => c, insert: () => ({ values: () => Promise.resolve() }),
+      transaction: async (fn: (tx: { execute: () => Promise<unknown[]> }) => Promise<unknown>) => fn({ execute: async () => [] }),
+    },
     getPoolStats: vi.fn(),
   };
 });
@@ -70,18 +74,30 @@ describe('consultaMetricaSchema v2 por HTTP (RN-TOR-M11, RN-TOR-C1)', () => {
   });
 
   it.each([
-    ['dos agrupaciones válidas', { metrica: 'tramites', agrupacion: 'compania', agrupacionColumnas: 'mes' }],
-    ['una fecha base admitida distinta de la de defecto', { metrica: 'tramites', fechaBase: 'aprobacion' }],
-  ])('501 hasta el bloque (ii): %s pasa Zod pero el motor aún no la resuelve', async (_caso, consulta) => {
+    ['dos agrupaciones válidas', { metrica: 'tramites', agrupacion: 'compania', agrupacionColumnas: 'mes' }, 'creacion'],
+    ['una fecha base admitida distinta de la de defecto', { metrica: 'tramites', fechaBase: 'aprobacion' }, 'aprobacion'],
+    ['facturación', { metrica: 'ingreso_liquidado', fechaBase: 'facturacion' }, 'facturacion'],
+  ])('200 (sin la guarda 501 del bloque i): %s llega al motor y declara la fecha base aplicada', async (_caso, consulta, fechaBase) => {
     const r = await pide('/metricas/consultar', 1, { ...consulta, filtro: { rango: { preset: 'ultimos_6m' } } });
-    expect(r.status).toBe(501);
+    expect(r.status).toBe(200);
+    expect(r.body.baseFecha.fechaBase).toBe(fechaBase);
+    if ('agrupacionColumnas' in consulta) expect(r.body.cruce).toEqual({ agrupacion: 'mes', columnas: [], celdas: [], truncadoColumnas: false });
+    else expect(r.body.cruce).toBeUndefined();
+  });
+
+  it('400 RANGO_EXCEDIDO (campo rango) si el eje temporal del cruce pasa de 62 cortes', async () => {
+    const r = await pide('/metricas/consultar', 1, { metrica: 'tramites', agrupacion: 'compania', agrupacionColumnas: 'dia', filtro: { rango: { desde: '2035-01-01', hasta: '2035-03-31' } } });
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ code: 'RANGO_EXCEDIDO', campo: 'rango' });
+    expect(r.body.error).toContain('62 cortes por día');
   });
 });
 
-describe('POST /placa/sugerencias (contract-first)', () => {
-  it('responde 501 del stub, con no-store y logPiiAccess (search, placa) sin el texto', async () => {
+describe('POST /placa/sugerencias', () => {
+  it('lista vacía = 200 { sugerencias: [], hayMas: false }, con no-store y logPiiAccess (search, placa) sin el texto', async () => {
     const r = await pide('/placa/sugerencias', 1, { texto: 'bc12' });
-    expect(r.status).toBe(501);
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ sugerencias: [], hayMas: false });
     expect(r.headers['cache-control']).toBe('no-store');
     expect(pii).toHaveBeenCalledTimes(1);
     expect(pii.mock.calls[0]![1]).toMatchObject({ resourceTipo: 'flito_tramite', accion: 'search', camposAccedidos: ['placa'] });

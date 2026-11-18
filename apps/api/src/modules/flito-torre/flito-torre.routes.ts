@@ -10,7 +10,7 @@
 // encontrada o no, y el mismo 404 para «no existe» y «fuera de alcance». Exportar a PDF sigue en 501.
 // `POST /placa/sugerencias` (ADR-0044 D4/D8, RN-TOR-P5/P6): texto parcial en el body, `torre.placa.buscar` (la misma
 // función de la ficha: sin permiso nuevo), limiter propio de 60/min, `logPiiAccess` en toda petición válida, `no-store`
-// y lista vacía = 200. La ruta queda completa en el contract-first; `sugerirPlacas()` responde 501 hasta el bloque (ii).
+// y lista vacía = 200. Una consulta fuera de la matriz que llegue al motor (`TorreConsultaInvalidaError`) es 400.
 // `GET /opciones`: opciones de la barra de filtros con el alcance del motor; exige `torre.metricas.consultar`, que la
 // 0303 da a los cinco roles de la Torre (`REPARTO_TORRE`: todos llevan `accion.torre_explorador.consultar`).
 import { Router, type NextFunction, type Request, type Response } from 'express';
@@ -32,7 +32,7 @@ import { RangoTorreExcedidoError } from './flito-torre.filtro.js';
 import { TorreConsultaError, TorreDineroDenegadoError, consultarMetrica } from './flito-torre.metricas.service.js';
 import { opcionesFiltroTorre } from './flito-torre.opciones.service.js';
 import { PlacaTorreNoEncontradaError, buscarPlaca, sugerirPlacas } from './flito-torre.placa.service.js';
-import { TorreNoImplementadoError, noImplementado } from './flito-torre.service.js';
+import { TorreConsultaInvalidaError, TorreNoImplementadoError, noImplementado } from './flito-torre.service.js';
 import {
   UmbralTorreFueraDeRangoError, UmbralTorreNoEncontradoError, actualizarUmbral, errorDeRangoUmbral, listarUmbrales,
   unidadDeUmbral,
@@ -56,6 +56,7 @@ const invalido = (res: Response, e: z.ZodError): void => {
 export function errorTorreAHttp(e: unknown, res: Response): boolean {
   if (e instanceof TorreNoImplementadoError) { res.status(501).json({ error: e.message, code: e.code }); return true; }
   if (e instanceof RangoTorreExcedidoError) { res.status(400).json({ error: e.message, code: e.code, campo: 'rango' }); return true; }
+  if (e instanceof TorreConsultaInvalidaError) { res.status(400).json({ error: e.message, code: e.code, campo: e.campo }); return true; }
   if (e instanceof TorreDineroDenegadoError) { res.status(403).json({ error: e.message, code: e.code }); return true; }
   if (e instanceof TorreConsultaError) { res.status(e.status).json({ error: e.message, code: e.code }); return true; }
   return false;

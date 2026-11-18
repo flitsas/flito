@@ -1,6 +1,8 @@
 // Torre de Control Gerencial (Épica #14590, ADR-0043) — motor de métricas y ficha de placa: las 8 preguntas de negocio
 // contra PostgreSQL real (transacción con ROLLBACK, `torre-pg.ts`; se saltan sin TEST_DATABASE_URL) y, sin base, los
 // topes de rango, el permiso de dinero y la resolución de presets en Bogotá.
+// ADR-0044 (bloque ii): fecha base por métrica (RN-TOR-M10 a M14), clave de caché con la fecha base resuelta y las
+// liquidaciones de trámites anulados/revocados fuera de costo e ingreso (RN-TOR-L1).
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../src/db/client.js', async () => ({ db: (await import('./torre-pg.js')).dbProxy, getPoolStats: vi.fn() }));
@@ -8,7 +10,8 @@ const redis = { cliente: null as null | { get: () => Promise<string | null>; set
 vi.mock('../../../src/shared/redis.js', () => ({ getRedis: () => redis.cliente, closeRedis: vi.fn(), redisHealthy: vi.fn() }));
 
 const { abrirTx, cerrarBase, cerrarTx, sembrador, placaNueva, URL_BASE } = await import('./torre-pg.js');
-const { consultarMetrica, TorreDineroDenegadoError } = await import('../../../src/modules/flito-torre/flito-torre.metricas.service.js');
+const { consultarMetrica, rangoDeConsulta, TorreDineroDenegadoError } = await import('../../../src/modules/flito-torre/flito-torre.metricas.service.js');
+const { TorreConsultaInvalidaError } = await import('../../../src/modules/flito-torre/flito-torre.service.js');
 const { RangoTorreExcedidoError, exigirTopesRango, resolverRango } = await import('../../../src/modules/flito-torre/flito-torre.filtro.js');
 const { buscarPlaca, enmascararVin, PlacaTorreNoEncontradaError } = await import('../../../src/modules/flito-torre/flito-torre.placa.service.js');
 const { libroMetrica, nombreArchivoTorre } = await import('../../../src/modules/flito-torre/flito-torre.export.js');
@@ -51,7 +54,119 @@ describe('rango y topes (sin base)', () => {
     expect(enmascararVin('9BWZZZ377VT004251')).toBe('*************4251');
     expect(enmascararVin(null)).toBeNull();
     expect(nombreArchivoTorre({ metrica: 'costo_logistica', filtro: { rango: MARZO, companiaIds: [7] } }, HOY))
-      .toBe('torre-costo-logistica-2035-03-01_2035-03-31.xlsx');
+      .toBe('torre-costo-logistica-aprobacion-2035-03-01_2035-03-31.xlsx');
+    expect(nombreArchivoTorre({ metrica: 'tramites', fechaBase: 'facturacion', agrupacion: 'compania', agrupacionColumnas: 'mes', filtro: { rango: MARZO } }, HOY))
+      .toBe('torre-tramites-facturacion-2035-03-01_2035-03-31-cruce.xlsx');
+    expect(nombreArchivoTorre({ metrica: 'wip_activo', filtro: { rango: MARZO } }, HOY)).toBe('torre-wip-activo-actual.xlsx');
+  });
+
+  it('RN-TOR-M10/M11: el motor vuelve a exigir la matriz medida × fecha base (400), sin tocar la base', async () => {
+    for (const [metrica, fechaBase] of [
+      ['tiempo_creacion_aprobacion', 'creacion'], ['impuestos_pagados', 'facturacion'], ['wip_activo', 'creacion'],
+      ['sin_facturar', 'facturacion'], ['tramites', 'pago'],
+    ] as const) {
+      await expect(consultarMetrica({ metrica, fechaBase, filtro: { rango: MARZO } }, TODO, OP)).rejects.toBeInstanceOf(TorreConsultaInvalidaError);
+    }
+  });
+
+  it('RN-TOR-F5: el preset ultimos_6m llega al motor como 1-jun … hoy (18-nov), con la fecha base que se pida', () => {
+    for (const fechaBase of ['creacion', 'aprobacion', 'facturacion'] as const) {
+      expect(rangoDeConsulta({ metrica: 'tramites', fechaBase, filtro: { rango: { preset: 'ultimos_6m' } } }, '2026-11-18'))
+        .toEqual({ desde: '2026-06-01', hasta: '2026-11-18' });
+    }
+    expect(rangoDeConsulta({ metrica: 'wip_activo', filtro: { rango: { preset: 'ultimos_6m' } } }, '2026-11-18')).toBeNull();
+  });
+});
+
+describe.skipIf(!URL_BASE)('fecha base y RN-TOR-L1 contra PostgreSQL (tx con ROLLBACK)', () => {
+  let s: ReturnType<typeof sembrador>;
+  beforeEach(async () => { s = sembrador(await abrirTx()); await s.organismos('05001'); redis.cliente = null; });
+  afterEach(cerrarTx);
+  afterAll(cerrarBase);
+
+  it('RN-TOR-M10: sin fechaBase, `tramites` da lo mismo que `tramites_creados` (defecto = creación) y lo declara', async () => {
+    const x = await s.cia('X');
+    await s.tramite({ cia: x, creadoFlit: '2035-03-03T15:00:00Z' });
+    await s.tramite({ cia: x, creadoFlit: null, creadoSync: '2035-03-04T15:00:00Z' });
+    await s.tramite({ cia: x, creadoFlit: '2035-04-03T15:00:00Z' });
+    const f = { rango: MARZO, companiaIds: [x] };
+    const neutra = await consultarMetrica({ metrica: 'tramites', filtro: f }, TODO, OP);
+    const legado = await consultarMetrica({ metrica: 'tramites_creados', filtro: f }, TODO, OP);
+    const explicita = await consultarMetrica({ metrica: 'tramites', fechaBase: 'creacion', filtro: f }, TODO, OP);
+    expect(neutra.total).toEqual(legado.total);
+    expect(explicita.total).toEqual(legado.total);
+    expect(neutra.total.valor).toBe(2);
+    expect(neutra.baseFecha).toMatchObject({ campo: 'fecha_creacion_flit', fechaBase: 'creacion', nBaseSincronizacion: 1 });
+  });
+
+  it('RN-TOR-M13: `tramites` + aprobación ≡ `tramites_aprobados`, sin mirar flit_estado; «siguen en Aprobado» es el filtro', async () => {
+    const x = await s.cia('X');
+    await s.tramite({ cia: x, aprobado: '2035-03-05T15:00:00Z' });                          // Aprobado
+    await s.tramite({ cia: x, aprobado: '2035-03-06T15:00:00Z', flitEstado: 'Anulado' });   // aprobado y luego anulado
+    await s.tramite({ cia: x, aprobado: null, creadoFlit: '2035-03-07T15:00:00Z' });
+    const f = { rango: MARZO, companiaIds: [x] };
+    const neutra = await consultarMetrica({ metrica: 'tramites', fechaBase: 'aprobacion', filtro: f }, TODO, OP);
+    const legado = await consultarMetrica({ metrica: 'tramites_aprobados', filtro: f }, TODO, OP);
+    expect(neutra.total).toEqual(legado.total);
+    expect(neutra.total.valor).toBe(2);
+    expect(neutra.baseFecha).toMatchObject({ campo: 'fecha_aprobacion', fechaBase: 'aprobacion', nBaseSincronizacion: 0 });
+    const siguen = await consultarMetrica({ metrica: 'tramites', fechaBase: 'aprobacion', filtro: { ...f, flitEstados: ['Aprobado'] } }, TODO, OP);
+    expect(siguen.total.valor).toBe(1);
+  });
+
+  it('RN-TOR-M14: facturación = primera factura ACTIVA; la inactiva no cuenta y dos conceptos cuentan una vez', async () => {
+    const x = await s.cia('X');
+    const dosConceptos = await s.tramite({ cia: x, aprobado: '2035-02-01T15:00:00Z' });
+    await s.factura(dosConceptos, { creada: '2035-03-05T15:00:00Z', concepto: 'tramite' });
+    await s.factura(dosConceptos, { creada: '2035-03-10T15:00:00Z', concepto: 'soat' });
+    const soloInactiva = await s.tramite({ cia: x, aprobado: '2035-02-01T15:00:00Z' });
+    await s.factura(soloInactiva, { creada: '2035-03-07T15:00:00Z', activo: false });
+    const primeraManda = await s.tramite({ cia: x, aprobado: '2035-02-01T15:00:00Z' });
+    await s.factura(primeraManda, { creada: '2035-03-02T15:00:00Z', activo: false });
+    await s.factura(primeraManda, { creada: '2035-04-01T15:00:00Z', concepto: 'soat' });
+    const deFebrero = await s.tramite({ cia: x, aprobado: '2035-02-01T15:00:00Z' });
+    await s.factura(deFebrero, { creada: '2035-02-25T15:00:00Z', concepto: 'tramite' });
+    await s.factura(deFebrero, { creada: '2035-03-15T15:00:00Z', concepto: 'soat' });
+    await s.liquidacion(dosConceptos, { total: 100_000, logistica: 30_000 });
+    await s.liquidacion(soloInactiva, { total: 999_000, logistica: 999_000 });
+
+    const f = { rango: MARZO, companiaIds: [x] };
+    const r = await consultarMetrica({ metrica: 'tramites', fechaBase: 'facturacion', filtro: f }, TODO, OP);
+    expect(r.total.valor).toBe(1);
+    expect(r.baseFecha.fechaBase).toBe('facturacion');
+    const porMes = await consultarMetrica({ metrica: 'tramites', fechaBase: 'facturacion', agrupacion: 'mes', filtro: { rango: { desde: '2035-02-01', hasta: '2035-04-30' }, companiaIds: [x] } }, TODO, OP);
+    expect(porMes.filas.map((g) => [g.clave, g.valor])).toEqual([['2035-02', 1], ['2035-03', 1], ['2035-04', 1]]);
+    expect((await consultarMetrica({ metrica: 'ingreso_liquidado', fechaBase: 'facturacion', filtro: f }, TODO, OP)).total.valor).toBe(100_000);
+    expect((await consultarMetrica({ metrica: 'costo_logistica', fechaBase: 'facturacion', filtro: f }, TODO, OP)).total.valor).toBe(30_000);
+    // Por aprobación (defecto) los cuatro son de febrero: en marzo no hay ingreso.
+    expect((await consultarMetrica({ metrica: 'ingreso_liquidado', filtro: f }, TODO, OP)).total.valor).toBe(0);
+  });
+
+  it('RN-TOR-L1: costo e ingreso no suman las liquidaciones de Anulado ni Revocado; Rechazado y flit_estado nulo sí', async () => {
+    const x = await s.cia('X');
+    await s.cuartetoL1(x, { aprobado: '2035-03-05T15:00:00Z', total: 100_000, logistica: 10_000 });
+    const f = { rango: MARZO, companiaIds: [x] };
+    const ingreso = await consultarMetrica({ metrica: 'ingreso_liquidado', agrupacion: 'flit_estado', filtro: f }, TODO, OP);
+    expect(ingreso.total).toMatchObject({ valor: 200_000, n: 2 });
+    expect(ingreso.filas.map((g) => g.etiqueta).sort()).toEqual(['Rechazado', 'Sin estado']);
+    const costo = await consultarMetrica({ metrica: 'costo_logistica', filtro: f }, TODO, OP);
+    expect(costo.total).toMatchObject({ valor: 20_000, n: 2 });
+    // sin_facturar es un conteo de trámites: no cambia (los cuatro siguen sin facturar).
+    expect((await consultarMetrica({ metrica: 'sin_facturar', filtro: f }, TODO, OP)).total.valor).toBe(4);
+  });
+
+  it('caché: la clave lleva la fecha base RESUELTA y las columnas (defecto ≡ explícita; otra fecha o cruce = otra clave)', async () => {
+    const claves: string[] = [];
+    redis.cliente = { get: async () => null, set: async (k: string) => { claves.push(k); return 'OK'; } } as never;
+    const x = await s.cia('X');
+    const f = { rango: MARZO, companiaIds: [x] };
+    await consultarMetrica({ metrica: 'tramites', agrupacion: 'compania', filtro: f }, TODO, OP);
+    await consultarMetrica({ metrica: 'tramites', fechaBase: 'creacion', agrupacion: 'compania', filtro: f }, TODO, OP);
+    await consultarMetrica({ metrica: 'tramites', fechaBase: 'aprobacion', agrupacion: 'compania', filtro: f }, TODO, OP);
+    await consultarMetrica({ metrica: 'tramites', agrupacion: 'compania', agrupacionColumnas: 'mes', filtro: f }, TODO, OP);
+    expect(claves).toHaveLength(4);
+    expect(claves[0]).toBe(claves[1]);
+    expect(new Set(claves).size).toBe(3);
   });
 });
 
