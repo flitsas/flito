@@ -9,11 +9,15 @@
 // RN-DRF-K3  Del cuerpo de error de Anthropic solo se extrae `error.type` (validado contra un patrón
 //            corto); el cuerpo crudo nunca sale de aquí (puede ecoar el prompt).
 // RN-DRF-K4  De una respuesta 200 solo se toman los bloques `type === "text"`, `stop_reason` y `usage`.
+//
+// Contrato `ia-consumo` v1 (ADR-0045): la llamada sale por el cliente central (`anthropicPeticion`), que registra
+// el intento; este archivo conserva su propia clasificación (RN-DRF-K2..K4) sobre la respuesta.
 import { env } from '../../config/env.js';
-import { requestWithRetry, UpstreamError } from '../../shared/upstream.js';
+import { UpstreamError } from '../../shared/upstream.js';
+import { anthropicPeticion, URL_MENSAJES_ANTHROPIC, VERSION_API_ANTHROPIC } from '../tramites/anthropic.js';
 
-export const URL_MESSAGES_ANTHROPIC = 'https://api.anthropic.com/v1/messages';
-export const VERSION_API_ANTHROPIC = '2023-06-01';
+export const URL_MESSAGES_ANTHROPIC = URL_MENSAJES_ANTHROPIC;
+export { VERSION_API_ANTHROPIC };
 
 export type MotivoFalloIa = 'ia-timeout' | 'ia-error';
 
@@ -55,18 +59,9 @@ interface CuerpoMensajes {
 export async function llamarMensajesIa(
   cuerpo: Record<string, unknown>, o: OpcionesClienteIa = {},
 ): Promise<ResultadoLlamadaIa> {
-  const body = JSON.stringify(cuerpo);
   try {
-    const resp = await requestWithRetry({
-      url: URL_MESSAGES_ANTHROPIC,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': o.apiKey ?? env.ANTHROPIC_API_KEY ?? '',
-        'anthropic-version': VERSION_API_ANTHROPIC,
-        'Content-Length': String(Buffer.byteLength(body)),
-      },
-      body,
+    const resp = await anthropicPeticion(cuerpo, 'chat', {
+      apiKey: o.apiKey ?? env.ANTHROPIC_API_KEY ?? '',
       timeoutMs: o.timeoutMs ?? env.DRFLIT_IA_TIMEOUT_MS,
       retries: 0,
     });

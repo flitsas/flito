@@ -350,7 +350,7 @@ router.post('/:id/checklist/sugerir', exigirFuncion('tramite.checklist.sugerir')
   if (!result.ok) { res.status(404).json({ error: 'Trámite no encontrado' }); return; }
   if (!result.checklist) { res.status(400).json({ error: 'Selecciona una tipología antes de pedir sugerencias' }); return; }
 
-  const ia = await sugerirChecklist(result.checklist);
+  const ia = await sugerirChecklist(result.checklist, id);
   if (!ia.ok) { res.status(ia.status).json({ error: ia.message, code: 'ia_no_disponible' }); return; }
 
   await audit(req, { action: 'view', resource: 'tramite', resourceId: String(id), detail: `Copiloto checklist: ${ia.sugerencias.length} sugerencia(s)` });
