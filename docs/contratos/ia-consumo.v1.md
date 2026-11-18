@@ -125,6 +125,7 @@ Retención del detalle: tarea diaria `DELETE FROM ia_consumo_detalle WHERE fecha
 | tramites | clasificar_lote | clasificacion |
 | tramites | ocr_lote | ocr |
 | tramites | orientacion_pagina | orientacion |
+| tramites | ocr_licencia_transito | ocr (entidad tramite) |
 | dr_flit | chat | chat |
 | comparendos | ocr_comparendo | ocr |
 | comparendos | evaluar_prompt | ocr (origen prueba_prompt) |
