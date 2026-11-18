@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { PDF_WORKER_SRC } from '../../lib/pdfWorker';
+import { COPY_PDF_PROTEGIDO, esPdfProtegido } from '../../lib/pdf-protegido';
 
 /** Ancho al que se rasteriza cada página. Suficiente para leer sin que el canvas pese de más. */
 const ANCHO_OBJETIVO = 1400;
@@ -30,7 +31,8 @@ export default function VisorPdf({ url, nombre, paginaInicial }: {
   paginaInicial?: number;
 }) {
   const [paginas, setPaginas] = useState<string[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Qué falló, no el `message` de pdf.js: ese viene en inglés («No password given») y no se pinta.
+  const [error, setError] = useState<'protegido' | 'generico' | null>(null);
   // Evita pintar el resultado de una carga que ya no interesa cuando se cambia de documento rápido.
   const vigente = useRef(0);
   const contenedor = useRef<HTMLDivElement>(null);
@@ -69,7 +71,7 @@ export default function VisorPdf({ url, nombre, paginaInicial }: {
         }
         if (token === vigente.current) setPaginas(salida);
       } catch (e) {
-        if (token === vigente.current) setError(e instanceof Error ? e.message : 'No se pudo abrir el documento');
+        if (token === vigente.current) setError(esPdfProtegido(e) ? 'protegido' : 'generico');
       }
     })();
   }, [url]);
@@ -92,8 +94,10 @@ export default function VisorPdf({ url, nombre, paginaInicial }: {
 
   if (error) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-sm">
-        <p className="text-red-600">{error}</p>
+      <div role="status" className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-sm">
+        <p style={{ color: error === 'protegido' ? 'var(--flit-text-primary)' : 'var(--flit-danger-text)' }}>
+          {error === 'protegido' ? `${COPY_PDF_PROTEGIDO}.` : 'No pudimos mostrar la vista previa.'}
+        </p>
         {/* Salida de emergencia: si pdf.js no puede con el fichero, que al menos se pueda descargar. */}
         <a href={url} target="_blank" rel="noreferrer" className="underline" style={{ color: 'var(--flit-blue-text)' }}>
           Abrir en una pestaña nueva

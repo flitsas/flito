@@ -181,8 +181,9 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +1 por la HU #13628 (`PUT /flit1/parametros-lectura`, reutiliza `tramites.sincronizacion.configurar`).
     // −1 por la HU #13631 (se retira `POST /sincronizar` y su función `sync.sync.lanzar`).
     // +1 por la HU #13684 (`POST /novedades/buscar` de flito-tramites, reutiliza `tramites.cola.ver`).
-    expect(GUARDAS_MEDIDAS).toHaveLength(590);
-    expect(montajes).toHaveLength(590);
+    // +2 por el Bug #14569 (Revisiones OCR: POST /:id/candidatos/buscar y POST /:id/reintentar-lectura, reutilizan `revisiones.revision.resolver`).
+    expect(GUARDAS_MEDIDAS).toHaveLength(592);
+    expect(montajes).toHaveLength(592);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)

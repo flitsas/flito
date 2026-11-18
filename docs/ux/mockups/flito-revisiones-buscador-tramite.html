@@ -1,0 +1,171 @@
+<!doctype html>
+<!--
+  MAQUETA DESCARTABLE — FLITO · Revisiones OCR › buscador de trámite (BUG #14569, punto 8).
+  Spec: docs/ux/flito-revisiones-buscador-tramite.md. NO se importa a apps/web.
+  Los valores de :root/.dark son copia de apps/web/src/styles/flit-tokens.css para que el archivo sea
+  autocontenido; el marcado solo usa var(--flit-*). Sin JS de negocio ni red. Datos ficticios.
+  ?tema=oscuro activa .dark. Cada <section> es una vista de la spec.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Maqueta · Revisiones OCR › buscador de trámite</title>
+<style>
+  :root {
+    --flit-bg-app: #EAF2FF; --flit-bg-card: #FFFFFF; --flit-bg-hover: rgba(22, 39, 68, 0.06);
+    --flit-blue-text: #4D6AB2; --flit-text-primary: #162744; --flit-text-secondary: #59677D;
+    --flit-text-muted: #646E82; --flit-border-soft: #DDE5F0; --flit-border-input: #D9DEE8;
+    --flit-blue-ink: #4264B7; --flit-cyan-ink: #1E7B75; --flit-danger-text: #C02F24; --flit-warning-text: #B94120;
+    --flit-chip-success-bg: #EBF8E3; --flit-chip-success-ink: #3C7C17;
+    --flit-chip-warning-bg: #FDF0E0; --flit-chip-warning-ink: #B94120;
+    --flit-chip-neutral-bg: #EFF1F3; --flit-chip-neutral-ink: #646E82;
+    --flit-chip-active-bg: #E6ECF7; --flit-chip-active-ink: #4264B7;
+    --flit-gradient-primary: linear-gradient(90deg, var(--flit-cyan-ink) 0%, var(--flit-blue-ink) 100%);
+  }
+  .dark {
+    --flit-bg-app: #0F1B2E; --flit-bg-card: #1E2F4C; --flit-bg-hover: rgba(255, 255, 255, 0.08);
+    --flit-blue-text: #9DBCF7; --flit-text-primary: #E9EFF9; --flit-text-secondary: #BCC8DA;
+    --flit-text-muted: #A1AEC2; --flit-border-soft: #3A4E78; --flit-border-input: #48598A;
+    --flit-danger-text: #F4A097; --flit-warning-text: #F2B266;
+    --flit-chip-success-bg: #1F3B2A; --flit-chip-success-ink: #9BDB6E;
+    --flit-chip-warning-bg: #3D2E1A; --flit-chip-warning-ink: #F2B266;
+    --flit-chip-neutral-bg: #26354D; --flit-chip-neutral-ink: #A1AEC2;
+    --flit-chip-active-bg: #22365C; --flit-chip-active-ink: #9DBCF7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--flit-bg-app); color: var(--flit-text-primary); font: 14px/1.45 system-ui, sans-serif; }
+  .grid { display: grid; gap: 20px; padding: 20px; grid-template-columns: 1fr; }
+  @media (min-width: 1024px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  section { background: var(--flit-bg-card); border: 1px solid var(--flit-border-soft); border-radius: 16px; padding: 20px; min-width: 0; }
+  @media (max-width: 639px) { .grid { padding: 16px; gap: 16px; } section { padding: 16px; } }
+  .vista { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--flit-text-muted); margin: 0 0 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+  .chip { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .chip.ok { background: var(--flit-chip-success-bg); color: var(--flit-chip-success-ink); }
+  .chip.warn { background: var(--flit-chip-warning-bg); color: var(--flit-chip-warning-ink); }
+  .chip.neutral { background: var(--flit-chip-neutral-bg); color: var(--flit-chip-neutral-ink); }
+  .detalle { color: var(--flit-text-secondary); margin: 0 0 14px; font-size: 13px; }
+  label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+  .trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 40px; padding: 0 12px; border: 1px solid var(--flit-border-input); border-radius: 10px; background: var(--flit-bg-card); min-width: 0; }
+  .trigger .val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trigger .ph { color: var(--flit-text-muted); }
+  .trigger.abierto { border-color: var(--flit-blue-text); box-shadow: 0 0 0 2px color-mix(in srgb, var(--flit-blue-text) 25%, transparent); }
+  .trigger.off { opacity: .6; }
+  .panel { margin-top: 6px; border: 1px solid var(--flit-border-soft); border-radius: 12px; background: var(--flit-bg-card); overflow: hidden; }
+  .buscar { padding: 10px; border-bottom: 1px solid var(--flit-border-soft); }
+  .buscar .inp { height: 40px; border: 1px solid var(--flit-border-input); border-radius: 10px; padding: 0 12px; display: flex; align-items: center; color: var(--flit-text-primary); }
+  .buscar .inp.ph { color: var(--flit-text-muted); }
+  .pista { padding: 8px 12px 10px; font-size: 12px; color: var(--flit-text-secondary); }
+  ul { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow: auto; }
+  li { padding: 10px 12px; border-top: 1px solid var(--flit-border-soft); }
+  li:first-child { border-top: 0; }
+  li.activa { background: var(--flit-bg-hover); }
+  li.off { color: var(--flit-text-muted); }
+  .l1 { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+  .l1 b { font-family: ui-monospace, monospace; font-weight: 600; }
+  .l2 { font-size: 12px; color: var(--flit-text-secondary); margin-top: 2px; }
+  .skel { height: 12px; border-radius: 6px; background: var(--flit-bg-hover); margin: 6px 0; }
+  .aviso { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin-top: 8px; padding: 8px 12px; border: 1px solid var(--flit-border-soft); border-radius: 10px; font-size: 13px; color: var(--flit-text-secondary); }
+  .aviso.warn { color: var(--flit-warning-text); }
+  .link { background: none; border: 0; padding: 0; color: var(--flit-blue-text); text-decoration: underline; font: inherit; cursor: pointer; }
+  .btn-sec { height: 36px; padding: 0 14px; border: 1px solid var(--flit-border-input); border-radius: 999px; background: var(--flit-bg-card); color: var(--flit-text-primary); font: inherit; font-weight: 600; }
+  .tabla { margin-top: 12px; border: 1px solid var(--flit-border-soft); border-radius: 10px; font-size: 13px; }
+  .fila { display: grid; grid-template-columns: 60px 1fr 1fr; gap: 8px; padding: 6px 12px; }
+  .fila.h { font-size: 11px; font-weight: 600; color: var(--flit-text-muted); border-bottom: 1px solid var(--flit-border-soft); }
+  .ok { color: var(--flit-chip-success-ink); }
+  .acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .btn-prim { height: 40px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--flit-gradient-primary); color: #fff; font: inherit; font-weight: 600; }
+  @media (max-width: 1023px) { .trigger, .buscar .inp, .btn-prim { height: 44px; } li { min-height: 44px; } }
+</style>
+<script>if (new URLSearchParams(location.search).get('tema') === 'oscuro') document.documentElement.classList.add('dark');</script>
+</head>
+<body>
+<main class="grid">
+
+  <!-- 3 · Resultados filtrados por la placa y el VIN del documento -->
+  <section id="v3">
+    <p class="vista">3 · Abierto, filtrado por la placa del documento</p>
+    <div class="chips"><span class="chip neutral">Comprobante SOAT</span><span class="chip warn">Varias coincidencias</span></div>
+    <p class="detalle">El comprobante cruza con más de un SOAT en adquisición.</p>
+    <label for="c3">Trámite contra el que se concilia *</label>
+    <div class="trigger abierto"><span class="val ph">Selecciona el trámite…</span><span aria-hidden="true">▴</span></div>
+    <div class="panel">
+      <div class="buscar"><div id="c3" class="inp ph">Placa, VIN o número FLIT</div></div>
+      <div class="pista">Filtrado por la placa KPX482 y el VIN del documento</div>
+      <ul role="listbox">
+        <li class="activa" role="option"><div class="l1"><span><b>F-24-001532</b> · KPX482</span><span class="chip ok">Coincide placa y VIN</span></div><div class="l2">Chevrolet Spark GT · VIN …F21893</div></li>
+        <li role="option"><div class="l1"><span><b>F-24-001498</b> · KPX482</span><span class="chip ok">Coincide placa</span></div><div class="l2">Chevrolet Spark GT · VIN …A07714</div></li>
+        <li role="option"><div class="l1"><span><b>F-24-000977</b> · KPX428</span></div><div class="l2">Renault Logan · VIN …C33120</div></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 6 · Preseleccionado por el auto-filtro -->
+  <section id="v6">
+    <p class="vista">6 · Preseleccionado por el auto-filtro</p>
+    <label for="c6">Trámite contra el que se concilia *</label>
+    <div id="c6" class="trigger"><span class="val"><b style="font-family:ui-monospace,monospace">F-24-001532</b> · KPX482 · Chevrolet Spark GT</span><span aria-hidden="true">▾</span></div>
+    <div class="aviso" role="status">Elegido automáticamente: es el único trámite con la placa KPX482. <button class="link">Cambiar</button></div>
+    <div class="tabla">
+      <div class="fila h"><span>Campo</span><span>Trámite</span><span>Leído del PDF</span></div>
+      <div class="fila"><span style="color:var(--flit-text-muted)">Placa</span><span>KPX482</span><span class="ok">✓ KPX482</span></div>
+      <div class="fila"><span style="color:var(--flit-text-muted)">VIN</span><span>9ZZDEMO0F21893</span><span class="ok">✓ 9ZZDEMO0F21893</span></div>
+    </div>
+    <div class="acciones"><button class="btn-prim">Confirmar y resolver</button><button class="btn-sec">Descartar documento</button></div>
+  </section>
+
+  <!-- 6b · Elección manual que ya no cruza con lo corregido -->
+  <section id="v6b">
+    <p class="vista">6b · Elección manual que ya no cruza con la placa corregida</p>
+    <label for="c6b">Trámite contra el que se concilia *</label>
+    <div id="c6b" class="trigger"><span class="val"><b style="font-family:ui-monospace,monospace">F-24-001498</b> · KPX482 · Chevrolet Spark GT</span><span aria-hidden="true">▾</span></div>
+    <div class="aviso warn" role="status">La placa de los campos (KPX428) no es la del trámite elegido (KPX482). Revisa cuál corresponde. <button class="link">Buscar con KPX428</button></div>
+  </section>
+
+  <!-- 1 · Pista / 2 · Cargando -->
+  <section id="v12">
+    <p class="vista">1 · Abierto sin placa ni VIN &nbsp;·&nbsp; 2 · Buscando</p>
+    <label>Trámite contra el que se concilia *</label>
+    <div class="trigger abierto"><span class="val ph">Selecciona el trámite…</span><span aria-hidden="true">▴</span></div>
+    <div class="panel">
+      <div class="buscar"><div class="inp ph">Placa, VIN o número FLIT</div></div>
+      <div class="pista">Escribe al menos 3 caracteres de la placa, el VIN o el número FLIT para buscar el trámite.</div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <div class="buscar"><div class="inp">KPX4</div></div>
+      <ul aria-busy="true"><li><div class="skel" style="width:55%"></div><div class="skel" style="width:75%"></div></li><li><div class="skel" style="width:50%"></div><div class="skel" style="width:70%"></div></li></ul>
+    </div>
+  </section>
+
+  <!-- 4 · Sin resultados / 5 · Error -->
+  <section id="v45">
+    <p class="vista">4 · Sin resultados &nbsp;·&nbsp; 5 · Error con reintento</p>
+    <div class="panel">
+      <div class="buscar"><div class="inp">KPX999</div></div>
+      <div class="pista">No hay trámites por elegir con «KPX999». Revisa la placa o busca por el número FLIT. Si el documento no es de ningún trámite, descártalo.</div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <div class="buscar"><div class="inp">KPX482</div></div>
+      <div class="pista" role="alert" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px"><span style="color:var(--flit-danger-text)">No pudimos buscar los trámites.</span><button class="btn-sec">Reintentar</button></div>
+    </div>
+  </section>
+
+  <!-- 7 · Truncado / 9 · Derechos: ya tiene derecho / 8 · Deshabilitado -->
+  <section id="v789">
+    <p class="vista">7 · Hay más &nbsp;·&nbsp; 9 · Derechos: ya tiene derecho &nbsp;·&nbsp; 8 · Resuelta</p>
+    <div class="panel">
+      <div class="buscar"><div class="inp">KPX4</div></div>
+      <ul>
+        <li><div class="l1"><span><b>F-24-000611</b> · KPX4A1</span></div><div class="l2">Traspaso · 05001</div></li>
+        <li class="off" aria-disabled="true"><div class="l1"><span><b>F-24-000812</b> · KPX482</span><span class="chip neutral">Ya tiene derecho</span></div><div class="l2">Traspaso · 05001</div></li>
+      </ul>
+      <div class="pista" style="border-top:1px solid var(--flit-border-soft)">Hay más trámites que coinciden. Escribe más de la placa, el VIN o el número FLIT para afinar.</div>
+    </div>
+    <label style="margin-top:14px">Trámite contra el que se concilia *</label>
+    <div class="trigger off"><span class="val"><b style="font-family:ui-monospace,monospace">F-24-001532</b> · KPX482 · Chevrolet Spark GT</span></div>
+  </section>
+
+</main>
+</body>
+</html>

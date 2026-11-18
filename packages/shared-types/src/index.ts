@@ -145,3 +145,5 @@ export * from './flito-viajes-logistica.js';
 export * from './flito-gastos-diarios.js';
 // Fuente del trámite (HU #13070, Épica #12736): FLIT o FLIT 2, su etiqueta y la guarda de tipo.
 export * from './flito-tramite-fuente.js';
+// Buscador de trámite de la cola de revisión OCR (Bug #14569, punto 8).
+export * from './flito-revisiones.js';
