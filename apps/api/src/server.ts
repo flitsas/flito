@@ -19,6 +19,7 @@ import { startRetencionCron as startPesvRetencionCron, stopRetencionCron as stop
 import { startArosCron, stopArosCron } from './modules/laft/cash/aros.cron.js';
 import { startRumPurgeCron, stopRumPurgeCron } from './modules/rum/purge.cron.js';
 import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/anthropic-health.cron.js';
+import { startIaConsumoRetencionCron, stopIaConsumoRetencionCron } from './modules/ia-consumo/ia-consumo-retencion.cron.js';
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
 import { startImpuestosAnalisisCron, stopImpuestosAnalisisCron } from './modules/flito-impuestos/flito-impuestos-analisis.cron.js';
@@ -51,6 +52,7 @@ import { verificarCatalogoAlArrancar } from './modules/permisos/permisos.service
 import { comprobarLlavesPiiAlArrancar } from './modules/privacy/rotacion/comprobar-llaves.js';
 import { closeRedis } from './shared/redis.js';
 import { cerrarUsoLegacy, flushUsoLegacy } from './modules/uso-legacy/uso-legacy.service.js';
+import { cerrarConsumoIa, vaciarConsumoIa } from './shared/ia-consumo/escritor.js';
 import { loggerFor } from './shared/logger.js';
 
 const log = loggerFor('server');
@@ -102,6 +104,8 @@ const server = app.listen(env.PORT, () => {
     startArosCron();
     startRumPurgeCron();
     startAnthropicHealthCron();
+    // Contrato ia-consumo v1 (ADR-0045): retención diaria del detalle de consumo de IA.
+    startIaConsumoRetencionCron();
     // TRAM-COMMS-02: recordatorios portal (noop si TRAM_PORTAL_REMINDER_CRON_ENABLED!=1).
     startPortalReminderCron();
     startValidacionStaleCron();
@@ -171,6 +175,8 @@ function shutdown(signal: string) {
   // HU #13989 (ADR-0033 §2): flush inmediato, porque un SSE abierto puede impedir que `server.close`
   // termine a tiempo y entonces se sale por `forceExitTimer`. El temporizador sigue vivo en el drenado.
   void flushUsoLegacy();
+  // Contrato ia-consumo v1: el registro de consumo de IA se vacía ya y otra vez al cerrar HTTP (tope 3 s).
+  void vaciarConsumoIa();
 
   stopReconciler();
   stopPurger();
@@ -189,6 +195,7 @@ function shutdown(signal: string) {
   stopArosCron();
   stopRumPurgeCron();
   stopAnthropicHealthCron();
+  stopIaConsumoRetencionCron();
   stopPortalReminderCron();
   stopValidacionStaleCron();
   stopImpuestosAnalisisCron();
@@ -223,6 +230,7 @@ function shutdown(signal: string) {
     }
     log.info('HTTP cerrado');
     await cerrarUsoLegacy();
+    await cerrarConsumoIa();
     try { await closeRedis(); } catch (e) { log.warn({ err: (e as Error).message }, 'redis close error'); }
     log.info('saliendo');
     process.exit(0);
