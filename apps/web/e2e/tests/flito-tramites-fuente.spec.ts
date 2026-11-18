@@ -39,7 +39,7 @@ async function montar(page: Page, opts: { sinFlit2?: boolean } = {}) {
 const grupoFuente = (page: Page) => page.getByRole('group', { name: 'Filtrar por fuente' });
 
 test.describe('FLITO — Gestión Trámites: fuente del trámite (HU #13071)', () => {
-  test('AC1: la columna Fuente sigue a Trámite y muestra FLIT o FLIT 2', async ({ page }) => {
+  test('AC1: la columna Fuente sigue a Trámite y muestra FLIT 1 o FLIT 2 (Épica #14560)', async ({ page }) => {
     await montar(page);
     const cabeceras = await page.getByRole('columnheader').allInnerTexts();
     const iTramite = cabeceras.findIndex((t) => /^TRÁMITE/i.test(t.trim()));
@@ -47,14 +47,19 @@ test.describe('FLITO — Gestión Trámites: fuente del trámite (HU #13071)', (
     expect(cabeceras[iTramite + 2].trim().toUpperCase()).toBe('CREADO');
     const filaFlit = page.getByRole('row').filter({ hasText: 'FLIT-2001' });
     const filaFlit2 = page.getByRole('row').filter({ hasText: 'FLIT-2003' });
-    await expect(filaFlit.getByRole('cell').nth(iTramite + 1)).toHaveText('FLIT');
+    await expect(filaFlit.getByRole('cell').nth(iTramite + 1)).toHaveText('FLIT 1');
     await expect(filaFlit2.getByRole('cell').nth(iTramite + 1)).toHaveText('FLIT 2');
+    // Mismo tratamiento visual para las dos fuentes: la pastilla del kit, no texto plano para FLIT 1.
+    const pastilla1 = filaFlit.getByRole('cell').nth(iTramite + 1).getByText('FLIT 1', { exact: true });
+    const pastilla2 = filaFlit2.getByRole('cell').nth(iTramite + 1).getByText('FLIT 2', { exact: true });
+    expect(await pastilla1.getAttribute('class')).toBe(await pastilla2.getAttribute('class'));
   });
 
   test('AC2/AC3: el filtro manda ?fuente=, cuenta lo filtrado y «Limpiar filtros» vuelve a Todas', async ({ page }) => {
     const { ultima } = await montar(page);
     const grupo = grupoFuente(page);
     await expect(grupo.getByRole('button', { name: 'Todas' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(grupo.getByRole('button')).toHaveText(['Todas', 'FLIT 1', 'FLIT 2']);
     expect(ultima().has('fuente')).toBe(false);
     await expect(page.getByText('3 trámite(s)')).toBeVisible();
 
@@ -78,7 +83,7 @@ test.describe('FLITO — Gestión Trámites: fuente del trámite (HU #13071)', (
   test('AC3: con solo la fuente puesta aparece «Limpiar filtros»', async ({ page }) => {
     await montar(page);
     await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(0);
-    await grupoFuente(page).getByRole('button', { name: 'FLIT', exact: true }).click();
+    await grupoFuente(page).getByRole('button', { name: 'FLIT 1', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeVisible();
   });
 
