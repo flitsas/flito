@@ -12,6 +12,11 @@
 //   caché lleva la fecha base RESUELTA, las dos agrupaciones y el modo (pantalla/exportar: topes distintos).
 // RN-TOR-C5: con `agrupacionColumnas` delega en `consultarCruce` (flito-torre.cruce.ts) con el MISMO `WHERE`, alcance,
 //   permiso de dinero, `statement_timeout` y caché.
+// RN-TOR-K1..K3 (vistas flexibles): con `comparar`, `calcularAnterior` (flito-torre.comparar.ts) suma `anterior` (periodo
+//   inmediatamente anterior de igual duración, variación relativa o en puntos) en la MISMA transacción y la misma
+//   entrada de caché. Foto y cruce con `comparar` → 400 (Zod; el motor lo vuelve a exigir).
+// RN-TOR-K4: `top` solo cambia el cruce en pantalla (`topesCruce`); la agrupación simple y el Excel lo ignoran.
+// RN-TOR-K6: la clave de caché suma `top` (solo cruce en pantalla, donde cambia el resultado) y `comparar`.
 import { createHash } from 'node:crypto';
 import { inArray, sql, type SQL } from 'drizzle-orm';
 import {
@@ -24,8 +29,9 @@ import { getRedis } from '../../shared/redis.js';
 import { loggerFor } from '../../shared/logger.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import { resolverDef, type DefResuelta, type FormaMetrica } from './flito-torre.catalogo.js';
+import { calcularAnterior } from './flito-torre.comparar.js';
 import { consultarCruce, exigirReglasCruce, topesCruce } from './flito-torre.cruce.js';
-import { ErrorDominioTorre } from './flito-torre.service.js';
+import { ErrorDominioTorre, TorreConsultaInvalidaError } from './flito-torre.service.js';
 import {
   claveAgrupacion, condicionesTorre, donde, esTemporal, exigirTopesCruce, exigirTopesRango, resolverRango,
   type RangoResuelto,
@@ -201,6 +207,9 @@ export async function consultarMetrica(
   const def: DefResuelta = resolverDef(c.metrica, c.fechaBase);
   if (c.agrupacionColumnas) exigirReglasCruce(c);
   const rango = rangoDeConsulta(c, op.hoy);
+  // RN-TOR-K2 (defensa en profundidad: la ruta ya lo validó con Zod).
+  if (c.comparar && !rango) throw new TorreConsultaInvalidaError('comparar', 'no aplica a una métrica sin periodo');
+  if (c.comparar && c.agrupacionColumnas) throw new TorreConsultaInvalidaError('comparar', 'no aplica con dos agrupaciones');
   const tope = Math.min(op.limiteMax ?? TOPES_TORRE.FILAS_PANTALLA_MAX, GRUPOS_MAX);
   const limite = Math.min(c.limite ?? tope, tope);
   const modo = op.modo ?? 'pantalla';
@@ -209,6 +218,9 @@ export async function consultarMetrica(
   const normalizada = {
     metrica: c.metrica, fechaBase: def.fechaBase, agrupacion: c.agrupacion ?? null,
     agrupacionColumnas: c.agrupacionColumnas ?? null, filtro: c.filtro, limite, modo,
+    // RN-TOR-K6: `top` solo donde cambia el resultado (cruce en pantalla); en la simple y el Excel no parte la caché.
+    top: c.agrupacionColumnas && modo === 'pantalla' ? (c.top ?? null) : null,
+    comparar: c.comparar === true,
   };
   const clave = claveCache('metrica', normalizada, rango, alcance);
   // El rango sale del cálculo de esta petición, no de la entrada cacheada (una vieja puede no traerlo).
@@ -247,7 +259,7 @@ export async function consultarMetrica(
     if (c.agrupacion && c.agrupacionColumnas) {
       const r = await consultarCruce(q, {
         def, filasEje: c.agrupacion, columnasEje: c.agrupacionColumnas, where: base,
-        ...topesCruce(modo, limite), total: { valor: valorDe(def, totalFila), n: num(totalFila.n) },
+        ...topesCruce(modo, limite, c.top, c.agrupacion), total: { valor: valorDe(def, totalFila), n: num(totalFila.n) },
       });
       ({ filas, cruce, truncado } = r);
     } else if (c.agrupacion) {
@@ -284,6 +296,9 @@ export async function consultarMetrica(
       },
       truncado,
       ...(cruce ? { cruce } : {}),
+      ...(c.comparar && rango ? {
+        anterior: await calcularAnterior(q, def, c, alcance, rango, meta.unidad, filas, { valor: valorDe(def, totalFila), n: num(totalFila.n) }),
+      } : {}),
       generadoEn: new Date().toISOString(),
     };
     return r;

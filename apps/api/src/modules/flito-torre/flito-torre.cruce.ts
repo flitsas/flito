@@ -6,7 +6,8 @@
 //   por clave ASC) y el resto se pliega en «Los demás (N)» (clave `__otros`, `esOtros: true`, siempre la última). Un eje
 //   TEMPORAL no se recorta: todos sus cortes con registros, en orden cronológico, sin «Otros».
 // RN-TOR-C3: topes — pantalla 50 filas × 12 columnas de dimensión; Excel 2.000 × 100. Los cortes del eje temporal
-//   (≤ 62) se validan antes de consultar (`exigirTopesCruce`, flito-torre.filtro.ts).
+//   (≤ 62) se validan antes de consultar (`exigirTopesCruce`, flito-torre.filtro.ts). RN-TOR-K4: en pantalla, `top`
+//   sustituye el tope del eje de dimensión (`topesCruce`).
 // RN-TOR-C4: los marginales (por fila y por columna) se calculan en SQL con `GROUPING SETS` sobre las filas crudas;
 //   NUNCA se suman celdas (en tiempo y tasa no son aditivos). Una celda sin registros es `null`.
 // RN-TOR-C5: comparte con el modo simple el `WHERE` (`condicionesTorre`, RN-TOR-F1), el alcance, el permiso de dinero,
@@ -38,14 +39,23 @@ export function exigirReglasCruce(c: ConsultaMetrica): void {
   if (esTemporal(c.agrupacion) && esTemporal(col)) falla('solo una de las dos agrupaciones puede ser de tiempo');
 }
 
-/** RN-TOR-C3: topes de dimensión del cruce. En pantalla, `limite` (si es menor) acota además las filas. */
-export function topesCruce(modo: 'pantalla' | 'exportar', limite: number): { topeFilas: number; topeColumnas: number } {
+/**
+ * RN-TOR-C3: topes de dimensión del cruce. En pantalla, `limite` (si es menor) acota además las filas.
+ * RN-TOR-K4: en pantalla, `top` sustituye al tope del eje de DIMENSIÓN: con la dimensión en filas,
+ * `min(limite, top, 50)` filas (las columnas siguen en 12); con el tiempo en filas, `min(top, 12)` columnas. El eje
+ * temporal no se corta nunca (`consultarCruce` no le aplica tope). El Excel ignora `top` (2.000 × 100).
+ */
+export function topesCruce(
+  modo: 'pantalla' | 'exportar', limite: number, top?: number, filasEje?: AgrupacionTorre,
+): { topeFilas: number; topeColumnas: number } {
   if (modo === 'exportar') {
     return { topeFilas: TOPES_TORRE.FILAS_CRUCE_EXPORTAR_MAX, topeColumnas: TOPES_TORRE.COLUMNAS_CRUCE_EXPORTAR_MAX };
   }
-  return {
-    topeFilas: Math.min(limite, TOPES_TORRE.FILAS_CRUCE_PANTALLA_MAX), topeColumnas: TOPES_TORRE.COLUMNAS_CRUCE_PANTALLA_MAX,
-  };
+  const topeFilas = Math.min(limite, TOPES_TORRE.FILAS_CRUCE_PANTALLA_MAX);
+  const topeColumnas = TOPES_TORRE.COLUMNAS_CRUCE_PANTALLA_MAX;
+  if (top == null) return { topeFilas, topeColumnas };
+  if (filasEje && esTemporal(filasEje)) return { topeFilas, topeColumnas: Math.min(top, topeColumnas) };
+  return { topeFilas: Math.min(topeFilas, top), topeColumnas };
 }
 
 export interface EntradaCruce {

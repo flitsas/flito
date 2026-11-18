@@ -5,11 +5,13 @@
 //   a exigir). En las de foto (`fechasBase: []`) cualquier `fechaBase` es 400.
 // RN-TOR-C1: como máximo 2 agrupaciones; `agrupacionColumnas` exige `agrupacion`, distinta de ella, permitida por la
 //   métrica y no las dos temporales.
+// RN-TOR-K4: `top` ∈ `TOPES_TORRE.TOP_GRUPOS` (5/10/20/50); solo cambia el cruce en pantalla.
+// RN-TOR-K2: `comparar` con una métrica de foto (no hay rango) o con `agrupacionColumnas` (cruce) es 400.
 // Los mensajes no repiten el valor recibido (`detalleZod` solo concatena la ruta y el mensaje).
 import { z } from 'zod';
 import {
   AGRUPACIONES_TORRE, FECHAS_BASE_TORRE, METRICAS_TORRE_IDS, PRESETS_RANGO_TORRE, TOPES_TORRE, esAgrupacionPermitida,
-  esAgrupacionTemporal, esFechaBasePermitida,
+  esAgrupacionTemporal, esFechaBasePermitida, metricaTorre,
 } from '@operaciones/shared-types';
 
 const FECHA = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'debe ser una fecha YYYY-MM-DD')
@@ -39,6 +41,8 @@ export const consultaMetricaSchema = z.object({
   fechaBase: z.enum(FECHAS_BASE_TORRE).optional(),
   filtro: filtroTorreSchema,
   limite: z.number().int().positive().max(TOPES_TORRE.FILAS_PANTALLA_MAX).optional(),
+  top: z.literal(TOPES_TORRE.TOP_GRUPOS, { error: 'debe ser 5, 10, 20 o 50' }).optional(),
+  comparar: z.boolean().optional(),
 }).strict()
   .refine((c) => !c.agrupacion || esAgrupacionPermitida(c.metrica, c.agrupacion), {
     message: 'la agrupación no está permitida para esa métrica', path: ['agrupacion'],
@@ -58,6 +62,12 @@ export const consultaMetricaSchema = z.object({
   })
   .refine((c) => !c.fechaBase || esFechaBasePermitida(c.metrica, c.fechaBase), {
     message: 'esa fecha base no aplica a la métrica', path: ['fechaBase'],
+  })
+  .refine((c) => !c.comparar || metricaTorre(c.metrica).fechasBase.length > 0, {
+    message: 'no aplica a una métrica sin periodo', path: ['comparar'],
+  })
+  .refine((c) => !c.comparar || !c.agrupacionColumnas, {
+    message: 'no aplica con dos agrupaciones', path: ['comparar'],
   });
 
 export const exportarMetricaSchema = z.object({

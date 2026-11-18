@@ -150,7 +150,18 @@ export const TOPES_TORRE = {
   COLUMNAS_CRUCE_EXPORTAR_MAX: 100,
   /** Cortes del eje temporal de un cruce (pantalla y Excel); se valida antes de consultar. */
   CORTES_TEMPORALES_CRUCE_MAX: 62,
+  /** Top N del Explorador (RN-TOR-K4): grupos que se ven antes de «Otros» / «Los demás». */
+  TOP_GRUPOS: [5, 10, 20, 50] as const,
+  /** Top N por defecto en la web. */
+  TOP_GRUPOS_DEFECTO: 10,
 } as const;
+
+/** Un valor de `TOPES_TORRE.TOP_GRUPOS`. */
+export type TopGruposTorre = (typeof TOPES_TORRE.TOP_GRUPOS)[number];
+
+/** ¿`v` es un Top N admitido? */
+export const esTopGruposTorre = (v: number): v is TopGruposTorre =>
+  (TOPES_TORRE.TOP_GRUPOS as readonly number[]).includes(v);
 
 // ── Consulta y resultado ─────────────────────────────────────────────────────────────────────────
 
@@ -165,6 +176,33 @@ export interface ConsultaMetrica {
   filtro: FiltroTorre;
   /** Simple: ≤ `TOPES_TORRE.FILAS_PANTALLA_MAX`. Cruce: el motor lo acota además a `FILAS_CRUCE_PANTALLA_MAX`. */
   limite?: number;
+  /**
+   * RN-TOR-K4: Top N del eje de DIMENSIÓN del cruce en pantalla (el resto se pliega en «Otros»). En la agrupación
+   * simple y en el Excel el servidor lo ignora. Ausente = comportamiento de siempre (cruce 50 × 12).
+   */
+  top?: TopGruposTorre;
+  /**
+   * RN-TOR-K1..K3: compara con el periodo inmediatamente anterior de igual duración. Prohibido (400) en las métricas
+   * de foto y en el cruce. El Excel lo ignora. Ausente/false = sin `anterior`.
+   */
+  comparar?: boolean;
+}
+
+/** RN-TOR-K1..K3: el periodo anterior de una consulta con `comparar`. */
+export interface AnteriorTorre {
+  /** Ya resuelto, ambos inclusive: `{ desde − d, desde − 1 }` con `d` = días del rango actual. */
+  rango: { desde: string; hasta: string };
+  /** En tiempos, `valor` es la mediana (como en `total.valor`). */
+  total: { valor: number; n: number };
+  /** Variación del total. `null` si la base anterior es 0 (la UI pinta «Nuevo» o «—»). */
+  variacion: number | null;
+  /** `puntos` solo si la unidad es `pct` (diferencia de tasas); si no, % relativo. */
+  en: 'relativa' | 'puntos';
+  /**
+   * Exactamente las claves de `filas`, en el mismo orden. `valor: null` = el grupo no existía en el periodo anterior.
+   * `[]` con agrupación temporal (las claves no se emparejan, RN-TOR-K2) o sin agrupación.
+   */
+  filas: { clave: string; valor: number | null; variacion: number | null }[];
 }
 
 /** Una celda del cruce (`filas[i]` × `columnas[j]`). */
@@ -217,6 +255,8 @@ export interface ResultadoMetrica {
    * Ausente en las métricas de foto (`wip_activo`), que no filtran por fecha.
    */
   rango?: { desde: string; hasta: string };
+  /** Solo si la consulta trae `comparar: true` (RN-TOR-K1..K3). */
+  anterior?: AnteriorTorre;
   /** ISO 8601. */
   generadoEn: string;
 }

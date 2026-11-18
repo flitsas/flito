@@ -45,6 +45,17 @@ describe('cruce sin base: reglas y topes (RN-TOR-C1, RN-TOR-C3)', () => {
     expect(topesCruce('pantalla', 3)).toEqual({ topeFilas: 3, topeColumnas: 12 });
     expect(topesCruce('exportar', 5_000)).toEqual({ topeFilas: 2_000, topeColumnas: 100 });
   });
+
+  it('RN-TOR-K4 · `top` sustituye el tope del eje de dimensión en pantalla; el Excel lo ignora', () => {
+    // Dimensión en filas (con o sin dimensión en columnas): min(limite, top, 50); las columnas siguen en 12.
+    expect(topesCruce('pantalla', 500, 5, 'compania')).toEqual({ topeFilas: 5, topeColumnas: 12 });
+    expect(topesCruce('pantalla', 500, 50, 'compania')).toEqual({ topeFilas: 50, topeColumnas: 12 });
+    expect(topesCruce('pantalla', 3, 20, 'compania')).toEqual({ topeFilas: 3, topeColumnas: 12 });
+    // Tiempo en filas → la dimensión está en columnas: min(top, 12).
+    expect(topesCruce('pantalla', 500, 5, 'mes')).toEqual({ topeFilas: 50, topeColumnas: 5 });
+    expect(topesCruce('pantalla', 500, 20, 'semana')).toEqual({ topeFilas: 50, topeColumnas: 12 });
+    expect(topesCruce('exportar', 5_000, 5, 'compania')).toEqual({ topeFilas: 2_000, topeColumnas: 100 });
+  });
 });
 
 describe.skipIf(!URL_BASE)('cruce contra PostgreSQL (tx con ROLLBACK)', () => {
@@ -194,5 +205,32 @@ describe.skipIf(!URL_BASE)('cruce contra PostgreSQL (tx con ROLLBACK)', () => {
     expect(tiempo.columnas.at(-1)!.header).toBe('General (mediana en horas)');
     expect(tiempo.filas.at(-1)).toMatchObject({ etiqueta: 'General', cierre: 24 });
     expect(tiempo.columnas.every((col) => !/^[=+\-@]/.test(String(col.header)))).toBe(true);
+  });
+
+  it('RN-TOR-K4 · Top N en pantalla: acota la dimensión con «Los demás» al final; el eje temporal no se corta; el Excel ignora `top`', async () => {
+    const { a, b, c } = await sembrarDimensiones();
+    const filtro = { rango: MARZO, companiaIds: [a, b, c] };
+
+    // Dimensión × dimensión, top 2: filas A, B + «Los demás (1)»; las columnas siguen en 12 + «Los demás».
+    const dd = await consultarMetrica({ metrica: 'tramites', agrupacion: 'compania', agrupacionColumnas: 'tipo_tramite', top: 2, filtro }, TODO, OP);
+    expect(dd.filas.map((f) => [f.clave, f.valor, f.esOtros ?? false])).toEqual([[String(a), 8, false], [String(b), 5, false], ['__otros', 2, true]]);
+    expect(dd.truncado).toBe(true);
+    expect(dd.cruce!.columnas).toHaveLength(13);
+    expect(dd.cruce!.columnas.at(-1)!.esOtros).toBe(true);
+
+    // Tiempo en filas × dimensión en columnas, top 2: 2 compañías + «Los demás»; los meses enteros.
+    await s.tramite({ cia: a, creadoFlit: '2035-02-10T15:00:00Z' });
+    const td = await consultarMetrica({
+      metrica: 'tramites', agrupacion: 'mes', agrupacionColumnas: 'compania', top: 2,
+      filtro: { ...filtro, rango: { desde: '2035-02-01', hasta: '2035-03-31' } },
+    }, TODO, OP);
+    expect(td.filas.map((f) => f.clave)).toEqual(['2035-02', '2035-03']);
+    expect(td.cruce!.columnas.map((col) => [col.clave, col.valor])).toEqual([[String(a), 9], [String(b), 5], ['__otros', 2]]);
+    expect(td.cruce!.truncadoColumnas).toBe(true);
+
+    // El Excel no aplica `top`: las 3 compañías + el cierre, y los 13 tipos.
+    const libro = await libroMetrica({ metrica: 'tramites', agrupacion: 'compania', agrupacionColumnas: 'tipo_tramite', top: 2, filtro }, TODO, OP);
+    expect(libro.filas.map((f) => f.cierre)).toEqual([8, 5, 2, 15]);
+    expect(libro.columnas).toHaveLength(13 + 2);
   });
 });

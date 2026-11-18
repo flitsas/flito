@@ -51753,7 +51753,7 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/Forma-f1778330d2"
+              "$ref": "#/components/schemas/Forma-8e754d1f67"
         description: Cuerpo que valida la ruta con su esquema de Zod.
       responses:
         "200":
@@ -51950,6 +51950,63 @@ paths:
                     required:
                       - desde
                       - hasta
+                  anterior:
+                    type: object
+                    properties:
+                      rango:
+                        type: object
+                        properties:
+                          desde:
+                            type: string
+                          hasta:
+                            type: string
+                        required:
+                          - desde
+                          - hasta
+                      total:
+                        type: object
+                        properties:
+                          valor:
+                            type: number
+                          "n":
+                            type: number
+                        required:
+                          - valor
+                          - "n"
+                      variacion:
+                        type:
+                          - number
+                          - "null"
+                      en:
+                        type: string
+                        enum:
+                          - relativa
+                          - puntos
+                      filas:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            clave:
+                              type: string
+                            valor:
+                              type:
+                                - number
+                                - "null"
+                            variacion:
+                              type:
+                                - number
+                                - "null"
+                          required:
+                            - clave
+                            - valor
+                            - variacion
+                    required:
+                      - rango
+                      - total
+                      - variacion
+                      - en
+                      - filas
                   generadoEn:
                     type: string
                 required:
@@ -52107,7 +52164,7 @@ paths:
               type: object
               properties:
                 consulta:
-                  "$ref": "#/components/schemas/Forma-f1778330d2"
+                  "$ref": "#/components/schemas/Forma-8e754d1f67"
                 formato:
                   type: string
                   enum:
@@ -126798,6 +126855,72 @@ components:
         - createdBy
         - createdAt
         - updatedAt
+    Forma-8e754d1f67:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        metrica:
+          type: string
+          enum:
+            - tramites
+            - tramites_creados
+            - tramites_aprobados
+            - tiempo_creacion_aprobacion
+            - costo_logistica
+            - impuestos_pagados
+            - derechos_pagados
+            - ingreso_liquidado
+            - wip_activo
+            - tasa_aprobacion
+            - sin_facturar
+        agrupacion:
+          type: string
+          enum:
+            - flit_estado
+            - tipo_tramite
+            - departamento
+            - organismo
+            - mes
+            - trimestre
+            - dia
+            - compania
+            - semana
+        agrupacionColumnas:
+          type: string
+          enum:
+            - flit_estado
+            - tipo_tramite
+            - departamento
+            - organismo
+            - mes
+            - trimestre
+            - dia
+            - compania
+            - semana
+        fechaBase:
+          type: string
+          enum:
+            - pago
+            - creacion
+            - aprobacion
+            - facturacion
+        filtro:
+          "$ref": "#/components/schemas/Forma-b5a9d8d50c"
+        limite:
+          type: integer
+          exclusiveMinimum: 0
+        top:
+          type: number
+          enum:
+            - 20
+            - 5
+            - 10
+            - 50
+        comparar:
+          type: boolean
+      required:
+        - metrica
+        - filtro
     Forma-8fa01c77c4:
       description: Forma que comparten varias operaciones.
       type: object
@@ -132165,63 +132288,6 @@ components:
         - cityCode
         - cityName
         - puntaje
-    Forma-f1778330d2:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        metrica:
-          type: string
-          enum:
-            - tramites
-            - tramites_creados
-            - tramites_aprobados
-            - tiempo_creacion_aprobacion
-            - costo_logistica
-            - impuestos_pagados
-            - derechos_pagados
-            - ingreso_liquidado
-            - wip_activo
-            - tasa_aprobacion
-            - sin_facturar
-        agrupacion:
-          type: string
-          enum:
-            - flit_estado
-            - tipo_tramite
-            - departamento
-            - organismo
-            - mes
-            - trimestre
-            - dia
-            - compania
-            - semana
-        agrupacionColumnas:
-          type: string
-          enum:
-            - flit_estado
-            - tipo_tramite
-            - departamento
-            - organismo
-            - mes
-            - trimestre
-            - dia
-            - compania
-            - semana
-        fechaBase:
-          type: string
-          enum:
-            - pago
-            - creacion
-            - aprobacion
-            - facturacion
-        filtro:
-          "$ref": "#/components/schemas/Forma-b5a9d8d50c"
-        limite:
-          type: integer
-          exclusiveMinimum: 0
-      required:
-        - metrica
-        - filtro
     Forma-f75c92ddf1:
       description: Forma que comparten varias operaciones.
       type: object
