@@ -8,6 +8,9 @@
 // Consultar y exportar usan el motor (`flito-torre.metricas.service.ts`); el permiso de dinero se lee aquí con
 // `tieneFuncion('torre.metricas.dinero')` (literal: lo lee el inventario de guardas) y viaja al motor. Placa: `logPiiAccess` (search, campo placa) en TODA búsqueda,
 // encontrada o no, y el mismo 404 para «no existe» y «fuera de alcance». Exportar a PDF sigue en 501.
+// `POST /placa/sugerencias` (ADR-0044 D4/D8, RN-TOR-P5/P6): texto parcial en el body, `torre.placa.buscar` (la misma
+// función de la ficha: sin permiso nuevo), limiter propio de 60/min, `logPiiAccess` en toda petición válida, `no-store`
+// y lista vacía = 200. Una consulta fuera de la matriz que llegue al motor (`TorreConsultaInvalidaError`) es 400.
 // `GET /opciones`: opciones de la barra de filtros con el alcance del motor; exige `torre.metricas.consultar`, que la
 // 0303 da a los cinco roles de la Torre (`REPARTO_TORRE`: todos llevan `accion.torre_explorador.consultar`).
 import { Router, type NextFunction, type Request, type Response } from 'express';
@@ -18,14 +21,18 @@ import { audit } from '../../shared/middleware/audit.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
-import { torreConsultaLimiter, torreExportLimiter, torrePlacaLimiter } from '../../shared/middleware/rateLimiter.js';
-import { buscarPlacaSchema, consultaMetricaSchema, detalleZod, exportarMetricaSchema } from './flito-torre.esquemas.js';
+import {
+  torreConsultaLimiter, torreExportLimiter, torrePlacaLimiter, torrePlacaSugerirLimiter,
+} from '../../shared/middleware/rateLimiter.js';
+import {
+  buscarPlacaSchema, consultaMetricaSchema, detalleZod, exportarMetricaSchema, sugerirPlacaSchema,
+} from './flito-torre.esquemas.js';
 import { exportarMetrica } from './flito-torre.export.js';
 import { RangoTorreExcedidoError } from './flito-torre.filtro.js';
 import { TorreConsultaError, TorreDineroDenegadoError, consultarMetrica } from './flito-torre.metricas.service.js';
 import { opcionesFiltroTorre } from './flito-torre.opciones.service.js';
-import { PlacaTorreNoEncontradaError, buscarPlaca } from './flito-torre.placa.service.js';
-import { TorreNoImplementadoError, noImplementado } from './flito-torre.service.js';
+import { PlacaTorreNoEncontradaError, buscarPlaca, sugerirPlacas } from './flito-torre.placa.service.js';
+import { TorreConsultaInvalidaError, TorreNoImplementadoError, noImplementado } from './flito-torre.service.js';
 import {
   UmbralTorreFueraDeRangoError, UmbralTorreNoEncontradoError, actualizarUmbral, errorDeRangoUmbral, listarUmbrales,
   unidadDeUmbral,
@@ -49,6 +56,7 @@ const invalido = (res: Response, e: z.ZodError): void => {
 export function errorTorreAHttp(e: unknown, res: Response): boolean {
   if (e instanceof TorreNoImplementadoError) { res.status(501).json({ error: e.message, code: e.code }); return true; }
   if (e instanceof RangoTorreExcedidoError) { res.status(400).json({ error: e.message, code: e.code, campo: 'rango' }); return true; }
+  if (e instanceof TorreConsultaInvalidaError) { res.status(400).json({ error: e.message, code: e.code, campo: e.campo }); return true; }
   if (e instanceof TorreDineroDenegadoError) { res.status(403).json({ error: e.message, code: e.code }); return true; }
   if (e instanceof TorreConsultaError) { res.status(e.status).json({ error: e.message, code: e.code }); return true; }
   return false;
@@ -92,6 +100,19 @@ router.post('/placa/buscar', exigirFuncion('torre.placa.buscar'), torrePlacaLimi
     const resultado = await buscarPlaca(parsed.data.placa, alcance);
     res.setHeader('Cache-Control', 'no-store');
     res.json(resultado);
+  } catch (e) { manejar(e, res, next); }
+});
+
+router.post('/placa/sugerencias', exigirFuncion('torre.placa.buscar'), torrePlacaSugerirLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  const parsed = sugerirPlacaSchema.safeParse(req.body);
+  if (!parsed.success) { invalido(res, parsed.error); return; }
+  try {
+    // RN-TOR-P6: sin caché en ningún punto (el texto parcial no vive en Redis ni en el navegador).
+    res.setHeader('Cache-Control', 'no-store');
+    const alcance = await alcanceDe(req);
+    // RN-TOR-P6: toda petición válida se registra (fail-open, como la ficha); el log no lleva el texto.
+    await logPiiAccess(req, { resourceTipo: 'flito_tramite', accion: 'search', camposAccedidos: ['placa'], motivo: 'Torre de Control: sugerencias de placa' });
+    res.json(await sugerirPlacas(parsed.data.texto.toUpperCase(), alcance));
   } catch (e) { manejar(e, res, next); }
 });
 

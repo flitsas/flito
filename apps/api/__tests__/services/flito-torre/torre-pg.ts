@@ -52,7 +52,8 @@ const sello = () => `${Date.now().toString(36)}${(n++).toString(36)}`.toUpperCas
 export const placaNueva = () => `ZQ${sello().slice(-4)}`;
 
 export interface OpTramite {
-  cia: number | null; organismo?: string | null; tipo?: string; flitEstado?: string;
+  /** `null` = `flit_estado` nulo (RN-TOR-L1: su liquidación SÍ suma). Ausente = «Aprobado» o «Asignado». */
+  cia: number | null; organismo?: string | null; tipo?: string; flitEstado?: string | null;
   creadoFlit?: string | null; creadoSync?: string; aprobado?: string | null; placa?: string; vin?: string;
 }
 
@@ -74,7 +75,7 @@ export function sembrador(tx: postgres.ReservedSql) {
       const [t] = await tx`INSERT INTO flito_tramites (id_flit, sincronizado_en, vehiculo_id, compania_id, organismo_codigo,
           flit_estado, tipo_tramite, plate_complete, fecha_creacion_flit, created_at, fecha_aprobacion)
         VALUES (${`TORRE${sello()}`}, now(), ${v!.id}, ${o.cia}, ${o.organismo === undefined ? '05001' : o.organismo},
-          ${o.flitEstado ?? (o.aprobado ? 'Aprobado' : 'Asignado')}, ${o.tipo ?? 'Traspaso'}, ${placa},
+          ${o.flitEstado === undefined ? (o.aprobado ? 'Aprobado' : 'Asignado') : o.flitEstado}, ${o.tipo ?? 'Traspaso'}, ${placa},
           ${o.creadoFlit === undefined ? '2035-03-01T15:00:00Z' : o.creadoFlit}, ${o.creadoSync ?? '2035-03-01T15:00:00Z'},
           ${o.aprobado ?? null})
         RETURNING id`;
@@ -83,6 +84,29 @@ export function sembrador(tx: postgres.ReservedSql) {
     async liquidacion(tramiteId: string, o: { total: number; logistica?: number; digital?: number }) {
       await tx`INSERT INTO flito_liquidaciones (tramite_id, estado, base_gmf, valor_gmf, total, valor_logistica, valor_tramite_digital)
         VALUES (${tramiteId}, 'liquidado', 0, 0, ${o.total}, ${o.logistica ?? 0}, ${o.digital ?? 0})`;
+    },
+    /**
+     * Una factura de Siigo del trámite (RN-TOR-M14): `activo=false` = anulada/fallida (no cuenta). Cada llamada crea su
+     * lote y su factura; `concepto` distinto permite dos facturas activas del mismo trámite (índice `vivoUq`).
+     */
+    async factura(tramiteId: string, o: { creada: string; activo?: boolean; concepto?: string }) {
+      const [l] = await tx`INSERT INTO siigo_lotes_facturacion (ambiente, huella) VALUES ('pruebas', ${`H${sello()}`}) RETURNING id`;
+      const [f] = await tx`INSERT INTO siigo_facturas (lote_id, ambiente, idempotency_key, en_proceso_desde)
+        VALUES (${l!.id}, 'pruebas', ${`K${sello()}`}, now()) RETURNING id`;
+      await tx`INSERT INTO siigo_factura_tramites (factura_id, tramite_id, concepto, activo, created_at)
+        VALUES (${f!.id}, ${tramiteId}, ${o.concepto ?? 'tramite'}, ${o.activo ?? true}, ${o.creada})`;
+    },
+    /**
+     * RN-TOR-L1: un trámite aprobado de `cia` por cada `flit_estado` del cuarteto (Anulado, Revocado, Rechazado y nulo),
+     * cada uno con su liquidación. Solo Rechazado y nulo deben sumar. Devuelve los ids por estado.
+     */
+    async cuartetoL1(cia: number, o: { aprobado: string; total: number; logistica: number; creadoFlit?: string }) {
+      const ids: Record<'anulado' | 'revocado' | 'rechazado' | 'nulo', string> = {} as never;
+      for (const [k, estado] of [['anulado', 'Anulado'], ['revocado', 'Revocado'], ['rechazado', 'Rechazado'], ['nulo', null]] as const) {
+        ids[k] = await this.tramite({ cia, aprobado: o.aprobado, flitEstado: estado, creadoFlit: o.creadoFlit });
+        await this.liquidacion(ids[k], { total: o.total, logistica: o.logistica });
+      }
+      return ids;
     },
     async viaje(tramiteId: string, numero: number, valor: number) {
       await tx`INSERT INTO flito_tramite_viajes_logistica (tramite_id, numero, modo, valor, motivo)

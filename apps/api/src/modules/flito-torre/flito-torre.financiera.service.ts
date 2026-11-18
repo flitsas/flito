@@ -12,13 +12,15 @@
 //   costo encontrado.
 // RN-TOR-FI4 (conciliación 3/3): por aprobado en el rango, cuántos de SOAT, impuesto y derecho tienen soporte vigente en
 //   `flito_soportes` (no descartado; el derecho también vale con su `soporte_id`).
+// RN-TOR-L1 (ADR-0044): `calcularSinFacturar` excluye esas liquidaciones SOLO de la suma (el conteo de trámites no
+//   cambia) y `calcularMargen` en su `WHERE` (`LIQUIDACION_VIGENTE`). El 360° lo hereda.
 import { eq, sql } from 'drizzle-orm';
 import type { SeveridadTorre, ServicioMargenTorre, TableroFinanciero } from '@operaciones/shared-types';
 import {
   clients, flitoBolsasUnicas, flitoBolsasUnicasMovimientos, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones,
   flitoSoat, flitoSoportes, flitoTarifasProveedorVigencias, flitoTramites,
 } from '../../db/schema.js';
-import { FACTURADO, FECHA_APROBACION } from './flito-torre.catalogo.js';
+import { FACTURADO, FECHA_APROBACION, LIQUIDACION_VIGENTE } from './flito-torre.catalogo.js';
 import { condicionesCompania, donde, sumarDias, type RangoResuelto } from './flito-torre.filtro.js';
 import { SIN_COMPANIA, enTorre, nombresCompania, type Ejecutor } from './flito-torre.metricas.service.js';
 import { valoresUmbrales } from './flito-torre.umbrales.service.js';
@@ -62,7 +64,7 @@ export async function calcularBolsas(q: Ejecutor, ctx: ContextoTablero, rojo: nu
 /** RN-TOR-FI2. Compartido con el 360°. */
 export async function calcularSinFacturar(q: Ejecutor, ctx: ContextoTablero, rango: RangoResuelto) {
   const filas = await q<{ id: number | null; n: number; valor: string | null; antiguo: unknown }>(sql`SELECT ${T.companiaId} AS id,
-      count(*)::int AS n, sum(${L.total}) AS valor, min(${T.fechaAprobacion}) AS antiguo
+      count(*)::int AS n, sum(${L.total}) FILTER (WHERE ${LIQUIDACION_VIGENTE}) AS valor, min(${T.fechaAprobacion}) AS antiguo
     FROM ${T} LEFT JOIN ${L} ON ${eq(L.tramiteId, T.id)}
     WHERE ${donde([APROBADO, sql`NOT ${FACTURADO}`, ...condTramites(ctx, rango, FECHA_APROBACION)])}
     GROUP BY 1 ORDER BY 2 DESC, 1 ASC NULLS LAST`);
@@ -105,7 +107,7 @@ export async function calcularMargen(q: Ejecutor, ctx: ContextoTablero, rango: R
         AND ${V.servicio} = 'logistica' AND ${V.vigenteDesde} <= ${T.fechaAprobacion}
         AND (${V.vigenteHasta} IS NULL OR ${V.vigenteHasta} > ${T.fechaAprobacion})
         ORDER BY ${V.vigenteDesde} DESC LIMIT 1) tar ON true
-    WHERE ${donde([APROBADO, ...condTramites(ctx, rango, FECHA_APROBACION)])}
+    WHERE ${donde([APROBADO, LIQUIDACION_VIGENTE, ...condTramites(ctx, rango, FECHA_APROBACION)])}
     GROUP BY 1`);
   const nombres = await nombresCompania(q, filas.map((f) => f.id).filter((id) => id != null).map(Number));
   const porServicio = SERVICIOS.map((s) => {

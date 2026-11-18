@@ -217,6 +217,8 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-torre/flito-torre.tableros.routes.ts POST /financiera',
       // Y las nueve que la siguen: `GET /opciones`, los cuatro `/<tablero>/exportar` y el dinero EN LÍNEA (×4).
       'flito-torre/flito-torre.routes.ts GET /opciones',
+      // ADR-0044 (Explorador flexible): las sugerencias de placa reutilizan `torre.placa.buscar`, también del árbol.
+      'flito-torre/flito-torre.routes.ts POST /placa/sugerencias',
       'flito-torre/flito-torre.tableros.routes.ts POST /ejecutivo/exportar',
       'flito-torre/flito-torre.tableros.routes.ts POST /comercial/exportar',
       'flito-torre/flito-torre.tableros.routes.ts POST /operativa/exportar',

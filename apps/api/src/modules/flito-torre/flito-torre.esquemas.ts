@@ -1,8 +1,15 @@
 // Torre de Control Gerencial (Épica #14590) — esquemas Zod del contrato. Todo `.strict()` y con `z.enum` del
 // catálogo de shared-types: ningún identificador SQL viene del cliente.
+//
+// RN-TOR-M10/M11 (ADR-0044): `fechaBase` fuera de la matriz medida × fecha de la métrica es 400 (el servicio la vuelve
+//   a exigir). En las de foto (`fechasBase: []`) cualquier `fechaBase` es 400.
+// RN-TOR-C1: como máximo 2 agrupaciones; `agrupacionColumnas` exige `agrupacion`, distinta de ella, permitida por la
+//   métrica y no las dos temporales.
+// Los mensajes no repiten el valor recibido (`detalleZod` solo concatena la ruta y el mensaje).
 import { z } from 'zod';
 import {
-  AGRUPACIONES_TORRE, METRICAS_TORRE_IDS, PRESETS_RANGO_TORRE, TOPES_TORRE, esAgrupacionPermitida,
+  AGRUPACIONES_TORRE, FECHAS_BASE_TORRE, METRICAS_TORRE_IDS, PRESETS_RANGO_TORRE, TOPES_TORRE, esAgrupacionPermitida,
+  esAgrupacionTemporal, esFechaBasePermitida,
 } from '@operaciones/shared-types';
 
 const FECHA = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'debe ser una fecha YYYY-MM-DD')
@@ -28,11 +35,30 @@ export const filtroTorreSchema = z.object({
 export const consultaMetricaSchema = z.object({
   metrica: z.enum(METRICAS_TORRE_IDS),
   agrupacion: z.enum(AGRUPACIONES_TORRE).optional(),
+  agrupacionColumnas: z.enum(AGRUPACIONES_TORRE).optional(),
+  fechaBase: z.enum(FECHAS_BASE_TORRE).optional(),
   filtro: filtroTorreSchema,
   limite: z.number().int().positive().max(TOPES_TORRE.FILAS_PANTALLA_MAX).optional(),
-}).strict().refine((c) => !c.agrupacion || esAgrupacionPermitida(c.metrica, c.agrupacion), {
-  message: 'la agrupación no está permitida para esa métrica', path: ['agrupacion'],
-});
+}).strict()
+  .refine((c) => !c.agrupacion || esAgrupacionPermitida(c.metrica, c.agrupacion), {
+    message: 'la agrupación no está permitida para esa métrica', path: ['agrupacion'],
+  })
+  .refine((c) => !c.agrupacionColumnas || esAgrupacionPermitida(c.metrica, c.agrupacionColumnas), {
+    message: 'la agrupación no está permitida para esa métrica', path: ['agrupacionColumnas'],
+  })
+  .refine((c) => !c.agrupacionColumnas || !!c.agrupacion, {
+    message: 'exige una agrupación principal', path: ['agrupacionColumnas'],
+  })
+  .refine((c) => !c.agrupacionColumnas || c.agrupacionColumnas !== c.agrupacion, {
+    message: 'no puede repetir la principal', path: ['agrupacionColumnas'],
+  })
+  .refine((c) => !(c.agrupacion && c.agrupacionColumnas
+    && esAgrupacionTemporal(c.agrupacion) && esAgrupacionTemporal(c.agrupacionColumnas)), {
+    message: 'solo una de las dos agrupaciones puede ser de tiempo', path: ['agrupacionColumnas'],
+  })
+  .refine((c) => !c.fechaBase || esFechaBasePermitida(c.metrica, c.fechaBase), {
+    message: 'esa fecha base no aplica a la métrica', path: ['fechaBase'],
+  });
 
 export const exportarMetricaSchema = z.object({
   consulta: consultaMetricaSchema,
@@ -42,6 +68,11 @@ export const exportarMetricaSchema = z.object({
 /** Placa colombiana: letras y dígitos, sin espacios ni guiones (la ruta normaliza a mayúsculas). */
 export const buscarPlacaSchema = z.object({
   placa: z.string().trim().regex(/^[A-Za-z0-9]{5,7}$/, 'debe ser una placa de 5 a 7 letras y dígitos'),
+}).strict();
+
+/** Texto parcial de la placa (RN-TOR-P5). La web ya lo manda normalizado (sin espacios ni guiones). */
+export const sugerirPlacaSchema = z.object({
+  texto: z.string().trim().regex(/^[A-Za-z0-9]{3,7}$/, 'debe tener de 3 a 7 letras y dígitos'),
 }).strict();
 
 export const tableroSchema = z.object({ filtro: filtroTorreSchema }).strict();

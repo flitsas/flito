@@ -17,3 +17,13 @@ export class TorreNoImplementadoError extends ErrorDominioTorre {
 export function noImplementado(que: string): never {
   throw new TorreNoImplementadoError(que);
 }
+
+/**
+ * Consulta que viola la matriz del catálogo o las reglas del cruce (RN-TOR-M10, RN-TOR-C1). Zod ya la rechaza en la
+ * ruta; el motor la vuelve a exigir para que un llamador interno nunca reciba una cifra con la fecha equivocada (400).
+ * El mensaje nombra el campo, nunca el valor recibido.
+ */
+export class TorreConsultaInvalidaError extends ErrorDominioTorre {
+  readonly code = 'DATOS_INVALIDOS';
+  constructor(readonly campo: string, detalle: string) { super(`Datos inválidos: ${campo}: ${detalle}`); }
+}

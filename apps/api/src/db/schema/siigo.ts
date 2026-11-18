@@ -460,6 +460,9 @@ export const siigoFacturaTramites = pgTable('siigo_factura_tramites', {
   // distintas entre sí y dejarían sin protección justo a los datos que ya existen.
   vivoUq: uniqueIndex('idx_siigo_factura_tramites_vivo')
     .on(t.tramiteId, sql`COALESCE(${t.concepto}, '*')`).where(sql`${t.activo}`),
+  // ADR-0044 §(a2), RN-TOR-M14 (Torre): fecha de facturación = primera factura activa del trámite.
+  activoCreadoIdx: index('idx_siigo_factura_tramites_activo_creado')
+    .on(t.tramiteId, t.createdAt).where(sql`${t.activo}`),
 }));
 
 /**
