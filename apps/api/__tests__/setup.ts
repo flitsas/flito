@@ -45,3 +45,6 @@ process.env.PERMISOS_SKIP_BITACORA_INTENTOS = '1';
 // HU #13989 (ADR-0033): el conteo de uso legacy se apaga en toda la suite para no interferir con sus mocks.
 // Los tests del módulo lo encienden antes de importar la app (`env` es una foto tomada en el import).
 process.env.USO_LEGACY_CONTEO_ENABLED = '0';
+// Contrato ia-consumo v1 (ADR-0045): el registro de consumo de IA se apaga en toda la suite para que su
+// escritor en segundo plano no consuma los mocks de `db`. Sus tests lo encienden mutando `env`.
+process.env.IA_CONSUMO_LOG = 'false';
