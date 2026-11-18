@@ -1,4 +1,4 @@
-// ADR-0043: reglas puras de vistas de columnas (resolución, proyección por permiso, validación de claves)
+// ADR-0045: reglas puras de vistas de columnas (resolución, proyección por permiso, validación de claves)
 // y catálogo de flito-tramites. Sin base de datos.
 import { describe, expect, it } from 'vitest';
 import {
@@ -108,7 +108,7 @@ describe('resolución de la vista activa (RN-VC1, RN-VC6)', () => {
   });
 });
 
-describe('esquemas Zod (límites ADR-0043)', () => {
+describe('esquemas Zod (límites ADR-0045)', () => {
   it('acepta hasta 30 columnas y rechaza 31 o repetidas', () => {
     const treinta = Array.from({ length: 30 }, (_, i) => `c${i}`);
     expect(crearVistaSchema.safeParse({ nombre: 'a', alcance: 'personal', columnas: treinta }).success).toBe(true);

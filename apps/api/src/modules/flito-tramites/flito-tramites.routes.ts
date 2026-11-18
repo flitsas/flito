@@ -145,7 +145,7 @@ router.get('/:id/historial', exigirFuncion('tramites.tramite.ver_historial'), as
   res.json(esProyeccionCliente(alcance) ? filas.map((f) => ({ ...f, usuarioNombre: null })) : filas);
 });
 
-// GET /:id/detalle — la modal del trámite (ADR-0044): resumen, vehículo, propietarios, gestora y costos.
+// GET /:id/detalle — la modal del trámite (ADR-0046): resumen, vehículo, propietarios, gestora y costos.
 // Mismo permiso y alcance que el listado. Un id que no es uuid, inexistente o fuera de alcance → el
 // mismo 404 (sin enumeración; el ADR descarta el 400 porque no hay cuerpo). Proyecta datos del titular:
 // rastro `read` en `pii_access_log` con NOMBRES de campos y sin valores (§16). El uuid no cabe en la
@@ -236,7 +236,7 @@ router.post('/soportes/zip', exigirFuncion('tramites.soportes.descargar'), zipSo
         detail: `Descarga zip de soportes (${parsed.data.tipos.join(', ')}): ${zc.incluidos} documento(s)`
           + ` en ${zc.entradas.length} PDF, ${zc.omitidos} omitido(s)`,
       });
-      // ADR-0044: con UN trámite, `[ID del trámite]-DOCS.zip`; con varios, el nombre de siempre.
+      // ADR-0046: con UN trámite, `[ID del trámite]-DOCS.zip`; con varios, el nombre de siempre.
       await emitirZipConsolidado(res, zc, await nombreZipDeTramite(parsed.data.ids, alcance));
     } finally {
       await zc.limpiar();

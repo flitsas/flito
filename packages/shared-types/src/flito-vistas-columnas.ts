@@ -1,4 +1,4 @@
-// Vistas de columnas persistidas (ADR-0043). Contrato compartido entre `apps/api` y `apps/web`.
+// Vistas de columnas persistidas (ADR-0045). Contrato compartido entre `apps/api` y `apps/web`.
 // Las vistas guardan CLAVES de columna, nunca valores de datos del titular.
 
 /** Tablas que admiten vistas de columnas. Cada una tiene su catálogo en `apps/api` (código). */
@@ -7,7 +7,7 @@ export type TablaVistasId = (typeof TABLAS_VISTAS_IDS)[number];
 
 export type AlcanceVista = 'personal' | 'compartida';
 
-/** De dónde sale la vista activa: punteros personal → general → vista del sistema (ADR-0043). */
+/** De dónde sale la vista activa: punteros personal → general → vista del sistema (ADR-0045). */
 export type OrigenVista = 'personal' | 'general' | 'sistema';
 
 export interface ColumnaDisponible {
@@ -54,7 +54,7 @@ export interface LimitesVistasColumnas {
   vistasPersonales: number;
 }
 
-/** Límites ADR-0043 (decisión del humano, 2026-11-18). */
+/** Límites ADR-0045 (decisión del humano, 2026-11-18). */
 export const LIMITES_VISTAS_COLUMNAS: LimitesVistasColumnas = {
   columnasPorVista: 30,
   vistasPersonales: 20,

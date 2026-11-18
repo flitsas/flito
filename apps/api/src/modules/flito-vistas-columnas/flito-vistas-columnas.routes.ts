@@ -1,19 +1,21 @@
-// Vistas de columnas persistidas (ADR-0043). Montado en /api/flito/vistas-columnas.
+// Vistas de columnas persistidas (ADR-0045). Montado en /api/flito/vistas-columnas.
 //
-// Guardas (ADR-0025, ADR-0043 §Guardas):
+// Guardas (ADR-0025, ADR-0045 §Guardas):
 //   · authMiddleware en todo el router.
 //   · Acceso a la tabla: la función que dice el catálogo (`tramites.cola.ver` para flito-tramites),
 //     aplicada por `guardaTabla` con `exigirFuncion`. Un tablaId desconocido responde 404.
 //   · Columnas: `funcionesConcedidas` decide qué claves puede ver/guardar el usuario (RN-VC2, RN-VC3).
-//   · Vistas compartidas y predeterminada general: solo rol `admin` (`requireRole('admin')` en la ruta
-//     de la general; en las compartidas, el mismo rol decide en el servicio, porque el alcance viene en
-//     el cuerpo y la ruta es la misma).
+//   · Vistas compartidas y predeterminada general: la función `tramites.vistas_columnas.administrar`
+//     («Administrar vistas de columnas», ADR-0045; nace en el árbol y solo `admin` la recibe). En la general
+//     la exige `exigirFuncion` en la ruta; en las compartidas la consulta `tieneFuncion` en línea y decide el
+//     servicio (`puedeAdministrar`), porque el alcance viene en el cuerpo y la ruta es la misma. Nunca el
+//     nombre del rol (HU #13425 AC6).
 //
 // Auditoría: POST, PUT, DELETE y los dos PUT de predeterminada van por `audit()`. Solo CLAVES de columna
 // y ids; nunca el nombre de la vista ni valores de datos del titular (RN-VC10).
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
-import { exigirFuncion, funcionesConcedidas } from '../../shared/middleware/exigir-funcion.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion, funcionesConcedidas, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   obtenerTablaVistas, funcionesDeColumnas, type TablaVistas,
@@ -48,7 +50,7 @@ const tablaDe = (res: Response): TablaVistas => res.locals.tabla as TablaVistas;
 
 async function actorDe(req: Request): Promise<ActorVistas> {
   const user = req.user!;
-  return { userId: Number(user.sub), esAdmin: user.role === 'admin' };
+  return { userId: Number(user.sub), puedeAdministrar: await tieneFuncion(req, 'tramites.vistas_columnas.administrar') };
 }
 
 /** Claves que el usuario puede ver en esta tabla (una sola consulta de permisos). */
@@ -133,8 +135,8 @@ router.put('/:tablaId/predeterminada/personal', guardaTabla, envolver(async (req
   res.json({ vistaId: cuerpo.data.vistaId });
 }));
 
-// PUT /:tablaId/predeterminada/general — solo admin. `null` = quitar la general.
-router.put('/:tablaId/predeterminada/general', guardaTabla, requireRole('admin'), envolver(async (req, res) => {
+// PUT /:tablaId/predeterminada/general — `tramites.vistas_columnas.administrar`. `null` = quitar la general.
+router.put('/:tablaId/predeterminada/general', guardaTabla, exigirFuncion('tramites.vistas_columnas.administrar'), envolver(async (req, res) => {
   const tabla = tablaDe(res);
   const cuerpo = predeterminadaSchema.safeParse(req.body);
   if (!cuerpo.success) return invalido(res);

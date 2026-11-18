@@ -1,4 +1,4 @@
-// ADR-0044 — Detalle de un trámite para la modal de Gestión Trámites (`GET /api/flito/tramites/:id/detalle`)
+// ADR-0046 — Detalle de un trámite para la modal de Gestión Trámites (`GET /api/flito/tramites/:id/detalle`)
 // y el nombre del ZIP de soportes cuando se pide UNO solo.
 //
 // Archivo aparte para no engordar `flito-tramites.service.ts` (AGENTS.md §19). La fila sale de la MISMA

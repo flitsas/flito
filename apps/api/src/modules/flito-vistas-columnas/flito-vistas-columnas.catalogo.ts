@@ -1,4 +1,4 @@
-// Catálogo de columnas por tabla de vistas (ADR-0043). En CÓDIGO, no en base: la vista del sistema
+// Catálogo de columnas por tabla de vistas (ADR-0045). En CÓDIGO, no en base: la vista del sistema
 // es esta lista en su orden. El servicio es genérico; solo este archivo sabe de Gestión Trámites.
 //
 // Reglas del catálogo:

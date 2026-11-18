@@ -1,6 +1,6 @@
 -- 0305_flito_vistas_columnas.sql (Épica #14560)
 -- Autor: David Chica
--- ADR-0043: vistas de columnas persistidas en servidor (personales y compartidas) para tablas FLITO.
+-- ADR-0045: vistas de columnas persistidas en servidor (personales y compartidas) para tablas FLITO.
 -- Primer consumidor: Gestión Trámites (tabla_id = 'flito-tramites').
 --
 -- Modelo (Opción 2 del ADR):
@@ -75,3 +75,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_pref_general_tabla
 
 CREATE INDEX IF NOT EXISTS ix_pref_vista
   ON flito_vistas_columnas_preferencias (vista_id);
+
+-- Permiso (ADR-0045 §Guardas; ratchet HU #13425 AC6: ninguna regla del servidor decide por el nombre del rol).
+-- «Administrar vistas de columnas» = crear/editar/borrar vistas compartidas y fijar la predeterminada general.
+-- La ACCIÓN nace después de la siembra del árbol (mismo molde que la 0274): la operación que piden las guardas
+-- (`tramites.vistas_columnas.administrar`) nace absorbida por ella y no se siembra. Reparto: solo `admin` (lo que el
+-- PO aprobó: «solo el administrador»), que la puede repartir desde la pantalla de permisos.
+INSERT INTO permisos_funciones (codigo, modulo, nombre_negocio, descripcion, tipo, padre_codigo, nivel, orden) VALUES
+  ('accion.tramites.administrar_vistas_columnas', 'tramites', 'Administrar vistas de columnas', 'Crear vistas de columnas para todos y fijar la predeterminada general.', 'accion', 'pagina.flito_tramites', '3', '90')
+ON CONFLICT (codigo) DO UPDATE SET modulo = EXCLUDED.modulo, nombre_negocio = EXCLUDED.nombre_negocio,
+  descripcion = EXCLUDED.descripcion, tipo = EXCLUDED.tipo, padre_codigo = EXCLUDED.padre_codigo,
+  nivel = EXCLUDED.nivel, orden = EXCLUDED.orden
+  WHERE (permisos_funciones.modulo, permisos_funciones.nombre_negocio, permisos_funciones.descripcion,
+         permisos_funciones.tipo, permisos_funciones.padre_codigo, permisos_funciones.nivel, permisos_funciones.orden)
+    IS DISTINCT FROM (EXCLUDED.modulo, EXCLUDED.nombre_negocio, EXCLUDED.descripcion,
+         EXCLUDED.tipo, EXCLUDED.padre_codigo, EXCLUDED.nivel, EXCLUDED.orden);
+
+INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)
+SELECT v.rol, v.fn FROM (VALUES ('admin', 'accion.tramites.administrar_vistas_columnas')) AS v(rol, fn)
+JOIN permisos_roles r ON r.codigo = v.rol
+ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;

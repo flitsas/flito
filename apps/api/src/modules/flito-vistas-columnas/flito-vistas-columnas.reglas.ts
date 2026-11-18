@@ -1,4 +1,4 @@
-// Reglas puras de vistas de columnas (ADR-0043). Sin base de datos: se prueban sin servidor.
+// Reglas puras de vistas de columnas (ADR-0045). Sin base de datos: se prueban sin servidor.
 //
 // RN-VC1  Resolución de la vista activa: puntero personal → puntero general → vista del sistema.
 //         Un puntero a `NULL` es «sistema explícito» y gana sobre la general (es «Restablecer»).

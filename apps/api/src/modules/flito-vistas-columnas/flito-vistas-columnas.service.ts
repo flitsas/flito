@@ -1,4 +1,4 @@
-// Vistas de columnas persistidas (ADR-0043). Servicio GENÉRICO: no sabe de Gestión Trámites; el
+// Vistas de columnas persistidas (ADR-0045). Servicio GENÉRICO: no sabe de Gestión Trámites; el
 // catálogo de la tabla (`TablaVistas`) llega como argumento desde la ruta.
 //
 // Reglas de negocio (RN-VC):
@@ -59,10 +59,13 @@ export class VistaNoCompartidaError extends VistasColumnasError {
 }
 
 // ── Tipos ────────────────────────────────────────────────────────────────────────────────────────
-/** Quién actúa. `esAdmin` viene del mismo dato que `requireRole('admin')` (el token). */
+/**
+ * Quién actúa. `puedeAdministrar` = tiene `tramites.vistas_columnas.administrar` (la consulta la ruta con
+ * `tieneFuncion`; ADR-0045: solo `admin` la recibe por defecto). Nunca el nombre del rol (HU #13425 AC6).
+ */
 export interface ActorVistas {
   userId: number;
-  esAdmin: boolean;
+  puedeAdministrar: boolean;
 }
 
 type FilaVista = typeof flitoVistasColumnas.$inferSelect;
@@ -92,7 +95,7 @@ async function cargarEditable(tabla: TablaVistas, actor: ActorVistas, vistaId: n
     if (fila.ownerUserId !== actor.userId) throw new VistaNoEncontradaError();
     return fila;
   }
-  if (!actor.esAdmin) throw new AlcanceNoPermitidoError();
+  if (!actor.puedeAdministrar) throw new AlcanceNoPermitidoError();
   return fila;
 }
 
@@ -144,7 +147,7 @@ export async function listarVistas(
       esPredeterminada: v.alcance === 'personal'
         ? Boolean(personal && personal.vistaId === v.id)
         : Boolean(general && general.vistaId === v.id),
-      puedeEditar: v.alcance === 'personal' ? v.ownerUserId === actor.userId : actor.esAdmin,
+      puedeEditar: v.alcance === 'personal' ? v.ownerUserId === actor.userId : actor.puedeAdministrar,
       version: v.version,
       columnas: columnasEfectivas(v.columnas, tabla.columnas, permitidas),
     })),
@@ -159,7 +162,7 @@ export async function crearVista(
   permitidas: ReadonlySet<string>,
   entrada: { nombre: string; alcance: 'personal' | 'compartida'; columnas: string[] },
 ): Promise<{ id: number; version: number }> {
-  if (entrada.alcance === 'compartida' && !actor.esAdmin) throw new AlcanceNoPermitidoError();
+  if (entrada.alcance === 'compartida' && !actor.puedeAdministrar) throw new AlcanceNoPermitidoError();
   validarClaves(tabla, permitidas, entrada.columnas);
   const ownerUserId = entrada.alcance === 'personal' ? actor.userId : null;
 
@@ -261,7 +264,7 @@ export async function fijarPredeterminadaGeneral(
   actor: ActorVistas,
   vistaId: number | null,
 ): Promise<void> {
-  if (!actor.esAdmin) throw new AlcanceNoPermitidoError();
+  if (!actor.puedeAdministrar) throw new AlcanceNoPermitidoError();
   if (vistaId !== null) {
     const [fila] = await db.select({ alcance: flitoVistasColumnas.alcance })
       .from(flitoVistasColumnas)

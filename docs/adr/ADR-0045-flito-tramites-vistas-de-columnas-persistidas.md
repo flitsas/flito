@@ -1,10 +1,10 @@
-# ADR-0043 — Vistas de columnas persistidas en servidor (personales, compartidas y predeterminadas) para tablas FLITO, primer consumidor Gestión Trámites
+# ADR-0045 — Vistas de columnas persistidas en servidor (personales, compartidas y predeterminadas) para tablas FLITO, primer consumidor Gestión Trámites
 
 - **Estado:** Aceptado (aprobado por el humano el 2026-11-18)
 - **Fecha:** 2026-11-18
 - **Módulo:** `flito-*` (FLITO). Nuevo módulo genérico `flito-vistas-columnas` con primer consumidor `flito-tramites` (página `FlitoTramites`, ruta `/flito/tramites`). **No** toca el legacy `tramites`.
 - **Supersedes:** ninguno. **Relacionados:** ADR-0025 (árbol de permisos: funciones), ADR-0036 (saneamiento PII en URLs), ADR-0037 (propiedad de tablas legacy/flito).
-- **Número:** el último ADR existente es `ADR-0042`. Hay dos archivos con prefijo `ADR-0030` (uno aún sin commitear, `ADR-0030-flito-logistica-traslados-actas-por-evento.md`); no se toca. Este toma el 0043, libre.
+- **Número:** redactado como ADR-0043; renumerado a **ADR-0045** al integrar (develop ya tenía ADR-0043 y ADR-0044 de la Torre de Control). Hay dos archivos con prefijo `ADR-0030` (uno aún sin commitear); no se toca.
 - **Alcance del documento:** diseño. No es código de producción.
 
 ## Contexto
@@ -260,6 +260,7 @@ Resuelven las preguntas 4 a 8 de arriba. El ADR sigue en Propuesto hasta la apro
 | «Restablecer» | Vuelve a la **vista del sistema** (escribe el puntero personal a sistema explícito). |
 | Cambios sin guardar | Solo duran la sesión. Solo «Guardar» persiste. |
 | Permisos | Vistas personales: `tramites.cola.ver`. Vistas generales y predeterminada general: rol `admin` (`requireRole('admin')`). No se crea función nueva. |
+| Permisos — implementación (2026-11-18, ajuste tras CI del PR #806) | «Solo `admin`» se implementa como **función de permiso otorgada al rol `admin`**, no por nombre de rol: el ratchet de la HU #13425 (AC6, `permisos.nombres-de-rol.test.ts`, tope 0) prohíbe que una regla del servidor decida por `requireRole('admin')` o `role === 'admin'`. Función: **`tramites.vistas_columnas.administrar`** («Administrar vistas de columnas»: crear vistas para todos y fijar la predeterminada general), absorbida por la acción `accion.tramites.administrar_vistas_columnas` (ítem Gestión Trámites del árbol), que nace después de la siembra y la migración 0305 marca **solo a `admin`**. La predeterminada general la exige `exigirFuncion` en la ruta; las vistas compartidas, `tieneFuncion` en línea (el alcance viene en el cuerpo) → `ActorVistas.puedeAdministrar`. Comportamiento por defecto idéntico a lo aprobado; la diferencia es que el administrador puede repartirla desde la pantalla de permisos. |
 | Baja de usuarios | **Borrado físico:** se eliminan sus vistas personales y su puntero. Las vistas generales se conservan. |
 | Límites | 30 columnas por vista, 20 vistas personales por usuario y tabla (propuesta aceptada). |
 | Trazabilidad | Mientras no haya HU, el trabajo se referencia a la Épica 14560 (decisión del humano). |

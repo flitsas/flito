@@ -1,4 +1,4 @@
-// Validación Zod de la API de vistas de columnas (ADR-0043). Límites de `reglas.ts` y de shared-types.
+// Validación Zod de la API de vistas de columnas (ADR-0045). Límites de `reglas.ts` y de shared-types.
 import { z } from 'zod';
 import { MAX_COLUMNAS_POR_VISTA } from './flito-vistas-columnas.reglas.js';
 

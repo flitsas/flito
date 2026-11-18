@@ -1,5 +1,6 @@
-// ADR-0043 — rutas de vistas de columnas con supertest. Cubre HTTP: 401 sin token, 404 tabla desconocida,
-// 403 por función de tabla (guarda) y por `requireRole('admin')` en la predeterminada general, 400 de Zod
+// ADR-0045 — rutas de vistas de columnas con supertest. Cubre HTTP: 401 sin token, 404 tabla desconocida,
+// 403 por función de tabla (guarda) y por `tramites.vistas_columnas.administrar` en la predeterminada general
+// (función de permiso, nunca el nombre del rol: HU #13425 AC6), 400 de Zod
 // sin llamar al servicio, y el mapeo de errores de dominio a estado y `codigo`.
 // La guarda de función y el servicio van como dobles: la lógica de permisos y de datos la prueba
 // `servicio.pg.test.ts` (BD real) y `reglas.test.ts`. Aquí solo se prueba el contrato HTTP.
@@ -8,7 +9,7 @@ import request from 'supertest';
 import { neutralizarEnlaceDe, testToken } from '../helpers/auth.js';
 
 // La frontera por enlace (authMiddleware) cierra al rol proveedor las escrituras de módulos fuera de su enlace;
-// aquí se prueba la capa de la ruta (función, requireRole, Zod), así que el enlace de proveedor se neutraliza.
+// aquí se prueba la capa de la ruta (función, Zod), así que el enlace de proveedor se neutraliza.
 neutralizarEnlaceDe('proveedor');
 
 const concedidas = vi.hoisted(() => ({ set: new Set<string>() }));
@@ -47,14 +48,17 @@ vi.mock('../../src/shared/middleware/exigir-funcion.js', () => ({
     else res.status(403).json({ error: 'Su rol no tiene esa función.', [codigo]: true });
   },
   funcionesConcedidas: async (_req: unknown, codigos: readonly string[]) => new Set(codigos.filter((c) => concedidas.set.has(c))),
+  tieneFuncion: async (_req: unknown, codigo: string) => concedidas.set.has(codigo),
 }));
+
+const ADMINISTRAR = 'tramites.vistas_columnas.administrar';
 
 vi.mock('../../src/modules/flito-vistas-columnas/flito-vistas-columnas.service.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/modules/flito-vistas-columnas/flito-vistas-columnas.service.js')>();
   return { ...actual, ...servicio };
 });
 
-describe('ADR-0043 rutas de vistas de columnas (HTTP)', () => {
+describe('ADR-0045 rutas de vistas de columnas (HTTP)', () => {
   let app: ReturnType<typeof import('../../src/app.js').createApp>;
   const BASE = '/api/flito/vistas-columnas/flito-tramites';
 
@@ -152,25 +156,39 @@ describe('ADR-0043 rutas de vistas de columnas (HTTP)', () => {
     expect(servicio.actualizarVista).not.toHaveBeenCalled();
   });
 
-  it('predeterminada general: un proveedor recibe 403 de requireRole(admin) y el servicio no se llama', async () => {
-    const r = await request(app).put(`${BASE}/predeterminada/general`)
-      .set('Authorization', `Bearer ${await testToken({ role: 'proveedor' })}`)
-      .send({ vistaId: 7 });
-    expect(r.status).toBe(403);
-    expect(r.body.error).toBe('Sin permisos');
-    expect(servicio.fijarPredeterminadaGeneral).not.toHaveBeenCalled();
-  });
-
-  it('predeterminada general: un admin llega al servicio y recibe 200', async () => {
-    servicio.fijarPredeterminadaGeneral.mockResolvedValue(undefined);
+  it('predeterminada general: sin `tramites.vistas_columnas.administrar` responde 403 y el servicio no se llama (aunque el token diga admin)', async () => {
     const r = await request(app).put(`${BASE}/predeterminada/general`)
       .set('Authorization', `Bearer ${await testToken({ role: 'admin' })}`)
       .send({ vistaId: 7 });
+    expect(r.status).toBe(403);
+    expect(r.body[ADMINISTRAR]).toBe(true);
+    expect(servicio.fijarPredeterminadaGeneral).not.toHaveBeenCalled();
+  });
+
+  it('predeterminada general: con la función llega al servicio con puedeAdministrar=true y recibe 200', async () => {
+    concedidas.set.add(ADMINISTRAR);
+    servicio.fijarPredeterminadaGeneral.mockResolvedValue(undefined);
+    const r = await request(app).put(`${BASE}/predeterminada/general`)
+      .set('Authorization', `Bearer ${await testToken({ role: 'proveedor' })}`)
+      .send({ vistaId: 7 });
     expect(r.status).toBe(200);
-    expect(servicio.fijarPredeterminadaGeneral).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ esAdmin: true }), 7);
+    expect(servicio.fijarPredeterminadaGeneral).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ puedeAdministrar: true }), 7);
+  });
+
+  it('crear vista: el actor llega al servicio con puedeAdministrar según la función, no según el rol', async () => {
+    servicio.crearVista.mockResolvedValue({ id: 1 });
+    const cuerpo = { nombre: 'Mía', alcance: 'personal', columnas: ['fuente'] };
+    await request(app).post(`${BASE}/vistas`)
+      .set('Authorization', `Bearer ${await testToken({ role: 'admin' })}`).send(cuerpo);
+    expect(servicio.crearVista).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ puedeAdministrar: false }), expect.anything(), expect.anything());
+    concedidas.set.add(ADMINISTRAR);
+    await request(app).post(`${BASE}/vistas`)
+      .set('Authorization', `Bearer ${await testToken({ role: 'proveedor' })}`).send(cuerpo);
+    expect(servicio.crearVista).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ puedeAdministrar: true }), expect.anything(), expect.anything());
   });
 
   it('predeterminada general: cuerpo inválido (vistaId 0) responde 400', async () => {
+    concedidas.set.add(ADMINISTRAR);
     const r = await request(app).put(`${BASE}/predeterminada/general`)
       .set('Authorization', `Bearer ${await testToken({ role: 'admin' })}`)
       .send({ vistaId: 0 });

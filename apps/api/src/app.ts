@@ -297,7 +297,7 @@ export function createApp() {
   app.use('/api/flito/revisiones', flitoRevisionesRoutes);
   app.use('/api/flito/compuerta', flitoCompuertaRoutes);
   app.use('/api/flito/tramites', conAlcance('tramites', flitoTramitesRoutes));
-  // ADR-0043: vistas de columnas persistidas. Sin `conAlcance`: no son filas de enlace, son configuración por usuario.
+  // ADR-0045: vistas de columnas persistidas. Sin `conAlcance`: no son filas de enlace, son configuración por usuario.
   app.use('/api/flito/vistas-columnas', flitoVistasColumnasRoutes);
   app.use('/api/flito/tablero', conAlcance('tablero', flitoTableroRoutes));
   // HU #13803 (Feature #13695) — Dr. Flit. SIN `conAlcance` a propósito (diseño F5 §D3): sus rutas son

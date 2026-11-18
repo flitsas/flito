@@ -1,4 +1,4 @@
-// Vistas de columnas persistidas (ADR-0043, Opción 2): tabla de vistas y tabla de punteros.
+// Vistas de columnas persistidas (ADR-0045, Opción 2): tabla de vistas y tabla de punteros.
 //
 // Lo que NO vive aquí, y es deliberado:
 //   · La «vista del sistema» no es una fila: es el catálogo de columnas por defecto en código
