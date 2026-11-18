@@ -256,6 +256,8 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 }
 /* #7 Acciones de la cabecera: los botones no se estiran al alto de la fila. */
 .page-header .page-header__acciones { align-items: flex-start; }
+/* Las acciones de la cabecera ocupan lo que necesitan, a la derecha del título (no reparten el ancho sobrante). */
+@media (min-width: 768px) { .page-header > .page-header__acciones { flex: 0 1 auto; width: auto; } }
 /* Teléfono: los botones de la cabecera ocupan el ancho (kit) y su rótulo envuelve en vez de recortarse
    («Cargar comprobantes de SOAT (masivo)» se cortaba a 375 px). */
 @media (max-width: 640px) {
@@ -276,7 +278,7 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 .tabla-wrap { position: relative; }
 
 /* #5 Reserva inferior: el dock flotante (18 px + ~72 px) no tapa la última fila ni el control enfocado. Solo ≥1024 px,
-   donde hay dock; por debajo solo se reserva el botón de Dr. Flit cuando está (`kit-main--drflit`, 16 + 48 + 16 px).
+   donde hay dock; por debajo solo se reserva el botón de Dr. Flit cuando está (`kit-main--drflit`: 16 + 64 de botón + 16 de aire).
    La barra superior fija no tapa el control enfocado (`scroll-padding-top`). */
 html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); }
 @media (min-width: 1024px) { .kit-main { padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); } }
@@ -284,20 +286,24 @@ html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-
   :root:root { --kit-alto-dock: 0px; }
   html { scroll-padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
   .kit-main { padding-bottom: calc(var(--space-24) + env(safe-area-inset-bottom, 0px)); }
-  .kit-main.kit-main--drflit { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px) + var(--flit-fab-offset, 0px)); }
+  .kit-main.kit-main--drflit { padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px) + var(--flit-fab-offset, 0px)); }
 }
 
 /* #8 El margen entre cards es del flujo de bloque: en grid/flex manda el gap. */
 :is(.grid, .inline-grid, .flex, .inline-flex, .rejilla) > .card + .card { margin-top: 0; }
 
-/* Paneles del dock anclados al dock entero (centrado en pantalla), no a su botón: con 11 secciones el panel de una
-   sección del extremo (Administración, Gestión) centrado en su botón se salía del viewport. */
-@media (min-width: 1101px) { .dock .dock__grupo { position: static; } }
+/* Cada panel del dock sale encima de SU botón (el grupo es el ancla, `position: relative` del kit). Si el centro
+   lo sacaría de la pantalla, FlitNavBar lo desplaza lo justo con `--dock-desp`. */
 /* El centrado del panel del dock va en `translate` y no en `transform`: la animación `flit-panel-up` (fill both)
    deja `transform: translateY(0)` y se comía el `translateX(-50%)` del kit, así que el panel salía corrido media
    anchura a la derecha. ≤1100 px los paneles anchos (y ≤640 todos) son `fixed` a lo ancho: sin centrado. */
-.dock .dock__menu { transform: none; translate: -50% 0; }
-@media (max-width: 1100px) { .dock .dock__menu--ancho { translate: none; } }
+/* Centrado sobre el ítem + desplazamiento medido por FlitNavBar (`--dock-desp`) para que no se salga de la pantalla. */
+.dock .dock__menu { transform: none; translate: calc(-50% + var(--dock-desp, 0px)) 0; }
+/* 1024–1100 px: el panel ancho sigue anclado encima de su ítem (el kit lo fijaba a lo ancho, lejos del ítem). */
+@media (min-width: 1024px) and (max-width: 1100px) {
+  .dock .dock__grupo { position: relative; }
+  .dock .dock__menu--ancho { position: absolute; left: 50%; right: auto; top: auto; bottom: calc(100% + 14px); width: min(760px, calc(100vw - 64px)); }
+}
 @media (max-width: 640px) { .dock .dock__menu { translate: none; } }
 
 /* «Más» del dock: los puntos del kit en horizontal, para no confundirse con el glifo de Tablero (rejilla). */

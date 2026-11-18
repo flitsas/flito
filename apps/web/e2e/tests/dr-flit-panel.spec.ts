@@ -34,16 +34,27 @@ test.describe('HU #13764 · Dr. Flit — botón y panel', () => {
     const caja = await boton(page).boundingBox();
     const vp = page.viewportSize()!;
     expect(caja).not.toBeNull();
-    // Esquina inferior derecha: a ≤ 40 px del borde derecho. Rediseño S6 (Épica #14560): en el
-    // inferior flota SOBRE el dock del kit, así que el margen es el alto reservado del dock + ≤ 40 px
-    // (nunca por debajo de él, que lo taparía).
-    const altoDock = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--kit-alto-dock')) || 0);
-    expect(altoDock).toBeGreaterThan(0);
-    const margenInferior = vp.height - (caja!.y + caja!.height);
-    expect(vp.width - (caja!.x + caja!.width)).toBeLessThanOrEqual(40);
-    expect(margenInferior).toBeGreaterThanOrEqual(altoDock);
-    expect(margenInferior).toBeLessThanOrEqual(altoDock + 40);
+    // Esquina inferior derecha (pedido del PO, Épica #14560: «quedó más arriba de donde debe estar»).
+    expect(vp.width - (caja!.x + caja!.width)).toBeLessThanOrEqual(32);
+    expect(vp.height - (caja!.y + caja!.height)).toBeLessThanOrEqual(32);
   });
+
+  // Épica #14560: en la esquina, pero sin tapar el dock centrado al pie (sus rectángulos no se cortan).
+  for (const [width, height] of [[1366, 768], [1920, 1080]] as const) {
+    test(`AC1 · ${width} px: el botón está en la esquina inferior derecha y no se solapa con el dock`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await entrar(page, FINANCIERA_USER, '/flito/ayuda');
+      await expect(boton(page)).toBeVisible();
+      const dock = page.getByRole('navigation', { name: 'Navegación principal' });
+      await expect(dock).toBeVisible();
+      const b = (await boton(page).boundingBox())!;
+      const d = (await dock.boundingBox())!;
+      expect(width - (b.x + b.width)).toBeLessThanOrEqual(32);
+      expect(height - (b.y + b.height)).toBeLessThanOrEqual(32);
+      const seCortan = b.x < d.x + d.width && d.x < b.x + b.width && b.y < d.y + d.height && d.y < b.y + b.height;
+      expect(seCortan, `botón ${JSON.stringify(b)} vs dock ${JSON.stringify(d)}`).toBe(false);
+    });
+  }
 
   // HU #13942 AC1: sin el ítem «Dr. Flit» no se ve, aunque tenga fichas de Ayuda visibles.
   test('AC1 (HU #13942) · sin el permiso «Dr. Flit» nunca ve el botón, aunque vea fichas de Ayuda', async ({ page }) => {
@@ -226,16 +237,21 @@ test.describe('HU #13764 · Dr. Flit — botón y panel', () => {
     await expect(boton(page)).toHaveAttribute('aria-expanded', 'true');
   });
 
-  test('Retrabajo · avatar oficial (glifo del kit): botón, cabecera y mensajes decorativos', async ({ page }) => {
-    // Rediseño S6 (Épica #14560, UI Kit 2026): el avatar del Dr. Flit es el glifo `asistente` del kit
-    // (disco azul en el botón, `.kico` en la cabecera y disco en los mensajes) en lugar de los
-    // `.webp`. Lo que se garantiza sigue igual: avatar decorativo (oculto al lector, el nombre
-    // accesible es el del botón) y del tamaño de cada sitio.
+  test('Retrabajo · ícono propio del botón (robot de Dr. Flit) y avatares decorativos', async ({ page }) => {
+    // Épica #14560 (pedido del PO): el botón flotante vuelve al ícono propio de Dr. Flit
+    // (`DR_FLIT_ASSETS.fab`, `<img>` por URL pública) en lugar del glifo del kit. La cabecera y los
+    // mensajes siguen con el glifo `asistente`. Lo que se garantiza: avatares decorativos (ocultos al
+    // lector; el nombre accesible es el del botón) y del tamaño de cada sitio.
     await page.setViewportSize({ width: 1366, height: 768 });
     await entrar(page);
-    await expect(boton(page).locator('img')).toHaveCount(0);
-    const glifoBoton = boton(page).locator('svg');
-    await expect(glifoBoton).toHaveAttribute('aria-hidden', 'true');
+    const iconoBoton = boton(page).locator('img');
+    await expect(iconoBoton).toHaveCount(1);
+    await expect(iconoBoton).toHaveAttribute('src', '/assets/dr-flit/fab-launcher.webp');
+    await expect(iconoBoton).toHaveAttribute('alt', '');
+    await expect(iconoBoton).toHaveAttribute('aria-hidden', 'true');
+    // La imagen carga de verdad (un 404 dejaría un botón vacío con el test verde).
+    expect(await iconoBoton.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+    await expect(boton(page).locator('svg')).toHaveCount(0);
     await abrirDrFlit(page);
     const avatarCabecera = panel(page).locator('header .kico');
     await expect(avatarCabecera).toHaveAttribute('aria-hidden', 'true');
@@ -243,9 +259,8 @@ test.describe('HU #13764 · Dr. Flit — botón y panel', () => {
     // Avatar de los mensajes del bot (el saludo ya es un mensaje del bot).
     const avatarMensaje = panel(page).getByRole('log').locator('svg[aria-hidden="true"]').first();
     await expect(avatarMensaje).toBeVisible();
-    await expect(panel(page).getByRole('log').locator('img')).toHaveCount(0);
-    // Tamaños: botón 56 (h-14 del kit), mensaje 32.
-    expect(Math.round((await boton(page).boundingBox())!.width)).toBe(56);
+    // Tamaño del botón: 64 (h-16).
+    expect(Math.round((await boton(page).boundingBox())!.width)).toBe(64);
     expect(Math.round((await avatarCabecera.boundingBox())!.width)).toBeGreaterThan(0);
     // El nombre accesible del botón no cambia al abrir.
     await expect(boton(page)).toHaveAttribute('aria-label', 'Abrir Dr. Flit');

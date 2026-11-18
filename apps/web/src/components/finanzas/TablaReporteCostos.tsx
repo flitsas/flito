@@ -18,6 +18,7 @@ import AccionesFilaReporteCostos from './AccionesFilaReporteCostos';
 import ColumnasReporteCostos, { useColumnasVisibles } from './ColumnasReporteCostos';
 import { GRUPOS, LINEA_FIJA, type Columna, type Contexto, type Grupo } from './definicionColumnasReporteCostos';
 import TotalesReporteCostos from './TotalesReporteCostos';
+import type { EstadoTotales } from './useTotalesReporteCostos';
 import type { FacturacionTramite } from './tiposFacturacion';
 import type { Fila, Reporte } from './tiposReporteCostos';
 import type { SiigoEstadoReporte } from '@operaciones/shared-types';
@@ -54,7 +55,7 @@ function decorar(el: ReactElement, c: Columna, inicioDeGrupo: boolean): ReactEle
 export default function TablaReporteCostos({
   data, cargando, puedeLiquidar, puedeReversar, puedeVerServicios, puedeAceptarDiferencia, enProceso, seleccion, onSeleccion, accionable,
   fichasFe, estadoFeDe, onAbrirDetalle, onLiquidar, onFacturar, onReversar, onSoportes, onServicios, onViajes, onAceptarDiferencia, accionEnvio,
-  onPrev, onNext, anunciar,
+  onPrev, onNext, anunciar, totales, onReintentarTotales,
 }: {
   /** `null` solo mientras carga la primera vez. */
   data: Reporte | null;
@@ -80,6 +81,8 @@ export default function TablaReporteCostos({
   onPrev: () => void; onNext: () => void;
   /** La región `role="status"` de la página: el cambio de columnas se anuncia por ahí. */
   anunciar: (texto: string) => void;
+  /** El pie, con su estado propio: llega aparte del listado (Épica #14560). */
+  totales: EstadoTotales; onReintentarTotales: () => void;
 }) {
   const { ids, visibles, alternar, restablecer } = useColumnasVisibles(anunciar);
   // Esqueleto solo sin filas que enseñar (primera carga, o un filtro que venía vacío). Al recargar
@@ -190,7 +193,7 @@ export default function TablaReporteCostos({
             ))}
           </tbody>
           {!esqueleto && data && (
-            <TotalesReporteCostos columnas={visibles} totales={data.totales} costos={data.totalesCostosProveedor} total={data.total} conCasilla={puedeLiquidar} />
+            <TotalesReporteCostos columnas={visibles} estado={totales} onReintentar={onReintentarTotales} total={data.total} conCasilla={puedeLiquidar} />
           )}
         </FlitTable>
       </div>

@@ -149,6 +149,47 @@ test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
     expect(await colgantes()).toEqual([]);
   });
 
+  // Épica #14560: el submenú se abre centrado sobre su ítem; solo se corre lo justo para no salirse del
+  // margen de 12 px del viewport (MARGEN_PANEL de FlitNavBar → `--dock-desp`).
+  for (const cual of ['primer', 'último'] as const) {
+    test(`1366 px · el submenú del ${cual} ítem queda centrado sobre su disparador (o pegado al margen)`, async ({ page }) => {
+      await page.setViewportSize({ width: 1366, height: 768 });
+      await loginAs(page, ADMIN_USER);
+      await mockApi(page);
+      await page.goto('/');
+      await dockLocator(page).waitFor();
+      const disparadores = dockLocator(page).locator('button[aria-expanded]');
+      expect(await disparadores.count()).toBeGreaterThan(1);
+      const trigger = cual === 'primer' ? disparadores.first() : disparadores.last();
+      await trigger.click();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      const panelEl = page.locator(`#${await trigger.getAttribute('aria-controls')}`);
+      await expect(panelEl).toBeVisible();
+      // Esperar a que termine la animación de entrada (la caja se estabiliza).
+      await expect.poll(async () => {
+        const a = (await panelEl.boundingBox())!;
+        await page.waitForTimeout(100);
+        const b = (await panelEl.boundingBox())!;
+        return Math.abs(a.x - b.x) + Math.abs(a.width - b.width);
+      }).toBeLessThan(1);
+      const t = (await trigger.boundingBox())!;
+      const p = (await panelEl.boundingBox())!;
+      const margen = 12;
+      const recortadoIzq = p.x <= margen + 1;
+      const recortadoDer = p.x + p.width >= 1366 - margen - 1;
+      // Nunca se sale del margen.
+      expect(p.x).toBeGreaterThanOrEqual(margen - 1);
+      expect(p.x + p.width).toBeLessThanOrEqual(1366 - margen + 1);
+      if (!recortadoIzq && !recortadoDer) {
+        expect(Math.abs((p.x + p.width / 2) - (t.x + t.width / 2))).toBeLessThanOrEqual(4);
+      } else {
+        // Recortado: el panel sigue cubriendo al disparador horizontalmente (no queda «lejos» de él).
+        expect(p.x).toBeLessThanOrEqual(t.x + t.width / 2);
+        expect(p.x + p.width).toBeGreaterThanOrEqual(t.x + t.width / 2);
+      }
+    });
+  }
+
   test('las secciones grandes se abren repartidas en subgrupos', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await mockApi(page);
