@@ -53,7 +53,7 @@ MUESTRA.forEach(({ op }, i) => app.get(`/m/${i}`, exigirFuncion(op), (_req: Requ
 describe('AC6 — muestreo 200/403 por acción (guarda real, resolutor real)', () => {
   beforeAll(() => {
     expect(MUESTRA.filter((m) => !m.op).map((m) => m.accion)).toEqual([]);
-    expect(MUESTRA.length).toBe(56); // +1: accion.impuestos.certificar_sin_tramite
+    expect(MUESTRA.length).toBe(57); // +1: accion.impuestos.certificar_sin_tramite · +1: accion.tramites.administrar_vistas_columnas (Épica #14560)
   });
 
   it.each(MUESTRA.map((m, i) => [m.accion, m.op, i] as const))('%s → %s', async (accion, op, i) => {
