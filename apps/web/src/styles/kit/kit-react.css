@@ -316,3 +316,27 @@ html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-
 .btn.ghost[disabled], .btn.ghost[disabled]:hover { background: transparent; color: var(--color-action); }
 [data-theme="dark"] .btn:not(.secondary):not(.navy):not(.ghost):not(.positiva):not(.alerta)[disabled] { --b: var(--kit-azul-relleno); }
 .btn[aria-busy="true"][disabled] { opacity: 1; cursor: progress; }
+
+/* ---------- Gráficos: forma de punto y valor al pasar el cursor (Épica #14590) ---------- */
+.leyenda i[data-forma="cuadrado"] { border-radius: 1px; }
+.leyenda i[data-forma="rombo"] { border-radius: 1px; transform: rotate(45deg) scale(0.85); }
+.grafico { position: relative; }
+.grafico__columna { fill: transparent; pointer-events: all; cursor: crosshair; }
+.grafico__foco { stroke: var(--kit-linea); stroke-width: 1; pointer-events: none; }
+/* Valor al pasar el cursor/tocar: aparece al instante (sin el retardo del <title> nativo). */
+.grafico__tip { position: absolute; z-index: 2; pointer-events: none; transform: translate(-50%, calc(-100% - 10px));
+  min-width: 120px; max-width: min(260px, 90%); padding: var(--space-8) var(--space-12); border-radius: 8px;
+  background: var(--color-surface-elevated); color: var(--color-text-primary); border: 1px solid var(--color-border);
+  box-shadow: var(--kit-sombra); font-size: var(--text-caption); line-height: 1.35; }
+.grafico__tip[data-lado="izq"] { transform: translate(-12px, calc(-100% - 10px)); }
+.grafico__tip[data-lado="der"] { transform: translate(calc(-100% + 12px), calc(-100% - 10px)); }
+.grafico__tip[data-abajo] { transform: translate(-50%, 12px); }
+.grafico__tip[data-lado="izq"][data-abajo] { transform: translate(-12px, 12px); }
+.grafico__tip[data-lado="der"][data-abajo] { transform: translate(calc(-100% + 12px), 12px); }
+.grafico__tip-titulo { margin: 0 0 var(--space-4); font-weight: 600; color: var(--color-text-tertiary); }
+.grafico__tip ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.grafico__tip li { display: flex; align-items: center; gap: var(--space-8); white-space: nowrap; }
+.grafico__tip li b { margin-left: auto; padding-left: var(--space-12); font-variant-numeric: tabular-nums; }
+.grafico__tip i { flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.grafico__tip i[data-forma="cuadrado"] { border-radius: 1px; }
+.grafico__tip i[data-forma="rombo"] { border-radius: 1px; transform: rotate(45deg) scale(0.85); }
