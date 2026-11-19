@@ -5303,3 +5303,6 @@ export const flitoComparendosSyncSteps = pgTable('flito_comparendos_sync_steps',
 }, (t) => ({
   runIdx: index('idx_flito_comparendos_sync_steps_run').on(t.runId),
 }));
+
+// Contrato ia-consumo v1 (ADR-0047): registro de consumo de IA
+export * from './schema/ia-consumo.js';

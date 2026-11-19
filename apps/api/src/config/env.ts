@@ -369,6 +369,17 @@ const envSchema = z.object({
   SYNC_CRON: z.string().default('0 */5 * * * *'),
   // Habilita el job de sincronización FLITO. Default true; 'false'/'0' lo apaga.
   SYNC_HABILITADO: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
+  // Contrato `ia-consumo` v1 (ADR-0047): registro de consumo de IA. Maestra encendida por defecto (solo
+  // 'false'/'0' la apagan); el detalle (prompt + respuesta) apagado por defecto y con retención en días.
+  IA_CONSUMO_LOG: z.string().optional().transform((v) => !['false', '0'].includes((v ?? '').trim().toLowerCase())),
+  IA_CONSUMO_DETALLE: z.string().optional().transform((v) => ['true', '1'].includes((v ?? '').trim().toLowerCase())),
+  IA_CONSUMO_DETALLE_DIAS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(365).default(30)),
+  // Columna `ambiente` del registro (misma variable que FLIT). La imagen trae NODE_ENV=production en los tres
+  // ambientes, así que sin esta variable (ni DEPLOY_ENVIRONMENT) DEV y QA se registrarían como PDN.
+  IA_CONSUMO_AMBIENTE: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim().toLowerCase() : undefined),
+    z.enum(['dev', 'qa', 'pdn', 'local']).optional(),
+  ),
 }).superRefine((data, ctx) => {
   // Bloquea CORS_ORIGIN='*' en producción (XSS cross-origin).
   if (data.NODE_ENV === 'production' && data.FLIT2_SYNC_ADAPTER === 'fake') {

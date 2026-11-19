@@ -2,7 +2,8 @@
 // Detecta deprecación (404 not_found_error) antes de que falle el OCR en silencio.
 
 import { env } from '../../config/env.js';
-import { requestWithRetry } from '../../shared/upstream.js';
+import { anthropicPeticion } from '../tramites/anthropic.js';
+import { conContextoIa, procesoIa } from '../../shared/ia-consumo/index.js';
 import { loggerFor } from '../../shared/logger.js';
 
 const log = loggerFor('anthropic-health');
@@ -25,26 +26,12 @@ async function probeModel(model: string): Promise<ModelProbe> {
     return { model, status: 'skipped' };
   }
 
-  const body = JSON.stringify({
-    model,
-    max_tokens: 1,
-    messages: [{ role: 'user', content: 'ping' }],
-  });
-
   try {
-    const resp = await requestWithRetry({
-      url: 'https://api.anthropic.com/v1/messages',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'Content-Length': String(Buffer.byteLength(body)),
-      },
-      body,
-      timeoutMs: 15_000,
-      retries: 0,
-    });
+    // Contrato `ia-consumo` v1: cliente central (una fila por sondeo, origen `sistema`). `max_tokens: 1` corta
+    // siempre por tope: aquí eso es éxito, no respuesta inválida.
+    const resp = await conContextoIa({ ...procesoIa('salud_modelos'), origen: 'sistema', promptCodigo: 'salud_ping' },
+      () => anthropicPeticion({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }, 'salud',
+        { timeoutMs: 15_000, retries: 0, maxTokensEsExito: true }));
 
     if (resp.statusCode === 200) {
       return { model, status: 'ok', statusCode: 200 };

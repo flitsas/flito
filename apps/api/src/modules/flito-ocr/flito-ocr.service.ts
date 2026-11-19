@@ -10,7 +10,12 @@
 
 import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
+import { createHash } from 'node:crypto';
 import { anthropicMessages } from '../tramites/anthropic.js';
+import { conContextoIa, leerContextoIa, type ArchivoIa } from '../../shared/ia-consumo/contexto.js';
+import { procesoIa, type ProcesoIaFlito } from '../../shared/ia-consumo/catalogo.js';
+import { anotarConsumoIa } from '../../shared/ia-consumo/escritor.js';
+import { registrarConsumoIa } from '../../shared/ia-consumo/registro.js';
 import {
   CampoSoat, CampoImpuesto, CampoFacturaVenta, CampoVehiculoFacturaVenta, CampoDerechoTramite, CampoComprobante,
   CAMPOS_COMPRADOR_FACTURA, TIPOS_DOCUMENTO_RUNT, TIPOS_DOCUMENTO_COMPROBANTE, CONCEPTOS_COSTO,
@@ -131,6 +136,24 @@ function bloqueDocumento(doc: DocumentoAAnalizar): Record<string, unknown> {
   return { type: 'image', source: { type: 'base64', media_type: media, data } };
 }
 
+/** Adjunto para el registro de consumo de IA (contrato `ia-consumo` v1): tipo, tamaño y huella, nunca el contenido. */
+function archivoIa(doc: Pick<DocumentoAAnalizar, 'contentType' | 'contenido'>): ArchivoIa {
+  return {
+    mime: doc.contentType || null,
+    bytes: doc.contenido.length,
+    sha256: createHash('sha256').update(doc.contenido).digest('hex'),
+  };
+}
+
+/**
+ * Abre el ámbito de IA de un documento: proceso del catálogo y, si quien llama no dio una placa, la del
+ * nombre del archivo (`placaDesdeNombre`). Todas las pasadas del documento comparten `correlacion_id`.
+ */
+function enContextoDocumento<T>(proceso: ProcesoIaFlito, doc: Pick<DocumentoAAnalizar, 'nombreArchivo'>, fn: () => Promise<T>): Promise<T> {
+  const placa = leerContextoIa().placa ?? placaDesdeNombre(doc.nombreArchivo ?? '');
+  return conContextoIa({ ...procesoIa(proceso), promptCodigo: proceso, placa }, fn);
+}
+
 /** Una pasada contra un modelo. Devuelve el mapa crudo campo→{valor,confianza} o null si no parseó. */
 async function pasada(
   doc: DocumentoAAnalizar,
@@ -145,12 +168,18 @@ async function pasada(
     messages: [{ role: 'user', content: [bloqueDocumento(doc), { type: 'text', text: prompt }] }],
   };
 
-  const res = await anthropicMessages(payload, 'ocr');
+  // La huella se calcula una vez por documento: `extraer` ya la abrió para las dos pasadas.
+  const archivo = leerContextoIa().archivo?.sha256 ? {} : { archivo: archivoIa(doc) };
+  const res = await conContextoIa(archivo, () => anthropicMessages(payload, 'ocr'));
   if (!res.ok) throw new OcrNoDisponibleError(res.status, res.message);
 
   const text = (res.data as { content?: Array<{ text?: string }> })?.content?.[0]?.text ?? '';
   const parsed = parseJSONLoose(text);
-  if (!parsed) { log.warn({ modelo }, 'OCR: respuesta no parseable como JSON'); return null; }
+  if (!parsed) {
+    log.warn({ modelo }, 'OCR: respuesta no parseable como JSON');
+    anotarConsumoIa(res.consumoId, { resultado: 'respuesta_invalida', errorCodigo: 'json_no_parseable' });
+    return null;
+  }
 
   const salida: Record<string, CampoCrudo> = {};
   for (const [k, v] of Object.entries(parsed)) salida[k] = leerCampoCrudo(v);
@@ -168,17 +197,24 @@ async function pasada(
  * (lo es) o un error (no lo es).
  */
 export async function particionConsolidado(doc: Omit<DocumentoAAnalizar, 'umbral'>): Promise<Record<string, unknown> | null> {
+  return enContextoDocumento('particion_consolidado', doc, () => particionConsolidadoEnContexto(doc));
+}
+
+async function particionConsolidadoEnContexto(doc: Omit<DocumentoAAnalizar, 'umbral'>): Promise<Record<string, unknown> | null> {
   const payload = {
     model: env.ANTHROPIC_MODEL_HAIKU,
     max_tokens: 2000,
     system: SISTEMA_OCR,
     messages: [{ role: 'user', content: [bloqueDocumento({ ...doc, umbral: 0 }), { type: 'text', text: PROMPT_PARTICION_CONSOLIDADO }] }],
   };
-  const res = await anthropicMessages(payload, 'ocr');
+  const res = await conContextoIa({ archivo: archivoIa(doc) }, () => anthropicMessages(payload, 'ocr'));
   if (!res.ok) throw new OcrNoDisponibleError(res.status, res.message);
   const text = (res.data as { content?: Array<{ text?: string }> })?.content?.[0]?.text ?? '';
   const parsed = parseJSONLoose(text);
-  if (!parsed) log.warn('OCR: partición de consolidado no parseable como JSON');
+  if (!parsed) {
+    log.warn('OCR: partición de consolidado no parseable como JSON');
+    anotarConsumoIa(res.consumoId, { resultado: 'respuesta_invalida', errorCodigo: 'json_no_parseable' });
+  }
   return parsed;
 }
 
@@ -193,7 +229,19 @@ async function extraerLocal(
   normalizadores: Record<string, (v: string) => string | null>,
   motivo: 'sin_api_key' | 'anthropic_fallo',
 ): Promise<Record<string, CampoExtraido>> {
-  const texto = await textoDocumento(doc);
+  // Contrato `ia-consumo` v1: el respaldo local también deja su fila (proveedor `tesseract`, 0 tokens, costo NULL).
+  const inicio = new Date();
+  let texto: string;
+  try {
+    texto = await textoDocumento(doc);
+  } catch (e) {
+    registrarConsumoIa({
+      proveedor: 'tesseract', inicio, fin: new Date(), resultado: 'error_proveedor',
+      errorCodigo: (e as Error)?.name ?? 'Error', metadatos: { motivo },
+    });
+    throw e;
+  }
+  registrarConsumoIa({ proveedor: 'tesseract', inicio, fin: new Date(), resultado: 'exito', metadatos: { motivo, caracteres: texto.length } });
   const crudoLocal = camposDesdeTexto(texto, campos) ?? {};
   const salidaLocal: Record<string, CampoExtraido> = {};
   for (const campo of campos) {
@@ -214,6 +262,18 @@ async function extraerLocal(
  * fallback: se conserva Haiku (Bug #14229).
  */
 async function extraer(
+  proceso: ProcesoIaFlito,
+  doc: DocumentoAAnalizar,
+  prompt: string,
+  campos: readonly string[],
+  camposEscalacion: readonly string[],
+  normalizadores: Record<string, (v: string) => string | null>,
+): Promise<Record<string, CampoExtraido>> {
+  return enContextoDocumento(proceso, doc, () => conContextoIa({ archivo: archivoIa(doc) },
+    () => extraerEnContexto(doc, prompt, campos, camposEscalacion, normalizadores)));
+}
+
+async function extraerEnContexto(
   doc: DocumentoAAnalizar,
   prompt: string,
   campos: readonly string[],
@@ -239,7 +299,7 @@ async function extraer(
   if (necesitaEscalar) {
     const extra = 'La lectura previa con un modelo rápido dejó campos dudosos. Verifica cada campo con máximo rigor citando la zona del documento que lo soporta. Si aun así no puedes leer un campo, valor=null y confianza=null.';
     try {
-      const p2 = await pasada(doc, env.ANTHROPIC_MODEL_SONNET, prompt, extra);
+      const p2 = await conContextoIa({ pasada: 2 }, () => pasada(doc, env.ANTHROPIC_MODEL_SONNET, prompt, extra));
       if (p2) crudo = fusionar(crudo, p2, campos);
     } catch (e) {
       // Sonnet caído no invalida la primera pasada: seguimos con Haiku (mejor que nada). Un fallo
@@ -353,7 +413,7 @@ export async function extraerFacturaSoat(doc: DocumentoAAnalizar): Promise<Extra
   ] as const;
   // Escalar si la llave o algún campo requerido para pagar (§ CAMPOS_REQUERIDOS) queda dudoso.
   const escalacion = [CampoSoat.PLACA, CampoSoat.VIN, CampoSoat.NUMERO_POLIZA, CampoSoat.VALOR_TOTAL, CampoSoat.ASEGURADORA];
-  const r = await extraer(doc, PROMPT_FACTURA_SOAT, campos, escalacion, {
+  const r = await extraer('ocr_factura_soat', doc, PROMPT_FACTURA_SOAT, campos, escalacion, {
     [CampoSoat.PLACA]: placaN, [CampoSoat.VIN]: vinN, [CampoSoat.NUMERO_POLIZA]: textoExactoN,
     [CampoSoat.VALOR_TOTAL]: normalizarPesos, [CampoSoat.ASEGURADORA]: trimN,
     [CampoSoat.FECHA_EXPEDICION]: normalizarFecha, [CampoSoat.VIGENCIA_DESDE]: normalizarFecha,
@@ -375,7 +435,7 @@ export async function extraerReciboImpuesto(doc: DocumentoAAnalizar): Promise<Ex
     CampoImpuesto.FECHA_PAGO, CampoImpuesto.ANIO_GRAVABLE, CampoImpuesto.SELLO_PAGADO,
   ] as const;
   const escalacion = [CampoImpuesto.PLACA, CampoImpuesto.VALOR_TOTAL];
-  const r = await extraer(doc, PROMPT_RECIBO_IMPUESTO, campos, escalacion, {
+  const r = await extraer('ocr_recibo_impuesto', doc, PROMPT_RECIBO_IMPUESTO, campos, escalacion, {
     [CampoImpuesto.PLACA]: placaN, [CampoImpuesto.VALOR_TOTAL]: normalizarPesos,
     [CampoImpuesto.NUMERO_RECIBO]: textoExactoN, [CampoImpuesto.FECHA_PAGO]: normalizarFecha,
     [CampoImpuesto.ANIO_GRAVABLE]: anioN, [CampoImpuesto.SELLO_PAGADO]: booleanoN,
@@ -392,7 +452,7 @@ export async function extraerReciboImpuesto(doc: DocumentoAAnalizar): Promise<Ex
 export async function extraerReciboCaja(doc: DocumentoAAnalizar): Promise<ExtraccionImpuesto> {
   const campos = [CampoImpuesto.VALOR_TOTAL, CampoImpuesto.FECHA_PAGO, CampoImpuesto.NUMERO_RECIBO] as const;
   const escalacion = [CampoImpuesto.VALOR_TOTAL];
-  const r = await extraer(doc, PROMPT_RECIBO_CAJA, campos, escalacion, {
+  const r = await extraer('ocr_recibo_caja', doc, PROMPT_RECIBO_CAJA, campos, escalacion, {
     [CampoImpuesto.VALOR_TOTAL]: normalizarPesos, [CampoImpuesto.FECHA_PAGO]: normalizarFecha,
     [CampoImpuesto.NUMERO_RECIBO]: textoExactoN,
   });
@@ -420,7 +480,7 @@ export async function extraerDerechoTramite(
   const prompt = hint
     ? `${PROMPT_DERECHO_TRAMITE}\n\nPISTA ESPECÍFICA DE ESTE ORGANISMO (tiene prioridad sobre las indicaciones genéricas de arriba): ${hint}`
     : PROMPT_DERECHO_TRAMITE;
-  const r = await extraer(doc, prompt, campos, escalacion, {
+  const r = await extraer('ocr_derecho_tramite', doc, prompt, campos, escalacion, {
     [CampoDerechoTramite.PLACA]: placaN,
     [CampoDerechoTramite.VALOR_TOTAL]: normalizarPesos,
     [CampoDerechoTramite.FECHA_PAGO]: normalizarFecha,
@@ -464,7 +524,7 @@ export async function extraerFacturaVenta(doc: DocumentoAAnalizar): Promise<Extr
     CampoFacturaVenta.NUMERO_DOCUMENTO, CampoFacturaVenta.TIPO_DOCUMENTO,
     CampoFacturaVenta.NOMBRES, CampoFacturaVenta.APELLIDOS, CampoFacturaVenta.RAZON_SOCIAL,
   ];
-  const r = await extraer(doc, PROMPT_FACTURA_VENTA, campos, escalacion, {
+  const r = await extraer('ocr_factura_venta', doc, PROMPT_FACTURA_VENTA, campos, escalacion, {
     [CampoFacturaVenta.PLACA]: placaN,
     [CampoFacturaVenta.VIN]: vinN,
     [CampoFacturaVenta.NUMERO_FACTURA]: textoExactoN,
@@ -499,7 +559,7 @@ export async function extraerVehiculoFacturaVenta(doc: DocumentoAAnalizar): Prom
     CampoFacturaVenta.DIRECCION, CampoFacturaVenta.MUNICIPIO, CampoFacturaVenta.DEPARTAMENTO,
   ] as const;
   const escalacion = [CampoVehiculoFacturaVenta.VIN, CampoVehiculoFacturaVenta.ANIO_VEHICULO, CampoVehiculoFacturaVenta.MARCA];
-  const r = await extraer(doc, PROMPT_FACTURA_VENTA_VEHICULO, campos, escalacion, {
+  const r = await extraer('ocr_vehiculo_factura_venta', doc, PROMPT_FACTURA_VENTA_VEHICULO, campos, escalacion, {
     [CampoVehiculoFacturaVenta.VIN]: vinFacturaN,
     [CampoVehiculoFacturaVenta.MARCA]: textoTitularN(60),
     [CampoVehiculoFacturaVenta.LINEA]: lineaN,
@@ -531,7 +591,7 @@ export async function extraerComprobanteUniversal(doc: DocumentoAAnalizar): Prom
     CampoComprobante.TIPO_DOCUMENTO, CampoComprobante.ES_COMPROBANTE_PAGO, CampoComprobante.CONCEPTO,
     CampoComprobante.VALOR_TOTAL, CampoComprobante.PLACA, CampoComprobante.VIN, CampoComprobante.ID_FLIT,
   ];
-  const r = await extraer(doc, PROMPT_COMPROBANTE_UNIVERSAL, campos, escalacion, {
+  const r = await extraer('ocr_comprobante_universal', doc, PROMPT_COMPROBANTE_UNIVERSAL, campos, escalacion, {
     [CampoComprobante.TIPO_DOCUMENTO]: tipoDocumentoComprobanteN,
     [CampoComprobante.ES_COMPROBANTE_PAGO]: booleanoN,
     [CampoComprobante.CONCEPTO]: conceptoN,

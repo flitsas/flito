@@ -19,6 +19,7 @@ import { startRetencionCron as startPesvRetencionCron, stopRetencionCron as stop
 import { startArosCron, stopArosCron } from './modules/laft/cash/aros.cron.js';
 import { startRumPurgeCron, stopRumPurgeCron } from './modules/rum/purge.cron.js';
 import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/anthropic-health.cron.js';
+import { startIaConsumoRetencionCron, stopIaConsumoRetencionCron } from './modules/ia-consumo/ia-consumo-retencion.cron.js';
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
 import { startImpuestosAnalisisCron, stopImpuestosAnalisisCron } from './modules/flito-impuestos/flito-impuestos-analisis.cron.js';
@@ -42,6 +43,7 @@ import {
 } from './modules/flito-soat/flito-soat-borrados-pendientes.cron.js';
 import { verificarCatalogoAlArrancar } from './modules/permisos/permisos.service.js';
 import { closeRedis } from './shared/redis.js';
+import { cerrarConsumoIa, vaciarConsumoIa } from './shared/ia-consumo/escritor.js';
 import { loggerFor } from './shared/logger.js';
 
 const log = loggerFor('server');
@@ -87,6 +89,8 @@ const server = app.listen(env.PORT, () => {
     startArosCron();
     startRumPurgeCron();
     startAnthropicHealthCron();
+    // Contrato ia-consumo v1 (ADR-0047): retención diaria del detalle de consumo de IA.
+    startIaConsumoRetencionCron();
     // TRAM-COMMS-02: recordatorios portal (noop si TRAM_PORTAL_REMINDER_CRON_ENABLED!=1).
     startPortalReminderCron();
     startValidacionStaleCron();
@@ -141,6 +145,8 @@ function shutdown(signal: string) {
   shuttingDown = true;
   log.info({ signal, graceMs: GRACE_MS }, 'shutdown signal recibido');
 
+  // Contrato ia-consumo v1: el registro de consumo de IA se vacía ya y otra vez al cerrar HTTP (tope 3 s).
+  void vaciarConsumoIa();
   stopReconciler();
   stopPurger();
   stopReviewCron();
@@ -158,6 +164,7 @@ function shutdown(signal: string) {
   stopArosCron();
   stopRumPurgeCron();
   stopAnthropicHealthCron();
+  stopIaConsumoRetencionCron();
   stopPortalReminderCron();
   stopValidacionStaleCron();
   stopImpuestosAnalisisCron();
@@ -186,6 +193,7 @@ function shutdown(signal: string) {
       process.exit(1);
     }
     log.info('HTTP cerrado');
+    await cerrarConsumoIa();
     try { await closeRedis(); } catch (e) { log.warn({ err: (e as Error).message }, 'redis close error'); }
     log.info('saliendo');
     process.exit(0);

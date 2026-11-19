@@ -9,10 +9,11 @@
 // Lo común es lo caro y lo delicado: bajar el PDF, leer cada página con OCR y agrupar por placa.
 // Eso vive aquí; qué se hace después con el resultado lo decide cada consumidor.
 
-import https from 'https';
 import { CampoDerechoTramite, type ExtraccionDerechoTramite } from '@operaciones/shared-types';
 import { downloadFile } from '../../services/googleDrive.js';
 import { env } from '../../config/env.js';
+import { anthropicMensajesCrudo } from '../tramites/anthropic.js';
+import { anotarConsumoIa, conContextoIa, normalizarPlacaIa, procesoIa } from '../../shared/ia-consumo/index.js';
 
 /** Tope de páginas por PDF: por encima, el coste de OCR se dispara sin aviso. */
 export const MAX_PAGINAS = 150;
@@ -135,6 +136,14 @@ export interface PdfAnalizado {
  * produce cuenta, y la página se queda fuera sin ruido.
  */
 export async function analizarPdfDeDrive(fileId: string): Promise<PdfAnalizado> {
+  // Contrato `ia-consumo` v1: todas las páginas del PDF son una operación (mismo `correlacion_id`).
+  return conContextoIa(
+    { ...procesoIa('ocr_pagina_drive'), promptCodigo: 'ocr_pagina_drive', entidadTipo: 'drive_archivo', entidadId: fileId },
+    () => analizarPdfEnContexto(fileId),
+  );
+}
+
+async function analizarPdfEnContexto(fileId: string): Promise<PdfAnalizado> {
   const { buffer, name } = await downloadFile(fileId);
   if (!name?.toLowerCase().endsWith('.pdf')) {
     throw new ProcesadorError(400, 'El archivo debe ser PDF');
@@ -158,29 +167,25 @@ export async function analizarPdfDeDrive(fileId: string): Promise<PdfAnalizado> 
     singleDoc.addPage(copiedPage);
     const b64 = Buffer.from(await singleDoc.save()).toString('base64');
 
-    const ocrBody = JSON.stringify({
-      model: 'claude-haiku-4-5-20251001', max_tokens: 500,
-      messages: [{ role: 'user', content: [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
-        { type: 'text', text: PROMPT },
-      ] }],
-    });
-
-    const ocrResult: any = await new Promise((resolve, reject) => {
-      const rq = https.request({
-        method: 'POST', hostname: 'api.anthropic.com', path: '/v1/messages',
-        headers: {
-          'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY || '',
-          'anthropic-version': '2023-06-01', 'Content-Length': Buffer.byteLength(ocrBody),
-        },
-      }, (r2) => { let d = ''; r2.on('data', (c: string) => d += c); r2.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } }); });
-      rq.setTimeout(60000, () => rq.destroy(new Error('Timeout')));
-      rq.on('error', reject); rq.write(ocrBody); rq.end();
-    });
+    // Contrato `ia-consumo` v1 (B4): cliente central. Conserva lo de antes: un intento, 60 s, el cuerpo de
+    // cualquier status y rechazo en red/timeout (que tumba el lote, como siempre).
+    const { cuerpo: ocrResult, consumoId } = await conContextoIa(
+      { archivo: { mime: 'application/pdf', paginas: 1 }, metadatos: { pagina: i + 1 } },
+      () => anthropicMensajesCrudo({
+        model: env.ANTHROPIC_MODEL_HAIKU, max_tokens: 500,
+        messages: [{ role: 'user', content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
+          { type: 'text', text: PROMPT },
+        ] }],
+      }, 'ocr', { timeoutMs: 60_000 }),
+    );
 
     const ocrText = ocrResult?.content?.[0]?.text || '';
     let datos: any = null;
     try { datos = JSON.parse(ocrText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); } catch { /* página ilegible */ }
+    anotarConsumoIa(consumoId, datos
+      ? { placa: normalizarPlacaIa(datos.placa) }
+      : ocrResult?.content ? { resultado: 'respuesta_invalida', errorCodigo: 'json_no_parseable' } : {});
 
     const valor = Number(datos?.valorTotal) || 0;
     if (datos?.placa && valor > 0 && valor <= VALOR_MAX_INDIVIDUAL) {

@@ -42,3 +42,6 @@ process.env.AUTH_SKIP_LAFT_BLOCK_CHECK = '1';
 // la suite; `permisos-exigir-funcion.test.ts` y el aserto de plantilla de `flito-derechos.test.ts`
 // la encienden a propósito.
 process.env.PERMISOS_SKIP_BITACORA_INTENTOS = '1';
+// Contrato ia-consumo v1 (ADR-0047): el registro de consumo de IA se apaga en toda la suite para que su
+// escritor en segundo plano no consuma los mocks de `db`. Sus tests lo encienden mutando `env`.
+process.env.IA_CONSUMO_LOG = 'false';
