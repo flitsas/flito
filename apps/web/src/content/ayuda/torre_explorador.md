@@ -16,6 +16,12 @@ palabras_clave:
   - soat por vencer
   - impuestos con novedad
   - derechos sin soporte
+  - logística
+  - traslados abiertos
+  - actas devueltas
+  - facturación
+  - cobertura de bolsas
+  - conciliación de boletas
 consultas:
   - qué significa una cifra de la torre de control
   - cómo se calcula un indicador del tablero
@@ -28,12 +34,16 @@ consultas:
   - qué soat vencen pronto
   - en qué estado van los soat y los impuestos
   - qué derechos de tránsito no tienen soporte
-version: 1.2
+  - qué traslados llevan demasiado tiempo abiertos
+  - por qué volvieron las actas sin entregarse
+  - qué facturas tienen error en siigo o la dian
+  - qué bolsas se están quedando sin saldo
+version: 1.3
 fecha: 2026-11-19
 ---
 ## Qué es
 
-La **Torre de Control** reúne las cifras con las que la gerencia sigue la operación: **Resumen 360°**, **Comercial**, **Operativa**, **Productos**, **Financiera** y el **Explorador**. Cada cifra le dice qué es en una frase, le explica **¿Cómo se calcula?** y, con **Ver los N**, le abre la lista de los registros que la forman. La cifra y la lista salen de la misma regla, así que el número de la tarjeta y el total de la lista coinciden.
+La **Torre de Control** reúne las cifras con las que la gerencia sigue la operación: **Resumen 360°**, **Comercial**, **Operativa**, **Productos**, **Logística**, **Financiera** y el **Explorador**. Cada cifra le dice qué es en una frase, le explica **¿Cómo se calcula?** y, con **Ver los N**, le abre la lista de los registros que la forman. La cifra y la lista salen de la misma regla, así que el número de la tarjeta y el total de la lista coinciden.
 
 ## Para quién
 
@@ -41,7 +51,7 @@ Gerencia general, gerencia comercial, gerencia financiera, el Administrador y el
 
 ## Cómo se entra
 
-Menú **Torre de Control**, ítem **Resumen 360°** (o **Comercial**, **Operativa**, **Productos**, **Financiera** o **Explorador**). Dentro de la Torre, las pestañas de arriba llevan de una página a otra. **Umbrales y alertas** está en el menú **Administración**. La lista de registros de una cifra no es un ítem del menú: se abre desde la cifra.
+Menú **Torre de Control**, ítem **Resumen 360°** (o **Comercial**, **Operativa**, **Productos**, **Logística**, **Financiera** o **Explorador**). Dentro de la Torre, las pestañas de arriba llevan de una página a otra. **Umbrales y alertas** está en el menú **Administración**. La lista de registros de una cifra no es un ítem del menú: se abre desde la cifra.
 
 ## Pasos
 
@@ -53,8 +63,10 @@ Menú **Torre de Control**, ítem **Resumen 360°** (o **Comercial**, **Operativ
 6. Pulse **Descargar Excel** para llevarse la lista con los mismos filtros y el mismo orden. El archivo trae una hoja con los registros y otra con la definición y los filtros aplicados. Pulse **Volver a** (por ejemplo, **Volver a Operativa**) para regresar a la página de la que vino.
 7. En **Operativa**, las pestañas **Resumen**, **Inventario por estado** y **Soportes** cambian lo que ve debajo de los filtros. **Inventario por estado** es una foto de hoy: una fila por estado del trámite y una columna por los días que lleva en él (**0–2 días**, **3–7 días**, **8–15 días**, **16–30 días**, **Más de 30**), con sus totales. Cada número abre la lista de esos trámites; una casilla con «—» no tiene trámites. El **▲** marca los que pasan el umbral de su estado, como explica la nota bajo la tabla. Con **Organismo** mira solo los de un organismo, sin cambiar los demás filtros; **Todos** vuelve a mostrarlos todos. **Soportes** cuenta los trámites aprobados del periodo, cuántos tienen soportes incompletos y, por cada soporte (**SOAT**, **Impuesto**, **Derecho**), cuántos no lo tienen, con **Ver los N** para abrir su lista. Desde esas listas, **Volver a** le regresa a la misma pestaña. En estas dos pestañas no hay **Exportar a Excel**: descargue la lista que abre cada número. ![Inventario por estado de Operativa: filas por estado, columnas por días en el estado, totales, el ▲ en las casillas que pasan el umbral y el selector Organismo](./torre_explorador/04-inventario-por-estado.png)
 8. En **Productos**, las pestañas **SOAT**, **Impuestos** y **Derechos** muestran en qué va cada producto y qué está detenido. **SOAT** trae los SOAT sin soporte fuera de ANS, los que vencen pronto, los que no tienen la vigencia verificada en el RUNT y los pagados en el periodo, y debajo la tabla de SOAT por estado y la de solicitudes incompletas por motivo. **Impuestos** trae los sin soporte fuera de ANS, los que tienen diferencia entre lo liquidado y lo pagado, los que tienen la dirección por revisar (la dirección no se muestra) y los pagados, con la tabla por estado y la de los que tienen novedad, por motivo. **Derechos** trae los pagados en el periodo, los que no tienen soporte y los recibos que siguen sin asociar a un trámite. Cada cifra y cada fila de las tablas tiene **Ver los N** para abrir su lista; la fila **Otros** y las filas en 0 no lo tienen. Desde esas listas, **Volver a Productos** le regresa a la misma pestaña. **Exportar a Excel** descarga las tres pestañas. ![Productos, pestaña SOAT: las cuatro cifras con su frase, la tabla de SOAT por estado con Ver los N en cada fila y las solicitudes incompletas por motivo](./torre_explorador/05-productos-soat.png)
-9. En el **Explorador**, cuando agrupa una métrica (por compañía, por mes…), cada fila del resultado trae **Ver los N registros**, y en la tabla cruzada cada celda con número abre los registros de ese cruce. La lista dice **Volver al Explorador**. ![Resultado del Explorador agrupado por compañía con el enlace Ver los N registros en cada fila](./torre_explorador/03-explorador-ver-registros.png)
-10. En **Umbrales y alertas** se cambian los límites que usan las cifras (por ejemplo, los días para que un borrador cuente como abandonado). Al cambiarlos, las frases y la regla de **¿Cómo se calcula?** muestran el valor nuevo.
+9. En **Logística**, la pestaña **Traslados** muestra los traslados abiertos hoy (con cuántos van por cada ruta) y los que llevan abiertos más días de los permitidos, y debajo la tabla de traslados por estado. **Entregas** muestra las actas pendientes de entrega, el porcentaje de entregas al primer intento (con **Ver las N con reintento** para abrir las que necesitaron otro viaje), las actas devueltas y los viajes adicionales, y la tabla de devueltas por motivo. Aquí no se muestran el mensajero, quien recibe ni la dirección de entrega. **Volver a Logística** le regresa a la misma pestaña.
+10. En **Financiera**, las pestañas **Resumen**, **Facturación** y **Bolsas** cambian lo que ve debajo de los filtros, y **Exportar a Excel** descarga la pestaña que está mirando. **Facturación** abre con lo facturado en el periodo (**Ver las N** abre esas facturas) y muestra el trabajo sin facturar, las facturas con error de Siigo, las rechazadas por la DIAN y la cola de facturación detenida (separada en reintento vencido e intentos agotados, cada parte con su **Ver**), y la tabla de lo que falta por facturar por compañía. **Bolsas** muestra las bolsas en crítico (y cuántas en atención o agotadas), las agotadas y los movimientos del periodo; la tabla **Cobertura por bolsa** dice para cuántos días alcanza el saldo de cada bolsa con su semáforo (**Crítico**, **Atención** o **Al día**) y **Ver los N movimientos** abre los movimientos de esa bolsa. Debajo, **Conciliación de boletas** cuenta las boletas de pago al organismo sin conciliar y con diferencia. ![Financiera, pestaña Bolsas: la tabla Cobertura por bolsa con saldo, consumo diario, días de cobertura, el semáforo con texto y el enlace Ver los N movimientos de cada bolsa](./torre_explorador/06-financiera-bolsas.png)
+11. En el **Explorador**, cuando agrupa una métrica (por compañía, por mes…), cada fila del resultado trae **Ver los N registros**, y en la tabla cruzada cada celda con número abre los registros de ese cruce. La lista dice **Volver al Explorador**. ![Resultado del Explorador agrupado por compañía con el enlace Ver los N registros en cada fila](./torre_explorador/03-explorador-ver-registros.png)
+12. En **Umbrales y alertas** se cambian los límites que usan las cifras (por ejemplo, los días para que un borrador cuente como abandonado). Al cambiarlos, las frases y la regla de **¿Cómo se calcula?** muestran el valor nuevo.
 
 > [!NOTA]
 > La placa que escribe en el filtro de la lista no se guarda en la dirección de la página ni en el navegador: al recargar la lista, el filtro de placa se borra.
@@ -66,13 +78,14 @@ Menú **Torre de Control**, ítem **Resumen 360°** (o **Comercial**, **Operativ
 
 - **Cargando:** el tablero muestra el contorno de sus tarjetas; la lista muestra su título y unas filas grises. Al cambiar de página o de filtro, la tabla anterior se atenúa mientras llega la nueva.
 - **Error:** un mensaje con **Reintentar**. Si la consulta tarda demasiado, le pide acotar el periodo o agregar un filtro.
-- **Vacío:** el tablero dice que no hay trámites en el periodo y ofrece **Limpiar filtros**. **Inventario por estado** dice que no hay trámites en curso hoy o, con un organismo elegido, que ese organismo no tiene y ofrece **Ver todos los organismos**; **Soportes** dice que no hay trámites aprobados en el periodo. En **Productos**, **SOAT** e **Impuestos** dicen que no hay nada en gestión ni pagado en el periodo y ofrecen **Limpiar filtros**; **Derechos** muestra sus tres cifras en 0, cada una con su frase. Una lista sin registros dice por qué con su propia frase (por ejemplo, que hoy ningún borrador pasa del umbral). Si está vacía por sus filtros, ofrece **Quitar filtros**. Una cifra en 0 no tiene **Ver**.
+- **Vacío:** el tablero dice que no hay trámites en el periodo y ofrece **Limpiar filtros**. **Inventario por estado** dice que no hay trámites en curso hoy o, con un organismo elegido, que ese organismo no tiene y ofrece **Ver todos los organismos**; **Soportes** dice que no hay trámites aprobados en el periodo. En **Productos**, **SOAT** e **Impuestos** dicen que no hay nada en gestión ni pagado en el periodo y ofrecen **Limpiar filtros**; **Derechos** muestra sus tres cifras en 0, cada una con su frase. En **Logística** y en las pestañas **Facturación** y **Bolsas** de **Financiera**, cada pestaña dice qué le falta y ofrece **Limpiar filtros**; en **Bolsas**, aunque no haya bolsas activas, la conciliación de boletas se sigue mostrando. Una lista sin registros dice por qué con su propia frase (por ejemplo, que hoy ningún borrador pasa del umbral). Si está vacía por sus filtros, ofrece **Quitar filtros**. Una cifra en 0 no tiene **Ver**.
 - **Lleno:** las tarjetas con su frase y los bloques de cada página; la lista con su tabla y su paginación.
 - **Lista no disponible:** si abre un enlace viejo o modificado, la página dice que la lista no existe y ofrece **Ir al Resumen 360°**.
 
 ## Qué no hace
 
 - No cambia trámites: desde la Torre se mira y se descarga; la gestión se hace en cada módulo.
+- No muestra la cartera: FLITO no registra el pago de las facturas emitidas en Siigo.
 - No muestra nombre ni cédula de compradores o propietarios en las listas.
 - No guarda la placa que filtra: ni en la dirección de la página, ni al recargar.
 - Las cifras en pesos solo aparecen con el permiso de ver dinero; sin él se ven con «—» y la lista no trae la columna de valor.

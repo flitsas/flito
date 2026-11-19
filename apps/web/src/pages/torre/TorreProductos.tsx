@@ -4,19 +4,17 @@
 // cada fila abre su lista en el Detalle universal y «Volver a Productos» regresa a la pestaña de origen. UNA petición
 // (`POST /flito/torre/tableros/productos`) para las tres pestañas; la primaria exporta el Excel del área.
 import type {
-  CifrasDerechosTorre, CifrasImpuestosTorre, CifrasSoatTorre, FilaTablaProductosTorre, PestanaProductosTorre,
-  TablaProductosTorre, TableroProductos,
+  CifrasDerechosTorre, CifrasImpuestosTorre, CifrasSoatTorre, PestanaProductosTorre, TableroProductos,
 } from '@operaciones/shared-types';
 import { useSearchParams } from 'react-router-dom';
-import DataTable, { type ColumnaTabla } from '../../components/flit/DataTable';
 import { ErrorVista, Vacio } from '../../components/flit/Cargador';
 import GradientButton from '../../components/flit/GradientButton';
 import Pestanas from '../../components/flit/Pestanas';
-import StatusChip, { type ChipTone } from '../../components/flit/StatusChip';
-import PaginaTorre, { BloqueTorre, REJILLA_KPI, useTorre } from '../../components/torre/PaginaTorre';
-import { ExportarTablero, notaFiltros, useTablero } from '../../components/torre/MoldeTablero';
-import KpiExplicable, { EnlaceDestino } from '../../components/torre/KpiExplicable';
-import { conteo, pesos } from '../../components/torre/formatoTorre';
+import PaginaTorre, { REJILLA_KPI, useTorre } from '../../components/torre/PaginaTorre';
+import { ExportarTablero, useTablero } from '../../components/torre/MoldeTablero';
+import KpiExplicable from '../../components/torre/KpiExplicable';
+import TablaArea from '../../components/torre/TablaAreaTorre';
+import { conteo } from '../../components/torre/formatoTorre';
 import { VISTAS_ORIGEN, type VistaProductosTorre } from '../../lib/torreDetalle';
 
 type VistaProductos = 'soat' | VistaProductosTorre;
@@ -114,7 +112,7 @@ function Contenido({ d, vista, onLimpiar }: { d: TableroProductos; vista: VistaP
       {vista === 'impuestos' && <KpisImpuestos p={d.impuestos} />}
       {vista === 'derechos' && <KpisDerechos p={d.derechos} />}
       {d[vista].tablas.map((t, i) => (
-        <TablaProductos key={`${t.conjunto}-${t.dimension}`} t={t} principal={i === 0} dinero={d.dineroVisible} vista={v} />
+        <TablaArea key={`${t.conjunto}-${t.dimension}`} t={t} principal={i === 0} dinero={d.dineroVisible} volver="productos" vista={v} />
       ))}
     </div>
   );
@@ -171,64 +169,3 @@ function KpisDerechos({ p }: { p: PestanaProductosTorre<CifrasDerechosTorre> }) 
     </div>
   );
 }
-
-const CABECERA_DIMENSION: Record<TablaProductosTorre['dimension'], string> = { estado: 'Estado', motivo: 'Motivo', organismo: 'Secretaría' };
-/** Sustantivo de la columna de conteo y su artículo para «Ver los/las N». */
-const SUSTANTIVO: Partial<Record<TablaProductosTorre['conjunto'], { cabecera: string; femenino: boolean }>> = {
-  soat_por_estado: { cabecera: 'SOAT', femenino: false },
-  soat_incompletas_abiertas: { cabecera: 'Solicitudes', femenino: true },
-  impuestos_por_estado: { cabecera: 'Impuestos', femenino: false },
-  impuestos_rechazados_periodo: { cabecera: 'Impuestos', femenino: false },
-  derechos_pendientes_sin_resolver: { cabecera: 'Recibos', femenino: false },
-};
-
-/** Tono del estado del producto (pendiente → solicitado → con novedad → pagado). El texto lo trae el API. */
-function tonoEstado(clave: string | null): ChipTone {
-  const k = (clave ?? '').toLowerCase();
-  if (k.includes('pagad')) return 'success';
-  if (k.includes('novedad') || k.includes('rechaz')) return 'warning';
-  if (k.includes('solicit') || k.includes('enviad') || k.includes('proceso')) return 'active';
-  return 'neutral';
-}
-
-type FilaVista = FilaTablaProductosTorre & { total?: boolean };
-
-function TablaProductos({ t, principal, dinero, vista }: { t: TablaProductosTorre; principal: boolean; dinero: boolean; vista?: string }) {
-  const s = SUSTANTIVO[t.conjunto] ?? { cabecera: 'Registros', femenino: false };
-  // `valor` undefined = la tabla no lleva valor; null = sin permiso de dinero: en ambos casos la columna no se pinta.
-  const conValor = t.conValor && dinero && t.total.valor != null;
-  const foto = t.filtrosIgnorados.includes('rango');
-  const columnas: ColumnaTabla<FilaVista>[] = [
-    {
-      key: 'etiqueta', header: CABECERA_DIMENSION[t.dimension],
-      render: (f) => (f.total ? <strong>Total</strong>
-        : t.dimension === 'estado' && f.clave !== '__otros' ? <StatusChip tone={tonoEstado(f.clave)}>{f.etiqueta}</StatusChip> : f.etiqueta),
-    },
-    { key: 'n', header: s.cabecera, align: 'right', render: (f) => (f.total ? <strong className="tabular-nums">{conteo(f.n)}</strong> : <span className="tabular-nums">{conteo(f.n)}</span>) },
-    ...(conValor ? [{
-      key: 'valor', header: 'Valor', align: 'right' as const,
-      render: (f: FilaVista) => <span className="tabular-nums">{f.valor == null ? '—' : pesos(f.valor)}</span>,
-    }] : []),
-    {
-      key: 'ver', header: <span className="sr-only">Registros</span>, acciones: true,
-      render: (f) => (
-        <EnlaceDestino destino={f.destino} cantidad={f.n} volver="productos" vista={vista}
-          nombre={f.total ? t.titulo : `${t.titulo}: ${f.etiqueta}`} texto={`Ver ${s.femenino ? 'las' : 'los'} ${conteo(f.n)}`} />
-      ),
-    },
-  ];
-  const filas: FilaVista[] = t.filas.length ? [...t.filas, { ...t.total, total: true }] : [];
-  return (
-    <BloqueTorre idPrueba={principal ? 'tabla-principal' : `tabla-${t.conjunto}`} titulo={t.titulo} subtitulo={notaFiltros(t)}
-      accion={foto ? <StatusChip tone="neutral">Foto de hoy</StatusChip> : undefined}>
-      <DataTable ariaLabel={t.titulo} columnas={columnas} filas={filas} getKey={(f) => (f.total ? '__total' : f.clave ?? '__sin')}
-        emptyMessage={MENSAJE_VACIO[t.conjunto] ?? 'Sin registros con estos filtros.'} />
-    </BloqueTorre>
-  );
-}
-
-const MENSAJE_VACIO: Partial<Record<TablaProductosTorre['conjunto'], string>> = {
-  soat_incompletas_abiertas: 'No hay solicitudes incompletas abiertas.',
-  impuestos_rechazados_periodo: 'No se rechazó ningún impuesto en el periodo.',
-  derechos_pendientes_sin_resolver: 'No hay pagos de derechos pendientes.',
-};

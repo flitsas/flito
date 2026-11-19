@@ -1487,6 +1487,90 @@ export const TORRE_PRODUCTOS_DEMO = (() => {
   };
 })();
 
+/** Logística y Financiera por pestañas (B4). Sin datos del titular: estados, motivos (clave opaca), compañías demo y conteos. */
+const destinoDemoB4 = (conjunto: string, segmentos: { dimension: string; valores: (string | null)[] }[] = []) => ({ tipo: 'conjunto', origen: { tipo: 'conjunto', conjunto }, segmentos });
+const kpiDemoB4 = (frase: string, conjunto: string, definicion: string, extra: Record<string, unknown> = {}) => ({ frase, definicion, destino: destinoDemoB4(conjunto), ...extra });
+function tablaDemoB4(titulo: string, conjunto: string, dimension: string, filas: [string, string, number, number?][], foto: boolean) {
+  const conValor = filas.some((f) => f[3] !== undefined);
+  const fs = filas.map(([clave, etiqueta, n, valor]) => ({
+    clave, etiqueta, n, ...(valor !== undefined ? { valor } : {}),
+    destino: n === 0 || clave === '__otros' ? { tipo: 'ninguno' } : destinoDemoB4(conjunto, [{ dimension, valores: [clave] }]),
+  }));
+  return {
+    titulo, dimension, conjunto, definicion: titulo, conValor, filas: fs, filtrosIgnorados: foto ? ['rango'] : [],
+    total: { clave: null, etiqueta: 'Total', n: fs.reduce((a, f) => a + f.n, 0), ...(conValor ? { valor: filas.reduce((a, f) => a + (f[3] ?? 0), 0) } : {}), destino: destinoDemoB4(conjunto) },
+  };
+}
+export const TORRE_LOGISTICA_DEMO = {
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: true, generadoEn: '2026-10-21T15:00:00.000Z',
+  traslados: {
+    cifras: { abiertos: 58, abiertosMasDeN: 6 }, umbralDias: 3, rutasAbiertas: [{ origen: 'sede', destino: 'ot', etiqueta: 'Sede → organismo', n: 40 }],
+    explicaciones: {
+      abiertos: kpiDemoB4('58 traslados siguen abiertos hoy.', 'traslados_por_estado', 'Traslados registrados que todavía no se cierran como recibidos. No depende del periodo.', { desglose: [{ etiqueta: 'Sede → organismo', valor: 40 }, { etiqueta: 'Organismo → sede', valor: 18 }] }),
+      abiertosMasDeN: kpiDemoB4('6 traslados llevan abiertos más de 3 días.', 'traslados_abiertos_mas_de_n', 'Traslados abiertos hace más de 3 días. No depende del periodo.', { desglose: [{ etiqueta: 'Más de 6 días', valor: 2, destino: destinoDemoB4('traslados_abiertos_mas_de_n', [{ dimension: 'severidad', valores: ['critico'] }]) }] }),
+    },
+    tablas: [tablaDemoB4('Traslados por estado', 'traslados_por_estado', 'estado', [['registrado', 'Registrado', 31], ['en_ruta', 'En camino', 27], ['recibido', 'Recibido', 140]], true)],
+  },
+  entregas: {
+    cifras: { pendientesEntrega: 23, entregasPeriodo: 240, primerIntento: 221, primerIntentoPct: 92.1, devueltasPeriodo: 12, viajesAdicionales: 26, tramitesConViajes: 19 },
+    explicaciones: {
+      pendientesEntrega: kpiDemoB4('23 actas siguen pendientes de entrega hoy.', 'actas_pendientes_entrega', 'Actas sin fecha de entrega ni devolución. No depende del periodo.'),
+      primerIntento: kpiDemoB4('De las 240 entregas del periodo, 221 se hicieron al primer intento; 19 necesitaron otro viaje.', 'entregas_logistica', 'Trámites aprobados en el periodo con logística cobrada.', { desglose: [{ etiqueta: 'Con otro viaje', valor: 19, destino: destinoDemoB4('entregas_logistica', [{ dimension: 'nivel', valores: ['con_viajes'] }]) }] }),
+      devueltasPeriodo: kpiDemoB4('12 actas volvieron sin entregarse en el periodo. El motivo más común: Destinatario ausente (5).', 'actas_devueltas_periodo', 'Actas con devolución registrada en el periodo.'),
+      viajesAdicionales: kpiDemoB4('26 viajes adicionales en el periodo, en 19 trámites.', 'viajes_adicionales_periodo', 'Viajes después del primero, dentro del periodo.'),
+    },
+    tablas: [tablaDemoB4('Devueltas en el periodo, por motivo', 'actas_devueltas_periodo', 'motivo', [['a41c9e07d2b5f863', 'Destinatario ausente', 5], ['0be27c5d9f14a368', 'Dirección no encontrada', 4], ['__otros', 'Otros', 3]], false)],
+  },
+};
+export const TORRE_FACTURACION_DEMO = {
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: true, generadoEn: '2026-10-21T15:00:00.000Z',
+  cifras: { sinFacturar: 63, sinFacturarValor: 48_000_000, conError: 9, rechazadasDian: 3, colaAtascada: 5, facturadasPeriodo: 180, facturadoValor: 212_000_000 },
+  explicaciones: {
+    sinFacturar: kpiDemoB4('63 trámites aprobados en el periodo siguen sin factura. Valor estimado: $ 48.000.000.', 'sin_facturar', 'Trámites aprobados en el periodo que aún no tienen factura.'),
+    conError: kpiDemoB4('9 facturas tienen un error de Siigo o quedaron para revisión.', 'facturas_con_error', 'Facturas con error de Siigo o en revisión. No depende del periodo.'),
+    rechazadasDian: kpiDemoB4('3 facturas fueron rechazadas por la DIAN y siguen sin corregir.', 'facturas_rechazadas_dian', 'Último estado ante la DIAN: rechazada. No depende del periodo.'),
+    colaAtascada: kpiDemoB4('5 trámites esperan en la cola de facturación: 3 con el reintento vencido y 2 con los intentos agotados.', 'cola_facturacion_atascada', 'Cola de facturación detenida. No depende del periodo.', {
+      desglose: [
+        { etiqueta: 'Reintento vencido', valor: 3, destino: destinoDemoB4('cola_facturacion_atascada', [{ dimension: 'estado', valores: ['vencido'] }]) },
+        { etiqueta: 'Intentos agotados', valor: 2, destino: destinoDemoB4('cola_facturacion_atascada', [{ dimension: 'estado', valores: ['agotado'] }]) },
+      ],
+    }),
+    facturadasPeriodo: kpiDemoB4('En el periodo se facturaron $ 212.000.000 en 180 facturas.', 'facturado_periodo', 'Facturas emitidas en el periodo.'),
+  },
+  tablas: [tablaDemoB4('Sin facturar por compañía', 'sin_facturar', 'compania', [['1', EMPRESAS_DEMO[0], 31, 24_100_000], ['2', EMPRESAS_DEMO[1], 18, 13_600_000], ['3', EMPRESAS_DEMO[2 % EMPRESAS_DEMO.length], 14, 10_300_000]], false)],
+};
+export const TORRE_BOLSAS_DEMO = {
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: true, generadoEn: '2026-10-21T15:00:00.000Z',
+  cifras: {
+    activas: 14, enCritico: 3, enAtencion: 2, criticasConSaldo: 2, agotadas: 1, movimientosPeriodo: 412, recargas: 50, consumos: 362,
+    recargasValor: 180_000_000, consumosValor: 166_000_000, boletasSinConciliar: 17, boletasConDiferencia: 4,
+  },
+  explicaciones: {
+    enCritico: kpiDemoB4('3 bolsas alcanzan para menos de 5 días al ritmo de los últimos 30.', 'bolsas_cobertura', 'Saldo de hoy dividido entre el consumo diario de los últimos 30 días. No depende del periodo.', {
+      desglose: [
+        { etiqueta: 'En atención', valor: 2, destino: destinoDemoB4('bolsas_cobertura', [{ dimension: 'severidad', valores: ['atencion'] }]) },
+        { etiqueta: 'Agotadas', valor: 1, destino: destinoDemoB4('bolsas_agotadas') },
+      ],
+    }),
+    agotadas: kpiDemoB4('1 bolsa activa está sin saldo.', 'bolsas_agotadas', 'Bolsas activas con saldo cero o negativo hoy. No depende del periodo.'),
+    movimientosPeriodo: kpiDemoB4('412 movimientos en el periodo: $ 180.000.000 en recargas y $ 166.000.000 en consumos.', 'movimientos_bolsa_periodo', 'Recargas, consumos y ajustes del periodo.', { desglose: [{ etiqueta: 'Recargas', valor: 50 }, { etiqueta: 'Consumos', valor: 362 }] }),
+    boletasSinConciliar: kpiDemoB4('17 boletas de pago al organismo aún no se cruzan con sus trámites.', 'boletas_sin_conciliar', 'Boletas sin conciliar.'),
+    boletasConDiferencia: kpiDemoB4('4 boletas tienen diferencia entre el total declarado y el cruzado.', 'boletas_con_diferencia', 'Boletas con diferencia.'),
+  },
+  cobertura: {
+    filtrosIgnorados: ['rango', 'organismos', 'departamentos', 'tiposTramite', 'flitEstados'], umbralCriticoDias: 5, umbralAtencionDias: 10,
+    filas: ([
+      ['3f0c2a5e-8b1d-4c7a-9e21-6d4f0b8a1c33', EMPRESAS_DEMO[0], 2_800_000, 1_400_000, 2, 'critico', 38],
+      ['7a9e1c44-2d3b-4f6e-8a10-c5b2d9e0f117', EMPRESAS_DEMO[1], 0, 600_000, 0, 'critico', 21],
+      ['c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f', EMPRESAS_DEMO[2 % EMPRESAS_DEMO.length], 5_400_000, 700_000, 7.7, 'atencion', 44],
+      ['0f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f', 'Concesionario Demo Oriente', 9_000_000, 0, null, 'ok', 0],
+    ] as const).map(([bolsaId, compania, saldo, consumoDiario, diasCobertura, severidad, movimientos], i) => ({
+      bolsaId, companiaId: i + 1, compania, saldo, consumoDiario, diasCobertura, severidad, movimientos,
+      destino: movimientos ? destinoDemoB4('movimientos_bolsa_periodo', [{ dimension: 'bolsa', valores: [bolsaId] }]) : { tipo: 'ninguno' },
+    })),
+  },
+};
+
 /** La lista de una cifra: una fila por placa del registro demo. `origen` y `segmentos` los pone el spec. */
 export const TORRE_DETALLE_DEMO = {
   definicion: { etiqueta: 'Borradores abandonados', definicion: TORRE_DEF_BORRADOR, fechaBase: null, campoFecha: 'fecha_creacion' },
@@ -1629,6 +1713,9 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   TORRE_DETALLE_DEMO,
   TORRE_METRICA_DEMO,
   TORRE_PRODUCTOS_DEMO,
+  TORRE_LOGISTICA_DEMO,
+  TORRE_FACTURACION_DEMO,
+  TORRE_BOLSAS_DEMO,
 };
 
 // ── Interceptación de /api ───────────────────────────────────────────────────

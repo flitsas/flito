@@ -33,7 +33,7 @@ function irABloque(bloque: string) {
 }
 
 export default function KpiExplicable({
-  label, value, explicacion, cantidad, verEtiqueta, nombreLista, volver, vista, pendiente, hintSinExplicacion, children,
+  label, value, explicacion, cantidad, verEtiqueta, nombreLista, volver, vista, pendiente, hintSinExplicacion, children, pie,
 }: {
   label: string;
   value: ReactNode;
@@ -51,6 +51,8 @@ export default function KpiExplicable({
   /** Si el API aún no trae la explicación de esta cifra: la pista de antes. */
   hintSinExplicacion?: string;
   children?: ReactNode;
+  /** Bajo la frase: el desglose con sus propios enlaces (`DesgloseCifra`). */
+  pie?: ReactNode;
 }) {
   const puedeVer = usePuedeVerDetalle();
   const disc = useComoSeCalcula();
@@ -68,6 +70,7 @@ export default function KpiExplicable({
         {explicacion && (
           <div className="flex flex-1 flex-col gap-1">
             <p className="m-0 text-xs leading-snug text-[color:var(--color-text-secondary)]" data-torre="frase">{explicacion.frase}</p>
+            {pie}
             <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-2" data-torre="kpi-acciones">
               <BotonComoSeCalcula {...disc} />
               {ruta && (

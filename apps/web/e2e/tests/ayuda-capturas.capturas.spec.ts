@@ -127,6 +127,7 @@ import {
   TORRE_OPERATIVA_DEMO,
   TORRE_INVENTARIO_DEMO,
   TORRE_PRODUCTOS_DEMO,
+  TORRE_BOLSAS_DEMO,
 } from '../helpers/datos-demo';
 import { accion, arbolRol, codigosDe, elemento, item, opcional, type NodoDef } from '../helpers/arbolPermisos';
 
@@ -1192,6 +1193,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       [/\/api\/flito\/torre\/tableros\/operativa$/, () => ({ body: TORRE_OPERATIVA_DEMO })],
       [/\/api\/flito\/torre\/tableros\/operativa\/inventario$/, () => ({ body: TORRE_INVENTARIO_DEMO })],
       [/\/api\/flito\/torre\/tableros\/productos$/, () => ({ body: TORRE_PRODUCTOS_DEMO })],
+      [/\/api\/flito\/torre\/tableros\/financiera\/bolsas$/, () => ({ body: TORRE_BOLSAS_DEMO })],
       [/\/api\/flito\/torre\/detalle\/consultar$/, (route) => {
         const c = route.request().postDataJSON() as { origen: unknown; segmentos?: unknown[] };
         return { body: { ...TORRE_DETALLE_DEMO, origen: c.origen, segmentos: c.segmentos ?? [] } };
@@ -1201,7 +1203,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     const conTorre = {
       ...ADMIN_DEMO,
       funciones: [
-        ...FUNCIONES_POR_ROL.admin, 'torre.tablero_operativo.ver', 'torre.tablero_productos.ver', 'torre.metricas.consultar', 'torre.metricas.exportar',
+        ...FUNCIONES_POR_ROL.admin, 'torre.tablero_operativo.ver', 'torre.tablero_productos.ver', 'torre.tablero_financiero.ver', 'torre.metricas.consultar', 'torre.metricas.exportar',
         'torre.placa.buscar', 'torre.detalle.ver', 'torre.detalle.exportar',
       ],
     };
@@ -1260,7 +1262,17 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '05-productos-soat', productos);
     await sinBarraProd();
 
-    comprobarCierre(api, dir, ['01-cifra-explicada.png', '02-lista-de-registros.png', '03-explorador-ver-registros.png', '04-inventario-por-estado.png', '05-productos-soat.png']);
+    // Paso 10 — Financiera › Bolsas: la cobertura por bolsa con su semáforo y «Ver los N movimientos».
+    await page.goto('/flito/torre/financiera?vista=bolsas');
+    const bolsas = page.locator('[data-torre="tabla-principal"]');
+    await expect(bolsas.getByRole('link', { name: /Ver los 38 movimientos/ })).toBeVisible();
+    await bolsas.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    const sinBarraBol = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '06-financiera-bolsas', bolsas);
+    await sinBarraBol();
+
+    comprobarCierre(api, dir, ['01-cifra-explicada.png', '02-lista-de-registros.png', '03-explorador-ver-registros.png', '04-inventario-por-estado.png', '05-productos-soat.png', '06-financiera-bolsas.png']);
   });
 
   // HU #13775 — Organismos de tránsito: tabla y las tres pestañas de Editar. No se guarda nada.

@@ -1,6 +1,12 @@
 // Torre de Control (Épica #14590) — tablero Financiero (spec UX §7.3), con el molde de Comercial. Sin la función
 // de dinero la API manda los valores en `null` (`dineroVisible: false`): se muestran como «—» y el margen se calla.
-import { SERVICIOS_MARGEN_TORRE, type ServicioMargenTorre, type TableroFinanciero } from '@operaciones/shared-types';
+import {
+  SERVICIOS_MARGEN_TORRE, type ServicioMargenTorre, type TableroBolsas, type TableroFacturacion, type TableroFinanciero,
+} from '@operaciones/shared-types';
+import { useSearchParams } from 'react-router-dom';
+import Pestanas from '../../components/flit/Pestanas';
+import { Bolsas, Facturacion, esVacioBolsas, esVacioFacturacion } from '../../components/torre/SubvistasFinanciera';
+import { VISTAS_ORIGEN, type VistaFinancieraTorre } from '../../lib/torreDetalle';
 import DataTable, { type ColumnaTabla } from '../../components/flit/DataTable';
 import InlineAlert from '../../components/flit/InlineAlert';
 import { BarrasGrupo, Dona, SERIE_KIT } from '../../components/flit/Graficos';
@@ -20,16 +26,46 @@ const dias = (n: number) => (n <= 0 ? 'Agotada' : `${n.toLocaleString('es-CO', {
 
 const esVacio = (d: TableroFinanciero): boolean => d.bolsas.filas.length === 0 && d.sinFacturar.filas.length === 0 && d.conciliacion.total === 0 && (d.margen === null || d.margen.porServicio.every((s) => s.cobrado === 0));
 
+/** Subvistas (spec UX §B4): Resumen (el tablero de siempre) · Facturación · Bolsas. Sin cartera. */
+type VistaFinanciera = 'resumen' | VistaFinancieraTorre;
+const PESTANAS: { id: VistaFinanciera; etiqueta: string }[] = [
+  { id: 'resumen', etiqueta: 'Resumen' },
+  ...Object.entries(VISTAS_ORIGEN.financiera).map(([id, etiqueta]) => ({ id: id as VistaFinancieraTorre, etiqueta })),
+];
+const leerVista = (v: string | null): VistaFinanciera => (PESTANAS.some((p) => p.id === v) ? (v as VistaFinanciera) : 'resumen');
+
 export default function TorreFinanciera() {
   const torre = useTorre();
-  const { estado, reintentar } = useTablero<TableroFinanciero>('financiera', torre.filtros);
+  const [params, setParams] = useSearchParams();
+  const vista = leerVista(params.get('vista'));
+  const elegir = (id: string) => setParams((q) => {
+    const n = new URLSearchParams(q);
+    if (id === 'resumen') n.delete('vista'); else n.set('vista', id);
+    return n;
+  });
+  // Cada subvista pide lo suyo solo cuando está activa; la primaria exporta la subvista activa.
+  const resumen = useTablero<TableroFinanciero>('financiera', torre.filtros, vista === 'resumen');
+  const facturacion = useTablero<TableroFacturacion>('financiera/facturacion', torre.filtros, vista === 'facturacion');
+  const bolsas = useTablero<TableroBolsas>('financiera/bolsas', torre.filtros, vista === 'bolsas');
+  const exportar = vista === 'facturacion'
+    ? <ExportarTablero area="financiera/facturacion" filtros={torre.filtros} estado={facturacion.estado} esVacio={esVacioFacturacion} />
+    : vista === 'bolsas'
+      ? <ExportarTablero area="financiera/bolsas" filtros={torre.filtros} estado={bolsas.estado} esVacio={esVacioBolsas} />
+      : <ExportarTablero area="financiera" filtros={torre.filtros} estado={resumen.estado} esVacio={esVacio} />;
   return (
     <PaginaTorre torre={torre} titulo="Financiera" subtitulo="Cuánto dura el saldo de cada bolsa, qué falta por facturar y cuánto deja cada servicio."
-      acciones={<ExportarTablero area="financiera" filtros={torre.filtros} estado={estado} esVacio={esVacio} />}>
-      <MoldeTablero estado={estado} nombre="Financiero" onReintentar={reintentar} onLimpiar={torre.restablecer}
-        esVacio={esVacio}>
-        {(d) => <Contenido d={d} />}
-      </MoldeTablero>
+      acciones={exportar}>
+      <Pestanas etiqueta="Subvistas de Financiera" pestanas={PESTANAS} activa={vista} onElegir={elegir} />
+      <div role="tabpanel" aria-label={PESTANAS.find((p) => p.id === vista)?.etiqueta} className="flex min-w-0 flex-col gap-4" data-torre={`vista-${vista}`}>
+        {vista === 'resumen' && (
+          <MoldeTablero estado={resumen.estado} nombre="Financiero" onReintentar={resumen.reintentar} onLimpiar={torre.restablecer}
+            esVacio={esVacio}>
+            {(d) => <Contenido d={d} />}
+          </MoldeTablero>
+        )}
+        {vista === 'facturacion' && <Facturacion estado={facturacion.estado} onReintentar={facturacion.reintentar} onLimpiar={torre.restablecer} />}
+        {vista === 'bolsas' && <Bolsas estado={bolsas.estado} onReintentar={bolsas.reintentar} onLimpiar={torre.restablecer} />}
+      </div>
     </PaginaTorre>
   );
 }

@@ -24,6 +24,7 @@ export const ORIGENES_DETALLE = {
   operativa: { etiqueta: 'Operativa', to: '/flito/torre/operativa', slug: 'torre_operativa' },
   financiera: { etiqueta: 'Financiera', to: '/flito/torre/financiera', slug: 'torre_financiera' },
   productos: { etiqueta: 'Productos', to: '/flito/torre/productos', slug: 'torre_productos' },
+  logistica: { etiqueta: 'Logística', to: '/flito/torre/logistica', slug: 'torre_logistica' },
   explorador: { etiqueta: 'Explorador', to: '/flito/torre/explorador', slug: 'torre_explorador' },
 } as const satisfies Record<string, { etiqueta: string; to: string; slug: PageSlug }>;
 export type OrigenPantallaTorre = keyof typeof ORIGENES_DETALLE;
@@ -36,9 +37,14 @@ export const VISTAS_ORIGEN = {
   operativa: { inventario: 'Inventario por estado', soportes: 'Soportes' },
   // Productos (B3): «SOAT» es la pestaña por defecto y no viaja.
   productos: { impuestos: 'Impuestos', derechos: 'Derechos' },
+  // Logística (B4): «Traslados» es la de por defecto y no viaja. Financiera: «Resumen» tampoco.
+  logistica: { entregas: 'Entregas' },
+  financiera: { facturacion: 'Facturación', bolsas: 'Bolsas' },
 } as const satisfies Partial<Record<OrigenPantallaTorre, Record<string, string>>>;
 export type VistaOrigenTorre = keyof (typeof VISTAS_ORIGEN)['operativa'];
 export type VistaProductosTorre = keyof (typeof VISTAS_ORIGEN)['productos'];
+export type VistaLogisticaTorre = keyof (typeof VISTAS_ORIGEN)['logistica'];
+export type VistaFinancieraTorre = keyof (typeof VISTAS_ORIGEN)['financiera'];
 
 /** Etiqueta de la subvista de un origen, o `null` si ese origen no la tiene. */
 export function etiquetaVistaOrigen(origen: OrigenPantallaTorre, vista: string | null): string | null {
