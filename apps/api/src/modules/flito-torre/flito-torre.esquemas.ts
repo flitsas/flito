@@ -14,6 +14,7 @@ import {
   DIMENSIONES_SEGMENTO_TORRE, FECHAS_BASE_TORRE, METRICAS_TORRE_IDS, PRESETS_RANGO_TORRE, TOPES_TORRE, conjuntoTorre,
   esAgrupacionPermitida, esAgrupacionTemporal, esFechaBasePermitida, metricaTorre, type AgrupacionTorre,
 } from '@operaciones/shared-types';
+import { CLAVE_MOTIVO_RE } from './flito-torre.productos-sql.js';
 
 const FECHA = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'debe ser una fecha YYYY-MM-DD')
   .refine((s) => !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().startsWith(s), 'no es una fecha válida');
@@ -132,6 +133,10 @@ function refinarDetalle(c: BaseDetalle & { pagina?: number; tamano?: number }, c
       ? conjuntoTorre(o.conjunto).segmentosAdmitidos.includes(s.dimension)
       : (AGRUPACIONES_TORRE as readonly string[]).includes(s.dimension) && esAgrupacionPermitida(o.metrica, s.dimension as AgrupacionTorre);
     if (!ok) ctx.addIssue({ code: 'custom', message: 'esa dimensión no aplica a este detalle', path: ['segmentos', i, 'dimension'] });
+    // B3 (RN-TOR-P4): `motivo` viaja como clave opaca (16 hex), nunca como el texto del motivo.
+    if (s.dimension === 'motivo' && s.valores.some((v) => v != null && !CLAVE_MOTIVO_RE.test(v))) {
+      ctx.addIssue({ code: 'custom', message: 'el motivo va como clave opaca', path: ['segmentos', i, 'valores'] });
+    }
   }
   if (c.orden && !(columnas.includes(c.orden.columna) && COLUMNAS_DETALLE[c.orden.columna].ordenable)) {
     ctx.addIssue({ code: 'custom', message: 'esa columna no se puede ordenar en este detalle', path: ['orden', 'columna'] });

@@ -10,7 +10,10 @@
 //   (`poliza_ultimos`); nunca la dirección del impuesto, el VIN, `poliza_runt` ni nada de `flito_compradores`.
 // RN-TOR-P3: «hoy» es el día de Bogotá (`HOY_BOGOTA`), como el resto de la Torre.
 // RN-TOR-P4: el motivo (incompleta, novedad del impuesto, concepto del recibo) se corta a 40 caracteres sin espacios
-//   al borde: es la clave del segmento `motivo` y cabe en el tope de Zod de un valor de segmento.
+//   al borde (`motivoCorto`: lo que se lee en la etiqueta y en la columna del detalle, solo en el body autenticado).
+//   El segmento `motivo` NO lleva ese texto (puede ser texto libre del gestor y el destino viaja en la URL del SPA,
+//   AGENTS §14): lleva una clave OPACA = los 16 primeros hex del md5 del motivo corto (`claveMotivo`), que el API
+//   resuelve comparando la misma expresión. `NULL` sigue siendo `NULL` («Sin motivo»).
 import { sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import type { ColumnaDetalleId } from '@operaciones/shared-types';
 import {
@@ -33,6 +36,10 @@ export const HOY_BOGOTA = sql`(now() AT TIME ZONE 'America/Bogota')::date`;
 
 /** RN-TOR-P4. */
 export const motivoCorto = (e: AnyColumn | SQL): SQL => sql`NULLIF(btrim(left(btrim(${e}), 40)), '')`;
+/** RN-TOR-P4: la clave opaca del segmento `motivo` (16 hex; `md5(NULL)` = `NULL`). */
+export const claveMotivo = (e: AnyColumn | SQL): SQL => sql`left(md5(${motivoCorto(e)}), 16)`;
+/** Formato de la clave opaca de `motivo` (lo exige Zod). */
+export const CLAVE_MOTIVO_RE = /^[0-9a-f]{16}$/;
 
 /** Una columna que no existe en la tabla (incompletas sin secretaría, recibos sin compañía). */
 const NULO_ENTERO = sql`NULL::integer` as unknown as AnyColumn;

@@ -20,7 +20,7 @@ import {
   COLS_DERECHO, COLS_DERECHO_PENDIENTE, COLS_IMPUESTO, COLS_SOAT, COLS_SOAT_INCOMPLETA, DERECHO_SIN_SOPORTE, DESDE_DERECHOS,
   DESDE_DERECHOS_PENDIENTES, DESDE_IMPUESTOS, DESDE_SOAT, DESDE_SOAT_INCOMPLETAS, DIMS_DERECHO, DIMS_DERECHO_PENDIENTE,
   DIMS_IMPUESTO, DIMS_SOAT, DIMS_SOAT_INCOMPLETA, FECHA_DERECHO_PAGO, FECHA_IMPUESTO_CREACION,
-  FECHA_IMPUESTO_PAGO, FECHA_SOAT_CREACION, FECHA_SOAT_PAGO, HOY_BOGOTA, SOAT_PAGADO,
+  FECHA_IMPUESTO_PAGO, FECHA_SOAT_CREACION, FECHA_SOAT_PAGO, HOY_BOGOTA, SOAT_PAGADO, claveMotivo,
 } from './flito-torre.productos-sql.js';
 import type { ContextoTablero } from './flito-torre.tablero-comun.js';
 
@@ -86,7 +86,7 @@ export const CONJUNTOS_PRODUCTOS_SQL: Record<ConjuntoProductoId, ConjuntoSql> = 
       grupo: '', entidad: 'soat_incompleta', tabla: 'flito_soat_incompletas', desde: DESDE_SOAT_INCOMPLETAS,
       dims: DIMS_SOAT_INCOMPLETA, cols: COLS_SOAT_INCOMPLETA, id: sql`${flitoSoatIncompletas.id}`, tramiteId: null,
     }, 'soat_incompletas', () => [sql`${flitoSoatIncompletas.estado} = 'incompleta'`], {
-      campoFecha: 'estado actual', dimensiones: { motivo: COLS_SOAT_INCOMPLETA.motivo! },
+      campoFecha: 'estado actual', dimensiones: { motivo: claveMotivo(flitoSoatIncompletas.motivoPendiente) },
     }),
   // ── Impuestos ──
   impuestos_por_estado: conjunto('impuestos_por_estado', IMPUESTO, 'impuesto_creacion', () => [], {
@@ -94,7 +94,7 @@ export const CONJUNTOS_PRODUCTOS_SQL: Record<ConjuntoProductoId, ConjuntoSql> = 
   }),
   impuestos_rechazados_periodo: conjunto('impuestos_rechazados_periodo', IMPUESTO, 'impuesto_creacion',
     () => [sql`${I.estado} = 'con_novedad'`], {
-      fecha: FECHA_IMPUESTO_CREACION, campoFecha: 'flito_impuestos.created_at', dimensiones: { motivo: COLS_IMPUESTO.motivo! },
+      fecha: FECHA_IMPUESTO_CREACION, campoFecha: 'flito_impuestos.created_at', dimensiones: { motivo: claveMotivo(I.motivoRechazo) },
     }),
   impuestos_con_diferencia: conjunto('impuestos_con_diferencia', IMPUESTO, 'impuesto_creacion',
     () => [sql`${I.marcadoPorDiferencia} = true`], { fecha: FECHA_IMPUESTO_CREACION, campoFecha: 'flito_impuestos.created_at' }),
@@ -115,6 +115,6 @@ export const CONJUNTOS_PRODUCTOS_SQL: Record<ConjuntoProductoId, ConjuntoSql> = 
     grupo: '', entidad: 'derecho_pendiente', tabla: 'flito_derechos_pendientes', desde: DESDE_DERECHOS_PENDIENTES,
     dims: DIMS_DERECHO_PENDIENTE, cols: COLS_DERECHO_PENDIENTE, id: sql`${flitoDerechosPendientes.id}`, tramiteId: null,
   }, 'derecho_pendiente', () => [sql`${flitoDerechosPendientes.resuelto} = false`], {
-    campoFecha: 'estado actual', dimensiones: { motivo: COLS_DERECHO_PENDIENTE.motivo! },
+    campoFecha: 'estado actual', dimensiones: { motivo: claveMotivo(flitoDerechosPendientes.concepto) },
   }),
 };

@@ -7,7 +7,12 @@
 //   secretaría; las de estado muestran los 4 estados (en 0, sin destino); las demás, las 10 filas más grandes y el
 //   resto en «Otros» (sin destino: no es un segmento). La fila total es el conjunto sin segmento.
 // RN-TOR-PR3: sin `FUNCION_TORRE_DINERO`, `pagadosValor` y el `valor` de las filas van `null` y la frase no lo dice.
-// RN-TOR-PR4: solo conteos y sumas (sin placa ni datos del titular): no hay `logPiiAccess`; la lista va por el detalle.
+// RN-TOR-PR4: solo conteos y sumas; no proyecta ninguna columna del titular (ni placa), así que no hay
+//   `logPiiAccess` (regla 16: se registra la lectura de columnas personales del titular; la lista con placa va por el
+//   detalle, que sí registra). Ojo: las tablas de motivo AGRUPAN TEXTO LIBRE (`motivo_rechazo` del impuesto lo escribe
+//   el gestor). Su etiqueta legible viaja solo en este body autenticado, a quien tiene `torre.tablero_productos.ver`;
+//   la clave de la fila y el segmento del destino (que la web pone en la URL) son la clave opaca `claveMotivo`
+//   (RN-TOR-P4), nunca el texto.
 import { sql } from 'drizzle-orm';
 import {
   conjuntoTorre, fraseDeConjunto, type CifraExplicada, type ConjuntoTorreId, type DestinoCifra, type FilaTablaProductosTorre,
@@ -52,7 +57,9 @@ async function tabla(
   const def = conjuntoTorre(c);
   const k = dimension === 'organismo' ? claveAgrupacion('organismo', f.dims, undefined) : CONJUNTOS_SQL[c].dimensiones![dimension]!;
   const suma = conValor && f.cols.valor ? sql`, COALESCE(sum(${f.cols.valor}), 0)::numeric AS v` : sql`, NULL::numeric AS v`;
-  const filas = await q<{ k: string | null; n: number; v: string | null }>(sql`SELECT ${k} AS k, count(*)::int AS n${suma}
+  // Motivo: la clave es opaca (RN-TOR-P4); la etiqueta, el motivo corto (todas las filas de una clave tienen el mismo).
+  const etiquetaSql = dimension === 'motivo' ? sql`, min(${f.cols.motivo!}) AS e` : sql`, NULL::text AS e`;
+  const filas = await q<{ k: string | null; n: number; v: string | null; e: string | null }>(sql`SELECT ${k} AS k, count(*)::int AS n${suma}${etiquetaSql}
     FROM ${f.desde} WHERE ${dondeFragmento(f)} GROUP BY 1 ORDER BY 2 DESC, 1 ASC NULLS LAST`);
   const valor = (v: string | number | null): number | null | undefined => (!conValor ? undefined : ctx.dinero ? num(v) : null);
   const fila = (clave: string | null, etiqueta: string, n: number, v: string | number | null, conDestino = true): FilaTablaProductosTorre => {
@@ -63,8 +70,9 @@ async function tabla(
     if (val !== undefined) out.valor = val;
     return out;
   };
+  const textoMotivo = new Map(filas.map((r) => [r.k, r.e]));
   const etiquetaDe = (clave: string | null): string => (dimension === 'estado' ? ETIQUETA_ESTADO[clave ?? ''] ?? clave ?? 'Sin estado'
-    : dimension === 'organismo' ? nombreOrganismo(clave) : etiquetaMotivo(clave));
+    : dimension === 'organismo' ? nombreOrganismo(clave) : etiquetaMotivo(textoMotivo.get(clave) ?? null));
 
   let salida: FilaTablaProductosTorre[];
   if (dimension === 'estado') {

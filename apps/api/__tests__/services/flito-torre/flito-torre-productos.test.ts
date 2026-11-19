@@ -87,6 +87,18 @@ describe('catálogo de Productos (B3) — sin base', () => {
     for (const c of IDS) expect(proyectaPlaca({ origen: { tipo: 'conjunto', conjunto: c }, filtro }), c).toBe(true);
   });
 
+  it('Zod: el segmento `motivo` solo admite la clave opaca (16 hex) o null; el texto es 400', async () => {
+    const { consultaDetalleSchema } = await import('../../../src/modules/flito-torre/flito-torre.esquemas.js');
+    const con = (valores: (string | null)[]) => consultaDetalleSchema.safeParse({
+      origen: { tipo: 'conjunto', conjunto: 'impuestos_rechazados_periodo' }, segmentos: [{ dimension: 'motivo', valores }],
+      filtro: { rango: { desde: '2035-03-01', hasta: HOY } }, pagina: 1, tamano: 25,
+    }).success;
+    expect(con(['0123456789abcdef', null])).toBe(true);
+    expect(con(['Factura ilegible'])).toBe(false);
+    expect(con(['0123456789ABCDEF'])).toBe(false);
+    expect(con(['0123456789abcde'])).toBe(false);
+  });
+
   it('sin `torre.tablero_productos.ver` el detalle de un conjunto de Productos es 403 SIN_ORIGEN', async () => {
     const c: ConsultaDetalle = { origen: { tipo: 'conjunto', conjunto: 'soat_por_vencer' }, filtro: { rango: { desde: '2035-03-01', hasta: HOY } }, pagina: 1, tamano: 25 };
     await expect(consultarDetalle(c, { alcance: TODO, dinero: true, funciones: new Set(['torre.tablero_operativo.ver']), hoy: HOY }))
@@ -148,6 +160,9 @@ describe.skipIf(!URL_BASE)('Torre › Productos contra PostgreSQL (tx con ROLLBA
     await soat({ cia: x, estado: 'pagado', pagadoEn: '2035-03-15T15:00:00Z', valor: 500_000, poliza: 'AB123456789' });
     await soat({ cia: y, organismo: '11001', estado: 'pagado', pagadoEn: '2035-03-20T15:00:00Z', valor: 300_000 });
     await soat({ cia: x, estado: 'pagado', pagadoEn: '2035-02-10T15:00:00Z', valor: 1, venceEl: enDias(10), vigencia: 'vigente', creado: '2035-02-01T15:00:00Z' });
+    // RN-TOR-P7, bordes inclusivos: vence hoy y vence justo en el umbral (30 días) → los dos cuentan.
+    await soat({ cia: x, estado: 'pagado', pagadoEn: '2035-02-10T15:00:00Z', valor: 1, venceEl: enDias(0), vigencia: 'vigente', creado: '2035-02-01T15:00:00Z' });
+    await soat({ cia: y, estado: 'pagado', pagadoEn: '2035-02-10T15:00:00Z', valor: 1, venceEl: enDias(30), vigencia: 'vigente', creado: '2035-02-01T15:00:00Z' });
     await soat({ cia: x, estado: 'pagado', pagadoEn: '2035-02-10T15:00:00Z', valor: 1, venceEl: enDias(90), vigencia: 'vigente', creado: '2035-02-01T15:00:00Z' });
     await soat({ cia: x, estado: 'pagado', pagadoEn: '2035-02-10T15:00:00Z', valor: 1, venceEl: enDias(-1), vigencia: 'vigente', creado: '2035-02-01T15:00:00Z' });
     await soat({ cia: y, estado: 'solicitado', enviadoEn: haceDias(3) });
@@ -215,12 +230,21 @@ describe.skipIf(!URL_BASE)('Torre › Productos contra PostgreSQL (tx con ROLLBA
     expect(vistos.has('soat_sin_gestion') && vistos.has('impuesto_sin_gestion')).toBe(true);
 
     // Números esperados (las condiciones, no solo la invariante).
-    expect(t.soat.cifras).toMatchObject({ pagadosPeriodo: 2, pagadosValor: 800_000, porVencer: 1, sinGestion: 1, vigenciaNoVerificada: 2 });
+    expect(t.soat.cifras).toMatchObject({ pagadosPeriodo: 2, pagadosValor: 800_000, porVencer: 3, sinGestion: 1, vigenciaNoVerificada: 2 });
     expect(t.impuestos.cifras).toMatchObject({ pagadosPeriodo: 1, pagadosValor: 200_000, sinGestion: 1, conDiferencia: 1, direccionPendiente: 1 });
     expect(t.derechos.cifras).toMatchObject({ pagadosPeriodo: 2, pagadosValor: 160_000, sinSoporte: 2 });
     expect(t.derechos.cifras.pendientesSinResolver).toBeGreaterThanOrEqual(1);
     expect(t.soat.tablas[0]!.filas.map((f) => [f.clave, f.n])).toEqual([['pendiente', 1], ['solicitado', 1], ['con_novedad', 0], ['pagado', 2]]);
     expect(t.impuestos.tablas[1]!.filas.map((f) => [f.etiqueta, f.n])).toEqual([['Factura ilegible', 2], ['Sin motivo', 1]]);
+    // Motivo = clave OPACA (AGENTS §14): ni la fila ni el destino (que va a la URL) llevan el texto libre.
+    for (const tb of [t.soat.tablas[1]!, t.impuestos.tablas[1]!, t.derechos.tablas[1]!]) {
+      for (const f of tb.filas) {
+        if (f.clave === '__otros') continue;
+        if (f.clave !== null) expect(f.clave, f.etiqueta).toMatch(/^[0-9a-f]{16}$/);
+        if (f.destino.tipo === 'conjunto') expect(f.destino.segmentos).toEqual([{ dimension: 'motivo', valores: [f.clave] }]);
+      }
+      expect(JSON.stringify(tb.filas.map((f) => (f.destino.tipo === 'conjunto' ? f.destino.segmentos : null)))).not.toMatch(/ilegible|runt_sin_respuesta|derecho/i);
+    }
     expect(t.soat.explicaciones.pagadosPeriodo!.frase).toBe('2 SOAT pagados en el periodo. Valor pagado: $800.000.');
     expect(t.soat.explicaciones.porVencer!.definicion).toContain('30 días');
   });

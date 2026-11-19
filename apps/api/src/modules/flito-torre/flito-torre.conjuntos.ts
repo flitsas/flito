@@ -238,6 +238,8 @@ function condSegmento(c: ConjuntoSql | null, dims: DimensionesBase, fecha: Fecha
   // B3: estado del producto y motivo (el motivo admite «Sin motivo»; el estado, no).
   if ((s.dimension === 'estado' || s.dimension === 'motivo') && c?.dimensiones?.[s.dimension]) {
     if (s.dimension === 'estado' && s.valores.includes(null)) invalido('ese segmento no admite «Sin valor»');
+    // RN-TOR-P4: el motivo es la clave opaca (16 hex), nunca el texto.
+    if (s.dimension === 'motivo' && s.valores.some((v) => v != null && !/^[0-9a-f]{16}$/.test(v))) invalido('el motivo va como clave opaca');
     return enClave(c.dimensiones[s.dimension]!, s.valores);
   }
   if (s.valores.includes(null)) invalido('ese segmento no admite «Sin valor»');
