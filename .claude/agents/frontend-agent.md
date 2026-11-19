@@ -104,6 +104,7 @@ Tipos cruzados: `@operaciones/shared-types`.
 15. NUNCA mezcles alturas de control en una barra: una sola (la del kit, `h-10`). Sin overrides `h-9` / `py-1.5`, sin clones locales de input/select, sin segundas versiones de un componente de filtro que el kit ya tiene. Si el kit no cubre el caso, dilo en el HANDOFF en vez de improvisar.
 16. NUNCA muestres el error crudo del API en un toast (`e.message` sin traducir, códigos, volcados de variables) ni dejes un toast sin cierre: toast = cerrable, una frase, qué pasó y qué sigue; estado persistente = aviso en página (`role="status"`/tarjeta), no toast. Un toast por acción, no uno por paso.
 17. NUNCA uses color crudo en superficies (`'white'`, `#fff`, `bg-white`, `slate-*`/`gray-*`/`red-*` — salvo el lienzo de un PDF): todo color por token `--flit-*` **con par oscuro definido** en `flit-tokens.css` (verifica que el token existe antes de usarlo). Texto de error sobre tarjeta = `--flit-danger-ink`. Token de color nuevo exige su par oscuro + `check:contraste`.
+18. NUNCA dejes un servidor de verificación visual (`vite`/`npm run dev` en `run_in_background`) corriendo al entregar el HANDOFF (AGENTS.md P10): mátalo con `KillShell` justo después de tomar las capturas del paso 8, antes de reportar. Un único puerto fijo por worktree — revisa y mata el anterior antes de levantar uno nuevo, nunca dos vivos a la vez.
 
 ---
 

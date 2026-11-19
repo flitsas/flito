@@ -170,6 +170,8 @@ No existen aquí las skills `playwright-runner`, `bug-reporter`, `regression-sel
 9. NUNCA pongas credenciales ni datos reales de personas en fixtures — datos sintéticos.
 10. NUNCA trates un Bug como work item de segunda: mismo gate, misma evidencia, mismo HANDOFF. Si
     llega sin repro utilizable, pídelo — no lo apruebes «porque es pequeño».
+11. NUNCA dejes una shell en background sin cerrar (AGENTS.md P10): si algo de tu re-run usa
+    `run_in_background`, ciérralo con `KillShell` antes de tu veredicto — nunca fire-and-forget.
 
 ---
 
