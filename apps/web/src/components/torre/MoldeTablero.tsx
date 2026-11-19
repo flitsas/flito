@@ -16,7 +16,7 @@ import { REJILLA_2, REJILLA_KPI } from './PaginaTorre';
 
 /** Ruta bajo `/flito/torre/tableros/`: un área o la subvista de un área (`financiera/bolsas`), cada una con su `/exportar`. */
 export type AreaTablero = 'ejecutivo' | 'comercial' | 'operativa' | 'financiera' | 'productos' | 'logistica'
-  | 'financiera/facturacion' | 'financiera/bolsas';
+  | 'financiera/facturacion' | 'financiera/bolsas' | 'operativa/equipo';
 export type EstadoTablero<T> = { tipo: 'cargando' } | { tipo: 'error' } | { tipo: 'listo'; datos: T };
 
 /** `activo = false` no pide (una subvista que no es el tablero, spec §6.1); al volver a `true`, pide. */

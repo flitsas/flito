@@ -34,7 +34,7 @@ export type OrigenPantallaTorre = keyof typeof ORIGENES_DETALLE;
  * vista por defecto y no viaja. `&ov=<vista>` en la URL del detalle; un valor desconocido se ignora.
  */
 export const VISTAS_ORIGEN = {
-  operativa: { inventario: 'Inventario por estado', soportes: 'Soportes' },
+  operativa: { inventario: 'Inventario por estado', soportes: 'Soportes', equipo: 'Equipo' },
   // Productos (B3): «SOAT» es la pestaña por defecto y no viaja.
   productos: { impuestos: 'Impuestos', derechos: 'Derechos' },
   // Logística (B4): «Traslados» es la de por defecto y no viaja. Financiera: «Resumen» tampoco.

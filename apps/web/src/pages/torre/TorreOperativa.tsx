@@ -18,6 +18,8 @@ import { conteo, porcentaje } from '../../components/torre/formatoTorre';
 import Pestanas from '../../components/flit/Pestanas';
 import InventarioPorEstado from '../../components/torre/InventarioPorEstado';
 import SoportesOperativa from '../../components/torre/SoportesOperativa';
+import EquipoOperativa from '../../components/torre/EquipoOperativa';
+import { FUNCION_EQUIPO_TORRE } from '@operaciones/shared-types';
 import { VISTAS_ORIGEN, type VistaOrigenTorre } from '../../lib/torreDetalle';
 
 /** Subvistas de Operativa (spec UX §6.1). «Equipo» llega con su bloque: no se pintan pestañas vacías. */
@@ -26,7 +28,10 @@ const PESTANAS_OPERATIVA: { id: VistaOperativa; etiqueta: string }[] = [
   { id: 'resumen', etiqueta: 'Resumen' },
   ...Object.entries(VISTAS_ORIGEN.operativa).map(([id, etiqueta]) => ({ id: id as VistaOrigenTorre, etiqueta })),
 ];
-const leerVista = (v: string | null): VistaOperativa => (PESTANAS_OPERATIVA.some((p) => p.id === v) ? (v as VistaOperativa) : 'resumen');
+/** «Equipo» solo existe con `torre.equipo.ver` (B5): sin ella no se pinta y `?vista=equipo` cae en Resumen. */
+const pestanasVisibles = (verEquipo: boolean) => PESTANAS_OPERATIVA.filter((p) => p.id !== 'equipo' || verEquipo);
+const leerVista = (v: string | null, pestanas: typeof PESTANAS_OPERATIVA): VistaOperativa =>
+  (pestanas.some((p) => p.id === v) ? (v as VistaOperativa) : 'resumen');
 
 type FilaOt = TableroOperativo['benchmarkOt']['filas'][number];
 
@@ -38,7 +43,9 @@ export default function TorreOperativa() {
   const torre = useTorre();
   // La pestaña activa vive en la URL (`?vista=`): «Atrás» y «Volver a …» del detalle vuelven a ella (§6.1).
   const [params, setParams] = useSearchParams();
-  const vista = leerVista(params.get('vista'));
+  const { hasFuncion } = useAuth();
+  const pestanas = pestanasVisibles(hasFuncion(FUNCION_EQUIPO_TORRE));
+  const vista = leerVista(params.get('vista'), pestanas);
   const elegir = (id: string) => setParams((q) => {
     const n = new URLSearchParams(q);
     if (id === 'resumen') n.delete('vista'); else n.set('vista', id);
@@ -49,8 +56,8 @@ export default function TorreOperativa() {
   return (
     <PaginaTorre torre={torre} titulo="Operativa" subtitulo="Dónde se está quedando el trabajo y qué organismo responde más lento."
       acciones={vista === 'resumen' ? <ExportarTablero area="operativa" filtros={torre.filtros} estado={estado} esVacio={esVacio} /> : undefined}>
-      <Pestanas etiqueta="Subvistas de Operativa" pestanas={PESTANAS_OPERATIVA} activa={vista} onElegir={elegir} />
-      <div role="tabpanel" aria-label={PESTANAS_OPERATIVA.find((p) => p.id === vista)?.etiqueta} className="flex min-w-0 flex-col gap-4" data-torre={`vista-${vista}`}>
+      <Pestanas etiqueta="Subvistas de Operativa" pestanas={pestanas} activa={vista} onElegir={elegir} />
+      <div role="tabpanel" aria-label={pestanas.find((p) => p.id === vista)?.etiqueta} className="flex min-w-0 flex-col gap-4" data-torre={`vista-${vista}`}>
         {vista === 'resumen' && (
           <MoldeTablero estado={estado} nombre="Operativo" onReintentar={reintentar} onLimpiar={torre.restablecer} esVacio={esVacio}>
             {(d) => <Contenido d={d} />}
@@ -58,6 +65,7 @@ export default function TorreOperativa() {
         )}
         {vista === 'inventario' && <InventarioPorEstado filtros={torre.filtros} />}
         {vista === 'soportes' && <SoportesOperativa filtros={torre.filtros} />}
+        {vista === 'equipo' && <EquipoOperativa filtros={torre.filtros} onLimpiar={torre.restablecer} />}
       </div>
     </PaginaTorre>
   );

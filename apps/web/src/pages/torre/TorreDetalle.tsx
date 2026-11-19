@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  TOPES_TORRE, conjuntoTorre, metricaTorre,
+  CONJUNTOS_EQUIPO_TORRE, TOPES_TORRE, conjuntoTorre, metricaTorre,
   type ConsultaDetalle, type ExportarDetalle, type FiltrosDetalleTorre, type OrdenDetalle, type ResultadoDetalle,
 } from '@operaciones/shared-types';
 import { ApiError, torreDetalleApi } from '../../lib/api';
@@ -41,6 +41,9 @@ function tituloDe(d: DetalleEnUrl): string {
   return d.origen.tipo === 'conjunto' ? conjuntoTorre(d.origen.conjunto).etiqueta : metricaTorre(d.origen.metrica).etiqueta;
 }
 
+
+/** Conjuntos cuyo detalle no se descarga (`DETALLE_SIN_EXPORTACION` en el API): los de Operativa › Equipo. */
+const CONJUNTOS_SIN_EXPORTACION: ReadonlySet<string> = new Set(CONJUNTOS_EQUIPO_TORRE.map((c) => c.id));
 export default function TorreDetalle() {
   const [params] = useSearchParams();
   const torre = useTorre();
@@ -120,7 +123,9 @@ function Detalle({ d, torre }: { d: DetalleEnUrl; torre: ContextoTorre }) {
   const res = estado.tipo === 'listo' ? estado.res : estado.tipo === 'cargando' ? estado.previo : null;
   const total = res?.total ?? null;
   const excedeExcel = total !== null && total > TOPES_TORRE.FILAS_DETALLE_EXPORTAR_MAX;
-  const puedeExportar = hasFuncion(FUNCION_TORRE_DETALLE_EXPORTAR);
+  // Los detalles de Equipo (desempeño de personas, B5) no se exportan: el API responde 403; sin botón, sin primaria.
+  const puedeExportar = hasFuncion(FUNCION_TORRE_DETALLE_EXPORTAR)
+    && !(d.origen.tipo === 'conjunto' && CONJUNTOS_SIN_EXPORTACION.has(d.origen.conjunto));
   // «Volver a <área>» vuelve a la subvista de origen (spec UX §6.1: `?vista=`), con su nombre en la miga.
   const vistaVolver = d.volver ? etiquetaVistaOrigen(d.volver, d.vistaVolver) : null;
   const volver = d.volver && hasPage(user, ORIGENES_DETALLE[d.volver].slug)
