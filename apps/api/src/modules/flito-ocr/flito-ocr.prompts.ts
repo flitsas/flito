@@ -257,3 +257,33 @@ Reglas:
 
 Devuelve EXCLUSIVAMENTE este JSON:
 {"total_paginas":0,"documentos":[{"paginas":[1,2],"tipo_probable":"factura_soat|recibo_impuesto|recibo_derecho|factura_servicio|comprobante_transferencia|cuenta_cobro|otro","confianza":"alta|media|baja"}]}`;
+
+// ──────────────────── Fecha de expedición de documentos de la compañía ────────────────────
+// HU #13890 (ADR-0028 §8): la bolsa de compañía guarda Cámara de Comercio, RUT y certificado bancario,
+// que valen 30 días desde su expedición. Del documento SOLO se pide la fecha: no se extrae ni se persiste
+// nada más (ni NIT, ni representante, ni cuenta). La cédula NUNCA llega a estos prompts (D8).
+const SALIDA_FECHA_EXPEDICION = `Devuelve EXCLUSIVAMENTE este JSON, con la fecha en formato dd/mm/aaaa (si el mes viene en letras, conviértelo a número; null si no la ves con claridad):
+{"fecha_expedicion":{"valor":"dd/mm/aaaa","confianza":"alta|media|baja|null"}}
+- NO devuelvas ningún otro dato del documento.
+- Si hay varias fechas y no puedes saber cuál es la de expedición/generación, valor=null y confianza=null.`;
+
+export const PROMPT_EXPEDICION_CAMARA_COMERCIO = `Este documento debería ser un CERTIFICADO DE EXISTENCIA Y REPRESENTACIÓN LEGAL de una Cámara de Comercio colombiana.
+Lee SOLO la FECHA DE EXPEDICIÓN del certificado (suele aparecer arriba como "Fecha expedición", "Expedido el", "Fecha y hora de expedición" o en el pie con el código de verificación).
+- NO la confundas con la fecha de matrícula, de renovación, de constitución, ni con las fechas de inscripción de actos.
+- Si el documento no es un certificado de Cámara de Comercio: valor=null y confianza=null.
+
+${SALIDA_FECHA_EXPEDICION}`;
+
+export const PROMPT_EXPEDICION_RUT = `Este documento debería ser un REGISTRO ÚNICO TRIBUTARIO (RUT, formulario 001 de la DIAN) colombiano.
+Lee SOLO la fecha en que se GENERÓ o EXPIDIÓ este ejemplar del RUT (casilla "Fecha generación documento PDF", "Fecha de expedición" o la marca "Fecha:" del pie del formulario).
+- NO la confundas con la fecha de inicio de actividad, de inscripción, de constitución ni de actualización de responsabilidades.
+- Si el documento no es un RUT: valor=null y confianza=null.
+
+${SALIDA_FECHA_EXPEDICION}`;
+
+export const PROMPT_EXPEDICION_CERTIFICADO_BANCARIO = `Este documento debería ser una CERTIFICACIÓN BANCARIA (constancia de titularidad de cuenta) emitida por un banco colombiano.
+Lee SOLO la FECHA DE EXPEDICIÓN de la certificación (suele estar al inicio, junto a la ciudad, o al final antes de la firma: "Bogotá, 3 de octubre de 2026", "Fecha de expedición", "Se expide a los…").
+- NO la confundas con la fecha de apertura de la cuenta ni con fechas de movimientos o saldos.
+- Si el documento no es una certificación bancaria: valor=null y confianza=null.
+
+${SALIDA_FECHA_EXPEDICION}`;

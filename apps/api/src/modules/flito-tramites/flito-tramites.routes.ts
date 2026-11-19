@@ -4,10 +4,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import {
-  esAlertaOperativa, esFuenteTramite, TipoSoporteZip,
-  type ResultadoGestion, type TarjetaTramiteGestion,
-} from '@operaciones/shared-types';
+import { esAlertaOperativa, esFuenteTramite, TipoSoporteZip } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
@@ -23,17 +20,13 @@ import { consolidarPorRegistro, emitirZipConsolidado } from '../../shared/soport
 import {
   desbloquear, revocar, ExcepcionError, MOTIVO_MINIMO,
 } from '../flito-excepciones/flito-excepciones.service.js';
-import { ClienteNoOperableError } from '../clients/cliente-operable.js';
 import {
   crearEmpresaDesdeTramite, crearTramiteDemo, entregar, esOrdenListado, facetas, historial, listar,
   registrosZipTramites, solicitarAmbos, solicitarImpuestos, solicitarSoat,
-  type FiltrosListado, type TramiteFila, type TramitesCtx,
+  type FiltrosListado, type TramitesCtx,
 } from './flito-tramites.service.js';
 import { MAX_VISIBLES_NOVEDADES, novedades } from './flito-tramites-novedades.service.js';
-import { drFlitGestionLimiter, novedadesTramitesLimiter } from '../../shared/middleware/rateLimiter.js';
-import { busquedaGestionSchema, motivoGestion, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
-import { exigirConsultaGestionDrFlit } from '../flito-dr-flit/dr-flit.funciones.js';
-import { logPiiAccess } from '../../shared/pii-audit.js';
+import { novedadesTramitesLimiter } from '../../shared/middleware/rateLimiter.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -102,32 +95,6 @@ router.post('/novedades/buscar', exigirFuncion('tramites.cola.ver'), novedadesTr
   res.json({ nuevos, actualizados });
 });
 
-// POST /buscar — consulta de gestión de Dr. Flit (HU #13836, Feature #13834). El valor (placa, VIN o id
-// FLIT) va en el BODY (AGENTS.md §14). Mismo permiso, servicio y alcance que el listado GET; primera página
-// de `TARJETAS_POR_MODULO` filas + total real. Rastro PII con 200 (también con 0 filas); con 400/403 no. El
-// valor no entra en el motivo, ni en logs ni en `audit`. La tarjeta es el subconjunto de UX F6.6: sin
-// comprador, documento, correo, VIN, soportes ni sub-estados.
-function aTarjetaTramite(f: TramiteFila): TarjetaTramiteGestion {
-  return {
-    id: f.tramiteId, placa: f.vehiculo.placa, idFlit: f.idFlit, estado: f.estado, asignado: f.asignado,
-    tipoTramite: f.tipoTramite, empresa: f.companiaNombre, creado: f.fechaCreacion,
-  };
-}
-
-// HU #13941 (AC4/AC6): la función «Consultar la gestión» de Dr. Flit PRIMERO; la frontera sigue siendo `conAlcance`.
-router.post('/buscar', exigirConsultaGestionDrFlit, exigirFuncion('tramites.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
-  const parsed = busquedaGestionSchema.safeParse(req.body);
-  if (!parsed.success) { bad(res); return; }
-  const { items, total } = await listar({ buscar: parsed.data.valor, ...PAGINA_GESTION }, await alcanceDe(req));
-  await logPiiAccess(req, {
-    resourceTipo: 'flito_tramites', accion: 'search',
-    camposAccedidos: ['placa', 'id_flit'], motivo: motivoGestion(items.length),
-  });
-  const cuerpo: ResultadoGestion<TarjetaTramiteGestion> = { total, items: items.map(aTarjetaTramite) };
-  res.set('Cache-Control', 'no-store');
-  res.json(cuerpo);
-});
-
 // GET /facetas — valores distintos para los dropdowns de filtro.
 router.get('/facetas', exigirFuncion('tramites.cola.filtrar'), async (req: Request, res: Response) => {
   res.json(await facetas(await alcanceDe(req)));
@@ -163,10 +130,10 @@ router.get('/:id/soportes', exigirFuncion('tramites.tramite.ver_soportes'), asyn
 /**
  * POST /soportes/zip — el ZIP MIXTO de los trámites marcados (HU #11910, AC4).
  *
- * Los tres tipos a la vez y en un solo archivo: la factura de venta de FLIT, el recibo del organismo
- * y el comprobante del SOAT. Desde la HU #12817 los documentos de cada trámite salen JUNTOS en un
- * solo `PLACA.pdf` (factura → recibo → comprobante), así que el `-2` ya no separa documentos del
- * mismo trámite: separa trámites distintos con la misma placa.
+ * Los cuatro tipos a la vez y en un solo archivo: la factura de venta de FLIT, la liquidación y el
+ * pago del organismo (Bug #14532: dos tipos, sin caída cruzada) y el comprobante del SOAT. Desde la
+ * HU #12817 los documentos de cada trámite salen JUNTOS en un solo `PLACA.pdf` (factura → liquidación → pago → comprobante), así que el `-2` ya no separa
+ * documentos del mismo trámite: separa trámites distintos con la misma placa.
  *
  * ── La función es `tramites.soportes.descargar` (solo `admin` de partida), **no una de lectura** ─
  *
@@ -187,8 +154,9 @@ const zipSoportesSchema = z.object({
   // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
   ids: z.array(z.string().guid()).min(1),
   tipos: z.array(z.enum([
-    TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.RECIBO_IMPUESTO, TipoSoporteZip.FACTURA_SOAT,
-  ])).min(1).max(3),
+    TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.LIQUIDACION_IMPUESTO, TipoSoporteZip.PAGO_IMPUESTO,
+    TipoSoporteZip.FACTURA_SOAT,
+  ])).min(1).max(4),
 }).strict();
 
 router.post('/soportes/zip', exigirFuncion('tramites.soportes.descargar'), zipSoportesLimiter, async (req: Request, res: Response) => {
@@ -340,10 +308,7 @@ router.post('/:id/desbloquear-autogestion', exigirFuncion('tramites.autogestion.
     });
     res.status(201).json(e);
   } catch (err) {
-    // HU #13947: cliente inactivo → 409 con el mensaje del AC.
-    if (err instanceof ExcepcionError || err instanceof ClienteNoOperableError) {
-      res.status(err.status).json({ error: err.message }); return;
-    }
+    if (err instanceof ExcepcionError) { res.status(err.status).json({ error: err.message }); return; }
     throw err;
   }
 });

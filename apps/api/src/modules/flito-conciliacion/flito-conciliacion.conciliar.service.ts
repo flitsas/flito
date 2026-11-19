@@ -59,12 +59,13 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  flitoBolsaMovimientos, flitoBolsas, flitoBolsasTransito, flitoBolsaTransitoMovimientos,
+  flitoBolsasUnicas, flitoBolsasUnicasMovimientos,
   flitoConciliacionBoletas, flitoConciliacionLineas,
 } from '../../db/schema.js';
 import {
-  asentarMovimiento, num, redondear, type CtxUsuario, type Tx,
+  asentarSiHayBolsa, num, redondear, type CtxUsuario, type Tx,
 } from '../flito-bolsas/flito-bolsas.service.js';
+import { deCompania } from '../flito-bolsas/flito-bolsas.libro.js';
 import {
   PREFIJO_CONSUMO, registrarConsumoTransito,
 } from '../flito-bolsas/flito-bolsas-transito.service.js';
@@ -180,7 +181,8 @@ async function asentar(
     const valor = soat.valorPagado as number;
     totalConciliado = redondear(totalConciliado + valor);
 
-    const { movimiento, duplicado } = await asentarMovimiento(tx, boleta.companiaId, {
+    // HU #13899 (D6/Q7): libro único; sin bolsa o con la bolsa inactiva NO se asienta en este lado.
+    const asiento = await asentarSiHayBolsa(tx, boleta.companiaId, {
       tipo: 'salida',
       origen: 'conciliacion',
       valor,
@@ -194,20 +196,20 @@ async function asentar(
       etiqueta: 'salida',
     }, ctx);
 
-    if (duplicado) {
-      adoptados.push(await adoptar(tx, linea, soat, movimiento, boleta.companiaId));
+    if (asiento?.duplicado) {
+      adoptados.push(await adoptar(tx, linea, soat, asiento.movimiento, boleta.companiaId));
       // El aviso de la pantalla lee `adoptados`; este flag es el de la LÍNEA y ya no aplica: su
       // movimiento acaba de dejar de ser `automatico`. Se limpia para que la respuesta inmediata
       // diga exactamente lo mismo que dirá el detalle al recargar la página.
       recruce.ctx.descontados.delete(soat.id);
-    } else {
+    } else if (asiento) {
       descontadoCliente = redondear(descontadoCliente + valor);
     }
 
     const movimientoTransitoId = await asentarTransito(tx, soat, valor, fecha, ctx, transito);
 
     await tx.update(flitoConciliacionLineas)
-      .set({ conciliadaEn: ahora, movimientoBolsaId: movimiento.id, movimientoTransitoId })
+      .set({ conciliadaEn: ahora, movimientoBolsaId: asiento?.movimiento.id ?? null, movimientoTransitoId })
       .where(eq(flitoConciliacionLineas.id, linea.id));
     selladas.push({ ...linea, conciliadaEn: ahora });
   }
@@ -290,7 +292,7 @@ export async function adoptar(
   tx: Tx,
   linea: FilaLinea,
   soat: SoatInfo,
-  movimiento: { id: string; origen: string; valor: number; companiaId: number },
+  movimiento: { id: string; origen: string; valor: number; companiaId: number | null },
   companiaBoletaId: number,
 ): Promise<LineaAdoptadaDto> {
   if (movimiento.companiaId !== companiaBoletaId) {
@@ -301,9 +303,9 @@ export async function adoptar(
   }
   const adoptado = movimiento.origen === 'automatico';
   if (adoptado) {
-    await tx.update(flitoBolsaMovimientos)
+    await tx.update(flitoBolsasUnicasMovimientos)
       .set({ origen: 'conciliacion' })
-      .where(eq(flitoBolsaMovimientos.id, movimiento.id));
+      .where(eq(flitoBolsasUnicasMovimientos.id, movimiento.id));
   }
   return {
     lineaId: linea.id,
@@ -365,9 +367,9 @@ async function asentarTransito(
   // La llave ya estaba: el sellado consumió esta bolsa antes. No se vuelve a mover un peso y el
   // movimiento se adopta, igual que en el libro del cliente.
   if (previo.origen === 'automatico') {
-    await tx.update(flitoBolsaTransitoMovimientos)
+    await tx.update(flitoBolsasUnicasMovimientos)
       .set({ origen: 'conciliacion' })
-      .where(eq(flitoBolsaTransitoMovimientos.id, previo.id));
+      .where(eq(flitoBolsasUnicasMovimientos.id, previo.id));
   }
   // Cero: no salió un peso hoy, pero la bolsa SÍ participa y su saldo tiene que salir en el aviso.
   acumular(transito, previo.bolsaId, 0);
@@ -380,12 +382,12 @@ async function consumoPorLlave(
   llave: string,
 ): Promise<{ id: string; bolsaId: string; origen: string } | undefined> {
   const [fila] = await tx.select({
-    id: flitoBolsaTransitoMovimientos.id,
-    bolsaId: flitoBolsaTransitoMovimientos.bolsaId,
-    origen: flitoBolsaTransitoMovimientos.origen,
+    id: flitoBolsasUnicasMovimientos.id,
+    bolsaId: flitoBolsasUnicasMovimientos.bolsaId,
+    origen: flitoBolsasUnicasMovimientos.origen,
   })
-    .from(flitoBolsaTransitoMovimientos)
-    .where(eq(flitoBolsaTransitoMovimientos.llaveIdempotencia, llave))
+    .from(flitoBolsasUnicasMovimientos)
+    .where(eq(flitoBolsasUnicasMovimientos.llaveIdempotencia, llave))
     .limit(1);
   return fila;
 }
@@ -407,9 +409,9 @@ function acumular(
  * que el usuario va a cotejar contra el extracto, así que sale de la misma fila que el extracto lee.
  */
 async function saldoCliente(tx: Tx, companiaId: number): Promise<number> {
-  const [fila] = await tx.select({ saldo: flitoBolsas.saldo })
-    .from(flitoBolsas)
-    .where(eq(flitoBolsas.companiaId, companiaId))
+  const [fila] = await tx.select({ saldo: flitoBolsasUnicas.saldo })
+    .from(flitoBolsasUnicas)
+    .where(deCompania(companiaId))
     .limit(1);
   return num(fila?.saldo ?? '0');
 }
@@ -423,16 +425,16 @@ async function resumirTransito(
   if (ids.length === 0) return [];
 
   const bolsas = await tx.select({
-    id: flitoBolsasTransito.id,
-    nombre: flitoBolsasTransito.nombre,
-    saldo: flitoBolsasTransito.saldo,
+    id: flitoBolsasUnicas.id,
+    nombre: flitoBolsasUnicas.nombre,
+    saldo: flitoBolsasUnicas.saldo,
   })
-    .from(flitoBolsasTransito)
-    .where(inArray(flitoBolsasTransito.id, ids));
+    .from(flitoBolsasUnicas)
+    .where(inArray(flitoBolsasUnicas.id, ids));
 
   return bolsas.map((b) => ({
     bolsaId: b.id,
-    nombre: b.nombre,
+    nombre: b.nombre ?? '',
     descontado: transito.get(b.id)?.descontado ?? 0,
     saldoResultante: num(b.saldo),
   }));

@@ -49,7 +49,7 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoBolsaMovimientos, flitoConciliacionBoletas, flitoConciliacionLineas, flitoSoat,
+  clients, flitoBolsasUnicas, flitoBolsasUnicasMovimientos, flitoConciliacionBoletas, flitoConciliacionLineas, flitoSoat,
   vehicles,
 } from '../../db/schema.js';
 import { hoyIso, num, redondear, type CtxUsuario, type Tx } from '../flito-bolsas/flito-bolsas.service.js';
@@ -230,15 +230,17 @@ async function contextoDe(
   //    distingue liquidación de conciliación ajena. `yaDescontadoEnLiquidacion` sí: solo el
   //    `automatico` de ESTA compañía (sin ese filtro, una boleta conciliada se acusaría a sí misma).
   const movimientos = await dbx.select({
-    llave: flitoBolsaMovimientos.llaveIdempotencia,
-    companiaId: flitoBolsaMovimientos.companiaId,
-    origen: flitoBolsaMovimientos.origen,
+    llave: flitoBolsasUnicasMovimientos.llaveIdempotencia,
+    // HU #13899: el libro único no lleva compania_id; la da la bolsa.
+    companiaId: flitoBolsasUnicas.companiaId,
+    origen: flitoBolsasUnicasMovimientos.origen,
     companiaNombre: clients.name,
   })
-    .from(flitoBolsaMovimientos)
-    .leftJoin(clients, eq(flitoBolsaMovimientos.companiaId, clients.id))
+    .from(flitoBolsasUnicasMovimientos)
+    .innerJoin(flitoBolsasUnicas, eq(flitoBolsasUnicasMovimientos.bolsaId, flitoBolsasUnicas.id))
+    .leftJoin(clients, eq(flitoBolsasUnicas.companiaId, clients.id))
     .where(inArray(
-      flitoBolsaMovimientos.llaveIdempotencia,
+      flitoBolsasUnicasMovimientos.llaveIdempotencia,
       soatIds.map((id) => `${LLAVE_SALIDA_SOAT}${id}`),
     ));
 

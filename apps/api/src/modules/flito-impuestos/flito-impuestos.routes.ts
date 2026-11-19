@@ -22,7 +22,9 @@ import {
   CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, nombrePorPlaca,
   resolverEntradasZip, tipoPorBytes, ZipError, zipSoportesLimiter,
 } from '../../shared/soportes/soportes-zip.js';
-import { consolidarPorRegistro, emitirZipConsolidado } from '../../shared/soportes/soportes-zip-consolidar.js';
+import {
+  CARPETAS_ZIP_IMPUESTOS, consolidarPorRegistro, emitirZipConsolidado,
+} from '../../shared/soportes/soportes-zip-consolidar.js';
 import {
   construirFilasExportImpuestos, nombreArchivoExportImpuestos,
 } from './flito-impuestos.export.service.js';
@@ -38,12 +40,8 @@ import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } fro
 import { construirCertificadoPdf } from './certificado-pdf.js';
 import {
   asumirEnOperaciones, colaImpuestos, devolverAlGestor, facetasColaImpuestos, detalleImpuesto, enviarAlGestor,
-  facturaVentaFlitConAcceso, reactivar, rechazar, registrosZipImpuestos, reversar, type ImpuestoColaItem,
+  facturaVentaFlitConAcceso, reactivar, rechazar, registrosZipImpuestos, reversar,
 } from './flito-impuestos.service.js';
-import { drFlitGestionLimiter } from '../../shared/middleware/rateLimiter.js';
-import { busquedaGestionSchema, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
-import { exigirConsultaGestionDrFlit } from '../flito-dr-flit/dr-flit.funciones.js';
-import type { ResultadoGestion, TarjetaImpuestoGestion } from '@operaciones/shared-types';
 import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
 import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
@@ -54,6 +52,7 @@ import direccionRouter from './flito-impuestos.direccion.routes.js';
 import certificadosRouter from './flito-impuestos.certificados.routes.js';
 import reciboFaseRouter from './flito-impuestos.recibo-fase.routes.js';
 import reciboReemplazoRouter from './flito-impuestos.recibo-reemplazo.routes.js';
+import soportePdfRouter from './flito-impuestos.soporte-pdf.routes.js';
 import { contarDireccionesSinConfirmar } from './flito-impuestos.export-pago.js';
 
 const router = Router();
@@ -63,6 +62,7 @@ router.use(direccionRouter(contextoImpuesto)); // HU #12833: PATCH /:id/direccio
 router.use(certificadosRouter(contextoImpuesto)); // HU #13205: POST /certificados/zip
 router.use(reciboFaseRouter(contextoImpuesto)); // HU #13208: POST /:id/recibos (carga por fase)
 router.use(reciboReemplazoRouter(contextoImpuesto)); // HU #13269: POST /:id/recibos/reemplazar-pago
+router.use(soportePdfRouter(contextoImpuesto)); // Bug #14532: POST /:id/soportes/pdf (un PDF por tipo)
 
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
@@ -204,6 +204,13 @@ async function facturaFlit2(
 /**
  * POST /soportes/zip — factura de venta y/o recibo de impuesto de los marcados, en UN ZIP (AC3).
  *
+ * ── Formato (Bug #14532): una carpeta por tipo ───────────────────────────────────────────────────
+ *
+ * `facturas de venta/`, `liquidaciones/` y `liquidaciones pagadas/`, y dentro un PDF por placa con
+ * las piezas de ESE tipo (`liquidaciones pagadas/ABC123.pdf`; cifrado aparte como `ABC123-2.pdf`,
+ * desempate por carpeta). Solo existen las carpetas de los tipos marcados que aportaron algo:
+ * nunca una vacía. Trámites sigue con un PDF por registro en la raíz.
+ *
  * ── Sustituye a `POST /facturas-venta/zip`, que se RETIRA ────────────────────────────────────────
  *
  * Aquella ruta se queda sin llamadores con esta HU y no se conserva «por si acaso»: exportaba
@@ -218,11 +225,11 @@ async function facturaFlit2(
  * singular— se ignoraría en silencio y el usuario recibiría un archivo con otra cosa dentro
  * creyendo que pidió lo que marcó.
  *
- * **`recibo_impuesto` NO es un alias de la columna `tipo`**: resuelve a
- * `recibo_impuesto_sin_marca_agua` (la liquidación del impuesto, sin marca) con caída a
- * `recibo_impuesto` (el pago con marca); ver `soportes-zip.ts`. Desde la HU #12590 el productor,
- * `flito-recibos.service.ts`, escribe los dos con el literal del catálogo, así que la preferencia
- * por el limpio se cumple cuando la liquidación se cargó y la caída cubre al resto.
+ * **Ni `liquidacion_impuesto` ni `pago_impuesto` son literales de la columna `tipo`** (Bug #14532):
+ * el primero resuelve SOLO a `recibo_impuesto_sin_marca_agua` (la liquidación, sin marca) y el
+ * segundo SOLO a `recibo_impuesto` (el pago con sello PAGADO), sin caída cruzada; ver
+ * `soportes-zip.ts`. El documento individual de un tipo sale por `POST /:id/soportes/pdf`
+ * (`flito-impuestos.soporte-pdf.routes.ts`).
  *
  * ── La función: `impuestos.soportes.descargar` (admin + gestor de partida), no la de ver ─────────
  *
@@ -232,8 +239,9 @@ const zipSoportesSchema = z.object({
   // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
   // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
   ids: z.array(z.string().guid()).min(1),
-  tipos: z.array(z.enum([TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.RECIBO_IMPUESTO]))
-    .min(1).max(2),
+  tipos: z.array(z.enum([
+    TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.LIQUIDACION_IMPUESTO, TipoSoporteZip.PAGO_IMPUESTO,
+  ])).min(1).max(3),
 }).strict();
 
 router.post('/soportes/zip', exigirFuncion('impuestos.soportes.descargar'), zipSoportesLimiter, async (req: Request, res: Response) => {
@@ -248,9 +256,9 @@ router.post('/soportes/zip', exigirFuncion('impuestos.soportes.descargar'), zipS
     comprobarTopeRegistrosZip(parsed.data.ids);
     const registros = await registrosZipImpuestos(parsed.data.ids, ctx);
     const entradas = await resolverEntradasZip(registros, parsed.data.tipos);
-    // HU #12817: un PDF por impuesto, consolidado en disco ANTES del primer byte, aunque se pida
-    // un solo tipo (el nombre y el aviso de ilegibles se comportan igual pase lo que pase).
-    const zc = await consolidarPorRegistro(entradas);
+    // HU #12817 + Bug #14532: un PDF por (impuesto, tipo) en la carpeta de su tipo, consolidado en
+    // disco ANTES del primer byte (el nombre y el aviso de ilegibles salen igual pase lo que pase).
+    const zc = await consolidarPorRegistro(entradas, { carpetas: CARPETAS_ZIP_IMPUESTOS });
     try {
       // ANTES del primer byte, y esto es la deuda que la HU #11909 dejó abierta en este endpoint: el
       // zip de facturas auditaba con `audit()` pero NO llamaba a `registrarAccesoImpuesto`, así que un
@@ -362,30 +370,6 @@ router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: R
   });
   await registrarAccesoImpuesto(req, { accion: 'search', filas: pagina.items.length });
   res.json(pagina);
-});
-
-// POST /buscar — consulta de gestión de Dr. Flit (HU #13838, Feature #13834). El valor (placa, VIN o id
-// FLIT) va en el BODY (AGENTS.md §14). Mismo permiso, servicio y alcance (`contextoImpuesto`) que el GET /;
-// primera página de `TARJETAS_POR_MODULO` filas + total real. Rastro PII con 200 (también con 0 filas) por
-// `registrarAccesoImpuesto`, con los campos de la tarjeta y `filas=N`; el valor no entra en el motivo, ni en
-// logs ni en `audit`. Con 400/403 no hay rastro. Tarjeta (UX F6.6): sin comprador, documento ni VIN.
-const CAMPOS_PII_TARJETA_IMPUESTO = ['placa'] as const;
-
-const aTarjetaImpuesto = (f: ImpuestoColaItem): TarjetaImpuestoGestion => ({
-  id: f.id, placa: f.placa, idFlit: f.idFlit, estado: f.estado,
-  organismo: f.organismoNombre ?? f.organismoCodigo, liquidado: f.valorLiquidado, pagado: f.pagadoEn,
-});
-
-// HU #13941 (AC4/AC6): la función «Consultar la gestión» de Dr. Flit PRIMERO; la frontera sigue siendo `conAlcance`.
-router.post('/buscar', exigirConsultaGestionDrFlit, exigirFuncion('impuestos.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
-  const parsed = busquedaGestionSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
-  const ctx = await contextoImpuesto(req.user!);
-  const { items, total } = await colaImpuestos(ctx, { buscar: parsed.data.valor, ...PAGINA_GESTION });
-  await registrarAccesoImpuesto(req, { accion: 'search', filas: items.length, campos: CAMPOS_PII_TARJETA_IMPUESTO });
-  const cuerpo: ResultadoGestion<TarjetaImpuestoGestion> = { total, items: items.map(aTarjetaImpuesto) };
-  res.set('Cache-Control', 'no-store');
-  res.json(cuerpo);
 });
 
 /**

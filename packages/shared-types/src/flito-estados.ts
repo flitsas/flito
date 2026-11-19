@@ -519,8 +519,10 @@ export type DocumentosImpuesto = 'liquidacion' | 'pago' | 'ambos';
 export const TipoSoporteZip = {
   /** La factura de venta que emite FLIT (S3 de FLIT), NO el adjunto del canal Cliente. */
   FACTURA_VENTA: 'factura_venta',
-  /** El recibo del organismo: el limpio (`sin_marca_agua`) y, si no existe, el marcado. */
-  RECIBO_IMPUESTO: 'recibo_impuesto',
+  /** La liquidación del impuesto (`recibo_impuesto_sin_marca_agua`), sin caída al pago. */
+  LIQUIDACION_IMPUESTO: 'liquidacion_impuesto',
+  /** El pago con sello PAGADO (`recibo_impuesto`), sin caída a la liquidación. */
+  PAGO_IMPUESTO: 'pago_impuesto',
   /** El comprobante/póliza que sube el gestor de SOAT. Nunca el comprobante PSE de conciliación. */
   FACTURA_SOAT: 'factura_soat',
 } as const;
@@ -538,7 +540,8 @@ export type TipoSoporteZip = (typeof TipoSoporteZip)[keyof typeof TipoSoporteZip
  */
 export const ORDEN_TIPOS_SOPORTE_ZIP: readonly TipoSoporteZip[] = [
   TipoSoporteZip.FACTURA_VENTA,
-  TipoSoporteZip.RECIBO_IMPUESTO,
+  TipoSoporteZip.LIQUIDACION_IMPUESTO,
+  TipoSoporteZip.PAGO_IMPUESTO,
   TipoSoporteZip.FACTURA_SOAT,
 ];
 
