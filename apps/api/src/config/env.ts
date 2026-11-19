@@ -35,6 +35,11 @@ export function esOrigenAdoPermitido(valor: string): boolean {
 }
 const MSG_FLIT2_RESPALDO_MIN = 'FLIT2_RESPALDO_MIN debe ser un entero de 1 a 120 (minutos)';
 
+/** HU #14132: regla del worker masivo de SOAT. Defecto encendido; solo '0' lo apaga. */
+export function workerMasivoEncendido(v: string | undefined): boolean {
+  return v !== '0';
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production']).default('development'),
   PORT: z.coerce.number().default(3005),
@@ -314,6 +319,10 @@ const envSchema = z.object({
   // DESCARTADAS (30 días tras el descarte, Ley 1581). Puerta POSITIVA como las de arriba: un job que
   // BORRA no se enciende por desplegarse; sin el '1' explícito no arranca y lo dice en el log.
   SOAT_RETENCION_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // HU #14132 (ADR-0032, enmienda 2026-10-28): worker de la carga masiva de SOAT. Puerta NEGATIVA: defecto
+  // ENCENDIDO (ausente o cualquier valor != '0'); solo '0' lo apaga. Apagado explícito no corre ni el worker ni el
+  // vigilante, y el alta del lote responde 503 `carga_masiva_no_disponible`.
+  SOAT_MASIVO_WORKER_ENABLED: z.string().optional().transform(workerMasivoEncendido),
   // HU #13891 (ADR-0028 §9): purga de versiones REEMPLAZADAS del expediente de la compañía. Puerta
   // POSITIVA (un job que borra no se enciende por desplegarse) y N en años, 5 por defecto (§14).
   BOLSAS_DOCUMENTOS_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),

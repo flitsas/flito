@@ -70,6 +70,8 @@ export interface FicheroEnAlcance {
 export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'soat', fichero: 'flito-soat/flito-soat.routes.ts' },
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-cliente.routes.ts' },
+  { modulo: 'soat', fichero: 'flito-soat/flito-soat-masivo.routes.ts' }, // HU #14131
+  { modulo: 'soat', fichero: 'flito-soat/flito-soat-incompletas-completar.routes.ts' }, // HU #14136
   { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.routes.ts' },
   { modulo: 'derechos', fichero: 'flito-derechos/flito-derechos.routes.ts' },
   { modulo: 'revisiones', fichero: 'flito-revisiones/flito-revisiones.routes.ts' },

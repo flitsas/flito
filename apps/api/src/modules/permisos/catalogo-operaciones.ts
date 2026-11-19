@@ -36,6 +36,8 @@ const op = (llave: string, codigo: string, nombre: string, descripcion: string):
 
 const SOAT = 'flito-soat/flito-soat.routes.ts';
 const SOAT_CLI = 'flito-soat/flito-soat-cliente.routes.ts';
+const SOAT_MAS = 'flito-soat/flito-soat-masivo.routes.ts';
+const SOAT_COMP = 'flito-soat/flito-soat-incompletas-completar.routes.ts'; // HU #14136
 const SOAT_INC = 'flito-soat/flito-soat-incompletas.routes.ts';
 const SOAT_DOC = 'flito-soat/flito-soat-documentos.routes.ts';
 const IMP = 'flito-impuestos/flito-impuestos.routes.ts';
@@ -100,6 +102,13 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // función nueva ni migración). Mismo código ⇒ mismo nombre, descripción y reparto que `POST /cliente`
   // (`catalogoDeOperaciones` lo exige: «un código, un reparto»).
   op(`${SOAT_CLI} GET /cliente/companias`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  // HU #14131 (Feature #14013): la carga masiva reutiliza `soat.solicitud.crear` (sin función nueva ni migración de permisos).
+  op(`${SOAT_MAS} GET /cliente/masivo/plantilla`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_MAS} POST /cliente/masivo`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_MAS} GET /cliente/masivo/:loteId`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_MAS} GET /cliente/masivo/:loteId/rechazadas`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_COMP} POST /cliente/incompletas/:id/factura`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_COMP} POST /cliente/incompletas/:id/confirmar`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
   op(`${SOAT_CLI} POST /cliente/factura/lectura`, 'soat.factura.leer', 'Leer la factura de venta del vehículo', 'Extraer del PDF de la factura los datos del vehículo para prellenar la solicitud.'),
   // HU #12997 (Feature #12841, diseño §11.1): lectura de las solicitudes que esperan al RUNT. Códigos
   // propios —el catálogo es «una función por ruta»— sembrados por la 0211 a todo rol que ya tenga
@@ -221,12 +230,6 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${BOL} POST /:companiaId/movimientos/:movimientoId/correccion`, 'bolsas.movimiento.corregir', 'Corregir un movimiento de bolsa', 'Rectificar un movimiento ya registrado dejando el rastro.'),
   op(`${BOL} GET /:companiaId/cierres`, 'bolsas.cierres.ver', 'Ver los cierres de una bolsa', 'Consultar los cortes de periodo ya cerrados.'),
   op(`${BOL} POST /:companiaId/cierres`, 'bolsas.cierre.crear', 'Cerrar un periodo de bolsa', 'Cuadrar y cerrar el periodo de la bolsa del cliente.'),
-  op(`${BOL} GET /transito`, 'bolsas.transito.listar', 'Ver las bolsas de organismos', 'Listar las bolsas de derechos abiertas ante los organismos de tránsito.'),
-  op(`${BOL} POST /transito`, 'bolsas.transito.crear', 'Crear una bolsa de organismo', 'Abrir una bolsa de derechos ante un organismo de tránsito.'),
-  op(`${BOL} GET /transito/:bolsaId`, 'bolsas.transito.ver', 'Ver una bolsa de organismo', 'Consultar el saldo y el detalle de una bolsa de derechos.'),
-  op(`${BOL} PATCH /transito/:bolsaId`, 'bolsas.transito.editar', 'Editar una bolsa de organismo', 'Cambiar los datos de la bolsa de derechos.'),
-  op(`${BOL} GET /transito/:bolsaId/movimientos`, 'bolsas.transito.ver_movimientos', 'Ver los movimientos de una bolsa de organismo', 'Recorrer las cargas y consumos de la bolsa de derechos.'),
-  op(`${BOL} POST /transito/:bolsaId/cargas`, 'bolsas.transito.cargar', 'Cargar saldo a una bolsa de organismo', 'Abonar dinero a la bolsa de derechos con su soporte.'),
   // HU #13889 (ADR-0028) — expediente documental de la compañía. Las 4 guardas piden dos operaciones;
   // las conceden `accion.bolsas.ver_documentos` / `accion.bolsas.cargar_documentos` (arbol/acciones-finanzas.ts).
   op(`${BDOC} GET /companias/:companiaId`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
@@ -252,7 +255,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${BCAT} POST /bolsa/:bolsaId/cierres`, 'bolsas.cierre.crear', 'Cerrar un periodo de bolsa', 'Cuadrar y cerrar el periodo de la bolsa del cliente.'),
   // HU #13907 (Feature #13887, ADR-0029, Q3) — rama tránsito del catálogo único. Tres operaciones nuevas con la
   // partida de su par, dentro de acciones de bolsas ya repartidas (arbol/acciones-finanzas.ts); el resto reutiliza
-  // los códigos `bolsas.transito.*` de las rutas antiguas `/transito/*` (que retira la HU #13911).
+  // los códigos `bolsas.transito.*` de las rutas antiguas `/transito/*` (retiradas en la HU #13911: hoy solo las guardan estas).
   op(`${BCTR} POST /buscar`, 'bolsas.transito.listar', 'Ver las bolsas de organismos', 'Listar las bolsas de derechos abiertas ante los organismos de tránsito.'),
   op(`${BCTR} POST /`, 'bolsas.transito.crear', 'Crear una bolsa de organismo', 'Abrir una bolsa de derechos ante un organismo de tránsito.'),
   op(`${BCTR} GET /bolsa/:bolsaId`, 'bolsas.transito.ver', 'Ver una bolsa de organismo', 'Consultar el saldo y el detalle de una bolsa de derechos.'),

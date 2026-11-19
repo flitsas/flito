@@ -290,8 +290,11 @@ export async function registrarAccesoRuntCliente(
      *
      * Obligatorio y no opcional-con-defecto a propósito: un opcional convierte «se me olvidó
      * pasarlo» en una línea sin correlación que compila, pasa los tests y no ve nadie.
+     *
+     * **Renovación (HU #14017):** `null` cuando se consulta por placa y el intento no llegó a
+     * devolver VIN (422/503 antes de conocerlo). Nunca se loguea la placa tecleada.
      */
-    vin: string;
+    vin?: string | null;
     /**
      * La placa que DEVOLVIÓ el RUNT, cuando la devolvió (ADR-0012, «lo que NO compra» #2).
      *
@@ -424,11 +427,12 @@ function camposDelIntento(soatActivo: 'con_fecha' | 'sin_fecha' | undefined): st
  * incumplimiento — la misma distinción que `pii-audit.ts` ya tiene escrita en su `catch`.
  */
 function motivoRunt(opciones: {
-  vin: string; placa?: string | null; motivo?: 'preconsulta' | 'alta' | 'reintento'; resultado?: string;
+  vin?: string | null; placa?: string | null; motivo?: 'preconsulta' | 'alta' | 'reintento'; resultado?: string;
 }): string {
   const partes: string[] = [];
   try {
-    partes.push(`vin=${tokenPii(hmacVin(opciones.vin))}`);
+    // Renovación (HU #14017): un intento puede no tener VIN todavía; la placa tecleada va como token.
+    if (opciones.vin) partes.push(`vin=${tokenPii(hmacVin(opciones.vin))}`);
     if (opciones.placa) partes.push(`placa=${tokenPii(hmacPlaca(opciones.placa))}`);
   } catch {
     // Ni el valor ni el error: lo primero es PII y lo segundo es texto que aquí no aporta. Se
@@ -524,11 +528,11 @@ export async function registrarLecturaFacturaCliente(
 export const RECURSO_SOAT_INCOMPLETA = 'flito_soat_incompleta';
 
 /** Lo que entrega cada fila de `…/incompletas/buscar`: el VIN y el nombre del titular (como la cola). */
-export const CAMPOS_PII_INCOMPLETA_FILA = ['nombre_completo', 'vin'] as const;
+export const CAMPOS_PII_INCOMPLETA_FILA = ['nombre_completo', 'vin', 'placa'] as const;
 
 /** Lo que entrega `GET …/incompletas/:id`: el propietario completo, como el detalle SOAT del canal. */
 export const CAMPOS_PII_INCOMPLETA_DETALLE = [
-  'nombre_completo', 'numero_documento', 'tipo_documento', 'vin',
+  'nombre_completo', 'numero_documento', 'tipo_documento', 'vin', 'placa',
   'nombres', 'apellidos', 'razon_social', 'correo', 'celular', 'direccion', 'municipio', 'departamento',
 ] as const;
 
@@ -540,13 +544,19 @@ export const CAMPOS_PII_INCOMPLETA_DETALLE = [
 export async function registrarAccesoIncompleta(req: Request, acceso: {
   accion: 'read' | 'search';
   incompletaId?: string;
-  vin?: string;
+  /** `null` en una renovación con RUNT caído (HU #14018): no hay VIN todavía. */
+  vin?: string | null;
+  /** La placa tecleada (renovación): va como token HMAC, nunca en claro. */
+  placa?: string | null;
   filas: number;
   campos: readonly string[];
 }): Promise<void> {
   const partes: string[] = [];
   if (acceso.vin) {
     try { partes.push(`vin=${tokenPii(hmacVin(acceso.vin))}`); } catch { partes.push('vin=?'); }
+  }
+  if (acceso.placa) {
+    try { partes.push(`placa=${tokenPii(hmacPlaca(acceso.placa))}`); } catch { partes.push('placa=?'); }
   }
   if (acceso.incompletaId) partes.push(`incompleta ${acceso.incompletaId}`);
   partes.push(`filas=${acceso.filas}`);

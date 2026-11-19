@@ -14,7 +14,7 @@
 //
 // **HU #12079.** El circuito de revisión se retiró: ya no hay `pendiente_revision` ni `rechazada`
 // que radicar, ni subsanación, ni `soat-revision-rechazo.spec.ts`. Lo que esta HU cambia aquí es de
-// tres clases y se marca caso por caso: el RÓTULO del primario («Enviar al gestor»), el TOAST, y la
+// tres clases y se marca caso por caso: el RÓTULO del primario («Enviar solicitud»), el TOAST, y la
 // frase de bloqueo, que pasa de «Consulte el RUNT antes de enviar.» a la enumeración de lo que
 // falta. Lo NUEVO —la enumeración, el foco al primer campo pendiente, el modal de la ficha de la
 // compañía y la inalcanzabilidad de lo retirado— vive en `soat-envio-directo-gestor.spec.ts`.
@@ -27,6 +27,7 @@
 // desenlaces con su copy y los bordes de longitud del VIN— vive en `soat-vin-unico-ficha-runt.spec.ts`.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
+import { elegirTipoInicial } from '../helpers/soat-tipo';
 import { loginAs, CLIENTE_USER, CLIENTE_CON_CANAL, OPERACIONES_USER } from '../helpers/auth';
 
 const PLACA = 'ABC123';
@@ -229,8 +230,8 @@ async function mockCanal(
 
 const btnConsultar = (page: Page) => page.getByRole('button', { name: 'Consultar el RUNT' });
 const btnReconsultar = (page: Page) => page.getByRole('button', { name: 'Volver a consultar' });
-/** HU #12079: el rótulo pasó de «Enviar al gestor» a «Enviar al gestor». */
-const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al gestor' });
+/** HU #14019: el rótulo de la SOLICITUD pasó de «Enviar al gestor» a «Enviar solicitud» (la cola conserva el suyo). */
+const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar solicitud' });
 const fichaRunt = (page: Page) => page.getByRole('region', { name: 'Datos del RUNT' });
 
 /**
@@ -284,11 +285,12 @@ async function llenarTodoYConsultar(page: Page, opciones: { vin?: string } = {})
 // ═════════════════════════ AC1 · la compuerta y el orden de entrada ══════════════════════════════
 
 test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
-  test('al abrir: hay «Consultar el RUNT» y «Enviar al gestor» está aria-disabled y NO disabled', async ({ page }) => {
+  test('al abrir: hay «Consultar el RUNT» y «Enviar solicitud» está aria-disabled y NO disabled', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     const cap = await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await expect(btnConsultar(page)).toBeVisible();
     const enviar = btnEnviar(page);
@@ -333,8 +335,16 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await page.goto('/flito/soat/solicitud');
 
     await expect(page.getByRole('heading', { name: 'Solicitud de SOAT' })).toBeFocused();
+    await elegirTipoInicial(page);
+    // HU #14019: delante del VIN está el selector de tipo (su radio marcado es el único tabulable).
+    await page.getByRole('heading', { name: 'Solicitud de SOAT' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('radio', { name: /SOAT inicial/ })).toBeFocused();
+    // HU #14137: «Forma de cargar» aparece con ambos tipos; su radio marcado (Individual) va antes del VIN.
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('radio', { name: 'Individual' })).toBeFocused();
     // HU #12091: el orden viejo era placa → tipo → número → VIN, los cuatro en el bloque 1. Ahora el
-    // primer control de la pantalla es el VIN y el siguiente ya es el botón que consulta: entre los
+    // primer control del formulario es el VIN y el siguiente ya es el botón que consulta: entre los
     // dos no queda nada porque el bloque 1 no tiene nada más.
     await page.keyboard.press('Tab');
     await expect(page.getByLabel('VIN')).toBeFocused();
@@ -355,6 +365,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await mockCola(page);
     const cap = await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await btnConsultar(page).click();
 
@@ -389,6 +400,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     const cola = await mockCola(page);
     const cap = await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     // La inversión exacta del contrato viejo («sin escribirlo se envía»): desde la HU #12090 el VIN
     // es LA clave de la consulta, así que sin él no hay nada que preguntar y no sale ni una petición.
@@ -414,6 +426,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await mockCola(page);
     await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarTodoYConsultar(page);
 
     await page.getByLabel('VIN').fill('9BWZZZ377VT004252');
@@ -438,6 +451,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await mockCola(page);
     await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarTodoYConsultar(page);
 
     await page.getByLabel('Tipo de documento').selectOption('CE');
@@ -463,6 +477,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await mockCola(page);
     const cap = await mockCanal(page, { retenerPreconsulta: true });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await llenarPropietario(page);
     await adjuntarFactura(page);
@@ -497,6 +512,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     // El RUNT dijo que sí en la consulta y se cayó entre medias: el alta vuelve a consultarlo.
     await mockCanal(page, { alta: fallo(503, 'runt_no_disponible', 'No fue posible consultar el RUNT.') });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarTodoYConsultar(page);
 
     await btnEnviar(page).click();
@@ -522,6 +538,7 @@ test.describe('HU #11967 · AC2 / HU #12844 · AC1 — el vehículo ya tiene SOA
       preconsulta: fallo(409, 'soat_vigente', 'El RUNT reporta que este vehículo ya tiene un SOAT vigente.'),
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await btnConsultar(page).click();
 
@@ -546,6 +563,7 @@ test.describe('HU #11967 · AC2 / HU #12844 · AC1 — el vehículo ya tiene SOA
       preconsulta: fallo(409, 'soat_vigente', 'Ya tiene SOAT vigente.', { fechaVencimiento: '2027-02-01', soatActivo: SOAT_FICTICIO }),
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await btnConsultar(page).click();
 
@@ -573,6 +591,7 @@ test.describe('HU #11967 · AC2 / HU #12844 · AC1 — el vehículo ya tiene SOA
     await mockCola(page);
     await mockCanal(page, { preconsulta: fallo(409, 'soat_vigente', 'Ya tiene SOAT vigente.') });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page, { vin: VIN });
     await llenarPropietario(page);
     await adjuntarFactura(page);
@@ -605,6 +624,7 @@ test.describe('HU #11967 · AC3 — los desenlaces se distinguen por CÓDIGO', (
     await mockCola(page);
     await mockCanal(page, { preconsulta: respuesta });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await btnConsultar(page).click();
     return page.getByRole('alert');
@@ -649,6 +669,7 @@ test.describe('HU #11967 · AC3 — los desenlaces se distinguen por CÓDIGO', (
     await mockCola(page);
     await mockCanal(page, { preconsulta: fallo(422, 'runt_no_cuadra', 'El VIN no corresponde.', { campo: 'vin' }) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page, { vin: '9BWZZZ377VT000000' });
     await btnConsultar(page).click();
 
@@ -687,6 +708,7 @@ test.describe('HU #11967 · AC4 — nombre partido por tipo de documento', () =>
     await mockCola(page);
     await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await page.getByLabel('Tipo de documento').selectOption(TIPO_DOC);
     await page.getByLabel('Nombre/s').fill('MARÍA FERNANDA');
@@ -709,6 +731,7 @@ test.describe('HU #11967 · AC4 — nombre partido por tipo de documento', () =>
     const cola = await mockCola(page);
     const cap = await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await llenarVehiculo(page);
     await page.getByLabel('Tipo de documento').selectOption(TIPO_DOC);
@@ -751,6 +774,7 @@ test.describe('HU #11967 · AC4 — nombre partido por tipo de documento', () =>
     await mockCola(page);
     const cap = await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await llenarPropietario(page, { municipio: '' });
     await adjuntarFactura(page);
@@ -780,6 +804,7 @@ test.describe('HU #11967 · AC4 — nombre partido por tipo de documento', () =>
       preconsulta: { status: 200, cuerpo: { ...RUNT_OK, propietario: { nombreCompleto: 'MARÍA FERNANDA GÓMEZ RUIZ' } } },
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await btnConsultar(page).click();
     await expect(fichaRunt(page)).toBeVisible();
@@ -815,6 +840,7 @@ test.describe('HU #11967 · AC5 — el VIN ya está en la cola de FLITO', () => 
     });
 
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page, { vin: VIN });
     await btnConsultar(page).click();
 
@@ -843,6 +869,7 @@ test.describe('HU #11967 · AC5 — el VIN ya está en la cola de FLITO', () => 
     });
 
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarTodoYConsultar(page, { vin: VIN });
     await btnEnviar(page).click();
 
@@ -925,6 +952,7 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
       alta: fallo(403, 'canal_desactivado', 'Tu compañía no tiene habilitada la solicitud de SOAT sin trámite.'),
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarTodoYConsultar(page);
     await btnEnviar(page).click();
 
@@ -943,6 +971,7 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
       lectura: fallo(400, 'archivo_no_pdf', 'La factura de venta debe ser un PDF.'),
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await llenarPropietario(page);
     await adjuntarFactura(page);
@@ -962,6 +991,7 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
     await mockCola(page);
     await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarTodoYConsultar(page);
     // Solo el ALTA se corta: la consulta ya resolvió.
     await page.unroute(RE_ALTA);
@@ -979,6 +1009,7 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
     await mockCola(page);
 
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await page.getByLabel('VIN').fill(VIN);
     await page.getByRole('button', { name: 'Volver a mis SOAT' }).click();
 
@@ -1000,6 +1031,7 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
 
     const cap = await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarTodoYConsultar(page, { vin: VIN });
     cola.items = [fila()];
     await btnEnviar(page).click();
@@ -1056,6 +1088,7 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
       preconsulta: fallo(409, 'soat_vigente', 'El RUNT reporta que este vehículo ya tiene un SOAT vigente.'),
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     const rotuloConsulta = (await btnConsultar(page).innerText()).trim();
     // HU #12079: el rótulo del primario también se lee del DOM. Es el que la ficha tiene que citar,
@@ -1143,6 +1176,7 @@ test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar',
     const cola = await mockCola(page);
     const cap = await mockCanal(page, { preconsulta: runtConAviso(VENCE_PRONTO) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await llenarPropietario(page);
     await adjuntarFactura(page);
@@ -1197,6 +1231,7 @@ test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar',
     const cola = await mockCola(page);
     const cap = await mockCanal(page, { preconsulta: runtConAviso('2099-12-31') });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await llenarPropietario(page);
     await adjuntarFactura(page);
@@ -1218,6 +1253,7 @@ test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar',
     await mockCola(page);
     await mockCanal(page, { preconsulta: runtConAviso('', { vencimiento: null }) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await btnConsultar(page).click();
 
@@ -1238,6 +1274,7 @@ test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar',
     // por guiones daría «NaN de undefined». Sale la redacción de respaldo, entera.
     await mockCanal(page, { preconsulta: runtConAviso('05/10/2026', { vencimiento: null }) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await btnConsultar(page).click();
 
@@ -1256,6 +1293,7 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
       preconsulta: fallo(409, 'soat_vigente', 'Ya tiene SOAT vigente.', { fechaVencimiento: '2027-02-01' }),
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await llenarPropietario(page);
     await adjuntarFactura(page);
@@ -1282,6 +1320,7 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
     await mockCola(page);
     await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await btnConsultar(page).click();
 
@@ -1305,6 +1344,7 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
     await mockCola(page);
     await mockCanal(page, { preconsulta: runtConAviso(VENCE_PRONTO) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await btnConsultar(page).click();
     await expect(page.getByRole('status').filter({ hasText: 'todavía tiene SOAT activo' })).toBeVisible();
@@ -1330,6 +1370,7 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
     await mockCola(page);
     await mockCanal(page, { preconsulta: runtConAviso(VENCE_PRONTO) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await llenarVehiculo(page);
     await btnConsultar(page).click();
     await expect(page.getByRole('status').filter({ hasText: 'todavía tiene SOAT activo' })).toBeVisible();

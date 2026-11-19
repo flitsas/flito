@@ -333,8 +333,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/bolsas/consolidado',                                        'filtra'],
   ['GET /api/flito/bolsas/riesgo',                                             'filtra'],
   ['GET /api/flito/bolsas/alertas',                                            'filtra'],
-  ['GET /api/flito/bolsas/transito',                                           'soloSinEnlace'],
-  ['POST /api/flito/bolsas/transito',                                          'soloSinEnlace'],
+  // HU #13911: las rutas antiguas `/api/flito/bolsas/transito…` se retiraron (404 por `router.use`, sin ruta).
   // HU #13907 (ADR-0029): rama TRÁNSITO del catálogo, sub-router montado ANTES del de compañía y con sus mismas rutas;
   // gestión de FLIT, cerrada a todo enlace (lo que no es de tránsito lo cede con `next('route')`).
   ['POST /api/flito/bolsas/buscar',                                            'soloSinEnlace'],
@@ -364,10 +363,6 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/bolsas/:companiaId/movimientos',                            'filtra'],
   ['POST /api/flito/bolsas/:companiaId/recargas',                              'filtra'],
   ['GET /api/flito/bolsas/soportes/:soporteId',                                'filtra'],
-  ['GET /api/flito/bolsas/transito/:bolsaId',                                  'soloSinEnlace'],
-  ['PATCH /api/flito/bolsas/transito/:bolsaId',                                'soloSinEnlace'],
-  ['GET /api/flito/bolsas/transito/:bolsaId/movimientos',                      'soloSinEnlace'],
-  ['POST /api/flito/bolsas/transito/:bolsaId/cargas',                          'soloSinEnlace'],
   ['GET /api/flito/bolsas/:companiaId/extracto',                               'filtra'],
   ['POST /api/flito/bolsas/:companiaId/movimientos-manuales',                  'filtra'],
   ['POST /api/flito/bolsas/:companiaId/movimientos/:movimientoId/correccion',  'filtra'],
@@ -408,7 +403,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
 
 /**
  * Foto de las rutas de los cuatro routers de `/api/flito/soat` (orden de montaje y de declaración).
- * Las 27 acotan por `contextoSoat` (compañía / proveedor) o por `buscarConAcceso` (404-no-403 fuera de
+ * Las 33 acotan por `contextoSoat` (compañía / proveedor) o por `buscarConAcceso` (404-no-403 fuera de
  * su alcance); por eso ninguna lleva `soloSinEnlace()` en #12875. Añadir una aquí es decidir eso.
  */
 const RUTAS_SOAT_ABIERTAS: string[] = [
@@ -418,6 +413,15 @@ const RUTAS_SOAT_ABIERTAS: string[] = [
   'GET /api/flito/soat/cliente/companias',
   'POST /api/flito/soat/cliente',
   'POST /api/flito/soat/cliente/factura/lectura',
+  // HU #14131 (añadidas a propósito): carga masiva de renovaciones, montada DENTRO del router de incompletas (sin un
+  // montaje más). Acotan por `contextoSoat` (alcance de compañía; lote ajeno = 404), no por `soloSinEnlace()`.
+  'GET /api/flito/soat/cliente/masivo/plantilla',
+  'POST /api/flito/soat/cliente/masivo',
+  'GET /api/flito/soat/cliente/masivo/:loteId',
+  'GET /api/flito/soat/cliente/masivo/:loteId/rechazadas', // HU #14133 (faltaba en la foto)
+  // HU #14136 (añadidas a propósito): adjuntar factura y confirmar una pendiente; acotan por `contextoSoat`/alcance (404-no-403).
+  'POST /api/flito/soat/cliente/incompletas/:id/factura',
+  'POST /api/flito/soat/cliente/incompletas/:id/confirmar',
   'POST /api/flito/soat/cliente/incompletas/buscar',
   'GET /api/flito/soat/cliente/incompletas/:id',
   'POST /api/flito/soat/cliente/incompletas/:id/reintentar',

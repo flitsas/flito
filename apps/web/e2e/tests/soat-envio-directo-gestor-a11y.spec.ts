@@ -18,6 +18,7 @@
 //     la línea de faltantes y el `aria-describedby` que la referencia.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
+import { elegirTipoInicial } from '../helpers/soat-tipo';
 import { loginAs, CLIENTE_CON_CANAL, OPERACIONES_USER } from '../helpers/auth';
 import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 
@@ -114,8 +115,9 @@ test.describe('HU #12079 · AC5 — accesibilidad', () => {
     await page.route(/\/api\/flito\/soat\/facetas/, (route) =>
       json(route, 200, { companias: [], organismos: [], proveedores: [] }));
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
-    const enviar = page.getByRole('button', { name: 'Enviar al gestor' });
+    const enviar = page.getByRole('button', { name: 'Enviar solicitud' });
     await expect(enviar).toHaveAttribute('aria-disabled', 'true');
     // El lector tiene que poder llegar a la explicación DESDE el botón, que es cuando importa. Los
     // dos asertos: la referencia existe y apunta a algo que de verdad está en el árbol.

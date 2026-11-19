@@ -37,6 +37,12 @@ interface FlitUploadBoxProps {
    */
   multiple?: boolean;
   onFiles?: (files: File[]) => void;
+  /**
+   * HU #14134: lo mismo que `multiple` en cuanto a teclado y feedback (input `sr-only` alcanzable
+   * con el tabulador, velo de hover y anillo de foco) pero para UN solo archivo. Opcional: sin la
+   * prop, el comportamiento de los llamadores existentes no cambia.
+   */
+  alcanzable?: boolean;
 }
 
 const ACCEPT_POR_DEFECTO = '.pdf,.png,.jpg,.jpeg';
@@ -46,8 +52,9 @@ const MULTIPLE_FEEDBACK =
   'hover:shadow-[inset_0_0_0_999px_var(--flit-bg-hover)] focus-within:shadow-[0_0_0_3px_var(--flit-border-focus)]';
 
 export default function FlitUploadBox(
-  { label, required, state, count, onFile, accept = ACCEPT_POR_DEFECTO, hint, describedBy, multiple, onFiles }: FlitUploadBoxProps,
+  { label, required, state, count, onFile, accept = ACCEPT_POR_DEFECTO, hint, describedBy, multiple, onFiles, alcanzable }: FlitUploadBoxProps,
 ) {
+  const conTeclado = multiple || alcanzable;
   const color =
     state === 'rejected' ? 'var(--flit-danger)'
     : state === 'verified' ? 'var(--flit-success)'
@@ -65,7 +72,7 @@ export default function FlitUploadBox(
 
   return (
     <label
-      className={`flit-focus relative block cursor-pointer rounded-[12px] p-4 transition-colors ${multiple ? MULTIPLE_FEEDBACK : ''} ${state === 'uploading' ? 'pointer-events-none opacity-60' : ''}`}
+      className={`flit-focus relative block cursor-pointer rounded-[12px] p-4 transition-colors ${conTeclado ? MULTIPLE_FEEDBACK : ''} ${state === 'uploading' ? 'pointer-events-none opacity-60' : ''}`}
       style={{ border: `2px dashed ${color}`, background: bg }}
     >
       <div className="text-center">
@@ -88,7 +95,7 @@ export default function FlitUploadBox(
         accept={accept}
         multiple={multiple}
         aria-describedby={describedBy}
-        className={multiple ? 'sr-only' : 'hidden'}
+        className={conTeclado ? 'sr-only' : 'hidden'}
         onChange={(e) => {
           const lista = Array.from(e.target.files ?? []);
           if (multiple && onFiles) { if (lista.length) onFiles(lista); }

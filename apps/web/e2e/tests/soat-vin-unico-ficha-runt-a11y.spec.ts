@@ -15,6 +15,7 @@
 // banda de desenlace ni la ficha, que son justo las dos superficies que esta HU cambia.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
+import { elegirTipoInicial } from '../helpers/soat-tipo';
 import { loginAs, CLIENTE_CON_CANAL } from '../helpers/auth';
 import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 
@@ -58,6 +59,7 @@ async function montarAlta(
     ? json(route, lectura.status, lectura.cuerpo)
     : json(route, 200, { extraccion: {} })));
   await page.goto('/flito/soat/solicitud');
+  await elegirTipoInicial(page);
 }
 
 async function adjuntar(page: Page) {
@@ -92,6 +94,8 @@ test.describe('HU #12091 · AC6 — accesibilidad de los cuatro estados', () => 
     const sinFoco = await estiloDe();
     await page.getByRole('heading', { name: 'Solicitud de SOAT' }).focus();
     await page.keyboard.press('Tab');
+    await expect(page.getByRole('radio', { name: /SOAT inicial/ })).toBeFocused(); // HU #14019: el selector va delante del VIN
+    await page.keyboard.press('Tab');
     await expect(vin).toBeFocused();
     expect(await estiloDe(), 'el foco del campo VIN no produce ninguna diferencia visible')
       .not.toEqual(sinFoco);
@@ -108,6 +112,7 @@ test.describe('HU #12091 · AC6 — accesibilidad de los cuatro estados', () => 
     // Se deja en vuelo el tiempo que dure el test: el estado «consultando» es el que hay que medir.
     await page.route(/\/api\/flito\/soat\/cliente\/preconsulta$/, () => new Promise(() => {}));
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await page.getByLabel('VIN (número de chasis)').fill(VIN);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
@@ -178,6 +183,7 @@ test.describe('HU #12094 · AC8 — accesibilidad de la lectura de la factura', 
       json(route, 200, { companias: [], organismos: [], proveedores: [] }));
     await page.route(RE_LECTURA, () => new Promise(() => {}));
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await adjuntar(page);
 
