@@ -31,6 +31,7 @@ import {
   type FiltrosListado, type TramiteFila, type TramitesCtx,
 } from './flito-tramites.service.js';
 import { MAX_VISIBLES_NOVEDADES, novedades } from './flito-tramites-novedades.service.js';
+import { CAMPOS_PII_DETALLE_TRAMITE, detalleTramite, nombreZipDeTramite } from './flito-tramites-detalle.service.js';
 import { drFlitGestionLimiter, novedadesTramitesLimiter } from '../../shared/middleware/rateLimiter.js';
 import { busquedaGestionSchema, motivoGestion, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
 import { exigirConsultaGestionDrFlit } from '../flito-dr-flit/dr-flit.funciones.js';
@@ -144,6 +145,24 @@ router.get('/:id/historial', exigirFuncion('tramites.tramite.ver_historial'), as
   res.json(esProyeccionCliente(alcance) ? filas.map((f) => ({ ...f, usuarioNombre: null })) : filas);
 });
 
+// GET /:id/detalle — la modal del trámite (ADR-0046): resumen, vehículo, propietarios, gestora y costos.
+// Mismo permiso y alcance que el listado. Un id que no es uuid, inexistente o fuera de alcance → el
+// mismo 404 (sin enumeración; el ADR descarta el 400 porque no hay cuerpo). Proyecta datos del titular:
+// rastro `read` en `pii_access_log` con NOMBRES de campos y sin valores (§16). El uuid no cabe en la
+// columna integer `resource_id`: va en el motivo, como en `flito-soat.pii.ts`.
+const idTramiteSchema = z.string().guid();
+router.get('/:id/detalle', exigirFuncion('tramites.cola.ver'), async (req: Request, res: Response) => {
+  const id = idTramiteSchema.safeParse(req.params.id);
+  const detalle = id.success ? await detalleTramite(id.data, await alcanceDe(req)) : null;
+  if (!detalle) { res.status(404).json({ error: 'El trámite no existe' }); return; }
+  await logPiiAccess(req, {
+    resourceTipo: 'flito_tramite', resourceId: null, accion: 'read',
+    camposAccedidos: [...CAMPOS_PII_DETALLE_TRAMITE], motivo: `Lectura de detalle de trámite — tramite=${detalle.id}`,
+  });
+  res.set('Cache-Control', 'no-store');
+  res.json(detalle);
+});
+
 /**
  * GET /:id/soportes — los documentos del trámite: SOAT, impuesto, derecho de tránsito y logística.
  *
@@ -202,7 +221,8 @@ router.post('/soportes/zip', exigirFuncion('tramites.soportes.descargar'), zipSo
 
   try {
     comprobarTopeRegistrosZip(parsed.data.ids);
-    const registros = await registrosZipTramites(parsed.data.ids, await alcanceDe(req));
+    const alcance = await alcanceDe(req);
+    const registros = await registrosZipTramites(parsed.data.ids, alcance);
     const entradas = await resolverEntradasZip(registros, parsed.data.tipos);
     // HU #12817: un PDF por trámite, consolidado en disco ANTES del primer byte (409 si nada es
     // legible, 422 si los bytes reales se pasan). `filas` del rastro = PDFs que salen.
@@ -216,7 +236,8 @@ router.post('/soportes/zip', exigirFuncion('tramites.soportes.descargar'), zipSo
         detail: `Descarga zip de soportes (${parsed.data.tipos.join(', ')}): ${zc.incluidos} documento(s)`
           + ` en ${zc.entradas.length} PDF, ${zc.omitidos} omitido(s)`,
       });
-      await emitirZipConsolidado(res, zc);
+      // ADR-0046: con UN trámite, `[ID del trámite]-DOCS.zip`; con varios, el nombre de siempre.
+      await emitirZipConsolidado(res, zc, await nombreZipDeTramite(parsed.data.ids, alcance));
     } finally {
       await zc.limpiar();
     }

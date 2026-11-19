@@ -888,6 +888,51 @@ export const TRAMITES_DEMO = {
 export const TRAMITES_FACETAS_DEMO = {
   estados: ['Asignado'], tramites: ['Matricula', 'Traspaso'], ciudades: ['Manizales', 'Pereira'], transitos: [...ORGANISMOS_REALES],
 };
+// ADR-0045: catálogo de columnas de Gestión Trámites y una vista propia guardada (sin valores, solo claves).
+const COLUMNAS_TRAMITES_DEMO = [
+  ['tramite', 'Trámite', true], ['fuente', 'Fuente'], ['creado', 'Creado'], ['aprobado', 'Aprobado'],
+  ['vehiculo', 'Vehículo'], ['comprador', 'Propietario'], ['correo', 'Correo'], ['empresa_gestora', 'Empresa gestora'],
+  ['transito', 'Tránsito'], ['ciudad', 'Ciudad'], ['soat', 'SOAT'], ['impuestos', 'Impuestos'],
+  ['logistica', 'Logística'], ['derechos_transito', 'Derechos de tránsito'], ['soportes', 'Soportes'],
+].map(([clave, etiqueta, fija]) => ({ clave: clave as string, etiqueta: etiqueta as string, fija: fija === true }));
+const SISTEMA_TRAMITES_DEMO = COLUMNAS_TRAMITES_DEMO.map((c) => c.clave);
+export const VISTAS_COLUMNAS_TRAMITES_DEMO = {
+  tablaId: 'flito-tramites', columnasDisponibles: COLUMNAS_TRAMITES_DEMO,
+  vistaActiva: { id: null, origen: 'sistema', columnas: SISTEMA_TRAMITES_DEMO },
+  sistema: { columnas: SISTEMA_TRAMITES_DEMO },
+  vistas: [{ id: 1, nombre: 'Despacho diario', alcance: 'personal', esPredeterminada: false, puedeEditar: true, version: 1,
+    columnas: SISTEMA_TRAMITES_DEMO.filter((c) => c !== 'correo' && c !== 'ciudad') }],
+  limites: { columnasPorVista: 30, vistasPersonales: 20 },
+};
+// ADR-0046: detalle del trámite FLIT-DEMO-101 (ventana), sus soportes e historial.
+export const DETALLE_TRAMITE_DEMO = {
+  id: 'tra-demo-1', idFlit: 'FLIT-DEMO-101',
+  resumen: {
+    estado: 'Asignado', asignado: true, tipoTramite: 'Matricula', fuente: 'flit',
+    creado: '2026-10-20T15:00:00Z', aprobado: null, ciudad: 'Manizales', pendientes: ['soat', 'impuestos'],
+    listoParaEntregar: false, semaforo: 'amarillo', logisticaEstado: null, sincronizadoEn: '2026-10-20T16:00:00Z',
+  },
+  vehiculo: { placa: P[0], vin: V[0], marca: 'Chevrolet', linea: 'Onix', clase: 'Automóvil' },
+  propietarios: [{
+    nombreCompleto: NOMBRES_DEMO[0], tipoDocumento: 'CC', numeroDocumento: C[0], correo: DATOS_DEMO.correos[3],
+    celular: DATOS_DEMO.telefonos[0], direccion: null, orden: 1, porcentajeParticipacion: null,
+  }],
+  gestora: { nombre: EMPRESAS_DEMO[0], nit: N[0], existe: true },
+  costos: {
+    conceptos: [
+      { concepto: 'soat', quienCobra: ASEGURADORAS_DEMO[0], autogestionado: false, estado: 'pendiente', valor: null, valorLiquidado: null },
+      { concepto: 'impuesto', quienCobra: ORGANISMOS_REALES[0], autogestionado: false, estado: 'pendiente', valor: null, valorLiquidado: null },
+    ],
+    tieneFacturaVenta: true, total: null,
+  },
+};
+export const SOPORTES_TRAMITE_DEMO = [
+  { id: 'sop-demo-1', origen: 'soat', tipo: 'factura_soat', nombreArchivo: 'poliza-demo.pdf', url: '/x', subidoEn: '2026-10-21T10:00:00Z' },
+  { id: 'sop-demo-2', origen: 'impuesto', tipo: 'liquidacion', nombreArchivo: 'liquidacion-demo.pdf', url: '/x', subidoEn: '2026-10-21T11:00:00Z' },
+];
+export const HISTORIAL_TRAMITE_DEMO = [
+  { id: 'h-demo-1', campo: 'estado', valorAnterior: 'Aprobado', valorNuevo: 'Asignado', origen: 'api', usuarioNombre: null, creadoEn: '2026-10-20T16:00:00Z' },
+];
 export const COMPANIAS_DEMO = CLIENTE_DEMO.map((c) => ({ id: c.id, nit: c.nit, nombre: c.name, logisticaAutogestionable: false }));
 const hora = (iso: string) => iso;
 export const SYNC_DEMO = {
@@ -1369,6 +1414,11 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   COMPARENDO_DETALLE_DEMO,
   CLIENTES_FICHA_DEMO,
   TRAMITES_DEMO,
+  // `nombre` de una vista de columnas es un rótulo del usuario, no una persona: se recorre con otra clave.
+  VISTAS_COLUMNAS_TRAMITES_DEMO: { ...VISTAS_COLUMNAS_TRAMITES_DEMO, vistas: VISTAS_COLUMNAS_TRAMITES_DEMO.vistas.map(({ nombre, ...v }) => ({ ...v, nombreVista: nombre })) },
+  DETALLE_TRAMITE_DEMO,
+  SOPORTES_TRAMITE_DEMO,
+  HISTORIAL_TRAMITE_DEMO,
   COMPANIAS_DEMO,
   SYNC_DEMO,
   SOAT_COLA_DEMO,

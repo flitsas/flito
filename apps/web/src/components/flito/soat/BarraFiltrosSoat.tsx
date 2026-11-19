@@ -22,7 +22,7 @@ import ThFiltroMulti from '../../flit/ThFiltroMulti';
 import RangoFechas from '../../flit/RangoFechas';
 import type { Preset } from '../../flit/FiltrosInteligentes';
 import { FiltroVigenciaSoat } from '../VigenciaSoat';
-import FiltroSegmentado from '../../flit/FiltroSegmentado';
+import EmbudoSoat from './EmbudoSoat';
 import { Icono } from '../../flit/kit/Icono';
 import { FlitCard, flitInp } from '../../flit/flitPageKit';
 import { PASTILLA_INCOMPLETA_LABEL, type FacetasSoat, type FiltroEstadoSoat } from './tipos';
@@ -90,7 +90,7 @@ export default function BarraFiltrosSoat(p: BarraFiltrosSoatProps) {
     <FlitCard>
       <div className="filtros" data-kit="filtros">
       <div ref={p.refPills} tabIndex={-1} className="flit-focus mb-3 max-w-full overflow-x-auto rounded-[9px]">
-        <FiltroSegmentado ariaLabel="Estado del SOAT" opciones={opcionesEstado} valor={estado} onCambio={setEstado} />
+        <EmbudoSoat ariaLabel="Estado del SOAT" opciones={opcionesEstado} valor={estado} onCambio={setEstado} />
       </div>
       <div className="filtros__barra">
         <div className="control-icono filtros__buscar">

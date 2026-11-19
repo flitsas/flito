@@ -24,6 +24,7 @@ import TarjetaEnvioFacturacion from '../components/finanzas/TarjetaEnvioFacturac
 import AccionEnviarFactura from '../components/finanzas/AccionEnviarFactura';
 import DialogoEnvioFacturacion, { type TramiteDelEnvio } from '../components/finanzas/DialogoEnvioFacturacion';
 import { useElegibilidadFacturacion } from '../components/finanzas/useElegibilidadFacturacion';
+import { useTotalesReporteCostos, type EstadoTotales } from '../components/finanzas/useTotalesReporteCostos';
 import FiltrosReporteCostos, { ROTULO_COSTO_SIN_CONFIGURAR } from '../components/finanzas/FiltrosReporteCostos';
 import TablaReporteCostos from '../components/finanzas/TablaReporteCostos';
 import ConsolidadoReporteCostos from '../components/finanzas/ConsolidadoReporteCostos';
@@ -195,6 +196,8 @@ export default function FinanzasReporteCostos() {
     setCargando(true);
     const p = params();
     p.set('page', String(page));
+    // Los agregados van aparte (`useTotalesReporteCostos`): la página no espera por ellos.
+    p.set('sinTotales', '1');
     let vigente = true;
     api.get<Reporte>(`/finanzas/reporte-costos?${p.toString()}`)
       // El parche local se descarta con los datos nuevos: mandan los del servidor.
@@ -249,6 +252,14 @@ export default function FinanzasReporteCostos() {
 
   const filas = data?.items ?? [];
   const refrescar = () => setRecarga((n) => n + 1);
+
+  // El pie de totales: sin `page`, así que paginar no lo repide; cambiar un filtro o recargar sí.
+  const pie = useTotalesReporteCostos(params().toString(), recarga);
+  // Si el listado ya trajo los agregados (un API que no separa), mandan esos: son de la misma consulta.
+  const estadoTotales: EstadoTotales = data?.totales && data.totalesCostosProveedor
+    ? { fase: 'lleno', datos: { totales: data.totales, totalesCostosProveedor: data.totalesCostosProveedor } }
+    : pie.estado;
+  const filasIncompletas = estadoTotales.fase === 'lleno' ? estadoTotales.datos.totales.filasIncompletas : 0;
 
   /** Solo se puede liquidar lo que no está liquidado y tiene todos sus conceptos resueltos. */
   // Es la misma condición que exige el backend al sellar: si aquí faltara una, el botón se
@@ -446,13 +457,13 @@ export default function FinanzasReporteCostos() {
 
           {/* Un total al que le faltan conceptos no puede pasar por completo. Va en una línea y con
               la salida puesta. */}
-          {data && data.totales.filasIncompletas > 0 && (
+          {data && filasIncompletas > 0 && (
             <div className="kit-alerta" data-tono="info" data-kit="alerta">
               <img src="/kit/aviso-info.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
               <p className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <span>
                   El total está incompleto:{' '}
-                  <strong>{data.totales.filasIncompletas.toLocaleString('es-CO')}</strong> de{' '}
+                  <strong>{filasIncompletas.toLocaleString('es-CO')}</strong> de{' '}
                   <strong>{data.total.toLocaleString('es-CO')}</strong> trámites tienen un concepto
                   sin resolver.
                 </span>
@@ -538,6 +549,7 @@ export default function FinanzasReporteCostos() {
                 onViajes={setViajesDe}
                 onAceptarDiferencia={setDiferenciaDe}
                 anunciar={setAnuncio}
+                totales={estadoTotales} onReintentarTotales={pie.reintentar}
                 // Va al final de la celda: el orden de foco es Soporte → Enviar → ¿Por qué no?, la
                 // acción antes que su explicación.
                 accionEnvio={(f) => puedeEmitir && esCandidato(f) && (

@@ -67,7 +67,7 @@ test.describe('HU #13684 — aviso de trámites nuevos o actualizados', () => {
   test('AC1: un trámite nuevo que cumple el filtro enciende el aviso en ≤60 s sin recargar la tabla, con los filtros en el BODY', async ({ page }) => {
     const esc = await montar(page, { items: [A, B], total: 2, marca: MARCA }, [{ status: 200, body: { nuevos: 1, actualizados: 0 } }]);
     // Búsqueda con placa: en la línea base y, por tanto, en el body del sondeo.
-    await page.getByPlaceholder('Buscar placa, VIN, id o comprador…').fill('ABC');
+    await page.getByPlaceholder('Buscar placa, VIN, id o propietario…').fill('ABC');
     await page.clock.runFor(400);
     await expect.poll(() => esc.urlsLista.at(-1)?.searchParams.get('buscar')).toBe('ABC');
     const cargas = esc.urlsLista.length;
@@ -241,7 +241,7 @@ test.describe('HU #13684 — aviso de trámites nuevos o actualizados', () => {
     await montar(page, { items: [A], total: 1, marca: MARCA }, [{ status: 200, body: { nuevos: 2, actualizados: 0 } }]);
     await expect(aviso(page)).toHaveAttribute('role', 'status');
     await expect(aviso(page)).toHaveAttribute('aria-live', 'polite');
-    const buscar = page.getByPlaceholder('Buscar placa, VIN, id o comprador…');
+    const buscar = page.getByPlaceholder('Buscar placa, VIN, id o propietario…');
     await buscar.focus();
     await page.clock.runFor(SONDEO);
     await expect(aviso(page)).toContainText('Hay 2 trámites nuevos');

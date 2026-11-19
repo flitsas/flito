@@ -366,3 +366,33 @@ describe.skipIf(!URL_BASE)('ficha de placa contra PostgreSQL (tx con ROLLBACK)',
     await expect(buscarPlaca('ZQ0000', { enlace: 'ninguno' })).rejects.toBeInstanceOf(PlacaTorreNoEncontradaError);
   });
 });
+
+// Regresión (sesión de evidencias en DEV, Épica #14590): DEV corre la sesión de PostgreSQL en UTC y `date AT TIME ZONE`
+// devolvía un `timestamp` sin zona que se reinterpretaba en la zona de la sesión: el rango 1-jun … 18-nov arrancaba el
+// 31-may 14:00 de Bogotá y aparecía una columna «2026-05». RN-TOR-F2: los límites son medianoche de Bogotá en
+// cualquier zona de sesión.
+describe.skipIf(!URL_BASE)('RN-TOR-F2: el rango no depende de la zona horaria de la sesión (tx con ROLLBACK)', () => {
+  let s: ReturnType<typeof sembrador>;
+  let tx: Awaited<ReturnType<typeof abrirTx>>;
+  beforeEach(async () => { tx = await abrirTx(); s = sembrador(tx); await s.organismos('05001'); redis.cliente = null; });
+  afterEach(cerrarTx);
+  afterAll(cerrarBase);
+
+  for (const zona of ['UTC', 'America/Bogota']) {
+    it(`sesión en ${zona}: 31-may 20:00 Bogotá fuera, 18-nov 16:00 Bogotá dentro, sin clave «2026-05»`, async () => {
+      await tx`SELECT set_config('TimeZone', ${zona}, true)`; // ≡ SET LOCAL TimeZone (vale hasta el ROLLBACK)
+      const x = await s.cia('X');
+      await s.tramite({ cia: x, aprobado: '2026-06-01T01:00:00Z' }); // 2026-05-31 20:00 Bogotá → fuera
+      await s.tramite({ cia: x, aprobado: '2026-06-01T05:00:00Z' }); // 2026-06-01 00:00 Bogotá → dentro (borde)
+      await s.tramite({ cia: x, aprobado: '2026-11-18T21:00:00Z' }); // 2026-11-18 16:00 Bogotá → dentro
+      await s.tramite({ cia: x, aprobado: '2026-11-19T05:00:00Z' }); // 2026-11-19 00:00 Bogotá → fuera (borde)
+      const op = { dinero: true, hoy: '2026-11-18' };
+      const filtro = { rango: { desde: '2026-06-01', hasta: '2026-11-18' }, companiaIds: [x] };
+      const total = await consultarMetrica({ metrica: 'tramites', fechaBase: 'aprobacion', filtro }, TODO, op);
+      expect(total.total.valor).toBe(2);
+      const porMes = await consultarMetrica({ metrica: 'tramites', fechaBase: 'aprobacion', agrupacion: 'mes', filtro }, TODO, op);
+      expect(porMes.filas.map((g) => g.clave)).not.toContain('2026-05');
+      expect(porMes.filas.filter((g) => Number(g.valor) > 0).map((g) => [g.clave, g.valor])).toEqual([['2026-06', 1], ['2026-11', 1]]);
+    });
+  }
+});

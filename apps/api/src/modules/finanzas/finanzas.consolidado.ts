@@ -15,7 +15,7 @@ import { and, sql, type SQL } from 'drizzle-orm';
 import type { PgColumn, PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import { clients, flitoTramites } from '../../db/schema.js';
-import { selectCostosProveedorConsolidado, type CostosProveedorConsolidado } from './finanzas.costos-proveedor.js';
+import { selectCostosProveedorConsolidado, sinJit, type CostosProveedorConsolidado } from './finanzas.costos-proveedor.js';
 import {
   claveEmpresa, condiciones, conJoins, COSTOS_PROVEEDOR, indiceEmpresas, SELECT_TOTALES,
   type EmpresaMaestro, type FiltrosReporte, type TotalesReporte,
@@ -195,7 +195,8 @@ export async function consolidadoReporte(
   periodo: PeriodoConsolidado = 'mes',
 ): Promise<ConsolidadoReporte> {
   const [grupos, maestro] = await Promise.all([
-    ensamblarConsolidado(db.select(selectConsolidado(periodo)).from(flitoTramites).$dynamic(), f, periodo),
+    // Sin JIT: el costo de proveedor por grupo arrastra el mismo plan caro que los totales (ver `sinJit`).
+    sinJit((ej) => ensamblarConsolidado(ej.select(selectConsolidado(periodo)).from(flitoTramites).$dynamic(), f, periodo)),
     db.select({ id: clients.id, nombre: clients.name, documento: clients.document }).from(clients),
   ]);
   return { periodo, ...plegarConsolidado(grupos as GrupoConsolidado[], maestro) };

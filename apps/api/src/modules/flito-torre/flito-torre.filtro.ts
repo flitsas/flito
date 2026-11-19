@@ -119,11 +119,16 @@ export function exigirTopesCruce(agrupacion: AgrupacionTorre, columnas: Agrupaci
 /** Columna de fecha de una métrica: `timestamptz`, o `date` (p. ej. `fecha_pago` de derechos). */
 export interface FechaBase { expr: SQL | AnyColumn; esDate?: boolean }
 
-/** `[desde 00:00, hasta+1 00:00)` en Bogotá (RN-TOR-F2). */
+/**
+ * `[desde 00:00, hasta+1 00:00)` en Bogotá (RN-TOR-F2). El límite es `timestamp` (sin zona) `AT TIME ZONE` Bogotá
+ * → `timestamptz` de medianoche en Bogotá, sin depender de la zona de la sesión. `date AT TIME ZONE` NO sirve: pasa
+ * la fecha por la zona de la sesión y devuelve un `timestamp` que se reinterpreta en ella (con la sesión en UTC el
+ * rango arrancaba el día anterior a las 14:00 de Bogotá).
+ */
 export function condicionRango(f: FechaBase, r: RangoResuelto): SQL {
   if (f.esDate) return sql`(${f.expr} >= ${r.desde}::date AND ${f.expr} < (${r.hasta}::date + 1))`;
-  return sql`(${f.expr} >= (${r.desde}::date AT TIME ZONE ${TZ_COLOMBIA})
-    AND ${f.expr} < ((${r.hasta}::date + 1) AT TIME ZONE ${TZ_COLOMBIA}))`;
+  return sql`(${f.expr} >= (${r.desde}::date::timestamp AT TIME ZONE ${TZ_COLOMBIA})
+    AND ${f.expr} < ((${r.hasta}::date + 1)::timestamp AT TIME ZONE ${TZ_COLOMBIA}))`;
 }
 
 /** La fecha como `timestamp` local de Bogotá (para `date_trunc`). */

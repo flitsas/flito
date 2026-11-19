@@ -301,7 +301,7 @@ export const esOrdenListado = (v: unknown): v is OrdenListado =>
 export interface ListadoTramites { items: TramiteFila[]; total: number; page: number; pageSize: number; marca: string }
 export interface FacetasTramites { estados: string[]; tramites: string[]; ciudades: string[]; transitos: string[] }
 
-function proyeccion() {
+export function proyeccion() {
   return db.select({
     // Campos que consume decidir() (compuerta) — mismos nombres que FilaCompuerta.
     tramiteId: flitoTramites.id,
@@ -381,7 +381,7 @@ function proyeccion() {
     .leftJoin(flitoLogisticaDocumentos, and(eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id), eq(flitoLogisticaDocumentos.tipo, 'licencia_transito')));
 }
 
-type FilaCruda = Awaited<ReturnType<ReturnType<typeof proyeccion>['where']>>[number];
+export type FilaCruda = Awaited<ReturnType<ReturnType<typeof proyeccion>['where']>>[number];
 
 /**
  * Solicitado hace más de lo que aguanta el SLA. Sirve igual a SOAT (SLA del proveedor) y a impuestos
@@ -408,7 +408,7 @@ export function coincidenciaDe(extraccion: unknown): number | null {
 
 const num = (v: string | null): number | null => (v === null ? null : Number(v));
 
-function aFila(f: FilaCruda, compradores: Omit<Comprador, 'tipoDocumento'>[]): TramiteFila {
+export function aFila(f: FilaCruda, compradores: Omit<Comprador, 'tipoDocumento'>[]): TramiteFila {
   // decidir() (compuerta) exige autogestión booleana; sin compañía emparejada, se asume false.
   const veredicto = decidir({ ...f, soatAutogestionable: f.soatAutogestionable ?? false, impuestosAutogestionable: f.impuestosAutogestionable ?? false, companiaNombre: f.companiaNombre ?? '' });
   // HU #11947. El tipo lo afirma el TRÁMITE (`flit_raw->>'tipo'`) y se cuelga de cada uno de sus

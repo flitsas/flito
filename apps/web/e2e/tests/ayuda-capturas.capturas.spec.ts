@@ -99,6 +99,10 @@ import {
   TABLERO_DEMO,
   TRAMITES_DEMO,
   TRAMITES_FACETAS_DEMO,
+  VISTAS_COLUMNAS_TRAMITES_DEMO,
+  DETALLE_TRAMITE_DEMO,
+  SOPORTES_TRAMITE_DEMO,
+  HISTORIAL_TRAMITE_DEMO,
   DRIVE_CARPETA_DEMO,
   DRIVE_PROCESO_DEMO,
   DRIVE_RAIZ_DEMO,
@@ -1411,6 +1415,10 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       [/\/api\/flito\/sync\/estado$/, () => ({ body: SYNC_DEMO.estado1 })],
       [/\/api\/flito\/sync\/flit2\/estado$/, () => ({ body: SYNC_DEMO.estado2 })],
       [/\/api\/flito\/sync\/flit1\/estado-lectura$/, () => ({ body: SYNC_DEMO.lectura1 })],
+      [/\/api\/flito\/vistas-columnas\/flito-tramites$/, () => ({ body: VISTAS_COLUMNAS_TRAMITES_DEMO })],
+      [/\/api\/flito\/tramites\/tra-demo-1\/detalle$/, () => ({ body: DETALLE_TRAMITE_DEMO })],
+      [/\/api\/flito\/tramites\/tra-demo-1\/soportes$/, () => ({ body: SOPORTES_TRAMITE_DEMO })],
+      [/\/api\/flito\/tramites\/tra-demo-1\/historial$/, () => ({ body: HISTORIAL_TRAMITE_DEMO })],
     ]);
     await entrarComoAdminDemo(page);
 
@@ -1436,17 +1444,38 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.getByText('FLIT-DEMO-101').evaluate((el) => el.scrollIntoView({ block: 'end' }));
     await sinFoco(page);
-    await capturar(page, dir, '03-seleccion');
+    await capturar(page, dir, '05-seleccion');
     await mostrarBarra();
 
     // Paso 6 — Descargar soportes: elegir los documentos del ZIP.
     await page.getByRole('button', { name: /^Descargar soportes \(/ }).click();
     const zip = page.getByRole('dialog', { name: 'Documentos del ZIP' });
     await expect(zip).toBeVisible();
-    await capturar(page, dir, '04-documentos-del-zip', zip);
+    await capturar(page, dir, '06-documentos-del-zip', zip);
+    await page.keyboard.press('Escape');
+    await expect(zip).toBeHidden();
+
+    // Paso 4 — El panel Columnas (03-columnas): columnas visibles y vistas guardadas.
+    for (const placa of DATOS_DEMO.placas) await page.getByLabel(`Seleccionar ${placa}`).uncheck();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.getByRole('button', { name: /^Columnas/ }).click();
+    const panel = page.getByRole('dialog', { name: 'Columnas de la tabla' });
+    await expect(panel.getByText('Columnas visibles')).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '03-columnas', panel);
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+
+    // Paso 5 — Detalle del trámite (04-detalle) en ventana, con el índice de secciones.
+    await page.getByRole('button', { name: 'Ver el detalle del trámite FLIT-DEMO-101' }).click();
+    const detalle = page.getByRole('dialog', { name: /FLIT-DEMO-101/ });
+    await expect(detalle.getByText('Soportes (2)').first()).toBeVisible();
+    await expect(detalle.getByText('Propietario principal')).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '04-detalle', detalle);
     await page.keyboard.press('Escape');
 
-    comprobarCierre(api, dir, ['01-sincronizacion.png', '02-filtros-y-tabla.png', '03-seleccion.png', '04-documentos-del-zip.png']);
+    comprobarCierre(api, dir, ['01-sincronizacion.png', '02-filtros-y-tabla.png', '03-columnas.png', '04-detalle.png', '05-seleccion.png', '06-documentos-del-zip.png']);
   });
 
   test('soat @capturas', async ({ page }) => {

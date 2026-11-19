@@ -247,7 +247,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     flito_servicios_adicionales: { version: '1.5', fecha: '2026-11-17', diagrama: 'ciclo-tipo.svg', capturas: [
       '02-editar.png', '03-nuevo-tipo.png', '04-dados-de-baja.png', '01-catalogo.png'] },
     // Épica #13763: rediseño (Columnas, Más filtros, chips, acción + menú ⋮) y costo de proveedor (v2.0).
-    finanzas_reporte_costos: { version: '2.5', fecha: '2026-11-17', diagrama: 'tres-verbos.svg', capturas: [
+    finanzas_reporte_costos: { version: '2.6', fecha: '2026-11-18', diagrama: 'tres-verbos.svg', capturas: [
       '01-filtros-y-periodo.png', '02-mas-filtros.png', '03-tabla.png', '04-columnas.png',
       '05-costo-de-proveedor.png', '06-acciones-de-fila.png', '07-consolidado.png'] },
     finanzas_gastos_diarios: { version: '1.6', fecha: '2026-11-17', diagrama: null, capturas: [
@@ -298,11 +298,14 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // son de solo lectura y de tres pasos o menos: sin diagrama.
   const SOAT_13771: Record<string, { version: string; capturas: string[]; diagrama: string | null; fecha?: string }> = {
     // HU #13968: SOAT sin trámite por proveedor (soat y clients cambiaron de nuevo).
-    soat: { version: '1.17', fecha: '2026-11-17', diagrama: 'ciclo-soat.svg', capturas: [
+    // Épica #14560: pastillas de estado con ícono y la primaria junto a Exportar a Excel (1.17; 1.16 venía del merge).
+    soat: { version: '1.18', fecha: '2026-11-18', diagrama: 'ciclo-soat.svg', capturas: [
       '01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png'] },
     // Bug #14532: Liquidación y Pagado en la ventana del ZIP (04-documentos-del-zip regenerada).
-    flito_tramites: { version: '1.7', fecha: '2026-11-17', diagrama: 'camino-a-entregar.svg', capturas: [
-      '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-seleccion.png', '04-documentos-del-zip.png'] },
+    // Épica #14560: columna Propietario, panel Columnas (03-columnas) y detalle en ventana (04-detalle); selección y ZIP pasan a 05 y 06.
+    flito_tramites: { version: '1.9', fecha: '2026-11-18', diagrama: 'camino-a-entregar.svg', capturas: [
+      '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-columnas.png', '04-detalle.png',
+      '05-seleccion.png', '06-documentos-del-zip.png'] },
     // BUG #14569: buscador de trámite (1.3) y Reintentar lectura (1.4, 04-reintentar-lectura nueva); 1.6 = merge con el rediseño.
     flito_revisiones: { version: '1.7', fecha: '2026-11-17', diagrama: 'resolver-o-descartar.svg', capturas: [
       '01-cola-y-documento.png', '02-revisar-campos.png', '04-reintentar-lectura.png', '03-constancia.png'] },
