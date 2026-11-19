@@ -30,7 +30,8 @@ import { errorTorreAHttp } from './flito-torre.routes.js';
 const router = Router();
 router.use(authMiddleware);
 
-async function acceso(req: Request): Promise<AccesoDetalle> {
+/** Las operaciones `torre.*` del usuario (código literal, lo lee `inventario-guardas`). B6: también la usa el 360°. */
+export async function acceso(req: Request): Promise<AccesoDetalle> {
   const [alcance, dinero, ejecutivo, comercial, operativo, financiero, metricas, productos, logistica, equipo] = await Promise.all([
     alcanceDe(req),
     tieneFuncion(req, 'torre.metricas.dinero'),

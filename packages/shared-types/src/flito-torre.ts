@@ -7,7 +7,7 @@
 // Los umbrales configurables (`UMBRALES_TORRE`) viven en `flito_torre_umbrales` (migración 0303).
 // Los operativos nacen con el ANS de la operación (`ANS_OPERATIVO`) para que la Torre y el tablero
 // operativo no puedan discrepar el día uno.
-import type { CifraExplicada, DestinoCifra, ExplicacionesTablero } from './flito-torre-detalle.js';
+import type { CifraExplicada, ConjuntoTorreId, DestinoCifra, ExplicacionesTablero } from './flito-torre-detalle.js';
 import { ANS_OPERATIVO } from './flito-estados.js';
 
 // ── Rango y filtro ───────────────────────────────────────────────────────────────────────────────
@@ -489,6 +489,40 @@ export interface RiesgoTorre {
   impacto: number;
 }
 
+/**
+ * B6 (Épica #14590, UX §7 + B6.2) — un frente de «Para hoy». Solo entran frentes con `cifra > 0` y cuyo conjunto de
+ * origen el usuario puede abrir (`funcionesOrigen`). Orden: crítico primero y luego por cifra. La UI muestra 8 y el
+ * resto en disclosure.
+ */
+export interface FrenteTorre {
+  /** Clave estable del frente (= el conjunto, o `fuga`). */
+  clave: string;
+  /** El conjunto que lista la cifra; `null` en «Clientes en caída» (no es conjunto: `accion: 'revisar'`). */
+  conjunto: ConjuntoTorreId | null;
+  /** = `total` del detalle de `destino` (RN-TOR-D1). */
+  cifra: number;
+  /** Frase SIN la cifra, que va en su columna: «trámites llevan más de 7 días en Borrador.». */
+  frase: string;
+  severidad: Exclude<SeveridadTorre, 'ok'>;
+  /** `ver` → abre el detalle del conjunto; `revisar` → lleva al bloque del área (`destino.tipo = 'bloque'`). */
+  accion: 'ver' | 'revisar';
+  destino: DestinoCifra;
+  /**
+   * Solo `sin_facturar`: el detalle se abre con el rango del MES EN CURSO (`{ preset: 'mes' }`), no el de la barra.
+   * El resto de frentes es foto de hoy (`null`).
+   */
+  rango: { preset: 'mes' } | null;
+}
+
+/** B6.3 — una frase de «Lo que cambió en el periodo» (reglas H1–H6, deterministas, sin LLM). Máx. 4. */
+export interface HallazgoTorre {
+  regla: 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'H6';
+  frase: string;
+  /** Área (y subvista, si aplica) del enlace «Ver en …». */
+  area: 'comercial' | 'financiera' | 'logistica' | 'productos';
+  vista?: string;
+}
+
 export interface TableroEjecutivo extends BaseTablero {
   comercial: { tramitesMes: number; clientesEnCaida: number };
   /** % de aprobados del mes dentro del ANS de respuesta (`dias_respuesta_ot` desde la creación). */
@@ -507,6 +541,10 @@ export interface TableroEjecutivo extends BaseTablero {
   };
   /** Top 5: críticos primero y luego por impacto. */
   riesgos: RiesgoTorre[];
+  /** B6: «Para hoy» (reemplaza a `riesgos` en la UI). */
+  paraHoy: FrenteTorre[];
+  /** B6: «Lo que cambió en el periodo» (mes en curso frente al mes anterior hasta el mismo día). */
+  hallazgos: HallazgoTorre[];
   /** Explicación de cada cifra del 360° (clave `area.campo`, p. ej. `comercial.clientesEnCaida`). */
   explicaciones: Partial<Record<string, CifraExplicada>>;
 }

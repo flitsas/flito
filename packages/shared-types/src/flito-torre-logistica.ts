@@ -115,7 +115,7 @@ export const CONJUNTOS_FINANCIERA_B4_TORRE = [
     id: 'bolsas_cobertura', entidad: 'bolsa', etiqueta: 'Bolsas con cobertura baja',
     definicion: 'Bolsas activas de compañía cuyo saldo de hoy, dividido entre su consumo diario promedio de los últimos 30 días, alcanza para menos de {umbral} días (atención), o menos de los días del umbral crítico (crítico). Una bolsa sin saldo es crítica; una sin consumo en 30 días no entra. Los umbrales se cambian en Umbrales y alertas. Es la foto de hoy: no depende del periodo.',
     fechaBase: null, filtrosIgnorados: SOLO_COMPANIA, columnas: [...COLS_BOLSA],
-    ordenDefecto: { columna: 'dias_cobertura', dir: 'asc' }, segmentosAdmitidos: ['severidad', 'compania'],
+    ordenDefecto: { columna: 'dias_cobertura', dir: 'asc' }, segmentosAdmitidos: ['severidad', 'compania', 'nivel'],
     frase: '{n} {bolsa alcanza|bolsas alcanzan} para menos de {umbral} días', fraseVacio: 'Todas las bolsas activas cubren {umbral} días o más.',
     fraseCriticos: '{c} {está|están} en crítico',
     requiereDinero: false, funcionesOrigen: [FINANCIERO], umbral: 'dias_cobertura_amarillo',

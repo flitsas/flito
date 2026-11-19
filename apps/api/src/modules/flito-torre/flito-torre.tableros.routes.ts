@@ -17,6 +17,8 @@
 // B5: `POST /operativa/equipo` (body `{ filtro }`), con `torre.equipo.ver` (solo gerencia_general y admin): la pestaña
 // Equipo de Operativa. SIN `/exportar` en v1 (UX B5: es información de desempeño de personas; cada detalle exporta su
 // lista con las reglas de siempre). Del funcionario solo viaja el nombre.
+// B6: `/ejecutivo` lee además las operaciones `torre.*` del usuario (`acceso` del detalle) para «Para hoy»: solo
+// devuelve frentes cuyo conjunto el usuario podría abrir.
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import type { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
@@ -25,6 +27,7 @@ import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
 import { torreExportLimiter } from '../../shared/middleware/rateLimiter.js';
 import { tableroBolsas } from './flito-torre.bolsas.service.js';
 import { tableroComercial } from './flito-torre.comercial.service.js';
+import { acceso } from './flito-torre.detalle.routes.js';
 import { tableroEquipo } from './flito-torre.equipo.service.js';
 import { tableroFacturacion } from './flito-torre.facturacion.service.js';
 import { tableroEjecutivo } from './flito-torre.ejecutivo.service.js';
@@ -44,13 +47,21 @@ router.use(authMiddleware);
 /** El body validado: `{ filtro }` en los tableros; el inventario añade `organismo` (B2). */
 type CuerpoTablero = z.infer<typeof inventarioSchema>;
 
-function tablero(calcular: (ctx: ContextoTablero, cuerpo: CuerpoTablero) => Promise<unknown>, esquema: typeof tableroSchema | typeof inventarioSchema = tableroSchema) {
+function tablero(
+  calcular: (ctx: ContextoTablero, cuerpo: CuerpoTablero) => Promise<unknown>,
+  esquema: typeof tableroSchema | typeof inventarioSchema = tableroSchema,
+  conFunciones = false,
+) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const parsed = esquema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: `Datos inválidos: ${detalleZod(parsed.error)}`, code: 'DATOS_INVALIDOS' }); return; }
     try {
-      const [alcance, dinero] = await Promise.all([alcanceDe(req), tieneFuncion(req, 'torre.metricas.dinero')]);
-      const r = await calcular({ filtro: parsed.data.filtro, alcance, dinero }, parsed.data);
+      // B6: el 360° necesita además las operaciones del usuario (frentes de «Para hoy» que puede abrir).
+      const ctx: ContextoTablero = conFunciones
+        ? await acceso(req).then((a) => ({ filtro: parsed.data.filtro, alcance: a.alcance, dinero: a.dinero, funciones: a.funciones }))
+        : await Promise.all([alcanceDe(req), tieneFuncion(req, 'torre.metricas.dinero')])
+          .then(([alcance, dinero]) => ({ filtro: parsed.data.filtro, alcance, dinero }));
+      const r = await calcular(ctx, parsed.data);
       res.setHeader('Cache-Control', 'no-store');
       res.json(r);
     } catch (e) {
@@ -74,7 +85,7 @@ function exportar(tablero: TableroExportable) {
   };
 }
 
-router.post('/ejecutivo', exigirFuncion('torre.tablero_ejecutivo.ver'), tablero(tableroEjecutivo));
+router.post('/ejecutivo', exigirFuncion('torre.tablero_ejecutivo.ver'), tablero(tableroEjecutivo, tableroSchema, true));
 router.post('/comercial', exigirFuncion('torre.tablero_comercial.ver'), tablero(tableroComercial));
 router.post('/operativa', exigirFuncion('torre.tablero_operativo.ver'), tablero(tableroOperativo));
 router.post('/financiera', exigirFuncion('torre.tablero_financiero.ver'), tablero(tableroFinanciero));

@@ -49,6 +49,8 @@ export const VALORES_NIVEL_SOPORTES = ['0', '1', '2', '3'] as const;
 export const VALORES_NIVEL_ENTREGAS = ['primer_intento', 'con_viajes'] as const;
 export const VALORES_FALTANTE_SOPORTE = ['soat', 'impuesto', 'derecho'] as const;
 export const VALORES_NIVEL_COLA = ['vencido', 'agotado'] as const;
+/** B6: `nivel` de `bolsas_cobertura` — sin saldo (= `bolsas_agotadas`) o con saldo (para no contar dos veces en «Para hoy»). */
+export const VALORES_NIVEL_BOLSA = ['agotada', 'con_saldo'] as const;
 
 export const COLUMNAS_DETALLE_IDS = [
   'codigo_flit', 'placa', 'compania', 'organismo', 'tipo_tramite', 'estado', 'creado_en', 'aprobado_en', 'facturado_en',

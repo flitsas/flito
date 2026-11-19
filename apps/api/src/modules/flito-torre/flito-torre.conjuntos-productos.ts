@@ -25,6 +25,8 @@ import {
 import type { ContextoTablero } from './flito-torre.tablero-comun.js';
 
 const S = flitoSoat;
+/** B6 (UX B6.2): un SOAT por vencer es «crítico» en «Para hoy» si vence en estos días o menos. */
+export const DIAS_SOAT_CRITICO = 7;
 const I = flitoImpuestos;
 const D = flitoDerechosTramite;
 
@@ -58,12 +60,13 @@ const DERECHO: Pieza = {
 
 function conjunto(
   id: ConjuntoProductoId, p: Pieza, grupo: string, propia: ConjuntoSql['propia'],
-  extra: { fecha?: FechaBase; campoFecha: string; dimensiones?: ConjuntoSql['dimensiones'] },
+  extra: { fecha?: FechaBase; campoFecha: string; dimensiones?: ConjuntoSql['dimensiones']; critico?: ConjuntoSql['critico'] },
 ): ConjuntoSql {
   return {
     grupo, entidad: p.entidad, tabla: p.tabla, desde: p.desde, base: baseDe(id, p.dims, extra.fecha), propia, dims: p.dims,
     fecha: extra.fecha, campoFecha: extra.campoFecha, id: p.id, tramiteId: p.tramiteId, cols: p.cols,
     ...(extra.dimensiones ? { dimensiones: extra.dimensiones } : {}),
+    ...(extra.critico ? { critico: extra.critico } : {}),
   };
 }
 
@@ -76,7 +79,10 @@ export const CONJUNTOS_PRODUCTOS_SQL: Record<ConjuntoProductoId, ConjuntoSql> = 
     fecha: FECHA_SOAT_CREACION, campoFecha: 'flito_soat.created_at', dimensiones: ESTADO_SOAT,
   }),
   soat_por_vencer: conjunto('soat_por_vencer', SOAT, 'soat_foto', (u) => [SOAT_PAGADO,
-    sql`${S.venceEl} BETWEEN ${HOY_BOGOTA} AND ${HOY_BOGOTA} + ${u.dias_soat_por_vencer}::int`], { campoFecha: 'vence_el' }),
+    sql`${S.venceEl} BETWEEN ${HOY_BOGOTA} AND ${HOY_BOGOTA} + ${u.dias_soat_por_vencer}::int`], {
+    // B6 (UX B6.2): «crítico» = vence en 7 días o menos (fijo, no es el doble del umbral).
+    campoFecha: 'vence_el', critico: () => sql`${S.venceEl} <= ${HOY_BOGOTA} + ${DIAS_SOAT_CRITICO}::int`,
+  }),
   soat_vigencia_no_verificada: conjunto('soat_vigencia_no_verificada', SOAT, 'soat_foto',
     () => [SOAT_PAGADO, sql`${S.estadoVigencia} = 'no_verificado'`], { campoFecha: 'estado_vigencia' }),
   soat_pagados_periodo: conjunto('soat_pagados_periodo', SOAT, 'soat_pago', () => [sql`${S.pagadoEn} IS NOT NULL`], {

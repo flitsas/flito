@@ -10,7 +10,7 @@
 //   `dias_cobertura_rojo` (o sin saldo), así que `severidad: atencion` es el resto (RN-TOR-D3 sobre ESE par de umbrales).
 // Solo importa TIPOS de `flito-torre.conjuntos.ts` (que importa este archivo como valor): sin ciclo al cargar.
 import { sql, type SQL } from 'drizzle-orm';
-import { VALORES_NIVEL_COLA, conjuntoTorre, type ConjuntoTorreId } from '@operaciones/shared-types';
+import { VALORES_NIVEL_BOLSA, VALORES_NIVEL_COLA, conjuntoTorre, type ConjuntoTorreId } from '@operaciones/shared-types';
 import {
   flitoBolsasUnicas, flitoBolsasUnicasMovimientos, flitoConciliacionBoletas, flitoLogisticaActas, flitoLogisticaTraslados, flitoTramiteViajesLogistica,
   siigoFacturas, siigoLoteTramites,
@@ -127,6 +127,8 @@ export const CONJUNTOS_LOGISTICA_SQL: Record<ConjuntoLogisticaId, ConjuntoSql> =
   // ── Bolsas (RN-TOR-LG8) ──
   bolsas_cobertura: conjunto('bolsas_cobertura', BOLSA, 'bolsa_foto', (u) => [coberturaBajo(u.dias_cobertura_amarillo)], {
     campoFecha: 'saldo de hoy', critico: (u) => coberturaBajo(u.dias_cobertura_rojo),
+    // B6: `nivel` separa las agotadas, para que «Para hoy» no cuente la misma bolsa en cobertura crítica y en agotadas.
+    nivel: { expr: sql`(CASE WHEN ${BOLSA_AGOTADA} THEN 'agotada' ELSE 'con_saldo' END)`, valores: VALORES_NIVEL_BOLSA },
   }),
   bolsas_agotadas: conjunto('bolsas_agotadas', BOLSA, 'bolsa_foto', () => [BOLSA_AGOTADA], { campoFecha: 'saldo de hoy' }),
   movimientos_bolsa_periodo: conjunto('movimientos_bolsa_periodo', MOVIMIENTO, 'movimiento_fecha', () => [], {

@@ -5,7 +5,7 @@
 // se escribe ninguna definición. El destino lleva al conjunto (con su segmento) o al bloque ya visible (D3).
 import {
   DEFINICIONES_BLOQUE_TORRE, conjuntoTorre, definicionConUmbral, fraseDeConjunto, textoConUmbrales,
-  type CifraExplicada, type ComponenteCifra, type ConjuntoTorreId, type DestinoCifra, type SegmentoDetalle,
+  type CifraExplicada, type ComponenteCifra, type ConjuntoTorreId, type DestinoCifra, type HallazgoTorre, type SegmentoDetalle,
   type TableroComercial, type TableroEjecutivo, type TableroFinanciero, type TableroOperativo,
 } from '@operaciones/shared-types';
 import type { Umbrales } from './flito-torre.conjuntos.js';
@@ -237,4 +237,106 @@ export function explicarEjecutivo(t: Omit<TableroEjecutivo, 'explicaciones'>, u:
       destino: t.financiero.margenPct == null ? NINGUNO : aConjunto('margen_aprobados'),
     },
   };
+}
+
+// ── 360°: «Lo que cambió en el periodo» (B6.3) ─────────────────────────────────────────────────────────────
+//
+// RN-TOR-E4 (hallazgos): reglas DETERMINISTAS (sin LLM, sin servicio externo) sobre los mismos números de cada tablero,
+// mes en curso frente al periodo anterior de igual duración (`periodoAnterior`, la fórmula del Comercial). Los umbrales
+// son constantes fijas de aquí (UX B6.3), no de Umbrales y alertas. Una regla solo se evalúa si el usuario ve el
+// tablero de su área (dato ausente = no la ve); sin dinero no sale ningún peso. Un periodo anterior en 0 (o sin datos)
+// no da frase de variación. Orden: magnitud relativa (cuántas veces pasa su umbral), desempate por regla; máx. 4.
+
+export const UMBRALES_HALLAZGO = {
+  H1_VOLUMEN_PCT: 10, H2_TOP3_PCT: 80, H3_CONVERSION_PTS: 5, H4_SIN_FACTURAR_PCT: 20, H4_SIN_FACTURAR_MIN: 10,
+  H5_PRIMER_INTENTO_PTS: 3, H6_PAGADOS_PCT: 15,
+} as const;
+export const MAX_HALLAZGOS = 4;
+
+export interface Par { actual: number; anterior: number }
+export interface ParPct { actual: number | null; anterior: number | null }
+
+/** Los números ya calculados; una clave ausente = el usuario no ve ese tablero. */
+export interface DatosHallazgos {
+  /** Comercial: creados en el periodo y la concentración del Top 3 (`companias` = compañías con trámites). */
+  creados?: Par & { top3Pct: number | null; companias: number; mayor: string | null; mayorPct: number | null };
+  /** Comercial: % de creados que llegaron a facturado (el embudo). */
+  conversion?: ParPct;
+  /** Financiera: aprobados sin facturar (trámites) y su valor (`null` sin dinero). */
+  sinFacturar?: Par & { valorActual: number | null; valorAnterior: number | null };
+  /** Logística: % de entregas al primer intento. */
+  primerIntento?: ParPct;
+  /** Productos: SOAT e impuestos pagados. */
+  pagados?: { soat: Par; impuestos: Par };
+}
+
+const variacionPct = (p: Par): number | null => (p.anterior > 0 ? ((p.actual - p.anterior) / p.anterior) * 100 : null);
+const masMenos = (d: number): string => (d >= 0 ? 'más' : 'menos');
+const subioBajo = (d: number, fem = false): string => (d >= 0 ? (fem ? 'subieron' : 'subió') : (fem ? 'bajaron' : 'bajó'));
+const PE = (n: number): string => `${Math.round(Math.abs(n)).toLocaleString('es-CO')} %`;
+/** «$48 M» (UX B6.3); con menos de un millón, el valor entero. */
+export const MILLONES = (v: number): string => (Math.abs(v) >= 1e6 ? `$${N(Math.round(v / 1e6))} M` : COP(v));
+
+/** RN-TOR-E4. Puro. */
+export function hallazgosEjecutivo(d: DatosHallazgos): HallazgoTorre[] {
+  const H = UMBRALES_HALLAZGO;
+  const salida: (HallazgoTorre & { magnitud: number; orden: number })[] = [];
+  const poner = (h: HallazgoTorre, magnitud: number) => salida.push({ ...h, magnitud, orden: salida.length });
+
+  if (d.creados) {
+    const v = variacionPct(d.creados);
+    if (v != null && Math.abs(v) >= H.H1_VOLUMEN_PCT) {
+      poner({ regla: 'H1', area: 'comercial',
+        frase: `Se crearon ${N(d.creados.actual)} trámites, ${PE(v)} ${masMenos(v)} que en el periodo anterior (${N(d.creados.anterior)}).` },
+      Math.abs(v) / H.H1_VOLUMEN_PCT);
+    }
+    // Con 3 compañías o menos el Top 3 es el 100 % por construcción: no es un hallazgo.
+    const { top3Pct, companias, mayor, mayorPct } = d.creados;
+    if (top3Pct != null && companias > 3 && top3Pct >= H.H2_TOP3_PCT && mayor && mayorPct != null) {
+      poner({ regla: 'H2', area: 'comercial',
+        frase: `3 compañías concentran el ${P(top3Pct)} de los trámites creados; la mayor, ${mayor}, el ${P(mayorPct)}.` },
+      top3Pct / H.H2_TOP3_PCT);
+    }
+  }
+  if (d.conversion?.actual != null && d.conversion.anterior != null) {
+    const delta = d.conversion.actual - d.conversion.anterior;
+    if (Math.abs(delta) >= H.H3_CONVERSION_PTS) {
+      poner({ regla: 'H3', area: 'comercial',
+        frase: `La conversión a facturado ${subioBajo(delta)} de ${P(d.conversion.anterior)} a ${P(d.conversion.actual)} frente al periodo anterior.` },
+      Math.abs(delta) / H.H3_CONVERSION_PTS);
+    }
+  }
+  if (d.sinFacturar) {
+    const v = variacionPct(d.sinFacturar);
+    if (v != null && v >= H.H4_SIN_FACTURAR_PCT && d.sinFacturar.actual >= H.H4_SIN_FACTURAR_MIN) {
+      const { valorActual: va, valorAnterior: vp } = d.sinFacturar;
+      const de = va != null && vp != null ? `de ${MILLONES(vp)} a ${MILLONES(va)}` : `de ${N(d.sinFacturar.anterior)} a ${N(d.sinFacturar.actual)} trámites`;
+      poner({ regla: 'H4', area: 'financiera', frase: `Lo aprobado sin facturar pasó ${de} frente al periodo anterior.` },
+        v / H.H4_SIN_FACTURAR_PCT);
+    }
+  }
+  if (d.primerIntento?.actual != null && d.primerIntento.anterior != null) {
+    const delta = d.primerIntento.actual - d.primerIntento.anterior;
+    if (Math.abs(delta) >= H.H5_PRIMER_INTENTO_PTS) {
+      poner({ regla: 'H5', area: 'logistica', vista: 'entregas',
+        frase: `Las entregas al primer intento ${subioBajo(delta, true)} de ${P(d.primerIntento.anterior)} a ${P(d.primerIntento.actual)}.` },
+      Math.abs(delta) / H.H5_PRIMER_INTENTO_PTS);
+    }
+  }
+  if (d.pagados) {
+    // Una sola frase H6: la del producto con el cambio mayor.
+    const candidatos = (['soat', 'impuestos'] as const)
+      .map((k) => ({ k, p: d.pagados![k], v: variacionPct(d.pagados![k]) }))
+      .filter((c): c is { k: 'soat' | 'impuestos'; p: Par; v: number } => c.v != null && Math.abs(c.v) >= H.H6_PAGADOS_PCT)
+      .sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+    const c = candidatos[0];
+    if (c) {
+      const que = c.k === 'soat' ? 'SOAT' : plural(c.p.actual, 'impuesto', 'impuestos');
+      poner({ regla: 'H6', area: 'productos', vista: c.k,
+        frase: `Se ${c.p.actual === 1 ? 'pagó' : 'pagaron'} ${N(c.p.actual)} ${que}, ${PE(c.v)} ${masMenos(c.v)} que en el periodo anterior.` },
+      Math.abs(c.v) / H.H6_PAGADOS_PCT);
+    }
+  }
+  return salida.sort((a, b) => b.magnitud - a.magnitud || a.orden - b.orden).slice(0, MAX_HALLAZGOS)
+    .map(({ magnitud: _m, orden: _o, ...h }) => h);
 }

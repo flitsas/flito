@@ -17,6 +17,11 @@ export interface ContextoTablero {
   dinero: boolean;
   /** Día de hoy en Bogotá (tests). */
   hoy?: string;
+  /**
+   * B6: las operaciones `torre.*` del usuario (las mismas que el detalle exige como `funcionesOrigen`). Solo la lee el
+   * 360° para «Para hoy» y los hallazgos; sin ella, ninguno de los dos trae nada.
+   */
+  funciones?: ReadonlySet<string>;
 }
 
 export const hoyDe = (ctx: ContextoTablero): string => ctx.hoy ?? hoyColombia();

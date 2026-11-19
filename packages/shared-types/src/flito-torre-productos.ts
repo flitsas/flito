@@ -37,7 +37,7 @@ export const CONJUNTOS_PRODUCTOS_TORRE = [
     id: 'soat_por_vencer', entidad: 'gestion_soat', etiqueta: 'SOAT por vencer',
     definicion: 'SOAT pagados cuya póliza, según el RUNT, vence entre hoy y los próximos {umbral} días. Solo cuentan los que el RUNT ya verificó con fecha de vencimiento. El umbral se cambia en Umbrales y alertas. Es la foto de hoy: no depende del periodo.',
     fechaBase: null, filtrosIgnorados: FOTO, columnas: [...COLS_SOAT, 'poliza_ultimos', 'vence_el', 'dias_para_vencer'],
-    ordenDefecto: { columna: 'vence_el', dir: 'asc' }, segmentosAdmitidos: ['compania', 'organismo'],
+    ordenDefecto: { columna: 'vence_el', dir: 'asc' }, segmentosAdmitidos: ['compania', 'organismo', 'severidad'],
     frase: '{n} {SOAT vence|SOAT vencen} en los próximos {umbral} días', fraseVacio: 'Ningún SOAT vence en los próximos {umbral} días.',
     requiereDinero: false, funcionesOrigen: [PRODUCTOS], umbral: 'dias_soat_por_vencer',
   },

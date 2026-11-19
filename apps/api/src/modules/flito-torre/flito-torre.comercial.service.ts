@@ -56,7 +56,7 @@ export async function calcularFuga(
   }));
 }
 
-function concentracion(filas: { id: number | null; valor: number }[], nombres: Map<number, string>): ConcentracionTorre {
+export function concentracion(filas: { id: number | null; valor: number }[], nombres: Map<number, string>): ConcentracionTorre {
   const total = filas.reduce((s, f) => s + f.valor, 0);
   const orden = [...filas].sort((a, b) => b.valor - a.valor);
   const parte = (k: number) => orden.slice(0, k).reduce((s, f) => s + f.valor, 0);
@@ -68,14 +68,14 @@ function concentracion(filas: { id: number | null; valor: number }[], nombres: M
   return { top, demas: { n: resto.length, valor: valorResto, pct: pct(valorResto, total) }, top3Pct: pct(parte(3), total), top5Pct: pct(parte(5), total), total };
 }
 
-async function porCompania(q: Ejecutor, desde: ReturnType<typeof sql>, valor: ReturnType<typeof sql>, conds: ReturnType<typeof sql>[]) {
+export async function porCompania(q: Ejecutor, desde: ReturnType<typeof sql>, valor: ReturnType<typeof sql>, conds: ReturnType<typeof sql>[]) {
   const filas = await q<{ id: number | null; valor: string }>(sql`SELECT ${T.companiaId} AS id, ${valor} AS valor
     FROM ${desde} WHERE ${donde(conds)} GROUP BY 1`);
   return filas.map((f) => ({ id: f.id == null ? null : Number(f.id), valor: num(f.valor) }));
 }
 
 /** RN-TOR-C3: los cuatro pasos son conjuntos de la misma base (creados en el rango): UNA consulta (ADR-0047). */
-async function embudo(q: Ejecutor, ctx: ContextoTablero, u: Umbrales): Promise<TableroComercial['embudo']['pasos']> {
+export async function embudo(q: Ejecutor, ctx: ContextoTablero, u: Umbrales): Promise<TableroComercial['embudo']['pasos']> {
   const k = await contarConjuntos(q, ctx, u, [
     { clave: 'creados', conjunto: 'tramites_creados' }, { clave: 'radicados', conjunto: 'radicados_cohorte' },
     { clave: 'aprobados', conjunto: 'aprobados_cohorte' }, { clave: 'facturados', conjunto: 'facturados_cohorte' },
