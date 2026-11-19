@@ -1,5 +1,4 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import https from 'https';
 import multer from 'multer';
 import ExcelJS from 'exceljs';
 import { eq, sql } from 'drizzle-orm';
@@ -11,6 +10,8 @@ import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { env } from '../../config/env.js';
 import { extractSinglePage, flattenToLegacyShape } from './ocr.pipeline.js';
+import { anthropicMensajesCrudo } from '../tramites/anthropic.js';
+import { anotarConsumoIa, conContextoIa, procesoIa } from '../../shared/ia-consumo/index.js';
 import { loggerFor } from '../../shared/logger.js';
 
 const log = loggerFor('vehicles-ocr');
@@ -33,35 +34,15 @@ const handleUploadError = (req: Request, res: Response, next: NextFunction) => {
 
 router.use(authMiddleware);
 
-function callAnthropic(content: any[]): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
-      model: env.ANTHROPIC_MODEL_HAIKU,
-      max_tokens: 8000,
-      messages: [{ role: 'user', content }],
-    });
-    const rq = https.request({
-      method: 'POST',
-      hostname: 'api.anthropic.com',
-      path: '/v1/messages',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': env.ANTHROPIC_API_KEY || '',
-        'anthropic-version': '2023-06-01',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (r2) => {
-      let d = '';
-      r2.on('data', (c) => (d += c));
-      r2.on('end', () => {
-        try { resolve(JSON.parse(d)); } catch { resolve(d); }
-      });
-    });
-    rq.setTimeout(120000, () => rq.destroy(new Error('Anthropic timeout')));
-    rq.on('error', reject);
-    rq.write(body);
-    rq.end();
-  });
+// Contrato `ia-consumo` v1 (B4): cliente central (registro por intento + métrica). Conserva lo de antes: un
+// solo intento, 120 s, el cuerpo de cualquier status (`r.error` se trata abajo) y rechazo en red/timeout.
+async function callAnthropic(content: any[]): Promise<{ cuerpo: any; consumoId: string | null }> {
+  const r = await anthropicMensajesCrudo({
+    model: env.ANTHROPIC_MODEL_HAIKU,
+    max_tokens: 8000,
+    messages: [{ role: 'user', content }],
+  }, 'ocr', { timeoutMs: 120_000 });
+  return { cuerpo: r.cuerpo, consumoId: r.consumoId };
 }
 
 const EXTRACTION_PROMPT = `Analiza este PDF de declaraciones de impuesto sobre vehiculos automotores de Colombia (puede ser Gobernacion de Antioquia, Caldas, u otra).
@@ -104,7 +85,9 @@ async function ocrSingleDocument(b64: string, mediaType: string): Promise<any[]>
     { type: 'document', source: { type: 'base64', media_type: mediaType, data: b64 } },
     { type: 'text', text: EXTRACTION_PROMPT },
   ];
-  const r = await callAnthropic(content);
+  const { cuerpo: r, consumoId } = await conContextoIa(
+    { ...procesoIa('ocr_vehiculo'), promptCodigo: 'ocr_vehiculo' }, () => callAnthropic(content),
+  );
   if (r?.error) throw new Error(r.error.message || 'Anthropic error');
   const text = r?.content?.[0]?.text || '';
   try {
@@ -114,6 +97,7 @@ async function ocrSingleDocument(b64: string, mediaType: string): Promise<any[]>
     if (parsed && typeof parsed === 'object') return [parsed];
     return [];
   } catch {
+    anotarConsumoIa(consumoId, { resultado: 'respuesta_invalida', errorCodigo: 'json_no_parseable' });
     return [];
   }
 }

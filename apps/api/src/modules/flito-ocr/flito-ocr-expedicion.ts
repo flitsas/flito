@@ -9,6 +9,8 @@
 import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
 import { normalizarFecha, pasada, type DocumentoAAnalizar } from './flito-ocr.service.js';
+import { conContextoIa } from '../../shared/ia-consumo/contexto.js';
+import { procesoIa } from '../../shared/ia-consumo/catalogo.js';
 import {
   PROMPT_EXPEDICION_CAMARA_COMERCIO, PROMPT_EXPEDICION_CERTIFICADO_BANCARIO, PROMPT_EXPEDICION_RUT,
   type CampoCrudo,
@@ -57,13 +59,19 @@ export async function extraerFechaExpedicion(
   const prompt = PROMPTS[tipo];
   if (!prompt) throw new Error(`Tipo sin OCR de expedición: ${String(tipo)}`);
   const documento: DocumentoAAnalizar = { ...doc, umbral: doc.umbral ?? 0.85 };
+  // Contrato `ia-consumo` v1: proceso `ocr_fecha_expedicion` (agregado al catálogo FLITO); la entidad la pone
+  // quien llama (`flito-bolsas-documentos.ocr.ts`).
+  return conContextoIa({ ...procesoIa('ocr_fecha_expedicion'), promptCodigo: `expedicion_${tipo}` },
+    () => leerFecha(documento, prompt, tipo));
+}
 
+async function leerFecha(documento: DocumentoAAnalizar, prompt: string, tipo: TipoConFechaExpedicion): Promise<FechaExpedicionLeida> {
   const p1 = await pasada(documento, env.ANTHROPIC_MODEL_HAIKU, prompt, '');
   let campo = p1?.[CAMPO];
   if (campo?.confianza !== 'alta') {
     const extra = 'La lectura previa con un modelo rápido dejó la fecha dudosa. Verifícala con máximo rigor. Si aun así no puedes leerla, valor=null y confianza=null.';
     try {
-      const p2 = await pasada(documento, env.ANTHROPIC_MODEL_SONNET, prompt, extra);
+      const p2 = await conContextoIa({ pasada: 2 }, () => pasada(documento, env.ANTHROPIC_MODEL_SONNET, prompt, extra));
       const c2 = p2?.[CAMPO];
       if (rango(c2) >= rango(campo)) campo = c2;
     } catch (e) {

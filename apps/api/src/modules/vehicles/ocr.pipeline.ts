@@ -1,6 +1,7 @@
-import https from 'https';
 import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
+import { anthropicMensajesCrudo } from '../tramites/anthropic.js';
+import { anotarConsumoIa, conContextoIa, normalizarPlacaIa, procesoIa } from '../../shared/ia-consumo/index.js';
 
 const log = loggerFor('vehicles-ocr-pipeline');
 
@@ -205,36 +206,17 @@ Responde SOLO el JSON. Nada más.`;
 
 // ---- LLAMADAS A ANTHROPIC ----
 
-function callAnthropic(model: string, content: any[], systemPrompt: string, maxTokens = 2000): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: [{ role: 'user', content }],
-    });
-    const rq = https.request({
-      method: 'POST',
-      hostname: 'api.anthropic.com',
-      path: '/v1/messages',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': env.ANTHROPIC_API_KEY || '',
-        'anthropic-version': '2023-06-01',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (r2) => {
-      let d = '';
-      r2.on('data', (c) => (d += c));
-      r2.on('end', () => {
-        try { resolve(JSON.parse(d)); } catch { resolve(d); }
-      });
-    });
-    rq.setTimeout(120000, () => rq.destroy(new Error('Anthropic timeout')));
-    rq.on('error', reject);
-    rq.write(body);
-    rq.end();
-  });
+// Contrato `ia-consumo` v1 (B4): pasa por el cliente central (registro por intento + métrica). Conserva lo de
+// antes: un solo intento, 120 s de timeout, el cuerpo de CUALQUIER status (`r.error` lo trata quien llama) y
+// rechazo en red/timeout.
+async function callAnthropic(model: string, content: any[], systemPrompt: string, maxTokens = 2000): Promise<{ cuerpo: any; consumoId: string | null }> {
+  const r = await anthropicMensajesCrudo({
+    model,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: 'user', content }],
+  }, 'ocr', { timeoutMs: 120_000 });
+  return { cuerpo: r.cuerpo, consumoId: r.consumoId };
 }
 
 // ---- ROTACIÓN AUTOMÁTICA ----
@@ -399,11 +381,11 @@ async function extractWithModel(
   pdfBytes: Uint8Array,
   model: string,
   systemExtra = ''
-): Promise<{ data: any; rawText: string } | null> {
+): Promise<{ data: any; rawText: string; consumoId: string | null } | null> {
   const b64 = Buffer.from(pdfBytes).toString('base64');
   const systemPrompt = EXTRACTION_SYSTEM + (systemExtra ? `\n\n${systemExtra}` : '');
 
-  const r = await callAnthropic(model, [
+  const { cuerpo: r, consumoId } = await callAnthropic(model, [
     { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
     { type: 'text', text: EXTRACTION_PROMPT },
   ], systemPrompt);
@@ -416,7 +398,8 @@ async function extractWithModel(
   }
   const text = r?.content?.[0]?.text || '';
   const parsed = parseJSONLoose(text);
-  return parsed ? { data: parsed, rawText: text } : null;
+  if (!parsed) anotarConsumoIa(consumoId, { resultado: 'respuesta_invalida', errorCodigo: 'json_no_parseable' });
+  return parsed ? { data: parsed, rawText: text, consumoId } : null;
 }
 
 // ---- PIPELINE COMPLETO ----
@@ -425,6 +408,14 @@ export async function extractSinglePage(
   srcDoc: any,
   pageIndex: number,
 ): Promise<OcrVehicleExtraction | null> {
+  // Contrato `ia-consumo` v1: una declaración por página; Haiku y Sonnet comparten `correlacion_id`.
+  return conContextoIa(
+    { ...procesoIa('ocr_declaracion_impuesto'), promptCodigo: 'ocr_declaracion_impuesto', archivo: { paginas: 1 }, metadatos: { pagina: pageIndex + 1 } },
+    () => extraerPagina(srcDoc, pageIndex),
+  );
+}
+
+async function extraerPagina(srcDoc: any, pageIndex: number): Promise<OcrVehicleExtraction | null> {
   const { bytes, rotated } = await ensurePageUpright(srcDoc, pageIndex);
 
   // Pasada 1: Haiku
@@ -454,6 +445,7 @@ export async function extractSinglePage(
     _model: HAIKU_MODEL,
     _page_rotated: rotated,
   };
+  anotarConsumoIa(firstPass.consumoId, { placa: normalizarPlacaIa(normalized.placa?.valor as string | null) });
 
   // Si NO es un formulario individual, no tiene sentido validar ni hacer segunda pasada.
   if (normalized._documentType !== 'individual') {
@@ -484,7 +476,7 @@ export async function extractSinglePage(
   ].filter(Boolean).join(' | ') || 'baja confianza global'}. Verifica cada campo con máximo rigor. CITA la zona del documento que soporta cada valor. Si sigues sin poder leer un campo, valor=null.`;
 
   try {
-    const secondPass = await extractWithModel(bytes, SONNET_MODEL, extra);
+    const secondPass = await conContextoIa({ pasada: 2 }, () => extractWithModel(bytes, SONNET_MODEL, extra));
     if (secondPass?.data) {
       const sonnetResult: OcrVehicleExtraction = {
         placa: normalizeField(secondPass.data.placa, (v) => String(v).toUpperCase().replace(/[^A-Z0-9]/g, '')),
@@ -513,6 +505,7 @@ export async function extractSinglePage(
       sonnetResult._confidence_avg = computeAvgConfidence(sonnetResult);
       sonnetResult._math_check = validateMath(sonnetResult);
       sonnetResult._warnings = detectHallucinations(sonnetResult);
+      anotarConsumoIa(secondPass.consumoId, { placa: normalizarPlacaIa(sonnetResult.placa?.valor as string | null) });
       return sonnetResult;
     }
   } catch (e: any) {

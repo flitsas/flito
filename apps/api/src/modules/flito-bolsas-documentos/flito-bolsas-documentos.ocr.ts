@@ -20,6 +20,7 @@ import { hoyColombia } from '../../shared/utils/fecha-rango.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { extraerFechaExpedicion, type TipoConFechaExpedicion } from '../flito-ocr/flito-ocr-expedicion.js';
 import { archivoDe } from './flito-bolsas-documentos.service.js';
+import { conContextoIa } from '../../shared/ia-consumo/contexto.js';
 
 const log = loggerFor('flito-bolsas-documentos.ocr');
 const t = flitoBolsasDocumentos;
@@ -62,9 +63,9 @@ export async function procesarOcr(id: string, buffer?: Buffer): Promise<Resultad
 
     const leido = await limitador.ejecutar(async () => {
       const contenido = buffer ?? (await archivoDe(id)).contenido;
-      return extraerFechaExpedicion(
+      return conContextoIa({ entidadTipo: 'bolsa_documento', entidadId: id }, () => extraerFechaExpedicion(
         { nombreArchivo: `${fila.tipo}`, contentType: fila.mime, contenido }, fila.tipo as TipoConFechaExpedicion,
-      );
+      ));
     });
 
     if (!leido.fecha || !leido.confiable || leido.fecha > hoyColombia()) {

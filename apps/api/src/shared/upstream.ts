@@ -34,6 +34,22 @@ export interface RequestOpts {
   retryableStatus?: (status: number) => boolean;
   /** Backoff base lineal (ms). Default 300. */
   backoffMs?: number;
+  /**
+   * Se llama una vez por intento HTTP, con su resultado (respuesta o error). Lo usa el registro de
+   * consumo de IA (contrato `ia-consumo` v1: una fila por intento). Nunca altera el flujo: si lanza,
+   * se ignora.
+   */
+  onIntento?: (i: IntentoUpstream) => void;
+}
+
+export interface IntentoUpstream {
+  /** 1-based. */
+  intento: number;
+  inicio: Date;
+  fin: Date;
+  statusCode?: number;
+  buffer?: Buffer;
+  error?: UpstreamError;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -53,7 +69,7 @@ function once(opts: RequestOpts, timeoutMs: number): Promise<{ statusCode: numbe
       },
       (res) => {
         const chunks: Buffer[] = [];
-        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('data', (c: Buffer | string) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
         res.on('end', () => resolve({ statusCode: res.statusCode ?? 0, buffer: Buffer.concat(chunks) }));
       },
     );
@@ -76,11 +92,18 @@ export async function requestWithRetry(opts: RequestOpts): Promise<UpstreamRespo
   const retryable = opts.retryableStatus ?? ((s) => s === 429 || s >= 500);
   const base = opts.backoffMs ?? 300;
 
+  const avisar = (i: IntentoUpstream) => {
+    if (!opts.onIntento) return;
+    try { opts.onIntento(i); } catch { /* el gancho nunca cambia el resultado de la petición */ }
+  };
+
   let lastErr: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (attempt > 0) await sleep(base * attempt);
+    const inicio = new Date();
     try {
       const r = await once(opts, timeoutMs);
+      avisar({ intento: attempt + 1, inicio, fin: new Date(), statusCode: r.statusCode, buffer: r.buffer });
       if (retryable(r.statusCode) && attempt < retries) {
         lastErr = new UpstreamError('network', `upstream ${r.statusCode}`);
         continue;
@@ -88,8 +111,10 @@ export async function requestWithRetry(opts: RequestOpts): Promise<UpstreamRespo
       return { ...r, attempts: attempt + 1 };
     } catch (e) {
       lastErr = e;
+      const err = e instanceof UpstreamError ? e : new UpstreamError('network', (e as Error)?.message || 'error de red');
+      avisar({ intento: attempt + 1, inicio, fin: new Date(), error: err });
       if (attempt < retries) continue;
-      throw e instanceof UpstreamError ? e : new UpstreamError('network', (e as Error)?.message || 'error de red');
+      throw err;
     }
   }
   // Inalcanzable, pero por tipo:
