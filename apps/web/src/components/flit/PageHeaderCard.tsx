@@ -17,10 +17,12 @@ interface PageHeaderCardProps {
   icono?: string;
   /** Niveles anteriores de la miga (Inicio se antepone solo). */
   miga?: PasoMiga[];
+  /** Aditivo (Torre #14590, detalle): texto bajo el subtítulo, dentro de la cabecera (p. ej. «Cómo se calcula: …»). */
+  detalle?: ReactNode;
 }
 
 export default function PageHeaderCard(
-  { title, subtitle, actions, leading, titleRef, icono, miga }: PageHeaderCardProps,
+  { title, subtitle, actions, leading, titleRef, icono, miga, detalle }: PageHeaderCardProps,
 ) {
   const conIlus = Boolean(icono);
   return (
@@ -32,6 +34,7 @@ export default function PageHeaderCard(
           {miga && <Miga pasos={miga} actual={title} />}
           <h1 ref={titleRef} tabIndex={titleRef ? -1 : undefined} className="outline-none">{title}</h1>
           {subtitle && <p>{subtitle}</p>}
+          {detalle}
         </div>
       </div>
       {actions && <div className="page-header__acciones">{actions}</div>}

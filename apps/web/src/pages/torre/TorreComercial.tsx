@@ -9,7 +9,6 @@ import {
 import { useAuth } from '../../lib/auth';
 import { hasPage } from '../../lib/permissions';
 import { guardarFiltrosTorre } from '../../lib/torreFiltros';
-import KpiCard from '../../components/flit/KpiCard';
 import Sparkline from '../../components/flit/Sparkline';
 import DataTable, { type ColumnaTabla } from '../../components/flit/DataTable';
 import FiltroSegmentado from '../../components/flit/FiltroSegmentado';
@@ -20,6 +19,7 @@ import type { TonoKit } from '../../components/flit/kit/tonos';
 import PaginaTorre, { BloqueTorre, REJILLA_2, REJILLA_KPI, useTorre } from '../../components/torre/PaginaTorre';
 import MoldeTablero, { ExportarTablero, Etiqueta, notaFiltros, useTablero } from '../../components/torre/MoldeTablero';
 import RankingTorre from '../../components/torre/RankingTorre';
+import KpiExplicable, { EnlaceDestino } from '../../components/torre/KpiExplicable';
 import { conteo, porcentaje, pesos, variacion } from '../../components/torre/formatoTorre';
 
 type FilaVenta = TableroComercial['ventaCruzada']['filas'][number];
@@ -68,6 +68,7 @@ function Contenido({ d, onExplorar }: { d: TableroComercial; onExplorar: (compan
   const [vistaConc, setVistaConc] = useState<'volumen' | 'ingreso'>('volumen');
   const [vistaTend, setVistaTend] = useState<'mensual' | 'trimestral'>('mensual');
   const c = d.cifras;
+  const x = d.explicaciones ?? {};
   const dif = c.tramitesPeriodo - c.tramitesPeriodoAnterior;
   const conc = vistaConc === 'ingreso' && d.concentracion.ingreso ? d.concentracion.ingreso : d.concentracion.volumen;
   const serie = vistaTend === 'mensual' ? d.tendencia.mensual : d.tendencia.trimestral;
@@ -83,14 +84,21 @@ function Contenido({ d, onExplorar }: { d: TableroComercial; onExplorar: (compan
   return (
     <>
       <div className={REJILLA_KPI}>
-        <KpiCard label="Clientes con caída de volumen" value={conteo(c.clientesEnCaida)} pendiente={c.clientesEnCaida > 0}
-          hint={c.clientesEnCaida > 0 ? 'Vea cuáles en «Clientes con caída de volumen»' : 'Ninguno por debajo de su promedio'} />
-        <KpiCard label="Concentración en el Top 3" value={porcentaje(c.concentracionTop3Pct)} hint={`Top 5: ${porcentaje(c.concentracionTop5Pct)}`} />
-        <KpiCard label="Conversión a facturado" value={porcentaje(c.conversionFacturadoPct)} hint="De lo creado en el periodo" />
-        <KpiCard label="Trámites del periodo" value={conteo(c.tramitesPeriodo)}
-          hint={`${dif === 0 ? 'Igual que' : `${conteo(Math.abs(dif))} ${dif > 0 ? 'más' : 'menos'} que`} el periodo anterior (${conteo(c.tramitesPeriodoAnterior)})`}>
+        <KpiExplicable volver="comercial" label="Clientes con caída de volumen" value={conteo(c.clientesEnCaida)} pendiente={c.clientesEnCaida > 0}
+          explicacion={x.clientesEnCaida} cantidad={c.clientesEnCaida}
+          hintSinExplicacion={c.clientesEnCaida > 0 ? 'Vea cuáles en «Clientes con caída de volumen»' : 'Ninguno por debajo de su promedio'} />
+        {/* La pista vieja («Top 5: …» bajo un rótulo «Top 3») confundía: el Top 5 queda como cierre de la frase (spec §4.2 C2). */}
+        <KpiExplicable volver="comercial" label="Concentración en 3 compañías" value={c.tramitesPeriodo === 0 ? '—' : porcentaje(c.concentracionTop3Pct)}
+          explicacion={x.concentracionTop3Pct} cantidad={c.tramitesPeriodo === 0 ? 0 : null} verEtiqueta="Ver sus trámites"
+          nombreLista="trámites de las 3 compañías más grandes" />
+        <KpiExplicable volver="comercial" label="Conversión a facturado" value={c.tramitesPeriodo === 0 ? '—' : porcentaje(c.conversionFacturadoPct)}
+          explicacion={x.conversionFacturadoPct} cantidad={c.tramitesPeriodo === 0 ? 0 : null} verEtiqueta="Ver los facturados"
+          hintSinExplicacion="De lo creado en el periodo" />
+        <KpiExplicable volver="comercial" label="Trámites del periodo" value={conteo(c.tramitesPeriodo)}
+          explicacion={x.tramitesPeriodo} cantidad={c.tramitesPeriodo} nombreLista="trámites del periodo"
+          hintSinExplicacion={`${dif === 0 ? 'Igual que' : `${conteo(Math.abs(dif))} ${dif > 0 ? 'más' : 'menos'} que`} el periodo anterior (${conteo(c.tramitesPeriodoAnterior)})`}>
           <Sparkline data={c.sparkline} />
-        </KpiCard>
+        </KpiExplicable>
       </div>
 
       <div className={REJILLA_2}>
@@ -104,12 +112,17 @@ function Contenido({ d, onExplorar }: { d: TableroComercial; onExplorar: (compan
                 titulo: f.compania,
                 detalle: `${conteo(f.tramitesVentana)} trámites; su promedio es ${conteo(f.promedio)}`,
                 extra: <Etiqueta tono="warn">{variacion(f.variacionPct)}</Etiqueta>,
-                accion: puedeExplorar ? (
-                  <GradientButton variant="ghost" size="sm" aria-label={`Explorar ${f.compania}`}
-                    onClick={() => { onExplorar(f.companiaId); navigate('/flito/torre/explorador'); }}>
-                    Explorar
-                  </GradientButton>
-                ) : undefined,
+                accion: (
+                  <span className="flex flex-wrap items-center gap-1">
+                    <EnlaceDestino destino={f.destino} cantidad={f.tramitesVentana} nombre={`trámites de ${f.compania}`} volver="comercial" />
+                    {puedeExplorar && (
+                      <GradientButton variant="ghost" size="sm" aria-label={`Explorar ${f.compania}`}
+                        onClick={() => { onExplorar(f.companiaId); navigate('/flito/torre/explorador'); }}>
+                        Explorar
+                      </GradientButton>
+                    )}
+                  </span>
+                ),
               }))} />
             )}
         </BloqueTorre>

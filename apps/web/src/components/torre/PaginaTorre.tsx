@@ -76,7 +76,9 @@ export function BloqueTorre({ titulo, subtitulo, accion, ancho = false, children
   titulo: string; subtitulo?: string; accion?: ReactNode; ancho?: boolean; children: ReactNode; idPrueba?: string;
 }) {
   return (
-    <section className={`card min-w-0${ancho ? ' lg:col-span-2' : ''}`} aria-label={titulo} data-torre={idPrueba}>
+    // `id` + `tabIndex=-1`: «Ver cuáles ↓» de una KPI cuyo destino es este bloque (ADR-0047 D3) lleva el foco aquí.
+    <section id={idPrueba} tabIndex={idPrueba ? -1 : undefined} className={`card min-w-0 focus:outline-none${ancho ? ' lg:col-span-2' : ''}`}
+      aria-label={titulo} data-torre={idPrueba}>
       <div className="card__cabeza flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2>{titulo}</h2>

@@ -2,10 +2,9 @@
 // `FlitoTablero` sin duplicarlo: no repite los conteos por estado, lo enlaza («Abrir el tablero operativo»).
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { CausaRadarTorre, TableroOperativo } from '@operaciones/shared-types';
+import type { TableroOperativo } from '@operaciones/shared-types';
 import { useAuth } from '../../lib/auth';
-import { hasPage, type PageSlug } from '../../lib/permissions';
-import KpiCard from '../../components/flit/KpiCard';
+import { hasPage } from '../../lib/permissions';
 import DataTable, { type ColumnaTabla } from '../../components/flit/DataTable';
 import FiltroSegmentado from '../../components/flit/FiltroSegmentado';
 import { ListaFila } from '../../components/flit/Bloques';
@@ -14,17 +13,10 @@ import { Dona, SERIE_KIT } from '../../components/flit/Graficos';
 import PaginaTorre, { BloqueTorre, REJILLA_2, REJILLA_KPI, useTorre } from '../../components/torre/PaginaTorre';
 import MoldeTablero, { ExportarTablero, Etiqueta, Semaforo, notaFiltros, useTablero } from '../../components/torre/MoldeTablero';
 import RankingTorre from '../../components/torre/RankingTorre';
+import KpiExplicable, { EnlaceDestino } from '../../components/torre/KpiExplicable';
 import { conteo, porcentaje } from '../../components/torre/formatoTorre';
 
 type FilaOt = TableroOperativo['benchmarkOt']['filas'][number];
-
-/** «Ver cola»: la cola existente que atiende cada causa. */
-const COLA: Record<CausaRadarTorre, { to: string; page: PageSlug }> = {
-  soat_sin_gestion: { to: '/flito/soat', page: 'flito_soat' },
-  impuesto_sin_gestion: { to: '/flito/impuestos', page: 'flito_impuestos' },
-  borrador_abandonado: { to: '/flito/tramites', page: 'flito_tramites' },
-  estancado_ot: { to: '/flito/tramites', page: 'flito_tramites' },
-};
 
 const dias = (n: number | null) => (n === null ? '—' : `${n.toLocaleString('es-CO', { maximumFractionDigits: 1 })} ${n === 1 ? 'día' : 'días'}`);
 
@@ -48,6 +40,7 @@ function Contenido({ d }: { d: TableroOperativo }) {
   const { user } = useAuth();
   const [vistaCarga, setVistaCarga] = useState<'organismo' | 'funcionario'>('organismo');
   const c = d.cifras;
+  const x = d.explicaciones ?? {};
   const carga = vistaCarga === 'funcionario' && d.carga.porFuncionario ? d.carga.porFuncionario : d.carga.porOrganismo;
   const topCarga = carga.slice(0, 8);
   const maxCarga = Math.max(1, ...topCarga.map((s) => s.valor));
@@ -63,15 +56,25 @@ function Contenido({ d }: { d: TableroOperativo }) {
       key: 'mediana', header: 'Mediana de respuesta', align: 'right',
       render: (f) => (f.sobreUmbral ? <Etiqueta tono="warn">{dias(f.medianaRespuestaDias)}</Etiqueta> : dias(f.medianaRespuestaDias)),
     },
+    {
+      key: 'acciones', header: <span className="sr-only">Registros</span>, acciones: true,
+      render: (f) => <EnlaceDestino destino={f.destino} cantidad={f.volumen} nombre={`trámites de ${f.organismo}`} volver="operativa" texto="Ver trámites" />,
+    },
   ];
 
   return (
     <>
       <div className={REJILLA_KPI}>
-        <KpiCard label="Sin gestión fuera de ANS" value={conteo(c.sinGestionFueraAns)} pendiente={c.sinGestionFueraAns > 0} hint="SOAT e impuestos" />
-        <KpiCard label="Borradores abandonados" value={conteo(c.borradoresAbandonados)} pendiente={c.borradoresAbandonados > 0} />
-        <KpiCard label="Trámites en curso" value={conteo(c.wip)} hint="Trabajo activo hoy" />
-        <KpiCard label="Entregas al primer intento" value={c.primerIntentoPct === null ? '—' : porcentaje(c.primerIntentoPct)} />
+        <KpiExplicable volver="operativa" label="Gestiones sin soporte fuera de ANS" value={conteo(c.sinGestionFueraAns)}
+          pendiente={c.sinGestionFueraAns > 0} explicacion={x.sinGestionFueraAns} cantidad={c.sinGestionFueraAns} hintSinExplicacion="SOAT e impuestos" />
+        <KpiExplicable volver="operativa" label="Borradores abandonados" value={conteo(c.borradoresAbandonados)}
+          pendiente={c.borradoresAbandonados > 0} explicacion={x.borradoresAbandonados} cantidad={c.borradoresAbandonados}
+          verEtiqueta={`Ver los ${conteo(c.borradoresAbandonados)} borradores`} />
+        <KpiExplicable volver="operativa" label="Trámites en curso" value={conteo(c.wip)} explicacion={x.wip} cantidad={c.wip}
+          hintSinExplicacion="Trabajo activo hoy" nombreLista="trámites en curso" />
+        <KpiExplicable volver="operativa" label="Entregas al primer intento" value={c.primerIntentoPct === null ? '—' : porcentaje(c.primerIntentoPct)}
+          explicacion={x.primerIntentoPct} cantidad={c.primerIntentoPct === null ? 0 : l.entregas - l.primerIntento}
+          verEtiqueta={`Ver las ${conteo(l.entregas - l.primerIntento)} con reintento`} />
       </div>
 
       <div className={REJILLA_2}>
@@ -80,15 +83,12 @@ function Contenido({ d }: { d: TableroOperativo }) {
             ? <p className="grafico-vacio">Nada estancado fuera de umbral.</p>
             : (
               <ListaFila filas={d.radar.filas.filter((f) => f.cantidad > 0).map((f) => {
-                const cola = COLA[f.causa];
                 return {
                   id: f.causa,
                   titulo: <span className="tabular-nums">{f.etiqueta}: {conteo(f.cantidad)}</span>,
                   detalle: `Umbral: ${f.umbral} ${f.unidad === 'horas' ? 'horas' : 'días'}`,
                   extra: <Semaforo severidad={f.severidad} />,
-                  accion: hasPage(user, cola.page)
-                    ? <Link to={cola.to} className={claseBoton('ghost', 'sm')} aria-label={`Ver cola: ${f.etiqueta}`}>Ver cola</Link>
-                    : undefined,
+                  accion: <EnlaceDestino destino={f.destino} cantidad={f.cantidad} nombre={f.etiqueta} volver="operativa" />,
                 };
               })} />
             )}

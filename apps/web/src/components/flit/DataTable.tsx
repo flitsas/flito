@@ -25,6 +25,8 @@ export interface ColumnaTabla<T> {
   /** Celda de «Acciones» (`.fila-abrir`): a la derecha y sin etiqueta en tarjeta. */
   acciones?: boolean;
   className?: string;
+  /** Aditivo (Torre #14590, detalle): `aria-sort` del `<th>` de una columna ordenable. */
+  ariaSort?: 'ascending' | 'descending' | 'none';
 }
 
 export interface SeleccionTabla {
@@ -83,7 +85,7 @@ export default function DataTable<T>({
                     onChange={() => seleccion.onCambio(todas ? new Set() : new Set(keys))} />
                 </th>
               )}
-              {columnas.map((c) => <th key={c.key} scope="col" className={`${ALIGN[c.align ?? 'left']} ${c.soloEscritorio ? 'solo-escritorio' : ''}`}>{c.header}</th>)}
+              {columnas.map((c) => <th key={c.key} scope="col" aria-sort={c.ariaSort} className={`${ALIGN[c.align ?? 'left']} ${c.soloEscritorio ? 'solo-escritorio' : ''}`}>{c.header}</th>)}
             </tr>
           </thead>
           <tbody>

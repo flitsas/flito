@@ -5,10 +5,13 @@
 // Vistas flexibles (spec §4/§5, RN-TOR-K5): las cabeceras de tiempo llevan la etiqueta corta del eje («1 jun»,
 // «jun 2026»), «Valores %» reparte cada corte al 100 % (en conteo y dinero) y los avisos usan el Top efectivo.
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { AgrupacionTorre, CeldaTorre, ColumnaCruceTorre, ResultadoMetrica, UnidadMetricaTorre } from '@operaciones/shared-types';
 import DataTable, { type ColumnaTabla } from '../flit/DataTable';
 import { LineaTendencia, SERIE_KIT, type SerieLinea } from '../flit/Graficos';
-import { ETIQUETA_AGRUPACION, duracion, esTemporal, etiquetasCortesTorre, formatoUnidad, porcentaje } from './formatoTorre';
+import { ETIQUETA_AGRUPACION, conteo, duracion, esTemporal, etiquetasCortesTorre, formatoUnidad, porcentaje } from './formatoTorre';
+import { rutaRegistrosMetrica } from '../../lib/torreDetalle';
+import { usePuedeVerDetalle } from './KpiExplicable';
 
 type Fila = ResultadoMetrica['filas'][number];
 const POR_PAGINA = 20;
@@ -51,6 +54,7 @@ export function TablaCruzadaTorre({ res, agrupacion, titulo, enPct = false }: {
 }) {
   const cruce = res.cruce!;
   const u = res.unidad;
+  const puedeVer = usePuedeVerDetalle();
   const pct = enPct && esAditiva(u);
   const reparto = repartoCruce(res, agrupacion);
   const [pagina, setPagina] = useState(1);
@@ -79,7 +83,17 @@ export function TablaCruzadaTorre({ res, agrupacion, titulo, enPct = false }: {
       key: `c-${c.clave}`, header: cabeceras[j], align: 'right',
       render: (f) => {
         const i = indice.get(f.clave) ?? -1;
-        return <Celda unidad={u} celda={cruce.celdas[i]?.[j] ?? null} pct={pct ? reparto.celda(i, j) : null} />;
+        const celda = cruce.celdas[i]?.[j] ?? null;
+        const contenido = <Celda unidad={u} celda={celda} pct={pct ? reparto.celda(i, j) : null} />;
+        // Cada celda con registros abre su lista (spec §8, AC12); «Otros» (fila o columna) no se puede expresar.
+        if (!puedeVer || !celda || celda.n === 0 || f.esOtros || c.esOtros) return contenido;
+        return (
+          <Link to={rutaRegistrosMetrica(res.metrica, res.baseFecha.fechaBase, [[agrupacion, f.clave], [cruce.agrupacion, c.clave]])}
+            className="flit-focus-inset -mx-1 -my-0.5 block rounded px-1 py-0.5 text-inherit no-underline transition-colors hover:bg-[var(--kit-hover)]"
+            data-torre="celda-registros" aria-label={`${f.etiqueta} · ${c.etiqueta}: ${conteo(celda.n)} registros. Ver registros`}>
+            {contenido}
+          </Link>
+        );
       },
     })),
     {

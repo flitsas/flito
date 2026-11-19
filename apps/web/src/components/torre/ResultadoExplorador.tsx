@@ -6,6 +6,7 @@
 // (`OpcionesVistaTorre`) va dentro de la tarjeta; con `res.anterior`, la cifra lleva la variación y las fechas del
 // periodo anterior, y la tabla de una agrupación de dimensión suma «Anterior» y «Variación» (sin verde ni rojo).
 import { useEffect, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import type { AgrupacionTorre, AnteriorTorre, MetricaTorreDef, ResultadoMetrica } from '@operaciones/shared-types';
 import KpiCard from '../flit/KpiCard';
 import DataTable, { type ColumnaTabla } from '../flit/DataTable';
@@ -18,6 +19,9 @@ import {
 } from './formatoTorre';
 import { GraficaSeriesTorre, TablaCruzadaTorre, avisosCruce, esAditiva } from './TablaCruzadaTorre';
 import { VISTA_TORRE_INICIAL, type VistaTorre } from './OpcionesVistaTorre';
+import { rutaRegistrosMetrica } from '../../lib/torreDetalle';
+import { usePuedeVerDetalle } from './KpiExplicable';
+import { claseBoton } from '../flit/GradientButton';
 
 type Fila = ResultadoMetrica['filas'][number];
 type FilaAnterior = AnteriorTorre['filas'][number];
@@ -96,6 +100,7 @@ export default function ResultadoExplorador({
 }) {
   const [pagina, setPagina] = useState(1);
   useEffect(() => { setPagina(1); }, [res]);
+  const puedeVer = usePuedeVerDetalle();
   const tiempos = def.unidad === 'horas';
   const cruzado = !!res.cruce && agrupacion !== '';
   const temporal = esTemporal(agrupacion);
@@ -146,6 +151,18 @@ export default function ResultadoExplorador({
         ? [{ key: 'pct', header: 'Participación', align: 'right' as const, render: (f: Fila) => porcentaje(f.participacion) }]
         : []),
     ];
+
+  // «Ver los N registros» por fila (spec §8, AC12): última columna sin rótulo visible; ni en «Los demás» ni en «Otros».
+  const columnaRegistros: ColumnaTabla<Fila>[] = puedeVer && agrupacion !== '' ? [{
+    key: '__registros', header: <span className="sr-only">Registros</span>, acciones: true,
+    render: (f) => (f.clave === DEMAS || f.esOtros || f.n === 0 ? null : (
+      <Link to={rutaRegistrosMetrica(res.metrica, res.baseFecha.fechaBase, [[agrupacion, f.clave]])} className={claseBoton('ghost', 'sm')}
+        data-torre="ver-registros" aria-label={`Ver los ${conteo(f.n)} registros de ${f.etiqueta}`}>
+        Ver los {conteo(f.n)} registros <span aria-hidden="true">→</span>
+      </Link>
+    )),
+  }] : [];
+  const columnasConRegistros = [...columnas, ...columnaRegistros];
 
   const pctDe = (f: Fila) => (def.unidad === 'pct' ? f.valor : f.participacion);
   const top = res.filas.slice(0, TOP);
@@ -246,7 +263,7 @@ export default function ResultadoExplorador({
         )}
 
         {agrupacion !== '' && !cruzado && (
-          <DataTable ariaLabel={`Desglose: ${titulo}`} columnas={columnas} filas={filasPagina} getKey={(f) => f.clave}
+          <DataTable ariaLabel={`Desglose: ${titulo}`} columnas={columnasConRegistros} filas={filasPagina} getKey={(f) => f.clave}
             emptyMessage="Ningún trámite cumple esta consulta."
             paginacion={categoria && filasTabla.length > POR_PAGINA ? {
               total: filasTabla.length, page: pagina, totalPaginas, sustantivo: 'grupos', singular: 'grupo',

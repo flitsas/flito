@@ -37,6 +37,7 @@ const TorreOperativa = lazy(() => import('./pages/torre/TorreOperativa'));
 const TorreFinanciera = lazy(() => import('./pages/torre/TorreFinanciera'));
 const TorreExplorador = lazy(() => import('./pages/torre/TorreExplorador'));
 const TorreUmbrales = lazy(() => import('./pages/torre/TorreUmbrales'));
+const TorreDetalle = lazy(() => import('./pages/torre/TorreDetalle'));
 const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
 const FlitoSoatSolicitud = lazy(() => import('./pages/FlitoSoatSolicitud'));
@@ -281,6 +282,7 @@ function AppRoutes() {
         <Route path="/flito/torre/financiera" element={<ProtectedRoute page="torre_financiera"><Lazy><TorreFinanciera /></Lazy></ProtectedRoute>} />
         <Route path="/flito/torre/explorador" element={<ProtectedRoute page="torre_explorador"><Lazy><TorreExplorador /></Lazy></ProtectedRoute>} />
         <Route path="/flito/torre/umbrales" element={<ProtectedRoute page="torre_umbrales"><Lazy><TorreUmbrales /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/torre/detalle" element={<ProtectedRoute page="torre_detalle"><Lazy><TorreDetalle /></Lazy></ProtectedRoute>} />
         {/* Conciliación: las DOS rutas comparten `PageSlug`. Son el mismo trabajo y la misma
             persona; partirlo obligaría a conceder dos permisos para una sola tarea. El detalle va en
             ruta propia —con el uuid opaco en el path— porque el reporte de costos tiene que poder

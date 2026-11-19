@@ -9,6 +9,7 @@ import type {
   DocumentoBolsaDto, EstadoExpedienteLoteBody, EstadoExpedienteLoteRespuesta, ExpedienteCompaniaDto,
   DocumentoExpedienteDto, HistorialDocumentoBolsaDto, RetirarDocumentoBolsaBody, TipoDocumentoBolsa,
 } from '@operaciones/shared-types';
+import type { ConsultaDetalle, ExportarDetalle, ResultadoDetalle } from '@operaciones/shared-types';
 
 const BASE = '/api';
 
@@ -667,4 +668,14 @@ export const bolsasDocumentosApi = {
     );
     entregarArchivo(blob, nombre);
   },
+};
+
+// ── Torre de Control: detalle universal (Épica #14590, ADR-0047) ─────────────
+//
+// Las dos rutas son POST: el filtro de placa (PII, AGENTS §14) viaja SOLO en el body, nunca en la URL.
+// La exportación descarga con el nombre que declara el servidor (`torre-detalle-<conjunto>-<fecha>.xlsx`, sin placa).
+export const torreDetalleApi = {
+  consultar: (consulta: ConsultaDetalle) => api.post<ResultadoDetalle>('/flito/torre/detalle/consultar', consulta),
+  exportar: (consulta: ExportarDetalle) =>
+    api.downloadPostNamed('/flito/torre/detalle/exportar', 'torre-detalle.xlsx', consulta),
 };
