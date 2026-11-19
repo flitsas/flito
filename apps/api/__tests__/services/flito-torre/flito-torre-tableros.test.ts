@@ -88,7 +88,7 @@ describe.skipIf(!URL_BASE)('tableros contra PostgreSQL (tx con ROLLBACK)', () =>
     expect(radar.estancado_ot).toEqual([1, 'critico']);
     expect(radar.soat_sin_gestion).toEqual([0, 'ok']);
     expect(t.cifras.borradoresAbandonados).toBe(1);
-    expect(t.explicaciones.borradoresAbandonados!.frase).toMatch(/^1 trámite sigue en Borrador más de \d+ días después de creados; 0 pasan de \d+ días\.$/);
+    expect(t.explicaciones.borradoresAbandonados!.frase).toMatch(/^1 trámite lleva más de \d+ días en Borrador\.$/);
     expect(t.cifras.wip).toBe(3);
     expect(t.carga.porOrganismo[0]).toMatchObject({ clave: '05001', valor: 2 });
     expect(t.carga.porFuncionario).toBeNull();

@@ -98,6 +98,7 @@ describe('libro puro', () => {
     total: 1, valorTotal: null, columnas: [COLUMNAS_DETALLE.placa, COLUMNAS_DETALLE.faltan_soportes, COLUMNAS_DETALLE.valor],
     filas: [{ id: '1', tramiteId: '1', celdas: { placa: '@ZQ1', faltan_soportes: ['SOAT', 'Derecho'], valor: null } }],
     truncado: false, filtrosIgnorados: [], rango: { desde: '2035-03-01', hasta: '2035-03-31' }, dineroVisible: false,
+    frase: '1 trámite aprobado en el periodo aún no tiene factura.', fraseVacio: 'Todo lo aprobado en el periodo ya está facturado.',
     generadoEn: '2035-03-31T10:00:00.000Z',
   };
 

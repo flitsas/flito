@@ -52271,6 +52271,10 @@ paths:
                     type: number
                   truncado:
                     type: boolean
+                  frase:
+                    type: string
+                  fraseVacio:
+                    type: string
                   filtrosIgnorados:
                     type: array
                     items:
@@ -52309,6 +52313,8 @@ paths:
                   - pagina
                   - tamano
                   - truncado
+                  - frase
+                  - fraseVacio
                   - filtrosIgnorados
                   - rango
                   - dineroVisible

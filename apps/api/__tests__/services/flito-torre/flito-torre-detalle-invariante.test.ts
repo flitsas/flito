@@ -129,6 +129,18 @@ describe.skipIf(!URL_BASE)('invariante cifra == total del detalle (tx con ROLLBA
     expect(await total(filtro, 'borrador_abandonado', critico)).toBe(t.explicaciones.borradoresAbandonados!.desglose![0]!.valor);
     expect(await total(filtro, 'borrador_abandonado', critico)).toBe(1);
     expect(await total(filtro, 'borrador_abandonado', [{ dimension: 'severidad', valores: ['atencion'] }])).toBe(1);
+    // La frase del encabezado usa el total VIVO del detalle y sus críticos; es la misma de la KPI (una sola fuente).
+    const u = await valoresUmbrales();
+    const b = await detalle(filtro, { tipo: 'conjunto', conjunto: 'borrador_abandonado' });
+    expect(b.frase).toBe(`2 trámites llevan más de ${u.dias_borrador_abandonado} días en Borrador; 1 pasa de ${u.dias_borrador_abandonado * 2} días.`);
+    expect(t.explicaciones.borradoresAbandonados!.frase).toBe(b.frase);
+    const vacio = await detalle(filtro, { tipo: 'conjunto', conjunto: 'borrador_abandonado' }, { filtrosDetalle: { placa: 'QQ9Q9Q9' } });
+    expect(vacio.total).toBe(0);
+    expect(vacio.frase).toBe(`Hoy ningún borrador lleva más de ${u.dias_borrador_abandonado} días.`);
+    expect(vacio.fraseVacio).toBe(vacio.frase);
+    expect(b.fraseVacio).toBe(vacio.frase);
+    const est = await detalle(filtro, { tipo: 'conjunto', conjunto: 'estancado_ot' });
+    expect(est.frase).toBe(`2 trámites llevan más de ${u.dias_respuesta_ot} días en el organismo sin respuesta; 1 pasa de ${u.dias_respuesta_ot * 2} días.`);
     const gestionesCriticas = (await total(filtro, 'soat_sin_gestion', critico)) + (await total(filtro, 'impuesto_sin_gestion', critico));
     expect(gestionesCriticas).toBe(t.explicaciones.sinGestionFueraAns!.desglose![2]!.valor);
     expect(await total(filtro, 'entregas_logistica')).toBe(t.logistica.entregas);
@@ -207,7 +219,10 @@ describe.skipIf(!URL_BASE)('invariante cifra == total del detalle (tx con ROLLBA
     const m = (metrica: 'tramites_creados' | 'ingreso_liquidado' | 'tasa_aprobacion', agrupacion?: 'compania') =>
       consultarMetrica({ metrica, filtro, agrupacion }, TODO, { dinero: true, hoy: HOY });
     const conteo = await m('tramites_creados', 'compania');
-    expect((await detalle(filtro, { tipo: 'metrica', metrica: 'tramites_creados' })).total).toBe(conteo.total.valor);
+    const dm = await detalle(filtro, { tipo: 'metrica', metrica: 'tramites_creados' });
+    expect(dm.total).toBe(conteo.total.valor);
+    expect(dm.frase).toBe(`${dm.total} trámites creados con los filtros de arriba.`);
+    expect(dm.fraseVacio).toBe('Sin registros de trámites creados con los filtros de arriba.');
     const filaX = conteo.filas.find((f) => f.clave === String(x))!;
     expect((await detalle(filtro, { tipo: 'metrica', metrica: 'tramites_creados' }, { segmentos: [{ dimension: 'compania', valores: [String(x)] }] })).total).toBe(filaX.valor);
     const suma = await m('ingreso_liquidado');

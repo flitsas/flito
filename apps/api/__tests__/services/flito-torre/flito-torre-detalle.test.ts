@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { SignJWT } from 'jose';
-import type { ResultadoDetalle } from '@operaciones/shared-types';
+import { UMBRALES_TORRE, type ResultadoDetalle } from '@operaciones/shared-types';
 
 vi.mock('../../../src/db/client.js', () => {
   const c: Record<string, unknown> = {};
@@ -76,6 +76,7 @@ const vacio = (o: Partial<ResultadoDetalle> = {}): ResultadoDetalle => ({
   origen: { tipo: 'conjunto', conjunto: 'borrador_abandonado' }, segmentos: [],
   definicion: { etiqueta: 'Borradores abandonados', definicion: 'x', fechaBase: null, campoFecha: 'estado actual' },
   total: 0, valorTotal: null, columnas: [], filas: [], pagina: 1, tamano: 25, truncado: false, filtrosIgnorados: ['rango'],
+  frase: 'Hoy ningún borrador lleva más de 5 días.', fraseVacio: 'Hoy ningún borrador lleva más de 5 días.',
   rango: null, dineroVisible: false, generadoEn: '2035-03-31T00:00:00.000Z', ...o,
 });
 
@@ -184,8 +185,13 @@ describe('AC10 · Habeas Data', () => {
     const [clave, valor] = cache.guardar.mock.calls[0]!;
     expect(clave).toMatch(/^torre:detalle-total:[0-9a-f]{64}$/);
     expect(cache.leer.mock.calls[0]![0]).toBe(clave);
-    expect(valor).toEqual({ total: 0, valorTotal: null });
-    expect(Object.keys(valor as object).sort()).toEqual(['total', 'valorTotal']);
+    // Solo números: total, suma y cuántos pasan del doble del umbral (para la frase). Nunca filas ni placas.
+    expect(valor).toEqual({ total: 0, valorTotal: null, criticos: 0 });
+    expect(Object.keys(valor as object).sort()).toEqual(['criticos', 'total', 'valorTotal']);
+    // Con 0 registros la frase del encabezado es la de vacío PROPIA del conjunto, con el umbral resuelto.
+    const dB = UMBRALES_TORRE.find((x) => x.clave === 'dias_borrador_abandonado')!.valorPorDefecto;
+    expect(r.body.fraseVacio).toBe(`Hoy ningún borrador lleva más de ${dB} días.`);
+    expect(r.body.frase).toBe(r.body.fraseVacio);
     const todo = JSON.stringify([cache.leer.mock.calls, cache.guardar.mock.calls, registros.mock.calls, pii.mock.calls.map((c) => c[1])]);
     expect(todo).not.toContain('ABC123');
     expect(todo.toUpperCase()).not.toContain('ABC123');

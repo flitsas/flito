@@ -4,7 +4,7 @@
 // es SIEMPRE la del catálogo (`CONJUNTOS_TORRE` / `DEFINICIONES_BLOQUE_TORRE`) con los umbrales interpolados: aquí no
 // se escribe ninguna definición. El destino lleva al conjunto (con su segmento) o al bloque ya visible (D3).
 import {
-  DEFINICIONES_BLOQUE_TORRE, conjuntoTorre, definicionConUmbral, textoConUmbrales,
+  DEFINICIONES_BLOQUE_TORRE, conjuntoTorre, definicionConUmbral, fraseDeConjunto, textoConUmbrales,
   type CifraExplicada, type ComponenteCifra, type ConjuntoTorreId, type DestinoCifra, type SegmentoDetalle,
   type TableroComercial, type TableroEjecutivo, type TableroFinanciero, type TableroOperativo,
 } from '@operaciones/shared-types';
@@ -113,9 +113,8 @@ export function explicarOperativa(t: Omit<TableroOperativo, 'explicaciones'>, u:
       ],
     },
     borradoresAbandonados: {
-      frase: c.borradoresAbandonados
-        ? `${N(c.borradoresAbandonados)} ${plural(c.borradoresAbandonados, 'trámite sigue', 'trámites siguen')} en Borrador más de ${dB} días después de creados; ${N(x.borradorCriticos)} pasan de ${dB * 2} días.`
-        : `Ningún borrador pasa de ${dB} días.`,
+      // La KPI ES el conjunto: su frase (llena y vacía) sale del catálogo, la misma del encabezado del detalle.
+      frase: fraseDeConjunto(conjuntoTorre('borrador_abandonado'), c.borradoresAbandonados, dB, x.borradorCriticos),
       definicion: definicionDe('borrador_abandonado', u),
       destino: c.borradoresAbandonados ? aConjunto('borrador_abandonado') : NINGUNO,
       desglose: [{ etiqueta: `Más de ${dB * 2} días`, valor: x.borradorCriticos, destino: aConjunto('borrador_abandonado', seg('severidad', ['critico'])) }],

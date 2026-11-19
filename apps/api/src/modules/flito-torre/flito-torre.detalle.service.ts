@@ -12,7 +12,7 @@
 // RN-TOR-D13: no se loguea el body ni `filtrosDetalle` (placa); `enTorre` solo loguea el código de Postgres.
 import {
   COLUMNAS_DETALLE, DETALLE_METRICA_TORRE, FUNCION_ORIGEN_METRICA_TORRE, TOPES_TORRE, conjuntoTorre,
-  definicionConUmbral, esAgrupacionPermitida, esFechaBasePermitida, metricaTorre,
+  definicionConUmbral, esAgrupacionPermitida, fraseDeConjunto, esFechaBasePermitida, metricaTorre,
   type ColumnaDetalleId, type ConsultaDetalle, type DefinicionCifra, type ExportarDetalle, type FilaDetalle,
   type ResultadoDetalle, type SegmentoDetalle, type ValorCelda,
 } from '@operaciones/shared-types';
@@ -20,6 +20,7 @@ import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js
 import { resolverDef } from './flito-torre.catalogo.js';
 import {
   fragmentoConjunto, fragmentoMetrica, listarFragmento, totalFragmento, type FragmentoDetalle, type OrdenFragmento,
+  type TotalFragmento,
 } from './flito-torre.conjuntos.js';
 import { exigirTopesRango, resolverRango, type RangoResuelto } from './flito-torre.filtro.js';
 import {
@@ -63,6 +64,9 @@ interface Resuelto {
   filtrosIgnorados: ResultadoDetalle['filtrosIgnorados'];
   rango: RangoResuelto | null;
   segmentos: SegmentoDetalle[];
+  /** Frase del encabezado con el total vivo (la del catálogo; en métricas, la genérica). */
+  frase: (t: TotalFragmento) => string;
+  fraseVacio: string;
 }
 
 const TEMPORALES = new Set(['dia', 'semana', 'mes', 'trimestre']);
@@ -85,6 +89,8 @@ async function resolver(c: ExportarDetalle, acc: AccesoDetalle): Promise<Resuelt
       f, columnas: [...def.columnas], rango: f.rango, segmentos, filtrosIgnorados: [...def.filtrosIgnorados],
       definicion: { etiqueta: def.etiqueta, definicion: definicionConUmbral(def, def.umbral ? u[def.umbral] : undefined), fechaBase: def.fechaBase, campoFecha: f.campoFecha },
       ordenDefecto: { ...def.ordenDefecto }, ordenables: [...def.columnas].filter((col) => COLUMNAS_DETALLE[col].ordenable),
+      frase: (t) => fraseDeConjunto(def, t.total, def.umbral ? u[def.umbral] : undefined, t.criticos),
+      fraseVacio: fraseDeConjunto(def, 0, def.umbral ? u[def.umbral] : undefined),
     };
   } else {
     const { metrica, fechaBase } = c.origen;
@@ -109,6 +115,8 @@ async function resolver(c: ExportarDetalle, acc: AccesoDetalle): Promise<Resuelt
       definicion: { etiqueta: meta.etiqueta, definicion: `${meta.etiqueta}: los registros que forman la cifra del Explorador con los filtros de arriba.${tiempo}`, fechaBase: def.fechaBase, campoFecha: def.campoFecha },
       ordenDefecto: { columna: det.columnas.includes('aprobado_en') && def.fechaBase === 'aprobacion' ? 'aprobado_en' : 'creado_en', dir: 'desc' },
       ordenables: [...det.columnas].filter((col) => COLUMNAS_DETALLE[col].ordenable),
+      frase: (t) => `${t.total.toLocaleString('es-CO')} ${meta.etiqueta.toLowerCase()} con los filtros de arriba.`,
+      fraseVacio: `Sin registros de ${meta.etiqueta.toLowerCase()} con los filtros de arriba.`,
     };
     if (segmentos.some((s) => TEMPORALES.has(s.dimension)) && !def.fecha) throw new TorreConsultaInvalidaError('segmentos', 'un corte de tiempo no aplica a una foto');
   }
@@ -116,7 +124,10 @@ async function resolver(c: ExportarDetalle, acc: AccesoDetalle): Promise<Resuelt
   // Sin permiso de dinero no se ordena por una columna de dinero (el orden la revelaría).
   if (c.orden && COLUMNAS_DETALLE[c.orden.columna].dinero && !acc.dinero) throw new TorreConsultaInvalidaError('orden', 'esa columna no se puede ordenar sin permiso de dinero');
   const orden = c.orden ?? (r.ordenables.includes(r.ordenDefecto.columna) ? r.ordenDefecto : { columna: r.ordenables[0]!, dir: 'desc' as const });
-  return { f: r.f, columnas: r.columnas, orden, definicion: r.definicion, filtrosIgnorados: r.filtrosIgnorados, rango: r.rango, segmentos };
+  return {
+    f: r.f, columnas: r.columnas, orden, definicion: r.definicion, filtrosIgnorados: r.filtrosIgnorados, rango: r.rango, segmentos,
+    frase: r.frase, fraseVacio: r.fraseVacio,
+  };
 }
 
 // ── Celdas ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -156,10 +167,10 @@ async function aFilas(q: Ejecutor, crudas: Record<string, unknown>[], columnas: 
   });
 }
 
-/** RN-TOR-D11: total (y suma) con caché de 60 s; la clave es un sha256, nunca la placa en claro. */
-async function totalConCache(q: Ejecutor, c: ExportarDetalle, r: Resuelto, acc: AccesoDetalle) {
+/** RN-TOR-D11: total (suma y críticos: solo números) con caché de 60 s; la clave es un sha256, nunca la placa en claro. */
+async function totalConCache(q: Ejecutor, c: ExportarDetalle, r: Resuelto, acc: AccesoDetalle): Promise<TotalFragmento> {
   const clave = claveCache('detalle-total', c.origen, r.segmentos, c.filtro, c.filtrosDetalle ?? null, acc.alcance, acc.dinero, acc.hoy ?? null, r.rango);
-  const cacheado = await leerCache<{ total: number; valorTotal: number | null }>(clave);
+  const cacheado = await leerCache<TotalFragmento>(clave);
   if (cacheado) return cacheado;
   const t = await totalFragmento(q, r.f);
   await guardarCache(clave, t);
@@ -178,10 +189,11 @@ export async function consultarDetalle(c: ConsultaDetalle, acc: AccesoDetalle): 
   }
   const r = await resolver(c, acc);
   return enTorre(async (q) => {
-    const { total, valorTotal } = await totalConCache(q, c, r, acc);
+    const t = await totalConCache(q, c, r, acc);
+    const { total, valorTotal } = t;
     const crudas = await listarFragmento(q, r.f, r.columnas, r.orden, tamano, (pagina - 1) * tamano);
     return {
-      origen: c.origen, segmentos: r.segmentos, definicion: r.definicion, total,
+      origen: c.origen, segmentos: r.segmentos, definicion: r.definicion, total, frase: r.frase(t), fraseVacio: r.fraseVacio,
       valorTotal: acc.dinero ? valorTotal : null,
       columnas: columnasDe(r.columnas), filas: await aFilas(q, crudas, r.columnas, acc.dinero),
       pagina, tamano, truncado: total > TOPES_TORRE.FILAS_DETALLE_PAGINABLE_MAX,
@@ -200,13 +212,14 @@ export interface DatosExportacionDetalle {
 export async function datosExportacion(c: ExportarDetalle, acc: AccesoDetalle): Promise<DatosExportacionDetalle> {
   const r = await resolver(c, acc);
   return enTorre(async (q) => {
-    const { total, valorTotal } = await totalFragmento(q, r.f);
+    const t = await totalFragmento(q, r.f);
+    const { total, valorTotal } = t;
     if (total > TOPES_TORRE.FILAS_DETALLE_EXPORTAR_MAX) throw new DetalleExcedeTopeError();
     const crudas = await listarFragmento(q, r.f, r.columnas, r.orden, TOPES_TORRE.FILAS_DETALLE_EXPORTAR_MAX, 0);
     return {
       nombreOrigen: c.origen.tipo === 'conjunto' ? c.origen.conjunto : c.origen.metrica,
       resultado: {
-        origen: c.origen, segmentos: r.segmentos, definicion: r.definicion, total,
+        origen: c.origen, segmentos: r.segmentos, definicion: r.definicion, total, frase: r.frase(t), fraseVacio: r.fraseVacio,
         valorTotal: acc.dinero ? valorTotal : null, columnas: columnasDe(r.columnas),
         filas: await aFilas(q, crudas, r.columnas, acc.dinero), truncado: false,
         filtrosIgnorados: r.filtrosIgnorados, rango: r.rango, dineroVisible: acc.dinero, generadoEn: new Date().toISOString(),

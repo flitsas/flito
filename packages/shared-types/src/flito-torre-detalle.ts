@@ -92,6 +92,16 @@ export interface ConjuntoTorreDef {
   /** Operaciones `torre.*` que dan acceso (basta UNA). */
   readonly funcionesOrigen: readonly string[];
   readonly umbral?: ClaveUmbralTorre;
+  /**
+   * Frase del encabezado del detalle (y de la KPI cuando la cifra ES el conjunto), sin punto final. Marcadores: `{n}`
+   * (el total vivo), `{umbral}`, `{doble}` y `{uno|varios}` (singular o plural según `{n}`). Se resuelve con
+   * `fraseDeConjunto`. ÚNICA fuente del copy (UX §4.2, columna «Frase (lleno)»).
+   */
+  readonly frase: string;
+  /** Lo que se dice cuando el conjunto está vacío (UX §4.2, «Frase en 0»). Admite `{umbral}` y `{doble}`. */
+  readonly fraseVacio: string;
+  /** Cola de la frase con los que pasan del doble del umbral (`{c}` y `{uno|varios}` según `{c}`): «4 pasan de 14 días». */
+  readonly fraseCriticos?: string;
 }
 
 const OPERATIVO = 'torre.tablero_operativo.ver';
@@ -109,6 +119,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'Gestiones de SOAT pedidas que siguen sin soporte cargado {umbral} horas después de pedidas. Críticas: las que pasan de {doble} horas. El umbral se cambia en Umbrales y alertas. No depende del periodo.',
     fechaBase: null, filtrosIgnorados: SOLO_COMPANIA, columnas: COLS_GESTION,
     ordenDefecto: { columna: 'horas_sin_gestion', dir: 'desc' }, segmentosAdmitidos: ['compania', 'severidad'],
+    frase: '{n} {gestión de SOAT lleva|gestiones de SOAT llevan} más de {umbral} horas sin soporte', fraseVacio: 'Todas las gestiones de SOAT tienen soporte dentro de {umbral} horas.', fraseCriticos: '{c} {pasa|pasan} de {doble} horas',
     requiereDinero: false, funcionesOrigen: [OPERATIVO, EJECUTIVO], umbral: 'horas_soat_impuesto_sin_soporte',
   },
   {
@@ -116,6 +127,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'Gestiones de impuesto pedidas que siguen sin soporte cargado {umbral} horas después de pedidas. Críticas: las que pasan de {doble} horas. El umbral se cambia en Umbrales y alertas. No depende del periodo.',
     fechaBase: null, filtrosIgnorados: SOLO_COMPANIA, columnas: COLS_GESTION,
     ordenDefecto: { columna: 'horas_sin_gestion', dir: 'desc' }, segmentosAdmitidos: ['compania', 'severidad'],
+    frase: '{n} {gestión de impuesto lleva|gestiones de impuestos llevan} más de {umbral} horas sin soporte', fraseVacio: 'Todas las gestiones de impuestos tienen soporte dentro de {umbral} horas.', fraseCriticos: '{c} {pasa|pasan} de {doble} horas',
     requiereDinero: false, funcionesOrigen: [OPERATIVO, EJECUTIVO], umbral: 'horas_soat_impuesto_sin_soporte',
   },
   {
@@ -123,6 +135,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'Trámites en estado Borrador cuya fecha de creación tiene más de {umbral} días. Críticos: los de más de {doble} días. El umbral se cambia en Umbrales y alertas. Es la foto de hoy: no depende del periodo elegido.',
     fechaBase: null, filtrosIgnorados: FOTO, columnas: [...COLS_TRAMITE, 'dias_antiguedad'],
     ordenDefecto: { columna: 'dias_antiguedad', dir: 'desc' }, segmentosAdmitidos: ['compania', 'organismo', 'severidad'],
+    frase: '{n} {trámite lleva|trámites llevan} más de {umbral} días en Borrador', fraseVacio: 'Hoy ningún borrador lleva más de {umbral} días.', fraseCriticos: '{c} {pasa|pasan} de {doble} días',
     requiereDinero: false, funcionesOrigen: [OPERATIVO, EJECUTIVO], umbral: 'dias_borrador_abandonado',
   },
   {
@@ -130,6 +143,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'Trámites en «Entregado» o «Enviado a OT», sin aprobar, cuyo último cambio de estado tiene más de {umbral} días. Críticos: los de más de {doble} días. El umbral se cambia en Umbrales y alertas. No depende del periodo.',
     fechaBase: null, filtrosIgnorados: FOTO, columnas: [...COLS_TRAMITE, 'dias_en_estado'],
     ordenDefecto: { columna: 'dias_en_estado', dir: 'desc' }, segmentosAdmitidos: ['organismo', 'severidad'],
+    frase: '{n} {trámite lleva|trámites llevan} más de {umbral} días en el organismo sin respuesta', fraseVacio: 'Ningún trámite lleva más de {umbral} días en el organismo sin respuesta.', fraseCriticos: '{c} {pasa|pasan} de {doble} días',
     requiereDinero: false, funcionesOrigen: [OPERATIVO, EJECUTIVO], umbral: 'dias_respuesta_ot',
   },
   {
@@ -137,6 +151,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'Trámites sin fecha de aprobación cuyo estado no es Aprobado, Anulado, Abortado, Rechazado ni Revocado. No depende del periodo. Para verlos por estado y antigüedad, vaya a la pestaña Inventario por estado.',
     fechaBase: null, filtrosIgnorados: FOTO, columnas: [...COLS_TRAMITE, 'dias_antiguedad'],
     ordenDefecto: { columna: 'creado_en', dir: 'asc' }, segmentosAdmitidos: ['organismo', 'compania', 'flit_estado'],
+    frase: '{n} {trámite está|trámites están} en curso hoy', fraseVacio: 'No hay trámites en curso.',
     requiereDinero: false, funcionesOrigen: [OPERATIVO, EJECUTIVO],
   },
   {
@@ -144,6 +159,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'Trámites cuya fecha de creación cae en el periodo elegido, con los filtros de arriba.',
     fechaBase: 'creacion', filtrosIgnorados: [], columnas: [...COLS_TRAMITE, 'aprobado_en'],
     ordenDefecto: { columna: 'creado_en', dir: 'desc' }, segmentosAdmitidos: [...AGRUPACIONES_TORRE],
+    frase: '{n} {trámite creado|trámites creados} en el periodo', fraseVacio: 'No se crearon trámites en el periodo.',
     requiereDinero: false, funcionesOrigen: [COMERCIAL, OPERATIVO, EJECUTIVO],
   },
   {
@@ -151,6 +167,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'De los trámites creados en el periodo, los que ya pasaron por «Entregado» o «Enviado a OT», o ya están aprobados.',
     fechaBase: 'creacion', filtrosIgnorados: [], columnas: [...COLS_TRAMITE, 'aprobado_en'],
     ordenDefecto: { columna: 'creado_en', dir: 'desc' }, segmentosAdmitidos: ['compania'],
+    frase: '{n} de los trámites creados en el periodo ya {está radicado|están radicados}', fraseVacio: 'Ningún trámite creado en el periodo está radicado.',
     requiereDinero: false, funcionesOrigen: [COMERCIAL],
   },
   {
@@ -158,6 +175,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'De los trámites creados en el periodo, los que ya tienen fecha de aprobación.',
     fechaBase: 'creacion', filtrosIgnorados: [], columnas: [...COLS_TRAMITE, 'aprobado_en'],
     ordenDefecto: { columna: 'creado_en', dir: 'desc' }, segmentosAdmitidos: ['compania', 'organismo'],
+    frase: '{n} de los trámites creados en el periodo ya {está aprobado|están aprobados}', fraseVacio: 'Ningún trámite creado en el periodo está aprobado.',
     requiereDinero: false, funcionesOrigen: [COMERCIAL, OPERATIVO],
   },
   {
@@ -165,6 +183,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'Se parte de los trámites creados en el periodo y se cuentan los que ya tienen factura activa en Siigo.',
     fechaBase: 'creacion', filtrosIgnorados: [], columnas: [...COLS_TRAMITE, 'facturado_en'],
     ordenDefecto: { columna: 'creado_en', dir: 'desc' }, segmentosAdmitidos: ['compania'],
+    frase: '{n} de los trámites creados en el periodo ya {tiene|tienen} factura activa en Siigo', fraseVacio: 'Ningún trámite creado en el periodo está facturado.',
     requiereDinero: false, funcionesOrigen: [COMERCIAL],
   },
   {
@@ -172,6 +191,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'De los trámites creados en el periodo, los que están en estado Rechazado.',
     fechaBase: 'creacion', filtrosIgnorados: [], columnas: [...COLS_TRAMITE],
     ordenDefecto: { columna: 'creado_en', dir: 'desc' }, segmentosAdmitidos: ['organismo'],
+    frase: '{n} de los trámites creados en el periodo {está|están} en Rechazado', fraseVacio: 'Ningún trámite creado en el periodo está rechazado.',
     requiereDinero: false, funcionesOrigen: [OPERATIVO],
   },
   {
@@ -179,6 +199,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'Trámites aprobados en el periodo con logística cobrada (sin anulados, abortados ni revocados). Cuentan como primer intento los que no tuvieron un segundo viaje.',
     fechaBase: 'aprobacion', filtrosIgnorados: [], columnas: [...COLS_TRAMITE, 'aprobado_en', 'viajes_adicionales'],
     ordenDefecto: { columna: 'aprobado_en', dir: 'desc' }, segmentosAdmitidos: ['nivel'],
+    frase: '{n} {entrega|entregas} de trámites aprobados en el periodo', fraseVacio: 'No hubo entregas en el periodo.',
     requiereDinero: false, funcionesOrigen: [OPERATIVO],
   },
   {
@@ -186,6 +207,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'Trámites aprobados en el periodo que no están en una factura activa de Siigo. El valor es el total de su liquidación. No suman los anulados ni los que no tienen liquidación.',
     fechaBase: 'aprobacion', filtrosIgnorados: [], columnas: [...COLS_TRAMITE, 'aprobado_en', 'valor'],
     ordenDefecto: { columna: 'aprobado_en', dir: 'asc' }, segmentosAdmitidos: ['compania'],
+    frase: '{n} {trámite aprobado|trámites aprobados} en el periodo aún no {tiene|tienen} factura', fraseVacio: 'Todo lo aprobado en el periodo ya está facturado.',
     requiereDinero: false, funcionesOrigen: [FINANCIERO, EJECUTIVO],
   },
   {
@@ -193,6 +215,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'Por cada trámite aprobado en el periodo se revisa si tiene soporte vigente de SOAT, de impuesto y de derecho. Un soporte descartado no cuenta.',
     fechaBase: 'aprobacion', filtrosIgnorados: [], columnas: [...COLS_TRAMITE, 'aprobado_en', 'faltan_soportes'],
     ordenDefecto: { columna: 'aprobado_en', dir: 'desc' }, segmentosAdmitidos: ['nivel', 'faltante', 'compania'],
+    frase: '{n} {trámite aprobado|trámites aprobados} en el periodo', fraseVacio: 'No hay trámites aprobados en el periodo.',
     requiereDinero: false, funcionesOrigen: [FINANCIERO, EJECUTIVO],
   },
   {
@@ -200,6 +223,7 @@ export const CONJUNTOS_TORRE = [
     definicion: 'Lo cobrado en las liquidaciones de los aprobados del periodo, menos el costo de SOAT, impuesto, derecho y logística, dividido entre lo cobrado. El trámite digital no tiene costo en FLITO.',
     fechaBase: 'aprobacion', filtrosIgnorados: [], columnas: [...COLS_TRAMITE, 'aprobado_en', 'valor'],
     ordenDefecto: { columna: 'aprobado_en', dir: 'desc' }, segmentosAdmitidos: ['compania'],
+    frase: '{n} {trámite aprobado|trámites aprobados} con liquidación en el periodo', fraseVacio: 'No hay trámites aprobados en el periodo.',
     requiereDinero: true, funcionesOrigen: [FINANCIERO],
   },
 ] as const satisfies readonly ConjuntoTorreDef[];
@@ -230,6 +254,23 @@ export const textoConUmbrales = (texto: string, umbral?: number, umbral2?: numbe
   const conPrimero = umbral == null ? texto : reemplazar(texto, '{umbral}', String(umbral));
   return umbral2 == null ? conPrimero : reemplazar(conPrimero, '{umbral2}', String(umbral2));
 };
+
+/** `{uno|varios}` según `n`. */
+const conNumero = (texto: string, n: number): string => texto.replace(/\{([^{}|]+)\|([^{}|]+)\}/g, (_, uno: string, varios: string) => (n === 1 ? uno : varios));
+
+/**
+ * La frase del conjunto con su total vivo (y, si se conocen, los que pasan del doble del umbral). Con `n = 0` devuelve
+ * `fraseVacio`. Una sola fuente para el encabezado del detalle y para la KPI que es ese conjunto.
+ */
+export function fraseDeConjunto(def: ConjuntoTorreDef, n: number, valorUmbral?: number, criticos?: number): string {
+  const umbrales = (t: string): string => (valorUmbral == null ? t
+    : reemplazar(reemplazar(t, '{umbral}', String(valorUmbral)), '{doble}', String(valorUmbral * 2)));
+  if (n === 0) return umbrales(def.fraseVacio);
+  const base = reemplazar(conNumero(umbrales(def.frase), n), '{n}', n.toLocaleString('es-CO'));
+  const cola = def.fraseCriticos && criticos != null && criticos > 0
+    ? `; ${reemplazar(conNumero(umbrales(def.fraseCriticos), criticos), '{c}', criticos.toLocaleString('es-CO'))}` : '';
+  return `${base}${cola}.`;
+}
 
 /** Resuelve `{umbral}` / `{doble}` de una definición con el valor vigente del umbral. */
 export function definicionConUmbral(def: ConjuntoTorreDef, valorUmbral?: number): string {
@@ -303,6 +344,10 @@ export interface ResultadoDetalle {
   tamano: number;
   /** `total > FILAS_DETALLE_PAGINABLE_MAX`: hay registros que se cuentan pero no se pueden paginar. */
   truncado: boolean;
+  /** Frase del encabezado con el `total` vivo y los umbrales resueltos (`fraseDeConjunto`); con 0, la de vacío. */
+  frase: string;
+  /** Lo que se dice cuando la lista queda vacía con estos filtros (propio de cada conjunto). */
+  fraseVacio: string;
   filtrosIgnorados: (keyof FiltroTorre)[];
   rango: { desde: string; hasta: string } | null;
   dineroVisible: boolean;

@@ -67,6 +67,8 @@ export interface FragmentoDetalle {
   fecha?: FechaBase;
   rango: RangoResuelto | null;
   campoFecha: string;
+  /** RN-TOR-D3: condición «pasa del doble del umbral» (solo conjuntos con severidad); la cuenta va en el mismo total. */
+  critico?: SQL;
 }
 
 // ── Columnas ───────────────────────────────────────────────────────────────────────────────────────────
@@ -264,6 +266,7 @@ export function fragmentoConjunto(
     entidad: c.entidad, tabla: c.tabla, desde: c.desde, base: c.base(ctx, rango),
     propia: [...c.propia(u), ...segmentos.map((s) => condSegmento(c, c.dims, c.fecha, u, s)), ...condFiltrosDetalle(c.cols, c.dims, fd)],
     id: c.id, tramiteId: c.tramiteId, cols: c.cols, dims: c.dims, fecha: c.fecha, rango, campoFecha: c.campoFecha,
+    critico: c.critico?.(u),
   };
 }
 
@@ -326,11 +329,20 @@ export async function contarConjuntos(
 /** Condición completa del fragmento. */
 export const dondeFragmento = (f: FragmentoDetalle): SQL => donde([...f.base, ...f.propia]);
 
-/** `total` y, si el fragmento tiene `valor`, su suma (= la celda de una métrica de suma). */
-export async function totalFragmento(q: Ejecutor, f: FragmentoDetalle): Promise<{ total: number; valorTotal: number | null }> {
+export interface TotalFragmento { total: number; valorTotal: number | null; criticos?: number }
+
+/**
+ * `total` y, si el fragmento tiene `valor`, su suma (= la celda de una métrica de suma); con `critico`, cuántos pasan
+ * del doble del umbral (para la frase), en la MISMA consulta.
+ */
+export async function totalFragmento(q: Ejecutor, f: FragmentoDetalle): Promise<TotalFragmento> {
   const suma = f.cols.valor ? sql`, COALESCE(sum(${f.cols.valor}), 0)::numeric AS v` : sql``;
-  const [fila] = await q<{ n: number; v?: string }>(sql`SELECT count(*)::int AS n${suma} FROM ${f.desde} WHERE ${dondeFragmento(f)}`);
-  return { total: Number(fila?.n ?? 0), valorTotal: f.cols.valor ? Number(fila?.v ?? 0) : null };
+  const crit = f.critico ? sql`, count(*) FILTER (WHERE ${f.critico})::int AS c` : sql``;
+  const [fila] = await q<{ n: number; v?: string; c?: number }>(sql`SELECT count(*)::int AS n${suma}${crit} FROM ${f.desde} WHERE ${dondeFragmento(f)}`);
+  return {
+    total: Number(fila?.n ?? 0), valorTotal: f.cols.valor ? Number(fila?.v ?? 0) : null,
+    ...(f.critico ? { criticos: Number(fila?.c ?? 0) } : {}),
+  };
 }
 
 export interface OrdenFragmento { columna: ColumnaDetalleId; dir: 'asc' | 'desc' }
