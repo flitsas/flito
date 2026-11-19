@@ -232,12 +232,16 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
       '01-compuerta.png', '02-mapeo-de-conceptos.png', '03-editar-concepto.png', '04-terceros.png', '05-sincronizar-terceros.png'] },
     siigo_operacion: { version: '1.2', fecha: '2026-10-21', diagrama: 'camino-caso-detenido.svg', capturas: [
       '01-bandeja.png', '02-ver-caso.png', '03-reintentar-varios.png'] },
-    flito_comprobantes: { version: '1.2', fecha: '2026-10-22', diagrama: 'camino-comprobante.svg', capturas: [
+    flito_comprobantes: { version: '1.3', fecha: '2026-10-24', diagrama: 'camino-comprobante.svg', capturas: [
       '01-cargar.png', '02-cola.png', '03-asociar.png'] },
     flito_conciliacion: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-boleta.svg', capturas: [
       '01-cargar-boleta.png', '02-bandeja.png', '03-detalle-sin-cuadrar.png', '04-conciliar.png', '05-comprobante-pse.png'] },
-    flito_bolsas: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-periodo.svg', capturas: [
-      '01-periodo-y-kpi.png', '02-clientes.png', '03-detalle-cliente.png'] },
+    // HU #13901: alta manual de la bolsa, conceptos y autogestión, inactivar y reactivar.
+    // HU #13892: paso 7 «Documentos» (v1.3); botón de descargar a la altura del kit en la 05 (v1.5).
+    // HU #13908: tránsito en el catálogo único: filtro Alcance, tabla de tránsitos, alta y detalle (v1.6).
+    // HU #13964: «Quitar» la versión vigente y el estado «retirada» del historial (v1.8).
+    flito_bolsas: { version: '1.8', fecha: '2026-10-26', diagrama: 'ciclo-periodo.svg', capturas: [
+      '01-cabecera-y-kpi.png', '02-companias.png', '03-crear-bolsa.png', '04-detalle-compania.png', '05-documentos.png'] },
     flito_tarifas: { version: '1.1', fecha: '2026-10-21', diagrama: 'vigencias.svg', capturas: [
       '01-elegir-compania.png', '02-fijar-valor.png', '03-historial.png'] },
     // Citadas en el orden de los pasos de la ficha (la 01 ilustra el paso 5, «Por tarifar»).
@@ -291,7 +295,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // HU #13771 — manuales del área Corredor SOAT: misma comprobación que el bloque de Facturación (versión y fecha
   // exactas, capturas citadas en orden con alt y ≤ 200 KB, diagrama SVG con alt o ninguno). Tablero y Bitácora
   // son de solo lectura y de tres pasos o menos: sin diagrama.
-  const SOAT_13771: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
+  const SOAT_13771: Record<string, { version: string; capturas: string[]; diagrama: string | null; fecha?: string }> = {
     soat: { version: '1.2', diagrama: 'ciclo-soat.svg', capturas: [
       '01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png'] },
     flito_tramites: { version: '1.2', diagrama: 'camino-a-entregar.svg', capturas: [
@@ -301,19 +305,20 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     flito_bitacora: { version: '1.2', diagrama: null, capturas: ['01-movimientos.png'] },
     flito_comparendos: { version: '1.2', diagrama: 'ciclo-monitoreo.svg', capturas: [
       '01-registros.png', '02-detalle.png', '03-sincronizacion.png', '04-configuracion.png'] },
-    clients: { version: '1.2', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
+    // HU #13935: la ficha de Clientes cambió después (checks «FLITO gestiona»).
+    clients: { version: '1.4', fecha: '2026-10-24', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
       '01-clientes.png', '02-soat-sin-tramite.png', '03-proveedores.png'] },
     flito_tablero: { version: '1.2', diagrama: null, capturas: ['01-indicadores-y-alertas.png', '02-por-estado.png'] },
   };
 
   for (const [clave, esperado] of Object.entries(SOAT_13771)) {
-    test(`HU #13771 — ${clave}: versión ${esperado.version} del 2026-10-22, capturas y diagrama con alt`, () => {
+    test(`HU #13771 — ${clave}: versión ${esperado.version} del ${esperado.fecha ?? '2026-10-22'}, capturas y diagrama con alt`, () => {
       const md = leer(`apps/web/src/content/ayuda/${clave}.md`);
       const { encabezado, errores } = parsearFicha(md);
       expect(errores, clave).toEqual([]);
       // AC5 — la ficha cambió: sube la versión menor y la fecha.
       expect(encabezado!.version, `${clave} · version`).toBe(esperado.version);
-      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe('2026-10-22');
+      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe(esperado.fecha ?? '2026-10-22');
       // AC4 — sin rutas de API ni rutas de la app en el texto.
       expect(md, `${clave} · sin rutas`).not.toMatch(/`\/|\/api\//);
 

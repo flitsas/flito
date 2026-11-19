@@ -201,8 +201,9 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +1 por la HU #13837 (`POST /buscar` de flito-soat para Dr. Flit, reutiliza `soat.cola.ver`).
     // +2 por la HU #13838 (`POST /buscar` de flito-impuestos y de flito-derechos para Dr. Flit).
     // + 3 en línea de la HU #13941 (funciones de Dr. Flit).
-    expect(GUARDAS_MEDIDAS).toHaveLength(626);
-    expect(montajes).toHaveLength(626);
+    // +1 por la HU #13964 (`POST /documentos/:documentoId/retirar`, reutiliza `bolsas.documentos.cargar`).
+    expect(GUARDAS_MEDIDAS).toHaveLength(627);
+    expect(montajes).toHaveLength(627);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)

@@ -64,6 +64,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'GET', ruta: '/documentos/:documentoId/archivo', codigo: 'bolsas.documentos.ver' },
   // HU #13890 (ADR-0028 §5 E4): fecha de expedición manual, reutiliza la función de la carga.
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'PUT', ruta: '/documentos/:documentoId/fecha-expedicion', codigo: 'bolsas.documentos.cargar' },
+  // HU #13964 (ADR-0028 adenda E7): retiro de la versión vigente, reutiliza la función de la carga.
+  { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'POST', ruta: '/documentos/:documentoId/retirar', codigo: 'bolsas.documentos.cargar' },
   // HU #13893 (ADR-0028 §5 E6): estado agregado del lote para el chip del listado.
   { fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts', metodo: 'POST', ruta: '/estado-lote', codigo: 'bolsas.documentos.ver' },
   // HU #12998
