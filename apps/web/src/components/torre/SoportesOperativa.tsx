@@ -70,7 +70,12 @@ export default function SoportesOperativa({ filtros }: { filtros: FiltrosTorre }
     <div className="flex flex-col gap-4" data-torre="soportes" data-estado="lleno">
       <div className={REJILLA_KPI}>
         <KpiExplicable volver="operativa" vista="soportes" label="Aprobados del periodo" value={conteo(d.aprobados)} cantidad={0}
-          explicacion={undefined} hintSinExplicacion={`Del ${fechaCorta(d.rango.desde)} al ${fechaCorta(d.rango.hasta)}`} />
+          explicacion={undefined}>
+          {/* Texto, no enlace: fuera de `metrica__pie`, que el kit subraya. */}
+          <p className="m-0 text-xs text-[color:var(--color-text-secondary)]" data-torre="rango">
+            Del {fechaCorta(d.rango.desde)} al {fechaCorta(d.rango.hasta)}
+          </p>
+        </KpiExplicable>
         <KpiExplicable volver="operativa" vista="soportes" label="Con soportes incompletos" value={conteo(inc)} pendiente={inc > 0}
           explicacion={{ frase: d.frase, definicion: d.definicion, destino: d.incompletos.destino }} cantidad={inc}
           verEtiqueta={inc > 0 ? `Ver los ${conteo(inc)} incompletos` : undefined} />

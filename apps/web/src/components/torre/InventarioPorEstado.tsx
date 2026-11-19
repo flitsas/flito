@@ -53,7 +53,7 @@ function CeldaInventario({ celda, fila, tramo, puedeVer }: {
   return (
     <Link to={ruta} data-torre="celda-inventario" data-umbral={celda.sobreUmbral || undefined}
       aria-label={`${etiqueta}. ${uno ? 'Ver cuál' : 'Ver cuáles'}`}
-      className={`flit-focus-inset -mx-1 -my-0.5 block cursor-pointer rounded px-1 py-0.5 tabular-nums no-underline transition-colors hover:bg-[var(--kit-hover)] ${clase || 'text-inherit'}`}>
+      className={`flit-focus-inset -mx-1 -my-0.5 block cursor-pointer rounded px-1 py-0.5 tabular-nums no-underline transition-colors hover:bg-[var(--kit-hover)] hover:underline hover:underline-offset-[3px] ${clase || 'font-semibold text-[color:var(--color-action)]'}`}>
       {contenido}
     </Link>
   );
