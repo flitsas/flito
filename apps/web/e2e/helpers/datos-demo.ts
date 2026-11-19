@@ -1420,6 +1420,73 @@ export const TORRE_INVENTARIO_DEMO = (() => {
   };
 })();
 
+/** Productos (B3): las tres pestañas; la captura usa SOAT. Sin datos del titular: estados, motivos y conteos. */
+export const TORRE_PRODUCTOS_DEMO = (() => {
+  const dest = (conjunto: string, segmentos: { dimension: string; valores: (string | null)[] }[] = []) => ({ tipo: 'conjunto', origen: { tipo: 'conjunto', conjunto }, segmentos });
+  const kpi = (frase: string, conjunto: string, definicion: string) => ({ frase, definicion, destino: dest(conjunto) });
+  const fila = (conjunto: string, dimension: string, clave: string, etiqueta: string, n: number, valor?: number) => ({
+    clave, etiqueta, n, ...(valor !== undefined ? { valor } : {}),
+    destino: n === 0 || clave === '__otros' ? { tipo: 'ninguno' } : dest(conjunto, [{ dimension, valores: [clave] }]),
+  });
+  const tabla = (titulo: string, conjunto: string, dimension: string, filas: ReturnType<typeof fila>[], conValor: boolean, foto: boolean) => ({
+    titulo, dimension, conjunto, definicion: titulo, conValor, filas, filtrosIgnorados: foto ? ['rango'] : [],
+    total: { clave: null, etiqueta: 'Total', n: filas.reduce((a, f) => a + f.n, 0), ...(conValor ? { valor: filas.reduce((a, f) => a + (f.valor ?? 0), 0) } : {}), destino: dest(conjunto) },
+  });
+  return {
+    rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: true, generadoEn: '2026-10-21T15:00:00.000Z',
+    soat: {
+      cifras: { pagadosPeriodo: 138, pagadosValor: 96_400_000, porVencer: 27, sinGestion: 9, vigenciaNoVerificada: 15 },
+      explicaciones: {
+        sinGestion: kpi('9 gestiones de SOAT llevan más de 48 horas sin soporte.', 'soat_sin_gestion', 'Gestiones de SOAT sin soporte cargado 48 horas después de pedidas. No depende del periodo.'),
+        porVencer: kpi('27 SOAT vencen en los próximos 30 días.', 'soat_por_vencer', 'SOAT pagados cuya póliza vence entre hoy y los próximos 30 días. No depende del periodo.'),
+        vigenciaNoVerificada: kpi('15 SOAT pagados no tienen su vigencia verificada en el RUNT.', 'soat_vigencia_no_verificada', 'SOAT pagados sin respuesta del RUNT sobre su vigencia. No depende del periodo.'),
+        pagadosPeriodo: kpi('138 SOAT pagados en el periodo por $ 96,4 M.', 'soat_pagados_periodo', 'SOAT cuya fecha de pago cae en el periodo elegido.'),
+      },
+      tablas: [
+        tabla('SOAT del periodo por estado', 'soat_por_estado', 'estado', [
+          fila('soat_por_estado', 'estado', 'pendiente', 'Pendiente', 41, 0),
+          fila('soat_por_estado', 'estado', 'solicitado', 'Solicitado', 88, 0),
+          fila('soat_por_estado', 'estado', 'novedad', 'Con novedad', 6, 0),
+          fila('soat_por_estado', 'estado', 'pagado', 'Pagado', 138, 96_400_000),
+        ], true, false),
+        tabla('Solicitudes de SOAT incompletas, por motivo', 'soat_incompletas_abiertas', 'motivo', [
+          fila('soat_incompletas_abiertas', 'motivo', 'RUNT sin respuesta', 'RUNT sin respuesta', 7),
+          fila('soat_incompletas_abiertas', 'motivo', 'Placa no encontrada', 'Placa no encontrada', 3),
+        ], false, true),
+      ],
+    },
+    impuestos: {
+      cifras: { pagadosPeriodo: 97, pagadosValor: 41_000_000, sinGestion: 5, conDiferencia: 8, direccionPendiente: 4 },
+      explicaciones: {
+        sinGestion: kpi('5 gestiones de impuesto llevan más de 48 horas sin soporte.', 'impuesto_sin_gestion', 'Gestiones de impuesto sin soporte cargado 48 horas después de pedidas.'),
+        conDiferencia: kpi('8 impuestos tienen diferencia entre lo liquidado y lo pagado.', 'impuestos_con_diferencia', 'Impuestos marcados con diferencia de valor.'),
+        direccionPendiente: kpi('4 impuestos tienen la dirección pendiente de revisión.', 'impuestos_direccion_pendiente', 'La dirección no se muestra. No depende del periodo.'),
+        pagadosPeriodo: kpi('97 impuestos pagados en el periodo por $ 41 M.', 'impuestos_pagados_periodo', 'Impuestos cuya fecha de pago cae en el periodo elegido.'),
+      },
+      tablas: [
+        tabla('Impuestos del periodo por estado', 'impuestos_por_estado', 'estado', [
+          fila('impuestos_por_estado', 'estado', 'pendiente', 'Pendiente', 120, 0),
+          fila('impuestos_por_estado', 'estado', 'novedad', 'Con novedad', 19, 0),
+          fila('impuestos_por_estado', 'estado', 'pagado', 'Pagado', 97, 41_000_000),
+        ], true, false),
+        tabla('Impuestos con novedad, por motivo', 'impuestos_rechazados_periodo', 'motivo', [
+          fila('impuestos_rechazados_periodo', 'motivo', 'Placa no corresponde al organismo', 'Placa no corresponde al organismo', 6),
+          fila('impuestos_rechazados_periodo', 'motivo', '__otros', 'Otros', 2),
+        ], false, false),
+      ],
+    },
+    derechos: {
+      cifras: { pagadosPeriodo: 184, pagadosValor: 23_000_000, sinSoporte: 7, pendientesSinResolver: 11 },
+      explicaciones: {
+        pagadosPeriodo: kpi('184 derechos de tránsito pagados en el periodo por $ 23 M.', 'derechos_pagados_periodo', 'Derechos con fecha de pago en el periodo elegido.'),
+        sinSoporte: kpi('7 derechos de tránsito no tienen soporte.', 'derechos_sin_soporte', 'Derechos sin recibo vigente. No depende del periodo.'),
+        pendientesSinResolver: kpi('11 recibos siguen sin asociar a un trámite.', 'derechos_pendientes_sin_resolver', 'Recibos cargados sin trámite asociado. No depende del periodo.'),
+      },
+      tablas: [],
+    },
+  };
+})();
+
 /** La lista de una cifra: una fila por placa del registro demo. `origen` y `segmentos` los pone el spec. */
 export const TORRE_DETALLE_DEMO = {
   definicion: { etiqueta: 'Borradores abandonados', definicion: TORRE_DEF_BORRADOR, fechaBase: null, campoFecha: 'fecha_creacion' },
@@ -1561,6 +1628,7 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   TORRE_INVENTARIO_DEMO: { ...TORRE_INVENTARIO_DEMO, organismos: TORRE_INVENTARIO_DEMO.organismos.map(({ nombre, ...o }) => ({ ...o, organismo: nombre })) },
   TORRE_DETALLE_DEMO,
   TORRE_METRICA_DEMO,
+  TORRE_PRODUCTOS_DEMO,
 };
 
 // ── Interceptación de /api ───────────────────────────────────────────────────

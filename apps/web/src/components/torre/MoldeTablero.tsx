@@ -14,7 +14,7 @@ import { etiquetaKit, ETIQUETA_PUNTO_CLS, type TonoKit } from '../flit/kit/tonos
 import { aFiltroTorre } from './formatoTorre';
 import { REJILLA_2, REJILLA_KPI } from './PaginaTorre';
 
-export type AreaTablero = 'ejecutivo' | 'comercial' | 'operativa' | 'financiera';
+export type AreaTablero = 'ejecutivo' | 'comercial' | 'operativa' | 'financiera' | 'productos';
 export type EstadoTablero<T> = { tipo: 'cargando' } | { tipo: 'error' } | { tipo: 'listo'; datos: T };
 
 /** `activo = false` no pide (una subvista que no es el tablero, spec §6.1); al volver a `true`, pide. */

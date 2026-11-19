@@ -34,6 +34,7 @@ const FinanzasGastosDiarios = lazy(() => import('./pages/FinanzasGastosDiarios')
 const Torre360 = lazy(() => import('./pages/torre/Torre360'));
 const TorreComercial = lazy(() => import('./pages/torre/TorreComercial'));
 const TorreOperativa = lazy(() => import('./pages/torre/TorreOperativa'));
+const TorreProductos = lazy(() => import('./pages/torre/TorreProductos'));
 const TorreFinanciera = lazy(() => import('./pages/torre/TorreFinanciera'));
 const TorreExplorador = lazy(() => import('./pages/torre/TorreExplorador'));
 const TorreUmbrales = lazy(() => import('./pages/torre/TorreUmbrales'));
@@ -279,6 +280,7 @@ function AppRoutes() {
         <Route path="/flito/torre/resumen" element={<ProtectedRoute page="torre_360"><Lazy><Torre360 /></Lazy></ProtectedRoute>} />
         <Route path="/flito/torre/comercial" element={<ProtectedRoute page="torre_comercial"><Lazy><TorreComercial /></Lazy></ProtectedRoute>} />
         <Route path="/flito/torre/operativa" element={<ProtectedRoute page="torre_operativa"><Lazy><TorreOperativa /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/torre/productos" element={<ProtectedRoute page="torre_productos"><Lazy><TorreProductos /></Lazy></ProtectedRoute>} />
         <Route path="/flito/torre/financiera" element={<ProtectedRoute page="torre_financiera"><Lazy><TorreFinanciera /></Lazy></ProtectedRoute>} />
         <Route path="/flito/torre/explorador" element={<ProtectedRoute page="torre_explorador"><Lazy><TorreExplorador /></Lazy></ProtectedRoute>} />
         <Route path="/flito/torre/umbrales" element={<ProtectedRoute page="torre_umbrales"><Lazy><TorreUmbrales /></Lazy></ProtectedRoute>} />

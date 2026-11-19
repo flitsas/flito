@@ -15,6 +15,7 @@ export const PAGINAS_TORRE: readonly { slug: PageSlug; to: string; etiqueta: str
   { slug: 'torre_360', to: '/flito/torre/resumen', etiqueta: 'Resumen 360°' },
   { slug: 'torre_comercial', to: '/flito/torre/comercial', etiqueta: 'Comercial' },
   { slug: 'torre_operativa', to: '/flito/torre/operativa', etiqueta: 'Operativa' },
+  { slug: 'torre_productos', to: '/flito/torre/productos', etiqueta: 'Productos' },
   { slug: 'torre_financiera', to: '/flito/torre/financiera', etiqueta: 'Financiera' },
   { slug: 'torre_explorador', to: '/flito/torre/explorador', etiqueta: 'Explorador' },
 ];
