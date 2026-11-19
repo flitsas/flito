@@ -14,8 +14,8 @@ consolidarlas después sin traducir. Cambiar este contrato = nueva versión (v2)
 3. **Se registra también el fallo**: timeout, 429, 5xx, red, respuesta cortada, respuesta no interpretable.
 4. **Nunca** se guarda la imagen/PDF ni su base64, ni llaves/encabezados. `error_mensaje` recortado a 500 chars.
 5. Prompt y respuesta completos SOLO en `ia_consumo_detalle`, controlado por bandera de configuración
-   `IA_CONSUMO_DETALLE` (`true`/`false`; por defecto `false`) y retención `IA_CONSUMO_DETALLE_DIAS`
-   (por defecto 30). `respuesta_texto` y `prompt_texto` recortados a 64 KB c/u.
+   `IA_CONSUMO_DETALLE` (`true`/`false`; por defecto `true`, decisión del 2026-11-19). **No hay purga
+   automática**: ni el registro ni el detalle se borran solos. `respuesta_texto` y `prompt_texto` recortados a 64 KB c/u.
 6. Bandera maestra `IA_CONSUMO_LOG` (por defecto `true`) para apagar el registro sin redeploy de código.
 7. El contexto de negocio (módulo, proceso, placa, entidad, origen) lo abre el código que llama, en un
    ámbito ambiental (AsyncLocal en .NET / AsyncLocalStorage en Node); el cliente HTTP lo lee. Usuario y
@@ -107,7 +107,8 @@ Nota tarifa: buscar primero por modelo exacto y, si no hay, por el modelo sin su
 precios (skill `claude-api`), con la fecha de hoy como `vigente_desde`; proveedores sin precio confirmado
 NO se siembran (costo NULL).
 
-Retención del detalle: tarea diaria `DELETE FROM ia_consumo_detalle WHERE fecha_inicio < now() - N días`.
+Retención: ninguna. El registro y el detalle se conservan (decisión del 2026-11-19); si algún día hace falta
+borrar, será una decisión aparte con su propio cambio.
 
 ## Catálogos (texto en minúscula_con_guion_bajo)
 
