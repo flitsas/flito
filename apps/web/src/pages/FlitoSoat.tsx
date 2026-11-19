@@ -392,6 +392,27 @@ export default function FlitoSoat() {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
   });
 
+  // Acciones de la cabecera: la carga masiva (primaria del día) y, solo cliente, «Solicitar SOAT».
+  const primariaCabecera = (
+    <>
+      {/* HU 12872 (AC3): la carga masiva por la función de SU endpoint (POST /facturas). */}
+      {puedeCargaMasiva && (
+        <GradientButton className={ACCION_CABECERA} onClick={() => setCargaMasiva(true)}>
+          <Icono nombre="nube-subir" size={16} className="shrink-0" />
+          Cargar comprobantes de SOAT (masivo)
+        </GradientButton>
+      )}
+      {/* La ÚNICA acción primaria que el Cliente tiene en todo el producto (HU 11914): un `<Link>` con
+          aspecto de botón (puede abrirse en otra pestaña) y no se pinta si la compañía no tiene el canal. */}
+      {esCliente && puedeSolicitar && (
+        <Link to="/flito/soat/solicitud" className={claseBoton('primary', 'md', ACCION_CABECERA)}>
+          <Icono nombre="mas" size={16} className="shrink-0" />
+          Solicitar SOAT
+        </Link>
+      )}
+    </>
+  );
+
   return (
     <div className="space-y-4">
       {sinFuncionesPantalla ? (
@@ -417,35 +438,18 @@ export default function FlitoSoat() {
           ? 'Sus solicitudes de SOAT y las pólizas de su compañía.'
           : 'Cola de adquisición del SOAT: de Pendiente a Pagado.'}
         actions={(
-          <>
-            {/* HU 12872 (AC3): la carga masiva por la función de SU endpoint (POST /facturas). */}
-            {puedeCargaMasiva && (
-              <GradientButton className={ACCION_CABECERA} onClick={() => setCargaMasiva(true)}>
-                <Icono nombre="nube-subir" size={16} className="shrink-0" />
-                Cargar comprobantes de SOAT (masivo)
-              </GradientButton>
-            )}
-            {/* La ÚNICA acción primaria que el Cliente tiene en todo el producto (HU 11914).
-                Es un `<Link>` con aspecto de botón y no un `onClick`: tiene que poder abrirse en
-                otra pestaña y salir en el historial. Y no se pinta si la compañía no tiene el canal:
-                ofrecer un botón que abre una pantalla que explica que no se puede es justo el patrón
-                que el AC5 pide evitar. */}
-            {esCliente && puedeSolicitar && (
-              <Link to="/flito/soat/solicitud" className={claseBoton('primary', 'md', ACCION_CABECERA)}>
-                <Icono nombre="mas" size={16} className="shrink-0" />
-                Solicitar SOAT
-              </Link>
-            )}
-            {/* Secundario y después del primario: la acción del día de esta cola es cargar comprobantes de SOAT,
-                no descargar. Al auditor NO se le pinta deshabilitado — no se pinta. */}
-            {puedeExportar && (
+          // Primaria y secundaria en UNA fila alineada a la derecha (sm+); la nota y la casilla del export van
+          // debajo de su botón. Bajo sm, todo apilado a ancho completo.
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-start sm:justify-end">
+            {puedeExportar ? (
               <BotonExportarCola
+                antes={primariaCabecera}
                 ocupado={exportacion.ocupado}
                 onExportar={exportacion.exportar}
                 incluirPago={ofrecerExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
               />
-            )}
-          </>
+            ) : primariaCabecera}
+          </div>
         )}
       />
 

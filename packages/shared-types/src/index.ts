@@ -122,6 +122,8 @@ export * from './flito-envio-comprobante.js';
 // Conciliación de boletas de pago externo contra los SOAT: estados, desenlaces del cruce y la
 // normalización del número de póliza, que tiene que ser la misma en la base, el API y la pantalla.
 export * from './flito-conciliacion.js';
+// ADR-0045: vistas de columnas persistidas (Gestión Trámites).
+export * from './flito-vistas-columnas.js';
 // Export a Excel de las colas de SOAT e Impuestos: el tope de filas que la pantalla anuncia y el
 // servidor aplica (Feature #11908, HU #11909).
 export * from './flito-cola-export.js';
@@ -169,3 +171,5 @@ export * from './flito-torre-detalle.js';
 export * from './flito-torre-productos.js';
 export * from './flito-torre-logistica.js';
 export * from './flito-torre-equipo.js';
+// Detalle de trámite en modal de Gestión Trámites (ADR-0046).
+export * from './flito-tramites-detalle.js';

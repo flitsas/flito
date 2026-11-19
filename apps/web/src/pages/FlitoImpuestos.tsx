@@ -399,30 +399,31 @@ export default function FlitoImpuestos() {
       : vacioConEnlace('impuestos', tipoEnlace)
         ?? 'No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.';
 
+  // Carga masiva de recibos: la acción primaria del día de esta cola (solo operaciones y gestor).
+  const cargaRecibosBoton = (esOperaciones || esGestor) ? (
+    <GradientButton onClick={() => setCargaRecibos(true)}>
+      <Icono nombre="nube-subir" size={18} />
+      Cargar recibos (masivo)
+    </GradientButton>
+  ) : null;
+
   return (
     <div className="flex flex-col gap-4">
       {/* La cabecera del módulo es del shell (decisión D1). Sus acciones dependen del estado de esta
           cola (modal de carga, export con sus filtros), así que viven aquí, en una barra bajo las
           pestañas, y no en el shell. */}
       {(esOperaciones || esGestor || puedeExportar) && (
-        <div className="flex flex-wrap items-start justify-end gap-2">
-          {(esOperaciones || esGestor) && (
-            <GradientButton onClick={() => setCargaRecibos(true)}>
-              <Icono nombre="nube-subir" size={18} />
-              Cargar recibos (masivo)
-            </GradientButton>
-          )}
-          {/* Secundario y después del primario: la acción del día de esta cola es cargar recibos,
-              no descargar. La guarda va aparte de la del primario —aunque hoy sean la misma— para
-              que quitarle a alguien la carga masiva no le quite de paso la descarga. Al auditor NO
-              se le pinta deshabilitado: no se pinta. */}
-          {puedeExportar && (
+        // Carga masiva (primaria) y «Exportar a Excel» en UNA fila alineada a la derecha (sm+); la nota del export
+        // queda debajo. Bajo sm, todo apilado a ancho completo.
+        <div className="flex w-full sm:w-auto sm:self-end">
+          {puedeExportar ? (
             <BotonExportarCola
+              antes={cargaRecibosBoton}
               ocupado={exportacion.ocupado}
               onExportar={exportacion.exportar}
               incluirPago={ofrecerExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
             />
-          )}
+          ) : cargaRecibosBoton}
         </div>
       )}
 

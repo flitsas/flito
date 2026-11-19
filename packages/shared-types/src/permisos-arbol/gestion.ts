@@ -25,6 +25,7 @@ export const ITEMS_GESTION: readonly ItemDef[] = [
     a('configurar_sincronizacion', 'Configurar la sincronización', 'Encender o apagar fuentes y gestionar el acceso a FLIT 2.'),
     a('crear_demo', 'Crear trámites de demostración', 'Sembrar trámites de prueba en el ambiente.'),
     a('entregar', 'Entregar trámites', 'Marcar trámites como entregados y usar la compuerta de entrega.'),
+    a('administrar_vistas_columnas', 'Administrar vistas de columnas', 'Crear vistas de columnas para todos y fijar la predeterminada general.'),
   ] },
   { slug: 'flito_soat', clave: 'soat', nombre: 'SOAT', elemento: 'gestion', orden: 20, acciones: [
     a('ver_listado', 'Ver el listado', 'Consultar la cola de SOAT, filtrarla y ver el detalle y el historial de cada solicitud.'),

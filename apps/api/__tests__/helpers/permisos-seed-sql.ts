@@ -89,6 +89,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0299_permisos_rol_proveedor_logistica.sql', // ADR-0040 (HU #14351, #14353): el rol proveedor trae el perfil Coordinador de logística
   '0274_flito_impuesto_certificacion_directa.sql', // Certificar impuesto sin trámite: acción solo a admin
   '0303_flito_torre_fundacion.sql', // Épica #14590: Torre de Control — 6 ítems + 9 acciones; roles gerencia_* (con lo universal)
+  '0305_flito_vistas_columnas.sql', // Épica #14560 (ADR-0045): administrar vistas de columnas; acción solo a admin
   '0306_flito_torre_detalle_permisos.sql', // ADR-0047 (Épica #14590, B1): ítem «Torre · Detalle» + ver/exportar (el auditor no exporta)
   '0307_flito_torre_productos.sql', // Épica #14590 (B3): ítem «Torre · Productos» + ver (los roles que ven Operativa) y su umbral
   '0308_flito_torre_logistica.sql', // Épica #14590 (B4): ítem «Torre · Logística» + ver (el reparto de Productos) y su umbral

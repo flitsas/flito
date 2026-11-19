@@ -186,6 +186,10 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa/:id/consultar',
       'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa/:id',
       'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts PATCH /certificacion-directa/:id',
+      // Épica #14560 (ADR-0045): `tramites.vistas_columnas.administrar` nace en el árbol (0305;
+      // `accion.tramites.administrar_vistas_columnas`, solo `admin`); no se siembra.
+      'flito-vistas-columnas/flito-vistas-columnas.routes.ts PUT /:tablaId/predeterminada/general',
+      'flito-vistas-columnas/flito-vistas-columnas.routes.ts POST * [compartidas]',
       // HU #13945: `clients.clientes.estado` nace absorbida por la acción exclusiva del Administrador
       // `accion.clientes.activar_desactivar`; la siembra la 0255 (solo `admin`), no el seed plano.
       'clients/clients.routes.ts GET /:id/impacto',

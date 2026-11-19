@@ -51,6 +51,7 @@ import { verificarCatalogoAlArrancar } from './modules/permisos/permisos.service
 import { comprobarLlavesPiiAlArrancar } from './modules/privacy/rotacion/comprobar-llaves.js';
 import { closeRedis } from './shared/redis.js';
 import { cerrarUsoLegacy, flushUsoLegacy } from './modules/uso-legacy/uso-legacy.service.js';
+import { cerrarConsumoIa, vaciarConsumoIa } from './shared/ia-consumo/escritor.js';
 import { loggerFor } from './shared/logger.js';
 
 const log = loggerFor('server');
@@ -171,6 +172,8 @@ function shutdown(signal: string) {
   // HU #13989 (ADR-0033 §2): flush inmediato, porque un SSE abierto puede impedir que `server.close`
   // termine a tiempo y entonces se sale por `forceExitTimer`. El temporizador sigue vivo en el drenado.
   void flushUsoLegacy();
+  // Contrato ia-consumo v1: el registro de consumo de IA se vacía ya y otra vez al cerrar HTTP (tope 3 s).
+  void vaciarConsumoIa();
 
   stopReconciler();
   stopPurger();
@@ -223,6 +226,7 @@ function shutdown(signal: string) {
     }
     log.info('HTTP cerrado');
     await cerrarUsoLegacy();
+    await cerrarConsumoIa();
     try { await closeRedis(); } catch (e) { log.warn({ err: (e as Error).message }, 'redis close error'); }
     log.info('saliendo');
     process.exit(0);

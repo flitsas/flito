@@ -40,8 +40,8 @@ import {
   EXPR_CON_DIFERENCIAS, SELECT_VALORES_DOCUMENTALES, valoresDocumentalesDeFila, type ValoresDocumentalesDeFila,
 } from './finanzas.valores-documentales.js';
 import {
-  costosProveedorConsolidadoDe, costosProveedorDeFila, exprCostosProveedorReporte, selectCostosProveedor,
-  selectCostosProveedorConsolidado, type CostosProveedorConsolidado, type CostosProveedorDeFila,
+  costosProveedorConsolidadoDe, costosProveedorDeFila, exprCostosDe, exprCostosProveedorReporte, selectCostosProveedor,
+  selectCostosProveedorConsolidado, sinJit, type CostosProveedorConsolidado, type CostosProveedorDeFila,
 } from './finanzas.costos-proveedor.js';
 import { EXPR_DOC_LG, EXPR_DOC_TD } from '../flito-comprobantes/flito-comprobantes.expr.js';
 import type { SiigoEstadoReporte, SiigoResumenReporte } from '@operaciones/shared-types';
@@ -159,6 +159,12 @@ export interface ReporteCostos {
   /** Costo de proveedor del universo filtrado: grupo APARTE, no suma a `totales` (RN-CP-01). */
   totalesCostosProveedor: CostosProveedorConsolidado;
 }
+
+/** Las dos agregaciones caras del universo filtrado, que `GET /reporte-costos/totales` sirve aparte. */
+export type TotalesReporteCostos = Pick<ReporteCostos, 'totales' | 'totalesCostosProveedor'>;
+
+/** La página sin las agregaciones (`sinTotales`): filas, conteo y resumen por etapa. */
+export type PaginaReporteCostos = Omit<ReporteCostos, keyof TotalesReporteCostos>;
 
 // Alias para resolver la tarifa VIGENTE EN LA FECHA DE APROBACIÓN del trámite (HU #12374, RN-07):
 // la vigencia que contiene `COALESCE(fecha_aprobacion, now())`. La EXCLUDE de la 0182 garantiza a
@@ -691,7 +697,8 @@ export const SELECT_TOTALES = {
  * el total de los 50 visibles y lo rotulaba «Totales».
  */
 async function totalesDe(where: SQL | undefined): Promise<TotalesReporte> {
-  const [t] = await conJoins(db.select(SELECT_TOTALES).from(flitoTramites).$dynamic()).where(where);
+  // Sin JIT (ver `sinJit`): medido en local, ~0,85 s → ~0,53 s sin filtro; es la otra mitad de `/totales`.
+  const [t] = await sinJit((ej) => conJoins(ej.select(SELECT_TOTALES).from(flitoTramites).$dynamic()).where(where));
 
   return {
     soat: Number(t.soat), impuesto: Number(t.impuesto), derechoTramite: Number(t.derechoTramite),
@@ -703,11 +710,25 @@ async function totalesDe(where: SQL | undefined): Promise<TotalesReporte> {
   };
 }
 
-/** Costo de proveedor del universo filtrado, con la MISMA expresión del consolidado (RN-CP-01: aparte de `totalesDe`). */
+/**
+ * Costo de proveedor del universo filtrado, con la MISMA expresión del consolidado (RN-CP-01: aparte de `totalesDe`).
+ *
+ * Los dos conceptos se calculan UNA vez por fila en la subconsulta `cp` y se agregan fuera: escritos
+ * dentro de cada `SUM`, PostgreSQL los evaluaba ~5 veces por fila (estado y valor en dos sumas, más el
+ * «sin configurar»). `OFFSET 0` impide que el planificador aplane `cp` y vuelva a copiar la expresión en
+ * cada referencia. Mismas filas (los mismos `conJoins` y `where`), así que mismas sumas. Y sin JIT (`sinJit`).
+ */
 async function totalesCostosProveedorDe(where: SQL | undefined): Promise<CostosProveedorConsolidado> {
-  const [t] = await conJoins(db.select(selectCostosProveedorConsolidado(COSTOS_PROVEEDOR, sql`${flitoTramites.id}`))
-    .from(flitoTramites).$dynamic()).where(where);
-  return costosProveedorConsolidadoDe(t);
+  return sinJit(async (ej) => {
+    const filas = conJoins(ej.select({
+      id: flitoTramites.id,
+      soat: sql`${COSTOS_PROVEEDOR.soat}`.as('cp_soat'),
+      logistica: sql`${COSTOS_PROVEEDOR.logistica}`.as('cp_logistica'),
+    }).from(flitoTramites).$dynamic()).where(where);
+    const [t] = await ej.select(selectCostosProveedorConsolidado(exprCostosDe(sql`cp.cp_soat`, sql`cp.cp_logistica`), sql`cp.id`))
+      .from(sql`(${filas} OFFSET 0) cp`);
+    return costosProveedorConsolidadoDe(t);
+  });
 }
 
 /**
@@ -734,30 +755,53 @@ async function resumenDe(where: SQL | undefined): Promise<ResumenEtapas> {
   };
 }
 
-export async function reporteCostos(f: FiltrosReporte = {}): Promise<ReporteCostos> {
+/** El `where` de los filtros (sin paginación): lo comparten la página y los totales. */
+function whereDe(f: FiltrosReporte): SQL | undefined {
+  const conds = condiciones(f);
+  return conds.length ? and(...conds) : undefined;
+}
+
+/**
+ * La página del reporte SIN las agregaciones del universo: filas, conteo y resumen por etapa.
+ *
+ * Medido en local (8.625 trámites, sin filtro): el costo de proveedor consolidado tardaba ~17 s y
+ * los totales ~0,8 s, frente a ~0,1 s de las filas y ~30 ms del conteo. Con los cinco en un mismo
+ * `Promise.all`, la tabla esperaba al más lento en cada cambio de página. Ahora la UI pide la página
+ * con `sinTotales=1` y los totales por `GET /reporte-costos/totales`, que no cambian al paginar.
+ */
+export async function paginaReporteCostos(f: FiltrosReporte = {}): Promise<PaginaReporteCostos> {
   const page = Math.max(1, Math.floor(f.page ?? 1));
   const pageSize = Math.min(200, Math.max(1, Math.floor(f.pageSize ?? 50)));
-  const conds = condiciones(f);
-  const where = conds.length ? and(...conds) : undefined;
+  const where = whereDe(f);
   // El resumen ignora la etapa elegida a propósito: si contara solo dentro de ella, las otras tres
   // pestañas marcarían cero y parecería que no queda nada por hacer.
-  const condsSinEtapa = condiciones({ ...f, etapa: undefined });
-  const whereSinEtapa = condsSinEtapa.length ? and(...condsSinEtapa) : undefined;
+  const whereSinEtapa = whereDe({ ...f, etapa: undefined });
 
-  const [countRows, rows, totales, resumen, totalesCostosProveedor] = await Promise.all([
+  const [countRows, rows, resumen] = await Promise.all([
     conJoins(db.select({ total: sql<number>`count(distinct ${flitoTramites.id})::int` })
       .from(flitoTramites).$dynamic()).where(where),
     conJoins(db.select(SELECT_FILA).from(flitoTramites).$dynamic()).where(where)
       .orderBy(sql`${flitoTramites.createdAt} DESC`).limit(pageSize).offset((page - 1) * pageSize),
-    totalesDe(where),
     resumenDe(whereSinEtapa),
-    totalesCostosProveedorDe(where),
   ]);
 
   return {
     items: rows.map((r: Record<string, unknown>) => aFila(r)),
-    total: Number(countRows[0]?.total ?? 0), page, pageSize, totales, resumen, totalesCostosProveedor,
+    total: Number(countRows[0]?.total ?? 0), page, pageSize, resumen,
   };
+}
+
+/** Totales y costo de proveedor del universo filtrado (la paginación de `f` no influye). */
+export async function totalesReporteCostos(f: FiltrosReporte = {}): Promise<TotalesReporteCostos> {
+  const where = whereDe(f);
+  const [totales, totalesCostosProveedor] = await Promise.all([totalesDe(where), totalesCostosProveedorDe(where)]);
+  return { totales, totalesCostosProveedor };
+}
+
+/** La respuesta completa de siempre (compatibilidad del `GET /reporte-costos` sin `sinTotales`). */
+export async function reporteCostos(f: FiltrosReporte = {}): Promise<ReporteCostos> {
+  const [pagina, totales] = await Promise.all([paginaReporteCostos(f), totalesReporteCostos(f)]);
+  return { ...pagina, ...totales };
 }
 
 /**

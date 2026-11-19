@@ -398,7 +398,7 @@ test.describe('HU #12635 · ?placa= al montar (aditivo)', () => {
     await loginAs(page, OPERACIONES_USER);
     const gets = await espiarLista(page);
     await page.goto('/flito/tramites?placa=ABC123');
-    await expect(page.getByPlaceholder('Buscar placa, VIN, id o comprador…')).toHaveValue('ABC123');
+    await expect(page.getByPlaceholder('Buscar placa, VIN, id o propietario…')).toHaveValue('ABC123');
     await expect.poll(() => gets.length).toBeGreaterThan(0);
     expect(gets[0]).toContain('buscar=ABC123');
     expect(gets[0]).not.toContain('placa=');
@@ -408,7 +408,7 @@ test.describe('HU #12635 · ?placa= al montar (aditivo)', () => {
     await loginAs(page, OPERACIONES_USER);
     const gets = await espiarLista(page);
     await page.goto('/flito/tramites?buscar=XYZ789');
-    await expect(page.getByPlaceholder('Buscar placa, VIN, id o comprador…')).toHaveValue('XYZ789');
+    await expect(page.getByPlaceholder('Buscar placa, VIN, id o propietario…')).toHaveValue('XYZ789');
     await expect.poll(() => gets.length).toBeGreaterThan(0);
     expect(gets[0]).toContain('buscar=XYZ789');
 
@@ -418,7 +418,7 @@ test.describe('HU #12635 · ?placa= al montar (aditivo)', () => {
     expect(gets.at(-1)).not.toContain('buscar=');
 
     await page.goto('/flito/tramites');
-    await expect(page.getByPlaceholder('Buscar placa, VIN, id o comprador…')).toHaveValue('');
+    await expect(page.getByPlaceholder('Buscar placa, VIN, id o propietario…')).toHaveValue('');
     await expect.poll(() => gets.at(-1)).not.toContain('buscar=');
     expect(gets.at(-1)).not.toContain('alerta=');
   });

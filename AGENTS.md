@@ -109,6 +109,7 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
 9. **Autorización única por Épica (no se re-pregunta por Feature).** La pregunta del Paso 0 de `flit-flujo-local` (directo a DEV vs flujo local) también se hace **una vez al arrancar la Épica**, con unidad de prueba propuesta «Épica»; su respuesta rige todos los Features. Al arrancar la Épica, tras la ronda de cierre de vacíos (P9) que cubre **todos** sus Features, el humano da **un solo «sí»** que autoriza: las escrituras en lote de ADO (inicio y cierre) de **todos** los Features de esa Épica, el merge a `develop` de cada PR y el paso al siguiente Feature. Terminado un Feature el hilo **no pregunta**: cierra su ledger y arranca el siguiente. Solo para y pregunta por lo que decide el producto (AC ambiguo, decisión de negocio, CI rojo repetido) o por un gate humano que sigue vigente: **sesión de evidencias en DEV** (una sola, con la **Épica completa** en DEV, cubriendo todos sus Features; no hay sesión por Feature) y **promoción a `staging`/`release`**.
 10. **Paralelismo.** Tres niveles, de menor a mayor riesgo:
     - **Dentro de un Feature (defecto):** primero un paso *contract-first* serial (esquema/migración + `shared-types` + stubs de ruta, un solo agente); luego, **en paralelo**, `backend-agent` (servicios/rutas) y `frontend-agent` (UI), y entre HUs independientes bloques que **no compartan archivos**. El `architecture-agent` declara el reparto en «Archivos por bloque»; si dos bloques tocan el mismo archivo, van en serie. Cada agente paralelo trabaja en su **propio worktree** (`Agent` con `isolation: "worktree"`, `npm install` antes) y el hilo integra a la rama del Feature (cherry-pick/merge en orden contract → backend → frontend) y corre P1 sobre el conjunto.
+      **El paralelismo lo garantiza el mecanismo, no la intención: las dos llamadas `Agent` (`backend-agent` y `frontend-agent`) van en el mismo mensaje, un solo turno con dos tool calls — nunca una y, en un turno aparte, la otra.** Verificado el 2026-11-19 sobre el historial local: despachadas en turnos separados, el solape real baja a ~68% (19/28 sesiones con ambos agentes); el otro 32% termina siendo secuencial de hecho aunque la intención fuera paralela. Ya hay precedente real de hacerlo bien: Feature Torre (#14590), `architecture-agent` «Mesa redonda: arquitectura del motor» → `backend-agent` «Contract-first Torre (F0)» despachado acto seguido. Eso es la meta, no la excepción.
     - **Features distintos en paralelo:** solo si `architecture-agent` demuestra que no comparten el mismo archivo de `src/db/schema/` (ni el barril `schema.ts`), migraciones (numeración secuencial), `shared-types`, `App.tsx` ni módulos. Cada uno con su rama `FEATURE/` y su worktree; `orchestrator-agent` (bloque `DUEÑOS`) lo planifica **antes de codear**. Con archivos compartidos, se serializan: el que toca el contrato va primero.
     - **Gates y ADO** no se paralelizan con el código del mismo diff, salvo lo ya permitido (QA ∥ code-review; security ∥ db-review).
     **Topes de memoria (techo duro desde 2026-11-12; reemplaza el «al menos 5 simultáneos»).** La máquina de desarrollo tiene **14 GB de RAM**, `build:api` pide hasta 8 GB de heap y cada sesión de Claude arrastra ~1 GB de servidores MCP (Playwright ×2 + ADO) antes de lanzar nada. Las implementaciones se han caído repetidamente por memoria agotada, así que:
@@ -285,6 +286,35 @@ Nota (P4), nunca Bug. Detalle: `.cursor/rules/planeacion-cierre-vacios.mdc`.
 Preguntar alcance **no** contradice el anti-estancamiento: prohibido «qué sigue» / «puedo mergear»;
 obligatorio preguntar lo que decide el producto.
 
+### P10. Toda shell en background se cierra antes del HANDOFF
+
+Verificado el 2026-11-19 sobre el historial local de sesiones (1545 invocaciones de subagentes de
+este proyecto): **0** llamadas a `KillShell` y **0** a `BashOutput`. Toda shell lanzada con
+`run_in_background` fue fire-and-forget. Caso confirmado: `frontend-agent` levanta un servidor Vite
+(`npx vite --port <N> --strictPort`) para la verificación visual del paso 8 y no lo cierra — quedó
+un caso real corriendo **más de 3 horas** sin hacer nada, bloqueando la entrega hasta que el humano
+lo pidió explícitamente. Esto aplica a **todo agente con tool `Bash`** (todos salvo `ux-agent`, que
+no la tiene).
+
+Regla, con la distinción que evita ceremonia innecesaria:
+
+- **Proceso de vida indefinida** (servidor dev — `vite`, `npm run dev`, `nodemon`, cualquier cosa
+  con `--watch` —, un listener, un loop `until`/`while` sin condición de salida acotada en el
+  tiempo): se **mata con `KillShell` antes del HANDOFF final**, sin excepción. Si vas a levantar
+  otro en la siguiente invocación, primero revisa y mata el anterior — un servidor vivo por
+  worktree, nunca dos (coherente con el tope de memoria de Modo Feature, punto 10).
+- **Comando acotado que termina solo** (`sleep N`, un build, una migración, un test run): no exige
+  `KillShell` explícito porque no deja nada corriendo. Pero tampoco lo mandes a `run_in_background`
+  "por si acaso": si nadie va a leer su resultado con `BashOutput` ni lo necesitas para seguir
+  trabajando mientras corre, ejecútalo en primer plano con el `timeout` que corresponda.
+- Antes de reportar el HANDOFF, repasa mentalmente: *¿qué shells en background abrí en esta
+  invocación y quedó alguna viva?* Si la respuesta no es "ninguna" o "sí, pero se autotermina sola
+  en minutos", cierra lo que falte antes de responder.
+
+Esto no es una excepción a P1-P9: una shell huérfana no acelera nada, solo retrasa el siguiente
+paso del desarrollo (el caso real tardó horas en notarse). Detalle operativo por agente, en el
+archivo de cada uno (`.claude/agents/<agente>.md`, sección «Reglas innegociables»).
+
 ## Gestión del trabajo (Azure DevOps + GitHub)
 
 - **Código:** GitHub `flitsas/flito` (`origin`). **Work items:** Azure DevOps Boards, proyecto **`FLIT - FLITO`** (con espacios; codificar en URLs REST).
@@ -425,6 +455,7 @@ el hilo principal es quien encadena.
 
 | Hacer esto… | …en lugar de | Gravedad |
 |---|---|---|
+| Dejar una shell en `run_in_background` sin `KillShell` al entregar el HANDOFF (servidor dev, watcher, loop de espera sin salida acotada) | P10: cerrarla antes de reportar; en frontend, un único servidor vivo por worktree | **Alta** |
 | Codear la HU (o su migración) con `Edit`/`Write` del hilo | `backend-agent` / `frontend-agent` | Alta |
 | Tabla «mi review» en el chat | Skill `flit-code-review` | Alta |
 | Solo `security-agent` y abrir PR | Skill `flit-code-review` + security si aplica | Alta |

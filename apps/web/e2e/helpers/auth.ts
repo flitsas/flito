@@ -287,6 +287,8 @@ const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
     'soat.solicitud.reintentar_runt',
     // HU #13064: «Acceso a FLIT 2» en Gestión Trámites (0214: sembradas solo a `admin`).
     'tramites.flit2.ver_acceso', 'tramites.flit2.guardar_acceso',
+    // Épica #14560 (ADR-0045): vistas de columnas para todos y predeterminada general (0305: solo `admin`).
+    'tramites.vistas_columnas.administrar',
     // HU #12815: el ZIP de comprobantes de la cola SOAT cuelga de su propia función (0179: admin y
     // proveedor). Sin ella no hay botón «Descargar soportes».
     'soat.soportes.descargar',

@@ -256,7 +256,10 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       // y Bolsas (tablero + Excel de cada una, +4).
       ['torre.tablero_ejecutivo.ver', 3], ['torre.tablero_financiero.ver', 7], ['torre.tablero_logistica.ver', 3],
       ['torre.tablero_operativo.ver', 5], ['torre.tablero_productos.ver', 3],
-      ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
+      // Épica #14560: `GET /:id/detalle` (ADR-0046) reutiliza `tramites.cola.ver`; la administración de vistas de columnas
+      // (ADR-0045) la piden la predeterminada general (ruta) y las compartidas (en línea).
+      ['tramites.cola.ver', 4], ['tramites.sincronizacion.configurar', 2], ['tramites.vistas_columnas.administrar', 2],
+      ['usuarios.usuario.listar', 2],
     ]);
     // HU #13427: las de HOY (con las operaciones nuevas que parten una guarda vieja), no las del mundo plano.
     const deHoy = catalogoDeOperaciones();
@@ -342,6 +345,8 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'flito-torre/flito-torre.routes.ts POST /metricas/exportar [dinero]',
       'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_exportar]',
       'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_tablero]',
+      // Épica #14560 (ADR-0045): vistas compartidas, en línea en `actorDe` (el alcance viene en el cuerpo).
+      'flito-vistas-columnas/flito-vistas-columnas.routes.ts POST * [compartidas]',
       'jornadas/jornadas.routes.ts POST /abrir [jornadaAjena]',
       'pesv/diagnostico.routes.ts GET /:id [sugerirAuditoria]',
       'pesv/diagnostico.routes.ts GET /:id [vistaAuditoria]',

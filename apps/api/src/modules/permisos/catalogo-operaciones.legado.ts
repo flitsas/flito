@@ -364,6 +364,7 @@ export const OPERACIONES_DECLARADAS_LEGADO: OperacionDeclarada[] = [
   op(`${FINA_FINANZAS} GET /reporte-costos/facetas`, 'finanzas.reporte_costos.ver'),
   op(`${FINA_FINANZAS} GET /reporte-costos/facturacion-electronica`, 'finanzas.reporte_costos.ver'),
   op(`${FINA_FINANZAS} GET /reporte-costos/consolidado`, 'finanzas.reporte_costos.ver'),
+  op(`${FINA_FINANZAS} GET /reporte-costos/totales`, 'finanzas.reporte_costos.ver'), // Épica #14560: totales aparte, misma función
   op(`${FINA_FINANZAS} POST /reporte-costos/export`, 'finanzas.reporte_costos.exportar'),
   op(`${FINA_FINANZAS} POST /reporte-costos/consolidado/export`, 'finanzas.reporte_costos.exportar'),
   op(`${FINA_FINANZAS} GET /tramites/:id/soportes`, 'finanzas.reporte_costos.ver_soportes'),

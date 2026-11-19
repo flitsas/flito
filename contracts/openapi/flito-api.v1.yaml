@@ -75,6 +75,8 @@ tags:
     description: Módulo flito-torre de apps/api.
   - name: flito-tramites
     description: Módulo flito-tramites de apps/api.
+  - name: flito-vistas-columnas
+    description: Módulo flito-vistas-columnas de apps/api.
   - name: integraciones
     description: Módulo integraciones de apps/api.
   - name: jornadas
@@ -10112,489 +10114,511 @@ paths:
       tags:
         - finanzas
       summary: GET /api/finanzas/reporte-costos
-      description: "GET /reporte-costos — listado con valores sellados o estimados, y totales del universo filtrado. Fuente: apps/api/src/modules/finanzas/finanzas.routes.ts. Exige la función: finanzas.reporte_costos.ver."
+      description: "GET /reporte-costos — listado con valores sellados o estimados, y totales del universo filtrado (sin ellos con `sinTotales=1`; la respuesta sin el parámetro es la de siempre). Fuente: apps/api/src/modules/finanzas/finanzas.routes.ts. Exige la función: finanzas.reporte_costos.ver."
       security:
         - bearerAuth: []
       x-flit-funciones:
         - finanzas.reporte_costos.ver
+      parameters:
+        - name: sinTotales
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "1"
+              - "true"
+          description: "Parámetro sinTotales, validado con el esquema de Zod de la ruta."
       responses:
         "200":
           description: Respuesta exitosa.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        tramiteId:
-                          type: string
-                        idFlit:
-                          type: string
-                        placa:
-                          type:
-                            - string
-                            - "null"
-                        estado:
-                          type:
-                            - string
-                            - "null"
-                        empresa:
-                          type:
-                            - string
-                            - "null"
-                        vin:
-                          type:
-                            - string
-                            - "null"
-                        marca:
-                          type:
-                            - string
-                            - "null"
-                        linea:
-                          type:
-                            - string
-                            - "null"
-                        tipoTramite:
-                          type:
-                            - string
-                            - "null"
-                        fechaAprobacion:
-                          type:
-                            - string
-                            - "null"
-                        fechaCreacion:
-                          type:
-                            - string
-                            - "null"
-                        soat:
-                          type:
-                            - number
-                            - "null"
-                        impuesto:
-                          type:
-                            - number
-                            - "null"
-                        derechoTramite:
-                          type:
-                            - number
-                            - "null"
-                        logistica:
-                          type:
-                            - number
-                            - "null"
-                        tramiteDigital:
-                          type:
-                            - number
-                            - "null"
-                        serviciosAdicionales:
-                          type:
-                            - number
-                            - "null"
-                        serviciosAdicionalesCantidad:
-                          type:
-                            - number
-                            - "null"
-                        gmf:
-                          type:
-                            - number
-                            - "null"
-                        total:
-                          type:
-                            - number
-                            - "null"
-                        sellada:
-                          type: boolean
-                        estadoLiquidacion:
-                          type:
-                            - string
-                            - "null"
-                          enum:
-                            - liquidado
-                            - facturado
-                            - null
-                        noConfigurados:
-                          type: array
-                          items:
-                            type: string
-                        sinRecibo:
-                          type: array
-                          items:
-                            type: string
-                        pendientesPago:
-                          type: array
-                          items:
-                            type: string
-                        autogestionados:
-                          type: array
-                          items:
-                            type: string
-                        noAplican:
-                          type: array
-                          items:
-                            type: string
-                        totalReintegro:
-                          type:
-                            - number
-                            - "null"
-                        totalServicio:
-                          type:
-                            - number
-                            - "null"
-                        logisticaViajesCantidad:
-                          type:
-                            - number
-                            - "null"
-                        estadoFacturacion:
-                          type: string
-                          enum:
-                            - anulado
-                            - rechazado
-                            - en_proceso
-                            - aceptado
-                            - no_enviado
-                            - encolado
-                            - emitido
-                            - fallido
-                        facturaNumero:
-                          type:
-                            - string
-                            - "null"
-                        facturaRequiereRevision:
-                          type: boolean
-                        soatConciliado:
-                          type: boolean
-                        boletaReferencia:
-                          type:
-                            - string
-                            - "null"
-                        soatConciliadoEn:
-                          type:
-                            - string
-                            - "null"
-                        titularNombres:
-                          type:
-                            - string
-                            - "null"
-                        titularApellidos:
-                          type:
-                            - string
-                            - "null"
-                        titularRazonSocial:
-                          type:
-                            - string
-                            - "null"
-                        titularTipoDocumento:
-                          type:
-                            - string
-                            - "null"
-                          enum:
-                            - NIT
-                            - CC
-                            - CE
-                            - PP
-                            - null
-                        titularDocumento:
-                          type:
-                            - string
-                            - "null"
-                        titularCorreo:
-                          type:
-                            - string
-                            - "null"
-                        titularTelefono:
-                          type:
-                            - string
-                            - "null"
-                        titularDireccion:
-                          type:
-                            - string
-                            - "null"
-                        organismoCodigo:
-                          type:
-                            - string
-                            - "null"
-                        organismoNombre:
-                          type:
-                            - string
-                            - "null"
-                        mes:
-                          type:
-                            - string
-                            - "null"
-                        trimestre:
-                          type:
-                            - string
-                            - "null"
-                        origenes:
+                allOf:
+                  - type: object
+                    properties:
+                      resumen:
+                        type: object
+                        properties:
+                          listo:
+                            type: number
+                          incompleto:
+                            type: number
+                          porFacturar:
+                            type: number
+                          facturado:
+                            type: number
+                        required:
+                          - listo
+                          - incompleto
+                          - porFacturar
+                          - facturado
+                      total:
+                        type: number
+                      items:
+                        type: array
+                        items:
                           type: object
                           properties:
-                            tramiteDigital:
+                            tramiteId:
+                              type: string
+                            idFlit:
+                              type: string
+                            placa:
                               type:
                                 - string
                                 - "null"
-                              enum:
-                                - documental
-                                - tarifa
-                                - null
-                            logistica:
+                            estado:
                               type:
                                 - string
                                 - "null"
-                              enum:
-                                - documental
-                                - tarifa
-                                - null
-                          required:
-                            - tramiteDigital
-                            - logistica
-                        valorDocumental:
-                          type: object
-                          properties:
-                            tramiteDigital:
+                            empresa:
                               type:
-                                - object
+                                - string
                                 - "null"
-                              properties:
-                                comprobanteId:
-                                  type: string
-                                numero:
-                                  type:
-                                    - string
-                                    - "null"
-                                fecha:
-                                  type:
-                                    - string
-                                    - "null"
-                                tarifaReferencia:
-                                  type:
-                                    - number
-                                    - "null"
-                                diferencia:
-                                  type:
-                                    - number
-                                    - "null"
-                                aceptada:
-                                  type: boolean
-                                aceptadaPorNombre:
-                                  type:
-                                    - string
-                                    - "null"
-                                aceptadaEn:
-                                  type:
-                                    - string
-                                    - "null"
-                                aceptadaMotivo:
-                                  type:
-                                    - string
-                                    - "null"
-                              required:
-                                - comprobanteId
-                                - numero
-                                - fecha
-                                - tarifaReferencia
-                                - diferencia
-                                - aceptada
-                                - aceptadaPorNombre
-                                - aceptadaEn
-                                - aceptadaMotivo
+                            vin:
+                              type:
+                                - string
+                                - "null"
+                            marca:
+                              type:
+                                - string
+                                - "null"
+                            linea:
+                              type:
+                                - string
+                                - "null"
+                            tipoTramite:
+                              type:
+                                - string
+                                - "null"
+                            fechaAprobacion:
+                              type:
+                                - string
+                                - "null"
+                            fechaCreacion:
+                              type:
+                                - string
+                                - "null"
+                            soat:
+                              type:
+                                - number
+                                - "null"
+                            impuesto:
+                              type:
+                                - number
+                                - "null"
+                            derechoTramite:
+                              type:
+                                - number
+                                - "null"
                             logistica:
                               type:
-                                - object
+                                - number
                                 - "null"
-                              properties:
-                                comprobanteId:
-                                  type: string
-                                numero:
-                                  type:
-                                    - string
-                                    - "null"
-                                fecha:
-                                  type:
-                                    - string
-                                    - "null"
-                                tarifaReferencia:
-                                  type:
-                                    - number
-                                    - "null"
-                                diferencia:
-                                  type:
-                                    - number
-                                    - "null"
-                                aceptada:
-                                  type: boolean
-                                aceptadaPorNombre:
-                                  type:
-                                    - string
-                                    - "null"
-                                aceptadaEn:
-                                  type:
-                                    - string
-                                    - "null"
-                                aceptadaMotivo:
-                                  type:
-                                    - string
-                                    - "null"
-                              required:
-                                - comprobanteId
-                                - numero
-                                - fecha
-                                - tarifaReferencia
-                                - diferencia
-                                - aceptada
-                                - aceptadaPorNombre
-                                - aceptadaEn
-                                - aceptadaMotivo
+                            tramiteDigital:
+                              type:
+                                - number
+                                - "null"
                             serviciosAdicionales:
                               type:
-                                - object
+                                - number
                                 - "null"
+                            serviciosAdicionalesCantidad:
+                              type:
+                                - number
+                                - "null"
+                            gmf:
+                              type:
+                                - number
+                                - "null"
+                            total:
+                              type:
+                                - number
+                                - "null"
+                            sellada:
+                              type: boolean
+                            estadoLiquidacion:
+                              type:
+                                - string
+                                - "null"
+                              enum:
+                                - liquidado
+                                - facturado
+                                - null
+                            noConfigurados:
+                              type: array
+                              items:
+                                type: string
+                            sinRecibo:
+                              type: array
+                              items:
+                                type: string
+                            pendientesPago:
+                              type: array
+                              items:
+                                type: string
+                            autogestionados:
+                              type: array
+                              items:
+                                type: string
+                            noAplican:
+                              type: array
+                              items:
+                                type: string
+                            totalReintegro:
+                              type:
+                                - number
+                                - "null"
+                            totalServicio:
+                              type:
+                                - number
+                                - "null"
+                            logisticaViajesCantidad:
+                              type:
+                                - number
+                                - "null"
+                            estadoFacturacion:
+                              type: string
+                              enum:
+                                - anulado
+                                - rechazado
+                                - en_proceso
+                                - aceptado
+                                - no_enviado
+                                - encolado
+                                - emitido
+                                - fallido
+                            facturaNumero:
+                              type:
+                                - string
+                                - "null"
+                            facturaRequiereRevision:
+                              type: boolean
+                            soatConciliado:
+                              type: boolean
+                            boletaReferencia:
+                              type:
+                                - string
+                                - "null"
+                            soatConciliadoEn:
+                              type:
+                                - string
+                                - "null"
+                            titularNombres:
+                              type:
+                                - string
+                                - "null"
+                            titularApellidos:
+                              type:
+                                - string
+                                - "null"
+                            titularRazonSocial:
+                              type:
+                                - string
+                                - "null"
+                            titularTipoDocumento:
+                              type:
+                                - string
+                                - "null"
+                              enum:
+                                - NIT
+                                - CC
+                                - CE
+                                - PP
+                                - null
+                            titularDocumento:
+                              type:
+                                - string
+                                - "null"
+                            titularCorreo:
+                              type:
+                                - string
+                                - "null"
+                            titularTelefono:
+                              type:
+                                - string
+                                - "null"
+                            titularDireccion:
+                              type:
+                                - string
+                                - "null"
+                            organismoCodigo:
+                              type:
+                                - string
+                                - "null"
+                            organismoNombre:
+                              type:
+                                - string
+                                - "null"
+                            mes:
+                              type:
+                                - string
+                                - "null"
+                            trimestre:
+                              type:
+                                - string
+                                - "null"
+                            origenes:
+                              type: object
                               properties:
-                                comprobanteId:
-                                  type: string
-                                numero:
+                                tramiteDigital:
                                   type:
                                     - string
                                     - "null"
-                                fecha:
+                                  enum:
+                                    - documental
+                                    - tarifa
+                                    - null
+                                logistica:
                                   type:
                                     - string
                                     - "null"
-                                tarifaReferencia:
-                                  type:
-                                    - number
-                                    - "null"
-                                diferencia:
-                                  type:
-                                    - number
-                                    - "null"
-                                aceptada:
-                                  type: boolean
-                                aceptadaPorNombre:
-                                  type:
-                                    - string
-                                    - "null"
-                                aceptadaEn:
-                                  type:
-                                    - string
-                                    - "null"
-                                aceptadaMotivo:
-                                  type:
-                                    - string
-                                    - "null"
+                                  enum:
+                                    - documental
+                                    - tarifa
+                                    - null
                               required:
-                                - comprobanteId
-                                - numero
-                                - fecha
-                                - tarifaReferencia
-                                - diferencia
-                                - aceptada
-                                - aceptadaPorNombre
-                                - aceptadaEn
-                                - aceptadaMotivo
+                                - tramiteDigital
+                                - logistica
+                            valorDocumental:
+                              type: object
+                              properties:
+                                tramiteDigital:
+                                  type:
+                                    - object
+                                    - "null"
+                                  properties:
+                                    comprobanteId:
+                                      type: string
+                                    numero:
+                                      type:
+                                        - string
+                                        - "null"
+                                    fecha:
+                                      type:
+                                        - string
+                                        - "null"
+                                    tarifaReferencia:
+                                      type:
+                                        - number
+                                        - "null"
+                                    diferencia:
+                                      type:
+                                        - number
+                                        - "null"
+                                    aceptada:
+                                      type: boolean
+                                    aceptadaPorNombre:
+                                      type:
+                                        - string
+                                        - "null"
+                                    aceptadaEn:
+                                      type:
+                                        - string
+                                        - "null"
+                                    aceptadaMotivo:
+                                      type:
+                                        - string
+                                        - "null"
+                                  required:
+                                    - comprobanteId
+                                    - numero
+                                    - fecha
+                                    - tarifaReferencia
+                                    - diferencia
+                                    - aceptada
+                                    - aceptadaPorNombre
+                                    - aceptadaEn
+                                    - aceptadaMotivo
+                                logistica:
+                                  type:
+                                    - object
+                                    - "null"
+                                  properties:
+                                    comprobanteId:
+                                      type: string
+                                    numero:
+                                      type:
+                                        - string
+                                        - "null"
+                                    fecha:
+                                      type:
+                                        - string
+                                        - "null"
+                                    tarifaReferencia:
+                                      type:
+                                        - number
+                                        - "null"
+                                    diferencia:
+                                      type:
+                                        - number
+                                        - "null"
+                                    aceptada:
+                                      type: boolean
+                                    aceptadaPorNombre:
+                                      type:
+                                        - string
+                                        - "null"
+                                    aceptadaEn:
+                                      type:
+                                        - string
+                                        - "null"
+                                    aceptadaMotivo:
+                                      type:
+                                        - string
+                                        - "null"
+                                  required:
+                                    - comprobanteId
+                                    - numero
+                                    - fecha
+                                    - tarifaReferencia
+                                    - diferencia
+                                    - aceptada
+                                    - aceptadaPorNombre
+                                    - aceptadaEn
+                                    - aceptadaMotivo
+                                serviciosAdicionales:
+                                  type:
+                                    - object
+                                    - "null"
+                                  properties:
+                                    comprobanteId:
+                                      type: string
+                                    numero:
+                                      type:
+                                        - string
+                                        - "null"
+                                    fecha:
+                                      type:
+                                        - string
+                                        - "null"
+                                    tarifaReferencia:
+                                      type:
+                                        - number
+                                        - "null"
+                                    diferencia:
+                                      type:
+                                        - number
+                                        - "null"
+                                    aceptada:
+                                      type: boolean
+                                    aceptadaPorNombre:
+                                      type:
+                                        - string
+                                        - "null"
+                                    aceptadaEn:
+                                      type:
+                                        - string
+                                        - "null"
+                                    aceptadaMotivo:
+                                      type:
+                                        - string
+                                        - "null"
+                                  required:
+                                    - comprobanteId
+                                    - numero
+                                    - fecha
+                                    - tarifaReferencia
+                                    - diferencia
+                                    - aceptada
+                                    - aceptadaPorNombre
+                                    - aceptadaEn
+                                    - aceptadaMotivo
+                              required:
+                                - tramiteDigital
+                                - logistica
+                                - serviciosAdicionales
+                            costoProveedorSoat:
+                              "$ref": "#/components/schemas/Forma-fee7e39b31"
+                            costoProveedorLogistica:
+                              "$ref": "#/components/schemas/Forma-fee7e39b31"
+                            costoProveedorTotal:
+                              type:
+                                - number
+                                - "null"
                           required:
-                            - tramiteDigital
+                            - tramiteId
+                            - idFlit
+                            - placa
+                            - estado
+                            - empresa
+                            - vin
+                            - marca
+                            - linea
+                            - tipoTramite
+                            - fechaAprobacion
+                            - fechaCreacion
+                            - soat
+                            - impuesto
+                            - derechoTramite
                             - logistica
+                            - tramiteDigital
                             - serviciosAdicionales
-                        costoProveedorSoat:
-                          "$ref": "#/components/schemas/Forma-fee7e39b31"
-                        costoProveedorLogistica:
-                          "$ref": "#/components/schemas/Forma-fee7e39b31"
-                        costoProveedorTotal:
-                          type:
-                            - number
-                            - "null"
-                      required:
-                        - tramiteId
-                        - idFlit
-                        - placa
-                        - estado
-                        - empresa
-                        - vin
-                        - marca
-                        - linea
-                        - tipoTramite
-                        - fechaAprobacion
-                        - fechaCreacion
-                        - soat
-                        - impuesto
-                        - derechoTramite
-                        - logistica
-                        - tramiteDigital
-                        - serviciosAdicionales
-                        - serviciosAdicionalesCantidad
-                        - gmf
-                        - total
-                        - sellada
-                        - estadoLiquidacion
-                        - noConfigurados
-                        - sinRecibo
-                        - pendientesPago
-                        - autogestionados
-                        - noAplican
-                        - totalReintegro
-                        - totalServicio
-                        - logisticaViajesCantidad
-                        - estadoFacturacion
-                        - facturaNumero
-                        - facturaRequiereRevision
-                        - soatConciliado
-                        - boletaReferencia
-                        - soatConciliadoEn
-                        - titularNombres
-                        - titularApellidos
-                        - titularRazonSocial
-                        - titularTipoDocumento
-                        - titularDocumento
-                        - titularCorreo
-                        - titularTelefono
-                        - titularDireccion
-                        - organismoCodigo
-                        - organismoNombre
-                        - mes
-                        - trimestre
-                        - origenes
-                        - valorDocumental
-                        - costoProveedorSoat
-                        - costoProveedorLogistica
-                        - costoProveedorTotal
-                  total:
-                    type: number
-                  page:
-                    type: number
-                  pageSize:
-                    type: number
-                  totales:
-                    "$ref": "#/components/schemas/Forma-3c54444721"
-                  resumen:
-                    type: object
-                    properties:
-                      listo:
+                            - serviciosAdicionalesCantidad
+                            - gmf
+                            - total
+                            - sellada
+                            - estadoLiquidacion
+                            - noConfigurados
+                            - sinRecibo
+                            - pendientesPago
+                            - autogestionados
+                            - noAplican
+                            - totalReintegro
+                            - totalServicio
+                            - logisticaViajesCantidad
+                            - estadoFacturacion
+                            - facturaNumero
+                            - facturaRequiereRevision
+                            - soatConciliado
+                            - boletaReferencia
+                            - soatConciliadoEn
+                            - titularNombres
+                            - titularApellidos
+                            - titularRazonSocial
+                            - titularTipoDocumento
+                            - titularDocumento
+                            - titularCorreo
+                            - titularTelefono
+                            - titularDireccion
+                            - organismoCodigo
+                            - organismoNombre
+                            - mes
+                            - trimestre
+                            - origenes
+                            - valorDocumental
+                            - costoProveedorSoat
+                            - costoProveedorLogistica
+                            - costoProveedorTotal
+                      page:
                         type: number
-                      incompleto:
-                        type: number
-                      porFacturar:
-                        type: number
-                      facturado:
+                      pageSize:
                         type: number
                     required:
-                      - listo
-                      - incompleto
-                      - porFacturar
-                      - facturado
-                  totalesCostosProveedor:
-                    "$ref": "#/components/schemas/Forma-2ac05118ea"
+                      - resumen
+                      - total
+                      - items
+                      - page
+                      - pageSize
+                  - type: object
+                    properties:
+                      totales:
+                        "$ref": "#/components/schemas/Forma-3c54444721"
+                      totalesCostosProveedor:
+                        "$ref": "#/components/schemas/Forma-2ac05118ea"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
                 required:
-                  - items
-                  - total
-                  - page
-                  - pageSize
-                  - totales
-                  - resumen
-                  - totalesCostosProveedor
+                  - error
         "401":
           description: No autenticado.
           content:
@@ -11285,6 +11309,82 @@ paths:
                         type: number
                     required:
                       - total
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  /api/finanzas/reporte-costos/totales:
+    get:
+      operationId: get-api-finanzas-reporte-costos-totales
+      tags:
+        - finanzas
+      summary: GET /api/finanzas/reporte-costos/totales
+      description: "GET /reporte-costos/totales — totales y costo de proveedor del universo filtrado, con los MISMOS filtros que el listado (`filtrosDe`; la paginación se ignora). Sin registro PII: solo cifras agregadas, ningún dato del titular. Fuente: apps/api/src/modules/finanzas/finanzas.routes.ts. Exige la función: finanzas.reporte_costos.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - finanzas.reporte_costos.ver
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totales:
+                    "$ref": "#/components/schemas/Forma-3c54444721"
+                  totalesCostosProveedor:
+                    "$ref": "#/components/schemas/Forma-2ac05118ea"
+                required:
+                  - totales
+                  - totalesCostosProveedor
         "401":
           description: No autenticado.
           content:
@@ -57944,6 +58044,305 @@ paths:
                     type: string
                 required:
                   - error
+  "/api/flito/tramites/{id}/detalle":
+    get:
+      operationId: get-api-flito-tramites-id-detalle
+      tags:
+        - flito-tramites
+      summary: "GET /api/flito/tramites/:id/detalle"
+      description: "Fuente: apps/api/src/modules/flito-tramites/flito-tramites.routes.ts. Exige la función: tramites.cola.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - tramites.cola.ver
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  idFlit:
+                    type: string
+                  resumen:
+                    type: object
+                    properties:
+                      estado:
+                        type: string
+                      asignado:
+                        type: boolean
+                      tipoTramite:
+                        type:
+                          - string
+                          - "null"
+                      fuente:
+                        type: string
+                        enum:
+                          - flit
+                          - flit2
+                      creado:
+                        type:
+                          - string
+                          - "null"
+                      aprobado:
+                        type:
+                          - string
+                          - "null"
+                      ciudad:
+                        type:
+                          - string
+                          - "null"
+                      pendientes:
+                        type: array
+                        items:
+                          type: string
+                          enum:
+                            - soat
+                            - impuestos
+                      listoParaEntregar:
+                        type: boolean
+                      semaforo:
+                        type: string
+                        enum:
+                          - verde
+                          - rojo
+                          - autogestionada
+                          - amarillo
+                      logisticaEstado:
+                        type:
+                          - string
+                          - "null"
+                      sincronizadoEn:
+                        type: string
+                    required:
+                      - estado
+                      - asignado
+                      - tipoTramite
+                      - fuente
+                      - creado
+                      - aprobado
+                      - ciudad
+                      - pendientes
+                      - listoParaEntregar
+                      - semaforo
+                      - logisticaEstado
+                      - sincronizadoEn
+                  vehiculo:
+                    type: object
+                    properties:
+                      placa:
+                        type:
+                          - string
+                          - "null"
+                      vin:
+                        type:
+                          - string
+                          - "null"
+                      marca:
+                        type:
+                          - string
+                          - "null"
+                      linea:
+                        type:
+                          - string
+                          - "null"
+                      clase:
+                        type:
+                          - string
+                          - "null"
+                    required:
+                      - placa
+                      - vin
+                      - marca
+                      - linea
+                      - clase
+                  propietarios:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        nombreCompleto:
+                          type: string
+                        tipoDocumento:
+                          type:
+                            - string
+                            - "null"
+                        numeroDocumento:
+                          type:
+                            - string
+                            - "null"
+                        correo:
+                          type:
+                            - string
+                            - "null"
+                        celular:
+                          type:
+                            - string
+                            - "null"
+                        direccion:
+                          type:
+                            - string
+                            - "null"
+                        orden:
+                          type: number
+                        porcentajeParticipacion:
+                          type:
+                            - number
+                            - "null"
+                      required:
+                        - nombreCompleto
+                        - tipoDocumento
+                        - numeroDocumento
+                        - correo
+                        - celular
+                        - direccion
+                        - orden
+                        - porcentajeParticipacion
+                  gestora:
+                    type: object
+                    properties:
+                      nombre:
+                        type:
+                          - string
+                          - "null"
+                      nit:
+                        type:
+                          - string
+                          - "null"
+                      existe:
+                        type: boolean
+                    required:
+                      - nombre
+                      - nit
+                      - existe
+                  costos:
+                    type: object
+                    properties:
+                      conceptos:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            concepto:
+                              type: string
+                              enum:
+                                - soat
+                                - impuesto
+                                - derecho_transito
+                            quienCobra:
+                              type:
+                                - string
+                                - "null"
+                            autogestionado:
+                              type: boolean
+                            estado:
+                              type:
+                                - string
+                                - "null"
+                            valor:
+                              type:
+                                - number
+                                - "null"
+                            valorLiquidado:
+                              type:
+                                - number
+                                - "null"
+                          required:
+                            - concepto
+                            - quienCobra
+                            - autogestionado
+                            - estado
+                            - valor
+                            - valorLiquidado
+                      tieneFacturaVenta:
+                        type: boolean
+                      total:
+                        type:
+                          - number
+                          - "null"
+                    required:
+                      - conceptos
+                      - tieneFacturaVenta
+                      - total
+                required:
+                  - id
+                  - idFlit
+                  - resumen
+                  - vehiculo
+                  - propietarios
+                  - gestora
+                  - costos
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
   "/api/flito/tramites/{id}/historial":
     get:
       operationId: get-api-flito-tramites-id-historial
@@ -59441,6 +59840,739 @@ paths:
                   - error
                   - funcion
                   - motivo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+  "/api/flito/vistas-columnas/{tablaId}":
+    get:
+      operationId: get-api-flito-vistas-columnas-tablaId
+      tags:
+        - flito-vistas-columnas
+      summary: "GET /api/flito/vistas-columnas/:tablaId"
+      description: "GET /:tablaId — columnas disponibles, vista activa, sistema, vistas visibles. Fuente: apps/api/src/modules/flito-vistas-columnas/flito-vistas-columnas.routes.ts."
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tablaId
+          in: path
+          required: true
+          description: Parámetro tablaId de la ruta.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tablaId:
+                    type: string
+                    enum:
+                      - flito-tramites
+                  columnasDisponibles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        clave:
+                          type: string
+                        etiqueta:
+                          type: string
+                        fija:
+                          type: boolean
+                      required:
+                        - clave
+                        - etiqueta
+                        - fija
+                  vistaActiva:
+                    type: object
+                    properties:
+                      id:
+                        type:
+                          - number
+                          - "null"
+                      origen:
+                        type: string
+                        enum:
+                          - general
+                          - personal
+                          - sistema
+                      columnas:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - id
+                      - origen
+                      - columnas
+                  sistema:
+                    type: object
+                    properties:
+                      columnas:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - columnas
+                  vistas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: number
+                        nombre:
+                          type: string
+                        alcance:
+                          type: string
+                          enum:
+                            - personal
+                            - compartida
+                        esPredeterminada:
+                          type: boolean
+                        puedeEditar:
+                          type: boolean
+                        version:
+                          type: number
+                        columnas:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - id
+                        - nombre
+                        - alcance
+                        - esPredeterminada
+                        - puedeEditar
+                        - version
+                        - columnas
+                  limites:
+                    type: object
+                    properties:
+                      columnasPorVista:
+                        type: number
+                      vistasPersonales:
+                        type: number
+                    required:
+                      - columnasPorVista
+                      - vistasPersonales
+                required:
+                  - tablaId
+                  - columnasDisponibles
+                  - vistaActiva
+                  - sistema
+                  - vistas
+                  - limites
+        "401":
+          description: "Token ausente, inválido o revocado."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+  "/api/flito/vistas-columnas/{tablaId}/predeterminada/general":
+    put:
+      operationId: put-api-flito-vistas-columnas-tablaId-predeterminada-general
+      tags:
+        - flito-vistas-columnas
+      summary: "PUT /api/flito/vistas-columnas/:tablaId/predeterminada/general"
+      description: "PUT /:tablaId/predeterminada/general — `tramites.vistas_columnas.administrar`. `null` = quitar la general. Fuente: apps/api/src/modules/flito-vistas-columnas/flito-vistas-columnas.routes.ts. Exige la función: tramites.vistas_columnas.administrar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - tramites.vistas_columnas.administrar
+      parameters:
+        - name: tablaId
+          in: path
+          required: true
+          description: Parámetro tablaId de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vistaId:
+                  type:
+                    - integer
+                    - "null"
+                  exclusiveMinimum: 0
+              required:
+                - vistaId
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vistaId:
+                    type:
+                      - number
+                      - "null"
+                required:
+                  - vistaId
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+  "/api/flito/vistas-columnas/{tablaId}/predeterminada/personal":
+    put:
+      operationId: put-api-flito-vistas-columnas-tablaId-predeterminada-personal
+      tags:
+        - flito-vistas-columnas
+      summary: "PUT /api/flito/vistas-columnas/:tablaId/predeterminada/personal"
+      description: "PUT /:tablaId/predeterminada/personal — `null` = restablecer (vista del sistema). Fuente: apps/api/src/modules/flito-vistas-columnas/flito-vistas-columnas.routes.ts."
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tablaId
+          in: path
+          required: true
+          description: Parámetro tablaId de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vistaId:
+                  type:
+                    - integer
+                    - "null"
+                  exclusiveMinimum: 0
+              required:
+                - vistaId
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vistaId:
+                    type:
+                      - number
+                      - "null"
+                required:
+                  - vistaId
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: "Token ausente, inválido o revocado."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+  "/api/flito/vistas-columnas/{tablaId}/vistas":
+    post:
+      operationId: post-api-flito-vistas-columnas-tablaId-vistas
+      tags:
+        - flito-vistas-columnas
+      summary: "POST /api/flito/vistas-columnas/:tablaId/vistas"
+      description: "POST /:tablaId/vistas — crea vista personal (cualquiera con acceso) o compartida (admin). Fuente: apps/api/src/modules/flito-vistas-columnas/flito-vistas-columnas.routes.ts."
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tablaId
+          in: path
+          required: true
+          description: Parámetro tablaId de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nombre:
+                  type: string
+                  minLength: 1
+                  maxLength: 60
+                alcance:
+                  type: string
+                  enum:
+                    - personal
+                    - compartida
+                columnas:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - nombre
+                - alcance
+                - columnas
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "201":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: number
+                  version:
+                    type: number
+                required:
+                  - id
+                  - version
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: "Token ausente, inválido o revocado."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+  "/api/flito/vistas-columnas/{tablaId}/vistas/{vistaId}":
+    delete:
+      operationId: delete-api-flito-vistas-columnas-tablaId-vistas-vistaId
+      tags:
+        - flito-vistas-columnas
+      summary: "DELETE /api/flito/vistas-columnas/:tablaId/vistas/:vistaId"
+      description: "DELETE /:tablaId/vistas/:vistaId — los punteros que la usaban caen a su siguiente nivel (RN-VC7). Fuente: apps/api/src/modules/flito-vistas-columnas/flito-vistas-columnas.routes.ts."
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tablaId
+          in: path
+          required: true
+          description: Parámetro tablaId de la ruta.
+          schema:
+            type: string
+        - name: vistaId
+          in: path
+          required: true
+          description: Parámetro vistaId de la ruta.
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Respuesta exitosa.
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: "Token ausente, inválido o revocado."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+    put:
+      operationId: put-api-flito-vistas-columnas-tablaId-vistas-vistaId
+      tags:
+        - flito-vistas-columnas
+      summary: "PUT /api/flito/vistas-columnas/:tablaId/vistas/:vistaId"
+      description: "PUT /:tablaId/vistas/:vistaId — nombre y/o columnas, con control de versión. Fuente: apps/api/src/modules/flito-vistas-columnas/flito-vistas-columnas.routes.ts."
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tablaId
+          in: path
+          required: true
+          description: Parámetro tablaId de la ruta.
+          schema:
+            type: string
+        - name: vistaId
+          in: path
+          required: true
+          description: Parámetro vistaId de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nombre:
+                  type: string
+                  minLength: 1
+                  maxLength: 60
+                columnas:
+                  type: array
+                  items:
+                    type: string
+                version:
+                  type: integer
+                  exclusiveMinimum: 0
+              required:
+                - version
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: number
+                required:
+                  - version
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: "Token ausente, inválido o revocado."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
         "429":
           description: Límite de peticiones superado.
           headers:
@@ -102628,8 +103760,8 @@ paths:
                               - logistica
                               - gmf
                               - tramite_digital
-                              - impuesto_vehicular
                               - derecho_transito
+                              - impuesto_vehicular
                               - servicio_adicional
                       required:
                         - tipo
@@ -102643,8 +103775,8 @@ paths:
                         - logistica
                         - gmf
                         - tramite_digital
-                        - impuesto_vehicular
                         - derecho_transito
+                        - impuesto_vehicular
                         - servicio_adicional
                 required:
                   - ambiente
@@ -104387,8 +105519,8 @@ paths:
                       - logistica
                       - gmf
                       - tramite_digital
-                      - impuesto_vehicular
                       - derecho_transito
+                      - impuesto_vehicular
                       - servicio_adicional
                   minItems: 1
                 emision:
@@ -105422,7 +106554,7 @@ paths:
                   data:
                     type: array
                     items:
-                      "$ref": "#/components/schemas/Forma-e9b2906a3f"
+                      "$ref": "#/components/schemas/Forma-9cba76bf54"
                 required:
                   - ambiente
                   - data
@@ -105562,8 +106694,8 @@ paths:
                     - logistica
                     - gmf
                     - tramite_digital
-                    - impuesto_vehicular
                     - derecho_transito
+                    - impuesto_vehicular
                     - servicio_adicional
                 tipoTramite:
                   type: string
@@ -105577,7 +106709,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-e9b2906a3f"
+                "$ref": "#/components/schemas/Forma-9cba76bf54"
         "400":
           description: Petición inválida.
           content:
@@ -105756,7 +106888,7 @@ paths:
                   success:
                     type: boolean
                   mapeo:
-                    "$ref": "#/components/schemas/Forma-e9b2906a3f"
+                    "$ref": "#/components/schemas/Forma-9cba76bf54"
                 required:
                   - success
                   - mapeo
@@ -105866,7 +106998,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-e9b2906a3f"
+                "$ref": "#/components/schemas/Forma-9cba76bf54"
         "400":
           description: Petición inválida.
           content:
@@ -106038,7 +107170,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-e9b2906a3f"
+                "$ref": "#/components/schemas/Forma-9cba76bf54"
         "400":
           description: Petición inválida.
           content:
@@ -106207,7 +107339,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-e9b2906a3f"
+                "$ref": "#/components/schemas/Forma-9cba76bf54"
         "400":
           description: Petición inválida.
           content:
@@ -106518,8 +107650,8 @@ paths:
                         - logistica
                         - gmf
                         - tramite_digital
-                        - impuesto_vehicular
                         - derecho_transito
+                        - impuesto_vehicular
                         - servicio_adicional
                   conceptosConDecisionPendiente:
                     type: array
@@ -106530,8 +107662,8 @@ paths:
                         - logistica
                         - gmf
                         - tramite_digital
-                        - impuesto_vehicular
                         - derecho_transito
+                        - impuesto_vehicular
                         - servicio_adicional
                   completo:
                     type: boolean
@@ -130904,6 +132036,141 @@ components:
         - type
         - table
         - number
+    Forma-9cba76bf54:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        ambiente:
+          type: string
+          enum:
+            - pruebas
+            - produccion
+        concepto:
+          type: string
+          enum:
+            - soat
+            - logistica
+            - gmf
+            - tramite_digital
+            - derecho_transito
+            - impuesto_vehicular
+            - servicio_adicional
+        tipoTramite:
+          type:
+            - string
+            - "null"
+        codigoProducto:
+          type:
+            - string
+            - "null"
+        nombreProducto:
+          type:
+            - string
+            - "null"
+        clasificacionTributaria:
+          type:
+            - string
+            - "null"
+          enum:
+            - gravado
+            - exento
+            - excluido
+            - null
+        impuestos:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: number
+              nombre:
+                type:
+                  - string
+                  - "null"
+              porcentaje:
+                type:
+                  - number
+                  - "null"
+            required:
+              - id
+        unidadMedida:
+          type:
+            - string
+            - "null"
+        ingresoParaTerceros:
+          type: boolean
+        facturaLineaPropia:
+          type: boolean
+        lineaPropiaPendiente:
+          type: boolean
+        confirmadoContabilidad:
+          type: boolean
+        confirmadoPorId:
+          type:
+            - number
+            - "null"
+        confirmadoEn:
+          type:
+            - string
+            - "null"
+        confirmacionRevertidaEn:
+          type:
+            - string
+            - "null"
+        confirmacionRevertidaPor:
+          type:
+            - string
+            - "null"
+        activo:
+          type: boolean
+        notas:
+          type:
+            - string
+            - "null"
+        validacionEstado:
+          type: string
+          enum:
+            - inactivo
+            - sin_validar
+            - valido
+            - no_verificable
+            - no_existe
+        validacionMensaje:
+          type:
+            - string
+            - "null"
+        validadoEn:
+          type:
+            - string
+            - "null"
+        listoParaFacturar:
+          type: boolean
+      required:
+        - id
+        - ambiente
+        - concepto
+        - tipoTramite
+        - codigoProducto
+        - nombreProducto
+        - clasificacionTributaria
+        - impuestos
+        - unidadMedida
+        - ingresoParaTerceros
+        - facturaLineaPropia
+        - lineaPropiaPendiente
+        - confirmadoContabilidad
+        - confirmadoPorId
+        - confirmadoEn
+        - confirmacionRevertidaEn
+        - confirmacionRevertidaPor
+        - activo
+        - notas
+        - validacionEstado
+        - validacionMensaje
+        - validadoEn
+        - listoParaFacturar
     Forma-9d33e325ca:
       description: Forma que comparten varias operaciones.
       type: object
@@ -134710,141 +135977,6 @@ components:
         - cantidad
         - valorUnitario
         - subtotal
-    Forma-e9b2906a3f:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        id:
-          type: string
-        ambiente:
-          type: string
-          enum:
-            - pruebas
-            - produccion
-        concepto:
-          type: string
-          enum:
-            - soat
-            - logistica
-            - gmf
-            - tramite_digital
-            - impuesto_vehicular
-            - derecho_transito
-            - servicio_adicional
-        tipoTramite:
-          type:
-            - string
-            - "null"
-        codigoProducto:
-          type:
-            - string
-            - "null"
-        nombreProducto:
-          type:
-            - string
-            - "null"
-        clasificacionTributaria:
-          type:
-            - string
-            - "null"
-          enum:
-            - gravado
-            - exento
-            - excluido
-            - null
-        impuestos:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: number
-              nombre:
-                type:
-                  - string
-                  - "null"
-              porcentaje:
-                type:
-                  - number
-                  - "null"
-            required:
-              - id
-        unidadMedida:
-          type:
-            - string
-            - "null"
-        ingresoParaTerceros:
-          type: boolean
-        facturaLineaPropia:
-          type: boolean
-        lineaPropiaPendiente:
-          type: boolean
-        confirmadoContabilidad:
-          type: boolean
-        confirmadoPorId:
-          type:
-            - number
-            - "null"
-        confirmadoEn:
-          type:
-            - string
-            - "null"
-        confirmacionRevertidaEn:
-          type:
-            - string
-            - "null"
-        confirmacionRevertidaPor:
-          type:
-            - string
-            - "null"
-        activo:
-          type: boolean
-        notas:
-          type:
-            - string
-            - "null"
-        validacionEstado:
-          type: string
-          enum:
-            - inactivo
-            - sin_validar
-            - valido
-            - no_verificable
-            - no_existe
-        validacionMensaje:
-          type:
-            - string
-            - "null"
-        validadoEn:
-          type:
-            - string
-            - "null"
-        listoParaFacturar:
-          type: boolean
-      required:
-        - id
-        - ambiente
-        - concepto
-        - tipoTramite
-        - codigoProducto
-        - nombreProducto
-        - clasificacionTributaria
-        - impuestos
-        - unidadMedida
-        - ingresoParaTerceros
-        - facturaLineaPropia
-        - lineaPropiaPendiente
-        - confirmadoContabilidad
-        - confirmadoPorId
-        - confirmadoEn
-        - confirmacionRevertidaEn
-        - confirmacionRevertidaPor
-        - activo
-        - notas
-        - validacionEstado
-        - validacionMensaje
-        - validadoEn
-        - listoParaFacturar
     Forma-ec388426d2:
       description: Forma que comparten varias operaciones.
       type: object
