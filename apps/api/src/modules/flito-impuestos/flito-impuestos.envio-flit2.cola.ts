@@ -5,7 +5,8 @@
 //   `tomarLote` de Siigo: el candado de fila y el arrendamiento (`tomado_en`) se escriben juntos, así
 //   que dos procesos no se llevan la misma fila. Elegibles: `pendiente` con su cita vencida, o
 //   `en_espera` con el sondeo de 24 h vencido o despertada por el feed (`sync_version` del trámite
-//   mayor que la guardada ∧ `flit_estado` en un estado que admite el adjunto). Solo impuestos
+//   mayor que la guardada ∧ `flit_estado` fuera de los que NO admiten el adjunto —anulado, revocado—;
+//   Bug #14630: un `flit_estado` NULL también despierta, el 409 lo re-estaciona sin intento). Solo impuestos
 //   `pagado` de trámites `flit2`: uno reversado fuera de `pagado` espera sin gastar intentos.
 // RN-05 Pausa global. Se persiste en `system_locks` con la clave `PAUSA_ENVIO_FLIT2_CLAVE` (global
 //   entre procesos; sin tabla nueva). La fila vencida NO se borra al vencer: marca que el siguiente
@@ -18,7 +19,7 @@ import { db } from '../../db/client.js';
 import { flitoImpuestoEnviosFlit2, systemLocks } from '../../db/schema.js';
 import { EstadoImpuesto } from '@operaciones/shared-types';
 import { estadoDesdeFlit2 } from '../flito-sync/flit2-mapeo.js';
-import { ESTADOS_FLIT2_ADMITEN_ADJUNTO } from '../flito-sync/flit2-adjuntos.js';
+import { ESTADOS_FLIT2_NO_ADMITEN_ADJUNTO } from '../flito-sync/flit2-adjuntos.js';
 
 /** Lote por ciclo de 60 s: ≤ 50/min frente a 120/min por client_id compartidos con el feed y la factura. */
 export const LOTE_ENVIO_FLIT2 = 50;
@@ -34,11 +35,12 @@ export const PAUSA_PASE_ENVIO_FLIT2_MS = 15 * 60_000;
 export const PAUSA_ENVIO_FLIT2_CLAVE = 'flito-impuestos-envio-flit2:pausa';
 
 /**
- * `flit_estado` (grafía capitalizada que escribe el feed) de los estados que admiten el adjunto.
- * Derivado de `estadoDesdeFlit2`, NUNCA escrito a mano: si el feed cambia la grafía, esto la sigue.
+ * `flit_estado` (grafía capitalizada que escribe el feed) de los estados que NO admiten el adjunto
+ * (Bug #14630). Derivado de `estadoDesdeFlit2`, NUNCA escrito a mano: si el feed cambia la grafía,
+ * esto la sigue.
  */
-export const FLIT_ESTADOS_ADMITEN_ADJUNTO: readonly string[] =
-  ESTADOS_FLIT2_ADMITEN_ADJUNTO.map((c) => estadoDesdeFlit2(c).flitEstado);
+export const FLIT_ESTADOS_NO_ADMITEN_ADJUNTO: readonly string[] =
+  ESTADOS_FLIT2_NO_ADMITEN_ADJUNTO.map((c) => estadoDesdeFlit2(c).flitEstado);
 
 export interface FilaEnvioTomada {
   id: string;
@@ -74,7 +76,7 @@ export interface EntradaTomaEnvio {
 export function sentenciaTomaEnvios(entrada: EntradaTomaEnvio) {
   const ahora = entrada.ahora.toISOString();
   const corte = new Date(entrada.ahora.getTime() - ARRENDAMIENTO_ENVIO_FLIT2_MIN * 60_000).toISOString();
-  const admiten = sql.join(FLIT_ESTADOS_ADMITEN_ADJUNTO.map((e) => sql`${e}`), sql`, `);
+  const excluidos = sql.join(FLIT_ESTADOS_NO_ADMITEN_ADJUNTO.map((e) => sql`${e}`), sql`, `);
   return sql`
     WITH candidatas AS (
       SELECT e.id
@@ -88,7 +90,7 @@ export function sentenciaTomaEnvios(entrada: EntradaTomaEnvio) {
               (e.estado = 'pendiente' AND e.proximo_intento_en <= ${ahora}::timestamptz)
            OR (e.estado = 'en_espera' AND (
                    e.proximo_intento_en <= ${ahora}::timestamptz
-                OR (t.sync_version > e.sync_version_espera AND t.flit_estado IN (${admiten}))))
+                OR (t.sync_version > e.sync_version_espera AND (t.flit_estado IS NULL OR t.flit_estado NOT IN (${excluidos})))))
          )
        ORDER BY e.proximo_intento_en, e.created_at
        LIMIT ${entrada.limite}
