@@ -229,7 +229,7 @@ describe('registro: armado de la fila', () => {
     expect(m.detalles).toHaveLength(0);
   });
 
-  it('detalle solo con IA_CONSUMO_DETALLE=true', async () => {
+  it('detalle con IA_CONSUMO_DETALLE encendida (el defecto)', async () => {
     const m = sumideroMemoria();
     configurarSumideroIaParaTests(m.s);
     env.IA_CONSUMO_DETALLE = true;

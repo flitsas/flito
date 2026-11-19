@@ -473,10 +473,10 @@ const envSchema = z.object({
   // perdería la ventana de 4 semanas); solo '0' no monta las capas.
   USO_LEGACY_CONTEO_ENABLED: z.string().optional().transform((v) => v !== '0'),
   // Contrato `ia-consumo` v1 (ADR-0047): registro de consumo de IA. Maestra encendida por defecto (solo
-  // 'false'/'0' la apagan); el detalle (prompt + respuesta) apagado por defecto y con retención en días.
+  // 'false'/'0' la apagan). El detalle (prompt + respuesta) también encendido por defecto y sin purga
+  // (decisión del 2026-11-19): nada de este registro se borra solo.
   IA_CONSUMO_LOG: z.string().optional().transform((v) => !['false', '0'].includes((v ?? '').trim().toLowerCase())),
-  IA_CONSUMO_DETALLE: z.string().optional().transform((v) => ['true', '1'].includes((v ?? '').trim().toLowerCase())),
-  IA_CONSUMO_DETALLE_DIAS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(365).default(30)),
+  IA_CONSUMO_DETALLE: z.string().optional().transform((v) => !['false', '0'].includes((v ?? '').trim().toLowerCase())),
   // Columna `ambiente` del registro (misma variable que FLIT). La imagen trae NODE_ENV=production en los tres
   // ambientes, así que sin esta variable (ni DEPLOY_ENVIRONMENT) DEV y QA se registrarían como PDN.
   IA_CONSUMO_AMBIENTE: z.preprocess(
