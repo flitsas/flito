@@ -66,21 +66,6 @@ export interface DetalleEnUrl {
 const NULO = '~';
 /** Claves de agrupación: ids numéricos, códigos DIVIPOLA/DANE, claves de estado, meses (`2026-10`) o niveles. */
 const VALOR_OPACO = /^[A-Za-z0-9_.:-]{1,40}$/;
-/**
- * El `motivo` (B3, RN-TOR-P4 del API) es texto del catálogo de motivos, no un dato del titular: ≤ 40 caracteres, sin
- * espacios al borde, con tildes y espacios dentro. Viaja con `encodeURIComponent` para que una coma o un `;` del motivo
- * no partan el segmento. Se rechazan los caracteres de control.
- */
-const DIM_TEXTO = 'motivo';
-const VALOR_TEXTO = /^[^\s\p{C}](?:[^\p{C}]{0,38}[^\s\p{C}])?$/u;
-const codificarValor = (dim: string, v: string) => (dim === DIM_TEXTO ? encodeURIComponent(v) : v);
-function decodificarValor(dim: string, v: string): string | null {
-  if (dim !== DIM_TEXTO) return VALOR_OPACO.test(v) ? v : null;
-  try {
-    const d = decodeURIComponent(v);
-    return VALOR_TEXTO.test(d) ? d : null;
-  } catch { return null; }
-}
 
 const esConjunto = (v: string): v is ConjuntoTorreId => (CONJUNTOS_TORRE_IDS as readonly string[]).includes(v);
 const esMetrica = (v: string): v is MetricaTorreId => Object.prototype.hasOwnProperty.call(DETALLE_METRICA_TORRE, v);
@@ -89,7 +74,7 @@ const esFechaBase = (v: string): v is FechaBaseTorre => (FECHAS_BASE_TORRE as re
 const esOrigen = (v: string): v is OrigenPantallaTorre => Object.prototype.hasOwnProperty.call(ORIGENES_DETALLE, v);
 
 function segmentosATexto(segmentos: readonly SegmentoDetalle[]): string {
-  return segmentos.map((s) => `${s.dimension}:${s.valores.map((v) => (v === null ? NULO : codificarValor(s.dimension, v))).join(',')}`).join(';');
+  return segmentos.map((s) => `${s.dimension}:${s.valores.map((v) => (v === null ? NULO : v)).join(',')}`).join(';');
 }
 
 /** `null` si el texto no es un segmento válido (la página lo trata como conjunto inválido). */
@@ -103,9 +88,8 @@ function textoASegmentos(texto: string): SegmentoDetalle[] | null {
     const dim = p.slice(0, i);
     const valores = p.slice(i + 1).split(',');
     if (!esDimension(dim) || valores.length === 0 || valores.length > TOPES_TORRE.VALORES_SEGMENTO_MAX) return null;
-    const leidos = valores.map((v) => (v === NULO ? null : decodificarValor(dim, v)));
-    if (leidos.some((v, j) => v === null && valores[j] !== NULO)) return null;
-    out.push({ dimension: dim, valores: leidos });
+    if (valores.some((v) => v !== NULO && !VALOR_OPACO.test(v))) return null;
+    out.push({ dimension: dim, valores: valores.map((v) => (v === NULO ? null : v)) });
   }
   return out;
 }

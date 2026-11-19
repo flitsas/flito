@@ -204,7 +204,7 @@ function Detalle({ d, torre }: { d: DetalleEnUrl; torre: ContextoTorre }) {
       )}
 
       <section className="min-w-0" aria-label={`Registros: ${titulo}`} aria-busy={estado.tipo === 'cargando' || undefined} data-torre="lista">
-        <CuerpoLista estado={estado} res={res} titulo={titulo} activos={activos} volver={volver} onQuitar={quitarFiltros}
+        <CuerpoLista estado={estado} res={res} titulo={titulo} activos={activos} onQuitar={quitarFiltros}
           onReintentar={() => setIntento((n) => n + 1)}
           tabla={(r) => (
             <TablaDetalleTorre res={r} nombre={titulo} orden={orden} onOrden={setOrden} pagina={pagina} tamano={tamano}
@@ -217,9 +217,8 @@ function Detalle({ d, torre }: { d: DetalleEnUrl; torre: ContextoTorre }) {
   );
 }
 
-function CuerpoLista({ estado, res, titulo, activos, volver, onQuitar, onReintentar, tabla }: {
+function CuerpoLista({ estado, res, titulo, activos, onQuitar, onReintentar, tabla }: {
   estado: Estado; res: ResultadoDetalle | null; titulo: string; activos: number;
-  volver: { etiqueta: string; to: string } | null;
   onQuitar: () => void; onReintentar: () => void; tabla: (r: ResultadoDetalle) => JSX.Element;
 }) {
   if (estado.tipo === 'error') {
@@ -234,8 +233,8 @@ function CuerpoLista({ estado, res, titulo, activos, volver, onQuitar, onReinten
       <Vacio icono="buscar" texto="Ningún registro de esta lista coincide con los filtros." detalle="Quítelos para volver a ver la lista completa."
         accion={<GradientButton variant="secondary" size="sm" onClick={onQuitar}>Quitar filtros</GradientButton>} />
     ) : (
-      <Vacio texto={res.fraseVacio} detalle="Cuando alguno cumpla la regla, aparecerá aquí."
-        accion={volver ? <Link to={volver.to} className={claseBoton('secondary', 'sm')}>Volver a {volver.etiqueta}</Link> : undefined} />
+      // Sin acción propia: «Volver a <área>» ya está en la cabecera (una sola acción igual por página).
+      <Vacio texto={res.fraseVacio} detalle="Cuando alguno cumpla la regla, aparecerá aquí." />
     )}</div>;
   }
   return tabla(res);

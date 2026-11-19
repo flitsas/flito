@@ -1450,8 +1450,8 @@ export const TORRE_PRODUCTOS_DEMO = (() => {
           fila('soat_por_estado', 'estado', 'pagado', 'Pagado', 138, 96_400_000),
         ], true, false),
         tabla('Solicitudes de SOAT incompletas, por motivo', 'soat_incompletas_abiertas', 'motivo', [
-          fila('soat_incompletas_abiertas', 'motivo', 'RUNT sin respuesta', 'RUNT sin respuesta', 7),
-          fila('soat_incompletas_abiertas', 'motivo', 'Placa no encontrada', 'Placa no encontrada', 3),
+          fila('soat_incompletas_abiertas', 'motivo', '4c1e0a9b7d2f6e38', 'RUNT sin respuesta', 7),
+          fila('soat_incompletas_abiertas', 'motivo', 'b72d05e9a1c3f468', 'Placa no encontrada', 3),
         ], false, true),
       ],
     },
@@ -1470,7 +1470,7 @@ export const TORRE_PRODUCTOS_DEMO = (() => {
           fila('impuestos_por_estado', 'estado', 'pagado', 'Pagado', 97, 41_000_000),
         ], true, false),
         tabla('Impuestos con novedad, por motivo', 'impuestos_rechazados_periodo', 'motivo', [
-          fila('impuestos_rechazados_periodo', 'motivo', 'Placa no corresponde al organismo', 'Placa no corresponde al organismo', 6),
+          fila('impuestos_rechazados_periodo', 'motivo', '9f3a6c21b0d4e875', 'Placa no corresponde al organismo', 6),
           fila('impuestos_rechazados_periodo', 'motivo', '__otros', 'Otros', 2),
         ], false, false),
       ],

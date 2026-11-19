@@ -1,7 +1,7 @@
 // Torre de Control (Épica #14590, bloque B3) — área Productos: SOAT · Impuestos · Derechos.
 // Cubre (UI): la pestaña vive en la URL (`?vista=`, SOAT por defecto); cada KPI con «Ver los N» abre el Detalle con su
-// conjunto y segmentos y «Volver» regresa a la pestaña; cada fila de tabla abre su lista (estado y motivo, el motivo con
-// espacios y tildes viaja codificado y el detalle lo acepta); «Otros» y n = 0 van sin enlace; sin permiso de dinero no
+// conjunto y segmentos y «Volver» regresa a la pestaña; cada fila de tabla abre su lista (estado y motivo; el motivo viaja como clave
+// opaca de 16 hex y su texto no va en la URL); «Otros» y n = 0 van sin enlace; sin permiso de dinero no
 // se pinta la columna de valor; sin `torre_productos` la pestaña no aparece en la Torre; los 4 estados; Excel primaria.
 // Backend mockeado con `page.route` (el fixture base responde `200 []` a lo no mockeado). Spec UX §B3.
 import { test, expect } from '../helpers/fixtures';
@@ -19,8 +19,9 @@ const GERENCIA: UsuarioFixture = {
   funciones: FUNCIONES,
 };
 const SIN_DINERO: UsuarioFixture = { ...GERENCIA, id: 714, username: 'e2e_prod_sin_dinero', funciones: FUNCIONES.filter((f) => f !== 'torre.metricas.dinero') };
+/** `financiera` ve Financiera y el Explorador pero no Productos (gerencia_general ya lo trae por defecto de su rol). */
 const SIN_PRODUCTOS: UsuarioFixture = {
-  ...GERENCIA, id: 715, username: 'e2e_sin_productos', allowedPages: ['torre_360', 'torre_operativa', 'torre_explorador', 'torre_detalle'],
+  ...GERENCIA, id: 715, username: 'e2e_sin_productos', role: 'financiera', allowedPages: ['torre_financiera', 'torre_explorador', 'torre_detalle'],
 };
 
 const OPCIONES = {
@@ -34,6 +35,8 @@ const destino = (conjunto: string, segmentos: Seg[] = []) => ({ tipo: 'conjunto'
 const NINGUNO = { tipo: 'ninguno' };
 const kpi = (frase: string, conjunto: string, segmentos: Seg[] = []) => ({ frase, definicion: `Definición de ${conjunto}.`, destino: destino(conjunto, segmentos) });
 const MOTIVO = 'Placa no corresponde, ver organismo';
+/** Clave opaca del motivo (16 hex, la resuelve el API): el texto nunca va en la URL. */
+const CLAVE_MOTIVO = '9f3a6c21b0d4e875';
 
 function fila(clave: string | null, etiqueta: string, n: number, conjunto: string, dimension: string, valor?: number | null) {
   return { clave, etiqueta, n, ...(valor !== undefined ? { valor } : {}), destino: n === 0 || clave === '__otros' ? NINGUNO : destino(conjunto, [{ dimension, valores: [clave] }]) };
@@ -67,7 +70,7 @@ function tablero(dinero: boolean) {
           fila('novedad', 'Con novedad', 0, 'soat_por_estado', 'estado', v(0)),
         ], true, false, v(96_000_000)),
         tabla('Solicitudes incompletas abiertas, por motivo', 'soat_incompletas_abiertas', 'motivo', [
-          fila('RUNT sin respuesta', 'RUNT sin respuesta', 7, 'soat_incompletas_abiertas', 'motivo'),
+          fila('4c1e0a9b7d2f6e38', 'RUNT sin respuesta', 7, 'soat_incompletas_abiertas', 'motivo'),
           fila('__otros', 'Otros', 2, 'soat_incompletas_abiertas', 'motivo'),
         ], false, true),
       ],
@@ -86,7 +89,7 @@ function tablero(dinero: boolean) {
           fila('pagado', 'Pagado', 97, 'impuestos_por_estado', 'estado', v(41_000_000)),
         ], true, false, v(41_000_000)),
         tabla('Con novedad en el periodo, por motivo', 'impuestos_rechazados_periodo', 'motivo', [
-          fila(MOTIVO, MOTIVO, 6, 'impuestos_rechazados_periodo', 'motivo'),
+          fila(CLAVE_MOTIVO, MOTIVO, 6, 'impuestos_rechazados_periodo', 'motivo'),
         ], false, false),
       ],
     },
@@ -154,7 +157,7 @@ test.describe('Torre de Control · Productos (Épica #14590, B3)', () => {
     expect(detalleUrl(page).get('c')).toBe('soat_por_vencer');
     expect(detalleUrl(page).get('o')).toBe('productos');
     expect(detalleUrl(page).get('ov')).toBeNull();
-    await page.getByRole('link', { name: /Volver a Productos/ }).click();
+    await page.locator('[data-torre="volver"]').click();
     await expect(page).toHaveURL(/\/flito\/torre\/productos$/);
 
     // Impuestos: la pestaña viaja y el detalle vuelve a ella.
@@ -163,7 +166,7 @@ test.describe('Torre de Control · Productos (Épica #14590, B3)', () => {
     await kpis.filter({ hasText: 'Con diferencia de valor' }).getByRole('link', { name: /Ver los 8/ }).click();
     expect(detalleUrl(page).get('c')).toBe('impuestos_con_diferencia');
     expect(detalleUrl(page).get('ov')).toBe('impuestos');
-    await page.getByRole('link', { name: /Volver a Productos/ }).click();
+    await page.locator('[data-torre="volver"]').click();
     await expect(page).toHaveURL(/\/flito\/torre\/productos\?vista=impuestos$/);
     await expect(page.getByRole('tab', { name: 'Impuestos' })).toHaveAttribute('aria-selected', 'true');
 
@@ -198,14 +201,15 @@ test.describe('Torre de Control · Productos (Épica #14590, B3)', () => {
     await page.goBack();
 
     await page.getByRole('tab', { name: 'Impuestos' }).click();
-    // El detalle lo acepta (no es «conjunto inválido») y pide la lista con el motivo tal cual.
+    // El motivo viaja como clave opaca: el detalle la acepta y la manda en el body; su texto nunca va en la URL.
     const pedido = page.waitForRequest('**/api/flito/torre/detalle/consultar');
     await page.getByRole('link', { name: `Ver los 6: Con novedad en el periodo, por motivo: ${MOTIVO}` }).click();
     expect(detalleUrl(page).get('c')).toBe('impuestos_rechazados_periodo');
-    expect(detalleUrl(page).get('s')).toBe(`motivo:${encodeURIComponent(MOTIVO)}`);
+    expect(detalleUrl(page).get('s')).toBe(`motivo:${CLAVE_MOTIVO}`);
+    expect(decodeURIComponent(page.url())).not.toContain('Placa no corresponde');
     await expect(page.locator('[data-torre="detalle"]')).not.toHaveAttribute('data-estado', 'invalido');
     const cuerpo = (await pedido).postDataJSON() as { segmentos: Seg[] };
-    expect(cuerpo.segmentos).toEqual([{ dimension: 'motivo', valores: [MOTIVO] }]);
+    expect(cuerpo.segmentos).toEqual([{ dimension: 'motivo', valores: [CLAVE_MOTIVO] }]);
   });
 
   test('B3: sin permiso de dinero no se pinta la columna de valor', async ({ page }) => {
@@ -220,6 +224,8 @@ test.describe('Torre de Control · Productos (Épica #14590, B3)', () => {
   test('B3: sin torre_productos la pestaña no aparece en la Torre y la ruta no abre', async ({ page }) => {
     await loginAs(page, SIN_PRODUCTOS);
     await page.route('**/api/flito/torre/opciones', (r) => r.fulfill(json(OPCIONES)));
+    // El catch-all respondería `200 []` (forma inválida) a la consulta del Explorador: aquí solo importa la navegación.
+    await page.route('**/api/flito/torre/metricas/consultar', (r) => r.fulfill(json({ error: 'TORRE_ERROR' }, 500)));
     await page.goto('/flito/torre/explorador');
     const torre = page.getByRole('navigation', { name: 'Páginas de la Torre de Control' });
     await expect(torre.getByRole('link', { name: 'Explorador' })).toBeVisible();
