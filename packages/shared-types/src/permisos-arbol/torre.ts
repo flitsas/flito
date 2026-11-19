@@ -29,6 +29,11 @@ export const ITEMS_TORRE: readonly ItemDef[] = [
     a('ver', 'Ver los umbrales', 'Consultar los umbrales que usan las alertas de la Torre.'),
     a('editar', 'Editar los umbrales', 'Cambiar el valor de un umbral de la Torre.'),
   ] },
+  // Detalle universal (ADR-0047, B1): no es pestaña; lo abre cada cifra. Lo siembra su propia migración (no la 0303).
+  { slug: 'torre_detalle', clave: 'torre_detalle', nombre: 'Torre · Detalle', elemento: 'general', orden: 80, acciones: [
+    a('ver', 'Ver los registros de una cifra', 'Abrir la lista de registros (placa, compañía y estado) detrás de una cifra de la Torre.'),
+    a('exportar', 'Exportar los registros de una cifra', 'Descargar en Excel los registros detrás de una cifra de la Torre.'),
+  ] },
 ];
 
 /** Ítems y acciones del área, padres antes que hijos. */

@@ -7,6 +7,7 @@
 // Los umbrales configurables (`UMBRALES_TORRE`) viven en `flito_torre_umbrales` (migración 0303).
 // Los operativos nacen con el ANS de la operación (`ANS_OPERATIVO`) para que la Torre y el tablero
 // operativo no puedan discrepar el día uno.
+import type { CifraExplicada, DestinoCifra, ExplicacionesTablero } from './flito-torre-detalle.js';
 import { ANS_OPERATIVO } from './flito-estados.js';
 
 // ── Rango y filtro ───────────────────────────────────────────────────────────────────────────────
@@ -154,6 +155,14 @@ export const TOPES_TORRE = {
   TOP_GRUPOS: [5, 10, 20, 50] as const,
   /** Top N por defecto en la web. */
   TOP_GRUPOS_DEFECTO: 10,
+  /** Detalle (ADR-0047): `pagina*tamano` no pasa de esto (sin OFFSET profundo); el `total` se cuenta igual. */
+  FILAS_DETALLE_PAGINABLE_MAX: 10_000,
+  /** Detalle en Excel: más que esto es 422 (nunca un recorte silencioso). */
+  FILAS_DETALLE_EXPORTAR_MAX: 50_000,
+  /** Valores por segmento del detalle. */
+  VALORES_SEGMENTO_MAX: 10,
+  /** Segmentos por consulta de detalle (fila y columna de un cruce). */
+  SEGMENTOS_MAX: 2,
 } as const;
 
 /** Un valor de `TOPES_TORRE.TOP_GRUPOS`. */
@@ -261,6 +270,9 @@ export interface ResultadoMetrica {
   generadoEn: string;
 }
 
+/** Fila de bloque que abre su detalle (ADR-0047): aditivo, los consumidores actuales no cambian. */
+interface ConDestino { destino?: DestinoCifra }
+
 // ── Ficha de placa (sin PII del comprador) ───────────────────────────────────────────────────────
 
 export interface BloqueFichaTorre { estado: string; fecha?: string | null }
@@ -361,7 +373,8 @@ export interface TableroComercial extends BaseTablero {
     /** Creados por día del periodo (para el `Sparkline`). */
     sparkline: number[];
   };
-  fuga: MetaBloqueTorre & { umbralPct: number; ventanaDias: number; filas: FugaClienteTorre[] };
+  explicaciones: ExplicacionesTablero<TableroComercial['cifras']>;
+  fuga: MetaBloqueTorre & { umbralPct: number; ventanaDias: number; filas: (FugaClienteTorre & ConDestino)[] };
   concentracion: MetaBloqueTorre & { volumen: ConcentracionTorre; ingreso: ConcentracionTorre | null };
   embudo: MetaBloqueTorre & { pasos: { paso: 'creados' | 'radicados' | 'aprobados' | 'facturados'; valor: number; pct: number }[] };
   /** Últimos 6 meses cerrados (mensual) y sus trimestres. No depende del rango. */
@@ -377,8 +390,9 @@ export type CausaRadarTorre = (typeof CAUSAS_RADAR_TORRE)[number];
 
 export interface TableroOperativo extends BaseTablero {
   cifras: { sinGestionFueraAns: number; borradoresAbandonados: number; wip: number; primerIntentoPct: number | null };
+  explicaciones: ExplicacionesTablero<TableroOperativo['cifras']>;
   radar: MetaBloqueTorre & {
-    filas: { causa: CausaRadarTorre; etiqueta: string; cantidad: number; umbral: number; unidad: 'horas' | 'dias'; severidad: SeveridadTorre }[];
+    filas: ({ causa: CausaRadarTorre; etiqueta: string; cantidad: number; umbral: number; unidad: 'horas' | 'dias'; severidad: SeveridadTorre } & ConDestino)[];
   };
   carga: MetaBloqueTorre & {
     porOrganismo: SerieTorre[];
@@ -387,10 +401,10 @@ export interface TableroOperativo extends BaseTablero {
   };
   benchmarkOt: MetaBloqueTorre & {
     umbralDias: number;
-    filas: {
+    filas: ({
       organismoCodigo: string | null; organismo: string; volumen: number; pctAprobado: number; pctRechazado: number;
       pendientes: number; medianaRespuestaDias: number | null; sobreUmbral: boolean;
-    }[];
+    } & ConDestino)[];
   };
   logistica: MetaBloqueTorre & {
     entregas: number; primerIntento: number; primerIntentoPct: number | null;
@@ -410,6 +424,7 @@ export interface TableroFinanciero extends BaseTablero {
     margenPct: number | null;
     soportesCompletosPct: number | null;
   };
+  explicaciones: ExplicacionesTablero<TableroFinanciero['cifras']>;
   /** Saldo de hoy y consumo de los últimos 30 días; de menor a mayor cobertura. No depende del rango. */
   bolsas: MetaBloqueTorre & {
     umbralAtencionDias: number; umbralCriticoDias: number;
@@ -420,14 +435,18 @@ export interface TableroFinanciero extends BaseTablero {
     }[];
   };
   sinFacturar: MetaBloqueTorre & {
-    filas: { companiaId: number | null; compania: string; tramites: number; valorEstimado: number | null; masAntiguoDias: number }[];
+    filas: ({ companiaId: number | null; compania: string; tramites: number; valorEstimado: number | null; masAntiguoDias: number } & ConDestino)[];
   };
   /** `null` si el rol no ve dinero. `costo: null` + `sinCostoRegistrado` cuando FLITO no tiene el costo. */
   margen: (MetaBloqueTorre & {
     porServicio: { servicio: ServicioMargenTorre; cobrado: number; costo: number | null; sinCostoRegistrado: boolean }[];
     porCliente: { companiaId: number | null; compania: string; cobrado: number; costo: number; margenPct: number | null; sinCostoRegistrado: boolean }[];
   }) | null;
-  conciliacion: MetaBloqueTorre & { completos: number; dos: number; uno: number; cero: number; total: number; pctCompletos: number | null };
+  conciliacion: MetaBloqueTorre & {
+    completos: number; dos: number; uno: number; cero: number; total: number; pctCompletos: number | null;
+    /** Destino de cada nivel (`nivel:[n]` de `soportes_aprobados`). */
+    destinos?: Record<'completos' | 'dos' | 'uno' | 'cero', DestinoCifra>;
+  };
 }
 
 export interface RiesgoTorre {
@@ -458,6 +477,8 @@ export interface TableroEjecutivo extends BaseTablero {
   };
   /** Top 5: críticos primero y luego por impacto. */
   riesgos: RiesgoTorre[];
+  /** Explicación de cada cifra del 360° (clave `area.campo`, p. ej. `comercial.clientesEnCaida`). */
+  explicaciones: Partial<Record<string, CifraExplicada>>;
 }
 
 // ── Umbrales configurables ───────────────────────────────────────────────────────────────────────
